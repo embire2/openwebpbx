@@ -17,6 +17,7 @@ local auth=session:getVariable('sip_auth_username') or session:getVariable('user
 local authenticated_user=false
 for number,u in pairs(config.users) do if u.auth_id==auth then caller=number;authenticated_user=true;break end end
 local internal=authenticated_user and mode~='incoming'
+if mode=='record_user' then internal=session:getVariable('openweb_call_internal')=='true' end
 local function clock(zone)
     local result=api:execute('strftime_tz',(zone or 'Africa/Johannesburg')..' %w_%H:%M_%Y-%m-%d')
     local day,time,date=result:match('^(%d)_(%d%d:%d%d)_(%d%d%d%d%-%d%d%-%d%d)')
@@ -58,6 +59,13 @@ local function outbound_contact(number,rule_route)
     db:query('select enabled from v_gateways where gateway_uuid=:id and domain_uuid=:domain',{id=t.gateway_uuid,domain=domain},function(row) enabled=row.enabled=='true' or row.enabled=='t' end)
     if not enabled then return nil end
     return 'sofia/gateway/'..t.gateway_uuid..'/'..rule_route.prepend..number:sub(rule_route.strip+1)
+end
+local function user_contact(u,timeout)
+    local variables='leg_timeout='..timeout..',domain_uuid='..domain..',domain_name='..realm..',openweb_call_internal='..tostring(internal)
+    if u.record_calls and not (u.record_external_only and internal) then
+        variables=variables..",execute_on_answer='lua app.lua pbx_setup record_user "..u.number.."'"
+    end
+    return '['..variables..']user/'..u.auth_id..'@'..realm
 end
 run_outbound=function(number)
     if not number:match('^%+?[%d*#]+$') then session:hangup('UNALLOCATED_NUMBER');return end
@@ -121,7 +129,7 @@ run_group=function(number)
     for _,m in ipairs(group.members) do
         local u=config.users[tostring(m.number)]
         if u and u.enabled then local profile=P.profile(config,m.number,clock)
-            if not profile.disable_ring_groups then table.insert(contacts,'[leg_timeout='..group.timeout..']user/'..u.auth_id..'@'..realm) end
+            if not profile.disable_ring_groups then table.insert(contacts,user_contact(u,group.timeout)) end
         end
     end
     session:setVariable('ring_group_uuid',group.uuid)
@@ -137,6 +145,7 @@ run_queue=function(number)
         local u=config.users[tostring(m.number)]
         local profile=P.profile(config,m.number,clock)
         local status=m.status=='LoggedIn' and u.queue_status=='LoggedIn' and u.enabled and profile.queue_status~='0' and 'Available' or 'Logged Out'
+        api:execute('callcenter_config','agent set contact '..m.agent_uuid..' '..user_contact(u,q.ring_timeout))
         api:execute('callcenter_config','agent set status '..m.agent_uuid..' '..status)
     end
     session:answer();session:setVariable('call_center_queue_uuid',q.uuid)
@@ -155,11 +164,13 @@ run_ivr=function(number)
     route(ivr.timeout_destination,number)
 end
 local function run()
+    if authenticated_user and mode~='record_user' and mode~='incoming' then record(config.users[tostring(caller)]) end
     if mode=='user' then run_user(key)
     elseif mode=='group' then run_group(key)
     elseif mode=='queue' then run_queue(key)
     elseif mode=='ivr' then run_ivr(key)
     elseif mode=='outbound' then run_outbound(session:getVariable('destination_number') or '')
+    elseif mode=='record_user' then local u=config.users[tostring(key)];if u then record(u) end
     elseif mode=='group_timeout' then route(P.find(config.ring_groups,key).destination,key)
     elseif mode=='queue_timeout' then route(P.find(config.queues,key).destination,key)
     elseif mode=='incoming' then

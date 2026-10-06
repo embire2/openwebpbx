@@ -68,3 +68,5 @@ On this instance, registration with preserved passwords, internal calls, a resto
 ring group, a restored queue and a receptionist menu key passed with two-way audio. A new call recording
 appeared in Recordings and played through the protected audio endpoint. Outside
 calls still require provider connection checks.
+User recording options apply to outgoing calls and calls answered through queues
+and ring groups; recordings are indexed in the protected Recordings page.
