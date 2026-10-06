@@ -25,7 +25,7 @@ class pbx_tenants {
         $enabled=$this->query('select user_enabled from v_users where user_uuid=:user',['user'=>$_SESSION['user_uuid']])->fetchColumn();
         if (!$enabled || !$t['enabled'] || !$this->canDomain($_SESSION['domain_uuid'])) { http_response_code(403); exit('This tenant account or PBX service is unavailable.'); }
         $path=parse_url($_SERVER['REQUEST_URI']??'',PHP_URL_PATH);
-        if($this->workspaceOnly() && !str_starts_with($path,'/app/tenant_services/') && !str_starts_with($path,'/core/desktop/') && !in_array($path,['/','/index.php','/login.php','/logout.php','/core/users/user_profile.php','/core/dashboard/'],true)) {
+        if($this->workspaceOnly() && !str_starts_with($path,'/app/tenant_services/') && !str_starts_with($path,'/app/pbx_setup/') && !str_starts_with($path,'/core/desktop/') && !in_array($path,['/','/index.php','/login.php','/logout.php','/core/users/user_profile.php','/core/dashboard/'],true)) {
             http_response_code(403);exit('Create or open a PBX service from Tenant Services to use this application.');
         }
     }
@@ -170,7 +170,16 @@ class pbx_tenants {
         // Copy only standard application dialplans from the platform, never another tenant's PBX.
         $source=$this->query("select domain_uuid,domain_name from v_domains where domain_name='call.openweb.co.za'")->fetch(PDO::FETCH_ASSOC);
         if(!$source)throw new RuntimeException('The platform PBX domain is unavailable.');
+        $stock=[];
+        foreach (glob(PROJECT_ROOT.'/app/dialplans/resources/switch/conf/dialplan/*.xml') as $file) {
+            $xml=new DOMDocument();
+            if (!$xml->load($file,LIBXML_NONET)) throw new RuntimeException('A standard PBX dialplan template is unavailable.');
+            $extension=$xml->documentElement;
+            if ($extension->tagName!=='extension' || !str_contains($extension->getAttribute('context'),'${domain_name}')) continue;
+            $stock[$extension->getAttribute('app_uuid').'|'.$extension->getAttribute('name')]=str_replace('${domain_name}',$source['domain_name'],$extension->getAttribute('context'));
+        }
         $plans=$this->query('select * from v_dialplans where domain_uuid=:id and app_uuid is not null',['id'=>$source['domain_uuid']])->fetchAll(PDO::FETCH_ASSOC);
+        $plans=array_filter($plans,fn($row)=>isset($stock[$row['app_uuid'].'|'.$row['dialplan_name']]) && $stock[$row['app_uuid'].'|'.$row['dialplan_name']]===$row['dialplan_context']);
         if(!$plans)throw new RuntimeException('Standard PBX dialplans are unavailable.');
         foreach($plans as $row){$old=$row['dialplan_uuid'];$row['dialplan_uuid']=uuid();$row['domain_uuid']=$domain;$row['dialplan_context']=str_replace($source['domain_name'],$name,$row['dialplan_context']??$name);$row['dialplan_xml']=str_replace([$source['domain_name'],$source['domain_uuid']],[$name,$domain],$row['dialplan_xml']??'');foreach(['insert_date','update_date','insert_user','update_user'] as $key)unset($row[$key]);$this->insert('v_dialplans',$row);
             foreach($this->query('select * from v_dialplan_details where dialplan_uuid=:id',['id'=>$old])->fetchAll(PDO::FETCH_ASSOC) as $detail){$detail['dialplan_detail_uuid']=uuid();$detail['dialplan_uuid']=$row['dialplan_uuid'];$detail['domain_uuid']=$domain;$detail['dialplan_detail_data']=str_replace([$source['domain_name'],$source['domain_uuid']],[$name,$domain],$detail['dialplan_detail_data']??'');foreach(['insert_date','update_date','insert_user','update_user'] as $key)unset($detail[$key]);$this->insert('v_dialplan_details',$detail);}
@@ -179,16 +188,18 @@ class pbx_tenants {
     private function domainSetting(string $domain,string $category,string $subcategory,string $type,string $value): void {
         $this->insert('v_domain_settings',['domain_setting_uuid'=>uuid(),'domain_uuid'=>$domain,'domain_setting_category'=>$category,'domain_setting_subcategory'=>$subcategory,'domain_setting_name'=>$type,'domain_setting_value'=>$value,'domain_setting_enabled'=>'true','domain_setting_order'=>100]);
     }
-    public function provision(array $input): string {
+    public function provision(array $input, bool $deferCommit = false): string {
+        if ($deferCommit && !$this->db->inTransaction()) throw new LogicException('A caller transaction is required.');
+        if (!$deferCommit && $this->db->inTransaction()) throw new LogicException('Service provisioning requires its own transaction.');
         if(!$this->allowed('pbx_service_create'))throw new RuntimeException('Service creation permission is required.');
         $tenant=$this->assertTenant($input['tenant_uuid']??'',true);$template=$this->template($input['template_uuid']??'');
         if($template['tenant_uuid']!==null&&$template['tenant_uuid']!==$tenant['tenant_uuid'])throw new RuntimeException('This template belongs to another tenant.');
         $name=$this->label($input['service_name']??'');$slug=$this->slug($input['slug']??'');$request=$this->id($input['request_uuid']??'');$c=$template['config'];
         foreach($c['trunks'] as $i=>&$g){foreach(['username','password'] as $key){$v=$input['credentials'][$i][$key]??'';if($v!=='')$g[$key]=$v;}if($g['register']&&($g['username']===''||$g['password']===''))$g['enabled']=false;}unset($g);$c=$this->config($c);
         $domain=uuid();$service=uuid();$realm=$slug.'.'.$tenant['slug'].'.call.openweb.co.za';
-        $this->db->beginTransaction();try {
+        if (!$deferCommit) $this->db->beginTransaction();try {
             $this->query('select tenant_uuid from v_pbx_tenants where tenant_uuid=:id for update',['id'=>$tenant['tenant_uuid']]);
-            $existing=$this->query('select service_uuid,tenant_uuid from v_pbx_services where request_uuid=:id',['id'=>$request])->fetch(PDO::FETCH_ASSOC);if($existing){if($existing['tenant_uuid']!==$tenant['tenant_uuid'])throw new RuntimeException('Invalid service request.');$this->db->commit();return $existing['service_uuid'];}
+            $existing=$this->query('select service_uuid,tenant_uuid from v_pbx_services where request_uuid=:id',['id'=>$request])->fetch(PDO::FETCH_ASSOC);if($existing){if($existing['tenant_uuid']!==$tenant['tenant_uuid'])throw new RuntimeException('Invalid service request.');if (!$deferCommit) $this->db->commit();return $existing['service_uuid'];}
             if(!$this->query('select enabled from v_pbx_tenants where tenant_uuid=:id',['id'=>$tenant['tenant_uuid']])->fetchColumn())throw new RuntimeException('This tenant is suspended.');
             if($this->query('select count(*) from v_pbx_services where tenant_uuid=:id',['id'=>$tenant['tenant_uuid']])->fetchColumn()>=$tenant['service_limit'])throw new RuntimeException('This tenant has reached its PBX service limit.');
             $this->insert('v_domains',['domain_uuid'=>$domain,'domain_name'=>$realm,'domain_description'=>$tenant['tenant_name'].' / '.$name,'domain_enabled'=>'true']);$this->defaults($domain,$realm);
@@ -200,8 +211,9 @@ class pbx_tenants {
             foreach($c['rules'] as $i=>$r){$pid=uuid();$bridge='sofia/gateway/'.$gateways[$r['trunk']].'/'.$r['prefix'].'$1';$xml=new DOMDocument('1.0','UTF-8');$extension=$xml->appendChild($xml->createElement('extension'));$extension->setAttribute('name',$r['name']);$extension->setAttribute('continue','false');$condition=$extension->appendChild($xml->createElement('condition'));$condition->setAttribute('field','destination_number');$condition->setAttribute('expression',$r['pattern']);$action=$condition->appendChild($xml->createElement('action'));$action->setAttribute('application','bridge');$action->setAttribute('data',$bridge);
                 $this->insert('v_dialplans',['dialplan_uuid'=>$pid,'domain_uuid'=>$domain,'dialplan_name'=>$r['name'],'dialplan_number'=>'','dialplan_context'=>$realm,'dialplan_order'=>(string)(1000+$i*10),'dialplan_continue'=>'false','dialplan_enabled'=>'true','dialplan_xml'=>$xml->saveXML($extension),'dialplan_description'=>'Template outbound rule']);
                 foreach([['condition','destination_number',$r['pattern'],10],['action','bridge',$bridge,20]] as $detail)$this->insert('v_dialplan_details',['dialplan_detail_uuid'=>uuid(),'domain_uuid'=>$domain,'dialplan_uuid'=>$pid,'dialplan_detail_tag'=>$detail[0],'dialplan_detail_type'=>$detail[1],'dialplan_detail_data'=>$detail[2],'dialplan_detail_order'=>$detail[3],'dialplan_detail_group'=>0,'dialplan_detail_enabled'=>'true']);}
-            $this->insert('v_pbx_services',['service_uuid'=>$service,'tenant_uuid'=>$tenant['tenant_uuid'],'domain_uuid'=>$domain,'template_uuid'=>$template['template_uuid'],'template_name'=>$template['template_name'],'template_version'=>$template['version'],'service_name'=>$name,'request_uuid'=>$request,'created_by'=>$_SESSION['user_uuid']]);$this->db->commit();
-        }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
+            $this->insert('v_pbx_services',['service_uuid'=>$service,'tenant_uuid'=>$tenant['tenant_uuid'],'domain_uuid'=>$domain,'template_uuid'=>$template['template_uuid'],'template_name'=>$template['template_name'],'template_version'=>$template['version'],'service_name'=>$name,'request_uuid'=>$request,'created_by'=>$_SESSION['user_uuid']]);if (!$deferCommit) $this->db->commit();
+        }catch(Throwable $e){if(!$deferCommit && $this->db->inTransaction())$this->db->rollBack();throw $e;}
+        if ($deferCommit) return $service;
         settings::clear_cache();$cache=new cache;$cache->delete(gethostname().':configuration:sofia.conf');
         try{event_socket::api('reloadxml');event_socket::api('sofia profile external rescan');}catch(Throwable $e){error_log('OpenWeb PBX: service provisioned; SIP rescan unavailable');}
         return $service;

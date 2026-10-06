@@ -62,8 +62,9 @@ $collect = function (array $items, string $group = '') use (&$collect, &$applica
     }
 };
 $collect($menu->menu_array());
-if ((new pbx_tenants)->installed() && (new pbx_tenants)->workspaceOnly()) {
-    $applications = array_filter($applications, fn($app) => str_contains($app['url'], '/app/tenant_services/'));
+if (isset($applications['/app/pbx_setup/']) && !(new pbx_setup)->canManage()) unset($applications['/app/pbx_setup/']);
+if ((new pbx_tenants)->installed() && (new pbx_tenants)->workspaceOnly() && !permission_exists('domain_all')) {
+    $applications = array_filter($applications, fn($app) => str_contains($app['url'], '/app/tenant_services/') || str_contains($app['url'], '/app/pbx_setup/'));
 }
 if (permission_exists('user_edit') || permission_exists('user_view')) {
     $applications['/core/users/user_profile.php'] = ['id' => 'profile', 'title' => 'My Profile',
@@ -72,6 +73,7 @@ if (permission_exists('user_edit') || permission_exists('user_view')) {
 $bootstrap = ['apps' => array_values($applications), 'user' => $_SESSION['username'], 'domainUuid' => $_SESSION['domain_uuid'],
     'domain' => $_SESSION['domain_name'], 'preferenceKey' => 'openweb-desktop-'.$_SESSION['domain_uuid'].'-'.$_SESSION['user_uuid'],
     'statusUrl' => PROJECT_PATH.'/core/desktop/?action=status', 'status' => desktop_status($database)];
+$bootstrap['openSetup'] = ($bootstrap['status']['extensions'] === 0) && isset($applications['/app/pbx_setup/']);
 $escape = static fn($value) => htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
 header('Cache-Control: no-store');
 ?>
@@ -86,7 +88,7 @@ header('Cache-Control: no-store');
     <link rel="stylesheet" href="<?= PROJECT_PATH ?>/resources/fontawesome/css/all.min.css.php">
     <link rel="stylesheet" href="<?= PROJECT_PATH ?>/core/desktop/desktop.css?v=2">
     <script id="desktop-data" type="application/json"><?= json_encode($bootstrap, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES) ?></script>
-    <script defer src="<?= PROJECT_PATH ?>/core/desktop/desktop.js?v=4"></script>
+    <script defer src="<?= PROJECT_PATH ?>/core/desktop/desktop.js?v=5"></script>
 </head>
 <body>
     <main id="desktop" aria-label="OpenWeb PBX desktop">

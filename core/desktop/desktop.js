@@ -11,7 +11,7 @@
   let calendarMonth = new Date();
   const savePreferences = () => { try { localStorage.setItem(data.preferenceKey, JSON.stringify(preferences)); } catch { /* Storage may be disabled. */ } };
   const announce = (text) => { $('#desktop-announcement').textContent = text; };
-  const pinnedPatterns = ['/app/tenant_services/', '/app/smtp_settings/', '/core/dashboard/', '/app/extensions/', '/core/users/users.php', '/app/xml_cdr/', '/app/ivr_menus/', '/app/ring_groups/', '/app/voicemails/', '/app/call_flows/', '/app/gateways/', '/app/dialplans/', '/app/devices/', '/core/default_settings/'];
+  const pinnedPatterns = ['/app/pbx_setup/', '/app/tenant_services/', '/app/smtp_settings/', '/core/dashboard/', '/app/extensions/', '/core/users/users.php', '/app/xml_cdr/', '/app/ivr_menus/', '/app/ring_groups/', '/app/voicemails/', '/app/call_flows/', '/app/gateways/', '/app/dialplans/', '/app/devices/', '/core/default_settings/'];
   const pinned = pinnedPatterns.map((pattern) => apps.find((app) => app.url.includes(pattern))).filter(Boolean);
   if (!pinned.length) pinned.push(...apps.slice(0, 12));
   const findApp = (pattern) => apps.find((app) => app.url.includes(pattern));
@@ -95,7 +95,7 @@
   });
   $('#all-apps').addEventListener('click', () => { allApps = !allApps; renderApps(); });
   $('#overview-button').addEventListener('click', () => {
-    const overview = findApp('/core/dashboard/');
+    const overview = findApp('/app/pbx_setup/') || findApp('/core/dashboard/');
     if (overview) openApp(overview); else togglePanel('start', true);
   });
   const profile = findApp('/core/users/user_profile.php');
@@ -423,4 +423,8 @@
   }
   $('#calendar-prev').addEventListener('click', () => { calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1); renderCalendar(); });
   $('#calendar-next').addEventListener('click', () => { calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1); renderCalendar(); });
+  if (data.openSetup) {
+    const setup = apps.find((app) => app.url.includes('/app/pbx_setup/'));
+    if (setup) openApp(setup);
+  }
 })();
