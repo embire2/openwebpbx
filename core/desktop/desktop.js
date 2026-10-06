@@ -11,7 +11,7 @@
   let calendarMonth = new Date();
   const savePreferences = () => { try { localStorage.setItem(data.preferenceKey, JSON.stringify(preferences)); } catch { /* Storage may be disabled. */ } };
   const announce = (text) => { $('#desktop-announcement').textContent = text; };
-  const pinnedPatterns = ['/app/tenant_services/', '/core/dashboard/', '/app/extensions/', '/core/users/users.php', '/app/xml_cdr/', '/app/ivr_menus/', '/app/ring_groups/', '/app/voicemails/', '/app/call_flows/', '/app/gateways/', '/app/dialplans/', '/app/devices/', '/core/default_settings/'];
+  const pinnedPatterns = ['/app/tenant_services/', '/app/smtp_settings/', '/core/dashboard/', '/app/extensions/', '/core/users/users.php', '/app/xml_cdr/', '/app/ivr_menus/', '/app/ring_groups/', '/app/voicemails/', '/app/call_flows/', '/app/gateways/', '/app/dialplans/', '/app/devices/', '/core/default_settings/'];
   const pinned = pinnedPatterns.map((pattern) => apps.find((app) => app.url.includes(pattern))).filter(Boolean);
   if (!pinned.length) pinned.push(...apps.slice(0, 12));
   const findApp = (pattern) => apps.find((app) => app.url.includes(pattern));
@@ -29,7 +29,7 @@
       [/history|record|log/, 'fa-clock-rotate-left', 'green'],
       [/ivr|dialplan|flow|destination/, 'fa-diagram-project', 'purple'],
       [/ring|conference|call center|queue/, 'fa-headset', 'pink'],
-      [/voicemail|email|fax/, 'fa-envelope', 'purple'],
+      [/mail|smtp|fax/, 'fa-envelope', 'purple'],
       [/gateway|sip|trunk|domain/, 'fa-network-wired', 'green'],
       [/setting|system|variable|permission/, 'fa-gear', 'slate']
     ];

@@ -13,6 +13,8 @@ Templates support timezone, initial extension range/count, extension limit, outb
 
 Additional settings use existing PBX category, subcategory, and type names. Business categories include voicemail, email/SMTP, recording, devices/provisioning, SIP, and call applications. Authentication, roles, executable paths, URLs, and global configuration are excluded. Configure extension limits in the dedicated defaults field.
 
+Once a platform SMTP server is saved under **SMTP Outgoing Mail**, it applies to all outgoing mail and takes precedence over tenant/template relay settings. See [outgoing mail configuration](outgoing-mail.md).
+
 Each service gets its own extensions, unique SIP passwords, voicemail boxes/PINs, copied standard application dialplans, trunks, call rules, and domain settings. Template versions are recorded on services. Editing or unpublishing a template affects future provisioning; existing services retain their current setup. Provisioning is transactional and repeated submissions with the same request identifier return the same service. Registration trunks without both a username and password stay disabled.
 
 Use `call.openweb.co.za` as the SIP server/outbound proxy and the generated service domain as the SIP realm, for example `office.acme.call.openweb.co.za`. These realm names identify PBX domains; this feature does not provision wildcard DNS or certificates for separate web hostnames. Provider credentials, telephone numbers, NAT settings, endpoints, and provider-specific inbound routing still need real deployment configuration.

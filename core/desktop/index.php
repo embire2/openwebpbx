@@ -86,7 +86,7 @@ header('Cache-Control: no-store');
     <link rel="stylesheet" href="<?= PROJECT_PATH ?>/resources/fontawesome/css/all.min.css.php">
     <link rel="stylesheet" href="<?= PROJECT_PATH ?>/core/desktop/desktop.css?v=2">
     <script id="desktop-data" type="application/json"><?= json_encode($bootstrap, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES) ?></script>
-    <script defer src="<?= PROJECT_PATH ?>/core/desktop/desktop.js?v=3"></script>
+    <script defer src="<?= PROJECT_PATH ?>/core/desktop/desktop.js?v=4"></script>
 </head>
 <body>
     <main id="desktop" aria-label="OpenWeb PBX desktop">

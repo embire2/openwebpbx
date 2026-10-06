@@ -490,8 +490,14 @@ class email {
 				}
 				unset($sql, $parameters, $result, $row);
 
+				// A saved platform relay applies to every tenant, including queued voicemail/fax mail.
+				$global_smtp = (new outgoing_mail($this->database->db))->transport();
+				if ($global_smtp !== null) {
+					$smtp = $global_smtp;
+				}
+
 				//value adjustments
-				$smtp['auth'] = ($smtp['auth'] == "true") ? true : false;
+				$smtp['auth'] = filter_var($smtp['auth'], FILTER_VALIDATE_BOOLEAN);
 				$smtp['password'] = ($smtp['password'] != '') ? $smtp['password'] : null;
 				$smtp['secure'] = ($smtp['secure'] != "none") ? $smtp['secure'] : null;
 				$smtp['username'] = ($smtp['username'] != '') ? $smtp['username'] : null;

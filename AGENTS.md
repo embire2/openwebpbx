@@ -40,3 +40,12 @@
 - Published a Business PBX starter template with two extensions and voicemail. No carrier credentials are configured; SIP registration and external calls still require provider details and endpoints.
 - Operator and tenant workflow documentation is in `docs/tenant-services.md`. Removed temporary validation accounts, PBX services, carrier template, cached test directory entries, and test sessions. Only the published Business PBX starter remains. Integration checks are CLI-only.
 - Published the tenant workspace to public `embire2/openwebpbx` on `customization` and verified committed files match the live application. Fresh CEO sign-in with the requested credentials passed after cleanup. The live checkout preserves its existing optional applications.
+
+## Outgoing mail progress — 2026-10-06
+
+- Verified the server's local and public outbound IPv4 address is `173.214.174.68`.
+- Added a platform SMTP Outgoing Mail page with host, port, connection security, sender defaults, username/password authentication, and IP Authentication. IP mode requires no credentials and clears stored SMTP username/password on save.
+- The global relay is read directly by the shared PHP mail transport for every tenant, including queued voicemail, fax, and system mail. Existing configuration remains in effect until a global server is saved. Connection testing sends no email.
+- Local SMTP integration checks passed using an isolated PostgreSQL schema and loopback SMTP sink. Wire capture confirmed IP mode sends no AUTH command and password mode authenticates successfully; both messages were captured locally. Validation, permissions, tenant override precedence, secret masking, password retention, and credential clearing passed.
+- Live Chromium checks passed for the desktop launcher/embedded page, IP mode, saving/reloading, the connection test against a local fixture, mobile layout, light/dark appearance, and zero console errors/warnings. Live HTTPS checks rejected missing CSRF tokens and denied GET/POST access to a temporary tenant administrator.
+- Removed the test relay, account, and session, restored the original empty SMTP settings, and reloaded PHP-FPM to clear cached fixture settings. No email was sent outside the local test sink. Operator documentation is in `docs/outgoing-mail.md`. No real SMTP provider has been configured.
