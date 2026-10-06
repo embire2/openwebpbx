@@ -1,7 +1,6 @@
 .project
 .vscode
 /phpinfo.php
-/AGENTS.md
 /CLAUDE.md
 resources/config.php
 secure/mailto.bat
@@ -12,3 +11,11 @@ secure/*.sqlite
 *.php~
 
 app/yealink/resources/firmware/*
+
+# Local secrets and browser validation artifacts.
+/.env
+/.env.*
+!/.env.example
+/.playwright/
+/.playwright-cli/
+/output/playwright/

@@ -3,7 +3,7 @@
 <config version="1">
 
 <!--  Configuration template for HT701 and HT702 firmware version 1.0.5.2 -->
-<!-- VARIABLES for FusionPBX:
+<!-- VARIABLES for OpenWeb PBX:
      grandstream_disable_call_waiting: set to 1 disables call waiting (used for PBX/FAX interconnects)
      grandstream_disable_fax_t38: set to 1 sets pass-through fax mode
  -->

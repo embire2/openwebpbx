@@ -147,7 +147,7 @@
 				}
 
 			//pre-process some settings
-				$settings_array['theme']['favicon'] = !empty($settings_array['theme']['favicon']) ? $settings_array['theme']['favicon'] : PROJECT_PATH.'/themes/default/favicon.ico';
+				$settings_array['theme']['favicon'] = !empty($settings_array['theme']['favicon']) ? $settings_array['theme']['favicon'] : PROJECT_PATH.'/themes/default/images/openweb-mark.svg';
 				$settings_array['theme']['font_loader_version'] = !empty($settings_array['theme']['font_loader_version']) ? urlencode($settings_array['theme']['font_loader_version']) : '1';
 				$settings_array['theme']['message_delay'] = isset($settings_array['theme']['message_delay']) ? 1000 * (float) $settings_array['theme']['message_delay'] : 3000;
 				$settings_array['theme']['menu_side_width_contracted'] = isset($settings_array['theme']['menu_side_width_contracted']) ? $settings_array['theme']['menu_side_width_contracted'] : '60';
@@ -155,7 +155,7 @@
 				$settings_array['theme']['menu_side_toggle_hover_delay_expand'] = isset($settings_array['theme']['menu_side_toggle_hover_delay_expand']) ? $settings_array['theme']['menu_side_toggle_hover_delay_expand'] : '300';
 				$settings_array['theme']['menu_side_toggle_hover_delay_contract'] = isset($settings_array['theme']['menu_side_toggle_hover_delay_contract']) ? $settings_array['theme']['menu_side_toggle_hover_delay_contract'] : '1000';
 				$settings_array['theme']['menu_style'] = !empty($settings_array['theme']['menu_style']) ? $settings_array['theme']['menu_style'] : 'fixed';
-				$settings_array['theme']['footer'] = isset($settings_array['theme']['footer']) ? $settings_array['theme']['footer'] : '&copy; '.$text['theme-label-copyright'].' 2008 - '.date('Y')." <a href='http://www.fusionpbx.com' class='footer' target='_blank'>fusionpbx.com</a> ".$text['theme-label-all_rights_reserved'];
+				$settings_array['theme']['footer'] = $settings_array['theme']['footer'] ?? 'OpenWeb PBX · MPL 1.1';
 				$settings_array['theme']['menu_side_item_main_sub_icon_contract'] = !empty($settings_array['theme']['menu_side_item_main_sub_icon_contract']) ? explode(' ', $settings_array['theme']['menu_side_item_main_sub_icon_contract'])[1] : null;
 				$settings_array['theme']['menu_side_item_main_sub_icon_expand'] = !empty($settings_array['theme']['menu_side_item_main_sub_icon_expand']) ? explode(' ', $settings_array['theme']['menu_side_item_main_sub_icon_expand'])[1] : null;
 				$settings_array['theme']['menu_brand_type'] = $settings->get('theme', 'menu_brand_type', 'image');
@@ -219,7 +219,7 @@
 				case 'inline':
 					$container_open = "<div class='container-fluid' style='padding: 0;' align='".($settings->get('theme', 'logo_align') != '' ? $settings->get('theme', 'logo_align') : 'left')."'>\n";
 					if ($_SERVER['PHP_SELF'] != PROJECT_PATH.'/core/install/install.php') {
-						$logo = "<a href='".PROJECT_PATH."/'><img src='".($settings->get('theme', 'logo') ?: PROJECT_PATH.'/themes/default/images/logo.png')."' style='padding: 15px 20px; ".($settings->get('theme', 'logo_style') ?: null)."'></a>";
+						$logo = "<a href='".PROJECT_PATH."/'><img src='".($settings->get('theme', 'logo') ?: PROJECT_PATH.'/themes/default/images/openweb-logo.svg')."' style='padding: 15px 20px; ".($settings->get('theme', 'logo_style') ?: null)."'></a>";
 					}
 					$menu = new menu;
 					$menu->text = $text;
@@ -258,7 +258,7 @@
 				$login_logo_source = $settings->get('theme', 'logo');
 			}
 			else {
-				$login_logo_source = PROJECT_PATH.'/themes/default/images/logo_login.png';
+				$login_logo_source = PROJECT_PATH.'/themes/default/images/openweb-logo.svg';
 			}
 		//determine logo dimensions
 			if (!empty($settings->get('theme', 'login_logo_width')) && $settings->get('theme', 'login_logo_width') != '') {

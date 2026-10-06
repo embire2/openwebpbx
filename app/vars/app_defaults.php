@@ -26,7 +26,7 @@
 
 if ($domains_processed == 1) {
 
-	//base64 decode the description - added for backwards comptability with old versions of FusionPBX
+	//base64 decode the description - added for backwards comptability with old versions of OpenWeb PBX
 		$sql = "select * from v_vars \n";
 		$sql .= "where var_description like '%=';\n";
 		$vars = $database->select($sql, null, 'all');

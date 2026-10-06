@@ -34,8 +34,8 @@ if ($domains_processed == 1) {
 		$software_version = $database->select($sql, null, 'column');
 		if (empty($software_version)) {
 			$array['software'][0]['software_uuid'] = '7de057e7-333b-4ebf-9466-315ae7d44efd';
-			$array['software'][0]['software_name'] = 'FusionPBX';
-			$array['software'][0]['software_url'] = 'https://www.fusionpbx.com';
+			$array['software'][0]['software_name'] = 'OpenWeb PBX';
+			$array['software'][0]['software_url'] = 'https://github.com/embire2/openwebpbx';
 			$array['software'][0]['software_version'] = software::version();
 		}
 		elseif ($software_version != software::version()) {

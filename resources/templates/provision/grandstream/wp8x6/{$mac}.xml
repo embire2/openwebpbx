@@ -16,7 +16,7 @@
 		
 
 		<!-- Known issue / Notes:  -->
-		<!-- Phones provisioned on this template will need to be disabled on the FusionPBX server after provisioning. If they are not disabled, they will reboot multiple times.-->
+		<!-- Phones provisioned on this template will need to be disabled on the OpenWeb PBX server after provisioning. If they are not disabled, they will reboot multiple times.-->
 		<!-- Items declared on this page with no assigned value will automactly revert to the phones default settings, instead of retaining existing user settings on the phone. -->
 
 

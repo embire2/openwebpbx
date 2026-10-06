@@ -4,7 +4,7 @@
 ; systemctl enable --now system_status
 
 [Unit]
-Description=FusionPBX System Dashboard Information Service
+Description=OpenWeb PBX System Dashboard Information Service
 Wants=network-online.target
 Requires=network.target local-fs.target
 ;Requires=network.target local-fs.target postgresql.service

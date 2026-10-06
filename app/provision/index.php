@@ -35,7 +35,7 @@
 	global $database;
 
 //logging
-	openlog("FusionPBX", LOG_PID | LOG_PERROR, LOG_LOCAL0);
+	openlog("OpenWeb PBX", LOG_PID | LOG_PERROR, LOG_LOCAL0);
 
 //set default variables
 	$dir_count = 0;
@@ -426,7 +426,7 @@
 		//deny access if the password doesn't match
 		if ($provision['password'] != $_REQUEST['password'] ?? '') {
 			//log the failed auth attempt to the system, to be available for fail2ban.
-			openlog('FusionPBX', LOG_NDELAY, LOG_AUTH);
+			openlog('OpenWeb PBX', LOG_NDELAY, LOG_AUTH);
 			syslog(LOG_WARNING, '['.$_SERVER['REMOTE_ADDR']."] provision attempt bad password for ".($_REQUEST['mac'] ?? ''));
 			closelog();
 			echo "access denied";

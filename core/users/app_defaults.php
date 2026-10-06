@@ -179,14 +179,14 @@ if ($domains_processed == 1) {
 				$array['email_templates'][$x]['template_body'] .= "<html>\n";
 				$array['email_templates'][$x]['template_body'] .= "<body>\n";
 				$array['email_templates'][$x]['template_body'] .= "<center><a href='https://\${domain}'><img src='\${logo_full}' style='width: 200px; height: auto; border: none;'></a></center><br />\n";
-				$array['email_templates'][$x]['template_body'] .= "A password reset was just requested for the FusionPBX user account associated with this email address.<br /><br />\n";
+				$array['email_templates'][$x]['template_body'] .= "A password reset was just requested for the OpenWeb PBX user account associated with this email address.<br /><br />\n";
 				$array['email_templates'][$x]['template_body'] .= "<b>If you submitted this request</b>, click the button below to begin the password reset process for your user account. This link expires in 60 minutes.<br /><br />";
 				$array['email_templates'][$x]['template_body'] .= "\${reset_button}<br /><br />\n";
 				$array['email_templates'][$x]['template_body'] .= "If you did not initiate this action, however, please ignore this message and your password will remain unchanged.\n";
 				$array['email_templates'][$x]['template_body'] .= "If you have questions or concerns regarding this email, please contact your system administrator.";
 				$array['email_templates'][$x]['template_body'] .= "<br /><br /><br />\n";
 				$array['email_templates'][$x]['template_body'] .= "<a href='https://\${domain}'><img src='\${logo_shield}' width='31' height='30' border='0' align='left' style='margin-top: 3px; margin-right: 5px;'></a>\n";
-				$array['email_templates'][$x]['template_body'] .= "<i><b>FusionPBX</b></i><br />\n";
+				$array['email_templates'][$x]['template_body'] .= "<i><b>OpenWeb PBX</b></i><br />\n";
 				$array['email_templates'][$x]['template_body'] .= "<a href='https://\${domain}'>\${domain}</a>\n";
 				$array['email_templates'][$x]['template_body'] .= "<br /><br /><br />\n";
 				$array['email_templates'][$x]['template_body'] .= "</body>\n";

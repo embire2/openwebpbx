@@ -127,7 +127,7 @@
 		//if not authorized
 			if (empty($_SESSION['authorized']) || !$_SESSION['authorized']) {
 				//log the failed auth attempt to the system to the syslog server
-				openlog('FusionPBX', LOG_NDELAY, LOG_AUTH);
+				openlog('OpenWeb PBX', LOG_NDELAY, LOG_AUTH);
 
 				//strip newlines/tabs to prevent log injection
 				$failed_username = preg_replace('/[\r\n\t]/', '', (string)($result["username"] ?? ''));

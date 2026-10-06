@@ -455,7 +455,7 @@
 
     <!-- # Enable Call Features. 0 - No, 1 - Yes. Default value is 0 -->
     <!-- # Number: 0, 1 -->
-    <!-- # This must be 0 for FusionPBX features to work!!! -->
+    <!-- # This must be 0 for OpenWeb PBX features to work!!! -->
     <P191>0</P191>
 
     <!-- # No Key Entry Timeout (s). Default value is 4 -->

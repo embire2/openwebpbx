@@ -6,7 +6,7 @@
     <!-- ################################################################################### -->
     <!-- ## Configuration template for HT81x firmware version 1.0.63.3                    ## -->
     <!-- ################################################################################### -->
-    <!-- ## FusionPBX variables set. Profile 2 disabled. All other settings are defaults  ## -->
+    <!-- ## OpenWeb PBX variables set. Profile 2 disabled. All other settings are defaults  ## -->
     <!-- ################################################################################### -->
 
     <!-- ############################################################################## -->
@@ -1400,7 +1400,7 @@
     <!-- # Mandatory -->
     <P401>0</P401>
 
-    <!-- ##  All other Profile 2 settings are typically not used in FusionPBX   ## -->
+    <!-- ##  All other Profile 2 settings are typically not used in OpenWeb PBX   ## -->
 
     <!-- ############################################################################## -->
     <!-- ##  FXS Ports                                                               ## -->

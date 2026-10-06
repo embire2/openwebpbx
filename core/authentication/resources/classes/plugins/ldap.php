@@ -62,8 +62,8 @@ class plugin_ldap {
 		if (empty($_REQUEST["username"])) {
 
 			//pre-process some settings
-			$theme_favicon = $settings->get('theme', 'favicon', PROJECT_PATH.'/themes/default/favicon.ico');
-			$theme_logo = $settings->get('theme', 'logo', PROJECT_PATH.'/themes/default/images/logo_login.png');
+			$theme_favicon = $settings->get('theme', 'favicon', PROJECT_PATH.'/themes/default/images/openweb-mark.svg');
+			$theme_logo = $settings->get('theme', 'logo', PROJECT_PATH.'/themes/default/images/openweb-logo.svg');
 			$login_destination = $settings->get('login', 'destination');
 			$theme_login_logo_width = $settings->get('theme', 'login_logo_width', 'auto; max-width: 300px');
 			$theme_login_logo_height = $settings->get('theme', 'login_logo_height', 'auto; max-height: 300px');

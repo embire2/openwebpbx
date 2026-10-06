@@ -20,6 +20,8 @@
 	<link rel='stylesheet' type='text/css' href='{$project_path}/resources/bootstrap/css/bootstrap-colorpicker.min.css.php'>
 	<link rel='stylesheet' type='text/css' href='{$project_path}/resources/fontawesome/css/all.min.css.php'>
 	<link rel='stylesheet' type='text/css' href='{$project_path}/themes/default/css.php?updated=202608261400'>
+	<link rel='stylesheet' href='{$project_path}/themes/default/openweb.css?v=2'>
+	<script src='{$project_path}/themes/default/openweb-app.js?v=2' defer></script>
 {*//link to custom css file *}
 	{if !empty($settings.theme.custom_css)}
 		<link rel='stylesheet' type='text/css' href='{$settings.theme.custom_css}'>
@@ -1939,7 +1941,7 @@
 	</script>
 
 </head>
-<body>
+<body data-openweb-domain="{$domain_uuid}">
 
 	{*//video background *}
 	{if !empty($background_video)}

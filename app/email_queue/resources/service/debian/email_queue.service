@@ -5,7 +5,7 @@
 ; systemctl start email_queue
 
 [Unit]
-Description=FusionPBX Email Queue
+Description=OpenWeb PBX Email Queue
 Wants=network-online.target
 Requires=network.target local-fs.target
 ;Requires=network.target local-fs.target postgresql.service

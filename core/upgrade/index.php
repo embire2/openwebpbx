@@ -322,7 +322,7 @@
 		echo "<table width='100%' border='0' cellpadding='0' cellspacing='0'>\n";
 		echo "<tr onclick=\"if (document.getElementById('do_source')) { document.getElementById('do_source').checked = !document.getElementById('do_source').checked; if (document.getElementById('do_source').checked == false) { document.getElementById('view_source_code_options').checked = false; } }\">\n";
 		echo "	<td width='30%' class='vncell' style='vertical-align: middle;'>\n";
-		echo "		".$settings->get('theme', 'title', 'FusionPBX')."\n";
+		echo "		".$settings->get('theme', 'title', 'OpenWeb PBX')."\n";
 		echo "	</td>\n";
 		echo "	<td width='70%' class='vtable' style='height: 50px; cursor: pointer;'>\n";
 		echo "		<div style='display: flex; align-items: center; margin-bottom: 3px;'>\n";
@@ -340,8 +340,8 @@
 			echo "	<span style='font-weight: 600;'>".software::version()."</span>\n";
 		}
 		if ($branch_return_value == 0 && $commit_return_value == 0) {
-			echo "	<a href='https://github.com/fusionpbx/fusionpbx/compare/".$git_current_commit."...".$git_current_branch."' target='_blank' title='".$git_current_commit."' onclick=\"event.stopPropagation();\"><i>".$git_current_branch."</i></a>";
-			echo "&nbsp;&nbsp;<button type='button' class='btn btn-link btn-xs' onclick=\"event.stopPropagation(); source_preview('core','".$settings->get('theme', 'title', 'FusionPBX')."');\">".$text['button-preview']."</button>\n";
+			echo "	<a href='https://github.com/embire2/openwebpbx/compare/".$git_current_commit."...".$git_current_branch."' target='_blank' title='".$git_current_commit."' onclick=\"event.stopPropagation();\"><i>".$git_current_branch."</i></a>";
+			echo "&nbsp;&nbsp;<button type='button' class='btn btn-link btn-xs' onclick=\"event.stopPropagation(); source_preview('core','".$settings->get('theme', 'title', 'OpenWeb PBX')."');\">".$text['button-preview']."</button>\n";
 		}
 		echo "	</td>\n";
 		echo "</tr>\n";

@@ -45,6 +45,12 @@
 //additional includes
 	require_once "resources/check_auth.php";
 
+// The desktop is the primary workspace; the original dashboard remains an application.
+	if (!isset($_GET['classic']) && ($_SERVER['HTTP_SEC_FETCH_DEST'] ?? '') !== 'iframe') {
+		header('Location: '.PROJECT_PATH.'/core/desktop/');
+		exit;
+	}
+
 //disable login message
 	if (isset($_GET['msg']) && $_GET['msg'] == 'dismiss') {
 		unset($_SESSION['login']['message']);

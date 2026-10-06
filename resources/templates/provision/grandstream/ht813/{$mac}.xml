@@ -6,7 +6,7 @@
     <!-- ################################################################################### -->
     <!-- ## Configuration template for HT813 firmware version 1.0.19.6                    ## -->
     <!-- ################################################################################### -->
-    <!-- ## FusionPBX variables set. Profile 2 disabled. All other settings are defaults  ## -->
+    <!-- ## OpenWeb PBX variables set. Profile 2 disabled. All other settings are defaults  ## -->
     <!-- ################################################################################### -->
 
     <!-- ############################################################################## -->
@@ -1315,7 +1315,7 @@
     <!-- # String -->
     <P4019>c=2000/4000;</P4019>
 
-    <!-- ##  All other Profile 2 settings are typically not used in FusionPBX   ## -->
+    <!-- ##  All other Profile 2 settings are typically not used in OpenWeb PBX   ## -->
 
     <!-- ############################################################################## -->
     <!-- ##  FXO Ports                                                               ## -->

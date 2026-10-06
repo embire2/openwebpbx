@@ -10,9 +10,9 @@
 		$apps[$x]['description']['en-us'] = "Install the fusionPBX system or add new switches";
 		$apps[$x]['description']['en-gb'] = "Install the fusionPBX system or add new switches";
 		$apps[$x]['description']['ar-eg'] = "";
-		$apps[$x]['description']['de-at'] = "Installiere das FusionPBX System oder füge neue Switches hinzu.";
+		$apps[$x]['description']['de-at'] = "Installiere das OpenWeb PBX System oder füge neue Switches hinzu.";
 		$apps[$x]['description']['de-ch'] = "";
-		$apps[$x]['description']['de-de'] = "Installiere das FusionPBX System oder füge neue Switches hinzu.";
+		$apps[$x]['description']['de-de'] = "Installiere das OpenWeb PBX System oder füge neue Switches hinzu.";
 		$apps[$x]['description']['es-cl'] = "";
 		$apps[$x]['description']['es-mx'] = "";
 		$apps[$x]['description']['fr-ca'] = "";

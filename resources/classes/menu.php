@@ -1198,13 +1198,13 @@ class menu {
 
 		if ($menu_brand) {
 			//define menu brand mark
-			$menu_brand_text = escape($this->settings->get('theme', 'menu_brand_text', 'FusionPBX'));
+			$menu_brand_text = escape($this->settings->get('theme', 'menu_brand_text', 'OpenWeb PBX'));
 			switch ($this->settings->get('theme', 'menu_brand_type', 'image')) {
 				case 'text':
 					$html .= "			<a class='navbar-brand-text' href='" . PROJECT_PATH . "/'>" . $menu_brand_text . "</a>\n";
 					break;
 				case 'image_text':
-					$menu_brand_image = escape($this->settings->get('theme', 'menu_brand_image', PROJECT_PATH . '/themes/default/images/logo.png'));
+					$menu_brand_image = escape($this->settings->get('theme', 'menu_brand_image', PROJECT_PATH . '/themes/default/images/openweb-logo.svg'));
 					$html .= "			<a href='" . PROJECT_PATH . "/'>";
 					$html .= "				<img id='menu_brand_image' class='navbar-logo' src='" . $menu_brand_image . "' title=\"" . escape($menu_brand_text) . "\">";
 					if (!empty($this->settings->get('theme', 'menu_brand_image_hover'))) {
@@ -1217,7 +1217,7 @@ class menu {
 					break;
 				case 'image':
 				default:
-					$menu_brand_image = escape($this->settings->get('theme', 'menu_brand_image', PROJECT_PATH . '/themes/default/images/logo.png'));
+					$menu_brand_image = escape($this->settings->get('theme', 'menu_brand_image', PROJECT_PATH . '/themes/default/images/openweb-logo.svg'));
 					$html .= "			<a href='" . PROJECT_PATH . "/'>";
 					$html .= "				<img id='menu_brand_image' class='navbar-logo' src='" . $menu_brand_image . "' title=\"" . escape($menu_brand_text) . "\">";
 					if (!empty($this->settings->get('theme', 'menu_brand_image_hover', ''))) {
@@ -1416,7 +1416,7 @@ class menu {
 			$html .= "		<a class='menu_side_item_main menu_side_contract' onclick='menu_side_contract();' style='height: 60px; padding: 19px 16px 8px 16px !important; " . ($menu_side_state != 'expanded' ? "display: none;" : null) . "'><i class='fa-solid fa-bars fa-fw'></i></a>";
 		}
 		$html .= "		</div>\n";
-		$menu_brand_text = escape($this->settings->get('theme', 'menu_brand_text', 'FusionPBX'));
+		$menu_brand_text = escape($this->settings->get('theme', 'menu_brand_text', 'OpenWeb PBX'));
 		switch ($this->settings->get('theme', 'menu_brand_type', 'image')) {
 			case 'none':
 				$html .= "<a class='menu_side_item_main menu_side_contract' onclick='menu_side_contract();' style='" . ($menu_side_state != 'expanded' ? "display: none;" : null) . " height: 60px; min-width: " . intval($this->settings->get('theme', 'menu_side_width_contracted', 60)) . "px;' title=\"" . $this->text['theme-label-contract_menu'] . "\"><i class='fa-solid fa-bars fa-fw' style='z-index: 99800; padding-left: 1px; padding-top: 11px;'></i></a>";
@@ -1427,7 +1427,7 @@ class menu {
 				$html .= "<a class='menu_side_item_main menu_side_expand' style='height: 60px; padding-top: 19px; " . ($menu_side_state == 'expanded' ? "display: none;" : null) . "' onclick='menu_side_expand();' title=\"" . $this->text['theme-label-expand_menu'] . "\"><i class='fa-solid fa-bars fa-fw' style='z-index: 99800; padding-left: 1px;'></i></a>";
 				break;
 			case 'image_text':
-				$menu_brand_image_contracted = $this->settings->get('theme', 'menu_side_brand_image_contracted', PROJECT_PATH . '/themes/default/images/logo_side_contracted.png');
+				$menu_brand_image_contracted = $this->settings->get('theme', 'menu_side_brand_image_contracted', PROJECT_PATH . '/themes/default/images/openweb-mark.svg');
 				$html .= "<a class='menu_brand_image' href='" . PROJECT_PATH . "/'>";
 				$html .= "<img id='menu_brand_image_contracted' style='" . ($menu_side_state == 'expanded' ? "display: none;" : null) . "' src='" . escape($menu_brand_image_contracted) . "' title=\"" . escape($menu_brand_text) . "\">";
 				$html .= "<span id='menu_brand_image_expanded' class='menu_brand_text' style='" . ($menu_side_state != 'expanded' ? "display: none;" : null) . "'>" . escape($menu_brand_text) . "</span>";
@@ -1435,8 +1435,8 @@ class menu {
 				break;
 			case 'image':
 			default:
-				$menu_brand_image_contracted = $this->settings->get('theme', 'menu_side_brand_image_contracted', PROJECT_PATH . '/themes/default/images/logo_side_contracted.png');
-				$menu_brand_image_expanded = $this->settings->get('theme', 'menu_side_brand_image_expanded', PROJECT_PATH . '/themes/default/images/logo_side_expanded.png');
+				$menu_brand_image_contracted = $this->settings->get('theme', 'menu_side_brand_image_contracted', PROJECT_PATH . '/themes/default/images/openweb-mark.svg');
+				$menu_brand_image_expanded = $this->settings->get('theme', 'menu_side_brand_image_expanded', PROJECT_PATH . '/themes/default/images/openweb-logo.svg');
 				$html .= "<a class='menu_brand_image' href='" . PROJECT_PATH . "/'>";
 				$html .= "<img id='menu_brand_image_contracted' style='" . ($menu_side_state == 'expanded' ? "display: none;" : null) . "' src='" . escape($menu_brand_image_contracted) . "' title=\"" . escape($menu_brand_text) . "\">";
 				$html .= "<img id='menu_brand_image_expanded' style='" . ($menu_side_state != 'expanded' ? "display: none;" : null) . "' src='" . escape($menu_brand_image_expanded) . "' title=\"" . escape($menu_brand_text) . "\">";
@@ -1490,9 +1490,9 @@ class menu {
 		$html .= "		<div class='float-left'>\n";
 		// $html .= button::create(['type'=>'button','id'=>'menu_side_state_hidden_button','title'=>$this->text['theme-label-expand_menu'],'icon'=>'bars','class'=>'default '.($this->settings->get('theme', 'menu_side_state') != 'hidden' ? 'hide-sm-up ' : null).'float-left','onclick'=>'menu_side_expand();']);
 		$html .= "		<a id='menu_side_state_hidden_button' class='$menu_side_state_class' href='show:menu' onclick=\"event.preventDefault(); menu_side_expand(); event.stopPropagation();\" title=\"" . $this->text['theme-label-expand_menu'] . "\"><i class='fa-solid fa-bars fa-fw' style='margin: 7px 10px 5px 10px;'></i></a>";
-		$body_header_brand_text = escape($this->settings->get('theme', 'body_header_brand_text', 'FusionPBX'));
+		$body_header_brand_text = escape($this->settings->get('theme', 'body_header_brand_text', 'OpenWeb PBX'));
 		if ($this->settings->get('theme', 'body_header_brand_type') == 'image' || $this->settings->get('theme', 'body_header_brand_type') == 'image_text') {
-			$body_header_brand_image = $this->settings->get('theme', 'body_header_brand_image', PROJECT_PATH . '/themes/default/images/logo_side_expanded.png');
+			$body_header_brand_image = $this->settings->get('theme', 'body_header_brand_image', PROJECT_PATH . '/themes/default/images/openweb-logo.svg');
 			$html .= "		<div id='body_header_brand_image'>";
 			$html .= "		<a href='" . PROJECT_PATH . "/'><img id='body_header_brand_image' src='" . escape($body_header_brand_image) . "' title=\"" . escape($body_header_brand_text) . "\"></a>";
 			$html .= "		</div>";

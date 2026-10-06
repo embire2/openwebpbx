@@ -5,7 +5,7 @@
 ; systemctl start event_guard
 
 [Unit]
-Description=FusionPBX Event Guard
+Description=OpenWeb PBX Event Guard
 Wants=network-online.target
 Requires=network.target local-fs.target
 ;Requires=network.target local-fs.target postgresql.service

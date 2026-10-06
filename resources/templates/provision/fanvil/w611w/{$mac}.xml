@@ -1038,7 +1038,7 @@
             <AutoExitExpires>60</AutoExitExpires>
         </dynamic>
     </mcast>
-    {* Standard FusionPBX types and additional Fanvil types *}
+    {* Standard OpenWeb PBX types and additional Fanvil types *}
     {assign var=key_types value=[
     "1"=>"1",
     "ba"=>"1",

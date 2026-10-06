@@ -5,7 +5,7 @@
 ; systemctl start fax_queue
 
 [Unit]
-Description=FusionPBX FAX Queue
+Description=OpenWeb PBX FAX Queue
 Wants=network-online.target
 Requires=network.target local-fs.target
 ;Requires=network.target local-fs.target postgresql.service

@@ -5,7 +5,7 @@
 ; systemctl start xml_cdr
 
 [Unit]
-Description=FusionPBX xml_cdr
+Description=OpenWeb PBX xml_cdr
 Wants=network-online.target
 Requires=network.target local-fs.target
 ;Requires=network.target local-fs.target postgresql.service

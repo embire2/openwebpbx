@@ -187,7 +187,7 @@ abstract class service {
 	 * @return void
 	 */
 	public static function display_copyright(): void {
-		echo "FusionPBX\n";
+		echo "OpenWeb PBX\n";
 		echo "Version: MPL 1.1\n";
 		echo "\n";
 		echo "The contents of this file are subject to the Mozilla Public License Version\n";

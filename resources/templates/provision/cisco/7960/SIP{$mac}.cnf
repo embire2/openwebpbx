@@ -71,7 +71,7 @@ semi_attended_transfer: "0"   ; 0-Disabled, 1-Enabled (default)
 telnet_level: "0"      ; 0-Disabled (default), 1-Enabled, 2-Privileged
 
 # Uncomment the line below for different telnet password
-# phone_password: "FusionPBX"
+# phone_password: "OpenWeb PBX"
 
 # Inband DTMF Settings (0-disable, 1-enable (default))
 dtmf_inband: "1"

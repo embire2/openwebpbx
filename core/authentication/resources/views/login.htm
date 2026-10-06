@@ -6,6 +6,7 @@
 		<meta http-equiv='X-UA-Compatible' content='IE=edge' />
 		<meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no' />
 		<link rel='stylesheet' type='text/css' href='{$project_path}/themes/default/css.php' />
+		<link rel='stylesheet' href='{$project_path}/themes/default/openweb.css?v=2' />
 		<link rel='icon' href='{$favicon}' />
 		<script language='JavaScript' type='text/javascript' src='{$project_path}/resources/jquery/jquery.min.js.php'></script>
 		<script language='JavaScript' type='text/javascript'>
@@ -55,7 +56,8 @@
 			{/literal}
 
 		</script>
-		<title>{$login_title}</title>
+		<title>{$login_title} · OpenWeb PBX</title>
+		<script>document.documentElement.classList.add('openweb-login');</script>
 	</head>
 	<body>
 		{if !empty($background_video)}
@@ -70,7 +72,7 @@
 			<div id='default_login'>
 				<div id='default_login_card'>
 					{if $login_logo_enabled}
-					<a href='{$project_path}/'><img id='login_logo' style='width: {$login_logo_width}; height: {$login_logo_height};' src='{$login_logo_source}' /></a><br />
+					<a href='{$project_path}/'><img id='login_logo' alt='OpenWeb PBX' style='width: {$login_logo_width}; height: {$login_logo_height};' src='{$login_logo_source}' /></a><br />
 					{/if}
 					<form method='post' name='frm' action=''>
 						<div class='login_body_inner' style='width: min-content;'>

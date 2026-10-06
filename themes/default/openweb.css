@@ -1,0 +1,40 @@
+/* OpenWeb PBX's Fluent administration surfaces share the desktop's visual language. */
+html.openweb-page,html.openweb-embedded{background:#f7f9fc;color-scheme:light;--openweb-surface:#fff;--openweb-text:#263449;--openweb-line:#e1e7ef;--openweb-accent:#0067c0}
+.openweb-page body,.openweb-embedded body{font-family:"Segoe UI Variable","Segoe UI",system-ui,sans-serif!important;background:#f7f9fc!important;color:var(--openweb-text)!important;margin:0!important;padding:0!important;font-size:13px}
+.openweb-page #background-image,.openweb-page #background-color,.openweb-embedded #background-image,.openweb-embedded #background-color,.openweb-page #menu_side_container,.openweb-embedded #menu_side_container,.openweb-page #footer,.openweb-embedded #footer,.openweb-page #header,.openweb-embedded #header,.openweb-page .navbar,.openweb-embedded .navbar{display:none!important}
+.openweb-page #main_content,.openweb-embedded #main_content{width:100%!important;margin:0!important;padding:24px!important;float:none!important;color:var(--openweb-text)!important}
+.openweb-page #content_container,.openweb-embedded #content_container{width:100%!important;margin:0!important;float:none!important}
+.openweb-page .container-fluid,.openweb-embedded .container-fluid{width:100%!important;margin:0!important;padding:0!important}
+.openweb-page .body_header,.openweb-embedded .body_header,.openweb-page #body_header,.openweb-embedded #body_header{display:none!important}
+.openweb-page .title,.openweb-embedded .title,.openweb-page .heading,.openweb-embedded .heading{color:var(--openweb-text)!important;font-family:inherit!important;font-weight:600!important;font-size:22px!important;letter-spacing:-.4px}
+.openweb-page .btn,.openweb-embedded .btn{font-family:inherit!important;background:var(--openweb-surface);border:1px solid var(--openweb-line);border-radius:5px!important;box-shadow:0 1px 2px rgba(32,49,76,.06);font-size:12px!important;text-shadow:none!important;color:var(--openweb-text)}
+.openweb-page .btn:hover,.openweb-embedded .btn:hover{background:#edf4fc;color:var(--openweb-accent)}
+.openweb-page .formfld,.openweb-embedded .formfld,.openweb-page .txt,.openweb-embedded .txt,.openweb-page select,.openweb-embedded select{font-family:inherit!important;background:var(--openweb-surface)!important;border:1px solid var(--openweb-line)!important;border-bottom-color:#97a7ba!important;border-radius:4px!important;color:var(--openweb-text)!important;min-height:30px}
+.openweb-page .formfld:focus,.openweb-embedded .formfld:focus,.openweb-page .txt:focus,.openweb-embedded .txt:focus{outline:2px solid var(--openweb-accent)!important;outline-offset:1px}
+.openweb-page .list,.openweb-embedded .list{border-radius:7px;overflow:hidden;border:1px solid var(--openweb-line)!important;border-collapse:separate!important;border-spacing:0}
+.openweb-page .list th,.openweb-embedded .list th,.openweb-page .th,.openweb-embedded .th{font-family:inherit!important;background:#edf1f7!important;color:#4a5e79!important;font-weight:600!important;text-shadow:none!important;font-size:11px!important;border-color:var(--openweb-line)!important}
+.openweb-page .list td,.openweb-embedded .list td{font-family:inherit!important;border-color:var(--openweb-line)!important;color:var(--openweb-text)}
+.openweb-page .list tr:nth-child(odd) td,.openweb-embedded .list tr:nth-child(odd) td{background:var(--openweb-surface)}
+.openweb-page .list tr:nth-child(even) td,.openweb-embedded .list tr:nth-child(even) td{background:#f8fafd}
+.openweb-page .list tr:hover td,.openweb-embedded .list tr:hover td{background:#eef5ff}
+.openweb-app-header{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;background:rgba(235,242,251,.9);border-bottom:1px solid #e1e7ef;font-size:13px;color:#31547e}.openweb-app-header a{color:#0067c0!important;text-decoration:none!important}.openweb-app-header strong{font-weight:600}
+.openweb-page .heading>b,.openweb-embedded .heading>b{color:var(--openweb-text)!important;font-family:inherit!important;font-size:22px!important;font-weight:600!important}
+.openweb-page .card,.openweb-embedded .card{background:var(--openweb-surface)!important;border:1px solid var(--openweb-line)!important;border-radius:8px!important;box-shadow:0 2px 8px rgba(22,42,72,.04)!important}
+.openweb-page .list th a,.openweb-embedded .list th a{color:inherit!important}
+.openweb-embedded[data-theme="dark"] .vtable{background:var(--openweb-surface)!important;color:var(--openweb-text)!important;border-color:var(--openweb-line)!important}
+.openweb-embedded[data-theme="dark"] a{color:var(--openweb-accent)}
+/* Preserve all authentication mechanisms while styling the existing login form. */
+.openweb-login body{font-family:"Segoe UI Variable","Segoe UI",system-ui,sans-serif!important;background:#c8ddfa url('/themes/default/images/openweb-wallpaper.svg') center/cover fixed!important;color:#263449!important;min-height:100dvh}
+.openweb-login *{box-sizing:border-box}
+.openweb-login #background-image,.openweb-login #background-color,.openweb-login #background-video{display:none!important}
+.openweb-login #page{display:flex!important;align-items:center!important;justify-content:center!important;min-height:100dvh!important;width:100%!important;padding:24px!important}
+.openweb-login #default_login{margin:0!important;padding:0!important;width:370px!important;max-width:100%!important;height:auto!important;position:static!important;transform:none!important}
+.openweb-login #default_login_card{width:100%!important;background:rgba(247,251,255,.83)!important;backdrop-filter:blur(32px);border:1px solid rgba(255,255,255,.7)!important;border-radius:14px!important;box-shadow:0 25px 85px rgba(20,57,110,.23)!important;padding:34px 32px!important;min-width:0!important;margin:0!important}
+.openweb-login #login_logo{width:268px!important;max-width:100%!important;height:auto!important;margin:0 0 27px!important;filter:none!important}
+.openweb-login .login_body_inner{width:100%!important}.openweb-login .login_text,.openweb-login .login_link{font-family:inherit!important;color:#566a86!important;font-size:12px!important;text-shadow:none!important}
+.openweb-login input.txt{background:rgba(255,255,255,.85)!important;border:1px solid #ced9e7!important;border-bottom:2px solid #97abc5!important;border-radius:5px!important;width:100%!important;min-width:0!important;text-align:left!important;padding:12px!important;color:#20334d!important;font-family:inherit!important;font-size:13px!important;height:auto!important}
+.openweb-login input.txt:focus{outline:none!important;border-bottom-color:#0067c0!important;box-shadow:0 0 0 2px rgba(0,103,192,.1)}
+.openweb-login #btn_login{background:#0067c0!important;border:1px solid #0059a6!important;border-radius:5px!important;color:white!important;font-family:inherit!important;font-size:13px!important;padding:11px!important;min-height:42px!important;height:auto!important;box-shadow:0 2px 5px rgba(0,83,170,.18)!important;text-shadow:none!important}
+.openweb-login #btn_login:hover{background:#005ba9!important}.openweb-login #message_container{position:fixed!important;top:16px!important;left:50%!important;transform:translateX(-50%)!important;width:min(500px,calc(100% - 32px))!important;z-index:10000}
+.openweb-embedded[data-theme="dark"]{--openweb-surface:#263348;--openweb-text:#e0e9f6;--openweb-line:#40516a;--openweb-accent:#6cc0ff;background:#202b3d;color-scheme:dark}.openweb-embedded[data-theme="dark"] body{background:#202b3d!important}.openweb-embedded[data-theme="dark"] .list tr:nth-child(even) td{background:#233044}.openweb-embedded[data-theme="dark"] .list th{background:#2c3d55!important;color:#cfdef3!important}.openweb-embedded[data-theme="dark"] .list tr:hover td{background:#314764}.openweb-embedded[data-theme="dark"] .btn:hover{background:#314764}
+@media(max-width:680px){.openweb-embedded #main_content,.openweb-page #main_content{padding:16px!important;overflow-x:auto}.openweb-app-header{padding:12px 16px}.openweb-login #default_login_card{padding:30px 23px!important}}

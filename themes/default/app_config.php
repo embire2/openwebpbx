@@ -2404,7 +2404,7 @@
 		$apps[$x]['default_settings'][$y]['default_setting_category'] = "theme";
 		$apps[$x]['default_settings'][$y]['default_setting_subcategory'] = "menu_side_brand_image_contracted";
 		$apps[$x]['default_settings'][$y]['default_setting_name'] = "text";
-		$apps[$x]['default_settings'][$y]['default_setting_value'] = "/themes/default/images/logo_side_contracted.png";
+		$apps[$x]['default_settings'][$y]['default_setting_value'] = "/themes/default/images/openweb-mark.svg";
 		$apps[$x]['default_settings'][$y]['default_setting_enabled'] = "false";
 		$apps[$x]['default_settings'][$y]['default_setting_description'] = "Set the contracted brand image path for the Side menu.";
 		$y++;
@@ -2412,7 +2412,7 @@
 		$apps[$x]['default_settings'][$y]['default_setting_category'] = "theme";
 		$apps[$x]['default_settings'][$y]['default_setting_subcategory'] = "menu_side_brand_image_expanded";
 		$apps[$x]['default_settings'][$y]['default_setting_name'] = "text";
-		$apps[$x]['default_settings'][$y]['default_setting_value'] = "/themes/default/images/logo_side_expanded.png";
+		$apps[$x]['default_settings'][$y]['default_setting_value'] = "/themes/default/images/openweb-logo.svg";
 		$apps[$x]['default_settings'][$y]['default_setting_enabled'] = "false";
 		$apps[$x]['default_settings'][$y]['default_setting_description'] = "Set the expanded brand image path for the Side menu.";
 		$y++;
@@ -3148,7 +3148,7 @@
 		$apps[$x]['default_settings'][$y]['default_setting_category'] = "theme";
 		$apps[$x]['default_settings'][$y]['default_setting_subcategory'] = "title";
 		$apps[$x]['default_settings'][$y]['default_setting_name'] = "text";
-		$apps[$x]['default_settings'][$y]['default_setting_value'] = "FusionPBX";
+		$apps[$x]['default_settings'][$y]['default_setting_value'] = "OpenWeb PBX";
 		$apps[$x]['default_settings'][$y]['default_setting_enabled'] = "true";
 		$apps[$x]['default_settings'][$y]['default_setting_description'] = "Brand used in the browser title bar.";
 		$y++;
