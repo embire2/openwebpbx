@@ -82,6 +82,10 @@
 	}
 
 //set the domain_uuid variable from the session
+	// Re-check tenant membership and suspension for existing sessions on every endpoint.
+	if (!empty($_SESSION['authorized'])) {
+		(new pbx_tenants)->guard();
+	}
 	if (!empty($_SESSION["domain_uuid"])) {
 		$domain_uuid = $_SESSION["domain_uuid"];
 	}

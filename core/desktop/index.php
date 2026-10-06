@@ -62,6 +62,9 @@ $collect = function (array $items, string $group = '') use (&$collect, &$applica
     }
 };
 $collect($menu->menu_array());
+if ((new pbx_tenants)->installed() && (new pbx_tenants)->workspaceOnly()) {
+    $applications = array_filter($applications, fn($app) => str_contains($app['url'], '/app/tenant_services/'));
+}
 if (permission_exists('user_edit') || permission_exists('user_view')) {
     $applications['/core/users/user_profile.php'] = ['id' => 'profile', 'title' => 'My Profile',
         'url' => PROJECT_PATH.'/core/users/user_profile.php', 'group' => 'Workspace', 'icon' => 'fa-solid fa-user'];
@@ -83,7 +86,7 @@ header('Cache-Control: no-store');
     <link rel="stylesheet" href="<?= PROJECT_PATH ?>/resources/fontawesome/css/all.min.css.php">
     <link rel="stylesheet" href="<?= PROJECT_PATH ?>/core/desktop/desktop.css?v=2">
     <script id="desktop-data" type="application/json"><?= json_encode($bootstrap, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES) ?></script>
-    <script defer src="<?= PROJECT_PATH ?>/core/desktop/desktop.js?v=2"></script>
+    <script defer src="<?= PROJECT_PATH ?>/core/desktop/desktop.js?v=3"></script>
 </head>
 <body>
     <main id="desktop" aria-label="OpenWeb PBX desktop">

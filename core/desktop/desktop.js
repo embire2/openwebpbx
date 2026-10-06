@@ -11,7 +11,7 @@
   let calendarMonth = new Date();
   const savePreferences = () => { try { localStorage.setItem(data.preferenceKey, JSON.stringify(preferences)); } catch { /* Storage may be disabled. */ } };
   const announce = (text) => { $('#desktop-announcement').textContent = text; };
-  const pinnedPatterns = ['/core/dashboard/', '/app/extensions/', '/core/users/users.php', '/app/xml_cdr/', '/app/ivr_menus/', '/app/ring_groups/', '/app/voicemails/', '/app/call_flows/', '/app/gateways/', '/app/dialplans/', '/app/devices/', '/core/default_settings/'];
+  const pinnedPatterns = ['/app/tenant_services/', '/core/dashboard/', '/app/extensions/', '/core/users/users.php', '/app/xml_cdr/', '/app/ivr_menus/', '/app/ring_groups/', '/app/voicemails/', '/app/call_flows/', '/app/gateways/', '/app/dialplans/', '/app/devices/', '/core/default_settings/'];
   const pinned = pinnedPatterns.map((pattern) => apps.find((app) => app.url.includes(pattern))).filter(Boolean);
   if (!pinned.length) pinned.push(...apps.slice(0, 12));
   const findApp = (pattern) => apps.find((app) => app.url.includes(pattern));
@@ -22,6 +22,7 @@
     result.setAttribute('aria-hidden', 'true');
     const title = app.title.toLowerCase();
     const presets = [
+      [/tenant|service|template/, 'fa-building', 'blue'],
       [/overview|dashboard|statistic/, 'fa-chart-simple', 'blue'],
       [/extension|phone|device/, 'fa-phone', 'blue'],
       [/user|profile|contact/, 'fa-user-group', 'orange'],

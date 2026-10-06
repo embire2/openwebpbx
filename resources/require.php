@@ -146,6 +146,14 @@
 	}
 
 //change the domain
+	if (!empty($_SESSION['authorized']) && !empty($_GET['domain_uuid']) && is_uuid($_GET['domain_uuid']) && ($_GET['domain_change'] ?? '') === 'true') {
+		// Tenant administrators may only select a PBX assigned to their account.
+		$tenant_access = new pbx_tenants;
+		if ($tenant_access->installed() && !$tenant_access->canDomain($_GET['domain_uuid'])) {
+			http_response_code(403);
+			exit('PBX service access denied.');
+		}
+	}
 	if (!empty($_GET["domain_uuid"]) && is_uuid($_GET["domain_uuid"]) && !empty($_GET["domain_change"]) && $_GET["domain_change"] == "true" && permission_exists('domain_select')) {
 
 		//include domains
