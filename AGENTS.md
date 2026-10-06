@@ -22,5 +22,7 @@
 - Created a disabled temporary extension through the existing CSRF-protected form, verified persistence, then deleted the extension and voicemail through the UI. Live counts returned to zero. Unsaved-change confirmation worked.
 - Verified dark theme in embedded applications, wallpaper/theme persistence after reload, fullscreen, calendar month navigation, and 390px mobile layouts. Browser console reported zero errors or warnings.
 - Final styling checks passed for dark cards and headings. Search and list selection do not trigger false unsaved-change warnings. Unauthenticated desktop/status requests render the sign-in form.
-- Application and database deployment are complete; the verified source is ready to publish on `customization`.
+- Published the verified source to public `embire2/openwebpbx` and set `customization` as the repository default branch. The live checkout now tracks `origin/customization`; existing optional app directories are preserved.
+- Ready for further customization at `https://173.214.174.68/`. HTTPS currently uses the installed self-signed certificate. SIP endpoint registration and external calling have not been tested because no trunks or endpoints are configured.
+- Optional Windows RDP settings were saved to the local `.env` with mode `600`; Git ignores that file and it is absent from the live web root. No Windows-specific issue required an RDP session.
 - Pre-change application and database backups are stored privately under `/var/backups/openwebpbx`.
