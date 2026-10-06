@@ -2,6 +2,7 @@
 /** OpenWeb PBX desktop. Existing administration applications retain their own permissions. */
 require_once dirname(__DIR__, 2).'/resources/require.php';
 require_once PROJECT_ROOT.'/resources/check_auth.php';
+if((new pbx_setup)->canManage())pbx_admin::openPreferred();
 
 // A session timeout inside an application must never open a desktop inside a desktop.
 if (($_SERVER['HTTP_SEC_FETCH_DEST'] ?? '') === 'iframe') {
@@ -62,6 +63,12 @@ $collect = function (array $items, string $group = '') use (&$collect, &$applica
     }
 };
 $collect($menu->menu_array());
+$adminPages=['/app/extensions/extensions.php'=>['Users','users'],'/app/devices/devices.php'=>['Phones','phones'],'/app/gateways/gateways.php'=>['Voice & Chat','voice'],'/app/destinations/destinations.php'=>['DID Numbers','incoming'],'/app/ring_groups/ring_groups.php'=>['Ring Groups','ring_groups'],'/app/ivr_menus/ivr_menus.php'=>['Digital Receptionists','receptionists'],'/app/call_centers/call_center_queues.php'=>['Call Queues','queues'],'/app/time_conditions/time_conditions.php'=>['Office Hours','hours'],'/app/xml_cdr/xml_cdr.php'=>['Reports','reports'],'/app/recordings/recordings.php'=>['Recordings','recordings'],'/app/voicemails/voicemails.php'=>['Voicemail','voicemails']];
+if((new pbx_setup)->canManage()&&(new pbx_admin)->restored())foreach($applications as $key=>&$application){
+    if(isset($adminPages[$key])){$application['title']=$adminPages[$key][0];$application['url']=PROJECT_PATH.'/app/pbx_setup/?view='.$adminPages[$key][1];$application['group']='Admin';}
+    if($key==='/app/pbx_setup/')$application['title']='Admin';
+}
+unset($application);
 if (isset($applications['/app/pbx_setup/']) && !(new pbx_setup)->canManage()) unset($applications['/app/pbx_setup/']);
 if ((new pbx_tenants)->installed() && (new pbx_tenants)->workspaceOnly() && !permission_exists('domain_all')) {
     $applications = array_filter($applications, fn($app) => str_contains($app['url'], '/app/tenant_services/') || str_contains($app['url'], '/app/pbx_setup/'));
@@ -73,8 +80,11 @@ if (permission_exists('user_edit') || permission_exists('user_view')) {
 $bootstrap = ['apps' => array_values($applications), 'user' => $_SESSION['username'], 'domainUuid' => $_SESSION['domain_uuid'],
     'domain' => $_SESSION['domain_name'], 'preferenceKey' => 'openweb-desktop-'.$_SESSION['domain_uuid'].'-'.$_SESSION['user_uuid'],
     'statusUrl' => PROJECT_PATH.'/core/desktop/?action=status', 'status' => desktop_status($database)];
-$bootstrap['openSetup'] = ($bootstrap['status']['extensions'] === 0) && isset($applications['/app/pbx_setup/']);
+$bootstrap['openSetup'] = isset($applications['/app/pbx_setup/']);
 $escape = static fn($value) => htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+$workspaceLabel=$_SESSION['domain_name'];
+$serviceLabel=$database->select('select s.service_name,t.tenant_name from v_pbx_services s join v_pbx_tenants t using(tenant_uuid) where s.domain_uuid=:domain',['domain'=>$_SESSION['domain_uuid']],'row');
+if($serviceLabel)$workspaceLabel=$serviceLabel['tenant_name'].' · '.$serviceLabel['service_name'];
 header('Cache-Control: no-store');
 ?>
 <!doctype html>
@@ -97,9 +107,9 @@ header('Cache-Control: no-store');
         <aside class="workspace-card glass" aria-label="PBX status">
             <div class="workspace-eyebrow">YOUR WORKSPACE</div>
             <h1>Welcome back,<br><span><?= $escape($_SESSION['username']) ?>.</span></h1>
-            <p class="workspace-domain"><?= $escape($_SESSION['domain_name']) ?></p>
+            <p class="workspace-domain"><?= $escape($workspaceLabel) ?></p>
             <div class="connection-status"><span class="status-dot"></span><span id="connection-label" aria-live="polite">Checking PBX connection</span></div>
-            <div class="workspace-metrics"><div><strong data-metric="extensions">—</strong><span>Extensions</span></div><div><strong data-metric="registered">—</strong><span>Registered</span></div><div><strong data-metric="calls">—</strong><span>Live channels</span></div></div>
+            <div class="workspace-metrics"><div><strong data-metric="extensions">—</strong><span>Users</span></div><div><strong data-metric="registered">—</strong><span>Connected Phones</span></div><div><strong data-metric="calls">—</strong><span>Active Calls</span></div></div>
             <button class="workspace-launch" data-toggle="start">Explore your applications <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
             <p class="workspace-tip">Your tools, one desktop.<br>Open an app to get started.</p>
         </aside>
@@ -119,7 +129,7 @@ header('Cache-Control: no-store');
     <section id="quick-settings" class="quick-settings glass popover" aria-label="Quick settings" hidden>
         <div class="start-section-heading"><h2>Quick settings</h2><span class="status-badge">OpenWeb PBX</span></div>
         <div class="quick-tiles"><button id="theme-toggle" class="quick-tile"><i class="fa-solid fa-moon" aria-hidden="true"></i><span>Dark mode</span></button><button id="wallpaper-toggle" class="quick-tile"><i class="fa-solid fa-palette" aria-hidden="true"></i><span>Wallpaper</span></button><button id="fullscreen-toggle" class="quick-tile"><i class="fa-solid fa-expand" aria-hidden="true"></i><span>Full screen</span></button></div>
-        <div class="quick-connection"><i class="fa-solid fa-network-wired" aria-hidden="true"></i><div><strong id="quick-status">Checking connection</strong><span><?= $escape($_SESSION['domain_name']) ?></span></div></div>
+        <div class="quick-connection"><i class="fa-solid fa-network-wired" aria-hidden="true"></i><div><strong id="quick-status">Checking connection</strong><span><?= $escape($workspaceLabel) ?></span></div></div>
         <button id="refresh-status" class="subtle-button">Refresh connection status <i class="fa-solid fa-rotate" aria-hidden="true"></i></button>
     </section>
 

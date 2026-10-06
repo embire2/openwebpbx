@@ -62,7 +62,7 @@ class pbx_setup {
         if (!$manager->canDomain($domain)) throw new RuntimeException('PBX service access denied.');
         $params = ['domain'=>$domain]; $counts = [];
         foreach (['users'=>'v_extensions', 'trunks'=>'v_gateways', 'numbers'=>'v_destinations', 'ring_groups'=>'v_ring_groups'] as $key=>$table) $counts[$key] = (int)$this->query('select count(*) from '.$table.' where domain_uuid=:domain', $params)->fetchColumn();
-        $users = $this->query("select e.extension_uuid,e.extension,e.number_alias,e.effective_caller_id_name,e.description,e.enabled,coalesce(nullif(e.number_alias,''),e.extension) as number,e.effective_caller_id_name as name,v.voicemail_mail_to as email from v_extensions e left join v_voicemails v on v.domain_uuid=e.domain_uuid and v.voicemail_id=coalesce(nullif(e.number_alias,''),e.extension) where e.domain_uuid=:domain order by number limit 100", $params)->fetchAll(PDO::FETCH_ASSOC);
+        $users = $this->query("select e.extension_uuid,e.extension,e.number_alias,e.effective_caller_id_name,e.description,e.enabled,coalesce(nullif(e.number_alias,''),nullif(e.effective_caller_id_number,''),e.extension) as number,e.effective_caller_id_name as name,v.voicemail_mail_to as email from v_extensions e left join v_voicemails v on v.domain_uuid=e.domain_uuid and v.voicemail_id=coalesce(nullif(e.number_alias,''),nullif(e.effective_caller_id_number,''),e.extension) where e.domain_uuid=:domain order by number limit 100", $params)->fetchAll(PDO::FETCH_ASSOC);
         $trunks = $this->query('select gateway_uuid,gateway,proxy,enabled,register from v_gateways where domain_uuid=:domain order by gateway limit 100', $params)->fetchAll(PDO::FETCH_ASSOC);
         $groups = $this->query('select ring_group_uuid,ring_group_name,ring_group_extension,ring_group_strategy,ring_group_enabled from v_ring_groups where domain_uuid=:domain order by ring_group_extension limit 100', $params)->fetchAll(PDO::FETCH_ASSOC);
         $numbers = $this->query('select destination_uuid,destination_number,destination_description,destination_enabled from v_destinations where domain_uuid=:domain order by destination_number limit 100', $params)->fetchAll(PDO::FETCH_ASSOC);
@@ -73,7 +73,7 @@ class pbx_setup {
             'checklist'=>[
                 ['title'=>'Add your team', 'description'=>'Create users and voicemail, then connect their phones.', 'complete'=>$counts['users']>0, 'url'=>'?view=users'],
                 ['title'=>'Connect a voice provider', 'description'=>'Verify your SIP trunk and enable it after a connection test.', 'complete'=>$enabledTrunks>0, 'url'=>'?view=voice'],
-                ['title'=>'Route your phone numbers', 'description'=>'Check inbound numbers, provider ingress, and outbound rules.', 'complete'=>$enabledNumbers>0, 'url'=>'?view=handling'],
+                ['title'=>'Route your phone numbers', 'description'=>'Check inbound numbers, destinations and outbound rules.', 'complete'=>$enabledNumbers>0, 'url'=>'?view=handling'],
                 ['title'=>'Make a test call', 'description'=>'Test incoming, outgoing, and emergency calling with your provider.', 'complete'=>false, 'url'=>'?view=handling']]];
     }
     private function metadata(array $input): array {
@@ -124,18 +124,32 @@ class pbx_setup {
     private function preview(array $metadata, array $plan): array {
         $public = threecx_backup::preview($plan);
         $counts = ['users'=>count($plan['users']), 'trunks'=>count($plan['trunks']), 'numbers'=>count($plan['inbound_rules']), 'ring_groups'=>count($plan['ring_groups']), 'outbound_rules'=>count($plan['outbound_rules'])];
+        if(isset($plan['v20'])){$counts=threecx_v20::counts($plan);$counts['numbers']=$counts['inbound_rules'];}
         return array_merge($public, ['summary'=>array_merge($metadata, ['user_count'=>$counts['users'], 'trunk_count'=>$counts['trunks'], 'number_count'=>$counts['numbers'], 'ring_group_count'=>$counts['ring_groups'], 'source_version'=>$plan['source_version'], 'source_format'=>$plan['source_format']]), 'counts'=>$counts]);
     }
     public function analyzeUpload(array $upload): array {
         $this->requireManage();
-        if (($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !isset($upload['tmp_name']) || !is_string($upload['tmp_name']) || !is_uploaded_file($upload['tmp_name'])) throw new InvalidArgumentException('Upload a ZIP backup or XML configuration file within the 50 MB limit.');
-        if (($upload['size'] ?? 0) > 50*1024*1024) throw new InvalidArgumentException('The upload exceeds the 50 MB limit.');
+        if (($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !isset($upload['tmp_name']) || !is_string($upload['tmp_name']) || !is_uploaded_file($upload['tmp_name'])) throw new InvalidArgumentException('Choose a ZIP backup smaller than 2 GB.');
+        if (($upload['size'] ?? 0) > threecx_backup::MAX_UPLOAD_BYTES) throw new InvalidArgumentException('The backup is larger than 2 GB.');
         $plan = threecx_backup::analyze($upload['tmp_name']);
         if ($plan['supported']) $plan = array_replace($plan, (new pbx_setup_provisioner($this->db))->validate($plan));
         $options = $this->options();
         $metadata = $this->metadata(['company_name'=>$options['default_company_name'], 'service_name'=>'Imported PBX']);
-        $plan['warnings'][] = 'Phones must be reprovisioned for OpenWeb PBX. 3CX applications are not migrated; configure suitable SIP clients. A successful configuration import does not verify calls.';
-        return $this->saveDraft('import', ['metadata'=>$metadata, 'plan'=>$plan], $this->preview($metadata, $plan));
+        $source=null;
+        if(isset($plan['v20'])){
+            pbx_v20_restore::validate($plan);
+            $dir='/var/lib/openwebpbx/uploads';if(!is_dir($dir)&&!mkdir($dir,0700,true))throw new RuntimeException('Backup storage is unavailable.');
+            $source=$dir.'/'.uuid().'.zip';if(!move_uploaded_file($upload['tmp_name'],$source))throw new RuntimeException('The backup could not be saved.');chmod($source,0600);
+        }
+        try{return $this->saveDraft('import', ['metadata'=>$metadata, 'plan'=>$plan,'archive'=>$source], $this->preview($metadata, $plan));}
+        catch(Throwable $e){if($source)unlink($source);throw $e;}
+    }
+    /** Operator CLI entry; web requests can only restore their own uploaded draft. */
+    public function analyzeStored(string $source,array $metadata=[]): array {
+        if(PHP_SAPI!=='cli')throw new RuntimeException('Upload your backup from Backup & Restore.');
+        $this->requireManage();$plan=threecx_backup::analyze($source);pbx_v20_restore::validate($plan);
+        $plan=array_replace($plan,(new pbx_setup_provisioner($this->db))->validate($plan));$metadata=$this->metadata($metadata);
+        return $this->saveDraft('import',['metadata'=>$metadata,'plan'=>$plan,'archive'=>$source],$this->preview($metadata,$plan));
     }
     private function saveDraft(string $kind, array $payload, array $preview): array {
         // Expired drafts lose their encrypted credentials even if nobody reopens them.
@@ -181,7 +195,7 @@ class pbx_setup {
     }
     private function create(string $id, string $kind, array $input): string {
         $this->requireManage(); $manager = $this->tenantManager();
-        $this->db->beginTransaction();
+        $restore=null;$this->db->beginTransaction();
         try {
             $draft = $this->loadDraft($id, $kind, true);
             if ($draft['completed_domain_uuid']) {
@@ -201,11 +215,13 @@ class pbx_setup {
             $service = $manager->provision(['tenant_uuid'=>$tenant['tenant_uuid'],'template_uuid'=>$template,'service_name'=>$metadata['service_name'],'slug'=>$slug,'request_uuid'=>$id], true);
             $domain = $this->query('select domain_uuid,domain_name from v_domains where domain_uuid=(select domain_uuid from v_pbx_services where service_uuid=:id)', ['id'=>$service])->fetch(PDO::FETCH_ASSOC);
             $result = (new pbx_setup_provisioner($this->db))->apply($domain['domain_uuid'], $domain['domain_name'], $plan);
+            if(isset($plan['v20'])){$restore=new pbx_v20_restore($this->db);$result['restore_report']=$restore->apply($domain['domain_uuid'],$domain['domain_name'],$plan,$payload['archive']??null);}
             $public = $this->preview($metadata, $plan); $public['draft_id'] = $id; $public['warnings'] = array_values(array_unique(array_merge($public['warnings'] ?? [], $result['warnings'] ?? [])));
+            if(isset($result['restore_report']))$public['restore_report']=$result['restore_report'];
             $this->query('delete from v_pbx_templates where template_uuid=:id', ['id'=>$template]);
             $this->query('update v_pbx_setup_drafts set completed_domain_uuid=:domain,payload_ciphertext=null,preview=cast(:preview as jsonb) where draft_uuid=:id', ['id'=>$id,'domain'=>$domain['domain_uuid'],'preview'=>json_encode($public,JSON_THROW_ON_ERROR)]);
             $this->db->commit();
-        } catch (Throwable $exception) { if ($this->db->inTransaction()) $this->db->rollBack(); throw $exception; }
+        } catch (Throwable $exception) { if ($this->db->inTransaction()) $this->db->rollBack();if($restore)$restore->rollbackFiles(); throw $exception; }
         settings::clear_cache(); (new cache)->delete(gethostname().':configuration:sofia.conf');
         try { event_socket::api('reloadxml'); } catch (Throwable $exception) { error_log('OpenWeb PBX: setup saved; telephony reload unavailable'); }
         return $domain['domain_uuid'];

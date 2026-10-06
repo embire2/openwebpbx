@@ -11,7 +11,7 @@
   let calendarMonth = new Date();
   const savePreferences = () => { try { localStorage.setItem(data.preferenceKey, JSON.stringify(preferences)); } catch { /* Storage may be disabled. */ } };
   const announce = (text) => { $('#desktop-announcement').textContent = text; };
-  const pinnedPatterns = ['/app/pbx_setup/', '/app/tenant_services/', '/app/smtp_settings/', '/core/dashboard/', '/app/extensions/', '/core/users/users.php', '/app/xml_cdr/', '/app/ivr_menus/', '/app/ring_groups/', '/app/voicemails/', '/app/call_flows/', '/app/gateways/', '/app/dialplans/', '/app/devices/', '/core/default_settings/'];
+  const pinnedPatterns = ['/app/pbx_setup/', 'view=users', 'view=voice', 'view=queues', 'view=receptionists', 'view=ring_groups', 'view=reports', 'view=recordings', '/app/tenant_services/', '/app/smtp_settings/', '/app/extensions/', '/app/devices/'];
   const pinned = pinnedPatterns.map((pattern) => apps.find((app) => app.url.includes(pattern))).filter(Boolean);
   if (!pinned.length) pinned.push(...apps.slice(0, 12));
   const findApp = (pattern) => apps.find((app) => app.url.includes(pattern));
@@ -377,7 +377,7 @@
     document.body.dataset.online = String(status.online);
     $('#connection-label').textContent = status.online ? 'PBX connected' : 'PBX connection unavailable';
     $('#taskbar-status-label').textContent = status.online ? 'All systems operational' : 'Connection unavailable';
-    $('#quick-status').textContent = status.online ? 'Telephony service connected' : 'Telephony service unavailable';
+    $('#quick-status').textContent = status.online ? 'PBX connected' : 'PBX unavailable';
     document.querySelectorAll('[data-metric]').forEach((metric) => { metric.textContent = status[metric.dataset.metric] ?? '—'; });
   }
   let checkingStatus = false;

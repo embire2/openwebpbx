@@ -12,11 +12,11 @@
  * Unmapped behavior is reported and requires a separate partial-import decision.
  */
 final class threecx_backup {
-    public const MAX_UPLOAD_BYTES = 134217728;
+    public const MAX_UPLOAD_BYTES = 2147483648;
     public const MAX_XML_BYTES = 8388608;
-    public const MAX_ARCHIVE_BYTES = 536870912;
+    public const MAX_ARCHIVE_BYTES = 8589934592;
     public const MAX_ENTRIES = 5000;
-    private const MAX_NODES = 100000;
+    private const MAX_NODES = 250000;
     private const MAX_RECORDS = 2000;
     private array $plan;
 
@@ -34,7 +34,7 @@ final class threecx_backup {
         }
         $size = filesize($path);
         if ($size === false || $size < 1 || $size > self::MAX_UPLOAD_BYTES) {
-            throw new InvalidArgumentException('The backup must be between 1 byte and 128 MB.');
+            throw new InvalidArgumentException('Choose a backup smaller than 2 GB.');
         }
         $handle = fopen($path, 'rb');
         if (!$handle) throw new InvalidArgumentException('The uploaded backup is unavailable.');
@@ -43,6 +43,7 @@ final class threecx_backup {
             [$xml, $files] = $reader->archive($path);
             $reader->parse($xml, true);
             foreach ($files as $category=>$count) {
+                if(isset($reader->plan['v20'])){$reader->plan['media_counts'][$category]=$count;continue;}
                 $reader->unsupported($category, $count, 'Archive attachments are not restored by configuration migration.');
             }
         } else {
@@ -77,6 +78,7 @@ final class threecx_backup {
             'unsupported'=>array_values($plan['unsupported'] ?? []),
             'counts'=>[], 'users'=>[], 'trunks'=>[], 'ring_groups'=>[], 'inbound_rules'=>[], 'outbound_rules'=>[],
         ];
+        if(isset($plan['v20']))$out['restore_counts']=threecx_v20::counts($plan);
         $fields = [
             'users'=>['number','name','email','enabled'],
             'trunks'=>['source_id','name','host','port','transport','register','enabled'],
@@ -136,7 +138,9 @@ final class threecx_backup {
                 if (!empty($stat['encryption_method'])) throw new InvalidArgumentException('Encrypted ZIP backups are not supported. Export a backup without encryption.');
                 if (!in_array($stat['comp_method'], [ZipArchive::CM_STORE, ZipArchive::CM_DEFLATE], true)) throw new InvalidArgumentException('The archive uses an unsupported compression method.');
                 $total += $stat['size'];
-                if ($total > self::MAX_ARCHIVE_BYTES || $stat['size'] > self::MAX_ARCHIVE_BYTES || ($stat['size'] > 1048576 && $stat['size'] > max(1,$stat['comp_size'])*200)) {
+                // Phone wallpapers in genuine V20 archives can compress over 300:1.
+                // The expanded total, file count and streamed extraction remain bounded.
+                if ($total > self::MAX_ARCHIVE_BYTES || $stat['size'] > self::MAX_ARCHIVE_BYTES || ($stat['size'] > 1048576 && $stat['size'] > max(1,$stat['comp_size'])*1000)) {
                     throw new InvalidArgumentException('The archive exceeds safe size or compression limits.');
                 }
                 if (str_ends_with($name, '/')) continue;
@@ -194,6 +198,7 @@ final class threecx_backup {
             $version = $this->text($this->child($root,'header'), 'version');
             $validVersion=preg_match('/^\d{1,3}\.\d{1,3}\.\d{1,8}(?:\.\d{1,8})?$/D',$version);
             if ($validVersion) $this->plan['source_version'] = $version;
+            if ($version==='20.0.9.995') {$this->plan=threecx_v20::read($root);return;}
             if (!$validVersion || !preg_match('/^(?:14|16)\./',$version)) {
                 $this->unsupported('source_version',1,'Only the verified legacy v14/v16 XML layout can currently be migrated. This version needs a sample and adapter validation.');
                 return;

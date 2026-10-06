@@ -1,9 +1,9 @@
 # Guided PBX setup and 3CX migration
 
-Open **PBX Setup** from the desktop, or visit `https://call.openweb.co.za/app/pbx_setup/`.
-An empty PBX opens this control panel automatically. It groups administration into Overview,
-Users & phones, Voice & numbers, Call handling, and Settings. Existing native editors remain
-available for detailed phone provisioning, queues, digital receptionists, and schedules.
+Open **Admin** from the desktop, or visit `https://call.openweb.co.za/app/pbx_setup/`.
+An empty PBX opens the setup steps automatically. Restored services use the familiar
+Dashboard, Users, Phones, Voice & Chat, Outbound Rules, Departments, Office Hours,
+Call Handling, Contacts, Reports, Recordings, Backup & Restore, and System pages.
 
 ## Create a PBX
 
@@ -19,7 +19,7 @@ The platform administrator can select an existing company workspace. Choosing **
 creates a workspace owned by that existing administrator when necessary. Tenant owners use
 their own workspace. Every setup creates a new isolated service; it does not replace an
 existing PBX. SIP passwords and voicemail PINs are generated separately for each person.
-Use the native Users & extensions editor to obtain connection details and provision phones.
+Use Users → Phone Provisioning for restored services, or the native Users editor to obtain connection details and provision phones.
 
 Providers and incoming numbers start disabled. Their incoming context is `ingress@<PBX realm>`,
 which excludes shared global dialplans and rejects unconfigured incoming calls. Bind and
@@ -29,12 +29,10 @@ Use `call.openweb.co.za` as the SIP server/outbound proxy and the service's SIP 
 
 ## 3CX V20 status
 
-**Native V20 backup restore is not yet supported.** A backup from the intended installation
-and its exact V20 update/build are required to implement and validate its adapter. Unsupported
-versions and encrypted containers produce a report and cannot create a PBX, even through
-a direct form submission. This is not a drop-in 3CX installation or a promise of full backup
-fidelity, 3CX client compatibility, or restoration of licensing, recordings, voicemail audio,
-provisioning, call history, department rules, and every routing feature.
+The supplied native V20 Update 9 backup (`20.0.9.995`) has been restored and checked.
+See [V20 restore](v20-restore.md) for restored objects, media, administration, and
+remaining differences. Unknown native builds remain unavailable until their layout
+is checked. This is OpenWeb PBX; proprietary 3CX apps and services are not imported.
 
 3CX introduced [Backup & Restore V2 in V20 Update 7](https://www.3cx.com/blog/releases/admin-system-management/).
 The [documented SetupConfig XML](https://www.3cx.com/docs/configure-pbx-automatically/) is a
@@ -46,19 +44,20 @@ and documented SetupConfig XML. It maps supported SIP users, authentication cred
 voicemail settings, basic SIP trunks, ring groups, incoming destinations, and outgoing
 prefix/length/strip/prepend rules. Unsupported settings are reported before creation;
 trunks, schedules, failover, provider header rules, media, and other omissions must be reviewed.
-Phones and applications must be reprovisioned. Legacy tests use synthetic fixtures; no actual
-customer V20 backup has been restored or validated.
+Phones and applications must be reprovisioned. Legacy tests use synthetic fixtures. The optional native V20 check uses a privately
+supplied customer archive, kept outside repository fixtures.
 
 ## Review and import
 
 1. Select **Import 3CX backup** and upload an unencrypted ZIP or configuration XML.
-2. Review supported counts, warnings, and unsupported items. Unsupported native V20
-   backups cannot proceed. Compatible configuration migration requires an explicit
+2. Review supported counts, warnings, and unsupported items. Unknown native V20 builds
+   cannot proceed. Compatible configuration migration requires an explicit
    acknowledgement of the listed limitations.
 3. Choose the company, PBX name, and timezone, and create an independent service.
 4. Configure omitted behavior and verify every call flow before moving live numbers.
 
-The web upload limit is 50 MB; XML is limited to 8 MB. Archives are never extracted or executed.
+The web upload limit is 2 GB; XML is limited to 8 MB. Media is streamed into private
+storage after validation; source programs and scripts are never executed.
 Traversal paths, symlinks, encrypted ZIP entries, ambiguous configuration files, external XML
 entities, oversized expansion, and excessive XML complexity are rejected. Preview pages omit
 credential values. Drafts are encrypted in PostgreSQL with the key outside the web root,
@@ -71,13 +70,11 @@ Provisioning is one transaction; failed creation leaves existing PBXs unchanged.
 Install PHP's ZIP extension, apply `app/tenant_services/resources/install.sql` first, then
 `app/pbx_setup/resources/install.sql`. Preserve `/etc/fusionpbx/openweb-template.key` with
 the same restricted permissions as the tenant template feature. Upload handling uses the
-existing PHP-FPM and NGINX limits; both must permit a 50 MB form upload.
+existing PHP-FPM and NGINX limits; both must permit a 2 GB form upload. Apply `app/pbx_setup/resources/restore.sql` and
+follow the Lua deployment steps in [V20 restore](v20-restore.md).
 
-Delete expired uncompleted drafts periodically, for example from a restricted root cron file:
-
-```cron
-*/10 * * * * postgres psql -d fusionpbx -v ON_ERROR_STOP=1 -qc "DELETE FROM v_pbx_setup_drafts WHERE expires_at < now() AND completed_domain_uuid IS NULL"
-```
+Run `app/pbx_setup/cleanup.php` every ten minutes as the web service account. It removes
+expired drafts and disposable upload copies. It leaves the original operator backup intact.
 
 Run the CLI-only parser checks and isolated PostgreSQL integration checks:
 
@@ -91,5 +88,6 @@ php tests/tenant_services_integration.php
 The mapper rejects foreign references, unsupported behavior, duplicate identities, and
 nonempty target PBXs. Stock dialplans copied for new services are limited to the bundled
 application/name/context pairs, excluding the platform's custom carrier and business routes.
-Real SIP registration, carrier calling, emergency routing, and a native V20 restore remain
-unverified until the actual providers, phones, and backup are available.
+Native V20 restore, preserved-password phone registration, and an answered internal
+call passed on this instance. Carrier calling and provider-approved emergency routing
+remain unverified; trunks and incoming numbers remain off.

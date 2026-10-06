@@ -88,14 +88,14 @@ class pbx_setup_provisioner {
     /** Validate without writing, for the review screen. Unknown behavior is rejected. */
     public function validate(array $plan): array {
         $output = ['users'=>[], 'trunks'=>[], 'ring_groups'=>[], 'inbound_rules'=>[], 'outbound_rules'=>[]];
-        $this->fields($plan, ['users','trunks','ring_groups','inbound_rules','outbound_rules','source_version','source_format','supported','warnings','unsupported'], 'configuration');
+        $this->fields($plan, ['users','trunks','ring_groups','inbound_rules','outbound_rules','source_version','source_format','supported','warnings','unsupported','v20','media_counts'], 'configuration');
         $numbers = []; $identities = []; $trunkIds = []; $groupNumbers = []; $didNumbers = [];
         foreach ($this->records($plan, 'users', 1000) as $user) {
             $this->fields($user, ['number','name','email','auth_id','password','voicemail_pin','enabled'], 'user');
             $number = $this->number($user['number'] ?? '', 'extension number');
             if (isset($numbers[$number])) throw new InvalidArgumentException('Duplicate extension number '.$number.'.');
             $authId = $this->text($user['auth_id'] ?? $number, 'SIP authentication ID', 64);
-            if (!preg_match('/^[A-Za-z0-9_.-]{1,64}$/D', $authId)) throw new InvalidArgumentException('A SIP authentication ID contains unsupported characters.');
+            if (!preg_match('/^[A-Za-z0-9_.!-]{1,64}$/D', $authId)) throw new InvalidArgumentException('A SIP authentication ID contains unsupported characters.');
             if (isset($identities[strtolower($authId)])) throw new InvalidArgumentException('Duplicate SIP authentication ID.');
             $name = $this->text($user['name'] ?? $number, 'user name', 80);
             // The native PHP directory writer also places caller names directly in XML.
@@ -109,7 +109,7 @@ class pbx_setup_provisioner {
             $numbers[$number] = true; $identities[strtolower($authId)] = $number;
         }
         foreach ($identities as $authId => $number) {
-            if (isset($numbers[$authId]) && (string)$authId !== $number) throw new InvalidArgumentException('A SIP authentication ID collides with another extension number.');
+            if (!isset($plan['v20']) && isset($numbers[$authId]) && (string)$authId !== $number) throw new InvalidArgumentException('A SIP authentication ID collides with another extension number.');
         }
         foreach ($this->records($plan, 'trunks', 50) as $trunk) {
             $this->fields($trunk, ['source_id','name','host','port','transport','username','password','register','enabled'], 'trunk');
@@ -211,6 +211,9 @@ class pbx_setup_provisioner {
         if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/Di', $domainUuid)) throw new InvalidArgumentException('Invalid PBX domain identifier.');
         $domainName = strtolower($this->text($domainName, 'PBX domain', 253));
         if (!preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/D', $domainName)) throw new InvalidArgumentException('Invalid PBX domain name.');
+        // V20 keeps dialled numbers in its routing table, separately from SIP accounts.
+        // An authentication ID can legitimately equal another person's dialled number.
+        $v20 = isset($plan['v20']);
         $plan = $this->validate($plan);
         $domain = $this->query('select domain_name,domain_enabled from v_domains where domain_uuid=:id for update', ['id'=>$domainUuid])->fetch(PDO::FETCH_ASSOC);
         if (!$domain || $domain['domain_name'] !== $domainName || !$domain['domain_enabled']) throw new RuntimeException('The target PBX domain is unavailable or does not match.');
@@ -225,7 +228,7 @@ class pbx_setup_provisioner {
         foreach ($plan['users'] as $user) {
             $password = $user['password']; if ($password === '') { $password = bin2hex(random_bytes(20)); $generatedPasswords++; }
             $pin = $user['voicemail_pin']; if ($pin === '') { $pin = (string)random_int(10000000,99999999); $generatedPins++; }
-            $alias = $user['auth_id'] === $user['number'] ? null : $user['number'];
+            $alias = $v20 || $user['auth_id'] === $user['number'] ? null : $user['number'];
             if ($alias !== null) $aliasedUsers++;
             $parts = explode(' ', $user['name'], 2);
             $this->insert('v_extensions', ['extension_uuid'=>$this->uuid(), 'domain_uuid'=>$domainUuid, 'extension'=>$user['auth_id'], 'number_alias'=>$alias, 'password'=>$password, 'accountcode'=>$domainName, 'user_context'=>$domainName, 'dial_domain'=>$domainName, 'directory_first_name'=>$parts[0], 'directory_last_name'=>$parts[1] ?? '', 'effective_caller_id_name'=>$user['name'], 'effective_caller_id_number'=>$user['number'], 'directory_visible'=>true, 'directory_exten_visible'=>true, 'call_timeout'=>30, 'max_registrations'=>'1', 'limit_max'=>'5', 'limit_destination'=>'!USER_BUSY', 'extension_type'=>'default', 'enabled'=>$user['enabled'], 'description'=>'Created from reviewed PBX setup']);

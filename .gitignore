@@ -19,3 +19,7 @@ app/yealink/resources/firmware/*
 /.playwright/
 /.playwright-cli/
 /output/playwright/
+
+# Customer PBX backups must stay private and out of the public repository.
+/3cx.zip
+/3cx-backups/
