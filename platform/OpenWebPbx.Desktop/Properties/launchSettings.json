@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "OpenWebPbx.Desktop (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "OpenWebPbx.Desktop (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+<?php if(!isset($admin,$operations,$view)){http_response_code(404);exit;} ?>
+<?php if($view==='callbacks' || $view==='wakeups'): $kind=$view==='callbacks'?'callback':'wakeup'; ?>
+<p><?= $view==='callbacks'?'Callers can press 2 while waiting. The queue calls an available agent first, then connects the caller.':'Guests press 1 to confirm they are awake. Unanswered calls are retried up to three times.' ?></p>
+<?php $rows=[];foreach($operations->jobs($kind) as $job){
+    ob_start();if(in_array($job['state'],['waiting','starting','failed'],true)): ?><form method="post"><?php $csrf(); ?><input type="hidden" name="action" value="job_action"><input type="hidden" name="job" value="<?= $e($job['job_uuid']) ?>"><button class="setup-button" name="job_action" value="<?= $job['state']==='failed'?'retry':'cancel' ?>"><?= $job['state']==='failed'?'Retry':'Cancel' ?></button></form><?php endif;$buttons=ob_get_clean();
+    $queue=$find($c['queues'],$job['queue_number']);$rows[]=[$e($job['created_at']),$e($queue['name']??$job['queue_number']),$e($job['target_number']),$e(ucfirst($job['state'])),$e($job['due_at']),$e($job['attempts'].' / '.$job['max_attempts']),$e($job['last_result']),$buttons];
+}$table(['Requested','Queue','Number','Status','Next Attempt','Attempts','Result','Actions'],$rows); ?>
+<?php else: ?>
+<p>Manage room phones, guests and wake-up calls. Outside calls are blocked in checked-out rooms. Check-in and check-out clear the room’s voicemail inbox and active greeting.</p>
+<div class="setup-actions"><a class="setup-button" href="?view=wakeups">Wake-up Calls</a></div>
+<details><summary>Add Room</summary><form method="post" class="setup-form"><?php $csrf(); ?><input type="hidden" name="action" value="hotel_action"><input type="hidden" name="hotel_action" value="add_room"><div class="setup-fields"><?php $choices=[];foreach($c['users'] as $n=>$u)$choices[$n]=$n.' · '.$u['name'];$select('number','Room Phone',$choices);$input('room_name','Room Name','','text','required'); ?></div><button class="setup-button primary">Add Room</button></form></details>
+<?php foreach($operations->rooms() as $room): ?>
+<details class="setup-card"><summary><strong><?= $e($room['room_name']) ?></strong> · <?= $e($room['number']) ?> · <?= $room['occupied']?'Occupied':'Vacant' ?> · <?= $e(ucfirst($room['room_status'])) ?></summary>
+<?php if($room['occupied']): ?><p>Guest: <?= $e($room['guest_name']) ?></p><?php endif; ?>
+<form method="post" class="setup-form"><?php $csrf(); ?><input type="hidden" name="action" value="hotel_action"><input type="hidden" name="number" value="<?= $e($room['number']) ?>"><input type="hidden" name="hotel_action" value="<?= $room['occupied']?'check_out':'check_in' ?>">
+<?php if(!$room['occupied'])$input('guest_name','Guest Name','','text','required autocomplete="off"'); ?><button class="setup-button primary"><?= $room['occupied']?'Check Out':'Check In' ?></button></form>
+<form method="post" class="setup-form"><?php $csrf(); ?><input type="hidden" name="action" value="hotel_action"><input type="hidden" name="hotel_action" value="room_settings"><input type="hidden" name="number" value="<?= $e($room['number']) ?>"><div class="setup-fields"><?php $select('room_status','Room Status',['clean'=>'Clean','dirty'=>'Dirty','inspected'=>'Inspected','maintenance'=>'Maintenance'],$room['room_status']);$check('do_not_disturb','Do Not Disturb',(bool)$room['do_not_disturb']); ?></div><button class="setup-button">Save Room Settings</button></form>
+<?php if($room['occupied']): ?><form method="post" class="setup-form"><?php $csrf(); ?><input type="hidden" name="action" value="hotel_action"><input type="hidden" name="hotel_action" value="wakeup"><input type="hidden" name="number" value="<?= $e($room['number']) ?>"><h3>Wake-up Call</h3><div class="setup-fields"><?php $input('wake_at','Date and Time','','datetime-local','required');$select('timezone','Timezone',array_combine(DateTimeZone::listIdentifiers(),DateTimeZone::listIdentifiers()),$c['timezone']??'Africa/Johannesburg'); ?></div><button class="setup-button">Schedule Wake-up Call</button></form>
+<?php else: ?><form method="post"><?php $csrf(); ?><input type="hidden" name="action" value="hotel_action"><input type="hidden" name="hotel_action" value="remove_room"><input type="hidden" name="number" value="<?= $e($room['number']) ?>"><button class="setup-button">Remove Room</button></form><?php endif; ?>
+</details>
+<?php endforeach; ?>
+<h3>Recent Activity</h3><?php $rows=[];foreach($operations->events() as $event)$rows[]=[$e($event['created_at']),$e($event['room_number']),$e(ucwords(str_replace('_',' ',$event['action']))),$e($event['detail'])];$table(['Time','Room','Action','Details'],$rows); ?>
+<?php endif; ?>

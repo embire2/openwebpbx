@@ -44,7 +44,7 @@ class pbx_tenants {
     private function label(string $value, int $max = 120): string { $value=trim($value);if ($value==='' || mb_strlen($value)>$max || preg_match('/[\x00-\x1f]/',$value)) throw new InvalidArgumentException('Enter a valid name.');return $value; }
     private function slug(string $value): string { $value=strtolower(trim($value));if (!preg_match('/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/D',$value)) throw new InvalidArgumentException('Use a short name with letters, numbers, and hyphens.');return $value; }
     private function key(): string {
-        $key=@file_get_contents('/etc/fusionpbx/openweb-template.key');
+        $key=@file_get_contents(pbx_paths::key());
         if ($key===false || strlen($key)!==SODIUM_CRYPTO_SECRETBOX_KEYBYTES) throw new RuntimeException('Template encryption is not configured.');return $key;
     }
     private function seal(array $data): string { $nonce=random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);return base64_encode($nonce.sodium_crypto_secretbox(json_encode($data,JSON_THROW_ON_ERROR),$nonce,$this->key())); }
@@ -64,7 +64,7 @@ class pbx_tenants {
         $limit=filter_var($input['service_limit'] ?? 10,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>100]]);if (!$limit) throw new InvalidArgumentException('Service limit must be between 1 and 100.');
         $token=bin2hex(random_bytes(32));$domain=uuid();$id=uuid();
         $this->db->beginTransaction();try {
-            $this->insert('v_domains',['domain_uuid'=>$domain,'domain_name'=>$slug.'.call.openweb.co.za','domain_description'=>$name.' workspace','domain_enabled'=>'true']);
+            $this->insert('v_domains',['domain_uuid'=>$domain,'domain_name'=>$slug.'.'.pbx_paths::host(),'domain_description'=>$name.' workspace','domain_enabled'=>'true']);
             $this->insert('v_pbx_tenants',['tenant_uuid'=>$id,'tenant_name'=>$name,'slug'=>$slug,'home_domain_uuid'=>$domain,'invite_email'=>$email,'invite_hash'=>hash('sha256',$token),'invite_expires'=>gmdate('c',time()+604800),'service_limit'=>$limit]);
             $this->db->commit();
         }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
@@ -168,7 +168,7 @@ class pbx_tenants {
     }
     private function defaults(string $domain,string $name): void {
         // Copy only standard application dialplans from the platform, never another tenant's PBX.
-        $source=$this->query("select domain_uuid,domain_name from v_domains where domain_name='call.openweb.co.za'")->fetch(PDO::FETCH_ASSOC);
+        $source=$this->query('select domain_uuid,domain_name from v_domains where domain_name=:host',['host'=>pbx_paths::host()])->fetch(PDO::FETCH_ASSOC);
         if(!$source)throw new RuntimeException('The platform PBX domain is unavailable.');
         $stock=[];
         foreach (glob(PROJECT_ROOT.'/app/dialplans/resources/switch/conf/dialplan/*.xml') as $file) {
@@ -196,7 +196,7 @@ class pbx_tenants {
         if($template['tenant_uuid']!==null&&$template['tenant_uuid']!==$tenant['tenant_uuid'])throw new RuntimeException('This template belongs to another tenant.');
         $name=$this->label($input['service_name']??'');$slug=$this->slug($input['slug']??'');$request=$this->id($input['request_uuid']??'');$c=$template['config'];
         foreach($c['trunks'] as $i=>&$g){foreach(['username','password'] as $key){$v=$input['credentials'][$i][$key]??'';if($v!=='')$g[$key]=$v;}if($g['register']&&($g['username']===''||$g['password']===''))$g['enabled']=false;}unset($g);$c=$this->config($c);
-        $domain=uuid();$service=uuid();$realm=$slug.'.'.$tenant['slug'].'.call.openweb.co.za';
+        $domain=uuid();$service=uuid();$realm=$slug.'.'.$tenant['slug'].'.'.pbx_paths::host();
         if (!$deferCommit) $this->db->beginTransaction();try {
             $this->query('select tenant_uuid from v_pbx_tenants where tenant_uuid=:id for update',['id'=>$tenant['tenant_uuid']]);
             $existing=$this->query('select service_uuid,tenant_uuid from v_pbx_services where request_uuid=:id',['id'=>$request])->fetch(PDO::FETCH_ASSOC);if($existing){if($existing['tenant_uuid']!==$tenant['tenant_uuid'])throw new RuntimeException('Invalid service request.');if (!$deferCommit) $this->db->commit();return $existing['service_uuid'];}

@@ -1,0 +1,6 @@
+<include>
+  <macro name="openweb_callback_intro"><input pattern="(.*)"><match><action function="play-file" data="$${sounds_dir}/openwebpbx/callback-intro.wav"/></match></input></macro>
+  <macro name="openweb_callback_offer"><input pattern="(.*)"><match><action function="play-file" data="$${sounds_dir}/openwebpbx/callback-offer.wav"/></match></input></macro>
+  <macro name="openweb_callback_saved"><input pattern="(.*)"><match><action function="play-file" data="$${sounds_dir}/openwebpbx/callback-saved.wav"/></match></input></macro>
+  <macro name="openweb_wakeup"><input pattern="(.*)"><match><action function="play-file" data="$${sounds_dir}/openwebpbx/wakeup.wav"/></match></input></macro>
+</include>

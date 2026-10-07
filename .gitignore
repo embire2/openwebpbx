@@ -23,3 +23,11 @@ app/yealink/resources/firmware/*
 # Customer PBX backups must stay private and out of the public repository.
 /3cx.zip
 /3cx-backups/
+
+# .NET builds and local releases
+/platform/**/bin/
+/platform/**/obj/
+/platform/.vs/
+/artifacts/
+
+/packaging/**/__pycache__/

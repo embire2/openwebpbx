@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <Version>1.0.2</Version>
+    <Authors>OpenWeb PBX contributors</Authors>
+    <Product>OpenWeb PBX</Product>
+    <RepositoryUrl>https://github.com/embire2/openwebpbx</RepositoryUrl>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+</Project>

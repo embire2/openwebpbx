@@ -1,5 +1,28 @@
 -- Pure call decisions, shared by the call runtime and deterministic restore checks.
 local P = {}
+function P.agent_available(list, id, now)
+    if type(list)~='string' or #list>65536 then return false end
+    local header,values=list:match('([^\r\n]+)\r?\n([^\r\n]+)')
+    if not header or not values then return false end
+    local keys,row={},{}
+    for value in (header..'|'):gmatch('(.-)|') do keys[#keys+1]=value end
+    local index=1
+    for value in (values..'|'):gmatch('(.-)|') do if keys[index] then row[keys[index]]=value end;index=index+1 end
+    return row.name==id and row.state=='Waiting'
+      and (row.status=='Available' or row.status=='Available (On Demand)')
+      and (tonumber(row.ready_time) or 0)<=now
+      and (tonumber(row.last_bridge_end) or 0)+(tonumber(row.wrap_up_time) or 0)<=now
+      and (tonumber(row.external_calls_count) or 0)==0
+end
+function P.callback_open(config,queue,clock)
+    if P.object_destination(config,queue,clock) then return false end
+    local h=queue.hours and queue.hours.hours
+    if h and h.type~='OfficeHours' and h.type~='OutOfOfficeHours' then
+        local d,t=clock((P.department(config,queue.number) or {}).timezone or config.timezone)
+        return P.in_hours(h,d,t)
+    end
+    return P.office(config,queue.number,clock)
+end
 function P.find(rows, number)
     for _, row in ipairs(rows or {}) do if tostring(row.number)==tostring(number) then return row end end
 end

@@ -31,9 +31,16 @@ session:setVariable('domain_name',realm)
 session:setVariable('hangup_after_bridge','false')
 session:setVariable('continue_on_fail','true')
 local route,run_user,run_group,run_queue,run_ivr,run_outbound
+local function hotel_room(number)
+    local room
+    db:query('select occupied,do_not_disturb from v_pbx_hotel_rooms where domain_uuid=:domain and number=:number',{domain=domain,number=tostring(number)},function(r) room=r end)
+    return room
+end
 local function voicemail(number,check)
     local u=config.users[tostring(number)]
     if not u or not u.voicemail_enabled then session:hangup('NO_ANSWER');return end
+    local room=hotel_room(number)
+    if room and room.occupied~='t' and room.occupied~='true' then session:hangup('CALL_REJECTED');return end
     session:answer();session:setVariable('voicemail_id',tostring(number))
     session:setVariable('voicemail_action',check and 'check' or 'leave')
     session:execute('lua','app.lua voicemail')
@@ -43,7 +50,7 @@ local function record(u)
     if u.record_external_only and internal then return end
     local id=session:getVariable('uuid')
     if not id or not id:match('^[a-f0-9%-]+$') then return end
-    local dir='/var/lib/freeswitch/storage/openwebpbx/'..domain
+    local dir=storage_dir..'/openwebpbx/'..domain
     session:setVariable('openweb_recording','true');session:setVariable('record_path',dir)
     session:setVariable('record_name',id..'.wav');session:setVariable('record_stereo','true')
     local path=dir..'/'..id..'.wav'
@@ -68,6 +75,8 @@ local function user_contact(u,timeout)
     return '['..variables..']user/'..u.auth_id..'@'..realm
 end
 run_outbound=function(number)
+    local room=hotel_room(caller)
+    if room and room.occupied~='t' and room.occupied~='true' then session:hangup('CALL_REJECTED');return end
     if not number:match('^%+?[%d*#]+$') then session:hangup('UNALLOCATED_NUMBER');return end
     local rule=P.outbound(config,number,caller)
     if not rule then session:hangup('CALL_REJECTED');return end
@@ -100,6 +109,8 @@ end
 run_user=function(number)
     local u=config.users[tostring(number)]
     if not u or not u.enabled then session:hangup('UNALLOCATED_NUMBER');return end
+    local room=hotel_room(number)
+    if room and (room.do_not_disturb=='t' or room.do_not_disturb=='true') then voicemail(number,false);return end
     local special=P.object_destination(config,u,clock)
     if special then route(special,number);return end
     local profile=P.profile(config,number,clock)
@@ -144,14 +155,50 @@ run_queue=function(number)
     for _,m in ipairs(q.members) do
         local u=config.users[tostring(m.number)]
         local profile=P.profile(config,m.number,clock)
-        local status=m.status=='LoggedIn' and u.queue_status=='LoggedIn' and u.enabled and profile.queue_status~='0' and 'Available' or 'Logged Out'
+        local reserved=false
+        db:query("select 1 as ok from v_pbx_jobs where domain_uuid=:domain and agent_number=:number and state in ('starting','calling')",{domain=domain,number=tostring(m.number)},function() reserved=true end)
+        local status=reserved and 'On Break' or (m.status=='LoggedIn' and u.queue_status=='LoggedIn' and u.enabled and profile.queue_status~='0' and 'Available' or 'Logged Out')
         api:execute('callcenter_config','agent set contact '..m.agent_uuid..' '..user_contact(u,q.ring_timeout))
         api:execute('callcenter_config','agent set status '..m.agent_uuid..' '..status)
     end
     session:answer();session:setVariable('call_center_queue_uuid',q.uuid)
     session:setVariable('queue_extension',tostring(number))
     if q.intro~='' then session:streamFile(q.intro) end
-    session:execute('callcenter',number..'@'..realm)
+    local callback_mode=q.callback_mode or 'disabled'
+    local callback_valid=caller:match('^%+?%d+$') and #caller<=32
+    local started=os.time()
+    local offered=false
+    local function request_callback()
+        if not callback_valid then return false end
+        local stored=false
+        db:query([[insert into v_pbx_jobs(job_uuid,domain_uuid,kind,queue_number,target_number,internal_target,request_key,max_attempts)
+          select :id,:domain,'callback',:queue,:target,cast(:internal as boolean),:request,:attempts
+          where (select count(*) from v_pbx_jobs where domain_uuid=:domain and kind='callback' and state in ('waiting','starting','calling'))<1000
+          on conflict do nothing returning job_uuid]],
+          {id=api:execute('create_uuid',''):gsub('%s+$',''),domain=domain,queue=tostring(number),target=caller,internal=tostring(internal),request='call/'..session:getVariable('uuid'),attempts=q.callback_attempts or 3},function() stored=true end)
+        if not stored then db:query("select 1 as ok from v_pbx_jobs where domain_uuid=:domain and kind='callback' and queue_number=:queue and target_number=:target and state in ('waiting','starting','calling')",{domain=domain,queue=tostring(number),target=caller},function() stored=true end) end
+        if stored then session:execute('phrase','openweb_callback_saved');session:hangup('NORMAL_CLEARING');return true end
+        return false
+    end
+    if callback_mode~='disabled' and callback_valid then session:execute('phrase','openweb_callback_intro') end
+    repeat
+        session:setVariable('cc_exit_keys',callback_mode~='disabled' and callback_valid and '2' or '')
+        session:setVariable('cc_exit_key','');session:setVariable('cc_agent_bridged','false')
+        session:setVariable('cc_base_score',tostring(os.time()-started))
+        session:execute('callcenter',number..'@'..realm)
+        if not session:ready() or session:getVariable('cc_agent_bridged')=='true' then break end
+        if callback_mode~='disabled' and callback_valid and session:getVariable('cc_exit_key')=='2' then if request_callback() then return end end
+        if not offered and callback_valid and (callback_mode=='automatic' or callback_mode=='offer') and os.time()-started>=(q.callback_after or 600) then
+            offered=true
+            if callback_mode=='automatic' then if request_callback() then return end
+            else
+                local digit=session:playAndGetDigits(1,1,1,7000,'','phrase:openweb_callback_offer','silence_stream://100','[12]',2000)
+                if digit=='2' and request_callback() then return end
+            end
+        end
+        if callback_mode=='disabled' or callback_mode=='request' then break end
+    until os.time()-started>=q.timeout
+    session:setVariable('cc_exit_keys','')
     if session:ready() and session:getVariable('cc_agent_bridged')~='true' then route(q.destination,number) end
 end
 run_ivr=function(number)

@@ -1,0 +1,13 @@
+[Unit]
+Description=OpenWeb PBX call engine
+After=network.target postgresql.service
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+RuntimeDirectory=freeswitch
+ExecStart=/usr/bin/freeswitch -nf -nonat
+Restart=on-failure
+LimitNOFILE=100000
+[Install]
+WantedBy=multi-user.target

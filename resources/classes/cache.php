@@ -24,9 +24,11 @@ class cache {
 
 		//get the settings
 		$this->settings = $settings;
-		$this->method = $this->settings->get('cache', 'method', 'file');
+		$this->method = config::load()->get('cache.method', $this->settings->get('cache', 'method', 'file'));
 		$this->syslog = $this->settings->get('cache', 'syslog', false);
-		$this->location = $this->settings->get('cache', 'location', '/var/cache/fusionpbx');
+		// The call engine reads these paths from config.conf. Use the same location
+		// for PHP invalidation, including native Windows installations.
+		$this->location = config::load()->get('cache.location', $this->settings->get('cache', 'location', '/var/cache/fusionpbx'));
 	}
 
 	/**

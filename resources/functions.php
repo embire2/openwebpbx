@@ -215,53 +215,15 @@ if (!function_exists('fix_postback')) {
 }
 
 if (!function_exists('uuid')) {
-	/**
-	 * Generates a unique identifier (UUID) based on the operating system.
-	 *
-	 * This function tries to generate a UUID using platform-specific methods:
-	 * - On FreeBSD, it uses `uuidgen`.
-	 * - On Linux, it first attempts to read from `/proc/sys/kernel/random/uuid`, then falls back to `uuidgen`.
-	 * - On Windows, it uses the `com_create_guid()` function.
-	 *
-	 * If none of these methods succeed, an error message is displayed, and the script exits.
-	 *
-	 * @return string The generated UUID as a string.
-	 */
+	/** Generate a cryptographically random UUIDv4 on every supported platform. */
 	function uuid(): string {
-		$uuid = null;
-		if (PHP_OS === 'FreeBSD') {
-			$uuid = trim(shell_exec("uuidgen"));
-			if (is_uuid($uuid)) {
-				return $uuid;
-			} else {
-				echo "Please install uuidgen.\n";
-				exit;
-			}
-		}
-		if (PHP_OS === 'Linux') {
-			$uuid = trim(file_get_contents('/proc/sys/kernel/random/uuid'));
-			if (is_uuid($uuid)) {
-				return $uuid;
-			} else {
-				$uuid = trim(shell_exec("uuidgen"));
-				if (is_uuid($uuid)) {
-					return $uuid;
-				} else {
-					echo "Please install uuidgen.\n";
-					exit;
-				}
-			}
-		}
-		if ((strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') && function_exists('com_create_guid')) {
-			$uuid = trim(com_create_guid(), '{}');
-			if (is_uuid($uuid)) {
-				return $uuid;
-			} else {
-				echo "The com_create_guid() function failed to create a uuid.\n";
-				exit;
-			}
-		}
-		return '';
+		// RFC 9562 UUIDv4 from the operating system CSPRNG, including Windows
+		// installations without the optional COM extension.
+		$bytes = random_bytes(16);
+		$bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
+		$bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
+		$hex = bin2hex($bytes);
+		return substr($hex,0,8).'-'.substr($hex,8,4).'-'.substr($hex,12,4).'-'.substr($hex,16,4).'-'.substr($hex,20,12);
 	}
 
 }

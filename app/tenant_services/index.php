@@ -10,8 +10,8 @@ if($_SERVER['REQUEST_METHOD']==='POST') {
     try {
         if(!(new token)->validate('/app/tenant_services/index.php')) { http_response_code(403);throw new RuntimeException('Your form expired. Refresh the page and try again.'); }
         switch($_POST['action']??'') {
-            case 'invite': $_SESSION['pbx_invite_url']='https://call.openweb.co.za'.$portal->invite($_POST);$view='tenants';break;
-            case 'renew_invite': $_SESSION['pbx_invite_url']='https://call.openweb.co.za'.$portal->renewInvitation($_POST['tenant_uuid']??'');$view='tenants';break;
+            case 'invite': $_SESSION['pbx_invite_url']=pbx_paths::url().$portal->invite($_POST);$view='tenants';break;
+            case 'renew_invite': $_SESSION['pbx_invite_url']=pbx_paths::url().$portal->renewInvitation($_POST['tenant_uuid']??'');$view='tenants';break;
             case 'suspend': $portal->suspend($_POST['tenant_uuid']??'',($_POST['enabled']??'')==='true');$view='tenants';break;
             case 'save_template': $portal->saveTemplate($_POST);$view='templates';$_SESSION['pbx_notice']='Template saved. Existing services keep their current setup.';break;
             case 'provision': $id=$portal->provision($_POST);$portal->switchService($id);header('Location: /core/desktop/');exit;

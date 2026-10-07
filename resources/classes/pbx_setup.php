@@ -33,7 +33,7 @@ class pbx_setup {
         return $value;
     }
     private function key(): string {
-        $key = @file_get_contents('/etc/fusionpbx/openweb-template.key');
+        $key = @file_get_contents(pbx_paths::key());
         if ($key === false || strlen($key) !== SODIUM_CRYPTO_SECRETBOX_KEYBYTES) throw new RuntimeException('Setup encryption is not configured.');
         return $key;
     }
@@ -138,7 +138,7 @@ class pbx_setup {
         $source=null;
         if(isset($plan['v20'])){
             pbx_v20_restore::validate($plan);
-            $dir='/var/lib/openwebpbx/uploads';if(!is_dir($dir)&&!mkdir($dir,0700,true))throw new RuntimeException('Backup storage is unavailable.');
+            $dir=pbx_paths::uploads();if(!is_dir($dir)&&!mkdir($dir,0700,true))throw new RuntimeException('Backup storage is unavailable.');
             $source=$dir.'/'.uuid().'.zip';if(!move_uploaded_file($upload['tmp_name'],$source))throw new RuntimeException('The backup could not be saved.');chmod($source,0600);
         }
         try{return $this->saveDraft('import', ['metadata'=>$metadata, 'plan'=>$plan,'archive'=>$source], $this->preview($metadata, $plan));}
@@ -188,7 +188,7 @@ class pbx_setup {
         $tenant = uuid(); $home=uuid(); $slug = 'company-'.substr(str_replace('-', '', $tenant), 0, 12);
         // Keep a company workspace separate from the shared platform administration domain.
         $this->query('insert into v_domains(domain_uuid,domain_name,domain_description,domain_enabled) values(:id,:name,:description,\'true\')',
-            ['id'=>$home,'name'=>$slug.'.call.openweb.co.za','description'=>$name.' workspace']);
+            ['id'=>$home,'name'=>$slug.'.'.pbx_paths::host(),'description'=>$name.' workspace']);
         $this->query('insert into v_pbx_tenants(tenant_uuid,tenant_name,slug,home_domain_uuid,owner_user_uuid,invite_email) values(:id,:name,:slug,:domain,:user,:email)',
             ['id'=>$tenant,'name'=>$name,'slug'=>$slug,'domain'=>$home,'user'=>$_SESSION['user_uuid'],'email'=>$email]);
         return $manager->assertTenant($tenant, true);
