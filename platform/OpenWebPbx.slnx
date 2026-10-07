@@ -1,7 +1,7 @@
 <Solution>
   <Project Path="OpenWebPbx.Checks/OpenWebPbx.Checks.csproj" />
   <Project Path="OpenWebPbx.Desktop/OpenWebPbx.Desktop.csproj">
-    <Platform Project="x86" />
+    <Platform Project="x64" />
   </Project>
   <Project Path="OpenWebPbx.Server/OpenWebPbx.Server.csproj" />
 </Solution>
