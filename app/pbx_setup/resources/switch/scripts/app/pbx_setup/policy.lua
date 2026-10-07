@@ -1,5 +1,12 @@
 -- Pure call decisions, shared by the call runtime and deterministic restore checks.
 local P = {}
+function P.contact(value)
+    if type(value)~='string' then return nil end
+    value=value:gsub('%s+$','')
+    -- sofia_contact returns error/user_not_registered, not an ESL -ERR frame,
+    -- when the phone has no registration. Only a native SIP contact is dialable.
+    if value:match('^sofia/[^/]+/.+') then return value end
+end
 function P.agent_available(list, id, now)
     if type(list)~='string' or #list>65536 then return false end
     local header,values=list:match('([^\r\n]+)\r?\n([^\r\n]+)')

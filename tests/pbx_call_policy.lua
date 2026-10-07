@@ -2,6 +2,10 @@ local P=loadfile('app/pbx_setup/resources/switch/scripts/app/pbx_setup/policy.lu
 local n=0
 local function check(value,why) n=n+1;assert(value,why) end
 local function destination(number) return {type='Extension',number=number,external=''} end
+check(P.contact('sofia/internal/sip:100@127.0.0.1:5060\n')=='sofia/internal/sip:100@127.0.0.1:5060','Registered phone contact')
+check(not P.contact('error/user_not_registered'),'Native unregistered phone response')
+check(not P.contact('-ERR Invalid Profile'),'Invalid profile response')
+check(not P.contact(''),'Empty phone contact')
 local c={timezone='Africa/Johannesburg',departments={{number='GRP1',name='Sales',timezone='Africa/Johannesburg',members={{number='100',primary=true}},hours={type='SpecificHours',periods={{day=1,start='08:00', ['end']='17:00'}}},breaks={periods={{day=1,start='12:00',['end']='13:00'}}},holidays={{date='2026-12-25'}}}},users={['100']={profile='Available',auto_status='1',profiles={Available={available={NoAnswer={internal_inactive=false,internal=destination('101'),all=destination('102')}},away={}},Away={available={},away={Internal={outside_inactive=true,all=destination('103')},External={outside_inactive=false,all=destination('104'),outside=destination('105')}}},['Out of office']={available={},away={}}}}},outbound_rules={{prefix='0, +27',lengths='10-12',departments={'Sales'},ranges={},routes={{trunk_id='T1',strip=1,prepend='+27'}}},{prefix='9',lengths='',departments={},ranges={{from='200',to='299'}},routes={{trunk_id='T2',strip=1,prepend=''}}}}}
 local clock=function(t) return function() return 1,t,'2026-10-05' end end
 check(P.in_hours({type='AllHours'},0,'00:00'),'Always-open schedule')

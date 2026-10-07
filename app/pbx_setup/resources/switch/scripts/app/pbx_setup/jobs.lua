@@ -30,7 +30,7 @@ local function active()
     return yes
 end
 local function user_free(u)
-    if not u or not u.enabled or api:execute('sofia_contact',u.auth_id..'@'..config.realm):sub(1,4)=='-ERR' then return false end
+    if not u or not u.enabled or not P.contact(api:execute('sofia_contact',u.auth_id..'@'..config.realm)) then return false end
     local ok,channels=pcall(json.decode,api:execute('show','channels as json'))
     if not ok then return false end
     for _,c in ipairs(channels.rows or {}) do
@@ -42,8 +42,7 @@ local function outbound(number,agent,q)
     if internal_target() then
         local u=config.users[number]
         if u and u.enabled then
-            local contact=api:execute('sofia_contact',u.auth_id..'@'..config.realm):gsub('%s+$','')
-            if contact:sub(1,4)~='-ERR' then return contact end
+            return P.contact(api:execute('sofia_contact',u.auth_id..'@'..config.realm))
         end
         return nil
     end
@@ -107,8 +106,8 @@ local function deliver()
     local vars='originate_timeout=30,domain_uuid='..job.domain_uuid..',domain_name='..config.realm..',ignore_early_media=true,origination_caller_id_name='..(job.kind=='callback' and 'Queue Callback' or 'Wake-up Call')..',origination_caller_id_number='..(q and q.number or agent.number)
     -- Resolve the current registration at delivery time. A cached directory dial-string
     -- may still point to a phone's previous port after it reconnects.
-    local live_contact=api:execute('sofia_contact',agent.auth_id..'@'..config.realm):gsub('%s+$','')
-    if live_contact:sub(1,4)=='-ERR' then retry('Phone reconnected; retrying');return end
+    local live_contact=P.contact(api:execute('sofia_contact',agent.auth_id..'@'..config.realm))
+    if not live_contact then retry('Phone reconnected; retrying');return end
     vars=vars..',presence_id='..agent.auth_id..'@'..config.realm..',sip_invite_domain='..config.realm
     call=freeswitch.Session('{'..vars..'}'..live_contact)
     if not call:ready() then retry(job.kind=='callback' and 'Agent did not answer' or 'Room did not answer');return end
