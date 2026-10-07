@@ -83,6 +83,8 @@ $php=@"
 extension_dir="$root\php\ext"
 extension=pdo_pgsql
 extension=pgsql
+extension=pdo_sqlite
+extension=sqlite3
 extension=mbstring
 extension=openssl
 extension=curl
@@ -201,6 +203,7 @@ finally {$manager.Dispose()}
 if(!$CertificateThumbprint){$cert=New-SelfSignedCertificate -DnsName $DomainName -CertStoreLocation Cert:\LocalMachine\My -FriendlyName 'OpenWeb PBX local test';$CertificateThumbprint=$cert.Thumbprint;Export-Certificate -Cert $cert -FilePath "$private\local-test.cer"|Out-Null;Import-Certificate -FilePath "$private\local-test.cer" -CertStoreLocation Cert:\LocalMachine\Root|Out-Null}
 (Get-WebBinding -Name OpenWebPBX -Protocol https).AddSslCertificate($CertificateThumbprint,'My')
 icacls "$root\web" /grant 'IIS AppPool\OpenWebPBX:(OI)(CI)RX' | Out-Null
+icacls "$switch\db" /grant 'IIS AppPool\OpenWebPBX:(OI)(CI)M' | Out-Null
 icacls $private /grant 'IIS AppPool\OpenWebPBX:RX' /grant '*S-1-5-19:RX' /grant '*S-1-5-20:RX' | Out-Null
 icacls "$private\runtime.json" /grant '*S-1-5-19:R' | Out-Null
 icacls $configRoot /grant 'IIS AppPool\OpenWebPBX:(OI)(CI)R' | Out-Null
