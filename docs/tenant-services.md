@@ -1,6 +1,6 @@
 # Tenant services
 
-OpenWeb PBX uses invite-only tenant accounts at https://call.openweb.co.za. Open **Tenant Services** from the desktop.
+OpenWeb PBX uses invite-only tenant accounts. Sign in at [Tenant Admin](https://call.openweb.co.za/tenantadmin/), or open **Tenant Services** from the desktop. The project entry at https://openwebpbx.com/tenantadmin redirects to this authenticated portal.
 
 ## Administrator workflow
 
@@ -13,7 +13,7 @@ Templates support timezone, initial extension range/count, extension limit, outb
 
 Additional settings use existing PBX category, subcategory, and type names. Business categories include voicemail, email/SMTP, recording, devices/provisioning, SIP, and call applications. Authentication, roles, executable paths, URLs, and global configuration are excluded. Configure extension limits in the dedicated defaults field.
 
-Once a platform SMTP server is saved under **SMTP Outgoing Mail**, it applies to all outgoing mail and takes precedence over tenant/template relay settings. See [outgoing mail configuration](outgoing-mail.md).
+The instance administrator configures one global server under **SMTP Outgoing Mail** for all outgoing email. Tenants do not configure a relay or a separate database. Until the global mail server is ready, queued mail waits without consuming delivery retries. See [outgoing mail configuration](outgoing-mail.md).
 
 Each service gets its own extensions, unique SIP passwords, voicemail boxes/PINs, copied standard application dialplans, trunks, call rules, and domain settings. Template versions are recorded on services. Editing or unpublishing a template affects future provisioning; existing services retain their current setup. Provisioning is transactional and repeated submissions with the same request identifier return the same service. Registration trunks without both a username and password stay disabled.
 
@@ -22,6 +22,8 @@ Use `call.openweb.co.za` as the SIP server/outbound proxy and the generated serv
 Tenant administrators have ordinary PBX administration permissions without global domain selection, cross-domain access, or higher-role delegation. Service users remain restricted to the PBX domain containing their account. **Suspend tenant** blocks tenant web access, including existing sessions, and further provisioning. It does not disconnect active calls or disable already provisioned SIP accounts; use the PBX controls for telephony shutdown.
 
 ## Installation and operations
+
+Debian and Windows installations automatically install PostgreSQL on the PBX server. All tenants and PBX services use the same instance database, with tenant and domain ownership checks separating their data. Creating a tenant or service does not create a database or request database credentials. The operational database name remains `fusionpbx` for compatibility.
 
 This feature targets the installed PostgreSQL-backed FusionPBX 5.6 stack with PHP Sodium. Preserve the upstream license and operational identifiers.
 

@@ -1,4 +1,7 @@
 <?php
+/** Mail stays queued until the instance administrator configures its relay. */
+class outgoing_mail_configuration_required extends RuntimeException {}
+
 /** Global SMTP configuration shared by direct mail and the email queue. */
 class outgoing_mail {
     private PDO $db;
@@ -33,19 +36,36 @@ class outgoing_mail {
         if (!$this->canManage()) throw new RuntimeException('Outgoing mail administration permission is required.');
         $values = $this->values();
         $values['has_password'] = $values['smtp_password'] !== '';
+        try {
+            $this->transport();
+            $values['is_configured'] = true;
+        } catch (outgoing_mail_configuration_required $e) {
+            $values['is_configured'] = false;
+        }
         unset($values['smtp_password']);
         return $values;
     }
 
-    /** Null retains the pre-existing per-domain behavior until an administrator saves a global server. */
-    public function transport(): ?array {
+    /** Every instance uses its saved global relay. Never fall back to a tenant or local relay. */
+    public function transport(): array {
         $values = $this->values();
-        if (!filter_var($values['smtp_global'], FILTER_VALIDATE_BOOLEAN)) return null;
+        $auth = filter_var($values['smtp_auth'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        $host = trim($values['smtp_host']);
+        $literal = trim($host, '[]');
+        $validHost = strlen($host) <= 253 && (filter_var($literal, FILTER_VALIDATE_IP)
+            || preg_match('/^(?=.{1,253}$)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/iD', $host));
+        $validPort = filter_var($values['smtp_port'], FILTER_VALIDATE_INT, ['options'=>['min_range'=>1,'max_range'=>65535]]);
+        if (!filter_var($values['smtp_global'], FILTER_VALIDATE_BOOLEAN) || !$validHost || !$validPort
+            || !in_array($values['smtp_secure'], ['tls','ssl','none'], true) || $auth === null
+            || !filter_var($values['smtp_from'], FILTER_VALIDATE_EMAIL)
+            || ($auth && ($values['smtp_username'] === '' || $values['smtp_password'] === ''))) {
+            throw new outgoing_mail_configuration_required('Configure global outgoing mail in SMTP Outgoing Mail before sending emails.');
+        }
         $smtp = [];
         foreach ($values as $key => $value) {
             if ($key !== 'smtp_global') $smtp[substr($key, 5)] = $value;
         }
-        $smtp['auth'] = filter_var($values['smtp_auth'], FILTER_VALIDATE_BOOLEAN);
+        $smtp['auth'] = $auth;
         $smtp['validate_certificate'] = true;
         if (!$smtp['auth']) {
             $smtp['username'] = '';
@@ -70,7 +90,16 @@ class outgoing_mail {
         if (!$port) throw new InvalidArgumentException('Enter an SMTP port between 1 and 65535.');
         $secure = $input['smtp_secure'] ?? 'tls';
         if (!in_array($secure, ['tls','ssl','none'], true)) throw new InvalidArgumentException('Choose a valid connection security option.');
-        $authentication = $input['authentication'] ?? '';
+        // The checkbox is the current form control; retain the earlier authentication field
+        // for existing clients. An unchecked checkbox explicitly selects credential authentication.
+        if (array_key_exists('smtp_ip_whitelisted', $input)) {
+            $whitelisted = is_scalar($input['smtp_ip_whitelisted'])
+                ? filter_var($input['smtp_ip_whitelisted'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) : null;
+            if ($whitelisted === null) throw new InvalidArgumentException('Choose whether your server IP address is whitelisted.');
+            $authentication = $whitelisted ? 'ip' : 'password';
+        } else {
+            $authentication = $input['authentication'] ?? '';
+        }
         if (!in_array($authentication, ['password','ip'], true)) throw new InvalidArgumentException('Choose an authentication method.');
         $from = trim($input['smtp_from'] ?? '');
         if (!filter_var($from, FILTER_VALIDATE_EMAIL)) throw new InvalidArgumentException('Enter a valid sender email address.');
@@ -123,7 +152,6 @@ class outgoing_mail {
     public function checkConnection(): bool {
         if (!$this->canManage()) throw new RuntimeException('Outgoing mail administration permission is required.');
         $smtp = $this->transport();
-        if (!$smtp) throw new RuntimeException('Save the outgoing mail server before testing its connection.');
         require_once PROJECT_ROOT.'/resources/phpmailer/class.phpmailer.php';
         require_once PROJECT_ROOT.'/resources/phpmailer/class.smtp.php';
         $mail = new PHPMailer();

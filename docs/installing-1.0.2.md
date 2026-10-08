@@ -4,6 +4,10 @@ Choose the **Windows x64** or **Debian 13 amd64** archive on the [1.0.2 release 
 
 Use a fresh PBX installation. The installers refuse to overwrite an existing PBX. They create an administrator, a company workspace and Main PBX, with users **100 Reception** and **101 Office**, random phone passwords and voicemail PINs. No provider is enabled by installation.
 
+Both installers automatically install PostgreSQL **on the PBX computer** and create one application database for the installation. Every tenant and PBX service uses that database; tenant administrators never enter database settings or create separate databases. Tenant and service permissions keep their records separate inside the shared database. The internal database and account retain the name `fusionpbx` for compatibility with the installed PBX stack.
+
+Database credentials are generated during setup and kept in private configuration. A remote database service is not required for either edition. Back up the instance's database, encryption keys and media together.
+
 ## Windows Server
 
 The native edition uses IIS, PostgreSQL, PHP and FreeSWITCH as Windows services, with a C#/.NET 10 background calling service and WinUI 3 manager. It runs directly on Windows; a Linux virtual machine is not required. Validation used Windows Server 2025 Standard with Desktop Experience, .NET 10 and Visual Studio 2026. Visual Studio is a development tool; it is not part of the installer. Binaries are unsigned.
@@ -39,7 +43,7 @@ Use Debian 13 on 64-bit Intel/AMD. Run the installer as root from the extracted 
 
 Enter the administrator password when prompted. Use `--local-certificate` instead of the two certificate options for a local test installation. For a public installation, point the hostname at the server, obtain a trusted certificate, and supply the certificate paths. Your existing `call.openweb.co.za` installation already has a Let's Encrypt certificate and renewal enabled.
 
-The installer installs distribution packages, creates an independent PBX database, configures NGINX/PHP, and starts FreeSWITCH and the .NET background service. Private configuration is under `/etc/fusionpbx` and `/etc/openwebpbx`; private PBX media is under `/var/lib/freeswitch`. Application source is under `/var/www/fusionpbx`.
+The installer installs PostgreSQL and the other distribution packages, creates one local application database shared by all tenants, configures NGINX/PHP, and starts FreeSWITCH and the .NET background service. Private configuration is under `/etc/fusionpbx` and `/etc/openwebpbx`; private PBX media is under `/var/lib/freeswitch`. Application source is under `/var/www/fusionpbx`.
 
 ## First calls
 

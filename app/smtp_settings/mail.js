@@ -1,18 +1,16 @@
 (() => {
   'use strict';
-  const method = document.getElementById('smtp-authentication');
+  const whitelist = document.getElementById('smtp-ip-whitelisted');
   const credentials = document.getElementById('smtp-credentials');
-  const hint = document.getElementById('ip-authentication-hint');
   const update = () => {
-    const byIp = method.value === 'ip';
+    const byIp = whitelist.checked;
     credentials.hidden = byIp;
-    hint.hidden = !byIp;
     credentials.querySelectorAll('input').forEach(input => {
       input.disabled = byIp;
       input.required = !byIp && (input.type !== 'password' || input.dataset.passwordStored !== 'true');
     });
   };
-  method.addEventListener('change', update);
+  whitelist.addEventListener('change', update);
   update();
   document.getElementById('copy-source-ip').addEventListener('click', async event => {
     const button = event.currentTarget;

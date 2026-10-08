@@ -10,6 +10,7 @@ class SMTPFixture(socketserver.StreamRequestHandler):
     def handle(self):
         self.request.settimeout(15)
         authenticated = False
+        auth_commands = 0
         sender = recipient = False
         self.reply("220 fixture.example ESMTP")
         while True:
@@ -20,6 +21,7 @@ class SMTPFixture(socketserver.StreamRequestHandler):
             if command in ("EHLO", "HELO"):
                 self.reply("250-fixture.example\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 1000000")
             elif command == "AUTH":
+                auth_commands += 1
                 mechanism = line.split(" ")[1].upper()
                 if mechanism == "LOGIN":
                     self.reply("334 " + base64.b64encode(b"Username:").decode())
@@ -60,7 +62,7 @@ class SMTPFixture(socketserver.StreamRequestHandler):
                 self.reply("250 Reset")
             elif command == "QUIT":
                 with self.server.record_lock:
-                    self.server.connections.append(authenticated)
+                    self.server.connections.append((authenticated, auth_commands))
                 self.reply("221 Bye")
                 break
             else:
@@ -82,10 +84,10 @@ if __name__ == "__main__":
         repo = Path(__file__).resolve().parents[1]
         try:
             subprocess.run(["php", str(repo / "tests/smtp_transport_integration.php"), str(fixture.server_address[1])], cwd=repo, check=True, timeout=60)
-            assert fixture.connections == [False, False, True, True], "Unexpected SMTP authentication on the wire"
-            assert [auth for auth, _ in fixture.deliveries] == [False, True], "Both authentication modes were not delivered"
+            assert fixture.connections == [(False, 0), (False, 0), (True, 1), (True, 1), (False, 0), (False, 0)], "Unexpected SMTP authentication on the wire"
+            assert [auth for auth, _ in fixture.deliveries] == [False, True, False], "Direct and queued authentication modes were not delivered"
             assert all(b"From: SMTP Fixture <pbx@example.invalid>" in message for _, message in fixture.deliveries), "Global sender defaults were not used"
-            print("PASS: SMTP wire capture confirmed no AUTH for IP mode and successful AUTH for password mode; both messages stayed local")
+            print("PASS: SMTP wire capture confirmed zero AUTH commands for legacy/checkbox IP mode and native queue delivery, successful password AUTH; all three messages stayed local")
         finally:
             fixture.shutdown()
             worker.join(timeout=2)

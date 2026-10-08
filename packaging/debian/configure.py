@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fresh Debian configuration. Never prints credentials or overwrites another PBX."""
-import argparse,getpass,json,os,pathlib,re,secrets,shutil,subprocess
+import argparse,getpass,json,os,pathlib,re,secrets,shutil,subprocess,time
 P=pathlib.Path
 parser=argparse.ArgumentParser()
 parser.add_argument('--domain',required=True)
@@ -19,6 +19,18 @@ root=P('/var/www/fusionpbx');private=P('/var/lib/openwebpbx');cfg=P('/etc/fusion
 def run(args,**kw):subprocess.run(args,check=True,**kw)
 def write(path,text,mode=0o640,owner=0,group=33):
  p=P(path);p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text);p.chmod(mode);os.chown(p,owner,group)
+# Confirm the local database before copying application files or saving secrets.
+clusters=subprocess.check_output(['pg_lsclusters','--no-header'],text=True).splitlines()
+if not clusters:raise RuntimeError('The built-in PostgreSQL database is unavailable. Setup has not changed the PBX.')
+version,cluster,dbport,*_=clusters[0].split()
+run(['systemctl','start',f'postgresql@{version}-{cluster}'])
+for attempt in range(30):
+ if subprocess.run(['pg_isready','-h','127.0.0.1','-p',dbport,'-t','2'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0:break
+ time.sleep(2)
+else:raise RuntimeError('The built-in database did not become ready. Setup has not changed the PBX.')
+admin_sql=['runuser','-u','postgres','--','psql','-h','/var/run/postgresql','-p',dbport,'-U','postgres','-d','postgres','-X','-w','-v','ON_ERROR_STOP=1']
+existing=subprocess.check_output(admin_sql+['-Atc',"select exists(select 1 from pg_roles where rolname='fusionpbx') or exists(select 1 from pg_database where datname='fusionpbx')"],text=True).strip()
+if existing!='f':raise RuntimeError('An existing PBX database or account is present. This fresh installer will not overwrite it.')
 for d in [private,cfg,P('/etc/openwebpbx')]:d.mkdir(parents=True,exist_ok=True);d.chmod(0o750);os.chown(d,0,33)
 write(private/'setup-secrets.json',json.dumps({'AdminEmail':a.email,'AdminPassword':password}),0o600,0,0);del password
 run(['tar','-xzf','engine.tar.gz','-C','/']);run(['ldconfig'])
@@ -30,12 +42,10 @@ for path in [*root.rglob('*'),*P('/opt/openwebpbx/service').rglob('*')]:
 P('/opt/openwebpbx/service/OpenWebPbx.Server').chmod(0o755)
 P('/run/php').mkdir(parents=True,exist_ok=True)
 run(['systemctl','daemon-reload'])
-clusters=subprocess.check_output(['pg_lsclusters','--no-header'],text=True).splitlines()
-if not clusters:raise RuntimeError('PostgreSQL cluster is unavailable')
-version,cluster,dbport,*_=clusters[0].split()
-run(['systemctl','start',f'postgresql@{version}-{cluster}'])
 dbpass=secrets.token_hex(32);switchpass=secrets.token_hex(32)
-run(['runuser','-u','postgres','--','psql','-p',dbport,'-v','ON_ERROR_STOP=1','-q'],input=f"CREATE ROLE fusionpbx LOGIN PASSWORD '{dbpass}';\nCREATE DATABASE fusionpbx OWNER fusionpbx;\n",text=True,stdout=subprocess.DEVNULL)
+run(admin_sql+['-q'],input=f"CREATE ROLE fusionpbx LOGIN PASSWORD '{dbpass}';\nCREATE DATABASE fusionpbx OWNER fusionpbx;\n",text=True,stdout=subprocess.DEVNULL)
+connected=subprocess.check_output(['psql','-h','127.0.0.1','-p',dbport,'-U','fusionpbx','-d','fusionpbx','-X','-w','-v','ON_ERROR_STOP=1','-Atc','select current_database()'],env=os.environ|{'PGPASSWORD':dbpass},text=True).strip()
+if connected!='fusionpbx':raise RuntimeError('The application could not connect to its built-in database. Setup has not completed.')
 settings={'database.0.type':'pgsql','database.0.host':'127.0.0.1','database.0.port':dbport,'database.0.name':'fusionpbx','database.0.username':'fusionpbx','database.0.password':dbpass,'database.1.type':'sqlite','database.1.name':'core.db','database.1.path':'/var/lib/freeswitch/db','document.root':str(root),'project.path':'','temp.dir':'/var/tmp','php.dir':'/usr/bin','php.bin':'php','cache.method':'file','cache.location':'/var/cache/fusionpbx','cache.settings':'true','session.cookie_secure':'true','session.cookie_httponly':'true','session.cookie_samesite':'Lax','switch.conf.dir':'/etc/freeswitch','switch.sounds.dir':'/usr/share/freeswitch/sounds','switch.database.dir':'/var/lib/freeswitch/db','switch.storage.dir':'/var/lib/freeswitch/storage','switch.voicemail.dir':'/var/lib/freeswitch/storage/voicemail','switch.recordings.dir':'/var/lib/freeswitch/recordings','switch.scripts.dir':'/usr/share/freeswitch/scripts','switch.event_socket.host':'127.0.0.1','switch.event_socket.port':'8021','switch.event_socket.password':switchpass,'xml_handler.fs_path':'false','xml_handler.reg_as_number_alias':'false','xml_handler.number_as_presence_id':'true','openweb.public_host':a.domain,'openweb.public_url':'https://'+a.domain,'openweb.public_ip':a.address}
 write(cfg/'config.conf','\n'.join(f'{k} = {v}' for k,v in settings.items())+'\n')
 key=cfg/'openweb-template.key';key.write_bytes(secrets.token_bytes(32));key.chmod(0o640);os.chown(key,0,33)
@@ -77,7 +87,7 @@ for service in ['freeswitch','openwebpbx']:shutil.copy(service+'.service','/etc/
 write('/etc/cron.d/openwebpbx','17 * * * * www-data /usr/bin/php /var/www/fusionpbx/app/pbx_setup/cleanup.php >/dev/null 2>&1\n',0o644)
 run(['nginx','-t']);run(['systemctl','daemon-reload']);run(['systemctl','enable','--now','freeswitch','openwebpbx','nginx','php8.4-fpm']);run(['systemctl','restart','php8.4-fpm','nginx'])
 (private/'setup-secrets.json').unlink()
-import time, urllib.request
+import urllib.request
 for attempt in range(30):
  try:
   with urllib.request.urlopen('http://127.0.0.1:8087/health',timeout=3) as response:

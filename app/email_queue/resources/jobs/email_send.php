@@ -486,9 +486,17 @@
 			echo "Message sent!\n";
 
 	}
+	elseif ($email->delivery_deferred) {
+		// Configuration is an instance-admin action, not a failed delivery attempt.
+		// Keep the message and its attachments ready for the next configured run.
+		$sql = "update v_email_queue set email_status='waiting', email_response=:response, update_date=now() ";
+		$sql .= "where email_queue_uuid=:id";
+		$database->execute($sql, ['response'=>$email_error, 'id'=>$email_queue_uuid]);
+		echo "Mail waiting: ".$email_error."\n";
+	}
 	else {
 
-		$mailer_error = $mail->ErrorInfo;
+		$mailer_error = $email_error;
 		echo "Mailer Error: ".$mailer_error."\n\n";
 
 		/*

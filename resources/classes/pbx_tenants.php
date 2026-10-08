@@ -25,7 +25,7 @@ class pbx_tenants {
         $enabled=$this->query('select user_enabled from v_users where user_uuid=:user',['user'=>$_SESSION['user_uuid']])->fetchColumn();
         if (!$enabled || !$t['enabled'] || !$this->canDomain($_SESSION['domain_uuid'])) { http_response_code(403); exit('This tenant account or PBX service is unavailable.'); }
         $path=parse_url($_SERVER['REQUEST_URI']??'',PHP_URL_PATH);
-        if($this->workspaceOnly() && !str_starts_with($path,'/app/tenant_services/') && !str_starts_with($path,'/app/pbx_setup/') && !str_starts_with($path,'/core/desktop/') && !in_array($path,['/','/index.php','/login.php','/logout.php','/core/users/user_profile.php','/core/dashboard/'],true)) {
+        if($this->workspaceOnly() && !str_starts_with($path,'/app/tenant_services/') && !str_starts_with($path,'/app/pbx_setup/') && !str_starts_with($path,'/core/desktop/') && !in_array($path,['/','/index.php','/login.php','/logout.php','/core/users/user_profile.php','/core/dashboard/','/tenantadmin','/tenantadmin/','/tenantadmin/index.php'],true)) {
             http_response_code(403);exit('Create or open a PBX service from Tenant Services to use this application.');
         }
     }

@@ -109,6 +109,7 @@ display_errors=Off
 expose_php=Off
 "@
 WriteUtf8 "$root\php\php.ini" $php
+Write-Host 'Setting up the built-in database on this server for all tenants...'
 if (!(Test-Path "$private\database\PG_VERSION")) {
  WriteUtf8 "$private\postgres-password.tmp" $state.PostgresPassword
  try {Run "$root\pgsql\bin\initdb.exe" @('-D',"$private\database",'-U','postgres','--auth=scram-sha-256',"--pwfile=$private\postgres-password.tmp",'--encoding=UTF8','--locale=C')}
@@ -119,13 +120,30 @@ icacls "$private\database" /grant '*S-1-5-20:(OI)(CI)M' | Out-Null
 icacls $private /grant '*S-1-5-20:RX' | Out-Null
 if (!(Get-Service OpenWebPBX-Database -ErrorAction SilentlyContinue)) {Run "$root\pgsql\bin\pg_ctl.exe" @('register','-N','OpenWebPBX-Database','-D',"$private\database",'-U','NT AUTHORITY\NetworkService','-S','auto')}
 Start-Service OpenWebPBX-Database
+$databaseReady=$false
+for($attempt=0;$attempt -lt 30;$attempt++){
+ & "$root\pgsql\bin\pg_isready.exe" -h 127.0.0.1 -p 5433 -t 2 2>&1 | Out-Null
+ if($LASTEXITCODE -eq 0){$databaseReady=$true;break}
+ Start-Sleep -Seconds 2
+}
+if(!$databaseReady){throw 'The built-in database did not become ready. Check the OpenWebPBX-Database service before running setup again.'}
+$priorPgPassword=$env:PGPASSWORD
 $env:PGPASSWORD=$state.PostgresPassword
 try {
- $role=& "$root\pgsql\bin\psql.exe" -h 127.0.0.1 -p 5433 -U postgres -d postgres -Atc "select 1 from pg_roles where rolname='fusionpbx'"
- if ($role -ne '1') {"CREATE ROLE fusionpbx LOGIN PASSWORD '$($state.DatabasePassword)';" | & "$root\pgsql\bin\psql.exe" -h 127.0.0.1 -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 | Out-Null;if($LASTEXITCODE){throw 'Database user creation failed.'}}
- $database=& "$root\pgsql\bin\psql.exe" -h 127.0.0.1 -p 5433 -U postgres -d postgres -Atc "select 1 from pg_database where datname='fusionpbx'"
+ $role=& "$root\pgsql\bin\psql.exe" -h 127.0.0.1 -p 5433 -U postgres -d postgres -X -w -v ON_ERROR_STOP=1 -Atc "select 1 from pg_roles where rolname='fusionpbx'"
+ if($LASTEXITCODE -ne 0){throw 'Setup could not check the built-in database account.'}
+ if ($role -ne '1') {"CREATE ROLE fusionpbx LOGIN PASSWORD '$($state.DatabasePassword)';" | & "$root\pgsql\bin\psql.exe" -h 127.0.0.1 -p 5433 -U postgres -d postgres -X -w -v ON_ERROR_STOP=1 | Out-Null;if($LASTEXITCODE){throw 'Database user creation failed.'}}
+ $database=& "$root\pgsql\bin\psql.exe" -h 127.0.0.1 -p 5433 -U postgres -d postgres -X -w -v ON_ERROR_STOP=1 -Atc "select 1 from pg_database where datname='fusionpbx'"
+ if($LASTEXITCODE -ne 0){throw 'Setup could not check the built-in database.'}
  if($database -ne '1'){Run "$root\pgsql\bin\createdb.exe" @('-h','127.0.0.1','-p','5433','-U','postgres','-O','fusionpbx','fusionpbx')}
-} finally {Remove-Item Env:\PGPASSWORD}
+ $env:PGPASSWORD=$state.DatabasePassword
+ $applicationDatabase=& "$root\pgsql\bin\psql.exe" -h 127.0.0.1 -p 5433 -U fusionpbx -d fusionpbx -X -w -v ON_ERROR_STOP=1 -Atc 'select current_database()'
+ if($LASTEXITCODE -ne 0 -or $applicationDatabase -ne 'fusionpbx'){throw 'The application could not connect to its built-in database. Setup has not completed.'}
+} finally {
+ if($null -eq $priorPgPassword){Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue}
+ else{$env:PGPASSWORD=$priorPgPassword}
+ $priorPgPassword=$null
+}
 $sf=$switch.Replace('\','/');$rf=$root.Replace('\','/');$pf=$private.Replace('\','/')
 $config=@"
 database.0.type = pgsql
@@ -234,4 +252,5 @@ else { $state|Add-Member -NotePropertyName Completed -NotePropertyValue $true -F
 WriteUtf8 "$private\installation.json" ($state|ConvertTo-Json)
 Remove-Item "$private\setup-secrets.json" -ErrorAction SilentlyContinue
 Write-Host "OpenWeb PBX 1.0.2 is installed at https://${DomainName}:$HttpsPort"
+Write-Host 'All tenants share this installation''s built-in database. No separate database server is required.'
 Write-Host 'Sign in to Admin, then open Main PBX. Trunks start disabled. Configure your public certificate and firewall before remote use.'

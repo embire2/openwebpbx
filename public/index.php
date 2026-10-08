@@ -116,6 +116,15 @@ class router {
 		// Remove trailing slash (except for root) to handle URLs like /core/dashboard/
 		$decoded_path = rtrim($decoded_path, '/');
 
+		// Tenant administration uses the existing authenticated service controller.
+		if (in_array($decoded_path, ['/tenantadmin', '/tenantadmin/index.php'], true)) {
+			$target_file = PROJECT_ROOT . '/tenantadmin/index.php';
+			if (is_file($target_file)) {
+				return ['target' => realpath($target_file), 'app_name' => 'tenant_services',
+					'action' => 'index', 'file' => 'tenantadmin/index.php'];
+			}
+		}
+
 		// Return the provision route with the query string
 		$original_path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '/';
 		if (($_SERVER['SCRIPT_NAME'] ?? '') === '/public/index.php'

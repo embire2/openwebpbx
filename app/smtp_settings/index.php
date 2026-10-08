@@ -40,9 +40,13 @@ if ($error && ($_POST['action'] ?? '') === 'save') {
     foreach (['smtp_host','smtp_port','smtp_secure','smtp_username','smtp_from','smtp_from_name'] as $key) {
         $values[$key] = $_POST[$key] ?? $values[$key];
     }
-    $authentication = $_POST['authentication'] ?? $authentication;
+    if (array_key_exists('smtp_ip_whitelisted', $_POST)) {
+        $authentication = filter_var($_POST['smtp_ip_whitelisted'], FILTER_VALIDATE_BOOLEAN) ? 'ip' : 'password';
+    } else {
+        $authentication = $_POST['authentication'] ?? $authentication;
+    }
 }
-$active = filter_var($saved['smtp_global'], FILTER_VALIDATE_BOOLEAN);
+$active = $saved['is_configured'];
 $notice = $_SESSION['smtp_notice'] ?? '';
 unset($_SESSION['smtp_notice']);
 $sourceIp = filter_var($_SERVER['SERVER_ADDR'] ?? '', FILTER_VALIDATE_IP) ?: 'Unavailable';
@@ -53,8 +57,8 @@ $csrf = function() use ($formToken, $escape) {
 $document['title'] = 'SMTP Outgoing Mail';
 require_once PROJECT_ROOT.'/resources/header.php';
 ?>
-<link rel="stylesheet" href="/app/smtp_settings/mail.css?v=1">
-<script src="/app/smtp_settings/mail.js?v=1" defer></script>
+<link rel="stylesheet" href="/app/smtp_settings/mail.css?v=2">
+<script src="/app/smtp_settings/mail.js?v=2" defer></script>
 <main class="mail-workspace">
     <header class="mail-heading">
         <div><span class="mail-eyebrow">OPENWEB PBX · SYSTEM</span><h1>SMTP Outgoing Mail</h1><p>One outgoing mail server for every tenant and PBX service.</p></div>
@@ -62,6 +66,7 @@ require_once PROJECT_ROOT.'/resources/header.php';
     </header>
     <?php if ($notice): ?><div class="mail-message" role="status"><?= $escape($notice) ?></div><?php endif; ?>
     <?php if ($error): ?><div class="mail-message error" role="alert"><?= $escape($error) ?></div><?php endif; ?>
+    <?php if (!$active): ?><div class="mail-message" role="status">Configure global outgoing mail to enable emails for this instance. Queued messages wait until a server is saved.</div><?php endif; ?>
     <aside class="mail-ip-card"><span class="mail-icon"><i class="fa-solid fa-network-wired"></i></span><div><strong>This server's IP address</strong><code id="smtp-source-ip"><?= $escape($sourceIp) ?></code><p>For IP authentication, add this address to your SMTP relay's allowed senders.</p></div><button type="button" class="mail-button" id="copy-source-ip">Copy IP</button></aside>
     <form method="post" class="mail-card" id="smtp-settings-form" autocomplete="off">
         <?php $csrf(); ?><input type="hidden" name="action" value="save">
@@ -72,11 +77,12 @@ require_once PROJECT_ROOT.'/resources/header.php';
             <label>Connection security<select name="smtp_secure"><?php foreach (['tls'=>'STARTTLS','ssl'=>'TLS / SSL','none'=>'None'] as $key=>$label): ?><option value="<?= $key ?>" <?= $values['smtp_secure'] === $key ? 'selected' : '' ?>><?= $label ?></option><?php endforeach; ?></select><small>Common ports: STARTTLS 587, TLS 465, relay 25.</small></label>
         </div>
         <h2>Authentication</h2>
-        <label>Authentication method<select name="authentication" id="smtp-authentication"><option value="password" <?= $authentication === 'password' ? 'selected' : '' ?>>Username &amp; password</option><option value="ip" <?= $authentication === 'ip' ? 'selected' : '' ?>>IP Authentication</option></select></label>
-        <p class="mail-hint" id="ip-authentication-hint" <?= $authentication === 'ip' ? '' : 'hidden' ?>>No username or password is required. Your relay authenticates this server by its IP address. Connection security remains independent of authentication.</p>
-        <div class="mail-grid" id="smtp-credentials" <?= $authentication === 'ip' ? 'hidden' : '' ?>>
-            <label>Username<input name="smtp_username" value="<?= $escape($values['smtp_username']) ?>" maxlength="256" autocomplete="off" <?= $authentication === 'ip' ? 'disabled' : 'required' ?>></label>
-            <label>Password<input type="password" name="smtp_password" value="" maxlength="1024" autocomplete="new-password" <?= $authentication === 'ip' ? 'disabled' : ($saved['has_password'] ? '' : 'required') ?> data-password-stored="<?= $saved['has_password'] ? 'true' : 'false' ?>"><small><?= $saved['has_password'] ? 'Leave blank to keep the saved password for this server and username.' : 'Enter your SMTP password.' ?></small></label>
+        <input type="hidden" name="smtp_ip_whitelisted" value="0">
+        <label class="mail-checkbox"><input type="checkbox" name="smtp_ip_whitelisted" id="smtp-ip-whitelisted" value="1" <?= $authentication === 'ip' ? 'checked' : '' ?> aria-describedby="ip-authentication-hint"><span>My IP address is whitelisted</span></label>
+        <p class="mail-hint" id="ip-authentication-hint">Check this when your mail provider allows this server's IP address. OpenWeb PBX sends without SMTP AUTH, a username, or a password. Leave it unchecked to use a username and password. Connection security is a separate choice.</p>
+        <div class="mail-grid" id="smtp-credentials">
+            <label>Username<input name="smtp_username" value="<?= $escape($values['smtp_username']) ?>" maxlength="256" autocomplete="off"></label>
+            <label>Password<input type="password" name="smtp_password" value="" maxlength="1024" autocomplete="new-password" data-password-stored="<?= $saved['has_password'] ? 'true' : 'false' ?>"><small><?= $saved['has_password'] ? 'Leave blank to keep the saved password for this server and username.' : 'Enter your SMTP password.' ?></small></label>
         </div>
         <h2>Sender defaults</h2>
         <div class="mail-grid">

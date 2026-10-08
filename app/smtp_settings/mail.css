@@ -17,6 +17,8 @@
 .mail-wide { grid-column: 1 / -1; }
 .mail-workspace label { display: flex; flex-direction: column; gap: 8px; font-size: 13px; margin-bottom: 18px; }
 .mail-grid label { margin-bottom: 0; }
+.mail-workspace .mail-checkbox { flex-direction: row; align-items: center; gap: 10px; cursor: pointer; }
+.mail-workspace .mail-checkbox input { width: 18px; height: 18px; padding: 0; margin: 0; flex: 0 0 auto; accent-color: var(--openweb-accent, #0067b8); }
 .mail-workspace input, .mail-workspace select { box-sizing: border-box; width: 100%; height: 42px; padding: 10px 12px; border-radius: 5px; border: 1px solid var(--openweb-line, #cbd8e9); color: inherit; background: var(--openweb-surface, #fff); font: inherit; }
 .mail-workspace input:focus, .mail-workspace select:focus { outline: 2px solid var(--openweb-accent, #0067b8); outline-offset: 1px; }
 .mail-workspace small { color: #748bab; font-size: 12px; line-height: 1.5; }

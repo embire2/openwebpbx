@@ -1,4 +1,5 @@
--- Register the global SMTP administration page without changing the current mail configuration.
+-- Register instance SMTP administration without inventing relay settings.
+-- smtp_global records whether an administrator saved a global relay; false means mail must wait.
 BEGIN;
 INSERT INTO v_permissions(permission_uuid,permission_name,application_name,application_uuid,permission_description)
  SELECT gen_random_uuid(),'smtp_settings_manage','SMTP Outgoing Mail','986b9340-3285-4708-840d-eb5790e94110','Manage the global outgoing mail server'
@@ -8,7 +9,7 @@ INSERT INTO v_group_permissions(group_permission_uuid,group_uuid,group_name,perm
  WHERE g.group_name='superadmin' AND g.domain_uuid IS NULL
  AND NOT EXISTS(SELECT 1 FROM v_group_permissions p WHERE p.group_uuid=g.group_uuid AND p.permission_name='smtp_settings_manage');
 INSERT INTO v_default_settings(default_setting_uuid,default_setting_category,default_setting_subcategory,default_setting_name,default_setting_value,default_setting_enabled,default_setting_order,default_setting_description)
- SELECT gen_random_uuid(),'email','smtp_global','text','false',true,100,'Use the platform SMTP server for every tenant'
+ SELECT gen_random_uuid(),'email','smtp_global','text','false',true,100,'The instance outgoing mail server has been configured'
  WHERE NOT EXISTS(SELECT 1 FROM v_default_settings WHERE default_setting_category='email' AND default_setting_subcategory='smtp_global');
 DO $$
 DECLARE menu_id uuid; item_id uuid := '986b9340-3285-4708-840d-eb5790e94111';

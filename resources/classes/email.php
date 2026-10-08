@@ -63,6 +63,7 @@ class email {
 	public $content_type;
 	public $reply_to;
 	public $date;
+	public $delivery_deferred = false;
 
 	/**
 	 * Set in the constructor. Must be a database object and cannot be null.
@@ -262,6 +263,9 @@ class email {
 	 * @return string A human-readable response for debugging.
 	 */
 	public function send() {
+		$this->error = null;
+		$this->response = '';
+		$this->delivery_deferred = false;
 
 		//set the send_method if not already set
 		if (!isset($this->method)) {
@@ -458,43 +462,9 @@ class email {
 				include_once("resources/phpmailer/class.phpmailer.php");
 				include_once("resources/phpmailer/class.smtp.php");
 
-				//use the email default settings
-				if (!empty($this->settings->get('email', 'smtp_hostname'))) {
-					$smtp['hostname'] = $this->settings->get('email', 'smtp_hostname');
-				}
-				$smtp['host'] = $this->settings->get('email', 'smtp_host', '127.0.0.1');
-				$smtp['port'] = (int)$this->settings->get('email', 'smtp_port', 0);
-				$smtp['secure'] = $this->settings->get('email', 'smtp_secure');
-				$smtp['auth'] = $this->settings->get('email', 'smtp_auth');
-				$smtp['username'] = $this->settings->get('email', 'smtp_username');
-				$smtp['password'] = $this->settings->get('email', 'smtp_password');
-				$smtp['from'] = $this->settings->get('voicemail', 'smtp_from') ?? $this->settings->get('email', 'smtp_from');
-				$smtp['from_name'] = $this->settings->get('voicemail', 'smtp_from_name') ?? $this->settings->get('email', 'smtp_from_name');
-				$smtp['validate_certificate'] = $this->settings->get('email', 'smtp_validate_certificate', true);
-				$smtp['crypto_method'] = $this->settings->get('email', 'smtp_crypto_method') ?? null;
-
-				//override the domain-specific smtp server settings, if any
-				$sql = "select domain_setting_subcategory, domain_setting_value ";
-				$sql .= "from v_domain_settings ";
-				$sql .= "where domain_uuid = :domain_uuid ";
-				$sql .= "and (domain_setting_category = 'email' or domain_setting_category = 'voicemail') ";
-				$sql .= "and domain_setting_enabled = 'true' ";
-				$parameters['domain_uuid'] = $this->domain_uuid;
-				$result = $this->database->select($sql, $parameters, 'all');
-				if (is_array($result) && @sizeof($result) != 0) {
-					foreach ($result as $row) {
-						if ($row['domain_setting_value'] != '') {
-							$smtp[str_replace('smtp_', '', $row["domain_setting_subcategory"])] = $row['domain_setting_value'];
-						}
-					}
-				}
-				unset($sql, $parameters, $result, $row);
-
-				// A saved platform relay applies to every tenant, including queued voicemail/fax mail.
-				$global_smtp = (new outgoing_mail($this->database->db))->transport();
-				if ($global_smtp !== null) {
-					$smtp = $global_smtp;
-				}
+				// All tenants and queued notifications use the instance administrator's relay.
+				// An incomplete global configuration defers mail instead of using another server.
+				$smtp = (new outgoing_mail($this->database->db))->transport();
 
 				//value adjustments
 				$smtp['auth'] = filter_var($smtp['auth'], FILTER_VALIDATE_BOOLEAN);
@@ -563,9 +533,9 @@ class email {
 					$mail->AddCustomHeader('Return-Receipt-To: ' . $this->from_address);
 					$mail->AddCustomHeader('Disposition-Notification-To: ' . $this->from_address);
 				}
-				if (is_numeric($this->debug_level) && $this->debug_level > 0) {
-					$mail->SMTPDebug = $this->debug_level;
-				}
+				// Legacy SMTP debugging includes encoded authentication credentials. Global
+				// relay secrets must not reach responses or the queue's saved delivery logs.
+				$mail->SMTPDebug = 0;
 				$mail->Timeout = 20; //set the timeout (seconds)
 				$mail->SMTPKeepAlive = true; //don't close the connection between messages
 
@@ -645,8 +615,12 @@ class email {
 				unset($mail);
 				return true;
 
+			} catch (outgoing_mail_configuration_required $e) {
+				$this->delivery_deferred = true;
+				$this->error = $e->getMessage();
+				return false;
 			} catch (Exception $e) {
-				$this->error = $mail->ErrorInfo;
+				$this->error = isset($mail) && !empty($mail->ErrorInfo) ? $mail->ErrorInfo : 'Outgoing mail could not be sent.';
 				return false;
 			}
 

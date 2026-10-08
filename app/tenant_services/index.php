@@ -28,7 +28,7 @@ $formToken=(new token)->create('/app/tenant_services/index.php');
 $csrf=function()use($formToken,$escape){echo '<input type="hidden" name="'.$escape($formToken['name']).'" value="'.$escape($formToken['hash']).'">';};
 $notice=$_SESSION['pbx_notice']??'';unset($_SESSION['pbx_notice']);
 $invite=$_SESSION['pbx_invite_url']??'';unset($_SESSION['pbx_invite_url']);
-$document['title']='Tenant Services';require_once PROJECT_ROOT.'/resources/header.php';
+$document['title']=defined('OPENWEB_TENANT_ADMIN_ENTRY')?'Tenant Admin':'Tenant Services';require_once PROJECT_ROOT.'/resources/header.php';
 ?>
 <link rel="stylesheet" href="/app/tenant_services/workspace.css?v=1">
 <script src="/app/tenant_services/workspace.js?v=1" defer></script>
