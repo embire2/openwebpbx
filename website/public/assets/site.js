@@ -60,7 +60,8 @@
     const query = search.value.trim().toLowerCase();
     let matches = 0;
     start.querySelectorAll('[data-search]').forEach((pin) => {
-      pin.hidden = !pin.dataset.search.includes(query);
+      const searchable = `${pin.dataset.search} ${pin.textContent}`.toLowerCase();
+      pin.hidden = !searchable.includes(query);
       if (!pin.hidden) matches++;
     });
     $('.start-empty').hidden = matches !== 0;

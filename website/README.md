@@ -2,7 +2,11 @@
 
 Public destination: **https://openwebpbx.com/**. Deploy only the contents of `public/` to that domain's document root. The site is static HTML, CSS, JavaScript and SVG; it needs no Node build, database, external fonts or third-party scripts. The PBX application and private account data are separate.
 
-Current deployment: [HTTPS preview](https://call.openweb.co.za/openwebpbx-preview/). The requested domain's cPanel account username is still needed for final publication. The preview is marked noindex and serves only the reviewed static files from `/var/www/openwebpbx-site/openwebpbx-preview`, outside the PBX application tree. Its scoped NGINX include is `/etc/nginx/snippets/openweb-homepage-preview.conf`; a private copy of the original site configuration is under `/var/backups/openwebpbx/homepage-20261008`.
+Current deployment: **[https://openwebpbx.com/](https://openwebpbx.com/)**, published to the existing cPanel document root on 2026-10-08. HTTP and `www` requests redirect to the HTTPS apex while preserving the path and query. No DNS or mail routing was changed.
+
+The installed Let's Encrypt YR1 wildcard certificate covers the apex and `www`, was issued on 2026-10-08 and expires on 2027-01-06 at 12:05:01 GMT. Verified the existing installed certificate and renewal state: both names have trusted TLS, and cPanel AutoSSL reports the certificate active, no exclusions or problems, and renewal enabled.
+
+The [HTTPS preview](https://call.openweb.co.za/openwebpbx-preview/) remains available with noindex. It serves the reviewed static files from `/var/www/openwebpbx-site/openwebpbx-preview`, outside the PBX application tree. Its scoped NGINX include is `/etc/nginx/snippets/openweb-homepage-preview.conf`; a private copy of the original site configuration is under `/var/backups/openwebpbx/homepage-20261008`.
 
 ## Local preview
 
@@ -30,12 +34,16 @@ When publishing a new PBX release:
 2. Update release pills, download cards, release links, platform notes and feature details in `public/index.html` and `public/assets/site.js`. Record the reviewed assets in `public/releases.json`.
 3. Update the roadmap and coverage guides when capabilities or supported platforms change. Do not infer compatibility from a shared Windows ZIP filename.
 4. Check the actual public asset links, browser interactions, 320px/390px mobile layouts, desktop layout, keyboard access, dark mode and console output.
-5. Back up the domain's existing files outside its web root, deploy only the public-site allowlist, then verify live HTTPS, redirects, headers and matching file hashes. Preserve unrelated files and the domain's mail/DNS configuration.
+5. Back up the domain's existing files outside its web root, deploy only the public-site allowlist, then verify live HTTPS, redirects, headers and matching file hashes. Preserve unrelated files and the domain's mail/DNS configuration. Merge the site's rules into a marked, replaceable block in the live `.htaccess`; retain cPanel-generated PHP and hosting settings rather than overwriting the whole file.
 
 ## Hosting access
 
 cPanel credentials belong in `/root/fusionpbx/.env`, mode `600`, which Git ignores. Use `CPANEL_HOST`, `CPANEL_USERNAME`, `CPANEL_API_TOKEN` and `CPANEL_DOMAIN`; never put their values in this directory, browser code, deployment logs or the web root. API authentication requires the username as well as the token. Validate TLS and keep authorization in the request header.
 
-Before deployment, use the authenticated account's domain information to obtain the actual document root and inspect its current contents. The public site initially shows an Apache directory index. Its DNS currently points to a cPanel host, and its MX record uses the apex domain, so replacing that address would also affect mail delivery. Publish to the existing host unless a separate hosting/DNS migration is explicitly planned.
+Before deployment, use the authenticated account's domain information to obtain the actual document root and inspect its current contents. The initial deployment replaced an Apache directory index on the existing cPanel host. The MX record uses the apex domain, so replacing that address would also affect mail delivery. Publish to the existing host unless a separate hosting/DNS migration is explicitly planned.
+
+The original cPanel `.htaccess` is backed up privately at `/var/backups/openwebpbx/homepage-20261008/cpanel/original.htaccess`, mode `600`. The deployed file merges the public site's managed rules with the original cPanel-generated PHP blocks. Live verification passed for eight public file hashes, the merged `.htaccess`, canonical redirects, security/cache headers and trusted TLS. Requests for dotfiles and the assets directory return 403; missing files return 404.
+
+Actual-domain Chromium checks passed for all six Start shortcut names, search/no-results/Enter navigation, all six feature dialogs, window controls, persistent light/dark themes and the 390px mobile layout/dialog/FAQ. All assets loaded and the browser console reported zero warnings/errors. Start search now matches each shortcut's visible name as well as its keywords, including Downloads.
 
 Use the official [cPanel API token guidance](https://docs.cpanel.net/knowledge-base/security/how-to-use-cpanel-api-tokens/), [domain information API](https://api.docs.cpanel.net/specifications/cpanel.openapi/domain-information/domaininfo-single_domain_data) and [file upload API](https://api.docs.cpanel.net/specifications/cpanel.openapi/manage-files/fileman-upload_files).
