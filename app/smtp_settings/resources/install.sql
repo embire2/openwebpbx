@@ -11,6 +11,9 @@ INSERT INTO v_group_permissions(group_permission_uuid,group_uuid,group_name,perm
 INSERT INTO v_default_settings(default_setting_uuid,default_setting_category,default_setting_subcategory,default_setting_name,default_setting_value,default_setting_enabled,default_setting_order,default_setting_description)
  SELECT gen_random_uuid(),'email','smtp_global','text','false',true,100,'The instance outgoing mail server has been configured'
  WHERE NOT EXISTS(SELECT 1 FROM v_default_settings WHERE default_setting_category='email' AND default_setting_subcategory='smtp_global');
+INSERT INTO v_default_settings(default_setting_uuid,default_setting_category,default_setting_subcategory,default_setting_name,default_setting_value,default_setting_enabled,default_setting_order,default_setting_description)
+ SELECT gen_random_uuid(),'email','smtp_reply_to','text','',true,100,'Reply address for all instance mail; blank uses the global sender address'
+ WHERE NOT EXISTS(SELECT 1 FROM v_default_settings WHERE default_setting_category='email' AND default_setting_subcategory='smtp_reply_to');
 DO $$
 DECLARE menu_id uuid; item_id uuid := '986b9340-3285-4708-840d-eb5790e94111';
 BEGIN

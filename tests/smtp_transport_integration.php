@@ -40,12 +40,14 @@ try {
         $pdo->exec('create table '.$table.' (like public.'.$table.' including all)');
     }
     $pdo->exec('insert into v_default_settings select * from public.v_default_settings');
+    $pdo->exec("update v_default_settings set default_setting_value='true' where default_setting_category='email_queue' and default_setting_subcategory='save_response'");
     $pdo->exec("update v_default_settings set default_setting_value='false' where default_setting_category='email' and default_setting_subcategory='smtp_global'");
     $settingsApp = new outgoing_mail($pdo);
     $throws(fn()=>$settingsApp->transport(), 'Unconfigured global mail allowed another transport');
     $assert(!$settingsApp->view()['is_configured'], 'Unconfigured global relay appeared ready in the editor');
     $config = ['smtp_host'=>'127.0.0.1','smtp_port'=>(string)$port,'smtp_secure'=>'none','authentication'=>'ip',
-        'smtp_from'=>'pbx@example.invalid','smtp_from_name'=>'SMTP Fixture','smtp_username'=>'ignored','smtp_password'=>'ignored'];
+        'smtp_from'=>'pbx@example.invalid','smtp_from_name'=>'SMTP Fixture','smtp_reply_to'=>'reply@example.invalid',
+        'smtp_username'=>'ignored','smtp_password'=>'ignored'];
     $forbidden = new forbidden_mail_settings($pdo);
     $throws(fn()=>$forbidden->save($config), 'Unauthorized SMTP configuration accepted');
     $throws(fn()=>$forbidden->view(), 'Unauthorized SMTP configuration visible');
@@ -57,11 +59,16 @@ try {
     $throws(fn()=>$settingsApp->save($bad), 'Invalid whitelist checkbox accepted');
     $bad = $config; $bad['smtp_ip_whitelisted']=['1'];
     $throws(fn()=>$settingsApp->save($bad), 'Invalid whitelist checkbox array accepted');
+    $bad = $config; $bad['smtp_reply_to']='not-an-email';
+    $throws(fn()=>$settingsApp->save($bad), 'Invalid global reply-to address accepted');
+    $bad = $config; $bad['smtp_reply_to']="reply@example.invalid\r\nBcc: injected@example.invalid";
+    $throws(fn()=>$settingsApp->save($bad), 'Reply-to header injection accepted');
     $domain = uuid();
     $stmt = $pdo->prepare("insert into v_domain_settings(domain_setting_uuid,domain_uuid,domain_setting_category,domain_setting_subcategory,domain_setting_name,domain_setting_value,domain_setting_enabled)
         values(:id,:domain,'email',:key,'text',:value,true)");
     foreach (['smtp_host'=>'127.0.0.1','smtp_port'=>(string)$port,'smtp_secure'=>'none','smtp_auth'=>'false',
-        'smtp_from'=>'tenant@example.invalid','smtp_username'=>'foreign-user','smtp_password'=>'foreign-secret'] as $key=>$value) {
+        'smtp_from'=>'tenant@example.invalid','smtp_from_name'=>'Tenant Name','smtp_reply_to'=>'tenant-reply@example.invalid',
+        'smtp_username'=>'foreign-user','smtp_password'=>'foreign-secret'] as $key=>$value) {
         $stmt->execute(['id'=>uuid(),'domain'=>$domain,'key'=>$key,'value'=>$value]);
     }
     $tenantSettings = new settings(['database'=>$database,'domain_uuid'=>$domain,'allow_caching'=>false]);
@@ -74,6 +81,8 @@ try {
     $_SESSION['domain_uuid']=$domain;
     $waiting = new email(['database'=>$database,'domain_uuid'=>$domain,'settings'=>$tenantSettings]);
     $waiting->method='queue'; $waiting->recipients='recipient@example.invalid';
+    $waiting->from_address='queued-tenant@example.invalid'; $waiting->from_name='Queued Tenant';
+    $waiting->reply_to='queued-reply@example.invalid';
     $waiting->subject='Queued local SMTP fixture'; $waiting->body='This queued message must wait for the instance relay.';
     $waiting->attachments=[['name'=>'fixture.txt','type'=>'txt','base64'=>base64_encode('Private fixture attachment')]];
     $assert($waiting->send() === 'Added to queue', 'Unconfigured global mail discarded a queued message');
@@ -82,10 +91,12 @@ try {
     $pdo->prepare('update v_email_queue set email_retry_count=2 where email_queue_uuid=:id')->execute(['id'=>$queueId]);
     $queueState=$pdo->prepare('select email_status,email_retry_count,email_response,email_body from v_email_queue where email_queue_uuid=:id');
     for ($attempt=0;$attempt<2;$attempt++) {
-        $runQueue($queueId);
+        $output=$runQueue($queueId);
+        $assert(!str_contains($output, "From: ") && !str_contains($output, "Reply-to: "), 'Deferred queue logged an unconfigured sender as actual mail identity');
         $queueState->execute(['id'=>$queueId]); $row=$queueState->fetch(PDO::FETCH_ASSOC);
         $assert($row['email_status'] === 'waiting' && (int)$row['email_retry_count'] === 2, 'Unconfigured relay consumed a queue retry or lost waiting mail');
         $assert(str_contains($row['email_response'], 'Configure global outgoing mail'), 'Deferred queue status did not identify the missing global relay');
+        $assert(!str_contains($row['email_response'], 'smtp_') && !str_contains($row['email_response'], 'foreign-secret'), 'Deferred delivery logged mail settings or credentials');
         $assert($row['email_body'] === $waiting->body, 'Deferred delivery changed the queued message');
         $assert((int)$pdo->query('select count(*) from v_email_queue_attachments')->fetchColumn() === 1, 'Deferred delivery removed a queued attachment');
     }
@@ -95,22 +106,31 @@ try {
     $assert($blocked->send() === false && $blocked->delivery_deferred, 'Incomplete global relay fell back to tenant SMTP');
     $settingsApp->save($config);
     $smtp = $settingsApp->transport();
+    $assert($smtp['reply_to'] === 'reply@example.invalid', 'Saved global reply-to missing from the transport');
+    $pdo->exec("update v_default_settings set default_setting_value='bad-address' where default_setting_category='email' and default_setting_subcategory='smtp_reply_to'");
+    $assert($blocked->send() === false && $blocked->delivery_deferred, 'Invalid saved reply-to did not defer global mail');
+    $settingsApp->save($config);
     $assert($settingsApp->view()['is_configured'], 'A saved complete global relay did not appear ready in the editor');
     $assert($smtp['auth'] === false && $smtp['username'] === '' && $smtp['password'] === '', 'IP authentication retained credentials');
     $send = function() use ($database, $domain, $tenantSettings, $assert) {
         $email = new email(['database'=>$database,'domain_uuid'=>$domain,'settings'=>$tenantSettings]);
         $email->method='direct'; $email->debug_level=3;
+        $email->from_address='caller@example.invalid'; $email->from_name='Caller Name';
+        $email->reply_to='caller-reply@example.invalid';
         $email->recipients='recipient@example.invalid'; $email->subject='Local SMTP fixture';
         $email->body='This message is captured locally by the integration fixture.';
         $assert((bool)$email->send(), 'SMTP fixture delivery failed: '.($email->error ?? ''));
         $assert($email->response === '', 'Global SMTP debug traffic appeared in the delivery response');
+        $assert(!array_key_exists('username',$email->delivery_settings) && !array_key_exists('password',$email->delivery_settings), 'Effective mail diagnostics exposed authentication credentials');
     };
     $assert($settingsApp->checkConnection(), 'IP-authenticated connection failed');
     $send();
     $config['authentication']='password'; $config['smtp_username']='fixture-user'; $config['smtp_password']='fixture-password';
+    $config['smtp_reply_to']=''; // A blank global reply-to must use the configured From address.
     $settingsApp->save($config);
     $view = $settingsApp->view();
     $assert($view['has_password'] && !array_key_exists('smtp_password', $view), 'SMTP password exposed in the editor');
+    $assert($view['smtp_reply_to'] === '', 'Blank global reply-to was not retained');
     $config['smtp_password']=''; $settingsApp->save($config);
     $assert($settingsApp->transport()['password'] === 'fixture-password', 'Blank password did not preserve the saved credential');
     $changed = $config; $changed['smtp_username']='another-user';
@@ -119,19 +139,32 @@ try {
     $send();
     // Explicit unchecked and checked checkbox states override the old API field.
     $config['authentication']='ip'; $config['smtp_ip_whitelisted']='0';
+    $config['smtp_reply_to']='reply@example.invalid';
     $settingsApp->save($config);
     $assert($settingsApp->transport()['auth'] === true, 'Unchecked whitelist checkbox disabled authentication');
+    $legacy=$config; unset($legacy['smtp_reply_to']);
+    $settingsApp->save($legacy);
+    $assert($settingsApp->transport()['reply_to'] === 'reply@example.invalid', 'Legacy save omitted and cleared the existing reply address');
     $config['authentication']='password'; $config['smtp_ip_whitelisted']='1';
     $settingsApp->save($config);
     $stmt=$pdo->query("select default_setting_value from v_default_settings where default_setting_category='email' and default_setting_subcategory in ('smtp_username','smtp_password')");
     foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $value) $assert($value === '', 'Switching to IP authentication did not clear stored credentials');
     $assert($settingsApp->checkConnection(), 'Whitelist checkbox connection failed');
     // The original waiting message is now delivered through the saved global relay.
-    $runQueue($queueId);
-    $stmt=$pdo->prepare('select email_status from v_email_queue where email_queue_uuid=:id');
+    $output=$runQueue($queueId);
+    $assert(str_contains($output, "From: pbx@example.invalid\n") && str_contains($output, "Reply-to: reply@example.invalid\n"), 'Queue log did not show the enforced global mail identity');
+    $assert(!str_contains($output, 'queued-tenant@example.invalid') && !str_contains($output, 'queued-reply@example.invalid'), 'Queue log reported the original tenant identity');
+    $stmt=$pdo->prepare('select email_status,email_response from v_email_queue where email_queue_uuid=:id');
     $stmt->execute(['id'=>$queueId]);
-    $assert($stmt->fetchColumn() === 'sent', 'Native queue delivery did not use the global whitelist relay');
-    echo "PASS: permissions/validation, fail-closed global mail, waiting queue/retry preservation and resumed delivery, legacy/checkbox authentication, masked/retained/cleared passwords and private SMTP responses\n";
+    $row=$stmt->fetch(PDO::FETCH_ASSOC);
+    $assert($row['email_status'] === 'sent', 'Native queue delivery did not use the global whitelist relay');
+    $assert(str_contains($row['email_response'],'smtp_from: pbx@example.invalid')
+        && str_contains($row['email_response'],'smtp_from_name: SMTP Fixture')
+        && str_contains($row['email_response'],'smtp_reply_to: reply@example.invalid'), 'Saved queue diagnostic did not use the effective global mail identity');
+    foreach (['tenant@example.invalid','queued-tenant@example.invalid','tenant-reply@example.invalid','foreign-secret','fixture-password','smtp_username','smtp_password'] as $secretOrOverride) {
+        $assert(!str_contains($row['email_response'],$secretOrOverride), 'Saved queue diagnostics included domain overrides or credentials');
+    }
+    echo "PASS: permissions/validation, fail-closed global mail, waiting queue/retry preservation, enforced direct/queued system identity and logs, optional reply-to/fallback/legacy retention, authentication and private SMTP responses\n";
 } finally {
     if ($pdo->inTransaction()) $pdo->rollBack();
     $pdo->exec('set search_path to public');

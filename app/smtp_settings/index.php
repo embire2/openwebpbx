@@ -37,7 +37,7 @@ $saved = $mailSettings->view();
 $values = $saved;
 $authentication = filter_var($saved['smtp_auth'], FILTER_VALIDATE_BOOLEAN) ? 'password' : 'ip';
 if ($error && ($_POST['action'] ?? '') === 'save') {
-    foreach (['smtp_host','smtp_port','smtp_secure','smtp_username','smtp_from','smtp_from_name'] as $key) {
+    foreach (['smtp_host','smtp_port','smtp_secure','smtp_username','smtp_from','smtp_from_name','smtp_reply_to'] as $key) {
         $values[$key] = $_POST[$key] ?? $values[$key];
     }
     if (array_key_exists('smtp_ip_whitelisted', $_POST)) {
@@ -84,12 +84,13 @@ require_once PROJECT_ROOT.'/resources/header.php';
             <label>Username<input name="smtp_username" value="<?= $escape($values['smtp_username']) ?>" maxlength="256" autocomplete="off"></label>
             <label>Password<input type="password" name="smtp_password" value="" maxlength="1024" autocomplete="new-password" data-password-stored="<?= $saved['has_password'] ? 'true' : 'false' ?>"><small><?= $saved['has_password'] ? 'Leave blank to keep the saved password for this server and username.' : 'Enter your SMTP password.' ?></small></label>
         </div>
-        <h2>Sender defaults</h2>
+        <h2>System sender</h2>
         <div class="mail-grid">
-            <label>Default sender email<input type="email" name="smtp_from" value="<?= $escape($values['smtp_from']) ?>" required maxlength="254" placeholder="ceo@openweb.co.za"></label>
-            <label>Sender name<input name="smtp_from_name" value="<?= $escape($values['smtp_from_name']) ?>" maxlength="128" placeholder="OpenWeb PBX"></label>
+            <label>From email address<input type="email" name="smtp_from" value="<?= $escape($values['smtp_from']) ?>" required maxlength="254" placeholder="hello@example.com"></label>
+            <label>From name<input name="smtp_from_name" value="<?= $escape($values['smtp_from_name']) ?>" maxlength="128" placeholder="OpenWebPBX System"></label>
+            <label class="mail-wide">Reply-to email address<input type="email" name="smtp_reply_to" value="<?= $escape($values['smtp_reply_to']) ?>" maxlength="254" placeholder="hello@example.com"><small>Optional. Leave blank to send replies to the From address.</small></label>
         </div>
-        <div class="mail-actions"><p>Saving applies this SMTP server to all outgoing mail, including voicemail, fax, and system notifications.</p><button type="submit" class="mail-button primary">Save outgoing mail server</button></div>
+        <div class="mail-actions"><p>Every outgoing email uses this server, From address, name, and reply address, including voicemail, fax, and system notifications.</p><button type="submit" class="mail-button primary">Save outgoing mail server</button></div>
     </form>
     <section class="mail-card mail-check"><div><h2>Check the saved connection</h2><p>Verify the connection and authentication without sending an email.</p></div><form method="post"><?php $csrf(); ?><input type="hidden" name="action" value="check"><button type="submit" class="mail-button" <?= $active ? '' : 'disabled' ?>>Test SMTP connection</button></form></section>
 </main>

@@ -64,6 +64,7 @@ class email {
 	public $reply_to;
 	public $date;
 	public $delivery_deferred = false;
+	public $delivery_settings = [];
 
 	/**
 	 * Set in the constructor. Must be a database object and cannot be null.
@@ -266,6 +267,7 @@ class email {
 		$this->error = null;
 		$this->response = '';
 		$this->delivery_deferred = false;
+		$this->delivery_settings = [];
 
 		//set the send_method if not already set
 		if (!isset($this->method)) {
@@ -465,6 +467,11 @@ class email {
 				// All tenants and queued notifications use the instance administrator's relay.
 				// An incomplete global configuration defers mail instead of using another server.
 				$smtp = (new outgoing_mail($this->database->db))->transport();
+				// Retain only safe effective settings for native queue diagnostics. Never
+				// expose the SMTP username or password through response metadata.
+				$this->delivery_settings = array_intersect_key($smtp,
+					array_flip(['host','port','secure','auth','from','from_name','reply_to']));
+				$this->delivery_settings['reply_to'] = $smtp['reply_to'] !== '' ? $smtp['reply_to'] : $smtp['from'];
 
 				//value adjustments
 				$smtp['auth'] = filter_var($smtp['auth'], FILTER_VALIDATE_BOOLEAN);
@@ -521,10 +528,13 @@ class email {
 					$mail->SMTPOptions = $smtp_options;
 				}
 
-				$this->from_address = ($this->from_address != '') ? $this->from_address : $smtp['from'];
-				$this->from_name = ($this->from_name != '') ? $this->from_name : $smtp['from_name'];
+				// One system identity applies to every tenant and queued message, including
+				// callers that supplied a different From or Reply-To address.
+				$this->from_address = $smtp['from'];
+				$this->from_name = $smtp['from_name'];
+				$this->reply_to = $smtp['reply_to'] !== '' ? $smtp['reply_to'] : $smtp['from'];
 				$mail->SetFrom($this->from_address, $this->from_name);
-				$mail->AddReplyTo($this->from_address, $this->from_name);
+				$mail->AddReplyTo($this->reply_to, $this->from_name);
 				$mail->Subject = $this->subject;
 				$mail->MsgHTML($this->body);
 				$mail->Priority = $this->priority;

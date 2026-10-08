@@ -1,6 +1,8 @@
 """Run the real PHP mail transport against a local SMTP sink; no mail leaves this machine."""
 from pathlib import Path
 import base64
+from email.parser import BytesParser
+from email.policy import default
 import socketserver
 import subprocess
 import threading
@@ -41,6 +43,8 @@ class SMTPFixture(socketserver.StreamRequestHandler):
                 self.reply("235 Authenticated" if authenticated else "535 Invalid fixture credentials")
             elif command == "MAIL":
                 sender = True
+                with self.server.record_lock:
+                    self.server.envelopes.append(line)
                 self.reply("250 Sender accepted")
             elif command == "RCPT":
                 recipient = True
@@ -77,6 +81,7 @@ if __name__ == "__main__":
     with socketserver.ThreadingTCPServer(("127.0.0.1", 0), SMTPFixture) as fixture:
         fixture.deliveries = []
         fixture.connections = []
+        fixture.envelopes = []
         fixture.record_lock = threading.Lock()
         fixture.daemon_threads = True
         worker = threading.Thread(target=fixture.serve_forever, daemon=True)
@@ -86,8 +91,14 @@ if __name__ == "__main__":
             subprocess.run(["php", str(repo / "tests/smtp_transport_integration.php"), str(fixture.server_address[1])], cwd=repo, check=True, timeout=60)
             assert fixture.connections == [(False, 0), (False, 0), (True, 1), (True, 1), (False, 0), (False, 0)], "Unexpected SMTP authentication on the wire"
             assert [auth for auth, _ in fixture.deliveries] == [False, True, False], "Direct and queued authentication modes were not delivered"
-            assert all(b"From: SMTP Fixture <pbx@example.invalid>" in message for _, message in fixture.deliveries), "Global sender defaults were not used"
-            print("PASS: SMTP wire capture confirmed zero AUTH commands for legacy/checkbox IP mode and native queue delivery, successful password AUTH; all three messages stayed local")
+            messages = [BytesParser(policy=default).parsebytes(message) for _, message in fixture.deliveries]
+            assert all(str(message["From"]) == "SMTP Fixture <pbx@example.invalid>" for message in messages), "Global sender identity was not enforced"
+            assert [str(message["Reply-To"]) for message in messages] == [
+                "SMTP Fixture <reply@example.invalid>", "SMTP Fixture <pbx@example.invalid>", "SMTP Fixture <reply@example.invalid>"
+            ], "Global reply-to or blank fallback did not override direct/queued caller identities"
+            assert all(len(message.get_all("From")) == len(message.get_all("Reply-To")) == 1 for message in messages), "Mail contains duplicate identity headers"
+            assert fixture.envelopes == ["MAIL FROM:<pbx@example.invalid>"] * 3, "SMTP envelope sender did not use the global From address"
+            print("PASS: SMTP wire capture confirmed zero AUTH in IP mode, successful password AUTH, enforced global From/envelope/Reply-To and blank fallback; all three messages stayed local")
         finally:
             fixture.shutdown()
             worker.join(timeout=2)

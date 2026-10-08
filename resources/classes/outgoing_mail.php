@@ -8,7 +8,7 @@ class outgoing_mail {
     private const DEFAULTS = [
         'smtp_global' => 'false', 'smtp_host' => '', 'smtp_port' => '587',
         'smtp_secure' => 'tls', 'smtp_auth' => 'true', 'smtp_username' => '',
-        'smtp_password' => '', 'smtp_from' => '', 'smtp_from_name' => 'OpenWeb PBX',
+        'smtp_password' => '', 'smtp_from' => '', 'smtp_from_name' => 'OpenWeb PBX', 'smtp_reply_to' => '',
         'smtp_hostname' => '', 'smtp_validate_certificate' => 'true',
     ];
 
@@ -58,6 +58,8 @@ class outgoing_mail {
         if (!filter_var($values['smtp_global'], FILTER_VALIDATE_BOOLEAN) || !$validHost || !$validPort
             || !in_array($values['smtp_secure'], ['tls','ssl','none'], true) || $auth === null
             || !filter_var($values['smtp_from'], FILTER_VALIDATE_EMAIL)
+            || ($values['smtp_reply_to'] !== '' && (strlen($values['smtp_reply_to']) > 254
+                || !filter_var($values['smtp_reply_to'], FILTER_VALIDATE_EMAIL)))
             || ($auth && ($values['smtp_username'] === '' || $values['smtp_password'] === ''))) {
             throw new outgoing_mail_configuration_required('Configure global outgoing mail in SMTP Outgoing Mail before sending emails.');
         }
@@ -103,6 +105,11 @@ class outgoing_mail {
         if (!in_array($authentication, ['password','ip'], true)) throw new InvalidArgumentException('Choose an authentication method.');
         $from = trim($input['smtp_from'] ?? '');
         if (!filter_var($from, FILTER_VALIDATE_EMAIL)) throw new InvalidArgumentException('Enter a valid sender email address.');
+        // Older clients that omit this optional field retain the saved reply address.
+        $replyTo = trim($input['smtp_reply_to'] ?? $previous['smtp_reply_to']);
+        if ($replyTo !== '' && (strlen($replyTo) > 254 || !filter_var($replyTo, FILTER_VALIDATE_EMAIL))) {
+            throw new InvalidArgumentException('Enter a valid reply-to email address, or leave it blank to use the sender address.');
+        }
         $name = trim($input['smtp_from_name'] ?? '');
         if (mb_strlen($name) > 128 || preg_match('/[\x00-\x1f\x7f]/', $name)) throw new InvalidArgumentException('Enter a valid sender name.');
         $username = $password = '';
@@ -120,7 +127,7 @@ class outgoing_mail {
             'smtp_global'=>'true', 'smtp_host'=>$host, 'smtp_port'=>(string)$port,
             'smtp_secure'=>$secure, 'smtp_auth'=>$authentication === 'password' ? 'true' : 'false',
             'smtp_username'=>$username, 'smtp_password'=>$password, 'smtp_from'=>$from,
-            'smtp_from_name'=>$name, 'smtp_validate_certificate'=>'true',
+            'smtp_from_name'=>$name, 'smtp_reply_to'=>$replyTo, 'smtp_validate_certificate'=>'true',
         ];
         $this->db->beginTransaction();
         try {

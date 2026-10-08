@@ -303,8 +303,6 @@
 
 //send context to the temp log
 	echo "Subject: ".$email_subject."\n";
-	echo "From: ".$email_from."\n";
-	echo "Reply-to: ".$email_from."\n";
 	echo "To: ".$email_to."\n";
 	echo "Date: ".$email_date."\n";
 	//echo "Transcript: ".$array['message']."\n";
@@ -321,22 +319,6 @@
 		//print_r($parameters);
 		$database->execute($sql, $parameters);
 		unset($parameters);
-	}
-
-//add email settings
-	$email_settings = '';
-	$email_setting_array = $settings->get('email');
-	ksort($email_setting_array);
-	foreach ($email_setting_array as $name => $value) {
-		if ($name == 'smtp_password') { $value = '[REDACTED]'; }
-		if (is_array($value)) {
-			foreach($value as $sub_value) {
-				$email_settings .= $name.': '.$sub_value."\n";
-			}
-		}
-		else {
-			$email_settings .= $name.': '.$value."\n";
-		}
 	}
 
 //parse email and name
@@ -376,6 +358,18 @@
 	$email_status = $email->send();
 	$email_error = $email->error;
 	$email_response = $email->response;
+	// Only record the effective instance configuration used by this send attempt.
+	// Domain settings and SMTP credentials are deliberately absent from this metadata.
+	$email_settings = '';
+	foreach ($email->delivery_settings as $name => $value) {
+		if (is_bool($value)) $value = $value ? 'true' : 'false';
+		$email_settings .= 'smtp_'.$name.': '.$value."\n";
+	}
+	if (!$email->delivery_deferred && !empty($email->from_address)) {
+		// Report the enforced instance identity, not the original queued sender.
+		echo "From: ".$email->from_address."\n";
+		echo "Reply-to: ".$email->reply_to."\n";
+	}
 
 //send the email
 	if ($email_status) {
