@@ -52,7 +52,7 @@ if (!(Test-Path "$private\installation.json")) {
  try {$plain=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)} finally {[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
  if ($AdminEmail -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$' -or $plain.Length -lt 8) { throw 'Use a valid email and a password of at least eight characters.' }
  WriteUtf8 "$private\setup-secrets.json" (@{AdminEmail=$AdminEmail;AdminPassword=$plain}|ConvertTo-Json);$plain=$null
- $state=@{Version='1.0.2';DomainName=$DomainName;PublicAddress=$PublicAddress;HttpsPort=$HttpsPort;DatabasePassword=(Secret);PostgresPassword=(Secret);SwitchPassword=(Secret)}
+ $state=@{Version=(Get-Content "$PSScriptRoot\VERSION" -Raw).Trim();DomainName=$DomainName;PublicAddress=$PublicAddress;HttpsPort=$HttpsPort;DatabasePassword=(Secret);PostgresPassword=(Secret);SwitchPassword=(Secret)}
  WriteUtf8 "$private\installation.json" ($state|ConvertTo-Json)
 } else { $state=Get-Content "$private\installation.json" -Raw | ConvertFrom-Json; $DomainName=$state.DomainName;$HttpsPort=$state.HttpsPort;$PublicAddress=$state.PublicAddress }
 Write-Host 'Installing the Windows web server and PBX components...'
@@ -238,6 +238,10 @@ for($attempt=0;$attempt -lt 30;$attempt++){
  if($ready){break};Start-Sleep -Seconds 2
 }
 if(!$ready){throw 'The background call service is not ready. Check the private server logs before continuing.'}
+if(!$LocalCertificate -and $DomainName -ne 'localhost') {
+ try { & "$PSScriptRoot\Enable-PhoneTLS.ps1" -CertificateThumbprint $CertificateThumbprint }
+ catch { Write-Warning 'The PBX is installed, but secure phone setup is incomplete. Use Enable-PhoneTLS.ps1 with an exportable trusted certificate before connecting Android phones.' }
+}
 $cleanup=New-ScheduledTaskAction -Execute "$root\php\php.exe" -Argument "`"$root\web\app\pbx_setup\cleanup.php`"" -WorkingDirectory "$root\web"
 $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(10) -RepetitionInterval (New-TimeSpan -Hours 1)
 Register-ScheduledTask -TaskName 'OpenWebPBX-Cleanup' -Action $cleanup -Trigger $trigger -User 'SYSTEM' -RunLevel Highest -Force | Out-Null
@@ -251,6 +255,6 @@ if ($state -is [System.Collections.IDictionary]) { $state['Completed']=$true }
 else { $state|Add-Member -NotePropertyName Completed -NotePropertyValue $true -Force }
 WriteUtf8 "$private\installation.json" ($state|ConvertTo-Json)
 Remove-Item "$private\setup-secrets.json" -ErrorAction SilentlyContinue
-Write-Host "OpenWeb PBX 1.0.2 is installed at https://${DomainName}:$HttpsPort"
+Write-Host "OpenWeb PBX $($state.Version) is installed at https://${DomainName}:$HttpsPort"
 Write-Host 'All tenants share this installation''s built-in database. No separate database server is required.'
 Write-Host 'Sign in to Admin, then open Main PBX. Trunks start disabled. Configure your public certificate and firewall before remote use.'

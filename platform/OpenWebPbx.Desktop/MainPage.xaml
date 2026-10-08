@@ -6,13 +6,14 @@
    <NavigationViewItem Content="Admin" Tag="admin" Icon="Contact"/>
    <NavigationViewItem Content="Queue Callbacks" Tag="callbacks" Icon="Phone"/>
    <NavigationViewItem Content="Hotel Services" Tag="hotel" Icon="World"/>
+   <NavigationViewItem Content="Android App" Tag="mobile" Icon="CellPhone"/>
    <NavigationViewItem Content="Setup" Tag="setup" Icon="Setting"/>
   </NavigationView.MenuItems>
   <Grid Padding="28">
    <ScrollViewer x:Name="DashboardPanel" VerticalScrollBarVisibility="Auto">
     <StackPanel Spacing="22" MaxWidth="900" HorizontalAlignment="Stretch">
      <TextBlock Text="Your phone system" Style="{StaticResource TitleTextBlockStyle}"/>
-     <TextBlock Text="OpenWeb PBX 1.0.2" Style="{StaticResource SubtitleTextBlockStyle}"/>
+     <TextBlock Text="OpenWeb PBX 1.0.3" Style="{StaticResource SubtitleTextBlockStyle}"/>
      <InfoBar x:Name="StatusBanner" IsOpen="True" IsClosable="False" Title="Checking this server" Message="Connecting to the OpenWeb PBX service." Severity="Informational"/>
      <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="24">
       <StackPanel Spacing="12">
@@ -23,7 +24,7 @@
       </StackPanel>
      </Border>
      <TextBlock Text="Manage users, phones and calls" Style="{StaticResource SubtitleTextBlockStyle}"/>
-     <TextBlock Text="Sign in to Admin to manage your PBX. Queue callbacks and hotel wake-up calls continue when you close this window." TextWrapping="Wrap"/>
+     <TextBlock Text="Sign in to Admin to manage your PBX, connect the Android app and check your phone providers. Queue callbacks and hotel wake-up calls continue when you close this window." TextWrapping="Wrap"/>
     </StackPanel>
    </ScrollViewer>
    <ScrollViewer x:Name="SetupPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
@@ -53,6 +54,7 @@
      <TextBlock x:Name="InstallUnavailable" Text="Use the complete Windows download to install a new server." TextWrapping="Wrap" Visibility="Collapsed"/>
      <Button Content="Open Installation Folder" Click="OpenFolder"/>
      <TextBlock Text="Updates" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,20,0,0"/>
+     <TextBlock Text="Extract the new release and run Upgrade-OpenWebPBX.ps1 as administrator. The updater saves a private backup and preserves your users, settings and recordings." TextWrapping="Wrap"/>
      <HyperlinkButton Content="OpenWeb PBX releases" NavigateUri="https://github.com/embire2/openwebpbx/releases"/>
     </StackPanel>
    </ScrollViewer>

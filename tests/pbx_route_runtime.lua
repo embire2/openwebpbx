@@ -53,6 +53,8 @@ local function environment(f)
         if sql:find('from v_gateways',1,true) then
             local native=f.gateways[params.id]
             if native and native.domain==params.domain and callback then callback(native) end
+        elseif sql:find('from v_pbx_mobile_devices',1,true) then
+            if f.mobile_active and params.domain==domain then callback({extension_uuid='mobile-fixture-extension'}) end
         elseif sql:find('select r.config from v_pbx_restore',1,true) then
             assert(sql:find("d.domain_enabled='true'",1,true) and sql:find('not t.enabled',1,true),'Enabled domain and tenant guard missing')
             if f.active then callback({config='fixture-config'}) end
@@ -111,7 +113,7 @@ for _, inherited in ipairs({'0','1','3600'}) do
 end
 f=fixture();f.config.users['100'].profiles.Available.timeout=1;f.config.users['100'].profiles.Available.available.NoAnswer={internal_inactive=true,all={type='External',number='',external='0123456789'}}
 f.responses={{cause='NO_ANSWER',protocol='sip:408'},{cause='SUCCESS',protocol='sip:200'}};run(f,'user','100')
-check(#f.bridges==2 and f.bridge_timeouts[1]=='1' and f.bridges[1]:find('[leg_timeout=1]user/',1,true)
+check(#f.bridges==2 and f.bridge_timeouts[1]=='1' and f.bridges[1]:find('leg_timeout=1]user/',1,true)
     and f.bridge_timeouts[2]=='60' and f.bridges[2]:find('{originate_timeout=60,progress_timeout=60}[leg_timeout=60,',1,true),
     'No-answer external forwarding keeps the user ring timeout and gives the provider an independent window')
 f=fixture();f.responses[1]={cause='USER_BUSY',protocol='sip:486'};run(f)
@@ -180,4 +182,10 @@ f=fixture();f.responses[1]={cause='RECOVERY_ON_TIMER_EXPIRE',protocol='sip:408'}
 check(#f.bridges==1,'Locally generated no-response408 does not redial another provider')
 f=fixture();f.responses[1]={cause='RECOVERY_ON_TIMER_EXPIRE',protocol='sip:408',received='408'};job(f)
 check(#f.bridges==2 and f.job_state=='completed','Received provider408 retries callback through backup route')
-print('PASS: '..count..' synthetic ordinary-call, forwarding, ingress and callback runtime checks')
+f=fixture();f.mobile_active=true;f.config.users['100'].extension_uuid='mobile-fixture-extension';f.variables.sip_auth_username='owm-0123456789abcdef0123456789abcdef';run(f)
+check(#f.bridges==2,'Active mobile credentials use the original user outgoing policy')
+f=fixture();f.variables.sip_auth_username='owm-0123456789abcdef0123456789abcdef';run(f)
+check(#f.bridges==0 and f.hangup=='CALL_REJECTED','Removed mobile credentials cannot call even when configuration has no matching extension UUID')
+f=fixture();f.mobile_active=true;f.config.users['100'].extension_uuid='other-extension';f.variables.sip_auth_username='owm-0123456789abcdef0123456789abcdef';run(f)
+check(#f.bridges==0 and f.hangup=='CALL_REJECTED','Mobile credentials cannot assume a different configured user')
+print('PASS: '..count..' synthetic ordinary-call, forwarding, ingress, callback and mobile runtime checks')

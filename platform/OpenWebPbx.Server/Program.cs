@@ -26,7 +26,7 @@ builder.WebHost.UseUrls("http://127.0.0.1:8087");
 var app = builder.Build();
 app.MapGet("/health", (ServiceStatus status) => Results.Json(new
 {
-    application = "OpenWeb PBX", version = "1.0.2",
+    application = "OpenWeb PBX", version = "1.0.3",
     state = string.IsNullOrWhiteSpace(connection) ? "Setup required" : status.State,
     lastSuccess = status.LastSuccess,
     operatingSystem = OperatingSystem.IsWindows() ? "Windows" : "Linux"

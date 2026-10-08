@@ -23,6 +23,14 @@ local authenticated_user=false
 local auth_realm=session:getVariable('sip_auth_realm')
 if type(auth)=='string' and auth~='' and (not auth_realm or auth_realm==realm) and mode~='incoming' and session:getVariable('openweb_provider_origin')~='true' then
     for number,u in pairs(config.users) do if u.enabled and u.auth_id==auth then caller=number;authenticated_user=true;break end end
+    if not authenticated_user and auth:match('^owm%-[a-f0-9]+$') then
+        local extension
+        db:query([[select m.extension_uuid from v_pbx_mobile_devices m join v_extensions e using(extension_uuid)
+            where m.domain_uuid=:domain and e.domain_uuid=:domain and e.enabled='true' and m.sip_username=:auth
+            and m.revoked_at is null and m.expires_at>now()]],{domain=domain,auth=auth},function(r) extension=r.extension_uuid end)
+        for number,u in pairs(config.users) do if extension and u.enabled and u.extension_uuid==extension then caller=number;authenticated_user=true;break end end
+        if not authenticated_user then db:release();session:hangup('CALL_REJECTED');return end
+    end
 end
 local internal=authenticated_user and mode~='incoming'
 if mode=='record_user' then internal=session:getVariable('openweb_call_internal')=='true' end
@@ -77,7 +85,7 @@ local function outbound_contact(number,rule_route,owner)
     return P.outbound_leg(t,rule_route,number,config.users[tostring(owner or caller)],caller,domain,realm,native)
 end
 local function user_contact(u,timeout)
-    local variables='leg_timeout='..timeout..',domain_uuid='..domain..',domain_name='..realm..',openweb_call_internal='..tostring(internal)
+    local variables='rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,leg_timeout='..timeout..',domain_uuid='..domain..',domain_name='..realm..',openweb_call_internal='..tostring(internal)
     if u.record_calls and not (u.record_external_only and internal) then
         variables=variables..",execute_on_answer='lua app.lua pbx_setup record_user "..u.number.."'"
     end
@@ -140,7 +148,7 @@ run_user=function(number)
     if not P.contact(contact) then route(P.forward(profile,'NotRegistered',internal,open),number);return end
     session:setVariable('call_timeout',tostring(profile.timeout));session:setVariable('origination_callee_id_name',u.name)
     session:setVariable('origination_callee_id_number',tostring(number));record(u)
-    local bridge='[leg_timeout='..profile.timeout..']user/'..u.auth_id..'@'..realm
+    local bridge='[rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,leg_timeout='..profile.timeout..']user/'..u.auth_id..'@'..realm
     if profile.ring_mobile and u.mobile~='' then
         local rule=P.outbound(config,u.mobile,number)
         if rule then for _,r in ipairs(rule.routes) do

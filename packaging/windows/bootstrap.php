@@ -10,7 +10,7 @@ if($stage==='domain'){
  echo "Platform domain initialized.\n";exit;
 }
 if($stage==='migrate'){
- foreach(['tenant_services/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
+ foreach(['tenant_services/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql','pbx_mobile/resources/install.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
  foreach(['cache.location'=>['cache','location','text'],'cache.method'=>['cache','method','text'],'switch.voicemail.dir'=>['switch','voicemail','dir'],'switch.recordings.dir'=>['switch','recordings','dir'],'switch.storage.dir'=>['switch','storage','dir'],'switch.sounds.dir'=>['switch','sounds','dir'],'switch.scripts.dir'=>['switch','scripts','dir']] as $key=>$parts){
   $value=config::load()->get($key);if($value==='')continue;
   $s=sql('update v_default_settings set default_setting_value=?,default_setting_enabled=true where default_setting_category=? and default_setting_subcategory=? and default_setting_name=?',[$value,...$parts]);
@@ -34,7 +34,7 @@ if(!$user){
  }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
 }
 unset($input,$password);
-foreach(['tenant_services/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
+foreach(['tenant_services/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql','pbx_mobile/resources/install.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
 $_SESSION=['user_uuid'=>$user,'domain_uuid'=>$domain,'domain_name'=>pbx_paths::host(),'user'=>['domain_uuid'=>$domain]];
 $tenant=sql('select tenant_uuid from v_pbx_tenants where owner_user_uuid=?',[$user])->fetchColumn();
 if(!$tenant){$tenant=uuid();$home=uuid();$slug='company-'.substr(str_replace('-','',$tenant),0,12);sql('insert into v_domains(domain_uuid,domain_name,domain_description,domain_enabled) values(?,?,?,true)',[$home,$slug.'.'.pbx_paths::host(),'My company']);sql('insert into v_pbx_tenants(tenant_uuid,tenant_name,slug,home_domain_uuid,owner_user_uuid,invite_email) values(?,?,?,?,?,?)',[$tenant,'My company',$slug,$home,$user,$email]);}

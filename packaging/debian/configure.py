@@ -95,4 +95,6 @@ for attempt in range(30):
  except (OSError,ValueError):pass
  time.sleep(2)
 else:raise RuntimeError('The background call service is not ready. Check journalctl -u openwebpbx.')
+if not a.local_certificate:
+ run(['python3','configure-sip-tls.py','--domain',a.domain,'--fullchain',a.certificate,'--private-key',a.certificate_key])
 print('Admin is ready at https://'+a.domain)

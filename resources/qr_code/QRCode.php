@@ -194,7 +194,7 @@ class QRCode
         {
           $data = $this->dataList [$i];
           
-          assert ( $data instanceof QRByte );
+          assert ( $data instanceof QR8bitByte );
           
           $buffer->put ( $data->getMode (), 4 );
           $buffer->put ( $data->getLength (), QRUtil::getInstance ()->getLengthInBits ( $data->getMode (), $typeNumber ) );
@@ -519,7 +519,7 @@ class QRCode
     for($i = 0; $i < sizeof ( $dataList ); $i ++)
     {
       $data = $dataList [$i];
-      assert ( $data instanceof QRByte );
+      assert ( $data instanceof QR8bitByte );
       
       $buffer->put ( $data->getMode (), 4 );
       $buffer->put ( $data->getLength (), QRUtil::getInstance ()->getLengthInBits ( $data->getMode (), $typeNumber ) );

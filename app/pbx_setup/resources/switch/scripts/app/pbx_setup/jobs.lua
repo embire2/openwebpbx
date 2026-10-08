@@ -110,7 +110,7 @@ local function deliver()
     end end
     -- Each registered device needs its own call UUID. Assigning a common originate UUID
     -- to multiple contacts makes the second device fail before it can ring.
-    local vars='originate_timeout=30,domain_uuid='..job.domain_uuid..',domain_name='..config.realm..',ignore_early_media=true,origination_caller_id_name='..(job.kind=='callback' and 'Queue Callback' or 'Wake-up Call')..',origination_caller_id_number='..(q and q.number or agent.number)
+    local vars='rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,originate_timeout=30,domain_uuid='..job.domain_uuid..',domain_name='..config.realm..',ignore_early_media=true,origination_caller_id_name='..(job.kind=='callback' and 'Queue Callback' or 'Wake-up Call')..',origination_caller_id_number='..(q and q.number or agent.number)
     -- Resolve the current registration at delivery time. A cached directory dial-string
     -- may still point to a phone's previous port after it reconnects.
     local live_contact=P.contact(api:execute('sofia_contact',agent.auth_id..'@'..config.realm))
@@ -137,7 +137,7 @@ local function deliver()
             -- it may have disconnected or been switched off while ringing.
             local contact=candidate.contact or gateway_contact(candidate.number,candidate.agent,candidate.route)
             if contact then
-                if candidate.contact then contact='[domain_uuid='..job.domain_uuid..',domain_name='..config.realm..',origination_caller_id_name=Queue Callback]'..contact end
+                if candidate.contact then contact='[rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,domain_uuid='..job.domain_uuid..',domain_name='..config.realm..',origination_caller_id_name=Queue Callback]'..contact end
                 contact=P.track_answer(contact,call:getVariable('uuid'))
                 if not contact then break end
                 contact=contact:gsub('^%[','[leg_timeout=45,',1)

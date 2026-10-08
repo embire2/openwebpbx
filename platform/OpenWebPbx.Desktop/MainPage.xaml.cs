@@ -63,7 +63,7 @@ public sealed partial class MainPage : Page
     {
         if (!loaded || args.SelectedItem is not NavigationViewItem item) return;
         var page = item.Tag?.ToString();
-        if (page is "admin" or "callbacks" or "hotel") { OpenConsole(page); return; }
+        if (page is "admin" or "callbacks" or "hotel" or "mobile") { OpenConsole(page); return; }
         DashboardPanel.Visibility = page == "dashboard" ? Visibility.Visible : Visibility.Collapsed;
         SetupPanel.Visibility = page == "setup" ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -88,9 +88,9 @@ public sealed partial class MainPage : Page
     {
         if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Scheme != "https")
         {
-            DashboardPanel.Visibility = Visibility.Collapsed; SetupPanel.Visibility = Visibility.Visible; Navigation.SelectedItem = Navigation.MenuItems[4]; return;
+            DashboardPanel.Visibility = Visibility.Collapsed; SetupPanel.Visibility = Visibility.Visible; Navigation.SelectedItem = Navigation.MenuItems[5]; return;
         }
-        Launch(address + "/app/pbx_setup/" + (page == "admin" ? "" : "?view=" + page));
+        Launch(address + (page == "mobile" ? "/app/pbx_mobile/" : "/app/pbx_setup/" + (page == "admin" ? "" : "?view=" + page)));
     }
     private void OpenFolder(object sender, RoutedEventArgs args) => Launch(AppContext.BaseDirectory);
     private void CertificateModeChanged(object sender, SelectionChangedEventArgs args)

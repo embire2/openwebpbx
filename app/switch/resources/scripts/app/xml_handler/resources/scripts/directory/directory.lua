@@ -60,6 +60,12 @@
 	local event_calling_function = params:getHeader("Event-Calling-Function")
 	local event_calling_file = params:getHeader("Event-Calling-File")
 
+-- Native mobile devices have isolated, revocable credentials. The regular directory stays unchanged.
+	if action == 'sip_auth' and type(user) == 'string' and user:match('^owm%-[a-f0-9]+$') then
+		dofile(scripts_dir..'/app/xml_handler/resources/scripts/directory/mobile.lua');
+		return;
+	end
+
 --determine the correction action to perform
 	if (purpose == "gateways") then
 		dofile(scripts_dir.."/app/xml_handler/resources/scripts/directory/action/domains.lua");

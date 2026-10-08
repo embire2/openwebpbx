@@ -58,7 +58,7 @@ class pbx_admin {
         $media=pbx_paths::media().'/'.$this->domain;if(!is_dir($media)&&!mkdir($media,0700,true))throw new RuntimeException('Private media storage is unavailable.');
         $config=['realm'=>$realm,'timezone'=>$timezone,'origin'=>'OpenWeb PBX','users'=>new stdClass,'trunks'=>new stdClass];
         foreach(['queues','ring_groups','receptionists','departments','inbound_rules','outbound_rules','phones','contacts','specials','scripts'] as $key)$config[$key]=[];
-        $this->query("insert into v_pbx_restore(domain_uuid,source_version,config,report) values(:d,'OpenWeb PBX 1.0.2',cast(:c as jsonb),'{}')",['d'=>$this->domain,'c'=>json_encode($config,JSON_THROW_ON_ERROR)]);
+        $this->query("insert into v_pbx_restore(domain_uuid,source_version,config,report) values(:d,'OpenWeb PBX 1.0.3',cast(:c as jsonb),'{}')",['d'=>$this->domain,'c'=>json_encode($config,JSON_THROW_ON_ERROR)]);
         $this->newDialplan('','outbound',$config,'all');
         $this->newDialplan('*97','voicemail_login',$config,'all');
     }
