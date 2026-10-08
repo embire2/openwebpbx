@@ -195,6 +195,7 @@ These areas complete the broader [3CX feature catalogue](https://www.3cx.com/ord
 - [ ] **PLATFORM-06 — High availability and disaster recovery (Build/Verify).** Add monitored standby operation, scheduled restore/synchronization and controlled failover/failback. Done when server-loss drills measure recovery/data-loss windows and cannot leave two systems placing the same calls.
 - [ ] **PLATFORM-07 — Capacity and endurance (Verify).** Define capacity tiers, then test many tenants, registrations, calls, callbacks, recordings and wake-ups over sustained runs. Done when resource limits, recovery after overload and recommended hardware are published from measurements.
 - [ ] **PLATFORM-08 — Supported deployment matrix (Verify).** Declare exact Windows Server editions, Debian 13 architecture and virtual/cloud environments; test installation, reboot, patching and recovery. Done when every advertised combination has evidence. Current qualification covers Windows Server 2025 Desktop Experience and Debian 13 amd64.
+- [ ] **PLATFORM-09 — Windows 10 and 11 server editions (Build/Verify).** Add an installation path for supported desktop Windows editions and qualify the full PBX on actual Windows 10/11 systems. Done when clean installation, calling, recovery and updates pass and qualified downloads are published. The 1.0.2 installer uses Windows Server components; the homepage correctly lists desktop Windows server editions as planned.
 
 ## P1/P2 — Completion and public release requirements
 
@@ -204,6 +205,11 @@ These areas complete the broader [3CX feature catalogue](https://www.3cx.com/ord
 - [ ] **RELEASE-03 — Prove setup simplicity (Verify; P1).** Have new administrators independently install, restore, add a phone/provider, change hours, create a queue and recover a backup using only the product and its help. Done when both OS workflows need no developer intervention; record task times and fix observed stumbling points.
 - [ ] **RELEASE-04 — Free and maintainable distribution (Partial; P1).** Preserve compatible open-source licenses, source/build availability and a dependency update process; document external account/service costs. Done when the declared OpenWeb feature set has no OpenWeb license paywall and a new contributor can build and maintain it.
 - [ ] **RELEASE-05 — Final feature-equivalence release (Build/Verify; P2).** Publish tested Windows/Debian installers, upgrade instructions, app downloads, compatibility matrices and release evidence. Done when every in-scope task is closed, differences are explicitly documented and the public claims match actual results. Preserve the already-published 1.0.2 tag and use new versions for new binaries.
+
+## Public project website
+
+- [x] **WEB-01 — Homepage and current release catalogue.** Built the Windows 11-inspired nonprofit/open-source homepage with interactive desktop controls, service cards, mission, project links and current release downloads. Published a [live preview](https://call.openweb.co.za/openwebpbx-preview/) on 2026-10-08. Browser checks cover desktop/mobile, all six feature dialogs, Start search, window controls, themes, keyboard use and no-JavaScript downloads. Download/support labels reflect the verified 1.0.2 platforms. Source and maintenance instructions: [website](website/README.md).
+- [ ] **WEB-02 — Publish on openwebpbx.com (Needs input; P0).** Deploy the reviewed public files to the domain's existing cPanel document root and verify live HTTPS, redirects and downloaded file hashes. Done when the homepage works at the requested domain. The token is stored privately and the cPanel endpoint is reachable; the account username is still needed to authenticate. Preserve the current DNS/mail routing and keep the website release catalogue current with future publications.
 
 ## External inputs needed for final verification
 
@@ -219,6 +225,7 @@ These areas complete the broader [3CX feature catalogue](https://www.3cx.com/ord
 | Mobile signing/push identities and test devices | APP-03/04 | Replacement mobile apps are not built |
 | Test accounts for business, messaging and AI connectors | INTEGRATION, MESSAGE and hosted AI qualification | Validate separately for each supported service |
 | Windows signing identity and additional platform/hardware test capacity | PLATFORM-04/07/08 | 1.0.2 binaries are unsigned; broad capacity remains unmeasured |
+| cPanel account username | WEB-02 | Token saved privately; verified endpoint available; production website publishing pending |
 
 Development and local test doubles can proceed before these inputs arrive; external qualification stays open until it is actually performed.
 
@@ -227,3 +234,4 @@ Development and local test doubles can proceed before these inputs arrive; exter
 | Date | Change | Evidence |
 | --- | --- | --- |
 | 2026-10-08 | Created the maintained roadmap from the released 1.0.2 baseline, current source/guides and official comparison documentation. Identified remaining implementation, verification and external-input work; corrected obsolete callback and backup-reader guide statements. | Release tag `30036bb82`; [verification history](AGENTS.md); [feature coverage](docs/feature-coverage.md). Documentation review only; no new calling or compatibility test is claimed. |
+| 2026-10-08 | Added the nonprofit project homepage, verified release catalogue and browser-tested live preview. Recorded the missing cPanel username and the Windows 10/11 installer qualification gap. | WEB-01/02, PLATFORM-09; [website maintenance](website/README.md). Existing 1.0.2 binaries and qualification claims are unchanged. |

@@ -27,7 +27,7 @@ if args.target == 'debian' and (not args.engine or not args.engine.is_file()):
     parser.error('Supply the clean engine archive built from upstream source.')
 
 files = subprocess.check_output(['git', 'ls-files', '-z'], cwd=root).decode().split('\0')
-excluded = {'.gitignore', '.project', '.github', 'AGENTS.md', 'tests', 'platform', 'packaging', 'docs'}
+excluded = {'.gitignore', '.project', '.github', 'AGENTS.md', 'tests', 'platform', 'packaging', 'docs', 'website'}
 name = f'openwebpbx-{version}-' + ('windows-x64' if args.target == 'windows' else 'debian13-amd64')
 args.output.mkdir(parents=True, exist_ok=True)
 with tempfile.TemporaryDirectory(prefix='openweb-release-') as temporary:

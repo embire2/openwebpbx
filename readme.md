@@ -10,6 +10,8 @@ Read the [installation guide](docs/installing-1.0.2.md), [callback and hotel gui
 
 The maintained [3CX roadmap](3CX.md) tracks the remaining work, priorities, completion criteria and verification dependencies.
 
+The [project homepage](website/README.md) has its own static source and a [live preview](https://call.openweb.co.za/openwebpbx-preview/). Publication at `openwebpbx.com` is awaiting the cPanel account username.
+
 ## Desktop workspace
 
 - Centered taskbar, searchable Start menu, and permission-aware application library.

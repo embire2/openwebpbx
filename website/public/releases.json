@@ -1,0 +1,61 @@
+{
+  "reviewed_on": "2026-10-08",
+  "repository": "embire2/openwebpbx",
+  "releases": [
+    {
+      "version": "1.0.2",
+      "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.2",
+      "published_at": "2026-10-07T23:18:09Z",
+      "prerelease": false,
+      "assets": [
+        {
+          "name": "openwebpbx-1.0.2-debian13-amd64.tar.gz",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.2/openwebpbx-1.0.2-debian13-amd64.tar.gz",
+          "bytes": 115044074,
+          "sha256": "4f91fd00f82466f75df868cafcf19ed99331a9c19975b788f89064f6f52c44a1"
+        },
+        {
+          "name": "openwebpbx-1.0.2-engine-source.tar.gz",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.2/openwebpbx-1.0.2-engine-source.tar.gz",
+          "bytes": 36612242,
+          "sha256": "0c2cffff4279c60d21754c702cbbcdd9d9b6c69fbea1e796cbea43d1c803e655"
+        },
+        {
+          "name": "openwebpbx-1.0.2-windows-x64.zip",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.2/openwebpbx-1.0.2-windows-x64.zip",
+          "bytes": 181213334,
+          "sha256": "b59cbacb77bcc57b1738a36315917b51fbf19a012f2d5cb5ee7cd113e49d46f8"
+        },
+        {
+          "name": "SHA256SUMS",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.2/SHA256SUMS",
+          "bytes": 308,
+          "sha256": "d491cd46b65ec8f800bc9157264712dad09d3f3a096f9438fa4b80bf48fd2803"
+        }
+      ]
+    }
+  ],
+  "server_platforms": [
+    {
+      "name": "Debian 13",
+      "architecture": "amd64",
+      "status": "tested",
+      "version": "1.0.2"
+    },
+    {
+      "name": "Windows Server 2025",
+      "architecture": "x64",
+      "edition": "Desktop Experience",
+      "status": "tested",
+      "version": "1.0.2"
+    },
+    {
+      "name": "Windows 11",
+      "status": "server installer planned; unqualified"
+    },
+    {
+      "name": "Windows 10",
+      "status": "server installer planned; unqualified"
+    }
+  ]
+}
