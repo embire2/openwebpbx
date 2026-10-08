@@ -31,3 +31,4 @@ app/yealink/resources/firmware/*
 /artifacts/
 
 /packaging/**/__pycache__/
+/tests/__pycache__/

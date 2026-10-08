@@ -38,11 +38,21 @@ local function user_free(u)
     end
     return true
 end
+local function gateway_contact(number,agent,route)
+    local trunk=config.trunks[tostring(route.trunk_id)]
+    if not trunk or type(trunk.gateway_uuid)~='string' or #trunk.gateway_uuid~=36 or not trunk.gateway_uuid:match('^[a-fA-F0-9%-]+$') then return nil end
+    local native
+    query('select enabled,register,from_domain,from_user,username,proxy,outbound_proxy,register_transport,profile from v_gateways where domain_uuid=:domain and gateway_uuid=:id',
+        {domain=job.domain_uuid,id=trunk.gateway_uuid},function(row) native=row end)
+    if not native or not P.gateway_available(native,api:execute('sofia','status gateway '..trunk.gateway_uuid)) then return nil end
+    return P.outbound_leg(trunk,route,number,config.users[tostring(agent)],tostring(agent),job.domain_uuid,config.realm,native)
+end
 local function outbound(number,agent,q)
     if internal_target() then
         local u=config.users[number]
         if u and u.enabled then
-            return P.contact(api:execute('sofia_contact',u.auth_id..'@'..config.realm))
+            local contact=P.contact(api:execute('sofia_contact',u.auth_id..'@'..config.realm))
+            return contact and {{contact=contact}} or nil
         end
         return nil
     end
@@ -51,19 +61,16 @@ local function outbound(number,agent,q)
     if not number:match('^%+?%d+$') then return nil end
     local rule=P.outbound(config,number,agent)
     if not rule then return nil end
-    for _,r in ipairs(rule.routes) do
-        local trunk=config.trunks[tostring(r.trunk_id)]
-        local enabled=false
-        if trunk then query("select 1 as ok from v_gateways where domain_uuid=:domain and gateway_uuid=:id and enabled='true'",{domain=job.domain_uuid,id=trunk.gateway_uuid},function() enabled=true end) end
-        if enabled then return 'sofia/gateway/'..trunk.gateway_uuid..'/'..r.prepend..number:sub(r.strip+1),r.caller_id~='' and r.caller_id or trunk.caller_id end
-    end
+    local routes={}
+    for _,r in ipairs(rule.routes) do if gateway_contact(number,agent,r) then routes[#routes+1]={number=number,route=r,agent=agent} end end
+    if #routes>0 then return routes end
 end
 local function deliver()
     query([[select j.*,r.config from v_pbx_jobs j join v_pbx_restore r using(domain_uuid)
       join v_domains d using(domain_uuid) where j.job_uuid=:id and j.state='starting' and j.expires_at>now() and d.domain_enabled='true'
       and not exists(select 1 from v_pbx_services s join v_pbx_tenants t using(tenant_uuid) where s.domain_uuid=j.domain_uuid and not t.enabled)]],{id=id},function(r) job=r;config=json.decode(r.config) end)
     if not job then return end
-    local q,agent,contact,cid
+    local q,agent,routes
     if job.kind=='callback' then
         q=P.find(config.queues,job.queue_number)
         if not q or (q.callback_mode or ((tonumber(q.callback) or -1)>=0 and 'request' or 'disabled'))=='disabled' then finish('cancelled','Queue callbacks are off');return end
@@ -78,8 +85,8 @@ local function deliver()
             if u and m.status=='LoggedIn' and u.queue_status=='LoggedIn' and profile.queue_status~='0' and not next(profile.away or {}) and user_free(u) then
                 local details=api:execute('callcenter_config','agent list '..m.agent_uuid)
                 if P.agent_available(details,m.agent_uuid,os.time()) then
-                    contact,cid=outbound(job.target_number,tostring(m.number),q)
-                    if contact then agent=u;break end
+                    routes=outbound(job.target_number,tostring(m.number),q)
+                    if routes then agent=u;break end
                 end
             end
         end
@@ -123,9 +130,28 @@ local function deliver()
         call:setVariable('openweb_call_internal',internal_target() and 'true' or 'false')
         call:execute('lua','app.lua pbx_setup record_user '..agent.number)
         call:setVariable('call_timeout','45')
-        if cid and cid:match('^%+?%d+$') then call:setVariable('effective_caller_id_number',cid) end
-        call:execute('bridge','[leg_timeout=45,domain_uuid='..job.domain_uuid..',domain_name='..config.realm..',origination_caller_id_name=Queue Callback]'..contact)
-        if call:getVariable('originate_disposition')=='SUCCESS' then finish('completed','Connected') else retry('Caller did not answer') end
+        local connected=false
+        for _,candidate in ipairs(routes) do
+            if not call:ready() or not active() then break end
+            -- Recheck the tenant-owned native gateway after the agent answers:
+            -- it may have disconnected or been switched off while ringing.
+            local contact=candidate.contact or gateway_contact(candidate.number,candidate.agent,candidate.route)
+            if contact then
+                if candidate.contact then contact='[domain_uuid='..job.domain_uuid..',domain_name='..config.realm..',origination_caller_id_name=Queue Callback]'..contact end
+                contact=P.track_answer(contact,call:getVariable('uuid'))
+                if not contact then break end
+                contact=contact:gsub('^%[','[leg_timeout=45,',1)
+                call:setVariable('originate_disposition','')
+                call:setVariable('last_bridge_proto_specific_hangup_cause','')
+                call:setVariable('sip_invite_failure_status','')
+                call:setVariable('openweb_provider_answered','false')
+                call:execute('bridge',contact)
+                local cause=call:getVariable('originate_disposition')
+                if cause=='SUCCESS' or call:getVariable('openweb_provider_answered')=='true' then connected=true;break end
+                if not P.failover(cause,call:getVariable('last_bridge_proto_specific_hangup_cause'),call:getVariable('openweb_provider_answered'),call:getVariable('sip_invite_failure_status')) then break end
+            end
+        end
+        if connected then finish('completed','Connected') else retry('Caller did not answer or no provider route was available') end
     end
     if call:ready() then call:hangup() end
 end

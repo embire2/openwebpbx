@@ -1,0 +1,73 @@
+diff --git a/mod_bcg729.c b/mod_bcg729.c
+index 23ca18d..66c57a5 100644
+--- a/mod_bcg729.c
++++ b/mod_bcg729.c
+@@ -26,0 +27,3 @@
++ * OpenWeb PBX modifications, 2026-10-08: validate codec contexts and complete
++ * frames/output capacities before writing; fix PLC length and per-frame
++ * decoder input lengths. Original authors and MPL 1.1 license are retained.
+@@ -52,0 +56 @@ static switch_status_t switch_bcg729_init(switch_codec_t *codec, switch_codec_fl
++		memset(context, 0, sizeof(*context));
+@@ -66,0 +71,5 @@ static switch_status_t switch_bcg729_init(switch_codec_t *codec, switch_codec_fl
++		if ((encoding && !context->encoder_object) || (decoding && !context->decoder_object)) {
++			if (context->encoder_object) closeBcg729EncoderChannel(context->encoder_object);
++			if (context->decoder_object) closeBcg729DecoderChannel(context->decoder_object);
++			return SWITCH_STATUS_FALSE;
++		}
+@@ -78,2 +87,4 @@ static switch_status_t switch_bcg729_destroy(switch_codec_t *codec)
+-    closeBcg729EncoderChannel(context->encoder_object);
+-    closeBcg729DecoderChannel(context->decoder_object);
++    if (context) {
++        if (context->encoder_object) closeBcg729EncoderChannel(context->encoder_object);
++        if (context->decoder_object) closeBcg729DecoderChannel(context->decoder_object);
++    }
+@@ -94 +105,3 @@ static switch_status_t switch_bcg729_encode(switch_codec_t *codec,
+-	if (!context) {
++	if (!context || !context->encoder_object || !decoded_data || !encoded_data || !encoded_data_len ||
++		decoded_data_len == 0 || decoded_data_len % 160 != 0 || decoded_rate != 8000 ||
++		decoded_data_len / 160 > UINT32_MAX / 10 || *encoded_data_len < (decoded_data_len / 160) * 10) {
+@@ -105 +118 @@ static switch_status_t switch_bcg729_encode(switch_codec_t *codec,
+-		for (x = 0; x < loops && new_len < *encoded_data_len; x++) {
++		for (x = 0; x < loops; x++) {
+@@ -107,0 +121,2 @@ static switch_status_t switch_bcg729_encode(switch_codec_t *codec,
++			/* Annex B/VAD is disabled at init, so every 80 samples encode to ten bytes. */
++			if (frameSize != 10) return SWITCH_STATUS_FALSE;
+@@ -109 +124 @@ static switch_status_t switch_bcg729_encode(switch_codec_t *codec,
+-			ddp += frameSize * 8;
++			ddp += 80;
+@@ -114,0 +130 @@ static switch_status_t switch_bcg729_encode(switch_codec_t *codec,
++			if (encoded_rate) *encoded_rate = 8000;
+@@ -134 +150,2 @@ static switch_status_t switch_bcg729_decode(switch_codec_t *codec,
+-    if (!context) {
++    if (!context || !context->decoder_object || !decoded_data || !decoded_data_len ||
++        (encoded_data_len && !encoded_data) || (encoded_data_len % 10 != 0 && encoded_data_len % 10 != 2)) {
+@@ -138,2 +155,2 @@ static switch_status_t switch_bcg729_decode(switch_codec_t *codec,
+-    int framesize;
+-    int x;
++    uint32_t framesize;
++    uint32_t x;
+@@ -145,4 +162,8 @@ static switch_status_t switch_bcg729_decode(switch_codec_t *codec,
+-        bcg729Decoder(context->decoder_object, NULL, 0, 1, 0, 0, ddp);
+-	    ddp += 80;
+-        decoded_data_len = (uint32_t *) 160;
+-	    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "g729 zero length frame\n");
++        uint32_t frames = codec->implementation ? codec->implementation->samples_per_packet / 80 : 1;
++        if (frames == 0 || frames > UINT32_MAX / 160 || *decoded_data_len < frames * 160) return SWITCH_STATUS_FALSE;
++        for (x = 0; x < frames; x++) {
++            bcg729Decoder(context->decoder_object, NULL, 0, 1, 0, 0, ddp);
++            ddp += 80;
++        }
++        *decoded_data_len = frames * 160;
++        if (decoded_rate) *decoded_rate = 8000;
+@@ -151,0 +173,6 @@ static switch_status_t switch_bcg729_decode(switch_codec_t *codec,
++    /* Each complete speech frame or final SID frame produces 80 samples. */
++    {
++        uint32_t frames = encoded_data_len / 10 + (encoded_data_len % 10 == 2);
++        if (frames > UINT32_MAX / 160 || *decoded_data_len < frames * 160) return SWITCH_STATUS_FALSE;
++    }
++
+@@ -156 +183 @@ static switch_status_t switch_bcg729_decode(switch_codec_t *codec,
+-        bcg729Decoder(context->decoder_object, edp, encoded_data_len, 0, isSID, 0, ddp);
++        bcg729Decoder(context->decoder_object, edp, framesize, 0, isSID, 0, ddp);
+@@ -163,0 +191 @@ static switch_status_t switch_bcg729_decode(switch_codec_t *codec,
++        if (decoded_rate) *decoded_rate = 8000;

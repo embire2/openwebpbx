@@ -115,6 +115,77 @@
 						end)
 					end
 
+
+                -- OpenWeb PBX provider IPs authorize only the SIP handshake. The
+                -- domain-owned dialplan and Lua policy still check the number,
+                -- gateway, source address and tenant before admitting a call.
+                if row.access_control_name == 'providers' then
+                    local installed = false
+                    dbh:query("select to_regclass('v_pbx_restore') is not null as installed", function(item)
+                        installed = item.installed == 't' or item.installed == 'true' or item.installed == true
+                    end)
+                    if installed then
+                        local approved_sql = [[
+                            select distinct address.value as provider_ip
+                            from v_pbx_restore restored
+                            join v_domains domain on domain.domain_uuid=restored.domain_uuid and domain.domain_enabled=true
+                            cross join lateral jsonb_each(case when jsonb_typeof(restored.config->'trunks')='object' then restored.config->'trunks' else '{}'::jsonb end) trunk
+                            join v_gateways gateway on gateway.domain_uuid=restored.domain_uuid
+                                and gateway.gateway_uuid::text=trunk.value->>'gateway_uuid' and gateway.enabled=true
+                            cross join lateral jsonb_array_elements_text(case when jsonb_typeof(trunk.value->'allowed_ips')='array' then trunk.value->'allowed_ips' else '[]'::jsonb end) address
+                            where trunk.value->>'enabled'='true'
+                                and not exists(select 1 from v_pbx_services service join v_pbx_tenants tenant using(tenant_uuid)
+                                    where service.domain_uuid=restored.domain_uuid and tenant.enabled=false)
+                        ]]
+                        local function ipv4(ip)
+                            local parts={ip:match('^(%d+)%.(%d+)%.(%d+)%.(%d+)$')}
+                            if #parts~=4 then return false end
+                            for _,part in ipairs(parts) do
+                                if #part>3 or tonumber(part)>255 or (#part>1 and part:sub(1,1)=='0') then return false end
+                            end
+                            return true
+                        end
+                        local function ipv6(ip)
+                            if #ip>45 or not ip:find(':',1,true) then return false end
+                            -- A dotted tail occupies two IPv6 hextets. Preserve
+                            -- the original literal when rendering the /128 ACL.
+                            if ip:find('.',1,true) then
+                                local tail=ip:match('(%d+%.%d+%.%d+%.%d+)$')
+                                if not tail or not ipv4(tail) then return false end
+                                local prefix=ip:sub(1,#ip-#tail)
+                                if prefix:sub(-1)~=':' then return false end
+                                ip=prefix..'0:0'
+                            end
+                            if not ip:match('^[%x:]+$') or ip:find(':::',1,true) then return false end
+                            local _,compressed=ip:gsub('::','')
+                            if compressed>1 then return false end
+                            local function groups(part)
+                                if part=='' then return 0 end
+                                if part:sub(1,1)==':' or part:sub(-1)==':' then return nil end
+                                local total=0
+                                for value in part:gmatch('[^:]+') do
+                                    if #value>4 or not value:match('^%x+$') then return nil end
+                                    total=total+1
+                                end
+                                return total
+                            end
+                            if compressed==0 then return groups(ip)==8 end
+                            local left,right=ip:match('^(.-)::(.-)$')
+                            local a,b=groups(left),groups(right)
+                            return a~=nil and b~=nil and a+b<8
+                        end
+                        dbh:query(approved_sql, function(item)
+                            local ip = item.provider_ip or ''
+                            -- Admin accepts only literal addresses; validate again before XML.
+                            local valid = ip:find(':',1,true) and ipv6(ip) or ipv4(ip)
+                            if valid then
+                                local mask = ip:find(':',1,true) and '/128' or '/32'
+                                xml:append([[<node type="allow" cidr="]]..xml.sanitize(ip..mask)..[[" description="OpenWeb PBX incoming provider"/>]])
+                            end
+                        end)
+                    end
+                end
+
 				--list close tag
 					xml:append([[				</list>]]);
 

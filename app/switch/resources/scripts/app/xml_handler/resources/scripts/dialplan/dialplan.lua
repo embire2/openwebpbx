@@ -321,3 +321,55 @@
 		file:write(XML_STRING);
 		file:close();
 	end
+
+-- Restored providers can put the called number in To instead of Request-URI.
+-- Keep their scoped, ordered conditions outside the legacy single-number cache,
+-- whose database prefilter otherwise discards a valid To-header rule. This
+-- fragment contains no request-specific selection; every rule retains its
+-- gateway, source-IP, number and domain checks before calling tenant Lua.
+if context_name == 'public' then
+    local hostname = trim(api:execute('hostname', ''))
+    local incoming_key = 'dialplan:openweb-incoming:'..hostname
+    local incoming_xml = cache.get(incoming_key)
+    if incoming_xml == nil then
+        local IncomingDatabase = require 'resources.functions.database'
+        local incoming_db = IncomingDatabase.new('system')
+        local installed = false
+        incoming_db:query("select to_regclass('v_pbx_restore') is not null as installed", function(row)
+            installed = row.installed == 't' or row.installed == 'true' or row.installed == true
+        end)
+        local fragments = {}
+        if installed then
+            incoming_db:query([[
+                select plan.dialplan_xml from v_dialplans plan
+                join v_pbx_restore restored on restored.domain_uuid=plan.domain_uuid
+                cross join lateral jsonb_array_elements(case when jsonb_typeof(restored.config->'inbound_rules')='array' then restored.config->'inbound_rules' else '[]'::jsonb end) incoming
+                join lateral jsonb_each(case when jsonb_typeof(restored.config->'trunks')='object' then restored.config->'trunks' else '{}'::jsonb end) trunk
+                    on trunk.key=incoming.value->>'trunk_id'
+                join v_gateways gateway on gateway.domain_uuid=plan.domain_uuid
+                    and gateway.gateway_uuid::text=trunk.value->>'gateway_uuid' and gateway.enabled=true
+                join v_domains domain on domain.domain_uuid=plan.domain_uuid and domain.domain_enabled=true
+                where plan.dialplan_context='ingress@'||domain.domain_name and plan.dialplan_enabled=true
+                    and incoming.value->>'dialplan_uuid'=plan.dialplan_uuid::text
+                    and incoming.value->>'enabled'='true' and trunk.value->>'enabled'='true'
+                    and (plan.hostname=:hostname or plan.hostname is null)
+                    and exists(select 1 from v_destinations destination where destination.domain_uuid=plan.domain_uuid
+                        and destination.dialplan_uuid=plan.dialplan_uuid and destination.destination_enabled=true)
+                    and not exists(select 1 from v_pbx_services service join v_pbx_tenants tenant using(tenant_uuid)
+                        where service.domain_uuid=plan.domain_uuid and tenant.enabled=false)
+                order by plan.dialplan_order,plan.dialplan_uuid
+            ]], {hostname=hostname}, function(row)
+                fragments[#fragments+1] = row.dialplan_xml
+            end)
+        end
+        incoming_db:release()
+        incoming_xml = table.concat(fragments,'\n')
+        cache.set(incoming_key,incoming_xml,expire['dialplan'] or 60)
+    end
+    if incoming_xml ~= '' then
+        if type(XML_STRING) ~= 'string' then
+            XML_STRING = '<?xml version="1.0" encoding="UTF-8"?><document type="freeswitch/xml"><section name="dialplan"><context name="'..Xml.sanitize(call_context)..'"></context></section></document>'
+        end
+        XML_STRING = XML_STRING:gsub('(<context[^>]*>)',function(open) return open..incoming_xml end,1)
+    end
+end

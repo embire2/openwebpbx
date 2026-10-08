@@ -18,4 +18,11 @@
     const update = () => select.closest('form').querySelectorAll('[data-password-auth]').forEach(field => { field.hidden = select.value !== 'password'; });
     select.addEventListener('change', update); update();
   });
+  document.querySelectorAll('form').forEach(form => form.addEventListener('submit', event => {
+    const button = event.submitter;
+    if (button?.dataset.providerCheck === undefined) return;
+    // Keep the submitter enabled so its check action is included in the form data.
+    button.textContent = 'Checking saved provider…';
+    button.setAttribute('aria-busy', 'true');
+  }));
 })();

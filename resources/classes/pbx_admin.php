@@ -12,6 +12,43 @@ class pbx_admin {
     public function restored(): bool {return (bool)$this->query('select 1 from v_pbx_restore where domain_uuid=:d',['d'=>$this->domain])->fetchColumn();}
     public function config(bool $lock=false): array {$r=$this->query('select config from v_pbx_restore where domain_uuid=:d'.($lock?' for update':''),['d'=>$this->domain])->fetchColumn();if(!$r)throw new RuntimeException('Choose a restored PBX first.');return json_decode($r,true,512,JSON_THROW_ON_ERROR);}
     public function report(): array {$r=$this->query('select report from v_pbx_restore where domain_uuid=:d',['d'=>$this->domain])->fetchColumn();return $r?json_decode($r,true,512,JSON_THROW_ON_ERROR):[];}
+    /** Only safe runtime states and credential presence are exposed in the readiness report. */
+    public function trunkReadiness(bool $live=true): array {
+        $config=$this->config();$gateways=[];
+        foreach($this->query("select gateway_uuid,enabled,register,coalesce(nullif(auth_username,''),username,'')<>'' has_username,coalesce(password,'')<>'' has_password from v_gateways where domain_uuid=:d",['d'=>$this->domain])->fetchAll(PDO::FETCH_ASSOC) as $gateway)$gateways[$gateway['gateway_uuid']]=$gateway;
+        $audioSupport=null;
+        if($live){try{$modules=[trim((string)event_socket::api('module_exists mod_bcg729')),trim((string)event_socket::api('module_exists mod_com_g729'))];if(in_array('true',$modules,true))$audioSupport=true;elseif($modules===['false','false'])$audioSupport=false;}catch(Throwable){}}
+        $trunks=[];$counts=['trunks'=>count($config['trunks']),'off'=>0,'missing_credentials'=>0,'missing_provider_ips'=>0,'missing_audio_support'=>0,'incoming_off'=>0,'incoming_total'=>count($config['inbound_rules']),'registered'=>0,'failed'=>0];
+        foreach($config['trunks'] as $key=>$trunk){
+            $key=(string)$key;
+            $gateway=$gateways[$trunk['gateway_uuid']??'']??null;$runtime=[];
+            if($live&&$gateway&&filter_var($gateway['enabled'],FILTER_VALIDATE_BOOLEAN)&&is_uuid($trunk['gateway_uuid'])){
+                try{$response=(string)event_socket::api('sofia xmlstatus gateway '.$trunk['gateway_uuid']);if(trim($response)==='Invalid Gateway!')$response=(string)event_socket::api('sofia xmlstatus gateway '.strtoupper($trunk['gateway_uuid']));$runtime=pbx_trunk_readiness::gatewayState($response,$trunk['gateway_uuid']);}catch(Throwable){$runtime=['state'=>'unknown'];}
+            }
+            // Native enablement is authoritative if configuration and running records differ.
+            $runtime['g729_transcoding']=$audioSupport;
+            $trunk['enabled']=$gateway?filter_var($gateway['enabled'],FILTER_VALIDATE_BOOLEAN):false;
+            $state=pbx_trunk_readiness::describe($trunk,$gateway,$runtime);$state['incoming_total']=0;$state['incoming_off']=0;$state['outbound_routes']=0;
+            foreach($config['inbound_rules'] as $rule)if($rule['trunk_id']===$key){$state['incoming_total']++;if(empty($rule['enabled']))$state['incoming_off']++;}
+            foreach($config['outbound_rules'] as $rule)foreach($rule['routes']??[] as $route)if($route['trunk_id']===$key)$state['outbound_routes']++;
+            $trunks[$key]=$state;$counts['off']+=(int)!$state['enabled'];$counts['missing_credentials']+=(int)$state['missing_credentials'];$counts['missing_provider_ips']+=(int)$state['missing_provider_ips'];$counts['missing_audio_support']+=(int)$state['missing_audio_support'];$counts['registered']+=(int)($state['status']==='Registered');$counts['failed']+=(int)in_array($state['status'],['Connection failed','Not connected'],true);
+        }
+        foreach($config['inbound_rules'] as $rule)if(empty($rule['enabled']))$counts['incoming_off']++;
+        return ['trunks'=>$trunks,'counts'=>$counts,'calls_verified'=>false];
+    }
+    public function checkTrunkProvider(string $key): array {
+        if(!permission_exists('gateway_edit'))throw new RuntimeException('Provider administration permission is required.');
+        $config=$this->config();$trunk=$config['trunks'][$key]??null;
+        if(!$trunk||!is_uuid($trunk['gateway_uuid']??'')||!$this->query('select 1 from v_gateways where domain_uuid=:d and gateway_uuid=:id',['d'=>$this->domain,'id'=>$trunk['gateway_uuid']])->fetchColumn())throw new InvalidArgumentException('This trunk is not in your PBX.');
+        $checkKey=$this->domain.':'.$key;$last=$_SESSION['pbx_provider_checks'][$checkKey]??0;
+        if(time()-$last<15)throw new RuntimeException('Wait a few seconds before checking this provider again.');
+        $_SESSION['pbx_provider_checks'][$checkKey]=time();
+        return (new pbx_trunk_readiness)->checkProvider($trunk);
+    }
+    public function providerAddress(): string {
+        $port=$this->query("select x.sip_profile_setting_value from v_sip_profile_settings x join v_sip_profiles p using(sip_profile_uuid) where p.sip_profile_name='external' and p.sip_profile_enabled=true and x.sip_profile_setting_name='sip-port' and x.sip_profile_setting_enabled=true limit 1")->fetchColumn();
+        return pbx_paths::address().(filter_var($port,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>65535]])!==false?':'.$port:' (ask your instance administrator for the provider port)');
+    }
     public function initialize(string $realm,string $timezone='UTC'): void {
         if(!$this->db->inTransaction())throw new LogicException('Initialization requires a transaction.');
         if($this->query('select domain_name from v_domains where domain_uuid=:d for update',['d'=>$this->domain])->fetchColumn()!==$realm)throw new InvalidArgumentException('Choose the active PBX address.');
@@ -34,8 +71,10 @@ class pbx_admin {
     private function saveConfig(array $config): void {$this->query('update v_pbx_restore set config=cast(:c as jsonb) where domain_uuid=:d',['c'=>json_encode($config,JSON_THROW_ON_ERROR),'d'=>$this->domain]);}
     private function changed(?string $trunk=null,?string $queue=null): void {
         settings::clear_cache();$cache=new cache;$realm=$_SESSION['domain_name'];$cache->delete('dialplan:'.$realm);$cache->delete('dialplan:ingress@'.$realm);$cache->delete(gethostname().':configuration:sofia.conf');$cache->delete(gethostname().':configuration:callcenter.conf');$cache->delete('configuration:callcenter.conf');
+        $cache->delete('dialplan:openweb-incoming:'.gethostname());
+        $refreshTrunk=$trunk&&is_uuid($trunk);if($refreshTrunk){$cache->delete('configuration:acl.conf');$cache->delete(gethostname().':configuration:acl.conf');}
         foreach($this->config()['users'] as $number=>$u){$cache->delete('directory:'.$u['auth_id'].'@'.$realm);$cache->delete('directory:'.$number.'@'.$realm);}
-        try{event_socket::api('reloadxml');if($trunk&&is_uuid($trunk)){event_socket::api('sofia profile external killgw '.$trunk);event_socket::api('sofia profile external rescan');}if($queue&&preg_match('/^[0-9]{2,10}$/D',$queue))event_socket::api('callcenter_config queue unload '.$queue.'@'.$realm);}catch(Throwable){error_log('OpenWeb PBX: call settings saved; reload unavailable');}
+        try{event_socket::api('reloadxml');if($refreshTrunk){event_socket::api('reloadacl');event_socket::api('sofia profile external killgw '.$trunk);event_socket::api('sofia profile external rescan');}if($queue&&preg_match('/^[0-9]{2,10}$/D',$queue))event_socket::api('callcenter_config queue unload '.$queue.'@'.$realm);}catch(Throwable){error_log('OpenWeb PBX: call settings saved; reload unavailable');}
     }
     private function row(array $rows,string $key,string $field='number'): array {foreach($rows as $i=>$r)if((string)$r[$field]===$key)return [$i,$r];throw new InvalidArgumentException('This item is not in your PBX.');}
     public function destinations(array $config): array {
@@ -68,13 +107,69 @@ class pbx_admin {
         $department=$this->text($in,'department',40);foreach($c['departments'] as &$dep){$dep['members']=array_values(array_filter($dep['members'],fn($m)=>!($m['number']===$key&&$m['primary'])));if($dep['number']===$department){$found=false;foreach($dep['members'] as &$m)if($m['number']===$key){$m['primary']=true;$found=true;}unset($m);if(!$found)$dep['members'][]=['number'=>$key,'primary'=>true];}}unset($dep);return $key;
     }
     private function saveTrunk(string $key,array $in,array &$c): string {
-        if($key==='new'){$key='ow-'.substr(str_replace('-','',uuid()),0,12);$id=uuid();$c['trunks'][$key]=['number'=>$key,'gateway_uuid'=>$id,'name'=>'','host'=>'','port'=>5060,'transport'=>'udp','register'=>false,'enabled'=>false,'allowed_ips'=>[],'main_number'=>'','caller_id'=>'','limit'=>10,'expires'=>180,'type'=>'Provider','headers'=>[]];$this->insert('v_gateways',['gateway_uuid'=>$id,'domain_uuid'=>$this->domain,'gateway'=>'New SIP Trunk','context'=>'ingress@'.$c['realm'],'profile'=>'external','enabled'=>false,'register'=>false,'register_transport'=>'udp','expire_seconds'=>180,'retry_seconds'=>30]);}
-        if(!isset($c['trunks'][$key]))throw new InvalidArgumentException('This trunk is not in your PBX.');$t=&$c['trunks'][$key];$name=$this->text($in,'name',80);$host=strtolower($this->text($in,'host',253));if($name===''||(!filter_var($host,FILTER_VALIDATE_IP)&&!preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/D',$host)))throw new InvalidArgumentException('Enter the trunk name and provider server.');$port=$this->integer($in,'port',1,65535,5060);$auth=$this->text($in,'authentication',12,'ip');if(!in_array($auth,['ip','password'],true))throw new InvalidArgumentException('Choose an authentication method.');$user=$this->text($in,'username',128);if(!preg_match('/^[A-Za-z0-9_.+@-]{0,128}$/D',$user))throw new InvalidArgumentException('Enter a valid username.');$password=$in['password']??'';if(!is_string($password)||strlen($password)>256||preg_match('/[\x00-\x1f]/',$password)||str_contains($password,'${'))throw new InvalidArgumentException('Enter a valid password.');
-        $ips=preg_split('/[ ,\r\n]+/',$this->text($in,'allowed_ips',1000),-1,PREG_SPLIT_NO_EMPTY);foreach($ips as $ip)if(!filter_var($ip,FILTER_VALIDATE_IP))throw new InvalidArgumentException('Enter the IP addresses supplied by your provider.');if($auth==='password'&&$user==='')throw new InvalidArgumentException('Enter the provider username.');$enabled=!empty($in['enabled']);if($enabled&&!$ips)throw new InvalidArgumentException('Add the provider IP addresses before connecting the trunk.');if($enabled&&$t['type']==='BridgeMaster')throw new InvalidArgumentException('This 3CX bridge needs a new connection.');
-        $t['name']=$name;$t['host']=$host;$t['port']=$port;$t['register']=$auth==='password';$t['enabled']=$enabled;$t['allowed_ips']=array_values(array_unique($ips));$t['main_number']=$this->text($in,'main_number',32);$t['caller_id']=$this->text($in,'caller_id',32);foreach(['main_number','caller_id'] as $field)if($t[$field]!==''&&!preg_match('/^\+?[0-9]{1,32}$/D',$t[$field]))throw new InvalidArgumentException('Enter a valid phone number.');
-        $params=['name'=>$name,'proxy'=>$host.':'.$port,'user'=>$auth==='ip'?'':$user,'register'=>$t['register'],'on'=>$enabled,'d'=>$this->domain,'id'=>$t['gateway_uuid']];$sql='update v_gateways set gateway=:name,proxy=:proxy,username=:user,auth_username=:user,register=:register,enabled=:on';if($auth==='ip'||$password!==''){$sql.=',password=:password';$params['password']=$auth==='ip'?'':$password;}$this->query($sql.' where domain_uuid=:d and gateway_uuid=:id',$params);
-        // Refresh existing number checks when the provider changes its sending addresses.
-        foreach($c['inbound_rules'] as $rule)if($rule['trunk_id']===$key&&!empty($rule['enabled']))$this->saveIncoming($rule['rule_id'],['enabled'=>$enabled?'1':'','use_outside'=>$rule['use_outside']?'1':''],$c);
+        if($key==='new'){
+            $key='ow-'.substr(str_replace('-','',uuid()),0,12);$id=uuid();
+            $c['trunks'][$key]=['number'=>$key,'gateway_uuid'=>$id,'name'=>'','host'=>'','port'=>5060,'transport'=>'udp','auth_mode'=>'ip','register'=>false,'enabled'=>false,'allowed_ips'=>[],'main_number'=>'','caller_id'=>'','limit'=>10,'expires'=>180,'type'=>'Provider','headers'=>[],'source_field'=>'RequestLineURIUser'];
+            $this->insert('v_gateways',['gateway_uuid'=>$id,'domain_uuid'=>$this->domain,'gateway'=>'New SIP Trunk','context'=>'ingress@'.$c['realm'],'profile'=>'external','enabled'=>false,'register'=>false,'register_transport'=>'udp','expire_seconds'=>180,'retry_seconds'=>30]);
+        }
+        if(!isset($c['trunks'][$key]))throw new InvalidArgumentException('This trunk is not in your PBX.');
+        $t=&$c['trunks'][$key];
+        $native=$this->query('select * from v_gateways where domain_uuid=:d and gateway_uuid=:id for update',['d'=>$this->domain,'id'=>$t['gateway_uuid']])->fetch(PDO::FETCH_ASSOC);
+        if(!$native)throw new InvalidArgumentException('This trunk is not in your PBX.');
+        // Older restored policies did not include advanced native options. Preserve them
+        // before applying submitted fields, so an ordinary edit cannot reset a working line.
+        foreach(['realm'=>'realm','auth_username'=>'auth_username','from_user'=>'from_user','from_domain'=>'from_domain','register_proxy'=>'register_proxy','outbound_proxy'=>'outbound_proxy','contact_user'=>'extension'] as $policy=>$field)if(!array_key_exists($policy,$t))$t[$policy]=$native[$field]??'';
+        // A blank legacy native value means no explicit override. Let the shared
+        // mapper use the restored caller-ID headers, or its standard "none" value.
+        if(!isset($t['sip_cid_type'])||$t['sip_cid_type']===''){
+            if(($native['sip_cid_type']??'')!=='')$t['sip_cid_type']=$native['sip_cid_type'];
+            else unset($t['sip_cid_type']);
+        }
+        foreach(['extension_in_contact','caller_id_in_from'] as $flag)if(!array_key_exists($flag,$t))$t[$flag]=filter_var($native[$flag]??false,FILTER_VALIDATE_BOOLEAN);
+        if(!array_key_exists('codecs',$t))$t['codecs']=array_values(array_filter(explode(',',(string)($native['codec_prefs']??''))));
+        if(!array_key_exists('auth_mode',$t))$t['auth_mode']=!empty($native['username'])||!empty($native['auth_username'])?'credentials':'ip';
+        $name=$this->text($in,'name',80);$host=strtolower($this->text($in,'host',253));if(filter_var(trim($host,'[]'),FILTER_VALIDATE_IP,FILTER_FLAG_IPV6))$host=trim($host,'[]');
+        if($name===''||(!filter_var($host,FILTER_VALIDATE_IP)&&!preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/D',$host)))throw new InvalidArgumentException('Enter the trunk name and provider server.');
+        $auth=$this->text($in,'authentication',12,$t['auth_mode']==='credentials'?'password':'ip');
+        if(!in_array($auth,['ip','password'],true))throw new InvalidArgumentException('Choose an authentication method.');
+        $user=$this->text($in,'username',128,(string)($native['username']??''));
+        if(!preg_match('/^[A-Za-z0-9_.+@-]{0,128}$/D',$user))throw new InvalidArgumentException('Enter a valid username.');
+        $password=$in['password']??'';
+        if(!is_string($password)||strlen($password)>256||preg_match('/[\x00-\x1f]/',$password)||str_contains($password,'${'))throw new InvalidArgumentException('Enter a valid password.');
+        if($password==='')$password=(string)($native['password']??'');
+        $ips=preg_split('/[ ,\r\n]+/',$this->text($in,'allowed_ips',1000,implode(', ',$t['allowed_ips']??[])),-1,PREG_SPLIT_NO_EMPTY);
+        foreach($ips as $ip)if(!filter_var($ip,FILTER_VALIDATE_IP))throw new InvalidArgumentException('Enter the IP addresses supplied by your provider.');
+        $enabled=!empty($in['enabled']);
+        if($enabled&&!$ips)throw new InvalidArgumentException('Add the provider IP addresses before connecting the trunk.');
+        if($enabled&&($t['type']??'')==='BridgeMaster')throw new InvalidArgumentException('This 3CX bridge needs a new connection.');
+        if($auth==='password'&&($user===''||($enabled&&$password==='')))throw new InvalidArgumentException('Enter the provider authentication ID and password.');
+        $t['name']=$name;$t['host']=$host;$t['port']=$this->integer($in,'port',1,65535,(int)($t['port']??5060));
+        $t['auth_mode']=$auth==='password'?'credentials':'ip';$t['enabled']=$enabled;$t['allowed_ips']=array_values(array_unique($ips));
+        if(array_key_exists('register',$in)){
+            if(!is_scalar($in['register'])||filter_var($in['register'],FILTER_VALIDATE_BOOLEAN,FILTER_NULL_ON_FAILURE)===null)throw new InvalidArgumentException('Choose whether this provider requires registration.');
+            $t['register']=filter_var($in['register'],FILTER_VALIDATE_BOOLEAN);
+        }
+        if($t['register']&&$t['auth_mode']!=='credentials')throw new InvalidArgumentException('Registration requires provider authentication details.');
+        $t['transport']=$this->text($in,'transport',3,$t['transport']??'udp');
+        if(!in_array($t['transport'],['udp','tcp','tls'],true))throw new InvalidArgumentException('Choose a valid transport.');
+        foreach(['main_number','caller_id'] as $field){$t[$field]=$this->text($in,$field,32,$t[$field]??'');if($t[$field]!==''&&!preg_match('/^\+?[0-9]{1,32}$/D',$t[$field]))throw new InvalidArgumentException('Enter a valid phone number.');}
+        foreach(['realm','auth_username','from_user','from_domain','register_proxy','outbound_proxy','contact_user'] as $field)if(array_key_exists($field,$in))$t[$field]=$this->text($in,$field,253);
+        if(isset($in['codecs'])){$codecs=$this->text($in,'codecs',500);if(!preg_match('/^[A-Za-z0-9_, .-]{0,500}$/D',$codecs))throw new InvalidArgumentException('Enter codec names separated by commas.');$t['codecs']=array_values(array_unique(preg_split('/[ ,]+/',$codecs,-1,PREG_SPLIT_NO_EMPTY)));}
+        foreach(['expires'=>[1,86400,180],'limit'=>[1,10000,10]] as $field=>[$min,$max,$default])$t[$field]=$this->integer($in,$field,$min,$max,(int)($t[$field]??$default));
+        foreach(['extension_in_contact','caller_id_in_from'] as $flag)if(array_key_exists($flag,$in)){$value=$in[$flag];if(!is_scalar($value)||filter_var($value,FILTER_VALIDATE_BOOLEAN,FILTER_NULL_ON_FAILURE)===null)throw new InvalidArgumentException('Choose a valid provider option.');$t[$flag]=filter_var($value,FILTER_VALIDATE_BOOLEAN);}
+        if(isset($in['sip_cid_type'])){$t['sip_cid_type']=$this->text($in,'sip_cid_type',4);if(!in_array($t['sip_cid_type'],['rpid','pid','none'],true))throw new InvalidArgumentException('Choose a valid caller ID header.');}
+        if(isset($in['source_field'])){$t['source_field']=$this->text($in,'source_field',30);if(!in_array($t['source_field'],['ToUserPart','RequestLineURIUser'],true))throw new InvalidArgumentException('Choose where the provider sends the incoming number.');}
+        $gatewayPolicy=$t+['username'=>$user,'password'=>$password];$gatewayPolicy['username']=$auth==='ip'?'':$user;$gatewayPolicy['password']=$auth==='ip'?'':$password;
+        if($auth==='ip'){$gatewayPolicy['auth_username']='';$t['auth_username']='';}
+        $fields=pbx_v20_restore::gatewaySettings($gatewayPolicy);
+        $t['sip_cid_type']=$fields['sip_cid_type'];
+        $fields['gateway']=$name;$fields['context']='ingress@'.$c['realm'];$fields['profile']='external';$fields['enabled']=$enabled;
+        $params=['d'=>$this->domain,'id'=>$t['gateway_uuid']];$assignments=[];
+        foreach($fields as $field=>$value){$assignments[]=$field.'=:'.$field;$params[$field]=$value;}
+        $this->query('update v_gateways set '.implode(',',$assignments).' where domain_uuid=:d and gateway_uuid=:id',$params);
+        unset($t['username'],$t['password']);
+        // Refresh every number's source-field and source-address checks, including off lines.
+        foreach($c['inbound_rules'] as $rule)if($rule['trunk_id']===$key)$this->saveIncoming($rule['rule_id'],['enabled'=>$enabled&&!empty($rule['enabled'])?'1':'','use_outside'=>!empty($rule['use_outside'])?'1':''],$c);
         return $key;
     }
     private function saveDepartment(string $key,array $in,array &$c): string {
@@ -107,9 +202,22 @@ class pbx_admin {
     }
     private function saveIncoming(string $key,array $in,array &$c): string {
         if($key==='new'){$key=uuid();$trunk=$this->text($in,'trunk_id',40);if(!isset($c['trunks'][$trunk]))throw new InvalidArgumentException('Choose a SIP trunk.');$number=$this->number($in,'number');$i=count($c['inbound_rules']);$empty=['type'=>'None','number'=>'','external'=>''];$dp=$this->newDialplan($number,'incoming',$c,$key);$c['inbound_rules'][]=['rule_id'=>$key,'trunk_id'=>$trunk,'number'=>$number,'name'=>$number,'order'=>$i,'condition'=>'BasedOnDID','hours'=>['type'=>'OfficeHours','periods'=>[]],'office'=>$empty,'outside'=>$empty,'holiday'=>$empty,'use_outside'=>false,'use_holiday'=>false,'enabled'=>false,'dialplan_uuid'=>$dp];$this->insert('v_destinations',['destination_uuid'=>$key,'domain_uuid'=>$this->domain,'dialplan_uuid'=>$dp,'destination_type'=>'inbound','destination_number'=>$number,'destination_context'=>'ingress@'.$c['realm'],'destination_app'=>'lua','destination_data'=>'app.lua pbx_setup incoming '.$key,'destination_enabled'=>false,'destination_type_voice'=>1,'destination_description'=>$number]);}
-        [$i]=$this->row($c['inbound_rules'],$key,'rule_id');$r=&$c['inbound_rules'][$i];$r['office']=$this->destination($in,'office',$c,$r['office']);$r['outside']=$this->destination($in,'outside',$c,$r['outside']);$r['use_outside']=!empty($in['use_outside']);$enabled=!empty($in['enabled']);$t=$c['trunks'][$r['trunk_id']];if($enabled&&(!$t['enabled']||!$t['allowed_ips']))throw new InvalidArgumentException('Connect the SIP trunk first.');if($enabled)$this->checkIncomingBinding($r,$t,$c);$r['enabled']=$enabled;
+        [$i]=$this->row($c['inbound_rules'],$key,'rule_id');$r=&$c['inbound_rules'][$i];$r['office']=$this->destination($in,'office',$c,$r['office']);$r['outside']=$this->destination($in,'outside',$c,$r['outside']);$r['use_outside']=!empty($in['use_outside']);$enabled=!empty($in['enabled']);$t=$c['trunks'][$r['trunk_id']];if($enabled&&(!$t['enabled']||!$t['allowed_ips']))throw new InvalidArgumentException('Connect the SIP trunk first.');if($enabled)$this->checkIncomingBinding($r,$t,$c);$r['enabled']=$enabled;$order=pbx_v20_restore::incomingOrder($r,$i);
         // Both public and gateway ingress must check the source IP before any routing.
-        $s=$this->query('select dialplan_xml from v_dialplans where domain_uuid=:d and dialplan_uuid=:id',['d'=>$this->domain,'id'=>$r['dialplan_uuid']])->fetchColumn();$doc=new DOMDocument();$doc->loadXML($s,LIBXML_NONET);$root=$doc->documentElement;foreach(iterator_to_array($root->childNodes) as $node)if($node instanceof DOMElement&&$node->getAttribute('field')==='${sip_network_ip}')$root->removeChild($node);$condition=$doc->createElement('condition');$condition->setAttribute('field','${sip_network_ip}');$condition->setAttribute('expression','^(?:'.implode('|',array_map(fn($ip)=>preg_quote($ip,'~'),$t['allowed_ips'])).')$');$root->insertBefore($condition,$root->firstChild);$this->query('update v_dialplans set dialplan_xml=:xml,dialplan_enabled=:on where domain_uuid=:d and dialplan_uuid=:id',['xml'=>$doc->saveXML($root),'on'=>$enabled,'d'=>$this->domain,'id'=>$r['dialplan_uuid']]);$this->query('update v_destinations set destination_enabled=:on where domain_uuid=:d and destination_uuid=:id',['on'=>$enabled,'d'=>$this->domain,'id'=>$r['rule_id']]);return $key;
+        $s=$this->query('select dialplan_xml from v_dialplans where domain_uuid=:d and dialplan_uuid=:id',['d'=>$this->domain,'id'=>$r['dialplan_uuid']])->fetchColumn();$doc=new DOMDocument();
+        if(!is_string($s)||preg_match('/<!\s*(?:DOCTYPE|ENTITY)/i',$s)||!$doc->loadXML($s,LIBXML_NONET))throw new InvalidArgumentException('The saved incoming rule needs review.');
+        $root=$doc->documentElement;[$sipField,$sipExpression]=pbx_v20_restore::incomingCondition($r,$t);[$gatewayField,$gatewayExpression]=pbx_v20_restore::incomingGatewayCondition($t);
+        foreach($root->getElementsByTagName('condition') as $node)if(in_array($node->getAttribute('field'),['destination_number','${sip_to_user}','${sip_req_user}'],true)){$node->setAttribute('field',$sipField);$node->setAttribute('expression',$sipExpression);}
+        foreach(iterator_to_array($root->childNodes) as $node)if($node instanceof DOMElement&&in_array($node->getAttribute('field'),['${sip_network_ip}',$gatewayField],true))$root->removeChild($node);
+        $condition=$doc->createElement('condition');$condition->setAttribute('field','${sip_network_ip}');$condition->setAttribute('expression','^(?:'.implode('|',array_map(fn($ip)=>preg_quote($ip,'~'),$t['allowed_ips'])).')$');$root->insertBefore($condition,$root->firstChild);
+        $binding=$doc->createElement('condition');$binding->setAttribute('field',$gatewayField);$binding->setAttribute('expression',$gatewayExpression);$root->insertBefore($binding,$root->firstChild);
+        $this->query('update v_dialplans set dialplan_xml=:xml,dialplan_enabled=:on,dialplan_order=:position where domain_uuid=:d and dialplan_uuid=:id',['xml'=>$doc->saveXML($root),'on'=>$enabled,'position'=>$order,'d'=>$this->domain,'id'=>$r['dialplan_uuid']]);
+        $this->query("update v_dialplan_details set dialplan_detail_type=:field,dialplan_detail_data=:expression where domain_uuid=:d and dialplan_uuid=:id and dialplan_detail_tag='condition' and dialplan_detail_type in ('destination_number','\${sip_to_user}','\${sip_req_user}')",['field'=>$sipField,'expression'=>$sipExpression,'d'=>$this->domain,'id'=>$r['dialplan_uuid']]);
+        $bindings=$this->query("select dialplan_detail_uuid from v_dialplan_details where domain_uuid=:d and dialplan_uuid=:id and dialplan_detail_tag='condition' and dialplan_detail_type='\${sip_gateway}' for update",['d'=>$this->domain,'id'=>$r['dialplan_uuid']])->fetchAll(PDO::FETCH_COLUMN);
+        if(count($bindings)>1)throw new InvalidArgumentException('The saved incoming provider binding needs review.');
+        if($bindings)$this->query('update v_dialplan_details set dialplan_detail_data=:expression,dialplan_detail_order=0 where domain_uuid=:d and dialplan_detail_uuid=:id',['expression'=>$gatewayExpression,'d'=>$this->domain,'id'=>$bindings[0]]);
+        else $this->insert('v_dialplan_details',['dialplan_detail_uuid'=>uuid(),'domain_uuid'=>$this->domain,'dialplan_uuid'=>$r['dialplan_uuid'],'dialplan_detail_tag'=>'condition','dialplan_detail_type'=>$gatewayField,'dialplan_detail_data'=>$gatewayExpression,'dialplan_detail_order'=>0,'dialplan_detail_group'=>0,'dialplan_detail_enabled'=>true]);
+        $this->query('update v_destinations set destination_enabled=:on,destination_order=:position where domain_uuid=:d and destination_uuid=:id',['on'=>$enabled,'position'=>$order,'d'=>$this->domain,'id'=>$r['rule_id']]);return $key;
     }
     private function checkIncomingBinding(array $rule,array $trunk,array $own): void {
         // Serialize changes to public number ownership across independent PBXs.
@@ -118,8 +226,17 @@ class pbx_admin {
         foreach($configs as $index=>$config)foreach($config['inbound_rules'] as $other){
             if(empty($other['enabled'])||($index===0&&$other['rule_id']===$rule['rule_id']))continue;
             $otherTrunk=$config['trunks'][$other['trunk_id']]??[];if(empty($otherTrunk['enabled'])||!array_intersect($trunk['allowed_ips'],$otherTrunk['allowed_ips']??[]))continue;
-            $a=ltrim($rule['number'],'+');$b=ltrim($other['number'],'+');
-            if($a===$b||$a===''||$b===''||str_contains($a,'*')||str_contains($b,'*'))throw new InvalidArgumentException('This number already has an active route from that provider. Keep one active destination per number.');
+            // A trunk's fallback follows its specific numbers within the same PBX.
+            // Across PBXs, it owns only the numbers declared on that provider.
+            if($index===0&&($trunk['gateway_uuid']??null)===($otherTrunk['gateway_uuid']??null)
+                &&($rule['condition']??'')!==($other['condition']??'')
+                &&in_array('ForwardAll',[$rule['condition']??'',$other['condition']??''],true))continue;
+            $numbers=($rule['condition']??'')==='ForwardAll'?pbx_v20_restore::incomingNumbers($trunk):[$rule['number']];
+            $otherNumbers=($other['condition']??'')==='ForwardAll'?pbx_v20_restore::incomingNumbers($otherTrunk):[$other['number']];
+            foreach($numbers as $patternA)foreach($otherNumbers as $patternB){
+                $suffixA=str_starts_with($patternA,'*');$suffixB=str_starts_with($patternB,'*');$a=ltrim($patternA,'*+');$b=ltrim($patternB,'*+');
+                if($a===$b||($suffixA&&str_ends_with($b,$a))||($suffixB&&str_ends_with($a,$b)))throw new InvalidArgumentException('This number already has an active route from that provider. Keep one active destination per number.');
+            }
         }
     }
     private function saveScript(string $key,array $in,array &$c): string {[$i]=$this->row($c['scripts'],$key);$map=$c['scripts'][$i]['pin_map'];$rows=$in['pin_routes']??[];if(!is_array($rows)||count($rows)>100)throw new InvalidArgumentException('Choose PIN menu users.');$pins=array_keys($map);foreach($rows as $index=>$r){if(!ctype_digit((string)$index)||!isset($pins[(int)$index])||!is_array($r))throw new InvalidArgumentException('Choose PIN menu users.');$n=$this->number($r,'number');if(!isset($c['users'][$n]))throw new InvalidArgumentException('Choose a user from this PBX.');$map[$pins[(int)$index]]=$n;}$c['scripts'][$i]['pin_map']=$map;return $key;}

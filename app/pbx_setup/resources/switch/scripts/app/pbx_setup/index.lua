@@ -8,14 +8,22 @@ local db=Database.new('system')
 local api=freeswitch.API()
 local domain=session:getVariable('domain_uuid') or ''
 local config
-db:query('select config from v_pbx_restore where domain_uuid=:domain',{domain=domain},function(row) config=json.decode(row.config) end)
+db:query([[select r.config from v_pbx_restore r join v_domains d using(domain_uuid)
+    where r.domain_uuid=:domain and d.domain_enabled='true' and not exists
+    (select 1 from v_pbx_services s join v_pbx_tenants t using(tenant_uuid) where s.domain_uuid=r.domain_uuid and not t.enabled)]],
+    {domain=domain},function(row) config=json.decode(row.config) end)
 if not config then db:release();session:hangup('UNALLOCATED_NUMBER');return end
 local realm=config.realm
 local mode,key=args[2],args[3]
 local caller=session:getVariable('effective_caller_id_number') or session:getVariable('caller_id_number') or ''
 local auth=session:getVariable('sip_auth_username') or session:getVariable('user_name')
 local authenticated_user=false
-for number,u in pairs(config.users) do if u.auth_id==auth then caller=number;authenticated_user=true;break end end
+-- An incoming provider may present an Authorization user resembling a local
+-- user. It remains external after transfers within this tenant's dialplan.
+local auth_realm=session:getVariable('sip_auth_realm')
+if type(auth)=='string' and auth~='' and (not auth_realm or auth_realm==realm) and mode~='incoming' and session:getVariable('openweb_provider_origin')~='true' then
+    for number,u in pairs(config.users) do if u.enabled and u.auth_id==auth then caller=number;authenticated_user=true;break end end
+end
 local internal=authenticated_user and mode~='incoming'
 if mode=='record_user' then internal=session:getVariable('openweb_call_internal')=='true' end
 local function clock(zone)
@@ -45,9 +53,9 @@ local function voicemail(number,check)
     session:setVariable('voicemail_action',check and 'check' or 'leave')
     session:execute('lua','app.lua voicemail')
 end
-local function record(u)
+local function record(u,external)
     if not u.record_calls or session:getVariable('openweb_recording')=='true' then return end
-    if u.record_external_only and internal then return end
+    if u.record_external_only and internal and not external then return end
     local id=session:getVariable('uuid')
     if not id or not id:match('^[a-f0-9%-]+$') then return end
     local dir=storage_dir..'/openwebpbx/'..domain
@@ -59,13 +67,14 @@ local function record(u)
         values(:id,:domain,'recordings',:source,:path,:title,:owner,now()) on conflict do nothing]],
         {id=id,domain=domain,source='calls/'..id..'.wav',path=path,title='Call '..tostring(u.number),owner=tostring(u.number)})
 end
-local function outbound_contact(number,rule_route)
+local function outbound_contact(number,rule_route,owner)
     local t=config.trunks[tostring(rule_route.trunk_id)]
     if not t then return nil end
-    local enabled=false
-    db:query('select enabled from v_gateways where gateway_uuid=:id and domain_uuid=:domain',{id=t.gateway_uuid,domain=domain},function(row) enabled=row.enabled=='true' or row.enabled=='t' end)
-    if not enabled then return nil end
-    return 'sofia/gateway/'..t.gateway_uuid..'/'..rule_route.prepend..number:sub(rule_route.strip+1)
+    if type(t.gateway_uuid)~='string' or #t.gateway_uuid~=36 or not t.gateway_uuid:match('^[a-fA-F0-9%-]+$') then return nil end
+    local native
+    db:query('select enabled,register,from_domain,from_user,username,proxy,outbound_proxy,register_transport,profile from v_gateways where gateway_uuid=:id and domain_uuid=:domain',{id=t.gateway_uuid,domain=domain},function(row) native=row end)
+    if not native or not P.gateway_available(native,api:execute('sofia','status gateway '..t.gateway_uuid)) then return nil end
+    return P.outbound_leg(t,rule_route,number,config.users[tostring(owner or caller)],caller,domain,realm,native)
 end
 local function user_contact(u,timeout)
     local variables='leg_timeout='..timeout..',domain_uuid='..domain..',domain_name='..realm..',openweb_call_internal='..tostring(internal)
@@ -74,23 +83,34 @@ local function user_contact(u,timeout)
     end
     return '['..variables..']user/'..u.auth_id..'@'..realm
 end
-run_outbound=function(number)
-    local room=hotel_room(caller)
+run_outbound=function(number,owner)
+    local origin=tostring(owner or caller)
+    local room=hotel_room(origin)
     if room and room.occupied~='t' and room.occupied~='true' then session:hangup('CALL_REJECTED');return end
     if not number:match('^%+?[%d*#]+$') then session:hangup('UNALLOCATED_NUMBER');return end
-    local rule=P.outbound(config,number,caller)
+    local rule=P.outbound(config,number,origin)
     if not rule then session:hangup('CALL_REJECTED');return end
     for _,r in ipairs(rule.routes) do
-        local contact=outbound_contact(number,r)
+        local contact=outbound_contact(number,r,origin)
+        contact=contact and P.track_answer(contact,session:getVariable('uuid'))
         if contact then
-            local trunk=config.trunks[tostring(r.trunk_id)]
-            local cid=r.caller_id~='' and r.caller_id or (config.users[tostring(caller)] or {}).outbound_caller_id
-            cid=cid~='' and cid or trunk.caller_id
-            if cid and cid:match('^%+?%d+$') then session:setVariable('effective_caller_id_number',cid) end
-            if config.users[tostring(caller)] then record(config.users[tostring(caller)]) end
+            -- Directory call_timeout belongs to the user's incoming ring
+            -- profile. FreeSWITCH also reads it on the caller's provider
+            -- originate, so explicitly give each provider attempt its own
+            -- bounded setup/ringing window, including forwarded calls.
+            session:setVariable('call_timeout','60')
+            contact='{originate_timeout=60,progress_timeout=60}'..contact:gsub('^%[','[leg_timeout=60,',1)
+            if config.users[origin] then record(config.users[origin],true) end
+            session:setVariable('originate_disposition','')
+            session:setVariable('last_bridge_proto_specific_hangup_cause','')
+            session:setVariable('sip_invite_failure_status','')
+            session:setVariable('openweb_provider_answered','false')
             session:execute('bridge',contact)
             local cause=session:getVariable('originate_disposition')
-            if not session:ready() or cause=='SUCCESS' then return end
+            if not session:ready() or cause=='SUCCESS' or session:getVariable('openweb_provider_answered')=='true' then return end
+            if not P.failover(cause,session:getVariable('last_bridge_proto_specific_hangup_cause'),session:getVariable('openweb_provider_answered'),session:getVariable('sip_invite_failure_status')) then
+                session:hangup(cause or 'NORMAL_TEMPORARY_FAILURE');return
+            end
         end
     end
     session:hangup('NORMAL_TEMPORARY_FAILURE')
@@ -101,7 +121,7 @@ route=function(destination,owner)
     local kind=destination.type
     local number=destination.number~='' and destination.number or owner
     if kind=='VoiceMail' then voicemail(number,false)
-    elseif kind=='External' or kind=='Boomerang' then run_outbound(destination.external~='' and destination.external or (config.users[tostring(owner)] or {}).mobile or '')
+    elseif kind=='External' or kind=='Boomerang' then run_outbound(destination.external~='' and destination.external or (config.users[tostring(owner)] or {}).mobile or '',owner)
     elseif kind=='None' or kind=='EndCall' then session:hangup('NORMAL_CLEARING')
     elseif number and tostring(number):match('^[%d*SPQCB]+$') then session:transfer(tostring(number),'XML',realm)
     else session:hangup('UNALLOCATED_NUMBER') end
@@ -117,13 +137,16 @@ run_user=function(number)
     local open=P.office(config,number,clock)
     if next(profile.away or {}) then route(P.forward(profile,'NoAnswer',internal,open),number);return end
     local contact=api:execute('sofia_contact',u.auth_id..'@'..realm)
-    if contact:sub(1,4)=='-ERR' then route(P.forward(profile,'NotRegistered',internal,open),number);return end
+    if not P.contact(contact) then route(P.forward(profile,'NotRegistered',internal,open),number);return end
     session:setVariable('call_timeout',tostring(profile.timeout));session:setVariable('origination_callee_id_name',u.name)
     session:setVariable('origination_callee_id_number',tostring(number));record(u)
     local bridge='[leg_timeout='..profile.timeout..']user/'..u.auth_id..'@'..realm
     if profile.ring_mobile and u.mobile~='' then
-        local rule=P.outbound(config,u.mobile,caller)
-        if rule and rule.routes[1] then local mobile=outbound_contact(u.mobile,rule.routes[1]);if mobile then bridge=bridge..',[leg_timeout='..profile.timeout..']'..mobile end end
+        local rule=P.outbound(config,u.mobile,number)
+        if rule then for _,r in ipairs(rule.routes) do
+            local mobile=outbound_contact(u.mobile,r,number)
+            if mobile then bridge=bridge..','..mobile:gsub('^%[','[leg_timeout='..profile.timeout..',',1);break end
+        end end
     end
     session:execute('bridge',bridge)
     if not session:ready() then return end
@@ -216,7 +239,8 @@ local function run()
     elseif mode=='group' then run_group(key)
     elseif mode=='queue' then run_queue(key)
     elseif mode=='ivr' then run_ivr(key)
-    elseif mode=='outbound' then run_outbound(session:getVariable('destination_number') or '')
+    elseif mode=='outbound' then
+        if authenticated_user then run_outbound(session:getVariable('destination_number') or '') else session:hangup('CALL_REJECTED') end
     elseif mode=='record_user' then local u=config.users[tostring(key)];if u then record(u) end
     elseif mode=='group_timeout' then route(P.find(config.ring_groups,key).destination,key)
     elseif mode=='queue_timeout' then route(P.find(config.queues,key).destination,key)
@@ -226,11 +250,12 @@ local function run()
         if not rule or not rule.enabled then session:hangup('CALL_REJECTED');return end
         local trunk=config.trunks[tostring(rule.trunk_id)]
         local ip=session:getVariable('sip_network_ip') or session:getVariable('network_addr') or ''
-        local accepted=false
-        for _,allowed in ipairs(trunk.allowed_ips or {}) do if allowed==ip then accepted=true end end
+        if not P.incoming(config,rule,trunk,function(variable) return session:getVariable(variable) end,ip) then session:hangup('CALL_REJECTED');return end
         local enabled=false
         db:query('select enabled from v_gateways where domain_uuid=:domain and gateway_uuid=:id',{domain=domain,id=trunk.gateway_uuid},function(row) enabled=row.enabled=='true' or row.enabled=='t' end)
-        if not accepted or not enabled then session:hangup('CALL_REJECTED');return end
+        if not enabled then session:hangup('CALL_REJECTED');return end
+        session:setVariable('openweb_provider_origin','true')
+        session:setVariable('openweb_call_internal','false')
         session:setVariable('call_direction','inbound');internal=false
         local destination=rule.office
         local open,_,holiday=P.office(config,destination.number,clock)

@@ -6,8 +6,39 @@
 <div data-panel="voicemail"><?php $check('voicemail_enabled','Enable Voicemail',$row['voicemail_enabled']??true); ?><div class="setup-fields"><?php $select('voicemail_email','Email Options',['None'=>'Do Not Send Email','Notification'=>'Email Notification','Attachment'=>'Attach Voicemail','AttachmentAndDelete'=>'Attach and Delete Voicemail'],$row['voicemail_email']??'None');if(!empty($row['greetings']))$select('greeting_id','Greeting',[''=>'Default Greeting']+array_column($row['greetings'],'title','id'),$row['greeting_id']??''); ?></div><p>Voicemail uses the email address on the General tab.</p><a class="setup-button" href="?view=voicemails">Voicemail</a></div>
 <div data-panel="provisioning"><p>Server: <strong><?= $e(pbx_paths::host()) ?></strong></p><?php if($key!=='new'): ?><button class="setup-button" type="submit" name="action" value="credentials">Show Phone Details</button><?php else: ?><p>Save this user to get phone details.</p><?php endif; ?></div>
 <div data-panel="options"><div class="setup-fields"><?php $input('outbound_caller_id','Outbound Caller ID',$row['outbound_caller_id']??'','tel');$check('record_calls','Record Calls',$row['record_calls']??false); ?></div></div>
-<?php elseif($view==='voice'): $gateway=$key==='new'?[]:$database->select('select username from v_gateways where domain_uuid=:d and gateway_uuid=:id',['d'=>$_SESSION['domain_uuid'],'id'=>$row['gateway_uuid']],'row');$row['register']=$row['register']??false; ?>
-<div class="setup-fields"><?php $input('name','Name',$row['name']??'','text','required');$input('host','Registrar/Server',$row['host']??'','text','required');$input('port','Port',$row['port']??5060,'number','min="1" max="65535"');$input('main_number','Main Trunk Number',$row['main_number']??'','tel');$select('authentication','Authentication',['ip'=>'IP Authentication','password'=>'Username and Password'],$row['register']?'password':'ip','data-authentication');echo '<div data-password-auth>';$input('username','Authentication ID',$gateway['username']??'');echo '</div><div data-password-auth>';$input('password','Authentication Password','','password','autocomplete="new-password" placeholder="Leave blank to keep the saved password"');echo '</div>';$input('caller_id','Outbound Caller ID',$row['caller_id']??'','tel');$input('allowed_ips','Provider IP Addresses',implode(', ',$row['allowed_ips']??[])); ?></div><?php $check('enabled','Enable SIP Trunk',$row['enabled']??false); ?><p>Your provider may need this server’s IP: <strong><?= $e(pbx_paths::address()) ?></strong>.</p>
+<?php elseif($view==='voice'):
+$gateway=$key==='new'?[]:($database->select("select username,auth_username,realm,from_user,from_domain,register_proxy,outbound_proxy,register_transport,expire_seconds,channels,codec_prefs,extension,extension_in_contact,caller_id_in_from,sip_cid_type,coalesce(password,'')<>'' has_password from v_gateways where domain_uuid=:d and gateway_uuid=:id",['d'=>$_SESSION['domain_uuid'],'id'=>$row['gateway_uuid']],'row')?:[]);
+$authentication=($row['auth_mode']??((!empty($row['register'])||!empty($gateway['username']))?'credentials':'ip'))==='credentials'?'password':'ip';
+$advanced=static fn($field,$native=null)=>$row[$field]??$gateway[$native??$field]??'';
+if($key!=='new'&&isset($readiness['trunks'][$key])):$state=$readiness['trunks'][$key]; ?>
+<div class="trunk-readiness"><h3><?= $trunkStatus($state) ?></h3><p><?= $e($state['next_step']) ?></p><?php if($state['issues']): ?><ul><?php foreach($state['issues'] as $issue): ?><li><?= $e($issue) ?></li><?php endforeach; ?></ul><?php endif; ?><p><?= (int)$state['incoming_off'] ?> of <?= (int)$state['incoming_total'] ?> incoming numbers are off. <?= (int)$state['outbound_routes'] ?> outgoing routes use this trunk.</p>
+<?php if(permission_exists('gateway_edit')): ?><button class="setup-button" type="submit" name="action" value="check_provider" formnovalidate data-provider-check>Check saved provider</button><p class="setup-hint">Checks the saved server address and TCP/TLS connection. It sends no registration, SIP message or call and does not apply unsaved changes.</p><?php endif; ?></div>
+<?php endif; ?>
+<div class="setup-fields"><?php
+$input('name','Name',$row['name']??'','text','required');$input('host','Registrar/Server',$row['host']??'','text','required');
+$input('port','Port',$row['port']??5060,'number','min="1" max="65535"');$select('transport','Transport',['udp'=>'UDP','tcp'=>'TCP','tls'=>'TLS'],$row['transport']??$gateway['register_transport']??'udp');
+$input('main_number','Main Trunk Number',$row['main_number']??'','tel');$select('authentication','Authentication',['ip'=>'IP Authentication','password'=>'Username and Password'],$authentication,'data-authentication');
+echo '<div data-password-auth>';$input('username','Account ID',$gateway['username']??'');echo '</div><div data-password-auth>';$input('password','Authentication Password','','password','autocomplete="new-password" placeholder="Leave blank to keep the saved password"');echo '<small>'.(!empty($gateway['has_password'])?'A password is saved.':'No password is saved.').'</small></div>';
+$input('caller_id','Outbound Caller ID',$row['caller_id']??'','tel');$input('allowed_ips','Provider IP Addresses',implode(', ',$row['allowed_ips']??[])); ?></div>
+<input type="hidden" name="register" value="0"><?php $check('register','Register with provider',$row['register']??false); ?>
+<?php $check('enabled','Enable SIP Trunk',$row['enabled']??false); ?>
+<p>For IP Authentication, ask your provider to whitelist <strong><?= $e(pbx_paths::address()) ?></strong>. The incoming SIP address for UDP/TCP is <strong><?= $e($admin->providerAddress()) ?></strong>.</p>
+<details class="trunk-advanced"><summary>Advanced provider settings</summary><p>Keep the settings supplied by your provider. Registration and password authentication are separate options.</p>
+<div class="setup-fields"><?php
+$select('source_field','Incoming number is supplied in',['ToUserPart'=>'To: User Part','RequestLineURIUser'=>'Request Line URI: User Part'],$row['source_field']??'ToUserPart');
+$input('realm','Authentication Realm',$advanced('realm'));$input('auth_username','Authentication ID (optional override)',$advanced('auth_username'));
+$input('from_user','From: User Part',$advanced('from_user'));$input('from_domain','From: Host Part',$advanced('from_domain'));
+$input('register_proxy','Registration Server (optional)',$advanced('register_proxy'));$input('outbound_proxy','Outbound Proxy (optional)',$advanced('outbound_proxy'));
+$input('expires','Registration Refresh (seconds)',$row['expires']??$gateway['expire_seconds']??180,'number','min="1" max="86400"');
+$input('limit','Maximum Simultaneous Calls',$row['limit']??$gateway['channels']??10,'number','min="1" max="10000"');
+$input('codecs','Codecs',implode(', ',$row['codecs']??array_filter(explode(',',(string)($gateway['codec_prefs']??'')))));
+$input('contact_user','Contact: User Part',$advanced('contact_user','extension'));
+$cid=$row['sip_cid_type']??($gateway['sip_cid_type']??'');if($cid==='')$cid=isset($row['headers']['RemotePartyIDCallingPartyUserPart'])?'rpid':(isset($row['headers']['PAssertedIdentityUserPart'])?'pid':'none');
+$select('sip_cid_type','Caller ID Header',['none'=>'None','rpid'=>'Remote Party ID','pid'=>'P-Asserted-Identity'],$cid);
+?></div>
+<input type="hidden" name="extension_in_contact" value="0"><?php $check('extension_in_contact','Use Contact: User Part',filter_var($advanced('extension_in_contact'),FILTER_VALIDATE_BOOLEAN)); ?>
+<input type="hidden" name="caller_id_in_from" value="0"><?php $check('caller_id_in_from','Use outgoing caller ID in From',filter_var($advanced('caller_id_in_from'),FILTER_VALIDATE_BOOLEAN)); ?>
+</details>
 <?php elseif($view==='departments'): ?><div class="setup-fields"><?php $input('name','Name',$row['name']??'','text','required'); ?></div><h3>Users</h3><?php $members($row['members']??[]); ?>
 <?php elseif($view==='hours'): $periods=[];foreach($row['hours']['periods']??[] as $p)$periods[$p['day']]=$p; ?>
 <h3><?= $e($departmentName($row['name'])) ?></h3><div class="setup-fields"><?php $select('timezone','Timezone',array_combine(DateTimeZone::listIdentifiers(),DateTimeZone::listIdentifiers()),$row['timezone']);$check('always_open','Always Open',($row['hours']['type']??'')==='AllHours'); ?></div>

@@ -4,7 +4,10 @@ OpenWeb PBX is a free, independently developed PBX built on FusionPBX and FreeSW
 
 The Windows edition includes a C#/.NET 10 background calling service and WinUI 3 administration manager, built with Visual Studio 2026. The existing web application uses PHP and the call engine uses FreeSWITCH/Lua. This is not a complete C# rewrite. The manager opens the authenticated web Admin and is not a calling app.
 
-## Available and tested
+## Released 1.0.2 baseline
+
+This table records the published 1.0.2 packages. Development changes and their
+separate verification state appear below; the existing release archives are unchanged.
 
 | Area | Version 1.0.2 behavior | Verification and limits |
 | --- | --- | --- |
@@ -20,9 +23,41 @@ The Windows edition includes a C#/.NET 10 background calling service and WinUI 3
 | Outgoing mail | Shared SMTP relay, password or IP authentication | Local SMTP authentication and no-AUTH wire tests; a real mail provider must be configured |
 | Backup import | Observed 3CX V20 Update 9 layout, supported calling objects and private media | Customer backup trial/live restore tested; the Restore Report lists missing media and unmapped behavior; other native builds require validation |
 
+## Development verification — 2026-10-08
+
+The `customization` branch adds the following work beyond the published 1.0.2
+packages. Local tests and the bounded carrier pilot below have distinct
+qualification limits; broad 3CX compatibility is unverified. See [carrier cutover](carrier-cutover.md) for the
+operator workflow and current blockers.
+
+| Area | Current development behavior | Verification and remaining limits |
+| --- | --- | --- |
+| Provider restore | Independent authentication and REGISTER, transport/port, realm/authentication ID, proxies, expiry, concurrency, codecs, From/Contact/RPID and DID source selection | All 18 carrier configurations from the inspected `20.0.9.995` backup mapped; one bridge needs replacement. Focused mapping and full private-backup restore checks passed. Other builds remain unverified. |
+| Existing-service repair | Guarded dry run and reconciliation of native provider fields, incoming conditions/bindings and fallback order | Applied to the production restore: 19 gateways and 44 incoming rules repaired, including 19 fallback order changes. Credentials, identities, users, media, IP bindings and disabled state were retained; a subsequent dry run reported zero changes. All customer connections remain off. The guided reconciliation workflow remains incomplete. |
+| Simple provider administration | Advanced settings retained through editor save/reload, separate registration control, native status and DNS/TCP/TLS readiness with next actions | Scoped permission, CSRF, masking, identity and editor round-trip checks passed. Readiness does not send REGISTER or qualify calls; UDP signalling and remote SIP/RTP network checks remain separate work. |
+| Outgoing routing | Ordered provider fallback, busy-stop behavior, rewriting, caller-ID/header selection and challenge authentication without registration | Actual Debian FreeSWITCH local-provider tests passed 503 fallback, 486 stop, Contact/RPID, fresh 407 authentication without REGISTER, intact PCMU/PCMA offers, negotiated PCMA and two-way RTP. Six actual native codec-parser checks passed. Broader carrier and Windows qualification remain pending. |
+| Durable external-number callbacks | Agent-first delivery through ordinary provider policy, provider fallback, digest authentication and durable result tracking | Two synthetic external-number callbacks passed 503 fallback or fresh 407 authentication, PCMA two-way audio with verified packet rates, one-attempt Connected completion, cleared leases and native agent release. This fixture starts already-leased jobs and tests Lua delivery, not C# claim/dispatch. Real carrier callbacks and Windows provider-fallback qualification remain pending. |
+| Incoming ownership | Exact/suffix/default precedence, declared-number fallback, enabled native provider/tenant binding and approved source-IP gates | Actual Debian local-provider delivery passed with a To-header DID and Request-URI contact alias; unknown DID, wrong gateway, unapproved source and disabled provider were rejected. Production incoming rules were reconciled. Policy/runtime suites passed 149/41 checks; two registered local phones were used and scoped media/jobs/XML/CDR/native queue/agent/tier cleanup passed. Public-network delivery remains unverified. |
+
+Nine configured SIP endpoints resolved; seven answered a nonregistering SIP
+probe and two timed out. DNS and SIP responses confirm connectivity only.
+An additional registration-only fixture check verified exact original-Call-ID
+cleanup, leaving zero matching native contacts without printing phone accounts.
+A separately authorized carrier pilot registered and answered a controlled
+16-second outgoing call, exchanging 765 sent and 797 received RTP packets
+through G729-to-PCMU transcoding without native audio errors. Caller audibility
+confirmation is pending. Rollback restored source-IP bindings, left all 19
+customer connections off and left no pilot calls running. Public incoming
+delivery, DTMF, transfers, sustained-call stability and real carrier callbacks
+remain unverified. The missing source audio/PIN destinations, greeting
+selection, replacement apps and bridge still need the work in
+[V20 restore](v20-restore.md) and RESTORE-01/10/PHONE-04 in [the roadmap](../3CX.md).
+
 ## Work still required
 
-The maintained [3CX roadmap](../3CX.md) contains the detailed checklist, priorities, acceptance conditions and external dependencies. This document summarizes the released 1.0.2 behavior.
+The maintained [3CX roadmap](../3CX.md) contains the detailed checklist, priorities,
+acceptance conditions and external dependencies. The released baseline and
+development evidence above are separate; CALL-01 and CALL-02 remain open.
 
 These are explicit gaps, not features enabled by installing 1.0.2:
 

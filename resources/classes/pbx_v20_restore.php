@@ -18,6 +18,144 @@ final class pbx_v20_restore {
     private function insert(string $table,array $row): void {
         $keys=array_keys($row);$this->query('insert into '.$table.'('.implode(',',$keys).') values('.implode(',',array_map(fn($k)=>':'.$k,$keys)).')',$row);
     }
+    /** Pure gateway mapping shared by setup, native restore and the provider editor.
+     * Credentials are private input/output: never include this array in a preview.
+     * SIP authentication and REGISTER are independent provider requirements.
+     */
+    public static function gatewaySettings(array $trunk): array {
+        $text=static function(mixed $value,string $label,int $max=253):string {
+            if(!is_string($value)&&!is_int($value)&&$value!==null)throw new InvalidArgumentException('Invalid '.$label.'.');
+            $value=trim((string)$value);if(strlen($value)>$max||preg_match('/[\x00-\x1f\x7f]/',$value)||str_contains($value,'${'))throw new InvalidArgumentException('Invalid '.$label.'.');return $value;
+        };
+        $flag=static function(mixed $value,string $label):bool {return match($value){true,'true','1',1=>true,false,'false','0',0=>false,default=>throw new InvalidArgumentException('Invalid '.$label.'.')};};
+        $integer=static function(mixed $value,string $label,int $min,int $max):int {if(is_bool($value)||(!is_int($value)&&!is_string($value)))throw new InvalidArgumentException('Invalid '.$label.'.');$v=filter_var($value,FILTER_VALIDATE_INT,['options'=>['min_range'=>$min,'max_range'=>$max]]);if($v===false)throw new InvalidArgumentException('Invalid '.$label.'.');return $v;};
+        $host=static function(mixed $value,string $label)use($text):string {
+            $v=strtolower($text($value,$label));$ip=trim($v,'[]');
+            if(!filter_var($ip,FILTER_VALIDATE_IP)&&!preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/D',$v))throw new InvalidArgumentException('Invalid '.$label.'.');
+            return str_contains($ip,':')?'['.$ip.']':$v;
+        };
+        $endpoint=static function(mixed $value,string $label)use($text,$host,$integer):string {
+            $v=$text($value,$label);if($v==='')return '';
+            if(preg_match('/^\[([^\]]+)\](?::([0-9]+))?$/D',$v,$m))return $host($m[1],$label).(isset($m[2])?':'.$integer($m[2],$label.' port',1,65535):'');
+            if(filter_var($v,FILTER_VALIDATE_IP,FILTER_FLAG_IPV6))return $host($v,$label);
+            if(preg_match('/^([^:]+)(?::([0-9]+))?$/D',$v,$m))return $host($m[1],$label).(isset($m[2])?':'.$integer($m[2],$label.' port',1,65535):'');
+            throw new InvalidArgumentException('Invalid '.$label.'.');
+        };
+        $identity=static function(mixed $value,string $label)use($text):string {$v=$text($value,$label,128);if(!preg_match('/^[A-Za-z0-9_.+@*!-]{0,128}$/D',$v))throw new InvalidArgumentException('Invalid '.$label.'.');return $v;};
+        $server=$host($trunk['host']??'','SIP server');$transport=strtolower($text($trunk['transport']??'udp','SIP transport',3));if(!in_array($transport,['udp','tcp','tls'],true))throw new InvalidArgumentException('Unsupported SIP transport.');
+        $port=$integer($trunk['port']??($transport==='tls'?5061:5060),'SIP port',1,65535);$register=$flag($trunk['register']??false,'SIP registration');
+        $username=$identity($trunk['username']??'','SIP username');$password=$trunk['password']??'';
+        if(!is_string($password)||strlen($password)>256||preg_match('/[\x00-\x1f\x7f]/',$password)||str_contains($password,'${'))throw new InvalidArgumentException('The SIP password cannot be represented safely.');
+        $mode=strtolower($text($trunk['auth_mode']??(($username!==''||$password!==''||$register)?'credentials':'ip'),'SIP authentication mode',16));
+        if(!in_array($mode,['credentials','ip'],true))throw new InvalidArgumentException('Invalid SIP authentication mode.');
+        if($mode==='ip'&&$register)throw new InvalidArgumentException('IP authentication must not send REGISTER.');
+        $auth=$identity($trunk['auth_username']??$username,'SIP authentication ID');if($mode==='ip'){$username='';$password='';$auth='';}
+        $headers=$trunk['headers']??[];if(!is_array($headers))throw new InvalidArgumentException('Invalid provider header settings.');
+        $fromHeader=$headers['FromUserPart']??'';$hostHeader=$headers['FromHostPart']??'';$contactHeader=$headers['ContactUser']??'';
+        $fromUser=$trunk['from_user']??($fromHeader==='$AuthID'?$username:(!str_starts_with($fromHeader,'$')?$fromHeader:''));
+        $fromDomain=$trunk['from_domain']??($hostHeader==='$GWHostPort'?$server.':'.$port:($hostHeader===''?$server:$hostHeader));
+        $contact=$trunk['contact_user']??($trunk['extension']??($contactHeader==='$AuthID'?$username:(!str_starts_with($contactHeader,'$')?$contactHeader:'')));
+        $callerInFrom=$flag($trunk['caller_id_in_from']??in_array($fromHeader,['$OutboundCallerId','$CallerNum'],true),'From caller ID');
+        $codecs=$trunk['codecs']??[];if(!is_array($codecs)||!array_is_list($codecs)||count($codecs)>16)throw new InvalidArgumentException('Invalid provider codecs.');
+        foreach($codecs as $codec)if(!is_string($codec)||!in_array($codec,['PCMU','PCMA','G729','G722','GSM','SPEEX','OPUS','iLBC','L16'],true))throw new InvalidArgumentException('Unsupported provider codec.');
+        $cid=$trunk['sip_cid_type']??(isset($headers['RemotePartyIDCallingPartyUserPart'])?'rpid':(isset($headers['PAssertedIdentityUserPart'])?'pid':'none'));if(!in_array($cid,['none','rpid','pid'],true))throw new InvalidArgumentException('Invalid caller ID header type.');
+        return ['proxy'=>$server.':'.$port,'username'=>$username,'password'=>$password,'auth_username'=>$auth,'realm'=>$text($trunk['realm']??'','SIP realm',128),
+            'from_user'=>$identity($fromUser,'From user'),'from_domain'=>$endpoint($fromDomain,'From domain'),'register_proxy'=>$endpoint($trunk['register_proxy']??'','Registration proxy'),'outbound_proxy'=>$endpoint($trunk['outbound_proxy']??'','Outbound proxy'),
+            'expire_seconds'=>$integer($trunk['expires']??3600,'Registration expiry',1,86400),'register'=>$register,'register_transport'=>$transport,'caller_id_in_from'=>$callerInFrom,'codec_prefs'=>implode(',',array_unique($codecs)),
+            'channels'=>$integer($trunk['limit']??10,'Concurrent calls',1,10000),'extension'=>$identity($contact,'Contact user'),'extension_in_contact'=>$flag($trunk['extension_in_contact']??($contact!==''),'Contact user override')?'true':'false','sip_cid_type'=>$cid];
+    }
+    /** Declared numbers bound to one source provider; no global fallback wildcard. */
+    public static function incomingNumbers(array $trunk): array {
+        $dids=$trunk['dids']??'';if(is_string($dids))$dids=preg_split('/[,;\r\n]+/',$dids);if(!is_array($dids)||!array_is_list($dids)||count($dids)>1000)throw new InvalidArgumentException('Invalid provider incoming numbers.');
+        $numbers=[];foreach(array_merge([$trunk['main_number']??''],$dids) as $number){if(!is_string($number))throw new InvalidArgumentException('Invalid provider incoming number.');$number=trim($number);if($number==='')continue;if(!preg_match('/^\*?\+?[0-9]{1,32}$/D',$number))throw new InvalidArgumentException('Invalid provider incoming number.');$numbers[]=$number;}
+        return array_values(array_unique($numbers));
+    }
+    public static function incomingOrder(array $rule,int $index=0): int {
+        if($index<0||$index>500)throw new InvalidArgumentException('Invalid incoming order.');
+        return match($rule['condition']??''){'BasedOnDID'=>(str_starts_with($rule['number']??'','*')?500:100)+$index,'ForwardAll'=>1000+$index,default=>throw new InvalidArgumentException('Invalid incoming condition.')};
+    }
+    public static function incomingGatewayCondition(array $trunk): array {
+        $id=$trunk['gateway_uuid']??'';if(!is_uuid($id))throw new InvalidArgumentException('An incoming provider has no native binding.');
+        return ['${sip_gateway}','^(?:'.preg_quote($id,'~').')?$'];
+    }
+    /** The XML condition and Lua checks must select the same original SIP field. */
+    public static function incomingCondition(array $rule,array $trunk): array {
+        $field=match($trunk['source_field']??'ToUserPart'){'','ToUserPart'=>'${sip_to_user}','RequestLineURIUser'=>'${sip_req_user}',default=>throw new InvalidArgumentException('Unsupported incoming number source.')};
+        $pattern=static fn(string $number)=>'\\+?'.(str_starts_with($number,'*')?'[0-9]*':'').preg_quote(ltrim($number,'*+'),'~');
+        if(($rule['condition']??'')==='ForwardAll'){$numbers=self::incomingNumbers($trunk);$patterns=array_values(array_unique(array_map($pattern,$numbers)));return [$field,$patterns?'^'.(count($patterns)>1?'(?:'.implode('|',$patterns).')':$patterns[0]).'$':'^(?!)$'];}
+        $number=$rule['number']??'';if(($rule['condition']??'')!=='BasedOnDID'||!is_string($number)||!preg_match('/^\*?\+?[0-9]{1,32}$/D',$number))throw new InvalidArgumentException('Invalid incoming number.');
+        return [$field,'^'.$pattern($number).'$'];
+    }
+    /** Repair only provider metadata/native fields and DID selection of an existing restore.
+     * Caller owns the transaction and deployment/reload. Dry run returns field counts only.
+     * Existing enablement, IP bindings, UUIDs, routes, users and media are retained.
+     */
+    public function refreshTrunks(string $domain,array $plan,bool $dryRun=true,bool $allowChangedProviderIdentity=false): array {
+        self::validate($plan);if(!$this->db->inTransaction()||!is_uuid($domain))throw new LogicException('Provider reconciliation requires a PBX transaction.');
+        $stored=$this->query('select source_version,config from v_pbx_restore where domain_uuid=:d for update',['d'=>$domain])->fetch(PDO::FETCH_ASSOC);
+        if(!$stored||$stored['source_version']!==$plan['source_version'])throw new InvalidArgumentException('The target PBX is not this verified restore.');
+        $policy=json_decode($stored['config'],true,512,JSON_THROW_ON_ERROR);$source=$plan['v20'];
+        if(count($policy['trunks']??[])!==count($plan['trunks'])||count($policy['inbound_rules']??[])!==count($source['inbound_rules']))throw new InvalidArgumentException('The restored provider or incoming-rule inventory has changed.');
+        $expected=[];$nativeIds=[];$gatewayUpdates=[];$dialplanUpdates=[];$detailUpdates=[];$detailInserts=[];$gatewayDiffs=[];$policyDiffs=[];$incomingDiffs=0;$orderDiffs=0;$bindingDiffs=0;
+        $same=static function(mixed $actual,mixed $want):bool {if(is_bool($want))return in_array($actual,[true,'true','t','1',1],true)===$want;if(is_int($want))return (string)$actual===(string)$want;return ($actual??'')===$want;};
+        $canonical=static function(mixed $value)use(&$canonical):mixed {if(!is_array($value))return $value;if(!array_is_list($value))ksort($value);foreach($value as $key=>$item)$value[$key]=$canonical($item);return $value;};
+        foreach($plan['trunks'] as $t){$key=$t['source_id'];$old=$policy['trunks'][$key]??null;$meta=$source['trunks'][$key]??null;
+            if(!is_array($old)||!is_array($meta)||!is_uuid($old['gateway_uuid']??'')||isset($nativeIds[$old['gateway_uuid']]))throw new InvalidArgumentException('A source provider has no unique native mapping.');$nativeIds[$old['gateway_uuid']]=true;
+            $row=$this->query('select * from v_gateways where domain_uuid=:d and gateway_uuid=:g for update',['d'=>$domain,'g'=>$old['gateway_uuid']])->fetch(PDO::FETCH_ASSOC);
+            if(!$row)throw new InvalidArgumentException('A source provider belongs to another PBX or is missing.');
+            $native=self::gatewaySettings(array_merge($meta,$t));
+            if(!$allowChangedProviderIdentity&&(($old['host']??'')!==$t['host']||(int)($old['port']??0)!==$t['port']||($old['transport']??'udp')!==$t['transport']||($row['proxy']??'')!==$native['proxy']||!hash_equals((string)$row['username'],$native['username'])||!hash_equals((string)$row['password'],$native['password'])||!hash_equals((string)($row['auth_username']??''),$native['auth_username'])))throw new InvalidArgumentException('A provider address or authentication mapping was changed after restore. Review it before replacing those fields.');
+            if(!$allowChangedProviderIdentity){
+                $behavior=array_merge($meta,array_intersect_key($native,array_flip(['auth_username','realm','from_user','from_domain','register_proxy','outbound_proxy','caller_id_in_from','sip_cid_type','register'])));$behavior['contact_user']=$native['extension'];$behavior['extension_in_contact']=$native['extension_in_contact']==='true';
+                foreach($behavior as $field=>$value){if(!array_key_exists($field,$old)||$canonical($old[$field])===$canonical($value))continue;
+                    if($field==='extension_in_contact'&&in_array($old[$field],[true,'true','1',1],true)===$value)continue;
+                    // Earlier restore versions lost the Name attribute and mistook
+                    // caller-ID formatting XML for an actual outgoing number.
+                    if($field==='source_field'&&$old[$field]==='')continue;
+                    if($field==='caller_id'&&$old[$field]!==''&&$old[$field]===($meta['caller_id_rules']??''))continue;
+                    throw new InvalidArgumentException('Provider behavior was changed after restore. Review the source reconciliation before replacing those fields.');
+                }
+            }
+            $changed=[];foreach($native as $field=>$value)if(!$same($row[$field]??null,$value)){$changed[$field]=$value;$gatewayDiffs[$field]=($gatewayDiffs[$field]??0)+1;}
+            if($changed)$gatewayUpdates[]=['id'=>$old['gateway_uuid'],'fields'=>$changed];
+            $new=array_merge($old,$meta,['name'=>$t['name'],'host'=>$t['host'],'port'=>$t['port'],'transport'=>$t['transport'],'register'=>$t['register']]);
+            foreach(['auth_username','realm','from_user','from_domain','register_proxy','outbound_proxy','caller_id_in_from','sip_cid_type'] as $field)$new[$field]=$native[$field];$new['contact_user']=$native['extension'];$new['extension_in_contact']=$native['extension_in_contact']==='true';
+            // Explicitly retain operational state even if a future source includes it.
+            foreach(['gateway_uuid','enabled','allowed_ips'] as $field)if(array_key_exists($field,$old))$new[$field]=$old[$field];
+            foreach($new as $field=>$value)if($canonical($old[$field]??null)!==$canonical($value))$policyDiffs[$field]=($policyDiffs[$field]??0)+1;
+            $policy['trunks'][$key]=$new;
+        }
+        foreach($source['inbound_rules'] as $r){$key=json_encode([(string)$r['trunk_id'],$r['condition'],$r['number']],JSON_THROW_ON_ERROR);$expected[$key]=($expected[$key]??0)+1;}
+        foreach($policy['inbound_rules'] as $index=>$r){$key=json_encode([(string)$r['trunk_id'],$r['condition'],$r['number']],JSON_THROW_ON_ERROR);if(($expected[$key]??0)<1)throw new InvalidArgumentException('An incoming number changed after restore.');$expected[$key]--;
+            if(!is_uuid($r['dialplan_uuid']??''))throw new InvalidArgumentException('An incoming number has no native rule.');
+            $row=$this->query('select dialplan_xml,dialplan_order from v_dialplans where domain_uuid=:d and dialplan_uuid=:id for update',['d'=>$domain,'id'=>$r['dialplan_uuid']])->fetch(PDO::FETCH_ASSOC);if(!$row)throw new InvalidArgumentException('An incoming rule belongs to another PBX or is missing.');
+            [$field,$expression]=self::incomingCondition($r,$policy['trunks'][$r['trunk_id']]);$doc=new DOMDocument();
+            if(preg_match('/<!\s*(?:DOCTYPE|ENTITY)/i',$row['dialplan_xml'])||!$doc->loadXML($row['dialplan_xml'],LIBXML_NONET))throw new InvalidArgumentException('An incoming rule XML is invalid.');
+            $nodes=[];foreach($doc->getElementsByTagName('condition') as $node)if(in_array($node->getAttribute('field'),['destination_number','${sip_to_user}','${sip_req_user}'],true))$nodes[]=$node;
+            if(count($nodes)!==1)throw new InvalidArgumentException('An incoming rule has ambiguous number conditions.');$changed=$nodes[0]->getAttribute('field')!==$field||$nodes[0]->getAttribute('expression')!==$expression;
+            [$bindingField,$bindingExpression]=self::incomingGatewayCondition($policy['trunks'][$r['trunk_id']]);$bindings=[];foreach($doc->getElementsByTagName('condition') as $node)if($node->getAttribute('field')===$bindingField)$bindings[]=$node;if(count($bindings)>1)throw new InvalidArgumentException('An incoming provider binding is ambiguous.');
+            $first=null;foreach($doc->documentElement->childNodes as $child)if($child instanceof DOMElement){$first=$child;break;}
+            $bindingChanged=!$bindings||$bindings[0]->getAttribute('expression')!==$bindingExpression||$bindings[0]!==$first;
+            if(!$bindings){$binding=$doc->createElement('condition');$binding->setAttribute('field',$bindingField);$binding->setAttribute('expression',$bindingExpression);$doc->documentElement->insertBefore($binding,$doc->documentElement->firstChild);}elseif($bindingChanged){$bindings[0]->setAttribute('expression',$bindingExpression);$doc->documentElement->insertBefore($bindings[0],$doc->documentElement->firstChild);}
+            if($bindingChanged)$bindingDiffs++;
+            $order=self::incomingOrder($r,$index);$orderChanged=(int)$row['dialplan_order']!==$order;
+            if($changed||$orderChanged||$bindingChanged){$nodes[0]->setAttribute('field',$field);$nodes[0]->setAttribute('expression',$expression);$dialplanUpdates[]=['id'=>$r['dialplan_uuid'],'xml'=>$doc->saveXML($doc->documentElement),'order'=>$order,'destination'=>$r['rule_id']];if($changed||$bindingChanged)$incomingDiffs++;if($orderChanged)$orderDiffs++;}
+            $details=$this->query("select dialplan_detail_uuid,dialplan_detail_type,dialplan_detail_data from v_dialplan_details where domain_uuid=:d and dialplan_uuid=:id and dialplan_detail_tag='condition' and dialplan_detail_type in ('destination_number','\${sip_to_user}','\${sip_req_user}') for update",['d'=>$domain,'id'=>$r['dialplan_uuid']])->fetchAll(PDO::FETCH_ASSOC);
+            if(count($details)>1)throw new InvalidArgumentException('An incoming rule has ambiguous stored conditions.');
+            foreach($details as $detail)if($detail['dialplan_detail_type']!==$field||$detail['dialplan_detail_data']!==$expression)$detailUpdates[]=['id'=>$detail['dialplan_detail_uuid'],'field'=>$field,'expression'=>$expression];
+            $bindings=$this->query("select dialplan_detail_uuid,dialplan_detail_data from v_dialplan_details where domain_uuid=:d and dialplan_uuid=:id and dialplan_detail_tag='condition' and dialplan_detail_type='\${sip_gateway}' for update",['d'=>$domain,'id'=>$r['dialplan_uuid']])->fetchAll(PDO::FETCH_ASSOC);if(count($bindings)>1)throw new InvalidArgumentException('An incoming stored provider binding is ambiguous.');
+            if(!$bindings)$detailInserts[]=['dialplan'=>$r['dialplan_uuid'],'field'=>$bindingField,'expression'=>$bindingExpression];elseif($bindings[0]['dialplan_detail_data']!==$bindingExpression)$detailUpdates[]=['id'=>$bindings[0]['dialplan_detail_uuid'],'field'=>$bindingField,'expression'=>$bindingExpression];
+        }
+        if(array_sum($expected)!==0)throw new InvalidArgumentException('A source incoming rule is missing.');
+        $result=['dry_run'=>$dryRun,'trunks'=>count($plan['trunks']),'gateways_changed'=>count($gatewayUpdates),'gateway_field_changes'=>$gatewayDiffs,'policy_field_changes'=>$policyDiffs,'incoming_rules'=>count($policy['inbound_rules']),'incoming_xml_changed'=>$incomingDiffs,'incoming_order_changed'=>$orderDiffs,'incoming_bindings_changed'=>$bindingDiffs,'incoming_details_changed'=>count($detailUpdates),'incoming_details_inserted'=>count($detailInserts)];
+        if(!$dryRun){foreach($gatewayUpdates as $update){$set=[];foreach(array_keys($update['fields']) as $field)$set[]=$field.'=:'.$field;$this->query('update v_gateways set '.implode(',',$set).' where domain_uuid=:d and gateway_uuid=:id',$update['fields']+['d'=>$domain,'id'=>$update['id']]);}
+            foreach($dialplanUpdates as $update){$this->query('update v_dialplans set dialplan_xml=:xml,dialplan_order=:o where domain_uuid=:d and dialplan_uuid=:id',['xml'=>$update['xml'],'o'=>$update['order'],'d'=>$domain,'id'=>$update['id']]);$this->query('update v_destinations set destination_order=:o where domain_uuid=:d and destination_uuid=:id',['o'=>$update['order'],'d'=>$domain,'id'=>$update['destination']]);}
+            foreach($detailUpdates as $update)$this->query('update v_dialplan_details set dialplan_detail_type=:field,dialplan_detail_data=:expression where domain_uuid=:d and dialplan_detail_uuid=:id',['field'=>$update['field'],'expression'=>$update['expression'],'d'=>$domain,'id'=>$update['id']]);
+            foreach($detailInserts as $update)$this->insert('v_dialplan_details',['dialplan_detail_uuid'=>uuid(),'domain_uuid'=>$domain,'dialplan_uuid'=>$update['dialplan'],'dialplan_detail_tag'=>'condition','dialplan_detail_type'=>$update['field'],'dialplan_detail_data'=>$update['expression'],'dialplan_detail_order'=>0,'dialplan_detail_group'=>0,'dialplan_detail_enabled'=>true]);
+            if($policyDiffs)$this->query('update v_pbx_restore set config=:c where domain_uuid=:d',['c'=>json_encode($policy,JSON_THROW_ON_ERROR),'d'=>$domain]);
+        }
+        return $result;
+    }
     public static function validate(array $plan): void {
         $v=$plan['v20']??null;
         if(!is_array($v)||($plan['source_version']??'')!=='20.0.9.995')throw new InvalidArgumentException('This backup update has not been checked.');
@@ -37,17 +175,21 @@ final class pbx_v20_restore {
         foreach($v['receptionists'] as $r){$check($r['timeout_destination']);foreach($r['options'] as $o)$check($o['destination']);}
         foreach($v['users'] as $u){if(!isset($u['profiles'][$u['profile']]))throw new InvalidArgumentException('A user status is missing.');foreach($u['profiles'] as $p){foreach($p['available'] as $a){$check($a['all']);$check($a['internal']);}foreach($p['away'] as $a){$check($a['all']);$check($a['outside']);}}}
         $providers=[];foreach($plan['trunks'] as $t)$providers[$t['name']]=$t['source_id'];
-        foreach($v['inbound_rules'] as $r){if(!isset($v['trunks'][$r['trunk_id']]))throw new InvalidArgumentException('An incoming rule has no trunk.');foreach(['office','outside','holiday'] as $k)$check($r[$k]);if($r['condition']==='BasedOnDID'&&!preg_match('/^\*?\+?[0-9]{1,32}$/D',$r['number']))throw new InvalidArgumentException('An incoming number needs a restore update.');}
+        if(count($v['trunks']??[])!==count($plan['trunks']))throw new InvalidArgumentException('The source provider inventory is inconsistent.');
+        foreach($plan['trunks'] as $t){if(!isset($v['trunks'][$t['source_id']]))throw new InvalidArgumentException('A provider has no native settings.');self::gatewaySettings(array_merge($v['trunks'][$t['source_id']],$t));}
+        foreach($v['inbound_rules'] as $r){if(!isset($v['trunks'][$r['trunk_id']]))throw new InvalidArgumentException('An incoming rule has no trunk.');foreach(['office','outside','holiday'] as $k)$check($r[$k]);self::incomingCondition($r,$v['trunks'][$r['trunk_id']]);}
         foreach($v['outbound_rules'] as $r){foreach(explode(',',$r['prefix']) as $prefix)if(!preg_match('/^\+?[0-9]{0,20}$/D',trim($prefix)))throw new InvalidArgumentException('An outbound prefix is invalid.');if(!preg_match('/^[0-9,\- ]{0,120}$/D',$r['lengths']))throw new InvalidArgumentException('An outbound length is invalid.');foreach($r['routes'] as $route){if(!isset($providers[$route['provider']]))throw new InvalidArgumentException('An outbound rule has no trunk.');if(!preg_match('/^\+?[0-9]{0,20}$/D',$route['prepend']))throw new InvalidArgumentException('An outbound prefix is invalid.');}}
         foreach($v['scripts'] as $s)foreach($s['pin_map'] as $target)if(!preg_match('/^[0-9]{2,10}$/D',(string)$target))throw new InvalidArgumentException('A call menu destination is invalid.');
     }
-    private function dialplan(string $number,string $mode,string $key,int $order=80,string $context='',bool $enabled=true,string $app=''): string {
+    private function dialplan(string $number,string $mode,string $key,int $order=80,string $context='',bool $enabled=true,string $app='',?array $condition=null,?array $binding=null): string {
         $id=uuid();$d=new DOMDocument('1.0','UTF-8');$x=$d->appendChild($d->createElement('extension'));$x->setAttribute('name','OpenWeb '.$mode.' '.$number);$x->setAttribute('uuid',$id);$x->setAttribute('continue','false');
-        $c=$x->appendChild($d->createElement('condition'));$c->setAttribute('field','destination_number');$c->setAttribute('expression',$number===''?'^.+$':'^'.preg_quote($number,'~').'$');
+        $condition??=['destination_number',$number===''?'^.+$':'^'.preg_quote($number,'~').'$'];
+        if($binding){$c=$x->appendChild($d->createElement('condition'));$c->setAttribute('field',$binding[0]);$c->setAttribute('expression',$binding[1]);}
+        $c=$x->appendChild($d->createElement('condition'));$c->setAttribute('field',$condition[0]);$c->setAttribute('expression',$condition[1]);
         $actions=[['set','domain_uuid='.$this->domain],['set','domain_name='.$this->realm],['lua','app.lua pbx_setup '.$mode.' '.$key]];
         foreach($actions as [$a,$v]){$n=$c->appendChild($d->createElement('action'));$n->setAttribute('application',$a);$n->setAttribute('data',$v);}
         $this->insert('v_dialplans',['dialplan_uuid'=>$id,'domain_uuid'=>$this->domain,'app_uuid'=>$app?:null,'dialplan_name'=>'OpenWeb '.$mode.' '.$number,'dialplan_number'=>$number,'dialplan_context'=>$context?:$this->realm,'dialplan_order'=>$order,'dialplan_continue'=>false,'dialplan_enabled'=>$enabled,'dialplan_xml'=>$d->saveXML($x),'dialplan_description'=>'Restored 3CX call handling. Edit in Admin.']);
-        $rows=[['condition','destination_number',$c->getAttribute('expression')]];foreach($actions as [$a,$v])$rows[]=['action',$a,$v];
+        $rows=$binding?[['condition',$binding[0],$binding[1]]]:[];$rows[]=['condition',$condition[0],$condition[1]];foreach($actions as [$a,$v])$rows[]=['action',$a,$v];
         foreach($rows as $i=>[$tag,$type,$data])$this->insert('v_dialplan_details',['dialplan_detail_uuid'=>uuid(),'domain_uuid'=>$this->domain,'dialplan_uuid'=>$id,'dialplan_detail_tag'=>$tag,'dialplan_detail_type'=>$type,'dialplan_detail_data'=>$data,'dialplan_detail_order'=>10+$i*10,'dialplan_detail_group'=>0,'dialplan_detail_enabled'=>true]);
         return $id;
     }
@@ -67,7 +209,9 @@ final class pbx_v20_restore {
             unset($p);
         }
         $providers=[];foreach($plan['trunks'] as $t){$id=$this->query('select gateway_uuid from v_gateways where domain_uuid=:d and gateway=:n',['d'=>$domain,'n'=>$t['name']])->fetchColumn();$p=&$this->policy['trunks'][$t['source_id']];$p['gateway_uuid']=$id;$p['name']=$t['name'];$p['host']=$t['host'];$p['port']=$t['port'];$p['transport']=$t['transport'];$p['register']=$t['register'];$p['enabled']=false;$p['allowed_ips']=[];$providers[$t['name']]=$t['source_id'];
-            $from=$p['headers']['FromUserPart']??'';$this->query('update v_gateways set expire_seconds=:expires,channels=:channels,caller_id_in_from=:cid,from_user=:user,from_domain=:host where domain_uuid=:d and gateway_uuid=:id',['expires'=>$p['expires'],'channels'=>$p['limit'],'cid'=>$from==='$OutboundCallerId','user'=>$from==='$AuthID'?$t['username']:null,'host'=>$t['host'],'d'=>$domain,'id'=>$id]);unset($p);}
+            $native=self::gatewaySettings(array_merge($p,$t));$set=[];foreach(array_keys($native) as $field)$set[]=$field.'=:'.$field;
+            $this->query('update v_gateways set '.implode(',',$set).',enabled=false where domain_uuid=:d and gateway_uuid=:id',$native+['d'=>$domain,'id'=>$id]);
+            foreach(['auth_mode','auth_username','realm','from_user','from_domain','register_proxy','outbound_proxy','caller_id_in_from','extension_in_contact','sip_cid_type'] as $field)$p[$field]=$field==='auth_mode'?($p[$field]??($native['username']!==''||$native['password']!==''?'credentials':'ip')):$native[$field];$p['contact_user']=$native['extension'];$p['extension_in_contact']=$native['extension_in_contact']==='true';unset($p);}
         foreach($this->policy['outbound_rules'] as $i=>&$r){$r['rule_id']=uuid();foreach($r['routes'] as &$route){$route['trunk_id']=$providers[$route['provider']];unset($route['provider']);}unset($route);}$this->dialplan('','outbound','all',900);unset($r);
         foreach($this->policy['ring_groups'] as &$r){$r['uuid']=uuid();$r['dialplan_uuid']=$this->dialplan($r['number'],'group',$r['number'],80,'',true,'1d61fb65-1eec-bc73-a6ee-a6203b4fe6f2');$this->insert('v_ring_groups',['ring_group_uuid'=>$r['uuid'],'domain_uuid'=>$domain,'dialplan_uuid'=>$r['dialplan_uuid'],'ring_group_name'=>$r['name'],'ring_group_extension'=>$r['number'],'ring_group_strategy'=>'simultaneous','ring_group_call_timeout'=>$r['timeout'],'ring_group_context'=>$realm,'ring_group_enabled'=>true,'ring_group_timeout_app'=>'lua','ring_group_timeout_data'=>'app.lua pbx_setup group_timeout '.$r['number'],'ring_group_description'=>'Restored from 3CX']);foreach($r['members'] as $m)$this->insert('v_ring_group_destinations',['ring_group_destination_uuid'=>uuid(),'domain_uuid'=>$domain,'ring_group_uuid'=>$r['uuid'],'destination_number'=>$m['number'],'destination_timeout'=>$r['timeout'],'destination_enabled'=>true]);}unset($r);
         $agents=[];foreach($this->policy['queues'] as &$r){$r['uuid']=uuid();$r['dialplan_uuid']=$this->dialplan($r['number'],'queue',$r['number'],80,'',true,'e95a2bd9-07fb-409b-84aa-1cbd0ea9a3cf');$r['intro']=$this->prompt($r['intro']);$r['moh']=$this->prompt($r['moh']);
@@ -76,7 +220,7 @@ final class pbx_v20_restore {
         }unset($r);
         foreach($this->policy['receptionists'] as &$r){$r['uuid']=uuid();$r['dialplan_uuid']=$this->dialplan($r['number'],'ivr',$r['number']);$r['prompt']=$this->prompt($r['prompt']);$this->insert('v_ivr_menus',['ivr_menu_uuid'=>$r['uuid'],'domain_uuid'=>$domain,'dialplan_uuid'=>$r['dialplan_uuid'],'ivr_menu_name'=>$r['name'],'ivr_menu_extension'=>$r['number'],'ivr_menu_greet_long'=>$r['prompt'],'ivr_menu_greet_short'=>$r['prompt'],'ivr_menu_timeout'=>$r['timeout']*1000,'ivr_menu_inter_digit_timeout'=>2000,'ivr_menu_max_failures'=>3,'ivr_menu_max_timeouts'=>1,'ivr_menu_digit_len'=>1,'ivr_menu_context'=>$realm,'ivr_menu_enabled'=>true,'ivr_menu_description'=>'Restored from 3CX']);foreach($r['options'] as $i=>$o)$this->insert('v_ivr_menu_options',['ivr_menu_option_uuid'=>uuid(),'domain_uuid'=>$domain,'ivr_menu_uuid'=>$r['uuid'],'ivr_menu_option_digits'=>$o['digit'],'ivr_menu_option_action'=>'menu-exec-app','ivr_menu_option_param'=>'lua app.lua pbx_setup ivr_key '.$r['number'].':'.$o['digit'],'ivr_menu_option_order'=>$i+1,'ivr_menu_option_enabled'=>true]);}unset($r);
         foreach($this->policy['scripts'] as &$r){$r['dialplan_uuid']=$this->dialplan($r['number'],'script',$r['number']);}unset($r);
-        foreach($this->policy['inbound_rules'] as $i=>&$r){$r['rule_id']=uuid();$r['enabled']=false;$r['dialplan_uuid']=$this->dialplan($r['condition']==='BasedOnDID'?ltrim($r['number'],'*'):$this->policy['trunks'][$r['trunk_id']]['main_number'],'incoming',$r['rule_id'],100+$i,'ingress@'.$realm,false,'c03b422e-13a8-bd1b-e42b-b6b9b4d27ce4');$this->insert('v_destinations',['destination_uuid'=>$r['rule_id'],'domain_uuid'=>$domain,'dialplan_uuid'=>$r['dialplan_uuid'],'destination_type'=>'inbound','destination_number'=>$r['number']?:$this->policy['trunks'][$r['trunk_id']]['main_number'],'destination_context'=>'ingress@'.$realm,'destination_app'=>'lua','destination_data'=>'app.lua pbx_setup incoming '.$r['rule_id'],'destination_enabled'=>false,'destination_type_voice'=>1,'destination_description'=>$r['name'],'destination_order'=>100+$i]);}unset($r);
+        foreach($this->policy['inbound_rules'] as $i=>&$r){$r['rule_id']=uuid();$r['enabled']=false;$trunk=$this->policy['trunks'][$r['trunk_id']];$r['dialplan_uuid']=$this->dialplan($r['condition']==='BasedOnDID'?$r['number']:$trunk['main_number'],'incoming',$r['rule_id'],self::incomingOrder($r,$i),'ingress@'.$realm,false,'c03b422e-13a8-bd1b-e42b-b6b9b4d27ce4',self::incomingCondition($r,$trunk),self::incomingGatewayCondition($trunk));$this->insert('v_destinations',['destination_uuid'=>$r['rule_id'],'domain_uuid'=>$domain,'dialplan_uuid'=>$r['dialplan_uuid'],'destination_type'=>'inbound','destination_number'=>$r['number']?:$trunk['main_number'],'destination_context'=>'ingress@'.$realm,'destination_app'=>'lua','destination_data'=>'app.lua pbx_setup incoming '.$r['rule_id'],'destination_enabled'=>false,'destination_type_voice'=>1,'destination_description'=>$r['name'],'destination_order'=>self::incomingOrder($r,$i)]);}unset($r);
         foreach($this->policy['phones'] as &$r){$r['uuid']=uuid();$u=$this->policy['users'][$r['number']];$vendor=str_contains($r['template'],'fanvil')?'fanvil':'generic';$this->insert('v_devices',['device_uuid'=>$r['uuid'],'domain_uuid'=>$domain,'device_address'=>$r['mac'],'device_label'=>$u['name'],'device_vendor'=>$vendor,'device_template'=>$vendor==='fanvil'?'fanvil/x4':'generic','device_enabled'=>true,'device_description'=>'Restored phone. Set the new server address.']);$password=$this->query('select password from v_extensions where domain_uuid=:d and extension_uuid=:id',['d'=>$domain,'id'=>$u['extension_uuid']])->fetchColumn();$this->insert('v_device_lines',['device_line_uuid'=>uuid(),'domain_uuid'=>$domain,'device_uuid'=>$r['uuid'],'line_number'=>1,'server_address'=>pbx_paths::host(),'server_address_primary'=>pbx_paths::host(),'outbound_proxy_primary'=>pbx_paths::host(),'label'=>$u['number'],'display_name'=>$u['name'],'user_id'=>$u['auth_id'],'auth_id'=>$u['auth_id'],'password'=>$password,'sip_port'=>'5060','sip_transport'=>'udp','register_expires'=>180,'enabled'=>true]);
             $this->phoneKeys($r);unset($r['settings']);}unset($r);
         foreach($this->policy['contacts'] as $r){$id=uuid();$this->insert('v_contacts',['contact_uuid'=>$id,'domain_uuid'=>$domain,'contact_type'=>'person','contact_name_given'=>$r['first_name'],'contact_name_family'=>$r['last_name'],'contact_organization'=>$r['company'],'contact_note'=>'Imported address book for '.$r['owner']]);if($r['phone']!=='')$this->insert('v_contact_phones',['contact_phone_uuid'=>uuid(),'domain_uuid'=>$domain,'contact_uuid'=>$id,'phone_number'=>$r['phone'],'phone_type_voice'=>1,'phone_primary'=>true]);}

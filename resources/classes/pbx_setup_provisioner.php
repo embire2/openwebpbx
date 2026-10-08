@@ -112,7 +112,8 @@ class pbx_setup_provisioner {
             if (!isset($plan['v20']) && isset($numbers[$authId]) && (string)$authId !== $number) throw new InvalidArgumentException('A SIP authentication ID collides with another extension number.');
         }
         foreach ($this->records($plan, 'trunks', 50) as $trunk) {
-            $this->fields($trunk, ['source_id','name','host','port','transport','username','password','register','enabled'], 'trunk');
+            $advanced=['auth_mode','auth_username','realm','from_user','from_domain','register_proxy','outbound_proxy','expires','limit','codecs','contact_user','extension_in_contact','sip_cid_type','caller_id_in_from'];
+            $this->fields($trunk, array_merge(['source_id','name','host','port','transport','username','password','register','enabled'],$advanced), 'trunk');
             $id = $this->text($trunk['source_id'] ?? '', 'source trunk ID', 80);
             if (!preg_match('/^[A-Za-z0-9_.-]{1,80}$/D', $id) || isset($trunkIds[$id])) throw new InvalidArgumentException('Invalid or duplicate source trunk ID.');
             $host = strtolower($this->text($trunk['host'] ?? '', 'SIP server', 253));
@@ -124,7 +125,14 @@ class pbx_setup_provisioner {
             $port = $this->integer($trunk['port'] ?? ($transport === 'tls' ? 5061 : 5060), 'SIP port', 1, 65535);
             $username = $this->text($trunk['username'] ?? '', 'SIP trunk username', 128, false);
             if (!preg_match('/^[A-Za-z0-9_.+@-]{0,128}$/D', $username)) throw new InvalidArgumentException('A SIP trunk username contains unsupported characters.');
-            $output['trunks'][] = ['source_id'=>$id, 'name'=>$this->text($trunk['name'] ?? $id, 'trunk name', 80), 'host'=>$host, 'port'=>$port, 'transport'=>$transport, 'username'=>$username, 'password'=>$this->secret($trunk['password'] ?? '', 'SIP trunk password'), 'register'=>$this->flag($trunk['register'] ?? true, 'SIP registration'), 'enabled'=>$this->flag($trunk['enabled'] ?? false, 'trunk status')];
+            $normalized=['source_id'=>$id, 'name'=>$this->text($trunk['name'] ?? $id, 'trunk name', 80), 'host'=>$host, 'port'=>$port, 'transport'=>$transport, 'username'=>$username, 'password'=>$this->secret($trunk['password'] ?? '', 'SIP trunk password'), 'register'=>$this->flag($trunk['register'] ?? true, 'SIP registration'), 'enabled'=>$this->flag($trunk['enabled'] ?? false, 'trunk status')];
+            foreach($advanced as $field)if(array_key_exists($field,$trunk))$normalized[$field]=$trunk[$field];
+            $native=pbx_v20_restore::gatewaySettings($normalized);
+            $normalized['username']=$native['username'];$normalized['password']=$native['password'];
+            // Keep the editor's complete private model in normalized plans.
+            foreach(['auth_mode'=>'auth_mode','auth_username'=>'auth_username','realm'=>'realm','from_user'=>'from_user','from_domain'=>'from_domain','register_proxy'=>'register_proxy','outbound_proxy'=>'outbound_proxy','expires'=>'expire_seconds','limit'=>'channels','contact_user'=>'extension','extension_in_contact'=>'extension_in_contact','sip_cid_type'=>'sip_cid_type','caller_id_in_from'=>'caller_id_in_from'] as $field=>$column)if(array_key_exists($field,$normalized))$normalized[$field]=$field==='auth_mode'?strtolower((string)$normalized[$field]):$native[$column];
+            if(isset($normalized['codecs']))$normalized['codecs']=$native['codec_prefs']===''?[]:explode(',',$native['codec_prefs']);
+            $output['trunks'][]=$normalized;
             $trunkIds[$id] = true;
         }
         foreach ($this->records($plan, 'ring_groups', 100) as $group) {
@@ -238,7 +246,7 @@ class pbx_setup_provisioner {
         $gateways = [];
         foreach ($plan['trunks'] as $trunk) {
             $id = $this->uuid(); $gateways[$trunk['source_id']] = $id;
-            $this->insert('v_gateways', ['gateway_uuid'=>$id, 'domain_uuid'=>$domainUuid, 'gateway'=>$trunk['name'], 'proxy'=>$trunk['host'].':'.$trunk['port'], 'username'=>$trunk['username'], 'auth_username'=>$trunk['username'], 'password'=>$trunk['password'], 'register_transport'=>$trunk['transport'], 'register'=>$trunk['register'], 'enabled'=>false, 'context'=>$ingressContext, 'profile'=>'external', 'expire_seconds'=>3600, 'retry_seconds'=>30, 'description'=>'Source trunk '.$trunk['source_id'].'. Disabled pending carrier verification and secure ingress binding.']);
+            $this->insert('v_gateways', pbx_v20_restore::gatewaySettings($trunk)+['gateway_uuid'=>$id, 'domain_uuid'=>$domainUuid, 'gateway'=>$trunk['name'], 'enabled'=>false, 'context'=>$ingressContext, 'profile'=>'external', 'retry_seconds'=>30, 'description'=>'Source trunk '.$trunk['source_id'].'. Disabled pending carrier verification and secure ingress binding.']);
             $counts['trunks']++;
         }
         foreach ($plan['ring_groups'] as $group) {
