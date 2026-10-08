@@ -8,6 +8,8 @@ Native **Windows Server** and **Debian 13** installation packages are available 
 
 Read the [installation guide](docs/installing-1.0.2.md), [callback and hotel guide](docs/callbacks-and-hotels.md), and [feature coverage](docs/feature-coverage.md). OpenWeb PBX does not yet provide complete 3CX feature parity. The Windows manager is an administration app; replacement calling apps and PMS/billing integrations remain outstanding.
 
+The maintained [3CX roadmap](3CX.md) tracks the remaining work, priorities, completion criteria and verification dependencies.
+
 ## Desktop workspace
 
 - Centered taskbar, searchable Start menu, and permission-aware application library.

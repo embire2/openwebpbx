@@ -35,12 +35,19 @@ provider cannot be enabled for two tenants. Saving changed provider addresses
 refreshes existing incoming checks; disabling a trunk also turns its numbers off. Connect a handset using Users →
 Phone Provisioning and test internal, incoming, outgoing and unanswered calls.
 
-3CX apps, its hosted email delivery, a 3CX bridge, and two automatic queue callback options
-are not available in OpenWeb PBX yet. Missing source prompts and PIN destinations
-are listed in the Restore Report. Queue position announcements are not offered
-as a new setting until their playback is implemented. System → Email configures a shared SMTP
-server, including IP Authentication. The console does not claim that OpenWeb
-PBX is a running 3CX instance or that carrier calls have passed without a test.
+Version 1.0.2 implements the observed queue callback preferences; the twelve restored
+queues were migrated and the obsolete callback-unavailable report entries were removed.
+Request, timed-offer and automatic callbacks passed internal-phone tests on Debian;
+automatic delivery also passed on native Windows. Exact callback position and
+outside-carrier qualification remain open; see [callbacks](callbacks-and-hotels.md).
+
+3CX apps, its hosted email delivery and the imported 3CX bridge still need OpenWeb
+replacements or configuration. Missing source prompts and PIN destinations are listed
+in the Restore Report. Queue position announcements are not offered as a new setting
+until their playback is implemented. System → Email configures a shared SMTP server,
+including IP Authentication. Track the remaining work in the [3CX roadmap](../3CX.md).
+The console does not claim that OpenWeb PBX is a running 3CX instance or that carrier
+calls have passed without a test.
 
 ## Installation and checks
 

@@ -9,6 +9,9 @@
 - Local checkout: `/root/fusionpbx`. Live application: `/var/www/fusionpbx`. Deploy source changes without copying `.git`, `.env`, browser state, or validation artifacts.
 - Optional Windows test credentials are in the local, untracked `.env` file. Never commit, print, or copy credentials into the live web root. Keep that file mode `600`.
 - Update this file as work progresses. Record actual verification results and outstanding work without credentials.
+- Keep [3CX.md](3CX.md) as the current roadmap toward the user's full 3CX-like PBX goal. Update affected tasks when implementation, verification, deployment or discovered gaps change; include the update with the related work.
+- Preserve roadmap task IDs and record completion dates, commit/release references, actual test evidence and remaining limitations. Leave partially implemented or unverified behavior unchecked, and record external blockers without credentials.
+- Before a release, reconcile `3CX.md`, `docs/feature-coverage.md` and the relevant operating guides. Historical progress entries below remain a dated record, not the current feature checklist.
 
 ## Progress — 2026-10-06
 
@@ -109,3 +112,10 @@
 
 - Published **v1.0.2** at `https://github.com/embire2/openwebpbx/releases/tag/v1.0.2`, tag commit `30036bb82`. Windows x64, Debian 13 amd64, corresponding engine source and SHA256SUMS are public. All four uploaded SHA-256 digests match the local artifacts; unauthenticated release/download checks returned HTTP 200 and the downloaded checksum file matched exactly. Live services remain healthy and tracked source matches the release.
 - Final RDP audit confirmed the temporary Windows SSH build key, build firewall rule and UI test tasks were removed. Existing Windows access rules and applications were preserved. The native manager and PBX service remain running; the Windows protocol checks pass three cases. Removed temporary phone credentials, stopped the isolated Debian test container and preserved the two factory Windows users.
+
+## Maintained 3CX roadmap — 2026-10-08
+
+- Created `3CX.md` with the verified 1.0.2 baseline, stable task IDs, priorities, acceptance conditions, delivery dependencies and external verification inputs. It covers simple setup, calling/apps/phones, V20 migration, callbacks/queues, Hotel Services, tenants/templates, reporting, integrations, messaging, meetings/AI, C# work, upgrades and release readiness.
+- Reviewed the released source, coverage and operator guides against the official 3CX feature catalogue, V20 manual, queue, hotel/PMS, web-client, backup and integration documentation. The supplied V20 Update 9 build remains the only verified native V20 backup baseline; no additional feature parity is claimed.
+- Added roadmap maintenance to the working conventions and linked it from the readme and coverage guide. Corrected outdated documentation that still marked callbacks unavailable or described the old backup reader limits. This task changes documentation only; existing application behavior and the published 1.0.2 release remain unchanged.
+- Documentation validation passed: 115 unique checklist IDs (11 verified baseline entries and 104 open tasks), valid task references, an explicit completion condition for every open task, 29 resolving local links across six Markdown files and clean Git whitespace checks. Previous runtime results are cited as historical evidence; no new runtime verification was performed for this documentation update.

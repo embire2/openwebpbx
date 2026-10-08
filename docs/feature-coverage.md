@@ -22,6 +22,8 @@ The Windows edition includes a C#/.NET 10 background calling service and WinUI 3
 
 ## Work still required
 
+The maintained [3CX roadmap](../3CX.md) contains the detailed checklist, priorities, acceptance conditions and external dependencies. This document summarizes the released 1.0.2 behavior.
+
 These are explicit gaps, not features enabled by installing 1.0.2:
 
 - Replacement Windows, browser, iOS and Android calling apps, mobile push, headset integration and app provisioning.
