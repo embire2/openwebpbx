@@ -44,7 +44,8 @@ class UpdateWorkflowTest {
         val m=manager();val a=activity()
         waitFor("Native TLS phone connected"){PhoneService.instance?.status=="Ready for calls"}
         main{a.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)}
-        assertNotNull(device.wait(Until.findObject(By.textContains("Your extension 1000")),5000))
+        assertEquals("1000",PhoneStore(context).read()!!.getJSONObject("account").getString("extension"))
+        assertNotNull(device.wait(Until.findObject(By.textContains("1000")),5000))
         assertNotNull(device.findObject(By.desc("Call")));assertNotNull(device.findObject(By.desc("Contacts")))
         device.takeScreenshot(File(fixture,"native-keypad-104.png"))
         main{PhoneService.instance!!.dial("1001")}
@@ -159,20 +160,38 @@ class UpdateWorkflowTest {
         File(fixture,"cancel-failure-verified.txt").writeText("Real Android confirmation/cancel and session failure preserve account.\n")
     }
     @Test fun launchVerifiedReplacement(){
-        enabled();val m=manager();check(m,true);assertEquals("ready",m.snapshot.state)
+        enabled();val m=manager()
+        // Pinpoint a bad private fixture before the production updater deliberately
+        // converts operational errors into a safe, credential-free user message.
+        val account=PhoneStore(context).read()!!
+        val policy=PhoneApi(account.getString("server"),account.getString("token")).json("updates")
+        assertEquals(1,policy.getInt("schema"));assertEquals(UpdateRules.FEED,policy.getString("feed_url"))
+        ReleaseManifest.parse(File(fixture,"envelope.json").readText(),context.assets.open("release-public.pem").bufferedReader().use{it.readText()})
+        assertTrue("Private candidate APK is readable",File(fixture,"candidate.apk").canRead())
+        check(m,true);assertEquals("ready",m.snapshot.state)
         File(fixture,"account-before.sha256").writeText(UpdateRules.sha256(PhoneStore(context).read()!!.getString("token").toByteArray()))
         val a=activity();waitFor("Verified update ready after activity check"){m.snapshot.state=="ready" && !(UpdateManager::class.java.getDeclaredField("busy").apply{isAccessible=true}.get(m) as java.util.concurrent.atomic.AtomicBoolean).get()};main{m.install(a)}
         waitFor("Android confirmation requested"){m.snapshot.state=="confirmation"}
         assertNotNull(device.wait(Until.findObject(By.text("Update")),10000))
-        File(fixture,"installation-started.txt").writeText("Verified private105 fixture is awaiting native Android confirmation.\n")
+        File(fixture,"installation-started.txt").writeText("Verified private replacement is awaiting native Android confirmation.\n")
         // External driver presses Update; Android replaces this test process as expected.
     }
     @Test fun verifyInstalledAccountAndRelaunch(){
-        enabled();assertEquals(105L,context.packageManager.getPackageInfo(context.packageName,0).longVersionCode)
+        enabled()
+        val expectedCode=InstrumentationRegistry.getArguments().getString("targetVersionCode")?.toLong() ?: 105L
+        val expectedName=InstrumentationRegistry.getArguments().getString("targetVersionName") ?: "1.0.5"
+        assertEquals(expectedCode,context.packageManager.getPackageInfo(context.packageName,0).longVersionCode)
         assertEquals(File(fixture,"account-before.sha256").readText(),UpdateRules.sha256(PhoneStore(context).read()!!.getString("token").toByteArray()))
-        device.openNotification();assertNotNull(device.wait(Until.findObject(By.textContains("1.0.5 is installed")),10000));device.findObject(By.textContains("1.0.5 is installed")).click()
+        assertEquals("Installation completion was recorded",expectedCode,context.getSharedPreferences("application_updates",0).getLong("last_installed",0))
+        // A subsequent policy check may refresh the notification before the user
+        // opens it. In private-release tests the public feed may also be older.
+        val note=context.getSystemService(android.app.NotificationManager::class.java).activeNotifications.single{it.id==UpdateManager.NOTIFICATION}
+        val title=note.notification.extras.getString(android.app.Notification.EXTRA_TITLE)!!
+        device.openNotification();assertNotNull(device.wait(Until.findObject(By.text(title)),10000));device.findObject(By.text(title)).click()
         waitFor("Updated phone reconnects"){PhoneService.instance?.status=="Ready for calls"}
-        assertNotNull(device.wait(Until.findObject(By.textContains("Your extension 1000")),5000))
-        File(fixture,"replacement-verified.txt").writeText("Native PackageInstaller104→105 succeeded; account preserved and phone reconnected.\n")
+        assertEquals("1000",PhoneStore(context).read()!!.getJSONObject("account").getString("extension"))
+        if(device.hasObject(By.res("android:id/button2")))device.findObject(By.res("android:id/button2")).click() // Close the update details opened by its notification.
+        assertNotNull(device.wait(Until.findObject(By.textContains("1000")),5000))
+        File(fixture,"replacement-verified.txt").writeText("Native PackageInstaller replacement to $expectedName succeeded; account preserved and phone reconnected.\n")
     }
 }

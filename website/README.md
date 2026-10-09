@@ -69,3 +69,9 @@ Published the eight-file static allowlist on 2026-10-09 after all seven complete
 All eight deployed public files matched source and all nineteen GitHub targets returned HTTP 200. Trusted HTTPS, canonical redirects with path/query preservation, security headers, dotfile/directory denial and the expected missing-file response passed. Actual-domain Chromium passed all eight feature dialogs, Android APK/setup links, Start search/Downloads navigation, maximize/restore, minimize/taskbar restore, persistent light/dark themes and 1440/320/390px layouts. There was no horizontal overflow and zero browser console errors or warnings; the 390px dark dialog was visually reviewed. The validation browser was closed after testing.
 
 Existing cPanel `.htaccess`, DNS and mail routing were preserved. Previous public files remain private under `/var/backups/openwebpbx/homepage-1.0.6`; deployment and verification evidence stays outside source and the web roots.
+
+## Google Play preparation pages — 2026-10-09
+
+Published `privacy.html`, `data-removal.html`, `support.html` and `assets/support.css`; the homepage footer and sitemap link them. The six-file deployment allowlist matched served bytes, with prior files backed up privately under `/var/backups/openwebpbx/homepage-play-preparation-107`. Actual-domain Chromium passed all three pages at 1440/390/320px in light/dark mode with no overflow or console errors/warnings. The 320px dark support page was visually reviewed. The browser was closed. The existing cPanel support-email forwarder is configured; inbox delivery has not been tested.
+
+These pages prepare the Android store submission; they do not announce Google Play approval. Keep the public store link absent until the listing is actually published.

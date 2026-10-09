@@ -1,15 +1,20 @@
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 android {
     namespace = "com.openweb.pbx"
-    compileSdk = 35
+    compileSdk = 36
     testBuildType = if(providers.gradleProperty("openwebInstrumentRelease").orNull=="true") "release" else "debug"
     defaultConfig {
         applicationId = "com.openweb.pbx"
         minSdk = 28
-        targetSdk = 35
-        versionCode = providers.gradleProperty("openwebPrivateVersionCode").orNull?.toInt() ?: 106
-        versionName = providers.gradleProperty("openwebPrivateVersionName").orNull ?: "1.0.6"
+        targetSdk = 36
+        versionCode = providers.gradleProperty("openwebPrivateVersionCode").orNull?.toInt() ?: 107
+        versionName = providers.gradleProperty("openwebPrivateVersionName").orNull ?: "1.0.7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("direct") { dimension = "distribution" }
+        create("play") { dimension = "distribution" }
     }
     signingConfigs {
         create("release") {
@@ -43,7 +48,7 @@ dependencies {
 
 tasks.register("writeRuntimeInventory") {
     doLast {
-        val items = configurations.getByName("releaseRuntimeClasspath").resolvedConfiguration.resolvedArtifacts
+        val items = listOf("directReleaseRuntimeClasspath", "playReleaseRuntimeClasspath").flatMap { configurations.getByName(it).resolvedConfiguration.resolvedArtifacts }
             .map { "${it.moduleVersion.id.group}:${it.name}:${it.moduleVersion.id.version}" }.distinct().sorted()
         layout.buildDirectory.file("runtime-dependencies.txt").get().asFile.writeText(items.joinToString("\n")+"\n")
     }

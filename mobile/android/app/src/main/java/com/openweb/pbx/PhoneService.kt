@@ -33,11 +33,20 @@ class PhoneService: Service() {
     private var answered = false
     private var account: JSONObject? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var proximity: CallProximity? = null
+    private var destroying = false
+    private val refreshAudioRoute = Runnable { syncCallAudio(); if (!destroying) publish() }
+    private val callAudioListener = object: CallListenerStub() {
+        override fun onAudioDeviceChanged(current: Call, audioDevice: AudioDevice) {
+            if (call?.nativePointer == current.nativePointer && !destroying) { syncCallAudio(); publish() }
+        }
+    }
     private val api: PhoneApi? get() = account?.let { PhoneApi(it.getString("server"), it.getString("token")) }
 
     override fun onBind(intent: Intent?) = null
     override fun onCreate() {
         super.onCreate(); instance = this
+        proximity = CallProximity(AndroidProximityPlatform(getSystemService(PowerManager::class.java)))
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel("connection", "Phone connection", NotificationManager.IMPORTANCE_LOW))
         manager.createNotificationChannel(NotificationChannel("calls", "Incoming calls", NotificationManager.IMPORTANCE_HIGH).apply { lockscreenVisibility = Notification.VISIBILITY_PRIVATE })
@@ -86,20 +95,33 @@ class PhoneService: Service() {
                     if (call != null && call?.nativePointer != current.nativePointer) { current.decline(Reason.Busy); return }
                     lastCallMessage = ""; endedLocally = false
                     call = current; callId = UUID.randomUUID().toString(); startedAt = Instant.now().toString()
+                    current.addListener(callAudioListener)
                     incoming = state == Call.State.IncomingReceived; answered = false; muted = false; speaker = false
                     callLabel = current.remoteAddress.username ?: "Unknown caller"
                 }
                 if (call?.nativePointer != current.nativePointer) return
                 if (state == Call.State.StreamsRunning) { speaker = current.outputAudioDevice?.type == AudioDevice.Type.Speaker; answered = true; microphoneForeground(); acquireCallLock() }
-                if (state == Call.State.End || state == Call.State.Error) {
+                if (state == Call.State.End || state == Call.State.Error || state == Call.State.Released) {
+                    proximity?.update(false)
                     lastCallMessage = if (!incoming && !answered && !endedLocally) CallFeedback.failure(current.errorInfo.protocolCode) else if(incoming && !answered) "Missed call" else "Call ended"
                     recordCall(current.duration)
+                    current.removeListener(callAudioListener)
                     call = null; callLabel = ""; core.isMicEnabled = true; releaseCallLock()
                     getSystemService(NotificationManager::class.java).cancel(11)
                     connectionForeground()
                 }
                 if (state == Call.State.IncomingReceived) notifyIncoming()
+                syncCallAudio()
                 publish()
+            }
+            override fun onAudioDeviceChanged(core: Core, audioDevice: AudioDevice) {
+                syncCallAudio(); if (!destroying) publish()
+            }
+            override fun onAudioDevicesListUpdated(core: Core) {
+                syncCallAudio()
+                // Device discovery can notify just before the SDK chooses its new route.
+                main.removeCallbacks(refreshAudioRoute)
+                if (!destroying) main.post(refreshAudioRoute)
             }
         })
         c.start()
@@ -143,6 +165,13 @@ class PhoneService: Service() {
         if (wakeLock == null) wakeLock = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "OpenWebPBX:call").apply { acquire(4 * 60 * 60 * 1000L) }
     }
     private fun releaseCallLock() { wakeLock?.let { if(it.isHeld) it.release() }; wakeLock = null }
+    private fun syncCallAudio() {
+        if (destroying) { proximity?.close(); return }
+        val active = call
+        val output = active?.outputAudioDevice?.type
+        speaker = output == AudioDevice.Type.Speaker
+        proximity?.update(CallProximityPolicy.enabled(answered, active?.state, output))
+    }
     fun dial(raw: String) {
         check(!UpdateManager.get(this).isInstalling) { "Finish or cancel the update before making a call" }
         check(call == null) { "Finish your current call first" }
@@ -173,11 +202,11 @@ class PhoneService: Service() {
         val c = core ?: return
         val type = if(speaker) AudioDevice.Type.Earpiece else AudioDevice.Type.Speaker
         val device = c.audioDevices.firstOrNull { it.type == type } ?: error(if(speaker) "This device has no earpiece. Choose an audio device in Settings." else "A speaker is not available on this device.")
-        c.outputAudioDevice = device; call?.outputAudioDevice = device; speaker = !speaker
+        c.outputAudioDevice = device; call?.outputAudioDevice = device; syncCallAudio()
         publish()
     }
     fun audioDevices(): List<AudioDevice> = core?.extendedAudioDevices?.filter { it.hasCapability(AudioDevice.Capabilities.CapabilityPlay) } ?: emptyList()
-    fun audioDevice(device: AudioDevice) { core?.outputAudioDevice = device; call?.outputAudioDevice = device; speaker = device.type == AudioDevice.Type.Speaker; publish() }
+    fun audioDevice(device: AudioDevice) { core?.outputAudioDevice = device; call?.outputAudioDevice = device; syncCallAudio(); publish() }
     private fun recordCall(duration: Int) {
         val row = JSONObject().put("id",callId).put("number",callLabel.takeIf { it.matches(Regex("[+*#0-9]{1,32}")) } ?: "").put("direction", if(incoming && !answered) "missed" else if(incoming) "incoming" else "outgoing").put("started_at",startedAt).put("duration",duration).put("answered",answered)
         val store = PhoneStore(this); store.update { saved ->
@@ -207,5 +236,11 @@ class PhoneService: Service() {
             } catch (_: Exception) { /* Retry next refresh; never log credentials or call data. */ }
         }
     }
-    override fun onDestroy() { core?.stop(); core = null; instance = null; changed?.invoke(); releaseCallLock(); worker.shutdown(); getSystemService(NotificationManager::class.java).cancel(11); super.onDestroy() }
+    override fun onDestroy() {
+        destroying = true; proximity?.close(); main.removeCallbacks(refreshAudioRoute)
+        call?.removeListener(callAudioListener)
+        core?.stop(); core = null; call = null; instance = null; changed?.invoke()
+        releaseCallLock(); worker.shutdown(); getSystemService(NotificationManager::class.java).cancel(11)
+        super.onDestroy()
+    }
 }

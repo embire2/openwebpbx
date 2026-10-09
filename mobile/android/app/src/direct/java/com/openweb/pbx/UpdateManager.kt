@@ -45,8 +45,6 @@ internal class ReleaseHttp:UpdateTransport {
     }
 }
 
-data class UpdateSnapshot(val state:String="idle",val message:String="Updates have not been checked yet.",val release:AndroidRelease?=null,val mode:String="notify",val progress:Long=0,val total:Long=0)
-
 /** All installation inputs are private, verified, and rechecked immediately before committing. */
 class UpdateManager internal constructor(private val context:Context,private val network:UpdateTransport=ReleaseHttp()) {
     companion object {
@@ -76,6 +74,7 @@ class UpdateManager internal constructor(private val context:Context,private val
     private var mode="notify"
     private var confirmation:Intent?=null
     var foregroundActivity:Activity?=null
+    val installationHelp="Android may ask you to allow installation or confirm the update. After installation, choose Open or tap the OpenWeb PBX notification. Your account is kept."
     private val installed get()=context.packageManager.getPackageInfo(context.packageName,0)
     fun schedule() {
         val scheduler=context.getSystemService(JobScheduler::class.java)
@@ -85,6 +84,8 @@ class UpdateManager internal constructor(private val context:Context,private val
         snapshot=UpdateSnapshot(state,message,release,mode,progress,total)
         prefs.edit().putString("state",state).putString("message",message).apply()
         main.post{changed?.invoke()}
+        if(state in listOf("available","downloading","verifying","ready","permission","confirmation","installing","error","unsupported","installed"))notifyUpdate()
+        else if(state=="current")context.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION)
     }
     fun supported(release:AndroidRelease)=Build.VERSION.SDK_INT>=release.minimumSdk && (!accountBound || UpdateRules.compare(serverVersion,release.minimumServer)>=0)
     fun shouldGate(activeCall:Boolean,urgent:Boolean)=UpdateRules.gate(mode=="required" && policyTrusted,ready?.let{it.expires>System.currentTimeMillis()}==true,ready?.let{supported(it)}==true,checkSucceeded,activeCall,urgent) && !isInstalling
@@ -136,7 +137,7 @@ class UpdateManager internal constructor(private val context:Context,private val
                     if(count-last>=1024*1024){last=count;set("downloading","Downloading update ${release.version}…",release,count,release.bytes)}
                 };out.fd.sync()
             }}
-            require(count==release.bytes);verifyApk(temporary,release)
+            require(count==release.bytes);set("verifying","Checking the complete downloaded update…",release,count,release.bytes);verifyApk(temporary,release)
             java.nio.file.Files.move(temporary.toPath(),apk.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING,java.nio.file.StandardCopyOption.ATOMIC_MOVE)
             val next=File(directory,"manifest.part");next.writeText(release.envelope);java.nio.file.Files.move(next.toPath(),manifest.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING,java.nio.file.StandardCopyOption.ATOMIC_MOVE)
             ready=release;set("ready","Update ${release.version} is downloaded and verified.",release,release.bytes,release.bytes);notifyUpdate()
@@ -205,9 +206,9 @@ class UpdateManager internal constructor(private val context:Context,private val
         }
     }
     private fun commit(release:AndroidRelease,id:Int) {
-        check(PhoneService.instance?.call==null)
+        kotlin.check(PhoneService.instance?.call==null)
         UpdateRules.sequence(release.sequence,release.digest,prefs.getLong("highest_sequence",0),prefs.getString("highest_digest","") ?: "")
-        check(release.expires>System.currentTimeMillis())
+        kotlin.check(release.expires>System.currentTimeMillis())
         val installer=context.packageManager.packageInstaller;val nonce=UUID.randomUUID().toString()
         installer.openSession(id).use{session->
             // On the main thread, block new calls before stopping the service. No existing call is interrupted.
@@ -256,8 +257,14 @@ class UpdateManager internal constructor(private val context:Context,private val
     private fun notifyUpdate() {
         val manager=context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel("updates","App updates",NotificationManager.IMPORTANCE_DEFAULT))
-        val open=PendingIntent.getActivity(context,NOTIFICATION,Intent(context,MainActivity::class.java).putExtra("show_updates",true),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        try{manager.notify(NOTIFICATION,Notification.Builder(context,"updates").setSmallIcon(R.drawable.ic_phone).setContentTitle("OpenWeb PBX update").setContentText(snapshot.message).setContentIntent(open).setAutoCancel(true).build())}catch(_:SecurityException){}
+        val open=PendingIntent.getActivity(context,NOTIFICATION,Intent(context,MainActivity::class.java).putExtra("show_updates",true).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val state=snapshot;val view=UpdatePresentation.describe(state,false)
+        val notification=Notification.Builder(context,"updates").setSmallIcon(R.drawable.ic_phone).setContentTitle(view.title).setContentText(view.detail)
+            .setStyle(Notification.BigTextStyle().bigText(view.detail)).setContentIntent(open).setAutoCancel(true).setOnlyAlertOnce(true)
+            .setOngoing(state.state in listOf("downloading","verifying","installing"))
+        if(view.showProgress)notification.setProgress(100,view.percent?:0,view.percent==null)
+        if(view.actionEnabled)notification.addAction(Notification.Action.Builder(null,view.action,open).build())
+        try{manager.notify(NOTIFICATION,notification.build())}catch(_:SecurityException){}
     }
     private fun readBounded(input:InputStream,limit:Long):ByteArray { val out=ByteArrayOutputStream();val buffer=ByteArray(8192);while(true){val n=input.read(buffer);if(n<0)break;require(out.size()+n<=limit);out.write(buffer,0,n)};return out.toByteArray() }
 }

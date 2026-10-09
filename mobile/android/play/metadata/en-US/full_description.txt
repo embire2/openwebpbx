@@ -1,0 +1,28 @@
+Bring your OpenWeb PBX extension to your Android phone.
+
+OpenWeb PBX is a native Android calling app from a nonprofit, open-source project. Connect to your organisation’s PBX by scanning the QR code supplied by your administrator, then call your team, reach customers and listen to voicemail.
+
+A PHONE FOR YOUR WORK
+• Scan your PBX connection code, or enter it manually.
+• Make and receive voice calls using your work extension.
+• Find people in your company directory.
+• Open recent calls and call someone back.
+• Listen to voicemail and mark messages as read.
+• Use mute, speaker, hold and the in-call keypad.
+• Protect against accidental touches when you hold a supported phone to your ear.
+• See clear update notices and follow your organisation’s update policy.
+
+YOUR SERVER, YOUR CHOICE
+Connect to the OpenWeb PBX server your organisation operates. The app uses trusted HTTPS and encrypted phone connections to that server. Your PBX administrator controls your account, calling rules, recordings and retention. This does not mean calls are end-to-end encrypted through telephone networks.
+
+FREE AND OPEN SOURCE
+There is no OpenWeb app licence fee, advertising or advertising tracking. Source code and licence notices are available in the app and at github.com/embire2/openwebpbx. Internet access and telephone-provider charges may still apply.
+
+BEFORE YOU INSTALL
+You need an existing OpenWeb PBX extension, a compatible server and Android 9 or newer. Your administrator provides the connection QR code. This app does not connect to a 3CX server or use 3CX app credentials.
+
+Keep the phone connection notification running for incoming calls. Reopen the app after restarting or force-stopping it. Push wake-up when Android has stopped the app, chat and video are not included. Keep your normal phone available for emergency calls.
+
+Help: https://openwebpbx.com/support.html
+Privacy: https://openwebpbx.com/privacy.html
+Data removal: https://openwebpbx.com/data-removal.html

@@ -1,6 +1,6 @@
 # OpenWeb PBX feature coverage
 
-OpenWeb PBX is a free, independently developed PBX built on FusionPBX and FreeSWITCH. Version 1.0.6 fixes immediate carrier/voicemail disconnections and native Android audio mode, alongside the managed server and Android updates, clearer phone controls and call-failure recovery to the standalone Android phone, callbacks, hotel services and native Windows installation. It does **not** implement every 3CX feature, run 3CX software or accept proprietary 3CX apps. No claim of being the world's first free PBX is made.
+OpenWeb PBX is a free, independently developed PBX built on FusionPBX and FreeSWITCH. Version 1.0.7 adds Android ear protection, prominent update controls and Google Play submission preparation to the working native calling, managed updates, tenant, callback and hotel foundations. It does **not** implement every 3CX feature, run 3CX software or accept proprietary 3CX apps. No claim of being the world's first free PBX is made.
 
 The Windows edition includes a C#/.NET 10 background calling service and WinUI 3 administration manager, built with Visual Studio 2026. The existing web application uses PHP and the call engine uses FreeSWITCH/Lua. This is not a complete C# rewrite. The manager opens the authenticated web Admin and is not a calling app.
 
@@ -198,6 +198,52 @@ Home/background/return, competing-focus hold, resume and audio-mode release. An
 incoming test passed ringing, answer, twelve seconds of two-way media and return
 to normal audio mode. This remains software-device evidence; broader physical
 handset, earpiece, Bluetooth and mobile-network qualification remains open.
+
+## Android ear protection and Play preparation — 1.0.7
+
+The app uses Android’s proximity screen lock during earpiece call setup and active
+calls, preventing screen touches while held close. Speaker, wired/Bluetooth audio,
+local hold and call end release that lock. Unsupported devices retain normal
+power-button behavior. Eleven proximity-policy/adapter checks pass; an actual
+handset near/far and audio-route test remains required.
+
+A persistent update card, prominent required-update dialog, clear actions and
+live download/verification progress make direct updates visible. Calls defer
+installation and an urgent-call bypass remains available. Google Play has a
+separate build that opens the store listing; it excludes the direct APK installer
+and install permissions. It only reports a required store update after signed
+metadata confirms a fully published production release. Initial 1.0.7 metadata
+contains no such claim because Google has not approved the app.
+
+Both variants target Android 16/API36. The signed APK and AAB passed release lint,
+25 direct and 29 Play JVM checks. Google bundletool validated the AAB, its existing
+signing identity and manifest; all 26 64-bit native libraries have 16 KiB-compatible
+ELF alignment; both final APKs also passed 16 KiB ZIP alignment. Exact signed
+1.0.6→1.0.7 package replacement preserved the account and reconnected. Final
+direct and Play builds passed sustained SRTP/background/audio-focus/hold/resume
+calls. Native 320/360dp screens retain all call controls and update visibility.
+Android 16/16 KiB runtime testing remains open; binary alignment alone
+does not establish runtime behavior.
+
+An isolated permanent review portal provides reusable login, fresh QR/code
+connection, internal echo and incoming-call tests, voicemail and fictional
+contacts. It has no providers or outside routes. Forty-four mobile database,
+13 repeat-provisioning, seven native background-command reply, nine bootstrap
+migration, nine echo policy and 15 live
+HTTPS checks passed; desktop/320px/390px browser checks have no overflow or
+console errors. Final native review passed outgoing echo, portal incoming Answer
+with SRTP, a newly recorded/playable/deletable 18.52-second synthetic voicemail,
+external-number refusal and Disconnect. Credentials remain private. Privacy, support and data-removal
+pages are live at openwebpbx.com. Store text, artwork, permission/data declarations
+and the [owner’s publication guide](google-play.md) are prepared. Account
+verification, any required closed test, Play-track tests and Google approval
+remain incomplete; APP-16 stays open.
+
+Windows 1.0.7 native compilation, three protocol and 34 updater checks passed on
+Windows Server 2025 with Visual Studio 2026 and .NET 10.0.401. The WinUI manager
+opened a responsive window showing 1.0.7. All 1,109 exported output hashes and 49
+source inputs matched. Installed Windows upgrade/database/audio evidence remains
+1.0.6; a new 1.0.7 installed-upgrade result is not claimed.
 
 ## Work still required
 

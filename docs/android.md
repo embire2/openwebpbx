@@ -1,6 +1,6 @@
-# OpenWeb PBX for Android — 1.0.6
+# OpenWeb PBX for Android — 1.0.7
 
-This is a standalone Android phone with native screens and its own SIP/media engine. It does not display the PBX website in a frame. Install the signed APK from the [1.0.6 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.6). Android 9 or newer is required; the universal APK supports ARMv7, ARM64 and x86-64. Physical handset coverage and mobile-network qualification are still being established.
+This is a standalone Android phone with native screens and its own SIP/media engine. It does not display the PBX website in a frame. Install the signed APK from the [1.0.7 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.7). Android 9 or newer is required; the universal APK supports ARMv7, ARM64 and x86-64. Physical handset coverage and mobile-network qualification are still being established.
 
 ## Connect your phone
 
@@ -23,11 +23,21 @@ Each phone receives its own revocable credentials, valid for 180 days. Create a 
 
 Use **Settings → Disconnect** to revoke this phone and remove its saved connection. An administrator can also revoke a lost phone in the PBX. A new QR code is required to reconnect.
 
+## Ear protection
+
+During outgoing setup and active earpiece calls, supported Android phones use their proximity sensor to turn off the display and suppress touches near your face. Moving the phone away restores the screen. Speaker, wired/Bluetooth audio, local hold and call termination release this protection. Phones without a supported sensor retain ordinary power-button behavior. Physical sensor behavior must still be checked on representative handsets.
+
+## Privacy and support
+
+Before connecting, the app explains that your chosen PBX receives device/connection details, call history and microphone audio during calls. Settings → More → Privacy and support opens the public privacy policy, data-removal instructions and support page. Disconnect removes this phone’s access and local account data; server records remain subject to the administrator’s deletion/retention process.
+
 ## Phone updates
 
-Install **1.0.6 once from the signed GitHub APK** if you currently use 1.0.3: the older app does not contain an updater. Install over the existing app to retain your connection; do not uninstall it first. The updater was introduced in 1.0.4. Upgrade the PBX server to 1.0.6 before installing the 1.0.6 phone update; this pairs the phone audio correction with the server calling fixes.
+Version 1.0.7 adds a prominent update card, clear Download/Install action, live progress and a notification that opens update details. Required updates finish downloading and verifying before the direct app asks you to install, and active calls defer installation. Android may still require permission or confirmation.
 
-The app checks the stable release feed when opened and approximately every twelve hours when Android permits network background work. In **Tenant Admin → Updates**, your tenant administrator chooses one of these policies:
+Install **1.0.7 once from the signed GitHub APK** if you currently use 1.0.3: the older app does not contain an updater. Install over the existing app to retain your connection; do not uninstall it first. The updater was introduced in 1.0.4. Upgrade the PBX server to 1.0.6 before installing the 1.0.7 phone update; this pairs the phone audio correction with the server calling fixes.
+
+The direct APK checks the stable release feed when opened and approximately every twelve hours when Android permits network background work. In **Tenant Admin → Updates**, your tenant administrator chooses one of these policies:
 
 - **Let users choose:** the phone tells you an update is available; choose when to download and install it.
 - **Download automatically:** the complete update downloads privately in advance; choose when to install it.
@@ -39,9 +49,13 @@ A required-update screen appears only after a supported, newer download has pass
 
 The release envelope is verified using a pinned RSA public key and SHA-256 signature before its contents are used. The app rejects expired/replayed release metadata, an unexpected download origin, an incorrect file size/hash, a different application/signing certificate, an incompatible Android version and a downgrade. Downloads and installer staging use private app storage. Signed metadata, APK identity and bytes are checked again before committing an Android PackageInstaller session. Updates never include tenant credentials.
 
+### Google Play edition
+
+The Play edition has separate update handling and excludes package-install permissions and the direct APK installer. It opens the fixed Google Play listing; Google Play controls download, installation and reopening. It does not display fictitious download progress. A required store update is offered only when signed metadata confirms a fully published production Play release, and active/urgent calling remains available. A GitHub release does not establish Google Play availability. Initial 1.0.7 Play publication is pending account setup, testing and Google review; see the [submission guide](google-play.md).
+
 ## Call connection help
 
-Your name and **Your extension** appear at the top. Calling your own extension displays an explanation before following its forwarding/voicemail rules. Failed calls remain visible with a plain-language reason and **Call again**. **Settings → More → Check connection** checks access to your PBX and reconnects the phone if idle; it does not claim to certify the provider or every destination.
+Your extension and connection state appear at the top. Calling your own extension displays an explanation before following its forwarding/voicemail rules. Failed calls remain visible with a plain-language reason and **Call again**. **Settings → More → Check connection** checks access to your PBX and reconnects the phone if idle; it does not claim to certify the provider or every destination.
 
 The keypad and call controls use native vector icons and labelled touch targets. The Call button stays visible while the keypad scrolls on a short screen. Answer and Decline are distinct, and Mute/Hold/Speaker show their current state.
 
@@ -53,9 +67,9 @@ Chat, video, meetings, attended transfer, conference calling, presence controls,
 
 ## Source, licenses and building
 
-The Android project is in [mobile/android](https://github.com/embire2/openwebpbx/blob/v1.0.6/mobile/android/README.md), licensed AGPL-3.0-or-later. Pre-existing server code keeps its original license. See [component notices](https://github.com/embire2/openwebpbx/blob/v1.0.6/mobile/android/THIRD_PARTY_NOTICES.md). The release includes the corresponding Android source, the exact Linphone SDK 5.5.23 source and submodules, and Maven dependency source JARs. No signing key, enrollment code, account credentials or customer data is distributed.
+The Android project is in [mobile/android](https://github.com/embire2/openwebpbx/blob/v1.0.7/mobile/android/README.md), licensed AGPL-3.0-or-later. Pre-existing server code keeps its original license. See [component notices](https://github.com/embire2/openwebpbx/blob/v1.0.7/mobile/android/THIRD_PARTY_NOTICES.md). The release includes the corresponding Android source, the exact Linphone SDK 5.5.23 source and submodules, and Maven dependency source JARs. No signing key, enrollment code, account credentials or customer data is distributed.
 
-Use JDK 17 or 21, Android SDK platform 35/build-tools 35.0.0, and the included Gradle 8.11.1 wrapper. The project pins Android Gradle Plugin 8.9.2, Kotlin 2.1.20, Linphone SDK 5.5.23, AndroidX Media 1.7.1 and ZXing Embedded 4.3.0. `scripts/build-release.sh` runs unit checks, Android lint and a signed release build. Set the private signing environment variables described in the project README. Preserve the signing key for future app upgrades.
+Use JDK 17 or 21, Android SDK platform 36/build-tools 36.0.0, and the included Gradle 8.11.1 wrapper. The project pins Android Gradle Plugin 8.10.1, Kotlin 2.1.20, Linphone SDK 5.5.23, AndroidX Media 1.7.1 and ZXing Embedded 4.3.0. `scripts/build-release.sh` runs both variants’ unit checks and Android lint, builds a signed direct APK and a signed Play AAB. Set the private signing environment variables described in the project README. Preserve the signing key for future app upgrades.
 
 To rebuild the SDK itself, follow its included upstream README and CMake presets. In the source archive, pass `-DLINPHONESDK_VERSION=5.5.23` when configuring without Git metadata. The original default SDK build contains additional media components whose licenses are retained even when the phone UI does not expose video. The Gradle build consumes the pinned official SDK AAR; this guide does not claim reproducible byte-identical SDK binaries.
 
@@ -99,6 +113,52 @@ These native tests establish the tested app and PBX media workflows. After the p
 
 ## Version 1.0.6 qualification
 
-Version 1.0.6 keeps the same phone audio implementation and dependencies as the tested 1.0.5 APK. Its version and distribution guidance are updated to pair it with the persistent server calling correction. Ten JVM tests, release lint, the signed universal build and APK identity/certificate checks passed again. The native call evidence above belongs to the final 1.0.5 APK; those calls were not repeated for this version-only phone change. Physical-handset acceptance remains open.
+Version 1.0.6 keeps the same phone audio implementation and dependencies as the tested 1.0.5 APK. Its version and distribution guidance are updated to pair it with the persistent server calling correction. Ten JVM tests, release lint, the signed universal build and APK identity/certificate checks passed again. The native call evidence above belongs to the final 1.0.5 APK; those calls were not repeated for the version-only 1.0.6 phone change. The user subsequently confirmed an actual 1.0.6 outside call with sound both ways; broader handset acceptance remains open.
 
 The release APK uses version name `1.0.6` and version code `106`. Its signing-certificate SHA-256 fingerprint is `449740f6858cb092a0f67d9d79d2505a8d6e7e4d4c1a52a8eaed9b895e48e69d`. Compare the download with the release's SHA256SUMS before installing. Signing keys are private and are not part of any download.
+
+## Version 1.0.7 qualification
+
+The final direct APK is version 1.0.7/code 107, SHA-256
+`27a940eb00c6e2de9415e02b34b6679f3b8321df69563fb4ece19cf3d7059e60`.
+The Play AAB is SHA-256
+`57d34247ab5accf2c52c8402f7f0bf41fdfbe46453f0c63cd53376f82f721d71`.
+Both keep the existing certificate fingerprint above and target API36.
+
+- Release lint and 25 direct/29 Play JVM checks passed, including 11 proximity and
+  four update-presentation checks. Both direct and AAB-derived Play APKs passed
+  signature and 16 KiB ZIP alignment verification. Bundletool validated the AAB;
+  all 26 64-bit native libraries passed ELF alignment checks.
+- Exact signed direct 1.0.7 passed the native proximity adapter’s sensorless
+  fallback and a 42.939-second outgoing SRTP call, background/return,
+  communication-audio mode, competing-focus hold and resume.
+- Android’s real PackageInstaller replaced signed 1.0.6 with the exact 1.0.7 APK.
+  The installed version, account-token hash and extension were retained; tapping
+  the actual update notification reopened the app and SIP registration returned.
+  This used a private signed release fixture. Its newer trust correctly refused
+  the then-public 1.0.6 feed after replacement; private trust was removed after
+  the check. This does not claim a public 1.0.7 feed was available during that test.
+- The final Play APK generated from the AAB passed four native methods,
+  including signed store-publication policy tests and a 42.922-second
+  SRTP/background/audio-focus/hold/resume call.
+- Native 320/360dp checks covered the complete 12-key keypad, call controls,
+  bottom navigation, visible required-update state/progress and preserved
+  screen-capture protection. The update card stays compact during calls.
+
+The software test device has no physical proximity sensor. Actual handset
+near/far, headset route transitions and screen recovery remain required.
+Android 16 and 16 KiB operating-system runtime qualification also remains open;
+binary alignment checks do not establish that runtime result. Play-track
+installation/replacement and Google approval await the owner’s account.
+
+The final AAB-derived Play app also completed the 149.236-second permanent-review
+workflow: fresh private-code enrollment, visible keypad 7000 echo, background
+connection notification, portal-triggered incoming Answer with two-way SRTP,
+new 7002 voicemail recording/play/deletion while retaining the supplied sample,
+blocked outside-number attempt, and Disconnect removing its foreground
+notification. The fresh message was 18.52 seconds/296,364 bytes; 98.45% of measured
+power matched the injected 430/730 Hz synthetic microphone tone. This proves the
+software microphone/media path used by the fixture, not physical-handset audio.
+The 312-frame demonstration records actual native views with screen-capture
+protection retained. It excludes QR codes and credentials; enrollment uses the
+real API privately and permissions are granted before capture.

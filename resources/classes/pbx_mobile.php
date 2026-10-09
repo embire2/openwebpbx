@@ -29,7 +29,10 @@ class pbx_mobile {
     protected function tlsReady(): bool {return filter_var(config::load()->get('openweb.mobile_tls_ready','false'),FILTER_VALIDATE_BOOLEAN);}
     private function requireTls(): void {if(!$this->tlsReady())throw new RuntimeException('Phone connections are not ready. Ask your instance administrator to finish secure phone setup.');}
     public function createCode(string $number): array {
-        $e=$this->adminExtension($number);$this->requireTls();$this->rate('create:'.($_SESSION['user_uuid']??''),20,600);
+        $e=$this->adminExtension($number);return $this->issueCode($e);
+    }
+    private function issueCode(array $e): array {
+        $this->requireTls();$this->rate('create:'.($_SESSION['user_uuid']??''),20,600);
         $url=pbx_paths::url();if(!preg_match('~^https://[a-z0-9.-]+(?::[0-9]{1,5})?$~iD',$url))throw new RuntimeException('Ask your instance administrator to finish HTTPS setup.');
         $this->db->beginTransaction();try {
             $this->q('select extension_uuid from v_extensions where extension_uuid=:id for update',['id'=>$e['extension_uuid']]);
@@ -63,6 +66,39 @@ class pbx_mobile {
     public function bootstrap(array $e): array {return ['account'=>['extension'=>$e['number'],'display_name'=>$e['user']['name']??$e['number']],'sip'=>['server'=>pbx_paths::host(),'domain'=>$e['domain_name'],'username'=>$e['sip_username'],'auth_username'=>$e['sip_username'],'port'=>5061,'transport'=>'tls','media_encryption'=>'srtp'],'device_id'=>$e['device_uuid'],'features'=>['directory','calls','voicemail']];}
     public function devices(string $number): array {$e=$this->adminExtension($number);return $this->q('select device_uuid,device_name,created_at,last_seen_at,expires_at,revoked_at from v_pbx_mobile_devices where extension_uuid=:e order by created_at desc limit 30',['e'=>$e['extension_uuid']])->fetchAll(PDO::FETCH_ASSOC);}
     public function adminRevoke(string $number,string $id): void {$e=$this->adminExtension($number);$this->id($id);$d=$this->q('select device_uuid,sip_username,domain_uuid from v_pbx_mobile_devices where device_uuid=:id and extension_uuid=:e',['id'=>$id,'e'=>$e['extension_uuid']])->fetch(PDO::FETCH_ASSOC);if(!$d)throw new InvalidArgumentException('Phone unavailable.');$this->revoke($e+$d);}
+    /** A review account can connect only its operator-assigned demo extension. */
+    public function reviewExtension(): array {
+        if(empty($_SESSION['authorized'])||!permission_exists('pbx_mobile_review'))throw new RuntimeException('Review access required.');
+        $r=$this->q("select r.domain_uuid,r.extension_uuid,r.echo_number,r.voicemail_number from v_pbx_mobile_reviewers r join v_users u using(user_uuid) where r.user_uuid=:u and r.domain_uuid=:d and u.domain_uuid=r.domain_uuid and u.user_enabled='true' and r.enabled",['u'=>$_SESSION['user_uuid']??'00000000-0000-0000-0000-000000000000','d'=>$_SESSION['domain_uuid']??'00000000-0000-0000-0000-000000000000'])->fetch(PDO::FETCH_ASSOC);
+        if(!$r)throw new RuntimeException('Review access required.');
+        return $this->extension($r['domain_uuid'],$r['extension_uuid'])+$r;
+    }
+    protected function reviewEngine(string $command,bool $background=false): string {
+        $reply=$background?event_socket::async($command):event_socket::api($command);
+        // Background commands return event headers; API commands normally return a body.
+        // Preserve the engine's acknowledgement instead of casting its header array to "Array".
+        if(is_array($reply))$reply=$reply['Reply-Text']??'';
+        return is_string($reply)?$reply:'';
+    }
+    public function reviewRing(): void {
+        $e=$this->reviewExtension();$this->requireTls();
+        if(!preg_match('/^[a-z0-9.-]+$/Di',$e['domain_name'])||!preg_match('/^[a-z0-9_.-]{1,64}$/Di',$e['extension']))throw new RuntimeException('Demo phone setup is unavailable.');
+        if(!$this->reviewDevices())throw new RuntimeException('Connect your demo phone first, then try again.');
+        $raw=$this->reviewEngine('show channels as json');if(strlen($raw)>8388608)throw new RuntimeException('Call status is unavailable.');
+        $channels=json_decode($raw,true,64,JSON_THROW_ON_ERROR);if(!is_array($channels)||!isset($channels['row_count'])||!is_numeric($channels['row_count'])||!is_array($channels['rows']??[])||(int)$channels['row_count']!==count($channels['rows']??[]))throw new RuntimeException('Call status is unavailable.');
+        foreach($channels['rows']??[] as $row){$id=$row['uuid']??'';$this->id($id);if(trim($this->reviewEngine('uuid_getvar '.$id.' domain_uuid'))===$e['domain_uuid'])throw new RuntimeException('Finish your demo call before ringing your phone again.');}
+        // One queued request per full ring+call lifetime prevents concurrent/replayed originates.
+        $this->rate('review-ring:'.$_SESSION['user_uuid'],1,150);
+        $id=uuid();$command="originate {origination_uuid=".$id.",domain_uuid=".$e['domain_uuid'].",domain_name=".$e['domain_name'].",rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,origination_caller_id_name=OpenWeb_Review,origination_caller_id_number=".$e['echo_number'].",originate_timeout=25,execute_on_answer='sched_hangup +120 NORMAL_CLEARING'}user/".$e['extension'].'@'.$e['domain_name'].' &echo()';
+        if(!str_contains($this->reviewEngine($command,true),'+OK'))throw new RuntimeException('Your demo phone could not be called. Open the app and try again in a few minutes.');
+    }
+    public function reviewCode(): array {return $this->issueCode($this->reviewExtension());}
+    public function reviewDevices(): array {$e=$this->reviewExtension();return $this->q('select device_uuid,device_name,created_at,last_seen_at,expires_at,revoked_at from v_pbx_mobile_devices where domain_uuid=:d and extension_uuid=:e and revoked_at is null and expires_at>now() order by created_at',['d'=>$e['domain_uuid'],'e'=>$e['extension_uuid']])->fetchAll(PDO::FETCH_ASSOC);}
+    public function reviewRevoke(string $id): void {
+        $e=$this->reviewExtension();$this->rate('review-remove:'.$_SESSION['user_uuid'],30,600);$this->id($id);
+        $d=$this->q('select device_uuid,sip_username from v_pbx_mobile_devices where device_uuid=:id and domain_uuid=:d and extension_uuid=:e',['id'=>$id,'d'=>$e['domain_uuid'],'e'=>$e['extension_uuid']])->fetch(PDO::FETCH_ASSOC);
+        if(!$d)throw new InvalidArgumentException('Phone unavailable.');$this->revoke($e+$d);
+    }
     private function clearDirectory(array $e): void {try{$cache=new cache;foreach([$e['extension'],$e['number']] as $user)$cache->delete('directory:'.$user.'@'.$e['domain_name']);}catch(Throwable){}}
     public function revoke(array $e): void {
         $this->id($e['device_uuid']);

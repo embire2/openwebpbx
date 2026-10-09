@@ -9,7 +9,8 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
-from verify_feed import KEY_ID, PLATFORMS, verify, version
+from verify_feed import KEY_ID, PLATFORMS, verify, version, no_duplicate_keys
+from play_metadata import validate as validate_play
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--private-key', type=Path, required=True)
@@ -22,6 +23,8 @@ parser.add_argument('--android', type=Path)
 parser.add_argument('--android-version-code', type=int)
 parser.add_argument('--android-certificate-sha256')
 parser.add_argument('--android-min-sdk', type=int, default=28)
+parser.add_argument('--play-published-metadata', type=Path,
+                    help='Reviewed JSON for an approved, fully rolled-out production Google Play release; omit until publication is confirmed.')
 parser.add_argument('--minimum-version', default='1.0.3')
 parser.add_argument('--minimum-server-version')
 parser.add_argument('--published-at')
@@ -53,6 +56,14 @@ for platform, path in [('debian13-amd64', a.debian), ('windows-x64', a.windows),
     assets.append(item)
 payload = {'schema':1, 'product':'openwebpbx', 'channel':'stable', 'sequence':a.sequence, 'version':a.version,
            'published_at':published, 'expires_at':(now+dt.timedelta(days=a.expires_days)).strftime('%Y-%m-%dT%H:%M:%SZ'), 'assets':assets}
+if a.play_published_metadata is not None:
+    if a.android is None:parser.error('Play publication metadata requires the matching release feed to include its direct Android artifact.')
+    if a.play_published_metadata.stat().st_size > 16384:parser.error('Play publication metadata exceeds 16 KiB.')
+    try:
+        reviewed = json.loads(a.play_published_metadata.read_text(encoding='utf-8'), object_pairs_hook=no_duplicate_keys)
+        payload['android_play'] = validate_play(reviewed, a.version, published, now)
+    except (ValueError, UnicodeError) as error:
+        parser.error(str(error))
 data = json.dumps(payload, separators=(',', ':'), sort_keys=True).encode()
 with tempfile.TemporaryDirectory(prefix='openweb-sign-') as folder:
     unsigned = Path(folder)/'payload';unsigned.write_bytes(data)

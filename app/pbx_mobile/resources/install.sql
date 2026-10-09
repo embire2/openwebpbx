@@ -31,4 +31,13 @@ CREATE TABLE IF NOT EXISTS v_pbx_mobile_calls (
  answered boolean NOT NULL, PRIMARY KEY(device_uuid,call_uuid)
 );
 CREATE INDEX IF NOT EXISTS openweb_mobile_calls_extension ON v_pbx_mobile_calls(extension_uuid,started_at DESC);
+CREATE TABLE IF NOT EXISTS v_pbx_mobile_reviewers (
+ user_uuid uuid PRIMARY KEY REFERENCES v_users ON DELETE CASCADE,
+ domain_uuid uuid NOT NULL REFERENCES v_domains ON DELETE CASCADE,
+ extension_uuid uuid UNIQUE NOT NULL REFERENCES v_extensions ON DELETE CASCADE,
+ echo_number text NOT NULL CHECK(echo_number ~ '^[0-9]{2,10}$'),
+ voicemail_number text NOT NULL CHECK(voicemail_number ~ '^[0-9]{2,10}$'),
+ enabled boolean NOT NULL DEFAULT true,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
 COMMIT;

@@ -2,7 +2,11 @@
 /** CLI-only, isolated PostgreSQL schema. No customer credentials or carrier calls. */
 if(PHP_SAPI!=='cli'){http_response_code(404);exit;}
 require dirname(__DIR__).'/resources/require.php';
-class mobile_fixture extends pbx_mobile {protected function tlsReady(): bool {return true;}}
+class mobile_fixture extends pbx_mobile {
+ public array $reviewCommands=[];public array $reviewChannels=[];public string $reviewDomain='';
+ protected function tlsReady(): bool {return true;}
+ protected function reviewEngine(string $command,bool $background=false): string {$this->reviewCommands[]=[$command,$background];if($command==='show channels as json')return json_encode(['row_count'=>count($this->reviewChannels),'rows'=>$this->reviewChannels]);if(str_starts_with($command,'uuid_getvar '))return $this->reviewDomain;return '+OK Job-UUID: '.uuid();}
+}
 $db=$database->db;$db->setAttribute(PDO::ATTR_ERRMODE,PDO::ERRMODE_EXCEPTION);
 $schema='openweb_mobile_test_'.bin2hex(random_bytes(6));$count=0;
 $q=function($sql,$p=[])use($db){$s=$db->prepare($sql);$s->execute($p);return $s;};
@@ -43,6 +47,29 @@ try{
     $mobile->adminRevoke('100',$account['device_uuid']);$reject(fn()=>$mobile->authenticate($phone['token']),'Revoked phone denied');
     $expired=json_decode($mobile->createCode('100')['payload'],true);$q("update v_pbx_mobile_enrollments set expires_at=now()-interval '1 second' where code_hash=?",[hash('sha256',$expired['code'])]);$reject(fn()=>$mobile->enroll(['code'=>$expired['code'],'device_name'=>'Expired'],'test-ip'),'Expired setup rejected');
     $mobile->rate('fixture-limit',1,600);$reject(fn()=>$mobile->rate('fixture-limit',1,600),'Rate limiting enforced');
+    // Reusable review portal is an explicit assignment, never an arbitrary extension picker.
+    $reject(fn()=>$mobile->reviewExtension(),'Unauthenticated review denied');
+    $_SESSION['authorized']=true;
+    $reject(fn()=>$mobile->reviewCode(),'Ordinary administrator without review mapping denied');
+    $q("insert into v_pbx_mobile_reviewers(user_uuid,domain_uuid,extension_uuid,echo_number,voicemail_number) values(?,?,?,'7000','7002')",[$owner,$domains[0],$extensions[0]]);
+    $check($mobile->reviewExtension()['number']==='100','Review fixed extension resolved');
+    $_SESSION['domain_uuid']=$domains[1];$reject(fn()=>$mobile->reviewCode(),'Review cannot change active domain');$_SESSION['domain_uuid']=$domains[0];
+    $q('update v_pbx_mobile_reviewers set enabled=false where user_uuid=?',[$owner]);$reject(fn()=>$mobile->reviewCode(),'Disabled reviewer denied');$q('update v_pbx_mobile_reviewers set enabled=true where user_uuid=?',[$owner]);
+    $q('update v_users set user_enabled=false where user_uuid=?',[$owner]);$reject(fn()=>$mobile->reviewCode(),'Disabled review account denied');$q('update v_users set user_enabled=true where user_uuid=?',[$owner]);
+    $review=json_decode($mobile->reviewCode()['payload'],true);$reviewPhone=$mobile->enroll(['code'=>$review['code'],'device_name'=>'Review phone'],'review-ip');
+    $check($reviewPhone['account']['extension']==='100'&&count($mobile->reviewDevices())===1,'Review code enrolls assigned demo extension');
+    $reject(fn()=>$mobile->reviewRevoke($otherAccount['device_uuid']),'Reviewer cannot remove foreign phone');
+    $q("update v_pbx_tenants set enabled=false where tenant_uuid=?",[$tenant]);$reject(fn()=>$mobile->reviewCode(),'Suspended review tenant denied');$q('update v_pbx_tenants set enabled=true where tenant_uuid=?',[$tenant]);
+    for($i=0;$i<9;$i++)$q("insert into v_pbx_mobile_devices(device_uuid,domain_uuid,extension_uuid,device_name,platform,token_hash,sip_username,sip_a1_hash,expires_at) values(?,?,?,'Limit fixture','android',?,?,?,now()+interval '1 day')",[uuid(),$domains[0],$extensions[0],bin2hex(random_bytes(32)),'owm-'.bin2hex(random_bytes(16)),bin2hex(random_bytes(16))]);
+    $reject(fn()=>$mobile->reviewCode(),'Review phone limit enforced');
+    $mobile->reviewRevoke($reviewPhone['device_id']);$reject(fn()=>$mobile->authenticate($reviewPhone['token']),'Reviewer removed own phone');
+    $check(count($mobile->reviewDevices())===9&&strlen(json_decode($mobile->reviewCode()['payload'],true)['code'])===64,'Review can connect again after removing owned phone');
+    $mobile->reviewDomain=$domains[0];$mobile->reviewChannels=[['uuid'=>uuid()]];$reject(fn()=>$mobile->reviewRing(),'Existing demo call blocks incoming test');
+    $mobile->reviewChannels=[];$mobile->reviewRing();$commands=array_values(array_filter($mobile->reviewCommands,fn($r)=>$r[1]));
+    $check(count($commands)===1&&str_contains($commands[0][0],'user/test-auth@'.$domains[0].'.invalid &echo()')&&str_contains($commands[0][0],"execute_on_answer='sched_hangup +120 NORMAL_CLEARING'"),'Incoming test targets only assigned local phone and bounded echo');
+    $check(str_contains($commands[0][0],',rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,'),'Incoming demo offers the secure audio required by native phones');
+    $reject(fn()=>$mobile->reviewRing(),'Incoming test repeat is rate limited');
+    $check($mobile->authenticate($other['token'])['domain_uuid']===$domains[1],'Foreign phone remains connected');
     $check(str_contains(pbx_mobile::qr(json_encode($second)),'<svg'),'Local QR rendering');
     echo 'PASS: '.$count." native mobile enrollment, scope, replay, voicemail and revocation checks\n";
 }finally{if($db->inTransaction())$db->rollBack();$db->exec('set search_path to public');$db->exec('drop schema if exists '.$schema.' cascade');}

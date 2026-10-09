@@ -1,4 +1,4 @@
-# Building OpenWeb PBX 1.0.6
+# Building OpenWeb PBX 1.0.7
 
 The web application and call engine retain their upstream licenses. The C# projects in `platform/` add a .NET 10 background calling service and an unpackaged WinUI 3 administration manager. This release does not rewrite the PHP application in C# and the manager is not a softphone.
 
@@ -7,10 +7,10 @@ The web application and call engine retain their upstream licenses. The C# proje
 Use .NET SDK 10.0.401 or a compatible .NET 10 SDK:
 
 ```sh
-dotnet publish platform/OpenWebPbx.Server -c Release -r linux-x64 --self-contained true -o artifacts/linux-1.0.6/server
-dotnet publish platform/OpenWebPbx.Server -c Release -r win-x64 --self-contained true -o artifacts/windows-1.0.6/server
-dotnet publish platform/OpenWebPbx.Updater -c Release -r linux-x64 --self-contained true -o artifacts/linux-1.0.6/updater
-dotnet publish platform/OpenWebPbx.Updater -c Release -r win-x64 --self-contained true -o artifacts/windows-1.0.6/updater
+dotnet publish platform/OpenWebPbx.Server -c Release -r linux-x64 --self-contained true -o artifacts/linux-1.0.7/server
+dotnet publish platform/OpenWebPbx.Server -c Release -r win-x64 --self-contained true -o artifacts/windows-1.0.7/server
+dotnet publish platform/OpenWebPbx.Updater -c Release -r linux-x64 --self-contained true -o artifacts/linux-1.0.7/updater
+dotnet publish platform/OpenWebPbx.Updater -c Release -r win-x64 --self-contained true -o artifacts/windows-1.0.7/updater
 dotnet run --project platform/OpenWebPbx.Checks -c Release
 dotnet run --project platform/OpenWebPbx.Updater.Checks -c Release
 python3 tests/release_feed.py
@@ -35,7 +35,7 @@ Both installer archives include a clean `web/` source tree, `server/` and `updat
 
 Windows downloads the official FreeSWITCH 1.11.3 MSI, PHP 8.4.26 NTS and PostgreSQL 18.6 binaries. Pinned SHA-256 values are checked before extraction or installation. These downloads require an internet connection.
 
-Debian includes an `engine.tar.gz` compiled on Debian 13 amd64. It contains FreeSWITCH 1.11.3, its Sofia-SIP and SpanDSP shared libraries, stock English 8 kHz prompts and music. Debian libraries are installed with APT using `engine-dependencies.txt`. The corresponding upstream source snapshots, licenses and build configuration accompany the release as `openwebpbx-1.0.6-engine-source.tar.gz`.
+Debian includes an `engine.tar.gz` compiled on Debian 13 amd64. It contains FreeSWITCH 1.11.3, its Sofia-SIP and SpanDSP shared libraries, stock English 8 kHz prompts and music. Debian libraries are installed with APT using `engine-dependencies.txt`. The corresponding upstream source snapshots, licenses and build configuration accompany the release as `openwebpbx-1.0.7-engine-source.tar.gz`.
 
 Engine source revisions:
 
@@ -46,8 +46,8 @@ Engine source revisions:
 After committing the reviewed source, create installation archives with:
 
 ```sh
-python3 packaging/build-release.py --target debian --server artifacts/linux-1.0.6/server --updater artifacts/linux-1.0.6/updater --engine /path/to/clean-engine.tar.gz
-python3 packaging/build-release.py --target windows --server artifacts/windows-1.0.6/server --updater artifacts/windows-1.0.6/updater --desktop /path/to/windows-built-manager
+python3 packaging/build-release.py --target debian --server artifacts/linux-1.0.7/server --updater artifacts/linux-1.0.7/updater --engine /path/to/clean-engine.tar.gz --output artifacts/release-1.0.7
+python3 packaging/build-release.py --target windows --server artifacts/windows-1.0.7/server --updater artifacts/windows-1.0.7/updater --desktop artifacts/windows-1.0.7/desktop --output artifacts/release-1.0.7
 ```
 
 The packager writes `release-manifest.json` with the version and SHA-256 for every packaged file. Both fresh and update scripts are included; update scripts preserve installed configuration. The packager excludes Android source from the PHP web root and distributes only the local G.729 build recipe, not a combined codec binary.
@@ -58,7 +58,7 @@ The stock engine and source dependencies are separate from private PBX configura
 
 ## Android app and final release
 
-The native Android project is built separately; follow `mobile/android/README.md`. The release APK is signed with a persistent private release key kept outside the checkout. Never publish the keystore or its password. Copy the verified output to `artifacts/android/openwebpbx-1.0.6-android.apk` and verify the APK signature before release.
+The native Android project is built separately; follow `mobile/android/README.md`. The release APK is signed with a persistent private release key kept outside the checkout. Never publish the keystore or its password. Copy the verified output to `artifacts/android/openwebpbx-1.0.7-android.apk` and verify the APK signature before release.
 
 Stage and review new application files before packaging, because the packager reads the Git index. Build the Linux service, Windows service/manager and Android APK from the same reviewed release source. Generate `SHA256SUMS` over the Debian, Windows, Android and engine-source assets. Inspect every archive for private files, configuration and known secrets, and compare its manifest hashes before upload. Preserve the old 1.0.2 assets unchanged.
 
@@ -72,13 +72,13 @@ After the final archives and Android APK are verified, sign their actual hashes 
 
 ```sh
 python3 packaging/updates/sign-feed.py --private-key /private/release-signing.pem \
-  --version 1.0.6 --sequence 106 \
-  --debian artifacts/release-1.0.6/openwebpbx-1.0.6-debian13-amd64.tar.gz \
-  --windows artifacts/release-1.0.6/openwebpbx-1.0.6-windows-x64.zip \
-  --android artifacts/android/openwebpbx-1.0.6-android.apk --android-version-code 106 \
+  --version 1.0.7 --sequence 107 \
+  --debian artifacts/release-1.0.7/openwebpbx-1.0.7-debian13-amd64.tar.gz \
+  --windows artifacts/release-1.0.7/openwebpbx-1.0.7-windows-x64.zip \
+  --android artifacts/android/openwebpbx-1.0.7-android.apk --android-version-code 107 \
   --minimum-server-version 1.0.6 \
   --android-certificate-sha256 449740f6858cb092a0f67d9d79d2505a8d6e7e4d4c1a52a8eaed9b895e48e69d \
-  --output artifacts/release-1.0.6/update-manifest.json
+  --output artifacts/release-1.0.7/update-manifest.json
 ```
 
 Publish `update-manifest.json` alongside the exact referenced assets, include its hash in `SHA256SUMS`, and verify the public downloads before marking the release latest. Never reuse a sequence with changed payload bytes; issued feeds are immutable. Keep a dated private copy of each signed envelope. A refreshed expiry needs a greater sequence even when archive bytes do not change. Clients refuse expired metadata, a lower sequence, a conflicting payload at an already observed sequence, and downgrades. Offline clients retain their current installation.

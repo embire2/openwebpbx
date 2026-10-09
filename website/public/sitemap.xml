@@ -1,2 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://openwebpbx.com/</loc></url></urlset>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://openwebpbx.com/</loc></url><url><loc>https://openwebpbx.com/privacy.html</loc></url>
+<url><loc>https://openwebpbx.com/data-removal.html</loc></url>
+<url><loc>https://openwebpbx.com/support.html</loc></url>
+</urlset>

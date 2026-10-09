@@ -44,7 +44,7 @@ for coordinate in inventory:
 (a.dependency_sources/'RUNTIME-DEPENDENCIES.txt').write_text('\n'.join(inventory)+'\n')
 a.output.parent.mkdir(parents=True,exist_ok=True)
 def permitted(path):
-    return not any(part in ('.git','.gradle','build','.idea') for part in path.parts) and path.name not in ('local.properties','signing.properties') and path.suffix not in ('.jks','.keystore')
+    return not any(part in ('.git','.gradle','.kotlin','__pycache__','build','.idea') for part in path.parts) and path.name not in ('local.properties','signing.properties') and path.suffix not in ('.jks','.keystore')
 with tarfile.open(a.output, 'w:gz', compresslevel=6) as archive:
     for source,name in ((project,'openwebpbx-android/mobile/android'),(sdk,'openwebpbx-android/linphone-sdk-5.5.23'),(a.dependency_sources,'openwebpbx-android/dependency-sources')):
         for file in sorted(source.rglob('*')):
@@ -56,6 +56,6 @@ with tarfile.open(a.output, 'w:gz', compresslevel=6) as archive:
                 if file.is_symlink():archive.addfile(info)
                 else:
                     with file.open('rb') as stream:archive.addfile(info,stream)
-    guide=project.parents[1]/'docs/android.md'
-    archive.add(guide,arcname='openwebpbx-android/docs/android.md')
+    for relative in ['docs/android.md','docs/google-play.md','docs/google-play-review.md','packaging/updates/PROTOCOL.md']:
+        archive.add(project.parents[1]/relative,arcname='openwebpbx-android/'+relative)
 print(json.dumps({'archive':str(a.output),'bytes':a.output.stat().st_size,'sha256':hashlib.sha256(a.output.read_bytes()).hexdigest(),'dependency_sources':len(manifest)}))

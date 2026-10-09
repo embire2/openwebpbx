@@ -1,0 +1,16 @@
+{
+  "packageName": "com.openweb.pbx",
+  "defaultLanguage": "en-US",
+  "title": "OpenWeb PBX",
+  "applicationType": "app",
+  "category": "COMMUNICATION",
+  "pricing": "free",
+  "containsAds": false,
+  "supportEmail": "hello@openwebpbx.com",
+  "website": "https://openwebpbx.com/support.html",
+  "privacyPolicy": "https://openwebpbx.com/privacy.html",
+  "dataRemoval": "https://openwebpbx.com/data-removal.html",
+  "targetAudience": ["18_AND_OVER"],
+  "status": "prepared_not_submitted",
+  "developerIdentity": "Owner must use the verified legal identity in Play Console; project branding does not establish legal organisation status."
+}

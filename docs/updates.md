@@ -49,7 +49,9 @@ The Windows edition uses the same signed release feed and independent C# updater
 
 ## Android phones
 
-In **Tenant Admin → Updates**, tenant administrators choose a phone-update policy for their users: **Let users choose**, **Download automatically**, or **Require the update**. Notification, background download and required-update choices use the same signed release feed, then verify the APK's application ID, version and signing certificate. Android system permission/installation confirmation still applies. An active call defers installation. The app reopens after replacement where Android permits it; otherwise a notification provides the reopen action. See [the Android guide](android.md) for actual tested devices and limits.
+In **Tenant Admin → Updates**, tenant administrators choose a phone-update policy for their users: **Let users choose**, **Download automatically**, or **Require the update**. For direct APK installations, notification, background download and required-update choices use the same signed release feed, then verify the APK's application ID, version and signing certificate. Android system permission/installation confirmation still applies. An active call defers installation. The app reopens after replacement where Android permits it; otherwise a notification provides the reopen action. See [the Android guide](android.md) for actual tested devices and limits.
+
+The 1.0.7 phone UI adds a prominent update card with live download progress and notification navigation. The Google Play edition opens Google Play for installation and contains no APK self-installer. Store updates become required only after signed metadata confirms a fully published production Play version; publishing on GitHub alone cannot trigger that requirement. Google Play controls its own download, installation and reopening. See [Play publication](google-play.md).
 
 This protects OpenWeb PBX application updates. Distribution packages, PostgreSQL, the call engine and public TLS certificate operations remain separate administrator tasks; updating the application does not silently replace these installed components.
 

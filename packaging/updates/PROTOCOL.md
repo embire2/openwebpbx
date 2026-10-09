@@ -44,6 +44,54 @@ forward PBX authentication headers to release servers. Bound bytes, verify whole
 file size/SHA-256 and reject archives with traversal, symlinks or duplicate paths.
 Android additionally verifies the archive package/version/signing identity.
 
+## Google Play publication metadata
+
+The Play edition uses the same pinned signed envelope, expiry and persisted
+sequence/digest checks. It never downloads the direct APK and does not use an
+APK installer. The optional top-level `android_play` object announces only a
+confirmed Google Play production publication:
+
+```json
+"android_play": {
+  "status":"published", "track":"production", "rollout":"complete",
+  "package_id":"com.openweb.pbx", "version":"1.0.7", "version_code":107,
+  "minimum_server_version":"1.0.6", "min_sdk":28,
+  "published_at":"2026-10-10T12:00:00Z"
+}
+```
+
+The example is illustrative; it is not evidence of Play approval. Omit this
+object until an operator confirms approval and a completed production rollout
+across the selected supported regions. A GitHub APK release, uploaded bundle,
+test track, pending review or staged rollout does not establish availability.
+Absent or null metadata means no known published Play update and cannot activate
+a required-update gate. Malformed or unsupported publication metadata is refused.
+
+The Play version must not exceed the envelope version. Numeric version codes
+must be 1–2,147,483,647; minimum SDK must be 28–100. Publication time must be UTC,
+at or after 1970, no later than the feed publication and not more than five minutes
+in the future. An app requires both a newer version name and version code, plus
+supported Android/PBX versions. The fixed store link is
+`https://play.google.com/store/apps/details?id=com.openweb.pbx`; metadata cannot
+supply an arbitrary link, code download or installation command.
+
+After verifying actual Play publication, pass the reviewed object as
+`sign-feed.py --play-published-metadata /private/reviewed-play-publication.json`.
+The signer validates every field before signing. Existing direct/server assets
+and validation rules are unchanged. Do not rewrite an immutable released feed or
+reuse its sequence for changed metadata. Publish a later consistent full release
+with a higher sequence; it may announce an older approved Play version. A Play
+approval by itself does not permit rebinding a 1.0.7 feed to 1.0.6 native assets.
+
+Tenant `required` applies only to verified published Play metadata. Cached policy
+is bound to the currently enrolled account and expires after 24 hours; signed
+publication expiry also applies. Active calls and urgent calling bypass the gate.
+The app waits for an active call to finish before opening Google Play. Google
+Play controls its download, installation, eligibility and reopening; this app
+cannot silently install, cancel, track its byte progress or guarantee that a
+store-managed installation waits for calls arriving after that handoff. Tenant
+`download` cannot override the user's Google Play automatic-update settings.
+
 ## Policy and server command contract
 
 `app/pbx_updates/resources/install.sql` defines PostgreSQL tables. Web endpoints

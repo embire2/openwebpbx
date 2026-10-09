@@ -39,6 +39,7 @@ class MainActivity: ComponentActivity() {
     private lateinit var status: TextView
     private lateinit var callPanel: LinearLayout
     private lateinit var keypadDock:LinearLayout
+    private var keypadNumber:EditText?=null
     private var section = "Keypad"
     private var dataGeneration = 0
     private var player: MediaPlayer? = null
@@ -51,6 +52,11 @@ class MainActivity: ComponentActivity() {
     private var urgentUpdateBypass = false
     private var updateGated = false
     private lateinit var updatePanel:LinearLayout
+    private var updateDetails:AlertDialog?=null
+    private var updateDetailsText:TextView?=null
+    private var updateDetailsProgress:ProgressBar?=null
+    private var openUpdatesRequested=false
+    private val shownUpdatePrompts=mutableSetOf<String>()
     private val updates get()=UpdateManager.get(this)
     private val accountChanges = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _,_ ->
         runOnUiThread { refreshConnection() }
@@ -88,7 +94,7 @@ class MainActivity: ComponentActivity() {
             val qr = JSONObject(result.contents)
             require(qr.optString("type") == "openwebpbx" && qr.optInt("version") == 1) { "This is not an OpenWeb PBX connection code" }
             val server = Enrollment.server(qr.getString("server")); val code = Enrollment.code(qr.getString("code"))
-            AlertDialog.Builder(this).setTitle("Connect your phone?").setMessage("Connect to ${URI(server).host}. Only scan codes provided by your PBX administrator.")
+            AlertDialog.Builder(this).setTitle("Connect your phone?").setMessage("Connect to ${URI(server).host}. Only scan codes provided by your PBX administrator.\n\n$privacySummary")
                 .setNegativeButton("Cancel",null).setPositiveButton("Connect") { _, _ -> enroll(server,code) }.show()
         } catch(e: Exception) { message(e.message ?: "That QR code could not be read") }
     }
@@ -96,13 +102,16 @@ class MainActivity: ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         store = PhoneStore(this); section = savedInstanceState?.getString("section") ?: "Keypad"
+        shownUpdatePrompts.addAll(savedInstanceState?.getStringArrayList("update_prompts") ?: emptyList())
+        openUpdatesRequested=intent.getBooleanExtra("show_updates",false);intent.removeExtra("show_updates")
         draw();updates.schedule();updates.check()
         if(store.read() != null) { ensurePermissions(); bootstrap() }
     }
     override fun onResume() { super.onResume(); updates.foregroundActivity=this; updates.changed={runOnUiThread { if(store.read()!=null && !updates.isInstalling && PhoneService.instance==null && checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startPhone();updatePhone();updateUi() }}; PhoneService.changed = { runOnUiThread { updatePhone();updateUi() } }; updatePhone();updateUi(); if(store.read()!=null && !updates.isInstalling && checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startPhone() }
     override fun onPause() { PhoneService.changed = null;updates.changed=null;updates.foregroundActivity=null; super.onPause() }
-    override fun onSaveInstanceState(outState: Bundle) { outState.putString("section", section); super.onSaveInstanceState(outState) }
-    override fun onDestroy() { stopPlayback(); worker.shutdown(); super.onDestroy() }
+    override fun onNewIntent(intent:Intent) { super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("show_updates",false)){openUpdatesRequested=true;intent.removeExtra("show_updates");updateUi()} }
+    override fun onSaveInstanceState(outState: Bundle) { outState.putString("section", section);outState.putStringArrayList("update_prompts",ArrayList(shownUpdatePrompts));super.onSaveInstanceState(outState) }
+    override fun onDestroy() { updateDetails?.dismiss();stopPlayback(); worker.shutdown(); super.onDestroy() }
     private fun dp(value:Int) = (value * resources.displayMetrics.density).toInt()
     private fun text(value: String, size: Float=16f, color:Int=ink, bold:Boolean=false) = TextView(this).apply { text=value; textSize=size; setTextColor(color); if(bold)setTypeface(typeface,Typeface.BOLD); setPadding(0,dp(5),0,dp(5)) }
     private fun layout(horizontal:Boolean=false) = LinearLayout(this).apply { orientation=if(horizontal)LinearLayout.HORIZONTAL else LinearLayout.VERTICAL }
@@ -113,21 +122,22 @@ class MainActivity: ComponentActivity() {
         backgroundTintList=ColorStateList.valueOf(if(important)Color.parseColor("#16745B") else if(ending)Color.parseColor("#AA283A") else card)
         setTextColor(if(important || ending)Color.WHITE else ink); minHeight=dp(48); setOnClickListener { try { action() } catch(e:Exception) { message(e.message ?: "Please try again") } } }
     private fun iconButton(label:String,icon:Int,selected:Boolean=false,tone:Int?=null,action:()->Unit):LinearLayout = layout().apply {
-        gravity=Gravity.CENTER; minimumHeight=dp(if(compact)58 else 72);isClickable=true;isFocusable=true;contentDescription=label
+        gravity=Gravity.CENTER; minimumHeight=dp(if(compact)48 else 72);isClickable=true;isFocusable=true;contentDescription=label
         val fill=tone ?: if(selected)Color.parseColor("#16745B") else card;val foreground=if(tone!=null || selected)Color.WHITE else ink
         background=RippleDrawable(ColorStateList.valueOf(Color.parseColor("#33777777")),rounded(fill),null)
-        setPadding(dp(6),dp(if(compact)5 else 10),dp(6),dp(if(compact)5 else 10))
-        addView(ImageView(this@MainActivity).apply{setImageResource(icon);imageTintList=ColorStateList.valueOf(foreground);importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO},LinearLayout.LayoutParams(dp(26),dp(26)))
-        addView(text(label,12f,foreground,true).apply{gravity=Gravity.CENTER;maxLines=2})
+        setPadding(dp(6),dp(if(compact)2 else 10),dp(6),dp(if(compact)2 else 10))
+        addView(ImageView(this@MainActivity).apply{setImageResource(icon);imageTintList=ColorStateList.valueOf(foreground);importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO},LinearLayout.LayoutParams(dp(if(compact)22 else 26),dp(if(compact)22 else 26)))
+        addView(text(label,12f,foreground,true).apply{gravity=Gravity.CENTER;maxLines=if(compact)1 else 2;if(compact)setPadding(0,0,0,0)})
         setOnClickListener{try{action()}catch(e:Exception){message(e.message ?: "Please try again")}}
     }
-    private fun spaced(weight:Float=1f,height:Int=78)=LinearLayout.LayoutParams(0,dp(height),weight).apply{setMargins(dp(4),dp(4),dp(4),dp(4))}
+    private fun spaced(weight:Float=1f,height:Int=78)=LinearLayout.LayoutParams(0,dp(height),weight).apply{setMargins(dp(if(compact)2 else 4),dp(if(compact)2 else 4),dp(if(compact)2 else 4),dp(if(compact)2 else 4))}
     private fun message(value:String) { Toast.makeText(this,value,Toast.LENGTH_LONG).show() }
     private fun draw() {
         if(isFinishing)return
         dataGeneration++
-        root = layout().apply { setBackgroundColor(paper); setPadding(dp(20),dp(12),dp(20),dp(12)) }
-        root.setOnApplyWindowInsetsListener { view,insets -> view.setPadding(dp(20),insets.systemWindowInsetTop+dp(12),dp(20),insets.systemWindowInsetBottom+dp(12)); insets }
+        keypadNumber=null
+        root = layout().apply { setBackgroundColor(paper); setPadding(dp(if(compact)16 else 20),dp(if(compact)6 else 12),dp(if(compact)16 else 20),dp(if(compact)6 else 12)) }
+        root.setOnApplyWindowInsetsListener { view,insets -> view.setPadding(dp(if(compact)16 else 20),insets.systemWindowInsetTop+dp(if(compact)6 else 12),dp(if(compact)16 else 20),insets.systemWindowInsetBottom+dp(if(compact)6 else 12)); insets }
         setContentView(root)
         val heading=layout(true); heading.gravity=Gravity.CENTER_VERTICAL
         heading.addView(text("OpenWeb PBX",24f,ink,true),LinearLayout.LayoutParams(0,dp(if(compact)44 else 52),1f))
@@ -143,7 +153,7 @@ class MainActivity: ComponentActivity() {
         if(!drawnAccount) { welcome(); return }
         val nav=layout(true)
         val navIcons=mapOf("Keypad" to R.drawable.ic_keypad,"Contacts" to R.drawable.ic_contacts,"Recents" to R.drawable.ic_recents,"Voicemail" to R.drawable.ic_voicemail)
-        for(name in navIcons.keys) nav.addView(iconButton(name,navIcons.getValue(name),name==section){ section=name; stopPlayback(); draw() },spaced(height=if(compact)60 else 74))
+        for(name in navIcons.keys) nav.addView(iconButton(name,navIcons.getValue(name),name==section){ section=name; stopPlayback(); draw() },spaced(height=if(compact)48 else 74))
         root.addView(nav)
         updateGated=updates.shouldGate(PhoneService.instance?.call!=null,urgentUpdateBypass);updatePhone()
         if(updateGated) { updateGate();updateUi();return }
@@ -155,6 +165,8 @@ class MainActivity: ComponentActivity() {
         body.addView(text("1. Open Users → Phone Provisioning in your PBX.\n2. Create your Android connection code.\n3. Scan the QR code below.",16f,soft))
         body.addView(button("Scan QR code") { scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Scan the QR code shown in your PBX").setBeepEnabled(false).setOrientationLocked(false)) })
         body.addView(button("Enter a connection code instead") { manualEnrollment() })
+        body.addView(text(privacySummary,14f,soft))
+        body.addView(button("Privacy and support") { privacy() })
         body.addView(text("Android 9 or newer · Version ${BuildConfig.VERSION_NAME}\nCalls stay connected while the phone notification is running. Reopen the app after restarting your phone or stopping it.",13f,soft))
     }
     private fun field(hint:String,value:String="",type:Int=InputType.TYPE_CLASS_TEXT) = EditText(this).apply { this.hint=hint; setText(value); inputType=type; setTextColor(ink); setHintTextColor(soft); minHeight=dp(52); setSingleLine(); importantForAutofill=View.IMPORTANT_FOR_AUTOFILL_NO }
@@ -162,7 +174,7 @@ class MainActivity: ComponentActivity() {
         val fields=layout().apply { setPadding(dp(20),0,dp(20),0) }
         val host=field("https://your-pbx.example.com",type=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
         val code=field("Connection code",type=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
-        fields.addView(host); fields.addView(code)
+        fields.addView(host); fields.addView(code); fields.addView(text(privacySummary,13f,soft))
         val dialog=AlertDialog.Builder(this).setTitle("Connect your phone").setView(fields).setNegativeButton("Cancel",null).setPositiveButton("Connect",null).create()
         dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             try { val s=Enrollment.server(host.text.toString()); val c=Enrollment.code(code.text.toString()); dialog.dismiss(); enroll(s,c) } catch(e:Exception) { code.error=e.message }
@@ -192,9 +204,14 @@ class MainActivity: ComponentActivity() {
     private fun updatePhone() {
         if(!::status.isInitialized || store.read()==null)return
         val phone=PhoneService.instance; val account=store.read()?.optJSONObject("account")
-        status.text="${account?.optString("display_name","") ?: ""} · Your extension ${account?.optString("extension","") ?: ""}\n${phone?.status ?: if(updates.isInstalling)"Phone paused while Android updates" else "Open the phone to connect"}"
+        val connection=phone?.status ?: if(updates.isInstalling)"Phone paused while Android updates" else "Open the phone to connect"
+        val extension=account?.optString("extension","") ?: ""
+        status.text=if(compact)"$extension · $connection" else "${account?.optString("display_name","") ?: ""} · Your extension $extension\n$connection"
+        status.contentDescription="${account?.optString("display_name","") ?: ""}, extension $extension, $connection"
+        if(compact){status.maxLines=1;status.ellipsize=android.text.TextUtils.TruncateAt.END}
         callPanel.removeAllViews();callPanel.setPadding(0,0,0,0);callPanel.background=null
         val call=phone?.call
+        keypadNumber?.visibility=if(compact && call!=null)View.GONE else View.VISIBLE
         keypadDock.visibility=if(call==null && (section=="Keypad" || updateGated))View.VISIBLE else View.GONE
         if(call==null) {
             if(phone?.lastCallMessage?.isNotEmpty()==true) {
@@ -208,6 +225,21 @@ class MainActivity: ComponentActivity() {
         }
         stopPlayback();callPanel.background=rounded(card); callPanel.setPadding(dp(12),dp(10),dp(12),dp(10))
         val state=when(call.state) { Call.State.IncomingReceived -> "Incoming call"; Call.State.Paused -> "On hold"; Call.State.Pausing -> "Placing on hold…";Call.State.Resuming -> "Resuming…"; Call.State.StreamsRunning -> "Connected"; Call.State.OutgoingRinging -> "Ringing…";Call.State.OutgoingEarlyMedia -> "Connecting…"; else -> "Calling…" }
+        if(compact){
+            callPanel.setPadding(dp(6),dp(3),dp(6),dp(3))
+            callPanel.addView(text("$state · ${phone.callLabel}",15f,ink,true).apply{gravity=Gravity.CENTER;maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END;setPadding(0,dp(2),0,dp(2))})
+            val actions=layout(true)
+            if(call.state==Call.State.IncomingReceived){
+                actions.addView(iconButton("Decline",R.drawable.ic_hangup,tone=Color.parseColor("#B3263E")){phone.hangup()},spaced(height=48))
+                actions.addView(iconButton("Answer",R.drawable.ic_call,tone=Color.parseColor("#16745B")){ensurePermissions();if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)phone.answer()},spaced(height=48))
+            }else{
+                actions.addView(iconButton(if(phone.muted)"Unmute" else "Mute",if(phone.muted)R.drawable.ic_mic_off else R.drawable.ic_mic,phone.muted){phone.mute()},spaced(height=48))
+                actions.addView(iconButton(if(call.state==Call.State.Paused)"Resume" else "Hold",if(call.state==Call.State.Paused)R.drawable.ic_play else R.drawable.ic_hold,call.state==Call.State.Paused){phone.hold()},spaced(height=48))
+                actions.addView(iconButton(if(phone.speaker)"Earpiece" else "Speaker",R.drawable.ic_speaker,phone.speaker){phone.speaker()},spaced(height=48))
+                actions.addView(iconButton("End call",R.drawable.ic_hangup,tone=Color.parseColor("#B3263E")){phone.hangup()},spaced(height=48))
+            }
+            callPanel.addView(actions);return
+        }
         callPanel.addView(text(state,14f,soft).apply{gravity=Gravity.CENTER})
         callPanel.addView(text(phone.callLabel,28f,ink,true).apply{gravity=Gravity.CENTER})
         val controls=layout(true)
@@ -226,6 +258,7 @@ class MainActivity: ComponentActivity() {
     private fun keypad() {
         if(!compact)body.addView(text("Keypad",22f,ink,true))
         val number=field("Number or extension",dialledNumber,type=InputType.TYPE_CLASS_PHONE).apply { textSize=28f; gravity=Gravity.CENTER; contentDescription="Number or extension" }
+        keypadNumber=number;number.visibility=if(compact && PhoneService.instance?.call!=null)View.GONE else View.VISIBLE
         number.addTextChangedListener(object:android.text.TextWatcher{override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int){};override fun afterTextChanged(s:android.text.Editable?){};override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){dialledNumber=s.toString()}})
         body.addView(number)
         val letters=mapOf("2" to "ABC","3" to "DEF","4" to "GHI","5" to "JKL","6" to "MNO","7" to "PQRS","8" to "TUV","9" to "WXYZ","0" to "+")
@@ -241,8 +274,8 @@ class MainActivity: ComponentActivity() {
             };body.addView(line)
         }
         val actions=keypadDock
-        actions.addView(iconButton("Call",R.drawable.ic_call,tone=Color.parseColor("#16745B")){dial(number.text.toString())},spaced(3f,if(compact)60 else 72))
-        actions.addView(iconButton("Delete digit",R.drawable.ic_backspace){if(number.text.isNotEmpty())number.text.delete(number.text.length-1,number.text.length)},spaced(1.3f,if(compact)60 else 72))
+        actions.addView(iconButton("Call",R.drawable.ic_call,tone=Color.parseColor("#16745B")){dial(number.text.toString())},spaced(3f,if(compact)48 else 72))
+        actions.addView(iconButton("Delete digit",R.drawable.ic_backspace){if(number.text.isNotEmpty())number.text.delete(number.text.length-1,number.text.length)},spaced(1.3f,if(compact)48 else 72))
         if(!compact)body.addView(text("During a call, use the keypad for menu choices.",13f,soft))
     }
     private fun api():PhoneApi { val a=store.read() ?: error("Connect your phone first"); return PhoneApi(a.getString("server"),a.getString("token")) }
@@ -317,7 +350,7 @@ class MainActivity: ComponentActivity() {
     private fun settings() {
         val a=store.read() ?: return
         val contents="${a.getJSONObject("account").optString("display_name")}\nExtension ${a.getJSONObject("account").optString("extension")}\n${a.getString("server")}\n\nVersion ${BuildConfig.VERSION_NAME}\n\nKeep the connection notification running for incoming calls. Android may stop background apps; reopen OpenWeb PBX after a restart or force-stop. Push wake-up, chat and video are not included in this release.\n\nOpen source under AGPL-3.0-or-later. Powered by Linphone SDK 5.5.23 and ZXing. Source and notices: github.com/embire2/openwebpbx/tree/customization/mobile/android"
-        AlertDialog.Builder(this).setTitle("Your phone").setMessage(contents).setPositiveButton("Done",null).setNeutralButton("More"){_,_->AlertDialog.Builder(this).setItems(arrayOf("Check connection", "App updates", "Audio device", "Source and licenses")){_,index->when(index){0->connectionCheck();1->updateDialog();2->audioDevices();else->licenses()}}.show()}.setNegativeButton("Disconnect"){_,_->disconnect()}.show()
+        AlertDialog.Builder(this).setTitle("Your phone").setMessage(contents).setPositiveButton("Done",null).setNeutralButton("More"){_,_->AlertDialog.Builder(this).setItems(arrayOf("Check connection", "App updates", "Audio device", "Privacy and support", "Source and licenses")){_,index->when(index){0->connectionCheck();1->updateDialog();2->audioDevices();3->privacy();else->licenses()}}.show()}.setNegativeButton("Disconnect"){_,_->disconnect()}.show()
     }
     private fun connectionCheck() {
         async({api().json("bootstrap")},{
@@ -332,36 +365,118 @@ class MainActivity: ComponentActivity() {
     private fun updateUi() {
         if(!::updatePanel.isInitialized)return
         if(!urgentUpdateBypass && updates.automaticInstallAllowed() && updates.foregroundActivity===this && PhoneService.instance?.call==null)updates.install(this)
-        val gate=updates.shouldGate(PhoneService.instance?.call!=null,urgentUpdateBypass)
+        val activeCall=PhoneService.instance?.call!=null
+        if(activeCall)updateDetails?.dismiss()
+        val gate=updates.shouldGate(activeCall,urgentUpdateBypass)
         if(gate!=updateGated && store.read()!=null){draw();return}
         updatePanel.removeAllViews()
-        if(updates.snapshot.state in listOf("idle","current") || gate)return
-        val label=when(updates.snapshot.state){"error"->"Updates unavailable · Try again";"checking"->"Checking for updates…";"downloading"->"Downloading phone update…";"ready"->"Phone update ready · Install";"available"->"Phone update available · View";"confirmation","installing"->"Finish Android update · View";else->"App updates · View"}
-        updatePanel.addView(button(label){updateDialog()}.apply{textSize=13f;minHeight=dp(32);minimumHeight=dp(32);maxLines=1})
+        val state=updates.snapshot;val view=UpdatePresentation.describe(state,activeCall)
+        updatePanel.visibility=if(state.state in listOf("idle","current") || gate)View.GONE else View.VISIBLE
+        if(updatePanel.visibility==View.VISIBLE){
+            val fill=Color.parseColor(if(view.required){if(dark)"#44351D" else "#FFF0CC"}else if(dark)"#163B32" else "#DDF3EA")
+            updatePanel.background=rounded(fill);updatePanel.setPadding(dp(12),dp(7),dp(12),dp(7))
+            updatePanel.layoutParams=LinearLayout.LayoutParams(-1,-2).apply{setMargins(0,dp(8),0,dp(4))}
+            updatePanel.contentDescription="App update: ${view.title}"
+            if(activeCall){
+                // Keep the answer and hang-up controls visible on small screens.
+                updatePanel.addView(text(if(view.required)"Required update · After your call" else view.title,14f,ink,true))
+                updatePanel.isClickable=true;updatePanel.setOnClickListener{openUpdatesRequested=true;message("The update will wait until your call ends.")}
+            }else if(compact && drawnAccount){
+                updatePanel.setPadding(dp(8),dp(4),dp(8),dp(4))
+                updatePanel.layoutParams=LinearLayout.LayoutParams(-1,-2).apply{setMargins(0,dp(5),0,dp(3))}
+                updatePanel.isClickable=true;updatePanel.setOnClickListener{updateDialog()}
+                val row=layout(true).apply{gravity=Gravity.CENTER_VERTICAL};val summary=layout()
+                val label=when(state.state){"downloading"->"${if(view.required)"Required update" else "Update"} ${state.displayVersion ?: ""}";"ready","permission","confirmation"->if(view.required)"Required update ready" else "Update ready";else->view.title}
+                summary.addView(text(label,13f,ink,true).apply{maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END;setPadding(0,0,0,0)})
+                summary.addView(text(view.detail,12f,soft).apply{maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END;setPadding(0,0,0,0)})
+                if(view.showProgress)summary.addView(updateProgress(view),LinearLayout.LayoutParams(-1,dp(4)).apply{setMargins(0,dp(3),dp(6),0)})
+                row.addView(summary,LinearLayout.LayoutParams(0,-2,1f))
+                val action=if(view.actionEnabled)updateActionButton(view.copy(action=when(state.state){"available"->if(state.actionLabel==null)"Download" else "Google Play";"ready","permission","confirmation"->"Install";"store"->"Google Play";else->"Details"})).apply{setOnClickListener{if(state.state in listOf("available","ready","permission","confirmation","store"))performUpdateAction()else updateDialog()}}else button("Details"){updateDialog()}
+                action.textSize=12f;action.setPadding(dp(4),0,dp(4),0);row.addView(action,LinearLayout.LayoutParams(dp(88),dp(48)).apply{setMargins(dp(6),0,0,0)})
+                updatePanel.addView(row)
+            }else{
+                updatePanel.isClickable=false;updatePanel.setOnClickListener(null)
+                updatePanel.addView(text(view.title,17f,ink,true))
+                updatePanel.addView(text(view.detail,13f,soft))
+                if(view.showProgress)updatePanel.addView(updateProgress(view),LinearLayout.LayoutParams(-1,dp(8)).apply{setMargins(0,dp(4),0,dp(6))})
+                val actions=layout(true)
+                actions.addView(updateActionButton(view),LinearLayout.LayoutParams(0,dp(48),1.4f))
+                actions.addView(button("Details"){updateDialog()},LinearLayout.LayoutParams(0,dp(48),1f).apply{setMargins(dp(8),0,0,0)})
+                updatePanel.addView(actions)
+            }
+        }
+        refreshUpdateDialog()
+        if(updates.foregroundActivity!==this || isFinishing || isDestroyed || activeCall)return
+        val prompt=UpdatePresentation.promptKey(state,activeCall,gate,urgentUpdateBypass)
+        if(openUpdatesRequested){openUpdatesRequested=false;updateDialog()}
+        else if(prompt!=null && shownUpdatePrompts.add(prompt))updateDialog()
+    }
+    private fun updateProgress(view:UpdateViewState)=ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal).apply{
+        max=100;isIndeterminate=view.percent==null;progress=view.percent?:0
+        progressTintList=ColorStateList.valueOf(green);indeterminateTintList=ColorStateList.valueOf(green)
+        contentDescription=if(view.percent==null)view.detail else "Update download ${view.percent} percent"
+    }
+    private fun updateActionButton(view:UpdateViewState)=button(view.action){performUpdateAction()}.apply{
+        backgroundTintList=ColorStateList.valueOf(Color.parseColor("#16745B"));setTextColor(Color.WHITE);isEnabled=view.actionEnabled;alpha=if(isEnabled)1f else .65f
+    }
+    private fun performUpdateAction(){
+        if(updates.snapshot.actionLabel=="Open Google Play"){updates.check(true);updateDialog();return}
+        when(updates.snapshot.state){
+            "available","store"->{updates.check(true);updateDialog()}
+            "ready","permission","confirmation"->{if(PhoneService.instance?.call==null){updateDetails?.dismiss();updates.continueInstall(this)}}
+            "downloading","verifying","installing","checking"->Unit
+            else->{updates.check();updateDialog()}
+        }
     }
     private fun updateGate() {
-        val release=updates.snapshot.release
-        body.addView(text("Your phone update is ready",30f,ink,true))
-        body.addView(text("Your organisation requires version ${release?.version ?: "the latest version"}. The complete download has been checked. Your account and settings will be kept.",17f,soft))
-        body.addView(button("Install update"){updates.continueInstall(this)})
-        body.addView(text("Android may ask you to allow installation or confirm the update. After installation, use Open or the OpenWeb PBX notification to reconnect.",14f,soft))
+        val state=updates.snapshot
+        body.addView(text("UPDATE REQUIRED",14f,green,true))
+        body.addView(text(state.gateTitle,30f,ink,true))
+        body.addView(text(state.gateMessage ?: "Your organisation requires version ${state.displayVersion ?: "the latest version"}. The complete download is ready. Your account and settings will be kept.",17f,soft))
+        body.addView(updateActionButton(UpdatePresentation.describe(state,false)))
+        body.addView(text(updates.installationHelp,14f,soft))
         keypadDock.visibility=View.VISIBLE
         keypadDock.addView(button("Use phone for an urgent call"){urgentUpdateBypass=true;updates.cancelInstall();section="Keypad";draw()},LinearLayout.LayoutParams(-1,dp(56)))
         body.addView(button("Check again"){updates.check()})
         body.addView(button("Connection and account settings"){settings()})
     }
     private fun updateDialog() {
-        val state=updates.snapshot
-        val message="Version ${BuildConfig.VERSION_NAME}\n\n${state.message}\n\n${if(state.mode=="required")"Your organisation requires available, verified phone updates." else if(state.mode=="download")"Updates download automatically; you choose when to install." else "You choose when to download and install updates."}\n\nAndroid may ask for installation permission or confirmation. After installation, choose Open or tap the phone notification. Your account is kept."
-        val dialog=AlertDialog.Builder(this).setTitle("App updates").setMessage(message).setNegativeButton("Close",null)
-        when(state.state) {
-            "ready","permission","confirmation" -> dialog.setPositiveButton("Install update"){_,_->updates.continueInstall(this)}
-            "available" -> dialog.setPositiveButton("Download update"){_,_->updates.check(true)}
-            "installing" -> dialog.setPositiveButton("Check installation"){_,_->updates.continueInstall(this)}
-            else -> dialog.setPositiveButton("Check again"){_,_->updates.check()}
+        if(isFinishing || isDestroyed)return
+        if(PhoneService.instance?.call!=null){openUpdatesRequested=true;return}
+        if(updateDetails?.isShowing==true){refreshUpdateDialog();return}
+        UpdatePresentation.promptKey(updates.snapshot,false,false,urgentUpdateBypass)?.let{shownUpdatePrompts.add(it)}
+        val contents=layout().apply{setPadding(dp(24),dp(8),dp(24),dp(8))}
+        updateDetailsText=text("",15f,ink);contents.addView(updateDetailsText)
+        updateDetailsProgress=updateProgress(UpdatePresentation.describe(updates.snapshot,false));contents.addView(updateDetailsProgress,LinearLayout.LayoutParams(-1,dp(12)))
+        val scroll=ScrollView(this).apply{addView(contents)}
+        val dialog=AlertDialog.Builder(this).setTitle("App updates").setView(scroll).setNegativeButton("Close",null).setPositiveButton("Check for updates",null).setNeutralButton("Cancel installation",null).create()
+        updateDetails=dialog
+        dialog.setOnDismissListener{if(updateDetails===dialog){updateDetails=null;updateDetailsText=null;updateDetailsProgress=null}}
+        dialog.setOnShowListener{
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{performUpdateAction()}
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener{updates.cancelInstall();startPhone();refreshUpdateDialog()}
+            refreshUpdateDialog()
         }
-        if(updates.isInstalling)dialog.setNeutralButton("Cancel update"){_,_->updates.cancelInstall();startPhone()}
         dialog.show()
+    }
+    private fun refreshUpdateDialog(){
+        val dialog=updateDetails?:return;if(!dialog.isShowing)return
+        val state=updates.snapshot;val view=UpdatePresentation.describe(state,PhoneService.instance?.call!=null)
+        dialog.setTitle(view.title)
+        updateDetailsText?.text="Installed version ${BuildConfig.VERSION_NAME}\n\n${view.detail}\n\n${state.policyMessage ?: if(view.required)"Required by your organisation. The update downloads first and waits for any call to finish." else if(state.mode=="download")"Updates download automatically; you choose when to install." else "You choose when to download and install updates."}\n\n${updates.installationHelp}"
+        updateDetailsProgress?.apply{visibility=if(view.showProgress)View.VISIBLE else View.GONE;isIndeterminate=view.percent==null;progress=view.percent?:0;contentDescription=if(view.percent==null)view.detail else "Update download ${view.percent} percent"}
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.apply{text=view.action;isEnabled=view.actionEnabled}
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.visibility=if(updates.isInstalling)View.VISIBLE else View.GONE
+    }
+    private val privacySummary = "Your organisation’s PBX receives your device name, connection details and call history. During calls it carries your microphone audio, including while the app is in the background. Your administrator controls recordings and retention. The camera is used only to scan your connection QR code."
+    private fun privacy() {
+        AlertDialog.Builder(this).setTitle("Privacy and support").setMessage("$privacySummary\n\nNo advertising or advertising tracking. Settings → Disconnect removes this phone’s connection and local account data. To request deletion of your PBX account or server records, contact your administrator or follow the data removal instructions.")
+            .setPositiveButton("Privacy policy") { _,_ -> openPublicPage("privacy.html") }
+            .setNeutralButton("Remove my data") { _,_ -> openPublicPage("data-removal.html") }
+            .setNegativeButton("Support") { _,_ -> openPublicPage("support.html") }.show()
+    }
+    private fun openPublicPage(page: String) {
+        startActivity(Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://openwebpbx.com/$page")))
     }
     private fun licenses() {
         val notices=assets.open("THIRD_PARTY_NOTICES.md").bufferedReader().use{it.readText()}
