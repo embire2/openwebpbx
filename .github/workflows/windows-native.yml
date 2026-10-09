@@ -1,0 +1,124 @@
+name: Windows native build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-native-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native:
+    name: Server, manager and updater
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_NOLOGO: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      NUGET_XMLDOC_MODE: skip
+    steps:
+      - name: Preserve repository source bytes
+        run: git config --global core.autocrlf false
+      - name: Check out the dispatched revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install the qualified .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: '10.0.401'
+      - name: Record immutable source inputs
+        id: source
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid release version.' }
+          [xml]$props = Get-Content platform/Directory.Build.props
+          if ($props.Project.PropertyGroup.Version -ne $version) { throw 'Native and release versions differ.' }
+          $out = Join-Path $env:RUNNER_TEMP 'openwebpbx-native'
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+          '{"sdk":{"version":"10.0.401","rollForward":"disable"}}' | Set-Content global.json -Encoding utf8
+          $sdk = (dotnet --version).Trim()
+          if ($LASTEXITCODE -ne 0 -or $sdk -ne '10.0.401') { throw 'The qualified SDK was not selected.' }
+          $files = @(git ls-files -- platform packaging/updates/release-public.pem VERSION)
+          if ($LASTEXITCODE -ne 0 -or $files.Count -lt 40) { throw 'Native source input inventory is incomplete.' }
+          $inputs = @($files | ForEach-Object { [ordered]@{ path = $_; sha256 = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant() } })
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = if (Test-Path $vswhere) { & $vswhere -latest -property installationVersion } else { 'unavailable' }
+          [ordered]@{
+            version = $version; source_commit = $env:GITHUB_SHA; sdk = $sdk
+            operating_system = [Environment]::OSVersion.VersionString
+            runner_image = $env:ImageVersion; visual_studio = $vs
+            run_url = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            source_inputs = $inputs
+          } | ConvertTo-Json -Depth 6 | Set-Content "$out/source-inputs.json" -Encoding utf8
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "NATIVE_OUTPUT=$out" >> $env:GITHUB_ENV
+      - name: Build native server, manager and independent updater
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Invoke-NativeBuild([string]$Name, [string[]]$Arguments) {
+            & dotnet @Arguments 2>&1 | Tee-Object -FilePath "$env:NATIVE_OUTPUT/$Name.log"
+            if ($LASTEXITCODE -ne 0) { throw "$Name failed with exit code $LASTEXITCODE." }
+          }
+          Invoke-NativeBuild 'server-build' @('publish', 'platform/OpenWebPbx.Server', '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-o', "$env:NATIVE_OUTPUT/server")
+          Invoke-NativeBuild 'desktop-build' @('build', 'platform/OpenWebPbx.Desktop', '-c', 'Release', '-p:Platform=x64', '-o', "$env:NATIVE_OUTPUT/desktop")
+          Invoke-NativeBuild 'updater-build' @('publish', 'platform/OpenWebPbx.Updater', '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-o', "$env:NATIVE_OUTPUT/updater")
+          Invoke-NativeBuild 'protocol-checks' @('run', '--project', 'platform/OpenWebPbx.Checks', '-c', 'Release')
+          Invoke-NativeBuild 'updater-checks' @('run', '--project', 'platform/OpenWebPbx.Updater.Checks', '-c', 'Release')
+      - name: Verify native versions and manager startup
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content VERSION -Raw).Trim()
+          $assemblies = @(
+            'server/OpenWebPbx.Server.dll',
+            'desktop/OpenWebPbx.Desktop.dll',
+            'updater/OpenWebPbx.Updater.dll'
+          )
+          $verified = @($assemblies | ForEach-Object {
+            $path = Join-Path $env:NATIVE_OUTPUT $_
+            $actual = [Reflection.AssemblyName]::GetAssemblyName($path).Version.ToString()
+            if ($actual -ne "$version.0") { throw "Native version mismatch in $_." }
+            [ordered]@{ path = $_; assembly_version = $actual; sha256 = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant() }
+          })
+          $desktop = Join-Path $env:NATIVE_OUTPUT 'desktop'
+          $manager = Start-Process -FilePath "$desktop/OpenWebPbx.Desktop.exe" -WorkingDirectory $desktop -PassThru
+          $deadline = [DateTime]::UtcNow.AddSeconds(30)
+          do {
+            Start-Sleep -Milliseconds 500
+            $manager.Refresh()
+            if ($manager.HasExited) { throw "Manager exited during startup: $($manager.ExitCode)." }
+          } while ($manager.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $deadline)
+          $visible = $manager.MainWindowHandle -ne 0 -and $manager.Responding -and $manager.MainWindowTitle -eq "OpenWeb PBX $version"
+          $launch = [ordered]@{
+            process_alive = -not $manager.HasExited; responsive = $manager.Responding
+            window_title = $manager.MainWindowTitle; window_verified = $visible
+            session_id = $manager.SessionId
+            limitation = if ($visible) { $null } else { 'Hosted runner did not expose an interactive manager window; interactive verification remains required.' }
+          }
+          [ordered]@{ version = $version; assemblies = $verified; manager_startup = $launch; protocol_checks = 'passed'; updater_checks = 'passed'; database_integration = 'not run; no database supplied' } |
+            ConvertTo-Json -Depth 6 | Set-Content "$env:NATIVE_OUTPUT/verification.json" -Encoding utf8
+          $expected = Get-Content "$env:NATIVE_OUTPUT/source-inputs.json" -Raw | ConvertFrom-Json
+          foreach ($input in $expected.source_inputs) {
+            if ((Get-FileHash -LiteralPath $input.path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $input.sha256) { throw "Build modified source input $($input.path)." }
+          }
+          Get-ChildItem $env:NATIVE_OUTPUT -File -Recurse | Sort-Object FullName | ForEach-Object {
+            $relative = [IO.Path]::GetRelativePath($env:NATIVE_OUTPUT, $_.FullName).Replace('\', '/')
+            '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $relative
+          } | Set-Content "$env:NATIVE_OUTPUT/SHA256SUMS" -Encoding utf8
+          "Built OpenWeb PBX $version from $env:GITHUB_SHA. Manager window verified: $visible." >> $env:GITHUB_STEP_SUMMARY
+      - name: Upload native outputs and verification evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openwebpbx-windows-native-${{ steps.source.outputs.version }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/openwebpbx-native/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6
