@@ -1,6 +1,6 @@
 # OpenWeb PBX feature coverage
 
-OpenWeb PBX is a free, independently developed PBX built on FusionPBX and FreeSWITCH. Version 1.0.5 fixes immediate carrier/voicemail disconnections and native Android audio mode, alongside the managed server and Android updates, clearer phone controls and call-failure recovery to the standalone Android phone, callbacks, hotel services and native Windows installation. It does **not** implement every 3CX feature, run 3CX software or accept proprietary 3CX apps. No claim of being the world's first free PBX is made.
+OpenWeb PBX is a free, independently developed PBX built on FusionPBX and FreeSWITCH. Version 1.0.6 fixes immediate carrier/voicemail disconnections and native Android audio mode, alongside the managed server and Android updates, clearer phone controls and call-failure recovery to the standalone Android phone, callbacks, hotel services and native Windows installation. It does **not** implement every 3CX feature, run 3CX software or accept proprietary 3CX apps. No claim of being the world's first free PBX is made.
 
 The Windows edition includes a C#/.NET 10 background calling service and WinUI 3 administration manager, built with Visual Studio 2026. The existing web application uses PHP and the call engine uses FreeSWITCH/Lua. This is not a complete C# rewrite. The manager opens the authenticated web Admin and is not a calling app.
 
@@ -153,7 +153,7 @@ settings were preserved. Real outgoing audio and calling another active phone
 still need acceptance; historical statements that all connections were off refer
 to the completed 2026-10-08 pilot, not the current owner-controlled configuration.
 
-## Answered-call and phone audio fixes — 1.0.5
+## Answered-call and phone audio fixes — 1.0.5 / 1.0.6
 
 Actual customer calls exposed two gaps that the earlier registered-phone tests
 had not covered. After a server restart, passthrough G.729 shadowed an installed
@@ -162,12 +162,21 @@ both legs. An unanswered internal extension also ended immediately because the
 restored handler sent an unsupported voicemail action. These are fixed; neither
 registration status nor a successful internal bridge had established these paths.
 
-The Linux migration disables only the conflicting passthrough autoload entry when
-both entries and the installed converter are present, preserving unrelated native
-configuration. It runs from the candidate migration under the existing private
-backup/recovery process, including upgrades driven by the 1.0.4 helper. It does not
-install a codec. The readiness page now detects the conflict in either order.
-Seventeen normalization checks and thirty-one readiness checks passed.
+The first 1.0.5 migration repaired the native XML, but the actual production upgrade
+exposed a later step that regenerates that file from database module settings.
+Version 1.0.6 also disables the conflicting database autoload setting when the
+installed converter and its enabled setting are present. It preserves unrelated
+modules and passthrough-only installations, runs inside the existing private
+backup/recovery process, and does not install a codec. The readiness page detects
+the conflict in either order. The release adds actual module-regeneration coverage
+to the existing normalization and readiness checks: 17 XML, 16 PostgreSQL/module-
+regeneration and 31 readiness checks passed. The regression first reproduces the
+1.0.5 failure and then verifies repeated regeneration with the database repair.
+
+The update page also reconnects with a fresh GET request after a version change.
+Reloading its previous POST had replayed an already-used CSRF token and produced
+an expired-form error even though the update itself completed. Authentication,
+permissions and CSRF validation remain required.
 
 A real call through the owner-enabled provider answered and sustained 25.1 seconds
 with 1,034 sent and 1,249 received RTP packets, no early disconnect and no native
@@ -215,3 +224,8 @@ Underlying upstream modules may offer additional capabilities. Their presence al
 The comparison scope follows the official [3CX feature list](https://www.3cx.com/ordering/pricing/features/), [queue documentation](https://www.3cx.com/docs/manual/call-center-queues/) and [Hotel Module documentation](https://www.3cx.com/docs/hotel-pbx/), reviewed on 7 October 2026. Product offerings can change. The implementation and verification statements above describe OpenWeb PBX itself.
 
 See [installation](installing-1.0.3.md) and [callbacks and Hotel Services](callbacks-and-hotels.md) for operating instructions.
+
+Version 1.0.6 rebuilds the unchanged Android audio implementation and native Windows
+service/manager with the new release version. The detailed 1.0.5 Android audio tests
+above remain evidence for that implementation; a version-only rebuild does not add
+physical handset, headset or network qualification.

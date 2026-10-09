@@ -14,7 +14,11 @@ if($stage==='migrate'){
  // up private configuration and stopping the call engine, including 1.0.4 hosts.
  if(PHP_OS_FAMILY==='Linux'){
   require_once __DIR__.'/normalize-codec-modules.php';
-  if(openweb_normalize_codec_modules())echo "Conflicting passthrough audio module disabled.\n";
+  $codecXmlChanged=openweb_normalize_codec_modules();
+  // The following --defaults step regenerates this file from v_modules. Keep
+  // that source consistent even when an operator already repaired the XML.
+  $codecSettingsChanged=openweb_normalize_codec_module_settings($db);
+  if($codecXmlChanged||$codecSettingsChanged)echo "Conflicting passthrough audio module disabled.\n";
  }
  foreach(['tenant_services/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql','pbx_mobile/resources/install.sql', 'pbx_updates/resources/install.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
  foreach(['cache.location'=>['cache','location','text'],'cache.method'=>['cache','method','text'],'switch.voicemail.dir'=>['switch','voicemail','dir'],'switch.recordings.dir'=>['switch','recordings','dir'],'switch.storage.dir'=>['switch','storage','dir'],'switch.sounds.dir'=>['switch','sounds','dir'],'switch.scripts.dir'=>['switch','scripts','dir']] as $key=>$parts){

@@ -224,3 +224,11 @@ the restored handler passed `leave` to a native dispatcher that accepts `save`.
 Version 1.0.5 corrects that action and retains `check` for mailbox login. Test
 unregistered, busy and unanswered extensions as well as connected phones; a
 successful internal bridge alone does not qualify the voicemail fallback.
+
+### Update persistence correction in 1.0.6
+
+The actual 1.0.5 upgrade revealed that the application regenerates module XML from
+its database after the XML repair. Use 1.0.6, which also disables the conflicting
+autoload database entry when the installed converter is enabled. Recheck audio
+support after the update and make an answered call through the provider; a healthy
+service alone does not establish working carrier audio.

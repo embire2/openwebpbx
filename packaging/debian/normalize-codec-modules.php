@@ -36,3 +36,17 @@ function openweb_normalize_codec_modules(
     }finally{if(is_resource($stream))fclose($stream);if(is_file($temporary))unlink($temporary);}
     return true;
 }
+
+/** Persist the same choice before application defaults regenerate module XML. */
+function openweb_normalize_codec_module_settings(
+    PDO $db,
+    string $transcoder='/usr/lib/freeswitch/mod/mod_bcg729.so'
+): bool {
+    if(!is_file($transcoder)||is_link($transcoder))return false;
+    // Existing enabled modules are the source of truth for modules::xml().
+    // Never enable/install a converter or change passthrough-only installations.
+    return $db->exec("UPDATE v_modules SET module_enabled=false
+        WHERE module_name='mod_g729' AND module_enabled=true AND EXISTS (
+            SELECT 1 FROM v_modules WHERE module_name='mod_bcg729' AND module_enabled=true
+        )")>0;
+}

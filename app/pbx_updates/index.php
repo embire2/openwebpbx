@@ -29,7 +29,7 @@ $document['title'] = 'Updates'; require_once PROJECT_ROOT.'/resources/header.php
 ?>
 <link rel="stylesheet" href="/app/pbx_setup/setup.css?v=4">
 <link rel="stylesheet" href="/app/pbx_updates/updates.css?v=1">
-<script src="/app/pbx_updates/updates.js?v=1" defer></script>
+<script src="/app/pbx_updates/updates.js?v=2" defer></script>
 <main class="pbx-setup">
 <header class="setup-heading"><div><span class="setup-eyebrow">OPENWEB PBX · <?= $e(pbx_updates::version()) ?></span><h1>Updates</h1><p>Keep your server and phones up to date.</p></div><a class="setup-button" href="/tenantadmin/">Tenant Admin</a></header>
 <?php if ($error): ?><div class="setup-message error" role="alert"><?= $e($error) ?></div><?php endif; ?>

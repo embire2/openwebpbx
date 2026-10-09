@@ -1,6 +1,6 @@
-# OpenWeb PBX for Android — 1.0.5
+# OpenWeb PBX for Android — 1.0.6
 
-This is a standalone Android phone with native screens and its own SIP/media engine. It does not display the PBX website in a frame. Install the signed APK from the [1.0.5 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.5). Android 9 or newer is required; the universal APK supports ARMv7, ARM64 and x86-64. Physical handset coverage and mobile-network qualification are still being established.
+This is a standalone Android phone with native screens and its own SIP/media engine. It does not display the PBX website in a frame. Install the signed APK from the [1.0.6 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.6). Android 9 or newer is required; the universal APK supports ARMv7, ARM64 and x86-64. Physical handset coverage and mobile-network qualification are still being established.
 
 ## Connect your phone
 
@@ -25,7 +25,7 @@ Use **Settings → Disconnect** to revoke this phone and remove its saved connec
 
 ## Phone updates
 
-Install **1.0.5 once from the signed GitHub APK** if you currently use 1.0.3: the older app does not contain an updater. Install over the existing app to retain your connection; do not uninstall it first. The updater was introduced in 1.0.4. Upgrade the PBX server to 1.0.5 before installing the 1.0.5 phone update; this pairs the phone audio correction with the server calling fixes.
+Install **1.0.6 once from the signed GitHub APK** if you currently use 1.0.3: the older app does not contain an updater. Install over the existing app to retain your connection; do not uninstall it first. The updater was introduced in 1.0.4. Upgrade the PBX server to 1.0.6 before installing the 1.0.6 phone update; this pairs the phone audio correction with the server calling fixes.
 
 The app checks the stable release feed when opened and approximately every twelve hours when Android permits network background work. In **Tenant Admin → Updates**, your tenant administrator chooses one of these policies:
 
@@ -53,7 +53,7 @@ Chat, video, meetings, attended transfer, conference calling, presence controls,
 
 ## Source, licenses and building
 
-The Android project is in [mobile/android](https://github.com/embire2/openwebpbx/blob/v1.0.5/mobile/android/README.md), licensed AGPL-3.0-or-later. Pre-existing server code keeps its original license. See [component notices](https://github.com/embire2/openwebpbx/blob/v1.0.5/mobile/android/THIRD_PARTY_NOTICES.md). The release includes the corresponding Android source, the exact Linphone SDK 5.5.23 source and submodules, and Maven dependency source JARs. No signing key, enrollment code, account credentials or customer data is distributed.
+The Android project is in [mobile/android](https://github.com/embire2/openwebpbx/blob/v1.0.6/mobile/android/README.md), licensed AGPL-3.0-or-later. Pre-existing server code keeps its original license. See [component notices](https://github.com/embire2/openwebpbx/blob/v1.0.6/mobile/android/THIRD_PARTY_NOTICES.md). The release includes the corresponding Android source, the exact Linphone SDK 5.5.23 source and submodules, and Maven dependency source JARs. No signing key, enrollment code, account credentials or customer data is distributed.
 
 Use JDK 17 or 21, Android SDK platform 35/build-tools 35.0.0, and the included Gradle 8.11.1 wrapper. The project pins Android Gradle Plugin 8.9.2, Kotlin 2.1.20, Linphone SDK 5.5.23, AndroidX Media 1.7.1 and ZXing Embedded 4.3.0. `scripts/build-release.sh` runs unit checks, Android lint and a signed release build. Set the private signing environment variables described in the project README. Preserve the signing key for future app upgrades.
 
@@ -95,6 +95,10 @@ On 2026-10-09, the final signed 1.0.5/code105 APK passed ten JVM tests, release 
 - An answered outgoing call obtained Android communication audio mode and carried two-way SRTP. Media continued while the app was in the background and after returning. Competing audio focus placed the call on hold; manual resume restored media, and hang-up released the audio mode. The test ran for 42.9 seconds, including three twelve-second media checks.
 - An incoming call delivered through the PBX from a separate registered fixture phone used SDK ringing, answered with communication audio mode, carried two-way SRTP for twelve seconds, and returned to ordinary audio mode after hang-up. The test ran for 17.9 seconds.
 
-These are actual native app and PBX media tests, not a claim that the customer's Samsung handset, its microphone/earpiece, mobile network or every carrier path has passed. Human speech quality and the reported handset retry remain separate acceptance checks. Server 1.0.5 also contains calling corrections; install that server update before the phone update.
+These are actual native app and PBX media tests, not a claim that the customer's Samsung handset, its microphone/earpiece, mobile network or every carrier path has passed. Human speech quality and the reported handset retry remain separate acceptance checks. The later server 1.0.6 correction makes the server audio-module choice persist through configuration regeneration; upgrade the server before the phone update.
 
-The release APK uses version name `1.0.5` and version code `105`. Its signing-certificate SHA-256 fingerprint is `449740f6858cb092a0f67d9d79d2505a8d6e7e4d4c1a52a8eaed9b895e48e69d`. Compare the download with the release's SHA256SUMS before installing. Signing keys are private and are not part of any download.
+## Version 1.0.6 qualification
+
+Version 1.0.6 keeps the same phone audio implementation and dependencies as the tested 1.0.5 APK. Its version and distribution guidance are updated to pair it with the persistent server calling correction. Ten JVM tests, release lint, the signed universal build and APK identity/certificate checks passed again. The native call evidence above belongs to the final 1.0.5 APK; those calls were not repeated for this version-only phone change. Physical-handset acceptance remains open.
+
+The release APK uses version name `1.0.6` and version code `106`. Its signing-certificate SHA-256 fingerprint is `449740f6858cb092a0f67d9d79d2505a8d6e7e4d4c1a52a8eaed9b895e48e69d`. Compare the download with the release's SHA256SUMS before installing. Signing keys are private and are not part of any download.

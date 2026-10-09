@@ -31,7 +31,8 @@
             progress.hidden = !(total > 0 && downloaded >= 0 && downloaded < total);
             if (!progress.hidden) { progress.max = total; progress.value = downloaded; }
             if (!changed && state.service_online && initialVersion !== 'unknown' && state.installed_version && state.installed_version !== initialVersion) {
-                window.location.reload();
+                // Navigate with GET: reloading a completed POST would replay its used CSRF token.
+                window.location.replace(window.location.href);
                 return;
             }
         } catch (_) {
