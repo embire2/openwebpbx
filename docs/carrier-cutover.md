@@ -232,3 +232,12 @@ its database after the XML repair. Use 1.0.6, which also disables the conflictin
 autoload database entry when the installed converter is enabled. Recheck audio
 support after the update and make an answered call through the provider; a healthy
 service alone does not establish working carrier audio.
+
+The installed production 1.0.5 → 1.0.6 update passed this post-restart check: the
+database and generated XML both kept passthrough disabled, the converter was active
+and the existing provider/extension registered. The authorized repeat call to the
+existing test destination answered and sustained 25.1 seconds with 1,191 sent and
+1,248 received RTP packets. This verifies the repaired media path after upgrade;
+the customer subsequently confirmed the actual Android 1.0.6 outside call from
+extension 1000 stays connected and both people can hear each other. Other
+providers, incoming routes and handset/network scenarios still need qualification.

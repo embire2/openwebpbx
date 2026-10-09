@@ -181,8 +181,8 @@ permissions and CSRF validation remain required.
 A real call through the owner-enabled provider answered and sustained 25.1 seconds
 with 1,034 sent and 1,249 received RTP packets, no early disconnect and no native
 errors on either leg. The test caller ended it normally. Customer phone settings,
-provider activation, routes and credentials were unchanged. Customer handset
-speech audibility and complete incoming/provider acceptance still need confirmation.
+provider activation, routes and credentials were unchanged. The later user-confirmed Android 1.0.6 call establishes speech in both directions
+on that handset; complete incoming/provider acceptance remains outstanding.
 
 Voicemail now dispatches native greeting/recording with `save`, retaining `check`
 for mailbox login. Fifty-three runtime and 149 policy checks passed. An actual
@@ -229,3 +229,26 @@ Version 1.0.6 rebuilds the unchanged Android audio implementation and native Win
 service/manager with the new release version. The detailed 1.0.5 Android audio tests
 above remain evidence for that implementation; a version-only rebuild does not add
 physical handset, headset or network qualification.
+
+The production Debian 1.0.5 → 1.0.6 upgrade completed through the installed updater
+and final public signed feed. After native configuration regeneration and restart,
+the conflicting database and XML entries both remained disabled, the converter was
+active, the enabled provider was registered and extension 1000 reconnected. All
+6,240 packaged web files matched the live installation, and the customer
+configuration hash was unchanged. The Updates page reconnected with GET and no
+expired-form error. A new authorized provider call then sustained 25.1 seconds
+with 1,191 sent and 1,248 received RTP packets and no early disconnect.
+
+The user then confirmed a real outside call from extension 1000 using Android
+1.0.6 stays connected with sound in both directions. This qualifies that handset
+and tested outgoing path; it does not establish every incoming route, handset,
+network change or provider scenario. Both controlled-call legs also had no native
+ERR/CRIT entries, and their exact test records were removed while preserving all
+unrelated customer call records.
+
+Windows also completed its installed signed 1.0.5 → 1.0.6 update. Database identity,
+configuration and phone passwords were preserved; authenticated Admin/Updates and
+CSRF checks passed. Two native phones registered and an internal call sustained
+two-way RTP. The WinUI manager reopened in its original user session showing
+1.0.6 Running and up to date. All temporary test data and scoped build access were
+removed, with the original instance baseline restored.

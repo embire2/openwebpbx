@@ -95,7 +95,7 @@ On 2026-10-09, the final signed 1.0.5/code105 APK passed ten JVM tests, release 
 - An answered outgoing call obtained Android communication audio mode and carried two-way SRTP. Media continued while the app was in the background and after returning. Competing audio focus placed the call on hold; manual resume restored media, and hang-up released the audio mode. The test ran for 42.9 seconds, including three twelve-second media checks.
 - An incoming call delivered through the PBX from a separate registered fixture phone used SDK ringing, answered with communication audio mode, carried two-way SRTP for twelve seconds, and returned to ordinary audio mode after hang-up. The test ran for 17.9 seconds.
 
-These are actual native app and PBX media tests, not a claim that the customer's Samsung handset, its microphone/earpiece, mobile network or every carrier path has passed. Human speech quality and the reported handset retry remain separate acceptance checks. The later server 1.0.6 correction makes the server audio-module choice persist through configuration regeneration; upgrade the server before the phone update.
+These native tests establish the tested app and PBX media workflows. After the production server upgrade and Android 1.0.6 installation, the user also confirmed an outside call from extension 1000 stays connected with sound both ways. That confirms the reported handset failure is repaired for this outgoing path; it does not qualify every handset, mobile-network change, headset or carrier route. The later server 1.0.6 correction makes the server audio-module choice persist through configuration regeneration; upgrade the server before the phone update.
 
 ## Version 1.0.6 qualification
 
