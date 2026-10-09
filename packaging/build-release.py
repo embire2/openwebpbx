@@ -20,6 +20,7 @@ def sha256(path):
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--target', choices=['windows', 'debian'], required=True)
 parser.add_argument('--server', type=pathlib.Path, required=True)
+parser.add_argument('--updater', type=pathlib.Path, required=True)
 parser.add_argument('--desktop', type=pathlib.Path)
 parser.add_argument('--engine', type=pathlib.Path)
 parser.add_argument('--output', type=pathlib.Path, default=root / 'artifacts')
@@ -30,6 +31,9 @@ if not re.fullmatch(r'\d+\.\d+\.\d+', version):
 server_executable = 'OpenWebPbx.Server.exe' if args.target == 'windows' else 'OpenWebPbx.Server'
 if not (args.server / server_executable).is_file():
     parser.error('Supply the complete published service directory.')
+updater_executable = 'OpenWebPbx.Updater.exe' if args.target == 'windows' else 'OpenWebPbx.Updater'
+if not (args.updater / updater_executable).is_file():
+    parser.error('Supply the complete published independent updater directory.')
 if args.target == 'windows' and (not args.desktop or not (args.desktop / 'OpenWebPbx.Desktop.exe').is_file()):
     parser.error('Supply the complete Windows-built manager directory.')
 if args.target == 'debian' and (not args.engine or not args.engine.is_file()):
@@ -58,6 +62,12 @@ with tempfile.TemporaryDirectory(prefix='openweb-release-') as temporary:
     shutil.copytree(args.server, stage / 'server')
     for path in (stage / 'server').rglob('*'):
         path.chmod(0o755 if path.is_dir() or path.name == server_executable else 0o644)
+    shutil.copytree(args.updater, stage / 'updater')
+    for path in (stage / 'updater').rglob('*'):
+        path.chmod(0o755 if path.is_dir() or path.name == updater_executable else 0o644)
+    # Only public verification material belongs in a release, never a signer key.
+    for filename in ['verify_feed.py', 'release-public.pem']:
+        shutil.copy2(root / 'packaging/updates' / filename, stage / filename)
     shutil.copytree(root / 'packaging/licenses', stage / 'licenses')
     shutil.copytree(root / 'docs', stage / 'docs')
     # A local codec recipe is source, never a prebuilt combined codec binary.

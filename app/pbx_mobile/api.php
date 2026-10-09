@@ -7,7 +7,7 @@ function mobile_reply(array $body,int $status=200): never {http_response_code($s
 try {
     if(($_SERVER['HTTPS']??'')!=='on'&&($_SERVER['HTTPS']??'')!=='1')mobile_reply(['error'=>'Use the secure server address.'],403);
     $action=$_GET['action']??'';$method=$_SERVER['REQUEST_METHOD']??'';
-    $get=['bootstrap','directory','calls','voicemail','voicemail_audio'];$post=['enroll','call_log','voicemail_read','voicemail_delete','revoke'];
+    $get=['bootstrap','directory','calls','voicemail','voicemail_audio','updates'];$post=['enroll','call_log','voicemail_read','voicemail_delete','revoke'];
     if(!is_string($action)||!in_array($action,array_merge($get,$post),true))mobile_reply(['error'=>'Action unavailable.'],404);
     if($method!==(in_array($action,$post,true)?'POST':'GET')){header('Allow: '.(in_array($action,$post,true)?'POST':'GET'));mobile_reply(['error'=>'Method unavailable.'],405);}
     if(isset($_SERVER['HTTP_ORIGIN']))mobile_reply(['error'=>'Use the OpenWeb PBX app.'],403);
@@ -28,5 +28,5 @@ try {
         header('Content-Type: '.$audio['type']);header('Accept-Ranges: bytes');header('Content-Length: '.($end-$start+1));
         if(isset($audio['file'])){$f=fopen($audio['file'],'rb');if(!$f)throw new RuntimeException('Message unavailable.');fseek($f,$start);$left=$end-$start+1;while($left>0&&!feof($f)){$buf=fread($f,min(65536,$left));if($buf===false||$buf==='')break;echo $buf;$left-=strlen($buf);}fclose($f);}else echo substr($audio['data'],$start,$end-$start+1);exit;
     }
-    $result=match($action){'bootstrap'=>$mobile->bootstrap($account),'directory'=>$mobile->directory($account),'calls'=>$mobile->calls($account),'call_log'=>$mobile->callLog($account,$input),'voicemail'=>$mobile->voicemail($account),'voicemail_read'=>$mobile->voicemailRead($account,$id),'voicemail_delete'=>$mobile->voicemailDelete($account,$id),'revoke'=>(function()use($mobile,$account){$mobile->revoke($account);return ['ok'=>true];})()};mobile_reply($result);
+    $result=match($action){'updates'=>(new pbx_updates)->phonePolicy($account),'bootstrap'=>$mobile->bootstrap($account),'directory'=>$mobile->directory($account),'calls'=>$mobile->calls($account),'call_log'=>$mobile->callLog($account,$input),'voicemail'=>$mobile->voicemail($account),'voicemail_read'=>$mobile->voicemailRead($account,$id),'voicemail_delete'=>$mobile->voicemailDelete($account,$id),'revoke'=>(function()use($mobile,$account){$mobile->revoke($account);return ['ok'=>true];})()};mobile_reply($result);
 }catch(OverflowException $ex){header('Retry-After: 600');mobile_reply(['error'=>$ex->getMessage()],429);}catch(UnexpectedValueException $ex){mobile_reply(['error'=>$ex->getMessage()],401);}catch(OutOfBoundsException $ex){mobile_reply(['error'=>$ex->getMessage()],404);}catch(InvalidArgumentException|JsonException){mobile_reply(['error'=>'Check the supplied details or create a new setup code.'],400);}catch(Throwable){mobile_reply(['error'=>'This request is unavailable. Try again or contact your administrator.'],503);}

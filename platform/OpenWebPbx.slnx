@@ -4,4 +4,6 @@
     <Platform Project="x64" />
   </Project>
   <Project Path="OpenWebPbx.Server/OpenWebPbx.Server.csproj" />
+  <Project Path="OpenWebPbx.Updater/OpenWebPbx.Updater.csproj" />
+  <Project Path="OpenWebPbx.Updater.Checks/OpenWebPbx.Updater.Checks.csproj" />
 </Solution>

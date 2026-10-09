@@ -1,6 +1,6 @@
 # OpenWeb PBX feature coverage
 
-OpenWeb PBX is a free, independently developed PBX built on FusionPBX and FreeSWITCH. Version 1.0.3 adds the standalone Android phone, QR setup and tested Debian/Windows updates to the callbacks, hotel services and native Windows installation introduced in 1.0.2. It does **not** implement every 3CX feature, run 3CX software or accept proprietary 3CX apps. No claim of being the world's first free PBX is made.
+OpenWeb PBX is a free, independently developed PBX built on FusionPBX and FreeSWITCH. Version 1.0.4 adds managed server and Android updates, clearer phone controls and call-failure recovery to the standalone Android phone, callbacks, hotel services and native Windows installation. It does **not** implement every 3CX feature, run 3CX software or accept proprietary 3CX apps. No claim of being the world's first free PBX is made.
 
 The Windows edition includes a C#/.NET 10 background calling service and WinUI 3 administration manager, built with Visual Studio 2026. The existing web application uses PHP and the call engine uses FreeSWITCH/Lua. This is not a complete C# rewrite. The manager opens the authenticated web Admin and is not a calling app.
 
@@ -94,6 +94,65 @@ IPv4 and IPv6 listeners. Public Windows phone TLS needs its own hostname and
 trusted certificate; the Windows test installation correctly refuses mobile
 pairing while it has only its local setup certificate.
 
+## Automatic updates and phone usability — 1.0.4
+
+Version 1.0.4 adds **Tenant Admin → Updates** and **Admin → System → Updates**.
+Instance administrators choose manual updates, automatic downloads, or automatic
+installation within a daily UTC window. Tenant owners separately choose voluntary,
+automatic-download, or required Android updates for their phones. The server
+worker runs independently so application shutdown does not stop the update.
+Downloads finish and pass signature, size, hash and package validation before
+installation. Existing 1.0.3 installations need a one-time updater bootstrap.
+
+Thirty-five PostgreSQL integration checks and twenty live HTTPS checks passed for
+policy persistence, tenant ownership, permissions, CSRF, commands and filtered
+status. Desktop, embedded dark theme and 390px layouts passed. Browser testing
+confirmed reconnection after a simulated outage without discarding unsaved policy
+choices. See [updates](updates.md) for policies, the one-time bootstrap and recovery.
+
+Debian 13 passed a signed 1.0.3→1.0.4 upgrade, active SIP-call and maintenance-window
+deferral, migration-failure and failed-health rollback, and recovery after the
+whole isolated machine was terminated during migration. Recovery ran before PBX
+services started. Database identity, data, owners and grants were retained,
+including the legacy database ownership layout. Preserved-password registration,
+an internal call and two-way RTP passed after upgrading. Fresh configuration also
+passed on an isolated Debian 13 image with distribution prerequisites already
+installed, including local PostgreSQL, HTTPS Admin and internal two-way audio.
+Twenty-eight focused Python checks passed.
+
+Windows Server 2025 passed a signed 1.0.3→1.0.4 upgrade, active-call deferral,
+tampered-feed refusal and a deliberately failed migration. Recovery retained the
+database identity, ownership, permissions, users and phone passwords while the
+independent updater kept running. The manager reopened in the original interactive
+user session. Thirty-four shared updater checks and seventeen database/worker
+checks passed. The updater service also recovered an interrupted rollback at startup, refused
+a corrupted snapshot before changing the PBX, restored the manager in its original
+session and retained the failed-release quarantine.
+
+These tests establish the specific failure paths above. Other interruption stages,
+physical power loss, and data-loss bounds during the brief final health check
+after services reopen still need qualification.
+
+The Android phone now has native vector call controls, a clearer keypad that fits
+360px screens, its own extension label, self-call confirmation and useful failure
+messages with retry/reconnect actions. Ten JVM checks, release lint and nine native
+Android 13 acceptance methods passed. Native calls sustained two-way media and
+passed mute, hold/resume, menu digits and hang-up. Update tests covered all three
+policies, signature/APK tampering, cached-feed replay, complete download, active-call
+deferral, required-update and urgent-call handling, installation permission,
+cancellation/storage failure, actual package replacement and notification-to-reopen
+with retained account registration. Android may require installation confirmation
+and prevent automatic foreground reopening. These checks do not replace physical
+handset, camera, mobile-network or battery-restriction qualification.
+
+On 2026-10-09 the owner enabled a production provider. Registration is up; one
+extension’s national route was corrected to select it instead of the disabled
+provider chosen by the imported rule. The observed internal attempt dialled its
+own extension and followed its restored forwarding behavior. Customer forwarding
+settings were preserved. Real outgoing audio and calling another active phone
+still need acceptance; historical statements that all connections were off refer
+to the completed 2026-10-08 pilot, not the current owner-controlled configuration.
+
 ## Work still required
 
 The maintained [3CX roadmap](../3CX.md) contains the detailed checklist, priorities,
@@ -110,7 +169,7 @@ These are explicit gaps:
 - Video meetings, AI transcription/summaries, voice agents and related service integrations.
 - A compatible bridge/SBC deployment workflow, automated public-certificate setup on fresh installers, and tested high availability/disaster recovery.
 - Full carrier qualification, emergency-call handling validation, NAT/TLS/SRTP interoperability, hardware provisioning qualification and scale/load testing.
-- A complete backup/restore compatibility guarantee across 3CX versions, broader interrupted-update/reboot recovery, a simple graphical update workflow and signed Windows distribution.
+- A complete backup/restore compatibility guarantee across 3CX versions, broader interrupted-update/reboot recovery and Authenticode-signed Windows distribution.
 
 Underlying upstream modules may offer additional capabilities. Their presence alone does not establish that they work through this simplified Admin or match 3CX behavior.
 

@@ -1,0 +1,22 @@
+[Unit]
+Description=OpenWeb PBX signed release updater
+After=network-online.target postgresql.service openwebpbx-update-recovery.service
+Wants=network-online.target postgresql.service
+Requires=openwebpbx-update-recovery.service
+ConditionPathExists=!/var/lib/openwebpbx/updates/maintenance
+
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0077
+WorkingDirectory=/var/lib/openwebpbx/updates
+Environment=OPENWEBPBX_CONFIG=/etc/openwebpbx/runtime.json
+ExecStart=/opt/openwebpbx/updater/current/OpenWebPbx.Updater
+Restart=always
+RestartSec=30
+TimeoutStopSec=30
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

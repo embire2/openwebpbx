@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fresh Debian configuration. Never prints credentials or overwrites another PBX."""
-import argparse,getpass,json,os,pathlib,re,secrets,shutil,subprocess,time
+import argparse,getpass,importlib.util,json,os,pathlib,re,secrets,shutil,subprocess,time
 P=pathlib.Path
 parser=argparse.ArgumentParser()
 parser.add_argument('--domain',required=True)
@@ -97,4 +97,21 @@ for attempt in range(30):
 else:raise RuntimeError('The background call service is not ready. Check journalctl -u openwebpbx.')
 if not a.local_certificate:
  run(['python3','configure-sip-tls.py','--domain',a.domain,'--fullchain',a.certificate,'--private-key',a.certificate_key])
+# The independent updater runs outside the call-service process and retains the
+# current trusted helper while a candidate is staged and verified.
+release=P('VERSION').read_text().strip()
+tools=P('/opt/openwebpbx/tools');tools.mkdir(parents=True,exist_ok=True,mode=0o755)
+for name in ['upgrade.py','verify_feed.py','release-public.pem','configure-sip-tls.py','configure-sip-tls.php']:
+ shutil.copy(name,tools/name);(tools/name).chmod(0o644)
+slot=P('/opt/openwebpbx/updater/slots')/release
+shutil.copytree('updater',slot)
+for path in slot.rglob('*'):path.chmod(0o755 if path.is_dir() or path.name=='OpenWebPbx.Updater' else 0o644)
+(slot.parent.parent/'current').symlink_to('slots/'+release)
+updates=private/'updates';updates.mkdir(mode=0o700);updates.chmod(0o700);os.chown(updates,0,0)
+for name in ['openwebpbx-updater.service','openwebpbx-update-recovery.service']:
+ shutil.copy(name,P('/etc/systemd/system')/name)
+spec=importlib.util.spec_from_file_location('installed_upgrade',tools/'upgrade.py')
+upgrade=importlib.util.module_from_spec(spec);spec.loader.exec_module(upgrade)
+upgrade.ensure_recovery_integration()
+run(['systemctl','daemon-reload']);run(['systemctl','enable','--now','openwebpbx-updater'])
 print('Admin is ready at https://'+a.domain)

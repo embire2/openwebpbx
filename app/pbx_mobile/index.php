@@ -17,7 +17,7 @@ $csrf=static function()use($token,$e){echo '<input type="hidden" name="'.$e($tok
 $document['title']='Android App';require_once PROJECT_ROOT.'/resources/header.php';
 ?>
 <link rel="stylesheet" href="/app/pbx_setup/setup.css?v=4">
-<main class="pbx-setup"><header class="setup-heading"><div><span class="setup-eyebrow">OPENWEB PBX · 1.0.3</span><h1>Android App</h1><p>Connect your phone by scanning its setup code.</p></div><a class="setup-button" href="/app/pbx_setup/?view=users">Users</a></header>
+<main class="pbx-setup"><header class="setup-heading"><div><span class="setup-eyebrow">OPENWEB PBX · <?= htmlspecialchars(pbx_updates::version(),ENT_QUOTES,'UTF-8') ?></span><h1>Android App</h1><p>Connect your phone by scanning its setup code.</p></div><a class="setup-button" href="/app/pbx_setup/?view=users">Users</a></header>
 <?php if($error): ?><div class="setup-message error" role="alert"><?= $e($error) ?></div><?php endif; ?>
 <?php if($notice): ?><div class="setup-message" role="status"><?= $e($notice) ?></div><?php endif; ?>
 <section class="setup-card"><form method="get" class="setup-form"><label>User<select name="extension" required><option value="">Choose a user</option><?php foreach($config['users']??[] as $n=>$u): if(empty($u['enabled']))continue; ?><option value="<?= $e($n) ?>" <?= (string)$n===$number?'selected':'' ?>><?= $e($n.' · '.$u['name']) ?></option><?php endforeach; ?></select></label><button class="setup-button" type="submit">Open</button></form></section>

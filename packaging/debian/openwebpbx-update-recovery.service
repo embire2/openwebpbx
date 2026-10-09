@@ -1,0 +1,14 @@
+[Unit]
+Description=Recover an interrupted OpenWeb PBX update
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
+Before=freeswitch.service php8.4-fpm.service openwebpbx.service openwebpbx-updater.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/python3 /opt/openwebpbx/recovery/upgrade.py --recover --boot
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=multi-user.target

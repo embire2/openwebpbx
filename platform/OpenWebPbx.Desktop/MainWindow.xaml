@@ -6,7 +6,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:local="using:OpenWebPbx_Desktop"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    Title="OpenWeb PBX 1.0.3"
+    Title="OpenWeb PBX 1.0.4"
     mc:Ignorable="d">
     <Window.SystemBackdrop>
         <MicaBackdrop />
@@ -18,7 +18,7 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <TitleBar x:Name="AppTitleBar" Title="OpenWeb PBX 1.0.3">
+        <TitleBar x:Name="AppTitleBar" Title="OpenWeb PBX 1.0.4">
             <TitleBar.IconSource>
                 <ImageIconSource ImageSource="Assets/AppIcon.ico" />
             </TitleBar.IconSource>

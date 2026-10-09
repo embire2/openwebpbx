@@ -7,8 +7,8 @@ android {
         applicationId = "com.openweb.pbx"
         minSdk = 28
         targetSdk = 35
-        versionCode = 103
-        versionName = "1.0.3"
+        versionCode = providers.gradleProperty("openwebPrivateVersionCode").orNull?.toInt() ?: 104
+        versionName = providers.gradleProperty("openwebPrivateVersionName").orNull ?: "1.0.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {

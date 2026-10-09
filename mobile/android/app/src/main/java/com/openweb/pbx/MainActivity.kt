@@ -10,6 +10,7 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.os.Build
@@ -37,6 +38,7 @@ class MainActivity: ComponentActivity() {
     private lateinit var body: LinearLayout
     private lateinit var status: TextView
     private lateinit var callPanel: LinearLayout
+    private lateinit var keypadDock:LinearLayout
     private var section = "Keypad"
     private var dataGeneration = 0
     private var player: MediaPlayer? = null
@@ -45,6 +47,11 @@ class MainActivity: ComponentActivity() {
     private var bootstrapped = false
     private var drawnAccount = false
     private var playbackGeneration = 0
+    private var dialledNumber = ""
+    private var urgentUpdateBypass = false
+    private var updateGated = false
+    private lateinit var updatePanel:LinearLayout
+    private val updates get()=UpdateManager.get(this)
     private val accountChanges = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _,_ ->
         runOnUiThread { refreshConnection() }
     }
@@ -64,6 +71,7 @@ class MainActivity: ComponentActivity() {
         getSharedPreferences("private_account",MODE_PRIVATE).unregisterOnSharedPreferenceChangeListener(accountChanges)
         stopPlayback();super.onStop()
     }
+    private val compact get()=resources.displayMetrics.heightPixels/resources.displayMetrics.density<720
     private val dark get() = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
     private val ink get() = Color.parseColor(if(dark) "#F2F5F8" else "#142E39")
     private val soft get() = Color.parseColor(if(dark) "#AFBFCA" else "#516571")
@@ -88,11 +96,11 @@ class MainActivity: ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         store = PhoneStore(this); section = savedInstanceState?.getString("section") ?: "Keypad"
-        draw()
+        draw();updates.schedule();updates.check()
         if(store.read() != null) { ensurePermissions(); bootstrap() }
     }
-    override fun onResume() { super.onResume(); PhoneService.changed = { runOnUiThread { updatePhone() } }; updatePhone() }
-    override fun onPause() { PhoneService.changed = null; super.onPause() }
+    override fun onResume() { super.onResume(); updates.foregroundActivity=this; updates.changed={runOnUiThread { if(store.read()!=null && !updates.isInstalling && PhoneService.instance==null && checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startPhone();updatePhone();updateUi() }}; PhoneService.changed = { runOnUiThread { updatePhone();updateUi() } }; updatePhone();updateUi(); if(store.read()!=null && !updates.isInstalling && checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startPhone() }
+    override fun onPause() { PhoneService.changed = null;updates.changed=null;updates.foregroundActivity=null; super.onPause() }
     override fun onSaveInstanceState(outState: Bundle) { outState.putString("section", section); super.onSaveInstanceState(outState) }
     override fun onDestroy() { stopPlayback(); worker.shutdown(); super.onDestroy() }
     private fun dp(value:Int) = (value * resources.displayMetrics.density).toInt()
@@ -104,6 +112,16 @@ class MainActivity: ComponentActivity() {
         val ending=label=="End call"
         backgroundTintList=ColorStateList.valueOf(if(important)Color.parseColor("#16745B") else if(ending)Color.parseColor("#AA283A") else card)
         setTextColor(if(important || ending)Color.WHITE else ink); minHeight=dp(48); setOnClickListener { try { action() } catch(e:Exception) { message(e.message ?: "Please try again") } } }
+    private fun iconButton(label:String,icon:Int,selected:Boolean=false,tone:Int?=null,action:()->Unit):LinearLayout = layout().apply {
+        gravity=Gravity.CENTER; minimumHeight=dp(if(compact)58 else 72);isClickable=true;isFocusable=true;contentDescription=label
+        val fill=tone ?: if(selected)Color.parseColor("#16745B") else card;val foreground=if(tone!=null || selected)Color.WHITE else ink
+        background=RippleDrawable(ColorStateList.valueOf(Color.parseColor("#33777777")),rounded(fill),null)
+        setPadding(dp(6),dp(if(compact)5 else 10),dp(6),dp(if(compact)5 else 10))
+        addView(ImageView(this@MainActivity).apply{setImageResource(icon);imageTintList=ColorStateList.valueOf(foreground);importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO},LinearLayout.LayoutParams(dp(26),dp(26)))
+        addView(text(label,12f,foreground,true).apply{gravity=Gravity.CENTER;maxLines=2})
+        setOnClickListener{try{action()}catch(e:Exception){message(e.message ?: "Please try again")}}
+    }
+    private fun spaced(weight:Float=1f,height:Int=78)=LinearLayout.LayoutParams(0,dp(height),weight).apply{setMargins(dp(4),dp(4),dp(4),dp(4))}
     private fun message(value:String) { Toast.makeText(this,value,Toast.LENGTH_LONG).show() }
     private fun draw() {
         if(isFinishing)return
@@ -112,19 +130,24 @@ class MainActivity: ComponentActivity() {
         root.setOnApplyWindowInsetsListener { view,insets -> view.setPadding(dp(20),insets.systemWindowInsetTop+dp(12),dp(20),insets.systemWindowInsetBottom+dp(12)); insets }
         setContentView(root)
         val heading=layout(true); heading.gravity=Gravity.CENTER_VERTICAL
-        heading.addView(text("OpenWeb PBX",24f,ink,true),LinearLayout.LayoutParams(0,dp(52),1f))
+        heading.addView(text("OpenWeb PBX",24f,ink,true),LinearLayout.LayoutParams(0,dp(if(compact)44 else 52),1f))
         if(store.read()!=null) heading.addView(button("Settings") { settings() })
         root.addView(heading)
-        status=text("Your work phone, wherever you are",14f,soft); root.addView(status)
+        status=text("Your work phone, wherever you are",14f,soft); status.setPadding(dp(12),dp(if(compact)5 else 10),dp(12),dp(if(compact)5 else 10));status.background=rounded(card);root.addView(status)
+        updatePanel=layout();root.addView(updatePanel)
         callPanel=layout(); root.addView(callPanel)
         val scroll=ScrollView(this).apply { isFillViewport=true }; body=layout(); scroll.addView(body)
         root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
+        keypadDock=layout(true);root.addView(keypadDock)
         drawnAccount=store.read()!=null
         if(!drawnAccount) { welcome(); return }
         val nav=layout(true)
-        for(name in listOf("Keypad","Contacts","Recents","Voicemail")) nav.addView(button(name){ section=name; stopPlayback(); draw() }.apply { textSize=12f; setTextColor(if(name==section)green else soft) },LinearLayout.LayoutParams(0,dp(60),1f))
-        root.addView(nav); updatePhone()
-        when(section) { "Keypad" -> keypad(); "Contacts" -> contacts(); "Recents" -> recents(); "Voicemail" -> voicemail() }
+        val navIcons=mapOf("Keypad" to R.drawable.ic_keypad,"Contacts" to R.drawable.ic_contacts,"Recents" to R.drawable.ic_recents,"Voicemail" to R.drawable.ic_voicemail)
+        for(name in navIcons.keys) nav.addView(iconButton(name,navIcons.getValue(name),name==section){ section=name; stopPlayback(); draw() },spaced(height=if(compact)60 else 74))
+        root.addView(nav)
+        updateGated=updates.shouldGate(PhoneService.instance?.call!=null,urgentUpdateBypass);updatePhone()
+        if(updateGated) { updateGate();updateUi();return }
+        when(section) { "Keypad" -> keypad(); "Contacts" -> contacts(); "Recents" -> recents(); "Voicemail" -> voicemail() };updateUi()
     }
     private fun welcome() {
         body.addView(text("Meet your new\nwork phone.",36f,ink,true))
@@ -165,38 +188,62 @@ class MainActivity: ComponentActivity() {
         if(Build.VERSION.SDK_INT>=31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)!=PackageManager.PERMISSION_GRANTED) needed.add(Manifest.permission.BLUETOOTH_CONNECT)
         if(needed.isEmpty())startPhone() else permissions.launch(needed.toTypedArray())
     }
-    private fun startPhone() { if(store.read()!=null && PhoneService.instance==null) startForegroundService(Intent(this,PhoneService::class.java)); updatePhone() }
+    private fun startPhone() { if(store.read()!=null && PhoneService.instance==null && !updates.isInstalling) startForegroundService(Intent(this,PhoneService::class.java)); updatePhone() }
     private fun updatePhone() {
         if(!::status.isInitialized || store.read()==null)return
         val phone=PhoneService.instance; val account=store.read()?.optJSONObject("account")
-        status.text="${account?.optString("display_name","") ?: ""} · ${account?.optString("extension","") ?: ""}\n${phone?.status ?: "Open the phone to connect"}"
-        callPanel.removeAllViews()
-        val call=phone?.call ?: return
-        stopPlayback()
-        callPanel.background=rounded(card); callPanel.setPadding(dp(14),dp(10),dp(14),dp(10))
-        val state=when(call.state) { Call.State.IncomingReceived -> "Incoming call"; Call.State.Paused -> "On hold"; Call.State.StreamsRunning -> "Connected"; Call.State.OutgoingRinging -> "Ringing…"; else -> "Calling…" }
-        callPanel.addView(text("$state · ${phone.callLabel}",22f,ink,true))
-        val controls=layout(true)
-        if(call.state==Call.State.IncomingReceived) controls.addView(button("Answer"){ ensurePermissions(); if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)phone.answer() },LinearLayout.LayoutParams(0,dp(50),1f))
-        else {
-            controls.addView(button(if(phone.muted)"Unmute" else "Mute"){phone.mute()},LinearLayout.LayoutParams(0,dp(50),1f))
-            controls.addView(button(if(call.state==Call.State.Paused)"Resume" else "Hold"){phone.hold()},LinearLayout.LayoutParams(0,dp(50),1f))
-            controls.addView(button(if(phone.speaker)"Earpiece" else "Speaker"){phone.speaker()},LinearLayout.LayoutParams(0,dp(50),1f))
+        status.text="${account?.optString("display_name","") ?: ""} · Your extension ${account?.optString("extension","") ?: ""}\n${phone?.status ?: if(updates.isInstalling)"Phone paused while Android updates" else "Open the phone to connect"}"
+        callPanel.removeAllViews();callPanel.setPadding(0,0,0,0);callPanel.background=null
+        val call=phone?.call
+        keypadDock.visibility=if(call==null && (section=="Keypad" || updateGated))View.VISIBLE else View.GONE
+        if(call==null) {
+            if(phone?.lastCallMessage?.isNotEmpty()==true) {
+                callPanel.setPadding(dp(12),dp(12),dp(12),dp(12));callPanel.background=rounded(card)
+                callPanel.addView(text(phone.lastCallMessage,15f,ink,true))
+                val actions=layout(true)
+                if(phone.lastDialled.isNotBlank())actions.addView(button("Call again"){dial(phone.lastDialled)},LinearLayout.LayoutParams(0,dp(50),1f))
+                actions.addView(button("Dismiss"){phone.dismissCallMessage()},LinearLayout.LayoutParams(0,dp(50),1f));callPanel.addView(actions)
+            }
+            return
         }
-        callPanel.addView(controls); callPanel.addView(button("End call"){phone.hangup()})
+        stopPlayback();callPanel.background=rounded(card); callPanel.setPadding(dp(12),dp(10),dp(12),dp(10))
+        val state=when(call.state) { Call.State.IncomingReceived -> "Incoming call"; Call.State.Paused -> "On hold"; Call.State.Pausing -> "Placing on hold…";Call.State.Resuming -> "Resuming…"; Call.State.StreamsRunning -> "Connected"; Call.State.OutgoingRinging -> "Ringing…";Call.State.OutgoingEarlyMedia -> "Connecting…"; else -> "Calling…" }
+        callPanel.addView(text(state,14f,soft).apply{gravity=Gravity.CENTER})
+        callPanel.addView(text(phone.callLabel,28f,ink,true).apply{gravity=Gravity.CENTER})
+        val controls=layout(true)
+        if(call.state==Call.State.IncomingReceived) {
+            controls.addView(iconButton("Decline",R.drawable.ic_hangup,tone=Color.parseColor("#B3263E")){phone.hangup()},spaced(height=82))
+            controls.addView(iconButton("Answer",R.drawable.ic_call,tone=Color.parseColor("#16745B")){ensurePermissions();if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)phone.answer()},spaced(height=82))
+            callPanel.addView(controls)
+        } else {
+            controls.addView(iconButton(if(phone.muted)"Unmute" else "Mute",if(phone.muted)R.drawable.ic_mic_off else R.drawable.ic_mic,phone.muted){phone.mute()},spaced())
+            controls.addView(iconButton(if(call.state==Call.State.Paused)"Resume" else "Hold",if(call.state==Call.State.Paused)R.drawable.ic_play else R.drawable.ic_hold,call.state==Call.State.Paused){phone.hold()},spaced())
+            controls.addView(iconButton(if(phone.speaker)"Earpiece" else "Speaker",R.drawable.ic_speaker,phone.speaker){phone.speaker()},spaced())
+            callPanel.addView(controls)
+            callPanel.addView(iconButton("End call",R.drawable.ic_hangup,tone=Color.parseColor("#B3263E")){phone.hangup()},LinearLayout.LayoutParams(-1,dp(70)))
+        }
     }
     private fun keypad() {
-        body.addView(text("Keypad",28f,ink,true))
-        val number=field("Number or extension",type=InputType.TYPE_CLASS_PHONE).apply { textSize=28f; gravity=Gravity.CENTER; contentDescription="Number or extension" }
+        if(!compact)body.addView(text("Keypad",22f,ink,true))
+        val number=field("Number or extension",dialledNumber,type=InputType.TYPE_CLASS_PHONE).apply { textSize=28f; gravity=Gravity.CENTER; contentDescription="Number or extension" }
+        number.addTextChangedListener(object:android.text.TextWatcher{override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int){};override fun afterTextChanged(s:android.text.Editable?){};override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){dialledNumber=s.toString()}})
         body.addView(number)
+        val letters=mapOf("2" to "ABC","3" to "DEF","4" to "GHI","5" to "JKL","6" to "MNO","7" to "PQRS","8" to "TUV","9" to "WXYZ","0" to "+")
         for(row in listOf(listOf("1","2","3"),listOf("4","5","6"),listOf("7","8","9"),listOf("*","0","#"))) {
             val line=layout(true)
-            for(digit in row)line.addView(button(digit){ if(PhoneService.instance?.call!=null) PhoneService.instance?.dtmf(digit[0]) else number.append(digit) }.apply { textSize=26f },LinearLayout.LayoutParams(0,dp(62),1f))
-            body.addView(line)
+            for(digit in row) {
+                val key=layout().apply { gravity=Gravity.CENTER;isClickable=true;isFocusable=true;contentDescription=digit;background=RippleDrawable(ColorStateList.valueOf(Color.parseColor("#33777777")),rounded(card),null)
+                    addView(text(digit,27f,ink).apply{gravity=Gravity.CENTER;setPadding(0,0,0,0)})
+                    addView(text(letters[digit] ?: "",10f,soft,true).apply{gravity=Gravity.CENTER;setPadding(0,0,0,0)})
+                    setOnClickListener{if(PhoneService.instance?.call!=null)PhoneService.instance?.dtmf(digit[0]) else number.append(digit)}
+                    if(digit=="0")setOnLongClickListener{if(PhoneService.instance?.call==null)number.append("+");true}
+                };line.addView(key,spaced(height=if(compact)48 else 62))
+            };body.addView(line)
         }
-        body.addView(button("Call") { val phone=PhoneService.instance ?: error("Open the app and wait for the phone to connect"); phone.dial(number.text.toString()) })
-        body.addView(button("Delete digit") { if(number.text.isNotEmpty())number.text.delete(number.text.length-1,number.text.length) })
-        body.addView(text("During a call, use the keypad for menu choices.\nCalls follow your company's calling rules.",13f,soft))
+        val actions=keypadDock
+        actions.addView(iconButton("Call",R.drawable.ic_call,tone=Color.parseColor("#16745B")){dial(number.text.toString())},spaced(3f,if(compact)60 else 72))
+        actions.addView(iconButton("Delete digit",R.drawable.ic_backspace){if(number.text.isNotEmpty())number.text.delete(number.text.length-1,number.text.length)},spaced(1.3f,if(compact)60 else 72))
+        if(!compact)body.addView(text("During a call, use the keypad for menu choices.",13f,soft))
     }
     private fun api():PhoneApi { val a=store.read() ?: error("Connect your phone first"); return PhoneApi(a.getString("server"),a.getString("token")) }
     private fun <T> async(work:()->T, success:(T)->Unit, failure:()->Unit={}) {
@@ -208,7 +255,16 @@ class MainActivity: ComponentActivity() {
         val generation=dataGeneration; val progress=text("Loading…",16f,soft); body.addView(progress)
         async({api().json(action)}, { response -> if(generation==dataGeneration) { body.removeView(progress); val items=response.optJSONArray(key) ?: JSONArray(); if(items.length()==0)body.addView(text("Nothing here yet",16f,soft)) else render(items) } }, {if(generation==dataGeneration) {progress.text="Could not load this page"; body.addView(button("Try again"){draw()})}})
     }
-    private fun dial(number:String) { try { PhoneService.instance?.dial(number) ?: error("Your phone is not connected yet") } catch(e:Exception){message(e.message ?: "The call could not start")} }
+    private fun dial(number:String) {
+        try {
+            val own=store.read()?.optJSONObject("account")?.optString("extension")
+            if(number.trim()==own && PhoneService.instance?.call==null) {
+                AlertDialog.Builder(this).setTitle("This is your own extension").setMessage("Calling yourself follows your own forwarding or voicemail settings. To speak to a colleague, choose their extension in Contacts.")
+                    .setNegativeButton("Cancel",null).setPositiveButton("Call anyway"){_,_->try{PhoneService.instance?.dial(number) ?: error("Your phone is not connected yet")}catch(e:Exception){message(e.message ?: "The call could not start")}}.show();return
+            }
+            PhoneService.instance?.dial(number) ?: error("Your phone is not connected yet. Open Settings and choose Check connection.")
+        } catch(e:Exception){message(e.message ?: "The call could not start")}
+    }
     private fun item(title:String,subtitle:String,action:()->Unit) {
         val row=layout().apply { background=rounded(card); setPadding(dp(16),dp(12),dp(16),dp(12)); isClickable=true; isFocusable=true; contentDescription="$title, $subtitle"; setOnClickListener{action()} }
         row.addView(text(title,18f,ink,true)); row.addView(text(subtitle,14f,soft)); body.addView(row,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(10)})
@@ -261,7 +317,51 @@ class MainActivity: ComponentActivity() {
     private fun settings() {
         val a=store.read() ?: return
         val contents="${a.getJSONObject("account").optString("display_name")}\nExtension ${a.getJSONObject("account").optString("extension")}\n${a.getString("server")}\n\nVersion ${BuildConfig.VERSION_NAME}\n\nKeep the connection notification running for incoming calls. Android may stop background apps; reopen OpenWeb PBX after a restart or force-stop. Push wake-up, chat and video are not included in this release.\n\nOpen source under AGPL-3.0-or-later. Powered by Linphone SDK 5.5.23 and ZXing. Source and notices: github.com/embire2/openwebpbx/tree/customization/mobile/android"
-        AlertDialog.Builder(this).setTitle("Your phone").setMessage(contents).setPositiveButton("Done",null).setNeutralButton("More"){_,_->AlertDialog.Builder(this).setItems(arrayOf("Audio device", "Source and licenses")){_,index->if(index==0)audioDevices()else licenses()}.show()}.setNegativeButton("Disconnect"){_,_->disconnect()}.show()
+        AlertDialog.Builder(this).setTitle("Your phone").setMessage(contents).setPositiveButton("Done",null).setNeutralButton("More"){_,_->AlertDialog.Builder(this).setItems(arrayOf("Check connection", "App updates", "Audio device", "Source and licenses")){_,index->when(index){0->connectionCheck();1->updateDialog();2->audioDevices();else->licenses()}}.show()}.setNegativeButton("Disconnect"){_,_->disconnect()}.show()
+    }
+    private fun connectionCheck() {
+        async({api().json("bootstrap")},{
+            val phone=PhoneService.instance
+            val detail=when {checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED -> "Your PBX is reachable. Allow microphone access to make calls."
+                phone?.status=="Ready for calls" -> "Your PBX is reachable and your phone is connected. If a number will not connect, ask your administrator to check that number’s calling rule and provider."
+                else -> "Your PBX is reachable. Reconnecting the phone now…"}
+            if(phone?.call==null) {if(phone==null)ensurePermissions()else phone.reconnect()}
+            AlertDialog.Builder(this).setTitle("Connection check").setMessage(detail).setPositiveButton("Done",null).show()
+        })
+    }
+    private fun updateUi() {
+        if(!::updatePanel.isInitialized)return
+        if(!urgentUpdateBypass && updates.automaticInstallAllowed() && updates.foregroundActivity===this && PhoneService.instance?.call==null)updates.install(this)
+        val gate=updates.shouldGate(PhoneService.instance?.call!=null,urgentUpdateBypass)
+        if(gate!=updateGated && store.read()!=null){draw();return}
+        updatePanel.removeAllViews()
+        if(updates.snapshot.state in listOf("idle","current") || gate)return
+        val label=when(updates.snapshot.state){"error"->"Updates unavailable · Try again";"checking"->"Checking for updates…";"downloading"->"Downloading phone update…";"ready"->"Phone update ready · Install";"available"->"Phone update available · View";"confirmation","installing"->"Finish Android update · View";else->"App updates · View"}
+        updatePanel.addView(button(label){updateDialog()}.apply{textSize=13f;minHeight=dp(32);minimumHeight=dp(32);maxLines=1})
+    }
+    private fun updateGate() {
+        val release=updates.snapshot.release
+        body.addView(text("Your phone update is ready",30f,ink,true))
+        body.addView(text("Your organisation requires version ${release?.version ?: "the latest version"}. The complete download has been checked. Your account and settings will be kept.",17f,soft))
+        body.addView(button("Install update"){updates.continueInstall(this)})
+        body.addView(text("Android may ask you to allow installation or confirm the update. After installation, use Open or the OpenWeb PBX notification to reconnect.",14f,soft))
+        keypadDock.visibility=View.VISIBLE
+        keypadDock.addView(button("Use phone for an urgent call"){urgentUpdateBypass=true;updates.cancelInstall();section="Keypad";draw()},LinearLayout.LayoutParams(-1,dp(56)))
+        body.addView(button("Check again"){updates.check()})
+        body.addView(button("Connection and account settings"){settings()})
+    }
+    private fun updateDialog() {
+        val state=updates.snapshot
+        val message="Version ${BuildConfig.VERSION_NAME}\n\n${state.message}\n\n${if(state.mode=="required")"Your organisation requires available, verified phone updates." else if(state.mode=="download")"Updates download automatically; you choose when to install." else "You choose when to download and install updates."}\n\nAndroid may ask for installation permission or confirmation. After installation, choose Open or tap the phone notification. Your account is kept."
+        val dialog=AlertDialog.Builder(this).setTitle("App updates").setMessage(message).setNegativeButton("Close",null)
+        when(state.state) {
+            "ready","permission","confirmation" -> dialog.setPositiveButton("Install update"){_,_->updates.continueInstall(this)}
+            "available" -> dialog.setPositiveButton("Download update"){_,_->updates.check(true)}
+            "installing" -> dialog.setPositiveButton("Check installation"){_,_->updates.continueInstall(this)}
+            else -> dialog.setPositiveButton("Check again"){_,_->updates.check()}
+        }
+        if(updates.isInstalling)dialog.setNeutralButton("Cancel update"){_,_->updates.cancelInstall();startPhone()}
+        dialog.show()
     }
     private fun licenses() {
         val notices=assets.open("THIRD_PARTY_NOTICES.md").bufferedReader().use{it.readText()}

@@ -258,3 +258,9 @@ Remove-Item "$private\setup-secrets.json" -ErrorAction SilentlyContinue
 Write-Host "OpenWeb PBX $($state.Version) is installed at https://${DomainName}:$HttpsPort"
 Write-Host 'All tenants share this installation''s built-in database. No separate database server is required.'
 Write-Host 'Sign in to Admin, then open Main PBX. Trunks start disabled. Configure your public certificate and firewall before remote use.'
+
+try { & "$PSScriptRoot\Install-Updater.ps1" -PackageRoot $PSScriptRoot }
+catch {
+ try { & "$PSScriptRoot\Remove-Updater.ps1" } catch { Write-Warning 'Review the private updater startup settings before rebooting.' }
+ throw 'The PBX is installed, but its update service could not be enabled. Run Install-Updater.ps1 from this release after correcting the Windows error.'
+}

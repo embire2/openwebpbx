@@ -21,6 +21,9 @@ class PhoneService: Service() {
     var status = "Connecting…"; private set
     var call: Call? = null; private set
     var callLabel = ""; private set
+    var lastCallMessage = ""; private set
+    var lastDialled = ""; private set
+    private var endedLocally = false
     var muted = false; private set
     var speaker = false; private set
     var core: Core? = null; private set
@@ -79,14 +82,17 @@ class PhoneService: Service() {
             }
             override fun onCallStateChanged(core: Core, current: Call, state: Call.State, message: String) {
                 if (state == Call.State.IncomingReceived || state == Call.State.OutgoingInit) {
+                    if(UpdateManager.get(this@PhoneService).isInstalling) { current.decline(Reason.Busy); return }
                     if (call != null && call?.nativePointer != current.nativePointer) { current.decline(Reason.Busy); return }
+                    lastCallMessage = ""; endedLocally = false
                     call = current; callId = UUID.randomUUID().toString(); startedAt = Instant.now().toString()
                     incoming = state == Call.State.IncomingReceived; answered = false; muted = false; speaker = false
                     callLabel = current.remoteAddress.username ?: "Unknown caller"
                 }
                 if (call?.nativePointer != current.nativePointer) return
-                if (state == Call.State.StreamsRunning) { stopRinging(); answered = true; microphoneForeground(); acquireCallLock() }
+                if (state == Call.State.StreamsRunning) { speaker = current.outputAudioDevice?.type == AudioDevice.Type.Speaker; stopRinging(); answered = true; microphoneForeground(); acquireCallLock() }
                 if (state == Call.State.End || state == Call.State.Error) {
+                    lastCallMessage = if (!incoming && !answered && !endedLocally) CallFeedback.failure(current.errorInfo.protocolCode) else if(incoming && !answered) "Missed call" else "Call ended"
                     stopRinging(); recordCall(current.duration)
                     call = null; callLabel = ""; core.isMicEnabled = true; releaseCallLock()
                     getSystemService(NotificationManager::class.java).cancel(11)
@@ -140,9 +146,11 @@ class PhoneService: Service() {
     }
     private fun releaseCallLock() { wakeLock?.let { if(it.isHeld) it.release() }; wakeLock = null }
     fun dial(raw: String) {
+        check(!UpdateManager.get(this).isInstalling) { "Finish or cancel the update before making a call" }
         check(call == null) { "Finish your current call first" }
         val number = Enrollment.number(raw); val c = core ?: error("Phone is still connecting")
         check(c.defaultAccount?.state == RegistrationState.Ok) { "Wait until the phone is ready for calls" }
+        lastDialled = number; lastCallMessage = ""
         microphoneForeground()
         val domain = account!!.getJSONObject("sip").getString("domain")
         val params = c.createCallParams(null)!!; params.isVideoEnabled = false; params.mediaEncryption = MediaEncryption.SRTP
@@ -154,7 +162,12 @@ class PhoneService: Service() {
         val params = c.createCallParams(active)!!; params.isVideoEnabled = false; params.mediaEncryption = MediaEncryption.SRTP
         stopRinging(); active.acceptWithParams(params); getSystemService(NotificationManager::class.java).cancel(11)
     }
-    fun hangup() { stopRinging(); call?.terminate() }
+    fun hangup() { endedLocally = true; stopRinging(); call?.terminate() }
+    fun dismissCallMessage() { lastCallMessage=""; publish() }
+    fun reconnect() {
+        check(call==null) { "Finish your call before reconnecting" }
+        core?.refreshRegisters(); status="Connecting…"; publish()
+    }
     fun mute() { muted = !muted; core?.isMicEnabled = !muted; publish() }
     fun hold() { if(call?.state == Call.State.Paused) call?.resume() else call?.pause(); publish() }
     fun dtmf(digit: Char) { if (digit in "0123456789*#") call?.sendDtmf(digit) }
@@ -196,5 +209,5 @@ class PhoneService: Service() {
             } catch (_: Exception) { /* Retry next refresh; never log credentials or call data. */ }
         }
     }
-    override fun onDestroy() { stopRinging(); changed?.invoke(); core?.stop(); core = null; instance = null; releaseCallLock(); worker.shutdown(); getSystemService(NotificationManager::class.java).cancel(11); super.onDestroy() }
+    override fun onDestroy() { stopRinging(); core?.stop(); core = null; instance = null; changed?.invoke(); releaseCallLock(); worker.shutdown(); getSystemService(NotificationManager::class.java).cancel(11); super.onDestroy() }
 }

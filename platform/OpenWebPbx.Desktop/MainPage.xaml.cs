@@ -18,6 +18,8 @@ public sealed partial class MainPage : Page
     private static readonly string SettingsFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenWebPBX", "manager.json");
     private string address = "";
     private bool loaded;
+    private readonly DispatcherTimer updateTimer = new() { Interval = TimeSpan.FromSeconds(5) };
+    private static readonly string UpdateStatusFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "OpenWebPBX-Status", "updates.json");
     private static readonly string Installer = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "InstallFromManager.ps1"));
     public MainPage()
     {
@@ -39,7 +41,9 @@ public sealed partial class MainPage : Page
             if (InstalledCertificate.Items.Count > 0) InstalledCertificate.SelectedIndex = 0;
         }
         catch (CryptographicException) { }
-        Loaded += async (_, _) => { loaded = true; await RefreshStatus(); };
+        Loaded += async (_, _) => { loaded = true; await RefreshStatus(); RefreshUpdateStatus(); updateTimer.Start(); await RegisterRestart(); };
+        updateTimer.Tick += (_, _) => RefreshUpdateStatus();
+        Unloaded += (_, _) => updateTimer.Stop();
     }
     private async Task RefreshStatus()
     {
@@ -58,12 +62,45 @@ public sealed partial class MainPage : Page
             StatusBanner.Severity = InfoBarSeverity.Warning; ServiceDetails.Text = "";
         }
     }
-    private async void Refresh(object sender, RoutedEventArgs args) => await RefreshStatus();
+    private async void Refresh(object sender, RoutedEventArgs args) { await RefreshStatus(); RefreshUpdateStatus(); }
+    private void OpenUpdates(object sender, RoutedEventArgs args) => OpenConsole("updates");
+    private void RefreshUpdateStatus()
+    {
+        try
+        {
+            if (!File.Exists(UpdateStatusFile)) return;
+            var info = new FileInfo(UpdateStatusFile);
+            if (info.Length > 65536) return;
+            using var document = JsonDocument.Parse(File.ReadAllText(UpdateStatusFile));
+            var root = document.RootElement;
+            var state = root.GetProperty("state").GetString();
+            UpdateBanner.Title = state switch { "available" => "An update is available", "downloading" => "Downloading an update", "ready" => "Update ready", "waiting_calls" => "Waiting for calls to finish", "waiting_window" => "Update scheduled", "installing" => "Installing a verified update", "completed" => "Update complete", "error" or "recovery_required" => "Update needs attention", "rolled_back" => "Previous version restored", "up_to_date" => "Your server is up to date", _ => "Checking for updates" };
+            UpdateBanner.Message = root.GetProperty("message").GetString() ?? "";
+            if (state == "installing") UpdateBanner.Message += " This manager will reopen after the update.";
+            UpdateBanner.Severity = state is "error" or "recovery_required" ? InfoBarSeverity.Error : state == "rolled_back" ? InfoBarSeverity.Warning : state is "completed" or "up_to_date" ? InfoBarSeverity.Success : InfoBarSeverity.Informational;
+            var total = root.GetProperty("total_bytes").GetInt64(); var progress = root.GetProperty("progress_bytes").GetInt64();
+            UpdateProgress.Visibility = state == "downloading" ? Visibility.Visible : Visibility.Collapsed;
+            UpdateProgress.Value = total > 0 ? Math.Clamp(100.0 * progress / total, 0, 100) : 0;
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException or KeyNotFoundException or InvalidOperationException) { }
+    }
+    private static async Task RegisterRestart()
+    {
+        var helper = @"C:\OpenWebPBX\tools\Register-ManagerRestart.ps1";
+        if (!File.Exists(helper)) return;
+        try
+        {
+            var start = new ProcessStartInfo("powershell.exe") { UseShellExecute = false, CreateNoWindow = true };
+            foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", helper }) start.ArgumentList.Add(arg);
+            using var process = Process.Start(start); if (process is not null) await process.WaitForExitAsync();
+        }
+        catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception) { }
+    }
     private void Navigate(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         if (!loaded || args.SelectedItem is not NavigationViewItem item) return;
         var page = item.Tag?.ToString();
-        if (page is "admin" or "callbacks" or "hotel" or "mobile") { OpenConsole(page); return; }
+        if (page is "admin" or "callbacks" or "hotel" or "mobile" or "updates") { OpenConsole(page); return; }
         DashboardPanel.Visibility = page == "dashboard" ? Visibility.Visible : Visibility.Collapsed;
         SetupPanel.Visibility = page == "setup" ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -88,9 +125,9 @@ public sealed partial class MainPage : Page
     {
         if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Scheme != "https")
         {
-            DashboardPanel.Visibility = Visibility.Collapsed; SetupPanel.Visibility = Visibility.Visible; Navigation.SelectedItem = Navigation.MenuItems[5]; return;
+            DashboardPanel.Visibility = Visibility.Collapsed; SetupPanel.Visibility = Visibility.Visible; Navigation.SelectedItem = Navigation.MenuItems[6]; return;
         }
-        Launch(address + (page == "mobile" ? "/app/pbx_mobile/" : "/app/pbx_setup/" + (page == "admin" ? "" : "?view=" + page)));
+        Launch(address + (page == "updates" ? "/app/pbx_updates/" : page == "mobile" ? "/app/pbx_mobile/" : "/app/pbx_setup/" + (page == "admin" ? "" : "?view=" + page)));
     }
     private void OpenFolder(object sender, RoutedEventArgs args) => Launch(AppContext.BaseDirectory);
     private void CertificateModeChanged(object sender, SelectionChangedEventArgs args)

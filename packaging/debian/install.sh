@@ -5,7 +5,7 @@ if [[ $EUID != 0 ]]; then echo 'Run this installer as root.' >&2; exit 1; fi
 source /etc/os-release
 if [[ "$ID" != debian || "$VERSION_ID" != 13 || "$(dpkg --print-architecture)" != amd64 ]]; then echo 'This package requires Debian 13, 64-bit Intel/AMD.' >&2; exit 1; fi
 if [[ -e /etc/fusionpbx/config.conf || -e /var/www/fusionpbx/resources/require.php ]]; then echo 'A PBX already exists. Back it up and use the documented upgrade procedure.' >&2; exit 1; fi
-if [[ ! -f web/resources/require.php || ! -x server/OpenWebPbx.Server || ! -f engine.tar.gz ]]; then echo 'Extract the complete Debian release package first.' >&2; exit 1; fi
+if [[ ! -f web/resources/require.php || ! -x server/OpenWebPbx.Server || ! -x updater/OpenWebPbx.Updater || ! -f release-public.pem || ! -f engine.tar.gz ]]; then echo 'Extract the complete Debian release package first.' >&2; exit 1; fi
 export DEBIAN_FRONTEND=noninteractive
 echo 'Setting up the built-in database on this server for all tenants...'
 apt-get update

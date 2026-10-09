@@ -19,14 +19,14 @@ class UpgradeChecks(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.files = [
-            'VERSION', 'web/resources/require.php', 'server/OpenWebPbx.Server', 'bootstrap.php',
+            'VERSION', 'web/VERSION', 'web/resources/require.php', 'server/OpenWebPbx.Server', 'bootstrap.php',
             'web/app/switch/resources/scripts/app/xml_handler/resources/scripts/configuration/acl.conf.lua',
             'web/app/switch/resources/scripts/app/xml_handler/resources/scripts/dialplan/dialplan.lua',
         ]
         for name in self.files:
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text('1.0.3\n' if name == 'VERSION' else 'fixture\n')
+            path.write_text('1.0.3\n' if Path(name).name == 'VERSION' else 'fixture\n')
         self.manifest = {'version': '1.0.3', 'files': {
             name: hashlib.sha256((self.root / name).read_bytes()).hexdigest() for name in self.files}}
         self.save()
@@ -74,6 +74,12 @@ class UpgradeChecks(unittest.TestCase):
         self.save()
         with self.assertRaises(ValueError):
             upgrade.validate_manifest(self.root)
+
+    def test_mixed_web_version_refused(self):
+        (self.root/'web/VERSION').write_text('1.0.2\n')
+        self.manifest['files']['web/VERSION']=hashlib.sha256((self.root/'web/VERSION').read_bytes()).hexdigest()
+        self.save()
+        with self.assertRaises(ValueError):upgrade.validate_manifest(self.root)
 
     def test_replacement_preserves_existing_permissions(self):
         target = self.root / 'installed.php'
