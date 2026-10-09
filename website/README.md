@@ -2,7 +2,7 @@
 
 Public destination: **https://openwebpbx.com/**. Deploy only the contents of `public/` to that domain's document root. The site is static HTML, CSS, JavaScript and SVG; it needs no Node build, database, external fonts or third-party scripts. The PBX application and private account data are separate.
 
-Current deployment: **[https://openwebpbx.com/](https://openwebpbx.com/)**, published to the existing cPanel document root on 2026-10-08 and refreshed to 1.0.4 on 2026-10-09. HTTP and `www` requests redirect to the HTTPS apex while preserving the path and query. No DNS or mail routing was changed.
+Current deployment: **[https://openwebpbx.com/](https://openwebpbx.com/)**, published to the existing cPanel document root on 2026-10-08 and refreshed to 1.0.5 on 2026-10-09. HTTP and `www` requests redirect to the HTTPS apex while preserving the path and query. No DNS or mail routing was changed.
 
 The project-domain `/tenantadmin`, `/tenantadmin/` and `/tenantadmin/index.php` entries redirect to the authenticated PBX portal at https://call.openweb.co.za/tenantadmin/. Query parameters are preserved. Account authentication and tenant data stay on the PBX instance.
 
@@ -26,7 +26,7 @@ The desktop includes shortcuts, a searchable Start menu, a taskbar, minimize/res
 
 The homepage describes the user's nonprofit, open-source project identity. It makes no registered-charity or tax-deductibility claim. The project retains its original software licenses and credits FusionPBX and FreeSWITCH.
 
-The 1.0.4 website refresh adds managed update choices, improved native Android call controls and updated Debian 13/Windows Server packages. Its seven release assets include the signed APK, server archives, corresponding Android and engine source, signed update feed and SHA256SUMS. `public/releases.json` is refreshed only after complete public GitHub downloads match the reviewed local SHA-256 values. The existing 1.0.2/1.0.3 assets remain unchanged. Server installers target Debian 13 amd64 and Windows Server 2025 with Desktop Experience; Android requires version 9 or later and an OpenWeb PBX 1.0.4 server with trusted phone connections. Existing 1.0.3 installations need one manual update; later releases follow the configured policies. Android may require confirmation or a notification tap to reopen.
+The 1.0.5 website refresh publishes the Android call-audio correction and updated Debian 13/Windows Server packages. Its seven release assets include the signed APK, server archives, corresponding Android and engine source, signed update feed and SHA256SUMS. `public/releases.json` is refreshed only after complete public GitHub downloads match the reviewed local SHA-256 values. The existing 1.0.2/1.0.3/1.0.4 assets remain unchanged. Server installers target Debian 13 amd64 and Windows Server 2025 with Desktop Experience; Android requires version 9 or later and an OpenWeb PBX 1.0.5 server with trusted phone connections. Upgrade the server before the Android app. Existing 1.0.3 installations need one manual update; installations with the updater follow their configured policies. Android may require confirmation or a notification tap to reopen. The website retains explicit handset, carrier and incoming-call qualification limits.
 
 Windows 10 and 11 have separate cards labelled **Planned**. The current server installer uses `Install-WindowsFeature`, which is a Windows Server installation path. The WinUI manager's target framework alone does not establish full-server compatibility. Do not turn those cards into server download claims until an appropriate installer and actual operating-system verification exist.
 
@@ -53,3 +53,11 @@ Use the official [cPanel API token guidance](https://docs.cpanel.net/knowledge-b
 ## Version 1.0.4 publication verification
 
 All seven complete public GitHub downloads matched their local SHA-256 values. The latest signed feed matched the final release envelope. All eight deployed public files matched source; nineteen GitHub targets returned 200. Trusted HTTPS, canonical redirects with query preservation, security headers and private-path denial passed. Actual-domain Chromium passed all eight feature dialogs, Android download/setup links, Start navigation, window controls, theme persistence and 1440/320/390px layouts without overflow or console warnings/errors. Existing cPanel rules, DNS and mail routing were preserved; prior files remain private under `/var/backups/openwebpbx/homepage-1.0.4`.
+
+## Version 1.0.5 publication verification
+
+Published the eight-file static allowlist on 2026-10-09 after all seven complete public GitHub downloads matched the final release hashes and the latest signed feed matched its reviewed envelope. The release tag points to `8c726fe32`. The live catalogue lists Android, Debian 13 and Windows Server 2025 version 1.0.5; Windows 10/11 full-server downloads remain planned.
+
+All eight deployed public files matched source and all nineteen GitHub link targets returned HTTP 200. Trusted HTTPS, canonical redirects with path/query preservation, security headers, dotfile/directory denial and the expected missing-file response passed. Actual-domain Chromium passed all eight feature dialogs, Android APK/setup links, Start search/Downloads navigation, maximize/restore, minimize/taskbar restore, persistent light/dark themes and 1440/320/390px layouts. There was no horizontal overflow and zero browser console errors or warnings. Desktop/light and 320px/dark screenshots were also visually reviewed. The validation browser was closed after testing.
+
+Existing cPanel `.htaccess`, DNS and mail routing were preserved. Previous public files remain private under `/var/backups/openwebpbx/homepage-1.0.5`; deployment and validation evidence is outside source and the web roots.
