@@ -5,8 +5,6 @@ import android.app.*
 import android.content.*
 import android.content.pm.ServiceInfo
 import android.os.*
-import android.media.Ringtone
-import android.media.RingtoneManager
 import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
@@ -34,7 +32,6 @@ class PhoneService: Service() {
     private var incoming = false
     private var answered = false
     private var account: JSONObject? = null
-    private var ringtone: Ringtone? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private val api: PhoneApi? get() = account?.let { PhoneApi(it.getString("server"), it.getString("token")) }
 
@@ -72,6 +69,9 @@ class PhoneService: Service() {
         c.mediaEncryption = MediaEncryption.SRTP; c.isMediaEncryptionMandatory = true
         c.isVideoCaptureEnabled = false; c.isVideoDisplayEnabled = false
         c.isEchoCancellationEnabled = true
+        // The SDK owns ringing and audio focus together. A second app ringtone
+        // would compete with its call audio focus when an incoming call answers.
+        c.isNativeRingingEnabled = true
         c.config.setBool("sip", "use_rfc2833", true)
         c.config.setBool("sip", "use_info", false)
         c.config.setBool("rtp", "symmetric", true)
@@ -90,10 +90,10 @@ class PhoneService: Service() {
                     callLabel = current.remoteAddress.username ?: "Unknown caller"
                 }
                 if (call?.nativePointer != current.nativePointer) return
-                if (state == Call.State.StreamsRunning) { speaker = current.outputAudioDevice?.type == AudioDevice.Type.Speaker; stopRinging(); answered = true; microphoneForeground(); acquireCallLock() }
+                if (state == Call.State.StreamsRunning) { speaker = current.outputAudioDevice?.type == AudioDevice.Type.Speaker; answered = true; microphoneForeground(); acquireCallLock() }
                 if (state == Call.State.End || state == Call.State.Error) {
                     lastCallMessage = if (!incoming && !answered && !endedLocally) CallFeedback.failure(current.errorInfo.protocolCode) else if(incoming && !answered) "Missed call" else "Call ended"
-                    stopRinging(); recordCall(current.duration)
+                    recordCall(current.duration)
                     call = null; callLabel = ""; core.isMicEnabled = true; releaseCallLock()
                     getSystemService(NotificationManager::class.java).cancel(11)
                     connectionForeground()
@@ -123,9 +123,7 @@ class PhoneService: Service() {
         .setOngoing(true).setVisibility(Notification.VISIBILITY_PRIVATE)
         .setContentIntent(openIntent()).build()
     private fun openIntent(): PendingIntent = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    private fun stopRinging() { ringtone?.stop(); ringtone=null }
     private fun notifyIncoming() {
-        try { ringtone=RingtoneManager.getRingtone(this,RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)).apply { isLooping=true; play() } } catch(_:Exception) { /* The visible call notification remains available. */ }
         val decline = PendingIntent.getService(this, 2, Intent(this, PhoneService::class.java).setAction("hangup"), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val note = Notification.Builder(this, "calls").setSmallIcon(com.openweb.pbx.R.drawable.ic_phone)
             .setContentTitle("Incoming call").setContentText(callLabel).setCategory(Notification.CATEGORY_CALL)
@@ -160,9 +158,9 @@ class PhoneService: Service() {
         val c = core ?: return; val active = call ?: return
         microphoneForeground()
         val params = c.createCallParams(active)!!; params.isVideoEnabled = false; params.mediaEncryption = MediaEncryption.SRTP
-        stopRinging(); active.acceptWithParams(params); getSystemService(NotificationManager::class.java).cancel(11)
+        active.acceptWithParams(params); getSystemService(NotificationManager::class.java).cancel(11)
     }
-    fun hangup() { endedLocally = true; stopRinging(); call?.terminate() }
+    fun hangup() { endedLocally = true; call?.terminate() }
     fun dismissCallMessage() { lastCallMessage=""; publish() }
     fun reconnect() {
         check(call==null) { "Finish your call before reconnecting" }
@@ -209,5 +207,5 @@ class PhoneService: Service() {
             } catch (_: Exception) { /* Retry next refresh; never log credentials or call data. */ }
         }
     }
-    override fun onDestroy() { stopRinging(); core?.stop(); core = null; instance = null; changed?.invoke(); releaseCallLock(); worker.shutdown(); getSystemService(NotificationManager::class.java).cancel(11); super.onDestroy() }
+    override fun onDestroy() { core?.stop(); core = null; instance = null; changed?.invoke(); releaseCallLock(); worker.shutdown(); getSystemService(NotificationManager::class.java).cancel(11); super.onDestroy() }
 }

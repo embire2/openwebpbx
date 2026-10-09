@@ -6,6 +6,7 @@ OpenWeb PBX Android code: Copyright 2026 OpenWeb PBX contributors, AGPL-3.0-or-l
 - **ZXing Android Embedded 4.3.0**, Journey Mobile, Inc. and contributors, Apache License 2.0. <https://github.com/journeyapps/zxing-android-embedded/tree/v4.3.0>.
 - **ZXing core 3.4.1**, ZXing authors, Apache License 2.0. <https://github.com/zxing/zxing/tree/zxing-3.4.1>.
 - **AndroidX Activity 1.10.1** and its AndroidX runtime dependencies, The Android Open Source Project, Apache License 2.0. <https://android.googlesource.com/platform/frameworks/support/>.
+- **AndroidX Media 1.7.1**, The Android Open Source Project, Apache License 2.0. Provides the audio-focus compatibility classes required by the Linphone Android SDK. <https://android.googlesource.com/platform/frameworks/support/>.
 - **Kotlin 2.1.20**, JetBrains and contributors, Apache License 2.0. <https://github.com/JetBrains/kotlin/tree/v2.1.20>.
 
 The release's Android source archive contains the app source/build files and exact Linphone SDK source with initialized submodules and upstream license notices. Maven source JARs for the Java/Kotlin dependencies and their artifact inventory accompany that archive. SDK build options and Android prerequisites remain documented in its upstream README. No customer configuration, signing key or credentials belong in the source or APK.

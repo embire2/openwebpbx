@@ -14,7 +14,7 @@
    <ScrollViewer x:Name="DashboardPanel" VerticalScrollBarVisibility="Auto">
     <StackPanel Spacing="22" MaxWidth="900" HorizontalAlignment="Stretch">
      <TextBlock Text="Your phone system" Style="{StaticResource TitleTextBlockStyle}"/>
-     <TextBlock Text="OpenWeb PBX 1.0.4" Style="{StaticResource SubtitleTextBlockStyle}"/>
+     <TextBlock Text="OpenWeb PBX 1.0.5" Style="{StaticResource SubtitleTextBlockStyle}"/>
      <InfoBar x:Name="StatusBanner" IsOpen="True" IsClosable="False" Title="Checking this server" Message="Connecting to the OpenWeb PBX service." Severity="Informational"/>
      <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="24">
       <StackPanel Spacing="12">

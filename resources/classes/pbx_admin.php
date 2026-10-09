@@ -17,7 +17,7 @@ class pbx_admin {
         $config=$this->config();$gateways=[];
         foreach($this->query("select gateway_uuid,enabled,register,coalesce(nullif(auth_username,''),username,'')<>'' has_username,coalesce(password,'')<>'' has_password from v_gateways where domain_uuid=:d",['d'=>$this->domain])->fetchAll(PDO::FETCH_ASSOC) as $gateway)$gateways[$gateway['gateway_uuid']]=$gateway;
         $audioSupport=null;
-        if($live){try{$modules=[trim((string)event_socket::api('module_exists mod_bcg729')),trim((string)event_socket::api('module_exists mod_com_g729'))];if(in_array('true',$modules,true))$audioSupport=true;elseif($modules===['false','false'])$audioSupport=false;}catch(Throwable){}}
+        if($live){try{$audioSupport=pbx_trunk_readiness::g729Transcoding((string)event_socket::api('show codecs as json'));}catch(Throwable){}}
         $trunks=[];$counts=['trunks'=>count($config['trunks']),'off'=>0,'missing_credentials'=>0,'missing_provider_ips'=>0,'missing_audio_support'=>0,'incoming_off'=>0,'incoming_total'=>count($config['inbound_rules']),'registered'=>0,'failed'=>0];
         foreach($config['trunks'] as $key=>$trunk){
             $key=(string)$key;

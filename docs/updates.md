@@ -21,10 +21,10 @@ The service is `openwebpbx-updater`. Its private downloads, logs, signed metadat
 For the first upgrade from 1.0.3, download the Debian archive, `update-manifest.json` and `SHA256SUMS` from the same reviewed release. Check the published checksums, extract the archive into a root-owned directory under `/root` and run:
 
 ```sh
-./upgrade.sh --archive /root/openwebpbx-1.0.4-debian13-amd64.tar.gz \
-  --feed-envelope /root/update-manifest.json --target-version 1.0.4 --check
-./upgrade.sh --archive /root/openwebpbx-1.0.4-debian13-amd64.tar.gz \
-  --feed-envelope /root/update-manifest.json --target-version 1.0.4
+./upgrade.sh --archive /root/openwebpbx-1.0.5-debian13-amd64.tar.gz \
+  --feed-envelope /root/update-manifest.json --target-version 1.0.5 --check
+./upgrade.sh --archive /root/openwebpbx-1.0.5-debian13-amd64.tar.gz \
+  --feed-envelope /root/update-manifest.json --target-version 1.0.5
 ```
 
 The check validates the signature, package, idle state and recovery prerequisites without stopping services. The installation command downloads nothing: both files must already be complete. Later releases use the currently installed trusted helper, including when launched from an extracted archive. Root-owned inputs and their parent directories must not be writable by other accounts.

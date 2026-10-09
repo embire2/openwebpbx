@@ -17,6 +17,16 @@ class readiness_fixture extends pbx_trunk_readiness {
 $uuid='1e8835dc-cd63-4a3e-91ea-080635e4a82a';
 $trunk=['host'=>'provider.example.invalid','port'=>5060,'transport'=>'udp','register'=>true,'auth_mode'=>'credentials','enabled'=>false,'allowed_ips'=>['198.51.100.10']];
 $gateway=['has_username'=>true,'has_password'=>true];
+$codec=static fn(string $module)=>['type'=>'codec','name'=>'G.729','ikey'=>$module];
+$inventory=static fn(array $rows)=>json_encode(['rows'=>$rows]);
+$assert(pbx_trunk_readiness::g729Transcoding($inventory([$codec('mod_bcg729')]))===true,'The active audio converter was missed');
+$assert(pbx_trunk_readiness::g729Transcoding($inventory([$codec('mod_com_g729')]))===true,'The commercial converter was missed');
+$assert(pbx_trunk_readiness::g729Transcoding($inventory([$codec('mod_g729')]))===false,'Passthrough was reported as conversion');
+$assert(pbx_trunk_readiness::g729Transcoding($inventory([$codec('mod_bcg729'),$codec('mod_g729')]))===false,'The restart-order codec conflict was missed');
+$assert(pbx_trunk_readiness::g729Transcoding($inventory([$codec('mod_g729'),$codec('mod_bcg729')]))===false,'Conflicting codecs were accepted in reverse order');
+$assert(pbx_trunk_readiness::g729Transcoding($inventory([]))===false,'An empty codec inventory supplied audio conversion');
+$assert(pbx_trunk_readiness::g729Transcoding('-ERR unavailable')===null,'Unavailable inventory was reported as missing support');
+$assert(pbx_trunk_readiness::g729Transcoding(str_repeat('x',262145))===null,'Unbounded codec inventory was accepted');
 $status=pbx_trunk_readiness::describe($trunk,$gateway,['state'=>'REGED']);
 $assert($status['status']==='Off'&&!$status['calls_verified'],'An off trunk appeared connected or call verified');
 $trunk['enabled']=true;

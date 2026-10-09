@@ -3,6 +3,20 @@
 class pbx_trunk_readiness {
     private static function on(mixed $value): bool { return filter_var($value, FILTER_VALIDATE_BOOLEAN); }
 
+    /** Loaded modules alone are insufficient: passthrough can shadow a converter. */
+    public static function g729Transcoding(string $response): ?bool {
+        if (strlen($response)>262144) return null;
+        $inventory=json_decode($response,true);
+        if (!is_array($inventory) || !isset($inventory['rows']) || !is_array($inventory['rows'])) return null;
+        $converter=false;
+        foreach ($inventory['rows'] as $codec) {
+            if (!is_array($codec) || ($codec['type']??'')!=='codec' || !in_array($codec['name']??'', ['G.729','G729'],true)) continue;
+            if (($codec['ikey']??'')==='mod_g729') return false;
+            if (in_array($codec['ikey']??'', ['mod_bcg729','mod_com_g729'],true)) $converter=true;
+        }
+        return $converter;
+    }
+
     public static function gatewayState(string $response, string $gateway): array {
         if (strlen($response)>262144 || str_contains(strtoupper($response),'<!DOCTYPE')) return ['state'=>'unknown'];
         if (trim($response)==='Invalid Gateway!' || str_starts_with(trim($response),'-ERR')) return ['state'=>'not_loaded'];

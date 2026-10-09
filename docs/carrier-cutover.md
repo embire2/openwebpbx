@@ -201,3 +201,26 @@ Maintainer checks include `php tests/pbx_v20_trunks_integration.php`,
 actual-engine local-provider fixture; run it only with its documented opt-in
 and local SIP-profile binding. It creates a separate temporary PBX and never
 enables existing customer trunks.
+
+## Answered calls disconnecting immediately — 1.0.5
+
+A production attempt exposed a configuration conflict that registration checks
+could not detect: both `mod_bcg729` and passthrough-only `mod_g729` loaded on startup.
+The passthrough codec shadowed the converter after restart. The provider answered,
+but the engine failed to decode its G.729 audio and immediately ended both call
+legs. Keep only the reviewed converter enabled when conversion is required;
+module presence alone does not establish that the active codec can process audio.
+The Admin readiness check now rejects this conflict in either inventory order.
+
+After removing the conflicting handler from the running engine and its persistent
+startup file, a call through the owner-enabled provider to the authorized test
+number answered and sustained 25.1 seconds, with 1,034 sent and 1,249 received RTP
+packets and no native engine errors. The test caller ended it normally. Physical
+handset audibility, public incoming calls and full provider acceptance remain
+separate checks. Customer trunks, routes and credentials were preserved.
+
+An independent voicemail defect also answered calls then returned immediately:
+the restored handler passed `leave` to a native dispatcher that accepts `save`.
+Version 1.0.5 corrects that action and retains `check` for mailbox login. Test
+unregistered, busy and unanswered extensions as well as connected phones; a
+successful internal bridge alone does not qualify the voicemail fallback.

@@ -33,10 +33,12 @@ local function environment(f)
     function s:getVariable(key)return self.variables[key]end
     function s:setVariable(key,value)self.variables[key]=value end
     function s:hangup(cause)f.hangup=cause;self.alive=false end
-    function s:answer()end
+    function s:answer()f.answers=(f.answers or 0)+1 end
     function s:transfer(number,_,realm)f.transfers[#f.transfers+1]={number=number,realm=realm}end
     function s:execute(application,data)
         if application=='record_session' then f.recordings=(f.recordings or 0)+1
+        elseif application=='lua' and data=='app.lua voicemail' then
+            f.voicemail={id=self.variables.voicemail_id,action=self.variables.voicemail_action,domain=self.variables.domain_uuid,realm=self.variables.domain_name}
         elseif application=='bridge' then
             f.bridges[#f.bridges+1]=data
             f.bridge_timeouts[#f.bridges]=self.variables.call_timeout
@@ -188,4 +190,79 @@ f=fixture();f.variables.sip_auth_username='owm-0123456789abcdef0123456789abcdef'
 check(#f.bridges==0 and f.hangup=='CALL_REJECTED','Removed mobile credentials cannot call even when configuration has no matching extension UUID')
 f=fixture();f.mobile_active=true;f.config.users['100'].extension_uuid='other-extension';f.variables.sip_auth_username='owm-0123456789abcdef0123456789abcdef';run(f)
 check(#f.bridges==0 and f.hangup=='CALL_REJECTED','Mobile credentials cannot assume a different configured user')
-print('PASS: '..count..' synthetic ordinary-call, forwarding, ingress, callback and mobile runtime checks')
+local function mailbox_fixture()
+    local item=fixture()
+    item.config.users['200'].voicemail_enabled=true
+    for _,reason in ipairs({'NotRegistered','NoAnswer','Busy'}) do
+        item.config.users['200'].profiles.Available.available[reason]={internal_inactive=true,all={type='VoiceMail',number='200'}}
+    end
+    return item
+end
+f=mailbox_fixture();f.offline=true;run(f,'user','200')
+check(#f.bridges==0 and f.answers==1 and f.voicemail and f.voicemail.id=='200' and f.voicemail.action=='save',
+    'Offline extension starts the native voicemail recording action instead of answering and immediately returning')
+check(f.voicemail.domain==domain and f.voicemail.realm==config.realm,'Voicemail keeps the called tenant domain')
+local voicemail_call=f.voicemail
+for _,cause in ipairs({'NO_ANSWER','USER_BUSY'}) do
+    f=mailbox_fixture();f.responses={{cause=cause,protocol='sip:480'}};run(f,'user','200')
+    check(#f.bridges==1 and f.voicemail and f.voicemail.action=='save' and f.voicemail.id=='200',
+        cause..' forwarding reaches the called user mailbox recording action')
+end
+f=mailbox_fixture();f.config.users['200'].voicemail_enabled=false;f.offline=true;run(f,'user','200')
+check(not f.voicemail and not f.answers and f.hangup=='NO_ANSWER','Disabled voicemail is not answered or recorded')
+f=fixture();f.config.users['100'].voicemail_enabled=true;run(f,'voicemail_login')
+check(f.voicemail and f.voicemail.action=='check' and f.voicemail.id=='100','Mailbox login retains native PIN/menu action')
+
+-- Run the actual native dispatcher, replacing database/audio/filesystem I/O.
+-- This catches a producer/consumer action mismatch rather than merely asserting
+-- the wrapper string. No recordings, notifications or database rows are created.
+local function native_voicemail(call)
+    local result={greetings=0,recordings=0,inserts=0,notifications=0,emails=0}
+    local vars={voicemail_id=call.id,voicemail_action=call.action,domain_uuid=call.domain,domain_name=call.realm,
+        uuid='00000000-0000-4000-a000-000000000040',caller_id_name='Synthetic Caller',caller_id_number='100'}
+    local s={}
+    function s:ready()return true end
+    function s:getVariable(key)return vars[key]end
+    function s:setVariable(key,value)vars[key]=value end
+    function s:answer()end
+    function s:sleep()end
+    function s:execute()end
+    function s:setInputCallback()end
+    local db={}
+    function db:query(sql,params,callback)
+        if sql:find('INSERT INTO v_voicemail_messages',1,true) then
+            assert(params.domain_uuid==call.domain and params.voicemail_uuid=='00000000-0000-4000-a000-000000000041','Wrong voicemail destination')
+            result.inserts=result.inserts+1
+        elseif sql:find('voicemail_password',1,true) then
+            assert(params.domain_uuid==call.domain and params.voicemail_id==call.id,'Wrong mailbox lookup')
+            callback({voicemail_uuid='00000000-0000-4000-a000-000000000041',voicemail_mail_to='',voicemail_local_after_forward='true'})
+        elseif sql:find('SELECT voicemail_id FROM',1,true) then callback({voicemail_id=call.id})
+        end
+    end
+    function db:release()result.released=true end
+    local env=setmetatable({session=s,argv={'voicemail'},debug={},temp_dir='/nonexistent-fixture-storage',os={remove=function()error('Unexpected filesystem deletion')end}}, {__index=_G})
+    env.freeswitch={API=function()return {execute=function(_,cmd)return cmd=='strepoch' and '123' or 'fixture-time'end}end,consoleLog=function()end}
+    env.settings=function()return {switch={voicemail={dir='/nonexistent-fixture-storage'}},voicemail={storage_type={text='file'}}}end
+    env.play_greeting=function()result.greetings=result.greetings+1 end
+    env.record_message=function()result.recordings=result.recordings+1;env.message_length=5;env.start_epoch=123 end
+    env.file_size=function()return 8000 end
+    env.file_exists=function()return false end
+    env.mkdir=function()end
+    env.message_waiting=function()result.notifications=result.notifications+1 end
+    env.send_email=function()result.emails=result.emails+1 end
+    env.require=function(name)
+        if name=='resources.functions.database' then return {new=function()return db end}end
+        if name:match('^resources%.functions%.') or name:match('^app%.voicemail%.resources%.functions%.') then return {} end
+        error('Unexpected native voicemail dependency '..name)
+    end
+    assert(loadfile('app/switch/resources/scripts/app/voicemail/index.lua','t',env))()
+    return result
+end
+local saved=native_voicemail(voicemail_call)
+check(saved.greetings==1 and saved.recordings==1,'Routed offline voicemail executes the actual native greeting and recording dispatcher')
+check(saved.inserts==1 and saved.notifications==1 and saved.emails==1 and saved.released,
+    'Native voicemail recording reaches message indexing and notification dispatch without live I/O')
+local invalid=copy(voicemail_call);invalid.action='leave';local ignored=native_voicemail(invalid)
+check(ignored.greetings==0 and ignored.recordings==0 and ignored.inserts==0 and ignored.released,
+    'Regression fixture reproduces the old unsupported action returning without a greeting or message')
+print('PASS: '..count..' synthetic ordinary-call, forwarding, ingress, callback, mobile and voicemail runtime checks')

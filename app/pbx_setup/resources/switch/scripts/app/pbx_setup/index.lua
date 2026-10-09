@@ -58,7 +58,9 @@ local function voicemail(number,check)
     local room=hotel_room(number)
     if room and room.occupied~='t' and room.occupied~='true' then session:hangup('CALL_REJECTED');return end
     session:answer();session:setVariable('voicemail_id',tostring(number))
-    session:setVariable('voicemail_action',check and 'check' or 'leave')
+    -- The native voicemail application dispatches caller recording as "save".
+    -- An unknown action answers the channel but returns without greeting/recording.
+    session:setVariable('voicemail_action',check and 'check' or 'save')
     session:execute('lua','app.lua voicemail')
 end
 local function record(u,external)

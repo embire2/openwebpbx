@@ -1,6 +1,6 @@
 # OpenWeb PBX feature coverage
 
-OpenWeb PBX is a free, independently developed PBX built on FusionPBX and FreeSWITCH. Version 1.0.4 adds managed server and Android updates, clearer phone controls and call-failure recovery to the standalone Android phone, callbacks, hotel services and native Windows installation. It does **not** implement every 3CX feature, run 3CX software or accept proprietary 3CX apps. No claim of being the world's first free PBX is made.
+OpenWeb PBX is a free, independently developed PBX built on FusionPBX and FreeSWITCH. Version 1.0.5 fixes immediate carrier/voicemail disconnections and native Android audio mode, alongside the managed server and Android updates, clearer phone controls and call-failure recovery to the standalone Android phone, callbacks, hotel services and native Windows installation. It does **not** implement every 3CX feature, run 3CX software or accept proprietary 3CX apps. No claim of being the world's first free PBX is made.
 
 The Windows edition includes a C#/.NET 10 background calling service and WinUI 3 administration manager, built with Visual Studio 2026. The existing web application uses PHP and the call engine uses FreeSWITCH/Lua. This is not a complete C# rewrite. The manager opens the authenticated web Admin and is not a calling app.
 
@@ -152,6 +152,43 @@ own extension and followed its restored forwarding behavior. Customer forwarding
 settings were preserved. Real outgoing audio and calling another active phone
 still need acceptance; historical statements that all connections were off refer
 to the completed 2026-10-08 pilot, not the current owner-controlled configuration.
+
+## Answered-call and phone audio fixes — 1.0.5
+
+Actual customer calls exposed two gaps that the earlier registered-phone tests
+had not covered. After a server restart, passthrough G.729 shadowed an installed
+converter, so the provider answered but the PBX failed to decode audio and ended
+both legs. An unanswered internal extension also ended immediately because the
+restored handler sent an unsupported voicemail action. These are fixed; neither
+registration status nor a successful internal bridge had established these paths.
+
+The Linux migration disables only the conflicting passthrough autoload entry when
+both entries and the installed converter are present, preserving unrelated native
+configuration. It runs from the candidate migration under the existing private
+backup/recovery process, including upgrades driven by the 1.0.4 helper. It does not
+install a codec. The readiness page now detects the conflict in either order.
+Seventeen normalization checks and thirty-one readiness checks passed.
+
+A real call through the owner-enabled provider answered and sustained 25.1 seconds
+with 1,034 sent and 1,249 received RTP packets, no early disconnect and no native
+errors on either leg. The test caller ended it normally. Customer phone settings,
+provider activation, routes and credentials were unchanged. Customer handset
+speech audibility and complete incoming/provider acceptance still need confirmation.
+
+Voicemail now dispatches native greeting/recording with `save`, retaining `check`
+for mailbox login. Fifty-three runtime and 149 policy checks passed. An actual
+isolated SIP call saved 10.64 seconds of audio; playback delivered 531 RTP packets
+with the expected 500 Hz tone. No email was queued. The fixture, message, contacts
+and database rows were removed after verification.
+
+The signed 1.0.4 Android build reproduced missing communication-audio mode. Version
+1.0.5 supplies the calling SDK's required AndroidX media integration and lets the
+SDK own ringing and audio focus. Ten JVM checks and release lint passed. Native
+Android 13 tests passed a 42-second outgoing workflow with sustained two-way SRTP,
+Home/background/return, competing-focus hold, resume and audio-mode release. An
+incoming test passed ringing, answer, twelve seconds of two-way media and return
+to normal audio mode. This remains software-device evidence; broader physical
+handset, earpiece, Bluetooth and mobile-network qualification remains open.
 
 ## Work still required
 
