@@ -3,6 +3,68 @@
   "repository": "embire2/openwebpbx",
   "releases": [
     {
+      "version": "1.0.7",
+      "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.7",
+      "published_at": "2026-10-09T16:42:15Z",
+      "prerelease": false,
+      "assets": [
+        {
+          "name": "openwebpbx-1.0.7-debian13-amd64.tar.gz",
+          "bytes": 151944447,
+          "sha256": "3c4ab9c1fddaeb92ceb7378136b0e4badef4573f33785d52cb49121a5a80b1a9",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.7/openwebpbx-1.0.7-debian13-amd64.tar.gz"
+        },
+        {
+          "name": "openwebpbx-1.0.7-windows-x64.zip",
+          "bytes": 218831059,
+          "sha256": "94bf48f941240b28ea324441507dcb2b830b92045d11926628ac7c320ec2584f",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.7/openwebpbx-1.0.7-windows-x64.zip"
+        },
+        {
+          "name": "openwebpbx-1.0.7-android.apk",
+          "bytes": 54292399,
+          "sha256": "27a940eb00c6e2de9415e02b34b6679f3b8321df69563fb4ece19cf3d7059e60",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.7/openwebpbx-1.0.7-android.apk"
+        },
+        {
+          "name": "openwebpbx-1.0.7-engine-source.tar.gz",
+          "bytes": 36612242,
+          "sha256": "0c2cffff4279c60d21754c702cbbcdd9d9b6c69fbea1e796cbea43d1c803e655",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.7/openwebpbx-1.0.7-engine-source.tar.gz"
+        },
+        {
+          "name": "openwebpbx-1.0.7-android-source.tar.gz",
+          "bytes": 359260631,
+          "sha256": "671c3068a1a5005091f4208c219c8cc89ffdefeb9d64e687d96f42c0d81edd5d",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.7/openwebpbx-1.0.7-android-source.tar.gz"
+        },
+        {
+          "name": "openwebpbx-1.0.7-google-play.aab",
+          "bytes": 49523456,
+          "sha256": "57d34247ab5accf2c52c8402f7f0bf41fdfbe46453f0c63cd53376f82f721d71",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.7/openwebpbx-1.0.7-google-play.aab"
+        },
+        {
+          "name": "openwebpbx-1.0.7-google-play.zip",
+          "bytes": 50418481,
+          "sha256": "161234c77e598c6072eb6ece37c067f726b3e3082d57f9254ac4e369c33829c6",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.7/openwebpbx-1.0.7-google-play.zip"
+        },
+        {
+          "name": "update-manifest.json",
+          "bytes": 2196,
+          "sha256": "cb59ea00e638d7789003b1f9530fc1b35e406c8128a0dd3a005d28901f24880f",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.7/update-manifest.json"
+        },
+        {
+          "name": "SHA256SUMS",
+          "bytes": 793,
+          "sha256": "f6dc6368eae82f1599684b647acb589bd1b30d3e3f5db61d52ee55257f5339a3",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.7/SHA256SUMS"
+        }
+      ]
+    },
+    {
       "version": "1.0.6",
       "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.6",
       "published_at": "2026-10-09T15:06:09Z",
@@ -234,14 +296,14 @@
       "name": "Debian 13",
       "architecture": "amd64",
       "status": "tested",
-      "version": "1.0.6"
+      "version": "1.0.7"
     },
     {
       "name": "Windows Server 2025",
       "architecture": "x64",
       "edition": "Desktop Experience",
       "status": "tested",
-      "version": "1.0.6"
+      "version": "1.0.7"
     },
     {
       "name": "Windows 11",
@@ -257,8 +319,8 @@
       "name": "Android",
       "minimum_version": "9",
       "api_level": 28,
-      "version": "1.0.6",
-      "status": "signed native APK; see device verification limits",
+      "version": "1.0.7",
+      "status": "signed native APK; Play submission prepared, not published; see device verification limits",
       "abis": [
         "arm64-v8a",
         "armeabi-v7a",

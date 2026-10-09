@@ -245,6 +245,32 @@ opened a responsive window showing 1.0.7. All 1,109 exported output hashes and 4
 source inputs matched. Installed Windows upgrade/database/audio evidence remains
 1.0.6; a new 1.0.7 installed-upgrade result is not claimed.
 
+Version 1.0.7 is published at source tag
+`4075316e5f84ed568dc786518abbfae24ae302ee`. All nine complete public asset
+downloads matched their frozen SHA-256 values, including the separate Play AAB
+and submission ZIP. The latest signed feed matched the reviewed envelope.
+The fourteen-file homepage refresh passed served-file checks, all 36 public
+links, actual review-video playback and desktop/mobile browser checks with no
+overflow or console errors. Organisation-account preparation remains pending
+owner-confirmed legal details and D-U-N-S verification; no Play submission or
+approval is claimed.
+
+The production Debian 1.0.6→1.0.7 update completed through the already installed
+updater and reports Running. All 6,245 packaged web files and 216 native files
+match the release; the private recovery snapshot passed integrity and database
+identity/grant checks. Customer configuration and the review setup were preserved.
+Among 137 customer-domain dialplan rows, 136 were byte-identical and the stock
+domain-variables row changed only its update timestamp during defaults
+regeneration; all conditions, actions and routing fields remained identical.
+All 801 condition/action rows were byte-identical. The codec remains ready with
+the conflicting passthrough disabled in both database and XML; the existing
+provider and extension 1000 remain registered. The service and updater report
+1.0.7 Running/up to date. Authenticated Admin, Updates and fresh reviewer QR
+access passed. The OpenWeb tenant's Android policy is now required, verified in
+both the phone response and administration page; other tenant and global update
+policies were unchanged. APP-15 is complete. No additional carrier call was made
+for this release, and the physical proximity check remains open under APP-14.
+
 ## Work still required
 
 The maintained [3CX roadmap](../3CX.md) contains the detailed checklist, priorities,
