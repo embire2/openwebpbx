@@ -251,9 +251,10 @@ downloads matched their frozen SHA-256 values, including the separate Play AAB
 and submission ZIP. The latest signed feed matched the reviewed envelope.
 The fourteen-file homepage refresh passed served-file checks, all 36 public
 links, actual review-video playback and desktop/mobile browser checks with no
-overflow or console errors. Organisation-account preparation remains pending
-owner-confirmed legal details and D-U-N-S verification; no Play submission or
-approval is claimed.
+overflow or console errors. Organisation details supplied on 2026-10-10 are
+saved privately and the D-U-N-S request is drafted. Postal-address confirmation,
+company registration proof, D-U-N-S and account verification remain pending;
+no request or Play submission has been sent and no approval is claimed.
 
 The production Debian 1.0.6→1.0.7 update completed through the already installed
 updater and reports Running. All 6,245 packaged web files and 216 native files
