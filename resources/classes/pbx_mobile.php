@@ -63,7 +63,7 @@ class pbx_mobile {
         try{$e=$this->extension($r['domain_uuid'],$r['extension_uuid']);}catch(RuntimeException){throw new UnexpectedValueException('This phone is no longer connected.');}
         $this->q("update v_pbx_mobile_devices set last_seen_at=now() where device_uuid=:id and (last_seen_at is null or last_seen_at<now()-interval '5 minutes')",['id'=>$r['device_uuid']]);return $e+$r;
     }
-    public function bootstrap(array $e): array {return ['account'=>['extension'=>$e['number'],'display_name'=>$e['user']['name']??$e['number']],'sip'=>['server'=>pbx_paths::host(),'domain'=>$e['domain_name'],'username'=>$e['sip_username'],'auth_username'=>$e['sip_username'],'port'=>5061,'transport'=>'tls','media_encryption'=>'srtp'],'device_id'=>$e['device_uuid'],'features'=>['directory','calls','voicemail']];}
+    public function bootstrap(array $e): array {return ['account'=>['extension'=>$e['number'],'display_name'=>$e['user']['name']??$e['number']],'sip'=>['server'=>pbx_paths::host(),'domain'=>$e['domain_name'],'username'=>$e['sip_username'],'auth_username'=>$e['sip_username'],'port'=>5061,'transport'=>'tls','media_encryption'=>'srtp'],'device_id'=>$e['device_uuid'],'push'=>(new pbx_mobile_push($this->db))->client(),'features'=>['directory','calls','voicemail','presence','queues','transfers','call_waiting']];}
     public function devices(string $number): array {$e=$this->adminExtension($number);return $this->q('select device_uuid,device_name,created_at,last_seen_at,expires_at,revoked_at from v_pbx_mobile_devices where extension_uuid=:e order by created_at desc limit 30',['e'=>$e['extension_uuid']])->fetchAll(PDO::FETCH_ASSOC);}
     public function adminRevoke(string $number,string $id): void {$e=$this->adminExtension($number);$this->id($id);$d=$this->q('select device_uuid,sip_username,domain_uuid from v_pbx_mobile_devices where device_uuid=:id and extension_uuid=:e',['id'=>$id,'e'=>$e['extension_uuid']])->fetch(PDO::FETCH_ASSOC);if(!$d)throw new InvalidArgumentException('Phone unavailable.');$this->revoke($e+$d);}
     /** A review account can connect only its operator-assigned demo extension. */
@@ -111,7 +111,7 @@ class pbx_mobile {
         event_socket::api('hupall NORMAL_CLEARING sip_to_user '.$e['sip_username']);
     }
     public function directory(array $e): array {
-        $rows=[];foreach($e['config']['users'] as $n=>$u)if(!empty($u['enabled']))$rows[]=['id'=>'extension:'.$n,'name'=>$u['name'],'number'=>(string)$n];
+        $rows=[];foreach($e['config']['users'] as $n=>$u)if(!empty($u['enabled']))$rows[]=['id'=>'extension:'.$n,'name'=>$u['name'],'number'=>(string)$n,'status'=>pbx_mobile_state::profile($u,$e['config'],(string)$n)];
         foreach($e['config']['contacts']??[] as $i=>$c){$owner=(string)($c['owner']??'');if($owner!==''&&$owner!==$e['number'])continue;$number=(string)($c['phone']??'');if(!preg_match('/^\+?[0-9*#]{1,32}$/D',$number))continue;$rows[]=['id'=>'contact:'.$i,'name'=>trim(($c['first_name']??'').' '.($c['last_name']??''))?:($c['company']??$number),'number'=>$number];}
         usort($rows,fn($a,$b)=>strcasecmp($a['name'],$b['name']));return ['contacts'=>array_slice($rows,0,2000)];
     }

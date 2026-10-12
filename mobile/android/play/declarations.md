@@ -1,4 +1,4 @@
-# Play Console declarations — OpenWeb PBX 1.0.7
+# Play Console declarations — OpenWeb PBX 1.0.9 candidate
 
 Prepared from the application source and the final build’s permission inventory. These are submission inputs, not a claim that Google has accepted them. The owner must confirm their legal identity, contact details, target audience and actual server data practices. Update this document if the binary or service changes.
 
@@ -32,6 +32,7 @@ The app sends information to the user’s chosen PBX, so **do not answer “no d
 | App activity → Other actions | Call direction, start time, duration, answered status and voicemail-read actions; app functionality | Required for those features; PBX retention policy applies |
 | Audio files → Voice or sound recordings | Microphone voice routed through PBX; voicemail and administrator-enabled recordings; app functionality | Required for voice calling. Do not claim ephemeral-only processing because supported PBXs retain voicemail/recordings. |
 | Device or other IDs | Per-device connection identifier; network address and device name associated with phone registration and operational logs; functionality/security/account management | Required for the connection; server operator controls retention |
+| Device or other IDs → Incoming notification subscription | When the instance enables wake-up, the app registers through installed Google Play Services and sends its push endpoint/public encryption keys to its PBX. Google handles encrypted delivery; an optional Cloudflare relay forwards ciphertext and may keep network request logs. App functionality only. | Present when the instance enables this optional feature; PBX device revocation invalidates access. Declare processing/sharing according to the actual configured providers. |
 | App info and performance → Diagnostics | App version, connection failures and server-side operational events; functionality and security | Declare conservatively for supported operational logs; no third-party crash/analytics reporting |
 
 Company contacts and voicemail are downloaded from the PBX. The app never reads or uploads the device address book. Camera frames remain on the device and are only decoded into an enrollment code; there is no photo/video upload. There is no location-permission access, location inference, SMS access, Android call-log access, financial/health data or advertising identifier collection.
@@ -42,7 +43,7 @@ Users can request deletion through the public resource and their PBX administrat
 
 ## Permissions and foreground services
 
-The Play manifest must contain **no REQUEST_INSTALL_PACKAGES or UPDATE_PACKAGES_WITHOUT_USER_ACTION** and no direct updater installer/receivers. The app uses the Android browser/store intent for Google Play. No accessibility service, VPN, broad file access, SMS/call-log permission, exact alarm or full-screen intent permission is requested.
+The Play manifest must contain **no REQUEST_INSTALL_PACKAGES or UPDATE_PACKAGES_WITHOUT_USER_ACTION** and no direct updater installer/receivers. The app uses the Android browser/store intent for Google Play. No accessibility service, VPN, broad file access, SMS/call-log permission or exact alarm is requested. Version 1.0.9 declares full-screen incoming-call notifications; its separate Console declaration must be completed.
 
 | Permission / service | Purpose and demonstration |
 | --- | --- |
@@ -51,6 +52,7 @@ The Play manifest must contain **no REQUEST_INSTALL_PACKAGES or UPDATE_PACKAGES_
 | CHANGE_NETWORK_STATE / network access | Network PBX connection; platform prerequisite for the connected-device foreground type |
 | Camera | QR setup only; manual code entry remains available |
 | Notifications | Connection, incoming-call and update visibility |
+| USE_FULL_SCREEN_INTENT | Incoming voice calls are core functionality. The private incoming-call activity offers Answer/Decline on the lock screen, only for authenticated current calls. On Android 14+ it checks permission and falls back to the ordinary call notification when unavailable. Complete the full-screen intent declaration and show actual calling behavior; default approval is not assumed. |
 | Bluetooth connect | User-selected call audio route |
 | Wake lock | Active-call audio and proximity screen protection |
 | Receive boot completed | Persisted scheduled update checks; does not claim to start the microphone on boot |

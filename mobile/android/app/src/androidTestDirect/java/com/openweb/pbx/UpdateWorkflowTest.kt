@@ -32,6 +32,8 @@ class UpdateWorkflowTest {
     private fun waitFor(label:String,condition:()->Boolean){repeat(120){var ok=false;main{ok=condition()};if(ok)return;Thread.sleep(250)};fail(label)}
     private fun activity()=i.startActivitySync(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
     private fun manager():UpdateManager {
+        enabled()
+        if(InstrumentationRegistry.getArguments().getString("updatePublic")=="true")return UpdateManager(context).also{UpdateManager::class.java.getDeclaredField("singleton").apply{isAccessible=true}.set(null,it)}
         val transport=object:UpdateTransport{override fun open(url:String):InputStream=if(url==UpdateRules.FEED)File(fixture,"envelope.json").inputStream()else File(fixture,"candidate.apk").inputStream()}
         return UpdateManager(context,transport).also{UpdateManager::class.java.getDeclaredField("singleton").apply{isAccessible=true}.set(null,it)}
     }
@@ -166,14 +168,16 @@ class UpdateWorkflowTest {
         val account=PhoneStore(context).read()!!
         val policy=PhoneApi(account.getString("server"),account.getString("token")).json("updates")
         assertEquals(1,policy.getInt("schema"));assertEquals(UpdateRules.FEED,policy.getString("feed_url"))
-        ReleaseManifest.parse(File(fixture,"envelope.json").readText(),context.assets.open("release-public.pem").bufferedReader().use{it.readText()})
-        assertTrue("Private candidate APK is readable",File(fixture,"candidate.apk").canRead())
+        if(InstrumentationRegistry.getArguments().getString("updatePublic")!="true"){
+            ReleaseManifest.parse(File(fixture,"envelope.json").readText(),context.assets.open("release-public.pem").bufferedReader().use{it.readText()})
+            assertTrue("Private candidate APK is readable",File(fixture,"candidate.apk").canRead())
+        }
         check(m,true);assertEquals("ready",m.snapshot.state)
         File(fixture,"account-before.sha256").writeText(UpdateRules.sha256(PhoneStore(context).read()!!.getString("token").toByteArray()))
         val a=activity();waitFor("Verified update ready after activity check"){m.snapshot.state=="ready" && !(UpdateManager::class.java.getDeclaredField("busy").apply{isAccessible=true}.get(m) as java.util.concurrent.atomic.AtomicBoolean).get()};main{m.install(a)}
         waitFor("Android confirmation requested"){m.snapshot.state=="confirmation"}
         assertNotNull(device.wait(Until.findObject(By.text("Update")),10000))
-        File(fixture,"installation-started.txt").writeText("Verified private replacement is awaiting native Android confirmation.\n")
+        File(fixture,"installation-started.txt").writeText("Verified replacement is awaiting native Android confirmation.\n")
         // External driver presses Update; Android replaces this test process as expected.
     }
     @Test fun verifyInstalledAccountAndRelaunch(){

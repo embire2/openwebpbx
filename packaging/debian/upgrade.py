@@ -93,10 +93,10 @@ def deployment_files(package, manifest):
     prompt = package / 'web/app/pbx_setup/resources/prompts/openweb.xml'
     if prompt.is_file():
         result[Path('/etc/freeswitch/languages/en/ivr/openweb.xml')] = prompt
-    for helper in ['configure-sip-tls.py', 'configure-sip-tls.php', 'upgrade.py', 'verify_feed.py', 'release-public.pem']:
+    for helper in ['configure-sip-tls.py', 'configure-sip-tls.php', 'upgrade.py', 'verify_feed.py', 'release-public.pem', 'backups.py', 'install-backups.sh', 'install-support.py']:
         if helper in manifest['files']:
             result[TOOLS / helper] = package / helper
-    for service in ['openwebpbx-updater.service', 'openwebpbx-update-recovery.service']:
+    for service in ['openwebpbx-updater.service', 'openwebpbx-update-recovery.service', 'openwebpbx-backups.service', 'openwebpbx-backups.timer']:
         if service in manifest['files']:
             result[Path('/etc/systemd/system') / service] = package / service
     return result
@@ -590,6 +590,12 @@ def maintenance_window(settings, automatic):
 
 def install_candidate(package,manifest,trust,settings,*,automatic=False):
     maintenance_window(settings, automatic)
+    # Install only this release's fixed additive prerequisites before pausing
+    # calling. Legacy installed updaters receive the same migration hook below.
+    if (package/'install-support.py').is_file():
+        spec = importlib.util.spec_from_file_location('candidate_support', package/'install-support.py')
+        support = importlib.util.module_from_spec(spec); spec.loader.exec_module(support)
+        support.ensure_dependencies()
     targets=deployment_files(package,manifest)
     for service in SERVICES:subprocess.run(['systemctl','is-active','--quiet',service],check=True)
     check_idle(settings);layout=database_preflight(settings)

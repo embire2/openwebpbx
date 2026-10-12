@@ -2,15 +2,23 @@
 
 An open-source, multi-tenant PBX powered by FreeSWITCH, with a Windows 11 inspired administration desktop.
 
-## Version 1.0.3
+## Version 1.0.9
 
-The native **Android phone app**, **Windows Server** and **Debian 13** packages are available on the [release page](https://github.com/embire2/openwebpbx/releases/tag/v1.0.3). This release adds QR phone setup, incoming/outgoing calling, in-call controls, contacts and recent calls, and voicemail. Server updates include the mobile API, global outgoing mail, restored carrier routing fixes and separate update scripts with private backups.
+OpenWeb PBX is a nonprofit, open-source project building a free PBX with the everyday simplicity people value in 3CX. Our roadmap first covers those familiar calling workflows, then new features. Complete 3CX parity remains a goal; the [roadmap](3CX.md) records the remaining work and evidence.
 
-Read the [installation guide](docs/installing-1.0.3.md), [Android guide](docs/android.md), [callback and hotel guide](docs/callbacks-and-hotels.md), and [feature coverage](docs/feature-coverage.md). OpenWeb PBX does not yet provide complete 3CX feature parity. The Android app uses an ongoing connection; push wake-up and broad handset/network qualification remain open. The Windows WinUI manager remains an administration app, alongside the C#/.NET 10 background service. PMS/billing and other roadmap integrations remain outstanding.
+The [1.0.9 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.9) contains the **Debian 13 amd64 server** and **standalone native Android app**, with signed update metadata, checksums and corresponding source. New server development currently targets Debian 13. The [previous Windows Server 1.0.7 package](https://github.com/embire2/openwebpbx/releases/tag/v1.0.7) remains available; it includes an administration manager. A separate [native Windows calling client](docs/windows-client-plan.md), with emailed one-use setup files, is planned.
 
-The maintained [3CX roadmap](3CX.md) tracks the remaining work, priorities, completion criteria and verification dependencies.
+- **SIP Trunks & First Calls:** a guided provider form, initial disabled connections, an ordered backup provider, readiness messages and controlled call-check records.
+- **Office Hours & Call Routing:** multiple periods, overnight hours, breaks, holidays, temporary opening changes and a routing preview.
+- **Receptionist Switchboard:** live calls and availability, with hold, transfer, pickup, parking and retrieval through connected phones.
+- **Queues, Callbacks & Wallboard:** priority groups, position announcements, overflow, callback ordering, live totals and scoped reports.
+- **Automatic Backups & Restore:** encrypted scheduled instance backups, retention, optional pinned-key SFTP copy and guarded recovery onto a separate clean Debian installation, including selected media.
+- **Android:** transfers, consultation recovery, second-call handling, three-way calling, network recovery and availability/queue controls. Optional native incoming wake-up uses source-available UnifiedPush libraries and server-generated keys; your own Firebase project is not required.
+- **Hold music:** a bundled CC0 lo-fi track, with original audio, license provenance and telephone-ready variants. Existing custom music is preserved.
 
-The [project homepage](https://openwebpbx.com/) is live with trusted Let's Encrypt HTTPS, the nonprofit mission and verified release downloads. Its static source and deployment instructions are in [website/README.md](website/README.md).
+Read the [installation guide](docs/installing-1.0.9.md), [core calling guide](docs/core-calling.md), [Android guide](docs/android.md), [backup guide](docs/backups.md), [updates](docs/updates.md) and [feature coverage](docs/feature-coverage.md). Qualify your own provider and handsets before a production cutover. Physical locked/idle incoming wake-up, Wi-Fi/mobile handover, broader hardware coverage and Google Play approval remain open. Android can require installation confirmation and a tap to reopen.
+
+The [homepage](https://openwebpbx.com/) explains the project and lists releases. Its static source and deployment instructions are in [website/README.md](website/README.md). Server and client software retain their component licenses; no OpenWeb software license fee is charged. Hosting, carriers and optional external services have their own costs.
 
 ## Desktop workspace
 
@@ -30,7 +38,7 @@ The `customization` branch contains OpenWeb PBX. The `upstream` remote tracks th
 
 ## Existing installations
 
-Follow the [existing-installation update procedure](docs/installing-1.0.3.md#updating-an-existing-installation) to deploy the matching web application, background service and call scripts. Keep `/etc/fusionpbx`, PostgreSQL, and FreeSWITCH configuration in their existing locations. These operational identifiers are retained for compatibility. Use the release installers for a fresh server.
+Follow the [existing-installation update procedure](docs/installing-1.0.9.md#existing-debian-server) to deploy the matching web application, background service and call scripts. Keep `/etc/fusionpbx`, PostgreSQL, and FreeSWITCH configuration in their existing locations. These operational identifiers are retained for compatibility. Use the release installers for a fresh server.
 
 Back up the application and database before replacing files. Apply the branding migration as the PostgreSQL administrator:
 
@@ -48,4 +56,6 @@ New source-code assets need no JavaScript build step. The desktop uses local ass
 
 OpenWeb PBX is a derivative of [the original project](https://github.com/fusionpbx/fusionpbx). Original MPL 1.1 license and copyright notices are retained in the source files. The original project documentation remains available at https://docs.fusionpbx.com/. FreeSWITCH is maintained separately at https://github.com/signalwire/freeswitch.
 
-The new Android client in `mobile/android/` is licensed AGPL-3.0-or-later and includes separately credited open-source components. Its corresponding source and notices accompany the Android release. The existing server licenses are unchanged.
+The native Android client in `mobile/android/` is licensed AGPL-3.0-or-later and includes separately credited open-source components. Its corresponding source and notices accompany the Android release. The existing server licenses are unchanged.
+
+The bundled hold track is Seth_Makes_Sounds’ **Lofi Beat Loop Schmoop**, released under CC0. Original audio, hashes, conversion details and credits are in [the music guide](docs/music-on-hold.md).

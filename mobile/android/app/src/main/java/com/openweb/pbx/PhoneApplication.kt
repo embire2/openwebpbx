@@ -7,6 +7,7 @@ import org.linphone.core.LogCollectionState
 class PhoneApplication: Application() {
     override fun onCreate() {
         super.onCreate()
+        PushConnection.configure(this)
         Factory.instance().apply {
             enableLogCollection(LogCollectionState.Disabled)
             enableLogcatLogs(false)

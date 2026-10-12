@@ -9,6 +9,8 @@ A PHONE FOR YOUR WORK
 • Open recent calls and call someone back.
 • Listen to voicemail and mark messages as read.
 • Use mute, speaker, hold and the in-call keypad.
+• Transfer a call, talk first, answer a second call or bring three people together.
+• Choose your availability, a temporary status and which queues you answer.
 • Protect against accidental touches when you hold a supported phone to your ear.
 • See clear update notices and follow your organisation’s update policy.
 
@@ -21,7 +23,7 @@ There is no OpenWeb app licence fee, advertising or advertising tracking. Source
 BEFORE YOU INSTALL
 You need an existing OpenWeb PBX extension, a compatible server and Android 9 or newer. Your administrator provides the connection QR code. This app does not connect to a 3CX server or use 3CX app credentials.
 
-Keep the phone connection notification running for incoming calls. Reopen the app after restarting or force-stopping it. Push wake-up when Android has stopped the app, chat and video are not included. Keep your normal phone available for emergency calls.
+Keep the phone connection notification running for incoming calls. Reopen the app after restarting or force-stopping it. Optional incoming wake-up uses encrypted alerts delivered through installed Google Play Services. Your administrator enables it; force-stop still requires reopening. Chat and video remain planned. Keep your normal phone available for emergency calls.
 
 Help: https://openwebpbx.com/support.html
 Privacy: https://openwebpbx.com/privacy.html

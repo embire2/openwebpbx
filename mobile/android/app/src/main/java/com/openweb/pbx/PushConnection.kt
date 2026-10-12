@@ -1,0 +1,77 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+package com.openweb.pbx
+
+import android.app.*
+import android.content.*
+import android.os.Build
+import org.unifiedpush.android.connector.UnifiedPush
+import org.unifiedpush.android.connector.PushService
+import org.unifiedpush.android.connector.FailedReason
+import org.unifiedpush.android.connector.data.PushEndpoint
+import org.unifiedpush.android.connector.data.PushMessage
+import org.json.JSONObject
+import java.time.Instant
+import java.util.concurrent.Executors
+
+object PushConnection {
+    private val worker=Executors.newSingleThreadExecutor()
+    fun configure(context:Context){
+        val stored=PhoneStore(context).read() ?: return
+        val settings=stored.optJSONObject("push") ?: return
+        if(!settings.optBoolean("enabled")){unregister(context);state(context,"not_configured");return}
+        try{
+            // The embedded open-source distributor talks to the phone's installed
+            // Play Services. No Google client SDK or Firebase project is bundled.
+            UnifiedPush.saveDistributor(context,context.packageName)
+            state(context,"connecting")
+            UnifiedPush.register(context,stored.getString("device_id"),"OpenWeb PBX incoming calls",settings.getString("vapid_public_key"))
+        }catch(_:Exception){state(context,"unavailable")}
+    }
+    fun state(context:Context,value:String){PhoneStore(context).update{it.put("push_state",value)};PhoneService.changed?.invoke()}
+    fun unregister(context:Context){try{PhoneStore(context).read()?.optString("device_id")?.takeIf{it.isNotEmpty()}?.let{UnifiedPush.unregister(context,it)}}catch(_:Exception){}}
+    fun register(context:Context,endpoint:PushEndpoint,instance:String){worker.execute{try{
+        val a=PhoneStore(context).read() ?: return@execute
+        if(instance!=a.optString("device_id") || !a.optJSONObject("push")!!.optBoolean("enabled"))return@execute
+        val keys=endpoint.pubKeySet ?: throw IllegalArgumentException("Missing notification keys")
+        PhoneApi(a.getString("server"),a.getString("token")).json("push_register",JSONObject().put("endpoint",endpoint.url).put("p256dh",keys.pubKey).put("auth",keys.auth).put("vapid_public_key",a.getJSONObject("push").getString("vapid_public_key")))
+        state(context,"ready")
+    }catch(_:Exception){state(context,"unavailable")}}}
+    fun cancel(context:Context,id:String){context.getSystemService(NotificationManager::class.java).cancel("push:$id",12)}
+    fun notify(context:Context,id:String,expires:Long){
+        val manager=context.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(NotificationChannel("calls","Incoming calls",NotificationManager.IMPORTANCE_HIGH).apply{lockscreenVisibility=Notification.VISIBILITY_PRIVATE})
+        fun action(answer:Boolean,decline:Boolean=false)=PendingIntent.getActivity(context,(id+answer+decline).hashCode(),Intent(context,IncomingCallActivity::class.java).putExtra("push_request",id).putExtra("answer",answer).putExtra("decline",decline),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val open=action(false);val answer=action(true);val decline=action(false,true)
+        val person=Person.Builder().setName("OpenWeb PBX caller").build()
+        val note=Notification.Builder(context,"calls").setSmallIcon(R.drawable.ic_phone).setContentTitle("Incoming call").setContentText("Connecting your phone…").setContentIntent(open).setCategory(Notification.CATEGORY_CALL).setVisibility(Notification.VISIBILITY_PRIVATE).setTimeoutAfter(((expires-Instant.now().epochSecond)*1000).coerceIn(1,60000))
+        // Push does not play a second ringtone; the native incoming SIP call owns audio focus.
+        if(Build.VERSION.SDK_INT<34 || manager.canUseFullScreenIntent())note.setFullScreenIntent(open,true)
+        note.addAction(Notification.Action.Builder(null,"Answer",answer).build()).addAction(Notification.Action.Builder(null,"Decline",decline).build())
+        manager.notify("push:$id",12,note.build())
+    }
+}
+class PhoneMessagingService:PushService(){
+    override fun onNewEndpoint(endpoint:PushEndpoint,instance:String){PushConnection.register(this,endpoint,instance)}
+    override fun onRegistrationFailed(reason:FailedReason,instance:String){if(instance==PhoneStore(this).read()?.optString("device_id"))PushConnection.state(this,"unavailable")}
+    override fun onUnregistered(instance:String){if(instance==PhoneStore(this).read()?.optString("device_id"))PushConnection.state(this,"unavailable")}
+    override fun onTempUnavailable(instance:String){onUnregistered(instance)}
+    override fun onMessage(message:PushMessage,instance:String){
+        if(!message.decrypted || message.content.size>4096)return
+        val saved=PhoneStore(this).read() ?: return
+        if(instance!=saved.optString("device_id"))return
+        val data=try{JSONObject(message.content.toString(Charsets.UTF_8))}catch(_:Exception){return}
+        val id=data.optString("request_id")
+        if(!id.matches(Regex("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")) || data.optString("device_id")!=saved.optString("device_id") || data.optLong("expires")<=Instant.now().epochSecond)return
+        if(data.optString("event")=="ended"){PushConnection.cancel(this,id);return}
+        if(data.optString("event")!="incoming")return
+        try{
+            val current=PhoneApi(saved.getString("server"),saved.getString("token"),4000).json("push_call",id=id)
+            if(!current.getBoolean("ringing"))return
+            val callId=current.getString("call_id")
+            if(PhoneService.instance?.calls?.any{it.remoteParams?.getCustomHeader("X-OpenWeb-Push-ID")==callId}==true)return
+            PhoneStore(this).update{it.put("push_pending_id",id).put("push_pending_call",callId)}
+            PushConnection.notify(this,id,data.getLong("expires"))
+            if(PhoneService.instance==null && !UpdateManager.get(this).isInstalling){try{startForegroundService(Intent(this,PhoneService::class.java))}catch(_:Exception){/* Tap Answer can start the phone from a visible activity. */}}
+        }catch(_:Exception){/* Never resurrect a call that cannot be authenticated. */}
+    }
+}

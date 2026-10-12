@@ -37,8 +37,13 @@ assert application.get(ns+'debuggable', 'false') == 'false'
 assert application.get(ns+'allowBackup') == 'false'
 assert application.get(ns+'usesCleartextTraffic') == 'false'
 permissions = sorted(x.get(ns+'name') for x in root.findall('uses-permission'))
-for forbidden in ['REQUEST_INSTALL_PACKAGES', 'UPDATE_PACKAGES_WITHOUT_USER_ACTION', 'MANAGE_EXTERNAL_STORAGE', 'READ_SMS', 'READ_CALL_LOG', 'USE_FULL_SCREEN_INTENT', 'FOREGROUND_SERVICE_CAMERA', 'FOREGROUND_SERVICE_PHONE_CALL', 'FOREGROUND_SERVICE_DATA_SYNC']:
+for forbidden in ['REQUEST_INSTALL_PACKAGES', 'UPDATE_PACKAGES_WITHOUT_USER_ACTION', 'MANAGE_EXTERNAL_STORAGE', 'READ_SMS', 'READ_CALL_LOG', 'FOREGROUND_SERVICE_CAMERA', 'FOREGROUND_SERVICE_PHONE_CALL', 'FOREGROUND_SERVICE_DATA_SYNC']:
     assert 'android.permission.'+forbidden not in permissions, 'Unexpected permission: '+forbidden
+assert 'android.permission.USE_FULL_SCREEN_INTENT' in permissions, 'Missing incoming-call notification permission'
+activities = {x.get(ns+'name'): x for x in application.findall('activity')}
+incoming = activities['com.openweb.pbx.IncomingCallActivity']
+assert incoming.get(ns+'exported') == 'false'
+assert incoming.get(ns+'showWhenLocked') == 'true' and incoming.get(ns+'turnScreenOn') == 'true'
 services = {x.get(ns+'name'): x for x in application.findall('service')}
 phone = services['com.openweb.pbx.PhoneService']
 assert phone.get(ns+'exported') == 'false'

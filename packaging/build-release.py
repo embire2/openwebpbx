@@ -86,7 +86,7 @@ with tempfile.TemporaryDirectory(prefix='openweb-release-') as temporary:
         (stage / 'desktop/server.json').unlink(missing_ok=True)
     else:
         shutil.copy2(args.engine, stage / 'engine.tar.gz')
-        for executable in ['install.sh', 'configure.py', 'upgrade.sh', 'upgrade.py', 'server/OpenWebPbx.Server']:
+        for executable in ['install.sh', 'configure.py', 'upgrade.sh', 'upgrade.py', 'backups.py', 'install-backups.sh', 'server/OpenWebPbx.Server']:
             (stage / executable).chmod(0o755)
     # The updater deploys only listed files, validates bytes before making changes,
     # and uses this same manifest to identify newly installed files on rollback.

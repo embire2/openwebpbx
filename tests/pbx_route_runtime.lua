@@ -54,9 +54,16 @@ local function environment(f)
     function db:query(sql,params,callback)
         if sql:find('from v_gateways',1,true) then
             local native=f.gateways[params.id]
-            if native and native.domain==params.domain and callback then callback(native) end
+            if native and native.domain==(params.domain or params.d) and callback then callback(native) end
+        elseif sql:find('insert into v_pbx_mobile_push_calls',1,true) then
+            f.wake_targets=f.wake_targets or {};f.wake_targets[#f.wake_targets+1]=params.extension
+            if f.push_configured then callback({request_uuid='fixture-wake'}) end
         elseif sql:find('from v_pbx_mobile_devices',1,true) then
-            if f.mobile_active and params.domain==domain then callback({extension_uuid='mobile-fixture-extension'}) end
+            if sql:find("c.project_id='webpush'",1,true) then if f.push_configured and params.domain==domain then callback({ok=1}) end
+            elseif f.mobile_active and params.domain==domain then callback({extension_uuid='mobile-fixture-extension'}) end
+        elseif sql:find("set result='calling'",1,true) then if f.audit_claim then callback({audit_uuid=params.id}) end
+        elseif sql:find('set result=:result',1,true) then f.audit_result=params.result
+        elseif sql:find('select 1 as ok from v_pbx_jobs where job_uuid',1,true) and sql:find('lease_until>now()',1,true) then if f.callback_claim then callback({ok=1}) end
         elseif sql:find('select r.config from v_pbx_restore',1,true) then
             assert(sql:find("d.domain_enabled='true'",1,true) and sql:find('not t.enabled',1,true),'Enabled domain and tenant guard missing')
             if f.active then callback({config='fixture-config'}) end
@@ -81,19 +88,26 @@ local function environment(f)
         elseif command=='sofia_contact' then return f.offline and 'error/user_not_registered' or 'sofia/internal/sip:fixture@127.0.0.1:15060'
         elseif command=='show' then return 'fixture-channels'
         elseif command=='strftime_tz' then return '1_09:00_2026-10-05'
+        elseif command=='uuid_exists' then return f.source_gone and 'false' or 'true'
+        elseif command=='uuid_getvar' then
+            if data:match(' domain_uuid$') then return f.source_foreign and '00000000-0000-4000-a000-000000000099' or domain end
+            if data:match(' queue_extension$') then return f.source_queue or '300' end
         elseif command=='callcenter_config' and data:match('^agent list ') then
             return 'name|state|status|ready_time|last_bridge_end|wrap_up_time|external_calls_count|\nfixture-agent|Waiting|Available|0|0|0|0|'
         end
         return '+OK'
     end
     local env=setmetatable({session=s,scripts_dir=base,storage_dir='/nonexistent-fixture-storage',argv={'00000000-0000-4000-a000-000000000030'}},{__index=_G})
+    -- Nested helpers must share this isolated runtime environment as well.
+    env.loadfile=function(path)return loadfile(path,'t',env)end
     env.require=function(name)
         if name=='resources.functions.database' then return {new=function()return db end} end
-        if name=='resources.functions.lunajson' then return {decode=function(value)return value=='fixture-channels' and {rows={}} or f.config end} end
+        if name=='resources.functions.lunajson' then return {decode=function(value)return value=='fixture-channels' and {rows={}} or f.config end,encode=function(value)f.output=value;return 'fixture-output'end} end
         if name=='resources.functions.config' then return {} end
         error('Unexpected dependency '..name)
     end
     env.freeswitch={API=function()return api end,consoleLog=function(_,message)f.log=message end,Session=function(dial)f.agent_dial=dial;return s end}
+    env.stream={write=function()end}
     return env
 end
 local function run(f,mode,key)
@@ -265,4 +279,45 @@ check(saved.inserts==1 and saved.notifications==1 and saved.emails==1 and saved.
 local invalid=copy(voicemail_call);invalid.action='leave';local ignored=native_voicemail(invalid)
 check(ignored.greetings==0 and ignored.recordings==0 and ignored.inserts==0 and ignored.released,
     'Regression fixture reproduces the old unsupported action returning without a greeting or message')
-print('PASS: '..count..' synthetic ordinary-call, forwarding, ingress, callback, mobile and voicemail runtime checks')
+local function plan(f,number)
+    local env=environment(f);env.argv={domain,'100',number or '0123456789'}
+    assert(loadfile(base..'/app/pbx_setup/core_call_plan.lua','t',env))();return f.output
+end
+f=fixture();local explanation=plan(f)
+check(explanation.registered and explanation.provider=='one' and explanation.routes[1].number=='+27123456789','First-call plan uses ordinary caller restrictions, registration and rewritten provider route')
+f=fixture();f.gateways[gateway1].enabled='false';check(plan(f).provider=='two','First-call plan identifies available ordered backup rather than disabled primary')
+f=fixture();check(plan(f,'300').error~=nil,'First-call test cannot call an internal queue as an outside number')
+f=fixture();f.config.calling_rules={emergency_numbers={'112'},emergency_routes={{trunk_id='one'}}};check(plan(f,'112').error~=nil,'First-call wizard rejects emergency numbers')
+f=fixture();f.active=false;check(plan(f).error~=nil,'Suspended tenant cannot produce a first-call plan')
+local function first_test(f)
+    local env=environment(f);env.argv={domain,'one','100','0123456789','00000000-0000-4000-a000-000000000061'}
+    assert(loadfile(base..'/app/pbx_setup/core_call_test.lua','t',env))()
+end
+f=fixture();first_test(f);check(not f.agent_dial,'First-call worker cannot execute an unclaimed or replayed audit request')
+f=fixture();f.audit_claim=true;first_test(f)
+check(f.agent_dial and f.agent_dial:find('absolute_timeout=180',1,true) and f.agent_dial:find('}sofia/',1,true) and f.audit_result=='finished','First-call worker bounds lifetime and calls one registered phone before ordinary outbound handling')
+f=fixture();f.audit_claim=true;f.gateways[gateway1].enabled='false';first_test(f);check(not f.agent_dial and f.audit_result=='failed','Changed provider selection prevents first-call worker ringing a phone')
+local function agent(f)
+    f.config.users['100'].extension_uuid='00000000-0000-4000-a000-000000000062'
+    f.variables.openweb_agent_number='100';f.variables.openweb_queue_number='300';f.variables.loopback_leg=f.variables.loopback_leg or 'B'
+    f.variables.other_loopback_leg_uuid='00000000-0000-4000-a000-000000000063';f.variables.openweb_queue_source=f.variables.openweb_queue_source or '00000000-0000-4000-a000-000000000064'
+    assert(loadfile(base..'/app/pbx_setup/core_agent.lua','t',environment(f)))()
+end
+f=fixture();f.push_configured=true;agent(f)
+check(#f.bridges==1 and #f.wake_targets==1 and f.wake_targets[1]==f.config.users['100'].extension_uuid,'Native queue wrapper wakes and rings only the selected assigned agent')
+check(f.bridges[1]:find('user/auth100@',1,true) and not f.voicemail and f.variables.openweb_mobile_wake_targets==f.config.users['100'].extension_uuid,'Selected queue delivery keeps cancellable target identity and bypasses user voicemail forwarding')
+for _,change in ipairs({'source_foreign','source_gone'}) do f=fixture();f[change]=true;agent(f);check(#f.bridges==0 and not f.wake_targets,'Queue wrapper rejects '..change..' source before any push') end
+f=fixture();f.source_queue='999';agent(f);check(#f.bridges==0,'Queue wrapper rejects another queue caller')
+f=fixture();f.variables.loopback_leg='A';agent(f);check(#f.bridges==0,'Ordinary SIP or wrong loopback leg cannot invoke selected-agent delivery')
+f=fixture();f.config.users['100'].profiles.Available.away={External={all={type='VoiceMail',number='100'}}};agent(f);check(#f.bridges==0 and not f.voicemail,'Stale queue selection cannot ring or reach voicemail after an agent leaves availability')
+f=fixture();f.config.queues[1].members[1].supervisor_break=true;agent(f);check(#f.bridges==0 and not f.wake_targets,'Supervisor break prevents selected-agent push')
+f=fixture();f.variables.openweb_callback_job='00000000-0000-4000-a000-000000000030';agent(f);check(#f.bridges==0,'Expired or unclaimed callback cannot wake an agent')
+f=fixture();f.variables.openweb_callback_job='00000000-0000-4000-a000-000000000030';f.callback_claim=true;agent(f);check(#f.bridges==1,'Current owned callback lease allows selected-agent delivery')
+f=fixture();f.variables.cc_member_session_uuid='00000000-0000-4000-a000-000000000065';agent(f)
+check(f.bridges[1]:find(f.variables.cc_member_session_uuid,1,true) and not f.bridges[1]:find(f.variables.openweb_queue_source,1,true),'Queue answer accounting uses native selected member rather than stale shared contact caller')
+f=fixture();f.variables.cc_member_session_uuid='invalid';agent(f);check(#f.bridges==0,'Invalid native selected member never falls back to a stale shared caller')
+local contact_module=assert(loadfile(base..'/app/pbx_setup/core_agent_contact.lua'))()
+local dial=contact_module.dial(domain,config.realm,{number='100'},{number='300',ring_timeout=10},'${uuid}',nil,'${openweb_call_internal}')
+check(dial and dial:find('openweb_queue_source=${uuid}',1,true) and dial:find('openweb_call_internal=${openweb_call_internal}',1,true),'Shared push contact defers caller identity and recording origin to native member expansion')
+check(not contact_module.dial(domain,config.realm,{number='100'},{number='300',ring_timeout=10},'${arbitrary}'),'Native contact refuses arbitrary variable interpolation')
+print('PASS: '..count..' synthetic call, routing, first-call wizard and selected-agent wake runtime checks')

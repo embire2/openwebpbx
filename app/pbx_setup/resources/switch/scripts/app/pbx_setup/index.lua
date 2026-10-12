@@ -4,6 +4,9 @@ if not session or not session:ready() then return end
 local Database=require 'resources.functions.database'
 local json=require 'resources.functions.lunajson'
 local P=loadfile(scripts_dir..'/app/pbx_setup/policy.lua')()
+local registered=loadfile(scripts_dir..'/app/pbx_setup/registered.lua')()
+local Q=loadfile(scripts_dir..'/app/pbx_setup/core_queue.lua')()
+local agent_contact=loadfile(scripts_dir..'/app/pbx_setup/core_agent_contact.lua')()
 local db=Database.new('system')
 local api=freeswitch.API()
 local domain=session:getVariable('domain_uuid') or ''
@@ -34,6 +37,7 @@ if type(auth)=='string' and auth~='' and (not auth_realm or auth_realm==realm) a
 end
 local internal=authenticated_user and mode~='incoming'
 if mode=='record_user' then internal=session:getVariable('openweb_call_internal')=='true' end
+if authenticated_user and mode~='incoming' and mode~='record_user' then session:setVariable('call_direction','local') end
 local function clock(zone)
     local result=api:execute('strftime_tz',(zone or 'Africa/Johannesburg')..' %w_%H:%M_%Y-%m-%d')
     local day,time,date=result:match('^(%d)_(%d%d:%d%d)_(%d%d%d%d%-%d%d%-%d%d)')
@@ -86,24 +90,38 @@ local function outbound_contact(number,rule_route,owner)
     if not native or not P.gateway_available(native,api:execute('sofia','status gateway '..t.gateway_uuid)) then return nil end
     return P.outbound_leg(t,rule_route,number,config.users[tostring(owner or caller)],caller,domain,realm,native)
 end
-local function user_contact(u,timeout)
-    local variables='rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,leg_timeout='..timeout..',domain_uuid='..domain..',domain_name='..realm..',openweb_call_internal='..tostring(internal)
+local mobile_wake=loadfile(scripts_dir..'/app/pbx_setup/mobile_wake.lua')()
+local function user_contact(u,timeout,queue)
+    if queue and agent_contact.push(db,domain,u) then
+        -- The native queue expands this against the member actually offered,
+        -- rather than the last caller who refreshed the shared agent contact.
+        local dial=agent_contact.dial(domain,realm,u,{number=queue,ring_timeout=timeout},'${uuid}',nil,'${openweb_call_internal}')
+        if dial then return dial end
+    end
+    local call=queue and '${uuid}' or session:getVariable('uuid');local origin=queue and '${openweb_call_internal}' or tostring(internal)
+    local variables='sip_h_X-OpenWeb-Push-ID='..call..',rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,leg_timeout='..timeout..',domain_uuid='..domain..',domain_name='..realm..',openweb_call_internal='..origin
     if u.record_calls and not (u.record_external_only and internal) then
         variables=variables..",execute_on_answer='lua app.lua pbx_setup record_user "..u.number.."'"
     end
+    if queue then variables=variables..",api_on_answer='lua app/pbx_setup/core_queue_answer.lua "..domain..' '..queue..' '..call.."'" end
     return '['..variables..']user/'..u.auth_id..'@'..realm
 end
 run_outbound=function(number,owner)
     local origin=tostring(owner or caller)
+    local emergency=P.emergency(config,number)
+    if emergency and (not authenticated_user or origin~=tostring(caller)) then session:hangup('CALL_REJECTED');return end
     local room=hotel_room(origin)
-    if room and room.occupied~='t' and room.occupied~='true' then session:hangup('CALL_REJECTED');return end
+    if not emergency and room and room.occupied~='t' and room.occupied~='true' then session:hangup('CALL_REJECTED');return end
     if not number:match('^%+?[%d*#]+$') then session:hangup('UNALLOCATED_NUMBER');return end
-    local rule=P.outbound(config,number,origin)
+    local rule=emergency or P.outbound(config,number,origin)
     if not rule then session:hangup('CALL_REJECTED');return end
     for _,r in ipairs(rule.routes) do
         local contact=outbound_contact(number,r,origin)
         contact=contact and P.track_answer(contact,session:getVariable('uuid'))
         if contact then
+            session:setVariable('call_direction','outbound')
+            session:setVariable('provider_uuid',config.trunks[tostring(r.trunk_id)].gateway_uuid)
+            if emergency then session:setVariable('openweb_emergency_call','true') end
             -- Directory call_timeout belongs to the user's incoming ring
             -- profile. FreeSWITCH also reads it on the caller's provider
             -- originate, so explicitly give each provider attempt its own
@@ -127,6 +145,7 @@ run_outbound=function(number,owner)
 end
 route=function(destination,owner)
     if not session:ready() then return end
+    session:setVariable('openweb_mobile_wake_targets','')
     destination=destination or {type='None'}
     local kind=destination.type
     local number=destination.number~='' and destination.number or owner
@@ -146,11 +165,12 @@ run_user=function(number)
     local profile=P.profile(config,number,clock)
     local open=P.office(config,number,clock)
     if next(profile.away or {}) then route(P.forward(profile,'NoAnswer',internal,open),number);return end
-    local contact=api:execute('sofia_contact',u.auth_id..'@'..realm)
+    mobile_wake(db,api,P,session,domain,{u})
+    local contact=registered(db,api,P,domain,u,realm)
     if not P.contact(contact) then route(P.forward(profile,'NotRegistered',internal,open),number);return end
     session:setVariable('call_timeout',tostring(profile.timeout));session:setVariable('origination_callee_id_name',u.name)
     session:setVariable('origination_callee_id_number',tostring(number));record(u)
-    local bridge='[rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,leg_timeout='..profile.timeout..']user/'..u.auth_id..'@'..realm
+    local bridge='[sip_h_X-OpenWeb-Push-ID='..session:getVariable('uuid')..',rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,leg_timeout='..profile.timeout..']user/'..u.auth_id..'@'..realm
     if profile.ring_mobile and u.mobile~='' then
         local rule=P.outbound(config,u.mobile,number)
         if rule then for _,r in ipairs(rule.routes) do
@@ -169,6 +189,9 @@ run_group=function(number)
     local group=P.find(config.ring_groups,number)
     if not group then session:hangup('UNALLOCATED_NUMBER');return end
     local special=P.object_destination(config,group,clock);if special then route(special,number);return end
+    local wake_users={}
+    for _,m in ipairs(group.members or {}) do local u=config.users[tostring(m.number)];if u and u.enabled and not P.profile(config,tostring(m.number),clock).disable_ring_groups then wake_users[#wake_users+1]=u end end
+    mobile_wake(db,api,P,session,domain,wake_users)
     local contacts={}
     for _,m in ipairs(group.members) do
         local u=config.users[tostring(m.number)]
@@ -184,15 +207,20 @@ run_queue=function(number)
     local q=P.find(config.queues,number)
     if not q then session:hangup('UNALLOCATED_NUMBER');return end
     local special=P.object_destination(config,q,clock);if special then route(special,number);return end
+    local queue_callid=session:getVariable('uuid')
+    local ok_join,joined=pcall(Q.join,db,domain,number,queue_callid,q.capacity or 0)
+    if not ok_join then session:hangup('NORMAL_TEMPORARY_FAILURE');return end
+    if not joined then route(q.destination,number);return end
     api:execute('callcenter_config','queue load '..number..'@'..realm)
+    session:setVariable('openweb_call_internal',tostring(internal))
     for _,m in ipairs(q.members) do
         local u=config.users[tostring(m.number)]
         local profile=P.profile(config,m.number,clock)
         local reserved=false
         db:query("select 1 as ok from v_pbx_jobs where domain_uuid=:domain and agent_number=:number and state in ('starting','calling')",{domain=domain,number=tostring(m.number)},function() reserved=true end)
-        local status=reserved and 'On Break' or (m.status=='LoggedIn' and u.queue_status=='LoggedIn' and u.enabled and profile.queue_status~='0' and 'Available' or 'Logged Out')
-        api:execute('callcenter_config','agent set contact '..m.agent_uuid..' '..user_contact(u,q.ring_timeout))
-        api:execute('callcenter_config','agent set status '..m.agent_uuid..' '..status)
+        local status=(reserved or m.supervisor_break) and 'On Break' or (m.status=='LoggedIn' and u.queue_status=='LoggedIn' and u.enabled and profile.queue_status~='0' and 'Available' or 'Logged Out')
+        api:execute('callcenter_config','agent set contact '..m.agent_uuid..' '..user_contact(u,q.ring_timeout,number))
+        api:execute('callcenter_config',"agent set status "..m.agent_uuid.." '"..status.."'")
     end
     session:answer();session:setVariable('call_center_queue_uuid',q.uuid)
     session:setVariable('queue_extension',tostring(number))
@@ -200,6 +228,7 @@ run_queue=function(number)
     local callback_mode=q.callback_mode or 'disabled'
     local callback_valid=caller:match('^%+?%d+$') and #caller<=32
     local started=os.time()
+    if q.announce_position or q.announce_wait or (q.announce_sound and q.announce_sound~='') then api:execute('luarun','app/pbx_setup/core_queue_announce.lua '..domain..' '..number..' '..queue_callid) end
     local offered=false
     local function request_callback()
         if not callback_valid then return false end
@@ -210,11 +239,15 @@ run_queue=function(number)
           on conflict do nothing returning job_uuid]],
           {id=api:execute('create_uuid',''):gsub('%s+$',''),domain=domain,queue=tostring(number),target=caller,internal=tostring(internal),request='call/'..session:getVariable('uuid'),attempts=q.callback_attempts or 3},function() stored=true end)
         if not stored then db:query("select 1 as ok from v_pbx_jobs where domain_uuid=:domain and kind='callback' and queue_number=:queue and target_number=:target and state in ('waiting','starting','calling')",{domain=domain,queue=tostring(number),target=caller},function() stored=true end) end
-        if stored then session:execute('phrase','openweb_callback_saved');session:hangup('NORMAL_CLEARING');return true end
+        if stored then pcall(Q.callback,db,domain,number,queue_callid,caller);session:execute('phrase','openweb_callback_saved');session:hangup('NORMAL_CLEARING');return true end
         return false
     end
     if callback_mode~='disabled' and callback_valid then session:execute('phrase','openweb_callback_intro') end
     repeat
+        if q.callback_order=='original_position' then
+            while session:ready() and os.time()-started<q.timeout and Q.callback_first(db,domain,number,joined) do session:execute('playback','silence_stream://500') end
+            if not session:ready() or os.time()-started>=q.timeout then break end
+        end
         session:setVariable('cc_exit_keys',callback_mode~='disabled' and callback_valid and '2' or '')
         session:setVariable('cc_exit_key','');session:setVariable('cc_agent_bridged','false')
         session:setVariable('cc_base_score',tostring(os.time()-started))
@@ -232,6 +265,7 @@ run_queue=function(number)
         if callback_mode=='disabled' or callback_mode=='request' then break end
     until os.time()-started>=q.timeout
     session:setVariable('cc_exit_keys','')
+    pcall(Q.finish,db,domain,number,queue_callid,session,joined)
     if session:ready() and session:getVariable('cc_agent_bridged')~='true' then route(q.destination,number) end
 end
 run_ivr=function(number)
@@ -252,6 +286,9 @@ local function run()
     elseif mode=='outbound' then
         if authenticated_user then run_outbound(session:getVariable('destination_number') or '') else session:hangup('CALL_REJECTED') end
     elseif mode=='record_user' then local u=config.users[tostring(key)];if u then record(u) end
+    elseif mode=='parking' then
+        if not config.parking_enabled or not tostring(key):match('^%d+$') or tonumber(key)<1 or tonumber(key)>20 or not (authenticated_user or session:getVariable('openweb_park_authorized')=='true') then session:hangup('CALL_REJECTED');return end
+        session:setVariable('openweb_park_authorized','false');session:answer();session:execute('valet_park',realm..' '..key)
     elseif mode=='group_timeout' then route(P.find(config.ring_groups,key).destination,key)
     elseif mode=='queue_timeout' then route(P.find(config.queues,key).destination,key)
     elseif mode=='incoming' then
@@ -264,11 +301,13 @@ local function run()
         local enabled=false
         db:query('select enabled from v_gateways where domain_uuid=:domain and gateway_uuid=:id',{domain=domain,id=trunk.gateway_uuid},function(row) enabled=row.enabled=='true' or row.enabled=='t' end)
         if not enabled then session:hangup('CALL_REJECTED');return end
+        if P.blocked(config,caller) then session:hangup('CALL_REJECTED');return end
         session:setVariable('openweb_provider_origin','true')
         session:setVariable('openweb_call_internal','false')
         session:setVariable('call_direction','inbound');internal=false
+        session:setVariable('provider_uuid',trunk.gateway_uuid)
         local destination=rule.office
-        local open,_,holiday=P.office(config,destination.number,clock)
+        local open,_,holiday=P.office(config,rule.office_department or destination.number,clock)
         if rule.hours.type~='OfficeHours' then local d,t=clock(config.timezone);open=P.in_hours(rule.hours,d,t) end
         if holiday and rule.use_holiday then destination=rule.holiday elseif not open and rule.use_outside then destination=rule.outside end
         route(destination)

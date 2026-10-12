@@ -1,0 +1,364 @@
+#!/usr/bin/env python3
+"""Real PostgreSQL/crypto/SFTP backup checks using only independent disposable fixtures."""
+import base64
+import contextlib
+import hashlib
+import importlib.util
+import io
+import json
+import os
+from pathlib import Path
+import secrets
+import shutil
+import signal
+import socket
+import subprocess
+import tarfile
+import tempfile
+import time
+import unittest
+import uuid
+
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+spec = importlib.util.spec_from_file_location('backups', Path(__file__).resolve().parents[1] / 'packaging/debian/backups.py')
+b = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(b)
+
+
+def postgres(sql):
+    r = subprocess.run(['runuser', '-u', 'postgres', '--', 'psql', '-h', '/var/run/postgresql', '-d', 'postgres',
+                        '-X', '-w', '-v', 'ON_ERROR_STOP=1', '-q', '-c', sql], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if r.returncode:
+        raise RuntimeError('Fixture database administration failed.')
+
+
+class Backups(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.workspace = Path(tempfile.mkdtemp(prefix='openweb-backup-checks-', dir='/var/lib/openwebpbx'))
+        cls.workspace.chmod(0o700)
+        suffix = secrets.token_hex(6)
+        cls.role = 'openweb_backup_fixture_' + suffix
+        cls.source_name = 'openweb_backup_source_' + suffix
+        cls.target_name = 'openweb_backup_target_' + suffix
+        cls.password = secrets.token_hex(32)
+        cls.archive_password = 'DisposableBackupPasswordOnly123'
+        postgres('CREATE ROLE "' + cls.role + '" LOGIN PASSWORD ' + b.literal(cls.password))
+        for name in (cls.source_name, cls.target_name):
+            postgres('CREATE DATABASE "' + name + '" OWNER "' + cls.role + '"')
+        cls.source = {'database.0.type': 'pgsql', 'database.0.host': '127.0.0.1', 'database.0.port': '5432',
+                      'database.0.username': cls.role, 'database.0.password': cls.password, 'database.0.name': cls.source_name,
+                      'openweb.public_host': 'pbx.fixture.invalid'}
+        cls.target = cls.source | {'database.0.name': cls.target_name}
+        cls.key = cls.workspace / 'source.key'
+        cls.key.write_bytes(os.urandom(32))
+        cls.key.chmod(0o600)
+        cls.source_roots = {}
+        for label in ('fusionpbx-config', 'runtime-config', 'freeswitch-config', 'storage', 'recordings', 'custom-sounds'):
+            p = cls.workspace / 'source' / label
+            p.mkdir(parents=True, mode=0o700)
+            cls.source_roots[label] = p
+        config = '\n'.join(key + ' = ' + value for key, value in cls.source.items()) + '\n'
+        (cls.source_roots['fusionpbx-config'] / 'config.conf').write_text(config)
+        (cls.source_roots['fusionpbx-config'] / 'openweb-template.key').write_bytes(cls.key.read_bytes())
+        (cls.source_roots['runtime-config'] / 'runtime.json').write_text(json.dumps({'ConnectionStrings': {'Pbx': 'source-private-connection'}, 'Switch': {'Password': 'fixture-switch-only'}}))
+        (cls.source_roots['freeswitch-config'] / 'fixture.xml').write_text('<settings>fixture only</settings>')
+        (cls.source_roots['storage'] / 'voicemail.wav').write_bytes(os.urandom(1500))
+        (cls.source_roots['recordings'] / 'recording.wav').write_bytes(os.urandom(2100))
+        (cls.source_roots['custom-sounds'] / 'welcome.wav').write_bytes(os.urandom(400))
+        ddl = """
+         CREATE TABLE v_users(user_uuid uuid PRIMARY KEY,username text,user_enabled text);
+         CREATE TABLE v_domains(domain_uuid uuid PRIMARY KEY,domain_name text);
+         CREATE TABLE v_extensions(id uuid PRIMARY KEY);
+         CREATE TABLE v_pbx_tenants(id uuid PRIMARY KEY);
+         CREATE TABLE v_pbx_services(id uuid PRIMARY KEY);
+         CREATE TABLE v_pbx_restore(id uuid PRIMARY KEY);
+         CREATE TABLE v_recordings(id uuid PRIMARY KEY);
+         CREATE TABLE v_voicemail_messages(id uuid PRIMARY KEY);
+         CREATE TABLE fixture_objects(kind text PRIMARY KEY,payload text NOT NULL);
+         INSERT INTO v_users VALUES(gen_random_uuid(),'factory','true');
+         INSERT INTO v_domains VALUES(gen_random_uuid(),'pbx.fixture.invalid');
+        """
+        for settings in (cls.source, cls.target):
+            b.query(settings, ddl)
+            # Only the backup-owned tables; permissions are covered by the separate real-PG PHP suite.
+            sql = (Path(__file__).resolve().parents[1] / 'app/pbx_backups/resources/install.sql').read_text().split('DO $$')[0]
+            b.query(settings, sql + 'COMMIT;')
+            b.query(settings, "CREATE TABLE v_pbx_update_commands(status text);")
+        b.query(cls.source, "INSERT INTO fixture_objects VALUES('tenant','isolated tenant'),('template','encrypted fixture data'),('job','pending wakeup fixture'),('trunk','disabled fixture provider');")
+        b.query(cls.source, 'INSERT INTO v_extensions VALUES(gen_random_uuid());')
+        cls.archive = cls.workspace / (str(uuid.uuid4()) + '.owpbx')
+        cls.original_lock = b.UPGRADE_LOCK
+        b.UPGRADE_LOCK = cls.workspace / 'upgrade.lock'
+        cls.manifest = b.create_archive(cls.source, cls.archive, cls.archive_password, roots=cls.source_roots, version='1.0.9')
+        cls.original_roots, cls.original_media = b.ROOTS, b.MEDIA
+
+    @classmethod
+    def tearDownClass(cls):
+        b.UPGRADE_LOCK = cls.original_lock
+        b.ROOTS, b.MEDIA = cls.original_roots, cls.original_media
+        for name in (cls.source_name, cls.target_name):
+            postgres('DROP DATABASE IF EXISTS "' + name + '" WITH (FORCE)')
+        postgres('DROP ROLE IF EXISTS "' + cls.role + '"')
+        shutil.rmtree(cls.workspace)
+
+    def seal(self, text):
+        nonce = os.urandom(12)
+        key = hashlib.sha256(self.key.read_bytes() + b'/openwebpbx/backups/v1').digest()
+        encrypted = AESGCM(key).encrypt(nonce, text.encode(), b'openwebpbx-backup-settings-v1')
+        return 'v1:' + base64.b64encode(nonce + encrypted[-16:] + encrypted[:-16]).decode()
+
+    def test_01_encrypted_archive_and_private_media(self):
+        self.assertTrue(self.archive.read_bytes().startswith(b.MAGIC))
+        self.assertNotIn(b'fixture-switch-only', self.archive.read_bytes())
+        self.assertEqual(self.archive.stat().st_mode & 0o777, 0o600)
+        with b.verify_archive(self.archive, self.archive_password) as (files, manifest):
+            self.assertEqual(manifest['version'], '1.0.9')
+            self.assertEqual((files / 'storage/voicemail.wav').read_bytes(), (self.source_roots['storage'] / 'voicemail.wav').read_bytes())
+            self.assertEqual((files / 'fusionpbx-config/openweb-template.key').read_bytes(), self.key.read_bytes())
+
+    def test_02_bad_password_and_tampering(self):
+        with self.assertRaisesRegex(b.BackupError, 'wrong|damaged'):
+            with b.verify_archive(self.archive, 'WrongFixturePasswordOnly'):
+                pass
+        damaged = self.workspace / 'damaged.owpbx'
+        raw = bytearray(self.archive.read_bytes())
+        raw[100] ^= 1
+        damaged.write_bytes(raw)
+        with self.assertRaisesRegex(b.BackupError, 'wrong|damaged'):
+            with b.verify_archive(damaged, self.archive_password):
+                pass
+        damaged.unlink()
+
+    def test_03_settings_envelope(self):
+        self.assertEqual(b.unseal(self.seal('fixture passphrase'), self.key), 'fixture passphrase')
+        with self.assertRaises(b.BackupError):
+            b.unseal('v1:' + base64.b64encode(os.urandom(70)).decode(), self.key)
+
+    def test_04_archive_path_and_link_refusal(self):
+        for name in ('/etc/shadow', '../unsafe', 'storage/../unsafe', 'unknown/file', 'storage/a\\b'):
+            with self.assertRaises(b.BackupError):
+                b.safe_member(name)
+        payload = self.workspace / 'linked.tar.gz'
+        manifest = json.dumps({'schema': 1, 'platform': 'debian13', 'version': '1.0.9',
+            'files': {'database.dump': {'size': 0, 'mode': 0o600, 'sha256': hashlib.sha256(b'').hexdigest()}}}).encode()
+        with tarfile.open(payload, 'w:gz') as archive:
+            m = tarfile.TarInfo('manifest.json');m.size = len(manifest);archive.addfile(m, io.BytesIO(manifest))
+            m = tarfile.TarInfo('database.dump');m.type = tarfile.SYMTYPE;m.linkname = '/etc/shadow';archive.addfile(m)
+        output = self.workspace / 'linked-output';output.mkdir()
+        with self.assertRaises(b.BackupError):
+            b.extract_verified(payload, output)
+        shutil.rmtree(output);payload.unlink()
+
+    def test_05_inventory_symlink_and_size_refusal(self):
+        root = self.workspace / 'unsafe-root';root.mkdir()
+        (root / 'link').symlink_to(self.key)
+        with self.assertRaises(b.BackupError):
+            b.file_inventory({'fusionpbx-config': root})
+        (root / 'link').unlink();root.rmdir()
+        old = b.MAX_ARCHIVE
+        b.MAX_ARCHIVE = 10
+        try:
+            with self.assertRaises(b.BackupError):
+                with b.verify_archive(self.archive, self.archive_password):
+                    pass
+        finally:
+            b.MAX_ARCHIVE = old
+
+    def test_06_real_database_restore_and_identity(self):
+        with b.verify_archive(self.archive, self.archive_password) as (files, _):
+            work = self.workspace / 'database-restore';work.mkdir()
+            b.restore_database(self.target, files / 'database.dump', work)
+            self.assertEqual(b.query(self.target, 'select count(*) from fixture_objects'), '4')
+            self.assertEqual(b.query(self.target, 'select current_database()'), self.target_name)
+            self.assertEqual(b.query(self.target, 'select current_user'), self.role)
+            self.assertEqual(b.query(self.target, 'select count(*) from v_extensions'), '1')
+            shutil.rmtree(work)
+        # Return target to factory state for the guarded full-restore tests.
+        b.query(self.target, 'delete from v_extensions;delete from fixture_objects;')
+
+    def test_07_populated_target_refused(self):
+        b.target_is_factory(self.target)
+        with self.assertRaisesRegex(b.BackupError, 'local PostgreSQL'):
+            b.target_is_factory(self.target | {'database.0.host': 'remote-database.example.invalid'})
+        b.query(self.target, 'insert into v_pbx_tenants values(gen_random_uuid());')
+        try:
+            with self.assertRaisesRegex(b.BackupError, 'fresh installation'):
+                b.target_is_factory(self.target)
+        finally:
+            b.query(self.target, 'delete from v_pbx_tenants;')
+
+    def test_08_worker_requests_and_retention(self):
+        store = self.workspace / 'worker-store';downloads = self.workspace / 'worker-downloads'
+        b.query(self.source, "update v_pbx_backup_settings set passphrase_secret=" + b.literal(self.seal(self.archive_password)) + ',retention=2,include_media=true;')
+        for _ in range(3):
+            b.query(self.source, "insert into v_pbx_backup_commands(command_uuid,action) values(gen_random_uuid(),'create')")
+            b.worker(self.source, store=store, downloads=downloads, roots=self.source_roots, version='1.0.9', key_file=self.key)
+        self.assertEqual(b.query(self.source, "select count(*) from v_pbx_backups where status='ready'"), '2')
+        self.assertEqual(len(list(store.glob('*.owpbx'))), 2)
+        self.assertEqual(len(list(downloads.glob('*.owpbx'))), 2)
+        self.assertEqual(b.query(self.source, "select count(*) from v_pbx_backup_commands where status='completed'"), '3')
+        latest = b.query(self.source, "select backup_uuid from v_pbx_backups order by completed_at desc limit 1")
+        b.query(self.source, "insert into v_pbx_backup_commands(command_uuid,action,backup_uuid) values(gen_random_uuid(),'verify'," + b.literal(latest) + '::uuid)')
+        b.worker(self.source, store=store, downloads=downloads, roots=self.source_roots, version='1.0.9', key_file=self.key)
+        self.assertEqual(b.query(self.source, "select count(*) from v_pbx_backup_commands where action='verify' and status='completed'"), '1')
+
+    def test_09_worker_crash_recovery_and_daily_schedule(self):
+        store = self.workspace / 'worker-store';downloads = self.workspace / 'worker-downloads'
+        b.query(self.source, "insert into v_pbx_backup_commands(command_uuid,action,status) values(gen_random_uuid(),'create','running')")
+        b.query(self.source, "update v_pbx_backup_settings set enabled=true,schedule_hour=0,last_scheduled_date=null")
+        b.worker(self.source, store=store, downloads=downloads, roots=self.source_roots, version='1.0.9', key_file=self.key)
+        self.assertEqual(b.query(self.source, "select count(*) from v_pbx_backup_commands where status='running'"), '0')
+        self.assertEqual(b.query(self.source, "select count(*) from v_pbx_backup_commands where status='failed'"), '1')
+        count = b.query(self.source, 'select count(*) from v_pbx_backup_commands')
+        b.worker(self.source, store=store, downloads=downloads, roots=self.source_roots, version='1.0.9', key_file=self.key)
+        self.assertEqual(b.query(self.source, 'select count(*) from v_pbx_backup_commands'), count)
+        b.query(self.source, 'update v_pbx_backup_settings set enabled=false')
+
+    def test_10_guarded_full_restore_and_interruption_recovery(self):
+        target_root = self.workspace / 'full-target'
+        roots = {}
+        for label in self.source_roots:
+            p = target_root / label;p.mkdir(parents=True)
+            roots[label] = p
+        config = roots['fusionpbx-config'] / 'config.conf'
+        config.write_text('\n'.join(key + ' = ' + value for key, value in self.target.items()) + '\n')
+        (roots['fusionpbx-config'] / 'openweb-template.key').write_bytes(os.urandom(32))
+        runtime = roots['runtime-config'] / 'runtime.json';runtime.write_text(json.dumps({'ConnectionStrings': {'Pbx': 'target'}}))
+        old = {key: getattr(b, key) for key in ('ROOTS', 'MEDIA', 'RESTORE', 'WEB_VERSION', 'running_services', 'UNIT_ROOT', 'STORE')}
+        try:
+            b.ROOTS = {key: value for key, value in roots.items() if key not in self.original_media}
+            b.MEDIA = {key: value for key, value in roots.items() if key in self.original_media}
+            b.RESTORE = self.workspace / 'restore-journal'
+            b.STORE = self.workspace / 'restore-lock-store'
+            b.UNIT_ROOT = self.workspace / 'fixture-units';b.UNIT_ROOT.mkdir()
+            b.WEB_VERSION = self.workspace / 'target-version';b.WEB_VERSION.write_text('1.0.9')
+            b.running_services = lambda: []  # Never touch any host production service.
+            dry = b.restore(self.archive, self.archive_password, self.target, dry_run=True)
+            self.assertEqual(dry['version'], '1.0.9')
+            self.assertFalse((b.RESTORE / 'journal.json').exists())
+            with self.assertRaises(b.BackupError):
+                b.restore(self.archive, self.archive_password, self.target, confirm_database='wrong-target')
+            b.restore(self.archive, self.archive_password, self.target, confirm_database=self.target_name)
+            self.assertEqual(b.read_settings(config)['database.0.name'], self.target_name)
+            self.assertEqual(b.read_settings(config)['database.0.password'], self.password)
+            self.assertEqual((roots['fusionpbx-config'] / 'openweb-template.key').read_bytes(), self.key.read_bytes())
+            self.assertEqual((roots['recordings'] / 'recording.wav').read_bytes(), (self.source_roots['recordings'] / 'recording.wav').read_bytes())
+            self.assertEqual(b.query(self.target, "select payload from fixture_objects where kind='tenant'"), 'isolated tenant')
+            self.assertIn('Database="' + self.target_name + '"', json.loads(runtime.read_text())['ConnectionStrings']['Pbx'])
+            with self.assertRaises(b.BackupError):
+                b.recover(self.target)  # A completed restore must not be silently undone.
+            # Simulate an interrupted database/file restore and prove exact factory rollback.
+            journal = json.loads((b.RESTORE / 'journal.json').read_text())
+            journal['state'] = 'restoring';b.atomic_json(b.RESTORE / 'journal.json', journal)
+            b.recover(self.target)
+            self.assertEqual(b.query(self.target, 'select count(*) from fixture_objects'), '0')
+            self.assertEqual(b.query(self.target, 'select count(*) from v_extensions'), '0')
+            self.assertFalse((roots['recordings'] / 'recording.wav').exists())
+            self.assertEqual(json.loads((b.RESTORE / 'journal.json').read_text())['state'], 'recovered')
+        finally:
+            for key, value in old.items():
+                setattr(b, key, value)
+
+    def test_11_sftp_roundtrip_host_pin_and_failure(self):
+        if not shutil.which('sshd'):
+            self.skipTest('OpenSSH server is not installed for an isolated loopback SFTP fixture.')
+        work = self.workspace / 'ssh-fixture';work.mkdir()
+        for name in ('server', 'client', 'wrong-server'):
+            subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', str(work / name)], check=True)
+        server_key = (work / 'server.pub').read_text().split()
+        wrong_key = (work / 'wrong-server.pub').read_text().split()
+        (work / 'authorized_keys').write_text((work / 'client.pub').read_text());(work / 'authorized_keys').chmod(0o600)
+        remote = work / 'remote';remote.mkdir()
+        with socket.socket() as s:
+            s.bind(('127.0.0.1', 0));port = s.getsockname()[1]
+        (work / 'sshd_config').write_text('\n'.join([
+            'ListenAddress 127.0.0.1', 'Port ' + str(port), 'HostKey ' + str(work / 'server'),
+            'PidFile ' + str(work / 'sshd.pid'), 'AuthorizedKeysFile ' + str(work / 'authorized_keys'),
+            'StrictModes no', 'PermitRootLogin prohibit-password', 'PasswordAuthentication no',
+            'KbdInteractiveAuthentication no', 'UsePAM no', 'Subsystem sftp internal-sftp', 'LogLevel QUIET']))
+        process = subprocess.Popen(['/usr/sbin/sshd', '-D', '-e', '-f', str(work / 'sshd_config')], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            for _ in range(30):
+                try:
+                    with socket.create_connection(('127.0.0.1', port), timeout=.2):
+                        break
+                except OSError:
+                    time.sleep(.1)
+            cfg = {'sftp_host': '127.0.0.1', 'sftp_port': port, 'sftp_user': 'root', 'sftp_directory': str(remote),
+                   'sftp_host_key': ' '.join(server_key[:2])}
+            identity = (work / 'client').read_text()
+            b.upload_sftp(self.archive, cfg, identity)
+            self.assertEqual(b.checksum(remote / self.archive.name), b.checksum(self.archive))
+            self.assertFalse(list(remote.glob('*.uploading')))
+            with self.assertRaises(b.BackupError):
+                b.upload_sftp(self.archive, cfg | {'sftp_host_key': ' '.join(wrong_key[:2])}, identity)
+            with self.assertRaises(b.BackupError):
+                b.upload_sftp(self.archive, cfg | {'sftp_directory': '/does/not/exist/fixture'}, identity)
+            with self.assertRaises(b.BackupError):
+                b.upload_sftp(self.archive, cfg | {'sftp_user': 'root;uname'}, identity)
+        finally:
+            process.terminate()
+            process.wait(timeout=10)
+            shutil.rmtree(work)
+
+    def test_12_restore_hold_survives_reboot_and_requires_explicit_activation(self):
+        old = {key: getattr(b, key) for key in ('RESTORE', 'UNIT_ROOT', 'run')}
+        commands = []
+        try:
+            b.RESTORE = self.workspace/'hold-restore';b.RESTORE.mkdir()
+            b.UNIT_ROOT = self.workspace/'hold-units';b.UNIT_ROOT.mkdir()
+            for unit in b.HELD_UNITS.values():
+                (b.UNIT_ROOT/unit).write_text('[Unit]\nDescription=Isolated restore fixture\n')
+            original_run = b.run
+            def fixture_run(command, **kwargs):
+                if command[0] == 'systemctl':
+                    commands.append(command)
+                    return b''  # No shared host service is changed by this fixture.
+                return original_run(command, **kwargs)
+            b.run = fixture_run
+            gates = b.plan_service_holds();b.install_service_holds(gates)
+            marker = b.RESTORE/'hold-freeswitch.service'
+            self.assertTrue(marker.is_file())
+            condition = 'ConditionPathExists=!'+str(marker)
+            self.assertIn(condition, (b.UNIT_ROOT/'freeswitch.service.d/99-openwebpbx-restore.conf').read_text())
+            # Actual systemd condition evaluation proves a persisted marker blocks restart/boot.
+            result = subprocess.run(['systemd-analyze', 'condition', condition], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.assertNotEqual(result.returncode, 0)
+            journal = {'state':'restored','source_host':'pbx.fixture.invalid','gates':gates}
+            b.atomic_json(b.RESTORE/'journal.json', journal)
+            with self.assertRaises(b.BackupError):
+                b.activate(self.target, ['calls'], 'wrong.fixture.invalid')
+            b.activate(self.target, ['calls'], 'pbx.fixture.invalid')
+            self.assertFalse(marker.exists())
+            self.assertTrue((b.RESTORE/'hold-openwebpbx.service').exists())
+            result = subprocess.run(['systemd-analyze', 'condition', condition], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.assertEqual(result.returncode, 0)
+            b.remove_service_holds(gates)
+            self.assertFalse(list(b.RESTORE.glob('hold-*')))
+        finally:
+            for key, value in old.items():
+                setattr(b, key, value)
+
+    def test_13_worker_keeps_local_backup_when_sftp_connection_fails(self):
+        key = self.workspace/'failed-remote-key'
+        subprocess.run(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(key)],check=True)
+        public = ' '.join((self.workspace/'failed-remote-key.pub').read_text().split()[:2])
+        b.query(self.source,"update v_pbx_backup_settings set sftp_enabled=true,sftp_host='127.0.0.1',sftp_port=1,sftp_user='root',sftp_directory='/fixture-backup-folder',sftp_host_key="+b.literal(public)+',sftp_identity_secret='+b.literal(self.seal(key.read_text())))
+        request=str(uuid.uuid4())
+        b.query(self.source,"insert into v_pbx_backup_commands(command_uuid,action) values("+b.literal(request)+",'create')")
+        store=self.workspace/'worker-store';downloads=self.workspace/'worker-downloads'
+        b.worker(self.source,store=store,downloads=downloads,roots=self.source_roots,version='1.0.9',key_file=self.key)
+        self.assertEqual(b.query(self.source,'select status from v_pbx_backup_commands where command_uuid='+b.literal(request)),'completed')
+        row=b.query(self.source,'select row_to_json(t) from v_pbx_backups t where command_uuid='+b.literal(request),json_result=True)
+        self.assertEqual(row['status'],'ready');self.assertEqual(row['remote_status'],'failed')
+        self.assertTrue((store/row['filename']).is_file());self.assertTrue((downloads/row['filename']).is_file())
+        self.assertEqual(b.checksum(store/row['filename']),row['sha256'])
+        b.query(self.source,'update v_pbx_backup_settings set sftp_enabled=false')
+
+
+if __name__ == '__main__':
+    if os.geteuid() != 0:
+        raise SystemExit('Run fixture checks as root; only independent databases and loopback services are used.')
+    unittest.main(verbosity=2)

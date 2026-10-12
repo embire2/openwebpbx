@@ -36,6 +36,7 @@ end
 function P.department(config, number)
     local fallback
     for _, department in ipairs(config.departments or {}) do
+        if department.number and number and tostring(department.number)==tostring(number) then return department end
         for _, member in ipairs(department.members or {}) do
             if tostring(member.number)==tostring(number) then
                 if member.primary then return department end
@@ -55,6 +56,8 @@ end
 function P.office(config, number, clock)
     local department=P.department(config,number)
     if not department then return true,false,false end
+    local override=department.office_override or {}
+    if tonumber(override.expires or 0)>os.time() and (override.state=='open' or override.state=='closed') then return override.state=='open',false,false end
     local day,time,date=clock(department.timezone or config.timezone)
     local holiday=false
     for _, h in ipairs(department.holidays or {}) do if h.date==date then holiday=true end end
@@ -64,7 +67,9 @@ end
 function P.profile(config, number, clock)
     local user=config.users[tostring(number)]
     local status=user.profile
-    if tonumber(user.auto_status or '0')%2==1 then
+    local temporary=user.mobile_temporary
+    if temporary and status==temporary.target and tonumber(temporary.expires or 0)<=os.time() then status=temporary.previous end
+    if status~='Do Not Disturb' and not (temporary and user.profile==temporary.target and tonumber(temporary.expires or 0)>os.time()) and tonumber(user.auto_status or '0')%2==1 then
         local open,break_now=P.office(config,number,clock)
         if not open then status=break_now and 'Away' or 'Out of office' end
     end
@@ -127,6 +132,16 @@ function P.outbound(config,number,caller)
         end
         if prefix_ok and length_ok and member_allowed(config,rule,caller) then return rule end
     end
+end
+function P.emergency(config,number)
+    local rules=config.calling_rules or {}
+    for _,n in ipairs(rules.emergency_numbers or {}) do if tostring(n)==number then return {name='Emergency',routes=rules.emergency_routes or {},emergency=true} end end
+end
+function P.blocked(config,caller)
+    local rules=config.calling_rules or {}
+    for _,n in ipairs(rules.blocked_numbers or {}) do if tostring(n)==caller then return true end end
+    local anonymous=type(caller)~='string' or caller=='' or caller:lower()=='anonymous' or caller:lower()=='unknown' or caller:lower()=='unavailable'
+    return rules.block_anonymous and anonymous or false
 end
 local function phone(value)
     return type(value)=='string' and #value>0 and #value<=64 and value:match('^%+?[%d*#]+$')~=nil

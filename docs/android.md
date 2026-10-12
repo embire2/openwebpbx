@@ -1,6 +1,6 @@
-# OpenWeb PBX for Android — 1.0.7
+# OpenWeb PBX for Android — 1.0.9
 
-This is a standalone Android phone with native screens and its own SIP/media engine. It does not display the PBX website in a frame. Install the signed APK from the [1.0.7 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.7). Android 9 or newer is required; the universal APK supports ARMv7, ARM64 and x86-64. Physical handset coverage and mobile-network qualification are still being established.
+This is a standalone Android phone with native screens and its own SIP/media engine. It does not display the PBX website in a frame. Use the signed APK from the [1.0.9 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.9) with the matching server. Android 9 or newer is required; the universal APK supports ARMv7, ARM64 and x86-64. Physical handset coverage and mobile-network qualification are still being established.
 
 ## Connect your phone
 
@@ -23,6 +23,14 @@ Each phone receives its own revocable credentials, valid for 180 days. Create a 
 
 Use **Settings → Disconnect** to revoke this phone and remove its saved connection. An administrator can also revoke a lost phone in the PBX. A new QR code is required to reconnect.
 
+## New calling controls in 1.0.9
+
+- **Incoming wake-up:** optional native notification handling, locked-screen Answer/Decline, authenticated call checks and cancellation when the call ends or advances. Actual sleeping-phone delivery remains a separate qualification requirement.
+- **Connection recovery:** automatic re-registration after internet loss without another QR scan; interrupted calls either recover or show a useful bounded failure. A native network-loss/reconnection and next-call test passed; physical Wi-Fi/mobile switching remains open.
+- **Transfer:** choose **Call options → Transfer**, enter an extension or choose a contact. Transfer immediately, or choose **Talk first** and then **Transfer now**. **Cancel transfer** returns to the original conversation. Native internal blind/attended transfer and failure/cancel recovery passed with continuing media; outside-carrier transfer qualification remains open.
+- **Call waiting and three-way calls:** answer a second call, switch between held conversations, then choose **Merge calls**. Individual participants can be removed without ending the other conversation. **Mute sound** silences that participant on your phone; it does not mute that person's microphone for everybody. Three actual native endpoints passed waiting, switching, merge, media and participant removal.
+- **Status and queues:** the **Status** button opens Available, Away and Do Not Disturb, a chosen duration and assigned queue checkboxes. A queue can remain joined while your status pauses delivery; the app explains the reason. Native UI and real server routing/concurrency/expiry checks passed; see [availability](android-availability.md).
+
 ## Ear protection
 
 During outgoing setup and active earpiece calls, supported Android phones use their proximity sensor to turn off the display and suppress touches near your face. Moving the phone away restores the screen. Speaker, wired/Bluetooth audio, local hold and call termination release this protection. Phones without a supported sensor retain ordinary power-button behavior. Physical sensor behavior must still be checked on representative handsets.
@@ -35,7 +43,7 @@ Before connecting, the app explains that your chosen PBX receives device/connect
 
 Version 1.0.7 adds a prominent update card, clear Download/Install action, live progress and a notification that opens update details. Required updates finish downloading and verifying before the direct app asks you to install, and active calls defer installation. Android may still require permission or confirmation.
 
-Install **1.0.7 once from the signed GitHub APK** if you currently use 1.0.3: the older app does not contain an updater. Install over the existing app to retain your connection; do not uninstall it first. The updater was introduced in 1.0.4. Upgrade the PBX server to 1.0.6 before installing the 1.0.7 phone update; this pairs the phone audio correction with the server calling fixes.
+If you currently use 1.0.3, install the current signed GitHub APK once: that older app does not contain an updater. Install over the existing app to retain your connection; do not uninstall it first. The updater was introduced in 1.0.4. Use the matching 1.0.9 server and APK when that release is published; 1.0.7 remains the public baseline until then. The earlier 1.0.6 server audio correction remains required for the repaired calling path.
 
 The direct APK checks the stable release feed when opened and approximately every twelve hours when Android permits network background work. In **Tenant Admin → Updates**, your tenant administrator chooses one of these policies:
 
@@ -51,7 +59,7 @@ The release envelope is verified using a pinned RSA public key and SHA-256 signa
 
 ### Google Play edition
 
-The Play edition has separate update handling and excludes package-install permissions and the direct APK installer. It opens the fixed Google Play listing; Google Play controls download, installation and reopening. It does not display fictitious download progress. A required store update is offered only when signed metadata confirms a fully published production Play release, and active/urgent calling remains available. A GitHub release does not establish Google Play availability. Initial 1.0.7 Play publication is pending account setup, testing and Google review; see the [submission guide](google-play.md).
+The Play edition has separate update handling and excludes package-install permissions and the direct APK installer. It opens the fixed Google Play listing; Google Play controls download, installation and reopening. It does not display fictitious download progress. A required store update is offered only when signed metadata confirms a fully published production Play release, and active/urgent calling remains available. A GitHub release does not establish Google Play availability. Play publication remains pending account setup, actual-track testing and Google review; the tested 1.0.9 candidate AAB does not establish approval. See the [submission guide](google-play.md).
 
 ## Call connection help
 
@@ -61,13 +69,13 @@ The keypad and call controls use native vector icons and labelled touch targets.
 
 ## Incoming calls and current limits
 
-Keep the connection notification running. Reopen the app after restarting the phone, force-stopping the app or using an Android battery setting that stops it. This release does **not** include push wake-up through Firebase; it cannot guarantee ringing after Android terminates the process. Manufacturer battery restrictions, switching between mobile data and Wi-Fi, Bluetooth models and physical handset audio still require broader qualification.
+Keep the connection notification running. Optional incoming wake-up uses instance-generated keys and an open-source native distributor; no Firebase project is required. Open **System → Incoming Call Wake-up**, enable incoming wake-up and save. Read the [wake-up guide](android-push.md) for setup and qualification. Supported phones use installed Google Play Services; Cloudflare can forward encrypted messages. Android force-stop prevents delivery until the app is reopened. Actual locked/idle physical handset delivery, manufacturer battery restrictions, Wi-Fi/mobile handover, Bluetooth and proximity still require qualification.
 
-Chat, video, meetings, attended transfer, conference calling, presence controls, Android Auto and emergency-location integration are not part of this release. This is an OpenWeb PBX client, not the proprietary 3CX app. Existing 3CX provisioning codes do not connect it. Outside calls still depend on a working PBX carrier connection and the extension's rules; do not retire the old phone system before the site's calling tests pass.
+Chat, video, meetings, Android Auto and emergency-location integration remain planned. This is an OpenWeb PBX client, not the proprietary 3CX app. Existing 3CX provisioning codes do not connect it. Outside calls still depend on a working PBX carrier connection and the extension's rules; do not retire the old phone system before the site's calling tests pass.
 
 ## Source, licenses and building
 
-The Android project is in [mobile/android](https://github.com/embire2/openwebpbx/blob/v1.0.7/mobile/android/README.md), licensed AGPL-3.0-or-later. Pre-existing server code keeps its original license. See [component notices](https://github.com/embire2/openwebpbx/blob/v1.0.7/mobile/android/THIRD_PARTY_NOTICES.md). The release includes the corresponding Android source, the exact Linphone SDK 5.5.23 source and submodules, and Maven dependency source JARs. No signing key, enrollment code, account credentials or customer data is distributed.
+The Android project is in [mobile/android](https://github.com/embire2/openwebpbx/blob/v1.0.9/mobile/android/README.md), licensed AGPL-3.0-or-later. Pre-existing server code keeps its original license. See [component notices](https://github.com/embire2/openwebpbx/blob/v1.0.9/mobile/android/THIRD_PARTY_NOTICES.md). The release includes the corresponding Android source, the exact Linphone SDK 5.5.23 source and submodules, and Maven dependency source JARs. No signing key, enrollment code, account credentials or customer data is distributed.
 
 Use JDK 17 or 21, Android SDK platform 36/build-tools 36.0.0, and the included Gradle 8.11.1 wrapper. The project pins Android Gradle Plugin 8.10.1, Kotlin 2.1.20, Linphone SDK 5.5.23, AndroidX Media 1.7.1 and ZXing Embedded 4.3.0. `scripts/build-release.sh` runs both variants’ unit checks and Android lint, builds a signed direct APK and a signed Play AAB. Set the private signing environment variables described in the project README. Preserve the signing key for future app upgrades.
 
@@ -162,3 +170,67 @@ software microphone/media path used by the fixture, not physical-handset audio.
 The 312-frame demonstration records actual native views with screen-capture
 protection retained. It excludes QR codes and credentials; enrollment uses the
 real API privately and permissions are granted before capture.
+
+## Version 1.0.9 candidate qualification — 2026-10-12
+
+The exact signed direct APK is version 1.0.9/code 109, SHA-256
+`f2ca8c39124fc9b907a2e5d5e035ea1dd716074b5e32bc2a57f1c5d2a9525145`.
+The final Play AAB is SHA-256
+`fd27013815ade9fd79e58d4f89d444d790df9620e75ff33c21bef2068dbce1e1`.
+Both retain the established signing certificate and target API36. The installed
+direct APK matched the frozen artifact exactly. The release compilation includes
+the HTTP 401 push-unregister/service-stop/account-clear branch; source/compiler
+timestamps and compiled bytecode were checked. No product source was changed
+during these final native checks.
+
+Twenty-five direct and 29 Play JVM checks, both release lint tasks, AAB validation,
+certificate and binary-alignment checks passed. All 42 runtime dependency source
+JARs are available for corresponding-source packaging. Binary alignment does not
+qualify Android 16/16 KiB runtime behavior.
+
+Twelve direct-build workflows passed against the actual Debian call engine and
+two disposable auto-answer SIP phones on Android 13 x86-64:
+
+- Consultation/cancel and unavailable-consultation recovery returned to the
+  original call with continuing two-way remote RTP.
+- Blind and attended transfers released Android's calls while both remote phones
+  remained connected and exchanged RTP in each direction over a further
+  four-second interval. Fixture calls were ended through an ownership-checked
+  native operation after verification.
+- Three-way hold/switch/merge, local participant sound mute and removal preserved
+  the remaining conversation. The exact signed repeat lasted 25.836 seconds and
+  both real remote phones exchanged media.
+- Second-call answer held the original conversation; ending the second returned
+  to the original with media. Hold/resume also passed on the final APK.
+- Temporary DND, directory status, assigned-queue pause, the native status dialog,
+  Available and per-queue leave matched server state in 9.619 seconds.
+- A deliberate seven-second loss of the Android interface recovered without
+  changing enrollment, then a new call carried media. The ADB transport was
+  interrupted by that fault, so the native completion marker written after the
+  account/reconnection/media assertions is its evidence; this case has no complete
+  runner output. The other eleven workflows returned successful runner results.
+- Outgoing/background/return/competing-audio-focus/hold/resume/audio-release passed
+  in 43.635 seconds, and incoming SDK ringing/answer/SRTP/audio-release passed in
+  16.406 seconds with fresh remote RTP counters.
+- Stale local-call and authenticated push actions closed without answering or
+  ending the existing conversation; the repeat passed in 15.206 seconds. An initial
+  test UI wait was blocked by the nearby-device permission dialog, which was
+  accepted on the disposable device before rerunning.
+
+The APK generated from the exact Play AAB retained the existing enrolled account
+and passed three functional workflows: a 42.213-second SRTP/background/audio-focus/
+hold/resume call (1,835 sent and 1,909 received remote RTP packets), a 26.579-second
+three-way/switch/merge/mute/removal workflow with both remote phones, and the
+10.519-second availability/queue workflow. A separate 19.846-second capture test
+saved five actual native 420×808 views—keypad, active call, the current empty
+fictional mailbox, fictional contacts and a live three-way call—with production
+screen-capture protection retained. They contain no QR codes, credentials or
+private configuration. Test-only capture code does not ship in the application.
+
+The direct build was restored afterward with enrollment retained. Same-version
+direct/Play replacement does not establish the prospective 1.0.7→1.0.9 managed
+upgrade, which remains a separate release check. Public assets/feed and final
+source packaging are still pending. No new carrier call, physical handset,
+locked/idle FCM delivery, Wi-Fi/mobile handover, Bluetooth, proximity or Google
+Play approval is established by these software-device results. See [the
+roadmap](../3CX.md), [wake-up](android-push.md) and [availability](android-availability.md).

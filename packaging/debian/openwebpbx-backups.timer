@@ -1,0 +1,14 @@
+[Unit]
+Description=OpenWeb PBX backup schedule and request checks
+ConditionPathExists=!/var/lib/openwebpbx/updates/maintenance
+
+[Timer]
+OnBootSec=90s
+OnUnitInactiveSec=60s
+AccuracySec=5s
+Persistent=true
+Unit=openwebpbx-backups.service
+
+[Install]
+WantedBy=timers.target
+WantedBy=openwebpbx-updater.service

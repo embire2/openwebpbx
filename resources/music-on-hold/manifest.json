@@ -1,0 +1,21 @@
+{
+  "title": "Lofi Beat Loop Schmoop",
+  "creator": "Seth_Makes_Sounds",
+  "licence": "CC0-1.0",
+  "licence_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "source_page": "https://freesound.org/people/Seth_Makes_Sounds/sounds/722425/",
+  "download_url": "https://cdn.freesound.org/previews/722/722425_13228046-hq.mp3",
+  "retrieved_utc": "2026-10-12",
+  "source_form": "Public high-quality MP3 preview, full track",
+  "changes": "Converted to mono 16000Hz signed 16-bit PCM; loudness normalization -23 LUFS, -3 dBTP",
+  "files": {
+    "lofi-beat-loop-schmoop.mp3": {
+      "sha256": "8553e7a147826030fd1b8d2438b381d1ba5db3cb6c500dfdf8d305455d48c5e1",
+      "bytes": 3193488
+    },
+    "lofi-beat-loop-schmoop.wav": {
+      "sha256": "724a408c55cd7cffb0d4cfdd513760c8b1587896f81607be08b5c31af5662e82",
+      "bytes": 4320078
+    }
+  }
+}

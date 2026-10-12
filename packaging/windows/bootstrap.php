@@ -20,12 +20,17 @@ if($stage==='migrate'){
   $codecSettingsChanged=openweb_normalize_codec_module_settings($db);
   if($codecXmlChanged||$codecSettingsChanged)echo "Conflicting passthrough audio module disabled.\n";
  }
- foreach(['tenant_services/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql','pbx_mobile/resources/install.sql', 'pbx_updates/resources/install.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
+ foreach(['tenant_services/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql','pbx_mobile/resources/install.sql', 'pbx_updates/resources/install.sql','pbx_backups/resources/install.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
+ if(PHP_OS_FAMILY==='Linux'&&is_file(__DIR__.'/install-support.py')){
+  $command='python3 '.escapeshellarg(__DIR__.'/install-support.py');passthru($command,$result);
+  if($result!==0)throw new RuntimeException('The instance backup worker could not be installed.');
+ }
  foreach(['cache.location'=>['cache','location','text'],'cache.method'=>['cache','method','text'],'switch.voicemail.dir'=>['switch','voicemail','dir'],'switch.recordings.dir'=>['switch','recordings','dir'],'switch.storage.dir'=>['switch','storage','dir'],'switch.sounds.dir'=>['switch','sounds','dir'],'switch.scripts.dir'=>['switch','scripts','dir']] as $key=>$parts){
   $value=config::load()->get($key);if($value==='')continue;
   $s=sql('update v_default_settings set default_setting_value=?,default_setting_enabled=true where default_setting_category=? and default_setting_subcategory=? and default_setting_name=?',[$value,...$parts]);
   if(!$s->rowCount())sql('insert into v_default_settings(default_setting_uuid,default_setting_category,default_setting_subcategory,default_setting_name,default_setting_value,default_setting_enabled) values(?,?,?,?,?,true)',[uuid(),...$parts,$value]);
  }
+ if(PHP_OS_FAMILY==='Linux')pbx_music::install($db);
  settings::clear_cache();
  echo "PBX schema is ready.\n";exit;
 }
@@ -44,7 +49,7 @@ if(!$user){
  }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
 }
 unset($input,$password);
-foreach(['tenant_services/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql','pbx_mobile/resources/install.sql', 'pbx_updates/resources/install.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
+foreach(['tenant_services/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql','pbx_mobile/resources/install.sql', 'pbx_updates/resources/install.sql','pbx_backups/resources/install.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
 $_SESSION=['user_uuid'=>$user,'domain_uuid'=>$domain,'domain_name'=>pbx_paths::host(),'user'=>['domain_uuid'=>$domain]];
 $tenant=sql('select tenant_uuid from v_pbx_tenants where owner_user_uuid=?',[$user])->fetchColumn();
 if(!$tenant){$tenant=uuid();$home=uuid();$slug='company-'.substr(str_replace('-','',$tenant),0,12);sql('insert into v_domains(domain_uuid,domain_name,domain_description,domain_enabled) values(?,?,?,true)',[$home,$slug.'.'.pbx_paths::host(),'My company']);sql('insert into v_pbx_tenants(tenant_uuid,tenant_name,slug,home_domain_uuid,owner_user_uuid,invite_email) values(?,?,?,?,?,?)',[$tenant,'My company',$slug,$home,$user,$email]);}
@@ -57,5 +62,6 @@ $realm=sql('select domain_name from v_domains where domain_uuid=?',[$service])->
 $_SESSION['domain_uuid']=$service;$_SESSION['domain_name']=$realm;$admin=new pbx_admin($db);
 if(!$admin->restored()){$db->beginTransaction();try{$admin->initialize($realm,'UTC');$db->commit();}catch(Throwable $e){$db->rollBack();throw $e;}}
 if(!$admin->config()['users'])foreach(['100'=>'Reception','101'=>'Office'] as $number=>$name)$admin->save('user','new',['number'=>(string)$number,'name'=>$name,'profile'=>'Available','timeout'=>'20','enabled'=>'1','voicemail_enabled'=>'1','voicemail_email'=>'None']);
+if(PHP_OS_FAMILY==='Linux')pbx_music::install($db);
 settings::clear_cache();
 echo "Administrator and Main PBX are ready.\n";

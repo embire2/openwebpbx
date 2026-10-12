@@ -8,12 +8,12 @@ import java.net.URL
 import javax.net.ssl.HttpsURLConnection
 
 class ApiError(val status: Int, message: String): Exception(message)
-class PhoneApi(private val server: String, private val token: String? = null) {
+class PhoneApi(private val server: String, private val token: String? = null, private val timeout:Int=12000) {
     private fun connection(action: String, id: String?, body: JSONObject?): HttpsURLConnection {
         require(action.matches(Regex("[a-z_]+")))
         val endpoint = Enrollment.server(server) + "/app/pbx_mobile/api.php?action=" + action + (id?.let { "&id=" + URLEncoder.encode(it, "UTF-8") } ?: "")
         return (URL(endpoint).openConnection() as HttpsURLConnection).apply {
-            connectTimeout = 12000; readTimeout = 15000; instanceFollowRedirects = false
+            connectTimeout = timeout; readTimeout = timeout; instanceFollowRedirects = false
             setRequestProperty("Accept", "application/json")
             setRequestProperty("User-Agent", "OpenWebPBX-Android/${BuildConfig.VERSION_NAME}")
             if (!token.isNullOrEmpty()) setRequestProperty("Authorization", "Bearer $token")
@@ -39,6 +39,6 @@ class PhoneApi(private val server: String, private val token: String? = null) {
             }
         } finally { c.disconnect() }
     }
-    fun json(action: String, body: JSONObject? = null): JSONObject = JSONObject(String(bytes(action, null, body, 2 * 1024 * 1024), Charsets.UTF_8))
+    fun json(action: String, body: JSONObject? = null, id:String?=null): JSONObject = JSONObject(String(bytes(action, id, body, 2 * 1024 * 1024), Charsets.UTF_8))
     fun voicemail(id: String): ByteArray = bytes("voicemail_audio", id, null, 32 * 1024 * 1024)
 }

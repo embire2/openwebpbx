@@ -19,6 +19,35 @@ CREATE TABLE IF NOT EXISTS v_pbx_mobile_devices (
  last_seen_at timestamptz, revoked_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS openweb_mobile_device_extension ON v_pbx_mobile_devices(extension_uuid);
+CREATE TABLE IF NOT EXISTS v_pbx_mobile_presence (
+ domain_uuid uuid NOT NULL REFERENCES v_domains ON DELETE CASCADE,
+ extension_uuid uuid NOT NULL REFERENCES v_extensions ON DELETE CASCADE,
+ number text NOT NULL, previous_profile text NOT NULL, target_profile text NOT NULL,
+ expires_at timestamptz NOT NULL, PRIMARY KEY(domain_uuid,extension_uuid)
+);
+CREATE INDEX IF NOT EXISTS openweb_mobile_presence_expiry ON v_pbx_mobile_presence(expires_at);
+ALTER TABLE v_pbx_mobile_devices ADD COLUMN IF NOT EXISTS push_token text;
+ALTER TABLE v_pbx_mobile_devices ADD COLUMN IF NOT EXISTS push_project text;
+CREATE TABLE IF NOT EXISTS v_pbx_mobile_push_config (
+ singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
+ enabled boolean NOT NULL DEFAULT false, project_id text NOT NULL,
+ client_config jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE TABLE IF NOT EXISTS v_pbx_mobile_push_calls (
+ request_uuid uuid PRIMARY KEY, call_uuid uuid NOT NULL,
+ device_uuid uuid NOT NULL REFERENCES v_pbx_mobile_devices ON DELETE CASCADE,
+ domain_uuid uuid NOT NULL REFERENCES v_domains ON DELETE CASCADE,
+ extension_uuid uuid NOT NULL REFERENCES v_extensions ON DELETE CASCADE,
+ state text NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','sent','ended','dismissed')),
+ attempts integer NOT NULL DEFAULT 0, next_attempt_at timestamptz NOT NULL DEFAULT now(),
+ created_at timestamptz NOT NULL DEFAULT now(), expires_at timestamptz NOT NULL,
+ UNIQUE(call_uuid,device_uuid)
+);
+CREATE INDEX IF NOT EXISTS openweb_mobile_push_pending ON v_pbx_mobile_push_calls(state,next_attempt_at);
+ALTER TABLE v_pbx_mobile_push_calls ADD COLUMN IF NOT EXISTS lease_uuid uuid;
+ALTER TABLE v_pbx_mobile_push_calls ADD COLUMN IF NOT EXISTS lease_until timestamptz;
+ALTER TABLE v_pbx_mobile_push_calls ADD COLUMN IF NOT EXISTS notification_attempted_at timestamptz;
+ALTER TABLE v_pbx_mobile_push_calls ADD COLUMN IF NOT EXISTS cancellation_sent_at timestamptz;
 CREATE TABLE IF NOT EXISTS v_pbx_mobile_rate (
  bucket text PRIMARY KEY, window_start timestamptz NOT NULL, attempts integer NOT NULL
 );

@@ -56,6 +56,7 @@ class MainActivity: ComponentActivity() {
     private var updateDetailsText:TextView?=null
     private var updateDetailsProgress:ProgressBar?=null
     private var openUpdatesRequested=false
+    private var availabilityDialog:AlertDialog?=null
     private val shownUpdatePrompts=mutableSetOf<String>()
     private val updates get()=UpdateManager.get(this)
     private val accountChanges = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _,_ ->
@@ -111,7 +112,7 @@ class MainActivity: ComponentActivity() {
     override fun onPause() { PhoneService.changed = null;updates.changed=null;updates.foregroundActivity=null; super.onPause() }
     override fun onNewIntent(intent:Intent) { super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("show_updates",false)){openUpdatesRequested=true;intent.removeExtra("show_updates");updateUi()} }
     override fun onSaveInstanceState(outState: Bundle) { outState.putString("section", section);outState.putStringArrayList("update_prompts",ArrayList(shownUpdatePrompts));super.onSaveInstanceState(outState) }
-    override fun onDestroy() { updateDetails?.dismiss();stopPlayback(); worker.shutdown(); super.onDestroy() }
+    override fun onDestroy() { availabilityDialog?.dismiss();updateDetails?.dismiss();stopPlayback(); worker.shutdown(); super.onDestroy() }
     private fun dp(value:Int) = (value * resources.displayMetrics.density).toInt()
     private fun text(value: String, size: Float=16f, color:Int=ink, bold:Boolean=false) = TextView(this).apply { text=value; textSize=size; setTextColor(color); if(bold)setTypeface(typeface,Typeface.BOLD); setPadding(0,dp(5),0,dp(5)) }
     private fun layout(horizontal:Boolean=false) = LinearLayout(this).apply { orientation=if(horizontal)LinearLayout.HORIZONTAL else LinearLayout.VERTICAL }
@@ -143,7 +144,7 @@ class MainActivity: ComponentActivity() {
         heading.addView(text("OpenWeb PBX",24f,ink,true),LinearLayout.LayoutParams(0,dp(if(compact)44 else 52),1f))
         if(store.read()!=null) heading.addView(button("Settings") { settings() })
         root.addView(heading)
-        status=text("Your work phone, wherever you are",14f,soft); status.setPadding(dp(12),dp(if(compact)5 else 10),dp(12),dp(if(compact)5 else 10));status.background=rounded(card);root.addView(status)
+        status=text("Your work phone, wherever you are",14f,soft); status.setPadding(dp(12),dp(if(compact)5 else 10),dp(12),dp(if(compact)5 else 10));status.background=rounded(card);val statusRow=layout(true);statusRow.gravity=Gravity.CENTER_VERTICAL;statusRow.addView(status,LinearLayout.LayoutParams(0,-2,1f));if(store.read()!=null)statusRow.addView(button("Status"){availability()},LinearLayout.LayoutParams(dp(78),dp(48)));root.addView(statusRow)
         updatePanel=layout();root.addView(updatePanel)
         callPanel=layout(); root.addView(callPanel)
         val scroll=ScrollView(this).apply { isFillViewport=true }; body=layout(); scroll.addView(body)
@@ -190,7 +191,7 @@ class MainActivity: ComponentActivity() {
             response.getJSONObject("account").getString("extension")
             response.put("server",server)
             // A one-use code must retain its validated credentials even if this Activity is replaced.
-            store.save(response);response
+            store.save(response);PushConnection.configure(this);response
         }, { _ -> busy=false; draw(); ensurePermissions() }, { busy=false; status.text="Your work phone, wherever you are" })
     }
     private fun ensurePermissions() {
@@ -224,7 +225,7 @@ class MainActivity: ComponentActivity() {
             return
         }
         stopPlayback();callPanel.background=rounded(card); callPanel.setPadding(dp(12),dp(10),dp(12),dp(10))
-        val state=when(call.state) { Call.State.IncomingReceived -> "Incoming call"; Call.State.Paused -> "On hold"; Call.State.Pausing -> "Placing on hold…";Call.State.Resuming -> "Resuming…"; Call.State.StreamsRunning -> "Connected"; Call.State.OutgoingRinging -> "Ringing…";Call.State.OutgoingEarlyMedia -> "Connecting…"; else -> "Calling…" }
+        val state=if(phone.conferenceOnHold)"On hold" else if(phone.conference!=null)"Three-way call" else when(call.state) { Call.State.IncomingReceived -> "Incoming call"; Call.State.Paused -> "On hold"; Call.State.Pausing -> "Placing on hold…";Call.State.Resuming -> "Resuming…"; Call.State.StreamsRunning -> "Connected"; Call.State.OutgoingRinging -> "Ringing…";Call.State.OutgoingEarlyMedia -> "Connecting…"; else -> "Calling…" }
         if(compact){
             callPanel.setPadding(dp(6),dp(3),dp(6),dp(3))
             callPanel.addView(text("$state · ${phone.callLabel}",15f,ink,true).apply{gravity=Gravity.CENTER;maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END;setPadding(0,dp(2),0,dp(2))})
@@ -234,11 +235,11 @@ class MainActivity: ComponentActivity() {
                 actions.addView(iconButton("Answer",R.drawable.ic_call,tone=Color.parseColor("#16745B")){ensurePermissions();if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)phone.answer()},spaced(height=48))
             }else{
                 actions.addView(iconButton(if(phone.muted)"Unmute" else "Mute",if(phone.muted)R.drawable.ic_mic_off else R.drawable.ic_mic,phone.muted){phone.mute()},spaced(height=48))
-                actions.addView(iconButton(if(call.state==Call.State.Paused)"Resume" else "Hold",if(call.state==Call.State.Paused)R.drawable.ic_play else R.drawable.ic_hold,call.state==Call.State.Paused){phone.hold()},spaced(height=48))
+                actions.addView(iconButton(if(call.state==Call.State.Paused || phone.conferenceOnHold)"Resume" else "Hold",if(call.state==Call.State.Paused)R.drawable.ic_play else R.drawable.ic_hold,call.state==Call.State.Paused){phone.hold()},spaced(height=48))
                 actions.addView(iconButton(if(phone.speaker)"Earpiece" else "Speaker",R.drawable.ic_speaker,phone.speaker){phone.speaker()},spaced(height=48))
                 actions.addView(iconButton("End call",R.drawable.ic_hangup,tone=Color.parseColor("#B3263E")){phone.hangup()},spaced(height=48))
             }
-            callPanel.addView(actions);return
+            callPanel.addView(actions);callExtras(phone);return
         }
         callPanel.addView(text(state,14f,soft).apply{gravity=Gravity.CENTER})
         callPanel.addView(text(phone.callLabel,28f,ink,true).apply{gravity=Gravity.CENTER})
@@ -249,12 +250,90 @@ class MainActivity: ComponentActivity() {
             callPanel.addView(controls)
         } else {
             controls.addView(iconButton(if(phone.muted)"Unmute" else "Mute",if(phone.muted)R.drawable.ic_mic_off else R.drawable.ic_mic,phone.muted){phone.mute()},spaced())
-            controls.addView(iconButton(if(call.state==Call.State.Paused)"Resume" else "Hold",if(call.state==Call.State.Paused)R.drawable.ic_play else R.drawable.ic_hold,call.state==Call.State.Paused){phone.hold()},spaced())
+            controls.addView(iconButton(if(call.state==Call.State.Paused || phone.conferenceOnHold)"Resume" else "Hold",if(call.state==Call.State.Paused)R.drawable.ic_play else R.drawable.ic_hold,call.state==Call.State.Paused){phone.hold()},spaced())
             controls.addView(iconButton(if(phone.speaker)"Earpiece" else "Speaker",R.drawable.ic_speaker,phone.speaker){phone.speaker()},spaced())
             callPanel.addView(controls)
             callPanel.addView(iconButton("End call",R.drawable.ic_hangup,tone=Color.parseColor("#B3263E")){phone.hangup()},LinearLayout.LayoutParams(-1,dp(70)))
         }
+        callExtras(phone)
     }
+    private fun callExtras(phone:PhoneService){
+        val waiting=phone.waitingCall
+        if(waiting!=null && waiting.nativePointer!=phone.call?.nativePointer){
+            val row=layout(true)
+            row.addView(text("Waiting: ${waiting.remoteAddress.username}",13f,ink,true),LinearLayout.LayoutParams(0,-2,1f))
+            row.addView(button("Answer"){phone.answer(waiting)});row.addView(button("Decline"){phone.hangup(waiting)})
+            callPanel.addView(row)
+        }
+        val row=layout(true)
+        row.addView(button(if(phone.conference!=null)"Participants" else "Call options"){callOptions(phone)},LinearLayout.LayoutParams(0,dp(48),1f))
+        if(phone.consultation!=null){
+            row.addView(button("Transfer now"){phone.completeTransfer()},LinearLayout.LayoutParams(0,dp(48),1f))
+            row.addView(button("Cancel"){phone.cancelConsultation()},LinearLayout.LayoutParams(0,dp(48),1f))
+        }else if(phone.calls.size==2 && waiting==null && phone.conference==null){
+            row.addView(button("Switch"){phone.calls.firstOrNull{it.nativePointer!=phone.call?.nativePointer}?.let{phone.switchCall(it)}},LinearLayout.LayoutParams(0,dp(48),1f))
+            row.addView(button("Merge"){phone.merge()},LinearLayout.LayoutParams(0,dp(48),1f))
+        }
+        callPanel.addView(row)
+    }
+    private fun callOptions(phone:PhoneService){
+        if(phone.conference!=null){
+            val rows=layout().apply{setPadding(dp(16),0,dp(16),0)}
+            for(person in phone.calls){
+                rows.addView(text(person.remoteAddress.username ?: "Participant",18f,ink,true))
+                val actions=layout(true)
+                actions.addView(button(if(person.speakerMuted)"Unmute sound" else "Mute sound"){phone.muteParticipant(person)},LinearLayout.LayoutParams(0,dp(48),1f))
+                actions.addView(button("Remove"){phone.hangup(person)},LinearLayout.LayoutParams(0,dp(48),1f));rows.addView(actions)
+            }
+            AlertDialog.Builder(this).setTitle("Participants").setView(rows).setNegativeButton("Close",null).setPositiveButton("End all calls"){_,_->phone.calls.toList().forEach{phone.hangup(it)}}.show();return
+        }
+        val labels=if(phone.calls.size==1)arrayOf("Transfer", "Add a call", "Audio device")else arrayOf("Choose conversation", "Merge calls", "Audio device")
+        AlertDialog.Builder(this).setTitle("Call options").setItems(labels){_,i->when(i){
+            0->if(phone.calls.size==1)destinationDialog("Transfer",true){number,talk->if(talk)phone.consult(number)else phone.blindTransfer(number)}else AlertDialog.Builder(this).setTitle("Choose conversation").setItems(phone.calls.map{it.remoteAddress.username ?: "Caller"}.toTypedArray()){_,j->try{phone.switchCall(phone.calls[j])}catch(e:Exception){message(e.message ?: "Please try again")}}.show()
+            1->if(phone.calls.size==1)destinationDialog("Add a call",false){number,_->phone.dial(number,true)}else try{phone.merge()}catch(e:Exception){message(e.message ?: "Please try again")}
+            else->audioDevices()
+        }}.show()
+    }
+    private fun destinationDialog(title:String,transfer:Boolean,accept:(String,Boolean)->Unit){
+        val rows=layout().apply{setPadding(dp(20),0,dp(20),0)};val number=field("Number or extension",type=InputType.TYPE_CLASS_PHONE)
+        rows.addView(number)
+        val talk=CheckBox(this).apply{text="Talk to the person first";setTextColor(ink);isChecked=true}
+        if(transfer)rows.addView(talk)
+        rows.addView(button("Choose from Contacts"){
+            async({api().json("directory")},{response->val contacts=response.getJSONArray("contacts")
+                AlertDialog.Builder(this).setTitle("Contacts").setItems(Array(contacts.length()){i->val row=contacts.getJSONObject(i);"${row.getString("name")} · ${row.getString("number")}"}){_,i->number.setText(contacts.getJSONObject(i).getString("number"))}.setNegativeButton("Cancel",null).show()
+            })
+        })
+        val dialog=AlertDialog.Builder(this).setTitle(title).setView(rows).setNegativeButton("Cancel",null).setPositiveButton(if(transfer)"Continue" else "Call",null).create()
+        dialog.setOnShowListener{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{try{accept(Enrollment.number(number.text.toString()),transfer && talk.isChecked);dialog.dismiss()}catch(e:Exception){number.error=e.message}}};dialog.show()
+    }
+    private fun availability(){
+        availabilityDialog?.dismiss()
+        async({api().json("availability")},{response->
+            val contents=layout().apply{setPadding(dp(20),0,dp(20),0)}
+            contents.addView(text("Status: ${response.getString("status")}",18f,ink,true))
+            if(!response.isNull("temporary_until"))contents.addView(text("Until ${friendlyDate(response.getString("temporary_until"))}",14f,soft))
+            val statuses=response.getJSONArray("statuses");val statusChoice=Spinner(this).apply{adapter=ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,Array(statuses.length()){statuses.getString(it)});setSelection((0 until statuses.length()).firstOrNull{statuses.getString(it)==response.getString("status")} ?: 0)}
+            val duration=Spinner(this).apply{adapter=ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,arrayOf("Until I change it","15 minutes","30 minutes","1 hour","2 hours","4 hours","8 hours"))}
+            statusChoice.contentDescription="My status";duration.contentDescription="For how long"
+            contents.addView(text("My status",14f,soft));contents.addView(statusChoice)
+            contents.addView(text("For how long",14f,soft));contents.addView(duration)
+            contents.addView(button("Save status"){async({api().json("set_status",JSONObject().put("status",statusChoice.selectedItem.toString()).put("minutes",listOf(0,15,30,60,120,240,480)[duration.selectedItemPosition]))},{message("Status updated");availability()})})
+            contents.addView(text("Queues",20f,ink,true))
+            val queues=response.getJSONArray("queues")
+            if(queues.length()==0)contents.addView(text("No queues assigned to you",14f,soft))
+            for(i in 0 until queues.length()){
+                val queue=queues.getJSONObject(i)
+                fun queueText(q:JSONObject)=q.getString("name")+" · "+q.optString("receiving_reason").ifBlank{if(q.optBoolean("receiving"))"Receiving calls" else "Not receiving calls"}
+                val toggle=CheckBox(this).apply{text=queueText(queue);setTextColor(ink);isChecked=queue.getBoolean("joined")}
+                toggle.setOnCheckedChangeListener{_,joined->if(toggle.isEnabled){toggle.isEnabled=false;async({api().json("queue_status",JSONObject().put("number",queue.getString("number")).put("joined",joined))},{updated->toggle.isEnabled=true;val q=updated.getJSONArray("queues");for(j in 0 until q.length())if(q.getJSONObject(j).getString("number")==queue.getString("number"))toggle.text=queueText(q.getJSONObject(j))},{toggle.isChecked=!joined;toggle.isEnabled=true})}}
+                contents.addView(toggle)
+            }
+            val scroll=ScrollView(this).apply{addView(contents)}
+            availabilityDialog=AlertDialog.Builder(this).setTitle("Status and queues").setView(scroll).setNegativeButton("Close",null).setNeutralButton("Refresh"){_,_->availability()}.show()
+        })
+    }
+    private fun friendlyDate(value:String):String=try{val date=java.time.OffsetDateTime.parse(value.replace(" ","T")).toInstant();java.time.format.DateTimeFormatter.ofLocalizedDateTime(java.time.format.FormatStyle.MEDIUM,java.time.format.FormatStyle.SHORT).withZone(java.time.ZoneId.systemDefault()).format(date)}catch(_:Exception){value}
     private fun keypad() {
         if(!compact)body.addView(text("Keypad",22f,ink,true))
         val number=field("Number or extension",dialledNumber,type=InputType.TYPE_CLASS_PHONE).apply { textSize=28f; gravity=Gravity.CENTER; contentDescription="Number or extension" }
@@ -281,7 +360,7 @@ class MainActivity: ComponentActivity() {
     private fun api():PhoneApi { val a=store.read() ?: error("Connect your phone first"); return PhoneApi(a.getString("server"),a.getString("token")) }
     private fun <T> async(work:()->T, success:(T)->Unit, failure:()->Unit={}) {
         worker.execute { try { val result=work(); runOnUiThread { if(!isFinishing && !isDestroyed)success(result) } } catch(e:Exception) {
-            runOnUiThread { if(!isFinishing && !isDestroyed) { failure(); if(e is ApiError && e.status==401 && store.read()!=null){stopService(Intent(this,PhoneService::class.java));store.clear();draw()}; message(if(e is ApiError || e is IllegalArgumentException)e.message ?: "Please try again" else "Could not reach your PBX. Check your connection and try again.") } }
+            runOnUiThread { if(!isFinishing && !isDestroyed) { failure(); if(e is ApiError && e.status==401 && store.read()!=null){PushConnection.unregister(this);stopService(Intent(this,PhoneService::class.java));store.clear();draw()}; message(if(e is ApiError || e is IllegalArgumentException)e.message ?: "Please try again" else "Could not reach your PBX. Check your connection and try again.") } }
         } }
     }
     private fun fetch(action:String,key:String,render:(JSONArray)->Unit) {
@@ -307,7 +386,7 @@ class MainActivity: ComponentActivity() {
         fetch("directory","contacts") { list ->
             val search=field("Search people or numbers"); body.addView(search); val container=layout(); body.addView(container)
             fun filter(value:String) { container.removeAllViews(); for(i in 0 until list.length()) { val row=list.getJSONObject(i); val name=row.optString("name"); val number=row.optString("number"); if(!"$name $number".contains(value,true))continue
-                container.addView(button("$name\n$number"){dial(number)}.apply{gravity=Gravity.START; minHeight=dp(64)})
+                container.addView(button("$name\n$number${row.optString("status").takeIf{it.isNotBlank()}?.let{" · $it"} ?: ""}"){dial(number)}.apply{gravity=Gravity.START; minHeight=dp(64)})
             } }
             search.addTextChangedListener(object:android.text.TextWatcher{override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int){}; override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){filter(s.toString())};override fun afterTextChanged(s:android.text.Editable?){} });filter("")
         }
@@ -315,14 +394,14 @@ class MainActivity: ComponentActivity() {
     private fun recents() {
         body.addView(text("Recents",28f,ink,true)); PhoneService.instance?.flushPending()
         body.addView(button("Refresh"){draw()})
-        fetch("calls","calls") { list -> for(i in 0 until list.length()) { val row=list.getJSONObject(i); val number=row.optString("number"); val name=row.optString("name").ifBlank{number}; item(name,"${row.optString("direction")} · ${row.optString("started_at")} · ${row.optInt("duration")}s"){dial(number)} } }
+        fetch("calls","calls") { list -> for(i in 0 until list.length()) { val row=list.getJSONObject(i); val number=row.optString("number"); val name=row.optString("name").ifBlank{number}; item(name,"${row.optString("direction")} · ${friendlyDate(row.optString("started_at"))} · ${row.optInt("duration")}s"){dial(number)} } }
     }
     private fun voicemail() {
         body.addView(text("Voicemail",28f,ink,true)); body.addView(button("Refresh"){stopPlayback();draw()})
         fetch("voicemail","messages") { list -> for(i in 0 until list.length()) {
             val row=list.getJSONObject(i); val id=row.getString("id"); val title=row.optString("caller_name").ifBlank{row.optString("caller_number","Unknown caller")}
             val cardView=layout().apply { background=rounded(card); setPadding(dp(14),dp(10),dp(14),dp(10)) }
-            cardView.addView(text((if(row.optBoolean("read"))"" else "New · ")+title,18f,ink,true));cardView.addView(text("${row.optString("created_at")} · ${row.optInt("duration")}s",13f,soft))
+            cardView.addView(text((if(row.optBoolean("read"))"" else "New · ")+title,18f,ink,true));cardView.addView(text("${friendlyDate(row.optString("created_at"))} · ${row.optInt("duration")}s",13f,soft))
             val buttons=layout(true)
             buttons.addView(button("Play"){playVoicemail(id)},LinearLayout.LayoutParams(0,dp(50),1f))
             buttons.addView(button("Mark read"){async({api().json("voicemail_read",JSONObject().put("id",id))},{draw()})},LinearLayout.LayoutParams(0,dp(50),1f))
@@ -349,17 +428,18 @@ class MainActivity: ComponentActivity() {
     private fun stopPlayback() { playbackGeneration++;player?.release();player=null;audioFile?.delete();audioFile=null }
     private fun settings() {
         val a=store.read() ?: return
-        val contents="${a.getJSONObject("account").optString("display_name")}\nExtension ${a.getJSONObject("account").optString("extension")}\n${a.getString("server")}\n\nVersion ${BuildConfig.VERSION_NAME}\n\nKeep the connection notification running for incoming calls. Android may stop background apps; reopen OpenWeb PBX after a restart or force-stop. Push wake-up, chat and video are not included in this release.\n\nOpen source under AGPL-3.0-or-later. Powered by Linphone SDK 5.5.23 and ZXing. Source and notices: github.com/embire2/openwebpbx/tree/customization/mobile/android"
-        AlertDialog.Builder(this).setTitle("Your phone").setMessage(contents).setPositiveButton("Done",null).setNeutralButton("More"){_,_->AlertDialog.Builder(this).setItems(arrayOf("Check connection", "App updates", "Audio device", "Privacy and support", "Source and licenses")){_,index->when(index){0->connectionCheck();1->updateDialog();2->audioDevices();3->privacy();else->licenses()}}.show()}.setNegativeButton("Disconnect"){_,_->disconnect()}.show()
+        val contents="${a.getJSONObject("account").optString("display_name")}\nExtension ${a.getJSONObject("account").optString("extension")}\n${a.getString("server")}\n\nVersion ${BuildConfig.VERSION_NAME}\n\nKeep the connection notification running for incoming calls. Android may stop background apps; reopen OpenWeb PBX after a restart or force-stop. Incoming wake-up is optional and needs your instance administrator’s setup. Chat and video are planned.\n\nOpen source under AGPL-3.0-or-later. Powered by Linphone SDK 5.5.23 and ZXing. Source and notices: github.com/embire2/openwebpbx/tree/customization/mobile/android"
+        AlertDialog.Builder(this).setTitle("Your phone").setMessage(contents).setPositiveButton("Done",null).setNeutralButton("More"){_,_->AlertDialog.Builder(this).setItems(arrayOf("Status and queues", "Check connection", "App updates", "Audio device", "Privacy and support", "Source and licenses")){_,index->when(index){0->availability();1->connectionCheck();2->updateDialog();3->audioDevices();4->privacy();else->licenses()}}.show()}.setNegativeButton("Disconnect"){_,_->disconnect()}.show()
     }
     private fun connectionCheck() {
         async({api().json("bootstrap")},{
             val phone=PhoneService.instance
+            val pushDetail=when(store.read()?.optString("push_state")){"ready"->"Incoming wake-up is connected.";"connecting"->"Incoming wake-up is still connecting.";"unavailable"->"Incoming wake-up is unavailable on this phone. Keep the connection notification running and ask your administrator to check setup.";else->"Incoming wake-up is not configured. Keep the connection notification running."}
             val detail=when {checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED -> "Your PBX is reachable. Allow microphone access to make calls."
                 phone?.status=="Ready for calls" -> "Your PBX is reachable and your phone is connected. If a number will not connect, ask your administrator to check that number’s calling rule and provider."
                 else -> "Your PBX is reachable. Reconnecting the phone now…"}
-            if(phone?.call==null) {if(phone==null)ensurePermissions()else phone.reconnect()}
-            AlertDialog.Builder(this).setTitle("Connection check").setMessage(detail).setPositiveButton("Done",null).show()
+            if(phone?.call==null && phone?.status!="Ready for calls") {if(phone==null)ensurePermissions()else phone.reconnect()}
+            AlertDialog.Builder(this).setTitle("Connection check").setMessage("$detail\n\n$pushDetail").setPositiveButton("Done",null).show()
         })
     }
     private fun updateUi() {
@@ -468,7 +548,7 @@ class MainActivity: ComponentActivity() {
         dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.apply{text=view.action;isEnabled=view.actionEnabled}
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.visibility=if(updates.isInstalling)View.VISIBLE else View.GONE
     }
-    private val privacySummary = "Your organisation’s PBX receives your device name, connection details and call history. During calls it carries your microphone audio, including while the app is in the background. Your administrator controls recordings and retention. The camera is used only to scan your connection QR code."
+    private val privacySummary = "Your organisation’s PBX receives your device name, connection details and call history. During calls it carries your microphone audio, including while the app is in the background. Your administrator controls recordings and retention. The camera is used only to scan your connection QR code. If your administrator enables incoming wake-up, Google Play Services delivers encrypted alerts and an optional Cloudflare relay forwards them. Call audio and phone passwords are not sent through that notification channel."
     private fun privacy() {
         AlertDialog.Builder(this).setTitle("Privacy and support").setMessage("$privacySummary\n\nNo advertising or advertising tracking. Settings → Disconnect removes this phone’s connection and local account data. To request deletion of your PBX account or server records, contact your administrator or follow the data removal instructions.")
             .setPositiveButton("Privacy policy") { _,_ -> openPublicPage("privacy.html") }
@@ -486,9 +566,11 @@ class MainActivity: ComponentActivity() {
         if(bootstrapped)return;bootstrapped=true
         async({api().json("bootstrap")},{ response ->
             store.update { saved ->
+            response.optJSONObject("push")?.let{saved.put("push",it)}
+            response.optJSONArray("features")?.let{saved.put("features",it)}
             response.optJSONObject("account")?.let{saved.put("account",it)}
             response.optJSONObject("sip")?.let{fresh->val old=saved.getJSONObject("sip");for(key in fresh.keys())if(key!="password" || fresh.optString(key).isNotBlank())old.put(key,fresh.get(key))}
-            };updatePhone()
+            };PushConnection.configure(this);updatePhone()
         })
     }
     private fun audioDevices() {
@@ -501,7 +583,7 @@ class MainActivity: ComponentActivity() {
             async({
                 try { api().json("revoke",JSONObject()) }
                 catch(e:ApiError) { if(e.status!=401)throw e;JSONObject() }
-            },{stopService(Intent(this,PhoneService::class.java));store.clear();stopPlayback();draw()})
+            },{PushConnection.unregister(this);stopService(Intent(this,PhoneService::class.java));store.clear();stopPlayback();draw()})
         }.show()
     }
 }

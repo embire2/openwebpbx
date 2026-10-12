@@ -1,0 +1,11 @@
+# Music on Hold
+
+OpenWeb PBX bundles **Lofi Beat Loop Schmoop**, a relaxed instrumental by **Seth_Makes_Sounds**, published under **CC0 1.0**. The [creator's Freesound page](https://freesound.org/people/Seth_Makes_Sounds/sounds/722425/) supplies the recording and license; [CC0](https://creativecommons.org/publicdomain/zero/1.0/) permits redistribution, adaptation and performance, including commercial use. There is no purchase or attribution requirement. We preserve the creator/source as a courtesy and to record provenance.
+
+The 135-second track is bundled locally. Installed phones never stream music from a third-party website. The package includes the source MP3, telephone WAV, license/source notice and SHA-256 manifest in `resources/music-on-hold/`. The WAV is mono 16-bit PCM at 16 kHz, normalized to -23 LUFS and -3 dBTP. Debian installation produces local 8/16/32/48 kHz versions with SoX.
+
+The `openweb` native music stream uses those files. Custom tenant/queue music choices remain selectable. The default for new guided PBXs is the bundled OpenWeb track. Existing custom recordings remain private and retain their owner-supplied licensing; this CC0 license applies only to the bundled track.
+
+Instance installation calls `pbx_music::install()` after schema/default initialization. It checks the bundled WAV digest and updates only the four named global `openweb` stream rows, without replacing stock music, tenant streams or custom prompts. The files are installed under the configured FreeSWITCH storage directory's `openweb-music/` tree, outside the website. Native stream reload can occur without restarting FreeSWITCH.
+
+On 12 October 2026, an actual Android call to a disposable native phone passed hold/resume with two-way media. A 9.98-second capture from the held phone's received RTP matched the bundled track's energy envelope at 0.895 correlation after telephone conversion. The check also caught and corrected a native variable file that reverted the default on XML reload. The production stock instance default now remains `local_stream://openweb` after reload; a typed comparison verified that all other native variables were preserved. Existing custom tenant/queue choices remain unchanged. No carrier call was used for this test.

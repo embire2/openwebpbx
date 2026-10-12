@@ -34,6 +34,7 @@ if existing!='f':raise RuntimeError('An existing PBX database or account is pres
 for d in [private,cfg,P('/etc/openwebpbx')]:d.mkdir(parents=True,exist_ok=True);d.chmod(0o750);os.chown(d,0,33)
 write(private/'setup-secrets.json',json.dumps({'AdminEmail':a.email,'AdminPassword':password}),0o600,0,0);del password
 run(['tar','-xzf','engine.tar.gz','-C','/']);run(['ldconfig'])
+service_root=P('/opt/openwebpbx');service_root.mkdir(parents=True,exist_ok=True);service_root.chmod(0o755)
 shutil.copytree('web',root,dirs_exist_ok=True)
 shutil.copytree('server','/opt/openwebpbx/service',dirs_exist_ok=True)
 for path in [*root.rglob('*'),*P('/opt/openwebpbx/service').rglob('*')]:
@@ -64,6 +65,10 @@ shutil.copytree(root/'app/switch/resources/scripts','/usr/share/freeswitch/scrip
 shutil.copytree(root/'app/pbx_setup/resources/switch/scripts','/usr/share/freeswitch/scripts',dirs_exist_ok=True)
 shutil.copytree(root/'app/pbx_setup/resources/prompts','/usr/share/freeswitch/sounds/openwebpbx',dirs_exist_ok=True)
 shutil.copy(root/'app/pbx_setup/resources/prompts/openweb.xml','/etc/freeswitch/languages/en/ivr/openweb.xml')
+# The music/default migration ran before the clean native configuration was
+# copied. Regenerate its variable file from this instance's preserved settings.
+with open(private/'install.log','a') as log:
+ run(['php','-r','require "resources/require.php"; save_var_xml();'],cwd=root,env=env,stdout=log,stderr=subprocess.STDOUT)
 import xml.etree.ElementTree as ET
 modules=P('/etc/freeswitch/autoload_configs/modules.conf.xml');doc=ET.parse(modules)
 if not any(n.get('module')=='mod_pgsql' for n in doc.findall('./modules/load')):doc.find('./modules').insert(0,ET.Element('load',{'module':'mod_pgsql'}))
@@ -101,7 +106,7 @@ if not a.local_certificate:
 # current trusted helper while a candidate is staged and verified.
 release=P('VERSION').read_text().strip()
 tools=P('/opt/openwebpbx/tools');tools.mkdir(parents=True,exist_ok=True,mode=0o755)
-for name in ['upgrade.py','verify_feed.py','release-public.pem','configure-sip-tls.py','configure-sip-tls.php']:
+for name in ['upgrade.py','verify_feed.py','release-public.pem','configure-sip-tls.py','configure-sip-tls.php','backups.py','install-backups.sh','install-support.py']:
  shutil.copy(name,tools/name);(tools/name).chmod(0o644)
 slot=P('/opt/openwebpbx/updater/slots')/release
 shutil.copytree('updater',slot)
@@ -114,4 +119,5 @@ spec=importlib.util.spec_from_file_location('installed_upgrade',tools/'upgrade.p
 upgrade=importlib.util.module_from_spec(spec);spec.loader.exec_module(upgrade)
 upgrade.ensure_recovery_integration()
 run(['systemctl','daemon-reload']);run(['systemctl','enable','--now','openwebpbx-updater'])
+run(['bash','install-backups.sh'])
 print('Admin is ready at https://'+a.domain)

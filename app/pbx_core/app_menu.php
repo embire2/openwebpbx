@@ -1,0 +1,2 @@
+<?php
+$y=0;$apps[$x]['menu'][$y]['title']['en-us']='Switchboard';$apps[$x]['menu'][$y]['uuid']='b19bd97f-e90c-43e9-9f22-64e4f9b03d02';$apps[$x]['menu'][$y]['parent_uuid']='';$apps[$x]['menu'][$y]['category']='internal';$apps[$x]['menu'][$y]['icon']='fa-solid fa-table-cells';$apps[$x]['menu'][$y]['path']='/app/pbx_core/';$apps[$x]['menu'][$y]['order']='12';$apps[$x]['menu'][$y]['groups']=['superadmin','tenant_admin'];

@@ -14,11 +14,16 @@ if (!string.IsNullOrEmpty(settingsPath)) builder.Configuration.AddJsonFile(setti
 builder.Services.AddWindowsService(options => options.ServiceName = "OpenWebPBX");
 builder.Services.AddSingleton<ServiceStatus>();
 builder.Services.AddSingleton<SwitchClient>();
+builder.Services.AddHttpClient("push", c => c.Timeout = TimeSpan.FromSeconds(8)).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddSingleton<AndroidPushSender>();
 var connection = builder.Configuration.GetConnectionString("Pbx");
 if (!string.IsNullOrWhiteSpace(connection))
 {
     builder.Services.AddSingleton(NpgsqlDataSource.Create(connection));
     builder.Services.AddHostedService<JobWorker>();
+    builder.Services.AddHostedService<MobileStateWorker>();
+    builder.Services.AddHostedService<QueueStateWorker>();
+    builder.Services.AddHostedService<MobilePushWorker>();
 }
 // This local service has no public administrative routes. The PBX web console retains
 // authentication, permissions, tenant checks and form tokens for every user action.

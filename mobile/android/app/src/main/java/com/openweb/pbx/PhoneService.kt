@@ -5,6 +5,7 @@ import android.app.*
 import android.content.*
 import android.content.pm.ServiceInfo
 import android.os.*
+import android.net.*
 import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
@@ -21,16 +22,39 @@ class PhoneService: Service() {
     var callLabel = ""; private set
     var lastCallMessage = ""; private set
     var lastDialled = ""; private set
-    private var endedLocally = false
+    private data class Session(val phone:Call, val id:String=UUID.randomUUID().toString(), val started:String=Instant.now().toString(), val incoming:Boolean, var answered:Boolean=false, var endedLocally:Boolean=false)
+    private val sessions=linkedMapOf<Long,Session>()
+    val calls:List<Call> get()=sessions.values.map{it.phone}
+    val waitingCall:Call? get()=calls.firstOrNull{it.state==Call.State.IncomingReceived}
+    var consultation:Call?=null; private set
+    var conference:Conference?=null; private set
+    var transferring=false; private set
+    var conferenceOnHold=false; private set
+    private var afterPause:(()->Unit)?=null
+    private var retrySeconds=2
+    private var lastNetworkLoss=0L
+    private val reconnectTask=Runnable{if(!destroying && networkAvailable()){core?.refreshRegisters();status="Reconnecting…";publish()}}
+    private val lostCallTask=Runnable{if(!networkAvailable() && calls.isNotEmpty()){lastCallMessage="The connection was lost. Please call again.";calls.toList().forEach{it.terminate()}}}
+    private val networkChanged=Runnable{
+        val available=networkAvailable()
+        core?.isNetworkReachable=available
+        if(available){main.removeCallbacks(lostCallTask);core?.refreshRegisters();status="Reconnecting…";flushPending()}
+        else{lastNetworkLoss=SystemClock.elapsedRealtime();status="No internet connection";main.removeCallbacks(reconnectTask);main.postDelayed(lostCallTask,30000)}
+        publish()
+    }
+    private val networks by lazy{getSystemService(ConnectivityManager::class.java)}
+    private val networkCallback=object:ConnectivityManager.NetworkCallback(){
+        override fun onAvailable(network:Network)=scheduleNetwork()
+        override fun onLost(network:Network)=scheduleNetwork()
+        override fun onCapabilitiesChanged(network:Network,caps:NetworkCapabilities)=scheduleNetwork()
+    }
+    private fun scheduleNetwork(){main.removeCallbacks(networkChanged);main.postDelayed(networkChanged,1000)}
+    private fun networkAvailable():Boolean=networks.getNetworkCapabilities(networks.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)==true
     var muted = false; private set
     var speaker = false; private set
     var core: Core? = null; private set
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
-    private var callId = ""
-    private var startedAt = ""
-    private var incoming = false
-    private var answered = false
     private var account: JSONObject? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var proximity: CallProximity? = null
@@ -51,11 +75,13 @@ class PhoneService: Service() {
         manager.createNotificationChannel(NotificationChannel("connection", "Phone connection", NotificationManager.IMPORTANCE_LOW))
         manager.createNotificationChannel(NotificationChannel("calls", "Incoming calls", NotificationManager.IMPORTANCE_HIGH).apply { lockscreenVisibility = Notification.VISIBILITY_PRIVATE })
         connectionForeground()
+        networks.registerDefaultNetworkCallback(networkCallback)
         try { connect() } catch (_: Exception) { status = "Could not connect. Reopen the app to try again."; publish() }
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "hangup") call?.terminate()
-        return START_NOT_STICKY // A user must reopen the app after Android stops it; no fake push promise.
+        if(intent?.action=="decline")calls.firstOrNull{sessions[it.nativePointer]?.id==intent.getStringExtra("call_id") && it.state==Call.State.IncomingReceived}?.decline(Reason.Declined)
+        if(intent?.action=="hangup")hangup()
+        return START_STICKY // Android may restart the user's ongoing phone connection; force-stop still requires reopening.
     }
     private fun connect() {
         account = PhoneStore(this).read() ?: run { stopSelf(); return }
@@ -66,6 +92,7 @@ class PhoneService: Service() {
         val config = factory.createConfigFromString("[sip]\nstore_auth_info=0\n[storage]\nbackend=null\n")
         val c = factory.createCoreWithConfig(config, applicationContext); core = c
         c.isAutoIterateEnabled = true
+        c.maxCalls=2; c.registerOnlyWhenNetworkIsUp=true
         c.setUserAgent("OpenWebPBX-Android", BuildConfig.VERSION_NAME)
         c.verifyServerCertificates(true); c.verifyServerCn(true)
         val systemTrust = KeyStore.getInstance("AndroidCAStore").apply { load(null) }
@@ -87,32 +114,47 @@ class PhoneService: Service() {
         c.addListener(object: CoreListenerStub() {
             override fun onAccountRegistrationStateChanged(core: Core, a: Account, state: RegistrationState, message: String) {
                 status = when(state) { RegistrationState.Ok -> "Ready for calls"; RegistrationState.Progress -> "Connecting…"; RegistrationState.Failed -> "Connection unavailable — check your network"; else -> "Disconnected" }
+                if(state==RegistrationState.Ok){main.removeCallbacks(reconnectTask);retrySeconds=2;flushPending()}
+                else if(state==RegistrationState.Failed && networkAvailable()){main.removeCallbacks(reconnectTask);main.postDelayed(reconnectTask,retrySeconds*1000L);retrySeconds=(retrySeconds*2).coerceAtMost(30)}
                 publish()
             }
+            override fun onTransferStateChanged(core:Core,current:Call,state:Call.State){
+                if(state==Call.State.Error){transferring=false;lastCallMessage="Transfer failed. Your original call is still available.";if(current.state==Call.State.Paused)current.resume();select(current);publish()}
+                else if(state==Call.State.Connected){transferring=false;lastCallMessage="Call transferred";publish()}
+            }
             override fun onCallStateChanged(core: Core, current: Call, state: Call.State, message: String) {
-                if (state == Call.State.IncomingReceived || state == Call.State.OutgoingInit) {
-                    if(UpdateManager.get(this@PhoneService).isInstalling) { current.decline(Reason.Busy); return }
-                    if (call != null && call?.nativePointer != current.nativePointer) { current.decline(Reason.Busy); return }
-                    lastCallMessage = ""; endedLocally = false
-                    call = current; callId = UUID.randomUUID().toString(); startedAt = Instant.now().toString()
-                    current.addListener(callAudioListener)
-                    incoming = state == Call.State.IncomingReceived; answered = false; muted = false; speaker = false
-                    callLabel = current.remoteAddress.username ?: "Unknown caller"
+                if(state==Call.State.IncomingReceived || state==Call.State.OutgoingInit){
+                    val saved=PhoneStore(this@PhoneService).read()
+                    if(state==Call.State.IncomingReceived && saved!=null && saved.optLong("declined_push_until")>System.currentTimeMillis() && saved.optString("declined_push_call")==current.remoteParams?.getCustomHeader("X-OpenWeb-Push-ID")){current.decline(Reason.Declined);return}
+                    if(UpdateManager.get(this@PhoneService).isInstalling || (sessions.size>=2 && !sessions.containsKey(current.nativePointer))){current.decline(Reason.Busy);return}
+                    if(!sessions.containsKey(current.nativePointer)){
+                        if(sessions.isEmpty())lastNetworkLoss=0
+                        sessions[current.nativePointer]=Session(current,incoming=state==Call.State.IncomingReceived)
+                        current.addListener(callAudioListener)
+                        lastCallMessage=""
+                    }
+                    if(call==null || state==Call.State.OutgoingInit)select(current)
                 }
-                if (call?.nativePointer != current.nativePointer) return
-                if (state == Call.State.StreamsRunning) { speaker = current.outputAudioDevice?.type == AudioDevice.Type.Speaker; answered = true; microphoneForeground(); acquireCallLock() }
-                if (state == Call.State.End || state == Call.State.Error || state == Call.State.Released) {
-                    proximity?.update(false)
-                    lastCallMessage = if (!incoming && !answered && !endedLocally) CallFeedback.failure(current.errorInfo.protocolCode) else if(incoming && !answered) "Missed call" else "Call ended"
-                    recordCall(current.duration)
+                val row=sessions[current.nativePointer] ?: return
+                if(state==Call.State.Paused){val next=afterPause;afterPause=null;next?.invoke()}
+                if(state==Call.State.StreamsRunning){row.answered=true;microphoneForeground();acquireCallLock()}
+                if(state==Call.State.End || state==Call.State.Error || state==Call.State.Released){
+                    sessions.remove(current.nativePointer)
+                    cancelIncoming(row.id)
+                    recordCall(row,current.duration)
                     current.removeListener(callAudioListener)
-                    call = null; callLabel = ""; core.isMicEnabled = true; releaseCallLock()
-                    getSystemService(NotificationManager::class.java).cancel(11)
-                    connectionForeground()
+                    if(consultation?.nativePointer==current.nativePointer || consultation!=null && current.nativePointer!=consultation?.nativePointer && !transferring)consultation=null
+                    if(call?.nativePointer==current.nativePointer){
+                        lastCallMessage=if(!row.endedLocally && lastNetworkLoss>0 && SystemClock.elapsedRealtime()-lastNetworkLoss<60000)"The connection was lost. Please call again." else if(!row.incoming && !row.answered && !row.endedLocally)CallFeedback.failure(current.errorInfo.protocolCode) else if(row.incoming && !row.answered)"Missed call" else "Call ended"
+                        select(calls.firstOrNull())
+                        call?.takeIf{it.state==Call.State.Paused && conference==null && !transferring}?.resume()
+                    }
+                    if(calls.isEmpty()){afterPause=null;transferring=false;conference=null;conferenceOnHold=false;consultation=null;core.isMicEnabled=true;releaseCallLock();connectionForeground()}
+                    else if(conference?.participantCount==0){conference?.terminate();conference=null}
                 }
-                if (state == Call.State.IncomingReceived) notifyIncoming()
-                syncCallAudio()
-                publish()
+                if(state==Call.State.IncomingReceived){val stored=PhoneStore(this@PhoneService).read();if(stored!=null && stored.optString("push_pending_call").isNotBlank() && stored.optString("push_pending_call")==current.remoteParams?.getCustomHeader("X-OpenWeb-Push-ID"))PushConnection.cancel(this@PhoneService,stored.optString("push_pending_id"));notifyIncoming(current)}
+                if(state==Call.State.StreamsRunning)cancelIncoming(row.id)
+                syncCallAudio();publish()
             }
             override fun onAudioDeviceChanged(core: Core, audioDevice: AudioDevice) {
                 syncCallAudio(); if (!destroying) publish()
@@ -145,14 +187,33 @@ class PhoneService: Service() {
         .setOngoing(true).setVisibility(Notification.VISIBILITY_PRIVATE)
         .setContentIntent(openIntent()).build()
     private fun openIntent(): PendingIntent = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    private fun notifyIncoming() {
-        val decline = PendingIntent.getService(this, 2, Intent(this, PhoneService::class.java).setAction("hangup"), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val note = Notification.Builder(this, "calls").setSmallIcon(com.openweb.pbx.R.drawable.ic_phone)
-            .setContentTitle("Incoming call").setContentText(callLabel).setCategory(Notification.CATEGORY_CALL)
-            .setVisibility(Notification.VISIBILITY_PRIVATE).setOngoing(true).setContentIntent(openIntent())
-            .addAction(Notification.Action.Builder(null, "Open to answer", openIntent()).build())
-            .addAction(Notification.Action.Builder(null, "Decline", decline).build()).build()
-        getSystemService(NotificationManager::class.java).notify(11, note)
+    private fun notifyIncoming(incoming:Call){
+        val id=sessions[incoming.nativePointer]?.id ?: return
+        val answer=PendingIntent.getActivity(this,id.hashCode(),Intent(this,IncomingCallActivity::class.java).putExtra("call_id",id).putExtra("answer",true),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val decline=PendingIntent.getService(this,id.hashCode(),Intent(this,PhoneService::class.java).setAction("decline").putExtra("call_id",id),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val person=Person.Builder().setName(incoming.remoteAddress.displayName ?: incoming.remoteAddress.username ?: "Incoming call").build()
+        val note=Notification.Builder(this,"calls").setSmallIcon(R.drawable.ic_phone)
+            .setContentTitle(if(calls.size>1)"Call waiting" else "Incoming call").setContentText(person.name)
+            .setCategory(Notification.CATEGORY_CALL).setVisibility(Notification.VISIBILITY_PRIVATE).setOngoing(true)
+            .setContentIntent(answer).setTimeoutAfter(60000)
+        if(Build.VERSION.SDK_INT>=31)note.setStyle(Notification.CallStyle.forIncomingCall(person,decline,answer))
+        else{note.addAction(Notification.Action.Builder(null,"Answer",answer).build());note.addAction(Notification.Action.Builder(null,"Decline",decline).build())}
+        val ringing=PendingIntent.getActivity(this,(id+"ring").hashCode(),Intent(this,IncomingCallActivity::class.java).putExtra("call_id",id),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val manager=getSystemService(NotificationManager::class.java)
+        if(Build.VERSION.SDK_INT<34 || manager.canUseFullScreenIntent())note.setFullScreenIntent(ringing,true)
+        getSystemService(NotificationManager::class.java).notify("call:$id",11,note.build())
+    }
+    private fun cancelIncoming(id:String){getSystemService(NotificationManager::class.java).cancel("call:$id",11)}
+    fun incomingById(id:String):Call?=sessions.values.firstOrNull{it.id==id && it.phone.state==Call.State.IncomingReceived}?.phone
+    private fun select(selected:Call?){call=selected;callLabel=selected?.remoteAddress?.username ?: "";muted=selected?.microphoneMuted ?: false;syncCallAudio()}
+    private fun pauseThen(action:()->Unit){
+        val active=call
+        if(active==null || active.state==Call.State.Paused){action();return}
+        check(active.state==Call.State.StreamsRunning || active.state==Call.State.Connected){"Wait for your current call to connect"}
+        check(afterPause==null){"Please wait for the call to go on hold"}
+        afterPause=action
+        if(active.pause()!=0){afterPause=null;error("Could not put your call on hold")}
+        main.postDelayed({if(afterPause!=null){afterPause=null;lastCallMessage="Could not put your call on hold. Try again.";if(active.state==Call.State.Paused)active.resume();publish()}},4000)
     }
     private fun publish() { getSystemService(NotificationManager::class.java).notify(10, notification()); changed?.invoke() }
     private fun connectionForeground() {
@@ -170,44 +231,97 @@ class PhoneService: Service() {
         val active = call
         val output = active?.outputAudioDevice?.type
         speaker = output == AudioDevice.Type.Speaker
-        proximity?.update(CallProximityPolicy.enabled(answered, active?.state, output))
+        proximity?.update(!conferenceOnHold && CallProximityPolicy.enabled(sessions[active?.nativePointer]?.answered==true, active?.state, output))
     }
-    fun dial(raw: String) {
+    fun dial(raw: String, second:Boolean=false) {
         check(!UpdateManager.get(this).isInstalling) { "Finish or cancel the update before making a call" }
-        check(call == null) { "Finish your current call first" }
+        check(call==null || second && calls.size==1 && conference==null) { "Finish one of your calls first" }
         val number = Enrollment.number(raw); val c = core ?: error("Phone is still connecting")
         check(c.defaultAccount?.state == RegistrationState.Ok) { "Wait until the phone is ready for calls" }
         lastDialled = number; lastCallMessage = ""
         microphoneForeground()
         val domain = account!!.getJSONObject("sip").getString("domain")
         val params = c.createCallParams(null)!!; params.isVideoEnabled = false; params.mediaEncryption = MediaEncryption.SRTP
-        check(c.inviteAddressWithParams(Factory.instance().createAddress("sip:$number@$domain")!!, params) != null) { "The call could not start" }
+        val invite={
+            val result=c.inviteAddressWithParams(Factory.instance().createAddress("sip:$number@$domain")!!,params)
+            if(result==null){lastCallMessage="The second call could not start";call?.takeIf{it.state==Call.State.Paused}?.resume();publish()}
+        }
+        if(second)pauseThen(invite)else invite()
     }
-    fun answer() {
-        val c = core ?: return; val active = call ?: return
+    fun answer(incoming:Call?=waitingCall){
+        val c=core ?: return;val next=incoming ?: return
+        check(next.state==Call.State.IncomingReceived){"That call is no longer ringing"}
         microphoneForeground()
-        val params = c.createCallParams(active)!!; params.isVideoEnabled = false; params.mediaEncryption = MediaEncryption.SRTP
-        active.acceptWithParams(params); getSystemService(NotificationManager::class.java).cancel(11)
+        val accept:()->Unit={
+            val params=c.createCallParams(next)!!;params.isVideoEnabled=false;params.mediaEncryption=MediaEncryption.SRTP
+            if(next.acceptWithParams(params)==0){select(next);sessions[next.nativePointer]?.let{cancelIncoming(it.id)}}
+            else{lastCallMessage="Could not answer. Your original call is still available.";call?.takeIf{it.state==Call.State.Paused}?.resume();publish()}
+        }
+        if(call!=null && call?.nativePointer!=next.nativePointer)pauseThen(accept)else accept()
     }
-    fun hangup() { endedLocally = true; call?.terminate() }
+    fun hangup(target:Call?=call){target?.let{sessions[it.nativePointer]?.endedLocally=true;if(it.state==Call.State.IncomingReceived)it.decline(Reason.Declined)else it.terminate()}}
+    fun switchCall(target:Call){
+        check(conference==null){"Use Participants during a three-way call"}
+        if(target.state==Call.State.IncomingReceived){answer(target);return}
+        if(target.nativePointer==call?.nativePointer)return
+        pauseThen{select(target);if(target.state==Call.State.Paused)target.resume();publish()}
+    }
+    fun blindTransfer(raw:String){
+        val active=call ?: error("No current call")
+        check(calls.size==1 && active.state in listOf(Call.State.StreamsRunning,Call.State.Paused)){"Wait for your call to connect"}
+        val address=Factory.instance().createAddress("sip:${Enrollment.number(raw)}@${account!!.getJSONObject("sip").getString("domain")}")!!
+        check(active.transferTo(address)==0){"Could not start the transfer"};transferring=true;publish()
+    }
+    fun consult(raw:String){consultation=call ?: error("No current call");try{dial(raw,true)}catch(e:Exception){consultation=null;throw e}}
+    fun completeTransfer(){
+        val original=consultation ?: error("Start a transfer first");val target=call ?: error("Choose the second call")
+        check(target.nativePointer!=original.nativePointer && target.state==Call.State.StreamsRunning){"Wait for the other person to answer"}
+        check(original.transferToAnother(target)==0){"Could not transfer. Cancel to return to your original call"}
+        transferring=true;publish()
+    }
+    fun cancelConsultation(){val original=consultation ?: return;consultation=null;calls.filter{it.nativePointer!=original.nativePointer}.forEach{hangup(it)};select(original);if(original.state==Call.State.Paused)original.resume();publish()}
+    fun merge(){
+        val c=core ?: error("Phone unavailable");check(calls.size==2 && calls.all{sessions[it.nativePointer]?.answered==true}){"Both people must answer before merging"}
+        check(consultation==null){"Cancel the transfer before merging calls"}
+        val params=c.createConferenceParams(null)!!;params.isAudioEnabled=true;params.isVideoEnabled=false;params.isLocalParticipantEnabled=true;params.isOneParticipantConferenceEnabled=true
+        check(calls.all{it.state in listOf(Call.State.StreamsRunning,Call.State.Paused)}){"Wait for both calls to finish connecting"}
+        c.config.setString("misc","conference_type","local")
+        val joined=c.createConferenceWithParams(params) ?: error("Could not create the three-way call")
+        val added=mutableListOf<Call>()
+        // The pinned SDK's batch C wrapper returns a boolean in a status API.
+        // The individual addParticipant wrapper consistently returns zero for success.
+        for(participant in calls.toList()){
+            if(joined.addParticipant(participant)!=0){
+                added.forEach{c.removeFromConference(it)};call?.takeIf{it.state==Call.State.Paused}?.resume()
+                error("Could not merge. Choose a conversation to continue")
+            }
+            added.add(participant)
+        }
+        conference=joined;conferenceOnHold=false
+        // Adding the active leg enters automatically before its media update locks audio.
+        if(!joined.isIn)main.postDelayed({if(conference===joined && !conferenceOnHold)joined.enter()},500)
+        publish()
+    }
+    fun muteParticipant(target:Call){target.speakerMuted=!target.speakerMuted;publish()}
     fun dismissCallMessage() { lastCallMessage=""; publish() }
     fun reconnect() {
         check(call==null) { "Finish your call before reconnecting" }
         core?.refreshRegisters(); status="Connecting…"; publish()
     }
-    fun mute() { muted = !muted; core?.isMicEnabled = !muted; publish() }
-    fun hold() { if(call?.state == Call.State.Paused) call?.resume() else call?.pause(); publish() }
+    fun mute() { muted=!muted; if(conference!=null)conference?.microphoneMuted=muted else call?.microphoneMuted=muted; publish() }
+    fun hold() { val group=conference;if(group!=null){if(conferenceOnHold){check(group.enter()==0){"Could not resume your audio"}}else group.leave();conferenceOnHold=!conferenceOnHold}else if(call?.state == Call.State.Paused)call?.resume()else call?.pause();syncCallAudio();publish() }
     fun dtmf(digit: Char) { if (digit in "0123456789*#") call?.sendDtmf(digit) }
     fun speaker() {
         val c = core ?: return
         val type = if(speaker) AudioDevice.Type.Earpiece else AudioDevice.Type.Speaker
         val device = c.audioDevices.firstOrNull { it.type == type } ?: error(if(speaker) "This device has no earpiece. Choose an audio device in Settings." else "A speaker is not available on this device.")
-        c.outputAudioDevice = device; call?.outputAudioDevice = device; syncCallAudio()
+        c.outputAudioDevice = device; conference?.outputAudioDevice=device;calls.forEach{it.outputAudioDevice=device}; syncCallAudio()
         publish()
     }
     fun audioDevices(): List<AudioDevice> = core?.extendedAudioDevices?.filter { it.hasCapability(AudioDevice.Capabilities.CapabilityPlay) } ?: emptyList()
-    fun audioDevice(device: AudioDevice) { core?.outputAudioDevice = device; call?.outputAudioDevice = device; syncCallAudio(); publish() }
-    private fun recordCall(duration: Int) {
+    fun audioDevice(device: AudioDevice) { core?.outputAudioDevice = device;conference?.outputAudioDevice=device;calls.forEach{it.outputAudioDevice=device};syncCallAudio(); publish() }
+    private fun recordCall(session:Session,duration: Int) {
+        val callId=session.id;val callLabel=session.phone.remoteAddress.username ?: "";val incoming=session.incoming;val answered=session.answered;val startedAt=session.started
         val row = JSONObject().put("id",callId).put("number",callLabel.takeIf { it.matches(Regex("[+*#0-9]{1,32}")) } ?: "").put("direction", if(incoming && !answered) "missed" else if(incoming) "incoming" else "outgoing").put("started_at",startedAt).put("duration",duration).put("answered",answered)
         val store = PhoneStore(this); store.update { saved ->
         val pending = saved.optJSONArray("pending_calls") ?: JSONArray(); pending.put(row)
@@ -238,7 +352,8 @@ class PhoneService: Service() {
     }
     override fun onDestroy() {
         destroying = true; proximity?.close(); main.removeCallbacks(refreshAudioRoute)
-        call?.removeListener(callAudioListener)
+        sessions.values.forEach{it.phone.removeListener(callAudioListener);cancelIncoming(it.id)}
+        networks.unregisterNetworkCallback(networkCallback);main.removeCallbacksAndMessages(null)
         core?.stop(); core = null; call = null; instance = null; changed?.invoke()
         releaseCallLock(); worker.shutdown(); getSystemService(NotificationManager::class.java).cancel(11)
         super.onDestroy()

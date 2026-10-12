@@ -7,8 +7,8 @@ android {
         applicationId = "com.openweb.pbx"
         minSdk = 28
         targetSdk = 36
-        versionCode = providers.gradleProperty("openwebPrivateVersionCode").orNull?.toInt() ?: 107
-        versionName = providers.gradleProperty("openwebPrivateVersionName").orNull ?: "1.0.7"
+        versionCode = providers.gradleProperty("openwebPrivateVersionCode").orNull?.toInt() ?: 109
+        versionName = providers.gradleProperty("openwebPrivateVersionName").orNull ?: "1.0.9"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     flavorDimensions += "distribution"
@@ -34,6 +34,8 @@ android {
     buildFeatures { buildConfig = true }
 }
 dependencies {
+    implementation("org.unifiedpush.android:connector:3.3.5")
+    implementation("org.unifiedpush.android:embedded-fcm-distributor:3.0.0")
     implementation("org.linphone:linphone-sdk-android:5.5.23")
     // Liblinphone detects these compatibility classes at runtime before enabling
     // Android call audio focus and MODE_IN_COMMUNICATION on physical handsets.

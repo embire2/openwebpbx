@@ -3,6 +3,9 @@ require 'resources.functions.config'
 local Database=require 'resources.functions.database'
 local json=require 'resources.functions.lunajson'
 local P=loadfile(scripts_dir..'/app/pbx_setup/policy.lua')()
+local registered=loadfile(scripts_dir..'/app/pbx_setup/registered.lua')()
+local Q=loadfile(scripts_dir..'/app/pbx_setup/core_queue.lua')()
+local agent_contact=loadfile(scripts_dir..'/app/pbx_setup/core_agent_contact.lua')()
 local db=Database.new('system')
 local api=freeswitch.API()
 local id=argv and argv[1] or ''
@@ -29,8 +32,8 @@ local function active()
     query("select 1 as ok from v_pbx_jobs where job_uuid=:id and call_uuid=:call and state='calling'",{id=id,call=job.call_uuid},function() yes=true end)
     return yes
 end
-local function user_free(u)
-    if not u or not u.enabled or not P.contact(api:execute('sofia_contact',u.auth_id..'@'..config.realm)) then return false end
+local function user_free(u,push)
+    if not u or not u.enabled or (not registered(db,api,P,job.domain_uuid,u,config.realm) and not push) then return false end
     local ok,channels=pcall(json.decode,api:execute('show','channels as json'))
     if not ok then return false end
     for _,c in ipairs(channels.rows or {}) do
@@ -51,7 +54,7 @@ local function outbound(number,agent,q)
     if internal_target() then
         local u=config.users[number]
         if u and u.enabled then
-            local contact=P.contact(api:execute('sofia_contact',u.auth_id..'@'..config.realm))
+            local contact=registered(db,api,P,job.domain_uuid,u,config.realm)
             return contact and {{contact=contact}} or nil
         end
         return nil
@@ -78,11 +81,15 @@ local function deliver()
         api:execute('callcenter_config','queue load '..q.number..'@'..config.realm)
         -- Keep live callers ahead of callbacks. Callbacks are claimed in their original request order.
         local members=api:execute('callcenter_config','queue list members '..q.number..'@'..config.realm)
-        if members:sub(1,4)=='-ERR' or members:find('|Waiting|',1,true) or members:find('|Trying|',1,true) then retry('Waiting for an agent',15);return end
+        if members:sub(1,4)=='-ERR' then retry('Waiting for the queue',15);return end
+        local live_waiting=members:find('|Waiting|',1,true) or members:find('|Trying|',1,true)
+        if q.callback_order=='original_position' then
+            if Q.live_first(db,api,job.domain_uuid,q.number,id) then retry('Waiting for an earlier caller',5);return end
+        elseif live_waiting then retry('Waiting for an agent',15);return end
         for _,m in ipairs(q.members) do
             local u=config.users[tostring(m.number)]
             local profile=u and P.profile(config,m.number,clock)
-            if u and m.status=='LoggedIn' and u.queue_status=='LoggedIn' and profile.queue_status~='0' and not next(profile.away or {}) and user_free(u) then
+            if u and m.status=='LoggedIn' and not m.supervisor_break and u.queue_status=='LoggedIn' and profile.queue_status~='0' and not next(profile.away or {}) and user_free(u,agent_contact.push(db,job.domain_uuid,u)) then
                 local details=api:execute('callcenter_config','agent list '..m.agent_uuid)
                 if P.agent_available(details,m.agent_uuid,os.time()) then
                     routes=outbound(job.target_number,tostring(m.number),q)
@@ -106,14 +113,15 @@ local function deliver()
     if not claimed then retry('Waiting for an agent',15);return end
     reserved_user=agent;reserved_queue=q
     for _,queue in ipairs(config.queues) do for _,m in ipairs(queue.members) do
-        if tostring(m.number)==tostring(agent.number) then api:execute('callcenter_config','agent set status '..m.agent_uuid..' On Break') end
+        if tostring(m.number)==tostring(agent.number) then api:execute('callcenter_config',"agent set status "..m.agent_uuid.." 'On Break'") end
     end end
     -- Each registered device needs its own call UUID. Assigning a common originate UUID
     -- to multiple contacts makes the second device fail before it can ring.
     local vars='rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,originate_timeout=30,domain_uuid='..job.domain_uuid..',domain_name='..config.realm..',ignore_early_media=true,origination_caller_id_name='..(job.kind=='callback' and 'Queue Callback' or 'Wake-up Call')..',origination_caller_id_number='..(q and q.number or agent.number)
     -- Resolve the current registration at delivery time. A cached directory dial-string
     -- may still point to a phone's previous port after it reconnects.
-    local live_contact=P.contact(api:execute('sofia_contact',agent.auth_id..'@'..config.realm))
+    local live_contact=registered(db,api,P,job.domain_uuid,agent,config.realm)
+    if q and agent_contact.push(db,job.domain_uuid,agent) then live_contact=agent_contact.dial(job.domain_uuid,config.realm,agent,q,nil,id) end
     if not live_contact then retry('Phone reconnected; retrying');return end
     vars=vars..',presence_id='..agent.auth_id..'@'..config.realm..',sip_invite_domain='..config.realm
     call=freeswitch.Session('{'..vars..'}'..live_contact)
@@ -169,9 +177,9 @@ if config and reserved_user then
     for _,q in ipairs(config.queues) do for _,m in ipairs(q.members) do
         if tostring(m.number)==tostring(reserved_user.number) then
             local p=u and P.profile(config,m.number,clock)
-            local available=u and u.enabled and u.queue_status=='LoggedIn' and m.status=='LoggedIn' and p.queue_status~='0'
+            local available=u and u.enabled and u.queue_status=='LoggedIn' and m.status=='LoggedIn' and not m.supervisor_break and p.queue_status~='0'
             api:execute('callcenter_config','agent set ready_time '..m.agent_uuid..' '..(os.time()+(reserved_queue and reserved_queue.wrap_up or 2)))
-            api:execute('callcenter_config','agent set status '..m.agent_uuid..' '..(available and 'Available' or 'Logged Out'))
+            api:execute('callcenter_config',"agent set status "..m.agent_uuid.." '"..(available and 'Available' or 'Logged Out').."'")
         end
     end end
 end
