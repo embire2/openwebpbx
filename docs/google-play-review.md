@@ -4,6 +4,8 @@ The Android app needs a real PBX account. Give Google the permanent review porta
 
 The review portal uses the regular PBX login, a dedicated `pbx_mobile_review` permission and an explicit user-to-demo-extension assignment. It cannot choose an arbitrary extension or access PBX administration. Fresh QR codes still expire after ten minutes and work once; the portal URL and login remain reusable.
 
+The prepared 1.0.10/code110 Play packet keeps the 1.0.9 phone features and pairs with the Debian private notification-storage correction. Its five screenshots use fictional owned accounts and the unchanged 1.0.9 UI. The earlier review video and complete portal/media workflow below belong to 1.0.7; no 1.0.10 Google Play-track installation, physical locked/idle wake-up or Google approval is claimed. The permanent portal remains available for final testing and review after publication.
+
 ## Provision an isolated demo
 
 On the hosted Debian instance, after installing the current server files and mobile schema, run the operator CLI as the instance administrator. Use an existing private directory outside the application and web root:

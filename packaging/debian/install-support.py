@@ -16,10 +16,13 @@ BACKUPS = Path('/var/backups/openwebpbx')
 SUPPORT = {'backups.py': Path('/opt/openwebpbx/tools/backups.py'),
            'install-backups.sh': Path('/opt/openwebpbx/tools/install-backups.sh'),
            'install-support.py': Path('/opt/openwebpbx/tools/install-support.py'),
+           'install-mobile-notifications.py': Path('/opt/openwebpbx/tools/install-mobile-notifications.py'),
            'openwebpbx-backups.service': Path('/etc/systemd/system/openwebpbx-backups.service'),
            'openwebpbx-backups.timer': Path('/etc/systemd/system/openwebpbx-backups.timer')}
 TIMER_LINKS = [Path('/etc/systemd/system/timers.target.wants/openwebpbx-backups.timer'),
                Path('/etc/systemd/system/openwebpbx-updater.service.wants/openwebpbx-backups.timer')]
+NOTIFICATION_FILES = [Path('/var/lib/openwebpbx/mobile-notifications/config.json'),
+                      Path('/var/lib/openwebpbx/mobile-notifications/config.json.lock')]
 
 
 def digest(path):
@@ -139,7 +142,7 @@ def install():
             upgrade = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(upgrade)
             upgrade.validate_backup(backup)
-            targets = list(SUPPORT.values())
+            targets = list(SUPPORT.values()) + NOTIFICATION_FILES
             # Existing systemd enablement is preserved. A newly created link is
             # included as an absent target so older rollback code removes it.
             for link in TIMER_LINKS:
@@ -148,7 +151,7 @@ def install():
             augment_snapshot(backup, targets)
             upgrade.validate_backup(backup)
     ensure_dependencies()
-    for name in ['install-backups.sh', 'install-support.py']:
+    for name in ['install-backups.sh', 'install-support.py', 'install-mobile-notifications.py']:
         target = SUPPORT[name]
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
         with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.support-helper-', delete=False) as stream:
@@ -156,6 +159,8 @@ def install():
             stream.write((PACKAGE/name).read_bytes());stream.flush();os.fsync(stream.fileno())
             os.fchmod(stream.fileno(),0o644)
         os.replace(temporary,target);sync_dir(target.parent)
+    subprocess.run(['python3', str(PACKAGE / 'install-mobile-notifications.py')],
+                   check=True, cwd=PACKAGE, timeout=60)
     # A legacy updater must be able to roll back without a running new timer.
     # On success, restarting the updated independent worker starts its wanted
     # timer. On failure, the snapshot removes the never-started units and links.

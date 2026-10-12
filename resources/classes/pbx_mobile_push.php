@@ -7,7 +7,7 @@ class pbx_mobile_push {
     protected function settingsPath(): string {return self::path();}
     protected function authorized(): bool {return (new pbx_updates)->instanceAdmin()&&permission_exists('pbx_update_instance');}
     protected function engine(string $command): string {return (string)event_socket::api($command);}
-    public static function path(): string {return pbx_paths::state().'/mobile-push.json';}
+    public static function path(): string {return pbx_paths::state().(PHP_OS_FAMILY==='Windows'?'/mobile-push.json':'/mobile-notifications/config.json');}
     private function stored(): array {
         $path=$this->settingsPath();if(is_link($path))throw new RuntimeException('Wake-up settings unavailable.');
         if(!is_file($path))return [];

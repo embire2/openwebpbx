@@ -2,7 +2,7 @@
 
 Public destination: **https://openwebpbx.com/**. Deploy only the contents of `public/` to that domain's document root. The site is static HTML, CSS, JavaScript and SVG; it needs no Node build, database, external fonts or third-party scripts. The PBX application and private account data are separate.
 
-Current deployment: **[https://openwebpbx.com/](https://openwebpbx.com/)**, published to the existing cPanel document root on 2026-10-08 and refreshed to 1.0.7 on 2026-10-09. HTTP and `www` requests redirect to the HTTPS apex while preserving the path and query. No DNS or mail routing was changed.
+Current deployment: **[https://openwebpbx.com/](https://openwebpbx.com/)**, published to the existing cPanel document root on 2026-10-08 and refreshed to 1.0.9 on 2026-10-12; the 1.0.10 permission-fix refresh is being qualified. HTTP and `www` requests redirect to the HTTPS apex while preserving the path and query. No DNS or mail routing was changed.
 
 The project-domain `/tenantadmin`, `/tenantadmin/` and `/tenantadmin/index.php` entries redirect to the authenticated PBX portal at https://call.openweb.co.za/tenantadmin/. Query parameters are preserved. Account authentication and tenant data stay on the PBX instance.
 
@@ -26,7 +26,7 @@ The desktop includes shortcuts, a searchable Start menu, a taskbar, minimize/res
 
 The homepage describes the user's nonprofit, open-source project identity. It makes no registered-charity or tax-deductibility claim. The project retains its original software licenses and credits FusionPBX and FreeSWITCH.
 
-The 1.0.9 source refresh presents the five new core packages, native Android calling controls, automatic incoming wake-up, CC0 hold music and the native Windows client plan. New server features target Debian 13 amd64; the download card explicitly retains Windows Server 1.0.7 as a previous release. The Android 1.0.9 app requires a matching 1.0.9 server. There is no Windows 1.0.9 package or Windows softphone claim.
+The 1.0.10 source refresh fixes notification-setting storage and presents the five new core packages, native Android calling controls, automatic incoming wake-up, CC0 hold music and the native Windows client plan. New server features target Debian 13 amd64; the download card explicitly retains Windows Server 1.0.7 as a previous release. The Android 1.0.10 app requires a matching 1.0.10 server. There is no Windows 1.0.10 package or Windows softphone claim.
 
 Eight current release assets cover Debian, the direct APK, separate Play AAB/submission packet, corresponding Android/engine source, signed update metadata and checksums. `public/releases.json` is refreshed only after complete public GitHub downloads match reviewed local SHA-256 values. Earlier releases remain unchanged. The old 1.0.7 video is labelled as an earlier basic-workflow demonstration. Physical proximity, locked/idle push, Wi-Fi/mobile handover, broader hardware qualification and Google Play approval remain visible limitations. Store links/badges remain absent until approval.
 
@@ -86,3 +86,7 @@ Published the fourteen-file static allowlist on 2026-10-09 after all nine comple
 All 36 public links passed. Trusted HTTPS, canonical redirects, private-path denial and video range requests passed. Actual-domain Chromium passed all eight feature dialogs, download links, Start search, window controls and theme persistence. The privacy, removal, support and review pages passed at 1440/390/320px in light/dark mode; the video actually played. There was no horizontal overflow and zero browser console errors or warnings. Desktop/mobile screenshots were visually reviewed and the browser was closed after verification.
 
 Existing cPanel `.htaccess`, DNS and mail routing were preserved. Previous public files remain private under `/var/backups/openwebpbx/homepage-1.0.7`; deployment and verification evidence stays outside source and the web roots.
+
+## Version 1.0.9 publication verification
+
+All eight complete public GitHub downloads matched their local SHA-256 values. Fourteen allowlisted website files matched the deployed HTTPS contents, and 38 links passed. Actual-domain Chromium passed all twelve feature dialogs, download links, desktop controls, Start navigation, persistent themes and 1440/390/320px layouts with zero console errors. The labelled earlier 1.0.7 video played successfully (78 seconds), including HTTP range delivery. Historical Windows 1.0.7 downloads, existing hosting rules, DNS and mail were preserved.

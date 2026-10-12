@@ -47,7 +47,7 @@ class Backups(unittest.TestCase):
         postgres('CREATE ROLE "' + cls.role + '" LOGIN PASSWORD ' + b.literal(cls.password))
         for name in (cls.source_name, cls.target_name):
             postgres('CREATE DATABASE "' + name + '" OWNER "' + cls.role + '"')
-        cls.source = {'database.0.type': 'pgsql', 'database.0.host': '127.0.0.1', 'database.0.port': '5432',
+        cls.source = {'database.0.type': 'pgsql', 'database.0.host': '127.0.0.1', 'database.0.port': os.environ.get('PGPORT', '5432'),
                       'database.0.username': cls.role, 'database.0.password': cls.password, 'database.0.name': cls.source_name,
                       'openweb.public_host': 'pbx.fixture.invalid'}
         cls.target = cls.source | {'database.0.name': cls.target_name}
@@ -356,6 +356,63 @@ class Backups(unittest.TestCase):
         self.assertTrue((store/row['filename']).is_file());self.assertTrue((downloads/row['filename']).is_file())
         self.assertEqual(b.checksum(store/row['filename']),row['sha256'])
         b.query(self.source,'update v_pbx_backup_settings set sftp_enabled=false')
+
+    def test_14_notification_archive_restore_and_legacy_migration_recover(self):
+        old = {key:getattr(b,key) for key in ('ROOTS','MEDIA','RESTORE','WEB_VERSION','running_services','UNIT_ROOT','STORE')}
+        try:
+            for current_layout in (False, True):
+                with self.subTest(current_layout=current_layout):
+                    work=self.workspace/('notification-current' if current_layout else 'notification-legacy');work.mkdir(mode=0o700)
+                    source_push=work/'source-push';source_push.mkdir(mode=0o700)
+                    legacy=source_push/'mobile-push.json';legacy.write_bytes(b'{"vapid_private_key":"legacy fixture identity"}\n');legacy.chmod(0o600)
+                    source_roots=self.source_roots|{'mobile-push':legacy}
+                    source_current=source_push/'mobile-notifications';source_current.mkdir(mode=0o700)
+                    if current_layout:
+                        (source_current/'config.json').write_bytes(b'{"vapid_private_key":"current fixture identity"}\n')
+                        (source_current/'config.json.lock').write_bytes(b'')
+                        source_roots['mobile-notifications']=source_current
+                    archive=work/'notifications.owpbx'
+                    b.ROOTS=self.original_roots;b.MEDIA=self.original_media
+                    b.create_archive(self.source,archive,self.archive_password,roots=source_roots,version='1.0.9')
+                    target=work/'target';target.mkdir(mode=0o700)
+                    roots={}
+                    for label in ('fusionpbx-config','runtime-config','freeswitch-config'):
+                        roots[label]=target/label;roots[label].mkdir(mode=0o700)
+                    roots['mobile-push']=target/'mobile-push.json'
+                    roots['mobile-notifications']=target/'mobile-notifications';roots['mobile-notifications'].mkdir(mode=0o700)
+                    os.chown(roots['mobile-notifications'],33,33)
+                    current=roots['mobile-notifications']/'config.json';current.write_bytes(b'factory configuration');current.chmod(0o640)
+                    (roots['fusionpbx-config']/'config.conf').write_text('\n'.join(k+' = '+v for k,v in self.target.items())+'\n')
+                    (roots['fusionpbx-config']/'openweb-template.key').write_bytes(os.urandom(32))
+                    (roots['runtime-config']/'runtime.json').write_text('{}')
+                    b.ROOTS=roots;b.MEDIA={label:target/label for label in self.original_media}
+                    b.RESTORE=work/'restore';b.STORE=work/'store';b.UNIT_ROOT=work/'units';b.UNIT_ROOT.mkdir()
+                    b.WEB_VERSION=work/'VERSION';b.WEB_VERSION.write_text('1.0.9');b.running_services=lambda:[]
+                    b.restore(archive,self.archive_password,self.target,confirm_database=self.target_name)
+                    expected=(source_current/'config.json').read_bytes() if current_layout else legacy.read_bytes()
+                    self.assertEqual(current.read_bytes(),expected)
+                    self.assertEqual(roots['mobile-push'].read_bytes(),legacy.read_bytes())
+                    st=current.stat();self.assertEqual((st.st_mode&0o777,st.st_uid,st.st_gid),(0o600,33,33))
+                    if current_layout:
+                        lock=roots['mobile-notifications']/'config.json.lock';self.assertTrue(lock.is_file())
+                        self.assertEqual((lock.stat().st_mode&0o777,lock.stat().st_uid,lock.stat().st_gid),(0o600,33,33))
+                    journal=json.loads((b.RESTORE/'journal.json').read_text());journal['state']='restoring';b.atomic_json(b.RESTORE/'journal.json',journal)
+                    b.recover(self.target)
+                    self.assertEqual(current.read_bytes(),b'factory configuration')
+                    self.assertEqual((current.stat().st_mode&0o777,current.stat().st_uid,current.stat().st_gid),(0o640,0,0))
+                    self.assertFalse(roots['mobile-push'].exists())
+                    self.assertFalse((roots['mobile-notifications']/'config.json.lock').exists())
+        finally:
+            for key,value in old.items():setattr(b,key,value)
+
+    def test_15_notification_inventory_refuses_unknown_or_symlink_paths(self):
+        for name in ('mobile-notifications/another.json','mobile-notifications/nested/config.json'):
+            with self.assertRaises(b.BackupError):b.safe_member(name)
+        work=self.workspace/'notification-unsafe';work.mkdir(mode=0o700)
+        destination=work/'mobile-notifications';destination.symlink_to(work)
+        with self.assertRaises(b.BackupError):b.notification_directory(destination)
+        destination.unlink();destination.mkdir(mode=0o755)
+        with self.assertRaises(b.BackupError):b.notification_directory(destination)
 
 
 if __name__ == '__main__':

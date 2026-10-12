@@ -12,6 +12,7 @@ import datetime as dt
 import fcntl
 import getpass
 import hashlib
+import importlib.util
 import io
 import json
 import os
@@ -46,6 +47,7 @@ ROOTS = {
     'fusionpbx-config': Path('/etc/fusionpbx'),
     'runtime-config': Path('/etc/openwebpbx'),
     'freeswitch-config': Path('/etc/freeswitch'),
+    'mobile-notifications': Path('/var/lib/openwebpbx/mobile-notifications'),
     'mobile-push': Path('/var/lib/openwebpbx/mobile-push.json'),
     'mobile-push-settings': Path('/var/lib/openwebpbx/mobile-push-settings.json'),
 }
@@ -361,6 +363,8 @@ def safe_member(name):
             raise BackupError('The backup contains an unknown private-data location.')
         if path.parts[0] in ('mobile-push', 'mobile-push-settings') and name != path.parts[0] + '/file':
             raise BackupError('The backup contains an unknown private-data location.')
+        if path.parts[0] == 'mobile-notifications' and name not in ('mobile-notifications/config.json', 'mobile-notifications/config.json.lock'):
+            raise BackupError('The backup contains an unknown private-data location.')
     return path
 
 
@@ -661,8 +665,22 @@ def restore_targets(manifest):
     return mapping
 
 
+def notification_directory(directory, *, create=False):
+    spec = importlib.util.spec_from_file_location('backup_notification_storage', Path(__file__).with_name('install-mobile-notifications.py'))
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    try:
+        (helper.ensure_directory if create else helper.validate_directory)(directory)
+    except ValueError as error:
+        raise BackupError(str(error)) from None
+
+
 def atomic_copy(source, target, mode=0o640, group=33):
-    owner = 33 if str(target).startswith(('/var/lib/freeswitch/', '/etc/freeswitch/', '/usr/share/freeswitch/')) else 0
+    notification = target.parent == ROOTS.get('mobile-notifications')
+    legacy_push = target in (ROOTS.get('mobile-push'), ROOTS.get('mobile-push-settings'))
+    owner = 33 if notification or legacy_push or str(target).startswith(('/var/lib/freeswitch/', '/etc/freeswitch/', '/usr/share/freeswitch/')) else 0
+    if notification:
+        notification_directory(target.parent, create=True)
     absent = []
     directory = target.parent
     while not directory.exists():
@@ -778,6 +796,15 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
             raise BackupError('The source private encryption key has an invalid size.')
         preserve_target_database(settings, extracted / 'fusionpbx-config/config.conf', extracted / 'runtime-config/runtime.json')
         mapping = restore_targets(manifest)
+        notification_root = ROOTS.get('mobile-notifications')
+        notification_fallback = None
+        if notification_root is not None:
+            notification_directory(notification_root)
+            if 'mobile-push/file' in mapping and 'mobile-notifications/config.json' not in mapping:
+                notification_fallback = notification_root / 'config.json'
+                for item in [notification_fallback, *notification_fallback.parents]:
+                    if item.is_symlink():
+                        raise BackupError('Restore refused a symbolic link in the target private-data path.')
         target_is_factory(settings)
         if dry_run:
             return manifest
@@ -793,7 +820,10 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
         recovery_files = RESTORE / 'factory-files'
         recovery_files.mkdir(mode=0o700)
         original = {}
-        for index, target in enumerate(mapping.values()):
+        recovery_targets = list(mapping.values()) + ([notification_fallback] if notification_fallback is not None else [])
+        for index, target in enumerate(recovery_targets):
+            if target.exists() and not target.is_file():
+                raise BackupError('Restore refused a nonordinary target private-data file.')
             original[str(target)] = {'exists': target.is_file()}
             if target.is_file():
                 ordinary(target)
@@ -817,7 +847,13 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
                 mode = manifest['files'][name]['mode'] & 0o750
                 if name.endswith(('config.conf', '.key', 'runtime.json')) or name.startswith('mobile-push'):
                     mode = 0o640
+                if name.startswith(('mobile-push', 'mobile-notifications/')):
+                    mode = 0o600
                 atomic_copy(extracted / name, target, mode=mode or 0o640)
+            if notification_fallback is not None:
+                # Older archive labels keep their original copy and also seed
+                # the current PHP/C# location with the identical VAPID bytes.
+                atomic_copy(extracted / 'mobile-push/file', notification_fallback, mode=0o600)
             # Invalid source SIP contacts and XML caches must never survive a clean restore.
             cache = Path('/var/cache/fusionpbx')
             if cache.is_dir() and not cache.is_symlink():

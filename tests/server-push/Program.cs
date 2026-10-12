@@ -14,13 +14,14 @@ int checks=0;
 void Check(bool value,string label){if(!value)throw new Exception(label);Interlocked.Increment(ref checks);}
 byte[] Decode(string s)=>Convert.FromBase64String(s.Replace('-','+').Replace('_','/').PadRight((s.Length+3)/4*4,'='));
 string Encode(byte[] b)=>Convert.ToBase64String(b).TrimEnd('=').Replace('+','-').Replace('/','_');
+Check(AndroidPushSender.ConfigPath==(OperatingSystem.IsWindows()?Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"OpenWebPBX","mobile-push.json"):"/var/lib/openwebpbx/mobile-notifications/config.json"),"Default sender path uses the private notification directory on Debian and preserves Windows storage");
 // Published interoperability vector, RFC8291 §5 and Appendix A (numeric test data).
 var ua=Decode("BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4");
 var sp=Decode("BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8");
 var vector=AndroidPushSender.EncryptWebPush(Decode("V2hlbiBJIGdyb3cgdXAsIEkgd2FudCB0byBiZSBhIHdhdGVybWVsb24"),ua,Decode("BTBZMqHH6r4Tts7J_aSIgg"),new ECParameters{Curve=ECCurve.NamedCurves.nistP256,D=Decode("yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw"),Q=new ECPoint{X=sp[1..33],Y=sp[33..65]}},Decode("DGv6ra1nlYgDCS1FRnbzlw"));
 Check(Encode(vector)=="DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN","RFC8291 ciphertext matches published vector exactly");
 var path=Path.Combine(Path.GetTempPath(),"openweb-push-check-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(path);if(!OperatingSystem.IsWindows())File.SetUnixFileMode(path,UnixFileMode.UserRead|UnixFileMode.UserWrite|UnixFileMode.UserExecute);
-var settingsPath=Path.Combine(path,"mobile-push.json");
+var settingsPath=Path.Combine(path,"config.json");
 using var vapid=ECDsa.Create(ECCurve.NamedCurves.nistP256);var v=vapid.ExportParameters(false);var publicVapid=Encode([4,..v.Q.X!,..v.Q.Y!]);
 using var receiver=ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);var r=receiver.ExportParameters(true);var auth=RandomNumberGenerator.GetBytes(16);
 var config=new JsonObject{["enabled"]=true,["provider"]="webpush",["project_id"]="webpush",["delivery"]="direct",["vapid_private_key"]=vapid.ExportPkcs8PrivateKeyPem(),["vapid_public_key"]=publicVapid,["vapid_subject"]="mailto:fixture@example.invalid"};

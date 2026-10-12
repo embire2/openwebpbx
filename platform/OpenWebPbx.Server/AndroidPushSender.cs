@@ -26,7 +26,7 @@ public sealed class AndroidPushSender
     public AndroidPushSender(IHttpClientFactory clients, string settingsPath, Func<string,CancellationToken,Task<IPAddress[]>> resolve) { this.clients = clients; this.settingsPath = settingsPath; this.resolve = resolve; }
     public static string ConfigPath => OperatingSystem.IsWindows()
         ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "OpenWebPBX", "mobile-push.json")
-        : "/var/lib/openwebpbx/mobile-push.json";
+        : "/var/lib/openwebpbx/mobile-notifications/config.json";
     public JsonNode? Settings()
     {
         try

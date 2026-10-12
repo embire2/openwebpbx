@@ -1,6 +1,6 @@
 # Status and queues on Android
 
-The Android 1.0.9 candidate adds **Status and queues** under **Settings → More**. Version 1.0.7 remains the public release until 1.0.9 is published.
+Android 1.0.9 added **Status and queues** under **Settings → More**. The prepared 1.0.10 patch keeps the same phone controls; 1.0.9 remains the published baseline until the patch is published.
 
 Choose your status, then **Save status**. The choices come from your PBX user settings: normally **Available**, **Away**, **Out of office**, custom statuses and **Do Not Disturb**. The change applies to your PBX user, including your other phones; it is not a separate setting stored only on this device. Contacts show colleagues' effective status in the same PBX.
 

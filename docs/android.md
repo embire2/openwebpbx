@@ -1,6 +1,6 @@
-# OpenWeb PBX for Android — 1.0.9
+# OpenWeb PBX for Android — 1.0.10 patch preparation
 
-This is a standalone Android phone with native screens and its own SIP/media engine. It does not display the PBX website in a frame. Use the signed APK from the [1.0.9 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.9) with the matching server. Android 9 or newer is required; the universal APK supports ARMv7, ARM64 and x86-64. Physical handset coverage and mobile-network qualification are still being established.
+This is a standalone Android phone with native screens and its own SIP/media engine. It does not display the PBX website in a frame. Version 1.0.10/code110 is being prepared with the same phone features as the published [1.0.9 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.9); its matching Debian patch fixes saving optional wake-up settings in private storage. Use matching server and signed app releases. Android 9 or newer is required; the universal APK supports ARMv7, ARM64 and x86-64. Physical handset coverage and mobile-network qualification are still being established.
 
 ## Connect your phone
 
@@ -59,7 +59,7 @@ The release envelope is verified using a pinned RSA public key and SHA-256 signa
 
 ### Google Play edition
 
-The Play edition has separate update handling and excludes package-install permissions and the direct APK installer. It opens the fixed Google Play listing; Google Play controls download, installation and reopening. It does not display fictitious download progress. A required store update is offered only when signed metadata confirms a fully published production Play release, and active/urgent calling remains available. A GitHub release does not establish Google Play availability. Play publication remains pending account setup, actual-track testing and Google review; the tested 1.0.9 candidate AAB does not establish approval. See the [submission guide](google-play.md).
+The Play edition has separate update handling and excludes package-install permissions and the direct APK installer. It opens the fixed Google Play listing; Google Play controls download, installation and reopening. It does not display fictitious download progress. A required store update is offered only when signed metadata confirms a fully published production Play release, and active/urgent calling remains available. A GitHub release does not establish Google Play availability. Play publication remains pending account setup, actual-track testing and Google review; the tested 1.0.9 AAB and prepared 1.0.10 packet do not establish approval. See the [submission guide](google-play.md).
 
 ## Call connection help
 
@@ -171,7 +171,7 @@ The 312-frame demonstration records actual native views with screen-capture
 protection retained. It excludes QR codes and credentials; enrollment uses the
 real API privately and permissions are granted before capture.
 
-## Version 1.0.9 candidate qualification — 2026-10-12
+## Version 1.0.9 qualification — 2026-10-12
 
 The exact signed direct APK is version 1.0.9/code 109, SHA-256
 `f2ca8c39124fc9b907a2e5d5e035ea1dd716074b5e32bc2a57f1c5d2a9525145`.
@@ -228,9 +228,40 @@ screen-capture protection retained. They contain no QR codes, credentials or
 private configuration. Test-only capture code does not ship in the application.
 
 The direct build was restored afterward with enrollment retained. Same-version
-direct/Play replacement does not establish the prospective 1.0.7→1.0.9 managed
-upgrade, which remains a separate release check. Public assets/feed and final
-source packaging are still pending. No new carrier call, physical handset,
+direct/Play replacement does not establish a managed upgrade from 1.0.7. Version
+1.0.9 assets and feed are published and remain immutable; the owned 1.0.7 device
+is preserved for the separate 1.0.10 production-feed upgrade check. No new carrier call, physical handset,
 locked/idle FCM delivery, Wi-Fi/mobile handover, Bluetooth, proximity or Google
 Play approval is established by these software-device results. See [the
 roadmap](../3CX.md), [wake-up](android-push.md) and [availability](android-availability.md).
+
+## Version 1.0.10 patch qualification — 2026-10-12
+
+The direct APK and Play bundle use version name `1.0.10` and version code `110`,
+with the existing signing identity. Phone runtime/UI source and dependencies
+match 1.0.9; the Android product change is its version. The matching Debian server
+moves optional notification configuration into
+`/var/lib/openwebpbx/mobile-notifications/config.json`, with a private directory
+owned by the web account, preserving existing VAPID keys and state-root
+permissions. See the [wake-up guide](android-push.md).
+
+The final signed direct APK has SHA-256
+`0d1b3f6ea8df76f4af4d17f3f381a758c10f977f57cd5fef0a265a43e4b6344c`;
+the Play AAB has SHA-256
+`c85deac2efc753718f801a18f6f9b21e918de860fd6839bf8a909ea76a08c6e1`.
+Twenty-five direct and 29 Play JVM tests passed with no failures or skips; both
+release lint tasks completed with zero errors. Signature/package/version,
+non-debuggable direct build and 16 KiB APK ZIP alignment checks passed.
+Bundletool validated the AAB, its direct installer was excluded, and all 26
+64-bit native libraries passed ELF alignment checks. All 39 native libraries
+across the three ABIs are identical between the direct APK and AAB. The exact 42
+Maven runtime source JARs passed ZIP integrity checks; the source archive includes
+the root VERSION file needed by the release build script.
+
+The public 1.0.7→1.0.10 upgrade and focused 1.0.10 native runtime checks remain
+separate release checks. The 1.0.9 native results above remain evidence for their
+exact tested artifacts. Physical locked/idle delivery, handset audio/proximity,
+Wi-Fi/mobile handover, Android16/16 KiB runtime and actual Google Play-track
+installation/approval remain open. The five current Play screenshots show the
+identical 1.0.9 UI with fictional owned accounts; the demonstration video is
+explicitly historical 1.0.7 basics and is omitted from the new submission packet.

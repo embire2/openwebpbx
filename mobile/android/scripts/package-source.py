@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import tarfile
@@ -18,6 +19,11 @@ sdk = a.sdk_source.resolve()
 assert subprocess.check_output(['git','-C',str(sdk),'rev-parse','HEAD'], text=True).strip() == '348e8de32fb2ac56b7b0a7167968fc1ac707f7b2', 'Unexpected SDK revision'
 submodules = subprocess.check_output(['git','-C',str(sdk),'submodule','status','--recursive'],text=True)
 assert not any(line[:1] in ('-', '+', 'U') for line in submodules.splitlines()), 'SDK submodule versions do not match'
+def sdk_clean():
+    assert not subprocess.check_output(['git','-C',str(sdk),'status','--porcelain','--untracked-files=no','--ignore-submodules=untracked']), 'SDK or submodule tracked source is dirty'
+sdk_clean()
+sdk_files = [sdk/os.fsdecode(name) for name in subprocess.check_output(['git','-C',str(sdk),'ls-files','--recurse-submodules','-z']).split(b'\0') if name]
+assert sdk_files, 'Missing tracked SDK source'
 a.dependency_sources.mkdir(parents=True,exist_ok=True)
 inventory = (project/'app/build/runtime-dependencies.txt').read_text().splitlines()
 manifest = []
@@ -45,17 +51,25 @@ for coordinate in inventory:
 a.output.parent.mkdir(parents=True,exist_ok=True)
 def permitted(path):
     return not any(part in ('.git','.gradle','.kotlin','__pycache__','build','.idea') for part in path.parts) and path.name not in ('local.properties','signing.properties') and path.suffix not in ('.jks','.keystore')
+def add_source(archive,file,source,name):
+    relative=file.relative_to(source)
+    assert not relative.is_absolute() and '..' not in relative.parts, 'Unsafe source path'
+    assert file.is_file() or file.is_symlink(), 'Tracked source file is missing'
+    if file.is_symlink():
+        assert file.resolve().is_relative_to(source.resolve()), 'Source symlink escapes tree'
+    info=archive.gettarinfo(str(file),arcname=name+'/'+relative.as_posix());info.uid=info.gid=0;info.uname=info.gname='';info.mtime=0
+    if file.is_symlink():archive.addfile(info)
+    else:
+        with file.open('rb') as stream:archive.addfile(info,stream)
 with tarfile.open(a.output, 'w:gz', compresslevel=6) as archive:
-    for source,name in ((project,'openwebpbx-android/mobile/android'),(sdk,'openwebpbx-android/linphone-sdk-5.5.23'),(a.dependency_sources,'openwebpbx-android/dependency-sources')):
+    for source,name in ((project,'openwebpbx-android/mobile/android'),(a.dependency_sources,'openwebpbx-android/dependency-sources')):
         for file in sorted(source.rglob('*')):
             relative=file.relative_to(source)
-            if file.is_file() and permitted(relative):
-                if file.is_symlink():
-                    assert file.resolve().is_relative_to(source.resolve()), 'Source symlink escapes tree'
-                info=archive.gettarinfo(str(file),arcname=name+'/'+relative.as_posix());info.uid=info.gid=0;info.uname=info.gname='';info.mtime=0
-                if file.is_symlink():archive.addfile(info)
-                else:
-                    with file.open('rb') as stream:archive.addfile(info,stream)
-    for relative in ['docs/android.md','docs/google-play.md','docs/google-play-review.md','packaging/updates/PROTOCOL.md']:
+            if (file.is_file() or file.is_symlink()) and permitted(relative):add_source(archive,file,source,name)
+    # A tracked build/ directory in the SDK contains upstream CMake/Android
+    # source, unlike the app's generated Gradle build directory.
+    for file in sorted(sdk_files):add_source(archive,file,sdk,'openwebpbx-android/linphone-sdk-5.5.23')
+    for relative in ['VERSION','docs/android.md','docs/android-push.md','docs/android-availability.md','docs/google-play.md','docs/google-play-review.md','packaging/updates/PROTOCOL.md']:
         archive.add(project.parents[1]/relative,arcname='openwebpbx-android/'+relative)
-print(json.dumps({'archive':str(a.output),'bytes':a.output.stat().st_size,'sha256':hashlib.sha256(a.output.read_bytes()).hexdigest(),'dependency_sources':len(manifest)}))
+sdk_clean()
+print(json.dumps({'archive':str(a.output),'bytes':a.output.stat().st_size,'sha256':hashlib.sha256(a.output.read_bytes()).hexdigest(),'dependency_sources':len(manifest),'tracked_sdk_files':len(sdk_files)}))
