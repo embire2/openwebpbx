@@ -17,7 +17,7 @@ Enter the administrator password when prompted. For an isolated local test, use 
 
 Setup installs PostgreSQL on the PBX computer, creates one database shared by all tenants, installs the call engine and web administration, and starts the independent updater and backup schedule checker. Tenants do not enter database settings. An existing PBX database or configuration is refused before replacement. Compatibility identifiers keep the internal name `fusionpbx`.
 
-Open your server's HTTPS address and sign in. Setup creates Main PBX with **100 Reception** and **101 Office**. No provider is enabled automatically. Private configuration lives in `/etc/fusionpbx` and `/etc/openwebpbx`, media in `/var/lib/freeswitch`, and application source in `/var/www/fusionpbx`. The installer configures the shared PHP/background-service notification store at `/var/lib/openwebpbx/mobile-notifications/config.json`, inside a web-account-owned mode-700 directory with mode-600 configuration and lock files. The root-owned parent stays private. No manual credential file is needed.
+Open your server's HTTPS address and sign in. Setup creates Main PBX with **100 Reception** and **101 Office**. No provider is enabled automatically. Private configuration lives in `/etc/fusionpbx` and `/etc/openwebpbx`, media in `/var/lib/freeswitch`, and application source in `/var/www/fusionpbx`. The installer configures the shared PHP/background-service notification store at `/var/lib/openwebpbx/mobile-notifications/config.json`, inside a web-account-owned mode-700 directory with mode-600 configuration and lock files. The root-owned parent retains its existing permissions and is not writable by the web account. No manual credential file is needed.
 
 ## Existing Debian server
 

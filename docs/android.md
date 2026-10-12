@@ -1,6 +1,6 @@
-# OpenWeb PBX for Android — 1.0.10 patch preparation
+# OpenWeb PBX for Android — 1.0.10
 
-This is a standalone Android phone with native screens and its own SIP/media engine. It does not display the PBX website in a frame. Version 1.0.10/code110 is being prepared with the same phone features as the published [1.0.9 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.9); its matching Debian patch fixes saving optional wake-up settings in private storage. Use matching server and signed app releases. Android 9 or newer is required; the universal APK supports ARMv7, ARM64 and x86-64. Physical handset coverage and mobile-network qualification are still being established.
+This is a standalone Android phone with native screens and its own SIP/media engine. It does not display the PBX website in a frame. The published [1.0.10 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.10), code110, keeps the 1.0.9 phone features; its matching Debian patch fixes saving optional wake-up settings in private storage. Use matching server and signed app releases. Android 9 or newer is required; the universal APK supports ARMv7, ARM64 and x86-64. Physical handset coverage and mobile-network qualification are still being established.
 
 ## Connect your phone
 
@@ -59,7 +59,7 @@ The release envelope is verified using a pinned RSA public key and SHA-256 signa
 
 ### Google Play edition
 
-The Play edition has separate update handling and excludes package-install permissions and the direct APK installer. It opens the fixed Google Play listing; Google Play controls download, installation and reopening. It does not display fictitious download progress. A required store update is offered only when signed metadata confirms a fully published production Play release, and active/urgent calling remains available. A GitHub release does not establish Google Play availability. Play publication remains pending account setup, actual-track testing and Google review; the tested 1.0.9 AAB and prepared 1.0.10 packet do not establish approval. See the [submission guide](google-play.md).
+The Play edition has separate update handling and excludes package-install permissions and the direct APK installer. It opens the fixed Google Play listing; Google Play controls download, installation and reopening. It does not display fictitious download progress. A required store update is offered only when signed metadata confirms a fully published production Play release, and active/urgent calling remains available. A GitHub release does not establish Google Play availability. Play publication remains pending account setup, actual-track testing and Google review; the tested AAB and published 1.0.10 submission packet do not establish approval. See the [submission guide](google-play.md).
 
 ## Call connection help
 
@@ -75,7 +75,7 @@ Chat, video, meetings, Android Auto and emergency-location integration remain pl
 
 ## Source, licenses and building
 
-The Android project is in [mobile/android](https://github.com/embire2/openwebpbx/blob/v1.0.9/mobile/android/README.md), licensed AGPL-3.0-or-later. Pre-existing server code keeps its original license. See [component notices](https://github.com/embire2/openwebpbx/blob/v1.0.9/mobile/android/THIRD_PARTY_NOTICES.md). The release includes the corresponding Android source, the exact Linphone SDK 5.5.23 source and submodules, and Maven dependency source JARs. No signing key, enrollment code, account credentials or customer data is distributed.
+The Android project is in [mobile/android](https://github.com/embire2/openwebpbx/blob/v1.0.10/mobile/android/README.md), licensed AGPL-3.0-or-later. Pre-existing server code keeps its original license. See [component notices](https://github.com/embire2/openwebpbx/blob/v1.0.10/mobile/android/THIRD_PARTY_NOTICES.md). The release includes the corresponding Android source, the exact Linphone SDK 5.5.23 source and submodules, and Maven dependency source JARs. No signing key, enrollment code, account credentials or customer data is distributed.
 
 Use JDK 17 or 21, Android SDK platform 36/build-tools 36.0.0, and the included Gradle 8.11.1 wrapper. The project pins Android Gradle Plugin 8.10.1, Kotlin 2.1.20, Linphone SDK 5.5.23, AndroidX Media 1.7.1 and ZXing Embedded 4.3.0. `scripts/build-release.sh` runs both variants’ unit checks and Android lint, builds a signed direct APK and a signed Play AAB. Set the private signing environment variables described in the project README. Preserve the signing key for future app upgrades.
 
@@ -229,8 +229,8 @@ private configuration. Test-only capture code does not ship in the application.
 
 The direct build was restored afterward with enrollment retained. Same-version
 direct/Play replacement does not establish a managed upgrade from 1.0.7. Version
-1.0.9 assets and feed are published and remain immutable; the owned 1.0.7 device
-is preserved for the separate 1.0.10 production-feed upgrade check. No new carrier call, physical handset,
+1.0.9 assets and feed are published and remain immutable; the owned 1.0.7 device subsequently
+passed the separate 1.0.10 production-feed replacement check below. No new carrier call, physical handset,
 locked/idle FCM delivery, Wi-Fi/mobile handover, Bluetooth, proximity or Google
 Play approval is established by these software-device results. See [the
 roadmap](../3CX.md), [wake-up](android-push.md) and [availability](android-availability.md).
@@ -258,9 +258,31 @@ across the three ABIs are identical between the direct APK and AAB. The exact 42
 Maven runtime source JARs passed ZIP integrity checks; the source archive includes
 the root VERSION file needed by the release build script.
 
-The public 1.0.7→1.0.10 upgrade and focused 1.0.10 native runtime checks remain
-separate release checks. The 1.0.9 native results above remain evidence for their
-exact tested artifacts. Physical locked/idle delivery, handset audio/proximity,
+All eight complete public release downloads matched their local SHA-256 hashes;
+the signed sequence110 feed and hosted Debian 1.0.10 service were verified. The
+corrected Android source archive independently matched all 38,406 recursively
+tracked SDK/submodule entries by bytes, type and mode, including 11 safe symlinks
+and 456 tracked build-directory inputs, plus 88 Android files and 42 source JARs.
+The previous broad directory filter had omitted 465 tracked SDK inputs, including
+nine IDE inputs; 1.0.9 assets and tag remain unchanged. The 1.0.10 source archive
+has SHA-256 `2821f40617048e851f539430d471adaee9cde77f9272cdc36c96b901bb1a8e1a`.
+
+The owned public 1.0.7 app used its normal pinned feed and HTTPS transport to
+download and verify the real 1.0.10 APK. Android's native confirmation installed
+the exact published bytes and retained the account token. Normal manual Open
+recorded installation completion and native TLS registration returned. A test
+driver started verification too soon and interrupted the real replacement
+receiver; this run therefore qualifies the supported launcher recovery, not
+automatic notification reopening. The current public feed also correctly removes
+an obsolete update notice once the installed version is current. Test-only fixes
+handled the old API constructor, a slow public download exceeding a 90-second
+fixture wait, and an adb-owned marker directory. Product binaries were unchanged.
+
+Five focused native direct workflows passed with independent remote RTP:
+outgoing/background/audio-focus hold/resume in 41.959 seconds, incoming SDK
+ringing/media in 16.497, stale authenticated actions in 13.147, three-way/removal
+in 26.261, and availability/queue controls in 9.507. The 1.0.9 native results above
+remain evidence for their exact tested artifacts. The exact AAB-derived 1.0.10 Play APK also passed outgoing/background/audio-focus in 41.830 seconds, three-way/removal in 25.965 and availability in 9.543, with independent remote RTP and enrollment retained. The final direct build was restored afterward. Exact scoped cleanup removed the generated tenant, native accounts, records and media; 722 preserved synthetic REGISTER identifiers were checked in eight bounded batches, two live peer contacts and four exact-realm Android contacts were flushed, and no fixture contact remained. Customer and permanent reviewer resources were outside that scope. Physical locked/idle delivery, handset audio/proximity,
 Wi-Fi/mobile handover, Android16/16 KiB runtime and actual Google Play-track
 installation/approval remain open. The five current Play screenshots show the
 identical 1.0.9 UI with fictional owned accounts; the demonstration video is

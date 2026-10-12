@@ -37,7 +37,7 @@ class UpdateWorkflowTest {
         val transport=object:UpdateTransport{override fun open(url:String):InputStream=if(url==UpdateRules.FEED)File(fixture,"envelope.json").inputStream()else File(fixture,"candidate.apk").inputStream()}
         return UpdateManager(context,transport).also{UpdateManager::class.java.getDeclaredField("singleton").apply{isAccessible=true}.set(null,it)}
     }
-    private fun check(m:UpdateManager,download:Boolean=false){val complete=CountDownLatch(1);m.check(download){complete.countDown()};assertTrue("Update check finished",complete.await(90,TimeUnit.SECONDS))}
+    private fun check(m:UpdateManager,download:Boolean=false){val complete=CountDownLatch(1);m.check(download){complete.countDown()};val seconds=if(InstrumentationRegistry.getArguments().getString("updatePublic")=="true")900L else 90L;assertTrue("Update check finished",complete.await(seconds,TimeUnit.SECONDS))}
     @Test fun enrollAndReviewNativeControls(){
         enabled()
         val setup=JSONObject(File(fixture,"setup.json").readText());val server=setup.getString("server")
@@ -165,13 +165,15 @@ class UpdateWorkflowTest {
         enabled();val m=manager()
         // Pinpoint a bad private fixture before the production updater deliberately
         // converts operational errors into a safe, credential-free user message.
-        val account=PhoneStore(context).read()!!
-        val policy=PhoneApi(account.getString("server"),account.getString("token")).json("updates")
-        assertEquals(1,policy.getInt("schema"));assertEquals(UpdateRules.FEED,policy.getString("feed_url"))
         if(InstrumentationRegistry.getArguments().getString("updatePublic")!="true"){
+            val account=PhoneStore(context).read()!!
+            val policy=PhoneApi(account.getString("server"),account.getString("token")).json("updates")
+            assertEquals(1,policy.getInt("schema"));assertEquals(UpdateRules.FEED,policy.getString("feed_url"))
             ReleaseManifest.parse(File(fixture,"envelope.json").readText(),context.assets.open("release-public.pem").bufferedReader().use{it.readText()})
             assertTrue("Private candidate APK is readable",File(fixture,"candidate.apk").canRead())
         }
+        // Public replacement executes the installed app's own policy client;
+        // older releases can have a different PhoneApi constructor signature.
         check(m,true);assertEquals("ready",m.snapshot.state)
         File(fixture,"account-before.sha256").writeText(UpdateRules.sha256(PhoneStore(context).read()!!.getString("token").toByteArray()))
         val a=activity();waitFor("Verified update ready after activity check"){m.snapshot.state=="ready" && !(UpdateManager::class.java.getDeclaredField("busy").apply{isAccessible=true}.get(m) as java.util.concurrent.atomic.AtomicBoolean).get()};main{m.install(a)}
@@ -189,9 +191,17 @@ class UpdateWorkflowTest {
         assertEquals("Installation completion was recorded",expectedCode,context.getSharedPreferences("application_updates",0).getLong("last_installed",0))
         // A subsequent policy check may refresh the notification before the user
         // opens it. In private-release tests the public feed may also be older.
-        val note=context.getSystemService(android.app.NotificationManager::class.java).activeNotifications.single{it.id==UpdateManager.NOTIFICATION}
-        val title=note.notification.extras.getString(android.app.Notification.EXTRA_TITLE)!!
-        device.openNotification();assertNotNull(device.wait(Until.findObject(By.text(title)),10000));device.findObject(By.text(title)).click()
+        val note=context.getSystemService(android.app.NotificationManager::class.java).activeNotifications.firstOrNull{it.id==UpdateManager.NOTIFICATION}
+        if(note!=null){
+            val title=note.notification.extras.getString(android.app.Notification.EXTRA_TITLE)!!
+            device.openNotification();assertNotNull(device.wait(Until.findObject(By.text(title)),10000));device.findObject(By.text(title)).click()
+            File(fixture,"replacement-relaunch-path.txt").writeText("notification")
+        }else{
+            // A normal public check can already confirm the installed release
+            // is current and remove its now-obsolete update notification.
+            assertEquals("Private fixture expects its update notification","true",InstrumentationRegistry.getArguments().getString("updatePublic"))
+            activity();File(fixture,"replacement-relaunch-path.txt").writeText("launcher")
+        }
         waitFor("Updated phone reconnects"){PhoneService.instance?.status=="Ready for calls"}
         assertEquals("1000",PhoneStore(context).read()!!.getJSONObject("account").getString("extension"))
         if(device.hasObject(By.res("android:id/button2")))device.findObject(By.res("android:id/button2")).click() // Close the update details opened by its notification.

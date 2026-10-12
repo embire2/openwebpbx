@@ -1,4 +1,4 @@
-# Play Console declarations — OpenWeb PBX 1.0.10 preparation
+# Play Console declarations — OpenWeb PBX 1.0.10
 
 Prepared from the application source and the final build’s permission inventory. These are submission inputs, not a claim that Google has accepted them. The owner must confirm their legal identity, contact details, target audience and actual server data practices. Update this document if the binary or service changes.
 

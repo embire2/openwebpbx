@@ -1,6 +1,6 @@
 # Status and queues on Android
 
-Android 1.0.9 added **Status and queues** under **Settings → More**. The prepared 1.0.10 patch keeps the same phone controls; 1.0.9 remains the published baseline until the patch is published.
+Android 1.0.9 added **Status and queues** under **Settings → More**. The published 1.0.10 patch keeps the same phone controls and pairs with the Debian private notification-storage correction.
 
 Choose your status, then **Save status**. The choices come from your PBX user settings: normally **Available**, **Away**, **Out of office**, custom statuses and **Do Not Disturb**. The change applies to your PBX user, including your other phones; it is not a separate setting stored only on this device. Contacts show colleagues' effective status in the same PBX.
 
@@ -31,5 +31,7 @@ Verification on 2026-10-12:
 - Cleanup verification confirmed no disposable tenant, user, queue, agent, timer, call record or voicemail row remains; native agents/queues/tiers and private voicemail files were removed. No outside call or real email was sent.
 - Actual Android availability qualification passed in 12.425 seconds: authenticated temporary Do Not Disturb, an assigned queue paused by status, the native status dialog, return to Available, and native per-queue leave agreed with server state. Fixed empty receiving labels and retained the specific pause reason after a queue change. Only disposable accounts/queues were used.
 - The exact final signed 1.0.9 direct APK repeated that native status/directory/temporary-DND/queue workflow in 9.619 seconds. The APK derived from the exact signed Play AAB passed it in 10.519 seconds. Both restored the fixture's preceding status and queue choices; no customer account or queue was changed. These are actual Android 13 software-device checks, with physical handset coverage still separate.
+
+- The published 1.0.10 direct APK repeated the availability/queue workflow in 9.507 seconds; the exact AAB-derived Play APK passed in 9.543 seconds. Its unchanged 1.0.9 implementation agreed with the installed 1.0.10 backend. The disposable native tenant, accounts, queues, agents, media and all exact-realm registrations were removed afterward; customer and permanent reviewer resources remained outside the scope.
 
 Broader Android qualification, physical handset coverage and release publication are recorded separately in [the roadmap](../3CX.md). These results do not claim complete 3CX compatibility.

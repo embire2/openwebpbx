@@ -14,10 +14,12 @@ An **.owpbx** file contains:
 
 - A PostgreSQL snapshot of the complete instance database: users, tenant memberships, service rules, encrypted templates, imported configuration, job records, history and system settings.
 - The private PBX configuration, original template/encryption key, background-service configuration and FreeSWITCH configuration.
-- Supported private mobile-push configuration, when present.
+- Incoming-call wake-up settings and notification keys, including the private `mobile-notifications/config.json` store in 1.0.10 and supported legacy files, when present.
 - With **Include media** selected: standard private storage, voicemail, recordings and OpenWeb PBX custom sounds.
 
 Application executables are supplied by the matching release. PostgreSQL server files, roles, active phone registrations, transient FreeSWITCH databases, source checkouts, environment credentials, browser profiles, private test/review fixtures, upload drafts and updater-recovery directories are excluded. The downloader receives only the encrypted file.
+
+Restore requires the same application version as the backup. Restore a 1.0.9 backup onto 1.0.9 first, then use the normal updater to move to 1.0.10; the upgrade preserves existing notification keys. Current and legacy notification layouts passed restore and recovery checks, including private file ownership and permissions.
 
 Calls continue during backup. PostgreSQL uses a transactionally consistent MVCC snapshot; each included file must remain unchanged while copied, and all archived files are checked after encryption. This is not an atomic freeze of a running PBX: a call still writing a recording or voicemail, a file added after the inventory, or configuration changed concurrently may require another backup at a quiet time. No backup in this implementation claims recovery of an unfinished recording or an exact point-in-time snapshot across PostgreSQL and live media. A missing or changed inventoried file fails the copy instead of publishing an incomplete file.
 

@@ -2,7 +2,7 @@
 
 A standalone native Android phone, built with Kotlin and the Linphone SIP/media engine. There is no embedded website or WebView.
 
-Version 1.0.10/code110 is being prepared and supports Android 9 and newer. It keeps the 1.0.9 phone features and pairs with the Debian private wake-up-storage correction. Version 1.0.9 remains published until the patch is released. The universal APK contains ARMv7, ARM64 and x86-64 builds. Install the signed APK from the project's GitHub release with the matching server, then scan the connection QR in your PBX's **Users → Phone Provisioning**. The QR contains a short-lived one-time code, not your SIP password.
+Version 1.0.10/code110 supports Android 9 and newer. It keeps the 1.0.9 phone features and pairs with the Debian private wake-up-storage correction. The universal APK contains ARMv7, ARM64 and x86-64 builds. Install the signed APK from the project's GitHub release with the matching server, then scan the connection QR in your PBX's **Users → Phone Provisioning**. The QR contains a short-lived one-time code, not your SIP password.
 
 See [the Android guide](../../docs/android.md) for connection, calling, voicemail, testing and current limitations. This client is licensed under AGPL-3.0-or-later; original server licenses are unchanged. See [third-party notices](THIRD_PARTY_NOTICES.md).
 
@@ -26,7 +26,7 @@ The native updater uses the pinned public release key in `app/src/main/assets/re
 
 `UpdateRulesTest` covers detached signatures, allowed origins, monotonic metadata, versions and required-update safety states. `UpdateWorkflowTest` is opt-in with `updateFixture=true`; it requires a disposable account, private signed future-version APK/envelope and a fixture peer. Keep those inputs outside source and release archives. It exercises real download verification, Android installation permission/confirmation/cancellation and account-preserving replacement. Adding `updatePublic=true` uses the normal production HTTPS feed/download transport instead of fixture bytes, while still requiring the fixture guard and disposable account. The internal transport interface permits private instrumentation to supply signed bytes without introducing any production test URL, private key or verification bypass.
 
-Private qualification can override the build version using `-PopenwebPrivateVersionCode=111 -PopenwebPrivateVersionName=1.0.11`. Such APKs and manifests are local fixtures only. The prepared release uses the default 1.0.10/code110 values and the stable signing identity. The corresponding-source archive includes the root VERSION file, all recursively tracked SDK/submodule source (including upstream build directories), and the exact Maven runtime source JARs.
+Private qualification can override the build version using `-PopenwebPrivateVersionCode=111 -PopenwebPrivateVersionName=1.0.11`. Such APKs and manifests are local fixtures only. The published release uses the default 1.0.10/code110 values and the stable signing identity. The corresponding-source archive includes the root VERSION file, all recursively tracked SDK/submodule source (including upstream build directories), and the exact Maven runtime source JARs.
 
 `CallAudioTest` uses `audioFixture=true` and a disposable `audio-setup.json` to verify Android communication audio mode, audio-focus hold/resume, background calling and incoming SRTP audio. An independent auto-answer peer must be registered as extension 1001 in that isolated PBX. Never point these checks at customer accounts.
 
