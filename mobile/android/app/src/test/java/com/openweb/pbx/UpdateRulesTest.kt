@@ -37,6 +37,16 @@ class UpdateRulesTest {
         assertTrue(UpdateRules.compare("1.0.10","1.0.9")>0);assertTrue(UpdateRules.compare("2.0.0","1.99.99")>0)
         for(bad in listOf("1.0.5-preview","1.0","1.0.-1","1000000.0.0"))rejects{UpdateRules.version(bad)}
     }
+    @Test fun instanceFloorAppliesUntilMetWithoutChangingFutureTenantChoice(){
+        assertEquals("required",UpdateRules.policyMode("required","notify","1.0.11","1.0.10"))
+        assertEquals("notify",UpdateRules.policyMode("required","notify","1.0.11","1.0.11"))
+        assertEquals("download",UpdateRules.policyMode("required","download","1.0.11","1.0.12"))
+        assertEquals("required",UpdateRules.policyMode("required","required","1.0.11","1.0.11"))
+        assertEquals("notify",UpdateRules.policyMode("notify",null,null,"1.0.10"))
+        rejects{UpdateRules.policyMode("required","notify","1.0.11-beta","1.0.10")}
+        rejects{UpdateRules.policyMode("required",null,"1.0.11","1.0.10")}
+        rejects{UpdateRules.policyMode("disabled","notify","1.0.11","1.0.10")}
+    }
     @Test fun friendlyCallFailuresDoNotExposeProtocolDetails(){
         assertTrue(CallFeedback.failure(503).contains("provider and calling rules"));assertTrue(CallFeedback.failure(486).contains("busy"));assertTrue(CallFeedback.failure(403).contains("permissions"))
         for(code in listOf(403,404,408,486,488,503,603,0))assertFalse(CallFeedback.failure(code).contains("SIP"))

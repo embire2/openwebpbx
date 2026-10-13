@@ -27,6 +27,7 @@ class CallAudioTest {
     private val files get()=context.getExternalFilesDir(null)!!
     private val audio get()=context.getSystemService(AudioManager::class.java)
     private var competingFocus:AudioFocusRequest?=null
+    private var owned=false
     private fun main(block:()->Unit)=instrument.runOnMainSync(block)
     private fun waitFor(label:String,timeout:Long=45000,condition:()->Boolean) {
         val until=System.currentTimeMillis()+timeout
@@ -41,6 +42,8 @@ class CallAudioTest {
             val account=PhoneApi(server).json("enroll",JSONObject().put("code",setup.getString("code")).put("device_name","Disposable Android audio QA").put("platform","android")).put("server",server)
             PhoneStore(context).save(account);File(files,"audio-setup.json").delete()
         }
+        require(PhoneStore(context).read()!!.getJSONObject("sip").getString("domain").matches(Regex("mobile-check-[a-f0-9]{12}\\.invalid"))){"Disposable native PBX required"}
+        owned=true
         main{context.startActivity(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))}
         waitFor("Disposable phone did not register",90000){PhoneService.instance?.status=="Ready for calls"}
     }
@@ -53,7 +56,7 @@ class CallAudioTest {
     }
     @After fun stop() {
         competingFocus?.let{audio.abandonAudioFocusRequest(it)}
-        main{PhoneService.instance?.hangup()}
+        if(owned)main{PhoneService.instance?.hangup()}
     }
     @Test fun audioFocusAndBackgroundCall() {
         connect();main{PhoneService.instance!!.dial("1001")}

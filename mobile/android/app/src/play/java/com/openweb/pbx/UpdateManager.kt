@@ -122,7 +122,7 @@ class UpdateManager internal constructor(private val context:Context) {
                 if(account!=null)try {
                     val policy=PhoneApi(account.getString("server"),account.getString("token")).json("updates")
                     require(policy.getInt("schema")==1 && policy.getString("channel")=="stable" && policy.getString("feed_url")==UpdateRules.FEED)
-                    nextMode=policy.getString("mode");require(nextMode in listOf("notify","download","required"))
+                    nextMode=UpdateRules.policyMode(policy.getString("mode"),policy.optString("tenant_mode").takeIf{it.isNotEmpty()},policy.optString("minimum_version").takeIf{it.isNotEmpty()},BuildConfig.VERSION_NAME)
                     nextServer=policy.getString("server_version");UpdateRules.version(nextServer);nextChecked=System.currentTimeMillis()
                 }catch(e:ApiError){if(e.status!=404)throw e;nextServer="1.0.3"}
                 val envelope=readFeed();val feed=PlayReleaseManifest.parse(envelope,key)

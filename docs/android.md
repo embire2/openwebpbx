@@ -1,6 +1,6 @@
-# OpenWeb PBX for Android — 1.0.10
+# OpenWeb PBX for Android — 1.0.11
 
-This is a standalone Android phone with native screens and its own SIP/media engine. It does not display the PBX website in a frame. The published [1.0.10 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.10), code110, keeps the 1.0.9 phone features; its matching Debian patch fixes saving optional wake-up settings in private storage. Use matching server and signed app releases. Android 9 or newer is required; the universal APK supports ARMv7, ARM64 and x86-64. Physical handset coverage and mobile-network qualification are still being established.
+This is a standalone Android phone with native screens and its own SIP/media engine. It does not display the PBX website in a frame. The 1.0.11 candidate, code111, adds a prominent Call Hold / Resume Call control and personal Settings, with an instance-wide minimum Android version. It retains the 1.0.9 calling features and 1.0.10 private wake-up settings correction. Use matching server and signed app releases. Android 9 or newer is required; the universal APK supports ARMv7, ARM64 and x86-64. Physical handset coverage and mobile-network qualification are still being established.
 
 ## Connect your phone
 
@@ -17,11 +17,11 @@ Each phone receives its own revocable credentials, valid for 180 days. Create a 
 
 1. **Connect by QR code.** Native camera scanning, confirmation, one-time enrollment, encrypted account storage and device revocation.
 2. **Make and receive calls.** Dial an extension or permitted outside number. Incoming calls ring and show a notification. Open the notification and choose **Answer**, or decline it. A persistent connection notification indicates that the phone is running.
-3. **Call controls.** Mute/unmute, speaker/earpiece, hold/resume and keypad tones for phone menus. Available audio devices can be selected in **Settings → More → Audio device**; Bluetooth requires the nearby-device permission.
+3. **Call controls.** Mute/unmute, speaker/earpiece, hold/resume and keypad tones for phone menus. Available audio devices can be selected in **Settings → Audio device**; Bluetooth requires the nearby-device permission.
 4. **Contacts and Recents.** Search the company directory and tap to call. Recents is phone-reported history, not the billing call record. It includes incoming, outgoing and missed calls; tap a record to call back. Completed phone calls are queued privately when offline. Upload retries are idempotent and run when the phone starts, another call ends or Recents is refreshed.
 5. **Voicemail.** List your mailbox, play messages, mark them read and delete them after confirmation. Audio downloads are authenticated and kept in the app's private cache only while needed.
 
-Use **Settings → Disconnect** to revoke this phone and remove its saved connection. An administrator can also revoke a lost phone in the PBX. A new QR code is required to reconnect.
+Use **Settings → Disconnect this phone** to revoke this phone and remove its saved connection. An administrator can also revoke a lost phone in the PBX. A new QR code is required to reconnect.
 
 ## New calling controls in 1.0.9
 
@@ -31,19 +31,37 @@ Use **Settings → Disconnect** to revoke this phone and remove its saved connec
 - **Call waiting and three-way calls:** answer a second call, switch between held conversations, then choose **Merge calls**. Individual participants can be removed without ending the other conversation. **Mute sound** silences that participant on your phone; it does not mute that person's microphone for everybody. Three actual native endpoints passed waiting, switching, merge, media and participant removal.
 - **Status and queues:** the **Status** button opens Available, Away and Do Not Disturb, a chosen duration and assigned queue checkboxes. A queue can remain joined while your status pauses delivery; the app explains the reason. Native UI and real server routing/concurrency/expiry checks passed; see [availability](android-availability.md).
 
+## Call Hold and personal Settings in 1.0.11
+
+During a connected call, press **Call Hold**. Your caller hears the PBX’s hold music until you press **Resume Call**. You can browse Contacts, Recents, Voicemail or Settings without resuming the call. For a three-way call, both remote callers are held separately and hear music; Resume Call brings the remaining people back together. If one person leaves while held, the remaining caller stays held until you resume. The PBX controls the music; its bundled default is a licensed CC0 music loop, and custom tenant music remains supported.
+
+Open **Settings** at the top of the app:
+
+- **Choose theme:** System, Light or Dark.
+- **Ringtone:** choose an available Android ringtone or System ringtone. Silent and unavailable selections are refused; a deleted or inaccessible saved sound falls back to the system ringtone. Android volume and Do Not Disturb still apply.
+- **Keypad vibration:** turn touch feedback on or off, subject to Android’s touch feedback setting.
+- **Start page:** open on Keypad, Contacts, Recents or Voicemail.
+- **Sort contacts:** Name or Extension.
+- **Calling:** Status and queues, Audio device and Check connection use the existing calling controls.
+- **Android permissions:** see microphone, incoming-alert and background-battery status; open the appropriate Android permission/settings screen.
+- **Updates and support:** check App updates, privacy/help and source licenses.
+- **Reset personal settings:** reset presentation choices without clearing your connection, account, call or administrator’s update policy. Disconnect is a separate confirmed action unavailable during a call.
+
+These choices follow the personalisation categories in the [official 3CX Android manual](https://www.3cx.com/user-manual/installation-android/). SIP credentials, server addresses, network transport, encryption, codecs, microphone gain and ear protection are managed by the app/PBX so ordinary personal changes preserve the working calling configuration.
+
 ## Ear protection
 
 During outgoing setup and active earpiece calls, supported Android phones use their proximity sensor to turn off the display and suppress touches near your face. Moving the phone away restores the screen. Speaker, wired/Bluetooth audio, local hold and call termination release this protection. Phones without a supported sensor retain ordinary power-button behavior. Physical sensor behavior must still be checked on representative handsets.
 
 ## Privacy and support
 
-Before connecting, the app explains that your chosen PBX receives device/connection details, call history and microphone audio during calls. Settings → More → Privacy and support opens the public privacy policy, data-removal instructions and support page. Disconnect removes this phone’s access and local account data; server records remain subject to the administrator’s deletion/retention process.
+Before connecting, the app explains that your chosen PBX receives device/connection details, call history and microphone audio during calls. Settings → Privacy and support opens the public privacy policy, data-removal instructions and support page. Disconnect removes this phone’s access and local account data; server records remain subject to the administrator’s deletion/retention process.
 
 ## Phone updates
 
 Version 1.0.7 adds a prominent update card, clear Download/Install action, live progress and a notification that opens update details. Required updates finish downloading and verifying before the direct app asks you to install, and active calls defer installation. Android may still require permission or confirmation.
 
-If you currently use 1.0.3, install the current signed GitHub APK once: that older app does not contain an updater. Install over the existing app to retain your connection; do not uninstall it first. The updater was introduced in 1.0.4. Use the matching 1.0.9 server and APK when that release is published; 1.0.7 remains the public baseline until then. The earlier 1.0.6 server audio correction remains required for the repaired calling path.
+If you currently use 1.0.3, install the current signed GitHub APK once: that older app does not contain an updater. Install over the existing app to retain your connection; do not uninstall it first. The updater was introduced in 1.0.4. Use the matching current server and APK. The earlier 1.0.6 server audio correction remains required for the repaired calling path.
 
 The direct APK checks the stable release feed when opened and approximately every twelve hours when Android permits network background work. In **Tenant Admin → Updates**, your tenant administrator chooses one of these policies:
 
@@ -51,7 +69,9 @@ The direct APK checks the stable release feed when opened and approximately ever
 - **Download automatically:** the complete update downloads privately in advance; choose when to install it.
 - **Require the update:** the phone downloads and verifies the update, then asks you to finish installation when your call ends. Where Android permits a self-update, the app can request installation automatically; Android may still require your confirmation.
 
-Open **Settings → More → App updates** to check manually, install a prepared update or retry. Android may first show **Allow from this source**. Enable it for OpenWeb PBX, return to the app, and choose **Install update**. After installation, choose Android’s **Open** button, tap the update notification or reopen OpenWeb PBX. Android controls whether an app can reopen automatically; the updater does not bypass these restrictions or start microphone services from a background receiver.
+An instance administrator can also require a **minimum Android version** for every tenant and phone on that instance, including future enrollments. Tenant preferences remain saved for releases after that minimum has been met. A required update never interrupts an active call or blocks calling on an unverified, unsupported or unavailable release.
+
+Open **Settings → App updates** to check manually, install a prepared update or retry. Android may first show **Allow from this source**. Enable it for OpenWeb PBX, return to the app, and choose **Install update**. After installation, choose Android’s **Open** button, tap the update notification or reopen OpenWeb PBX. Android controls whether an app can reopen automatically; the updater does not bypass these restrictions or start microphone services from a background receiver.
 
 A required-update screen appears only after a supported, newer download has passed every check. Existing calls finish first. **Use phone for an urgent call** and connection/account settings remain accessible. An unavailable server, failed download, unsupported Android/PBX version or invalid release cannot lock the phone. Canceling installation retains the current app and account; the verified download remains available for another attempt. Phone registration pauses during actual installation and resumes when the app is opened.
 
@@ -59,13 +79,13 @@ The release envelope is verified using a pinned RSA public key and SHA-256 signa
 
 ### Google Play edition
 
-The Play edition has separate update handling and excludes package-install permissions and the direct APK installer. It opens the fixed Google Play listing; Google Play controls download, installation and reopening. It does not display fictitious download progress. A required store update is offered only when signed metadata confirms a fully published production Play release, and active/urgent calling remains available. A GitHub release does not establish Google Play availability. Play publication remains pending account setup, actual-track testing and Google review; the tested AAB and published 1.0.10 submission packet do not establish approval. See the [submission guide](google-play.md).
+The Play edition has separate update handling and excludes package-install permissions and the direct APK installer. It opens the fixed Google Play listing; Google Play controls download, installation and reopening. It does not display fictitious download progress. A required store update is offered only when signed metadata confirms a fully published production Play release, and active/urgent calling remains available. A GitHub release does not establish Google Play availability. Play publication remains pending account setup, actual-track testing and Google review; the tested AAB and prepared 1.0.11 submission packet do not establish approval. See the [submission guide](google-play.md).
 
 ## Call connection help
 
-Your extension and connection state appear at the top. Calling your own extension displays an explanation before following its forwarding/voicemail rules. Failed calls remain visible with a plain-language reason and **Call again**. **Settings → More → Check connection** checks access to your PBX and reconnects the phone if idle; it does not claim to certify the provider or every destination.
+Your extension and connection state appear at the top. Calling your own extension displays an explanation before following its forwarding/voicemail rules. Failed calls remain visible with a plain-language reason and **Call again**. **Settings → Check connection** checks access to your PBX and reconnects the phone if idle; it does not claim to certify the provider or every destination.
 
-The keypad and call controls use native vector icons and labelled touch targets. The Call button stays visible while the keypad scrolls on a short screen. Answer and Decline are distinct, and Mute/Hold/Speaker show their current state.
+The keypad and call controls use native vector icons and labelled touch targets. The Call button stays visible while the keypad scrolls on a short screen. Answer and Decline are distinct, and Mute/Speaker show their current state. Call Hold / Resume Call remains visible above the content on every active-call tab, including Settings. It becomes available when the call connects and waits for hold/resume to finish before accepting another press.
 
 ## Incoming calls and current limits
 
@@ -75,7 +95,7 @@ Chat, video, meetings, Android Auto and emergency-location integration remain pl
 
 ## Source, licenses and building
 
-The Android project is in [mobile/android](https://github.com/embire2/openwebpbx/blob/v1.0.10/mobile/android/README.md), licensed AGPL-3.0-or-later. Pre-existing server code keeps its original license. See [component notices](https://github.com/embire2/openwebpbx/blob/v1.0.10/mobile/android/THIRD_PARTY_NOTICES.md). The release includes the corresponding Android source, the exact Linphone SDK 5.5.23 source and submodules, and Maven dependency source JARs. No signing key, enrollment code, account credentials or customer data is distributed.
+The Android project is in [mobile/android](https://github.com/embire2/openwebpbx/blob/v1.0.11/mobile/android/README.md), licensed AGPL-3.0-or-later. Pre-existing server code keeps its original license. See [component notices](https://github.com/embire2/openwebpbx/blob/v1.0.11/mobile/android/THIRD_PARTY_NOTICES.md). The release includes the corresponding Android source, the exact Linphone SDK 5.5.23 source and submodules, and Maven dependency source JARs. No signing key, enrollment code, account credentials or customer data is distributed.
 
 Use JDK 17 or 21, Android SDK platform 36/build-tools 36.0.0, and the included Gradle 8.11.1 wrapper. The project pins Android Gradle Plugin 8.10.1, Kotlin 2.1.20, Linphone SDK 5.5.23, AndroidX Media 1.7.1 and ZXing Embedded 4.3.0. `scripts/build-release.sh` runs both variants’ unit checks and Android lint, builds a signed direct APK and a signed Play AAB. Set the private signing environment variables described in the project README. Preserve the signing key for future app upgrades.
 
@@ -287,3 +307,69 @@ Wi-Fi/mobile handover, Android16/16 KiB runtime and actual Google Play-track
 installation/approval remain open. The five current Play screenshots show the
 identical 1.0.9 UI with fictional owned accounts; the demonstration video is
 explicitly historical 1.0.7 basics and is omitted from the new submission packet.
+
+## Version 1.0.11 qualification — 2026-10-13
+
+The release build uses version name `1.0.11`, code `111` and the persistent
+signing certificate. The exact signed direct APK SHA-256 is
+`9f23be7940bc02122516b094cc0af2deb5d8089c430332376075d3b607204dec`;
+the Play AAB is
+`ad47ad9b7df441eee5a06a78e4e88259ef04b233484ff57c0f991bd064d49ceb`.
+Twenty-nine direct and 33 Play JVM tests passed, and both release lint checks
+reported zero errors. Bundletool, certificate, API36/permission and all 26
+64-bit native-library alignment checks passed. These results apply to the final
+binaries after the conference-entry and manual-hold recovery corrections.
+
+Six guarded direct native workflows passed on an owned Android13 software
+device with independent SIP peers:
+
+- Manual Hold → Switch → Switch back → End second → automatic original-call
+  recovery: 23.960 seconds, with decoded incoming and outgoing RTP advancing.
+- Personal Settings: 104.003 seconds, covering System/Light/Dark, all four cold
+  startup pages, haptics preference and actual Name/Extension sorting. A real
+  built-in Andromeda ringtone was selected through Android's picker and used by
+  the SDK. An unavailable cached sound fell back before the next incoming call
+  on the same native Core; both calls answered with two-way media. Personal reset
+  retained the account and signed-update trust, restored defaults and permitted
+  another call.
+- Conference Hold/Resume and remote departure: 72.814 seconds. Both native SIP
+  legs paused; after Resume both were StreamsRunning, joined to local audio,
+  SendRecv in both directions, with advancing decoded RTP and positive fresh
+  bandwidth. A remaining caller stayed paused after the other participant left
+  until explicit Resume.
+- Visible full-width Hold/Resume on all four call tabs and Settings, including
+  connection checking, theme changes and preference reset while held:
+  76.051 seconds, followed by decoded two-way media.
+- Outgoing/background/audio-focus/hold/resume: 45.412 seconds.
+- Incoming SDK ringing and communication audio focus: 18.363 seconds.
+
+Independent remote captures identified the selected CC0 music throughout
+53.80 seconds of single-call hold, 19.92 seconds on each conference leg and
+10.08 seconds on the remaining leg. Every overlapping ten-second identity
+window (five-second steps, a bounded final partial window) exceeded the unchanged
+0.75 correlation threshold: minima 0.8368, 0.8424 and 0.8336 respectively. RTP
+continued without a gap over 65 milliseconds, and music stopped after Resume.
+The full single-capture fixed-offset correlation was 0.593 and failed; it is
+retained as a diagnostic limitation of fitting one source offset across the
+135-second loop. Window offsets, full captures, SIP transition intervals and
+strict resumed native packet deltas are preserved in private artifact-bound
+reports. This windowed proof does not claim that the failed global metric passed.
+
+Four native workflows also passed on the APK derived from the exact final Play
+AAB: manual-hold switch recovery (23.104 seconds), expanded Settings/selected and
+fallback ringtone/incoming media (132.242), both-leg conference hold/resume and
+remote departure (72.208), and outgoing/background/audio focus (43.338).
+Independent Play captures verified 20.12/20.10 seconds of music on both held
+legs and 10.18 seconds on the remaining caller; every identity window exceeded
+0.75 and resumed native decoded RTP advanced on both legs. The derived APK
+SHA-256 is `0b242251cac5b8c1ee54dc1a998e7c24a3e6d628ddc49c869fd06767d3bcd9a5`.
+
+The true public 1.0.10→1.0.11 replacement waits for release publication and a
+matching production server. The eight current store images use fictional
+owned accounts and include actual light/dark Settings and a held-call Resume
+screen. A software-device AAB conversion does not establish Play-track
+installation or Google approval. Physical ringtone audibility/haptics,
+handset/earpiece/proximity/Bluetooth, locked/idle notification delivery,
+Wi-Fi/mobile handover and Android16/16 KiB runtime coverage remain open.
+No carrier or customer call was used. Historical version evidence above retains
+its original binary and release attribution.

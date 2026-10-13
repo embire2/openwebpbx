@@ -13,14 +13,21 @@ import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.media.AudioAttributes
 import android.media.MediaPlayer
+import android.media.RingtoneManager
+import android.app.NotificationManager
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
 import android.os.Build
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.WindowManager
 import android.widget.*
 import androidx.activity.ComponentActivity
+import androidx.activity.addCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
@@ -34,6 +41,8 @@ import java.util.concurrent.Executors
 class MainActivity: ComponentActivity() {
     private val worker = Executors.newSingleThreadExecutor()
     private lateinit var store: PhoneStore
+    private lateinit var preferences: PhonePreferences
+    private var settingsReturnSection="Keypad"
     private lateinit var root: LinearLayout
     private lateinit var body: LinearLayout
     private lateinit var status: TextView
@@ -79,7 +88,7 @@ class MainActivity: ComponentActivity() {
         stopPlayback();super.onStop()
     }
     private val compact get()=resources.displayMetrics.heightPixels/resources.displayMetrics.density<720
-    private val dark get() = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+    private val dark get() = PhonePreferenceRules.dark(preferences.theme,resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES)
     private val ink get() = Color.parseColor(if(dark) "#F2F5F8" else "#142E39")
     private val soft get() = Color.parseColor(if(dark) "#AFBFCA" else "#516571")
     private val paper get() = Color.parseColor(if(dark) "#0D1921" else "#F2F7F7")
@@ -100,18 +109,22 @@ class MainActivity: ComponentActivity() {
         } catch(e: Exception) { message(e.message ?: "That QR code could not be read") }
     }
     override fun onCreate(savedInstanceState: Bundle?) {
+        preferences=PhonePreferences(this)
+        setTheme(if(dark)android.R.style.Theme_Material_NoActionBar else R.style.AppTheme)
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        store = PhoneStore(this); section = savedInstanceState?.getString("section") ?: "Keypad"
+        store = PhoneStore(this); section = savedInstanceState?.getString("section") ?: preferences.startupPage
+        settingsReturnSection=savedInstanceState?.getString("settings_return") ?: "Keypad"
+        onBackPressedDispatcher.addCallback(this){if(section=="Settings"){section=settingsReturnSection;draw()}else{isEnabled=false;onBackPressedDispatcher.onBackPressed();isEnabled=true}}
         shownUpdatePrompts.addAll(savedInstanceState?.getStringArrayList("update_prompts") ?: emptyList())
         openUpdatesRequested=intent.getBooleanExtra("show_updates",false);intent.removeExtra("show_updates")
         draw();updates.schedule();updates.check()
         if(store.read() != null) { ensurePermissions(); bootstrap() }
     }
-    override fun onResume() { super.onResume(); updates.foregroundActivity=this; updates.changed={runOnUiThread { if(store.read()!=null && !updates.isInstalling && PhoneService.instance==null && checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startPhone();updatePhone();updateUi() }}; PhoneService.changed = { runOnUiThread { updatePhone();updateUi() } }; updatePhone();updateUi(); if(store.read()!=null && !updates.isInstalling && checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startPhone() }
+    override fun onResume() { super.onResume(); updates.foregroundActivity=this; updates.changed={runOnUiThread { if(store.read()!=null && !updates.isInstalling && PhoneService.instance==null && checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startPhone();updatePhone();updateUi() }}; PhoneService.changed = { runOnUiThread { updatePhone();updateUi() } }; if(section=="Settings")draw();updatePhone();updateUi(); if(store.read()!=null && !updates.isInstalling && checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startPhone() }
     override fun onPause() { PhoneService.changed = null;updates.changed=null;updates.foregroundActivity=null; super.onPause() }
     override fun onNewIntent(intent:Intent) { super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("show_updates",false)){openUpdatesRequested=true;intent.removeExtra("show_updates");updateUi()} }
-    override fun onSaveInstanceState(outState: Bundle) { outState.putString("section", section);outState.putStringArrayList("update_prompts",ArrayList(shownUpdatePrompts));super.onSaveInstanceState(outState) }
+    override fun onSaveInstanceState(outState: Bundle) { outState.putString("section", section);outState.putString("settings_return",settingsReturnSection);outState.putStringArrayList("update_prompts",ArrayList(shownUpdatePrompts));super.onSaveInstanceState(outState) }
     override fun onDestroy() { availabilityDialog?.dismiss();updateDetails?.dismiss();stopPlayback(); worker.shutdown(); super.onDestroy() }
     private fun dp(value:Int) = (value * resources.displayMetrics.density).toInt()
     private fun text(value: String, size: Float=16f, color:Int=ink, bold:Boolean=false) = TextView(this).apply { text=value; textSize=size; setTextColor(color); if(bold)setTypeface(typeface,Typeface.BOLD); setPadding(0,dp(5),0,dp(5)) }
@@ -140,9 +153,11 @@ class MainActivity: ComponentActivity() {
         root = layout().apply { setBackgroundColor(paper); setPadding(dp(if(compact)16 else 20),dp(if(compact)6 else 12),dp(if(compact)16 else 20),dp(if(compact)6 else 12)) }
         root.setOnApplyWindowInsetsListener { view,insets -> view.setPadding(dp(if(compact)16 else 20),insets.systemWindowInsetTop+dp(if(compact)6 else 12),dp(if(compact)16 else 20),insets.systemWindowInsetBottom+dp(if(compact)6 else 12)); insets }
         setContentView(root)
+        window.decorView.systemUiVisibility=if(dark)0 else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        window.statusBarColor=paper;window.navigationBarColor=paper
         val heading=layout(true); heading.gravity=Gravity.CENTER_VERTICAL
         heading.addView(text("OpenWeb PBX",24f,ink,true),LinearLayout.LayoutParams(0,dp(if(compact)44 else 52),1f))
-        if(store.read()!=null) heading.addView(button("Settings") { settings() })
+        if(store.read()!=null) heading.addView(button(if(section=="Settings")"Done" else "Settings") { if(section=="Settings"){section=settingsReturnSection;draw()}else settings() })
         root.addView(heading)
         status=text("Your work phone, wherever you are",14f,soft); status.setPadding(dp(12),dp(if(compact)5 else 10),dp(12),dp(if(compact)5 else 10));status.background=rounded(card);val statusRow=layout(true);statusRow.gravity=Gravity.CENTER_VERTICAL;statusRow.addView(status,LinearLayout.LayoutParams(0,-2,1f));if(store.read()!=null)statusRow.addView(button("Status"){availability()},LinearLayout.LayoutParams(dp(78),dp(48)));root.addView(statusRow)
         updatePanel=layout();root.addView(updatePanel)
@@ -158,7 +173,7 @@ class MainActivity: ComponentActivity() {
         root.addView(nav)
         updateGated=updates.shouldGate(PhoneService.instance?.call!=null,urgentUpdateBypass);updatePhone()
         if(updateGated) { updateGate();updateUi();return }
-        when(section) { "Keypad" -> keypad(); "Contacts" -> contacts(); "Recents" -> recents(); "Voicemail" -> voicemail() };updateUi()
+        when(section) { "Keypad" -> keypad(); "Contacts" -> contacts(); "Recents" -> recents(); "Voicemail" -> voicemail(); "Settings"->settingsPage() };updateUi()
     }
     private fun welcome() {
         body.addView(text("Meet your new\nwork phone.",36f,ink,true))
@@ -225,7 +240,7 @@ class MainActivity: ComponentActivity() {
             return
         }
         stopPlayback();callPanel.background=rounded(card); callPanel.setPadding(dp(12),dp(10),dp(12),dp(10))
-        val state=if(phone.conferenceOnHold)"On hold" else if(phone.conference!=null)"Three-way call" else when(call.state) { Call.State.IncomingReceived -> "Incoming call"; Call.State.Paused -> "On hold"; Call.State.Pausing -> "Placing on hold…";Call.State.Resuming -> "Resuming…"; Call.State.StreamsRunning -> "Connected"; Call.State.OutgoingRinging -> "Ringing…";Call.State.OutgoingEarlyMedia -> "Connecting…"; else -> "Calling…" }
+        val state=if(phone.conferenceOnHold)"On hold" else if(phone.conferenceJoinFailed)"Three-way audio needs retry" else if(phone.conference!=null && !phone.conference!!.isIn)"Connecting three-way audio…" else if(phone.conference!=null)"Three-way call" else when(call.state) { Call.State.IncomingReceived -> "Incoming call"; Call.State.Paused -> "On hold"; Call.State.Pausing -> "Placing on hold…";Call.State.Resuming -> "Resuming…"; Call.State.StreamsRunning -> "Connected"; Call.State.OutgoingRinging -> "Ringing…";Call.State.OutgoingEarlyMedia -> "Connecting…"; else -> "Calling…" }
         if(compact){
             callPanel.setPadding(dp(6),dp(3),dp(6),dp(3))
             callPanel.addView(text("$state · ${phone.callLabel}",15f,ink,true).apply{gravity=Gravity.CENTER;maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END;setPadding(0,dp(2),0,dp(2))})
@@ -235,11 +250,10 @@ class MainActivity: ComponentActivity() {
                 actions.addView(iconButton("Answer",R.drawable.ic_call,tone=Color.parseColor("#16745B")){ensurePermissions();if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)phone.answer()},spaced(height=48))
             }else{
                 actions.addView(iconButton(if(phone.muted)"Unmute" else "Mute",if(phone.muted)R.drawable.ic_mic_off else R.drawable.ic_mic,phone.muted){phone.mute()},spaced(height=48))
-                actions.addView(iconButton(if(call.state==Call.State.Paused || phone.conferenceOnHold)"Resume" else "Hold",if(call.state==Call.State.Paused)R.drawable.ic_play else R.drawable.ic_hold,call.state==Call.State.Paused){phone.hold()},spaced(height=48))
                 actions.addView(iconButton(if(phone.speaker)"Earpiece" else "Speaker",R.drawable.ic_speaker,phone.speaker){phone.speaker()},spaced(height=48))
                 actions.addView(iconButton("End call",R.drawable.ic_hangup,tone=Color.parseColor("#B3263E")){phone.hangup()},spaced(height=48))
             }
-            callPanel.addView(actions);callExtras(phone);return
+            callPanel.addView(actions);if(call.state!=Call.State.IncomingReceived)callHold(phone);callExtras(phone);return
         }
         callPanel.addView(text(state,14f,soft).apply{gravity=Gravity.CENTER})
         callPanel.addView(text(phone.callLabel,28f,ink,true).apply{gravity=Gravity.CENTER})
@@ -250,12 +264,24 @@ class MainActivity: ComponentActivity() {
             callPanel.addView(controls)
         } else {
             controls.addView(iconButton(if(phone.muted)"Unmute" else "Mute",if(phone.muted)R.drawable.ic_mic_off else R.drawable.ic_mic,phone.muted){phone.mute()},spaced())
-            controls.addView(iconButton(if(call.state==Call.State.Paused || phone.conferenceOnHold)"Resume" else "Hold",if(call.state==Call.State.Paused)R.drawable.ic_play else R.drawable.ic_hold,call.state==Call.State.Paused){phone.hold()},spaced())
             controls.addView(iconButton(if(phone.speaker)"Earpiece" else "Speaker",R.drawable.ic_speaker,phone.speaker){phone.speaker()},spaced())
             callPanel.addView(controls)
+            callHold(phone)
             callPanel.addView(iconButton("End call",R.drawable.ic_hangup,tone=Color.parseColor("#B3263E")){phone.hangup()},LinearLayout.LayoutParams(-1,dp(70)))
         }
         callExtras(phone)
+    }
+    private fun callHold(phone:PhoneService) {
+        val held=phone.conferenceOnHold || phone.call?.state==Call.State.Paused
+        val enabled=phone.canHold()
+        callPanel.addView(button(if(held)"Resume Call" else "Call Hold"){phone.hold()}.apply {
+            isEnabled=enabled;alpha=if(enabled)1f else .5f
+            backgroundTintList=ColorStateList.valueOf(if(held)Color.parseColor("#16745B") else if(dark)Color.parseColor("#38495B") else Color.parseColor("#DCE9F5"))
+            setTextColor(if(held)Color.WHITE else ink)
+            setCompoundDrawablesRelativeWithIntrinsicBounds(if(held)R.drawable.ic_play else R.drawable.ic_hold,0,0,0)
+            compoundDrawableTintList=ColorStateList.valueOf(if(held)Color.WHITE else ink)
+            contentDescription=if(held)"Resume Call. Continue speaking with your caller." else "Call Hold. Your caller will hear music until you resume."
+        },LinearLayout.LayoutParams(-1,dp(48)))
     }
     private fun callExtras(phone:PhoneService){
         val waiting=phone.waitingCall
@@ -266,18 +292,19 @@ class MainActivity: ComponentActivity() {
             callPanel.addView(row)
         }
         val row=layout(true)
-        row.addView(button(if(phone.conference!=null)"Participants" else "Call options"){callOptions(phone)},LinearLayout.LayoutParams(0,dp(48),1f))
+        val joining=phone.conference!=null && !phone.conference!!.isIn
+        row.addView(button(if(joining)"Join call audio" else if(phone.conference!=null || phone.conferenceOnHold)"Participants" else "Call options"){if(joining)phone.retryConferenceAudio()else callOptions(phone)},LinearLayout.LayoutParams(0,dp(48),1f))
         if(phone.consultation!=null){
             row.addView(button("Transfer now"){phone.completeTransfer()},LinearLayout.LayoutParams(0,dp(48),1f))
             row.addView(button("Cancel"){phone.cancelConsultation()},LinearLayout.LayoutParams(0,dp(48),1f))
-        }else if(phone.calls.size==2 && waiting==null && phone.conference==null){
+        }else if(phone.calls.size==2 && waiting==null && phone.conference==null && !phone.conferenceOnHold){
             row.addView(button("Switch"){phone.calls.firstOrNull{it.nativePointer!=phone.call?.nativePointer}?.let{phone.switchCall(it)}},LinearLayout.LayoutParams(0,dp(48),1f))
             row.addView(button("Merge"){phone.merge()},LinearLayout.LayoutParams(0,dp(48),1f))
         }
         callPanel.addView(row)
     }
     private fun callOptions(phone:PhoneService){
-        if(phone.conference!=null){
+        if(phone.conference!=null || phone.conferenceOnHold){
             val rows=layout().apply{setPadding(dp(16),0,dp(16),0)}
             for(person in phone.calls){
                 rows.addView(text(person.remoteAddress.username ?: "Participant",18f,ink,true))
@@ -347,7 +374,7 @@ class MainActivity: ComponentActivity() {
                 val key=layout().apply { gravity=Gravity.CENTER;isClickable=true;isFocusable=true;contentDescription=digit;background=RippleDrawable(ColorStateList.valueOf(Color.parseColor("#33777777")),rounded(card),null)
                     addView(text(digit,27f,ink).apply{gravity=Gravity.CENTER;setPadding(0,0,0,0)})
                     addView(text(letters[digit] ?: "",10f,soft,true).apply{gravity=Gravity.CENTER;setPadding(0,0,0,0)})
-                    setOnClickListener{if(PhoneService.instance?.call!=null)PhoneService.instance?.dtmf(digit[0]) else number.append(digit)}
+                    setOnClickListener{if(preferences.keypadHaptics)performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);if(PhoneService.instance?.call!=null)PhoneService.instance?.dtmf(digit[0]) else number.append(digit)}
                     if(digit=="0")setOnLongClickListener{if(PhoneService.instance?.call==null)number.append("+");true}
                 };line.addView(key,spaced(height=if(compact)48 else 62))
             };body.addView(line)
@@ -384,8 +411,9 @@ class MainActivity: ComponentActivity() {
     private fun contacts() {
         body.addView(text("Contacts",28f,ink,true)); body.addView(text("Your company directory",14f,soft))
         fetch("directory","contacts") { list ->
+            val ordered=(0 until list.length()).map{list.getJSONObject(it)}.sortedWith(if(preferences.contactSort=="Extension")compareBy<JSONObject>{it.optString("number").toLongOrNull() ?: Long.MAX_VALUE}.thenBy{it.optString("number")}.thenBy{it.optString("name").lowercase(java.util.Locale.ROOT)}else compareBy<JSONObject>{it.optString("name").lowercase(java.util.Locale.ROOT)}.thenBy{it.optString("number")})
             val search=field("Search people or numbers"); body.addView(search); val container=layout(); body.addView(container)
-            fun filter(value:String) { container.removeAllViews(); for(i in 0 until list.length()) { val row=list.getJSONObject(i); val name=row.optString("name"); val number=row.optString("number"); if(!"$name $number".contains(value,true))continue
+            fun filter(value:String) { container.removeAllViews(); for(row in ordered) { val name=row.optString("name"); val number=row.optString("number"); if(!"$name $number".contains(value,true))continue
                 container.addView(button("$name\n$number${row.optString("status").takeIf{it.isNotBlank()}?.let{" · $it"} ?: ""}"){dial(number)}.apply{gravity=Gravity.START; minHeight=dp(64)})
             } }
             search.addTextChangedListener(object:android.text.TextWatcher{override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int){}; override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){filter(s.toString())};override fun afterTextChanged(s:android.text.Editable?){} });filter("")
@@ -427,9 +455,63 @@ class MainActivity: ComponentActivity() {
     }
     private fun stopPlayback() { playbackGeneration++;player?.release();player=null;audioFile?.delete();audioFile=null }
     private fun settings() {
-        val a=store.read() ?: return
-        val contents="${a.getJSONObject("account").optString("display_name")}\nExtension ${a.getJSONObject("account").optString("extension")}\n${a.getString("server")}\n\nVersion ${BuildConfig.VERSION_NAME}\n\nKeep the connection notification running for incoming calls. Android may stop background apps; reopen OpenWeb PBX after a restart or force-stop. Incoming wake-up is optional and needs your instance administrator’s setup. Chat and video are planned.\n\nOpen source under AGPL-3.0-or-later. Powered by Linphone SDK 5.5.23 and ZXing. Source and notices: github.com/embire2/openwebpbx/tree/customization/mobile/android"
-        AlertDialog.Builder(this).setTitle("Your phone").setMessage(contents).setPositiveButton("Done",null).setNeutralButton("More"){_,_->AlertDialog.Builder(this).setItems(arrayOf("Status and queues", "Check connection", "App updates", "Audio device", "Privacy and support", "Source and licenses")){_,index->when(index){0->availability();1->connectionCheck();2->updateDialog();3->audioDevices();4->privacy();else->licenses()}}.show()}.setNegativeButton("Disconnect"){_,_->disconnect()}.show()
+        if(store.read()==null)return
+        settingsReturnSection=section.takeIf{it in PhonePreferenceRules.pages} ?: "Keypad";section="Settings";stopPlayback();draw()
+    }
+    private fun settingChoice(title:String,values:List<String>,current:String,save:(String)->Unit) {
+        AlertDialog.Builder(this).setTitle(title).setSingleChoiceItems(values.toTypedArray(),values.indexOf(current)){dialog,index->save(values[index]);dialog.dismiss();if(title=="Choose theme")recreate()else draw()}.setNegativeButton("Cancel",null).show()
+    }
+    private val ringtonePicker=registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if(result.resultCode==RESULT_OK)try {
+            val uri=if(Build.VERSION.SDK_INT>=33)result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI,Uri::class.java) else @Suppress("DEPRECATION") result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            require(uri!=null) { "Choose a ringtone. Silent sounds are not supported." }
+            preferences.setRingtone(uri);PhoneService.instance?.applyPersonalPreferences();draw()
+            message(if(PhoneService.instance?.call==null)"Ringtone saved" else "Ringtone saved for your next incoming call")
+        }catch(e:Exception){message(e.message ?: "That ringtone is unavailable. Choose another sound.")}
+    }
+    private fun pickRingtone() {
+        val intent=Intent(RingtoneManager.ACTION_RINGTONE_PICKER).putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE,RingtoneManager.TYPE_RINGTONE)
+            .putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE,"Choose ringtone").putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT,false)
+            .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT,true).putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI,preferences.ringtoneUri() ?: Settings.System.DEFAULT_RINGTONE_URI)
+        try{ringtonePicker.launch(intent)}catch(_:Exception){message("This phone has no ringtone picker. The system ringtone remains selected.")}
+    }
+    private fun androidSettings(intent:Intent) { try{startActivity(intent)}catch(_:Exception){message("This setting is not available on this device.")} }
+    private fun settingsPage() {
+        val account=store.read() ?: return
+        val identity=account.getJSONObject("account")
+        body.addView(text("Settings",28f,ink,true));body.addView(text("Make this phone your own",14f,soft))
+        body.addView(text("Your phone",20f,ink,true))
+        body.addView(text("${identity.optString("display_name")} · Extension ${identity.optString("extension")}\n${account.getString("server")}\nVersion ${BuildConfig.VERSION_NAME}",14f,soft))
+        item("Choose theme",preferences.theme){settingChoice("Choose theme",PhonePreferenceRules.themes,preferences.theme){preferences.theme=it}}
+        item("Ringtone",preferences.ringtoneName()){pickRingtone()}
+        item("Keypad vibration",if(preferences.keypadHaptics)"On · Uses your phone’s touch feedback" else "Off"){preferences.keypadHaptics=!preferences.keypadHaptics;draw()}
+        item("Start page",preferences.startupPage){settingChoice("Start page",PhonePreferenceRules.pages,preferences.startupPage){preferences.startupPage=it}}
+        item("Sort contacts",preferences.contactSort){settingChoice("Sort contacts",PhonePreferenceRules.sorting,preferences.contactSort){preferences.contactSort=it}}
+        body.addView(text("Calling",20f,ink,true))
+        item("Status and queues","Choose availability, temporary status and your queues"){availability()}
+        item("Audio device","Choose from the connected speaker, earpiece or headset"){audioDevices()}
+        item("Check connection","Check your PBX and incoming wake-up connection"){connectionCheck()}
+        body.addView(text("Your ringtone follows Android’s volume and Do Not Disturb settings. During a call, Call Hold plays music to the caller until you press Resume Call.",14f,soft))
+        body.addView(text("Android permissions",20f,ink,true))
+        val mic=checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED
+        item("Microphone access",if(mic)"Allowed · Ready for calls" else "Allow access to make and answer calls"){if(!mic)ensurePermissions()else androidSettings(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:$packageName")))}
+        val manager=getSystemService(NotificationManager::class.java)
+        val alerts=manager.areNotificationsEnabled() && (manager.getNotificationChannel("calls")?.importance ?: NotificationManager.IMPORTANCE_HIGH)>NotificationManager.IMPORTANCE_NONE
+        item("Incoming call alerts",if(alerts)"Allowed · Keep alerts enabled for incoming calls" else "Blocked · Enable alerts so you can answer incoming calls"){
+            if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)permissions.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+            else androidSettings(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,packageName).putExtra(Settings.EXTRA_CHANNEL_ID,"calls"))
+        }
+        val unrestricted=getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
+        item("Battery optimization",if(unrestricted)"Unrestricted · Background calls are allowed" else "Allow background use for reliable incoming calls"){androidSettings(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))}
+        body.addView(text("Keep the connection notification running. Reopen OpenWeb PBX after restarting your phone or stopping the app. Incoming wake-up depends on your administrator’s setup.",14f,soft))
+        body.addView(text("Updates and support",20f,ink,true))
+        item("App updates","Check for updates · Your administrator manages update requirements"){updateDialog()}
+        item("Privacy and support","Privacy, help and deleting your account"){privacy()}
+        item("Source and licenses","Open source under AGPL-3.0-or-later"){licenses()}
+        item("Reset personal settings","Restore theme, ringtone and display choices; stay connected"){
+            AlertDialog.Builder(this).setTitle("Reset personal settings?").setMessage("Your account, calls and administrator’s update rules remain saved.").setNegativeButton("Cancel",null).setPositiveButton("Reset"){_,_->preferences.reset();PhoneService.instance?.applyPersonalPreferences();recreate()}.show()
+        }
+        body.addView(button("Disconnect this phone"){disconnect()}.apply{isEnabled=PhoneService.instance?.call==null})
     }
     private fun connectionCheck() {
         async({api().json("bootstrap")},{
@@ -579,7 +661,9 @@ class MainActivity: ComponentActivity() {
         AlertDialog.Builder(this).setTitle("Audio device").setItems(devices.map{it.deviceName}.toTypedArray()){_,index->PhoneService.instance?.audioDevice(devices[index])}.setNegativeButton("Cancel",null).show()
     }
     private fun disconnect() {
+        if(PhoneService.instance?.call!=null){message("Finish your call before disconnecting this phone");return}
         AlertDialog.Builder(this).setTitle("Disconnect this phone?").setMessage("You will need a new QR code to reconnect.").setNegativeButton("Cancel",null).setPositiveButton("Disconnect"){_,_->
+            if(PhoneService.instance?.call!=null){message("Finish your call before disconnecting this phone");return@setPositiveButton}
             async({
                 try { api().json("revoke",JSONObject()) }
                 catch(e:ApiError) { if(e.status!=401)throw e;JSONObject() }

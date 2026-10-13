@@ -30,6 +30,9 @@ class PhoneService: Service() {
     var conference:Conference?=null; private set
     var transferring=false; private set
     var conferenceOnHold=false; private set
+    var conferenceJoinFailed=false; private set
+    private var heldConferenceCalls=emptySet<Long>()
+    private val manuallyHeldCalls=mutableSetOf<Long>()
     private var afterPause:(()->Unit)?=null
     private var retrySeconds=2
     private var lastNetworkLoss=0L
@@ -108,10 +111,17 @@ class PhoneService: Service() {
         // The SDK owns ringing and audio focus together. A second app ringtone
         // would compete with its call audio focus when an incoming call answers.
         c.isNativeRingingEnabled = true
+        applyPersonalPreferences()
         c.config.setBool("sip", "use_rfc2833", true)
         c.config.setBool("sip", "use_info", false)
         c.config.setBool("rtp", "symmetric", true)
         c.addListener(object: CoreListenerStub() {
+            override fun onCallCreated(core:Core,created:Call) {
+                // Core adds an incoming call before notifying its ringing state.
+                // Recheck saved sounds here so a deleted sound uses the default,
+                // without restarting the SDK's ringer or any active call audio.
+                core.ring=PhonePreferences(this@PhoneService).ringtoneUri()?.toString()
+            }
             override fun onAccountRegistrationStateChanged(core: Core, a: Account, state: RegistrationState, message: String) {
                 status = when(state) { RegistrationState.Ok -> "Ready for calls"; RegistrationState.Progress -> "Connecting…"; RegistrationState.Failed -> "Connection unavailable — check your network"; else -> "Disconnected" }
                 if(state==RegistrationState.Ok){main.removeCallbacks(reconnectTask);retrySeconds=2;flushPending()}
@@ -137,9 +147,10 @@ class PhoneService: Service() {
                 }
                 val row=sessions[current.nativePointer] ?: return
                 if(state==Call.State.Paused){val next=afterPause;afterPause=null;next?.invoke()}
-                if(state==Call.State.StreamsRunning){row.answered=true;microphoneForeground();acquireCallLock()}
+                if(state==Call.State.StreamsRunning){row.answered=true;if(!conferenceOnHold)manuallyHeldCalls.remove(current.nativePointer);microphoneForeground();acquireCallLock();if(conferenceOnHold && current.nativePointer in heldConferenceCalls)current.pause()}
                 if(state==Call.State.End || state==Call.State.Error || state==Call.State.Released){
                     sessions.remove(current.nativePointer)
+                    manuallyHeldCalls.remove(current.nativePointer)
                     cancelIncoming(row.id)
                     recordCall(row,current.duration)
                     current.removeListener(callAudioListener)
@@ -147,9 +158,9 @@ class PhoneService: Service() {
                     if(call?.nativePointer==current.nativePointer){
                         lastCallMessage=if(!row.endedLocally && lastNetworkLoss>0 && SystemClock.elapsedRealtime()-lastNetworkLoss<60000)"The connection was lost. Please call again." else if(!row.incoming && !row.answered && !row.endedLocally)CallFeedback.failure(current.errorInfo.protocolCode) else if(row.incoming && !row.answered)"Missed call" else "Call ended"
                         select(calls.firstOrNull())
-                        call?.takeIf{it.state==Call.State.Paused && conference==null && !transferring}?.resume()
+                        call?.takeIf{it.state==Call.State.Paused && it.nativePointer !in manuallyHeldCalls && conference==null && !conferenceOnHold && !transferring}?.resume()
                     }
-                    if(calls.isEmpty()){afterPause=null;transferring=false;conference=null;conferenceOnHold=false;consultation=null;core.isMicEnabled=true;releaseCallLock();connectionForeground()}
+                    if(calls.isEmpty()){afterPause=null;transferring=false;conference=null;conferenceOnHold=false;conferenceJoinFailed=false;heldConferenceCalls=emptySet();manuallyHeldCalls.clear();consultation=null;core.isMicEnabled=true;releaseCallLock();applyPersonalPreferences();connectionForeground()}
                     else if(conference?.participantCount==0){conference?.terminate();conference=null}
                 }
                 if(state==Call.State.IncomingReceived){val stored=PhoneStore(this@PhoneService).read();if(stored!=null && stored.optString("push_pending_call").isNotBlank() && stored.optString("push_pending_call")==current.remoteParams?.getCustomHeader("X-OpenWeb-Push-ID"))PushConnection.cancel(this@PhoneService,stored.optString("push_pending_id"));notifyIncoming(current)}
@@ -235,7 +246,7 @@ class PhoneService: Service() {
     }
     fun dial(raw: String, second:Boolean=false) {
         check(!UpdateManager.get(this).isInstalling) { "Finish or cancel the update before making a call" }
-        check(call==null || second && calls.size==1 && conference==null) { "Finish one of your calls first" }
+        check(call==null || second && calls.size==1 && conference==null && !conferenceOnHold) { "Finish one of your calls first" }
         val number = Enrollment.number(raw); val c = core ?: error("Phone is still connecting")
         check(c.defaultAccount?.state == RegistrationState.Ok) { "Wait until the phone is ready for calls" }
         lastDialled = number; lastCallMessage = ""
@@ -261,7 +272,7 @@ class PhoneService: Service() {
     }
     fun hangup(target:Call?=call){target?.let{sessions[it.nativePointer]?.endedLocally=true;if(it.state==Call.State.IncomingReceived)it.decline(Reason.Declined)else it.terminate()}}
     fun switchCall(target:Call){
-        check(conference==null){"Use Participants during a three-way call"}
+        check(conference==null && !conferenceOnHold){"Resume your three-way call first"}
         if(target.state==Call.State.IncomingReceived){answer(target);return}
         if(target.nativePointer==call?.nativePointer)return
         pauseThen{select(target);if(target.state==Call.State.Paused)target.resume();publish()}
@@ -292,16 +303,24 @@ class PhoneService: Service() {
         // The individual addParticipant wrapper consistently returns zero for success.
         for(participant in calls.toList()){
             if(joined.addParticipant(participant)!=0){
-                added.forEach{c.removeFromConference(it)};call?.takeIf{it.state==Call.State.Paused}?.resume()
+                added.forEach{c.removeFromConference(it)};if(!conferenceOnHold)call?.takeIf{it.state==Call.State.Paused}?.resume()
                 error("Could not merge. Choose a conversation to continue")
             }
             added.add(participant)
         }
-        conference=joined;conferenceOnHold=false
-        // Adding the active leg enters automatically before its media update locks audio.
-        if(!joined.isIn)main.postDelayed({if(conference===joined && !conferenceOnHold)joined.enter()},500)
+        conference=joined;conferenceOnHold=false;conferenceJoinFailed=false;heldConferenceCalls=emptySet();manuallyHeldCalls.clear()
+        // Active-leg addition enters before starting media. Both held legs instead
+        // queue their resumes; enter now, before those queued updates lock audio.
+        enterConference(joined)
         publish()
     }
+    private fun enterConference(group:Conference,attempt:Int=0) {
+        if(destroying || conference!==group || conferenceOnHold || calls.isEmpty())return
+        if(!group.isIn)group.enter()
+        if(!group.isIn && attempt<40)main.postDelayed({enterConference(group,attempt+1)},200)
+        else {conferenceJoinFailed=!group.isIn;syncCallAudio();publish()}
+    }
+    fun retryConferenceAudio() { conference?.let{conferenceJoinFailed=false;enterConference(it);publish()} }
     fun muteParticipant(target:Call){target.speakerMuted=!target.speakerMuted;publish()}
     fun dismissCallMessage() { lastCallMessage=""; publish() }
     fun reconnect() {
@@ -309,7 +328,34 @@ class PhoneService: Service() {
         core?.refreshRegisters(); status="Connecting…"; publish()
     }
     fun mute() { muted=!muted; if(conference!=null)conference?.microphoneMuted=muted else call?.microphoneMuted=muted; publish() }
-    fun hold() { val group=conference;if(group!=null){if(conferenceOnHold){check(group.enter()==0){"Could not resume your audio"}}else group.leave();conferenceOnHold=!conferenceOnHold}else if(call?.state == Call.State.Paused)call?.resume()else call?.pause();syncCallAudio();publish() }
+    fun canHold():Boolean {
+        if(transferring || afterPause!=null)return false
+        return if(conferenceOnHold)calls.isNotEmpty() && calls.all{it.state==Call.State.Paused}
+        else if(conference!=null)conference!!.isIn && calls.isNotEmpty() && calls.all{it.state==Call.State.StreamsRunning}
+        else call?.state in listOf(Call.State.StreamsRunning,Call.State.Paused,Call.State.PausedByRemote)
+    }
+    fun hold() {
+        check(canHold()) { "Wait until your call is connected" }
+        val active=call ?: error("No current call")
+        if(conferenceOnHold) {
+            if(calls.size>1)merge()
+            else {check(active.resume()==0){"Could not resume. Your caller is still on hold."};conferenceOnHold=false;heldConferenceCalls=emptySet();manuallyHeldCalls.remove(active.nativePointer)}
+        } else if(conference!=null) {
+            val c=core ?: error("Phone unavailable")
+            val group=conference!!
+            check(group.leave()==0) { "Could not place the three-way call on hold. Please try again." }
+            heldConferenceCalls=calls.map{it.nativePointer}.toSet();conferenceOnHold=true;conferenceJoinFailed=false;conference=null
+            // Leaving the local participant alone keeps remote people talking. Removing
+            // each call pauses its SIP leg so the PBX sends hold music to each caller.
+            calls.toList().forEach{c.removeFromConference(it);if(it.state==Call.State.StreamsRunning)it.pause()}
+        } else if(active.state==Call.State.Paused){check(active.resume()==0){"Could not resume. Your caller is still on hold."};manuallyHeldCalls.remove(active.nativePointer)}
+        else {check(active.pause()==0){"Could not place this call on hold. Please try again."};manuallyHeldCalls.add(active.nativePointer)}
+        syncCallAudio();publish()
+    }
+    fun applyPersonalPreferences() {
+        if(calls.isNotEmpty())return
+        core?.ring=PhonePreferences(this).ringtoneUri()?.toString()
+    }
     fun dtmf(digit: Char) { if (digit in "0123456789*#") call?.sendDtmf(digit) }
     fun speaker() {
         val c = core ?: return

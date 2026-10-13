@@ -2,7 +2,7 @@
 
 A standalone native Android phone, built with Kotlin and the Linphone SIP/media engine. There is no embedded website or WebView.
 
-Version 1.0.10/code110 supports Android 9 and newer. It keeps the 1.0.9 phone features and pairs with the Debian private wake-up-storage correction. The universal APK contains ARMv7, ARM64 and x86-64 builds. Install the signed APK from the project's GitHub release with the matching server, then scan the connection QR in your PBX's **Users → Phone Provisioning**. The QR contains a short-lived one-time code, not your SIP password.
+The 1.0.11 candidate/code111 supports Android 9 and newer. It adds visible Call Hold / Resume Call and personal Settings, retains the 1.0.9 calling features and 1.0.10 private wake-up-storage correction, and honours the instance minimum-version policy without interrupting active calls. The published baseline remains 1.0.10 until final qualification and publication. The universal APK contains ARMv7, ARM64 and x86-64 builds. Install the signed APK from the project's GitHub release with the matching server, then scan the connection QR in your PBX's **Users → Phone Provisioning**. The QR contains a short-lived one-time code, not your SIP password.
 
 See [the Android guide](../../docs/android.md) for connection, calling, voicemail, testing and current limitations. This client is licensed under AGPL-3.0-or-later; original server licenses are unchanged. See [third-party notices](THIRD_PARTY_NOTICES.md).
 
@@ -26,7 +26,7 @@ The native updater uses the pinned public release key in `app/src/main/assets/re
 
 `UpdateRulesTest` covers detached signatures, allowed origins, monotonic metadata, versions and required-update safety states. `UpdateWorkflowTest` is opt-in with `updateFixture=true`; it requires a disposable account, private signed future-version APK/envelope and a fixture peer. Keep those inputs outside source and release archives. It exercises real download verification, Android installation permission/confirmation/cancellation and account-preserving replacement. Adding `updatePublic=true` uses the normal production HTTPS feed/download transport instead of fixture bytes, while still requiring the fixture guard and disposable account. The internal transport interface permits private instrumentation to supply signed bytes without introducing any production test URL, private key or verification bypass.
 
-Private qualification can override the build version using `-PopenwebPrivateVersionCode=111 -PopenwebPrivateVersionName=1.0.11`. Such APKs and manifests are local fixtures only. The published release uses the default 1.0.10/code110 values and the stable signing identity. The corresponding-source archive includes the root VERSION file, all recursively tracked SDK/submodule source (including upstream build directories), and the exact Maven runtime source JARs.
+Private qualification can override the build version using `-PopenwebPrivateVersionCode=112 -PopenwebPrivateVersionName=1.0.12`. Such APKs and manifests are local fixtures only. The 1.0.11 release build uses the default 1.0.11/code111 values and the stable signing identity. The corresponding-source archive includes the root VERSION file, all recursively tracked SDK/submodule source (including upstream build directories), and the exact Maven runtime source JARs.
 
 `CallAudioTest` uses `audioFixture=true` and a disposable `audio-setup.json` to verify Android communication audio mode, audio-focus hold/resume, background calling and incoming SRTP audio. An independent auto-answer peer must be registered as extension 1001 in that isolated PBX. Never point these checks at customer accounts.
 
@@ -35,3 +35,19 @@ Private qualification can override the build version using `-PopenwebPrivateVers
 The `direct` flavor contains the verified GitHub APK installer. The `play` flavor contains only a Google Play listing handoff; no package-install permission, installer code or proprietary Play Core library is included. Both use the same package/signing identity. `scripts/build-release.sh` builds both the signed direct APK and Play AAB. Use `:app:assemblePlayDebugAndroidTest` for Play-only publication-policy instrumentation.
 
 Store preparation, current publication status and owner steps are in [the Play guide](../../docs/google-play.md). Public listing inputs are under `play/`; never add review credentials or signing material there. `scripts/verify-play-bundle.py` validates the actual signed AAB with Google bundletool, checks its merged permissions/identity, excludes direct installer classes and checks every 64-bit native ELF load alignment for 16KB pages. Runtime page-size/device qualification is separate.
+
+`PersonalControlsTest` requires `personalControlsFixture=true` and an enrolled disposable `mobile-check-*.invalid` PBX. It exercises native Settings, visible hold/resume and both conference media legs; independent peers verify timed received hold music. Preferences control theme, Android ringtone, keypad haptics, startup page and contact sorting. Reset clears only those preferences. Hardware audio, haptics, proximity and physical locked/idle wake-up remain separate qualification gates.
+
+The final 1.0.11 direct APK passed six guarded native workflows on Android13,
+including personal Settings with selected/default-fallback incoming ringtone,
+visible single/conference Hold/Resume, remote departure and manual-hold switch
+recovery, plus outgoing/background and incoming audio focus. Independent peers
+received the selected hold track continuously until Resume; the Android guide
+records artifact hashes, windowed music identity and the retained failed
+full-capture fixed-offset metric. The build passed 29 direct/33 Play JVM tests
+and both release lint checks. Current store images are actual native captures
+using fictional owned accounts. Four focused native workflows also passed on the exact AAB-derived APK,
+including the same Settings/ringtone, manual-hold switch recovery,
+conference/media/music/departure and outgoing/background cases. Public-feed
+replacement waits for publication; actual Play-track qualification remains
+separate; physical handset gates remain open.

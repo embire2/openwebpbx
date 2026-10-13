@@ -8,7 +8,8 @@ A PHONE FOR YOUR WORK
 • Find people in your company directory.
 • Open recent calls and call someone back.
 • Listen to voicemail and mark messages as read.
-• Use mute, speaker, hold and the in-call keypad.
+• Use mute, speaker, a visible Call Hold / Resume Call button and the in-call keypad.
+• Choose a theme, ringtone, start page, contact order and keypad vibration in Settings.
 • Transfer a call, talk first, answer a second call or bring three people together.
 • Choose your availability, a temporary status and which queues you answer.
 • Protect against accidental touches when you hold a supported phone to your ear.

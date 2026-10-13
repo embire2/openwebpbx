@@ -2,23 +2,24 @@
 
 An open-source, multi-tenant PBX powered by FreeSWITCH, with a Windows 11 inspired administration desktop.
 
-## Version 1.0.10
+## Version 1.0.11
 
-OpenWeb PBX is a nonprofit, open-source project building a free PBX with the everyday simplicity people value in 3CX. Our roadmap first covers those familiar calling workflows, then new features. Complete 3CX parity remains a goal; the [roadmap](3CX.md) records the remaining work and evidence.
+OpenWeb PBX is a nonprofit, open-source project building a free PBX with the everyday simplicity people value in 3CX. Our roadmap first covers those familiar calling workflows, then new features. Complete 3CX parity remains a goal; the [roadmap](3CX.md) records the remaining work and evidence. [Core system status](docs/core-system-status.md) provides the built-feature inventory and all 133 goals, with 21 accepted and 112 still open.
 
-Version 1.0.10 packages the **Debian 13 amd64 server** and **standalone native Android app**, with signed update metadata, checksums and corresponding source. Use the [1.0.10 release page](https://github.com/embire2/openwebpbx/releases/tag/v1.0.10) for matching assets and [feature coverage](docs/feature-coverage.md) for publication and qualification evidence. New server development currently targets Debian 13. The [previous Windows Server 1.0.7 package](https://github.com/embire2/openwebpbx/releases/tag/v1.0.7) remains available; it includes an administration manager. A separate [native Windows calling client](docs/windows-client-plan.md), with emailed one-use setup files, is planned.
+Version 1.0.11 packages the **Debian 13 amd64 server** and **standalone native Android app**, with signed update metadata, checksums and corresponding source. Use the [1.0.11 release page](https://github.com/embire2/openwebpbx/releases/tag/v1.0.11) for matching assets and [feature coverage](docs/feature-coverage.md) for publication and qualification evidence. New server development currently targets Debian 13. The [previous Windows Server 1.0.7 package](https://github.com/embire2/openwebpbx/releases/tag/v1.0.7) remains available; it includes an administration manager. A separate [native Windows calling client](docs/windows-client-plan.md), with emailed one-use setup files, is planned.
 
-This patch repairs saving **Incoming Call Wake-up** settings on Debian and includes the tracked SDK source inputs omitted by the earlier archive filter. Setup migrates the private notification store automatically while preserving its identity and recovery files. Fresh installation, installed upgrade, rollback and complete tracked-source validation passed; [feature coverage](docs/feature-coverage.md#notification-store-permission-patch--1010) records the separate production and phone acceptance results. Physical locked/idle handset wake-up remains unqualified.
+This release makes **Call Hold / Resume Call** visible on every active-call page, adds personal **Settings**, and lets an instance administrator require a minimum direct-Android release across current and future tenants. Tenant preferences remain saved for later releases. Fresh Debian, installed upgrade/rollback and six final signed direct-app and four AAB-derived native Settings/hold/conference/recovery/audio-focus cases passed. The notification-store and complete-SDK-source corrections introduced in 1.0.10 are retained; [feature coverage](docs/feature-coverage.md#visible-call-controls-personal-settings-and-instance-phone-floor--1011) records separate publication, production and phone checks. Physical locked/idle handset wake-up remains unqualified.
 
 - **SIP Trunks & First Calls:** a guided provider form, initial disabled connections, an ordered backup provider, readiness messages and controlled call-check records.
 - **Office Hours & Call Routing:** multiple periods, overnight hours, breaks, holidays, temporary opening changes and a routing preview.
 - **Receptionist Switchboard:** live calls and availability, with hold, transfer, pickup, parking and retrieval through connected phones.
 - **Queues, Callbacks & Wallboard:** priority groups, position announcements, overflow, callback ordering, live totals and scoped reports.
 - **Automatic Backups & Restore:** encrypted scheduled instance backups, retention, optional pinned-key SFTP copy and guarded recovery onto a separate clean Debian installation, including selected media.
-- **Android:** transfers, consultation recovery, second-call handling, three-way calling, network recovery and availability/queue controls. Optional native incoming wake-up uses source-available UnifiedPush libraries and server-generated keys; your own Firebase project is not required.
+- **Android:** visible Call Hold/Resume Call, safe theme/ringtone/startup/contact-sort Settings, transfers, consultation recovery, second-call handling, three-way calling, network recovery and availability/queue controls. Optional native incoming wake-up uses source-available UnifiedPush libraries and server-generated keys; your own Firebase project is not required.
+- **Phone updates:** signed direct-app downloads and an instance minimum across tenants, with tenant preferences, active-call deferral, urgent-call access and Android confirmation preserved. Google Play updates depend on a separately approved published store release.
 - **Hold music:** a bundled CC0 lo-fi track, with original audio, license provenance and telephone-ready variants. Existing custom music is preserved.
 
-Read the [installation guide](docs/installing-1.0.10.md), [core calling guide](docs/core-calling.md), [Android guide](docs/android.md), [backup guide](docs/backups.md), [updates](docs/updates.md) and [feature coverage](docs/feature-coverage.md). Qualify your own provider and handsets before a production cutover. Physical locked/idle incoming wake-up, Wi-Fi/mobile handover, broader hardware coverage and Google Play approval remain open. Android can require installation confirmation and a tap to reopen.
+Read the [installation guide](docs/installing-1.0.11.md), [core calling guide](docs/core-calling.md), [Android guide](docs/android.md), [backup guide](docs/backups.md), [updates](docs/updates.md) and [feature coverage](docs/feature-coverage.md). Qualify your own provider and handsets before a production cutover. Physical locked/idle incoming wake-up, Wi-Fi/mobile handover, broader hardware coverage and Google Play approval remain open. Android can require installation confirmation and a tap to reopen.
 
 The [homepage](https://openwebpbx.com/) explains the project and lists releases. Its static source and deployment instructions are in [website/README.md](website/README.md). Server and client software retain their component licenses; no OpenWeb software license fee is charged. Hosting, carriers and optional external services have their own costs.
 
@@ -40,7 +41,7 @@ The `customization` branch contains OpenWeb PBX. The `upstream` remote tracks th
 
 ## Existing installations
 
-Follow the [existing-installation update procedure](docs/installing-1.0.10.md#existing-debian-server) to deploy the matching web application, background service and call scripts. Keep `/etc/fusionpbx`, PostgreSQL, and FreeSWITCH configuration in their existing locations. These operational identifiers are retained for compatibility. Use the release installers for a fresh server.
+Follow the [existing-installation update procedure](docs/installing-1.0.11.md#existing-debian-server) to deploy the matching web application, background service and call scripts. Keep `/etc/fusionpbx`, PostgreSQL, and FreeSWITCH configuration in their existing locations. These operational identifiers are retained for compatibility. Use the release installers for a fresh server.
 
 Back up the application and database before replacing files. Apply the branding migration as the PostgreSQL administrator:
 

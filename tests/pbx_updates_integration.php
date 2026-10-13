@@ -39,6 +39,33 @@ try {
     $check($policy['mode']==='required'&&$policy['feed_url']===pbx_updates::FEED_URL&&count($policy)===5,'Phone receives only its own policy and fixed public feed');
     $check($updates->phonePolicy(['domain_uuid'=>$domains[1]])['mode']==='download','Second tenant policy stays independent');
     $check($updates->phonePolicy(['domain_uuid'=>uuid()])['mode']==='notify','Unassigned standalone PBX defaults optional');
+    $check($updates->clientMinimumVersion()==='','Instance Android requirement starts inactive');
+    $minimum=pbx_updates::version();
+    $updates->saveClientMinimumVersion(['minimum_version'=>$minimum]);
+    $check($updates->clientMinimumVersion()===$minimum,'Instance administrator activates release floor');
+    $check($updates->instancePolicy()['mode']==='automatic'&&(int)$updates->instancePolicy()['maintenance_hour']===23,'Phone requirement preserves server mode and maintenance window');
+    $updates->saveTenant($tenants[0],['mode'=>'notify']);
+    foreach($domains as $i=>$domain){
+        $p=$updates->phonePolicy(['domain_uuid'=>$domain]);
+        $check($p['mode']==='required'&&$p['minimum_version']===$minimum&&$p['required_by_instance']===true&&$p['tenant_mode']===($i===0?'notify':'download'),'Instance requirement overrides tenant preference without discarding it');
+        $check($p['feed_url']===pbx_updates::FEED_URL&&$p['channel']==='stable'&&count($p)===8,'Floor cannot supply another feed or expose instance administrator details');
+    }
+    $standalone=uuid();$p=$updates->phonePolicy(['domain_uuid'=>$standalone]);
+    $check($p['mode']==='required'&&$p['minimum_version']===$minimum&&$p['tenant_mode']==='notify','All unassigned phones receive instance floor');
+    $futureUser=uuid();$futureTenant=uuid();$futureDomain=uuid();
+    $q('insert into v_domains(domain_uuid,domain_name,domain_enabled) values(?,?,true)',[$futureDomain,$futureDomain.'.invalid']);
+    $q('insert into v_users(user_uuid,domain_uuid,username,user_enabled) values(?,?,?,true)',[$futureUser,$futureDomain,'future-client-fixture']);
+    $q('insert into v_pbx_tenants(tenant_uuid,tenant_name,slug,home_domain_uuid,owner_user_uuid,invite_email,enabled) values(?,?,?,?,?,?,true)',[$futureTenant,'Future fixture','future-updates',$futureDomain,$futureUser,'future@example.invalid']);
+    $q("insert into v_pbx_services(service_uuid,tenant_uuid,domain_uuid,template_name,template_version,service_name,request_uuid,created_by) values(?,?,?,'Test',1,'Test',?,?)",[uuid(),$futureTenant,$futureDomain,uuid(),$futureUser]);
+    $p=$updates->phonePolicy(['domain_uuid'=>$futureDomain]);
+    $check($p['mode']==='required'&&$p['minimum_version']===$minimum&&$p['tenant_mode']==='notify','Future tenant without a policy row receives instance floor');
+    $db->exec(file_get_contents(dirname(__DIR__).'/app/pbx_updates/resources/install.sql'));
+    $check($updates->clientMinimumVersion()===$minimum,'Repeated migration retains active requirement');
+    try{$q('update v_pbx_update_policies set android_minimum_version=? where scope_key=?',[$minimum,'tenant:'.$tenants[0]]);$check(false,'Tenant row cannot hold global requirement');}catch(PDOException){$check(true,'Database constraint prevents tenant row from holding global requirement');}
+    $check($updates->tenantPolicy($tenants[0])['android_minimum_version']==='','Tenant row remains outside global requirement');
+    foreach([[],['minimum_version'=>[]],['minimum_version'=>'https://example.invalid'],['minimum_version'=>'1.0.11; unsafe'],['minimum_version'=>'01.0.11'],['minimum_version'=>'99999.99999.99999']] as $bad)$deny(fn()=>$updates->saveClientMinimumVersion($bad),'Malformed or unsupported newer release requirement rejected');
+    $updates->saveInstance(['mode'=>'automatic','maintenance_hour'=>'23','maintenance_duration'=>'3']);
+    $check($updates->clientMinimumVersion()===$minimum,'Server policy save cannot erase Android floor');
     $first=$updates->request('check');$check($updates->request('check')===$first,'Duplicate requests for the same action are coalesced');
     $deny(fn()=>$updates->request('install'),'A different action is explicitly refused while a request is pending');
     $q("update v_pbx_update_commands set status='completed',finished_at=now() where command_uuid=?",[$first]);
@@ -50,6 +77,10 @@ try {
     $updates->instance=false;$_SESSION['user_uuid']=$users[0];
     $check($updates->canView()&&count($updates->tenants())===1,'Tenant owner sees one tenant');
     $updates->saveTenant($tenants[0],['mode'=>'notify']);$check($updates->tenantPolicy($tenants[0])['mode']==='notify','Tenant owner may change own policy');
+    $check($updates->clientMinimumVersion()===$minimum,'Tenant may see public required release');
+    $check($updates->phonePolicy(['domain_uuid'=>$domains[0]])['mode']==='required','Tenant notify save cannot weaken instance requirement');
+    $deny(fn()=>$updates->saveClientMinimumVersion(['minimum_version'=>'']),'Tenant cannot clear global floor');
+    $deny(fn()=>$updates->saveClientMinimumVersion(['minimum_version'=>$minimum]),'Tenant cannot set global floor');
     $deny(fn()=>$updates->tenantPolicy($tenants[1]),'Foreign tenant read denied');
     $deny(fn()=>$updates->saveTenant($tenants[1],['mode'=>'required']),'Foreign tenant mutation denied');
     $deny(fn()=>$updates->saveTenant($tenants[0],['mode'=>'automatic']),'Server policy not accepted for phones');
@@ -65,7 +96,15 @@ try {
     $_SESSION['user_uuid']=$outsider;$check(!$updates->canView(),'Other tenant member cannot manage tenant owner policy');
     $_SESSION['user_uuid']=$users[0];$updates->manage=false;$check(!$updates->canView(),'Missing permission denied');
     $updates->manage=true;$q("update v_users set user_enabled='false' where user_uuid=?",[$users[0]]);$check(!$updates->canView(),'Disabled administrator denied');
+    $deny(fn()=>$updates->saveClientMinimumVersion(['minimum_version'=>'']),'Disabled administrator cannot clear floor');
     $_SESSION['user_uuid']=$admin;$updates->instance=true;$_SESSION['authorized']=false;$check(!$updates->canView(),'Unauthenticated session denied');$_SESSION['authorized']=true;
+    $_SESSION['authorized']=false;$deny(fn()=>$updates->saveClientMinimumVersion(['minimum_version'=>'']),'Unauthenticated global floor mutation denied');$_SESSION['authorized']=true;
+    $updates->saveClientMinimumVersion(['minimum_version'=>'']);
+    $check($updates->clientMinimumVersion()==='','Instance administrator can clear requirement');
+    $check($updates->phonePolicy(['domain_uuid'=>$domains[0]])['mode']==='notify'&&count($updates->phonePolicy(['domain_uuid'=>$domains[0]]))===5,'Clearing requirement restores original tenant preference and legacy response');
+    $check($updates->phonePolicy(['domain_uuid'=>$domains[1]])['mode']==='download','Other tenant preference remains unchanged after clearing');
+    $check($updates->phonePolicy(['domain_uuid'=>$standalone])['mode']==='notify','Standalone default restores after clearing floor');
+    $check($updates->phonePolicy(['domain_uuid'=>$futureDomain])['mode']==='notify','Future tenant default restores after clearing floor');
     $q("update v_pbx_update_commands set status='completed'");
     for($i=0;$i<18;$i++)$q("insert into v_pbx_update_commands(command_uuid,action,status) values(?,'check','completed')",[uuid()]);
     $deny(fn()=>$updates->request('check'),'Request rate limited');

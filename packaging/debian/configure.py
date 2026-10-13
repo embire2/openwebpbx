@@ -37,6 +37,7 @@ run(['tar','-xzf','engine.tar.gz','-C','/']);run(['ldconfig'])
 service_root=P('/opt/openwebpbx');service_root.mkdir(parents=True,exist_ok=True);service_root.chmod(0o755)
 shutil.copytree('web',root,dirs_exist_ok=True)
 shutil.copytree('server','/opt/openwebpbx/service',dirs_exist_ok=True)
+P('/opt/openwebpbx/service').chmod(0o755)
 for path in [*root.rglob('*'),*P('/opt/openwebpbx/service').rglob('*')]:
  if path.is_dir():path.chmod(0o755)
  else:path.chmod(0o644)
@@ -110,6 +111,7 @@ for name in ['upgrade.py','verify_feed.py','release-public.pem','configure-sip-t
  shutil.copy(name,tools/name);(tools/name).chmod(0o644)
 slot=P('/opt/openwebpbx/updater/slots')/release
 shutil.copytree('updater',slot)
+slot.chmod(0o755)
 for path in slot.rglob('*'):path.chmod(0o755 if path.is_dir() or path.name=='OpenWebPbx.Updater' else 0o644)
 (slot.parent.parent/'current').symlink_to('slots/'+release)
 updates=private/'updates';updates.mkdir(mode=0o700);updates.chmod(0o700);os.chown(updates,0,0)

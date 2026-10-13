@@ -19,6 +19,14 @@ object UpdateRules {
     fun sha256(bytes:ByteArray)=MessageDigest.getInstance("SHA-256").digest(bytes).joinToString(""){"%02x".format(it)}
     fun version(value:String):List<Int> { require(value.matches(Regex("[0-9]{1,6}\\.[0-9]{1,6}\\.[0-9]{1,6}")));return value.split('.').map{it.toInt()} }
     fun compare(a:String,b:String):Int { val left=version(a);val right=version(b);for(i in 0..2)if(left[i]!=right[i])return left[i].compareTo(right[i]);return 0 }
+    /** A published instance floor applies only until met; later releases retain tenant choice. */
+    fun policyMode(mode:String,tenantMode:String?,minimum:String?,installed:String):String {
+        require(mode in listOf("notify","download","required"))
+        if(minimum.isNullOrEmpty())return mode
+        version(minimum);version(installed)
+        require(tenantMode in listOf("notify","download","required"))
+        return if(compare(installed,minimum)<0)"required" else tenantMode!!
+    }
     fun verify(payload:String,signature:String,pem:String):ByteArray {
         require(payload.length<=MAX_ENVELOPE && signature.length<=2048)
         val bytes=Base64.getDecoder().decode(payload);require(bytes.isNotEmpty() && bytes.size<=MAX_ENVELOPE)

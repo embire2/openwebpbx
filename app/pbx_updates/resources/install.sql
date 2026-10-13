@@ -10,6 +10,15 @@ CREATE TABLE IF NOT EXISTS v_pbx_update_policies (
  CHECK((scope_key='instance' AND mode IN ('notify','download','automatic')) OR (scope_key<>'instance' AND mode IN ('notify','download','required')))
 );
 INSERT INTO v_pbx_update_policies(scope_key) VALUES('instance') ON CONFLICT DO NOTHING;
+ALTER TABLE v_pbx_update_policies ADD COLUMN IF NOT EXISTS android_minimum_version text NOT NULL DEFAULT '';
+DO $$
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='v_pbx_update_policies'::regclass AND conname='openweb_android_minimum_version') THEN
+  ALTER TABLE v_pbx_update_policies ADD CONSTRAINT openweb_android_minimum_version CHECK(
+   android_minimum_version='' OR (scope_key='instance' AND android_minimum_version ~ '^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$')
+  );
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS v_pbx_update_commands (
  command_uuid uuid PRIMARY KEY,
  action text NOT NULL CHECK(action IN ('check','download','install')),

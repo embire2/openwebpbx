@@ -60,9 +60,11 @@ with tempfile.TemporaryDirectory(prefix='openweb-release-') as temporary:
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, target)
     shutil.copytree(args.server, stage / 'server')
+    (stage / 'server').chmod(0o755)
     for path in (stage / 'server').rglob('*'):
         path.chmod(0o755 if path.is_dir() or path.name == server_executable else 0o644)
     shutil.copytree(args.updater, stage / 'updater')
+    (stage / 'updater').chmod(0o755)
     for path in (stage / 'updater').rglob('*'):
         path.chmod(0o755 if path.is_dir() or path.name == updater_executable else 0o644)
     # Only public verification material belongs in a release, never a signer key.

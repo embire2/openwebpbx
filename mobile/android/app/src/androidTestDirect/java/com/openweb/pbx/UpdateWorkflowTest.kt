@@ -28,7 +28,10 @@ class UpdateWorkflowTest {
     private val device get()=UiDevice.getInstance(i)
     private val fixture get()=File(context.getExternalFilesDir(null),"updates")
     private fun main(block:()->Unit)=i.runOnMainSync(block)
-    private fun enabled(){assumeTrue(InstrumentationRegistry.getArguments().getString("updateFixture")=="true")}
+    private fun enabled(){
+        assumeTrue(InstrumentationRegistry.getArguments().getString("updateFixture")=="true")
+        check(fixture.mkdirs() || fixture.isDirectory){"Private update test directory unavailable"}
+    }
     private fun waitFor(label:String,condition:()->Boolean){repeat(120){var ok=false;main{ok=condition()};if(ok)return;Thread.sleep(250)};fail(label)}
     private fun activity()=i.startActivitySync(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
     private fun manager():UpdateManager {
@@ -181,6 +184,14 @@ class UpdateWorkflowTest {
         assertNotNull(device.wait(Until.findObject(By.text("Update")),10000))
         File(fixture,"installation-started.txt").writeText("Verified replacement is awaiting native Android confirmation.\n")
         // External driver presses Update; Android replaces this test process as expected.
+        // Keep public verification alive until replacement kills the old process.
+        // Finishing instrumentation here force-stops the target and can interrupt
+        // its genuine MY_PACKAGE_REPLACED receiver before completion is recorded.
+        if(InstrumentationRegistry.getArguments().getString("updatePublic")=="true"){
+            val end=System.currentTimeMillis()+120000
+            while(System.currentTimeMillis()<end)Thread.sleep(250)
+            fail("Native public installation did not replace the old process")
+        }
     }
     @Test fun verifyInstalledAccountAndRelaunch(){
         enabled()

@@ -103,7 +103,7 @@ class UpdateManager internal constructor(private val context:Context,private val
                     try {
                         val policy=PhoneApi(account.getString("server"),account.getString("token")).json("updates")
                         require(policy.getInt("schema")==1 && policy.getString("channel")=="stable" && policy.getString("feed_url")==UpdateRules.FEED)
-                        mode=policy.getString("mode");require(mode in listOf("notify","download","required"));serverVersion=policy.getString("server_version");UpdateRules.version(serverVersion);policyTrusted=true
+                        mode=UpdateRules.policyMode(policy.getString("mode"),policy.optString("tenant_mode").takeIf{it.isNotEmpty()},policy.optString("minimum_version").takeIf{it.isNotEmpty()},BuildConfig.VERSION_NAME);serverVersion=policy.getString("server_version");UpdateRules.version(serverVersion);policyTrusted=true
                     }catch(e:ApiError){if(e.status!=404)throw e} // 1.0.3 has no policy endpoint; it cannot meet newer server minimums.
                 }
                 val envelope=network.open(UpdateRules.FEED).use{String(readBounded(it,UpdateRules.MAX_ENVELOPE.toLong()),Charsets.UTF_8)}

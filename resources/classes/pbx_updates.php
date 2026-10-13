@@ -38,11 +38,20 @@ class pbx_updates {
         if (!$row || !filter_var($row['enabled'], FILTER_VALIDATE_BOOLEAN) || (!$this->instanceAdmin() && $row['owner_user_uuid'] !== $_SESSION['user_uuid'])) throw new DomainException('Tenant update settings are unavailable.');
     }
     private function policy(string $scope): array {
-        return $this->q('select mode,channel,maintenance_hour,maintenance_duration,updated_at from v_pbx_update_policies where scope_key=:scope', ['scope'=>$scope])->fetch(PDO::FETCH_ASSOC)
-            ?: ['mode'=>'notify','channel'=>'stable','maintenance_hour'=>2,'maintenance_duration'=>2,'updated_at'=>null];
+        return $this->q('select mode,channel,maintenance_hour,maintenance_duration,updated_at,android_minimum_version from v_pbx_update_policies where scope_key=:scope', ['scope'=>$scope])->fetch(PDO::FETCH_ASSOC)
+            ?: ['mode'=>'notify','channel'=>'stable','maintenance_hour'=>2,'maintenance_duration'=>2,'updated_at'=>null,'android_minimum_version'=>''];
     }
     public function instancePolicy(): array { $this->access(true); return $this->policy('instance'); }
     public function tenantPolicy(string $tenant): array { $this->tenant($tenant); return $this->policy('tenant:'.$tenant); }
+    /** The public release requirement is visible to update administrators, not tenant data. */
+    public function clientMinimumVersion(): string { $this->access(); return $this->policy('instance')['android_minimum_version']; }
+    public function saveClientMinimumVersion(array $input): void {
+        $this->access(true);
+        $version=$input['minimum_version']??null;
+        if(!is_string($version)||($version!==''&&!preg_match('/^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$/D',$version)))throw new InvalidArgumentException('Use a release version such as 1.0.11, or clear the requirement.');
+        if($version!==''&&(self::version()==='unknown'||version_compare($version,self::version(),'>')))throw new InvalidArgumentException('Update this server before requiring a newer Android release.');
+        $this->q("update v_pbx_update_policies set android_minimum_version=:version,updated_by=:user,updated_at=now() where scope_key='instance'",['version'=>$version,'user'=>$_SESSION['user_uuid']]);
+    }
     public function saveInstance(array $input): void {
         $this->access(true);
         $mode = $input['mode'] ?? null;
@@ -101,6 +110,14 @@ class pbx_updates {
         $row = $this->q('select t.tenant_uuid,t.enabled from v_pbx_services s join v_pbx_tenants t using(tenant_uuid) where s.domain_uuid=:domain', ['domain'=>$domain])->fetch(PDO::FETCH_ASSOC);
         if ($row && !filter_var($row['enabled'], FILTER_VALIDATE_BOOLEAN)) throw new UnexpectedValueException('This phone is no longer connected.');
         $policy = $row ? $this->policy('tenant:'.$row['tenant_uuid']) : ['mode'=>'notify'];
-        return ['schema'=>1,'mode'=>in_array($policy['mode'], ['notify','download','required'], true) ? $policy['mode'] : 'notify','channel'=>'stable','server_version'=>self::version(),'feed_url'=>self::FEED_URL];
+        $mode=in_array($policy['mode'], ['notify','download','required'], true) ? $policy['mode'] : 'notify';
+        $out=['schema'=>1,'mode'=>$mode,'channel'=>'stable','server_version'=>self::version(),'feed_url'=>self::FEED_URL];
+        $minimum=$this->policy('instance')['android_minimum_version'];
+        if($minimum!==''){
+            // Legacy clients see Required. Newer clients apply this release
+            // floor, then retain their own tenant's later-release preference.
+            $out['mode']='required';$out['minimum_version']=$minimum;$out['tenant_mode']=$mode;$out['required_by_instance']=true;
+        }
+        return $out;
     }
 }

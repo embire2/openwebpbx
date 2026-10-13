@@ -1,0 +1,1 @@
+Visible Call Hold / Resume Call with music for held callers, including three-way calls. Personal Settings for themes, ringtone, keypad vibration, start page and contacts. Instance-wide minimum app version support, with safe updates after your call.

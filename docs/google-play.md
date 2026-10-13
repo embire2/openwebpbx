@@ -1,6 +1,6 @@
 # Publishing OpenWeb PBX on Google Play
 
-The version 1.0.10/code110 submission package is published in the [1.0.10 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.10). It retains the 1.0.9 calling controls and incoming notification permissions and pairs with the Debian private wake-up-storage correction. **The app has not been submitted or approved by Google Play.** The direct APK and the Google Play bundle are separate builds of the same native app. Google determines approval; account verification and any required testing must be completed honestly.
+Version 1.0.11/code111 submission files are prepared with visible Call Hold / Resume Call, personal Settings and the minimum-version update policy. The current published baseline is the [1.0.10 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.10). **The app has not been submitted or approved by Google Play.** The direct APK and Google Play bundle are separate builds; Google determines approval and required testing.
 
 ## What is prepared
 
@@ -9,7 +9,7 @@ The version 1.0.10/code110 submission package is published in the [1.0.10 releas
 - Public [privacy policy](https://openwebpbx.com/privacy.html), [support](https://openwebpbx.com/support.html) and [data removal](https://openwebpbx.com/data-removal.html) pages; in-app links and an explanation before connection.
 - Play-specific build targeting Android 16 / API 36. APK installation permissions, package installer and direct updater receivers are excluded. Google Play handles store downloads, installation and reopening.
 - A separate review PBX with no outside calling or customer records. Permanent portal: `https://call.openweb.co.za/app/pbx_mobile/review.php`. Review credentials are private and belong only in Play Console’s **App access** section; see the [operator guide](google-play-review.md).
-- Foreground-service demonstration: [historical 1.0.7 app video](https://openwebpbx.com/android-review.html). It demonstrates the earlier basics and is omitted from the 1.0.10 packet; capture the new incoming-call controls on a real phone for the final Console declaration.
+- Foreground-service demonstration: [historical 1.0.7 app video](https://openwebpbx.com/android-review.html). It demonstrates the earlier basics and is omitted from the 1.0.11 packet; capture the new incoming-call controls on a real phone for the final Console declaration.
 - Prepared content/permission answers in [declarations](../mobile/android/play/declarations.md); confirm them against the final build and the owner’s actual practices before submission.
 
 ## Organisation account preparation
@@ -33,7 +33,7 @@ technical upload, listing, signing export and declaration preparation below.
 1. Open [Google Play Console](https://play.google.com/console/) with the Google account that will own OpenWeb PBX. Pay Google’s US$25 one-time registration fee and complete identity, contact and any organisation verification shown by Google. [Registration instructions](https://support.google.com/googleplay/android-developer/answer/6112435). Use the real account type; a nonprofit project name alone is not proof of a registered organisation. Organisation accounts normally require a D-U-N-S number. See [account types](https://support.google.com/googleplay/android-developer/answer/13634885) and [required information](https://support.google.com/googleplay/android-developer/answer/13628312). Identity checks and accepting Google’s legal agreements must be done by the owner.
 2. Choose **Create app**: OpenWeb PBX, English (United States), App, Free. Use the prepared support contact and listing files. The package ID is `com.openweb.pbx`. Do not create a different package. [Google’s setup instructions](https://support.google.com/googleplay/android-developer/answer/9859152).
 3. Configure **Play App Signing with the existing app signing key** before the first release. In the signing setup choose the option to export/upload an existing key using Google’s PEPK tool. Save Google’s account-specific encryption key/instructions privately for the build operator, who will export the already existing signing key encrypted for Google. Never send the raw keystore or its password to a public site or repository. Using a new Google-generated app-signing identity would prevent ordinary updates over current GitHub installations. Expected existing certificate SHA-256: `449740f6858cb092a0f67d9d79d2505a8d6e7e4d4c1a52a8eaed9b895e48e69d`. After import, verify the Console certificate matches. Google’s [signing documentation](https://developer.android.com/studio/publish/app-signing#enroll) explains this existing-key option. A separate upload key can then be registered; it is not the app-signing key.
-4. Upload `openwebpbx-1.0.10-google-play.aab` to **Internal testing**. Use the prepared descriptions, icon, feature graphic, actual screenshots and public URLs. The five screenshots show the identical 1.0.9 UI with fictional owned accounts. Complete **App content** using the prepared declarations. Copy the isolated reviewer login and permanent portal URL from the private operator handover into **App access**. No customer administrator password is needed.
+4. Upload `openwebpbx-1.0.11-google-play.aab` to **Internal testing**. Use the prepared descriptions, icon, feature graphic, actual screenshots and public URLs. The screenshots show the current native app with fictional owned accounts, including personal Settings and Call Hold / Resume Call. Complete **App content** using the prepared declarations. Copy the isolated reviewer login and permanent portal URL from the private operator handover into **App access**. No customer administrator password is needed.
 5. Install from the testing-track link and check QR connection, an internal call in both directions, voicemail, background calling, notifications and the proximity sensor on real phones. Review and resolve Google’s pre-launch report. Google Play installation and update replacement must be tested through an actual Play track; a locally installed APK cannot establish that result.
 6. If Google requires a closed test for the account, run it with real testers and keep their feedback. New personal accounts created after 13 November 2023 require at least 12 continuously opted-in testers for 14 consecutive days before applying for production access. Internal testing does not replace that requirement. Use the prepared [closed-test plan](../mobile/android/play/closed-test-plan.md). [Google’s testing requirements](https://support.google.com/googleplay/android-developer/answer/14151465).
 7. Choose production availability, complete the rating/privacy/permission forms, review the exact release and send it to Google. Keep the review PBX reachable throughout review and later reviews. Once Google approves and the release is actually available to the intended users, update the website with the live store link. If a tester already has direct APK version 107 installed, use a later version code for the Play replacement test; installing the same code does not prove the store’s update path.
@@ -73,3 +73,27 @@ The app now uses `USE_FULL_SCREEN_INTENT` for incoming voice calls. Complete its
 The optional wake-up channel uses the open-source UnifiedPush connector and installed Google Play Services. Update Data safety from the refreshed [declarations](../mobile/android/play/declarations.md), including notification subscriptions and any configured Cloudflare relay. No Firebase project or proprietary Google client SDK is bundled. Actual locked/idle handset delivery and the Play-track test remain open.
 
 The exact 1.0.10 AAB-derived APK passed three native Android13 software-device workflows: outgoing/background/audio-focus/hold/resume (41.830 seconds), three-way/removal (25.965), and availability/queue controls (9.543), with independent remote RTP on call cases and the existing enrolled account retained. This local AAB conversion is separate from installation or replacement through an actual Google Play track. The public packet contains 20 files, five fictional-account screenshots and no historical video; its 19 internal checksums and exact AAB bytes passed verification.
+
+## Version 1.0.11 verification — 2026-10-13
+
+The final signed AAB SHA-256 is
+`ad47ad9b7df441eee5a06a78e4e88259ef04b233484ff57c0f991bd064d49ceb`.
+It passed bundletool validation, the persistent certificate check,
+API36/permissions and all 26 64-bit native-library alignment checks. Twenty-nine
+direct and 33 Play JVM tests passed; both release lint checks reported zero
+errors. The final direct APK passed six real-peer native calling/Settings
+workflows; exact timings and music-proof limitations are recorded in the
+[Android guide](android.md). Four exact AAB-derived native workflows passed: manual-hold switch recovery
+(23.104 seconds), expanded Settings with selected/default-fallback incoming
+ringtone and media (132.242), strict two-leg conference hold/resume and remote
+departure (72.208), and outgoing/background audio focus (43.338). Independent
+remote music captures and fresh decoded two-way RTP also passed. The derived
+APK SHA-256 is `0b242251cac5b8c1ee54dc1a998e7c24a3e6d628ddc49c869fd06767d3bcd9a5`.
+These checks used an owned Android13 software device.
+
+The prepared packet uses eight actual native screenshots with fictional owned
+accounts, including light/dark personal Settings and the held-call Resume
+control. It omits the historical demonstration video and all private signing,
+reviewer and enrollment material. Real Play-track installation/replacement,
+physical-phone calling and locked/idle wake-up, Android16/16 KiB runtime tests,
+owner Console declarations and Google approval remain open. APP-16 stays open.
