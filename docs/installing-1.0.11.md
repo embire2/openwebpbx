@@ -4,6 +4,8 @@ This build targets **Debian 13 amd64** and the **native Android app**. Historica
 
 Use the matching assets on the [1.0.11 release page](https://github.com/embire2/openwebpbx/releases/tag/v1.0.11) and verify the release status. Check each download against `SHA256SUMS` and extract the entire Debian archive into an empty folder. Current verification and release status are recorded in [feature coverage](feature-coverage.md).
 
+Published qualification covers eight complete SHA-matching downloads, the signed feed, fresh/installed Debian checks, six direct/four AAB-derived native cases and the production server update. The reference production instance activated minimum 1.0.11 with nineteen normal HTTPS policy checks; new installations still start without an active instance minimum. Genuine public phone replacement/account/media and final scoped cleanup passed; details are recorded in [feature coverage](feature-coverage.md#visible-call-controls-personal-settings-and-instance-phone-floor--1011).
+
 ## New Debian server
 
 Use a clean Debian 13 computer. Point a hostname at its public IP address and supply a trusted HTTPS certificate for that hostname. Run from the extracted folder as root:

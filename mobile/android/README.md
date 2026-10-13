@@ -2,7 +2,7 @@
 
 A standalone native Android phone, built with Kotlin and the Linphone SIP/media engine. There is no embedded website or WebView.
 
-The 1.0.11 candidate/code111 supports Android 9 and newer. It adds visible Call Hold / Resume Call and personal Settings, retains the 1.0.9 calling features and 1.0.10 private wake-up-storage correction, and honours the instance minimum-version policy without interrupting active calls. The published baseline remains 1.0.10 until final qualification and publication. The universal APK contains ARMv7, ARM64 and x86-64 builds. Install the signed APK from the project's GitHub release with the matching server, then scan the connection QR in your PBX's **Users → Phone Provisioning**. The QR contains a short-lived one-time code, not your SIP password.
+The published 1.0.11 release/code111 supports Android 9 and newer. It adds visible Call Hold / Resume Call and personal Settings, retains the 1.0.9 calling features and 1.0.10 private wake-up-storage correction, and honours the instance minimum-version policy without interrupting active calls. The current [public release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.11) is 1.0.11 at source tag `15e1edcd1`. The universal APK contains ARMv7, ARM64 and x86-64 builds. Install the signed APK from the project's GitHub release with the matching server, then scan the connection QR in your PBX's **Users → Phone Provisioning**. The QR contains a short-lived one-time code, not your SIP password.
 
 See [the Android guide](../../docs/android.md) for connection, calling, voicemail, testing and current limitations. This client is licensed under AGPL-3.0-or-later; original server licenses are unchanged. See [third-party notices](THIRD_PARTY_NOTICES.md).
 
@@ -48,6 +48,19 @@ full-capture fixed-offset metric. The build passed 29 direct/33 Play JVM tests
 and both release lint checks. Current store images are actual native captures
 using fictional owned accounts. Four focused native workflows also passed on the exact AAB-derived APK,
 including the same Settings/ringtone, manual-hold switch recovery,
-conference/media/music/departure and outgoing/background cases. Public-feed
-replacement waits for publication; actual Play-track qualification remains
-separate; physical handset gates remain open.
+conference/media/music/departure and outgoing/background cases. The genuine public 1.0.10→1.0.11 replacement passed exact-byte/account/receiver/TLS and subsequent native SRTP checks; actual Play-track qualification remains separate; physical handset gates remain open.
+
+The public replacement used the original offline-preserved 1.0.10 app/userdata,
+normal pinned-feed/HTTPS transport and no seeded APK cache. This eligible
+Android13 accepted unattended required installation. Its genuine receiver
+recorded completion before later instrumentation; account and TLS registration
+survived, and a 43.304-second post-update native media call passed. Reopening used
+the supported manual launcher; automatic UI reopening is not claimed. The source
+archive verifies 38,406 exact SDK entries, 95 Android entries and 42 source JARs.
+The prepared Play packet verifies 24 files/23 internal checksums/eight screenshots.
+Physical installation eligibility and actual store delivery remain separate.
+
+Final scoped cleanup removed the disposable tenant/native accounts and contacts,
+stopped the owned Android/peer environment, removed its ADB authorization and
+four labelled firewall exceptions, and preserved customer/reviewer resources,
+original keys, unrelated processes and production services.

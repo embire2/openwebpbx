@@ -1,6 +1,6 @@
 # Publishing OpenWeb PBX on Google Play
 
-Version 1.0.11/code111 submission files are prepared with visible Call Hold / Resume Call, personal Settings and the minimum-version update policy. The current published baseline is the [1.0.10 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.10). **The app has not been submitted or approved by Google Play.** The direct APK and Google Play bundle are separate builds; Google determines approval and required testing.
+Version 1.0.11/code111 submission files are prepared with visible Call Hold / Resume Call, personal Settings and the minimum-version update policy. The current published baseline is the [1.0.11 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.11), source tag `15e1edcd1`. **The app has not been submitted or approved by Google Play.** The direct APK and Google Play bundle are separate builds; Google determines approval and required testing.
 
 ## What is prepared
 
@@ -97,3 +97,21 @@ control. It omits the historical demonstration video and all private signing,
 reviewer and enrollment material. Real Play-track installation/replacement,
 physical-phone calling and locked/idle wake-up, Android16/16 KiB runtime tests,
 owner Console declarations and Google approval remain open. APP-16 stays open.
+
+The published 1.0.11 submission ZIP contains 24 files, eight actual native
+screenshots and 23 verified internal checksums. Its AAB bytes, CRC, paths,
+listing dimensions and exclusion of known private material passed verification;
+the historical video is omitted. Publication of this prepared packet is separate
+from Google approval. The direct app's genuine public 1.0.10→1.0.11 replacement
+also passed exact-byte/account/receiver/TLS and subsequent internal SRTP checks.
+This eligible Android13 device installed without a confirmation screen and
+reconnected through the supported manual launcher. Those direct-installer
+results do not establish a Play-track update or physical-device eligibility.
+Public assets and tag remain unchanged by later documentation reconciliation.
+
+The disposable qualification accounts, tenant, call records and contacts were
+removed after public-update media verification. Owned Android/peer processes,
+ADB authorization and four labelled development firewall exceptions were cleaned
+up while preserving unrelated keys, processes and production services. No
+customer or permanent reviewer account was removed. Physical handset and real
+Play-track qualification remain open.

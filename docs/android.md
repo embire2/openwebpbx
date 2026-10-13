@@ -1,6 +1,6 @@
 # OpenWeb PBX for Android — 1.0.11
 
-This is a standalone Android phone with native screens and its own SIP/media engine. It does not display the PBX website in a frame. The 1.0.11 candidate, code111, adds a prominent Call Hold / Resume Call control and personal Settings, with an instance-wide minimum Android version. It retains the 1.0.9 calling features and 1.0.10 private wake-up settings correction. Use matching server and signed app releases. Android 9 or newer is required; the universal APK supports ARMv7, ARM64 and x86-64. Physical handset coverage and mobile-network qualification are still being established.
+This is a standalone Android phone with native screens and its own SIP/media engine. It does not display the PBX website in a frame. The published 1.0.11 release, code111, adds a prominent Call Hold / Resume Call control and personal Settings, with an instance-wide minimum Android version. It retains the 1.0.9 calling features and 1.0.10 private wake-up settings correction. Use matching server and signed app releases. Android 9 or newer is required; the universal APK supports ARMv7, ARM64 and x86-64. Physical handset coverage and mobile-network qualification are still being established.
 
 ## Connect your phone
 
@@ -364,8 +364,7 @@ legs and 10.18 seconds on the remaining caller; every identity window exceeded
 0.75 and resumed native decoded RTP advanced on both legs. The derived APK
 SHA-256 is `0b242251cac5b8c1ee54dc1a998e7c24a3e6d628ddc49c869fd06767d3bcd9a5`.
 
-The true public 1.0.10→1.0.11 replacement waits for release publication and a
-matching production server. The eight current store images use fictional
+The genuine public 1.0.10→1.0.11 replacement is recorded below. The eight current store images use fictional
 owned accounts and include actual light/dark Settings and a held-call Resume
 screen. A software-device AAB conversion does not establish Play-track
 installation or Google approval. Physical ringtone audibility/haptics,
@@ -373,3 +372,46 @@ handset/earpiece/proximity/Bluetooth, locked/idle notification delivery,
 Wi-Fi/mobile handover and Android16/16 KiB runtime coverage remain open.
 No carrier or customer call was used. Historical version evidence above retains
 its original binary and release attribution.
+
+## Published 1.0.11 and public phone replacement — 2026-10-13
+
+[Version 1.0.11](https://github.com/embire2/openwebpbx/releases/tag/v1.0.11)
+is published at source tag `15e1edcd1`. All eight complete public downloads
+matched their frozen checksums, and the signed sequence111 feed was verified.
+Production completed its existing updater's 1.0.10→1.0.11 installation and
+natural restart; the instance minimum is now 1.0.11. The source/Play packet and
+public tags remain immutable. Corresponding-source checks cover all 38,406 exact
+SDK entries, 95 exact Android entries and 42 source JARs; the Play packet contains
+24 files, 23 verified internal checksums and eight actual screenshots.
+
+The untouched original public-1.0.10 Android app/userdata performed a genuine
+pinned-feed and HTTPS 1.0.11 download, with no seeded APK or partial update cache.
+Android13 accepted the required app's unattended PackageInstaller replacement
+on this eligible software device. The old instrumentation was terminated by
+normal package replacement before its assumed confirmation marker; that
+harness report is retained. There was no Java/application crash and no native
+confirmation screen in this run. Protected app-owned marker permissions also
+required the private driver to use read-only container access.
+
+The genuine replacement receiver recorded completion before later verification
+instrumentation. Installed bytes matched the exact `9f23be79…` APK above; the
+same account-token hash and extension survived, and native TLS re-registration
+passed. Reopening used the supported manual launcher because no update
+notification remained. Automatic UI reopening and notification-tap reopening
+are not claimed. A subsequent 43.304-second internal native SRTP call passed
+two-way media, background return, competing audio focus, hold/resume and audio
+release, with independent remote RTP. Eligibility for unattended installation
+and background activity launch must still be qualified on physical devices;
+Android can require consent and manual Open.
+
+Final scoped cleanup removed the generated tenant/owner, domains, native accounts,
+call records, restore rows, contacts and media. Seventy-five preserved synthetic
+REGISTER IDs were checked in one bounded batch; two live peer contacts and one
+exact-realm Android contact were flushed. Both peer units and the owned Android
+container/environment were stopped. The dedicated ADB5038 daemon, four labelled
+firewall exceptions and owned runtime directory were removed. Two owned ADB
+authorizations, including the binary timestamp-store entry, were removed;
+original authorization bytes/permissions and unrelated keys/timestamps were
+preserved. The original host key and ADB5037 daemon remain unchanged. Customer
+and permanent reviewer resources were outside the cleanup scope. Production
+services remained active; physical handset and Google Play gates remain open.
