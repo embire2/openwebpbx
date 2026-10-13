@@ -1,0 +1,55 @@
+--- a/src/mod/endpoints/mod_sofia/sofia_reg.c
++++ b/src/mod/endpoints/mod_sofia/sofia_reg.c
+@@ -1639,6 +1639,16 @@
+ 			switch_event_fire(&s_event);
+ 		}
+ 
++		/* Keep the authenticated registration key independent of the handset AOR,
++		 * including Expires: 0 and Contact-less binding queries.  The identity
++		 * comes only from the successfully authenticated directory.
++		 */
++		if (regtype == REG_REGISTER && v_event && *v_event &&
++			(auth_res == AUTH_OK || auth_res == AUTH_RENEWED) &&
++			(force_user = switch_event_get_header(*v_event, "sip-force-user"))) {
++			to_user = force_user;
++		}
++
+ 		if (contact && exptime && v_event && *v_event) {
+ 			uint32_t exp_var;
+ 			uint32_t exp_max_deviation_var;
+@@ -1654,7 +1664,7 @@
+ 			 * we - for example - want to be able to ensure that the username a UA can
+ 			 * be contacted at is the same one that they used for authentication.
+ 			 */
+-			if ((force_user = switch_event_get_header(*v_event, "sip-force-user"))) {
++			if (regtype != REG_REGISTER && (force_user = switch_event_get_header(*v_event, "sip-force-user"))) {
+ 				to_user = force_user;
+ 			}
+ 
+@@ -1939,7 +1949,7 @@
+ 					sql =
+ 						switch_mprintf("delete from sip_registrations where sip_user='%q' and sip_host='%q' and contact='%q'", to_user, reg_host, contact_str);
+ 				} else {
+-					sql = switch_mprintf("delete from sip_registrations where call_id='%q'", call_id);
++					sql = switch_mprintf("delete from sip_registrations where sip_user='%q' and sip_host='%q' and call_id='%q'", to_user, reg_host, call_id);
+ 				}
+ 			} else {
+ 				sql = switch_mprintf("delete from sip_registrations where sip_user='%q' and sip_host='%q'", to_user, reg_host);
+@@ -2128,7 +2138,7 @@
+ 				sql =
+ 					switch_mprintf("delete from sip_registrations where sip_user='%q' and sip_host='%q' and contact='%q'", to_user, reg_host, contact_str);
+ 			} else {
+-				sql = switch_mprintf("delete from sip_registrations where call_id='%q'", call_id);
++				sql = switch_mprintf("delete from sip_registrations where sip_user='%q' and sip_host='%q' and call_id='%q'", to_user, reg_host, call_id);
+ 			}
+ 
+ 			sofia_glue_execute_sql_now(profile, &sql, SWITCH_TRUE);
+@@ -2248,7 +2258,7 @@
+ 						TAG_IF(!zstr(expbuf), SIPTAG_EXPIRES_STR(expbuf)),
+ 						NUTAG_WITH_THIS_MSG(de->data->e_msg), SIPTAG_DATE_STR(date), TAG_END());
+ 
+-		} else if ((contact_list = sofia_reg_find_reg_url_with_positive_expires_multi(profile, from_user, reg_host, reg_time, contact_str, exptime))) {
++		} else if ((contact_list = sofia_reg_find_reg_url_with_positive_expires_multi(profile, to_user, reg_host, reg_time, contact_str, exptime))) {
+ 			/* all + 1 tag_i elements initialized as NULL - last one implies TAG_END() */
+ 			switch_zmalloc(contact_tags, sizeof(*contact_tags) * (contact_list->count + 1));
+ 			i = 0;

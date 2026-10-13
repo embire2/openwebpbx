@@ -71,3 +71,12 @@ create table if not exists v_pbx_queue_tickets (
     unique(domain_uuid,queue_number,call_uuid)
 );
 create index if not exists pbx_queue_ticket_order on v_pbx_queue_tickets(domain_uuid,queue_number,state,joined_at);
+-- A public phone address can change without renaming private media, routing or app accounts.
+create table if not exists v_pbx_sip_domains (
+    sip_domain varchar(253) primary key check (sip_domain=lower(sip_domain)),
+    domain_uuid uuid not null references v_domains(domain_uuid) on delete cascade,
+    enabled boolean not null default true,
+    created_by uuid not null,
+    created_at timestamptz not null default now()
+);
+create index if not exists pbx_sip_domains_owner on v_pbx_sip_domains(domain_uuid,enabled);

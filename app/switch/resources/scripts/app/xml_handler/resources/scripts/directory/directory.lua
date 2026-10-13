@@ -52,9 +52,16 @@
 
 --include xml library
 	local Xml = require "resources.functions.xml";
+	-- XML attributes must preserve source names and credentials exactly.
+	local function directory_attribute(value)
+		return tostring(value or ''):gsub('&','&amp;'):gsub('<','&lt;'):gsub('>','&gt;'):gsub('"','&quot;'):gsub("'",'&apos;'):gsub('\t','&#9;'):gsub('\r','&#13;'):gsub('\n','&#10;');
+	end
 
 --include cache library
 	local cache = require "resources.functions.cache"
+	local contact_realms=dofile(scripts_dir..'/app/xml_handler/resources/scripts/directory/contact_realms.lua');
+	local canonical_domain_name=domain_name;
+	local user_lookup=action~='sip_auth' and type(user)=='string' and #user>0 and (action=='user_call' or action=='user_data' or action==nil);
 
 -- event source
 	local event_calling_function = params:getHeader("Event-Calling-Function")
@@ -65,6 +72,38 @@
 		dofile(scripts_dir..'/app/xml_handler/resources/scripts/directory/mobile.lua');
 		return;
 	end
+
+	local auth_binding
+	if action == 'sip_auth' then
+		local Database = require 'resources.functions.database';
+		local binding_db = Database.new('system');
+		local ok = pcall(function()
+			local binding = dofile(scripts_dir..'/app/xml_handler/resources/scripts/directory/auth_binding.lua');
+			auth_binding = binding.lookup(binding_db, {
+				user=user, domain=domain_name,
+				method=tostring(params:getHeader('sip_auth_method') or ''):upper(),
+				from_user=params:getHeader('sip_from_user'), to_user=params:getHeader('sip_to_user'),
+				from_domain=params:getHeader('sip_from_host'),
+				to_domain=params:getHeader('sip_to_host'),
+				alias_enabled=xml_handler and xml_handler['reg_as_number_alias']=='true'
+			});
+		end);
+		binding_db:release();
+		if not ok or not auth_binding then
+			XML_STRING='<document type="freeswitch/xml"><section name="result"><result status="not found"/></section></document>';
+			return;
+		end
+		domain_uuid=auth_binding.domain_uuid;canonical_domain_name=auth_binding.domain_name;
+	end
+
+    if user_lookup then
+        local Database=require 'resources.functions.database';local scope_db=Database.new('system');local owner;
+        local ok=pcall(function() owner=contact_realms.owner(scope_db,domain_name);end);scope_db:release();
+        if not ok or not owner or domain_uuid and domain_uuid~='' and domain_uuid~=owner.domain_uuid then
+            XML_STRING='<document type="freeswitch/xml"><section name="result"><result status="not found"/></section></document>';return;
+        end
+        domain_uuid=owner.domain_uuid;canonical_domain_name=owner.domain_name;
+    end
 
 --determine the correction action to perform
 	if (purpose == "gateways") then
@@ -165,7 +204,8 @@
 
 		-- get the cache. We can use cache only if we do not use `fs_path`
 		-- or we do not need dial-string. In other way we have to use database.
-			if (continue) and (not USE_FS_PATH) then
+			if action == 'sip_auth' or user_lookup then source = 'database'; end
+			if (continue) and (not USE_FS_PATH) and action ~= 'sip_auth' and not user_lookup then
 				if (cache.support() and domain_name) then
 					local cache_key, err = "directory:" .. (from_user or user) .. "@" .. domain_name
 					XML_STRING, err = cache.get(cache_key);
@@ -358,7 +398,11 @@
 						sql = sql .. "WHERE e.domain_uuid = :domain_uuid "
 						sql = sql .. "AND d.domain_uuid = :domain_uuid "
 						sql = sql .. "AND d.domain_enabled = true "
-						sql = sql .. "AND (e.extension = :user or e.number_alias = :user) "
+						if action == 'sip_auth' then
+							sql = sql .. "AND e.extension = :user "
+						else
+							sql = sql .. "AND (e.extension = :user or e.number_alias = :user) "
+						end
 						sql = sql .. "AND e.enabled = true ";
 						local params = {domain_uuid=domain_uuid, user=user};
 						if (debug["sql"]) then
@@ -458,7 +502,7 @@
 								end
 
 							--set the presence_id
-								presence_id = (NUMBER_AS_PRESENCE_ID and sip_from_number or sip_from_user) .. "@" .. domain_name;
+								presence_id = (NUMBER_AS_PRESENCE_ID and sip_from_number or sip_from_user) .. "@" .. canonical_domain_name;
 
 							--set the dial_string
 								if (do_not_disturb == "true") then
@@ -469,9 +513,43 @@
 									--set the destination
 										local destination = (DIAL_STRING_BASED_ON_USERID and sip_from_number or sip_from_user) .. "@" .. domain_name;
 									--set a default dial string
-										if (dial_string == null) then
-											dial_string = "{sip_invite_domain=" .. domain_name .. ",presence_id=" .. presence_id .. "}${sofia_contact(*/" .. destination .. ")}";
-										end
+										local realms=contact_realms.realms(dbh,domain_uuid,canonical_domain_name);
+                                        if #realms>1 and (dial_string == nil or dial_string:find('${sofia_contact(',1,true)) then
+                                            local contacts={};local seen={};
+                                            local source_identity;local source_rows=0;
+                                            dbh:query([[select u.key as number,u.value->>'contact_user' as sip_user,
+                                                exists(select 1 from jsonb_each(r.config->'users') other where other.key=:auth and other.value->>'extension_uuid'<>:extension)::text as canonical_collision
+                                                from v_pbx_restore r,lateral jsonb_each(r.config->'users') u
+                                                where r.domain_uuid=:domain and r.config->>'realm'=:canonical and u.value->>'extension_uuid'=:extension
+                                                and u.value->>'auth_id'=:auth and u.value->>'enabled'='true' limit 2]],
+                                                {domain=domain_uuid,canonical=canonical_domain_name,extension=extension_uuid,auth=row.extension},function(identity) source_identity=identity;source_rows=source_rows+1;end);
+                                            local sip_identity=row.extension;
+                                            if source_rows==1 then
+                                                sip_identity=type(source_identity.sip_user)=='string' and #source_identity.sip_user>0 and source_identity.sip_user or source_identity.number;
+                                            end
+                                            if source_rows>1 or not sip_identity or #sip_identity>128 or not sip_identity:match('^[%w_.!%-]+$') then sip_identity=nil;end
+                                            for _,owned_realm in ipairs(realms) do
+                                                local value=trim(api:execute('sofia_contact',row.extension..'@'..owned_realm));
+                                                if value:match('^sofia/[^/]+/.+') then
+                                                    for leg in value:gmatch('[^,]+') do
+                                                        if not seen[leg] then
+                                                            local contact_user=leg:match('/sips?:([^@]+)@');
+                                                            local variables='sip_invite_domain='..owned_realm;
+                                                            local mobile_contact=owned_realm==canonical_domain_name and contact_user and #contact_user==36 and contact_user:match('^owm%-[a-f0-9]+$');
+                                                            if sip_identity and not mobile_contact then
+                                                                local to_user=sip_identity;
+                                                                if contact_user==row.extension and (source_rows==0 or source_rows==1 and source_identity.canonical_collision=='false') then to_user=row.extension;end
+                                                                variables=variables..',sip_invite_to_uri=sip:'..to_user..'@'..owned_realm;
+                                                            end
+                                                            contacts[#contacts+1]='['..variables..']'..leg;seen[leg]=true;
+                                                        end
+                                                    end
+                                                end
+                                            end
+                                            dial_string=#contacts>0 and ('{presence_id='..row.extension..'@'..canonical_domain_name..'}'..table.concat(contacts,',')) or 'error/user_not_registered';
+                                        elseif dial_string == nil then
+                                            dial_string = "{sip_invite_domain=" .. canonical_domain_name .. ",presence_id=" .. presence_id .. "}${sofia_contact(*/" .. destination .. ")}";
+                                        end
 									--set an alternative dial string if the hostnames don't match
 										if (USE_FS_PATH) then
 											if (hostname == database_hostname) then
@@ -570,7 +648,7 @@
 							xml:append([[<?xml version="1.0" encoding="UTF-8" standalone="no"?>]]);
 							xml:append([[<document type="freeswitch/xml">]]);
 							xml:append([[	<section name="directory">]]);
-							xml:append([[		<domain name="]] ..  xml.sanitize(domain_name) .. [[" alias="true">]]);
+							xml:append([[		<domain name="]] ..  directory_attribute(domain_name) .. [[" alias="true">]]);
 							xml:append([[			<params>]]);
 							xml:append([[				<param name="jsonrpc-allowed-methods" value="verto"/>]]);
 							xml:append([[				<param name="jsonrpc-allowed-event-channels" value="demo,conference,presence"/>]]);
@@ -580,134 +658,134 @@
 							xml:append([[					<users>]]);
 							if (number_alias) then
 								if (cidr) then
-									xml:append([[						<user id="]] ..  xml.sanitize(extension) .. [[" cidr="]] ..  xml.sanitize(cidr) .. [[" number-alias="]] ..  xml.sanitize(number_alias) .. [[" type="">]]);
+									xml:append([[						<user id="]] ..  directory_attribute(extension) .. [[" cidr="]] ..  directory_attribute(cidr) .. [[" number-alias="]] ..  directory_attribute(number_alias) .. [[" type="">]]);
 								else
-									xml:append([[						<user id="]] ..  xml.sanitize(extension) .. [[" number-alias="]] ..  xml.sanitize(number_alias) .. [[">]]);
+									xml:append([[						<user id="]] ..  directory_attribute(extension) .. [[" number-alias="]] ..  directory_attribute(number_alias) .. [[">]]);
 								end
 							else
 								if (cidr) then
-									xml:append([[						<user id="]] ..  xml.sanitize(extension) .. [[" cidr="]] .. cidr .. [[">]]);
+									xml:append([[						<user id="]] ..  directory_attribute(extension) .. [[" cidr="]] .. cidr .. [[">]]);
 								else
-									xml:append([[						<user id="]] ..  xml.sanitize(extension) .. [[">]]);
+									xml:append([[						<user id="]] ..  directory_attribute(extension) .. [[">]]);
 								end
 							end
 							xml:append([[							<params>]]);
-							xml:append([[								<param name="password" value="]] .. password .. [["/>]]);
-							xml:append([[								<param name="vm-enabled" value="]] ..  xml.sanitize(vm_enabled) .. [["/>]]);
+							xml:append([[								<param name="password" value="]] .. directory_attribute(password) .. [["/>]]);
+							xml:append([[								<param name="vm-enabled" value="]] ..  directory_attribute(vm_enabled) .. [["/>]]);
 							if (string.len(vm_mailto) > 0) then
-								xml:append([[								<param name="vm-password" value="]] ..  xml.sanitize(vm_password)  .. [["/>]]);
-								xml:append([[								<param name="vm-email-all-messages" value="]] ..  xml.sanitize(vm_enabled)  ..[["/>]]);
-								xml:append([[								<param name="vm-attach-file" value="]] ..  xml.sanitize(vm_attach_file) .. [["/>]]);
-								xml:append([[								<param name="vm-keep-local-after-email" value="]] ..  xml.sanitize(vm_keep_local_after_email) .. [["/>]]);
-								xml:append([[								<param name="vm-mailto" value="]] ..  xml.sanitize(vm_mailto) .. [["/>]]);
+								xml:append([[								<param name="vm-password" value="]] ..  directory_attribute(vm_password)  .. [["/>]]);
+								xml:append([[								<param name="vm-email-all-messages" value="]] ..  directory_attribute(vm_enabled)  ..[["/>]]);
+								xml:append([[								<param name="vm-attach-file" value="]] ..  directory_attribute(vm_attach_file) .. [["/>]]);
+								xml:append([[								<param name="vm-keep-local-after-email" value="]] ..  directory_attribute(vm_keep_local_after_email) .. [["/>]]);
+								xml:append([[								<param name="vm-mailto" value="]] ..  directory_attribute(vm_mailto) .. [["/>]]);
 							end
 							if (string.len(mwi_account) > 0) then
-								xml:append([[							<param name="MWI-Account" value="]] ..  xml.sanitize(mwi_account) .. [["/>]]);
+								xml:append([[							<param name="MWI-Account" value="]] ..  directory_attribute(mwi_account) .. [["/>]]);
 							end
 							if (string.len(auth_acl) > 0) then
-								xml:append([[								<param name="auth-acl" value="]] ..  xml.sanitize(auth_acl) .. [["/>]]);
+								xml:append([[								<param name="auth-acl" value="]] ..  directory_attribute(auth_acl) .. [["/>]]);
 							end
-							xml:append([[								<param name="dial-string" value="]] .. dial_string .. [["/>]]);
-							xml:append([[								<param name="verto-context" value="]] ..  xml.sanitize(user_context) .. [["/>]]);
+							xml:append([[								<param name="dial-string" value="]] .. directory_attribute(dial_string) .. [["/>]]);
+							xml:append([[								<param name="verto-context" value="]] ..  directory_attribute(user_context) .. [["/>]]);
 							xml:append([[								<param name="verto-dialplan" value="XML"/>]]);
 							xml:append([[								<param name="jsonrpc-allowed-methods" value="verto"/>]]);
 							xml:append([[								<param name="jsonrpc-allowed-event-channels" value="demo,conference,presence"/>]]);
-							xml:append([[								<param name="max-registrations-per-extension" value="]] ..  xml.sanitize(max_registrations) .. [["/>]]);
+							xml:append([[								<param name="max-registrations-per-extension" value="]] ..  directory_attribute(max_registrations) .. [["/>]]);
 
 							for key,row in pairs(extension_settings) do
 								if (row.extension_setting_type == 'param') then
-									xml:append([[								<param name="]].. xml.sanitize(row.extension_setting_name)..[[" value="]].. xml.sanitize(row.extension_setting_value)..[["/>]]);
+									xml:append([[								<param name="]].. directory_attribute(row.extension_setting_name)..[[" value="]].. directory_attribute(row.extension_setting_value)..[["/>]]);
 								end
 							end
 							xml:append([[							</params>]]);
 							xml:append([[							<variables>]]);
-							xml:append([[								<variable name="domain_uuid" value="]] ..  xml.sanitize(domain_uuid) .. [["/>]]);
-							xml:append([[								<variable name="domain_name" value="]] ..  xml.sanitize(domain_name) .. [["/>]]);
-							xml:append([[								<variable name="extension_uuid" value="]] ..  xml.sanitize(extension_uuid) .. [["/>]]);
+							xml:append([[								<variable name="domain_uuid" value="]] ..  directory_attribute(domain_uuid) .. [["/>]]);
+							xml:append([[								<variable name="domain_name" value="]] ..  directory_attribute(canonical_domain_name) .. [["/>]]);
+							xml:append([[								<variable name="extension_uuid" value="]] ..  directory_attribute(extension_uuid) .. [["/>]]);
 							if (user_uuid ~= nil) and (string.len(user_uuid) > 0) then
-								xml:append([[								<variable name="user_uuid" value="]] ..  xml.sanitize(user_uuid) .. [["/>]]);
+								xml:append([[								<variable name="user_uuid" value="]] ..  directory_attribute(user_uuid) .. [["/>]]);
 							end
 							if (contact_uuid ~= nil) and (string.len(contact_uuid) > 0) then
-								xml:append([[								<variable name="contact_uuid" value="]] ..  xml.sanitize(contact_uuid) .. [["/>]]);
+								xml:append([[								<variable name="contact_uuid" value="]] ..  directory_attribute(contact_uuid) .. [["/>]]);
 							end
-							xml:append([[								<variable name="call_timeout" value="]] ..  xml.sanitize(call_timeout) .. [["/>]]);
-							xml:append([[								<variable name="caller_id_name" value="]] ..  xml.sanitize(sip_from_user) .. [["/>]]);
-							xml:append([[								<variable name="caller_id_number" value="]] ..  xml.sanitize(sip_from_number) .. [["/>]]);
-							xml:append([[								<variable name="presence_id" value="]] ..  xml.sanitize(presence_id) .. [["/>]]);
+							xml:append([[								<variable name="call_timeout" value="]] ..  directory_attribute(call_timeout) .. [["/>]]);
+							xml:append([[								<variable name="caller_id_name" value="]] ..  directory_attribute(sip_from_user) .. [["/>]]);
+							xml:append([[								<variable name="caller_id_number" value="]] ..  directory_attribute(sip_from_number) .. [["/>]]);
+							xml:append([[								<variable name="presence_id" value="]] ..  directory_attribute(presence_id) .. [["/>]]);
 							if (call_group ~= nil) and (string.len(call_group) > 0) then
-								xml:append([[								<variable name="call_group" value="]] ..  xml.sanitize(call_group) .. [["/>]]);
+								xml:append([[								<variable name="call_group" value="]] ..  directory_attribute(call_group) .. [["/>]]);
 							end
 							if (call_screen_enabled ~= nil) and (call_screen_enabled == 'true') then
-								xml:append([[								<variable name="call_screen_enabled" value="]] ..  xml.sanitize(call_screen_enabled) .. [["/>]]);
+								xml:append([[								<variable name="call_screen_enabled" value="]] ..  directory_attribute(call_screen_enabled) .. [["/>]]);
 							end
 							if (user_record ~= nil) and (string.len(user_record) > 0) then
-								xml:append([[								<variable name="user_record" value="]] .. xml.sanitize(user_record) .. [["/>]]);
+								xml:append([[								<variable name="user_record" value="]] .. directory_attribute(user_record) .. [["/>]]);
 							end
 							if (hold_music ~= nil) and (string.len(hold_music) > 0) then
-								xml:append([[								<variable name="hold_music" value="]] .. xml.sanitize(hold_music) .. [["/>]]);
+								xml:append([[								<variable name="hold_music" value="]] .. directory_attribute(hold_music) .. [["/>]]);
 							end
 							if (toll_allow ~= nil) and (string.len(toll_allow) > 0) then
-								xml:append([[								<variable name="toll_allow" value="]] .. xml.sanitize(toll_allow) .. [["/>]]);
+								xml:append([[								<variable name="toll_allow" value="]] .. directory_attribute(toll_allow) .. [["/>]]);
 							end
 							if (accountcode ~= nil) and (string.len(accountcode) > 0) then
-								xml:append([[								<variable name="accountcode" value="]] .. xml.sanitize(accountcode) .. [["/>]]);
+								xml:append([[								<variable name="accountcode" value="]] .. directory_attribute(accountcode) .. [["/>]]);
 							end
-							xml:append([[								<variable name="user_context" value="]] .. xml.sanitize(user_context) .. [["/>]]);
+							xml:append([[								<variable name="user_context" value="]] .. directory_attribute(user_context) .. [["/>]]);
 							if (effective_caller_id_name ~= nil) and (string.len(effective_caller_id_name) > 0) then
-								xml:append([[								<variable name="effective_caller_id_name" value="]] .. xml.sanitize(effective_caller_id_name).. [["/>]]);
+								xml:append([[								<variable name="effective_caller_id_name" value="]] .. directory_attribute(effective_caller_id_name).. [["/>]]);
 							end
 							if (effective_caller_id_number ~= nil) and (string.len(effective_caller_id_number) > 0) then
-								xml:append([[								<variable name="effective_caller_id_number" value="]] ..  xml.sanitize(effective_caller_id_number).. [["/>]]);
+								xml:append([[								<variable name="effective_caller_id_number" value="]] ..  directory_attribute(effective_caller_id_number).. [["/>]]);
 							end
 							if (outbound_caller_id_name ~= nil) and (string.len(outbound_caller_id_name) > 0) then
-								xml:append([[								<variable name="outbound_caller_id_name" value="]] ..  xml.sanitize(outbound_caller_id_name) .. [["/>]]);
+								xml:append([[								<variable name="outbound_caller_id_name" value="]] ..  directory_attribute(outbound_caller_id_name) .. [["/>]]);
 							end
 							if (outbound_caller_id_number ~= nil) and (string.len(outbound_caller_id_number) > 0) then
-								xml:append([[								<variable name="outbound_caller_id_number" value="]] ..  xml.sanitize(outbound_caller_id_number) .. [["/>]]);
+								xml:append([[								<variable name="outbound_caller_id_number" value="]] ..  directory_attribute(outbound_caller_id_number) .. [["/>]]);
 							end
 							if (emergency_caller_id_name ~= nil) and (string.len(emergency_caller_id_name) > 0) then
-								xml:append([[								<variable name="emergency_caller_id_name" value="]] ..  xml.sanitize(emergency_caller_id_name) .. [["/>]]);
+								xml:append([[								<variable name="emergency_caller_id_name" value="]] ..  directory_attribute(emergency_caller_id_name) .. [["/>]]);
 							end
 							if (emergency_caller_id_number ~= nil) and (string.len(emergency_caller_id_number) > 0) then
-								xml:append([[								<variable name="emergency_caller_id_number" value="]] ..  xml.sanitize(emergency_caller_id_number) .. [["/>]]);
+								xml:append([[								<variable name="emergency_caller_id_number" value="]] ..  directory_attribute(emergency_caller_id_number) .. [["/>]]);
 							end
 							if (missed_call_app ~= nil) and (string.len(missed_call_app) > 0) then
-								xml:append([[								<variable name="missed_call_app" value="]] ..  xml.sanitize(missed_call_app) .. [["/>]]);
+								xml:append([[								<variable name="missed_call_app" value="]] ..  directory_attribute(missed_call_app) .. [["/>]]);
 							end
 							if (missed_call_data ~= nil) and (string.len(missed_call_data) > 0) then
-								xml:append([[								<variable name="missed_call_data" value="]] ..  xml.sanitize(missed_call_data) .. [["/>]]);
+								xml:append([[								<variable name="missed_call_data" value="]] ..  directory_attribute(missed_call_data) .. [["/>]]);
 							end
 							if (directory_full_name ~= nil) and (string.len(directory_full_name) > 0) then
-								xml:append([[								<variable name="directory_full_name" value="]] ..  xml.sanitize(directory_full_name) .. [["/>]]);
+								xml:append([[								<variable name="directory_full_name" value="]] ..  directory_attribute(directory_full_name) .. [["/>]]);
 							end
 							if (directory_visible ~= nil) and (directory_visible == 'true') then
-								xml:append([[								<variable name="directory-visible" value="]] ..  xml.sanitize(directory_visible) .. [["/>]]);
+								xml:append([[								<variable name="directory-visible" value="]] ..  directory_attribute(directory_visible) .. [["/>]]);
 							end
 							if (directory_exten_visible ~= nil) and (directory_exten_visible == 'true') then
-								xml:append([[								<variable name="directory-exten-visible" value="]] ..  xml.sanitize(directory_exten_visible) .. [["/>]]);
+								xml:append([[								<variable name="directory-exten-visible" value="]] ..  directory_attribute(directory_exten_visible) .. [["/>]]);
 							end
 							if (limit_max ~= nil) and (string.len(limit_max) > 0) then
-								xml:append([[								<variable name="limit_max" value="]] ..  xml.sanitize(limit_max) .. [["/>]]);
+								xml:append([[								<variable name="limit_max" value="]] ..  directory_attribute(limit_max) .. [["/>]]);
 							else
 								xml:append([[								<variable name="limit_max" value="5"/>]]);
 							end
 							if (limit_destination ~= nil) and (string.len(limit_destination) > 0) then
-								xml:append([[								<variable name="limit_destination" value="]] ..  xml.sanitize(limit_destination) .. [["/>]]);
+								xml:append([[								<variable name="limit_destination" value="]] ..  directory_attribute(limit_destination) .. [["/>]]);
 							end
 							if (sip_force_contact ~= nil) and (string.len(sip_force_contact) > 0) then
-								xml:append([[								<variable name="sip-force-contact" value="]] ..  xml.sanitize(sip_force_contact) .. [["/>]]);
+								xml:append([[								<variable name="sip-force-contact" value="]] ..  directory_attribute(sip_force_contact) .. [["/>]]);
 							end
 							if (sip_force_expires ~= nil) and (string.len(sip_force_expires) > 0) then
-								xml:append([[								<variable name="sip-force-expires" value="]] ..  xml.sanitize(sip_force_expires) .. [["/>]]);
+								xml:append([[								<variable name="sip-force-expires" value="]] ..  directory_attribute(sip_force_expires) .. [["/>]]);
 							end
 							if (nibble_account ~= nil) and (string.len(nibble_account) > 0) then
-								xml:append([[								<variable name="nibble_account" value="]] ..  xml.sanitize(nibble_account) .. [["/>]]);
+								xml:append([[								<variable name="nibble_account" value="]] ..  directory_attribute(nibble_account) .. [["/>]]);
 							end
 							if (absolute_codec_string ~= nil) and (string.len(absolute_codec_string) > 0) then
-								xml:append([[								<variable name="absolute_codec_string" value="]] ..  xml.sanitize(absolute_codec_string) .. [["/>]]);
+								xml:append([[								<variable name="absolute_codec_string" value="]] ..  directory_attribute(absolute_codec_string) .. [["/>]]);
 							end
 							if (force_ping ~= nil) and (force_ping == 'true') then
-								xml:append([[								<variable name="force_ping" value="]] ..  xml.sanitize(force_ping) .. [["/>]]);
+								xml:append([[								<variable name="force_ping" value="]] ..  directory_attribute(force_ping) .. [["/>]]);
 							end
 							if (sip_bypass_media ~= nil) and (sip_bypass_media == "bypass-media") then
 								xml:append([[								<variable name="bypass_media" value="true"/>]]);
@@ -719,54 +797,58 @@
 								xml:append([[								<variable name="proxy_media" value="true"/>]]);
 							end
 							if (forward_all_enabled ~= nil) and (forward_all_enabled == 'true') then
-								xml:append([[								<variable name="forward_all_enabled" value="]] ..  xml.sanitize(forward_all_enabled) .. [["/>]]);
+								xml:append([[								<variable name="forward_all_enabled" value="]] ..  directory_attribute(forward_all_enabled) .. [["/>]]);
 							end
 							if (forward_all_destination ~= nil) and (string.len(forward_all_destination) > 0) then
-								xml:append([[								<variable name="forward_all_destination" value="]] ..  xml.sanitize(forward_all_destination) .. [["/>]]);
+								xml:append([[								<variable name="forward_all_destination" value="]] ..  directory_attribute(forward_all_destination) .. [["/>]]);
 							end
 							if (forward_busy_enabled ~= nil) and (forward_busy_enabled == 'true') then
-								xml:append([[								<variable name="forward_busy_enabled" value="]] ..  xml.sanitize(forward_busy_enabled) .. [["/>]]);
+								xml:append([[								<variable name="forward_busy_enabled" value="]] ..  directory_attribute(forward_busy_enabled) .. [["/>]]);
 							end
 							if (forward_busy_destination ~= nil) and (string.len(forward_busy_destination) > 0) then
-								xml:append([[								<variable name="forward_busy_destination" value="]] ..  xml.sanitize(forward_busy_destination) .. [["/>]]);
+								xml:append([[								<variable name="forward_busy_destination" value="]] ..  directory_attribute(forward_busy_destination) .. [["/>]]);
 							end
 							if (forward_no_answer_enabled ~= nil) and (forward_no_answer_enabled == 'true') then
-								xml:append([[								<variable name="forward_no_answer_enabled" value="]] ..  xml.sanitize(forward_no_answer_enabled) .. [["/>]]);
+								xml:append([[								<variable name="forward_no_answer_enabled" value="]] ..  directory_attribute(forward_no_answer_enabled) .. [["/>]]);
 							end
 							if (forward_no_answer_destination ~= nil) and (string.len(forward_no_answer_destination) > 0) then
-								xml:append([[								<variable name="forward_no_answer_destination" value="]] ..  xml.sanitize(forward_no_answer_destination) .. [["/>]]);
+								xml:append([[								<variable name="forward_no_answer_destination" value="]] ..  directory_attribute(forward_no_answer_destination) .. [["/>]]);
 							end
 							if (forward_user_not_registered_enabled ~= nil) and (forward_user_not_registered_enabled == 'true') then
-								xml:append([[								<variable name="forward_user_not_registered_enabled" value="]] ..  xml.sanitize(forward_user_not_registered_enabled) .. [["/>]]);
+								xml:append([[								<variable name="forward_user_not_registered_enabled" value="]] ..  directory_attribute(forward_user_not_registered_enabled) .. [["/>]]);
 							end
 							if (forward_user_not_registered_destination ~= nil) and (string.len(forward_user_not_registered_destination) > 0) then
-								xml:append([[								<variable name="forward_user_not_registered_destination" value="]] ..  xml.sanitize(forward_user_not_registered_destination) .. [["/>]]);
+								xml:append([[								<variable name="forward_user_not_registered_destination" value="]] ..  directory_attribute(forward_user_not_registered_destination) .. [["/>]]);
 							end
 							if (follow_me_enabled ~= nil) and (follow_me_enabled == 'true') then
-								xml:append([[								<variable name="follow_me_enabled" value="]] ..  xml.sanitize(follow_me_enabled) .. [["/>]]);
+								xml:append([[								<variable name="follow_me_enabled" value="]] ..  directory_attribute(follow_me_enabled) .. [["/>]]);
 							end
 							--if (follow_me_destinations ~= nil) and (string.len(follow_me_destinations) > 0) then
 							--	xml:append([[								<variable name="follow_me_destinations" value="]] .. follow_me_destinations .. [["/>]]);
 							--end
 							if (do_not_disturb ~= nil) and (do_not_disturb == 'true') then
-								xml:append([[								<variable name="do_not_disturb" value="]] .. xml.sanitize(do_not_disturb) .. [["/>]]);
+								xml:append([[								<variable name="do_not_disturb" value="]] .. directory_attribute(do_not_disturb) .. [["/>]]);
 							end
 							if (extension_language ~= nil) and (string.len(extension_language) > 0) then
-								xml:append([[								<variable name="default_language" value="]] ..  xml.sanitize(extension_language) .. [["/>]]);
+								xml:append([[								<variable name="default_language" value="]] ..  directory_attribute(extension_language) .. [["/>]]);
 							end
 							if (extension_dialect ~= nil) and (string.len(extension_dialect) > 0) then
-								xml:append([[								<variable name="default_dialect" value="]] ..  xml.sanitize(extension_dialect) .. [["/>]]);
+								xml:append([[								<variable name="default_dialect" value="]] ..  directory_attribute(extension_dialect) .. [["/>]]);
 							end
 							if (extension_voice ~= nil) and (string.len(extension_voice) > 0) then
-								xml:append([[								<variable name="default_voice" value="]] ..  xml.sanitize(extension_voice) .. [["/>]]);
+								xml:append([[								<variable name="default_voice" value="]] ..  directory_attribute(extension_voice) .. [["/>]]);
 							end
 							xml:append([[								<variable name="record_stereo" value="true"/>]]);
 							xml:append([[								<variable name="transfer_fallback_extension" value="operator"/>]]);
 							xml:append([[								<variable name="export_vars" value="domain_name,domain_uuid"/>]]);
 							for key,row in pairs(extension_settings) do
-								if (row.extension_setting_type == 'variable') then
-									xml:append([[								<variable name="]].. xml.sanitize(row.extension_setting_name)..[[" value="]].. xml.sanitize(row.extension_setting_value)..[["/>]]);
+								if (row.extension_setting_type == 'variable') and not (auth_binding and auth_binding.restored and (row.extension_setting_name == 'sip-force-user' or row.extension_setting_name == 'presence_id')) then
+									xml:append([[								<variable name="]].. directory_attribute(row.extension_setting_name)..[[" value="]].. directory_attribute(row.extension_setting_value)..[["/>]]);
 								end
+							end
+							if auth_binding and auth_binding.restored then
+								xml:append([[								<variable name="sip-force-user" value="]]..directory_attribute(auth_binding.auth_user)..[["/>]]);
+								xml:append([[								<variable name="presence_id" value="]]..directory_attribute(auth_binding.auth_user..'@'..auth_binding.domain_name)..[["/>]]);
 							end
 							xml:append([[							</variables>]]);
 							xml:append([[						</user>]]);
@@ -782,7 +864,7 @@
 							dbh:release();
 
 						--set the cache
-							if cache.support() then
+							if cache.support() and action ~= 'sip_auth' and not user_lookup then
 								local cache_key = "directory:" .. sip_from_number .. "@" .. domain_name
 								if debug['cache'] then
 									freeswitch.consoleLog("notice", "[xml_handler][directory][cache] set key: " .. cache_key .. "\n")

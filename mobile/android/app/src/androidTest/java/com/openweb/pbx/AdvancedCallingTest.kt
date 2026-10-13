@@ -93,7 +93,7 @@ class AdvancedCallingTest {
     @Test fun networkRecovery(){
         first();val tokenBefore=java.security.MessageDigest.getInstance("SHA-256").digest(PhoneStore(context).read()!!.getString("token").toByteArray())
         File(files,"network-ready.txt").writeText("ready")
-        waitFor("Internet loss was not shown",60){PhoneService.instance?.status=="No internet connection"}
+        waitFor("Network loss was not shown",60){PhoneService.instance?.status=="No network connection"}
         File(files,"network-lost.txt").writeText("ready")
         waitFor("Phone did not automatically reconnect",90){PhoneService.instance?.status=="Ready for calls"}
         val tokenAfter=java.security.MessageDigest.getInstance("SHA-256").digest(PhoneStore(context).read()!!.getString("token").toByteArray());assertTrue("Network recovery changed phone enrollment",tokenBefore.contentEquals(tokenAfter))

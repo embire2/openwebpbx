@@ -91,3 +91,9 @@ application/name/context pairs, excluding the platform's custom carrier and busi
 Native V20 restore, preserved-password phone registration, and an answered internal
 call passed on this instance. Carrier calling and provider-approved emergency routing
 remain unverified; trunks and incoming numbers remain off.
+
+## Preserved desk-phone setup — 1.0.12
+
+The supported source backup preserves original SIP users, separate Authentication IDs and password bytes. The review lets the owner choose the new phone domain and timezone. Existing PBXs can add a public phone address under **Phones** without replacing the domain used by existing Android accounts and call routes. See [desk-phone handover](desk-phone-handover.md) and [1.0.12 installation](installing-1.0.12.md). Phones keep their existing port and transport when the backup does not identify them; no model or connection setting is guessed.
+
+**First Calls → Connect Provider and Numbers** moves one reviewed provider and all saved incoming-number routes together at the operator-chosen handover time. Authentication data, opening hours, destinations and outgoing-rule order are retained; all database changes roll back if a saved incoming rule fails. Actual phone/carrier calling remains a required handover check.

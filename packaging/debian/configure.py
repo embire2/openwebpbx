@@ -55,6 +55,10 @@ for path in ['/usr/share/freeswitch/scripts','/etc/freeswitch/languages','/var/c
  p=P(path);p.mkdir(parents=True,exist_ok=True);p.chmod(0o750);os.chown(p,33,33)
 env=os.environ|{'OPENWEB_SETUP_SECRETS':str(private/'setup-secrets.json')}
 bootstrap=str(P('bootstrap.php').resolve())
+# Install the stricter tenant/account guard before the profile migration can
+# allow phones whose original SIP user differs from their authentication ID.
+shutil.copytree(root/'app/switch/resources/scripts','/usr/share/freeswitch/scripts',dirs_exist_ok=True)
+shutil.copytree(root/'app/pbx_setup/resources/switch/scripts','/usr/share/freeswitch/scripts',dirs_exist_ok=True)
 with open(private/'install.log','w') as log:
  os.chmod(log.name,0o600)
  def php(*args):run(['php',*args],cwd=root,env=env,stdout=log,stderr=subprocess.STDOUT)
@@ -62,8 +66,6 @@ with open(private/'install.log','w') as log:
  for step in ['--defaults','--group','--menu']:php('core/upgrade/upgrade.php',step)
  php(bootstrap,str(root),'migrate');php(bootstrap,str(root),'admin')
 shutil.copytree(root/'app/switch/resources/conf','/etc/freeswitch',dirs_exist_ok=True)
-shutil.copytree(root/'app/switch/resources/scripts','/usr/share/freeswitch/scripts',dirs_exist_ok=True)
-shutil.copytree(root/'app/pbx_setup/resources/switch/scripts','/usr/share/freeswitch/scripts',dirs_exist_ok=True)
 shutil.copytree(root/'app/pbx_setup/resources/prompts','/usr/share/freeswitch/sounds/openwebpbx',dirs_exist_ok=True)
 shutil.copy(root/'app/pbx_setup/resources/prompts/openweb.xml','/etc/freeswitch/languages/en/ivr/openweb.xml')
 # The music/default migration ran before the clean native configuration was
@@ -107,7 +109,7 @@ if not a.local_certificate:
 # current trusted helper while a candidate is staged and verified.
 release=P('VERSION').read_text().strip()
 tools=P('/opt/openwebpbx/tools');tools.mkdir(parents=True,exist_ok=True,mode=0o755)
-for name in ['upgrade.py','verify_feed.py','release-public.pem','configure-sip-tls.py','configure-sip-tls.php','backups.py','install-backups.sh','install-support.py','install-mobile-notifications.py']:
+for name in ['upgrade.py','verify_feed.py','release-public.pem','configure-sip-tls.py','configure-sip-tls.php','backups.py','install-backups.sh','install-support.py','install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py']:
  shutil.copy(name,tools/name);(tools/name).chmod(0o644)
 slot=P('/opt/openwebpbx/updater/slots')/release
 shutil.copytree('updater',slot)

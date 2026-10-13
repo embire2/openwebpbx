@@ -1,8 +1,14 @@
 -- Presence uses the same per-device identities that the native directory expands for dialing.
 -- An active mobile registration counts only for this enabled extension and domain.
+local realms=dofile(scripts_dir..'/app/xml_handler/resources/scripts/directory/contact_realms.lua')
 return function(db,api,P,domain,user,realm)
-    local contact=P.contact(api:execute('sofia_contact',user.auth_id..'@'..realm))
-    if contact then return contact end
+    local contact
+    local owned_realms=realms.realms(db,domain,realm)
+    if #owned_realms==0 then return nil end
+    for _,owned_realm in ipairs(owned_realms) do
+        contact=P.contact(api:execute('sofia_contact',user.auth_id..'@'..owned_realm))
+        if contact then return contact end
+    end
     local accounts={}
     db:query([[select m.sip_username from v_pbx_mobile_devices m join v_extensions e using(extension_uuid)
       where m.domain_uuid=:domain and e.domain_uuid=:domain and e.enabled='true'

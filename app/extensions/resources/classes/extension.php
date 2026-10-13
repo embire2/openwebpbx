@@ -323,25 +323,28 @@ class extension {
 						$a1_hash    = md5($extension . ":" . $domain_name . ":" . $password);
 						$vm_a1_hash = md5($extension . ":" . $domain_name . ":" . $voicemail_password);
 
+						$xmlAttribute = static function ($value): string {
+							return str_replace(["\t", "\r", "\n"], ["&#9;", "&#13;", "&#10;"], htmlspecialchars((string)($value ?? ""), ENT_QUOTES | ENT_XML1, "UTF-8"));
+						};
 						$xml  = "<include>\n";
 						$cidr = '';
 						if (!empty($row['cidr'])) {
-							$cidr = " cidr=\"" . $row['cidr'] . "\"";
+							$cidr = " cidr=\"" . $xmlAttribute($row['cidr']) . "\"";
 						}
 						$number_alias = '';
 						if (!empty($row['number_alias'])) {
-							$number_alias = " number-alias=\"" . $row['number_alias'] . "\"";
+							$number_alias = " number-alias=\"" . $xmlAttribute($row['number_alias']) . "\"";
 						}
-						$xml .= "  <user id=\"" . $row['extension'] . "\"" . $cidr . "" . $number_alias . ">\n";
+						$xml .= "  <user id=\"" . $xmlAttribute($row['extension']) . "\"" . $cidr . "" . $number_alias . ">\n";
 						$xml .= "    <params>\n";
 						//$xml .= "      <param name=\"a1-hash\" value=\"" . $a1_hash . "\"/>\n";
-						$xml .= "      <param name=\"password\" value=\"" . $row['password'] . "\"/>\n";
-						$xml .= "      <param name=\"reverse-auth-user\" value=\"" . $row['extension'] . "\"/>\n";
-						$xml .= "      <param name=\"reverse-auth-pass\" value=\"" . $row['password'] . "\"/>\n";
+						$xml .= "      <param name=\"password\" value=\"" . $xmlAttribute($row['password']) . "\"/>\n";
+						$xml .= "      <param name=\"reverse-auth-user\" value=\"" . $xmlAttribute($row['extension']) . "\"/>\n";
+						$xml .= "      <param name=\"reverse-auth-pass\" value=\"" . $xmlAttribute($row['password']) . "\"/>\n";
 
 						//voicemail settings
 						//$xml .= "      <param name=\"vm-a1-hash\" value=\"" . $vm_a1_hash. "\"/>\n";
-						$xml .= "      <param name=\"vm-password\" value=\"" . $voicemail_password . "\"/>\n";
+						$xml .= "      <param name=\"vm-password\" value=\"" . $xmlAttribute($voicemail_password) . "\"/>\n";
 						switch ($row['voicemail_enabled']) {
 							case "true":
 								$xml .= "      <param name=\"vm-enabled\" value=\"true\"/>\n";
@@ -371,83 +374,83 @@ class extension {
 								default:
 									$xml .= "      <param name=\"vm-keep-local-after-email\" value=\"true\"/>\n";
 							}
-							$xml .= "      <param name=\"vm-mailto\" value=\"" . $row['voicemail_mail_to'] . "\"/>\n";
+							$xml .= "      <param name=\"vm-mailto\" value=\"" . $xmlAttribute($row['voicemail_mail_to']) . "\"/>\n";
 						}
 
 						if (!empty($row['mwi_account'])) {
-							$xml .= "      <param name=\"MWI-Account\" value=\"" . $row['mwi_account'] . "\"/>\n";
+							$xml .= "      <param name=\"MWI-Account\" value=\"" . $xmlAttribute($row['mwi_account']) . "\"/>\n";
 						}
 						if (!empty($row['auth_acl'])) {
-							$xml .= "      <param name=\"auth-acl\" value=\"" . $row['auth_acl'] . "\"/>\n";
+							$xml .= "      <param name=\"auth-acl\" value=\"" . $xmlAttribute($row['auth_acl']) . "\"/>\n";
 						}
 						if (!empty($row['directory_exten_visible'])) {
-							$xml .= "      <param name=\"directory-exten-visible\" value=\"" . $row['directory_exten_visible'] . "\"/>\n";
+							$xml .= "      <param name=\"directory-exten-visible\" value=\"" . $xmlAttribute($row['directory_exten_visible']) . "\"/>\n";
 						}
-						$xml .= "      <param name=\"dial-string\" value=\"" . $dial_string . "\"/>\n";
+						$xml .= "      <param name=\"dial-string\" value=\"" . $xmlAttribute($dial_string) . "\"/>\n";
 						$xml .= "    </params>\n";
 						$xml .= "    <variables>\n";
-						$xml .= "      <variable name=\"domain_name\" value=\"" . $this->domain_name . "\"/>\n";
-						$xml .= "      <variable name=\"domain_uuid\" value=\"" . $this->domain_uuid . "\"/>\n";
-						$xml .= "      <variable name=\"extension_uuid\" value=\"" . $extension_uuid . "\"/>\n";
+						$xml .= "      <variable name=\"domain_name\" value=\"" . $xmlAttribute($this->domain_name) . "\"/>\n";
+						$xml .= "      <variable name=\"domain_uuid\" value=\"" . $xmlAttribute($this->domain_uuid) . "\"/>\n";
+						$xml .= "      <variable name=\"extension_uuid\" value=\"" . $xmlAttribute($extension_uuid) . "\"/>\n";
 						if (!empty($row['call_group'])) {
-							$xml .= "      <variable name=\"call_group\" value=\"" . $row['call_group'] . "\"/>\n";
+							$xml .= "      <variable name=\"call_group\" value=\"" . $xmlAttribute($row['call_group']) . "\"/>\n";
 						}
 						if (!empty($row['user_record'])) {
-							$xml .= "      <variable name=\"user_record\" value=\"" . $row['user_record'] . "\"/>\n";
+							$xml .= "      <variable name=\"user_record\" value=\"" . $xmlAttribute($row['user_record']) . "\"/>\n";
 						}
 						if (!empty($row['hold_music'])) {
-							$xml .= "      <variable name=\"hold_music\" value=\"" . $row['hold_music'] . "\"/>\n";
+							$xml .= "      <variable name=\"hold_music\" value=\"" . $xmlAttribute($row['hold_music']) . "\"/>\n";
 						}
-						$xml .= "      <variable name=\"toll_allow\" value=\"" . $row['toll_allow'] . "\"/>\n";
+						$xml .= "      <variable name=\"toll_allow\" value=\"" . $xmlAttribute($row['toll_allow']) . "\"/>\n";
 						if (!empty($row['call_timeout'])) {
-							$xml .= "      <variable name=\"call_timeout\" value=\"" . $row['call_timeout'] . "\"/>\n";
+							$xml .= "      <variable name=\"call_timeout\" value=\"" . $xmlAttribute($row['call_timeout']) . "\"/>\n";
 						}
 						if (!empty($switch_account_code)) {
-							$xml .= "      <variable name=\"accountcode\" value=\"" . $switch_account_code . "\"/>\n";
+							$xml .= "      <variable name=\"accountcode\" value=\"" . $xmlAttribute($switch_account_code) . "\"/>\n";
 						} else {
-							$xml .= "      <variable name=\"accountcode\" value=\"" . $row['accountcode'] . "\"/>\n";
+							$xml .= "      <variable name=\"accountcode\" value=\"" . $xmlAttribute($row['accountcode']) . "\"/>\n";
 						}
-						$xml .= "      <variable name=\"user_context\" value=\"" . $row['user_context'] . "\"/>\n";
+						$xml .= "      <variable name=\"user_context\" value=\"" . $xmlAttribute($row['user_context']) . "\"/>\n";
 						if (!empty($row['effective_caller_id_name'])) {
-							$xml .= "      <variable name=\"effective_caller_id_name\" value=\"" . $row['effective_caller_id_name'] . "\"/>\n";
+							$xml .= "      <variable name=\"effective_caller_id_name\" value=\"" . $xmlAttribute($row['effective_caller_id_name']) . "\"/>\n";
 						}
 						if (!empty($row['effective_caller_id_number'])) {
-							$xml .= "      <variable name=\"effective_caller_id_number\" value=\"" . $row['effective_caller_id_number'] . "\"/>\n";
+							$xml .= "      <variable name=\"effective_caller_id_number\" value=\"" . $xmlAttribute($row['effective_caller_id_number']) . "\"/>\n";
 						}
 						if (!empty($row['outbound_caller_id_name'])) {
-							$xml .= "      <variable name=\"outbound_caller_id_name\" value=\"" . $row['outbound_caller_id_name'] . "\"/>\n";
+							$xml .= "      <variable name=\"outbound_caller_id_name\" value=\"" . $xmlAttribute($row['outbound_caller_id_name']) . "\"/>\n";
 						}
 						if (!empty($row['outbound_caller_id_number'])) {
-							$xml .= "      <variable name=\"outbound_caller_id_number\" value=\"" . $row['outbound_caller_id_number'] . "\"/>\n";
+							$xml .= "      <variable name=\"outbound_caller_id_number\" value=\"" . $xmlAttribute($row['outbound_caller_id_number']) . "\"/>\n";
 						}
 						if (!empty($row['emergency_caller_id_name'])) {
-							$xml .= "      <variable name=\"emergency_caller_id_name\" value=\"" . $row['emergency_caller_id_name'] . "\"/>\n";
+							$xml .= "      <variable name=\"emergency_caller_id_name\" value=\"" . $xmlAttribute($row['emergency_caller_id_name']) . "\"/>\n";
 						}
 						if (!empty($row['emergency_caller_id_number'])) {
-							$xml .= "      <variable name=\"emergency_caller_id_number\" value=\"" . $row['emergency_caller_id_number'] . "\"/>\n";
+							$xml .= "      <variable name=\"emergency_caller_id_number\" value=\"" . $xmlAttribute($row['emergency_caller_id_number']) . "\"/>\n";
 						}
 						if (!empty($row['directory_full_name'])) {
-							$xml .= "      <variable name=\"directory_full_name\" value=\"" . $row['directory_full_name'] . "\"/>\n";
+							$xml .= "      <variable name=\"directory_full_name\" value=\"" . $xmlAttribute($row['directory_full_name']) . "\"/>\n";
 						}
 						if (!empty($row['directory_visible'])) {
-							$xml .= "      <variable name=\"directory-visible\" value=\"" . $row['directory_visible'] . "\"/>\n";
+							$xml .= "      <variable name=\"directory-visible\" value=\"" . $xmlAttribute($row['directory_visible']) . "\"/>\n";
 						}
 						if (!empty($row['limit_max'])) {
-							$xml .= "      <variable name=\"limit_max\" value=\"" . $row['limit_max'] . "\"/>\n";
+							$xml .= "      <variable name=\"limit_max\" value=\"" . $xmlAttribute($row['limit_max']) . "\"/>\n";
 						} else {
 							$xml .= "      <variable name=\"limit_max\" value=\"5\"/>\n";
 						}
 						if (!empty($row['limit_destination'])) {
-							$xml .= "      <variable name=\"limit_destination\" value=\"" . $row['limit_destination'] . "\"/>\n";
+							$xml .= "      <variable name=\"limit_destination\" value=\"" . $xmlAttribute($row['limit_destination']) . "\"/>\n";
 						}
 						if (!empty($row['sip_force_contact'])) {
-							$xml .= "      <variable name=\"sip-force-contact\" value=\"" . $row['sip_force_contact'] . "\"/>\n";
+							$xml .= "      <variable name=\"sip-force-contact\" value=\"" . $xmlAttribute($row['sip_force_contact']) . "\"/>\n";
 						}
 						if (!empty($row['sip_force_expires'])) {
-							$xml .= "      <variable name=\"sip-force-expires\" value=\"" . $row['sip_force_expires'] . "\"/>\n";
+							$xml .= "      <variable name=\"sip-force-expires\" value=\"" . $xmlAttribute($row['sip_force_expires']) . "\"/>\n";
 						}
 						if (!empty($row['nibble_account'])) {
-							$xml .= "      <variable name=\"nibble_account\" value=\"" . $row['nibble_account'] . "\"/>\n";
+							$xml .= "      <variable name=\"nibble_account\" value=\"" . $xmlAttribute($row['nibble_account']) . "\"/>\n";
 						}
 						switch ($row['sip_bypass_media']) {
 							case "bypass-media":
@@ -461,35 +464,35 @@ class extension {
 								break;
 						}
 						if (!empty($row['absolute_codec_string'])) {
-							$xml .= "      <variable name=\"absolute_codec_string\" value=\"" . $row['absolute_codec_string'] . "\"/>\n";
+							$xml .= "      <variable name=\"absolute_codec_string\" value=\"" . $xmlAttribute($row['absolute_codec_string']) . "\"/>\n";
 						}
 						if (!empty($row['forward_all_enabled'])) {
-							$xml .= "      <variable name=\"forward_all_enabled\" value=\"" . $row['forward_all_enabled'] . "\"/>\n";
+							$xml .= "      <variable name=\"forward_all_enabled\" value=\"" . $xmlAttribute($row['forward_all_enabled']) . "\"/>\n";
 						}
 						if (!empty($row['forward_all_destination'])) {
-							$xml .= "      <variable name=\"forward_all_destination\" value=\"" . $row['forward_all_destination'] . "\"/>\n";
+							$xml .= "      <variable name=\"forward_all_destination\" value=\"" . $xmlAttribute($row['forward_all_destination']) . "\"/>\n";
 						}
 						if (!empty($row['forward_busy_enabled'])) {
-							$xml .= "      <variable name=\"forward_busy_enabled\" value=\"" . $row['forward_busy_enabled'] . "\"/>\n";
+							$xml .= "      <variable name=\"forward_busy_enabled\" value=\"" . $xmlAttribute($row['forward_busy_enabled']) . "\"/>\n";
 						}
 						if (!empty($row['forward_busy_destination'])) {
-							$xml .= "      <variable name=\"forward_busy_destination\" value=\"" . $row['forward_busy_destination'] . "\"/>\n";
+							$xml .= "      <variable name=\"forward_busy_destination\" value=\"" . $xmlAttribute($row['forward_busy_destination']) . "\"/>\n";
 						}
 						if (!empty($row['forward_no_answer_enabled'])) {
-							$xml .= "      <variable name=\"forward_no_answer_enabled\" value=\"" . $row['forward_no_answer_enabled'] . "\"/>\n";
+							$xml .= "      <variable name=\"forward_no_answer_enabled\" value=\"" . $xmlAttribute($row['forward_no_answer_enabled']) . "\"/>\n";
 						}
 						if (!empty($row['forward_no_answer_destination'])) {
-							$xml .= "      <variable name=\"forward_no_answer_destination\" value=\"" . $row['forward_no_answer_destination'] . "\"/>\n";
+							$xml .= "      <variable name=\"forward_no_answer_destination\" value=\"" . $xmlAttribute($row['forward_no_answer_destination']) . "\"/>\n";
 						}
 						if (!empty($row['forward_user_not_registered_enabled'])) {
-							$xml .= "      <variable name=\"forward_user_not_registered_enabled\" value=\"" . $row['forward_user_not_registered_enabled'] . "\"/>\n";
+							$xml .= "      <variable name=\"forward_user_not_registered_enabled\" value=\"" . $xmlAttribute($row['forward_user_not_registered_enabled']) . "\"/>\n";
 						}
 						if (!empty($row['forward_user_not_registered_destination'])) {
-							$xml .= "      <variable name=\"forward_user_not_registered_destination\" value=\"" . $row['forward_user_not_registered_destination'] . "\"/>\n";
+							$xml .= "      <variable name=\"forward_user_not_registered_destination\" value=\"" . $xmlAttribute($row['forward_user_not_registered_destination']) . "\"/>\n";
 						}
 
 						if (!empty($row['do_not_disturb'])) {
-							$xml .= "      <variable name=\"do_not_disturb\" value=\"" . $row['do_not_disturb'] . "\"/>\n";
+							$xml .= "      <variable name=\"do_not_disturb\" value=\"" . $xmlAttribute($row['do_not_disturb']) . "\"/>\n";
 						}
 						$xml .= "    </variables>\n";
 						$xml .= "  </user>\n";

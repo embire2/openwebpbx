@@ -196,12 +196,16 @@ class pbx_tenants {
         if($template['tenant_uuid']!==null&&$template['tenant_uuid']!==$tenant['tenant_uuid'])throw new RuntimeException('This template belongs to another tenant.');
         $name=$this->label($input['service_name']??'');$slug=$this->slug($input['slug']??'');$request=$this->id($input['request_uuid']??'');$c=$template['config'];
         foreach($c['trunks'] as $i=>&$g){foreach(['username','password'] as $key){$v=$input['credentials'][$i][$key]??'';if($v!=='')$g[$key]=$v;}if($g['register']&&($g['username']===''||$g['password']===''))$g['enabled']=false;}unset($g);$c=$this->config($c);
-        $domain=uuid();$service=uuid();$realm=$slug.'.'.$tenant['slug'].'.'.pbx_paths::host();
+        $domain=uuid();$service=uuid();$requestedRealm=pbx_sip_domain::validate($input['sip_domain']??'');$realm=$requestedRealm!==''?$requestedRealm:pbx_sip_domain::assigned($slug,$tenant['slug'],pbx_paths::host(),(string)config::load()->get('openweb.sip_domain_suffix',''));
         if (!$deferCommit) $this->db->beginTransaction();try {
             $this->query('select tenant_uuid from v_pbx_tenants where tenant_uuid=:id for update',['id'=>$tenant['tenant_uuid']]);
             $existing=$this->query('select service_uuid,tenant_uuid from v_pbx_services where request_uuid=:id',['id'=>$request])->fetch(PDO::FETCH_ASSOC);if($existing){if($existing['tenant_uuid']!==$tenant['tenant_uuid'])throw new RuntimeException('Invalid service request.');if (!$deferCommit) $this->db->commit();return $existing['service_uuid'];}
             if(!$this->query('select enabled from v_pbx_tenants where tenant_uuid=:id',['id'=>$tenant['tenant_uuid']])->fetchColumn())throw new RuntimeException('This tenant is suspended.');
             if($this->query('select count(*) from v_pbx_services where tenant_uuid=:id',['id'=>$tenant['tenant_uuid']])->fetchColumn()>=$tenant['service_limit'])throw new RuntimeException('This tenant has reached its PBX service limit.');
+            // Lock the normalized name as well as the tenant: concurrent imports cannot share a realm.
+            $this->query('select pg_advisory_xact_lock(hashtextextended(:realm,0))',['realm'=>$realm]);
+            $aliasTable=$this->query("select to_regclass('v_pbx_sip_domains')")->fetchColumn();
+            if($this->query('select 1 from v_domains where lower(domain_name)=:realm limit 1',['realm'=>$realm])->fetchColumn()||($aliasTable&&$this->query('select 1 from v_pbx_sip_domains where sip_domain=:realm limit 1',['realm'=>$realm])->fetchColumn()))throw new InvalidArgumentException('This phone domain is already used by another PBX. Choose a different domain.');
             $this->insert('v_domains',['domain_uuid'=>$domain,'domain_name'=>$realm,'domain_description'=>$tenant['tenant_name'].' / '.$name,'domain_enabled'=>'true']);$this->defaults($domain,$realm);
             $this->domainSetting($domain,'domain','time_zone','text',$c['timezone']);$this->domainSetting($domain,'limit','extensions','numeric',(string)$c['extension_limit']);
             foreach($c['settings'] as $s)$this->domainSetting($domain,$s['category'],$s['subcategory'],$s['type'],$s['value']);

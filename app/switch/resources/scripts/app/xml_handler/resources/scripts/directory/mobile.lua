@@ -15,11 +15,17 @@ local ok=pcall(function()
         {user=user,domain=domain_name},function(r) record=r end)
 end)
 db:release()
+local method=tostring(params:getHeader('sip_auth_method') or ''):upper()
+local from_user=params:getHeader('sip_from_user')
+local to_user=params:getHeader('sip_to_user')
+local to_domain=params:getHeader('sip_to_host')
+local from_domain=params:getHeader('sip_from_host')
+if from_user~=user or from_domain~=domain_name or (method=='REGISTER' and (to_user~=user or to_domain and to_domain~=domain_name)) then record=nil end
 local function esc(value) return tostring(value or ''):gsub('%$',''):gsub('&','&amp;'):gsub('<','&lt;'):gsub('>','&gt;'):gsub('"','&quot;'):gsub("'",'&apos;') end
 XML_STRING='<document type="freeswitch/xml"><section name="result"><result status="not found"/></section></document>'
 if not ok or not record then return end
 local variables={domain_uuid=record.domain_uuid,domain_name=record.domain_name,user_context=record.domain_name,
-    extension_uuid=record.extension_uuid,effective_caller_id_name=record.name,effective_caller_id_number=record.number,
+    extension_uuid=record.extension_uuid,presence_id=record.extension..'@'..record.domain_name,effective_caller_id_name=record.name,effective_caller_id_number=record.number,
     outbound_caller_id_name=record.name,outbound_caller_id_number=record.number,toll_allow=record.toll_allow or '',
     ['sip-force-user']=record.extension,['sip-allow-multiple-registrations']='true',
     rtp_secure_media='mandatory:AES_CM_128_HMAC_SHA1_80',rtp_secure_media_outbound='optional:AES_CM_128_HMAC_SHA1_80',

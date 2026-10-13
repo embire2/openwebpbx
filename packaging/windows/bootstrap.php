@@ -30,7 +30,7 @@ if($stage==='migrate'){
   $s=sql('update v_default_settings set default_setting_value=?,default_setting_enabled=true where default_setting_category=? and default_setting_subcategory=? and default_setting_name=?',[$value,...$parts]);
   if(!$s->rowCount())sql('insert into v_default_settings(default_setting_uuid,default_setting_category,default_setting_subcategory,default_setting_name,default_setting_value,default_setting_enabled) values(?,?,?,?,?,true)',[uuid(),...$parts,$value]);
  }
- if(PHP_OS_FAMILY==='Linux')pbx_music::install($db);
+ if(PHP_OS_FAMILY==='Linux'){pbx_music::install($db);pbx_phone_auth::configure($db);$cache=new cache;$cache->delete(gethostname().':configuration:sofia.conf');$cache->delete('configuration:sofia.conf');}
  settings::clear_cache();
  echo "PBX schema is ready.\n";exit;
 }

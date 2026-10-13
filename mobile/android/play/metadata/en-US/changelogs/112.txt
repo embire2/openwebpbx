@@ -1,0 +1,1 @@
+Fixes calling readiness on office LAN/VPN networks without requiring a public Internet check. Compatible with OpenWeb PBX 1.0.12. Retains QR setup, native calls, hold/resume, personal Settings, transfers, three-way calls and managed updates.

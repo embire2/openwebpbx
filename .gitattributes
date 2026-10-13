@@ -1,0 +1,2 @@
+# Unified patches retain upstream context whitespace, including the diff marker.
+packaging/freeswitch/*.patch -whitespace

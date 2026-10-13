@@ -32,7 +32,7 @@ if u then
             db:query('select 1 as ok from v_call_center_agents where domain_uuid=:domain and call_center_agent_uuid=:agent',{domain=domain,agent=m.agent_uuid},function() owned=true end)
             if owned then
                 local enabled=allowed and u.enabled
-                local status=not enabled and 'Logged Out' or ((reserved or m.supervisor_break) and 'On Break' or (u.queue_status=='LoggedIn' and m.status=='LoggedIn' and profile.queue_status~='0' and 'Available' or 'Logged Out'))
+                local status=not enabled and 'Logged Out' or P.queue_member_status(u,m,profile,reserved)
                 -- Setting status preserves native ready_time, wrap-up, current bridge
                 -- and call counters. Never unload a queue or reset an agent state.
                 local result=api:execute('callcenter_config',"agent set status "..m.agent_uuid.." '"..status.."'")

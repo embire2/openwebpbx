@@ -4,7 +4,7 @@ set -euo pipefail
 build_root=${OPENWEB_ENGINE_BUILD:-/usr/src/openweb-engine}
 script_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 apt-get update
-apt-get install -y autoconf automake build-essential git libtool libtool-bin pkg-config cmake uuid-dev libssl-dev libpcre2-dev libsqlite3-dev libcurl4-openssl-dev libedit-dev libldns-dev libspeex-dev libspeexdsp-dev libopus-dev libsndfile1-dev libtiff-dev libjpeg-dev libpq-dev liblua5.2-dev libmemcached-dev libshout3-dev libmpg123-dev libmp3lame-dev libavformat-dev libswscale-dev libvpx-dev libyuv-dev yasm nasm zlib1g-dev
+apt-get install -y autoconf automake build-essential git patch libtool libtool-bin pkg-config cmake uuid-dev libssl-dev libpcre2-dev libsqlite3-dev libcurl4-openssl-dev libedit-dev libldns-dev libspeex-dev libspeexdsp-dev libopus-dev libsndfile1-dev libtiff-dev libjpeg-dev libpq-dev liblua5.2-dev libmemcached-dev libshout3-dev libmpg123-dev libmp3lame-dev libavformat-dev libswscale-dev libvpx-dev libyuv-dev yasm nasm zlib1g-dev
 mkdir -p "$build_root"
 build_dependency() {
  local name=$1 revision=$2
@@ -18,6 +18,13 @@ build_dependency spandsp 8f1e1646bdec99eac5fd2cd92c35563f736b9b89
 git clone https://github.com/signalwire/freeswitch.git "$build_root/freeswitch"
 git -C "$build_root/freeswitch" checkout --detach ef32e205295e29f034f1453ad245ba5efb07b94a
 cd "$build_root/freeswitch"
+registration_patch="$script_root/../freeswitch/restore-registration.patch"
+if [[ ! -f "$registration_patch" ]]; then registration_patch="$script_root/../packaging/freeswitch/restore-registration.patch"; fi
+test -f "$registration_patch"
+printf '%s  %s\n' 'db4fa115b4323eb9c084ad0ffb946488a4a50ba5709886cd3fdc3812c0ad51f6' "$registration_patch" | sha256sum --check --status
+printf '%s  %s\n' '1eed13a2ae440201bcc1bf6aa1f82899140794b96202496f2e21bf2bf070c9d9' 'src/mod/endpoints/mod_sofia/sofia_reg.c' | sha256sum --check --status
+patch --batch --forward -p1 < "$registration_patch"
+printf '%s  %s\n' '4dafe992533cbff6e57a5bb6870cb2b410fb552d781e657a55fefd9ad73f241d' 'src/mod/endpoints/mod_sofia/sofia_reg.c' | sha256sum --check --status
 ./bootstrap.sh -j
 cp "$script_root/modules.conf" modules.conf
 export CPPFLAGS='-DHAVE_NUA_RELOAD_TLS'

@@ -52,10 +52,13 @@ def profiles(action):
  if result.returncode:raise RuntimeError('The phone profile settings could not be read or updated.')
  return json.loads(result.stdout)
 
-def ready_flag(ready):
+def ready_flag(ready,names=None):
  path=Path('/etc/fusionpbx/config.conf');lines=path.read_text().splitlines()
  lines=[line for line in lines if not re.match(r'^\s*openweb\.mobile_tls_ready\s*=',line)]
  lines.append('openweb.mobile_tls_ready = '+('true' if ready else 'false'))
+ if names is not None:
+  lines=[line for line in lines if not re.match(r'^\s*openweb\.sip_tls_names\s*=',line)]
+  lines.append('openweb.sip_tls_names = '+','.join(names))
  atomic(path,('\n'.join(lines)+'\n').encode(),path.stat().st_gid,path.stat().st_mode&0o777)
 
 def verify_listener(settings,profile,domain,fingerprint,expected_chain=None):
@@ -133,7 +136,8 @@ def main():
   if previous_ca is not None:atomic(TLS/'cafile.pem',previous_ca,gid,0o640)
   if not args.renew:ready_flag(False)
   raise
- ready_flag(True)
+ names=re.findall(r'DNS:([^,\s]+)',openssl('x509','-in',args.fullchain,'-noout','-ext','subjectAltName').decode())
+ ready_flag(True,names)
  STATE.parent.mkdir(parents=True,exist_ok=True)
  atomic(STATE,json.dumps({'domain':args.domain,'fullchain':str(args.fullchain.absolute()),'private_key':str(args.private_key.absolute())}).encode())
  installed=Path('/opt/openwebpbx/tools');installed.mkdir(parents=True,exist_ok=True);installed.chmod(0o755)

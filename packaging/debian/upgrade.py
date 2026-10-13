@@ -93,7 +93,7 @@ def deployment_files(package, manifest):
     prompt = package / 'web/app/pbx_setup/resources/prompts/openweb.xml'
     if prompt.is_file():
         result[Path('/etc/freeswitch/languages/en/ivr/openweb.xml')] = prompt
-    for helper in ['configure-sip-tls.py', 'configure-sip-tls.php', 'upgrade.py', 'verify_feed.py', 'release-public.pem', 'backups.py', 'install-backups.sh', 'install-support.py', 'install-mobile-notifications.py']:
+    for helper in ['configure-sip-tls.py', 'configure-sip-tls.php', 'upgrade.py', 'verify_feed.py', 'release-public.pem', 'backups.py', 'install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py']:
         if helper in manifest['files']:
             result[TOOLS / helper] = package / helper
     for service in ['openwebpbx-updater.service', 'openwebpbx-update-recovery.service', 'openwebpbx-backups.service', 'openwebpbx-backups.timer']:

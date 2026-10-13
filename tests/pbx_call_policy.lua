@@ -156,4 +156,58 @@ check(not P.failover('NORMAL_TEMPORARY_FAILURE','sip:503','true'),'Actual-answer
 check(P.failover('NO_USER_RESPONSE','sip:480',nil,'480'),'Actual provider480 overrides native no-user-response cause')
 check(P.failover('ORIGINATOR_CANCEL','sip:487',nil,'487'),'Actual provider487 overrides native cancel cause while caller remains ready')
 check(not P.failover('RECOVERY_ON_TIMER_EXPIRE','sip:408',nil,''),'Generated timeout408 is not a provider failure response')
+local strategies={RingAll='ring-all',PrioritizedHunt='top-down',HuntRandomStart='top-down',RoundRobin='round-robin',LongestWaiting='longest-idle-agent',LeastTalkTime='agent-with-least-talk-time',FewestAnswered='agent-with-fewest-calls'}
+for source,native in pairs(strategies)do
+ local actual,mode=P.queue_strategy('PollingStrategy'..source)
+ check(actual==native and mode==(source=='HuntRandomStart' and 'random_start' or 'native'),'Source strategy '..source..' has its own native behavior')
+end
+check(P.ring_strategy('RingStrategyHunt')=='sequence','Imported ordered ring group')
+check(P.ring_strategy('RingAll')=='simultaneous','Imported simultaneous ring group')
+check(not P.queue_strategy('unknown') and not P.ring_strategy('unknown'),'Unsupported strategies do not silently become RingAll')
+local overnight={type='SpecificHours',periods={{day=1,start='22:00',['end']='02:00'}}}
+for _,v in ipairs({{1,'21:59',false},{1,'22:00',true},{1,'23:59',true},{2,'00:00',true},{2,'01:59',true},{2,'02:00',false},{0,'01:00',false}})do check(P.in_hours(overnight,v[1],v[2])==v[3],'Overnight office boundary '..v[1]..' '..v[2])end
+local default={timezone='UTC',default_hours=overnight,departments={}}
+check(P.office(default,'999',function()return 2,'01:00','2026-10-06'end),'Unassigned object inherits default tenant hours')
+check(not P.office(default,'999',function()return 2,'02:00','2026-10-06'end),'Unassigned object closes at default closing boundary')
+local object={number='100',hours={hours={type='OfficeHours'},office='Extension.110.',outside='Extension.111.',holiday='Extension.112.',['break']='Extension.113.'}}
+check(P.object_destination(c,object,clock('09:00')).number=='110','Inside office route is applied')
+check(P.object_destination(c,object,clock('20:00')).number=='111','Outside office route is applied')
+check(P.object_destination(c,object,clock('12:30')).number=='113','Department break route is applied')
+check(P.object_destination(c,object,function()return 1,'09:00','2026-12-25'end).number=='112','Holiday precedes office route')
+object.hours.hours={type='AllHours'};object.hours.breaks={type='SpecificHours',periods={{day=1,start='10:00',['end']='10:30'}}}
+check(P.object_destination(c,object,clock('10:15')).number=='113','Object break is applied to all-hours object')
+object.hours.office_override={state='closed',expires=os.time()+60}
+check(P.object_destination(c,object,clock('09:00')).number=='111','Temporary object closure precedes normal office hours')
+object.hours.office_override.expires=os.time()-1
+check(P.object_destination(c,object,clock('09:00')).number=='110','Expired object closure no longer applies')
+local queue_user={enabled=true,queue_status='LoggedOut'};local member={status='LoggedIn'}
+check(P.queue_member_status(queue_user,member,{queue_status='1',away={Internal={}}},false)=='Available','Explicit profile queue login bypasses personal away forwarding')
+check(P.queue_member_status(queue_user,member,{queue_status='-1'},false)=='Logged Out','Unchanged profile preserves source global queue logout')
+queue_user.queue_status='LoggedIn'
+check(P.queue_member_status(queue_user,member,{queue_status='-1'},false)=='Available','Unchanged profile preserves global queue login')
+check(P.queue_member_status(queue_user,member,{queue_status='0'},false)=='Logged Out','Explicit profile queue logout wins over global login')
+member.status='LoggedOut'
+check(P.queue_member_status(queue_user,member,{queue_status='1'},false)=='Logged Out','Explicit profile login never rejoins a left queue')
+member.status='LoggedIn';member.supervisor_break=true
+check(P.queue_member_status(queue_user,member,{queue_status='1'},false)=='On Break','Supervisor pause wins over profile login')
+member.supervisor_break=false
+check(P.queue_member_status(queue_user,member,{queue_status='1'},true)=='On Break','Active callback reservation excludes ordinary queue offers')
+queue_user.enabled=false
+check(P.queue_member_status(queue_user,member,{queue_status='1'},false)=='Logged Out','Disabled user remains logged out')
+for _,mode in ipairs({'offer','automatic'})do
+ local q={timeout=10,callback_mode=mode,callback_after=3}
+ check(P.queue_slice(q,100,100,false)==3,'Timed '..mode..' exits at initial callback deadline')
+ check(P.queue_slice(q,100,103,true)==7,'Timed '..mode..' retains original remaining budget')
+ check(P.queue_slice(q,100,109,true)==1,'Timed '..mode..' does not restart full queue timeout')
+ check(P.queue_slice(q,100,110,true)==0,'Timed '..mode..' stops at original deadline')
+end
+local occupied={rows={{uuid='self',presence_id='canonical@realm.invalid'},{uuid='other',presence_id='100@realm.invalid'},{uuid='foreign',presence_id='canonical@foreign.invalid'}}}
+check(P.user_busy(occupied,{auth_id='canonical'},'realm.invalid','self')==false,'Busy detection ignores own channel, CID/number collision and foreign realm')
+occupied.rows[#occupied.rows+1]={uuid='leg',presence_id='canonical@realm.invalid'}
+check(P.user_busy(occupied,{auth_id='canonical'},'realm.invalid','self')==true,'Trusted canonical same-realm leg makes the user busy')
+check(P.user_busy({}, {auth_id='canonical'},'realm.invalid','self')==nil,'Malformed native channel listing is not false availability')
+check(P.hunt_start({1,2},'00000000-0000-4000-a000-000000000010')==0 and P.hunt_start({1,2},'00000001-0000-4000-a000-000000000010')==1,'Independent native UUIDs choose both possible first hunt members')
+object.hours={hours={type='OfficeHours',ignore_holidays=true},office='Extension.110.',outside='Extension.111.',holiday='Extension.112.'};check(P.object_destination(c,object,function()return 1,'09:00','2026-12-25'end).number=='110','OfficeHours IgnoreHolidays restores actual opening, not only the holiday flag')
+check(P.callback_open(c,{number='100',hours={hours={type='OfficeHours',ignore_holidays=true}}},function()return 1,'09:00','2026-12-25'end),'Queue callback OfficeHours honors IgnoreHolidays')
+check(P.user_busy({row_count=0},{auth_id='canonical'},'realm.invalid','self')==false,'Native zero-channel response without rows leaves an idle phone eligible')
 print('PASS: '..n..' office-hours, forwarding, outbound and callback decisions')

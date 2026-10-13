@@ -60,7 +60,7 @@ try {
         'regex injection'=>function($p){$p['outbound_rules'][0]['prefix']='0.*';return $p;},
         'context injection'=>function($p){$p['users'][0]['user_context']='foreign.example.invalid';return $p;},
         'invalid enable status'=>function($p){$p['users'][0]['enabled']='yes';return $p;},
-        'unsafe SIP credential'=>function($p){$p['users'][0]['password']='unsafe"<xml>';return $p;},
+        'unsafe SIP credential'=>function($p){$p['users'][0]['password']="unsafe\ncredential";return $p;},
         'invalid SIP host'=>function($p){$p['trunks'][0]['host']='sip.invalid/../../';return $p;}
     ];
     foreach ($cases as $name=>$mutate) $reject(fn()=>$provisioner->validate($mutate($plan)), 'Accepted '.$name);

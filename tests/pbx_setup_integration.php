@@ -57,6 +57,23 @@ try {
     $manager=new setup_test_tenants($db);$tenant=$manager->tenant();$assert($tenant['owner_user_uuid']===$owner,'Company bootstrap owner differs');
     setup_test_tenants::$platform=false;
     $assert($setup->canManage(),'Tenant owner cannot run guided setup');
+    // Custom SIP realm is chosen once, exact, unique and retained on retry.
+    $input['tenant_uuid']=$tenant['tenant_uuid'];$input['service_name']='Custom phone domain';$input['sip_domain']='Phones.Example.Invalid.';
+    $custom=$setup->reviewSetup($input);$customDomain=$setup->createSetup($custom['draft_id']);
+    $assert($query('select domain_name from v_domains where domain_uuid=:domain',['domain'=>$customDomain])->fetchColumn()==='phones.example.invalid','Chosen phone domain was not normalized/preserved');
+    $assert($setup->createSetup($custom['draft_id'])===$customDomain,'Custom-domain retry was not idempotent');
+    foreach(['https://phones.example.invalid','phone.invalid:5060','call.openweb.co.za',['nested']] as $invalidRealm){
+        $input['sip_domain']=$invalidRealm;
+        if($invalidRealm==='call.openweb.co.za'){$collision=$setup->reviewSetup($input);$reject(fn()=>$setup->createSetup($collision['draft_id']),'Platform phone realm was reused');}
+        else $reject(fn()=>$setup->reviewSetup($input),'Malformed phone realm accepted');
+    }
+    $input['sip_domain']='phones.example.invalid';$collision=$setup->reviewSetup($input);$reject(fn()=>$setup->createSetup($collision['draft_id']),'Existing service phone realm was reused');
+    $query('insert into v_pbx_sip_domains(sip_domain,domain_uuid,created_by) values(:name,:d,:u)',['name'=>'alias.example.invalid','d'=>$customDomain,'u'=>$owner]);
+    $input['sip_domain']='alias.example.invalid';$collision=$setup->reviewSetup($input);$reject(fn()=>$setup->createSetup($collision['draft_id']),'An assigned phone alias was reused as another PBX realm');
+    $assert((int)$db->query('select count(*) from v_pbx_services')->fetchColumn()===2,'Rejected phone domain left a service');
+    // Remove only this owned realm fixture before the existing rollback checks.
+    foreach(['v_dialplan_details','v_dialplans','v_extensions','v_voicemails','v_gateways','v_ring_groups','v_ring_group_destinations','v_destinations','v_domain_settings','v_pbx_services'] as $table)$query('delete from '.$table.' where domain_uuid=:d',['d'=>$customDomain]);
+    $query('delete from v_domains where domain_uuid=:d',['d'=>$customDomain]);$input['sip_domain']='';
     $input['tenant_uuid']=$tenant['tenant_uuid'];$input['service_name']='Rollback fixture';
     $rollback=$setup->reviewSetup($input);$query('update v_pbx_tenants set service_limit=1 where tenant_uuid=:id',['id'=>$tenant['tenant_uuid']]);
     $reject(fn()=>$setup->createSetup($rollback['draft_id']),'Service limit bypassed');

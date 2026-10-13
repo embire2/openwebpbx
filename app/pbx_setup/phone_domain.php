@@ -1,0 +1,11 @@
+<?php
+// Included only by the authenticated, permission-checked Admin controller.
+if(!isset($admin,$csrf,$e)){http_response_code(404);exit;}
+$phoneDomains=new pbx_sip_domains;$phoneReady=$phoneDomains->readiness();
+?>
+<div class="setup-message"><strong>Phone domain</strong><p><code><?= $e($phoneReady['name']) ?></code></p><p>Use this address on existing phones. Keep the extension, Authentication ID, password, port and connection type from 3CX.</p><p><?= $phoneReady['dns']?'Address points to this server.':'Address does not yet point to this server. Update DNS before moving phones.' ?> <?= $phoneReady['tls']?'Trusted certificate covers this address.':'For an encrypted connection, the server certificate must cover this address.' ?></p></div>
+<details><summary>Change phone domain</summary><form method="post" class="setup-form"><?php $csrf(); ?><input type="hidden" name="action" value="phone_domain"><div class="setup-fields"><?php $input('sip_domain','New phone domain',$phoneReady['name'],'text','required maxlength="253" autocomplete="off"'); ?></div><p class="setup-hint">Point your domain to this server first. Existing mobile-app accounts and call routes are kept. Changing an address does not move your provider connection.</p><div class="setup-actions"><button type="submit" class="setup-button primary">Save phone domain</button></div></form></details>
+<?php foreach($phoneDomains->addresses() as $phoneAddress): if(!filter_var($phoneAddress['enabled'],FILTER_VALIDATE_BOOLEAN))continue; ?>
+<details><summary>Disable <?= $e($phoneAddress['sip_domain']) ?></summary><form method="post" class="setup-form"><?php $csrf(); ?><input type="hidden" name="action" value="disable_phone_domain"><input type="hidden" name="sip_domain" value="<?= $e($phoneAddress['sip_domain']) ?>"><p>Phones using this address will lose their connection. Their stored passwords and app accounts are kept.</p><button type="submit" class="setup-button danger">Disable phone domain</button></form></details>
+<?php endforeach; ?>
+<p><a class="setup-button" href="https://github.com/embire2/openwebpbx/blob/customization/docs/desk-phone-handover.md" target="_blank" rel="noopener">Move Yealink and Fanvil phones</a></p>

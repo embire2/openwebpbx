@@ -5,12 +5,15 @@ local json=require 'resources.functions.lunajson'
 local P=loadfile(scripts_dir..'/app/pbx_setup/policy.lua')()
 local registered=loadfile(scripts_dir..'/app/pbx_setup/registered.lua')()
 local Q=loadfile(scripts_dir..'/app/pbx_setup/core_queue.lua')()
+local queue_runtime=loadfile(scripts_dir..'/app/pbx_setup/queue_runtime.lua')()
 local agent_contact=loadfile(scripts_dir..'/app/pbx_setup/core_agent_contact.lua')()
+local mobile_contact=loadfile(scripts_dir..'/app/pbx_setup/mobile_contact.lua')()
+local contact_realms=loadfile(scripts_dir..'/app/xml_handler/resources/scripts/directory/contact_realms.lua')()
 local db=Database.new('system')
 local api=freeswitch.API()
 local id=argv and argv[1] or ''
 if not id:match('^[a-f0-9%-]+$') or #id~=36 then db:release();return end
-local job,config,call,reserved_user,reserved_queue
+local job,config,call,reserved_user,reserved_queue,owned_realms
 local function internal_target() return job.internal_target=='true' or job.internal_target=='t' end
 local function query(sql,params,callback) return db:query(sql,params,callback) end
 local function clock(zone)
@@ -33,13 +36,12 @@ local function active()
     return yes
 end
 local function user_free(u,push)
-    if not u or not u.enabled or (not registered(db,api,P,job.domain_uuid,u,config.realm) and not push) then return false end
+    if not u or not u.enabled then return false end
+    local mobile=job.kind=='callback' and mobile_contact.available(db,api,P,job.domain_uuid,config,u,P.profile(config,u.number,clock))
+    if not registered(db,api,P,job.domain_uuid,u,config.realm) and not push and not mobile then return false end
     local ok,channels=pcall(json.decode,api:execute('show','channels as json'))
     if not ok then return false end
-    for _,c in ipairs(channels.rows or {}) do
-        if c.presence_id==u.auth_id..'@'..config.realm or c.presence_id==u.number..'@'..config.realm then return false end
-    end
-    return true
+    return P.user_busy(channels,u,config.realm,nil,owned_realms)==false
 end
 local function gateway_contact(number,agent,route)
     local trunk=config.trunks[tostring(route.trunk_id)]
@@ -73,12 +75,16 @@ local function deliver()
       join v_domains d using(domain_uuid) where j.job_uuid=:id and j.state='starting' and j.expires_at>now() and d.domain_enabled='true'
       and not exists(select 1 from v_pbx_services s join v_pbx_tenants t using(tenant_uuid) where s.domain_uuid=j.domain_uuid and not t.enabled)]],{id=id},function(r) job=r;config=json.decode(r.config) end)
     if not job then return end
+    owned_realms=contact_realms.realms(db,job.domain_uuid,config.realm)
+    if not P.realm_config(config,owned_realms) then finish('cancelled','PBX phone domain is unavailable');return end
     local q,agent,routes
     if job.kind=='callback' then
         q=P.find(config.queues,job.queue_number)
         if not q or (q.callback_mode or ((tonumber(q.callback) or -1)>=0 and 'request' or 'disabled'))=='disabled' then finish('cancelled','Queue callbacks are off');return end
         if not P.callback_open(config,q,clock) then retry('Waiting for office hours',60);return end
-        api:execute('callcenter_config','queue load '..q.number..'@'..config.realm)
+        local new_agents=queue_runtime.ensure(api,config,q,job.domain_uuid,function(u)
+            return '[leg_timeout='..q.ring_timeout..',domain_uuid='..job.domain_uuid..',domain_name='..config.realm..']user/'..u.auth_id..'@'..config.realm
+        end)
         -- Keep live callers ahead of callbacks. Callbacks are claimed in their original request order.
         local members=api:execute('callcenter_config','queue list members '..q.number..'@'..config.realm)
         if members:sub(1,4)=='-ERR' then retry('Waiting for the queue',15);return end
@@ -89,7 +95,8 @@ local function deliver()
         for _,m in ipairs(q.members) do
             local u=config.users[tostring(m.number)]
             local profile=u and P.profile(config,m.number,clock)
-            if u and m.status=='LoggedIn' and not m.supervisor_break and u.queue_status=='LoggedIn' and profile.queue_status~='0' and not next(profile.away or {}) and user_free(u,agent_contact.push(db,job.domain_uuid,u)) then
+            if P.queue_member_status(u,m,profile,false)=='Available' and user_free(u,agent_contact.push(db,job.domain_uuid,u)) then
+                if new_agents[m.agent_uuid] then api:execute('callcenter_config',"agent set status "..m.agent_uuid.." 'Available'") end
                 local details=api:execute('callcenter_config','agent list '..m.agent_uuid)
                 if P.agent_available(details,m.agent_uuid,os.time()) then
                     routes=outbound(job.target_number,tostring(m.number),q)
@@ -121,7 +128,7 @@ local function deliver()
     -- Resolve the current registration at delivery time. A cached directory dial-string
     -- may still point to a phone's previous port after it reconnects.
     local live_contact=registered(db,api,P,job.domain_uuid,agent,config.realm)
-    if q and agent_contact.push(db,job.domain_uuid,agent) then live_contact=agent_contact.dial(job.domain_uuid,config.realm,agent,q,nil,id) end
+    if q and (agent_contact.push(db,job.domain_uuid,agent) or mobile_contact.enabled(agent,P.profile(config,agent.number,clock))) then live_contact=agent_contact.dial(job.domain_uuid,config.realm,agent,q,nil,id) end
     if not live_contact then retry('Phone reconnected; retrying');return end
     vars=vars..',presence_id='..agent.auth_id..'@'..config.realm..',sip_invite_domain='..config.realm
     call=freeswitch.Session('{'..vars..'}'..live_contact)
@@ -177,9 +184,9 @@ if config and reserved_user then
     for _,q in ipairs(config.queues) do for _,m in ipairs(q.members) do
         if tostring(m.number)==tostring(reserved_user.number) then
             local p=u and P.profile(config,m.number,clock)
-            local available=u and u.enabled and u.queue_status=='LoggedIn' and m.status=='LoggedIn' and not m.supervisor_break and p.queue_status~='0'
+            local status=P.queue_member_status(u,m,p,false)
             api:execute('callcenter_config','agent set ready_time '..m.agent_uuid..' '..(os.time()+(reserved_queue and reserved_queue.wrap_up or 2)))
-            api:execute('callcenter_config',"agent set status "..m.agent_uuid.." '"..(available and 'Available' or 'Logged Out').."'")
+            api:execute('callcenter_config',"agent set status "..m.agent_uuid.." '"..status.."'")
         end
     end end
 end

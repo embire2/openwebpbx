@@ -64,7 +64,7 @@ class pbx_setup_provisioner {
     }
 
     private function secret(mixed $value, string $field, bool $extension = false): string {
-        if (!is_string($value) || strlen($value) > 256 || preg_match('/[\x00-\x1f\x7f]/', $value) || str_contains($value, '${') || ($extension && preg_match('/["<>&]/', $value))) {
+        if (!is_string($value) || strlen($value) > 256 || preg_match('/[\x00-\x1f\x7f]/', $value) || str_contains($value, '${')) {
             throw new InvalidArgumentException('The '.$field.' cannot be represented safely. Set a new credential before importing.');
         }
         return $value;
@@ -94,15 +94,14 @@ class pbx_setup_provisioner {
             $this->fields($user, ['number','name','email','auth_id','password','voicemail_pin','enabled'], 'user');
             $number = $this->number($user['number'] ?? '', 'extension number');
             if (isset($numbers[$number])) throw new InvalidArgumentException('Duplicate extension number '.$number.'.');
-            $authId = $this->text($user['auth_id'] ?? $number, 'SIP authentication ID', 64);
+            $authId = isset($plan['v20']) ? $this->secret($user['auth_id'] ?? $number,'SIP authentication ID') : $this->text($user['auth_id'] ?? $number, 'SIP authentication ID', 64);
             if (!preg_match('/^[A-Za-z0-9_.!-]{1,64}$/D', $authId)) throw new InvalidArgumentException('A SIP authentication ID contains unsupported characters.');
             if (isset($identities[strtolower($authId)])) throw new InvalidArgumentException('Duplicate SIP authentication ID.');
-            $name = $this->text($user['name'] ?? $number, 'user name', 80);
-            // The native PHP directory writer also places caller names directly in XML.
-            if (preg_match('/["<>&]/', $name)) throw new InvalidArgumentException('A user name contains characters unsupported by the native directory.');
+            $name = $this->text($user['name'] ?? $number, 'user name', 120);
             $email = $this->text($user['email'] ?? '', 'user email', 254, false);
             if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) throw new InvalidArgumentException('Invalid user email.');
             $password = $this->secret($user['password'] ?? '', 'SIP password', true);
+            if (isset($plan['v20']) && $password === '' && $this->flag($user['enabled'] ?? true, 'extension status')) throw new InvalidArgumentException('An enabled phone has no SIP password in this backup. Restore a backup containing its original password.');
             $pin = $this->text($user['voicemail_pin'] ?? '', 'voicemail PIN', 12, false);
             if ($pin !== '' && !preg_match('/^[0-9]{4,12}$/D', $pin)) throw new InvalidArgumentException('A voicemail PIN must contain 4 to 12 digits.');
             $output['users'][] = ['number'=>$number, 'auth_id'=>$authId, 'name'=>$name, 'email'=>$email, 'password'=>$password, 'voicemail_pin'=>$pin, 'enabled'=>$this->flag($user['enabled'] ?? true, 'extension status')];
@@ -234,8 +233,8 @@ class pbx_setup_provisioner {
         // shared global extension and outbound behaviors cannot run at ingress.
         $ingressContext = 'ingress@'.$domainName;
         foreach ($plan['users'] as $user) {
-            $password = $user['password']; if ($password === '') { $password = bin2hex(random_bytes(20)); $generatedPasswords++; }
-            $pin = $user['voicemail_pin']; if ($pin === '') { $pin = (string)random_int(10000000,99999999); $generatedPins++; }
+            $password = $user['password']; if ($password === '' && !$v20) { $password = bin2hex(random_bytes(20)); $generatedPasswords++; }
+            $pin = $user['voicemail_pin']; if ($pin === '' && !$v20) { $pin = (string)random_int(10000000,99999999); $generatedPins++; }
             $alias = $v20 || $user['auth_id'] === $user['number'] ? null : $user['number'];
             if ($alias !== null) $aliasedUsers++;
             $parts = explode(' ', $user['name'], 2);

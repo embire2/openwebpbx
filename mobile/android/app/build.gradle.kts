@@ -7,8 +7,8 @@ android {
         applicationId = "com.openweb.pbx"
         minSdk = 28
         targetSdk = 36
-        versionCode = providers.gradleProperty("openwebPrivateVersionCode").orNull?.toInt() ?: 111
-        versionName = providers.gradleProperty("openwebPrivateVersionName").orNull ?: "1.0.11"
+        versionCode = providers.gradleProperty("openwebPrivateVersionCode").orNull?.toInt() ?: 112
+        versionName = providers.gradleProperty("openwebPrivateVersionName").orNull ?: "1.0.12"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     flavorDimensions += "distribution"

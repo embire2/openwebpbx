@@ -42,7 +42,7 @@ class PhoneService: Service() {
         val available=networkAvailable()
         core?.isNetworkReachable=available
         if(available){main.removeCallbacks(lostCallTask);core?.refreshRegisters();status="Reconnecting…";flushPending()}
-        else{lastNetworkLoss=SystemClock.elapsedRealtime();status="No internet connection";main.removeCallbacks(reconnectTask);main.postDelayed(lostCallTask,30000)}
+        else{lastNetworkLoss=SystemClock.elapsedRealtime();status="No network connection";main.removeCallbacks(reconnectTask);main.postDelayed(lostCallTask,30000)}
         publish()
     }
     private val networks by lazy{getSystemService(ConnectivityManager::class.java)}
@@ -52,7 +52,13 @@ class PhoneService: Service() {
         override fun onCapabilitiesChanged(network:Network,caps:NetworkCapabilities)=scheduleNetwork()
     }
     private fun scheduleNetwork(){main.removeCallbacks(networkChanged);main.postDelayed(networkChanged,1000)}
-    private fun networkAvailable():Boolean=networks.getNetworkCapabilities(networks.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)==true
+    private fun networkAvailable():Boolean {
+        val network=networks.activeNetwork ?: return false
+        val capabilities=networks.getNetworkCapabilities(network) ?: return false
+        // A private LAN/VPN PBX can be reachable without Android's public
+        // Internet probe. Trusted SIP registration still gates every call.
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+    }
     var muted = false; private set
     var speaker = false; private set
     var core: Core? = null; private set

@@ -83,7 +83,7 @@ class pbx_setup {
         $timezone = $this->inputText($input,'timezone',$options['default_timezone']);
         if (!in_array($timezone, DateTimeZone::listIdentifiers(), true)) throw new InvalidArgumentException('Choose a valid timezone.');
         return ['company_name'=>$this->label($this->inputText($input,'company_name',$options['default_company_name'])),
-            'service_name'=>$this->label($this->inputText($input,'service_name','Main office')), 'tenant_uuid'=>$tenant, 'timezone'=>$timezone];
+            'service_name'=>$this->label($this->inputText($input,'service_name','Main office')), 'tenant_uuid'=>$tenant, 'timezone'=>$timezone, 'sip_domain'=>pbx_sip_domain::validate($input['sip_domain']??'')];
     }
     public function reviewSetup(array $input): array {
         $this->requireManage(); $metadata = $this->metadata($input); $users = [];
@@ -212,10 +212,10 @@ class pbx_setup {
             $this->query('insert into v_pbx_templates(template_uuid,tenant_uuid,template_name,published,payload_ciphertext) values(:id,:tenant,:name,true,:payload)',
                 ['id'=>$template,'tenant'=>$tenant['tenant_uuid'],'name'=>$templateName,'payload'=>$this->seal($config)]);
             $slug = 'pbx-'.substr(str_replace('-', '', $id), 0, 12);
-            $service = $manager->provision(['tenant_uuid'=>$tenant['tenant_uuid'],'template_uuid'=>$template,'service_name'=>$metadata['service_name'],'slug'=>$slug,'request_uuid'=>$id], true);
+            $service = $manager->provision(['tenant_uuid'=>$tenant['tenant_uuid'],'template_uuid'=>$template,'service_name'=>$metadata['service_name'],'slug'=>$slug,'request_uuid'=>$id,'sip_domain'=>$metadata['sip_domain']??''], true);
             $domain = $this->query('select domain_uuid,domain_name from v_domains where domain_uuid=(select domain_uuid from v_pbx_services where service_uuid=:id)', ['id'=>$service])->fetch(PDO::FETCH_ASSOC);
             $result = (new pbx_setup_provisioner($this->db))->apply($domain['domain_uuid'], $domain['domain_name'], $plan);
-            if(isset($plan['v20'])){$restore=new pbx_v20_restore($this->db);$result['restore_report']=$restore->apply($domain['domain_uuid'],$domain['domain_name'],$plan,$payload['archive']??null);}
+            if(isset($plan['v20'])){$plan['v20']['timezone']=$metadata['timezone'];foreach($plan['v20']['departments'] as &$department){$department['timezone']=$metadata['timezone'];}unset($department);$restore=new pbx_v20_restore($this->db);$result['restore_report']=$restore->apply($domain['domain_uuid'],$domain['domain_name'],$plan,$payload['archive']??null);}
             $public = $this->preview($metadata, $plan); $public['draft_id'] = $id; $public['warnings'] = array_values(array_unique(array_merge($public['warnings'] ?? [], $result['warnings'] ?? [])));
             if(isset($result['restore_report']))$public['restore_report']=$result['restore_report'];
             $this->query('delete from v_pbx_templates where template_uuid=:id', ['id'=>$template]);

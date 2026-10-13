@@ -59,7 +59,7 @@ The minimum does not make an unavailable or unverified package installable. Down
 
 The 1.0.7 phone UI adds a prominent update card with live download progress and notification navigation. The Google Play edition opens Google Play for installation and contains no APK self-installer. Store updates become required only after signed metadata confirms a fully published production Play version; publishing on GitHub alone cannot trigger that requirement. Google Play controls its own download, installation and reopening. See [Play publication](google-play.md).
 
-This protects OpenWeb PBX application updates. Distribution packages, PostgreSQL, the call engine and public TLS certificate operations remain separate administrator tasks; updating the application does not silently replace these installed components.
+This protects OpenWeb PBX application updates. Distribution packages, PostgreSQL and public TLS certificate operations remain administrator tasks. Version 1.0.12 includes a specifically pinned registrar-module correction for preserved phone identities: it is installed only with the engine stopped, after the prior module is atomically added to the recovery snapshot. An incompatible engine library is refused; rollback restores the previous module. Other call-engine replacements are separate tasks.
 
 ## Debian verification for 1.0.4
 

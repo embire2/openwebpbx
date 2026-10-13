@@ -11,7 +11,8 @@ $query->execute(['h'=>$host]);
 $profiles = $query->fetchAll(PDO::FETCH_ASSOC);
 if (!$profiles || !in_array('internal', array_column($profiles, 'sip_profile_name'), true)) { throw new RuntimeException('An enabled internal phone profile is required.'); }
 if ($action === 'configure') {
-    $values = ['tls'=>'true', 'tls-only'=>'false', 'tls-sip-port'=>'5061', 'tls-cert-dir'=>'/etc/freeswitch/tls', 'tls-version'=>'tlsv1.2', 'inbound-reg-force-matching-username'=>'true'];
+    if(!pbx_phone_auth::guarded((string)config::load()->get('switch.scripts.dir','/usr/share/freeswitch/scripts')))throw new RuntimeException('Install the guarded phone directory before changing phone authentication.');
+    $values = ['tls'=>'true', 'tls-only'=>'false', 'tls-sip-port'=>'5061', 'tls-cert-dir'=>'/etc/freeswitch/tls', 'tls-version'=>'tlsv1.2', 'inbound-reg-force-matching-username'=>'false'];
     $db->beginTransaction();
     try {
         foreach ($profiles as $profile) {

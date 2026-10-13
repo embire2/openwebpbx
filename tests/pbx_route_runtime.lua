@@ -18,14 +18,14 @@ local config={realm='fixture.example.invalid',timezone='UTC',users={
     departments={{number='sales',name='Sales',members={{number='100',primary=true}},hours={type='AllHours'},breaks={periods={}},holidays={}}},
     outbound_rules={{prefix='0',lengths='10',ranges={},departments={'Sales'},routes={{trunk_id='one',strip=1,prepend='+27',caller_id='+27210000003'},{trunk_id='two',strip=1,prepend='+27',caller_id=''}}}},
     inbound_rules={{rule_id='incoming-one',trunk_id='one',condition='BasedOnDID',number='+27210000001',enabled=true,hours={type='AllHours'},office={type='Extension',number='200',external=''}}},
-    ring_groups={},receptionists={},scripts={},queues={{number='300',callback_mode='request',callback_prefix='',ring_timeout=10,wrap_up=2,members={{number='100',agent_uuid='fixture-agent',status='LoggedIn'}}}}}
+    ring_groups={},receptionists={},scripts={},queues={{number='300',uuid='fixture-queue',timeout=10,intro='',destination={type='Extension',number='200'},callback_mode='request',callback_prefix='',ring_timeout=10,wrap_up=2,members={{number='100',agent_uuid='00000000-0000-4000-a000-000000000077',status='LoggedIn'}}}}}
 config.users['100'].queue_status='LoggedIn'
 local function fixture()
     return {config=copy(config),active=true,gateways={
         [gateway1]={domain=domain,enabled='true',register='false',from_domain='provider-one.example.invalid',proxy='provider-one.example.invalid:5060',profile='external',register_transport='udp',state='NOREG'},
         [gateway2]={domain=domain,enabled='true',register='false',from_domain='provider-two.example.invalid',proxy='provider-two.example.invalid:5060',profile='external',register_transport='udp',state='NOREG'}},
         variables={domain_uuid=domain,destination_number='0123456789',sip_auth_username='auth100',sip_auth_realm=config.realm,uuid='00000000-0000-4000-a000-000000000010'},
-        responses={{cause='NORMAL_TEMPORARY_FAILURE',protocol='sip:503'},{cause='SUCCESS',protocol='sip:200'}},bridges={},bridge_timeouts={},transfers={},released=false}
+        now=1000,api_calls={},waits={},responses={{cause='NORMAL_TEMPORARY_FAILURE',protocol='sip:503'},{cause='SUCCESS',protocol='sip:200'}},bridges={},bridge_timeouts={},transfers={},released=false}
 end
 local function environment(f)
     local s={variables=f.variables,alive=true}
@@ -34,15 +34,26 @@ local function environment(f)
     function s:setVariable(key,value)self.variables[key]=value end
     function s:hangup(cause)f.hangup=cause;self.alive=false end
     function s:answer()f.answers=(f.answers or 0)+1 end
+    function s:streamFile()end
+    function s:playAndGetDigits(_,_,_,timeout)f.prompt_timeout=timeout;f.now=f.now+(f.prompt_delay or 0);return f.answer_digit or '1'end
     function s:transfer(number,_,realm)f.transfers[#f.transfers+1]={number=number,realm=realm}end
     function s:execute(application,data)
-        if application=='record_session' then f.recordings=(f.recordings or 0)+1
+        if application=='callcenter' then
+            f.waits[#f.waits+1]={seconds=f.scheduled_seconds,cursor=self.variables.cc_last_agent_tier_position,exit_keys=self.variables.cc_exit_keys}
+            if f.wait_error then error('Injected native failure') end
+            f.now=f.now+(f.wait_answer and 2 or f.scheduled_seconds)
+            if f.wait_answer then self.variables.cc_agent_bridged='true' end
+        elseif application=='phrase' and data=='openweb_callback_intro' then f.now=f.now+(f.intro_delay or 0)
+        elseif application=='record_session' then f.recordings=(f.recordings or 0)+1
         elseif application=='lua' and data=='app.lua voicemail' then
             f.voicemail={id=self.variables.voicemail_id,action=self.variables.voicemail_action,domain=self.variables.domain_uuid,realm=self.variables.domain_name}
         elseif application=='bridge' then
             f.bridges[#f.bridges+1]=data
             f.bridge_timeouts[#f.bridges]=self.variables.call_timeout
+            f.bridge_ignore_early_media=f.bridge_ignore_early_media or {}
+            f.bridge_ignore_early_media[#f.bridges]=self.variables.ignore_early_media
             local response=f.responses[#f.bridges] or {cause='NO_ANSWER',protocol='sip:408'}
+            f.now=f.now+(response.delay or 0)
             self.variables.originate_disposition=response.cause
             self.variables.last_bridge_proto_specific_hangup_cause=response.protocol
             self.variables.sip_invite_failure_status=response.received or ''
@@ -52,7 +63,18 @@ local function environment(f)
     end
     local db={}
     function db:query(sql,params,callback)
-        if sql:find('from v_gateways',1,true) then
+        if sql:find("to_regclass('v_pbx_sip_domains')",1,true)then callback({relation=f.owned_aliases and 'v_pbx_sip_domains' or nil})
+        elseif sql:find('from v_domains d where',1,true)then
+            if params.domain==f.config.realm then callback({domain_uuid=domain,domain_name=f.config.realm,domain_enabled=f.active and 'true' or 'false',suspended='false'})end
+        elseif sql:find('select a.sip_domain',1,true)then for _,alias in ipairs(f.owned_aliases or {})do callback({sip_domain=alias})end
+        elseif sql:find('r.config,(d.domain_enabled',1,true) then callback({config='fixture-config',allowed=f.active})
+        elseif sql:find('from v_call_center_agents',1,true) then if not f.native_foreign then callback({ok=1})end
+        elseif sql:find('select 1 as ok from v_pbx_jobs',1,true) and sql:find('agent_number=:number',1,true) then if f.reserved then callback({ok=1})end
+        elseif sql:find('insert into v_pbx_queue_tickets',1,true) then
+            if not f.capacity_full then callback({joined=f.now}) end
+        elseif sql:find('update v_pbx_queue_tickets',1,true) then f.queue_finished=(f.queue_finished or 0)+1
+        elseif sql:find('insert into v_pbx_jobs',1,true) then if not f.callback_refused then f.callback_created=params;callback({job_uuid=params.id}) end
+        elseif sql:find('from v_gateways',1,true) then
             local native=f.gateways[params.id]
             if native and native.domain==(params.domain or params.d) and callback then callback(native) end
         elseif sql:find('insert into v_pbx_mobile_push_calls',1,true) then
@@ -81,7 +103,10 @@ local function environment(f)
     function db:release()f.released=true end
     local api={}
     function api:execute(command,data)
-        if command=='sofia' then
+        f.api_calls[#f.api_calls+1]={command=command,data=data}
+        if command=='create_uuid' then return '00000000-0000-4000-a000-000000000088'
+        elseif command=='sched_api' then f.scheduled_seconds=tonumber(data:match('^%+(%d+)'));return f.schedule_error and '-ERR' or '+OK Added: 8'
+        elseif command=='sofia' then
             local id=data:match('status gateway (.+)')
             local native=f.gateways[id]
             return native and ('State\t'..native.state..'\nStatus\t'..(native.status or 'UP')..'\n') or '-ERR Gateway not found'
@@ -92,17 +117,20 @@ local function environment(f)
         elseif command=='uuid_getvar' then
             if data:match(' domain_uuid$') then return f.source_foreign and '00000000-0000-4000-a000-000000000099' or domain end
             if data:match(' queue_extension$') then return f.source_queue or '300' end
+            return f.variables[data:match(' ([^ ]+)$')] or '_undef_'
         elseif command=='callcenter_config' and data:match('^agent list ') then
-            return 'name|state|status|ready_time|last_bridge_end|wrap_up_time|external_calls_count|\nfixture-agent|Waiting|Available|0|0|0|0|'
+            return 'name|state|status|ready_time|last_bridge_end|wrap_up_time|external_calls_count|\n00000000-0000-4000-a000-000000000077|Waiting|Available|0|0|0|0|'
         end
         return '+OK'
     end
-    local env=setmetatable({session=s,scripts_dir=base,storage_dir='/nonexistent-fixture-storage',argv={'00000000-0000-4000-a000-000000000030'}},{__index=_G})
+    local fake_os=setmetatable({time=function()return f.now end},{__index=os})
+    local env=setmetatable({os=fake_os,session=s,scripts_dir=base,storage_dir='/nonexistent-fixture-storage',argv={'00000000-0000-4000-a000-000000000030'}},{__index=_G})
     -- Nested helpers must share this isolated runtime environment as well.
-    env.loadfile=function(path)return loadfile(path,'t',env)end
+    env.loadfile=function(path)if path:find('/directory/contact_realms.lua',1,true)then path='app/switch/resources/scripts/app/xml_handler/resources/scripts/directory/contact_realms.lua'end;return loadfile(path,'t',env)end
+    env.dofile=function(path)return env.loadfile(path)()end
     env.require=function(name)
         if name=='resources.functions.database' then return {new=function()return db end} end
-        if name=='resources.functions.lunajson' then return {decode=function(value)return value=='fixture-channels' and {rows={}} or f.config end,encode=function(value)f.output=value;return 'fixture-output'end} end
+        if name=='resources.functions.lunajson' then return {decode=function(value)return value=='fixture-channels' and (f.channels or {rows={}}) or f.config end,encode=function(value)f.output=value;return 'fixture-output'end} end
         if name=='resources.functions.config' then return {} end
         error('Unexpected dependency '..name)
     end
@@ -254,7 +282,8 @@ local function native_voicemail(call)
         end
     end
     function db:release()result.released=true end
-    local env=setmetatable({session=s,argv={'voicemail'},debug={},temp_dir='/nonexistent-fixture-storage',os={remove=function()error('Unexpected filesystem deletion')end}}, {__index=_G})
+    local fake_os=setmetatable({time=function()return f.now end},{__index=os})
+    local env=setmetatable({os=fake_os,session=s,argv={'voicemail'},debug={},temp_dir='/nonexistent-fixture-storage',os={remove=function()error('Unexpected filesystem deletion')end}}, {__index=_G})
     env.freeswitch={API=function()return {execute=function(_,cmd)return cmd=='strepoch' and '123' or 'fixture-time'end}end,consoleLog=function()end}
     env.settings=function()return {switch={voicemail={dir='/nonexistent-fixture-storage'}},voicemail={storage_type={text='file'}}}end
     env.play_greeting=function()result.greetings=result.greetings+1 end
@@ -309,7 +338,8 @@ check(f.bridges[1]:find('user/auth100@',1,true) and not f.voicemail and f.variab
 for _,change in ipairs({'source_foreign','source_gone'}) do f=fixture();f[change]=true;agent(f);check(#f.bridges==0 and not f.wake_targets,'Queue wrapper rejects '..change..' source before any push') end
 f=fixture();f.source_queue='999';agent(f);check(#f.bridges==0,'Queue wrapper rejects another queue caller')
 f=fixture();f.variables.loopback_leg='A';agent(f);check(#f.bridges==0,'Ordinary SIP or wrong loopback leg cannot invoke selected-agent delivery')
-f=fixture();f.config.users['100'].profiles.Available.away={External={all={type='VoiceMail',number='100'}}};agent(f);check(#f.bridges==0 and not f.voicemail,'Stale queue selection cannot ring or reach voicemail after an agent leaves availability')
+f=fixture();f.config.users['100'].profiles.Available.away={External={all={type='VoiceMail',number='100'}}};f.config.users['100'].profiles.Available.queue_status='0';agent(f);check(#f.bridges==0 and not f.voicemail,'Explicit queue logout prevents stale selected-agent delivery')
+f=fixture();f.config.users['100'].profiles.Available.away={External={all={type='VoiceMail',number='100'}}};f.config.users['100'].queue_status='LoggedOut';agent(f);check(#f.bridges==1 and not f.voicemail,'Explicit profile login rings the queue phone directly without personal forwarding')
 f=fixture();f.config.queues[1].members[1].supervisor_break=true;agent(f);check(#f.bridges==0 and not f.wake_targets,'Supervisor break prevents selected-agent push')
 f=fixture();f.variables.openweb_callback_job='00000000-0000-4000-a000-000000000030';agent(f);check(#f.bridges==0,'Expired or unclaimed callback cannot wake an agent')
 f=fixture();f.variables.openweb_callback_job='00000000-0000-4000-a000-000000000030';f.callback_claim=true;agent(f);check(#f.bridges==1,'Current owned callback lease allows selected-agent delivery')
@@ -320,4 +350,122 @@ local contact_module=assert(loadfile(base..'/app/pbx_setup/core_agent_contact.lu
 local dial=contact_module.dial(domain,config.realm,{number='100'},{number='300',ring_timeout=10},'${uuid}',nil,'${openweb_call_internal}')
 check(dial and dial:find('openweb_queue_source=${uuid}',1,true) and dial:find('openweb_call_internal=${openweb_call_internal}',1,true),'Shared push contact defers caller identity and recording origin to native member expansion')
 check(not contact_module.dial(domain,config.realm,{number='100'},{number='300',ring_timeout=10},'${arbitrary}'),'Native contact refuses arbitrary variable interpolation')
+f=fixture();f.config.ring_groups={{number='400',uuid='fixture-group',strategy='Hunt',timeout=7,members={{number='100'},{number='200'}},destination={type='Extension',number='200'}}};f.responses={{cause='NO_ANSWER'},{cause='SUCCESS'}};f.variables.call_timeout='1';run(f,'group','400')
+check(#f.bridges==2 and f.bridges[1]:find('user/auth100@',1,true) and f.bridges[2]:find('user/auth200@',1,true),'Ordered ring group reaches the next member only after the first unanswered attempt')
+check(f.bridge_timeouts[1]=='7' and f.bridge_timeouts[2]=='7' and #f.transfers==0,'Ordered ring group keeps each bounded ring window and stops after answer')
+f=fixture();f.config.ring_groups={{number='400',uuid='fixture-group',strategy='RingAll',timeout=9,members={{number='100'},{number='200'}},destination={type='Extension',number='200'}}};f.variables.call_timeout='1';f.responses={{cause='SUCCESS'}};run(f,'group','400')
+check(#f.bridges==1 and f.bridges[1]:find('user/auth100@',1,true) and f.bridges[1]:find(',[',1,true) and f.bridges[1]:find('user/auth200@',1,true) and f.bridge_timeouts[1]=='9','Simultaneous ring group shares one bounded attempt despite inherited timeout')
+f=fixture();f.channels={rows={{uuid='busy-leg',presence_id='auth200@'..config.realm}}};f.config.users['200'].profiles.Available.available.Busy={internal_inactive=true,all={type='Extension',number='100'}};run(f,'user','200')
+check(#f.bridges==0 and f.transfers[1].number=='100','PBX busy detection forwards before originating a second call')
+f=fixture();f.channels={rows={{uuid='busy-leg',presence_id='auth200@'..config.realm}}};f.config.users['200'].profiles.Available.busy_detection='UsePhoneStatus';f.responses={{cause='SUCCESS'}};run(f,'user','200')
+check(#f.bridges==1,'Phone-status busy detection leaves call waiting/rejection to the handset')
+for _,mode in ipairs({'disabled','request','offer'})do
+ f=fixture();f.config.queues[1].callback_mode=mode;f.config.queues[1].callback_after=3;run(f,'queue','300')
+ check(f.now==1010 and f.transfers[1].number=='200','Queue '..mode..' falls back at the original ten-second deadline')
+ check(f.queue_finished==1 and f.variables.openweb_queue_limit_token=='' and f.variables.cc_exit_keys=='','Queue '..mode..' leaves one finished visit and no live guard')
+ if mode=='offer' then check(#f.waits==2 and f.waits[1].seconds==3 and f.waits[2].seconds==7,'Declined callback offer cannot restart the native max wait')end
+end
+f=fixture();f.config.queues[1].callback_mode='automatic';f.config.queues[1].callback_after=3;run(f,'queue','300')
+check(f.now==1003 and f.callback_created and f.callback_created.target=='100' and f.hangup=='NORMAL_CLEARING','Automatic callback is saved at the timed offer deadline')
+f=fixture();f.config.queues[1].callback_mode='offer';f.config.queues[1].callback_after=8;f.prompt_delay=2;run(f,'queue','300')
+check(f.prompt_timeout==2000 and f.now==1010 and #f.waits==1,'Callback prompt is capped by the original remaining wait budget')
+f=fixture();f.config.queues[1].callback_mode='disabled';f.wait_answer=true;run(f,'queue','300')
+check(f.now==1002 and #f.transfers==0 and f.hangup=='NORMAL_CLEARING','Answered queue call completes without timeout forwarding')
+f=fixture();f.wait_error=true;run(f,'queue','300')
+check(f.queue_finished==1 and f.variables.openweb_queue_limit_token=='' and f.hangup=='NORMAL_TEMPORARY_FAILURE','Native queue exception cancels its scheduled guard and closes the durable visit')
+f=fixture();f.capacity_full=true;run(f,'queue','300');check(#f.waits==0 and f.transfers[1].number=='200','Full queue routes without starting any agent or timer')
+f=fixture();f.config.queues[1].strategy='HuntRandomStart';f.config.queues[1].polling_mode='random_start';f.config.queues[1].callback_mode='offer';f.config.queues[1].callback_after=3;run(f,'queue','300')
+check(#f.waits==2 and f.waits[1].cursor==f.waits[2].cursor and f.variables.cc_last_agent_tier_position=='','Random-start cursor belongs to one caller and survives callback slices until cleanup')
+local function guard(f)
+ local env=environment(f);assert(loadfile(base..'/app/pbx_setup/index.lua','t',env))({'pbx_setup','queue_limit',domain,'300',f.variables.uuid,'00000000-0000-4000-a000-000000000088'})
+ for _,v in ipairs(f.api_calls)do if v.command=='uuid_recv_dtmf' then return v end end
+end
+f=fixture();f.variables.openweb_queue_limit_token='00000000-0000-4000-a000-000000000088';f.variables.openweb_queue_waiting='true';check(guard(f).data==f.variables.uuid..' D','Scheduled deadline exits only the owned currently waiting caller')
+for _,change in ipairs({'source_foreign','source_gone','answered','found','stale'})do
+ f=fixture();f.variables.openweb_queue_limit_token='00000000-0000-4000-a000-000000000088';f.variables.openweb_queue_waiting='true'
+ if change=='answered' then f.variables.cc_agent_bridged='true' elseif change=='found' then f.variables.cc_agent_found='true' elseif change=='stale' then f.variables.openweb_queue_limit_token='old-visit' else f[change]=true end
+ check(not guard(f),'Scheduled guard refuses '..change..' caller')
+end
+f=fixture();f.config.queues[1].callback_mode='automatic';f.config.queues[1].callback_after=3;f.intro_delay=4;run(f,'queue','300');check(f.now==1004 and f.callback_created and #f.waits==0,'An introduction crossing the callback threshold saves the due job before starting another wait')
+local queue_runtime=assert(loadfile(base..'/app/pbx_setup/queue_runtime.lua'))()
+local calls={};local native={execute=function(_,_,data)
+ calls[#calls+1]=data
+ if data:match('^agent list ')then return 'name|state|status|\n'..config.queues[1].members[1].agent_uuid..'|Receiving|On Break|'end
+ if data:match('^tier add ')then return '-ERR Tier already exist!\n'end
+ return '+OK'
+end}
+queue_runtime.ensure(native,config,config.queues[1],domain,function()error('Existing contact must stay intact')end)
+local mutation=false;for _,v in ipairs(calls)do if v:match('^queue load')or v:match('^agent set')or v:match('^agent add')then mutation=true end end
+check(not mutation,'Queue initialization preserves existing active/paused agent contact, state, metrics and wrap-up')
+calls={};native.execute=function(_,_,data)
+ calls[#calls+1]=data
+ if data:match('^agent list ')then return '-ERR Agent not found!'end
+ if data:match('^agent add ')then return '-ERR Agent already exist!'end
+ if data:match('^tier add ')then return '-ERR Tier already exist!'end
+ return '+OK'
+end
+local created=queue_runtime.ensure(native,config,config.queues[1],domain,function()error('Concurrent winner owns initialization')end)
+check(not next(created) and #calls==3,'Concurrent creation winner is never overwritten or globally reloaded')
+local function status_sync(f)
+ local env=environment(f);env.argv={domain,'100'};assert(loadfile(base..'/app/pbx_setup/mobile_state.lua','t',env))()
+ local status;for _,v in ipairs(f.api_calls)do if v.command=='callcenter_config' then status=v.data end end;return status
+end
+f=fixture();f.config.users['100'].queue_status='LoggedOut';check(status_sync(f):find("'Available'",1,true),'Periodic status synchronization honors explicit profile queue login')
+f=fixture();f.config.queues[1].members[1].status='LoggedOut';check(status_sync(f):find("'Logged Out'",1,true),'Periodic profile login never rejoins a queue the user left')
+f=fixture();f.config.queues[1].members[1].supervisor_break=true;check(status_sync(f):find("'On Break'",1,true),'Periodic synchronization preserves supervisor pause')
+f=fixture();f.reserved=true;check(status_sync(f):find("'On Break'",1,true),'Periodic synchronization preserves a callback reservation')
+f=fixture();f.active=false;check(status_sync(f):find("'Logged Out'",1,true),'Suspension always wins over explicit profile queue login')
+f=fixture();f.native_foreign=true;check(not status_sync(f),'Periodic synchronization never changes a foreign native agent UUID')
+f=fixture();f.config.users['100'].profiles.Available.ring_mobile=true;f.config.users['100'].mobile='0123456789';f.responses={{cause='SUCCESS'}};run(f,'user','100')
+check(#f.bridges==1 and f.bridges[1]:find('user/auth100@',1,true) and f.bridges[1]:find('pbx_setup mobile 100',1,true),'Personal RingMyMobile parallels the registered phone with a guarded mobile leg')
+f=fixture();f.offline=true;f.config.users['100'].profiles.Available.ring_mobile=true;f.config.users['100'].mobile='0123456789';f.responses={{cause='SUCCESS'}};run(f,'user','100')
+check(#f.bridges==1 and not f.bridges[1]:find('user/auth100@',1,true) and f.bridges[1]:find('pbx_setup mobile 100',1,true),'Mobile-only personal delivery bypasses NotRegistered forwarding when an ordinary route is healthy')
+f=fixture();f.offline=true;f.config.users['100'].profiles.Available.ring_mobile=true;f.config.users['100'].mobile='0123456789';f.gateways[gateway1].enabled='false';f.gateways[gateway2].enabled='false';run(f,'user','100')
+check(#f.bridges==0,'Offline mobile-only user never sends a call through disabled providers')
+f=fixture();f.config.users['100'].profiles.Available.ring_mobile=true;f.config.users['100'].mobile='0123456789';f.config.ring_groups={{number='400',uuid='group',strategy='Hunt',timeout=8,members={{number='100'}},destination={type='None'}}};f.responses={{cause='SUCCESS'}};run(f,'group','400')
+check(f.bridges[1]:find('user/auth100@',1,true) and f.bridges[1]:find('pbx_setup mobile 100',1,true),'Each ordered group member rings its phone and mobile together')
+f=fixture();f.config.users['100'].profiles.Available.ring_mobile=true;f.config.users['100'].mobile='0123456789';run(f,'queue','300')
+local wrapped=false;for _,v in ipairs(f.api_calls)do if v.data and v.data:find('agent set contact',1,true) and v.data:find('core_agent.lua',1,true)then wrapped=true end end
+check(wrapped,'Queue RingMyMobile uses only the selected-agent wrapper, even without Web Push')
+f=fixture();f.offline=true;f.config.users['100'].profiles.Available.ring_mobile=true;f.config.users['100'].mobile='0123456789';agent(f)
+check(#f.bridges==1 and not f.voicemail and f.bridges[1]:find('pbx_setup mobile 100',1,true),'Selected queue mobile-only delivery bypasses personal voicemail')
+f=fixture();f.variables.call_timeout='1';agent(f);check(f.bridge_timeouts[1]=='10','Selected-agent ringing overrides an inherited caller timeout')
+for _,change in ipairs({'wrong_leg','source_foreign','source_gone','disabled'})do
+ f=fixture();f.config.users['100'].profiles.Available.ring_mobile=true;f.config.users['100'].mobile='0123456789';f.variables.loopback_leg='B';f.variables.other_loopback_leg_uuid='00000000-0000-4000-a000-000000000063';f.variables.openweb_mobile_source='00000000-0000-4000-a000-000000000064';f.variables.openweb_mobile_timeout='9'
+ if change=='wrong_leg'then f.variables.loopback_leg='A' elseif change=='disabled'then f.config.users['100'].enabled=false else f[change]=true end
+ run(f,'mobile','100');check(#f.bridges==0,'Mobile helper rejects '..change..' before provider dialing')
+end
+f=fixture();f.config.users['100'].profiles.Available.ring_mobile=true;f.config.users['100'].mobile='0123456789';f.variables.loopback_leg='B';f.variables.other_loopback_leg_uuid='00000000-0000-4000-a000-000000000063';f.variables.openweb_mobile_source='00000000-0000-4000-a000-000000000064';f.variables.openweb_mobile_timeout='9';run(f,'mobile','100')
+check(#f.bridges==2 and f.bridge_timeouts[1]=='9' and f.bridge_timeouts[2]=='9','Mobile helper uses ordinary ordered provider failover within one bounded ringing window')
+f=fixture();f.owned_aliases={'phone.fixture.invalid'};f.config.sip_domains={'phone.fixture.invalid'};f.variables.sip_auth_realm='phone.fixture.invalid';run(f)
+check(#f.bridges==2 and f.variables.call_direction=='outbound','Database-owned alias authenticates the canonical user and preserves ordinary outbound policy')
+f=fixture();f.owned_aliases={'phone.fixture.invalid'};f.config.sip_domains={'foreign.fixture.invalid'};run(f)
+check(#f.bridges==0 and f.hangup=='CALL_REJECTED','Unowned saved alias cannot authorize any contact or call')
+f=fixture();f.owned_aliases={'phone.fixture.invalid'};f.variables.sip_auth_realm='foreign.fixture.invalid';run(f)
+check(#f.bridges==0 and f.hangup=='CALL_REJECTED','Foreign authentication realm never grants canonical outbound identity')
+f=fixture();f.owned_aliases={'phone.fixture.invalid'};f.config.sip_domains={'phone.fixture.invalid'};f.channels={rows={{uuid='owned-alias-leg',presence_id='auth200@phone.fixture.invalid'}}};f.config.users['200'].profiles.Available.available.Busy={internal_inactive=true,all={type='Extension',number='100'}};run(f,'user','200')
+check(#f.bridges==0 and f.transfers[1].number=='100','Busy detection includes the exact database-owned alias identity')
+f=fixture();f.owned_aliases={'phone.fixture.invalid'};f.channels={rows={{uuid='foreign-leg',presence_id='auth200@foreign.fixture.invalid'}}};f.responses={{cause='SUCCESS'}};run(f,'user','200')
+check(#f.bridges==1,'Foreign alias presence cannot make an owned phone busy')
+f=fixture();f.config.users['100'].profiles.Available.ring_mobile=true;f.config.users['100'].mobile='0123456789';f.config.users['100'].profiles.Available.available.NoAnswer={internal_inactive=true,all={type='Extension',number='200'}};f.responses={{cause='NO_ANSWER',protocol='sip:480'}};run(f,'user','100')
+check(f.bridge_ignore_early_media[1]=='true' and f.transfers[1].number=='200','Mobile loopback early media never counts as a personal answer or suppresses NoAnswer forwarding')
+f=fixture();f.config.users['100'].profiles.Available.ring_mobile=true;f.config.users['100'].mobile='0123456789';f.config.ring_groups={{number='400',uuid='group',strategy='Hunt',timeout=8,members={{number='100'}},destination={type='Extension',number='200'}}};f.responses={{cause='NO_ANSWER'}};run(f,'group','400')
+check(f.bridge_ignore_early_media[1]=='true' and f.transfers[1].number=='200','Group mobile candidate remains unanswered until its actual provider leg answers')
+f=fixture();f.offline=true;f.config.users['100'].profiles.Available.ring_mobile=true;f.config.users['100'].mobile='0123456789';agent(f)
+check(f.bridge_ignore_early_media[1]=='true','Selected-agent mobile early media cannot seize the queue call before an actual phone answer')
+check(f.bridges[1]:find('presence_id=auth100@'..config.realm,1,true),'Mobile-only leg carries its canonical target identity for busy detection')
+f=fixture();f.config.users['100'].profiles.Available.ring_mobile=true;f.config.users['100'].mobile='0123456789';f.channels={rows={{uuid='existing-mobile-leg',presence_id='auth100@'..config.realm}}};agent(f)
+check(#f.bridges==0,'Selected agent never starts mobile delivery during an unrelated canonical busy call')
+f=fixture();f.channels={rows={{uuid='00000000-0000-4000-a000-000000000063',presence_id='auth100@'..config.realm},{uuid=f.variables.uuid,presence_id='auth100@'..config.realm}}};agent(f)
+check(#f.bridges==1,'Selected-agent callback ignores only its own validated loopback legs for busy detection')
+f=fixture();f.config.users['100'].profiles.Available.ring_mobile=true;f.config.users['100'].mobile='0123456789';f.variables.loopback_leg='B';f.variables.other_loopback_leg_uuid='00000000-0000-4000-a000-000000000063';f.variables.openweb_mobile_source='00000000-0000-4000-a000-000000000064';f.variables.openweb_mobile_timeout='9';f.responses={{cause='NORMAL_TEMPORARY_FAILURE',protocol='sip:503',delay=3},{cause='SUCCESS'}};run(f,'mobile','100')
+check(f.bridge_timeouts[1]=='9' and f.bridge_timeouts[2]=='6' and f.bridge_ignore_early_media[1]=='true','Mobile provider failover uses only the original remaining ring window and waits for a real answer')
+for _,change in ipairs({'foreign','disabled','emergency','invalid-mobile'})do
+ f=fixture();f.offline=true;f.config.users['100'].profiles.Available.ring_mobile=true;f.config.users['100'].mobile='0123456789'
+ if change=='foreign'then f.gateways[gateway1].domain='00000000-0000-4000-a000-000000000099';f.gateways[gateway2].domain='00000000-0000-4000-a000-000000000099'
+ elseif change=='disabled'then f.config.users['100'].enabled=false
+ elseif change=='emergency'then f.config.calling_rules={emergency_numbers={'0123456789'},emergency_routes={{trunk_id='one'}}}
+ else f.config.users['100'].mobile='0123456789,sofia/foreign'end
+ run(f,'user','100');check(#f.bridges==0,'Automatic mobile delivery refuses '..change..' before any provider originate')
+end
 print('PASS: '..count..' synthetic call, routing, first-call wizard and selected-agent wake runtime checks')

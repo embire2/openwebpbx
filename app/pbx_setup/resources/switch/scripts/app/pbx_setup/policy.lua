@@ -1,5 +1,79 @@
 -- Pure call decisions, shared by the call runtime and deterministic restore checks.
 local P = {}
+-- Keep the source strategy separate from the native queue strategy. A random
+-- start uses the native ordered hunt with a cursor belonging to this caller.
+function P.ring_strategy(value)
+    value=tostring(value or 'RingAll'):gsub('^RingStrategy','')
+    if value=='RingAll' or value=='simultaneous' then return 'simultaneous' end
+    if value=='Hunt' or value=='PrioritizedHunt' or value=='sequence' then return 'sequence' end
+end
+function P.queue_strategy(value)
+    value=tostring(value or 'RingAll'):gsub('^PollingStrategy','')
+    local names={RingAll='ring-all',Hunt='top-down',PrioritizedHunt='top-down',
+        HuntRandomStart='top-down',RoundRobin='round-robin',LongestWaiting='longest-idle-agent',
+        LeastTalkTime='agent-with-least-talk-time',FewestAnswered='agent-with-fewest-calls'}
+    local native=names[value]
+    if not native then
+        for _,name in ipairs({'ring-all','top-down','round-robin','longest-idle-agent',
+            'agent-with-least-talk-time','agent-with-fewest-calls','random','sequentially-by-agent-order'}) do
+            if value==name then native=name;break end
+        end
+    end
+    if native then return native,value=='HuntRandomStart' and 'random_start' or 'native' end
+end
+function P.queue_member_status(user,member,profile,reserved)
+    if not user or not user.enabled or not member or not profile then return 'Logged Out' end
+    if reserved or member.supervisor_break then return 'On Break' end
+    local forced=tonumber(profile.queue_status or '-1')
+    local logged=forced==1 or (forced==-1 and user.queue_status=='LoggedIn')
+    -- Per-queue membership still applies when the profile logs the user in.
+    if forced~=0 and logged and member.status=='LoggedIn' then return 'Available' end
+    return 'Logged Out'
+end
+function P.hunt_start(members,id)
+    -- Native session UUIDs are generated independently for callers. Using their
+    -- random prefix avoids resetting a global RNG or reshuffling every poll.
+    local count=#(members or {})
+    local seed=type(id)=='string' and id:match('^([a-fA-F0-9]+)%-')
+    seed=seed and tonumber(seed,16)
+    if count>0 and seed then return seed%count end
+    return 0
+end
+function P.queue_slice(queue,started,now,offered)
+    local elapsed=math.max(0,(tonumber(now) or 0)-(tonumber(started) or 0))
+    local remaining=math.max(0,math.floor((tonumber(queue.timeout) or 0)-elapsed))
+    local mode=queue.callback_mode or 'disabled'
+    if not offered and (mode=='offer' or mode=='automatic') then
+        local until_offer=math.floor((tonumber(queue.callback_after) or 600)-elapsed)
+        if until_offer>0 then return math.min(remaining,until_offer),remaining end
+    end
+    return remaining,remaining
+end
+function P.realm_allowed(realms,requested)
+    for _,realm in ipairs(realms or {}) do if realm==requested then return true end end
+    return false
+end
+function P.realm_config(config,realms)
+    if #(realms or {})==0 or not P.realm_allowed(realms,config.realm) then return false end
+    if config.sip_domains==nil then return true end
+    if type(config.sip_domains)~='table' then return false end
+    for key,alias in pairs(config.sip_domains) do
+        if type(key)~='number' or key<1 or key%1~=0 or key>#config.sip_domains or not P.realm_allowed(realms,alias) then return false end
+    end
+    return true
+end
+function P.user_busy(channels,user,realm,current,realms)
+    if type(channels)~='table' or not user or not user.auth_id then return nil end
+    -- The native JSON API omits rows when the engine has no channels.
+    if channels.rows==nil and tonumber(channels.row_count)==0 then return false end
+    if type(channels.rows)~='table' then return nil end
+    local identities={[user.auth_id..'@'..realm]=true}
+    for _,owned in ipairs(realms or {}) do identities[user.auth_id..'@'..owned]=true end
+    for _,row in ipairs(channels.rows) do
+        if row.uuid~=current and identities[row.presence_id] then return true end
+    end
+    return false
+end
 function P.contact(value)
     if type(value)~='string' then return nil end
     value=value:gsub('%s+$','')
@@ -28,7 +102,7 @@ function P.callback_open(config,queue,clock)
         local d,t=clock((P.department(config,queue.number) or {}).timezone or config.timezone)
         return P.in_hours(h,d,t)
     end
-    return P.office(config,queue.number,clock)
+    return P.office(config,queue.number,clock,h and h.ignore_holidays)
 end
 function P.find(rows, number)
     for _, row in ipairs(rows or {}) do if tostring(row.number)==tostring(number) then return row end end
@@ -48,21 +122,34 @@ function P.department(config, number)
 end
 function P.in_hours(hours, day, time)
     if not hours or hours.type=='AllHours' then return true end
+    day=tonumber(day)
+    if not day or day<0 or day>6 or type(time)~='string' or not time:match('^%d%d:%d%d$') then return false end
     for _, period in ipairs(hours.periods or {}) do
-        if tonumber(period.day)==tonumber(day) and time>=period.start and time<period['end'] then return true end
+        local weekday=tonumber(period.day)
+        local start,finish=period.start,period['end']
+        if type(start)=='string' and type(finish)=='string' then
+            if start<finish and weekday==day and time>=start and time<finish then return true end
+            -- An overnight opening belongs to its start weekday, including
+            -- the following day's early hours. Closing remains exclusive.
+            if start>finish and ((weekday==day and time>=start) or (weekday==(day+6)%7 and time<finish)) then return true end
+        end
     end
     return false
 end
-function P.office(config, number, clock)
+function P.office(config, number, clock,ignore_holidays)
     local department=P.department(config,number)
-    if not department then return true,false,false end
+    if not department then
+        local day,time=clock(config.timezone)
+        return P.in_hours(config.default_hours,day,time),false,false
+    end
     local override=department.office_override or {}
     if tonumber(override.expires or 0)>os.time() and (override.state=='open' or override.state=='closed') then return override.state=='open',false,false end
     local day,time,date=clock(department.timezone or config.timezone)
     local holiday=false
     for _, h in ipairs(department.holidays or {}) do if h.date==date then holiday=true end end
-    local break_now=#(department.breaks.periods or {})>0 and P.in_hours(department.breaks,day,time)
-    return P.in_hours(department.hours,day,time) and not break_now and not holiday,break_now,holiday
+    local breaks=department.breaks or {}
+    local break_now=#(breaks.periods or {})>0 and P.in_hours(breaks,day,time)
+    return P.in_hours(department.hours,day,time) and not break_now and (ignore_holidays or not holiday),break_now,holiday
 end
 function P.profile(config, number, clock)
     local user=config.users[tostring(number)]
@@ -86,6 +173,10 @@ function P.forward(profile,reason,internal,open)
     return internal and not rule.internal_inactive and rule.internal or rule.all
 end
 function P.route_string(value)
+    if type(value)=='table' then
+        if value.type=='ProceedWithNoExceptions' then return nil end
+        return value
+    end
     local kind,number,external=(value or ''):match('^([A-Za-z]+)%.([^.]*)%.(.*)$')
     if not kind or kind=='ProceedWithNoExceptions' then return nil end
     return {type=kind,number=number,external=external}
@@ -93,14 +184,23 @@ end
 function P.object_destination(config,object,clock)
     local schedule=object.hours
     if not schedule then return nil end
-    local open,break_now,holiday=P.office(config,object.number,clock)
-    if schedule.hours.type~='OfficeHours' and schedule.hours.type~='OutOfOfficeHours' then
-        local d,t=clock((P.department(config,object.number) or {}).timezone or config.timezone)
-        open=P.in_hours(schedule.hours,d,t)
-    elseif schedule.hours.type=='OutOfOfficeHours' then open=not open end
+    local override=object.office_override or schedule.office_override or {}
+    if tonumber(override.expires or 0)>os.time() and (override.state=='open' or override.state=='closed') then
+        return P.route_string(override.state=='open' and schedule.office or schedule.outside)
+    end
+    local hours=schedule.hours or {type='AllHours'}
+    local open,break_now,holiday=P.office(config,object.number,clock,hours.ignore_holidays)
+    local day,time=clock((P.department(config,object.number) or {}).timezone or config.timezone)
+    if hours.type~='OfficeHours' and hours.type~='OutOfOfficeHours' then
+        open=P.in_hours(hours,day,time)
+    elseif hours.type=='OutOfOfficeHours' then open=not open end
+    if hours.ignore_holidays then holiday=false end
+    local own_breaks=schedule.breaks or {}
+    if #(own_breaks.periods or {})>0 and P.in_hours(own_breaks,day,time) then break_now=true end
     if holiday then return P.route_string(schedule.holiday) end
     if break_now then return P.route_string(schedule['break']) end
     if not open then return P.route_string(schedule.outside) end
+    return P.route_string(schedule.office)
 end
 local function member_allowed(config,rule,caller)
     if #(rule.ranges or {})==0 and #(rule.departments or {})==0 then return true end

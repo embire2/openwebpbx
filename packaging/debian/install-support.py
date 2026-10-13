@@ -17,6 +17,8 @@ SUPPORT = {'backups.py': Path('/opt/openwebpbx/tools/backups.py'),
            'install-backups.sh': Path('/opt/openwebpbx/tools/install-backups.sh'),
            'install-support.py': Path('/opt/openwebpbx/tools/install-support.py'),
            'install-mobile-notifications.py': Path('/opt/openwebpbx/tools/install-mobile-notifications.py'),
+           'cpanel-acme-hook.py': Path('/opt/openwebpbx/tools/cpanel-acme-hook.py'),
+           'restore-sofia.py': Path('/opt/openwebpbx/tools/restore-sofia.py'),
            'openwebpbx-backups.service': Path('/etc/systemd/system/openwebpbx-backups.service'),
            'openwebpbx-backups.timer': Path('/etc/systemd/system/openwebpbx-backups.timer')}
 TIMER_LINKS = [Path('/etc/systemd/system/timers.target.wants/openwebpbx-backups.timer'),
@@ -124,6 +126,10 @@ def install():
     for name in SUPPORT:
         if digest(PACKAGE / name) != manifest['files'].get(name):
             raise ValueError('The backup helper differs from the reviewed release.')
+    spec = importlib.util.spec_from_file_location('restore_sofia', PACKAGE / 'restore-sofia.py')
+    registrar = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(registrar)
+    native_content = registrar.payload(PACKAGE, manifest)
     journal_path = UPDATES / 'install-journal.json'
     migrating = False
     if journal_path.is_file():
@@ -142,7 +148,7 @@ def install():
             upgrade = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(upgrade)
             upgrade.validate_backup(backup)
-            targets = list(SUPPORT.values()) + NOTIFICATION_FILES
+            targets = list(SUPPORT.values()) + NOTIFICATION_FILES + [registrar.TARGET]
             # Existing systemd enablement is preserved. A newly created link is
             # included as an absent target so older rollback code removes it.
             for link in TIMER_LINKS:
@@ -150,8 +156,11 @@ def install():
                     targets.append(link)
             augment_snapshot(backup, targets)
             upgrade.validate_backup(backup)
+    if native_content is not None and not migrating:
+        raise ValueError('An existing registrar must be updated through the recoverable instance updater.')
+    registrar.install(native_content)
     ensure_dependencies()
-    for name in ['install-backups.sh', 'install-support.py', 'install-mobile-notifications.py']:
+    for name in ['install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py']:
         target = SUPPORT[name]
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
         with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.support-helper-', delete=False) as stream:
