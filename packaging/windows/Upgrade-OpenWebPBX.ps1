@@ -118,12 +118,16 @@ function CheckHealth([string]$ExpectedVersion) {
    $health = Invoke-RestMethod 'http://127.0.0.1:8087/health' -TimeoutSec 3
    if ($health.state -eq 'Running' -and $health.version -eq $ExpectedVersion) {
     $login = Invoke-WebRequest ('https://' + $state.DomainName + ':' + $state.HttpsPort + '/login.php') -UseBasicParsing -TimeoutSec 5
-    if($login.StatusCode -eq 200){return}
+    if($login.StatusCode -eq 200){
+     if([version]$ExpectedVersion -lt [version]'1.0.13'){return}
+     & "$root\php\php.exe" "$PSScriptRoot\check-call-engine.php" "$root\web"
+     if($LASTEXITCODE -eq 0){return}
+    }
    }
   } catch { }
   Start-Sleep -Seconds 2
  }
- throw 'The updated call service or trusted HTTPS sign-in page did not become ready.'
+ throw 'The updated phone listener, call service or trusted HTTPS sign-in page did not become ready.'
 }
 function PauseEngine {
  $probe=@'

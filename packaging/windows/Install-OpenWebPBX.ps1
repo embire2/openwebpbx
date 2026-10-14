@@ -283,10 +283,13 @@ if ((Get-WebAppPoolState OpenWebPBX).Value -ne 'Started') { Start-WebAppPool Ope
 Start-Website OpenWebPBX
 $ready=$false
 for($attempt=0;$attempt -lt 30;$attempt++){
- try{$ready=(Invoke-RestMethod 'http://127.0.0.1:8087/health' -TimeoutSec 3).state -eq 'Running'}catch{$ready=$false}
+ try{
+  $ready=(Invoke-RestMethod 'http://127.0.0.1:8087/health' -TimeoutSec 3).state -eq 'Running'
+  if($ready){& "$root\php\php.exe" "$PSScriptRoot\check-call-engine.php" "$root\web";$ready=$LASTEXITCODE -eq 0}
+ }catch{$ready=$false}
  if($ready){break};Start-Sleep -Seconds 2
 }
-if(!$ready){throw 'The background call service is not ready. Check the private server logs before continuing.'}
+if(!$ready){throw 'The phone listener or background call service is not ready. Check the private server logs before continuing.'}
 if(!$LocalCertificate -and !$EnablePublicAccess -and $DomainName -ne 'localhost') {
  try { & "$PSScriptRoot\Enable-PhoneTLS.ps1" -CertificateThumbprint $CertificateThumbprint -MaintenanceLock $installationLock }
  catch { Write-Warning 'The PBX is installed, but secure phone setup is incomplete. Use Enable-PhoneTLS.ps1 with an exportable trusted certificate before connecting Android phones.' }
