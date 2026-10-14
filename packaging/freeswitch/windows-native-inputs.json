@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "inputs": {
+    "FreeSWITCH-1.11.3-Release-x64.msi": {"url": "https://github.com/signalwire/freeswitch/releases/download/v1.11.3/FreeSWITCH-1.11.3-Release-x64.msi", "sha256": "f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d", "kind": "msi"},
+    "pthreads-w32-2-9-1.tar.gz": {"url": "https://files.freeswitch.org/downloads/libs/pthreads-w32-2-9-1.tar.gz", "sha256": "efcc3901f889edc946352dd5ae5e4eef5e7a2d9f3af04f0ce88725abe7f7660d", "kind": "tar"},
+    "gawk.exe": {"url": "https://github.com/freeswitch/gawk/releases/download/v3.1.8/gawk.exe", "sha256": "897e14a092a82f544dccda9a49846523e8fb7dabc6bd8f1a1cd3ea066d93019c", "kind": "tool"},
+    "openssl-3.4.3-binaries-x64-release.zip": {"url": "https://files.freeswitch.org/windows/packages/openssl/3.4.3/openssl-3.4.3-binaries-x64-release.zip", "sha256": "6d2583d312324bca7d38843d5ce0b7f89e6f7c61531e55c651f38e1b07a10d4e", "kind": "zip"},
+    "openssl-3.4.3-headers.zip": {"url": "https://files.freeswitch.org/windows/packages/openssl/3.4.3/openssl-3.4.3-headers.zip", "sha256": "c9092c4a62e7033721f8ec70029e0824e8ff9181121933fa062b0b814273f547", "kind": "zip"},
+    "curl-7.88.0_2-binaries-x64-release.zip": {"url": "https://files.freeswitch.org/windows/packages/curl/7.88.0_2/curl-7.88.0_2-binaries-x64-release.zip", "sha256": "4aff4bbec98b2a8a554a801356f73e7d7f05a98dcfd2cd67c425e5c1f4fe6f54", "kind": "zip"},
+    "curl-7.88.0_2-headers.zip": {"url": "https://files.freeswitch.org/windows/packages/curl/7.88.0_2/curl-7.88.0_2-headers.zip", "sha256": "e884024911ac4c06ef86b73da0462147fdfbc8895e4d39a016224cbd24967c54", "kind": "zip"},
+    "zlib-1.2.11-binaries-x64-release.zip": {"url": "https://files.freeswitch.org/windows/packages/zlib/1.2.11/zlib-1.2.11-binaries-x64-release.zip", "sha256": "877ab7daee737d892eff4599f6dbb95a59466b578c6b1fc06d8a34a3b3abe0b5", "kind": "zip"},
+    "zlib-1.2.11-headers.zip": {"url": "https://files.freeswitch.org/windows/packages/zlib/1.2.11/zlib-1.2.11-headers.zip", "sha256": "9c4755ca7b74e892f133d3fd71f8a240b09ae31aeeb4178c54bf7521764ec506", "kind": "zip"},
+    "bcg729_1.1.1.orig.tar.gz": {"url": "https://deb.debian.org/debian/pool/main/b/bcg729/bcg729_1.1.1.orig.tar.gz", "sha256": "68599a850535d1b182932b3f86558ac8a76d4b899a548183b062956c5fdc916d", "kind": "codec-source"},
+    "bcg729_1.1.1-3+deb13u1.debian.tar.xz": {"url": "https://deb.debian.org/debian/pool/main/b/bcg729/bcg729_1.1.1-3+deb13u1.debian.tar.xz", "sha256": "4674343d5150b5b60db633c1a8ee54590f0a1714928f77e74ee641e004dd14b6", "kind": "codec-source"}
+  }
+}

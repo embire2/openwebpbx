@@ -1,0 +1,133 @@
+name: Windows pinned native engine
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-engine-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  engine:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Preserve source bytes
+        run: git config --global core.autocrlf false
+      - name: Check out the dispatched source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Prepare x64 native tools
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = & $vswhere -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$vs) { throw 'The hosted runner has no native C++ toolchain.' }
+          $devcmd = Join-Path $vs 'Common7/Tools/VsDevCmd.bat'
+          $settings = & cmd.exe /d /s /c ('"' + $devcmd + '" -arch=x64 -host_arch=x64 >nul && set')
+          if ($LASTEXITCODE) { throw 'The x64 native developer environment failed.' }
+          foreach ($line in $settings) {
+            if ($line -match '^(PATH|INCLUDE|LIB|LIBPATH|VCToolsInstallDir|VCToolsVersion|WindowsSdkDir|WindowsSDKVersion|VSINSTALLDIR)=(.*)$') {
+              $name = $Matches[1]; $value = $Matches[2]
+              [Environment]::SetEnvironmentVariable($name, $value, 'Process')
+              "$name=$value" >> $env:GITHUB_ENV
+            }
+          }
+          foreach ($tool in 'cl.exe', 'lib.exe', 'MSBuild.exe', 'dumpbin.exe', 'cmake.exe', 'python.exe', 'git.exe') {
+            if (!(Get-Command $tool -ErrorAction SilentlyContinue)) { throw "Missing native build tool: $tool" }
+          }
+          $version = (Get-Content VERSION -Raw).Trim()
+          $work = Join-Path $env:RUNNER_TEMP 'openwebpbx-engine'
+          New-Item -ItemType Directory $work | Out-Null
+          "ENGINE_WORK=$work" >> $env:GITHUB_ENV
+          $vsVersion = & $vswhere -latest -property installationVersion
+          $major = [int]($vsVersion.Split('.')[0])
+          if ($major -eq 17) { $generator = 'Visual Studio 17 2022'; $toolset = 'v143' }
+          elseif ($major -eq 18) { $generator = 'Visual Studio 18 2026'; $toolset = 'v145' }
+          else { throw 'The hosted native toolset has not been reviewed.' }
+          "NATIVE_GENERATOR=$generator" >> $env:GITHUB_ENV
+          "NATIVE_TOOLSET=$toolset" >> $env:GITHUB_ENV
+          [ordered]@{ source_commit=$env:GITHUB_SHA; version=$version; image=$env:ImageVersion; visual_studio=$vsVersion;
+            compiler_directory=$env:VCToolsInstallDir; compiler_version=$env:VCToolsVersion; windows_sdk=$env:WindowsSDKVersion;
+            run_url="https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" } |
+            ConvertTo-Json | Set-Content "$work/runner-inputs.json" -Encoding utf8
+      - name: Retrieve exact upstream sources and pinned dependency inputs
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Fetch-Source([string]$Name,[string]$Url,[string]$Revision) {
+            $repo = Join-Path $env:ENGINE_WORK $Name
+            git init --quiet $repo
+            git -C $repo remote add origin $Url
+            git -C $repo fetch --depth=1 origin $Revision
+            if ($LASTEXITCODE -or (git -C $repo rev-parse FETCH_HEAD).Trim() -ne $Revision) { throw 'Pinned upstream source fetch failed.' }
+          }
+          Fetch-Source 'fs-repository' 'https://github.com/signalwire/freeswitch.git' 'ef32e205295e29f034f1453ad245ba5efb07b94a'
+          Fetch-Source 'sofia-repository' 'https://github.com/freeswitch/sofia-sip.git' 'ad36ac8f755308e8b87f98a505e83d4e408e5cc3'
+          Fetch-Source 'codec-repository' 'https://github.com/xadhoom/mod_bcg729.git' '4203247dee4719545005ec7ab9ea536fc83df1d8'
+          python packaging/freeswitch/windows-native-dependencies.py --downloads "$env:ENGINE_WORK/downloads" --fetch
+          if ($LASTEXITCODE) { throw 'Native dependency download or hash verification failed.' }
+          python packaging/freeswitch/prepare-windows-native.py --freeswitch-repository "$env:ENGINE_WORK/fs-repository" --sofia-repository "$env:ENGINE_WORK/sofia-repository" --codec-repository "$env:ENGINE_WORK/codec-repository" --bcg729-archives "$env:ENGINE_WORK/downloads" --output "$env:ENGINE_WORK/source"
+          if ($LASTEXITCODE) { throw 'Pinned native source preparation failed.' }
+      - name: Extract the verified MSI core and derive its import library
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = "$env:ENGINE_WORK/downloads/FreeSWITCH-1.11.3-Release-x64.msi"
+          $expected = 'f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d'
+          if ((Get-FileHash $msi -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'The source MSI hash differs.' }
+          $image = Join-Path $env:ENGINE_WORK 'msi-image'
+          $process = Start-Process msiexec.exe -ArgumentList @('/a', ('"'+$msi+'"'), '/qn', ('TARGETDIR="'+$image+'"'), '/L*v', ('"'+$env:ENGINE_WORK+'/msi-extract.log"')) -Wait -PassThru
+          if ($process.ExitCode -notin 0,3010) { throw 'The verified MSI administrative extraction failed.' }
+          $cores = @(Get-ChildItem $image -Filter FreeSwitch.dll -File -Recurse)
+          if ($cores.Count -ne 1) { throw 'The MSI does not contain one unambiguous native core.' }
+          $core = $cores[0].FullName; $coreHash = (Get-FileHash $core -Algorithm SHA256).Hash.ToLowerInvariant()
+          $definition = Join-Path $env:ENGINE_WORK 'FreeSwitch.def'
+          python packaging/freeswitch/core-exports.py --dll $core --expected-sha256 $coreHash --output $definition |
+            Tee-Object "$env:ENGINE_WORK/core-exports.json"
+          if ($LASTEXITCODE) { throw 'The exact x64 core exports could not be inspected.' }
+          lib.exe /nologo /machine:X64 ("/def:$definition") ("/out:$env:ENGINE_WORK/FreeSwitch.lib")
+          if ($LASTEXITCODE) { throw 'The MSI-derived native import library failed.' }
+          python packaging/freeswitch/windows-native-dependencies.py --downloads "$env:ENGINE_WORK/downloads" --source "$env:ENGINE_WORK/source" --core $core --import-library "$env:ENGINE_WORK/FreeSwitch.lib"
+          if ($LASTEXITCODE) { throw 'The locked offline dependency tree failed.' }
+          "NATIVE_CORE_ROOT=$($cores[0].DirectoryName)" >> $env:GITHUB_ENV
+          "NATIVE_CORE_SHA256=$coreHash" >> $env:GITHUB_ENV
+      - name: Build patched registrar and local-only source codec
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = "$env:ENGINE_WORK/source"
+          $manifest = (Get-FileHash "$source/source-manifest.json" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $lock = (Get-FileHash "$source/dependency-lock.json" -Algorithm SHA256).Hash.ToLowerInvariant()
+          & packaging/freeswitch/Build-WindowsNative.ps1 -SourceRoot $source -SourceManifestSha256 $manifest -DependencyLock "$source/dependency-lock.json" -DependencyLockSha256 $lock -EngineRoot $env:NATIVE_CORE_ROOT -ExpectedCoreSha256 $env:NATIVE_CORE_SHA256 -BuildRoot "$env:ENGINE_WORK/build" -OutputRoot "$env:ENGINE_WORK/engine" -CodecOutputRoot "$env:ENGINE_WORK/local-codec" -PlatformToolset $env:NATIVE_TOOLSET -WindowsSdkVersion $env:WindowsSDKVersion.TrimEnd('\') -CMakeGenerator $env:NATIVE_GENERATOR *>&1 |
+            Tee-Object "$env:ENGINE_WORK/native-build.log"
+          if (!$?) { throw 'The pinned native DLL build failed.' }
+          $release = Get-Content "$env:ENGINE_WORK/engine/native-manifest.json" -Raw | ConvertFrom-Json
+          if ($release.files.'mod/mod_bcg729.dll' -or (Test-Path "$env:ENGINE_WORK/engine/libbcg729.dll")) { throw 'A local-only codec was mixed into the redistributable engine.' }
+          Copy-Item "$env:ENGINE_WORK/local-codec/local-codec-manifest.json" "$env:ENGINE_WORK/codec-callback-evidence.json"
+          "Patched Windows registrar built from the pinned source. Local codec callbacks passed. Native SIP/RTP and rollback qualification remain pending." >> $env:GITHUB_STEP_SUMMARY
+      - name: Upload registrar build and credential-free evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openwebpbx-windows-engine-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/openwebpbx-engine/engine/
+            ${{ runner.temp }}/openwebpbx-engine/runner-inputs.json
+            ${{ runner.temp }}/openwebpbx-engine/core-exports.json
+            ${{ runner.temp }}/openwebpbx-engine/codec-callback-evidence.json
+            ${{ runner.temp }}/openwebpbx-engine/native-build.log
+            ${{ runner.temp }}/openwebpbx-engine/build/*.imports.txt
+            ${{ runner.temp }}/openwebpbx-engine/source/source-manifest.json
+            ${{ runner.temp }}/openwebpbx-engine/source/dependency-lock.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6
