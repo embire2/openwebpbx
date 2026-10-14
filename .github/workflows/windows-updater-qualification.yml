@@ -1,0 +1,92 @@
+name: Windows private newer-updater qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Prepare unsigned real14 canaries, or qualify already root-reviewed signed packets
+        required: true
+        type: choice
+        options:
+          - prepare-canary
+          - qualify-signed
+      base_suite_run_id:
+        description: Exact successful qualified Windows13 full-suite run
+        required: true
+        type: string
+      canary_run_id:
+        description: Exact successful prepare-canary run (required only for qualify-signed)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: windows-private-updater-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  qualification:
+    runs-on: windows-2025
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      DOTNET_NOLOGO: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      NUGET_XMLDOC_MODE: skip
+    steps:
+      - name: Preserve repository bytes
+        run: git config --global core.autocrlf false
+      - name: Check out the qualification source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install the pinned real-canary compiler
+        if: inputs.mode == 'prepare-canary'
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: '10.0.401'
+      - name: Run only the explicitly selected disposable stage
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFICATION_MODE: ${{ inputs.mode }}
+          BASE_SUITE_RUN_ID: ${{ inputs.base_suite_run_id }}
+          CANARY_RUN_ID: ${{ inputs.canary_run_id }}
+          # Root signs offline and temporarily supplies ONLY envelopes/reviewed
+          # run IDs/hashes. No signer, key, customer backup or owner input enters CI.
+          WINDOWS_UPDATER_SIGNED_PACKETS_B64: ${{ inputs.mode == 'qualify-signed' && secrets.WINDOWS_UPDATER_SIGNED_PACKETS_B64 || '' }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:BASE_SUITE_RUN_ID -notmatch '^[0-9]+$'){throw 'The qualified base run must be numeric.'}
+          if($env:QUALIFICATION_MODE -eq 'prepare-canary'){
+            if($env:CANARY_RUN_ID){throw 'Preparation cannot consume a signed canary run.'}
+            & tests/windows-updater-qualification.ps1 -Mode PrepareCanary -BaseSuiteRunId $env:BASE_SUITE_RUN_ID -DisposableHostedRunner
+          }elseif($env:QUALIFICATION_MODE -eq 'qualify-signed'){
+            if($env:CANARY_RUN_ID -notmatch '^[0-9]+$' -or !$env:WINDOWS_UPDATER_SIGNED_PACKETS_B64){throw 'Root-reviewed private envelopes and exact canary run are required.'}
+            & tests/windows-updater-qualification.ps1 -Mode QualifySigned -BaseSuiteRunId $env:BASE_SUITE_RUN_ID -CanaryRunId $env:CANARY_RUN_ID -DisposableHostedRunner
+          }else{throw 'An explicit supported stage is required.'}
+          if(!$?){throw 'The selected updater qualification stage did not finish.'}
+      - name: Preserve only unsigned canary packages and source/hash evidence
+        if: success() && inputs.mode == 'prepare-canary'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openwebpbx-windows-updater-canary-${{ github.run_id }}
+          path: ${{ runner.temp }}/openwebpbx-updater-canary/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Preserve only the credential-free stage facts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openwebpbx-windows-updater-facts-${{ github.run_id }}
+          path: ${{ runner.temp }}/openwebpbx-updater-facts/qualification.json
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 6

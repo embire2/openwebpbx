@@ -83,7 +83,7 @@ else:raise RuntimeError('Unsupported private qualification operation')
 [IO.File]::WriteAllText($probe,$code,[Text.UTF8Encoding]::new($false))
 function DatabaseSnapshot([string]$Name){$file=Join-Path $work ($Name+'-database.json');Python @($probe,'database',$file);return Get-Content -LiteralPath $file -Raw|ConvertFrom-Json -AsHashtable}
 function FilesSnapshot {
- $directories=@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots",$configuration,"$switch\conf","$switch\scripts","$switch\mod","$switch\sounds","$state\mobile-notifications","$state\phone-tls","$state\public-access")
+ $directories=@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots",$configuration,"$switch\conf","$switch\scripts","$switch\mod","$switch\sounds","$state\storage","$state\mobile-notifications","$state\phone-tls","$state\public-access")
  $files=@{}
  # Parent DACLs determine inherited access and need independent recovery even
  # when every child file hash matches. Keep volatile siblings outside the scan.
@@ -101,7 +101,7 @@ function FilesSnapshot {
    if(!$item.PSIsContainer){$entry.sha256=Hash $item.FullName;$entry.bytes=$item.Length};$files[$item.FullName]=$entry
   }
  }}
- foreach($path in @("$state\installation.json","$state\runtime.json","$state\phone-tls.json","$state\native-engine.json","$state\native-codec.json","$state\updater-install.json")){
+ foreach($path in @("$state\installation.json","$state\runtime.json","$state\phone-tls.json","$state\native-engine.json","$state\local-codec.json","$state\updater-install.json","$root\php\php.ini","$root\php\extras\ssl\openssl.cnf","$root\php\extras\ssl\cacert.pem")){
   if(Test-Path -LiteralPath $path){$files[$path]=@{acl=(Get-Acl -LiteralPath $path).Sddl;directory=$false;sha256=(Hash $path);bytes=(Get-Item $path).Length}}
  }
  return $files
