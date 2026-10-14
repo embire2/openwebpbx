@@ -156,5 +156,6 @@ jobs:
             ${{ runner.temp }}/openwebpbx-engine/source/source-manifest.json
             ${{ runner.temp }}/openwebpbx-engine/source/dependency-lock.json
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 14
           compression-level: 6
