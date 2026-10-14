@@ -66,6 +66,10 @@ catch{
  }
  foreach($label in $labels.Keys){if($_.Exception.Message.Contains($label)){$safe.active_case=$labels[$label];break}}
  if($_.Exception.Data.Contains('OpenWebPhoneTLSBusy')){$safe.active_case='phone_tls_busy'}
+ $phpFailure=$_.Exception.Data['OpenWebPhoneTLSPhpFailure']
+ if($phpFailure -and $phpFailure.schema -eq 1 -and $phpFailure.source_basename -in 'phone-tls.php','phone-tls-chain.php','pbx_phone_auth.php','pbx_sip_domain.php','event_socket.php','config.php','database.php','external_component' -and [int]$phpFailure.source_line -gt 0 -and [int]$phpFailure.source_line -le 100000 -and $phpFailure.error_type -match '^[A-Za-z0-9_]{1,80}$' -and $phpFailure.stage -in 'idle','bind','resume','ready','apply','rollback','initialization'){
+  $safe.source_basename=$phpFailure.source_basename;$safe.source_line=[int]$phpFailure.source_line;$safe.error_type=$phpFailure.error_type;$safe.active_case='phone_tls_php_'+$phpFailure.stage
+ }
  # Fixed helper locations are useful; arguments and exception text stay private.
  $frames=[regex]::Matches($_.ScriptStackTrace,'([^\\/\r\n]+\.ps1): line ([0-9]+)')
  if($frames.Count -gt 1){$safe.caller_basename=$frames[1].Groups[1].Value;$safe.caller_line=[int]$frames[1].Groups[2].Value}
@@ -153,7 +157,7 @@ try {
  $errorType=$_.Exception.GetType().Name;$facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$errorType
  $facts.source_basename='windows-native-acceptance.ps1';$facts.source_line=$_.InvocationInfo.ScriptLineNumber;$facts.active_case=$phase.Replace(' ','_')
  $nativeFailure=$_.Exception.Data['NativeChildFailure']
- if($nativeFailure -and $nativeFailure.source_basename -in 'Enable-PhoneTLS.ps1','Write-PrivateState.ps1','Restore-Gates.ps1','external_component' -and [int]$nativeFailure.source_line -gt 0 -and $nativeFailure.active_case -match '^phone_tls_[a-z_]+$' -and $nativeFailure.error_type -match '^[A-Za-z0-9_]{1,80}$'){
+ if($nativeFailure -and $nativeFailure.source_basename -in 'Enable-PhoneTLS.ps1','Write-PrivateState.ps1','Restore-Gates.ps1','phone-tls.php','phone-tls-chain.php','pbx_phone_auth.php','pbx_sip_domain.php','event_socket.php','config.php','database.php','external_component' -and [int]$nativeFailure.source_line -gt 0 -and [int]$nativeFailure.source_line -le 100000 -and $nativeFailure.active_case -match '^phone_tls_[a-z_]+$' -and $nativeFailure.error_type -match '^[A-Za-z0-9_]{1,80}$'){
   $facts.source_basename=$nativeFailure.source_basename;$facts.source_line=[int]$nativeFailure.source_line;$facts.active_case=$nativeFailure.active_case;$facts.error_type=$nativeFailure.error_type
   if($nativeFailure.caller_basename -in 'Enable-PhoneTLS.ps1','Write-PrivateState.ps1','Restore-Gates.ps1' -and [int]$nativeFailure.caller_line -gt 0){$facts.caller_basename=$nativeFailure.caller_basename;$facts.caller_line=[int]$nativeFailure.caller_line}
  }

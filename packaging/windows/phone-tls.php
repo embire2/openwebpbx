@@ -1,7 +1,30 @@
 <?php
 /** Private, administrator-invoked Windows phone certificate and listener setup. */
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
-set_exception_handler(static function (Throwable $error): void { fwrite(STDERR, "Phone TLS setup did not complete. Review the private server configuration.\n"); exit(1); });
+function openweb_phone_tls_failure_record(Throwable $error, string $inputFile, string $stage, string $programData): bool {
+    try {
+        $root=realpath(rtrim($programData,'/\\').'/OpenWebPBX/backups');
+        $input=realpath($inputFile);
+        if($root===false||$input===false||is_link($inputFile)||!is_file($inputFile)||basename($input)!=='request.json')return false;
+        $root=rtrim(str_replace('\\','/',$root),'/');$input=str_replace('\\','/',$input);$directory=dirname($input);
+        if(!str_starts_with(strtolower($directory),strtolower($root).'/')||dirname(strtolower($directory))!==strtolower($root)||!preg_match('/^phone-tls-[0-9]{8}-[0-9]{6}-[a-f0-9]{8}$/D',basename($directory)))return false;
+        $type=basename(str_replace('\\','/',get_class($error)));if(!preg_match('/^[A-Za-z0-9_]{1,80}$/D',$type))$type='Throwable';
+        $source=basename(str_replace('\\','/',$error->getFile()));
+        if(!in_array($source,['phone-tls.php','phone-tls-chain.php','pbx_phone_auth.php','pbx_sip_domain.php','event_socket.php','config.php','database.php'],true))$source='external_component';
+        $stage=in_array($stage,['idle','bind','resume','ready','apply','rollback'],true)?$stage:'initialization';
+        $line=$error->getLine();if($line<1||$line>100000)$line=1;
+        $bytes=json_encode(['schema'=>1,'error_type'=>$type,'source_basename'=>$source,'source_line'=>$line,'stage'=>$stage],JSON_THROW_ON_ERROR);
+        if(strlen($bytes)>2048)return false;
+        // Keep the first failure even when a subsequent recovery step fails.
+        $stream=@fopen($input.'.failure.json','xb');if($stream===false)return false;
+        try{return fwrite($stream,$bytes)===strlen($bytes)&&fflush($stream);}finally{fclose($stream);}
+    }catch(Throwable $ignored){return false;}
+}
+set_exception_handler(static function (Throwable $error): void {
+    global $argv;
+    openweb_phone_tls_failure_record($error,(string)($argv[2]??''),(string)($argv[3]??''),(string)(getenv('ProgramData')?:'C:/ProgramData'));
+    fwrite(STDERR, "Phone TLS setup did not complete. Review the private server configuration.\n");exit(1);
+});
 [$script, $web, $inputFile, $stage] = $argv + ['', '', '', ''];
 require $web.'/resources/require.php';
 $input = json_decode(file_get_contents($inputFile), true, 512, JSON_THROW_ON_ERROR);

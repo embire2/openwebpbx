@@ -41,6 +41,21 @@ try{
   if(($serialized+$output.GetAwaiter().GetResult()+$errors.GetAwaiter().GetResult()).Contains('unit-private-value')){throw 'Private exception content escaped the safe diagnostic.'}
   Write-Host 'PASS actual typed TLS diagnostic child: helper location/stage retained, private exception marker withheld.'
  }finally{if(!$child.HasExited){$child.Kill($true)};$child.Dispose()}
+ [IO.File]::WriteAllText($helper,@'
+param([string]$CertificateThumbprint,[string]$FullChainPath)
+$error=[InvalidOperationException]::new('Secure phone setup failed. unit-private-value')
+$error.Data['OpenWebPhoneTLSPhpFailure']=[pscustomobject]@{schema=1;error_type='PDOException';source_basename='phone-tls.php';source_line=32;stage='idle'}
+throw $error
+'@,[Text.UTF8Encoding]::new($false))
+ $child=[Diagnostics.Process]::Start($start)
+ try{
+  $output=$child.StandardOutput.ReadToEndAsync();$errors=$child.StandardError.ReadToEndAsync()
+  if(!$child.WaitForExit(15000) -or $child.ExitCode -ne 1){throw 'Independent PHP diagnostic fixture did not fail as expected.'}
+  $serialized=[IO.File]::ReadAllText($failure);$result=$serialized|ConvertFrom-Json
+  if($result.active_case -ne 'phone_tls_php_idle' -or $result.source_basename -ne 'phone-tls.php' -or $result.source_line -ne 32 -or $result.error_type -ne 'PDOException'){throw 'Typed inner PHP diagnostic was not forwarded.'}
+  if(($serialized+$output.GetAwaiter().GetResult()+$errors.GetAwaiter().GetResult()).Contains('unit-private-value')){throw 'Private PHP exception content escaped the safe diagnostic.'}
+  Write-Host 'PASS actual PHP-to-TLS-wrapper diagnostic child: allowlisted PHP location/stage retained, private values withheld.'
+ }finally{if(!$child.HasExited){$child.Kill($true)};$child.Dispose()}
 }finally{
  if($process){if(!$process.HasExited){$process.Kill($true)};$process.Dispose()}
  Remove-Item -LiteralPath $directory -Recurse -Force

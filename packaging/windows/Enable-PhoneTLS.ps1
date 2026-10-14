@@ -56,7 +56,22 @@ function Php([string]$Stage){
  try {
   & "$root\php\php.exe" "$PSScriptRoot\phone-tls.php" "$root\web" $inputFile $Stage
   if($LASTEXITCODE -eq 75){$error=[InvalidOperationException]::new('Finish active calls before updating the phone certificate.');$error.Data['OpenWebPhoneTLSBusy']=$true;throw $error}
-  if($LASTEXITCODE){throw 'Secure phone setup failed.'}
+  if($LASTEXITCODE){
+   $failure=[InvalidOperationException]::new('Secure phone setup failed.')
+   $diagnostic=$inputFile+'.failure.json'
+   if(Test-Path -LiteralPath $diagnostic -PathType Leaf){
+    try{
+     $file=Get-Item -LiteralPath $diagnostic
+     if($file.Length -le 2048 -and !($file.Attributes -band [IO.FileAttributes]::ReparsePoint)){
+      $record=[IO.File]::ReadAllText($diagnostic)|ConvertFrom-Json
+      if($record.schema -eq 1 -and $record.error_type -match '^[A-Za-z0-9_]{1,80}$' -and $record.source_basename -in 'phone-tls.php','phone-tls-chain.php','pbx_phone_auth.php','pbx_sip_domain.php','event_socket.php','config.php','database.php','external_component' -and $record.source_line -gt 0 -and $record.source_line -lt 100000 -and $record.stage -in 'idle','bind','resume','ready','apply','rollback','initialization'){
+       $failure.Data['OpenWebPhoneTLSPhpFailure']=$record
+      }
+     }
+    }catch{}
+   }
+   throw $failure
+  }
  }finally{Pop-Location}
 }
 try {
