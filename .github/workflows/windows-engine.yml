@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       use_msi_pthread:
-        description: 'Experimental exact MSI pthread linkage; no production installation'
+        description: 'Use the exact MSI pthread runtime and matching pinned source'
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: read
@@ -128,7 +128,12 @@ jobs:
           $source = "$env:ENGINE_WORK/source"
           $manifest = (Get-FileHash "$source/source-manifest.json" -Algorithm SHA256).Hash.ToLowerInvariant()
           $aprHash = (Get-FileHash "$env:NATIVE_CORE_ROOT/libapr.dll" -Algorithm SHA256).Hash.ToLowerInvariant()
-          python packaging/freeswitch/bundle-windows-native.py --source $source --source-manifest-sha256 $manifest --core-export-helper packaging/freeswitch/core-exports.py --core-sha256 $env:NATIVE_CORE_SHA256 --apr-sha256 $aprHash --output "$env:ENGINE_WORK/codec-source"
+          $bundleArgs=@('packaging/freeswitch/bundle-windows-native.py','--source',$source,'--source-manifest-sha256',$manifest,'--core-export-helper','packaging/freeswitch/core-exports.py','--core-sha256',$env:NATIVE_CORE_SHA256,'--apr-sha256',$aprHash,'--output',"$env:ENGINE_WORK/codec-source")
+          if ($env:USE_MSI_PTHREAD -eq 'true') {
+            $lock=(Get-FileHash "$source/dependency-lock.json").Hash.ToLowerInvariant()
+            $bundleArgs+=@('--registrar-dependency-lock',"$source/dependency-lock.json",'--registrar-dependency-lock-sha256',$lock,'--pthread-source-archive',"$env:ENGINE_WORK/downloads/pthreads4w-code-v2.10.0-rc.zip",'--pthread-definition',"$env:ENGINE_WORK/pthread.def")
+          }
+          python @bundleArgs
           if ($LASTEXITCODE) { throw 'The public prepared source bundle did not verify.' }
       - name: Build patched registrar
         run: |
@@ -142,6 +147,12 @@ jobs:
           $release = Get-Content "$env:ENGINE_WORK/engine/native-manifest.json" -Raw | ConvertFrom-Json
           if ($release.files.'mod/mod_bcg729.dll' -or (Test-Path "$env:ENGINE_WORK/engine/libbcg729.dll")) { throw 'A local-only codec was mixed into the redistributable engine.' }
           "Patched Windows registrar built from the pinned source. Portable codec callbacks/heap proof are checked by the next step. Native SIP/RTP and rollback qualification remain pending." >> $env:GITHUB_STEP_SUMMARY
+      - name: Require actual native phone listener and clean shutdown
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = Get-Content "$env:ENGINE_WORK/engine/native-manifest.json" -Raw | ConvertFrom-Json
+          & tests/windows-registrar-startup.ps1 -EngineRoot $env:NATIVE_CORE_ROOT -Registrar "$env:ENGINE_WORK/engine/mod/mod_sofia.dll" -RegistrarSha256 $release.files.'mod/mod_sofia.dll' -Report "$env:ENGINE_WORK/registrar-startup.json" -DisposableHostedRunner
+          if (!$?) { throw 'The actual native phone listener did not qualify.' }
       - name: Prove the portable local-only source codec
         if: ${{ !cancelled() && env.NATIVE_CORE_ROOT != '' }}
         run: |
@@ -168,6 +179,7 @@ jobs:
             ${{ runner.temp }}/openwebpbx-engine/runner-inputs.json
             ${{ runner.temp }}/openwebpbx-engine/core-extraction.json
             ${{ runner.temp }}/openwebpbx-engine/core-exports.json
+            ${{ runner.temp }}/openwebpbx-engine/registrar-startup.json
             ${{ runner.temp }}/openwebpbx-engine/codec-source/
             ${{ runner.temp }}/openwebpbx-engine/codec-callback-evidence.json
             ${{ runner.temp }}/openwebpbx-engine/portable-codec-evidence.json

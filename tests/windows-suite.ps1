@@ -205,7 +205,10 @@ function PreparePackage {
  $backup=Join-Path $work 'backup-runtime';CheckedPython @((Join-Path $source 'packaging/windows/build-backup-runtime.py'),'--cache',(Join-Path $work 'upstream-cache'),'--output',$backup,'--sources',(Join-Path $work 'backup-source'))
  $acmeArchive=Join-Path $work 'simple-acme.zip';Invoke-WebRequest 'https://github.com/simple-acme/simple-acme/releases/download/v2.4.1/simple-acme.v2.4.1.2444.win-x64.trimmed.zip' -OutFile $acmeArchive
  $acme=Join-Path $work 'acme';CheckedPython @((Join-Path $source 'packaging/windows/build-acme-runtime.py'),'--archive',$acmeArchive,'--output',$acme)
- $output=Join-Path $work 'package';CheckedPython @((Join-Path $source 'packaging/build-release.py'),'--target','windows','--server',(Join-Path $native.directory 'server'),'--updater',(Join-Path $native.directory 'updater'),'--desktop',(Join-Path $native.directory 'desktop'),'--engine',(Join-Path $engine.directory 'engine'),'--backup-runtime',$backup,'--acme',$acme,'--music',$music.directory,'--codec-source',(Join-Path $codec 'source'),'--output',$output)
+ $output=Join-Path $work 'package'
+ $packageArguments=@((Join-Path $source 'packaging/build-release.py'),'--target','windows','--server',(Join-Path $native.directory 'server'),'--updater',(Join-Path $native.directory 'updater'),'--desktop',(Join-Path $native.directory 'desktop'),'--engine',(Join-Path $engine.directory 'engine'),'--backup-runtime',$backup,'--acme',$acme,'--music',$music.directory,'--codec-source',(Join-Path $codec 'source'),'--output',$output)
+ if($nativeManifest.msi_pthread_experiment){$packageArguments+=@('--registrar-source',(Join-Path $codec 'registrar-source'))}
+ CheckedPython $packageArguments
  $archives=@(Get-ChildItem $output -Filter '*.zip' -File);if($archives.Count -ne 1){throw 'One candidate package is required.'}
  $script:candidateArchive=$archives[0].FullName
  $expanded=Join-Path $work 'expanded';PrivateDirectory $expanded;ExpandSafe $archives[0].FullName $expanded

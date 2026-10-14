@@ -11,6 +11,7 @@ import tempfile
 import zipfile
 import re
 import sys
+import importlib.util
 
 root = pathlib.Path(__file__).resolve().parents[1]
 
@@ -28,6 +29,7 @@ parser.add_argument('--backup-runtime', type=pathlib.Path)
 parser.add_argument('--acme', type=pathlib.Path)
 parser.add_argument('--music', type=pathlib.Path)
 parser.add_argument('--codec-source', type=pathlib.Path)
+parser.add_argument('--registrar-source', type=pathlib.Path, help='Explicit matching MSI pthread source supplement; original 6214 codec inputs remain separate.')
 parser.add_argument('--output', type=pathlib.Path, default=root / 'artifacts')
 args = parser.parse_args()
 version = (root / 'VERSION').read_text().strip()
@@ -43,6 +45,8 @@ if args.target == 'windows' and (not args.desktop or not (args.desktop / 'OpenWe
     parser.error('Supply the complete Windows-built manager directory.')
 if args.target == 'debian' and (not args.engine or not args.engine.is_file()):
     parser.error('Supply the clean engine archive built from upstream source.')
+if args.target != 'windows' and args.registrar_source:
+    parser.error('Registrar dependency sources apply only to the Windows native build.')
 if args.target == 'windows':
     if not args.engine or not (args.engine / 'native-manifest.json').is_file():
         parser.error('Supply the verified native Windows engine directory.')
@@ -82,6 +86,19 @@ if args.target == 'windows':
             }
             if set(metadata['files']) != {'mod/mod_sofia.dll'} or any(metadata.get(key) != expected for key, expected in pins.items()) or not metadata.get('runtime_dependencies') or metadata.get('source_manifest_sha256') != sha256(args.codec_source / 'source-manifest.json'):
                 parser.error('Supply only the pinned patched Windows registrar and its verified provenance.')
+            if metadata.get('msi_pthread_experiment'):
+                if not args.registrar_source:
+                    parser.error('Supply the exact matching MSI pthread sources used by this registrar.')
+                helper = root / 'packaging/freeswitch/bundle-windows-native.py'
+                spec = importlib.util.spec_from_file_location('registrar_sources', helper)
+                source_bundle = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(source_bundle)
+                try:
+                    source_bundle.verify_registrar_bundle(args.registrar_source, metadata, sha256(args.codec_source / 'source-manifest.json'))
+                except (ValueError, KeyError, OSError) as error:
+                    parser.error(str(error))
+            elif args.registrar_source:
+                parser.error('Registrar dependency sources were supplied for a native build that did not use them.')
         for relative, expected in metadata['files'].items():
             path = directory / relative
             if '\\' in relative or ':' in relative or pathlib.PurePosixPath(relative).is_absolute() or any(part in ('', '.', '..') for part in relative.split('/')) or path.is_symlink() or not path.is_file() or sha256(path) != expected:
@@ -156,6 +173,8 @@ with tempfile.TemporaryDirectory(prefix='openweb-release-') as temporary:
         shutil.copytree(args.backup_runtime, stage / 'backup-runtime')
         shutil.copytree(args.acme, stage / 'acme')
         shutil.copytree(args.codec_source, stage / 'codec-source')
+        if args.registrar_source:
+            shutil.copytree(args.registrar_source, stage / 'registrar-source')
         shutil.copy2(root / 'packaging/freeswitch/core-exports.py', stage / 'codecs/bcg729/core-exports.py')
         codec_recipe = {
             'schema': 1,
