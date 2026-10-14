@@ -33,7 +33,7 @@ The fixed source archives are:
 | `bcg729_1.1.1-3+deb13u1.debian.tar.xz` | `4674343d5150b5b60db633c1a8ee54590f0a1714928f77e74ee641e004dd14b6` |
 
 The registrar patch is `restore-registration.patch`, SHA-256
-`db4fa115b4323eb9c084ad0ffb946488a4a50ba5709886cd3fdc3812c0ad51f6`;
+`a4a8e19c78aabcb2f185c6c0a7f07e41fe70f13264bdb4cff3628a0dfbc47eda`;
 its original and patched registrar hashes are recorded in [README.md](README.md).
 The codec buffer patch is
 `../codecs/bcg729/buffer-safety.patch`, SHA-256

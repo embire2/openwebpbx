@@ -153,6 +153,14 @@ jobs:
           $release = Get-Content "$env:ENGINE_WORK/engine/native-manifest.json" -Raw | ConvertFrom-Json
           & tests/windows-registrar-startup.ps1 -EngineRoot $env:NATIVE_CORE_ROOT -Registrar "$env:ENGINE_WORK/engine/mod/mod_sofia.dll" -RegistrarSha256 $release.files.'mod/mod_sofia.dll' -Report "$env:ENGINE_WORK/registrar-startup.json" -DisposableHostedRunner
           if (!$?) { throw 'The actual native phone listener did not qualify.' }
+      - name: Require actual canonical identity registration limits
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = Get-Content "$env:ENGINE_WORK/engine/native-manifest.json" -Raw | ConvertFrom-Json
+          $python = (Get-Command python.exe -CommandType Application).Source
+          $pythonHash = (Get-FileHash -LiteralPath $python -Algorithm SHA256).Hash.ToLowerInvariant()
+          & tests/windows-registrar-limits.ps1 -EngineRoot $env:NATIVE_CORE_ROOT -CandidateModule "$env:ENGINE_WORK/engine/mod/mod_sofia.dll" -ExpectedCandidateSha256 $release.files.'mod/mod_sofia.dll' -Python $python -ExpectedPythonSha256 $pythonHash -Report "$env:ENGINE_WORK/registrar-limits.json" -DisposableHostedRunner
+          if (!$?) { throw 'Actual native canonical registration quotas did not qualify.' }
       - name: Prove the portable local-only source codec
         if: ${{ !cancelled() && env.NATIVE_CORE_ROOT != '' }}
         run: |
@@ -180,6 +188,7 @@ jobs:
             ${{ runner.temp }}/openwebpbx-engine/core-extraction.json
             ${{ runner.temp }}/openwebpbx-engine/core-exports.json
             ${{ runner.temp }}/openwebpbx-engine/registrar-startup.json
+            ${{ runner.temp }}/openwebpbx-engine/registrar-limits.json
             ${{ runner.temp }}/openwebpbx-engine/codec-source/
             ${{ runner.temp }}/openwebpbx-engine/codec-callback-evidence.json
             ${{ runner.temp }}/openwebpbx-engine/portable-codec-evidence.json

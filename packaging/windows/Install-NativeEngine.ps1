@@ -6,8 +6,8 @@ $manifestPath=Join-Path $PackageRoot 'engine\native-manifest.json'
 $manifest=Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 if($manifest.schema -ne 1 -or $manifest.core_version -ne '1.11.3' -or
  $manifest.upstream_commit -ne 'ef32e205295e29f034f1453ad245ba5efb07b94a' -or
- $manifest.patch_sha256 -ne 'db4fa115b4323eb9c084ad0ffb946488a4a50ba5709886cd3fdc3812c0ad51f6' -or
- $manifest.source_reg_sha256 -ne '4dafe992533cbff6e57a5bb6870cb2b410fb552d781e657a55fefd9ad73f241d' -or
+ $manifest.patch_sha256 -ne 'a4a8e19c78aabcb2f185c6c0a7f07e41fe70f13264bdb4cff3628a0dfbc47eda' -or
+ $manifest.source_reg_sha256 -ne '5319b1b6c26708149552f3135e96ee2e693009890cb5b0aeee3169a81c0c20e7' -or
  $manifest.source_msi_sha256 -ne 'f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d'){
  throw 'The release does not contain the verified Windows call-engine build.'
 }

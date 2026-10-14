@@ -94,7 +94,7 @@ if($action==='status'){
  $status=event_socket::api('sofia status profile internal');if(!preg_match('/^\s*SIP-IP\s+([0-9.]+)\s*$/m',$status,$m))throw new RuntimeException('Native profile IP unavailable.');
  $messages=$q('select m.voicemail_message_uuid,m.message_length,v.voicemail_id from v_voicemail_messages m join v_voicemails v using(voicemail_uuid,domain_uuid) where m.domain_uuid=?',[$domain])->fetchAll(PDO::FETCH_ASSOC);
  foreach($messages as &$message)$message['message_path']=pbx_paths::voicemail().'/default/'.$realm.'/'.$message['voicemail_id'].'/msg_'.$message['voicemail_message_uuid'].'.wav';unset($message);
- echo json_encode(['bind'=>$m[1],'config'=>$c,'jobs'=>$q('select job_uuid,kind,state,attempts,last_result,call_uuid from v_pbx_jobs where domain_uuid=? order by created_at',[$domain])->fetchAll(PDO::FETCH_ASSOC),'voicemail'=>$messages,'mail'=>$q('select email_queue_uuid,email_uuid,email_status,email_retry_count from v_email_queue where domain_uuid=?',[$domain])->fetchAll(PDO::FETCH_ASSOC)],JSON_THROW_ON_ERROR);exit;
+ echo json_encode(['bind'=>$m[1],'config'=>$c,'registration_limits'=>$q('select max_registrations from v_extensions where domain_uuid=? order by extension',[$domain])->fetchAll(PDO::FETCH_COLUMN),'jobs'=>$q('select job_uuid,kind,state,attempts,last_result,call_uuid from v_pbx_jobs where domain_uuid=? order by created_at',[$domain])->fetchAll(PDO::FETCH_ASSOC),'voicemail'=>$messages,'mail'=>$q('select email_queue_uuid,email_uuid,email_status,email_retry_count from v_email_queue where domain_uuid=?',[$domain])->fetchAll(PDO::FETCH_ASSOC)],JSON_THROW_ON_ERROR);exit;
 }
 if($action==='job'){
  // Synthetic callback uses an explicit internal target. A wire caller ID is

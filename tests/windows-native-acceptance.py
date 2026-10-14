@@ -381,6 +381,7 @@ def native_calls(f):
     f.active_case='native_profile_and_fixture_dependencies'
     status=f.cli('status');bind=status['bind'];assert bind in socket.gethostbyname_ex(socket.gethostname())[2] or bind=='127.0.0.1','Native profile uses a nonlocal endpoint'
     ca=f.evidence/'fixture-root.pem';realm=f.s['realm'];users=f.s['users'];ledger=[]
+    assert len(status['registration_limits'])==4 and all(int(value)==1 for value in status['registration_limits']),'The real guided registration limit must stay at one'
     for transport in ['udp','tcp','tls']:
         f.active_case='native_'+transport+'_registration_matrix'
         client=SIPClient(transport,bind,(bind,5061 if transport=='tls' else 5060),realm,ca,'windowsqa.example.invalid')
@@ -404,6 +405,31 @@ def native_calls(f):
             f.record('native_'+transport+'_number_auth_collision_refresh_query_unregister_isolation',tuples=4,negative_cases=7,strict_tls=transport=='tls')
         finally:
             ledger+=client.ledger;client.close()
+    # Keep both numerical-collision accounts active. A quota must count its
+    # directory-owned authentication identity, preserving the configured one
+    # contact limit and excluding only its own refresh Call-ID.
+    for transport in ['udp','tcp','tls']:
+        for order in [(1,2),(2,1)]:
+            f.active_case='native_'+transport+'_canonical_registration_quota_'+str(order[0])+str(order[1])
+            clients=[SIPClient(transport,bind,(bind,5061 if transport=='tls' else 5060),realm,ca,'windowsqa.example.invalid') for _ in range(3)]
+            first,second,extra=clients;one,two=users[order[0]],users[order[1]]
+            def present(user):return not f.cli('api','sofia_contact '+user['auth']+'@'+realm,json_result=False).startswith('error/')
+            try:
+                assert first.register(one)['code']==200 and second.register(two)['code']==200,'Canonical identity collision corrupted another account quota'
+                assert first.register(one,reuse=True)['code']==200 and second.register(two,reuse=True)['code']==200,'Same-Call-ID refresh counted as another contact'
+                assert present(one) and present(two),'Both canonical contacts were not stored independently'
+                assert extra.register(one)['code']==403,'Same-account second contact bypassed the configured limit'
+                assert extra.register(one,password='wrong-fictional-secret')['code'] in (401,403),'Wrong password bypassed authentication'
+                assert extra.register(one,auth=two['auth'],password=two['password'])['code'] in (401,403,404),'Cross-pair credentials bypassed the directory guard'
+                assert present(one) and present(two),'A refused registration removed an accepted contact'
+                assert first.register(one,expires=0)['code']==200 and not present(one) and present(two),'Exact unregister removed the other canonical account'
+                assert second.register(two,expires=0)['code']==200 and not present(two),'Exact unregister left its own canonical contact'
+                f.record('native_'+transport+'_canonical_registration_quota_both_order_'+str(order[0])+str(order[1]),limit=1,distinct_accounts=2,extra_contact_refused=True,refresh_and_unregister=True,wrong_and_cross_auth_refused=True)
+            finally:
+                try:
+                    first.register(one,expires=0);second.register(two,expires=0)
+                finally:
+                    for client in clients:ledger+=client.ledger;client.close()
     sip=load_module('sip_trunk_live',f.source/'tests/sip_trunk_live.py')
     original=load_module('portable_source_phone',f.source/'tests/pbx_v20_restore_native.py')
     # Keep the imported peer's diagnostic destination private and portable.
@@ -499,6 +525,9 @@ def native_calls(f):
         f.active_case='independent_g729_pcmu_transcoding'
         codec=BCG729(f.s['private_state_root']);g729=G729Phone(users[0],codec)
         try:
+            # The guided account permits one contact. Replace the regular
+            # caller explicitly for this alternate-codec call, then restore it.
+            assert caller.register((bind,5061),expires=0)['code']==200
             assert g729.register((bind,5061))['code']==200
             old=set(a.dialogs);call=g729.dial('8101',(bind,5061));assert call['code']==200 and call['media']['pt']==18,'Forced G729 offer was not negotiated'
             remote=f.wait(lambda:next((v for k,v in a.dialogs.items() if k not in old and v.get('acked')),None));assert remote['pt']==0,'Opposite leg did not stay PCMU'
@@ -507,8 +536,9 @@ def native_calls(f):
             g729.hangup(call);f.record('native_g729_pcmu_independent_codec_two_way_transcoding',g729_payload_type=18,opposite_payload_type=0,g729_decoded_ratio=down,pcmu_decoded_ratio=up,seconds=7)
         finally:
             ledger+=g729.registration_call_ids
-            try:g729.register((bind,5061),expires=0)
+            try:assert g729.register((bind,5061),expires=0)['code']==200
             finally:g729.close();codec.search.close()
+            assert caller.register((bind,5061))['code']==200
         f.record('native_simultaneous_ring_group',**call_check('8180'))
         f.record('native_hunting_ring_group',**call_check('8181'))
         f.record('native_queue_agent_first',**call_check('8190'))

@@ -6,7 +6,7 @@
 The original file SHA-256 is
 `1eed13a2ae440201bcc1bf6aa1f82899140794b96202496f2e21bf2bf070c9d9`;
 the patched file is
-`4dafe992533cbff6e57a5bb6870cb2b410fb552d781e657a55fefd9ad73f241d`.
+`5319b1b6c26708149552f3135e96ee2e693009890cb5b0aeee3169a81c0c20e7`.
 
 Restored phones retain their original SIP extension and separate digest
 username. The directory binds that pair to one enabled user in the requested
@@ -26,6 +26,13 @@ The two Call-ID-based replacement/removal queries also constrain the
 authenticated canonical SIP user and domain. Otherwise another authenticated
 account can remove a foreign binding by supplying its Call-ID.
 
+The registration quota uses the same server-owned `sip-force-user` from the
+directory, with the original To user retained when no forced identity exists.
+Counting the original number incorrectly rejects a different account whose
+number equals an already registered authentication ID. It can also miss a
+second contact for the same forced account. The quota value, domain scope and
+same-Call-ID refresh exclusion remain unchanged.
+
 It preserves request From/To/Contact, normal multiple-contact responses,
 authentication failures, and the existing non-REGISTER path. The global
 `reg-deny-binding-fetch-and-no-lookup` workaround is not required.
@@ -35,7 +42,9 @@ identity collisions, exact response and incoming INVITE Contact URIs, refresh,
 Expires:0 unregister, Contact-less binding queries, multiple contacts, ordinary
 and revocable mobile accounts, and forged/disabled/revoked/suspended requests
 using a previously accepted nonce, plus cross-user/tenant Call-ID replacement
-and unregister isolation. Directory unit checks are in
+and unregister isolation. Quota checks keep the limit at one: both colliding
+accounts must register in either order; a second contact for one account must
+be refused, while its own refresh and unregister remain valid. Directory unit checks are in
 `tests/deskphone_auth_binding.lua`; XML credential preservation checks exercise
 the actual PHP writer in `tests/deskphone_directory_xml.php`. Native credentials
 and SIP captures remain in private disposable-machine fixtures.

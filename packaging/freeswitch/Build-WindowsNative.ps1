@@ -48,8 +48,8 @@ CheckHash $DependencyLock $DependencyLockSha256
 $source=Get-Content -LiteralPath $sourceManifest -Raw|ConvertFrom-Json
 $dependencies=Get-Content -LiteralPath $DependencyLock -Raw|ConvertFrom-Json
 $revision='ef32e205295e29f034f1453ad245ba5efb07b94a'
-$patchHash='db4fa115b4323eb9c084ad0ffb946488a4a50ba5709886cd3fdc3812c0ad51f6'
-$regHash='4dafe992533cbff6e57a5bb6870cb2b410fb552d781e657a55fefd9ad73f241d'
+$patchHash='a4a8e19c78aabcb2f185c6c0a7f07e41fe70f13264bdb4cff3628a0dfbc47eda'
+$regHash='5319b1b6c26708149552f3135e96ee2e693009890cb5b0aeee3169a81c0c20e7'
 if($source.schema -ne 1 -or $source.upstream_commit -ne $revision -or $source.patch_sha256 -ne $patchHash -or $source.source_reg_sha256 -ne $regHash -or $source.sofia_commit -ne 'ad36ac8f755308e8b87f98a505e83d4e408e5cc3' -or $source.codec_module_commit -ne '4203247dee4719545005ec7ab9ea536fc83df1d8' -or $source.bcg729_debian_version -ne '1.1.1-3+deb13u1'){throw 'The build source pins differ from the reviewed recipe.'}
 foreach($entry in $source.files.PSObject.Properties){CheckHash (SafeChild $SourceRoot $entry.Name) $entry.Value}
 if($dependencies.schema -ne 1 -or $dependencies.core_sha256 -ne $ExpectedCoreSha256 -or !$dependencies.files){throw 'A reviewed dependency lock for this exact engine core is required.'}
