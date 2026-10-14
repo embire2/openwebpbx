@@ -69,6 +69,38 @@ def compiler(build, cache):
     return tools[0].parent, pin
 
 
+def windows_headers(fs, build_root):
+    """Select real Windows types/packing in verified private MinGW copies."""
+    expected = {
+        'switch.h': 'a8f0a5723f23baffee974288b8e88df7f5be788c36e701c07ae4372caf002d03',
+        'switch_platform.h': '492dc9bbf3fe6840e64dcbfe37e260e87b514c895ee2ff3b2d76a49cc8b60dad',
+        'switch_types.h': 'a20b53a98c873085476c387d1454add366986cd80ce6ccce6d5cb606a15c4dc6',
+    }
+    original = fs / 'src/include'
+    target = build_root / 'windows-headers'
+    for name, sha in expected.items():
+        verify(original / name, sha)
+    shutil.copytree(original, target)
+    changes = {
+        'switch.h': [('#ifdef _MSC_VER\n#include <Winsock2.h>', '#if defined(_MSC_VER) || defined(__MINGW32__)\n#include <Winsock2.h>', 1)],
+        'switch_platform.h': [
+            ('#ifdef _MSC_VER\n/* disable the following warnings', '#if defined(_MSC_VER) || defined(__MINGW32__)\n/* disable the following warnings', 1),
+            ('#if !defined(_STDINT) && !defined(uint32_t)', '#if defined(__MINGW32__)\n#include <stdint.h>\n#endif\n#if !defined(_STDINT) && !defined(uint32_t) && !defined(__MINGW32__)', 1),
+        ],
+        'switch_types.h': [('#ifdef _MSC_VER\n#pragma pack', '#if defined(_MSC_VER) || defined(__MINGW32__)\n#pragma pack', 4)],
+    }
+    report = {}
+    for name, replacements in changes.items():
+        text = (original / name).read_text()
+        for before, after, count in replacements:
+            if text.count(before) != count:
+                raise ValueError('The pinned Windows header adaptation no longer matches.')
+            text = text.replace(before, after)
+        (target / name).write_text(text, encoding='utf-8', newline='\n')
+        report[name] = {'upstream_sha256': expected[name], 'private_windows_sha256': digest(target / name)}
+    return target, report
+
+
 def build(source, manifest_hash, core_root, core_hash, apr_hash, exports_helper, build_root, output, cache):
     if sys.platform != 'win32' or struct.calcsize('P') != 8:
         raise ValueError('The local codec recipe requires an x64 Windows process.')
@@ -109,6 +141,7 @@ def build(source, manifest_hash, core_root, core_hash, apr_hash, exports_helper,
     imports = build_root / 'libfreeswitch.a'
     run([dlltool, '-m', 'i386:x86-64', '-d', export_file, '-l', imports], cwd=build_root)
     fs, bcg = source / 'freeswitch', source / 'bcg729'
+    header_root, header_report = windows_headers(fs, build_root)
     version = build_root / 'include'
     version.mkdir()
     template = (fs / 'src/include/switch_version.h.template').read_text()
@@ -124,7 +157,7 @@ def build(source, manifest_hash, core_root, core_hash, apr_hash, exports_helper,
     config = re.sub(r'^#cmakedefine ([A-Z_]+).*$', lambda m: '/* #undef ' + m[1] + ' */', config, flags=re.M)
     (version / 'config.h').write_text(config)
     flags = ['-std=c99', '-O2', '-Wall', '-Wextra', '-Wno-unused-parameter', '-DWIN32', '-D_WINDOWS', '-D_USRDLL',
-             '-I' + str(version), '-I' + str(fs / 'src/include'), '-I' + str(fs / 'libs/libteletone/src'), '-I' + str(bcg / 'include')]
+             '-I' + str(version), '-I' + str(header_root), '-I' + str(fs / 'libs/libteletone/src'), '-I' + str(bcg / 'include')]
     library = output / 'libbcg729.dll'
     codec_import = build_root / 'libbcg729.a'
     sources = sorted((bcg / 'src').glob('*.c'))
@@ -150,6 +183,7 @@ def build(source, manifest_hash, core_root, core_hash, apr_hash, exports_helper,
     result = {'schema': 1, 'codec_distribution_status': 'local-source-build-only', 'source_manifest_sha256': manifest_hash,
               'core_sha256': core_hash, 'apr_sha256': apr_hash, 'core_data_exports': export_report['data_exports'], 'compiler': pin,
               'compiler_executable_sha256': digest(cc), 'core_export_helper_sha256': digest(exports_helper), 'callbacks': 'passed', 'data_imports_and_heap_ownership': 'passed',
+              'windows_header_adapter': header_report,
               'native_rtp_qualified': False, 'files': {'mod/mod_bcg729.dll': digest(module), 'libbcg729.dll': digest(library)}}
     (output / 'local-codec-manifest.json').write_text(json.dumps(result, indent=2) + '\n')
     return result

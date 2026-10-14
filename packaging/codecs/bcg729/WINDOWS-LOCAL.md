@@ -22,6 +22,13 @@ protected cache/work directory. It supplies Clang/LLD and mingw-w64 headers;
 no Visual Studio or proprietary Windows SDK headers are required for this
 C-only codec build. The library remains a separate dynamically linked DLL.
 
+The pinned FreeSWITCH headers select Windows networking/integer setup and RTP
+packing through MSVC-specific conditions. The helper checks three exact
+upstream header hashes, copies the headers into its private build directory,
+and extends only those conditions to the MinGW Windows target. Original
+prepared inputs stay unchanged; the output manifest records each original
+and derived header hash. No structure members or core/module source change.
+
 [Upstream explains](https://github.com/mstorsjo/llvm-mingw/tree/e1878a59f8bf3e1a73afe28f1b83168b1d029ed8#known-issues)
 that mixing DLLs requires every allocator to free its own CRT resources. The
 helper derives a DATA-aware core import library from the exact verified MSI

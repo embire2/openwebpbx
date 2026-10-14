@@ -86,13 +86,19 @@ $moduleProject=Join-Path $fs 'src\mod\endpoints\mod_sofia\mod_sofia.2017.vcxproj
 Copy-Item $moduleProject (Join-Path $BuildRoot 'mod_sofia.upstream.vcxproj')
 [xml]$moduleXml=Get-Content -LiteralPath $moduleProject
 $moduleNs=New-Object Xml.XmlNamespaceManager($moduleXml.NameTable);$moduleNs.AddNamespace('m','http://schemas.microsoft.com/developer/msbuild/2003')
-$coreReferences=@($moduleXml.SelectNodes('//m:ProjectReference',$moduleNs)|Where-Object {$_.Include.EndsWith('w32\Library\FreeSwitchCore.2017.vcxproj')})
-if($coreReferences.Count -ne 1){throw 'The pinned module core reference is unexpected.'}
-[void]$coreReferences[0].ParentNode.RemoveChild($coreReferences[0])
+$references=@($moduleXml.SelectNodes('//m:ProjectReference',$moduleNs))
+$expectedReferences=@('libs\win32\apr\libapr.2017.vcxproj','libs\win32\pthread\pthread.2017.vcxproj','libs\win32\sofia\libsofia_sip_ua_static.2017.vcxproj','w32\Library\FreeSwitchCore.2017.vcxproj')
+if($references.Count -ne $expectedReferences.Count){throw 'The pinned module project references are unexpected.'}
+foreach($expected in $expectedReferences){
+ $matched=@($references|Where-Object {$_.Include.EndsWith($expected)})
+ if($matched.Count -ne 1){throw 'The pinned module project reference differs from its reviewed dependency.'}
+ [void]$matched[0].ParentNode.RemoveChild($matched[0])
+}
 $group=$moduleXml.CreateElement('ItemDefinitionGroup',$moduleXml.DocumentElement.NamespaceURI)
 $link=$moduleXml.CreateElement('Link',$moduleXml.DocumentElement.NamespaceURI)
 $additional=$moduleXml.CreateElement('AdditionalDependencies',$moduleXml.DocumentElement.NamespaceURI)
-$additional.InnerText=$coreLib+';%(AdditionalDependencies)'
+$privateLibs=@('x64\Release\libapr.lib','libs\win32\pthread\x64\Release\pthread.lib','libs\win32\sofia\x64\Release\libsofia_sip_ua_static.lib')|ForEach-Object {Join-Path $fs $_}
+$additional.InnerText=(@($coreLib)+$privateLibs -join ';')+';%(AdditionalDependencies)'
 [void]$link.AppendChild($additional);[void]$group.AppendChild($link)
 $lastImport=$moduleXml.SelectSingleNode('//m:Import[contains(@Project,"Microsoft.Cpp.targets")]',$moduleNs)
 if(!$lastImport){throw 'The pinned module target import is missing.'}
@@ -102,7 +108,10 @@ $moduleXml.Save($moduleProject)
 foreach($project in 'libs\win32\apr\libapr.2017.vcxproj','libs\win32\pthread\pthread.2017.vcxproj','libs\win32\sofia\libsofia_sip_ua_static.2017.vcxproj'){
  Run 'MSBuild.exe' (@((Join-Path $fs $project),'/t:Build','/m:1','/nologo')+$props)
 }
-Run 'MSBuild.exe' (@($moduleProject,'/t:Build','/m:1','/nologo',('/p:OutDir='+$OutputRoot.TrimEnd('\')+'\mod\'),('/p:IntDir='+$BuildRoot.TrimEnd('\')+'\sofia-objects\'))+$props)
+foreach($library in $privateLibs){if(!(Test-Path -LiteralPath $library -PathType Leaf)){throw 'A private pinned registrar dependency import/static library was not built.'}}
+$moduleOutput=Join-Path $BuildRoot 'registrar-output'
+Run 'MSBuild.exe' (@($moduleProject,'/t:Build','/m:1','/nologo',('/p:OutDir='+$moduleOutput.TrimEnd('\')+'\'),('/p:IntDir='+$BuildRoot.TrimEnd('\')+'\sofia-objects\'))+$props)
+Copy-Item (Join-Path $moduleOutput 'mod_sofia.dll') (Join-Path $OutputRoot 'mod\mod_sofia.dll')
 $bcgBuild=Join-Path $BuildRoot 'bcg729'
 $bcgInstall=Join-Path $BuildRoot 'bcg729-install'
 Run 'cmake.exe' @('-S',(Join-Path $SourceRoot 'bcg729'),'-B',$bcgBuild,'-G',$CMakeGenerator,'-A','x64',('-DCMAKE_INSTALL_PREFIX='+$bcgInstall),'-DBUILD_SHARED_LIBS=ON','-DENABLE_UNIT_TESTS=OFF','-DENABLE_STRICT=ON')
