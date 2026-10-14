@@ -80,7 +80,7 @@ class Fixture:
         self.path=Path(input_path); self.s=json.loads(self.path.read_text())
         self.evidence=Path(self.s['evidence_directory']); self.evidence.mkdir(exist_ok=True)
         self.source=Path(self.s['source_root']); self.php=Path('C:/OpenWebPBX/php/php.exe')
-        self.script=self.source/'tests/windows-native-fixture.php'; self.checks=[]
+        self.script=self.source/'tests/windows-native-fixture.php'; self.checks=[]; self.active_case='fixture_initialization'
     def cli(self,action,*args,json_result=True):
         r=subprocess.run([str(self.php),str(self.script),action,str(self.path),*args],capture_output=True,text=True,timeout=35)
         if r.returncode: raise RuntimeError('Private fixture operation failed: '+action)
@@ -262,6 +262,7 @@ class BCG729:
 
 
 def normal_setup(f,web):
+    f.active_case='normal_admin_https_csrf_setup'
     status,_,text=web.request('/login.php');assert status==200
     forms=Forms(text).forms;assert forms,'Normal sign-in form missing'
     fields=dict(forms[0]['fields']);fields.update(username=f.s['admin_email'],password=f.s['admin_password'])
@@ -297,9 +298,11 @@ def normal_setup(f,web):
 
 
 def native_calls(f):
+    f.active_case='native_profile_and_fixture_dependencies'
     status=f.cli('status');bind=status['bind'];assert bind in socket.gethostbyname_ex(socket.gethostname())[2] or bind=='127.0.0.1','Native profile uses a nonlocal endpoint'
     ca=f.evidence/'fixture-root.pem';realm=f.s['realm'];users=f.s['users'];ledger=[]
     for transport in ['udp','tcp','tls']:
+        f.active_case='native_'+transport+'_registration_matrix'
         client=SIPClient(transport,bind,(bind,5061 if transport=='tls' else 5060),realm,ca,'windowsqa.example.invalid')
         try:
             # The stock MSI directory must not authenticate its demonstration
@@ -393,6 +396,7 @@ def native_calls(f):
         time.sleep(seconds);sip.rtp_rate_check(call['media']);sip.rtp_rate_check(remote)
         return {'caller_decoded_ratio':original.decoded_tone_check(call['media'],a.tone_hz if remote in a.dialogs.values() else b.tone_hz),'peer_decoded_ratio':original.decoded_tone_check(remote,caller.tone_hz),'duration_seconds':seconds,'caller_packets':call['media']['received'],'peer_packets':remote['received']}
     def call_check(target,expected=a,digit=None):
+        f.active_case={'8101':'basic_decoded_audio','8180':'simultaneous_ring_group','8181':'hunting_ring_group','8190':'queue_agent_delivery','8170':'ivr_wire_digit_or_timeout'}[target]
         old=set(expected.dialogs);call=caller.dial(target,destination);assert call['code']==200,'Native call was not answered'
         if digit is not None:caller.dtmf(call,digit)
         remote=f.wait(lambda:next((v for k,v in expected.dialogs.items() if k not in old and v.get('acked')),None))
@@ -400,6 +404,7 @@ def native_calls(f):
     try:
         for p in peers:assert p.register((bind,5061 if p.transport=='tls' else 5060))['code']==200
         f.record('native_tls_signalling_two_way_decoded_rtp',**call_check('8101'))
+        f.active_case='independent_g729_pcmu_transcoding'
         codec=BCG729(f.s['private_state_root']);g729=G729Phone(users[0],codec)
         try:
             assert g729.register((bind,5061))['code']==200
@@ -416,6 +421,7 @@ def native_calls(f):
         f.record('native_hunting_ring_group',**call_check('8181'))
         f.record('native_queue_agent_first',**call_check('8190'))
         f.record('native_ivr_negotiated_wire_rfc2833',**call_check('8170',digit='2'))
+        f.active_case='hold_selected_music_resume_transfer'
         old=set(a.dialogs);call=caller.dial('8101',destination);assert call['code']==200
         remote=f.wait(lambda:next((v for k,v in a.dialogs.items() if k not in old),None));media(call,remote)
         assert caller.hold(call,True)==200;time.sleep(10);music=f.music(bytes(remote['decoded_pcm']))
@@ -429,6 +435,7 @@ def native_calls(f):
         assert elapsed>=3.5 and elapsed<16,'Configured IVR timeout was not observed';f.record('native_configured_ivr_timeout',elapsed_seconds=round(elapsed,3),**result)
         # Queue-only pause/logout takes precedence, and the actual caller's
         # negotiated wire digit requests the durable callback.
+        f.active_case='queue_pause_logout_wire_callback'
         f.web.agent('8101','break');f.web.agent('8102','logout')
         before_invites=(len(a.invites),len(b.invites));before_a=set(a.dialogs);before_c=set(caller.dialogs)
         waiting=caller.dial('8190',destination);assert waiting['code']==200;time.sleep(2)
@@ -442,6 +449,7 @@ def native_calls(f):
         caller.hangup_incoming(next(k for k,v in caller.dialogs.items() if v is cr))
         f.wait(lambda:next((j for j in f.cli('status')['jobs'] if j['job_uuid']==job and j['state']=='completed'),None),15)
         f.record('native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp')
+        f.active_case='hotel_wakeup_worker_wire_confirmation'
         wake=(datetime.now(timezone.utc)+timedelta(minutes=2)).strftime('%Y-%m-%dT%H:%M')
         f.web.submit('/app/pbx_setup/?view=hotel','hotel_action',{'hotel_action':'wakeup','number':'8102','timezone':'UTC','wake_at':wake})
         before=set(b.dialogs);f.cli('due')
@@ -452,6 +460,7 @@ def native_calls(f):
         f.wait(lambda:any(j['kind']=='wakeup' and j['state']=='completed' for j in f.cli('status')['jobs']),20)
         f.record('native_hotel_wakeup_localservice_claim_wire_confirmation')
         # Unregistered destination invokes the normal native voicemail recorder.
+        f.active_case='native_voicemail_recording_and_email_queue'
         call=caller.dial('8103',destination);assert call['code']==200
         time.sleep(32);caller.hangup(call)
         voicemail=f.wait(lambda:f.cli('status')['voicemail'],20)
@@ -473,6 +482,7 @@ def native_calls(f):
 
 
 def smtp_and_queued_voicemail(f):
+    f.active_case='global_smtp_unconfigured_queue_preservation'
     module=load_module('smtp_fixture',f.source/'tests/smtp_transport_integration.py')
     with socketserver.ThreadingTCPServer(('127.0.0.1',0),module.SMTPFixture) as sink:
         sink.deliveries=[];sink.connections=[];sink.envelopes=[];sink.record_lock=threading.Lock();sink.daemon_threads=True
@@ -482,6 +492,7 @@ def smtp_and_queued_voicemail(f):
             subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File','C:/OpenWebPBX/tools/Install-MailQueue.ps1','-Tick'],capture_output=True,check=True,timeout=110)
             assert f.cli('status')['mail']==before,'Unconfigured queue consumed retry/status'
             f.record('native_global_smtp_unconfigured_queue_preserves_attempts')
+            f.active_case='native_voicemail_global_smtp_ip_attachment'
             values={'smtp_host':'127.0.0.1','smtp_port':str(sink.server_address[1]),'smtp_secure':'none','smtp_from':'pbx@example.invalid','smtp_from_name':'Fictional Windows PBX','smtp_reply_to':'reply@example.invalid','smtp_ip_whitelisted':'1','smtp_username':'','smtp_password':''}
             f.web.submit('/app/smtp_settings/','save',values)
             subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File','C:/OpenWebPBX/tools/Install-MailQueue.ps1','-Tick'],capture_output=True,check=True,timeout=110)
@@ -492,6 +503,7 @@ def smtp_and_queued_voicemail(f):
             assert any(x[:4]==b'RIFF' and x[8:12]==b'WAVE' and len(x)>4096 for x in attachments),'Actual native voicemail attachment missing'
             assert all(not auth and count==0 for auth,count in sink.connections),'IP SMTP performed AUTH'
             f.record('native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment',messages=len(messages),attachment_sha256=hashlib.sha256(attachments[0]).hexdigest(),no_external_mail=True)
+            f.active_case='global_smtp_password_auth'
             f.cli('mail-seed');values.update(smtp_ip_whitelisted='0',smtp_username='fixture-user',smtp_password='fixture-password')
             f.web.submit('/app/smtp_settings/','save',values)
             old=len(sink.deliveries);subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File','C:/OpenWebPBX/tools/Install-MailQueue.ps1','-Tick'],capture_output=True,check=True,timeout=110)
@@ -506,6 +518,7 @@ def smtp_and_queued_voicemail(f):
         sink.deliveries=[];sink.connections=[];sink.envelopes=[];sink.record_lock=threading.Lock();sink.daemon_threads=True
         worker=threading.Thread(target=sink.serve_forever,daemon=True);worker.start()
         try:
+            f.active_case='global_smtp_trusted_tls_hostname_auth'
             values.update(smtp_host='windowsqa.example.invalid',smtp_port=str(sink.server_address[1]),smtp_secure='ssl')
             f.web.submit('/app/smtp_settings/','save',values)
             f.web.submit('/app/smtp_settings/','check',{})
@@ -525,7 +538,12 @@ def main():
         f.web=Web(f.s['public_url'],f.evidence/'fixture-root.pem');normal_setup(f,f.web);native_calls(f);smtp_and_queued_voicemail(f);f.web.request('/logout.php')
         (f.evidence/'software-native-report.json').write_text(json.dumps({'state':'passed','checks':f.checks,'carrier':'unqualified','physical_devices':'unqualified','android_hardware':'unqualified','public_acme':'unqualified','scope':'fictional-hosted-runner'},indent=2))
     except BaseException as e:
-        (f.evidence/'software-native-report.json').write_text(json.dumps({'state':'failed','checks':f.checks,'error_type':type(e).__name__,'error':str(e)},indent=2))
+        import traceback
+        location=traceback.extract_tb(e.__traceback__)[-1]
+        basename=Path(location.filename).name
+        if basename not in ('windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py'):
+            basename='external_component'
+        (f.evidence/'software-native-report.json').write_text(json.dumps({'state':'failed','checks':f.checks,'error_type':type(e).__name__,'error':str(e),'source_basename':basename,'source_line':location.lineno,'active_case':f.active_case},indent=2))
         raise
 
 if __name__=='__main__':main()

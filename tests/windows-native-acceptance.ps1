@@ -80,7 +80,19 @@ try {
  $service=Get-CimInstance Win32_Service -Filter "Name='OpenWebPBX'";if($service.StartName -notin 'NT AUTHORITY\LocalService','NT AUTHORITY\LOCAL SERVICE'){throw 'Native background service uses an unexpected identity.'}
  $facts.checks+='Actual LOCAL SERVICE reads IIS-generated stable keys with parent write denied; production C# reader source tested separately; no delivery sent'
  $facts.gates.notification_store='passed';$nativePassed=$true
-}catch{$errorType=$_.Exception.GetType().Name;$facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$errorType}
+}catch{
+ $errorType=$_.Exception.GetType().Name;$facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$errorType
+ $facts.source_basename='windows-native-acceptance.ps1';$facts.source_line=$_.InvocationInfo.ScriptLineNumber;$facts.active_case=$phase.Replace(' ','_')
+ $childReport=Join-Path $evidence 'software-native-report.json'
+ if(Test-Path -LiteralPath $childReport){
+  try{
+   $child=Get-Content -LiteralPath $childReport -Raw|ConvertFrom-Json
+   if($child.state -eq 'failed' -and $child.source_basename -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','external_component' -and [int]$child.source_line -gt 0 -and $child.active_case -match '^[a-z0-9_]{1,120}$' -and $child.error_type -match '^[A-Za-z0-9_]{1,80}$'){
+    $facts.source_basename=$child.source_basename;$facts.source_line=[int]$child.source_line;$facts.active_case=$child.active_case;$facts.error_type=$child.error_type
+   }
+  }catch{}
+ }
+}
 finally{
  $phase='exact scoped cleanup'
  try{
