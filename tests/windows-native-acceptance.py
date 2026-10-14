@@ -383,6 +383,13 @@ class SIPStream:
     def close(self):self.sock.close()
 
 
+def send_ivr_digit(phone,call,digit,wait):
+    # This peer starts its RTP clock at zero. Emit actual audio before the
+    # telephone event so an immediate key cannot use that inactive sentinel.
+    wait(lambda:call['media']['sent']>0 and call['media'].get('rtp_clock',0)>0,seconds=3)
+    assert phone.dtmf(call,digit),'Negotiated IVR key did not leave the peer'
+
+
 class BCG729:
     """Independent peer codec; never invoke the native PBX codec callbacks."""
     def __init__(self,state_root):
@@ -612,7 +619,7 @@ def native_calls(f):
     def call_check(target,expected=a,digit=None):
         f.active_case={'8101':'basic_decoded_audio','8180':'simultaneous_ring_group','8181':'hunting_ring_group','8190':'queue_agent_delivery','8170':'ivr_wire_digit_or_timeout'}[target]
         old=set(expected.dialogs);call=caller.dial(target,destination);assert call['code']==200,'Native call was not answered'
-        if digit is not None:caller.dtmf(call,digit)
+        if digit is not None:send_ivr_digit(caller,call,digit,f.wait)
         remote=f.wait(lambda:next((v for k,v in expected.dialogs.items() if k not in old and v.get('acked')),None))
         result=media(call,remote);caller.hangup(call);time.sleep(.3);return result
     try:

@@ -7,6 +7,11 @@ if($errors.Count){throw 'The reviewed caller must parse.'}
 $nodes=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'SafeFailureFields'},$true))
 if($nodes.Count -ne 1){throw 'The actual caller allowlist must be uniquely identified.'}
 Invoke-Expression $nodes[0].Extent.Text
+$nativeAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-native-acceptance.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'The reviewed native hook must parse.'}
+$mediaNodes=@($nativeAst.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'CompletedMediaCases'},$true))
+if($mediaNodes.Count -ne 1){throw 'The actual completed-media filter must be uniquely identified.'}
+Invoke-Expression $mediaNodes[0].Extent.Text
 $checks=0
 function Check([bool]$Value){if(!$Value){throw 'The bounded native failure field check failed.'};$script:checks++}
 $record=[pscustomobject]@{
@@ -29,4 +34,27 @@ foreach($prefix in 'primary','cleanup'){
  }
 }
 foreach($bad in '2',0,33,$true){$copy=$record.PSObject.Copy();$copy.cleanup_failure_count=$bad;Check (!(SafeFailureFields $copy).ContainsKey('cleanup_failure_count'))}
-Write-Output "PASS $checks actual caller native primary/cleanup/privacy allowlist checks; no PBX contacted"
+$allowed=@('native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first')
+$childChecks=@(foreach($name in $allowed){[pscustomobject]@{case=$name;passed=$true;password='private-never-copy';decoded_ratio=.99;error='private-never-copy'}})
+$completed=@(CompletedMediaCases $childChecks)
+Check (($completed -join '|') -ceq ($allowed -join '|'))
+foreach($name in $allowed){
+ foreach($bad in $false,'true',1,$null){Check (@(CompletedMediaCases @([pscustomobject]@{case=$name;passed=$bad})).Count -eq 0)}
+}
+foreach($bad in 'private-never-copy',$allowed[0].ToUpperInvariant(),($allowed[0]+' '),($allowed[0]+'_secret'),1,$true,@($allowed[0]),[pscustomobject]@{value=$allowed[0]}){
+ Check (@(CompletedMediaCases @([pscustomobject]@{case=$bad;passed=$true})).Count -eq 0)
+}
+Check (@(CompletedMediaCases @([pscustomobject]@{case=$allowed[0]},$null,'private-never-copy')).Count -eq 0)
+Check ((@(CompletedMediaCases @($childChecks[0],$childChecks[0])) -join '|') -ceq $allowed[0])
+$partial=[pscustomobject]@{completed_media_cases=$completed;checks=$childChecks;password='private-never-copy';metrics=@{private='private-never-copy'}}
+$filtered=SafeFailureFields $partial
+Check ($filtered.Count -eq 1 -and ($filtered.completed_media_cases -join '|') -ceq ($allowed -join '|'))
+Check (($filtered|ConvertTo-Json -Depth 8) -notmatch 'private-never-copy|decoded_ratio|password|metrics')
+foreach($bad in 'private-never-copy',$allowed[0].ToUpperInvariant(),($allowed[0]+' '),($allowed[0]+'_secret'),1,$true,@($allowed[0]),[pscustomobject]@{case=$allowed[0];passed=$true}){
+ $invalid=[pscustomobject]@{completed_media_cases=[object[]]::new(1)};$invalid.completed_media_cases[0]=$bad
+ Check (!(SafeFailureFields $invalid).ContainsKey('completed_media_cases'))
+}
+$mixed=SafeFailureFields ([pscustomobject]@{completed_media_cases=@('private-never-copy',$allowed[4],$allowed[4],$allowed[0]);checks=$childChecks})
+Check (($mixed.completed_media_cases -join '|') -ceq ($allowed[0]+'|'+$allowed[4]) -and $mixed.Count -eq 1)
+Check (!(SafeFailureFields ([pscustomobject]@{checks=$childChecks})).ContainsKey('completed_media_cases'))
+Write-Output "PASS $checks actual caller native primary/cleanup/completed-media privacy allowlist checks; no PBX contacted"
