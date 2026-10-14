@@ -86,11 +86,11 @@ jobs:
           $expected = 'f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d'
           if ((Get-FileHash $msi -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'The source MSI hash differs.' }
           $image = Join-Path $env:ENGINE_WORK 'msi-image'
-          $process = Start-Process msiexec.exe -ArgumentList @('/a', ('"'+$msi+'"'), '/qn', ('TARGETDIR="'+$image+'"'), '/L*v', ('"'+$env:ENGINE_WORK+'/msi-extract.log"')) -Wait -PassThru
-          if ($process.ExitCode -notin 0,3010) { throw 'The verified MSI administrative extraction failed.' }
-          $cores = @(Get-ChildItem $image -Filter FreeSwitch.dll -File -Recurse)
-          if ($cores.Count -ne 1) { throw 'The MSI does not contain one unambiguous native core.' }
-          $core = $cores[0].FullName; $coreHash = (Get-FileHash $core -Algorithm SHA256).Hash.ToLowerInvariant()
+          python packaging/freeswitch/extract-windows-core.py --msi $msi --output $image |
+            Tee-Object "$env:ENGINE_WORK/core-extraction.json"
+          if ($LASTEXITCODE) { throw 'The verified read-only MSI table/cabinet extraction failed.' }
+          $coreRoot = Join-Path $image 'core'
+          $core = Join-Path $coreRoot 'FreeSwitch.dll'; $coreHash = (Get-FileHash $core -Algorithm SHA256).Hash.ToLowerInvariant()
           $definition = Join-Path $env:ENGINE_WORK 'FreeSwitch.def'
           python packaging/freeswitch/core-exports.py --dll $core --expected-sha256 $coreHash --output $definition |
             Tee-Object "$env:ENGINE_WORK/core-exports.json"
@@ -99,8 +99,16 @@ jobs:
           if ($LASTEXITCODE) { throw 'The MSI-derived native import library failed.' }
           python packaging/freeswitch/windows-native-dependencies.py --downloads "$env:ENGINE_WORK/downloads" --source "$env:ENGINE_WORK/source" --core $core --import-library "$env:ENGINE_WORK/FreeSwitch.lib"
           if ($LASTEXITCODE) { throw 'The locked offline dependency tree failed.' }
-          "NATIVE_CORE_ROOT=$($cores[0].DirectoryName)" >> $env:GITHUB_ENV
+          "NATIVE_CORE_ROOT=$coreRoot" >> $env:GITHUB_ENV
           "NATIVE_CORE_SHA256=$coreHash" >> $env:GITHUB_ENV
+      - name: Preserve verified public source bundle for local codec compilation
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = "$env:ENGINE_WORK/source"
+          $manifest = (Get-FileHash "$source/source-manifest.json" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $aprHash = (Get-FileHash "$env:NATIVE_CORE_ROOT/libapr.dll" -Algorithm SHA256).Hash.ToLowerInvariant()
+          python packaging/freeswitch/bundle-windows-native.py --source $source --source-manifest-sha256 $manifest --core-export-helper packaging/freeswitch/core-exports.py --core-sha256 $env:NATIVE_CORE_SHA256 --apr-sha256 $aprHash --output "$env:ENGINE_WORK/codec-source"
+          if ($LASTEXITCODE) { throw 'The public prepared source bundle did not verify.' }
       - name: Build patched registrar and local-only source codec
         run: |
           $ErrorActionPreference = 'Stop'
@@ -138,7 +146,9 @@ jobs:
           path: |
             ${{ runner.temp }}/openwebpbx-engine/engine/
             ${{ runner.temp }}/openwebpbx-engine/runner-inputs.json
+            ${{ runner.temp }}/openwebpbx-engine/core-extraction.json
             ${{ runner.temp }}/openwebpbx-engine/core-exports.json
+            ${{ runner.temp }}/openwebpbx-engine/codec-source/
             ${{ runner.temp }}/openwebpbx-engine/codec-callback-evidence.json
             ${{ runner.temp }}/openwebpbx-engine/portable-codec-evidence.json
             ${{ runner.temp }}/openwebpbx-engine/portable-codec-build.log

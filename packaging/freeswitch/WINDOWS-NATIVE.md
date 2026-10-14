@@ -87,9 +87,19 @@ The separate local codec directory contains `mod/mod_bcg729.dll`,
 `libbcg729.dll` and `local-codec-manifest.json`. These are local build/test
 outputs, excluded from the registrar artifact and the hosted job's upload
 allowlist. The workflow in `.github/workflows/windows-engine.yml` publishes
-only the registrar and credential-free build/callback evidence. It performs an
-administrative MSI extraction and never substitutes the MSI's stock registrar
+the registrar, credential-free build/callback evidence and the verified public
+`codec-source` bundle. `extract-windows-core.py` opens the exact MSI database
+read-only, reads its File/Component tables and extracts cabinet data with
+7-Zip; it never executes installer actions. Its reviewed core/APR hashes are
+checked again after extraction. It never substitutes the MSI's stock registrar
 for the patched source build.
+
+`bundle-windows-native.py` copies only the prepared manifest's verified public
+members into `codec-source/source`, preserving all 6,214 original prepared
+inputs and `source-manifest.json`. Built dependency libraries, private build
+outputs and combined codec DLLs are outside that allowlist. The bundled
+`core-exports.py` and `codec-source-manifest.json` pin the exact helper, source
+manifest, MSI core and APR hashes for the installer local source recipe.
 
 Preserve the source manifest, dependency lock, build-tool versions, PE import
 reports and callback result. Actual Windows qualification must include the
