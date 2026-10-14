@@ -53,6 +53,23 @@ function Download([string]$Url,[string]$Path,[string]$Hash) {
  if ((Get-FileHash $Path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Hash) { throw "Download verification failed: $(Split-Path $Path -Leaf)" }
 }
 function WriteUtf8([string]$Path,[string]$Text) { [IO.File]::WriteAllText($Path,$Text,(New-Object Text.UTF8Encoding($false))) }
+function ConfigurePhpPool([string]$Name) {
+ # Create and configure the same pool in one IIS configuration transaction.
+ # A fresh reader verifies persisted state without an IIS provider item lookup.
+ Add-Type -Path "$env:windir\System32\inetsrv\Microsoft.Web.Administration.dll"
+ $poolManager=New-Object Microsoft.Web.Administration.ServerManager
+ try {
+  $pool=$poolManager.ApplicationPools[$Name]
+  if($null -eq $pool){$pool=$poolManager.ApplicationPools.Add($Name)}
+  $pool.ManagedRuntimeVersion=''
+  $poolManager.CommitChanges()
+ }finally{$poolManager.Dispose()}
+ $poolReader=New-Object Microsoft.Web.Administration.ServerManager
+ try {
+  $pool=$poolReader.ApplicationPools[$Name]
+  if($null -eq $pool -or $pool.ManagedRuntimeVersion -ne ''){throw 'The PHP application pool configuration was not persisted.'}
+ }finally{$poolReader.Dispose()}
+}
 New-Item -ItemType Directory -Force $root,$private,$configRoot,"$root\packages" | Out-Null
 icacls $root /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
 if($LASTEXITCODE){throw 'The installed program folder could not be protected.'}
@@ -254,8 +271,7 @@ Push-Location "$root\web"
 try {Run "$root\php\php.exe" @("$PSScriptRoot\bootstrap.php","$root\web",'xml')}finally{Pop-Location}
 $runtime=@{ConnectionStrings=@{Pbx="Host=127.0.0.1;Port=5433;Database=fusionpbx;Username=fusionpbx;Password=$($state.DatabasePassword)"};Switch=@{Host='127.0.0.1';Port=8021;Password=$state.SwitchPassword}}
 WriteUtf8 "$private\runtime.json" ($runtime|ConvertTo-Json -Depth 4)
-if(!(Test-Path IIS:\AppPools\OpenWebPBX)){New-WebAppPool OpenWebPBX|Out-Null}
-Set-ItemProperty IIS:\AppPools\OpenWebPBX managedRuntimeVersion ''
+ConfigurePhpPool 'OpenWebPBX'
 $fastcgi="$root\php\php-cgi.exe"
 if(!(Get-WebConfiguration 'system.webServer/fastCgi/application' | Where-Object fullPath -eq $fastcgi)){Add-WebConfiguration 'system.webServer/fastCgi' -Value @{fullPath=$fastcgi;instanceMaxRequests=10000;maxInstances=4;activityTimeout=900;requestTimeout=900}}
 & "$PSScriptRoot\Configure-PHP.ps1" -PackageRoot $PSScriptRoot
