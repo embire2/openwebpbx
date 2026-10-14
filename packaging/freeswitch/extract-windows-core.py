@@ -13,6 +13,8 @@ import sys
 MSI_SHA = 'f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d'
 CORE_SHA = '8553d88348093d5067d93369aa9793b38fe9e3c9c9ca0c38216791700bd7f726'
 APR_SHA = 'bb3adfa1b6b7e3f699b037a0429fca49482e5a9e829ad1f01cc31d447a74a56d'
+STOCK_SOFIA_SHA = 'ccf98b4c8ff99f2d670e88ec605f837795e4b878a2984c1df2ea36d9319aeff5'
+STARTUP_MODULES = ('mod_commands.dll', 'mod_event_socket.dll', 'mod_console.dll', 'mod_logfile.dll', 'mod_sofia.dll')
 
 
 def digest(path):
@@ -67,7 +69,35 @@ def table_rows(path, query, columns):
         msi.MsiCloseHandle(database)
 
 
-def extract(msi, output):
+def selected_files(files, components, directory, include_startup_probe=False):
+    selected = [(row, row[2].split('|')[-1]) for row in files
+                if components.get(row[1]) == directory and row[2].split('|')[-1].lower().endswith('.dll')]
+    if not include_startup_probe:
+        return selected
+    required = ('FreeSwitchConsole.exe',) + STARTUP_MODULES
+    module_directory = None
+    for name in required:
+        matches = [row for row in files if row[2].split('|')[-1].casefold() == name.casefold()]
+        if len(matches) != 1 or matches[0][1] not in components:
+            raise ValueError('The exact MSI startup runtime is absent or ambiguous.')
+        row = matches[0]
+        actual_directory = components[row[1]]
+        if name == 'FreeSwitchConsole.exe':
+            if actual_directory != directory:
+                raise ValueError('The MSI console is outside the reviewed core directory.')
+            relative = name
+        else:
+            if not actual_directory or actual_directory == directory:
+                raise ValueError('The MSI support module directory is invalid.')
+            if module_directory is not None and actual_directory != module_directory:
+                raise ValueError('The MSI startup modules belong to different directories.')
+            module_directory = actual_directory
+            relative = 'mod/' + name
+        selected.append((row, relative))
+    return selected
+
+
+def extract(msi, output, include_startup_probe=False):
     if sys.platform != 'win32' or msi.is_symlink() or digest(msi) != MSI_SHA:
         raise ValueError('Read-only extraction requires Windows and the exact pinned source MSI.')
     if output.exists() or not output.is_absolute():
@@ -78,7 +108,7 @@ def extract(msi, output):
     if len(cores) != 1 or cores[0][1] not in components:
         raise ValueError('The pinned MSI does not identify one unambiguous core directory.')
     directory = components[cores[0][1]]
-    selected = [row for row in files if components.get(row[1]) == directory and row[2].split('|')[-1].lower().endswith('.dll')]
+    selected = selected_files(files, components, directory, include_startup_probe)
     seven = Path(os.environ.get('ProgramFiles', 'C:/Program Files')) / '7-Zip/7z.exe'
     command = str(seven) if seven.is_file() else shutil.which('7z.exe')
     if not command:
@@ -88,21 +118,26 @@ def extract(msi, output):
     core.mkdir()
     subprocess.run([command, 'x', '-y', '-o' + str(cabinet), str(msi.resolve())], check=True)
     copied = {}
-    for identity, _, original_name, size in selected:
+    for (identity, _, original_name, size), relative in selected:
         name = original_name.split('|')[-1]
-        if not identity or any(c in identity for c in '/\\:') or any(c in name for c in '/\\:') or name.casefold() in copied:
+        if not identity or any(c in identity for c in '/\\:') or any(c in name for c in '/\\:') or relative.casefold() in copied:
             raise ValueError('The pinned MSI core file identity is unsafe or duplicated.')
         source = cabinet / identity
         if source.is_symlink() or not source.is_file() or source.stat().st_size != int(size):
             raise ValueError('A cabinet member differs from its pinned MSI File table.')
-        destination = core / name
+        destination = core / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, destination)
-        copied[name.casefold()] = digest(destination)
+        copied[relative.casefold()] = digest(destination)
     if copied.get('freeswitch.dll') != CORE_SHA or copied.get('libapr.dll') != APR_SHA:
         raise ValueError('The extracted core/APR hashes differ from the reviewed pinned MSI.')
+    if include_startup_probe and copied.get('mod/mod_sofia.dll') != STOCK_SOFIA_SHA:
+        raise ValueError('The exact MSI stock registrar control did not verify.')
     result = {'schema': 1, 'source_msi_sha256': MSI_SHA, 'core_sha256': CORE_SHA, 'apr_sha256': APR_SHA,
               'core_directory': str(core), 'files': copied, 'msi_access': 'read-only-tables-and-cabinet',
               'installer_actions_executed': False, 'extractor_sha256': digest(Path(command))}
+    if include_startup_probe:
+        result['startup_probe_files'] = ['FreeSwitchConsole.exe'] + ['mod/' + name for name in STARTUP_MODULES]
     (output / 'core-extraction.json').write_text(json.dumps(result, indent=2) + '\n')
     return result
 
@@ -111,9 +146,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--msi', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--include-startup-probe', action='store_true', help='Extract only the exact console and five support modules for the private native startup gate.')
     args = parser.parse_args()
     try:
-        result = extract(args.msi, args.output)
+        result = extract(args.msi, args.output, args.include_startup_probe)
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         parser.exit(1, str(error) + '\n')
     print(json.dumps(result))

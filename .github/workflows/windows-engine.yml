@@ -94,7 +94,7 @@ jobs:
           $expected = 'f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d'
           if ((Get-FileHash $msi -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'The source MSI hash differs.' }
           $image = Join-Path $env:ENGINE_WORK 'msi-image'
-          python packaging/freeswitch/extract-windows-core.py --msi $msi --output $image |
+          python packaging/freeswitch/extract-windows-core.py --msi $msi --output $image --include-startup-probe |
             Tee-Object "$env:ENGINE_WORK/core-extraction.json"
           if ($LASTEXITCODE) { throw 'The verified read-only MSI table/cabinet extraction failed.' }
           $coreRoot = Join-Path $image 'core'
