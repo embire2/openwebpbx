@@ -21,6 +21,22 @@ NATIVE_SUBSTAGES={'native_case','g729_regular_unregister','g729_alternate_regist
     'g729_peer_close','g729_codec_close','g729_regular_reregister','native_peer_unregister','native_peer_close','native_ledger_write'}
 
 
+class WindowsRtpSocket:
+    """Keep a late UDP port-unreachable report from stopping SIP reception.
+
+    Windows reports a previous UDP send's ICMP error at recv. It does not
+    terminate the datagram socket. Only that exact Windows RTP condition is
+    treated as an empty poll; actual packets, pacing and audio are still required.
+    """
+    def __init__(self,sock):self.socket=sock
+    def __getattr__(self,name):return getattr(self.socket,name)
+    def recv(self,*args,**kwargs):
+        try:return self.socket.recv(*args,**kwargs)
+        except ConnectionResetError as error:
+            if os.name!='nt' or getattr(error,'winerror',None)!=10054:raise
+            raise BlockingIOError('Previous UDP send reported a port unreachable') from error
+
+
 def native_exception_fields(error,stage,prefix='primary'):
     import traceback
     frames=traceback.extract_tb(error.__traceback__)
@@ -537,6 +553,10 @@ def native_calls(f):
             return result
         def response(self,*a,**kw):
             return super().response(*a,**kw).replace(f'@{self.ip}:{self.port}>'.encode(),f'@{self.ip}:{self.port};transport={self.transport}>'.encode())
+        def media(self,pt=0):
+            state=super().media(pt)
+            if os.name=='nt':state['socket']=WindowsRtpSocket(state['socket'])
+            return state
         def run(self):
             try:self.run_media()
             except BaseException as error:self.receiver_failure=error
