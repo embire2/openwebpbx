@@ -54,7 +54,7 @@ if action=='database':
  columns=b.query(settings,"select coalesce(json_agg(t order by table_name,ordinal_position),'[]') from (select table_name,column_name,ordinal_position,data_type,udt_name,is_nullable,column_default from information_schema.columns where table_schema='public') t",json_result=True)
  # Background heartbeats/logs can change after service recovery. Their schema
  # stays covered; all customer and security/routing table values remain exact.
- volatile={'v_pbx_update_status','v_pbx_update_commands','v_pbx_job_slots','v_user_logs','v_logs','v_pbx_user_presence','v_pbx_presence'}
+ volatile={'v_pbx_update_status','v_pbx_backup_status','v_pbx_update_commands','v_pbx_job_slots','v_user_logs','v_logs','v_pbx_user_presence','v_pbx_presence'}
  values={}
  for entry in tables:
   table=entry['name']

@@ -23,6 +23,24 @@ try{
  if($arguments.Count -ne 4 -or $arguments[0] -ne '--input' -or $arguments[1] -cne $privateInput -or $arguments[2] -ne '--phase' -or $arguments[3] -ne 'pki-server'){throw 'Native fixture argument boundaries were changed.'}
  if($pkiErrors.GetAwaiter().GetResult()){throw 'Native fixture child produced an unexpected error.'}
  Write-Host 'PASS real native child launcher: spaced script/input paths remain single arguments; no Windows PBX qualification implied.'
+ $diagnostic=$ast.Find({param($node)$node -is [Management.Automation.Language.StringConstantExpressionAst] -and $node.Value.Contains('$record.helper') -and $node.Value.Contains('phone_tls_chain_validation')},$true)
+ if(!$diagnostic){throw 'Exact TLS child diagnostic wrapper missing.'}
+ $helper=Join-Path $directory 'Enable-PhoneTLS.ps1';$launcher=Join-Path $directory 'private TLS launcher.ps1';$inputFile=Join-Path $directory 'private input.json';$failure=Join-Path $directory 'failure.json'
+ [IO.File]::WriteAllText($helper,"param([string]`$CertificateThumbprint,[string]`$FullChainPath)`nthrow 'Windows could not verify the phone certificate chain. unit-private-value'",[Text.UTF8Encoding]::new($false))
+ [IO.File]::WriteAllText($launcher,$diagnostic.Value,[Text.UTF8Encoding]::new($false))
+ [IO.File]::WriteAllText($inputFile,(@{helper=$helper;thumbprint='fictional';chain='fictional';failure=$failure}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+ $start=[Diagnostics.ProcessStartInfo]::new([Diagnostics.Process]::GetCurrentProcess().MainModule.FileName)
+ $start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+ foreach($argument in @('-NoProfile','-NonInteractive','-File',$launcher,'-InputPath',$inputFile)){$start.ArgumentList.Add($argument)}
+ $child=[Diagnostics.Process]::Start($start)
+ try{
+  $output=$child.StandardOutput.ReadToEndAsync();$errors=$child.StandardError.ReadToEndAsync()
+  if(!$child.WaitForExit(15000) -or $child.ExitCode -ne 1){throw 'Independent TLS diagnostic fixture did not fail as expected.'}
+  $serialized=[IO.File]::ReadAllText($failure);$result=$serialized|ConvertFrom-Json
+  if($result.active_case -ne 'phone_tls_chain_validation' -or $result.source_basename -ne 'Enable-PhoneTLS.ps1' -or $result.source_line -ne 2 -or $result.error_type -ne 'RuntimeException'){throw 'Typed TLS diagnostic did not identify the actual helper failure.'}
+  if(($serialized+$output.GetAwaiter().GetResult()+$errors.GetAwaiter().GetResult()).Contains('unit-private-value')){throw 'Private exception content escaped the safe diagnostic.'}
+  Write-Host 'PASS actual typed TLS diagnostic child: helper location/stage retained, private exception marker withheld.'
+ }finally{if(!$child.HasExited){$child.Kill($true)};$child.Dispose()}
 }finally{
  if($process){if(!$process.HasExited){$process.Kill($true)};$process.Dispose()}
  Remove-Item -LiteralPath $directory -Recurse -Force

@@ -47,10 +47,16 @@ function ResumeManagers {
  foreach($task in $script:managerTasks){try{Start-ScheduledTask -TaskName $task -ErrorAction Stop}catch{Write-Warning 'A previously open manager can be reopened from its normal shortcut.'}}
 }
 $script:managerTasks=@()
+function InstalledManagers {
+ $expected=[IO.Path]::GetFullPath("$root\desktop\OpenWebPbx.Desktop.exe")
+ foreach($process in Get-CimInstance Win32_Process -Filter "Name='OpenWebPbx.Desktop.exe'"){
+  if($process.ExecutablePath -and [IO.Path]::GetFullPath($process.ExecutablePath).Equals($expected,[StringComparison]::OrdinalIgnoreCase)){$process}
+ }
+}
 function PrepareManagers {
  # Each manager registers an interactive-token task for its own Windows user.
  # Only tasks for currently running manager owners are eligible to reopen.
- foreach($process in Get-CimInstance Win32_Process -Filter "Name='OpenWebPbx.Desktop.exe'"){
+ foreach($process in @(InstalledManagers)){
   $owner=Invoke-CimMethod -InputObject $process -MethodName GetOwnerSid
   if($owner.ReturnValue -eq 0){
    $name='OpenWebPBX-Manager-'+$owner.Sid
@@ -66,7 +72,9 @@ function PrepareManagers {
    }
    $taskSid=$null
    if($task){try{$taskSid=if($task.Principal.UserId -like 'S-1-*'){$task.Principal.UserId}else{(New-Object Security.Principal.NTAccount($task.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier]).Value}}catch{}}
-   if($task -and $task.Principal.LogonType -eq 'Interactive' -and $taskSid -eq $owner.Sid){$script:managerTasks+=$name}
+   $actions=if($task){@($task.Actions)}else{@()}
+   $expectedAction=$actions.Count -eq 1 -and $actions[0].Execute -eq "$root\desktop\OpenWebPbx.Desktop.exe" -and $actions[0].WorkingDirectory -eq "$root\desktop" -and !$actions[0].Arguments
+   if($task -and $task.Principal.LogonType -eq 'Interactive' -and $taskSid -eq $owner.Sid -and $expectedAction){$script:managerTasks+=$name}
    else{throw 'The manager could not be prepared to reopen. Close it before requesting installation again.'}
   }
  }
@@ -94,7 +102,7 @@ function StopPbx {
  if((Get-Website -Name OpenWebPBX).State -ne 'Stopped'){Stop-Website OpenWebPBX}
  if ((Get-WebAppPoolState OpenWebPBX).Value -ne 'Stopped') { Stop-WebAppPool OpenWebPBX }; WaitPool 'Stopped'
  foreach ($name in 'OpenWebPBX', 'FreeSWITCH') { Stop-Service $name; (Get-Service $name).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(40)) }
- Get-Process OpenWebPbx.Desktop -ErrorAction SilentlyContinue | Stop-Process -Force
+ foreach($manager in @(InstalledManagers)){Stop-Process -Id $manager.ProcessId -Force -ErrorAction SilentlyContinue}
 }
 function StartPbx {
  $gate=Get-OpenWebRestoreGate -StateRoot $private

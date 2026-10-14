@@ -46,17 +46,48 @@ function FixtureBinding([byte[]]$Hash,[string]$Store,[switch]$Read){
 function ConfigureFixturePhoneTls([string]$Thumbprint,[string]$Chain){
  # Server management runs in the same real Windows PowerShell 5.1 host used
  # by the installed manager/updater/tasks, never a PS7 compatibility proxy.
+ $launcher=Join-Path $work 'configure-phone-tls.ps1';$request=Join-Path $work 'configure-phone-tls.json';$failure=Join-Path $evidence 'phone-tls-failure.json'
+ [IO.File]::WriteAllText($request,(@{helper=(Join-Path $PackageRoot 'Enable-PhoneTLS.ps1');thumbprint=$Thumbprint;chain=$Chain;failure=$failure}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+ $launcherCode=@'
+param([Parameter(Mandatory)][string]$InputPath)
+$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
+$record=Get-Content -LiteralPath $InputPath -Raw|ConvertFrom-Json
+try{& $record.helper -CertificateThumbprint $record.thumbprint -FullChainPath $record.chain}
+catch{
+ $basename=Split-Path -Leaf $_.InvocationInfo.ScriptName
+ if($basename -notin 'Enable-PhoneTLS.ps1','Write-PrivateState.ps1','Restore-Gates.ps1'){$basename='external_component'}
+ $safe=@{error_type=$_.Exception.GetType().Name;source_basename=$basename;source_line=[int]$_.InvocationInfo.ScriptLineNumber;active_case='phone_tls_helper'}
+ $labels=@{
+  'Windows could not verify the phone certificate chain.'='phone_tls_chain_validation'
+  'Choose a current, exportable certificate issued by a trusted certificate authority.'='phone_tls_certificate_properties'
+  'Set a public PBX hostname and trusted HTTPS certificate before enabling Android phones.'='phone_tls_configuration_hostname'
+  'Secure phone setup failed.'='phone_tls_native_php_stage'
+  'The phone certificate or TLS listener could not be verified for the public PBX hostname.'='phone_tls_listener_validation'
+ }
+ foreach($label in $labels.Keys){if($_.Exception.Message.Contains($label)){$safe.active_case=$labels[$label];break}}
+ if($_.Exception.Data.Contains('OpenWebPhoneTLSBusy')){$safe.active_case='phone_tls_busy'}
+ # Fixed helper locations are useful; arguments and exception text stay private.
+ $frames=[regex]::Matches($_.ScriptStackTrace,'([^\\/\r\n]+\.ps1): line ([0-9]+)')
+ if($frames.Count -gt 1){$safe.caller_basename=$frames[1].Groups[1].Value;$safe.caller_line=[int]$frames[1].Groups[2].Value}
+ [IO.File]::WriteAllText($record.failure,($safe|ConvertTo-Json),[Text.UTF8Encoding]::new($false));exit 1
+}
+'@
+ [IO.File]::WriteAllText($launcher,$launcherCode,[Text.UTF8Encoding]::new($false))
  $start=[Diagnostics.ProcessStartInfo]::new("$env:windir\System32\WindowsPowerShell\v1.0\powershell.exe")
  $start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
  $start.Environment['PSModulePath']=(Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')
- foreach($arg in @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PackageRoot 'Enable-PhoneTLS.ps1'),'-CertificateThumbprint',$Thumbprint,'-FullChainPath',$Chain)){$start.ArgumentList.Add($arg)}
+ foreach($arg in @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$launcher,'-InputPath',$request)){$start.ArgumentList.Add($arg)}
  $process=[Diagnostics.Process]::Start($start)
  try{
   $output=$process.StandardOutput.ReadToEndAsync();$errors=$process.StandardError.ReadToEndAsync()
   if(!$process.WaitForExit(180000)){$process.Kill($true);throw 'The native phone TLS helper exceeded its bounded fixture time.'}
   [IO.File]::WriteAllText("$evidence\phone-tls-private.log",$output.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false))
   [IO.File]::WriteAllText("$evidence\phone-tls-private-errors.log",$errors.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false))
-  if($process.ExitCode -ne 0){throw 'Actual trusted fictional phone TLS setup did not pass.'}
+  if($process.ExitCode -ne 0){
+   $error=[InvalidOperationException]::new('Actual trusted fictional phone TLS setup did not pass.')
+   if(Test-Path -LiteralPath $failure){$error.Data['NativeChildFailure']=Get-Content -LiteralPath $failure -Raw|ConvertFrom-Json}
+   throw $error
+  }
  }finally{$process.Dispose()}
 }
 function StartFixturePkiServer {
@@ -121,6 +152,11 @@ try {
 }catch{
  $errorType=$_.Exception.GetType().Name;$facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$errorType
  $facts.source_basename='windows-native-acceptance.ps1';$facts.source_line=$_.InvocationInfo.ScriptLineNumber;$facts.active_case=$phase.Replace(' ','_')
+ $nativeFailure=$_.Exception.Data['NativeChildFailure']
+ if($nativeFailure -and $nativeFailure.source_basename -in 'Enable-PhoneTLS.ps1','Write-PrivateState.ps1','Restore-Gates.ps1','external_component' -and [int]$nativeFailure.source_line -gt 0 -and $nativeFailure.active_case -match '^phone_tls_[a-z_]+$' -and $nativeFailure.error_type -match '^[A-Za-z0-9_]{1,80}$'){
+  $facts.source_basename=$nativeFailure.source_basename;$facts.source_line=[int]$nativeFailure.source_line;$facts.active_case=$nativeFailure.active_case;$facts.error_type=$nativeFailure.error_type
+  if($nativeFailure.caller_basename -in 'Enable-PhoneTLS.ps1','Write-PrivateState.ps1','Restore-Gates.ps1' -and [int]$nativeFailure.caller_line -gt 0){$facts.caller_basename=$nativeFailure.caller_basename;$facts.caller_line=[int]$nativeFailure.caller_line}
+ }
  $childReport=Join-Path $evidence 'software-native-report.json'
  if(Test-Path -LiteralPath $childReport){
   try{
