@@ -14,7 +14,20 @@ $factory=static function()use($q):void{
  foreach(['v_extensions','v_pbx_tenants','v_pbx_services','v_pbx_restore','v_recordings','v_voicemail_messages','v_gateways','v_call_center_queues','v_pbx_jobs','v_pbx_media'] as $t)if((int)$q('select count(*) from '.$t)->fetchColumn()!==0)throw new RuntimeException('A separate empty factory is required.');
  if((int)$q('select count(*) from v_users')->fetchColumn()!==1||(int)$q('select count(*) from v_domains')->fetchColumn()!==1)throw new RuntimeException('A separate empty factory is required.');
 };
-$restoreGlobals=static function()use(&$s,$q):void{
+$restoreFactoryLoginHash=static function()use(&$s,$q,$identity):void{
+ $current=$identity();$before=$s['baseline'];
+ if($current===$before)return;
+ if(count($current['users'])!==1||count($before['users'])!==1)throw new RuntimeException('Factory administrator count changed.');
+ $old=$before['users'][0]['password'];$new=$current['users'][0]['password'];$changed=$current;
+ $changed['users'][0]['password']=$old;
+ $a=password_get_info($old);$b=password_get_info($new);
+ if($changed!==$before||$a['algoName']!=='bcrypt'||$b['algoName']!=='bcrypt'||($a['options']['cost']??0)!==12||($b['options']['cost']??0)!==10||!password_verify($s['admin_password'],$old)||!password_verify($s['admin_password'],$new))throw new RuntimeException('Unproved factory identity change.');
+ $update=$q('update v_users set password=? where user_uuid=? and password=?',[$old,$before['users'][0]['user_uuid'],$new]);
+ if($update->rowCount()!==1)throw new RuntimeException('Factory administrator changed concurrently.');
+ $s['normal_login_bcrypt_rehash_proved']=true;$s['original_factory_hash_restored']=true;
+};
+$restoreGlobals=static function()use(&$s,$q,$restoreFactoryLoginHash):void{
+ $restoreFactoryLoginHash();
  foreach(['v_default_settings'=>['email',$s['smtp_before']??[]],'v_sip_profile_settings'=>[null,$s['profiles_before']??[]],'v_pbx_mobile_push_config'=>[null,$s['push_before']??[]]] as $table=>[$category,$rows]){
   if($category)$q('delete from '.$table.' where default_setting_category=?',[$category]);else $q('delete from '.$table);
   foreach($rows as $r){$keys=array_keys($r);$q('insert into '.$table.'('.implode(',',$keys).') values('.implode(',',array_fill(0,count($keys),'?')).')',array_values($r));}
@@ -35,7 +48,7 @@ if($action==='discover'||$action==='cleanup'){
  if($action==='discover'&&!$service)throw new RuntimeException('Normal HTTPS setup did not create its owned PBX.');
 }
 $owned=$s['owned']??null;
-if(!$owned){if($action==='cleanup'){$restoreGlobals();foreach($q('select draft_uuid from v_pbx_setup_drafts where user_uuid=?',[$s['factory_admin']['user_uuid']])->fetchAll(PDO::FETCH_COLUMN) as $id)if(!in_array($id,$s['drafts_before'],true))$q('delete from v_pbx_setup_drafts where draft_uuid=?',[$id]);$factory();echo "{\"factory_empty\":true,\"owned_rows\":0}\n";exit;}throw new RuntimeException('Owned PBX is unavailable.');}
+if(!$owned){if($action==='cleanup'){$restoreGlobals();foreach($q('select draft_uuid from v_pbx_setup_drafts where user_uuid=?',[$s['factory_admin']['user_uuid']])->fetchAll(PDO::FETCH_COLUMN) as $id)if(!in_array($id,$s['drafts_before'],true))$q('delete from v_pbx_setup_drafts where draft_uuid=?',[$id]);$factory();echo json_encode(['factory_empty'=>true,'owned_rows'=>0,'owned_contacts'=>0,'original_identity_preserved'=>true,'normal_login_bcrypt_rehash_proved'=>$s['normal_login_bcrypt_rehash_proved']??false,'original_factory_hash_restored'=>$s['original_factory_hash_restored']??false],JSON_THROW_ON_ERROR),PHP_EOL;exit;}throw new RuntimeException('Owned PBX is unavailable.');}
 $domain=$owned['domain_uuid'];$realm=$owned['domain_name'];if(!is_uuid($domain)||!preg_match('/^pbx-[a-f0-9]{12}\./D',$realm))throw new RuntimeException('Fixture ownership mismatch.');
 if($q('select domain_name from v_domains where domain_uuid=?',[$domain])->fetchColumn()!==$realm)throw new RuntimeException('Fixture realm mismatch.');
 $admin=$s['factory_admin'];unset($_SESSION['permissions']);$permissions=(new permissions($database,$admin['domain_uuid'],$admin['user_uuid']))->get_permissions();
@@ -103,6 +116,6 @@ if($action==='cleanup'){
  $factory();if($identity()!==$s['baseline'])throw new RuntimeException('Factory administrator or domain identity changed.');
  foreach($tables as $t)if(preg_match('/^v_[a-z0-9_]+$/D',$t))foreach([$domain,$owned['home_domain_uuid']] as $d)if((int)$q('select count(*) from '.$t.' where domain_uuid=?',[$d])->fetchColumn())throw new RuntimeException('Owned rows remain.');
  foreach($s['users']??[] as $u)if(!str_starts_with(trim(event_socket::api('sofia_contact '.$u['auth'].'@'.$realm)),'error/'))throw new RuntimeException('Owned native contact remains.');
- echo "{\"factory_empty\":true,\"owned_rows\":0,\"owned_contacts\":0,\"original_identity_preserved\":true}\n";exit;
+ echo json_encode(['factory_empty'=>true,'owned_rows'=>0,'owned_contacts'=>0,'original_identity_preserved'=>true,'normal_login_bcrypt_rehash_proved'=>$s['normal_login_bcrypt_rehash_proved']??false,'original_factory_hash_restored'=>$s['original_factory_hash_restored']??false],JSON_THROW_ON_ERROR),PHP_EOL;exit;
 }
 throw new RuntimeException('Unknown native fixture operation.');
