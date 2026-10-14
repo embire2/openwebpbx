@@ -205,8 +205,20 @@ if(!(Test-Path "$configRoot\openweb-template.key")){$key=New-Object byte[] 32;$r
 New-Item -ItemType Directory -Force "$switch\scripts","$switch\conf\languages" | Out-Null
 # Use the shipped PBX configuration, not the call engine's demonstration users.
 if(!(Test-Path "$private\original-switch-conf")){Copy-Item "$switch\conf" "$private\original-switch-conf" -Recurse -Force}
-Remove-Item "$switch\conf\directory\default\*.xml" -ErrorAction SilentlyContinue
+foreach($section in 'directory','dialplan','sip_profiles'){
+ $path=Join-Path "$switch\conf" $section
+ if(Test-Path -LiteralPath $path){
+  foreach($item in @(Get-Item -LiteralPath $path -Force)+@(Get-ChildItem -LiteralPath $path -Recurse -Force)){if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'The first-install call configuration contains a link or junction.'}}
+  Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+ }
+ New-Item -ItemType Directory -Path $path|Out-Null
+}
 Copy-Item "$root\web\app\switch\resources\conf\*" "$switch\conf" -Recurse -Force
+foreach($section in 'directory','dialplan','sip_profiles'){
+ $expected=@(Get-ChildItem "$root\web\app\switch\resources\conf\$section" -File|ForEach-Object Name)
+ $actual=@(Get-ChildItem "$switch\conf\$section" -Recurse -File|ForEach-Object Name)
+ if(@(Compare-Object $expected $actual).Count){throw 'First-install call configuration still contains stock demonstration files.'}
+}
 Copy-Item "$root\web\app\switch\resources\scripts\*" "$switch\scripts" -Recurse -Force
 New-Item -ItemType Directory -Force "$switch\scripts\app\pbx_setup","$switch\sounds\openwebpbx" | Out-Null
 Copy-Item "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_setup\*" "$switch\scripts\app\pbx_setup" -Force

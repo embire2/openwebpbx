@@ -22,8 +22,15 @@ function PrivateDirectory([string]$Path){
  if($LASTEXITCODE){throw 'Private qualification storage could not be prepared.'}
 }
 function Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
+function SafeRelative([string]$Path){
+ if(!$Path -or $Path.StartsWith('/') -or $Path -match '[\\<>:"|?*\x00-\x1f\x7f]'){throw 'A build inventory contains a forbidden Windows path.'}
+ foreach($part in $Path.Split('/')){
+  if(!$part -or $part -in '.','..' -or $part -match '[. ]$' -or $part -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)'){throw 'A build inventory contains an unsafe Windows path component.'}
+ }
+ return $Path
+}
 function RandomSecret { $bytes=New-Object byte[] 32;$rng=[Security.Cryptography.RandomNumberGenerator]::Create();try{$rng.GetBytes($bytes)}finally{$rng.Dispose()};return ([BitConverter]::ToString($bytes)).Replace('-','').ToLowerInvariant() }
-function CheckedPython([string[]]$Arguments){& python @Arguments;if($LASTEXITCODE){throw 'A pinned package preparation operation failed.'}}
+function CheckedPython([string[]]$Arguments){& python @Arguments|Out-Host;if($LASTEXITCODE){throw 'A pinned package preparation operation failed.'}}
 function PublishFacts {
  New-Item -ItemType Directory -Force -Path $public|Out-Null
  [IO.File]::WriteAllText((Join-Path $public 'qualification.json'),($facts|ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
@@ -73,10 +80,11 @@ function Artifact([string]$RunId,[string]$Kind){
  return @{directory=$destination;run=$run;artifact=$artifact}
 }
 function VerifyInventory([string]$Directory,$Files){
- $count=0
+ $count=0;$seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
  foreach($entry in $Files.PSObject.Properties){
-  if(!$entry.Name -or $entry.Name -match '(^/|\\|[:<>"|?*]|[\x00-\x1f]|(^|/)\.\.?(/|$)|(^|/)[^/]*[. ](/|$))' -or $entry.Value -notmatch '^[a-f0-9]{64}$'){throw 'A build file inventory is invalid.'}
-  $path=Join-Path $Directory $entry.Name
+  $relative=SafeRelative $entry.Name
+  if(!$seen.Add($relative) -or $entry.Value -notmatch '^[a-f0-9]{64}$'){throw 'A build file inventory is invalid or has colliding Windows paths.'}
+  $path=Join-Path $Directory $relative
   if(!(Test-Path -LiteralPath $path -PathType Leaf) -or ((Get-Item -LiteralPath $path).Attributes -band [IO.FileAttributes]::ReparsePoint) -or (Hash $path) -ne $entry.Value){throw 'A build file failed exact hash verification.'};$count++
  }
  if($count -lt 1){throw 'A build inventory is empty.'}
@@ -147,9 +155,20 @@ function LoopbackSftp {
 function AcceptanceHook([string]$Name,[string]$Report){
  $script=Join-Path $PSScriptRoot $Name
  if(!(Test-Path -LiteralPath $script -PathType Leaf)){return $null}
- & $script -PackageRoot $PackageRoot -DisposableHostedRunner -InputPath $acceptanceFile -ReportPath $Report
- if(!$? -or !(Test-Path -LiteralPath $Report)){throw 'An optional native acceptance hook did not finish.'}
+ $failure=$null
+ try{& $script -PackageRoot $PackageRoot -DisposableHostedRunner -InputPath $acceptanceFile -ReportPath $Report}catch{$failure=$_}
+ if(!(Test-Path -LiteralPath $Report)){if($failure){throw $failure};throw 'An optional native acceptance hook did not finish.'}
  $record=Get-Content -LiteralPath $Report -Raw|ConvertFrom-Json
+ if($record.state -ne 'passed'){
+  $facts.hook_failure=@{}
+  foreach($field in 'failed_phase','error_type','source_basename','active_case'){
+   $value=$record.$field
+   $pattern=if($field -eq 'source_basename'){'^[A-Za-z0-9_.-]+$'}else{'^[A-Za-z0-9_.+ /()-]+$'}
+   if($value -is [string] -and $value.Length -le 160 -and $value -match $pattern){$facts.hook_failure[$field]=$value}
+  }
+  if(($record.source_line -is [int] -or $record.source_line -is [long]) -and $record.source_line -gt 0 -and $record.source_line -lt 100000){$facts.hook_failure.source_line=[int]$record.source_line}
+ }
+ if($failure){throw $failure}
  if($record.state -ne 'passed'){throw 'An optional native acceptance hook did not pass.'}
  return $record
 }
@@ -192,6 +211,9 @@ try{
  $facts.state=if($missing.Count){'partial'}else{'passed'};$facts.unqualified=$missing
 }catch{
  $facts.state='failed';$facts.failed_phase=$phase
+ $facts.error_type=$_.Exception.GetType().FullName
+ $facts.source_basename=if($_.InvocationInfo.ScriptName){Split-Path -Leaf $_.InvocationInfo.ScriptName}else{'windows-suite.ps1'}
+ $facts.source_line=[int]$_.InvocationInfo.ScriptLineNumber
  Write-Error ('Disposable Windows suite failed in '+$phase+'. No passing result is implied.') -ErrorAction Continue
 }finally{
  Remove-Item Env:\GH_TOKEN -ErrorAction SilentlyContinue

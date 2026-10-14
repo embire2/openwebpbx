@@ -209,6 +209,7 @@ try{
  $report.state='passed'
 }catch{
  $report.state='failed';$report.failed_phase=$phase
+ $report.error_type=$_.Exception.GetType().FullName;$report.source_basename=if($_.InvocationInfo.ScriptName){Split-Path -Leaf $_.InvocationInfo.ScriptName}else{'windows-upgrade-acceptance.ps1'};$report.source_line=[int]$_.InvocationInfo.ScriptLineNumber
  Write-Error ('Windows upgrade acceptance failed in '+$phase+'. Private recovery evidence retained.') -ErrorAction Continue
 }finally{
  if($gatePlan){try{StopUpdater;Python @($probe,'release',$gatePlan)}catch{$report.state='failed';$report.failed_phase='restore hold cleanup'}}
