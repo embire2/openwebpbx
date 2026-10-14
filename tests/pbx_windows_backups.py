@@ -343,6 +343,125 @@ class WindowsBackups(unittest.TestCase):
         self.assertTrue(all(b.held(selection) for selection in b.HELD_UNITS))
         self.assertTrue(any(operation=='hold-selection' and value['selection']=='calls' for operation,value in self.native_calls))
 
+    @contextlib.contextmanager
+    def nested_media_archive(self):
+        folder=self.source_roots['storage']/'new-private-media'
+        (folder/'nested').mkdir(parents=True)
+        (folder/'nested/late.wav').write_bytes(b'actual source nested private media')
+        archive=self.target_state/'late-source.owpbx'
+        try:
+            b.create_archive(self.source,archive,self.password,roots=self.source_roots,version='1.0.13')
+            yield archive
+        finally:
+            shutil.rmtree(folder)
+
+    def test_13_late_restore_recovers_parent_permissions_and_created_directories(self):
+        # The Windows security calls are modeled; file copies, encrypted
+        # archive verification and both PostgreSQL restores are real.
+        with self.nested_media_archive() as archive:
+            before={p:p.read_bytes() for p in self.target_state.rglob('*') if p.is_file()}
+            notification=self.target_roots['mobile-notifications']
+            key=self.target_roots['fusionpbx-config']/'openweb-template.key'
+            nested=self.target_roots['storage']/'new-private-media/nested/late.wav'
+            original_copy=b.atomic_copy;witness=set();failed=False;acls={};restored=[]
+            def native_control(operation,value=None):
+                if operation=='acl-read':
+                    self.native_calls.append((operation,value))
+                    return {name:acls.setdefault(name,'O:SYD:P(A;OICI;FA;;;SY)' if Path(name).is_dir() else 'O:SYD:P(A;;FA;;;SY)') for name in value['paths']}
+                if operation=='acl-restore':
+                    self.native_calls.append((operation,value));restored.append(value['files'].copy());acls.update(value['files']);return {}
+                return self.control(operation,value)
+            def changed_acl(path,**kwargs):acls[str(path)]='O:BUD:P(A;;FA;;;BA)'
+            def late(source,target,**kwargs):
+                nonlocal failed
+                original_copy(source,target,**kwargs)
+                if target==key and target.read_bytes()==self.key:witness.add('template-key')
+                if target==notification/'config.json' and json.loads(target.read_text())['private']=='source identity':witness.add('notification')
+                if target==nested and target.read_bytes()==b'actual source nested private media':witness.add('new-media-directory')
+                if len(witness)==3 and not failed:
+                    failed=True
+                    self.assertEqual(acls[str(notification)],'O:BUD:P(A;;FA;;;BA)')
+                    raise b.BackupError('Injected late key notification and media failure')
+            with patch.object(b,'control',native_control),patch.object(b,'secure_acl',changed_acl),patch.object(b,'atomic_copy',late):
+                with self.assertRaisesRegex(b.BackupError,'Injected late'):b.restore(archive,self.password,self.target,confirm_database=self.target_name)
+            self.assertEqual(witness,{'template-key','notification','new-media-directory'})
+            self.assertEqual(b.query(self.target,'select count(*) from fixture_objects'),'0')
+            self.assertEqual(b.query(self.target,'select current_user'),'target_app')
+            for path,data in before.items():self.assertEqual(path.read_bytes(),data)
+            self.assertFalse(nested.parent.parent.exists())
+            self.assertFalse((self.target_state/'restored-source').exists())
+            journal=json.loads((b.RESTORE/'journal.json').read_text())
+            self.assertEqual(journal['state'],'recovered')
+            self.assertEqual(journal['directories'][str(notification)]['sddl'],acls[str(notification)])
+            self.assertFalse(any(b.held(selection) for selection in b.HELD_UNITS))
+            self.assertTrue(all(Path(name).is_dir() for name in restored[0]))
+            self.assertEqual([len(Path(name).parts) for name in restored[0]],sorted(len(Path(name).parts) for name in restored[0]))
+            self.assertTrue(all(Path(name).is_file() for name in restored[1]))
+            self.assertFalse(list(self.target_state.rglob('.backup-restore-*')))
+
+    def test_14_foreign_content_in_new_directory_keeps_recovery_held(self):
+        with self.nested_media_archive() as archive:
+            original=b.atomic_copy;failed=False
+            nested=self.target_roots['storage']/'new-private-media/nested/late.wav';foreign=nested.parent/'keep.foreign'
+            def late(source,target,**kwargs):
+                nonlocal failed
+                original(source,target,**kwargs)
+                if target==nested and not failed:
+                    failed=True;foreign.write_bytes(b'foreign content must survive')
+                    raise b.BackupError('Injected nonempty late directory failure')
+            with patch.object(b,'atomic_copy',late):
+                with self.assertRaisesRegex(b.BackupError,'Services remain held'):b.restore(archive,self.password,self.target,confirm_database=self.target_name)
+            self.assertEqual(foreign.read_bytes(),b'foreign content must survive')
+            self.assertEqual(json.loads((b.RESTORE/'journal.json').read_text())['state'],'recovery_required')
+            self.assertTrue(all(b.held(selection) for selection in b.HELD_UNITS))
+            with self.assertRaisesRegex(b.BackupError,'not empty'):b.recover(self.target)
+            self.assertEqual(foreign.read_bytes(),b'foreign content must survive')
+            foreign.unlink();b.recover(self.target)
+            self.assertFalse(nested.parent.parent.exists())
+            self.assertEqual(b.query(self.target,'select count(*) from fixture_objects'),'0')
+            self.assertFalse(any(b.held(selection) for selection in b.HELD_UNITS))
+
+    def test_15_atomic_copy_late_permission_or_rename_failure_cleans_temporary(self):
+        source=self.target_state/'atomic-source';source.write_bytes(b'replacement')
+        target=self.target_roots['fusionpbx-config']/'openweb-template.key';before=target.read_bytes()
+        for operation in ('secure_acl','replace_file'):
+            with self.subTest(operation=operation),patch.object(b,operation,side_effect=b.BackupError('Injected late atomic failure')):
+                with self.assertRaisesRegex(b.BackupError,'atomic'):b.atomic_copy(source,target)
+            self.assertEqual(target.read_bytes(),before)
+            self.assertFalse(list(target.parent.glob('.backup-restore-*')))
+
+    def test_16_file_only_legacy_journal_still_recovers(self):
+        with patch.object(b,'atomic_copy',side_effect=b.BackupError('Injected first copy')),patch.object(b,'_recover',side_effect=b.BackupError('Retain old recovery fixture')):
+            with self.assertRaisesRegex(b.BackupError,'Services remain held'):b.restore(self.archive,self.password,self.target,confirm_database=self.target_name)
+        path=b.RESTORE/'journal.json';journal=json.loads(path.read_text());journal.pop('directories');b.atomic_json(path,journal)
+        b.recover(self.target)
+        self.assertEqual(b.query(self.target,'select count(*) from fixture_objects'),'0')
+        self.assertEqual(json.loads(path.read_text())['state'],'recovered')
+        self.assertFalse(any(b.held(selection) for selection in b.HELD_UNITS))
+
+    def test_17_recovery_directory_inventory_refuses_unknown_missing_and_wrong_types(self):
+        with patch.object(b,'atomic_copy',side_effect=b.BackupError('Injected first copy')),patch.object(b,'_recover',side_effect=b.BackupError('Retain guarded recovery fixture')):
+            with self.assertRaisesRegex(b.BackupError,'Services remain held'):b.restore(self.archive,self.password,self.target,confirm_database=self.target_name)
+        path=b.RESTORE/'journal.json';original=json.loads(path.read_text())
+        unknown=json.loads(json.dumps(original));unknown['directories'][str(self.target_state/'foreign-empty')]={'exists':False}
+        missing=json.loads(json.dumps(original));missing['directories'].pop(str(self.target_roots['mobile-notifications']))
+        wrong=json.loads(json.dumps(original));wrong['directories'][str(self.target_roots['mobile-notifications'])]['exists']='yes'
+        for journal in (unknown,missing,wrong):
+            b.atomic_json(path,journal)
+            with self.assertRaisesRegex(b.BackupError,'directory'):b.recover(self.target)
+            self.assertTrue(all(b.held(selection) for selection in b.HELD_UNITS))
+        b.atomic_json(path,original);b.recover(self.target)
+
+    def test_18_owned_parent_refuses_links_collisions_and_unowned_paths(self):
+        source=self.target_state/'atomic-source';source.write_bytes(b'replacement')
+        collision=self.target_roots['storage']/'file-parent';collision.write_bytes(b'ordinary existing file')
+        link=self.target_roots['storage']/'linked-parent';link.symlink_to(self.target_roots['custom-sounds'],target_is_directory=True)
+        targets=(collision/'target',link/'target',self.private/'outside-owned/target',self.target_roots['storage']/'../outside/target')
+        for target in targets:
+            with self.subTest(target=target),self.assertRaises(b.BackupError):b.atomic_copy(source,target)
+        self.assertEqual(collision.read_bytes(),b'ordinary existing file')
+        self.assertFalse((self.target_roots['custom-sounds']/'target').exists())
+
 
 if __name__=='__main__':
     unittest.main()

@@ -853,9 +853,39 @@ def acl_kind(target):
     return 'config'
 
 
+def recovery_parent_paths(targets):
+    """Only ancestors inside the fixed private/config/media roots may change."""
+    roots = tuple(ROOTS[label] for label in ('fusionpbx-config', 'runtime-config',
+                                            'freeswitch-config', 'mobile-notifications')) + tuple(MEDIA.values())
+    result = set()
+    for target in targets:
+        target = Path(target)
+        if '..' in target.parts or not any(root == target.parent or root in target.parents for root in roots):
+            raise BackupError('Recovery refused an unknown private-data parent location.')
+        for item in reversed([target, *target.parents]):
+            if reparse(item):
+                raise BackupError('Recovery refused a link or junction in private-data locations.')
+            if item != target and item.exists() and not item.is_dir():
+                raise BackupError('Recovery refused a nonordinary private-data directory.')
+        directory = target.parent
+        while any(directory == root or root in directory.parents for root in roots):
+            if directory.exists() and not directory.is_dir():
+                raise BackupError('Recovery refused a nonordinary private-data directory.')
+            result.add(directory)
+            if len(result) > MAX_FILES:
+                raise BackupError('The private-data directory recovery inventory is too large.')
+            directory = directory.parent
+        # Restores must not create a ProgramData, Program Files or other
+        # ancestor outside the supported application-owned locations.
+        if not directory.is_dir():
+            raise BackupError('A parent outside the owned restore locations is unavailable.')
+    return sorted(result, key=lambda path: (len(path.parts), str(path)))
+
+
 def atomic_copy(source, target, mode=0o640, group=33):
+    source, target = Path(source), Path(target)
+    recovery_parent_paths([target])
     notification = target.parent == ROOTS.get('mobile-notifications')
-    legacy_push = target in (ROOTS.get('mobile-push'), ROOTS.get('mobile-push-settings'))
     kind = acl_kind(target)
     if notification:
         notification_directory(target.parent, create=True)
@@ -867,20 +897,23 @@ def atomic_copy(source, target, mode=0o640, group=33):
     for directory in reversed(absent):
         directory.mkdir(mode=0o750)
         secure_acl(directory, kind=kind)
-    with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.backup-restore-', delete=False) as stream:
-        temporary = Path(stream.name)
-        try:
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.backup-restore-', delete=False) as stream:
+            temporary = Path(stream.name)
             with source.open('rb') as incoming:
                 shutil.copyfileobj(incoming, stream, CHUNK)
             stream.flush()
             os.fsync(stream.fileno())
-        except BaseException:
+        temporary.chmod(mode)
+        secure_acl(temporary, kind=kind)
+        replace_file(temporary, target)
+        sync_directory(target.parent)
+    finally:
+        # Close the stream before removal on Windows, including failures in
+        # chmod, native ACL application or the durable rename itself.
+        if temporary is not None:
             temporary.unlink(missing_ok=True)
-            raise
-    temporary.chmod(mode)
-    secure_acl(temporary, kind=kind)
-    replace_file(temporary, target)
-    sync_directory(target.parent)
 
 
 def preserve_target_database(settings, config_file, runtime_file):
@@ -994,12 +1027,14 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
             raise BackupError('An application update is running. Finish it before restoring.')
         gates = plan_service_holds()
         services = gates['running']
+        recovery_targets = list(mapping.values()) + ([notification_fallback] if notification_fallback is not None else [])
+        parent_paths = recovery_parent_paths(recovery_targets)
         # Create durable recovery material before stopping any service or changing a file.
         snapshot_database(settings, RESTORE / 'factory.dump')
         recovery_files = RESTORE / 'factory-files'
         recovery_files.mkdir(mode=0o700)
         original = {}
-        recovery_targets = list(mapping.values()) + ([notification_fallback] if notification_fallback is not None else [])
+        directories = {str(path): {'exists': path.is_dir()} for path in parent_paths}
         for index, target in enumerate(recovery_targets):
             if target.exists() and not target.is_file():
                 raise BackupError('Restore refused a nonordinary target private-data file.')
@@ -1012,15 +1047,17 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
                 copy.chmod(0o600)
                 original[str(target)].update({'copy': str(index), 'mode': stat.S_IMODE(st.st_mode),
                                              'size': st.st_size, 'sha256': checksum(copy)})
-        acls = control('acl-read', {'paths': [path for path, entry in original.items() if entry['exists']]})
-        for path, entry in original.items():
+        acls = control('acl-read', {'paths': [path for inventory in (directories, original)
+                                            for path, entry in inventory.items() if entry['exists']]})
+        for path, entry in list(directories.items()) + list(original.items()):
             if entry['exists']:
-                if not isinstance(acls.get(path), str):
-                    raise BackupError('The factory file permission snapshot is incomplete.')
+                if not isinstance(acls.get(path), str) or not acls[path] or len(acls[path]) > 32768:
+                    raise BackupError('The factory private-data permission snapshot is incomplete.')
                 entry['sddl'] = acls[path]
         journal = {'schema': 1, 'database': settings['database.0.name'], 'user': settings['database.0.username'],
                    'services': services, 'gates': gates, 'source_host': manifest['source_host'],
-                   'factory_dump_sha256': checksum(RESTORE / 'factory.dump'), 'files': original, 'state': 'prepared'}
+                   'factory_dump_sha256': checksum(RESTORE / 'factory.dump'), 'files': original,
+                   'directories': directories, 'state': 'prepared'}
         atomic_json(RESTORE / 'journal.json', journal)
         try:
             install_service_holds(journal['gates'])
@@ -1080,11 +1117,15 @@ def _recover(settings):
     if any(service not in SERVICES for service in journal.get('services', [])):
         raise BackupError('Recovery service inventory is invalid.')
     mapping = journal.get('files', {})
+    if not isinstance(mapping, dict) or len(mapping) > MAX_FILES:
+        raise BackupError('The factory file recovery inventory is invalid.')
     allowed_roots = tuple(ROOTS.values()) + tuple(MEDIA.values())
     for target_name, entry in mapping.items():
         target = Path(target_name)
-        if not any(target == root or root in target.parents for root in allowed_roots):
+        if '..' in target.parts or not any(target == root or root in target.parents for root in allowed_roots):
             raise BackupError('Recovery refused an unknown file location.')
+        if not isinstance(entry, dict) or not isinstance(entry.get('exists'), bool):
+            raise BackupError('The factory file recovery inventory is invalid.')
         for item in [target, *target.parents]:
             if reparse(item):
                 raise BackupError('Recovery refused a symbolic link in its file locations.')
@@ -1094,6 +1135,18 @@ def _recover(settings):
             original = ordinary(RESTORE / 'factory-files' / entry['copy'])
             if original.stat().st_size != entry.get('size') or checksum(original) != entry.get('sha256') or not isinstance(entry.get('sddl'), str):
                 raise BackupError('A factory recovery file failed its integrity check.')
+    # Schema-one journals written by earlier installations contained files
+    # only. Keep those recoverable; new journals prove every mutable parent.
+    directories = journal.get('directories', {})
+    if 'directories' in journal:
+        expected = {str(path) for path in recovery_parent_paths(mapping)}
+        if not isinstance(directories, dict) or len(directories) > MAX_FILES or set(directories) != expected:
+            raise BackupError('The factory directory recovery inventory is invalid.')
+        for entry in directories.values():
+            if not isinstance(entry, dict) or not isinstance(entry.get('exists'), bool):
+                raise BackupError('The factory directory recovery inventory is invalid.')
+            if entry['exists'] and (not isinstance(entry.get('sddl'), str) or not entry['sddl'] or len(entry['sddl']) > 32768):
+                raise BackupError('The factory directory permission inventory is invalid.')
     if checksum(ordinary(RESTORE / 'factory.dump')) != journal.get('factory_dump_sha256'):
         raise BackupError('The factory recovery database failed its integrity check.')
     # Each database restore runs in one transaction. Files then return to the exact factory inventory.
@@ -1105,7 +1158,24 @@ def _recover(settings):
             atomic_copy(RESTORE / 'factory-files' / entry['copy'], target, mode=entry['mode'])
         else:
             target.unlink(missing_ok=True)
+    # Parent inheritance is restored before each exact file descriptor, so a
+    # later parent ACL cannot overwrite the recovered child's permissions.
+    present_directories = sorted((Path(name) for name, entry in directories.items() if entry['exists']),
+                                 key=lambda path: (len(path.parts), str(path)))
+    for directory in present_directories:
+        recovery_parent_paths([directory / '.recovery-parent-validation'])
+        directory.mkdir(exist_ok=True)
+    control('acl-restore', {'files': {str(path): directories[str(path)]['sddl'] for path in present_directories}})
     control('acl-restore', {'files': {name: entry['sddl'] for name, entry in mapping.items() if entry['exists']}})
+    for name in sorted((name for name, entry in directories.items() if not entry['exists']),
+                       key=lambda name: (len(Path(name).parts), name), reverse=True):
+        directory = Path(name)
+        recovery_parent_paths([directory / '.recovery-parent-validation'])
+        if directory.exists():
+            try:
+                directory.rmdir()
+            except OSError:
+                raise BackupError('A newly created restore directory is not empty. Preserve unrelated contents and complete recovery after administrator review.') from None
     journal['state'] = 'recovered'
     atomic_json(journal_file, journal)
     remove_service_holds(journal.get('gates', {}))

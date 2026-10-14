@@ -142,8 +142,10 @@ try{
   'acl-restore'{
    foreach($entry in $value.files.PSObject.Properties){
     $path=OrdinaryPath $entry.Name
-    if($entry.Value -isnot [string] -or $entry.Value.Length -gt 32768){throw 'A factory file permission snapshot is invalid.'}
-    $acl=New-Object Security.AccessControl.FileSecurity;$acl.SetSecurityDescriptorSddlForm($entry.Value);Set-Acl -LiteralPath $path -AclObject $acl
+    if($entry.Value -isnot [string] -or !$entry.Value -or $entry.Value.Length -gt 32768){throw 'A factory private-data permission snapshot is invalid.'}
+    $item=Get-Item -LiteralPath $path -Force
+    $acl=if($item.PSIsContainer){New-Object Security.AccessControl.DirectorySecurity}else{New-Object Security.AccessControl.FileSecurity}
+    $acl.SetSecurityDescriptorSddlForm($entry.Value);Set-Acl -LiteralPath $path -AclObject $acl
    }
   }
  }
