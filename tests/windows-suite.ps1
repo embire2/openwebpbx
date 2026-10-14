@@ -13,6 +13,7 @@ if([Environment]::OSVersion.Version.Major -ne 10 -or [Environment]::OSVersion.Ve
 $source=Split-Path $PSScriptRoot -Parent
 $work=Join-Path $env:RUNNER_TEMP ('openwebpbx-suite-'+[Guid]::NewGuid().ToString('N'))
 $public=Join-Path $env:RUNNER_TEMP 'openwebpbx-suite-public'
+$candidatePublic=Join-Path $env:RUNNER_TEMP 'openwebpbx-suite-candidate';$candidateArchive=$null
 $state=Join-Path $env:ProgramData 'OpenWebPBX';$configuration=Join-Path $env:ProgramData 'fusionpbx'
 $domain='windowsqa.example.invalid';$installed=$false;$hostAdded=$false;$sftp=$null;$acceptanceFile=$null;$phase='source inputs'
 $facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';backups='pending';native_sip_audio='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
@@ -128,10 +129,26 @@ function PreparePackage {
  $acme=Join-Path $work 'acme';CheckedPython @((Join-Path $source 'packaging/windows/build-acme-runtime.py'),'--archive',$acmeArchive,'--output',$acme)
  $output=Join-Path $work 'package';CheckedPython @((Join-Path $source 'packaging/build-release.py'),'--target','windows','--server',(Join-Path $native.directory 'server'),'--updater',(Join-Path $native.directory 'updater'),'--desktop',(Join-Path $native.directory 'desktop'),'--engine',(Join-Path $engine.directory 'engine'),'--backup-runtime',$backup,'--acme',$acme,'--music',$music.directory,'--codec-source',(Join-Path $codec 'source'),'--output',$output)
  $archives=@(Get-ChildItem $output -Filter '*.zip' -File);if($archives.Count -ne 1){throw 'One candidate package is required.'}
+ $script:candidateArchive=$archives[0].FullName
  $expanded=Join-Path $work 'expanded';PrivateDirectory $expanded;ExpandSafe $archives[0].FullName $expanded
  $roots=@(Get-ChildItem $expanded -Directory);if($roots.Count -ne 1){throw 'The candidate package has an ambiguous root.'}
  $facts.artifacts=@{native_run=$NativeRunId;native_digest=$native.artifact.digest;engine_run=$EngineRunId;engine_digest=$engine.artifact.digest;music_digest=$music.artifact.digest;candidate_sha256=(Hash $archives[0].FullName)}
  return $roots[0].FullName
+}
+function ExportOriginalCandidate($Release){
+ if(!$candidateArchive -or !(Test-Path -LiteralPath $candidateArchive -PathType Leaf)){throw 'Candidate export requires the original built release ZIP.'}
+ $filename=[IO.Path]::GetFileName($candidateArchive);$expectedName='openwebpbx-'+$Release.version+'-windows-x64.zip'
+ if($filename -ne $expectedName){throw 'The original candidate archive filename is unexpected.'}
+ $checksum=Hash $candidateArchive
+ CheckedPython @((Join-Path $PSScriptRoot 'windows_candidate_archive.py'),'--archive',$candidateArchive,'--version',$Release.version,'--sha256',$checksum)
+ if(Test-Path -LiteralPath $candidatePublic){throw 'The public candidate directory must not already contain unrelated material.'}
+ $staging=Join-Path $work 'candidate-export';New-Item -ItemType Directory -Path $staging|Out-Null
+ Copy-Item -LiteralPath $candidateArchive -Destination (Join-Path $staging $filename)
+ if((Hash (Join-Path $staging $filename)) -ne $checksum){throw 'The original candidate archive changed during export.'}
+ [IO.File]::WriteAllText((Join-Path $staging 'SHA256SUMS'),($checksum+'  '+$filename+"`n"),[Text.UTF8Encoding]::new($false))
+ # Only a complete verified pair becomes visible to the upload allowlist.
+ [IO.Directory]::Move($staging,$candidatePublic)
+ $facts.candidate_artifact=@{filename=$filename;sha256=$checksum;verified_before_credentials=$true;private_exclusions='passed';qualification='reported separately'}
 }
 function LoopbackSftp {
  $capability=Get-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0'
@@ -193,6 +210,7 @@ try{
  $PackageRoot=[IO.Path]::GetFullPath($PackageRoot);$release=Get-Content (Join-Path $PackageRoot 'release-manifest.json') -Raw|ConvertFrom-Json
  if($release.version -ne (Get-Content (Join-Path $source 'VERSION') -Raw).Trim()){throw 'The candidate package release differs from source.'}
  $mapped=VerifyInventory $PackageRoot $release.files;$facts.checks+=('Exact candidate package inventory: '+$mapped+' files')
+ $phase='original candidate export';ExportOriginalCandidate $release
  $phase='fresh installation';$admin='windowsqa-'+[Guid]::NewGuid().ToString('N').Substring(0,12)+'@example.invalid';$password=ConvertTo-SecureString (RandomSecret) -AsPlainText -Force
  $hosts=Join-Path $env:SystemRoot 'System32/drivers/etc/hosts';$marker='# OpenWebPBX-WindowsSuite-'+$env:GITHUB_RUN_ID
  if([IO.File]::ReadAllText($hosts) -match '(?im)^\s*[^#\r\n]+\s+windowsqa\.example\.invalid(?:\s|$)'){throw 'The suite hostname already has an unrelated hosts entry.'}

@@ -22,7 +22,7 @@ PrivateDirectory $work;PrivateDirectory $evidence;PrivateDirectory $saved
 $inputData.scope=$scope;$inputData.company_name='Fictional Windows '+$scope;$inputData.service_name='Fictional Native '+$scope;$inputData.evidence_directory=$evidence
 [IO.File]::WriteAllText($privateInput,($inputData|ConvertTo-Json -Depth 12),[Text.UTF8Encoding]::new($false))
 $envBefore=$env:OPENWEB_WINDOWS_NATIVE_TEST;$opensslBefore=$env:OPENSSL_CONF;$env:OPENWEB_WINDOWS_NATIVE_TEST='1';$env:OPENSSL_CONF="$root\php\extras\ssl\openssl.cnf"
-$script="$source\tests\windows-native-acceptance.py";$fixture="$source\tests\windows-native-fixture.php";$pkiProcess=$null;$leaf=$null;$rootCertificate=$null;$binding=$null;$originalBinding=$null;$baseline=$false;$nativePassed=$false;$cleanupPassed=$false;$phase='factory inventory';$errorType=$null
+$script="$source\tests\windows-native-acceptance.py";$fixture="$source\tests\windows-native-fixture.php";$pkiProcess=$null;$pkiOutput=$null;$pkiErrors=$null;$leaf=$null;$rootCertificate=$null;$binding=$null;$originalBinding=$null;$baseline=$false;$nativePassed=$false;$cleanupPassed=$false;$phase='factory inventory';$errorType=$null
 $facts=[ordered]@{schema=1;state='running';platform='Windows Server 2025 x64';scope='fictional disposable hosted runner';checks=@();gates=[ordered]@{native_sip_audio='pending';smtp='pending';notification_store='pending';cleanup='pending';public_acme='unqualified';physical_devices='unqualified';carrier='unqualified';android_hardware='unqualified'}}
 function Php([string]$Action){$output=& "$root\php\php.exe" $fixture $Action $privateInput 2>>"$evidence\private-php-errors.log";if($LASTEXITCODE){throw 'Private native fixture operation failed.'};return ($output -join "`n")}
 function Python([string]$Phase){
@@ -59,6 +59,14 @@ function ConfigureFixturePhoneTls([string]$Thumbprint,[string]$Chain){
   if($process.ExitCode -ne 0){throw 'Actual trusted fictional phone TLS setup did not pass.'}
  }finally{$process.Dispose()}
 }
+function StartFixturePkiServer {
+ $start=[Diagnostics.ProcessStartInfo]::new($python)
+ $start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+ foreach($arg in @('-I',$script,'--input',$privateInput,'--phase','pki-server')){$start.ArgumentList.Add($arg)}
+ $process=[Diagnostics.Process]::Start($start)
+ $script:pkiOutput=$process.StandardOutput.ReadToEndAsync();$script:pkiErrors=$process.StandardError.ReadToEndAsync()
+ return $process
+}
 $paths=@('fusion-config.conf','phone-tls.json','phone-tls','mobile-notifications-config','mobile-notifications-lock','php-cacert')
 $originalFiles=@{ 'fusion-config.conf'=(Join-Path $env:ProgramData 'fusionpbx\config.conf');'phone-tls.json'="$state\phone-tls.json";'phone-tls'="$state\phone-tls";'mobile-notifications-config'="$state\mobile-notifications\config.json";'mobile-notifications-lock'="$state\mobile-notifications\config.json.lock";'php-cacert'="$root\php\extras\ssl\cacert.pem" }
 $originalPresent=@{};$originalAcl=@{};$parentAcl=(Get-Acl -LiteralPath $state).Sddl
@@ -67,8 +75,9 @@ try{
  $result=Php 'baseline'|ConvertFrom-Json;if(!$result.factory_empty){throw 'Native qualification requires an empty factory.'};$baseline=$true
  foreach($name in $paths){$path=$originalFiles[$name];$present=Test-Path -LiteralPath $path;$originalPresent[$name]=$present;if($present){$originalAcl[$name]=(Get-Acl -LiteralPath $path).Sddl;Copy-Item -LiteralPath $path -Destination (Join-Path $saved $name) -Recurse}}
  $phase='generated fictional local PKI';Python 'prepare-pki'
- $pkiProcess=Start-Process -FilePath $python -ArgumentList @('-I','"'+$script+'"','--input','"'+$privateInput+'"','--phase','pki-server') -PassThru -WindowStyle Hidden -RedirectStandardOutput "$evidence\pki-stdout.log" -RedirectStandardError "$evidence\pki-stderr.log"
- for($i=0;$i -lt 50 -and !(Test-Path "$evidence\pki-ready.json");$i++){Start-Sleep -Milliseconds 100}
+ $pkiProcess=StartFixturePkiServer
+ for($i=0;$i -lt 50 -and !(Test-Path "$evidence\pki-ready.json") -and !$pkiProcess.HasExited;$i++){Start-Sleep -Milliseconds 100}
+ if($pkiProcess.HasExited){$facts.command_basename='python.exe';$facts.command_exit=$pkiProcess.ExitCode;throw 'Owned loopback certificate-revocation fixture exited before becoming ready.'}
  if(!(Test-Path "$evidence\pki-ready.json")){throw 'Owned loopback certificate-revocation fixture did not start.'}
  [IO.File]::AppendAllText("$root\php\extras\ssl\cacert.pem","`r`n"+[IO.File]::ReadAllText("$evidence\fixture-root.pem"),[Text.UTF8Encoding]::new($false))
  $privatePki=Get-Content "$evidence\pki-private.json" -Raw|ConvertFrom-Json
@@ -132,7 +141,13 @@ finally{
   if($baseline){Restart-Service FreeSWITCH;for($i=0;$i -lt 50 -and (Get-Service FreeSWITCH).Status -ne 'Running';$i++){Start-Sleep -Milliseconds 100};if((Get-Service FreeSWITCH).Status -ne 'Running'){throw 'Original factory call engine did not resume.'}}
   if($leaf){Remove-Item -LiteralPath ('Cert:\LocalMachine\My\'+$leaf.Thumbprint) -Force}
   if($rootCertificate){Remove-Item -LiteralPath ('Cert:\LocalMachine\Root\'+$rootCertificate.Thumbprint) -Force}
-  if($pkiProcess -and !$pkiProcess.HasExited){Stop-Process -Id $pkiProcess.Id -Force}
+  if($pkiProcess){
+   if(!$pkiProcess.HasExited){Stop-Process -Id $pkiProcess.Id -Force}
+   if(!$pkiProcess.WaitForExit(5000)){throw 'Owned certificate-revocation fixture did not stop.'}
+   [IO.File]::WriteAllText("$evidence\pki-stdout.log",$pkiOutput.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false))
+   [IO.File]::WriteAllText("$evidence\pki-stderr.log",$pkiErrors.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false))
+   $pkiProcess.Dispose()
+  }
   if(Test-Path "$state\unexpected-localservice-$scope"){Remove-Item "$state\unexpected-localservice-$scope" -Force;throw 'LOCAL SERVICE incorrectly wrote containing state.'}
   $cleanupPassed=$true;$facts.gates.cleanup='passed';$facts.cleanup='Original factory rows/contacts/identity/profile/config/certificate binding restored; owned CA/leaf and private probe task removed'
  }catch{$cleanupPassed=$false;$facts.state='failed';$facts.cleanup='failed';$facts.cleanup_error_type=$_.Exception.GetType().Name}
