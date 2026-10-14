@@ -251,7 +251,7 @@ try {
 Run "$root\php\php.exe" @("$PSScriptRoot\configure-codec.php","$root\web")
 Run "$root\php\php.exe" @("$PSScriptRoot\configure-music.php","$PSScriptRoot\music","$root\web")
 Push-Location "$root\web"
-try {Run "$root\php\php.exe" @('-r','require "resources/require.php"; save_var_xml();')}finally{Pop-Location}
+try {Run "$root\php\php.exe" @("$PSScriptRoot\bootstrap.php","$root\web",'xml')}finally{Pop-Location}
 $runtime=@{ConnectionStrings=@{Pbx="Host=127.0.0.1;Port=5433;Database=fusionpbx;Username=fusionpbx;Password=$($state.DatabasePassword)"};Switch=@{Host='127.0.0.1';Port=8021;Password=$state.SwitchPassword}}
 WriteUtf8 "$private\runtime.json" ($runtime|ConvertTo-Json -Depth 4)
 if(!(Test-Path IIS:\AppPools\OpenWebPBX)){New-WebAppPool OpenWebPBX|Out-Null}

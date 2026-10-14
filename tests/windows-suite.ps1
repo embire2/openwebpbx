@@ -146,8 +146,15 @@ function LoopbackSftp {
  if($LASTEXITCODE){throw 'The isolated SFTP receiver permissions could not be prepared.'}
  $ssh=Join-Path $env:SystemRoot 'System32/OpenSSH';$hostkey=Join-Path $work 'hostkey';$identity=Join-Path $work 'identity'
  foreach($key in $hostkey,$identity){& "$ssh\ssh-keygen.exe" -q -t ed25519 -N '' -f $key;if($LASTEXITCODE){throw 'The isolated SSH identity could not be prepared.'}}
+ & icacls.exe $hostkey /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F'|Out-Null
+ if($LASTEXITCODE){throw 'The isolated SSH host key permissions could not be secured.'}
+ & icacls.exe $hostkey /setowner '*S-1-5-18'|Out-Null
+ if($LASTEXITCODE){throw 'The isolated SSH host key owner could not be secured.'}
  $authorized=Join-Path $work 'authorized_keys';Copy-Item ($identity+'.pub') $authorized
- $authorizedAcl=Get-Acl -LiteralPath $authorized;$authorizedAcl.SetOwner([Security.Principal.SecurityIdentifier]::new($user.SID.Value));Set-Acl -LiteralPath $authorized -AclObject $authorizedAcl
+ & icacls.exe $authorized /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' ('*'+$user.SID.Value+':R')|Out-Null
+ if($LASTEXITCODE){throw 'The isolated SSH public key read permissions could not be secured.'}
+ & icacls.exe $authorized /setowner ('*'+$user.SID.Value)|Out-Null
+ if($LASTEXITCODE){throw 'The isolated SSH public key owner could not be secured.'}
  $listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0);$listener.Start();$port=$listener.LocalEndpoint.Port;$listener.Stop()
  $config=Join-Path $work 'sshd_config';$content=@("Port $port",'ListenAddress 127.0.0.1',('HostKey '+$hostkey.Replace('\','/')),('PidFile '+(Join-Path $work 'sshd.pid').Replace('\','/')),('AuthorizedKeysFile '+$authorized.Replace('\','/')),'PasswordAuthentication no','PubkeyAuthentication yes','StrictModes yes',('AllowUsers '+$name),'Subsystem sftp internal-sftp','ForceCommand internal-sftp','AllowTcpForwarding no','AllowAgentForwarding no','PermitTunnel no')
  [IO.File]::WriteAllText($config,($content -join "`n")+"`n",[Text.UTF8Encoding]::new($false))

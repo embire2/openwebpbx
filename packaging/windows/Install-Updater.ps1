@@ -45,7 +45,7 @@ foreach($name in 'Upgrade-OpenWebPBX.ps1','Register-ManagerRestart.ps1','Restart
  'Restore-Gates.ps1','Write-PrivateState.ps1','Support-Recovery.ps1','Install-NativeEngine.ps1','Install-LocalCodec.ps1','configure-codec.php','Configure-PHP.ps1',
  'configure-notifications.ps1','configure-music.php','Enable-PhoneTLS.ps1','phone-tls.php','phone-tls-chain.php',
  'Test-PhoneTLS.ps1','Enable-PublicAccess.ps1','Renew-PhoneCertificate.ps1','PublicAccess.Common.ps1',
- 'Install-Backups.ps1','Backup-Control.ps1','backups.py','cacert.pem','openssl.cnf'){
+ 'Install-Backups.ps1','Backup-Control.ps1','configure-backups.php','backups.py','cacert.pem','openssl.cnf'){
  Copy-Item (Join-Path $PackageRoot $name) (Join-Path "$root\tools" $name) -Force
 }
 foreach($name in 'Install-MailQueue.ps1','process-mail.php','Upgrade-LegacyWindows.ps1'){Copy-Item (Join-Path $PackageRoot $name) (Join-Path "$root\tools" $name) -Force}

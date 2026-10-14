@@ -9,6 +9,10 @@ if($stage==='domain'){
  if(!sql('select domain_uuid from v_domains where domain_name=?',[pbx_paths::host()])->fetchColumn())sql('insert into v_domains(domain_uuid,domain_name,domain_description,domain_enabled) values(?,?,?,true)',[uuid(),pbx_paths::host(),'OpenWeb PBX platform']);
  echo "Platform domain initialized.\n";exit;
 }
+if($stage==='xml'){
+ save_var_xml();
+ echo "Call-engine variables saved.\n";exit;
+}
 if($stage==='migrate'){
  // The currently installed updater runs this candidate migration after backing
  // up private configuration and stopping the call engine, including 1.0.4 hosts.
