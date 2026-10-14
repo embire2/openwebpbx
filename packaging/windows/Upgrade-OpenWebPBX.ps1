@@ -4,6 +4,7 @@ param([string]$RestoreBackup = '', [switch]$Check, [string]$Archive, [string]$Fe
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 if($PSVersionTable.PSEdition -eq 'Core'){throw 'Run server upgrades in Windows PowerShell (powershell.exe) as administrator. It provides native IIS management.'}
+$env:PSModulePath=$PSHOME+'\Modules;'+[Environment]::GetFolderPath('ProgramFiles')+'\WindowsPowerShell\Modules'
 $root = 'C:\OpenWebPBX'
 $private = Join-Path $env:ProgramData 'OpenWebPBX'
 $config = Join-Path $env:ProgramData 'fusionpbx'
@@ -76,7 +77,13 @@ function Run([string]$Exe, [string[]]$Arguments) {
  $prior = $ErrorActionPreference
  try { $ErrorActionPreference = 'Continue'; & $Exe @Arguments; $code = $LASTEXITCODE }
  finally { $ErrorActionPreference = $prior }
- if ($code -ne 0) { throw "A required update command failed (exit $code): $(Split-Path $Exe -Leaf)" }
+ if ($code -ne 0) {
+  $failure=[InvalidOperationException]::new('A required update command failed. Review the private update log.')
+  $failure.Data['command_basename']=[IO.Path]::GetFileName($Exe);$failure.Data['command_exit']=[int]$code
+  $caller=@(Get-PSCallStack)[1]
+  if($caller){$failure.Data['caller_basename']=[IO.Path]::GetFileName($caller.ScriptName);$failure.Data['caller_line']=[int]$caller.ScriptLineNumber}
+  throw $failure
+ }
 }
 function CopyTree([string]$From, [string]$To, [switch]$Mirror) {
  $mode = if ($Mirror) { '/MIR' } else { '/E' }
@@ -353,6 +360,9 @@ try {
  $backupReady = $true
  SaveJournal 'deploying'
  Write-Host 'Backup complete. Updating the application and call-engine scripts...'
+ # Historical installations inherited writable system-drive permissions. Match
+ # fresh-install program protection only after the original ACLs are sealed.
+ Run icacls.exe @($root,'/inheritance:r','/grant:r','*S-1-5-32-544:(OI)(CI)F','*S-1-5-18:(OI)(CI)F','*S-1-5-32-545:(OI)(CI)RX')
  # Keep local optional applications and server.json; only reviewed release files
  # are replaced. Database, settings, keys and existing media are never re-created.
  foreach ($part in 'web','server','desktop','acme') { CopyTree "$payload\$part" "$root\$part" }

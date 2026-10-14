@@ -1,6 +1,8 @@
 #Requires -RunAsAdministrator
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$Archive,[Parameter(Mandatory)][string]$FeedEnvelope,[Parameter(Mandatory)][string]$TargetVersion)
+if($PSVersionTable.PSEdition -eq 'Core'){throw 'Run this transition in Windows PowerShell (powershell.exe) as administrator.'}
+$env:PSModulePath=$PSHOME+'\Modules;'+[Environment]::GetFolderPath('ProgramFiles')+'\WindowsPowerShell\Modules'
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 # The historical Windows helper cannot inventory new native modules. Verify the
 # complete signed package using the already installed verifier, then invoke the

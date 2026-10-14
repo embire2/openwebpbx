@@ -14,6 +14,7 @@ param(
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
 if($PSVersionTable.PSEdition -eq 'Core'){throw 'Open Windows PowerShell (powershell.exe) as administrator to install this server. It provides native IIS management.'}
+$env:PSModulePath=$PSHOME+'\Modules;'+[Environment]::GetFolderPath('ProgramFiles')+'\WindowsPowerShell\Modules'
 $root='C:\OpenWebPBX'; $private=Join-Path $env:ProgramData 'OpenWebPBX'; $configRoot=Join-Path $env:ProgramData 'fusionpbx'
 $os=Get-CimInstance Win32_OperatingSystem
 if($os.ProductType -eq 1 -or $os.Caption -notmatch 'Windows Server 2025' -or [Environment]::OSVersion.Version.Build -lt 26100){throw 'This server release requires Windows Server2025 x64.'}
@@ -38,7 +39,13 @@ function Run([string]$Exe,[string[]]$Arguments) {
  $prior=$ErrorActionPreference
  try {$ErrorActionPreference='Continue'; & $Exe @Arguments; $code=$LASTEXITCODE}
  finally {$ErrorActionPreference=$prior}
- if ($code -ne 0) { throw "A required command failed: $Exe (exit $code)" }
+ if ($code -ne 0) {
+  $failure=[InvalidOperationException]::new('A required installation command failed. Review the private installation log.')
+  $failure.Data['command_basename']=[IO.Path]::GetFileName($Exe);$failure.Data['command_exit']=[int]$code
+  $caller=@(Get-PSCallStack)[1]
+  if($caller){$failure.Data['caller_basename']=[IO.Path]::GetFileName($caller.ScriptName);$failure.Data['caller_line']=[int]$caller.ScriptLineNumber}
+  throw $failure
+ }
 }
 function Secret { $b=New-Object byte[] 32; $rng=[Security.Cryptography.RandomNumberGenerator]::Create();try{$rng.GetBytes($b)}finally{$rng.Dispose()};return ([BitConverter]::ToString($b)).Replace('-','').ToLowerInvariant() }
 function Download([string]$Url,[string]$Path,[string]$Hash) {

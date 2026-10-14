@@ -37,12 +37,14 @@ function PublishFacts {
 }
 function SafeFailureFields($Record){
  $safe=@{}
- foreach($field in 'failed_phase','error_type','source_basename','active_case'){
+ foreach($field in 'failed_phase','error_type','source_basename','active_case','command_basename','caller_basename'){
   $value=$Record.$field
-  $pattern=if($field -eq 'source_basename'){'^[A-Za-z0-9_.-]+$'}else{'^[A-Za-z0-9_.+ /()-]+$'}
+  $pattern=if($field -in 'source_basename','command_basename','caller_basename'){'^[A-Za-z0-9_.-]+$'}else{'^[A-Za-z0-9_.+ /()-]+$'}
   if($value -is [string] -and $value.Length -le 160 -and $value -match $pattern){$safe[$field]=$value}
  }
  if(($Record.source_line -is [int] -or $Record.source_line -is [long]) -and $Record.source_line -gt 0 -and $Record.source_line -lt 100000){$safe.source_line=[int]$Record.source_line}
+ if(($Record.caller_line -is [int] -or $Record.caller_line -is [long]) -and $Record.caller_line -gt 0 -and $Record.caller_line -lt 100000){$safe.caller_line=[int]$Record.caller_line}
+ if(($Record.command_exit -is [int] -or $Record.command_exit -is [long]) -and $Record.command_exit -ge [int]::MinValue -and $Record.command_exit -le [int]::MaxValue){$safe.command_exit=[int]$Record.command_exit}
  return $safe
 }
 function Api([string]$Endpoint){
@@ -203,6 +205,9 @@ try{
  exit 0
 }catch{
  $safe=@{error_type=$_.Exception.GetType().FullName;source_basename=(Split-Path -Leaf $_.InvocationInfo.ScriptName);source_line=[int]$_.InvocationInfo.ScriptLineNumber}
+ foreach($field in 'command_basename','command_exit','caller_basename','caller_line'){
+  if($_.Exception.Data.Contains($field)){$safe[$field]=$_.Exception.Data[$field]}
+ }
  [IO.File]::WriteAllText($record.error_path,($safe|ConvertTo-Json),[Text.UTF8Encoding]::new($false));exit 1
 }
 '@

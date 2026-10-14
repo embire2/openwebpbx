@@ -85,6 +85,15 @@ function DatabaseSnapshot([string]$Name){$file=Join-Path $work ($Name+'-database
 function FilesSnapshot {
  $directories=@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots",$configuration,"$switch\conf","$switch\scripts","$switch\mod","$switch\sounds","$state\mobile-notifications","$state\phone-tls","$state\public-access")
  $files=@{}
+ # Parent DACLs determine inherited access and need independent recovery even
+ # when every child file hash matches. Keep volatile siblings outside the scan.
+ foreach($parent in $root,"$root\updater",$state,$switch){
+  if(Test-Path -LiteralPath $parent){
+   $item=Get-Item -LiteralPath $parent -Force
+   Check ($item.PSIsContainer -and !($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) 'A snapshot parent directory is unavailable or linked.'
+   $files[$parent]=@{acl=(Get-Acl -LiteralPath $parent).Sddl;directory=$true}
+  }
+ }
  foreach($directory in $directories){if(Test-Path -LiteralPath $directory){
   foreach($item in @(Get-Item -LiteralPath $directory)+@(Get-ChildItem -LiteralPath $directory -Recurse -Force)){
    if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'A qualification snapshot encountered a link or junction.'}
@@ -99,11 +108,12 @@ function FilesSnapshot {
 }
 function TaskSnapshot {
  $tasks=@{}
+ $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect()
  foreach($name in 'OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate'){
   $task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
   if(!$task){$tasks[$name]=@{exists=$false};continue}
   $xml=[xml](Export-ScheduledTask -TaskName $name);$xml.PreserveWhitespace=$false
-  $tasks[$name]=@{exists=$true;enabled=[bool]$task.Settings.Enabled;xml=$xml.OuterXml;acl=(Get-Acl -LiteralPath (Join-Path $env:SystemRoot ('System32/Tasks/'+$name))).Sddl}
+  $tasks[$name]=@{exists=$true;enabled=[bool]$task.Settings.Enabled;xml=$xml.OuterXml;acl=(Get-Acl -LiteralPath (Join-Path $env:SystemRoot ('System32/Tasks/'+$name))).Sddl;security=$scheduler.GetFolder('\').GetTask($name).GetSecurityDescriptor(7)}
  }
  return $tasks
 }
@@ -226,7 +236,14 @@ if(!$installation.RestoreServer -or $installation.DomainName -ne 'windowsqa.exam
 [IO.File]::WriteAllText("$state/native-engine.json",'{"schema":1,"forced_fixture":true}')
 [xml]$task=Export-ScheduledTask -TaskName OpenWebPBX-Backups
 $task.Task.Settings.Hidden='true';Register-ScheduledTask -TaskName OpenWebPBX-Backups -Xml $task.OuterXml -Force|Out-Null
-[IO.File]::WriteAllText((Join-Path $PSScriptRoot 'fault-witness.json'),'{"database_and_customer_mutated":true,"notification_mutated":true,"native_metadata_mutated":true,"new_file_created":true,"task_changed":true}')
+$scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect();$native=$scheduler.GetFolder('\').GetTask('OpenWebPBX-Backups')
+$before=$native.GetSecurityDescriptor(7);$security=[Security.AccessControl.RawSecurityDescriptor]::new($before)
+# Change only this owned task's read access; no new ability to run the task.
+$ace=[Security.AccessControl.CommonAce]::new([Security.AccessControl.AceFlags]::None,[Security.AccessControl.AceQualifier]::AccessAllowed,0x00120089,[Security.Principal.SecurityIdentifier]::new('S-1-5-19'),$false,$null)
+$security.DiscretionaryAcl.InsertAce($security.DiscretionaryAcl.Count,$ace)
+$native.SetSecurityDescriptor($security.GetSddlForm(([Security.AccessControl.AccessControlSections]::Owner -bor [Security.AccessControl.AccessControlSections]::Group -bor [Security.AccessControl.AccessControlSections]::Access)),0x10)
+if($native.GetSecurityDescriptor(7) -eq $before){throw 'The owned task security fault did not take effect.'}
+[IO.File]::WriteAllText((Join-Path $PSScriptRoot 'fault-witness.json'),'{"database_and_customer_mutated":true,"notification_mutated":true,"native_metadata_mutated":true,"new_file_created":true,"task_changed":true,"task_security_changed":true}')
 '@
  [IO.File]::WriteAllText((Join-Path $payload 'bootstrap.php'),$fault,[Text.UTF8Encoding]::new($false))
  [IO.File]::WriteAllText((Join-Path $payload 'forced-failure.ps1'),$faultPs,[Text.UTF8Encoding]::new($false))
@@ -284,10 +301,10 @@ try{
  $result=InvokeHelper (Join-Path $payload 'Upgrade-OpenWebPBX.ps1') @() 'forced-direct';Check ($result -ne 0 -and (Journal).state -eq 'rolled_back') 'The post-deploy fault did not finish its actual automatic rollback.'
  AssertManagerReopened $oldManager $managerInvocation 'manager_reopen_rollback'
  $witness=Get-Content (Join-Path $payload 'fault-witness.json') -Raw|ConvertFrom-Json
- foreach($field in 'database_and_customer_mutated','notification_mutated','native_metadata_mutated','new_file_created','task_changed'){Check ($witness.$field -eq $true) 'The injected failure did not reach every required native mutation.'}
+ foreach($field in 'database_and_customer_mutated','notification_mutated','native_metadata_mutated','new_file_created','task_changed','task_security_changed'){Check ($witness.$field -eq $true) 'The injected failure did not reach every required native mutation.'}
  StopUpdater;Equal $database (DatabaseSnapshot 'after-failure') 'The real rollback changed DB identity, owner/grants, roles/credentials, schema or preserved table values.'
  Equal $files (FilesSnapshot) 'The real rollback changed file bytes, original/new-file inventory or owner/DACL.'
- Equal $tasks (TaskSnapshot) 'The real rollback changed original task XML, enabled state or task security.'
+ Equal $tasks (TaskSnapshot) 'The real rollback changed original task XML, enabled state, task-file ACL or Scheduler security.'
  Check (!(Test-Path "$root\backup-runtime\rollback-fixture-only.txt")) 'Rollback retained a newly created private runtime file.'
  $report.gates.direct_failure_rollback='passed';$report.checks+='Actual post-deploy DB/config/notification/native metadata/new-file/task fault; automatic rollback restored exact files/SDDL/tasks and HMAC-verified DB/security/customer values'
  if($managerAvailable){$report.checks+='Actual installed WinUI window automatically closes and reopens after successful reapply and forced rollback, with real assembly/title, original SID/session and new PID'}

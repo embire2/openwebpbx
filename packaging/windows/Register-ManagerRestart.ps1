@@ -1,5 +1,7 @@
 [CmdletBinding()]
 param()
+if($PSVersionTable.PSEdition -eq 'Core'){throw 'The manager helper requires Windows PowerShell (powershell.exe).'}
+$env:PSModulePath=$PSHOME+'\Modules;'+[Environment]::GetFolderPath('ProgramFiles')+'\WindowsPowerShell\Modules'
 $ErrorActionPreference='Stop'
 # Called by the interactive manager itself. No password, elevation or SYSTEM UI.
 $identity=[Security.Principal.WindowsIdentity]::GetCurrent()

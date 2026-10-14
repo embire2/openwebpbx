@@ -82,6 +82,13 @@ if($action==='job'){
  $id=uuid();$q("insert into v_pbx_jobs(job_uuid,domain_uuid,kind,queue_number,target_number,internal_target,request_key,due_at,expires_at,max_attempts) values(?,?,'callback','8190','8100',true,?,now(),now()+interval '10 minutes',1)",[$id,$domain,'windows-native/'.$id]);echo json_encode(['job'=>$id],JSON_THROW_ON_ERROR);exit;
 }
 if($action==='due'){$q("update v_pbx_jobs set due_at=now() where domain_uuid=? and kind='wakeup' and state='waiting'",[$domain]);echo "{\"owned_wakeup_due\":true}\n";exit;}
+if($action==='voicemail-login'){
+ $pin=$q('select voicemail_password from v_voicemails where domain_uuid=? and voicemail_id=? and voicemail_enabled=true',[$domain,'8103'])->fetchColumn();
+ if(!is_string($pin)||!preg_match('/^[0-9]{2,20}$/D',$pin))throw new RuntimeException('Owned generated mailbox PIN unavailable.');
+ $configuration=config::load();$host=$configuration->get('switch.event_socket.host',null)??$configuration->get('event_socket.ip_address',null)??'127.0.0.1';
+ if(!in_array($host,['127.0.0.1','localhost'],true))throw new RuntimeException('Only the disposable loopback event listener is permitted.');
+ echo json_encode(['pin'=>$pin,'event_socket'=>['host'=>$host,'port'=>(int)($configuration->get('switch.event_socket.port',null)??$configuration->get('event_socket.port',null)??8021),'password'=>$configuration->get('switch.event_socket.password',null)??$configuration->get('event_socket.password',null)??'ClueCon']],JSON_THROW_ON_ERROR);exit;
+}
 if($action==='api'){
  $command=$argv[3]??'';
  $allowed=in_array($command,['status','show channels as json','sofia status profile internal','fsctl pause_check'],true);

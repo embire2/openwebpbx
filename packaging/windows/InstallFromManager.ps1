@@ -1,5 +1,8 @@
 #Requires -RunAsAdministrator
 param([Parameter(Mandatory)][string]$RequestFile)
+if($PSVersionTable.PSEdition -eq 'Core'){throw 'Open this installer in Windows PowerShell (powershell.exe).'}
+# A manager launched from PowerShell 7 can inherit incompatible Core modules.
+$env:PSModulePath=$PSHOME+'\Modules;'+[Environment]::GetFolderPath('ProgramFiles')+'\WindowsPowerShell\Modules'
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 $log=Join-Path (Split-Path -Parent $RequestFile) 'install.log'
 try {

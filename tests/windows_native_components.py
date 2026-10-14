@@ -79,4 +79,42 @@ with tempfile.TemporaryDirectory() as folder:
     try:source.decoded_tone_check({'decoded_pcm':bytearray(decoded)},440)
     except AssertionError:check(True)
     else:raise AssertionError('Wrong remote tone passed')
+    # Native prompt observer uses framed, authenticated, loopback events and
+    # filters the fictional realm plus the actual caller's SIP Call-ID.
+    event_server=socket.socket();event_server.bind(('127.0.0.1',0));event_server.listen();event_server.settimeout(8)
+    event_errors=[];commands=[]
+    def event_fixture():
+        client=None
+        try:
+            client,_=event_server.accept();client.settimeout(5)
+            client.sendall(b'Content-Type: auth/request\n\n')
+            for expected in [b'auth fixture-secret',b'event plain PLAYBACK_START']:
+                request=b''
+                while b'\n\n' not in request:request+=client.recv(4096)
+                commands.append(request);assert request.strip()==expected
+                client.sendall(b'Content-Type: command/reply\nReply-Text: +OK accepted\n\n')
+            for realm,callid,path in [('foreign.invalid','owned-call','foreign.wav'),('fictional.invalid','other-call','wrong.wav'),('fictional.invalid','owned-call','C:/Program Files/FreeSWITCH/sounds/voicemail/vm-enter_pass.wav')]:
+                body=('Event-Name: PLAYBACK_START\nvariable_domain_name: '+realm+'\nvariable_sip_call_id: '+callid+'\nPlayback-File-Path: '+path.replace(' ','%20')+'\n\n').encode()
+                frame=('Content-Type: text/event-plain\nContent-Length: '+str(len(body))+'\n\n').encode()+body
+                client.sendall(frame[:19]);client.sendall(frame[19:])
+            # Keep the real observer alive until its owned client closes.
+            client.recv(1)
+        except BaseException as error:event_errors.append(error)
+        finally:
+            if client:client.close()
+    event_thread=threading.Thread(target=event_fixture);event_thread.start()
+    playback=n.NativePlayback({'host':'127.0.0.1','port':event_server.getsockname()[1],'password':'fixture-secret'},'fictional.invalid')
+    try:
+        index,path=playback.prompt('owned-call',['vm-enter_pass.wav'],seconds=5)
+        check(path=='C:/Program Files/FreeSWITCH/sounds/voicemail/vm-enter_pass.wav')
+        check(len(playback.events)==2 and index==1)
+        check(commands[0].strip()==b'auth fixture-secret' and commands[1].strip()==b'event plain PLAYBACK_START')
+        try:playback.prompt('owned-call',['wrong.wav'],seconds=.1)
+        except AssertionError:check(True)
+        else:raise AssertionError('Another call prompt matched owned call')
+    finally:playback.close();event_thread.join(10);event_server.close()
+    if event_errors:raise event_errors[0]
+    try:n.NativePlayback({'host':'foreign.example.invalid','port':8021,'password':'fixture-secret'},'fictional.invalid')
+    except AssertionError:check(True)
+    else:raise AssertionError('Non-loopback native observer was accepted')
 print(f'PASS {checks} portable native-harness protocol/PKI checks; no Windows product result implied')

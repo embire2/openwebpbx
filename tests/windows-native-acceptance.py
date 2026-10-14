@@ -76,6 +76,63 @@ class Web:
         status,_,text=self.request('/app/pbx_setup/live.php',fields);assert status==200 and 'error' not in json.loads(text),'Normal supervisor action failed'
 
 
+class NativePlayback:
+    """Observe real native prompt events; send digits only on the SIP/RTP peer."""
+    def __init__(self,settings,realm):
+        assert settings['host'] in ('127.0.0.1','localhost') and 1<=int(settings['port'])<=65535
+        password=settings['password'];assert password and '\n' not in password and '\r' not in password
+        self.realm=realm;self.socket=socket.create_connection((settings['host'],int(settings['port'])),timeout=5)
+        self.socket.settimeout(.5);self.buffer=b'';self.events=[];self.lock=threading.Lock();self.stopped=False;self.error=None
+        assert self.frame(5)[0].get('Content-Type')=='auth/request','Native event authentication challenge missing'
+        self.socket.sendall(('auth '+password+'\n\n').encode())
+        assert self.frame(5)[0].get('Reply-Text','').startswith('+OK'),'Native event authentication failed'
+        self.socket.sendall(b'event plain PLAYBACK_START\n\n')
+        assert self.frame(5)[0].get('Reply-Text','').startswith('+OK'),'Native playback event subscription failed'
+        self.thread=threading.Thread(target=self.run,daemon=True);self.thread.start()
+    def frame(self,seconds):
+        end=time.monotonic()+seconds
+        while not self.stopped and time.monotonic()<end:
+            split=self.buffer.find(b'\n\n')
+            if split>=0:
+                headers=dict(line.split(': ',1) for line in self.buffer[:split].decode().splitlines() if ': ' in line)
+                size=int(headers.get('Content-Length','0'));assert 0<=size<=1048576,'Native event exceeded its bound'
+                if len(self.buffer)>=split+2+size:
+                    body=self.buffer[split+2:split+2+size];self.buffer=self.buffer[split+2+size:]
+                    return headers,body
+            try:
+                part=self.socket.recv(65536)
+                if not part:raise RuntimeError('Native event connection closed')
+                self.buffer+=part
+            except socket.timeout:continue
+        raise TimeoutError('Native event frame deadline expired')
+    def run(self):
+        try:
+            while not self.stopped:
+                try:headers,body=self.frame(1)
+                except TimeoutError:continue
+                if headers.get('Content-Type')!='text/event-plain':continue
+                event={k:urllib.parse.unquote(v) for k,v in (line.split(': ',1) for line in body.decode().splitlines() if ': ' in line)}
+                if event.get('Event-Name')!='PLAYBACK_START' or event.get('variable_domain_name')!=self.realm:continue
+                with self.lock:
+                    self.events.append(event)
+                    assert len(self.events)<=1000,'Owned native prompt events exceeded their bound'
+        except BaseException as error:
+            if not self.stopped:self.error=error
+    def prompt(self,callid,suffixes,after=-1,seconds=30):
+        end=time.monotonic()+seconds
+        while time.monotonic()<end:
+            if self.error:raise self.error
+            with self.lock:
+                for index,event in enumerate(self.events):
+                    if index<=after or event.get('variable_sip_call_id')!=callid:continue
+                    path=event.get('Playback-File-Path','').replace('\\','/')
+                    if any(path.endswith(suffix) for suffix in suffixes):return index,path
+            time.sleep(.02)
+        raise AssertionError('The actual owned native mailbox prompt was not observed')
+    def close(self):
+        self.stopped=True;self.socket.close();self.thread.join(2)
+
+
 
 class Fixture:
     def __init__(self,input_path):
@@ -465,8 +522,8 @@ def native_calls(f):
         f.active_case='native_voicemail_recording_and_email_queue'
         call=caller.dial('8103',destination);assert call['code']==200
         time.sleep(32);caller.hangup(call)
-        voicemail=f.wait(lambda:f.cli('status')['voicemail'],20)
-        file=Path(voicemail[-1]['message_path']);f.wait(lambda:file.exists() and file.stat().st_size>4096,15)
+        voicemail=f.wait(lambda:next((m for m in f.cli('status')['voicemail'] if m['voicemail_id']=='8103'),None),20)
+        file=Path(voicemail['message_path']);f.wait(lambda:file.exists() and file.stat().st_size>4096,15)
         with wave.open(str(file)) as wav:
             assert wav.getsampwidth()==2 and wav.getnchannels()==1
             raw=wav.readframes(wav.getnframes());rate=wav.getframerate()
@@ -475,6 +532,34 @@ def native_calls(f):
         else:raise AssertionError('Voicemail fixture unexpectedly changed negotiated rate')
         f.record('native_voicemail_recording_private_owned_wav',decoded_ratio=ratio,recording_sha256=hashlib.sha256(raw).hexdigest())
         f.wait(lambda:f.cli('status')['mail'],15)
+        # Retrieve that real recording through *97 and forward it with wire
+        # RFC2833. Native playback events synchronize actual menu prompts;
+        # they never inject digits or bypass the mailbox authentication.
+        f.active_case='native_voicemail_wire_forwarding_binary_copy'
+        mailbox_info=f.cli('voicemail-login');playback=NativePlayback(mailbox_info['event_socket'],realm)
+        mailbox=Phone(users[3],'tls');peers.append(mailbox)
+        try:
+            assert mailbox.register((bind,5061))['code']==200
+            retrieve=mailbox.dial('*97',(bind,5061));assert retrieve['code']==200
+            index,prompt=playback.prompt(retrieve['callid'],['vm-enter_pass.wav','vm-listen_new.wav'])
+            if prompt.endswith('vm-enter_pass.wav'):
+                for digit in mailbox_info['pin']+'#':mailbox.dtmf(retrieve,digit)
+                index,_=playback.prompt(retrieve['callid'],['vm-listen_new.wav'],after=index)
+            mailbox.dtmf(retrieve,'1')
+            index,_=playback.prompt(retrieve['callid'],[file.name],after=index,seconds=45)
+            time.sleep(3);original.decoded_tone_check(retrieve['media'],caller.tone_hz)
+            mailbox.dtmf(retrieve,'8')
+            index,_=playback.prompt(retrieve['callid'],['vm-forward_enter_ext.wav'],after=index)
+            for digit in '8102#':mailbox.dtmf(retrieve,digit)
+            index,_=playback.prompt(retrieve['callid'],['vm-forward_add_intro.wav'],after=index)
+            mailbox.dtmf(retrieve,'2')
+            index,_=playback.prompt(retrieve['callid'],['vm-message_forwarded.wav'],after=index)
+            forwarded=f.wait(lambda:next((m for m in f.cli('status')['voicemail'] if m['voicemail_id']=='8102'),None),15)
+            forwarded_file=Path(forwarded['message_path'])
+            assert forwarded_file.is_file() and forwarded_file.read_bytes()==file.read_bytes(),'Native forwarded WAV did not preserve exact source bytes'
+            mailbox.hangup(retrieve)
+            f.record('native_tls_mailbox_wire_forwarding_exact_binary_wav',wire_digits='RFC2833',source_and_forwarded_sha256=hashlib.sha256(file.read_bytes()).hexdigest(),drive_letter_path_verified=bool(re.match(r'^[A-Za-z]:[/\\]',str(file))),path_spaces_observed=' ' in str(file),bytes=forwarded_file.stat().st_size)
+        finally:playback.close()
     finally:
         for p in peers:
             ledger+=p.registration_call_ids

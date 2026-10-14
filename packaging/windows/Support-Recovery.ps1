@@ -22,7 +22,8 @@ function Save-OpenWebSupport {
   $record.Directories[$name]=@{Path=$path;Exists=$exists}
   if($exists){CopyTree $path (Join-Path $Backup $name)}
  }
- foreach($path in @("$Root\tools","$EngineRoot\mod","$EngineRoot\sounds","$EngineRoot\conf","$StateRoot\mobile-notifications","$StateRoot\mail","$Root\backup-runtime","$Root\acme","$Root\updater")){
+ $record.Acls[$Root]=(Get-Acl -LiteralPath $Root).Sddl
+ foreach($path in @("$Root\web","$Root\server","$Root\desktop","$Root\tools","$EngineRoot\mod","$EngineRoot\sounds","$EngineRoot\conf","$StateRoot\mobile-notifications","$StateRoot\mail","$Root\backup-runtime","$Root\acme","$Root\updater")){
   if(Test-Path -LiteralPath $path -PathType Container){
    $record.Acls[$path]=(Get-Acl -LiteralPath $path).Sddl
    foreach($item in Get-ChildItem -LiteralPath $path -Force -Recurse){
@@ -34,7 +35,13 @@ function Save-OpenWebSupport {
  foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){
   $task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
   $record.Tasks[$name]=@{Exists=[bool]$task;Enabled=if($task){[bool]$task.Settings.Enabled}else{$false}}
-  if($task){Export-ScheduledTask -TaskName $name | Set-Content "$Backup\$name.xml" -Encoding UTF8;if($name -in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-Cleanup'){Disable-ScheduledTask -TaskName $name | Out-Null}}
+  if($task){
+   $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect()
+   $record.Tasks[$name].Security=$scheduler.GetFolder('\').GetTask($name).GetSecurityDescriptor(7)
+   $record.Tasks[$name].FileAcl=(Get-Acl -LiteralPath (Join-Path $env:SystemRoot ('System32\Tasks\'+$name))).Sddl
+   Export-ScheduledTask -TaskName $name | Set-Content "$Backup\$name.xml" -Encoding UTF8
+   if($name -in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-Cleanup'){Disable-ScheduledTask -TaskName $name | Out-Null}
+  }
  }
  WriteState "$Backup\support-state.json" $record
 }
@@ -43,7 +50,7 @@ function Restore-OpenWebSupport {
  if(!(Test-Path "$Backup\support-state.json")){return} # Old immutable backups.
  $record=Get-Content "$Backup\support-state.json" -Raw | ConvertFrom-Json
  if($record.schema -ne 1){throw 'The support recovery inventory is invalid.'}
- $allowed=@("$Root\php","$Root\backup-runtime","$Root\acme","$Root\tools","$Root\updater","$StateRoot\native-engine.json","$StateRoot\local-codec.json","$StateRoot\updater-original-startup.json","$StateRoot\mobile-notifications","$StateRoot\mail","$EngineRoot")
+ $allowed=@($Root,"$StateRoot\native-engine.json","$StateRoot\local-codec.json","$StateRoot\updater-original-startup.json","$StateRoot\mobile-notifications","$StateRoot\mail","$EngineRoot")
  function Check-SupportPath([string]$Path){
   $full=[IO.Path]::GetFullPath($Path);$valid=$false
   foreach($base in $allowed){if($full.Equals($base,[StringComparison]::OrdinalIgnoreCase) -or $full.StartsWith($base.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)){$valid=$true;break}}
@@ -78,7 +85,19 @@ function Restore-OpenWebSupport {
   if($entry.Name -notin 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){throw 'The support recovery task inventory is invalid.'}
   if($entry.Value.Exists){
    Register-ScheduledTask -TaskName $entry.Name -Xml (Get-Content "$Backup\$($entry.Name).xml" -Raw) -Force | Out-Null
-   if(!$entry.Value.Enabled){Disable-ScheduledTask -TaskName $entry.Name | Out-Null}
+   if($entry.Value.Enabled){Enable-ScheduledTask -TaskName $entry.Name | Out-Null}else{Disable-ScheduledTask -TaskName $entry.Name | Out-Null}
+   if($entry.Value.Security){
+    $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect();$nativeTask=$scheduler.GetFolder('\').GetTask($entry.Name)
+    $nativeTask.SetSecurityDescriptor([string]$entry.Value.Security,0x10)
+    if($nativeTask.GetSecurityDescriptor(7) -ne $entry.Value.Security){throw 'The original scheduled-task security did not restore.'}
+   }
+   if($entry.Value.FileAcl){
+    $taskFile=Join-Path $env:SystemRoot ('System32\Tasks\'+$entry.Name)
+    $acl=[Security.AccessControl.FileSecurity]::new();$acl.SetSecurityDescriptorSddlForm([string]$entry.Value.FileAcl)
+    Set-Acl -LiteralPath $taskFile -AclObject $acl
+    if((Get-Acl -LiteralPath $taskFile).Sddl -ne $entry.Value.FileAcl){throw 'The original scheduled-task file permissions did not restore.'}
+    if($entry.Value.Security -and $nativeTask.GetSecurityDescriptor(7) -ne $entry.Value.Security){throw 'Scheduled-task file restoration changed its original security.'}
+   }
   }else{Unregister-ScheduledTask -TaskName $entry.Name -Confirm:$false -ErrorAction SilentlyContinue}
  }
  $filter="system.webServer/fastCgi/application[@fullPath='$Root\php\php-cgi.exe']/environmentVariables"
