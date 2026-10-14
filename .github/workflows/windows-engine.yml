@@ -114,6 +114,22 @@ jobs:
           if ($release.files.'mod/mod_bcg729.dll' -or (Test-Path "$env:ENGINE_WORK/engine/libbcg729.dll")) { throw 'A local-only codec was mixed into the redistributable engine.' }
           Copy-Item "$env:ENGINE_WORK/local-codec/local-codec-manifest.json" "$env:ENGINE_WORK/codec-callback-evidence.json"
           "Patched Windows registrar built from the pinned source. Local codec callbacks passed. Native SIP/RTP and rollback qualification remain pending." >> $env:GITHUB_STEP_SUMMARY
+      - name: Prove the portable local-only source codec
+        if: ${{ !cancelled() && env.NATIVE_CORE_ROOT != '' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = "$env:ENGINE_WORK/source-codec"
+          python packaging/freeswitch/prepare-windows-native.py --freeswitch-repository "$env:ENGINE_WORK/fs-repository" --sofia-repository "$env:ENGINE_WORK/sofia-repository" --codec-repository "$env:ENGINE_WORK/codec-repository" --bcg729-archives "$env:ENGINE_WORK/downloads" --output $source
+          if ($LASTEXITCODE) { throw 'Fresh portable codec source preparation failed.' }
+          $manifest = (Get-FileHash "$source/source-manifest.json" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $apr = Join-Path $env:NATIVE_CORE_ROOT 'libapr.dll'
+          if (!(Test-Path $apr -PathType Leaf)) { throw 'The verified MSI APR runtime is missing.' }
+          $aprHash = (Get-FileHash $apr -Algorithm SHA256).Hash.ToLowerInvariant()
+          python packaging/codecs/bcg729/build-windows-local.py --source $source --source-manifest-sha256 $manifest --engine-root $env:NATIVE_CORE_ROOT --core-sha256 $env:NATIVE_CORE_SHA256 --apr-sha256 $aprHash --core-export-helper packaging/freeswitch/core-exports.py --build "$env:ENGINE_WORK/portable-build" --output "$env:ENGINE_WORK/portable-codec" --compiler-cache "$env:ENGINE_WORK/compiler-cache" 2>&1 |
+            Tee-Object "$env:ENGINE_WORK/portable-codec-build.log"
+          if ($LASTEXITCODE) { throw 'Portable source codec, DATA imports or heap ownership proof failed.' }
+          Copy-Item "$env:ENGINE_WORK/portable-codec/local-codec-manifest.json" "$env:ENGINE_WORK/portable-codec-evidence.json"
+          "Pinned portable C compiler completed real codec callbacks, MSI DATA imports and1000 owning-heap cycles. Combined codec DLLs remain local-only and are not uploaded. Native SIP/RTP qualification is still separate." >> $env:GITHUB_STEP_SUMMARY
       - name: Upload registrar build and credential-free evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -124,6 +140,8 @@ jobs:
             ${{ runner.temp }}/openwebpbx-engine/runner-inputs.json
             ${{ runner.temp }}/openwebpbx-engine/core-exports.json
             ${{ runner.temp }}/openwebpbx-engine/codec-callback-evidence.json
+            ${{ runner.temp }}/openwebpbx-engine/portable-codec-evidence.json
+            ${{ runner.temp }}/openwebpbx-engine/portable-codec-build.log
             ${{ runner.temp }}/openwebpbx-engine/native-build.log
             ${{ runner.temp }}/openwebpbx-engine/build/*.imports.txt
             ${{ runner.temp }}/openwebpbx-engine/source/source-manifest.json

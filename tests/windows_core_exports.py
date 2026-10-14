@@ -49,6 +49,25 @@ class CoreExportChecks(unittest.TestCase):
         with self.assertRaises(ValueError):
             exports.definition(dll(), '0' * 64)
 
+    def test_zero_initialized_data_in_mapped_section_tail_is_valid(self):
+        data = dll()
+        struct.pack_into('<I', data, 0x98 + 240 + 40 + 8, 0x400)
+        struct.pack_into('<I', data, 0x634, 0x2300)
+        text, result = self.verify(data)
+        self.assertIn('SWITCH_GLOBAL_x @2 DATA\n', text)
+        self.assertEqual(result['data_exports'], ['SWITCH_GLOBAL_x'])
+
+    def test_virtual_function_tail_or_unmapped_data_is_refused(self):
+        data = dll()
+        struct.pack_into('<I', data, 0x98 + 240 + 8, 0x400)
+        struct.pack_into('<I', data, 0x630, 0x1300)
+        with self.assertRaises(ValueError):
+            self.verify(data)
+        data = dll()
+        struct.pack_into('<I', data, 0x634, 0x2300)
+        with self.assertRaises(ValueError):
+            self.verify(data)
+
     def test_wrong_machine_or_optional_header_is_refused(self):
         for position, value in [(0x84, 0x14c), (0x98, 0x10b)]:
             data = dll()

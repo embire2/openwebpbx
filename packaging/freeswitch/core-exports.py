@@ -60,9 +60,15 @@ def definition(data, expected):
         function = struct.unpack_from('<I', data, offset(addresses + ordinal * 4, 4))[0]
         if export_rva <= function < export_rva + export_size:
             raise ValueError('Forwarded core exports require separate review.')
-        offset(function)
-        flags = next(flags for virtual, extent, _, _, flags in sections if virtual <= function < virtual + extent)
+        section = next((section for section in sections if section[0] <= function < section[0] + section[1]), None)
+        if section is None:
+            raise ValueError('A core export points outside its bounded mapped PE section.')
+        flags = section[4]
         is_data = not flags & 0x20000000
+        # Zero-initialized DATA lives in the mapped virtual tail of .data/.bss
+        # and has no raw file bytes. Executable exports must have file bytes.
+        if not is_data:
+            offset(function)
         entries.append(f' {name} @{base + ordinal}' + (' DATA' if is_data else ''))
         if is_data:
             data_exports.append(name)

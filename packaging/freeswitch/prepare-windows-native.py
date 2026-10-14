@@ -25,6 +25,7 @@ BCG_ARCHIVES = {
     'bcg729_1.1.1-3+deb13u1.debian.tar.xz': '4674343d5150b5b60db633c1a8ee54590f0a1714928f77e74ee641e004dd14b6',
 }
 RECIPE = Path(__file__).resolve().parent
+BCG_CASE_RENAME_PATCH = 'f4692bf01cf033f59820b8aeb49f79493d450630d02200eb692240e601bef46c'
 
 
 def digest(path):
@@ -60,7 +61,16 @@ def patch_tree(tree, patch):
     match = re.search(r'patch\s+(\d+)\.(\d+)', version)
     if match is None or tuple(map(int, match.groups())) < (2, 7):
         raise ValueError('GNU patch 2.7 or newer is required; legacy Strawberry patch is unsupported.')
-    subprocess.run([command, '--batch', '--forward', '--binary', '--ignore-whitespace', '-p1', '-i', str(patch.resolve())], check=True, cwd=tree)
+    data = patch.read_bytes()
+    if hashlib.sha256(data).hexdigest() == BCG_CASE_RENAME_PATCH:
+        # This exact Debian patch creates BCG729Config before deleting Bcg729Config.
+        # Apply its unchanged deletion hunk first so case-insensitive NTFS can
+        # represent the same final source tree. Keep the original patch on disk.
+        sections = data.split(b'diff --git ')
+        if len(sections) != 6 or not sections[1].startswith(b'a/BCG729Config.cmake.in b/BCG729Config.cmake.in\nnew file mode ') or not sections[2].startswith(b'a/Bcg729Config.cmake.in b/Bcg729Config.cmake.in\ndeleted file mode '):
+            raise ValueError('The pinned case-only rename patch has an unexpected structure.')
+        data = sections[0] + b'diff --git ' + sections[2] + b'diff --git ' + sections[1] + b''.join(b'diff --git ' + section for section in sections[3:])
+    subprocess.run([command, '--batch', '--forward', '--binary', '--ignore-whitespace', '-p1'], input=data, check=True, cwd=tree)
 
 
 def prepare(fs_repo, sofia_repo, codec_repo, archives, output):
