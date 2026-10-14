@@ -48,6 +48,84 @@ function SafeFailureFields($Record){
  if(($Record.command_exit -is [int] -or $Record.command_exit -is [long]) -and $Record.command_exit -ge [int]::MinValue -and $Record.command_exit -le [int]::MaxValue){$safe.command_exit=[int]$Record.command_exit}
  return $safe
 }
+function NativeStartupFailure([DateTime]$StartedAt,[string]$PrivateDirectory){
+ # This observer runs only in the caller's disposable fresh-install failure
+ # window. It never starts/stops services, pauses calls, or changes profiles.
+ if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){throw 'Disposable hosted startup diagnostics required.'}
+ $result=[ordered]@{schema=1;observed_at=[DateTime]::UtcNow.ToString('o');service_observed=$false;event_query_succeeded=$false;events=@();log_observed=$false;log_categories=[ordered]@{sofia_load_error=$false;lua_error=$false;database_error=$false;xml_error=$false;sip_profile_error=$false;tls_error=$false};native_queries=[ordered]@{attempted=$false;authenticated=$false;sofia_loaded=$false;lua_loaded=$false;pgsql_loaded=$false;pause_state_known=$false;channels_known=$false;internal_profile_available=$false}}
+ try{
+  $service=Get-CimInstance Win32_Service -Filter "Name='FreeSWITCH'" -ErrorAction Stop
+  if($service -and $service.Name -eq 'FreeSWITCH' -and $service.State -in 'Stopped','Start Pending','Stop Pending','Running','Continue Pending','Pause Pending','Paused','Unknown'){
+   $result.service_observed=$true;$result.service_state=[string]$service.State
+   $result.process_id=[uint32]$service.ProcessId;$result.win32_exit_code=[uint32]$service.ExitCode;$result.service_specific_exit_code=[uint32]$service.ServiceSpecificExitCode
+   $result.service_status=if($service.Status -in 'OK','Error','Degraded','Unknown','Pred Fail','Starting','Stopping','Service','Stressed','NonRecover','No Contact','Lost Comm'){[string]$service.Status}else{'Unknown'}
+  }
+ }catch{}
+ $end=[DateTime]::UtcNow.AddMinutes(5);$begin=$StartedAt.ToUniversalTime().AddMinutes(-5)
+ $moduleNames=@('FreeSwitchConsole.exe','FreeSwitch.dll','mod_sofia.dll','libapr.dll','pthread.dll','mod_lua.dll','mod_pgsql.dll','mod_bcg729.dll','libbcg729.dll','VCRUNTIME140.dll','VCRUNTIME140_1.dll','ucrtbase.dll','KERNELBASE.dll','ntdll.dll')
+ try{
+  $events=@(Get-WinEvent -FilterHashtable @{LogName='Application';ProviderName='Application Error';Id=1000;StartTime=$begin;EndTime=$end} -MaxEvents 64 -ErrorAction Stop)
+  $result.event_query_succeeded=$true
+  foreach($event in $events){
+   if($event.TimeCreated.ToUniversalTime() -lt $begin -or $event.TimeCreated.ToUniversalTime() -gt $end){continue}
+   [xml]$xml=$event.ToXml();$data=@{}
+   foreach($item in $xml.Event.EventData.Data){$data[[string]$item.Name]=[string]$item.'#text'}
+   if($data.AppName -ine 'FreeSwitchConsole.exe'){continue}
+   $module=[IO.Path]::GetFileName(($data.ModuleName -replace '\\','/'))
+   if($module -notin $moduleNames){$module='external_component'}
+   $safe=[ordered]@{event_id=1000;application='FreeSwitchConsole.exe';module_basename=$module}
+   if($data.ExceptionCode -match '^(?:0x)?([a-fA-F0-9]{8})$'){$safe.exception_code=$Matches[1].ToLowerInvariant()}
+   if($data.FaultingOffset -match '^(?:0x)?([a-fA-F0-9]{1,16})$'){$safe.fault_offset=$Matches[1].ToLowerInvariant()}
+   $result.events+=,$safe
+   # Raw XML is retained only in the administrator-private work directory.
+   [IO.File]::WriteAllText((Join-Path $PrivateDirectory ('native-event-'+$result.events.Count+'.xml')),$event.ToXml(),[Text.UTF8Encoding]::new($false))
+   if($result.events.Count -ge 8){break}
+  }
+ }catch{if($_.FullyQualifiedErrorId -like 'NoMatchingEventsFound*'){$result.event_query_succeeded=$true}}
+ try{
+  $path='C:/Program Files/FreeSWITCH/log/freeswitch.log'
+  if(Test-Path -LiteralPath $path -PathType Leaf){
+   $item=Get-Item -LiteralPath $path
+   if(!($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){
+    $stream=[IO.File]::Open($path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+    try{$count=[int][Math]::Min($stream.Length,1MB);[void]$stream.Seek(-$count,[IO.SeekOrigin]::End);$bytes=New-Object byte[] $count;$read=0;while($read -lt $count){$n=$stream.Read($bytes,$read,$count-$read);if(!$n){break};$read+=$n}}finally{$stream.Dispose()}
+    if($read -lt $bytes.Length){$bytes=$bytes[0..($read-1)]};if(!$read){$bytes=[byte[]]@()}
+    [IO.File]::WriteAllBytes((Join-Path $PrivateDirectory 'native-log-private.tail'),$bytes)
+    $text=[Text.Encoding]::UTF8.GetString($bytes,0,$read);$result.log_observed=$true
+    $patterns=@{sofia_load_error='(?im)(error loading|failed to load|module load[^\r\n]*fail)[^\r\n]*mod_sofia';lua_error='(?im)(Lua[^\r\n]*(error|fail)|LuaScriptError)';database_error='(?im)(database|SQL|pgsql)[^\r\n]*(error|fail)';xml_error='(?im)(XML[^\r\n]*(error|fail|invalid)|error[^\r\n]*XML)';sip_profile_error='(?im)(error creating SIP UA|SIP profile[^\r\n]*(fail|error))';tls_error='(?im)((TLS|SSL)[^\r\n]*(fail|error)|error loading[^\r\n]*cert)'}
+    foreach($key in $patterns.Keys){$result.log_categories[$key]=[bool]($text -match $patterns[$key])}
+   }
+  }
+ }catch{}
+ if($result.service_observed -and $result.service_state -eq 'Running'){
+  $result.native_queries.attempted=$true;$client=$null;$stream=$null
+  try{
+   $installation=Get-Content -LiteralPath (Join-Path $state 'installation.json') -Raw|ConvertFrom-Json
+   if($installation.SwitchPassword -isnot [string] -or $installation.SwitchPassword -notmatch '^[a-zA-Z0-9_-]{16,128}$'){throw 'Private native credentials unavailable.'}
+   $client=[Net.Sockets.TcpClient]::new();if(!$client.ConnectAsync('127.0.0.1',8021).Wait(5000)){throw 'Native observer connect timeout.'}
+   $stream=$client.GetStream();$stream.ReadTimeout=5000;$stream.WriteTimeout=5000
+   function ReadNativeStartupFrame {
+    $header=@{};$line='';$total=0
+    while($true){$byte=$stream.ReadByte();if($byte -lt 0 -or ++$total -gt 16384){throw 'Native observer framing failed.'};if($byte -eq 10){$line=$line.TrimEnd("`r");if(!$line){break};$split=$line.IndexOf(':');if($split -gt 0){$header[$line.Substring(0,$split).ToLowerInvariant()]=$line.Substring($split+1).Trim()};$line=''}else{$line+=[char]$byte}}
+    $length=0;if($header.ContainsKey('content-length') -and ![int]::TryParse($header['content-length'],[ref]$length)){throw 'Native observer length failed.'}
+    if($length -lt 0 -or $length -gt 65536){throw 'Native observer response too large.'}
+    $body=New-Object byte[] $length;$read=0;while($read -lt $length){$n=$stream.Read($body,$read,$length-$read);if(!$n){throw 'Native observer response ended.'};$read+=$n}
+    return @{header=$header;body=[Text.Encoding]::UTF8.GetString($body)}
+   }
+   function SendNativeStartupCommand([string]$Command){$bytes=[Text.Encoding]::ASCII.GetBytes($Command+"`n`n");$stream.Write($bytes,0,$bytes.Length);return ReadNativeStartupFrame}
+   $greeting=ReadNativeStartupFrame;if($greeting.header['content-type'] -ne 'auth/request'){throw 'Native observer greeting failed.'}
+   $auth=SendNativeStartupCommand ('auth '+$installation.SwitchPassword)
+   if($auth.header['reply-text'] -ne '+OK accepted'){throw 'Native observer authentication failed.'}
+   $result.native_queries.authenticated=$true
+   foreach($module in @{sofia='mod_sofia';lua='mod_lua';pgsql='mod_pgsql'}.GetEnumerator()){$reply=SendNativeStartupCommand ('api module_exists '+$module.Value);$result.native_queries[$module.Key+'_loaded']=$reply.body.Trim() -eq 'true'}
+   $reply=SendNativeStartupCommand 'api fsctl pause_check';$result.native_queries.pause_state_known=$reply.body.Trim() -in 'true','false'
+   $reply=SendNativeStartupCommand 'api show channels as json';$channels=$reply.body|ConvertFrom-Json
+   if($channels.row_count -is [int] -or $channels.row_count -is [long]){$result.native_queries.channels_known=$true;$result.native_queries.channels_count=[long]$channels.row_count}
+   $reply=SendNativeStartupCommand 'api sofia status profile internal';$result.native_queries.internal_profile_available=[bool]($reply.body -match '(?m)^SIP-IP\s+[^\s]+\s*$')
+  }catch{}finally{if($stream){$stream.Dispose()};if($client){$client.Dispose()}}
+ }
+ return $result
+}
 function Api([string]$Endpoint){
  if(!$env:GH_TOKEN){throw 'The repository-scoped artifact token is unavailable.'}
  Invoke-RestMethod -Uri ('https://api.github.com/repos/embire2/openwebpbx/'+$Endpoint) -Headers @{Authorization=('Bearer '+$env:GH_TOKEN);Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
@@ -240,10 +318,15 @@ try{
  $start=[Diagnostics.ProcessStartInfo]::new();$start.FileName=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe';$start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
  $start.Environment['PSModulePath']=(Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell/Modules')
  foreach($arg in '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$launcher,'-InputPath',$installInput){$start.ArgumentList.Add($arg)}
+ $startupStartTime=[DateTime]::UtcNow
  $process=[Diagnostics.Process]::Start($start);$stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
  if(!$process.WaitForExit(2400000)){throw 'The real installation is still running; its private state must not be interrupted.'}
  [IO.File]::WriteAllText((Join-Path $work 'install-private.out'),$stdout.GetAwaiter().GetResult());[IO.File]::WriteAllText((Join-Path $work 'install-private.err'),$stderr.GetAwaiter().GetResult());$exit=$process.ExitCode;$process.Dispose();Remove-Item -LiteralPath $installInput -Force
- if($exit){if(Test-Path (Join-Path $work 'install-failure.json')){$facts.helper_failure=SafeFailureFields (Get-Content (Join-Path $work 'install-failure.json') -Raw|ConvertFrom-Json)};throw 'The real candidate installation failed.'}
+ if($exit){
+  if(Test-Path (Join-Path $work 'install-failure.json')){$facts.helper_failure=SafeFailureFields (Get-Content (Join-Path $work 'install-failure.json') -Raw|ConvertFrom-Json)}
+  try{$facts.native_startup_failure=NativeStartupFailure -StartedAt $startupStartTime -PrivateDirectory $work}catch{$facts.native_startup_failure=@{schema=1;observer_failed=$true}}
+  throw 'The real candidate installation failed.'
+ }
  $completed=Get-Content "$state\installation.json" -Raw|ConvertFrom-Json
  if(!$completed.Completed -or !$completed.RestoreServer -or $completed.AdminEmail -ne $admin){throw 'The candidate factory identity or completed state is invalid.'}
  foreach($service in 'OpenWebPBX-Database','OpenWebPBX','OpenWebPBXUpdater','FreeSWITCH'){if((Get-Service $service).Status -ne 'Running'){throw 'A candidate native service is not running.'}}
