@@ -5,14 +5,14 @@ param(
  [Parameter(Mandatory)][string]$Request
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
-$root='C:\OpenWebPBX';$private=Join-Path $env:ProgramData 'OpenWebPBX';$config=Join-Path $env:ProgramData 'fusionpbx';$switch='C:\Program Files\FreeSWITCH'
+$root='C:\OpenWebPBX';$private=Join-Path $env:ProgramData 'OpenWebPBX';$config=Join-Path $env:ProgramData 'fusionpbx';$backupEngineRoot='C:\Program Files\FreeSWITCH'
 $control=Join-Path $private 'backup-control';$restore=Join-Path $private 'backup-restore'
 $services=@{calls='FreeSWITCH';jobs='OpenWebPBX';updates='OpenWebPBXUpdater'}
 $certificateTasks=@('OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate')
 $additionalTasks=@('OpenWebPBX Outgoing Mail')
 function OrdinaryPath([string]$Path,[switch]$ControlOnly){
  $full=[IO.Path]::GetFullPath($Path)
- $allowed=if($ControlOnly){@($control)}else{@($private,$config,(Join-Path $switch 'conf'),(Join-Path $switch 'sounds\openwebpbx'))}
+ $allowed=if($ControlOnly){@($control)}else{@($private,$config,(Join-Path $backupEngineRoot 'conf'),(Join-Path $backupEngineRoot 'sounds\openwebpbx'))}
  $valid=$false
  foreach($base in $allowed){$prefix=[IO.Path]::GetFullPath($base).TrimEnd('\');if($full.Equals($prefix,[StringComparison]::OrdinalIgnoreCase) -or $full.StartsWith($prefix+'\',[StringComparison]::OrdinalIgnoreCase)){$valid=$true;break}}
  if(!$valid){throw 'A backup path is outside the owned private locations.'}

@@ -56,10 +56,21 @@ function SafeFailureFields($Record){
  if($Record.active_case -eq 'normal_admin_owned_extension_audio_preferences'){
   foreach($field in 'owned_domain_matches','authentication_id_matches','sip_password_matches'){if($Record.$field -is [bool]){$safe[$field]=[bool]$Record.$field}}
  }
+ $nativeStages=@('native_case','g729_regular_unregister','g729_alternate_register','g729_invite','g729_answer_validation','g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister','g729_peer_close','g729_codec_close','g729_regular_reregister','native_peer_unregister','native_peer_close','native_ledger_write')
+ foreach($prefix in 'primary','cleanup'){
+  if($Record.($prefix+'_substage') -notin $nativeStages){continue}
+  $safe[$prefix+'_substage']=$Record.($prefix+'_substage')
+  $type=$Record.($prefix+'_error_type');if($type -is [string] -and $type -match '^[A-Za-z0-9_]{1,80}$'){$safe[$prefix+'_error_type']=$type}
+  foreach($where in 'source','caller'){
+   $name=$Record.($prefix+'_'+$where+'_basename');$line=$Record.($prefix+'_'+$where+'_line')
+   if($name -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','external_component' -and ($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$safe[$prefix+'_'+$where+'_basename']=$name;$safe[$prefix+'_'+$where+'_line']=[int]$line}
+  }
+ }
+ if(($Record.cleanup_failure_count -is [int] -or $Record.cleanup_failure_count -is [long]) -and $Record.cleanup_failure_count -ge 1 -and $Record.cleanup_failure_count -le 32){$safe.cleanup_failure_count=[int]$Record.cleanup_failure_count}
  return $safe
 }
 function NativeStartupFailure([DateTime]$StartedAt,[string]$PrivateDirectory){
- # This observer runs only in the caller's disposable fresh-install failure
+ # This observer runs only in the caller's disposable fresh/native failure
  # window. It never starts/stops services, pauses calls, or changes profiles.
  if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){throw 'Disposable hosted startup diagnostics required.'}
  $result=[ordered]@{schema=1;observed_at=[DateTime]::UtcNow.ToString('o');service_observed=$false;event_query_succeeded=$false;events=@();log_observed=$false;log_categories=[ordered]@{sofia_load_error=$false;lua_error=$false;database_error=$false;xml_error=$false;sip_profile_error=$false;tls_error=$false};native_queries=[ordered]@{attempted=$false;authenticated=$false;sofia_loaded=$false;lua_loaded=$false;pgsql_loaded=$false;pause_state_known=$false;channels_known=$false;internal_profile_available=$false}}
@@ -350,7 +361,7 @@ try{
  try{$plain=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)}finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
  $acceptance=@{schema=1;run_id=$env:GITHUB_RUN_ID;restore_server=$true;admin_email=$admin;admin_password=$plain;public_url=('https://'+$domain+':8443');package_root=$PackageRoot;source_root=$source;private_state_root=$state;python='C:/OpenWebPBX/backup-runtime/python.exe';evidence_directory=(Join-Path $work 'native-private-evidence')}
  [IO.File]::WriteAllText($acceptanceFile,($acceptance|ConvertTo-Json),[Text.UTF8Encoding]::new($false));$plain=$null;$acceptance=$null
- $phase='native acceptance hook';$native=AcceptanceHook 'windows-native-acceptance.ps1' (Join-Path $work 'native-acceptance.json')
+ $phase='native acceptance hook';$nativeStartTime=[DateTime]::UtcNow;$native=AcceptanceHook 'windows-native-acceptance.ps1' (Join-Path $work 'native-acceptance.json')
  if($native){$facts.gates.native_sip_audio='passed'}
  $phase='independent trusted recovery fixture';$recoveryPki=Start-SuiteRecoveryPki -PackageRoot $PackageRoot -SourceRoot $source -Work $work
  $phase='upgrade acceptance hook';$upgrade=AcceptanceHook 'windows-upgrade-acceptance.ps1' (Join-Path $work 'upgrade-acceptance.json')
@@ -365,6 +376,9 @@ try{
  $facts.state=if($missing.Count){'partial'}else{'passed'};$facts.unqualified=$missing
 }catch{
  $facts.state='failed';$facts.failed_phase=$phase
+ if($phase -eq 'native acceptance hook' -and $nativeStartTime){
+  try{$facts.native_runtime_failure=NativeStartupFailure -StartedAt $nativeStartTime -PrivateDirectory $work}catch{$facts.native_runtime_failure=@{schema=1;observer_failed=$true}}
+ }
  $facts.error_type=$_.Exception.GetType().FullName
  $facts.source_basename=if($_.InvocationInfo.ScriptName){Split-Path -Leaf $_.InvocationInfo.ScriptName}else{'windows-suite.ps1'}
  $facts.source_line=[int]$_.InvocationInfo.ScriptLineNumber

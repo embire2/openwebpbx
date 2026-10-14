@@ -16,6 +16,42 @@ WINPS=str(Path(os.environ.get('SystemRoot','C:/Windows'))/'System32/WindowsPower
 FIXTURE_PHP_SOURCES={'windows-native-fixture.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component'}
 FIXTURE_ACTIONS={'baseline','discover','cleanup','status','job','due','voicemail-login','api','mail-seed'}
 FIXTURE_STAGES={'initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh'}
+NATIVE_SUBSTAGES={'native_case','g729_regular_unregister','g729_alternate_register','g729_invite','g729_answer_validation',
+    'g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister',
+    'g729_peer_close','g729_codec_close','g729_regular_reregister','native_peer_unregister','native_peer_close','native_ledger_write'}
+
+
+def native_exception_fields(error,stage,prefix='primary'):
+    import traceback
+    frames=traceback.extract_tb(error.__traceback__)
+    if not frames or stage not in NATIVE_SUBSTAGES:return {}
+    allowed={'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py'}
+    location=frames[-1]
+    caller=next((frame for frame in reversed(frames) if Path(frame.filename).name=='windows-native-acceptance.py'),None)
+    fields={prefix+'_error_type':type(error).__name__,prefix+'_substage':stage,
+        prefix+'_source_basename':Path(location.filename).name if Path(location.filename).name in allowed else 'external_component',
+        prefix+'_source_line':location.lineno}
+    if caller:fields.update({prefix+'_caller_basename':'windows-native-acceptance.py',prefix+'_caller_line':caller.lineno})
+    return fields
+
+
+def native_cleanup(primary,stage,steps):
+    """Run every owned cleanup without replacing the original native failure."""
+    failures=[]
+    for substage,operation in steps:
+        try:operation()
+        except BaseException as error:failures.append((substage,error))
+    if primary is not None:
+        facts=getattr(primary,'native_failure',None) or native_exception_fields(primary,stage)
+        if failures:
+            if 'cleanup_error_type' not in facts:facts.update(native_exception_fields(failures[0][1],failures[0][0],'cleanup'))
+            facts['cleanup_failure_count']=facts.get('cleanup_failure_count',0)+len(failures)
+        primary.native_failure=facts
+    elif failures:
+        failed_stage,error=failures[0]
+        error.native_failure=native_exception_fields(error,failed_stage)
+        error.native_failure['cleanup_failure_count']=len(failures)
+        raise error
 
 
 def fixture_failure(record,action):
@@ -480,7 +516,7 @@ def native_calls(f):
     original.Path=lambda value: f.evidence/'last-invite-response.txt' if str(value)=='/var/lib/openwebpbx/restore-phone112/last-invite-response.txt' else Path(value)
     class Phone(original.SourcePhone):
         def __init__(self,u,transport='udp'):
-            self.transport=transport;self.registration_packets=[];super().__init__(u,realm,bind)
+            self.transport=transport;self.registration_packets=[];self.receiver_failure=None;super().__init__(u,realm,bind)
             if transport!='udp':
                 self.stopped=True;self.thread.join(2);self.socket.close()
                 self.socket=SIPStream(bind,(bind,5061 if transport=='tls' else 5060),ca if transport=='tls' else None,'windowsqa.example.invalid')
@@ -494,6 +530,17 @@ def native_calls(f):
             return result
         def response(self,*a,**kw):
             return super().response(*a,**kw).replace(f'@{self.ip}:{self.port}>'.encode(),f'@{self.ip}:{self.port};transport={self.transport}>'.encode())
+        def run(self):
+            try:self.run_media()
+            except BaseException as error:self.receiver_failure=error
+        def run_media(self):super().run()
+        def check_receiver(self):
+            if self.receiver_failure is not None:raise self.receiver_failure
+        def exchange(self,*args,**kwargs):
+            self.check_receiver()
+            try:return super().exchange(*args,**kwargs)
+            except BaseException:
+                self.check_receiver();raise
     class G729Phone(Phone):
         def __init__(self,u,codec):self.codec=codec;self.invite_packets=[];super().__init__(u,'tls')
         def packet(self,*args,**kwargs):
@@ -506,13 +553,16 @@ def native_calls(f):
             state=super().media(18);state['codec_contexts']=self.codec.contexts();return state
         def sdp(self,state,offer=False):
             return (f'v=0\r\no=fixture 1 1 IN IP4 {self.ip}\r\ns=Independent G729 peer\r\nc=IN IP4 {self.ip}\r\nt=0 0\r\n'
-                    f'm=audio {state["socket"].getsockname()[1]} RTP/AVP 18 101\r\na=rtpmap:18 G729/8000\r\na=fmtp:18 annexb=no\r\na=rtpmap:101 telephone-event/8000\r\na=sendrecv\r\n')
-        def run(self):
+                    f'm=audio {state["socket"].getsockname()[1]} RTP/AVP 18 101\r\na=rtpmap:18 G729/8000\r\na=fmtp:18 annexb=no\r\na=ptime:20\r\na=maxptime:20\r\na=rtpmap:101 telephone-event/8000\r\na=sendrecv\r\n')
+        def run_media(self):
             last=0
             while not self.stopped:
                 try:
                     data,peer=self.socket.recvfrom(65535);text=data.decode(errors='replace');h=sip.headers(text);cid=h.get('call-id','')
                     if text.startswith('SIP/2.0 '):
+                        trace=f.evidence/'g729-sip-responses.private.bin'
+                        if not trace.exists() or trace.stat().st_size+len(data)<=262144:
+                            with trace.open('ab') as output:output.write(data+b'\n\n')
                         if cid in self.queues:self.queues[cid].put((text,peer))
                     elif text.startswith('INVITE '):
                         state=self.dialogs.get(cid) or self.media();state['target']=self.target(text);state['incoming']={'headers':h,'peer':peer};self.dialogs[cid]=state
@@ -544,7 +594,11 @@ def native_calls(f):
                             if packet[0]&16:size+=4+struct.unpack('!H',packet[size+2:size+4])[0]*4
                             payload=packet[size:]
                             if packet[0]&32:payload=payload[:-payload[-1]]
-                            state['decoded_pcm'].extend(self.codec.decode(state['codec_contexts'][1],payload));del state['decoded_pcm'][:-480000]
+                            try:decoded=self.codec.decode(state['codec_contexts'][1],payload)
+                            except BaseException:
+                                (f.evidence/'g729-last-rtp.private.bin').write_bytes(packet);raise
+                            if state['received']==0:(f.evidence/'g729-first-rtp.private.bin').write_bytes(packet)
+                            state['decoded_pcm'].extend(decoded);del state['decoded_pcm'][:-480000]
                             state['received']+=1;state['received_first_at']=state['received_first_at'] or now;state['received_last_at']=now
                         except BlockingIOError:break
         def close(self):
@@ -579,22 +633,27 @@ def native_calls(f):
         try:
             # The guided account permits one contact. Replace the regular
             # caller explicitly for this alternate-codec call, then restore it.
-            assert caller.register((bind,5061),expires=0)['code']==200
-            assert g729.register((bind,5061))['code']==200
-            old=set(a.dialogs);call=g729.dial('8101',(bind,5061))
+            f.native_substage='g729_regular_unregister';assert caller.register((bind,5061),expires=0)['code']==200
+            f.native_substage='g729_alternate_register';assert g729.register((bind,5061))['code']==200
+            f.native_substage='g729_invite';old=set(a.dialogs);call=g729.dial('8101',(bind,5061))
+            f.native_substage='g729_answer_validation'
             assert len(call.get('text',''))<=1048576,'Owned G729 response exceeded its bound'
             (f.evidence/'g729-invite-response.private.txt').write_text(call.get('text',''))
             failure=g729_negotiation_failure(call)
             if failure:f.active_case=failure.active_case;raise failure
-            remote=f.wait(lambda:next((v for k,v in a.dialogs.items() if k not in old and v.get('acked')),None));assert remote['pt']==0,'Opposite leg did not stay PCMU'
-            time.sleep(7);sip.rtp_rate_check(call['media']);sip.rtp_rate_check(remote)
+            f.native_substage='g729_remote_answer';remote=f.wait(lambda:next((v for k,v in a.dialogs.items() if k not in old and v.get('acked')),None));assert remote['pt']==0,'Opposite leg did not stay PCMU'
+            f.native_substage='g729_media';time.sleep(7)
+            if g729.receiver_failure is not None:f.native_substage='g729_peer_receiver';g729.check_receiver()
+            sip.rtp_rate_check(call['media']);sip.rtp_rate_check(remote)
             up=original.decoded_tone_check(remote,g729.tone_hz);down=original.decoded_tone_check(call['media'],a.tone_hz)
-            g729.hangup(call);f.record('native_g729_pcmu_independent_codec_two_way_transcoding',g729_payload_type=18,opposite_payload_type=0,g729_decoded_ratio=down,pcmu_decoded_ratio=up,seconds=7)
+            f.native_substage='g729_hangup';g729.hangup(call);f.record('native_g729_pcmu_independent_codec_two_way_transcoding',g729_payload_type=18,opposite_payload_type=0,g729_decoded_ratio=down,pcmu_decoded_ratio=up,seconds=7)
         finally:
             ledger+=g729.registration_call_ids
-            try:assert g729.register((bind,5061),expires=0)['code']==200
-            finally:g729.close();codec.search.close()
-            assert caller.register((bind,5061))['code']==200
+            def alternate_unregister():assert g729.register((bind,5061),expires=0)['code']==200
+            def regular_reregister():assert caller.register((bind,5061))['code']==200
+            native_cleanup(sys.exc_info()[1],getattr(f,'native_substage','g729_media'),[
+                ('g729_alternate_unregister',alternate_unregister),('g729_peer_close',g729.close),
+                ('g729_codec_close',codec.search.close),('g729_regular_reregister',regular_reregister)])
         f.record('native_simultaneous_ring_group',**call_check('8180'))
         f.record('native_hunting_ring_group',**call_check('8181'))
         f.record('native_queue_agent_first',**call_check('8190'))
@@ -680,11 +739,13 @@ def native_calls(f):
             f.record('native_tls_mailbox_wire_forwarding_exact_binary_wav',wire_digits='RFC2833',source_and_forwarded_sha256=hashlib.sha256(file.read_bytes()).hexdigest(),drive_letter_path_verified=bool(re.match(r'^[A-Za-z]:[/\\]',str(file))),path_spaces_observed=' ' in str(file),bytes=forwarded_file.stat().st_size)
         finally:playback.close()
     finally:
+        steps=[]
         for p in peers:
             ledger+=p.registration_call_ids
-            try:p.register((bind,5061 if p.transport=='tls' else 5060),expires=0)
-            finally:p.close()
-        (f.evidence/'registration-ledger.json').write_text(json.dumps({'registration_ids':sorted(set(ledger))},indent=2))
+            steps.extend([('native_peer_unregister',lambda p=p:p.register((bind,5061 if p.transport=='tls' else 5060),expires=0)),('native_peer_close',p.close)])
+        steps.append(('native_ledger_write',lambda:(f.evidence/'registration-ledger.json').write_text(json.dumps({'registration_ids':sorted(set(ledger))},indent=2))))
+        stage=getattr(f,'native_substage','g729_media') if f.active_case.startswith('independent_g729_') else 'native_case'
+        native_cleanup(sys.exc_info()[1],stage,steps)
 
 
 def smtp_and_queued_voicemail(f):
@@ -753,6 +814,7 @@ def main():
         if getattr(e,'fixture_failure',None):failure.update(e.fixture_failure)
         if getattr(e,'sip_failure',None):failure.update(e.sip_failure)
         if getattr(e,'audio_failure',None):failure.update(e.audio_failure)
+        if getattr(e,'native_failure',None):failure.update(e.native_failure)
         (f.evidence/'software-native-report.json').write_text(json.dumps(failure,indent=2))
         raise
 
