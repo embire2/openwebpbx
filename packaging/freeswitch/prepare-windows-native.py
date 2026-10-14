@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -47,14 +48,19 @@ def export(repo, revision, destination):
 
 
 def patch_tree(tree, patch):
-    command = shutil.which('patch')
-    if command is None and os.name == 'nt':
+    command = None
+    if os.name == 'nt':
         candidate = Path(os.environ.get('ProgramFiles', 'C:/Program Files')) / 'Git/usr/bin/patch.exe'
         if candidate.is_file():
             command = str(candidate)
+    command = command or shutil.which('patch')
     if command is None:
         raise ValueError('GNU patch from Git for Windows is required.')
-    subprocess.run([command, '--batch', '--forward', '--ignore-whitespace', '-p1', '-i', str(patch.resolve())], check=True, cwd=tree)
+    version = subprocess.check_output([command, '--version'], text=True)
+    match = re.search(r'patch\s+(\d+)\.(\d+)', version)
+    if match is None or tuple(map(int, match.groups())) < (2, 7):
+        raise ValueError('GNU patch 2.7 or newer is required; legacy Strawberry patch is unsupported.')
+    subprocess.run([command, '--batch', '--forward', '--binary', '--ignore-whitespace', '-p1', '-i', str(patch.resolve())], check=True, cwd=tree)
 
 
 def prepare(fs_repo, sofia_repo, codec_repo, archives, output):
