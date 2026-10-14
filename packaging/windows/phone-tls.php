@@ -10,7 +10,14 @@ $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $names = ['tls','tls-only','tls-sip-port','tls-cert-dir','tls-version','tls-bind-params','inbound-reg-force-matching-username','ext-sip-ip','ext-rtp-ip'];
 $profile = $db->query("select sip_profile_uuid from v_sip_profiles where sip_profile_name='internal'")->fetchColumn();
 if (!$profile) { throw new RuntimeException('Native phone profile missing.'); }
-$query = static function (string $sql, array $values = []) use ($db): PDOStatement { $statement=$db->prepare($sql);$statement->execute($values);return $statement; };
+$query = static function (string $sql, array $values = []) use ($db): PDOStatement {
+    $statement=$db->prepare($sql);
+    foreach($values as $index=>$value){
+        $type=match(true){is_bool($value)=>PDO::PARAM_BOOL,$value===null=>PDO::PARAM_NULL,is_int($value)=>PDO::PARAM_INT,default=>PDO::PARAM_STR};
+        $statement->bindValue($index+1,$value,$type);
+    }
+    $statement->execute();return $statement;
+};
 $configuration = $input['configuration'];
 $setReady = static function (bool $ready) use ($configuration): void {
     $text=file_get_contents($configuration);

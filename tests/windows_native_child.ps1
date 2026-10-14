@@ -10,7 +10,7 @@ if(!$definition){throw 'Exact native fixture launcher missing.'}
 Invoke-Expression $definition.Extent.Text
 $directory=Join-Path ([IO.Path]::GetTempPath()) ('native child '+[Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $directory|Out-Null
-$python=(Get-Command $Python -CommandType Application).Source
+$python=(Get-Command $Python -CommandType Application|Select-Object -First 1).Source
 $script=Join-Path $directory 'independent argument observer.py'
 $privateInput='C:\ProgramData\OpenWebPBX\native qualification\fictional\input.json'
 $process=$null
