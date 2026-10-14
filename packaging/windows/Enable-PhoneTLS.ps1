@@ -1,13 +1,23 @@
 #Requires -RunAsAdministrator
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$CertificateThumbprint,[string]$FullChainPath)
+param([Parameter(Mandatory)][string]$CertificateThumbprint,[string]$FullChainPath,[IO.FileStream]$MaintenanceLock,[switch]$PrepareRestored)
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 $private=Join-Path $env:ProgramData 'OpenWebPBX'
 $configuration=Join-Path $env:ProgramData 'fusionpbx\config.conf'
 $root='C:\OpenWebPBX'
 if(!(Test-Path $configuration)){throw 'Install the PBX before enabling secure phone connections.'}
-$setupLock=[IO.File]::Open("$private\upgrade.lock",'OpenOrCreate','ReadWrite','None')
+$setupLock=$MaintenanceLock
+if(!$setupLock){$setupLock=[IO.File]::Open("$private\upgrade.lock",'OpenOrCreate','ReadWrite','None')}
 try {
+. "$PSScriptRoot\Restore-Gates.ps1"
+. "$PSScriptRoot\Write-PrivateState.ps1"
+$restoreGate=Get-OpenWebRestoreGate -StateRoot $private
+if($restoreGate.Blocked){throw 'Complete interrupted backup recovery before configuring phone certificates.'}
+if($PrepareRestored){
+ if(!$restoreGate.Calls -or (Get-Service FreeSWITCH).Status -ne 'Stopped'){throw 'Offline certificate preparation requires restored calls to remain held and stopped.'}
+}else{
+ if($restoreGate.Calls -and (Get-Service FreeSWITCH).Status -ne 'Running'){throw 'Use -PrepareRestored to configure the replacement phone certificate while restored calls remain held.'}
+}
 $hostLine=Get-Content $configuration | Where-Object {$_ -match '^openweb\.public_host\s*='} | Select-Object -Last 1
 $phoneHost=($hostLine -split '=',2)[1].Trim()
 if(!$phoneHost -or $phoneHost -eq 'localhost' -or $phoneHost -notmatch '^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'){throw 'Set a public PBX hostname and trusted HTTPS certificate before enabling Android phones.'}
@@ -31,6 +41,8 @@ New-Item -ItemType Directory -Force $backup|Out-Null
 & icacls.exe $backup /inheritance:r /grant '*S-1-5-32-544:(OI)(CI)F' /grant '*S-1-5-18:(OI)(CI)F'|Out-Null
 if($LASTEXITCODE){throw 'Private certificate backup access could not be secured.'}
 Copy-Item $configuration "$backup\config.conf"
+$hadMetadata=Test-Path "$private\phone-tls.json"
+if($hadMetadata){Copy-Item "$private\phone-tls.json" "$backup\phone-tls.json"}
 $hadDirectory=Test-Path $directory
 if($hadDirectory){Copy-Item $directory "$backup\phone-tls" -Recurse}
 New-Item -ItemType Directory -Force $directory|Out-Null
@@ -41,21 +53,30 @@ $secretBytes=New-Object byte[] 32;$random=[Security.Cryptography.RandomNumberGen
 $secret=[Convert]::ToBase64String($secretBytes)
 function Php([string]$Stage){
  Push-Location "$root\web"
- try {& "$root\php\php.exe" "$PSScriptRoot\phone-tls.php" "$root\web" $inputFile $Stage;if($LASTEXITCODE){throw 'Secure phone setup failed.'}}finally{Pop-Location}
+ try {
+  & "$root\php\php.exe" "$PSScriptRoot\phone-tls.php" "$root\web" $inputFile $Stage
+  if($LASTEXITCODE -eq 75){$error=[InvalidOperationException]::new('Finish active calls before updating the phone certificate.');$error.Data['OpenWebPhoneTLSBusy']=$true;throw $error}
+  if($LASTEXITCODE){throw 'Secure phone setup failed.'}
+ }finally{Pop-Location}
 }
 try {
  Export-PfxCertificate -Cert $certificate -FilePath $pfx -Password (ConvertTo-SecureString $secret -AsPlainText -Force) -ChainOption BuildChain -CryptoAlgorithmOption AES256_SHA256|Out-Null
- $request=@{pfx=$pfx;password=$secret;configuration=$configuration;directory=$directory;chain=$chainPem;previous="$backup\profile.json"}
+ $request=@{hostname=$phoneHost;pfx=$pfx;password=$secret;configuration=$configuration;directory=$directory;chain=$chainPem;previous="$backup\profile.json"}
  [IO.File]::WriteAllText($inputFile,($request|ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
- Php 'idle'
- $bindAddress=([Net.IPAddress]::Parse((Get-Content "$inputFile.bind" -Raw).Trim())).ToString()
+ if(!$PrepareRestored){
+  Php 'idle'
+  $bindAddress=([Net.IPAddress]::Parse((Get-Content "$inputFile.bind" -Raw).Trim())).ToString()
+ }
  $applied=$true;Php 'apply'
+ if(!$PrepareRestored){
  Restart-Service FreeSWITCH
  $verified=$false
  for($attempt=0;$attempt -lt 20;$attempt++){
   $socket=New-Object Net.Sockets.TcpClient
   try {
-   $socket.Connect($bindAddress,5061)
+   $connecting=$socket.ConnectAsync($bindAddress,5061)
+   if(!$connecting.Wait(5000)){throw 'The secure phone listener did not respond.'}
+   $connecting.GetAwaiter().GetResult()
    $stream=New-Object Net.Security.SslStream($socket.GetStream(),$false)
    $stream.ReadTimeout=5000;$stream.WriteTimeout=5000
    # The default certificate validator checks the selected public hostname and
@@ -67,15 +88,17 @@ try {
  }
  if(!$verified){throw 'The phone certificate or TLS listener could not be verified for the public PBX hostname.'}
  Php 'ready'
- @{CertificateThumbprint=$CertificateThumbprint;Hostname=$phoneHost;Port=5061}|ConvertTo-Json|Set-Content "$private\phone-tls.json" -Encoding UTF8
- Write-Host "Secure phones are ready for ${phoneHost}:5061. Allow TCP 5061 and the configured audio ports only where required."
+ }
+ Write-OpenWebPrivateState -Path "$private\phone-tls.json" -Value @{PreparedRestored=[bool]$PrepareRestored;CertificateThumbprint=$CertificateThumbprint;Hostname=$phoneHost;Port=5061;ExpiresUtc=$certificate.NotAfter.ToUniversalTime().ToString('o');RestorePending=$false}
+ if($PrepareRestored){Write-Host 'Replacement phone certificate prepared. Calls remain held until explicit activation and the native TLS test pass.'}else{Write-Host "Secure phones are ready for ${phoneHost}:5061. Allow TCP 5061 and the configured audio ports only where required."}
 }catch{
  if($applied){
-  try {if(Test-Path "$backup\profile.json"){Php 'rollback'};Copy-Item "$backup\config.conf" $configuration -Force;if($hadDirectory){Copy-Item "$backup\phone-tls\*" $directory -Recurse -Force}else{Remove-Item $directory -Recurse -Force};Restart-Service FreeSWITCH}catch{Write-Warning "Phone TLS recovery needs attention. Private backup: $backup"}
+  try {if(Test-Path "$backup\profile.json"){Php 'rollback'};Copy-Item "$backup\config.conf" $configuration -Force;if($hadDirectory){Copy-Item "$backup\phone-tls\*" $directory -Recurse -Force}else{Remove-Item $directory -Recurse -Force};if($hadMetadata){Copy-Item "$backup\phone-tls.json" "$private\phone-tls.json" -Force}else{Remove-Item "$private\phone-tls.json" -Force -ErrorAction SilentlyContinue};if(!$PrepareRestored){Restart-Service FreeSWITCH}}catch{Write-Warning "Phone TLS recovery needs attention. Private backup: $backup"}
  }
  throw
 }finally{
+ if(!$PrepareRestored -and (Test-Path "$inputFile.paused")){try{Php 'resume'}catch{Write-Warning 'Review private certificate recovery before accepting new calls.'}}
  Remove-Item $inputFile,"$inputFile.bind",$pfx -Force -ErrorAction SilentlyContinue
  $secret=$null;$request=$null;$secretBytes=$null;$chain.Dispose()
 }
-}finally{$setupLock.Dispose()}
+}finally{if(!$MaintenanceLock){$setupLock.Dispose()}}

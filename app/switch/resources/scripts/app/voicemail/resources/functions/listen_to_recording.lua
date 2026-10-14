@@ -116,7 +116,7 @@
 
 							--save the recording to the file system
 								if (string.len(row["message_intro_base64"]) > 32) then
-									local file = io.open(message_intro_location, "w");
+									local file = io.open(message_intro_location, package.config:sub(1,1)==[[\]] and "wb" or "w");
 									file:write(base64.decode(row["message_intro_base64"]));
 									file:close();
 								end
@@ -129,6 +129,12 @@
 								end
 
 							--get the file type
+                                if package.config:sub(1,1)==[[\]] then
+                                    local kind=require('resources.functions.windows_audio').kind(message_location)
+                                    if not kind then error('Stored voicemail format is unsupported') end
+                                    vm_message_ext=kind
+                                    assert(os.rename(message_location,message_location..'.'..vm_message_ext))
+                                else
 								command = "file -b --mime-type "..shell_esc(message_location);
 								local handle = io.popen(command);
 								local mime_type = trim(handle:read("*a"));
@@ -142,6 +148,7 @@
 
 							--rename the file
 								os.execute('mv '..shell_esc(message_location)..' '..shell_esc(message_location..'.'..vm_message_ext));
+                                end
 						end);
 						dbh:release()
 					elseif (storage_type == "http_cache") then

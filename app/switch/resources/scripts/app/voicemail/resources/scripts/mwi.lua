@@ -103,7 +103,7 @@
 			break;
 		else
 			--slow the loop down
-			os.execute("sleep "..sleep);
+			if package.config:sub(1,1)==[[\]] then freeswitch.msleep(math.max(100,tonumber(sleep)*1000)) else os.execute("sleep "..sleep) end;
 		end
 
 	end

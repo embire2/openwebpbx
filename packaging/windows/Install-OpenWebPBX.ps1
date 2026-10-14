@@ -7,13 +7,18 @@ param(
  [string]$CertificateThumbprint='',
  [string]$AdminEmail,
  [SecureString]$AdminPassword,
- [switch]$LocalCertificate
+ [switch]$LocalCertificate,
+ [switch]$EnablePublicAccess,
+ [switch]$RestoreServer
 )
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
 $root='C:\OpenWebPBX'; $private=Join-Path $env:ProgramData 'OpenWebPBX'; $configRoot=Join-Path $env:ProgramData 'fusionpbx'
+$os=Get-CimInstance Win32_OperatingSystem
+if($os.ProductType -eq 1 -or $os.Caption -notmatch 'Windows Server 2025' -or [Environment]::OSVersion.Version.Build -lt 26100){throw 'This server release requires Windows Server2025 x64.'}
+if((Test-Path 'C:\Program Files\FreeSWITCH\FreeSwitch.dll') -and !(Test-Path "$private\installation.json")){throw 'An existing call engine is present outside this installation. Preserve it and choose an empty Windows server.'}
 if ($DomainName -notmatch '^[a-zA-Z0-9.-]+$' -or $HttpsPort -lt 1 -or $HttpsPort -gt 65535) { throw 'Enter a valid server name and HTTPS port.' }
-if (!$CertificateThumbprint -and !$LocalCertificate) { throw 'Supply -CertificateThumbprint for a trusted certificate, or -LocalCertificate for a local test installation.' }
+if (!$CertificateThumbprint -and !$LocalCertificate -and !$EnablePublicAccess) { throw 'Supply -CertificateThumbprint for a trusted certificate, or -LocalCertificate for a local test installation.' }
 if ($CertificateThumbprint) {
  $selectedCertificate=Get-Item -LiteralPath "Cert:\LocalMachine\My\$CertificateThumbprint"
  if (!$selectedCertificate.HasPrivateKey -or $selectedCertificate.NotAfter -le (Get-Date) -or $selectedCertificate.NotBefore -gt (Get-Date)) { throw 'Choose a current certificate with its private key installed on this server.' }
@@ -21,6 +26,12 @@ if ($CertificateThumbprint) {
 if (!(Test-Path "$PSScriptRoot\web\resources\require.php") -or !(Test-Path "$PSScriptRoot\server\OpenWebPbx.Server.exe")) { throw 'Extract the complete Windows release package before running the installer.' }
 & "$PSScriptRoot\Ensure-Runtime.ps1"
 if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw 'Install the required Microsoft runtime before continuing.' }
+. "$PSScriptRoot\Restore-Gates.ps1"
+Assert-OpenWebUpgradeAllowed -StateRoot $private
+if(Test-Path "$private\installation.json"){
+ $existingInstallation=Get-Content "$private\installation.json" -Raw | ConvertFrom-Json
+ if($existingInstallation.Completed){throw 'OpenWeb PBX is already installed. Use Admin or the signed upgrade installer.'}
+}
 if ((Test-Path "$configRoot\config.conf") -and !(Test-Path "$private\installation.json")) { throw 'An existing PBX configuration is present. This installer will not overwrite it.' }
 function Run([string]$Exe,[string[]]$Arguments) {
  $prior=$ErrorActionPreference
@@ -35,12 +46,16 @@ function Download([string]$Url,[string]$Path,[string]$Hash) {
 }
 function WriteUtf8([string]$Path,[string]$Text) { [IO.File]::WriteAllText($Path,$Text,(New-Object Text.UTF8Encoding($false))) }
 New-Item -ItemType Directory -Force $root,$private,$configRoot,"$root\packages" | Out-Null
+icacls $root /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
+if($LASTEXITCODE){throw 'The installed program folder could not be protected.'}
 icacls $private /inheritance:r /grant '*S-1-5-32-544:(OI)(CI)F' /grant '*S-1-5-18:(OI)(CI)F' | Out-Null
 $setupIdentity=[Security.Principal.WindowsIdentity]::GetCurrent().Name
 # initdb deliberately drops its elevated administrator token. Grant the named
 # installing account access to its private bootstrap files as well.
 icacls $private /grant "${setupIdentity}:(OI)(CI)F" | Out-Null
 icacls $configRoot /inheritance:r /grant '*S-1-5-32-544:(OI)(CI)F' /grant '*S-1-5-18:(OI)(CI)F' | Out-Null
+$installationLock=[IO.File]::Open("$private\upgrade.lock",'OpenOrCreate','ReadWrite','None')
+try {
 if (Test-Path "$private\installation.json") {
  $priorState=Get-Content "$private\installation.json" -Raw|ConvertFrom-Json
  if($priorState.Completed){throw 'OpenWeb PBX is already installed. Use Admin to manage this server.'}
@@ -52,9 +67,9 @@ if (!(Test-Path "$private\installation.json")) {
  try {$plain=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)} finally {[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
  if ($AdminEmail -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$' -or $plain.Length -lt 8) { throw 'Use a valid email and a password of at least eight characters.' }
  WriteUtf8 "$private\setup-secrets.json" (@{AdminEmail=$AdminEmail;AdminPassword=$plain}|ConvertTo-Json);$plain=$null
- $state=@{Version=(Get-Content "$PSScriptRoot\VERSION" -Raw).Trim();DomainName=$DomainName;PublicAddress=$PublicAddress;HttpsPort=$HttpsPort;DatabasePassword=(Secret);PostgresPassword=(Secret);SwitchPassword=(Secret)}
+ $state=@{Version=(Get-Content "$PSScriptRoot\VERSION" -Raw).Trim();DomainName=$DomainName;AdminEmail=$AdminEmail;RestoreServer=[bool]$RestoreServer;PublicAddress=$PublicAddress;HttpsPort=$HttpsPort;DatabasePassword=(Secret);PostgresPassword=(Secret);SwitchPassword=(Secret)}
  WriteUtf8 "$private\installation.json" ($state|ConvertTo-Json)
-} else { $state=Get-Content "$private\installation.json" -Raw | ConvertFrom-Json; $DomainName=$state.DomainName;$HttpsPort=$state.HttpsPort;$PublicAddress=$state.PublicAddress }
+} else { $state=Get-Content "$private\installation.json" -Raw | ConvertFrom-Json; $DomainName=$state.DomainName;$HttpsPort=$state.HttpsPort;$PublicAddress=$state.PublicAddress;if($state.AdminEmail){$AdminEmail=$state.AdminEmail};$RestoreServer=[bool]$state.RestoreServer }
 Write-Host 'Installing the Windows web server and PBX components...'
 $feature=Install-WindowsFeature Web-Server,Web-CGI,Web-Mgmt-Tools
 if (!$feature.Success -or $feature.RestartNeeded -eq 'Yes') { throw 'Windows needs a restart to finish installing its web server. Restart and run this installer again.' }
@@ -69,10 +84,12 @@ if (!(Test-Path "$switch\FreeSwitchConsole.exe")) {
  if ($p.ExitCode -notin 0,3010) {throw 'The call engine installer did not complete.'}
 }
 foreach($service in 'OpenWebPBX','FreeSWITCH'){Stop-Service $service -ErrorAction SilentlyContinue}
+Set-Service FreeSWITCH -StartupType Manual
+if(Get-Service OpenWebPBX -ErrorAction SilentlyContinue){Set-Service OpenWebPBX -StartupType Manual}
 Import-Module WebAdministration
 if(Test-Path IIS:\Sites\OpenWebPBX){Stop-Website OpenWebPBX}
 New-Item -ItemType Directory -Force "$root\web","$root\server","$root\desktop","$private\cache","$private\sessions","$private\uploads","$private\temp","$private\storage","$private\logs" | Out-Null
-foreach($component in 'web','server','desktop'){
+foreach($component in 'web','server','desktop','acme'){
  if(Test-Path "$PSScriptRoot\$component"){
   & robocopy.exe "$PSScriptRoot\$component" "$root\$component" /E /COPY:DAT /DCOPY:T /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
   if($LASTEXITCODE -ge 8){throw "Could not copy $component files."}
@@ -186,15 +203,6 @@ openweb.public_ip = $PublicAddress
 WriteUtf8 "$configRoot\config.conf" $config
 if(!(Test-Path "$configRoot\openweb-template.key")){$key=New-Object byte[] 32;$rng=[Security.Cryptography.RandomNumberGenerator]::Create();$rng.GetBytes($key);$rng.Dispose();[IO.File]::WriteAllBytes("$configRoot\openweb-template.key",$key)}
 New-Item -ItemType Directory -Force "$switch\scripts","$switch\conf\languages" | Out-Null
-$env:OPENWEB_SETUP_SECRETS="$private\setup-secrets.json"
-Push-Location "$root\web"
-try {
- Run "$root\php\php.exe" @('core\upgrade\upgrade_schema.php')
- Run "$root\php\php.exe" @("$PSScriptRoot\bootstrap.php","$root\web",'domain')
- foreach($step in '--defaults','--group','--menu'){Run "$root\php\php.exe" @('core\upgrade\upgrade.php',$step)}
- Run "$root\php\php.exe" @("$PSScriptRoot\bootstrap.php","$root\web",'migrate')
- if(Test-Path $env:OPENWEB_SETUP_SECRETS){Run "$root\php\php.exe" @("$PSScriptRoot\bootstrap.php","$root\web",'admin')}
-}finally{Pop-Location;Remove-Item Env:\OPENWEB_SETUP_SECRETS}
 # Use the shipped PBX configuration, not the call engine's demonstration users.
 if(!(Test-Path "$private\original-switch-conf")){Copy-Item "$switch\conf" "$private\original-switch-conf" -Recurse -Force}
 Remove-Item "$switch\conf\directory\default\*.xml" -ErrorAction SilentlyContinue
@@ -207,13 +215,31 @@ Copy-Item "$root\web\app\pbx_setup\resources\prompts\openweb.xml" "$switch\conf\
 [xml]$modules=Get-Content "$switch\conf\autoload_configs\modules.conf.xml"
 if(!$modules.configuration.modules.load.Where({$_.module -eq 'mod_pgsql'})){$pg=$modules.CreateElement('load');$pg.SetAttribute('module','mod_pgsql');$modules.configuration.modules.PrependChild($pg)|Out-Null;$modules.Save("$switch\conf\autoload_configs\modules.conf.xml")}
 WriteUtf8 "$switch\conf\autoload_configs\event_socket.conf.xml" ('<configuration name="event_socket.conf"><settings><param name="listen-ip" value="127.0.0.1"/><param name="listen-port" value="8021"/><param name="password" value="'+$state.SwitchPassword+'"/></settings></configuration>')
+
+& "$PSScriptRoot\Install-NativeEngine.ps1" -PackageRoot $PSScriptRoot
+& "$PSScriptRoot\Install-LocalCodec.ps1" -PackageRoot $PSScriptRoot
+$env:OPENWEB_SETUP_SECRETS="$private\setup-secrets.json"
+$env:OPENWEB_RESTORE_SERVER=if($RestoreServer){'true'}else{'false'}
+Push-Location "$root\web"
+try {
+ Run "$root\php\php.exe" @('core\upgrade\upgrade_schema.php')
+ Run "$root\php\php.exe" @("$PSScriptRoot\bootstrap.php","$root\web",'domain')
+ foreach($step in '--defaults','--group','--menu'){Run "$root\php\php.exe" @('core\upgrade\upgrade.php',$step)}
+ Run "$root\php\php.exe" @("$PSScriptRoot\bootstrap.php","$root\web",'migrate')
+ if(Test-Path $env:OPENWEB_SETUP_SECRETS){Run "$root\php\php.exe" @("$PSScriptRoot\bootstrap.php","$root\web",'admin')}
+}finally{Pop-Location;Remove-Item Env:\OPENWEB_SETUP_SECRETS;Remove-Item Env:\OPENWEB_RESTORE_SERVER}
+Run "$root\php\php.exe" @("$PSScriptRoot\configure-codec.php","$root\web")
+Run "$root\php\php.exe" @("$PSScriptRoot\configure-music.php","$PSScriptRoot\music","$root\web")
+Push-Location "$root\web"
+try {Run "$root\php\php.exe" @('-r','require "resources/require.php"; save_var_xml();')}finally{Pop-Location}
 $runtime=@{ConnectionStrings=@{Pbx="Host=127.0.0.1;Port=5433;Database=fusionpbx;Username=fusionpbx;Password=$($state.DatabasePassword)"};Switch=@{Host='127.0.0.1';Port=8021;Password=$state.SwitchPassword}}
 WriteUtf8 "$private\runtime.json" ($runtime|ConvertTo-Json -Depth 4)
 if(!(Test-Path IIS:\AppPools\OpenWebPBX)){New-WebAppPool OpenWebPBX|Out-Null}
 Set-ItemProperty IIS:\AppPools\OpenWebPBX managedRuntimeVersion ''
 $fastcgi="$root\php\php-cgi.exe"
 if(!(Get-WebConfiguration 'system.webServer/fastCgi/application' | Where-Object fullPath -eq $fastcgi)){Add-WebConfiguration 'system.webServer/fastCgi' -Value @{fullPath=$fastcgi;instanceMaxRequests=10000;maxInstances=4;activityTimeout=900;requestTimeout=900}}
-if(!(Test-Path IIS:\Sites\OpenWebPBX)){New-Website -Name OpenWebPBX -PhysicalPath "$root\web" -ApplicationPool OpenWebPBX -Port $HttpsPort -Ssl | Out-Null}
+& "$PSScriptRoot\Configure-PHP.ps1" -PackageRoot $PSScriptRoot
+if(!(Test-Path IIS:\Sites\OpenWebPBX)){New-Website -Name OpenWebPBX -PhysicalPath "$root\web" -ApplicationPool OpenWebPBX -Port $HttpsPort -HostHeader $DomainName -Ssl | Out-Null}
 Add-Type -Path "$env:windir\System32\inetsrv\Microsoft.Web.Administration.dll"
 $manager=New-Object Microsoft.Web.Administration.ServerManager
 try {$section=$manager.GetApplicationHostConfiguration().GetSection('system.webServer/handlers','OpenWebPBX');$section.OverrideMode=[Microsoft.Web.Administration.OverrideMode]::Allow;$manager.CommitChanges()}
@@ -226,8 +252,11 @@ icacls $private /grant 'IIS AppPool\OpenWebPBX:RX' /grant '*S-1-5-19:RX' /grant 
 icacls "$private\runtime.json" /grant '*S-1-5-19:R' | Out-Null
 icacls $configRoot /grant 'IIS AppPool\OpenWebPBX:(OI)(CI)R' | Out-Null
 foreach($dir in 'cache','sessions','uploads','temp','storage','logs'){icacls "$private\$dir" /grant 'IIS AppPool\OpenWebPBX:(OI)(CI)M'|Out-Null}
-if(!(Get-Service OpenWebPBX -ErrorAction SilentlyContinue)){Run sc.exe @('create','OpenWebPBX','binPath=',"$root\server\OpenWebPbx.Server.exe",'start=','auto','obj=','NT AUTHORITY\LocalService','DisplayName=','OpenWeb PBX')}
+if(!(Get-Service OpenWebPBX -ErrorAction SilentlyContinue)){Run sc.exe @('create','OpenWebPBX','binPath=',"$root\server\OpenWebPbx.Server.exe",'start=','demand','obj=','NT AUTHORITY\LocalService','DisplayName=','OpenWeb PBX')}
 Run sc.exe @('failure','OpenWebPBX','reset=','86400','actions=','restart/60000/restart/60000/restart/60000')
+& "$PSScriptRoot\configure-notifications.ps1" -StateRoot $private
+& "$PSScriptRoot\Install-Backups.ps1" -PackageRoot $PSScriptRoot -DeferRestart -UpgradeLockHeld
+& "$PSScriptRoot\Install-MailQueue.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
 Start-Service FreeSWITCH
 Start-Service OpenWebPBX
 if ((Get-WebAppPoolState OpenWebPBX).Value -ne 'Started') { Start-WebAppPool OpenWebPBX }
@@ -238,8 +267,8 @@ for($attempt=0;$attempt -lt 30;$attempt++){
  if($ready){break};Start-Sleep -Seconds 2
 }
 if(!$ready){throw 'The background call service is not ready. Check the private server logs before continuing.'}
-if(!$LocalCertificate -and $DomainName -ne 'localhost') {
- try { & "$PSScriptRoot\Enable-PhoneTLS.ps1" -CertificateThumbprint $CertificateThumbprint }
+if(!$LocalCertificate -and !$EnablePublicAccess -and $DomainName -ne 'localhost') {
+ try { & "$PSScriptRoot\Enable-PhoneTLS.ps1" -CertificateThumbprint $CertificateThumbprint -MaintenanceLock $installationLock }
  catch { Write-Warning 'The PBX is installed, but secure phone setup is incomplete. Use Enable-PhoneTLS.ps1 with an exportable trusted certificate before connecting Android phones.' }
 }
 $cleanup=New-ScheduledTaskAction -Execute "$root\php\php.exe" -Argument "`"$root\web\app\pbx_setup\cleanup.php`"" -WorkingDirectory "$root\web"
@@ -251,6 +280,12 @@ if(Test-Path "$root\desktop\OpenWebPbx.Desktop.exe"){
  $shortcut=$shell.CreateShortcut("$env:ProgramData\Microsoft\Windows\Start Menu\Programs\OpenWeb PBX.lnk")
  $shortcut.TargetPath="$root\desktop\OpenWebPbx.Desktop.exe";$shortcut.WorkingDirectory="$root\desktop";$shortcut.Save()
 }
+try { & "$PSScriptRoot\Install-Updater.ps1" -PackageRoot $PSScriptRoot -DeferRestart }
+catch {
+ try { & "$PSScriptRoot\Remove-Updater.ps1" } catch { Write-Warning 'Review the private updater startup settings before rebooting.' }
+ throw 'The PBX is installed, but its update service could not be enabled. Run Install-Updater.ps1 from this release after correcting the Windows error.'
+}
+
 if ($state -is [System.Collections.IDictionary]) { $state['Completed']=$true }
 else { $state|Add-Member -NotePropertyName Completed -NotePropertyValue $true -Force }
 WriteUtf8 "$private\installation.json" ($state|ConvertTo-Json)
@@ -259,8 +294,9 @@ Write-Host "OpenWeb PBX $($state.Version) is installed at https://${DomainName}:
 Write-Host 'All tenants share this installation''s built-in database. No separate database server is required.'
 Write-Host 'Sign in to Admin, then open Main PBX. Trunks start disabled. Configure your public certificate and firewall before remote use.'
 
-try { & "$PSScriptRoot\Install-Updater.ps1" -PackageRoot $PSScriptRoot }
-catch {
- try { & "$PSScriptRoot\Remove-Updater.ps1" } catch { Write-Warning 'Review the private updater startup settings before rebooting.' }
- throw 'The PBX is installed, but its update service could not be enabled. Run Install-Updater.ps1 from this release after correcting the Windows error.'
-}
+
+} finally {$installationLock.Dispose()}
+Enable-ScheduledTask -TaskName OpenWebPBX-Backups | Out-Null
+Enable-ScheduledTask -TaskName 'OpenWebPBX Outgoing Mail' | Out-Null
+Start-Service OpenWebPBXUpdater
+if($EnablePublicAccess){& "$PSScriptRoot\Enable-PublicAccess.ps1" -DomainName $DomainName -Email $AdminEmail -PublicAddress $PublicAddress}

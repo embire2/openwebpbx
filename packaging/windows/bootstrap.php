@@ -30,7 +30,8 @@ if($stage==='migrate'){
   $s=sql('update v_default_settings set default_setting_value=?,default_setting_enabled=true where default_setting_category=? and default_setting_subcategory=? and default_setting_name=?',[$value,...$parts]);
   if(!$s->rowCount())sql('insert into v_default_settings(default_setting_uuid,default_setting_category,default_setting_subcategory,default_setting_name,default_setting_value,default_setting_enabled) values(?,?,?,?,?,true)',[uuid(),...$parts,$value]);
  }
- if(PHP_OS_FAMILY==='Linux'){pbx_music::install($db);pbx_phone_auth::configure($db);$cache=new cache;$cache->delete(gethostname().':configuration:sofia.conf');$cache->delete('configuration:sofia.conf');}
+ if(PHP_OS_FAMILY==='Linux')pbx_music::install($db);
+ pbx_phone_auth::configure($db);$cache=new cache;$cache->delete(gethostname().':configuration:sofia.conf');$cache->delete('configuration:sofia.conf');
  settings::clear_cache();
  echo "PBX schema is ready.\n";exit;
 }
@@ -50,6 +51,7 @@ if(!$user){
 }
 unset($input,$password);
 foreach(['tenant_services/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql','pbx_mobile/resources/install.sql', 'pbx_updates/resources/install.sql','pbx_backups/resources/install.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
+if(getenv('OPENWEB_RESTORE_SERVER')==='true'){settings::clear_cache();echo "Administrator ready. This replacement server is empty and ready for backup restore.\n";exit;}
 $_SESSION=['user_uuid'=>$user,'domain_uuid'=>$domain,'domain_name'=>pbx_paths::host(),'user'=>['domain_uuid'=>$domain]];
 $tenant=sql('select tenant_uuid from v_pbx_tenants where owner_user_uuid=?',[$user])->fetchColumn();
 if(!$tenant){$tenant=uuid();$home=uuid();$slug='company-'.substr(str_replace('-','',$tenant),0,12);sql('insert into v_domains(domain_uuid,domain_name,domain_description,domain_enabled) values(?,?,?,true)',[$home,$slug.'.'.pbx_paths::host(),'My company']);sql('insert into v_pbx_tenants(tenant_uuid,tenant_name,slug,home_domain_uuid,owner_user_uuid,invite_email) values(?,?,?,?,?,?)',[$tenant,'My company',$slug,$home,$user,$email]);}

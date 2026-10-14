@@ -37,6 +37,22 @@
 		exit;
 	}
 
+//Windows uses a process-held file lock; no POSIX pid directory or ps command.
+if (PHP_OS_FAMILY === 'Windows') {
+    $pid_file = '';
+    $mail_directory = pbx_paths::state().'/mail';
+    if (!is_dir($mail_directory) || is_link($mail_directory)) throw new RuntimeException('Install the private Windows mail queue before dispatching.');
+    $lock_path = $mail_directory.'/dispatch.'.$email_queue_uuid.'.lock';
+    if (is_link($lock_path)) throw new RuntimeException('Mail dispatch lock is unavailable.');
+    $windows_mail_lock = fopen($lock_path, 'c');
+    if (!$windows_mail_lock || !flock($windows_mail_lock, LOCK_EX | LOCK_NB)) {
+        if (is_resource($windows_mail_lock)) fclose($windows_mail_lock);
+        exit;
+    }
+    register_shutdown_function(static function () use ($windows_mail_lock): void {
+        flock($windows_mail_lock, LOCK_UN); fclose($windows_mail_lock);
+    });
+} else {
 //define the process id file
 	$pid_file = '/var/run/fusionpbx/email_send.'.$email_queue_uuid.'.pid';
 	//echo "pid_file: ".$pid_file."\n";
@@ -95,6 +111,8 @@
 		//save the pid file
 		file_put_contents($pid_file, getmypid());
 	}
+
+}
 
 //sleep used for debugging
 	if (isset($sleep_seconds)) {

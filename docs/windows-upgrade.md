@@ -1,5 +1,17 @@
 # Updating Windows Server
 
+## Windows 1.0.13 candidate
+
+The current Windows work uses a separate signed Windows feed while Debian and Android stay on 1.0.12. No Windows 1.0.13 release is published yet. Use the [matching candidate guide](installing-1.0.13.md) and [qualification record](feature-coverage.md#windows-server-return--1013); complete native installation, upgrade/rollback and calling remain required.
+
+Installed Windows 1.0.3–1.0.7 need the verified one-time `Upgrade-LegacyWindows.ps1` transition from that guide. Their older helpers do not inventory the new native modules. The transition uses the installed signature verifier before invoking the complete new helper; later releases use **Admin → System → Updates**. The candidate snapshots native modules, local codec, notification identity, support runtimes and owned scheduled-task state for recovery.
+
+Restore maintenance is separate from update recovery: any unresolved restore or activation hold prevents upgrading, and boot recovery keeps restored calling/jobs stopped. Public setup owns its certificate issuance and renewal tasks. A pending phone certificate waits for idle calls, pauses new calls, applies the trusted chain and verifies the actual hostname before declaring secure phones ready. Preserved distinct Authentication IDs use the guarded native registration path.
+
+## Historical 1.0.3–1.0.7 operation
+
+The following records the previously released Windows workflow. Use the candidate guide for the new native modules, locally built audio converter, backups, global mail and automatic public certificates.
+
 Starting with 1.0.4, **Admin → System → Updates** controls updates for the whole installation. Only an instance administrator can restart the shared server. The Windows manager shows progress and opens that authenticated page. The default is **Let me choose**; **Download automatically** stages a verified release, and **Install automatically** applies it during the chosen daily UTC maintenance window after calls finish. An explicit **Install when calls finish** request may run outside that window but still waits for calls. Manual installation requests expire after 24 hours; request the update again if one expires.
 
 The independent **OpenWeb PBX Updates** Windows service stays running while the PBX restarts. It checks a pinned, signed stable release feed, requires the correct platform and a newer version, bounds and resumes downloads, and verifies the complete archive before any service stops. The already installed helper checks the signature again and rejects unsafe archive paths, changed release files, old metadata and unsupported versions. Offline checks leave the current phone system running. A failed automatic installation is not retried repeatedly: a new release or an explicit administrator **Install when calls finish** request is required.

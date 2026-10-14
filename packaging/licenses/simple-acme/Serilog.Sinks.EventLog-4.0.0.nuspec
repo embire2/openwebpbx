@@ -1,0 +1,37 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>Serilog.Sinks.EventLog</id>
+    <version>4.0.0</version>
+    <authors>Jeremy Clarke,Fabian Wetzel</authors>
+    <license type="expression">Apache-2.0</license>
+    <licenseUrl>https://licenses.nuget.org/Apache-2.0</licenseUrl>
+    <icon>serilog-sink-nuget.png</icon>
+    <readme>README.md</readme>
+    <projectUrl>https://serilog.net/</projectUrl>
+    <description>Serilog event sink that writes to the Windows Event Log.</description>
+    <copyright>Copyright © Serilog Contributors</copyright>
+    <tags>serilog async</tags>
+    <repository type="git" url="https://github.com/serilog/serilog-sinks-async" commit="5eb6e0bb096d87eff060bd94126da9e3dcc04454" />
+    <dependencies>
+      <group targetFramework=".NETFramework4.6.2">
+        <dependency id="Serilog" version="4.0.0" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework=".NETFramework4.7.1">
+        <dependency id="Serilog" version="4.0.0" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework="net6.0">
+        <dependency id="Serilog" version="4.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Diagnostics.EventLog" version="8.0.0" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework="net8.0">
+        <dependency id="Serilog" version="4.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Diagnostics.EventLog" version="8.0.0" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework=".NETStandard2.0">
+        <dependency id="Serilog" version="4.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Diagnostics.EventLog" version="8.0.0" exclude="Build,Analyzers" />
+      </group>
+    </dependencies>
+  </metadata>
+</package>

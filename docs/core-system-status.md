@@ -1,9 +1,13 @@
 # OpenWeb PBX core system status
 
-Status date: **2026-10-13**. Latest verified public Debian/Android baseline: **[1.0.12](https://github.com/embire2/openwebpbx/releases/tag/v1.0.12)** at immutable tag `061f83c81`. Eight complete public downloads/signed sequence-112 feed, original installed-worker HTTPS upgrade/all 7,113 mappings/customer preservation, trusted owned phone domain, seventeen global minimum-release checks and full homepage qualification passed. Five focused exact direct-APK and one exact AAB-derived native cases passed; physical phones/carriers and the recorded broader limits remain open.
+Status date: **2026-10-14**. Latest verified public Debian/Android baseline: **[1.0.12](https://github.com/embire2/openwebpbx/releases/tag/v1.0.12)** at immutable tag `061f83c81`. Eight complete public downloads/signed sequence-112 feed, original installed-worker HTTPS upgrade/all 7,113 mappings/customer preservation, trusted owned phone domain, seventeen global minimum-release checks and full homepage qualification passed. Five focused exact direct-APK and one exact AAB-derived native cases passed; physical phones/carriers and the recorded broader limits remain open.
 
 
 OpenWeb PBX has a working multi-tenant voice server, a native Android calling app and controlled installation/update/recovery workflows. Complete 3CX feature equivalence remains unfinished. This report separates working product capabilities from the wider acceptance goals in [the maintained roadmap](../3CX.md). [Feature coverage](feature-coverage.md) contains the detailed dated verification record.
+
+## Windows Server return
+
+Windows 1.0.13 is under development for the complete core suite on Windows Server 2025. The .NET 10/Visual Studio 2026 manager built and opened responsively on the hosted Windows image. Candidate work includes patched registration, local source-built audio conversion, queued global mail, notification storage, hold music, encrypted backup/restore, public certificates and expanded recovery. Native fresh/installed/rollback/audio and outside certificate results remain open. See [candidate guide](installing-1.0.13.md) and [coverage](feature-coverage.md#windows-server-return--1013). The Debian/Android 1.0.12 baseline and all 133 task classifications remain unchanged.
 
 ## Current restore-to-phone work
 

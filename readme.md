@@ -2,6 +2,12 @@
 
 An open-source, multi-tenant PBX powered by FreeSWITCH, with a Windows 11 inspired administration desktop.
 
+## Windows Server 1.0.13 development
+
+Version **1.0.13** is being prepared for Windows Server 2025 x64 with its own server package and signed update feed. It brings the current core web/calling workflows to Windows and adds restored-phone registration, local audio conversion, global queued mail, notification permissions, portable hold music, encrypted scheduled backups/restore and automatic public certificate management. The .NET 10/Visual Studio 2026 WinUI manager has built and opened responsively on Windows Server 2025. Complete fresh installation, native calling, upgrades and clean-server recovery remain qualification gates. No 1.0.13 download is published yet.
+
+Debian and Android remain on released **1.0.12**. See the [Windows candidate guide](docs/installing-1.0.13.md) and [qualification record](docs/feature-coverage.md#windows-server-return--1013). The Windows administration manager and planned Windows calling client have separate roles.
+
 ## Version 1.0.12
 
 This version focuses on moving existing direct SIP phones after a supported 3CX V20 restore: preserve original extension numbers, separate Authentication IDs and password bytes; choose the new phone domain once; retain existing Android accounts and shared routes. It adds owned public phone addresses, source group/queue ringing order, caller-local queue timeouts, stable live agent state, Ring My Mobile and **Connect Provider and Numbers** for an atomic handover. [Desk-phone instructions](docs/desk-phone-handover.md) cover Yealink W60B and Fanvil V62W.

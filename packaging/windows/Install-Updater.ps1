@@ -40,9 +40,14 @@ if(!(Test-Path "$slot\OpenWebPbx.Updater.exe")){
   if(!(Test-Path (Join-Path $slot $relative)) -or (Get-FileHash $file.FullName).Hash -ne (Get-FileHash (Join-Path $slot $relative)).Hash){throw 'An updater slot with different bytes already exists for this version.'}
  }
 }
-foreach($name in 'Upgrade-OpenWebPBX.ps1','Register-ManagerRestart.ps1','Restart-Updater.ps1','Remove-Updater.ps1'){
+foreach($name in 'Upgrade-OpenWebPBX.ps1','Register-ManagerRestart.ps1','Restart-Updater.ps1','Remove-Updater.ps1',
+ 'Restore-Gates.ps1','Write-PrivateState.ps1','Support-Recovery.ps1','Install-NativeEngine.ps1','Install-LocalCodec.ps1','configure-codec.php','Configure-PHP.ps1',
+ 'configure-notifications.ps1','configure-music.php','Enable-PhoneTLS.ps1','phone-tls.php','phone-tls-chain.php',
+ 'Test-PhoneTLS.ps1','Enable-PublicAccess.ps1','Renew-PhoneCertificate.ps1','PublicAccess.Common.ps1',
+ 'Install-Backups.ps1','Backup-Control.ps1','backups.py','cacert.pem','openssl.cnf'){
  Copy-Item (Join-Path $PackageRoot $name) (Join-Path "$root\tools" $name) -Force
 }
+foreach($name in 'Install-MailQueue.ps1','process-mail.php','Upgrade-LegacyWindows.ps1'){Copy-Item (Join-Path $PackageRoot $name) (Join-Path "$root\tools" $name) -Force}
 Import-Module WebAdministration
 $startup="$private\updater-original-startup.json"
 if(!(Test-Path $startup)){
@@ -64,6 +69,9 @@ SaveState "$private\updater-install.json" @{Version=$version;Executable=$executa
 foreach($name in 'OpenWebPBX','FreeSWITCH'){Set-Service $name -StartupType Manual}
 Set-ItemProperty IIS:\Sites\OpenWebPBX serverAutoStart $false
 Set-ItemProperty IIS:\AppPools\OpenWebPBX autoStart $false
-if(!$existing -and !$DeferRestart){Start-Service OpenWebPBXUpdater}
-elseif(!$DeferRestart){Start-ScheduledTask OpenWebPBX-Updater-Restart}
+. "$root\tools\Restore-Gates.ps1"
+$restoreGate=Get-OpenWebRestoreGate -StateRoot $private
+if(!$DeferRestart -and !$restoreGate.Blocked -and !$restoreGate.Updates){
+ if(!$existing){Start-Service OpenWebPBXUpdater}else{Start-ScheduledTask OpenWebPBX-Updater-Restart}
+}
 Write-Host 'Independent update service installed. Automatic installation follows the instance administrator policy.'

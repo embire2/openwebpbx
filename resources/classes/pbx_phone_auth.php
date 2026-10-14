@@ -9,7 +9,8 @@ final class pbx_phone_auth {
     }
     public static function configure(PDO $db,?string $scripts=null): int {
         if(PHP_SAPI!=='cli'||(PHP_OS_FAMILY==='Linux'&&(!function_exists('posix_geteuid')||posix_geteuid()!==0)))throw new RuntimeException('Phone authentication setup requires the local instance administrator.');
-        $scripts??=(string)config::load()->get('switch.scripts.dir',PHP_OS_FAMILY==='Windows'?'C:/Program Files/OpenWebPBX/FreeSWITCH/scripts':'/usr/share/freeswitch/scripts');
+        if(PHP_OS_FAMILY==='Windows')self::requireWindowsNative();
+        $scripts??=(string)config::load()->get('switch.scripts.dir',PHP_OS_FAMILY==='Windows'?'C:/Program Files/FreeSWITCH/scripts':'/usr/share/freeswitch/scripts');
         if(!self::guarded($scripts))throw new RuntimeException('The guarded phone directory must be installed before restoring separate phone login IDs.');
         $owned=!$db->inTransaction();if($owned)$db->beginTransaction();
         try {
@@ -22,5 +23,23 @@ final class pbx_phone_auth {
             if($owned)$db->commit();
         }catch(Throwable $e){if($owned&&$db->inTransaction())$db->rollBack();throw $e;}
         return count($profiles);
+    }
+    public static function requireWindowsNative(): void {
+        $path=rtrim((string)(getenv('ProgramData')?:'C:/ProgramData'),'/\\').'/OpenWebPBX/native-engine.json';
+        $bytes=@file_get_contents($path);
+        if(!is_string($bytes)||strlen($bytes)>65536)throw new RuntimeException('Install the verified Windows phone-registration module first.');
+        $manifest=json_decode($bytes,true,32,JSON_THROW_ON_ERROR);
+        $engine=rtrim((string)config::load()->get('switch.conf.dir','C:/Program Files/FreeSWITCH/conf'),'/\\');
+        $engine=dirname($engine);
+        $expected=$manifest['files']['mod/mod_sofia.dll']??'';
+        $coreExpected=$manifest['core_sha256']??'';
+        if(($manifest['schema']??null)!==1||($manifest['upstream_commit']??'')!=='ef32e205295e29f034f1453ad245ba5efb07b94a'||
+            ($manifest['source_reg_sha256']??'')!=='4dafe992533cbff6e57a5bb6870cb2b410fb552d781e657a55fefd9ad73f241d'||
+            !is_string($expected)||!preg_match('/^[a-f0-9]{64}$/D',$expected)||
+            !is_string($coreExpected)||!preg_match('/^[a-f0-9]{64}$/D',$coreExpected)||
+            !hash_equals($expected,(string)@hash_file('sha256',$engine.'/mod/mod_sofia.dll'))||
+            !hash_equals($coreExpected,(string)@hash_file('sha256',$engine.'/FreeSwitch.dll'))){
+            throw new RuntimeException('The Windows phone-registration module does not match the installed call engine.');
+        }
     }
 }

@@ -1,0 +1,73 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>TaskScheduler</id>
+    <version>2.12.2</version>
+    <title>Task Scheduler Managed Wrapper (the original Microsoft.Win32.TaskScheduler)</title>
+    <authors>David Hall</authors>
+    <license type="expression">MIT</license>
+    <licenseUrl>https://licenses.nuget.org/MIT</licenseUrl>
+    <icon>tsnew48.png</icon>
+    <readme>TaskService.md</readme>
+    <projectUrl>https://github.com/dahall/taskscheduler</projectUrl>
+    <description>Provides a single assembly wrapper for the 1.0 and 2.0 versions of Task Scheduler found in all Microsoft operating systems post Windows 98. It simplifies the coding, aggregates the multiple versions and allows for localization support.</description>
+    <copyright>Copyright © 2002-2025</copyright>
+    <tags>task interop windows taskscheduler scheduler .net task scheduler</tags>
+    <repository type="Git" url="https://github.com/dahall/taskscheduler" branch="refs/heads/master" commit="8f4803cf060b35f8299db26b45bfd6ff0f599c3c" />
+    <dependencies>
+      <group targetFramework=".NETFramework4.5" />
+      <group targetFramework=".NETFramework4.8" />
+      <group targetFramework=".NETCoreApp3.1">
+        <dependency id="Microsoft.Win32.Registry" version="5.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Diagnostics.EventLog" version="6.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Security.AccessControl" version="6.0.1" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework="net6.0-windows7.0">
+        <dependency id="Microsoft.Win32.Registry" version="5.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Diagnostics.EventLog" version="6.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Security.AccessControl" version="6.0.1" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework="net7.0-windows7.0">
+        <dependency id="Microsoft.Win32.Registry" version="5.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Diagnostics.EventLog" version="7.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Security.AccessControl" version="6.0.1" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework="net8.0-windows7.0">
+        <dependency id="Microsoft.Win32.Registry" version="5.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Diagnostics.EventLog" version="8.0.1" exclude="Build,Analyzers" />
+        <dependency id="System.Security.AccessControl" version="6.0.1" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework="net9.0-windows7.0">
+        <dependency id="Microsoft.Win32.Registry" version="5.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Diagnostics.EventLog" version="9.0.2" exclude="Build,Analyzers" />
+        <dependency id="System.Security.AccessControl" version="6.0.1" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework=".NETStandard2.0">
+        <dependency id="Microsoft.Win32.Registry" version="5.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Diagnostics.EventLog" version="6.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Reflection" version="4.3.0" exclude="Build,Analyzers" />
+        <dependency id="System.Runtime.Serialization.Formatters" version="4.3.0" exclude="Build,Analyzers" />
+        <dependency id="System.Security.AccessControl" version="6.0.1" exclude="Build,Analyzers" />
+        <dependency id="System.Security.Permissions" version="8.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Security.Principal.Windows" version="5.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Xml.XmlSerializer" version="4.3.0" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework=".NETStandard2.1">
+        <dependency id="Microsoft.Win32.Registry" version="5.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Diagnostics.EventLog" version="6.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Reflection" version="4.3.0" exclude="Build,Analyzers" />
+        <dependency id="System.Runtime.Serialization.Formatters" version="4.3.0" exclude="Build,Analyzers" />
+        <dependency id="System.Security.AccessControl" version="6.0.1" exclude="Build,Analyzers" />
+        <dependency id="System.Security.Permissions" version="8.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Security.Principal.Windows" version="5.0.0" exclude="Build,Analyzers" />
+        <dependency id="System.Xml.XmlSerializer" version="4.3.0" exclude="Build,Analyzers" />
+      </group>
+    </dependencies>
+    <frameworkAssemblies>
+      <frameworkAssembly assemblyName="Microsoft.CSharp" targetFramework=".NETFramework4.5, .NETFramework4.8" />
+      <frameworkAssembly assemblyName="System" targetFramework=".NETFramework4.5, .NETFramework4.8" />
+      <frameworkAssembly assemblyName="System.Drawing" targetFramework=".NETFramework4.5, .NETFramework4.8" />
+      <frameworkAssembly assemblyName="System.IO.Compression" targetFramework=".NETFramework4.5, .NETFramework4.8" />
+    </frameworkAssemblies>
+  </metadata>
+</package>

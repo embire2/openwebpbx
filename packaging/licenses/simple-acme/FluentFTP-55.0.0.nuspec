@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd">
+  <metadata>
+    <id>FluentFTP</id>
+    <version>55.0.0</version>
+    <title>FluentFTP</title>
+    <authors>Robin Rodricks, Michael Stiemke, FluentFTP Contributors</authors>
+    <license type="expression">MIT</license>
+    <licenseUrl>https://licenses.nuget.org/MIT</licenseUrl>
+    <icon>logo-nuget.png</icon>
+    <readme>README_NUGET.md</readme>
+    <projectUrl>https://github.com/robinrodricks/FluentFTP</projectUrl>
+    <description>An FTP and FTPS client for .NET &amp; .NET Standard, optimized for speed. Provides extensive FTP commands, File uploads/downloads, SSL/TLS connections, Directory listing parsing, File hashing/checksums, File permissions/CHMOD, FTP proxies, FXP transfers, UTF-8 support, Async/await support, Powershell support and more. Written entirely in C#, with no external dependencies.</description>
+    <releaseNotes>- **AOT Support**
+   - New: FluentFTP is now fully AOT ready! This means you can use FluentFTP in projects that use Native Ahead-of-Time (AOT) compilation
+   - New: Rewrite core classes for AOT compatibility (`Logger`, `ValuePrinter`, `FtpAutoDetectConfig`, `FtpSslStream`)
+   - New: Add new C# project to test AOT compilation (`FluentFTP.AotExamples`)
+ - **BouncyCastle SSL Stream**
+   - New: FluentFTP now supports a new SSL stream backed by BouncyCastle, which allows us to fix some longstanding issues like SSL session reuse/resume which were failing with the default .NET TlsStream
+   - New: Integration tests for BouncyCastle stream under `FluentFTP.Tests.Integration` NS
+   - New: Unit tests for BouncyCastle stream under `FluentFTP.Tests.Unit.BouncyCastle` NS</releaseNotes>
+    <copyright>Copyright (c) 2015 Robin Rodricks and FluentFTP Contributors</copyright>
+    <tags>ftp,ftp-client,ftps,ftps-client,ssl,tls,unix,iis,ftp-proxy</tags>
+    <repository type="git" url="https://github.com/robinrodricks/FluentFTP" commit="05c3066a1d5d08d4dba63062ce5142c762daaa5a" />
+    <dependencies>
+      <group targetFramework=".NETFramework4.6.2" />
+      <group targetFramework=".NETFramework4.7.2" />
+      <group targetFramework="net7.0" />
+      <group targetFramework="net8.0" />
+      <group targetFramework="net9.0" />
+      <group targetFramework=".NETStandard2.0" />
+      <group targetFramework=".NETStandard2.1" />
+    </dependencies>
+  </metadata>
+</package>

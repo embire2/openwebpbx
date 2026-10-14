@@ -1,0 +1,728 @@
+{
+  "schema": 1,
+  "version": "2.4.1.2444",
+  "binary_archive_sha256": "b53fd863dfe4e02ec8618e9676b331d805fa1d688b83251f797f9339d221dada",
+  "source_commit": "b21505a1b21e0f7738d95b2aea00306cdf9260f2",
+  "source_tarball_sha256": "68f60e945a36d9a55e1f4f58e71e1ef9c36223b3b2d5ae557deec12e10a0a326",
+  "source_submodules": [
+    {
+      "path": "src/ACMESharpCore",
+      "mode": "160000",
+      "type": "commit",
+      "sha": "81fa91f27405ffa3cb61583f46cc7f6cd8145313"
+    },
+    {
+      "path": "src/fluent-command-line-parser",
+      "mode": "160000",
+      "type": "commit",
+      "sha": "8887e287b84f90149d545f6530778ecdf44befbc"
+    }
+  ],
+  "runtime": ".NET10.0.12 win-x64",
+  "nuget_content_hash_algorithm": "NuGet.Packaging.PackageArchiveReader.GetContentHash; excludes repository signatures, not the raw HTTP archive SHA512",
+  "nuget_packages": [
+    {
+      "id": "Autofac",
+      "version": "9.3.4",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/autofac/9.3.4/autofac.9.3.4.nupkg",
+      "nuget_content_sha512": "sha512-sKldkrIDjhic/BtE6KBl50VjwnuVVOXMnJgh9CsG5uHa8IsGR1BkvjyF6UifPfXPfnkauPqJrAF0QF+JhhRTsw==",
+      "http_archive_sha256": "e831bbaa880d16a9c1f7e04df428017721e957da10a31a512c7813db3080c27f",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/autofac/Autofac",
+        "commit": "ae9e1e1129b9c22e7ab111381308dcb02f80a8d2"
+      },
+      "files": [
+        "Autofac-9.3.4-LICENSE.txt"
+      ],
+      "license_source_url": "https://raw.githubusercontent.com/autofac/Autofac/ae9e1e1129b9c22e7ab111381308dcb02f80a8d2/LICENSE",
+      "license_file_sha256": "e593a0848661e316777015f9b11f35497f713786917a96ae9f8477bcf0489a59"
+    },
+    {
+      "id": "BouncyCastle.Cryptography",
+      "version": "2.7.0",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/bouncycastle.cryptography/2.7.0/bouncycastle.cryptography.2.7.0.nupkg",
+      "nuget_content_sha512": "sha512-U+12df8UEWHgBi04YVf/Lgi2dy3SItlIYvHjjEVa/BngCQIzDCDRBk50DDByCfDvSbe5pRNFr3b7UrVK2kMcLw==",
+      "http_archive_sha256": "f091ffccab4d03993e660bace277659a79dee0972f54d7f1f4bd46d680966241",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/bcgit/bc-csharp",
+        "branch": "refs/heads/release/v2.7",
+        "commit": "4007498b13582d90ee1eda5d9920c324428b98b3"
+      },
+      "files": [
+        "BouncyCastle.Cryptography-2.7.0-LICENSE.md"
+      ]
+    },
+    {
+      "id": "DnsClient",
+      "version": "1.8.0",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/dnsclient/1.8.0/dnsclient.1.8.0.nupkg",
+      "nuget_content_sha512": "sha512-RRwtaCXkXWsx0mmsReGDqCbRLtItfUbkRJlet1FpdciVhyMGKcPd57T1+8Jki9ojHlq9fntVhXQroOOgRak8DQ==",
+      "http_archive_sha256": "5dcf0138223d33c812339ada5673decc0e3278ed5ea32c573cf9fd8e1e7f45a6",
+      "license": {
+        "kind": "expression",
+        "value": "Apache-2.0"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/MichaCo/DnsClient.NET",
+        "commit": "f1e7ca33d713dc3bc70e7b3664aa3a2b6c090d5d"
+      },
+      "files": [
+        "DnsClient-1.8.0-LICENSE.txt"
+      ],
+      "license_source_url": "https://raw.githubusercontent.com/MichaCo/DnsClient.NET/f1e7ca33d713dc3bc70e7b3664aa3a2b6c090d5d/LICENSE",
+      "license_file_sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1"
+    },
+    {
+      "id": "FluentFTP",
+      "version": "55.0.0",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/fluentftp/55.0.0/fluentftp.55.0.0.nupkg",
+      "nuget_content_sha512": "sha512-5ufTSEjrItvSsPWz5IZ7OTilYu42YM9fGQbogrJZsvCrKat/tz+sWHCDt0/izVvi8ZYfy3G9bZR8D9goyJ9BuA==",
+      "http_archive_sha256": "2f3127a23801c5a4336f153714b66d6213701cade63d874a8e9558533fcc720a",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/robinrodricks/FluentFTP",
+        "commit": "05c3066a1d5d08d4dba63062ce5142c762daaa5a"
+      },
+      "files": [
+        "FluentFTP-55.0.0-LICENSE.TXT"
+      ]
+    },
+    {
+      "id": "MailKit",
+      "version": "4.18.0",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/mailkit/4.18.0/mailkit.4.18.0.nupkg",
+      "nuget_content_sha512": "sha512-Sk+n5f4uVKiQKECOCPcFcYtYpIt9rcli7dDboSkWM2TBbTYE7EpfudL+e5a6TFp9eMHOzNYOydzZh0b+zFGK4A==",
+      "http_archive_sha256": "565d372247d4b8e25662e71446e2a91a629e5667c4f687e6f534d65937e01551",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/jstedfast/MailKit"
+      },
+      "files": [
+        "MailKit-4.18.0-LICENSE.txt"
+      ],
+      "license_source_url": "https://raw.githubusercontent.com/jstedfast/MailKit/4.18.0/LICENSE",
+      "license_file_sha256": "35b9fc9bfb7a201a6e0b9e3ce71b639a830a2347d4aea55a2b1affbc487a1fb3"
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration",
+      "version": "10.0.12",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/microsoft.extensions.configuration/10.0.12/microsoft.extensions.configuration.10.0.12.nupkg",
+      "nuget_content_sha512": "sha512-e3IPP32CRNL031VZJAUTlCTG0YN7WFh4mN3fsSHTDQCJB+3+f0jGycv4fXk3rrftaY3B85XrQaj7sRthrOsavg==",
+      "http_archive_sha256": "d06de9d376ee3d28b0fec645b396993a3eb7b04fbc1ef7091654a08d9e1e72cb",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/dotnet/dotnet",
+        "commit": "95017c711e6afc1085133d440e42b4bd78155701"
+      },
+      "files": [
+        "Microsoft.Extensions.Configuration-10.0.12-THIRD-PARTY-NOTICES.TXT"
+      ]
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.Abstractions",
+      "version": "10.0.12",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/microsoft.extensions.configuration.abstractions/10.0.12/microsoft.extensions.configuration.abstractions.10.0.12.nupkg",
+      "nuget_content_sha512": "sha512-8xaGcvS/qZ1otoxPQCEJkNva389CVL/plNcvIETZhQTETYdRkYDPEYhUMoAGONo4FU45ufdfE0j29AfWVVj0wA==",
+      "http_archive_sha256": "f7397df285cb2a34c88a6929710c0b8ed84913382e2ae708f734060bc091ce51",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/dotnet/dotnet",
+        "commit": "95017c711e6afc1085133d440e42b4bd78155701"
+      },
+      "files": [
+        "Microsoft.Extensions.Configuration.Abstractions-10.0.12-THIRD-PARTY-NOTICES.TXT"
+      ]
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.Binder",
+      "version": "10.0.0",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/microsoft.extensions.configuration.binder/10.0.0/microsoft.extensions.configuration.binder.10.0.0.nupkg",
+      "nuget_content_sha512": "sha512-tMF9wNh+hlyYDWB8mrFCQHQmWHlRosol1b/N2Jrefy1bFLnuTlgSYmPyHNmz8xVQgs7DpXytBRWxGhG+mSTp0g==",
+      "http_archive_sha256": "612896a00dd5411db693af9b484014a9e1bb503cd99497c75834ee6d43b957c5",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/dotnet/dotnet",
+        "commit": "b0f34d51fccc69fd334253924abd8d6853fad7aa"
+      },
+      "files": [
+        "Microsoft.Extensions.Configuration.Binder-10.0.0-THIRD-PARTY-NOTICES.TXT"
+      ]
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.FileExtensions",
+      "version": "10.0.12",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/microsoft.extensions.configuration.fileextensions/10.0.12/microsoft.extensions.configuration.fileextensions.10.0.12.nupkg",
+      "nuget_content_sha512": "sha512-PNPS7yYH9U2M0dExn0tMkQFVtE53xTlCs/dgTfsWTTFyCF6qwGT3VrTgm2nnnkSRlSmvM9/J+n9xCpyzd9xTpQ==",
+      "http_archive_sha256": "010898cf57299c9e3b1950db0ca798b553bb753273c846d008d3e0c9f25f3f12",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/dotnet/dotnet",
+        "commit": "95017c711e6afc1085133d440e42b4bd78155701"
+      },
+      "files": [
+        "Microsoft.Extensions.Configuration.FileExtensions-10.0.12-THIRD-PARTY-NOTICES.TXT"
+      ]
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.Json",
+      "version": "10.0.12",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/microsoft.extensions.configuration.json/10.0.12/microsoft.extensions.configuration.json.10.0.12.nupkg",
+      "nuget_content_sha512": "sha512-H4u2ZeIhjmRQvbHj7S7U4MK1kXb0khx3UtOWcir32VHczdFyIVF0lvHew/VVHmCF7Uk0QseAUaO7HyFKOCSiKA==",
+      "http_archive_sha256": "4516d4c2cb973baf931e0414bf9d87497d4775bd950eafbd50b730a3c1233f9f",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/dotnet/dotnet",
+        "commit": "95017c711e6afc1085133d440e42b4bd78155701"
+      },
+      "files": [
+        "Microsoft.Extensions.Configuration.Json-10.0.12-THIRD-PARTY-NOTICES.TXT"
+      ]
+    },
+    {
+      "id": "Microsoft.Extensions.DependencyModel",
+      "version": "10.0.0",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/microsoft.extensions.dependencymodel/10.0.0/microsoft.extensions.dependencymodel.10.0.0.nupkg",
+      "nuget_content_sha512": "sha512-RFYJR7APio/BiqdQunRq6DB+nDB6nc2qhHr77mlvZ0q0BT8PubMXN7XicmfzCbrDE/dzhBnUKBRXLTcqUiZDGg==",
+      "http_archive_sha256": "a027088e6c07f07d27f5b4f7c10056768b4cbd8ba889acdf88aad702cd9b2e22",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/dotnet/dotnet",
+        "commit": "b0f34d51fccc69fd334253924abd8d6853fad7aa"
+      },
+      "files": [
+        "Microsoft.Extensions.DependencyModel-10.0.0-THIRD-PARTY-NOTICES.TXT"
+      ]
+    },
+    {
+      "id": "Microsoft.Extensions.FileProviders.Abstractions",
+      "version": "10.0.12",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/microsoft.extensions.fileproviders.abstractions/10.0.12/microsoft.extensions.fileproviders.abstractions.10.0.12.nupkg",
+      "nuget_content_sha512": "sha512-iQseV6HixWzEYQH4i++84ToIroXnM5jC1TJF4EqBz3lWNG1HBTMYDLkRb6Wm3wk5V6WqSfl7NukO/LYsloGyfg==",
+      "http_archive_sha256": "49dad2381a98e644f68b711106f06c01db62c7fc3b4b1e79799ba770d0d4d9e7",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/dotnet/dotnet",
+        "commit": "95017c711e6afc1085133d440e42b4bd78155701"
+      },
+      "files": [
+        "Microsoft.Extensions.FileProviders.Abstractions-10.0.12-THIRD-PARTY-NOTICES.TXT"
+      ]
+    },
+    {
+      "id": "Microsoft.Extensions.FileProviders.Physical",
+      "version": "10.0.12",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/microsoft.extensions.fileproviders.physical/10.0.12/microsoft.extensions.fileproviders.physical.10.0.12.nupkg",
+      "nuget_content_sha512": "sha512-3cY+wo2+Qe65BVwShhr2fFqZv5Ns73h3kX4mpW3WvSgfT3AWCk0hKArKW4TF7Dg3mvbJdA6RhWPW7FR+PS5/1w==",
+      "http_archive_sha256": "4a6ffdf4541f6ff2612fb4f8eb201bf795b47336cc9df488ed8cf3499e4e4694",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/dotnet/dotnet",
+        "commit": "95017c711e6afc1085133d440e42b4bd78155701"
+      },
+      "files": [
+        "Microsoft.Extensions.FileProviders.Physical-10.0.12-THIRD-PARTY-NOTICES.TXT"
+      ]
+    },
+    {
+      "id": "Microsoft.Extensions.FileSystemGlobbing",
+      "version": "10.0.12",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/microsoft.extensions.filesystemglobbing/10.0.12/microsoft.extensions.filesystemglobbing.10.0.12.nupkg",
+      "nuget_content_sha512": "sha512-45cV+UeI0chPAIXrx9Wv7K4PJXuuIR2pnOur5MOAo6kOFclBHSLLDrvGAxMfWRMtUvpv/kQZkxlgaUN56jwzSQ==",
+      "http_archive_sha256": "8630d8878798bea4530828dafa3a4ec868b528004c95eaf37102b2ab95956d4a",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/dotnet/dotnet",
+        "commit": "95017c711e6afc1085133d440e42b4bd78155701"
+      },
+      "files": [
+        "Microsoft.Extensions.FileSystemGlobbing-10.0.12-THIRD-PARTY-NOTICES.TXT"
+      ]
+    },
+    {
+      "id": "Microsoft.Extensions.Logging.Abstractions",
+      "version": "10.0.3",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/microsoft.extensions.logging.abstractions/10.0.3/microsoft.extensions.logging.abstractions.10.0.3.nupkg",
+      "nuget_content_sha512": "sha512-lxl0WLk7ROgBFAsjcOYjQ8/DVK+VMszxGBzUhgtQmAsTNldLL5pk9NG/cWTsXHq0lUhUEAtZkEE7jOGOA8bGKQ==",
+      "http_archive_sha256": "9484ad4883d3c5aa024685011ec04f5d96ee563e62a34db7f745a4c9ea727e5c",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/dotnet/dotnet",
+        "commit": "c2435c3e0f46de784341ac3ed62863ce77e117b4"
+      },
+      "files": [
+        "Microsoft.Extensions.Logging.Abstractions-10.0.3-THIRD-PARTY-NOTICES.TXT"
+      ]
+    },
+    {
+      "id": "Microsoft.Extensions.Primitives",
+      "version": "10.0.12",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/microsoft.extensions.primitives/10.0.12/microsoft.extensions.primitives.10.0.12.nupkg",
+      "nuget_content_sha512": "sha512-dYfCLR52UA+3DL7C4I/pvSaRPkNqxrUAQmbFL2u0zvYKKzqgrFCJl08Df+F1aYc8leu9JvpC9bsURUdpExcBXQ==",
+      "http_archive_sha256": "97ee742afe0cb0634558262f925cc112b5882d09db8d169575e559031da63922",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/dotnet/dotnet",
+        "commit": "95017c711e6afc1085133d440e42b4bd78155701"
+      },
+      "files": [
+        "Microsoft.Extensions.Primitives-10.0.12-THIRD-PARTY-NOTICES.TXT"
+      ]
+    },
+    {
+      "id": "Microsoft.Web.Administration",
+      "version": "11.1.0",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/microsoft.web.administration/11.1.0/microsoft.web.administration.11.1.0.nupkg",
+      "nuget_content_sha512": "sha512-aVdukBSBsbUJKHvSpfgTnmm6HEOKKJ5l8HXh0F05t7bYMRUzViYD8knqcs55xjnVzyO0epHd+r4TgWt/sSyuQg==",
+      "http_archive_sha256": "e6dd870c21e0335437b821710f97477b73db19b72446946d7eb78e01e27e3114",
+      "license": {
+        "url": "https://www.microsoft.com/web/webpi/eula/net_library_eula_enu.htm"
+      },
+      "repository": null,
+      "files": [
+        "Microsoft.Web.Administration-EULA.html"
+      ],
+      "license_source_url": "https://www.microsoft.com/web/webpi/eula/net_library_eula_enu.htm",
+      "license_file_sha256": "9db88e0eeb298434da30f6c227590802f803635fc37bd4453b945c96cfa88381"
+    },
+    {
+      "id": "MimeKit",
+      "version": "4.18.1",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/mimekit/4.18.1/mimekit.4.18.1.nupkg",
+      "nuget_content_sha512": "sha512-D8AfFVMFVJldWmhQWCziC9nWUN/zayFFBAKpyjVyCeh0tqBiI9jtUVuMrKgWw1EGnCp09msDZldbRvp2jfUehQ==",
+      "http_archive_sha256": "5b5e6d3f5d915bb68fcb39470f4789fb94c3c208109236771e287ea83cb2418b",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/jstedfast/MimeKit"
+      },
+      "files": [
+        "MimeKit-4.18.1-LICENSE.txt"
+      ],
+      "license_source_url": "https://raw.githubusercontent.com/jstedfast/MimeKit/4.18.1/LICENSE",
+      "license_file_sha256": "c613af70a219d1cafd732f2cefd4fca9f1462ac5696f8461108a7d643513f3bf"
+    },
+    {
+      "id": "MorseCode.ITask",
+      "version": "2.0.3",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/morsecode.itask/2.0.3/morsecode.itask.2.0.3.nupkg",
+      "nuget_content_sha512": "sha512-4Mw9LlnBL3q0BTf7Cyzt7JJLkTxzAu7USoDP/z3+BlbBmTAa+EoNFgmmdeIqBi8Hb9Xsi0n/zY9m0jdkLNwcbA==",
+      "http_archive_sha256": "ca2c308724e8e9bba2ca0aff731074ee70f738e534bf5e6ab4f6e119fff00fea",
+      "license": {
+        "url": "http://opensource.org/licenses/MIT"
+      },
+      "repository": null,
+      "files": [
+        "MorseCode.ITask-LICENSE.txt"
+      ],
+      "license_source_url": "https://raw.githubusercontent.com/jam40jeff/ITask/master/LICENSE",
+      "license_file_sha256": "aeca734f9d0696c163a29ed09c504b35e4af85b00e231f07c1589d23850cee8d"
+    },
+    {
+      "id": "Nager.PublicSuffix",
+      "version": "3.8.0",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/nager.publicsuffix/3.8.0/nager.publicsuffix.3.8.0.nupkg",
+      "nuget_content_sha512": "sha512-xdRuauud5WRKkGuytdnBShDY21YZjj/JuK8GfenFXznlWAWoR1wI0v0dK6FbpU5l3XvxGaTYzao1i8FL+IIOnw==",
+      "http_archive_sha256": "a20733212ffcb87d7f2aef98ec602c7e533bc3e82bf47eab040b0e4f80c2a653",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/nager/Nager.PublicSuffix",
+        "commit": "33ff36876529dddcd00916ad5dcb3f32a8a60926"
+      },
+      "files": [
+        "Nager.PublicSuffix-3.8.0-LICENSE.md"
+      ]
+    },
+    {
+      "id": "Serilog",
+      "version": "4.4.0",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/serilog/4.4.0/serilog.4.4.0.nupkg",
+      "nuget_content_sha512": "sha512-ZC6Le3rr4TVJJjS4KsQAesxeF1EhW9qcZmmG7eP5Y2G3+gTGkJEUXkq4+tZNPtyp05I0wWOxnIjwtxFweJsObw==",
+      "http_archive_sha256": "b4fe17d3a4e170354be975ed60885d272c67e2e2fd8cb2f4b370d13ba1cd424f",
+      "license": {
+        "kind": "expression",
+        "value": "Apache-2.0"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/serilog/serilog",
+        "branch": "refs/heads/main",
+        "commit": "497f80fda4f9e8f98b9c13ba34b1f0530f8c4449"
+      },
+      "files": [
+        "Serilog-4.4.0-LICENSE.txt"
+      ],
+      "license_source_url": "https://raw.githubusercontent.com/serilog/serilog/497f80fda4f9e8f98b9c13ba34b1f0530f8c4449/LICENSE",
+      "license_file_sha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68"
+    },
+    {
+      "id": "Serilog.Settings.Configuration",
+      "version": "10.0.1",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/serilog.settings.configuration/10.0.1/serilog.settings.configuration.10.0.1.nupkg",
+      "nuget_content_sha512": "sha512-ayFE7h66mqMqzwfPrzDCMbWU27FdNC2bkCG+jnkeHFZTBRh+yWdr4aa/2WuX7c8RmqxGPMW2UqoJ3fw9hK3QhA==",
+      "http_archive_sha256": "691fb387e2c7f60b21a2b0e09b7603abf29a44d35364ca827ef5c0810f446264",
+      "license": {
+        "kind": "expression",
+        "value": "Apache-2.0"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/serilog/serilog-settings-configuration",
+        "branch": "refs/heads/main",
+        "commit": "197ed48b66dd0271c974f706641d80814552c898"
+      },
+      "files": [
+        "Serilog.Settings.Configuration-10.0.1-LICENSE.txt"
+      ],
+      "license_source_url": "https://raw.githubusercontent.com/serilog/serilog-settings-configuration/197ed48b66dd0271c974f706641d80814552c898/LICENSE",
+      "license_file_sha256": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08"
+    },
+    {
+      "id": "Serilog.Sinks.Console",
+      "version": "6.1.1",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/serilog.sinks.console/6.1.1/serilog.sinks.console.6.1.1.nupkg",
+      "nuget_content_sha512": "sha512-8jbqgjUyZlfCuSTaJk6lOca465OndqOz3KZP6Cryt/IqZYybyBu7GP0fE/AXBzrrQB3EBmQntBFAvMVz1COvAA==",
+      "http_archive_sha256": "09f220e14b38912310027eab536aec01e136da0e8ca45899761a195b24a965e6",
+      "license": {
+        "kind": "expression",
+        "value": "Apache-2.0"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/serilog/serilog-sinks-console",
+        "branch": "refs/heads/main",
+        "commit": "b3cb1f042f5636161b831fa8816d70d865a5eec4"
+      },
+      "files": [
+        "Serilog.Sinks.Console-6.1.1-LICENSE.txt"
+      ],
+      "license_source_url": "https://raw.githubusercontent.com/serilog/serilog-sinks-console/b3cb1f042f5636161b831fa8816d70d865a5eec4/LICENSE",
+      "license_file_sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1"
+    },
+    {
+      "id": "Serilog.Sinks.EventLog",
+      "version": "4.0.0",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/serilog.sinks.eventlog/4.0.0/serilog.sinks.eventlog.4.0.0.nupkg",
+      "nuget_content_sha512": "sha512-Cmfr5v407xVc0GA0Sk+RQCCBNvxvwY1lV5/k2bqLi3ksTvLx/KbGTVM2rA5Z/e2ZEZ12HOCvBviQ9Er9GsMjXQ==",
+      "http_archive_sha256": "71c4a7ccbfc8e206682f6c47e58f50f73a0fee257cfa7f79c0d43f24e3f7bce8",
+      "license": {
+        "kind": "expression",
+        "value": "Apache-2.0"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/serilog/serilog-sinks-async",
+        "commit": "5eb6e0bb096d87eff060bd94126da9e3dcc04454"
+      },
+      "files": [
+        "Serilog.Sinks.EventLog-4.0.0-LICENSE.txt"
+      ],
+      "license_source_url": "https://raw.githubusercontent.com/serilog/serilog-sinks-eventlog/5eb6e0bb096d87eff060bd94126da9e3dcc04454/LICENSE",
+      "license_file_sha256": "cb5e8e7e5f4a3988e1063c142c60dc2df75605f4c46515e776e3aca6df976e14"
+    },
+    {
+      "id": "Serilog.Sinks.File",
+      "version": "7.0.0",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/serilog.sinks.file/7.0.0/serilog.sinks.file.7.0.0.nupkg",
+      "nuget_content_sha512": "sha512-fKL7mXv7qaiNBUC71ssvn/dU0k9t0o45+qm2XgKAlSt19xF+ijjxyA3R6HmCgfKEKwfcfkwWjayuQtRueZFkYw==",
+      "http_archive_sha256": "2f165852850f9028c82156ab2629675e7a9088cac5349b68462966cd336d523a",
+      "license": {
+        "kind": "expression",
+        "value": "Apache-2.0"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/serilog/serilog-sinks-file",
+        "branch": "refs/heads/main",
+        "commit": "23c732a8658a0df2a5434fe69b0011800b14f0da"
+      },
+      "files": [
+        "Serilog.Sinks.File-7.0.0-LICENSE.txt"
+      ],
+      "license_source_url": "https://raw.githubusercontent.com/serilog/serilog-sinks-file/23c732a8658a0df2a5434fe69b0011800b14f0da/LICENSE",
+      "license_file_sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1"
+    },
+    {
+      "id": "SSH.NET",
+      "version": "2026.0.0",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/ssh.net/2026.0.0/ssh.net.2026.0.0.nupkg",
+      "nuget_content_sha512": "sha512-Yu9dirPq8l3oaat0+OQ7K0nUf5MmYltpia5UGqsApTG4zTPvBC1cxbNnC3NERij26dUST0A3Ef1QdHSn5ArbWQ==",
+      "http_archive_sha256": "b2515de616821198f5cf5530f5ea198912730bbe3504ef4c6aee00a661fecac2",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/sshnet/SSH.NET",
+        "commit": "7b2fd3dbf2c86a80a7b06cea020aa5f821c9902e"
+      },
+      "files": [
+        "SSH.NET-2026.0.0-LICENSE.txt"
+      ],
+      "license_source_url": "https://raw.githubusercontent.com/sshnet/SSH.NET/7b2fd3dbf2c86a80a7b06cea020aa5f821c9902e/LICENSE",
+      "license_file_sha256": "84c79a38515de2833a7c353395e04056c0cbd77545d450fe216d569e1570b78e"
+    },
+    {
+      "id": "System.Diagnostics.EventLog",
+      "version": "10.0.12",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/system.diagnostics.eventlog/10.0.12/system.diagnostics.eventlog.10.0.12.nupkg",
+      "nuget_content_sha512": "sha512-sOZM+VyRj1pg/ItlHsvrSbjws6oGqZveTzTNBGZ9ziwRDyKsOF3ub6vhvOdxotCIqtlnyHAIwP5sLNvgiZC+pQ==",
+      "http_archive_sha256": "da77128a9f15980d115128c98a1b08b3fea67e3f2e54387e4029e0e57e3023c5",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/dotnet/dotnet",
+        "commit": "95017c711e6afc1085133d440e42b4bd78155701"
+      },
+      "files": [
+        "System.Diagnostics.EventLog-10.0.12-THIRD-PARTY-NOTICES.TXT"
+      ]
+    },
+    {
+      "id": "System.Net.Http.WinHttpHandler",
+      "version": "10.0.12",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/system.net.http.winhttphandler/10.0.12/system.net.http.winhttphandler.10.0.12.nupkg",
+      "nuget_content_sha512": "sha512-/ZxJNyXdRveuvAbHsNTA+LIUIQLojBQB68oNaS4KuMbSVVHxELbQXVYJ8r7KQPhbkN5rDk/+P1bFGKnPnmPqwA==",
+      "http_archive_sha256": "b69dd37676d873b7249d0424b1d4c81e7c7cdf02cd13ad1eb9b1ec66ca8b0039",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/dotnet/dotnet",
+        "commit": "95017c711e6afc1085133d440e42b4bd78155701"
+      },
+      "files": [
+        "System.Net.Http.WinHttpHandler-10.0.12-THIRD-PARTY-NOTICES.TXT"
+      ]
+    },
+    {
+      "id": "System.Security.Cryptography.ProtectedData",
+      "version": "10.0.12",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/system.security.cryptography.protecteddata/10.0.12/system.security.cryptography.protecteddata.10.0.12.nupkg",
+      "nuget_content_sha512": "sha512-wO0W8VDMeRJZakRySOmemAnrBZMwEFRlbfBtATxUiLf2I3IhSRnCp1Vt157NWptdE4IJ7eftd5n8q9LtaKHFTQ==",
+      "http_archive_sha256": "1a7141d14f254a9b10b5b996f265cac139be666eea133635f53ba0385bc4d674",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/dotnet/dotnet",
+        "commit": "95017c711e6afc1085133d440e42b4bd78155701"
+      },
+      "files": [
+        "System.Security.Cryptography.ProtectedData-10.0.12-THIRD-PARTY-NOTICES.TXT"
+      ]
+    },
+    {
+      "id": "System.ServiceProcess.ServiceController",
+      "version": "4.1.0",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/system.serviceprocess.servicecontroller/4.1.0/system.serviceprocess.servicecontroller.4.1.0.nupkg",
+      "nuget_content_sha512": "sha512-qWVE9WN3+IXpOyRTZJOgDzNNHOp/oC2HaBiAv+T0w8ALWFAdfr0uH4WbFMvgYheZxXxnDXik0FyPelx2Vheaag==",
+      "http_archive_sha256": "c538fdf2b5b86638bfc053906b05d2b59d5d7740750da3ea17249863c1164c74",
+      "license": {
+        "url": "http://go.microsoft.com/fwlink/?LinkId=329770"
+      },
+      "repository": null,
+      "files": [
+        "System.ServiceProcess.ServiceController-4.1.0-LICENSE.txt"
+      ],
+      "license_source_url": "https://raw.githubusercontent.com/dotnet/corefx/v1.0.0/LICENSE",
+      "license_file_sha256": "18647d26bc4c4d892a5fd29de1264d10906b3124cafa98313300ff300441c7f0"
+    },
+    {
+      "id": "TaskScheduler",
+      "version": "2.12.2",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/taskscheduler/2.12.2/taskscheduler.2.12.2.nupkg",
+      "nuget_content_sha512": "sha512-glpAb3VrwfdAofp6PIyAzL0ZeTV7XUJ8muu0oZoTeyU5jtk2sMJ6QAMRRuFbovcaj+SBJiEUGklxIWOqQoxshA==",
+      "http_archive_sha256": "d39c82d6e7f366b45053c3f11b512f0ec021d1a0fcf9fe0283478b2edd0b8dd9",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "Git",
+        "url": "https://github.com/dahall/taskscheduler",
+        "branch": "refs/heads/master",
+        "commit": "8f4803cf060b35f8299db26b45bfd6ff0f599c3c"
+      },
+      "files": [
+        "TaskScheduler-2.12.2-LICENSE.txt"
+      ],
+      "license_source_url": "https://raw.githubusercontent.com/dahall/taskscheduler/8f4803cf060b35f8299db26b45bfd6ff0f599c3c/license.md",
+      "license_file_sha256": "05d265a73e2b97f59751cb993632e690f66b60d717a09c94126eeca673c9a9ba"
+    },
+    {
+      "id": "WebDav.Client",
+      "version": "2.9.0",
+      "nuget_url": "https://api.nuget.org/v3-flatcontainer/webdav.client/2.9.0/webdav.client.2.9.0.nupkg",
+      "nuget_content_sha512": "sha512-GLhd1tQAJeuVO1sj3Wm/dkg0GEVWxk+XGl6rdegMSMHenZuOaWQw4PifWDsjNEC1dtV1/C8JJfK0qfdkM+VIgA==",
+      "http_archive_sha256": "fdf7dc9fceda22da22ecadcf76387a2ad9faffbdae1a15274068becaa1ebc892",
+      "license": {
+        "kind": "expression",
+        "value": "MIT"
+      },
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/skazantsev/WebDavClient",
+        "branch": "refs/heads/main",
+        "commit": "e767db77d6ae2bf2d0e898877be037c199476a86"
+      },
+      "files": [
+        "WebDav.Client-2.9.0-LICENSE.txt"
+      ]
+    }
+  ],
+  "licence_sources": {
+    "public_suffix": "https://www.mozilla.org/media/MPL/2.0/index.txt",
+    "fluent_submodule": "https://raw.githubusercontent.com/simple-acme/fluent-command-line-parser/8887e287b84f90149d545f6530778ecdf44befbc/LICENCE.txt",
+    "acme_submodule": "https://raw.githubusercontent.com/simple-acme/ACMESharpCore/81fa91f27405ffa3cb61583f46cc7f6cd8145313/LICENSE"
+  },
+  "file_sha256": {
+    "ACMESharpCore-LICENSE.txt": "ed617ccedef22bfcee399132845990a9ffa6ca3fbda8578fa44f366bfd95e8e2",
+    "Autofac-9.3.4-LICENSE.txt": "e593a0848661e316777015f9b11f35497f713786917a96ae9f8477bcf0489a59",
+    "Autofac-9.3.4.nuspec": "331fbd5a459bcb7091e40f05e27fa0a1a583f70afd907bb791c5c8b8cf0a5a2a",
+    "BouncyCastle.Cryptography-2.7.0-LICENSE.md": "be0592a6c76f398356fbf252a4fb43476fb3ca3c45331428c2f4f22c499e8311",
+    "BouncyCastle.Cryptography-2.7.0.nuspec": "89c51e6b51c6d804b0ca2bfc55e00e797ef5e5d79656680d769616995832efc1",
+    "DnsClient-1.8.0-LICENSE.txt": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
+    "DnsClient-1.8.0.nuspec": "dc0a60f88d964a65bdce5183ed85e95e0a859840990b4a92a130bd6f8b7c154e",
+    "FluentFTP-55.0.0-LICENSE.TXT": "bb961fbe36659e8a1bb5769fc8041b504e4ecea2de445b6d2e3875077d5a7fbc",
+    "FluentFTP-55.0.0.nuspec": "b8a8dcb99e15828859995ffbed533c4a963e4b6f20b4d19f64bba79a930c001f",
+    "LICENSE.DotNet.txt": "cfc21f5e8bd655ae997eec916138b707b1d290b83272c02a95c9f821b8c87310",
+    "LICENSE.PublicSuffix-MPL2.txt": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04",
+    "LICENSE.simple-acme.txt": "f35d8ebf4da420cca8699d306e95770ff6c8238acf640cba657586e91f046c89",
+    "MailKit-4.18.0-LICENSE.txt": "35b9fc9bfb7a201a6e0b9e3ce71b639a830a2347d4aea55a2b1affbc487a1fb3",
+    "MailKit-4.18.0.nuspec": "5081e1304c3c0ee83716bff2b12fbd1b0866d871d20ef0b8f888087cd6427e10",
+    "Microsoft.Extensions.Configuration-10.0.12-THIRD-PARTY-NOTICES.TXT": "6d15e10a101c6bfff2ab4429ed061bf76c456fc4b23ad6b03e0d0f8377148a21",
+    "Microsoft.Extensions.Configuration-10.0.12.nuspec": "f9146575d56ac5698ed2fb7cc41d469daa95c582ecd93b4aef3109227529b95f",
+    "Microsoft.Extensions.Configuration.Abstractions-10.0.12-THIRD-PARTY-NOTICES.TXT": "6d15e10a101c6bfff2ab4429ed061bf76c456fc4b23ad6b03e0d0f8377148a21",
+    "Microsoft.Extensions.Configuration.Abstractions-10.0.12.nuspec": "a515475aa7839e7db035ba6032e61317de14db8a9273ffc2622b5223835307ec",
+    "Microsoft.Extensions.Configuration.Binder-10.0.0-THIRD-PARTY-NOTICES.TXT": "6d15e10a101c6bfff2ab4429ed061bf76c456fc4b23ad6b03e0d0f8377148a21",
+    "Microsoft.Extensions.Configuration.Binder-10.0.0.nuspec": "10a186eb097268352bfaa01d9e78256557f8c3ef7fc0a370d05fc8952b03dca4",
+    "Microsoft.Extensions.Configuration.FileExtensions-10.0.12-THIRD-PARTY-NOTICES.TXT": "6d15e10a101c6bfff2ab4429ed061bf76c456fc4b23ad6b03e0d0f8377148a21",
+    "Microsoft.Extensions.Configuration.FileExtensions-10.0.12.nuspec": "2ec902723d802291c12cf4748a048acdb41323cf10923f66517dcfb13edeeac7",
+    "Microsoft.Extensions.Configuration.Json-10.0.12-THIRD-PARTY-NOTICES.TXT": "6d15e10a101c6bfff2ab4429ed061bf76c456fc4b23ad6b03e0d0f8377148a21",
+    "Microsoft.Extensions.Configuration.Json-10.0.12.nuspec": "3a337038c9b0bf11052d8518d3ce81d5e7d0e3f9137ad1fb97e6d305512cec40",
+    "Microsoft.Extensions.DependencyModel-10.0.0-THIRD-PARTY-NOTICES.TXT": "6d15e10a101c6bfff2ab4429ed061bf76c456fc4b23ad6b03e0d0f8377148a21",
+    "Microsoft.Extensions.DependencyModel-10.0.0.nuspec": "62cb3bd8666a3d77bae317e7aecd62010cb6cb68c8c486507a3b97f3a8610ab3",
+    "Microsoft.Extensions.FileProviders.Abstractions-10.0.12-THIRD-PARTY-NOTICES.TXT": "6d15e10a101c6bfff2ab4429ed061bf76c456fc4b23ad6b03e0d0f8377148a21",
+    "Microsoft.Extensions.FileProviders.Abstractions-10.0.12.nuspec": "9c8964ebc38bcce07c4f0a867f117f8ba25ccaa3c44229ab54d2ab2ef3a35ed8",
+    "Microsoft.Extensions.FileProviders.Physical-10.0.12-THIRD-PARTY-NOTICES.TXT": "6d15e10a101c6bfff2ab4429ed061bf76c456fc4b23ad6b03e0d0f8377148a21",
+    "Microsoft.Extensions.FileProviders.Physical-10.0.12.nuspec": "35fa54259267ab58db6154112253e14fc43157c7b2fbeeb0d7c92e3b5924c911",
+    "Microsoft.Extensions.FileSystemGlobbing-10.0.12-THIRD-PARTY-NOTICES.TXT": "6d15e10a101c6bfff2ab4429ed061bf76c456fc4b23ad6b03e0d0f8377148a21",
+    "Microsoft.Extensions.FileSystemGlobbing-10.0.12.nuspec": "2d6d9a922db605154cb501a958fa286c950331d9f740bfe1c9618a352773ece1",
+    "Microsoft.Extensions.Logging.Abstractions-10.0.3-THIRD-PARTY-NOTICES.TXT": "6d15e10a101c6bfff2ab4429ed061bf76c456fc4b23ad6b03e0d0f8377148a21",
+    "Microsoft.Extensions.Logging.Abstractions-10.0.3.nuspec": "8bcd34166c0224985aeab829144020933a540b772d677dc039dd4e74c6eb86cb",
+    "Microsoft.Extensions.Primitives-10.0.12-THIRD-PARTY-NOTICES.TXT": "6d15e10a101c6bfff2ab4429ed061bf76c456fc4b23ad6b03e0d0f8377148a21",
+    "Microsoft.Extensions.Primitives-10.0.12.nuspec": "154b9a2c247fd24c663b15a305428e0bdec23de00b36a4066daa12e052b9bcfd",
+    "Microsoft.Web.Administration-11.1.0.nuspec": "d0c6d8f6297c66ab2ba30235ba930f641ff42599c920f1eb8340903ff41864e9",
+    "Microsoft.Web.Administration-EULA.html": "9db88e0eeb298434da30f6c227590802f803635fc37bd4453b945c96cfa88381",
+    "MimeKit-4.18.1-LICENSE.txt": "c613af70a219d1cafd732f2cefd4fca9f1462ac5696f8461108a7d643513f3bf",
+    "MimeKit-4.18.1.nuspec": "ccdd3998ae2354d67fd827ba8fa954cedae1f86899bd54e573041f2ac96cc0d5",
+    "MorseCode.ITask-2.0.3.nuspec": "9bc53732b2b8054122e4a8c7cc7163386bb0b828e4cde51ce28a5f529980b972",
+    "MorseCode.ITask-LICENSE.txt": "aeca734f9d0696c163a29ed09c504b35e4af85b00e231f07c1589d23850cee8d",
+    "NOTICES.DotNet.txt": "2dc8f8c5a39401e928b5784ab564eb8b3ceb99ead3df8f260e0cab7e0bbecc7a",
+    "Nager.PublicSuffix-3.8.0-LICENSE.md": "c3395894541167f40ec38bfa4fbe8f13f0e8347cf728f2425a1fde80d0a2b031",
+    "Nager.PublicSuffix-3.8.0.nuspec": "47f25e56e04a1a46bf88e3ab62134530bbe0f6102d6ae021c555f79da5abdd79",
+    "SSH.NET-2026.0.0-LICENSE.txt": "84c79a38515de2833a7c353395e04056c0cbd77545d450fe216d569e1570b78e",
+    "SSH.NET-2026.0.0.nuspec": "219617f6fe22256e72ab26160875a9da4d679cbb7f3a6d7ffc4aa9760de47ee9",
+    "Serilog-4.4.0-LICENSE.txt": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
+    "Serilog-4.4.0.nuspec": "a250302757f846344142d31bfde0174e4c4617581a54b338701de155220ffb4d",
+    "Serilog.Settings.Configuration-10.0.1-LICENSE.txt": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08",
+    "Serilog.Settings.Configuration-10.0.1.nuspec": "25d5fdcf73ddd4cdc445731db292d2ee036538089a6bbf8036e7588fdf476efd",
+    "Serilog.Sinks.Console-6.1.1-LICENSE.txt": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
+    "Serilog.Sinks.Console-6.1.1.nuspec": "b3f5b2596a6e183b0a653cec1d53273d32fb341f5dab38554976922fea4dcaf7",
+    "Serilog.Sinks.EventLog-4.0.0-LICENSE.txt": "cb5e8e7e5f4a3988e1063c142c60dc2df75605f4c46515e776e3aca6df976e14",
+    "Serilog.Sinks.EventLog-4.0.0.nuspec": "91b8d29901169b994cabd73fd875bb1f063d86fd8332a24ffd03c3d835b50d2d",
+    "Serilog.Sinks.File-7.0.0-LICENSE.txt": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
+    "Serilog.Sinks.File-7.0.0.nuspec": "269ff2dccec088353ff0f9a97b1f2636228d83a072a462a74fd6d68177877fbc",
+    "System.Diagnostics.EventLog-10.0.12-THIRD-PARTY-NOTICES.TXT": "6d15e10a101c6bfff2ab4429ed061bf76c456fc4b23ad6b03e0d0f8377148a21",
+    "System.Diagnostics.EventLog-10.0.12.nuspec": "b420e959398cd759ed7d74fe4656b4e8f842a2b78d86782f7884418a5e4c2791",
+    "System.Net.Http.WinHttpHandler-10.0.12-THIRD-PARTY-NOTICES.TXT": "6d15e10a101c6bfff2ab4429ed061bf76c456fc4b23ad6b03e0d0f8377148a21",
+    "System.Net.Http.WinHttpHandler-10.0.12.nuspec": "c752de7bdd8f0372d0c58fe61e3427b2427b17a8622db8251fb3d6b2ddb5352c",
+    "System.Security.Cryptography.ProtectedData-10.0.12-THIRD-PARTY-NOTICES.TXT": "6d15e10a101c6bfff2ab4429ed061bf76c456fc4b23ad6b03e0d0f8377148a21",
+    "System.Security.Cryptography.ProtectedData-10.0.12.nuspec": "d12fbb98f757007a5950ac8ff1bc2b10aee0912350b9ac5dc8b8f32a918387ae",
+    "System.ServiceProcess.ServiceController-4.1.0-LICENSE.txt": "18647d26bc4c4d892a5fd29de1264d10906b3124cafa98313300ff300441c7f0",
+    "System.ServiceProcess.ServiceController-4.1.0.nuspec": "add3ecfb6afa140fccdc548a97160b1959debe18df87cab3f79d329bf52c1a07",
+    "TaskScheduler-2.12.2-LICENSE.txt": "05d265a73e2b97f59751cb993632e690f66b60d717a09c94126eeca673c9a9ba",
+    "TaskScheduler-2.12.2.nuspec": "4d4417bcbb88a6cceda81ee4306aaaeed1d4ec53724dc106b4521a4c475fcc17",
+    "WebDav.Client-2.9.0-LICENSE.txt": "593cd56528d5bfbbe4bc5bb3297b19c2ae99c378f7537d60fb8ccfe4fd71f3f5",
+    "WebDav.Client-2.9.0.nuspec": "0a1cb07746e7fe0ff5d0c8e378e4f73b5872bea87f8bbc4ed94fb71f4719953d",
+    "fluent-command-line-parser-LICENCE.txt": "728800b4a5ff0e1a73508316a0854011385c313b1571872f73adc2320ac93eb7"
+  }
+}

@@ -1,0 +1,30 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>Nager.PublicSuffix</id>
+    <version>3.8.0</version>
+    <authors>Tino Hager</authors>
+    <license type="expression">MIT</license>
+    <licenseUrl>https://licenses.nuget.org/MIT</licenseUrl>
+    <icon>logo.png</icon>
+    <readme>README.md</readme>
+    <projectUrl>https://github.com/nager/Nager.PublicSuffix</projectUrl>
+    <description>Domain parsing and validation (TLD, domain, subdomain) provide easy and fast access to the Public Suffix List</description>
+    <tags>PublicSuffix PSL TLD DomainParser FQDN RegistrableDomain Hostname Subdomain</tags>
+    <repository type="git" url="https://github.com/nager/Nager.PublicSuffix" commit="33ff36876529dddcd00916ad5dcb3f32a8a60926" />
+    <dependencies>
+      <group targetFramework="net10.0">
+        <dependency id="Microsoft.Extensions.Configuration.Abstractions" version="10.0.3" exclude="Build,Analyzers" />
+        <dependency id="Microsoft.Extensions.Logging.Abstractions" version="10.0.3" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework=".NETStandard2.0">
+        <dependency id="Microsoft.Extensions.Configuration.Abstractions" version="10.0.3" exclude="Build,Analyzers" />
+        <dependency id="Microsoft.Extensions.Logging.Abstractions" version="10.0.3" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework=".NETStandard2.1">
+        <dependency id="Microsoft.Extensions.Configuration.Abstractions" version="10.0.3" exclude="Build,Analyzers" />
+        <dependency id="Microsoft.Extensions.Logging.Abstractions" version="10.0.3" exclude="Build,Analyzers" />
+      </group>
+    </dependencies>
+  </metadata>
+</package>

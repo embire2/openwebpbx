@@ -1,0 +1,94 @@
+name: Windows disposable full-suite qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      native_run_id:
+        description: Successful Windows native build run from this repository
+        required: true
+        type: string
+      engine_run_id:
+        description: Successful pinned Windows engine build run from this repository
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: windows-suite-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  music:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: Preserve source bytes
+        run: git config --global core.autocrlf false
+      - name: Check out the candidate source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Prepare all four canonical music rates
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y sox
+          python3 packaging/windows/build-hold-music.py --source-root resources/music-on-hold --output "$RUNNER_TEMP/openwebpbx-music"
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,shutil,subprocess
+          binary=pathlib.Path(shutil.which('sox')).resolve()
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'openwebpbx-music'
+          facts={'source_commit':os.environ['GITHUB_SHA'],'sox_version':subprocess.check_output([str(binary),'--version'],text=True).strip(),'sox_binary_sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'source_sha256':hashlib.sha256(pathlib.Path('resources/music-on-hold/lofi-beat-loop-schmoop.wav').read_bytes()).hexdigest()}
+          (root/'build-provenance.json').write_text(json.dumps(facts,indent=2)+'\n')
+          PY
+      - name: Store only canonical prepared audio and build provenance
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openwebpbx-windows-suite-music-${{ github.run_id }}
+          path: ${{ runner.temp }}/openwebpbx-music/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
+
+  suite:
+    needs: music
+    runs-on: windows-2025
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      DOTNET_NOLOGO: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+    steps:
+      - name: Preserve source bytes
+        run: git config --global core.autocrlf false
+      - name: Check out the candidate source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify build inputs and qualify the isolated server
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NATIVE_RUN_ID: ${{ inputs.native_run_id }}
+          ENGINE_RUN_ID: ${{ inputs.engine_run_id }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:NATIVE_RUN_ID -notmatch '^[0-9]+$' -or $env:ENGINE_RUN_ID -notmatch '^[0-9]+$'){throw 'Both inputs must be numeric run IDs.'}
+          & tests/windows-suite.ps1 -NativeRunId $env:NATIVE_RUN_ID -EngineRunId $env:ENGINE_RUN_ID -DisposableHostedRunner
+          if(!$?){throw 'Windows qualification did not finish.'}
+      - name: Store only credential-free acceptance facts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openwebpbx-windows-suite-facts-${{ github.run_id }}
+          path: ${{ runner.temp }}/openwebpbx-suite-public/
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 6

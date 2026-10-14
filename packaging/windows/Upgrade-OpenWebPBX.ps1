@@ -8,6 +8,10 @@ $private = Join-Path $env:ProgramData 'OpenWebPBX'
 $config = Join-Path $env:ProgramData 'fusionpbx'
 $switch = 'C:\Program Files\FreeSWITCH'
 $payload = $PSScriptRoot
+$gateHelper=Join-Path $PSScriptRoot 'Restore-Gates.ps1'
+if(!(Test-Path $gateHelper)){$gateHelper=Join-Path $root 'tools\Restore-Gates.ps1'}
+if(Test-Path $gateHelper){. $gateHelper}else{throw 'The Windows restore safeguards are missing.'}
+. (Join-Path (Split-Path $gateHelper -Parent) 'Support-Recovery.ps1')
 $updates = Join-Path $private 'updates'
 $journalPath = Join-Path $updates 'install-journal.json'
 $extracted = $null
@@ -85,7 +89,10 @@ function StopPbx {
  Get-Process OpenWebPbx.Desktop -ErrorAction SilentlyContinue | Stop-Process -Force
 }
 function StartPbx {
- foreach ($name in 'FreeSWITCH', 'OpenWebPBX') { if((Get-Service $name).Status -ne 'Running'){Start-Service $name} }
+ $gate=Get-OpenWebRestoreGate -StateRoot $private
+ if($gate.Blocked){throw 'Complete interrupted backup recovery before restarting PBX services.'}
+ if(!$gate.Calls -and (Get-Service FreeSWITCH).Status -ne 'Running'){Start-Service FreeSWITCH}
+ if(!$gate.Jobs -and (Get-Service OpenWebPBX).Status -ne 'Running'){Start-Service OpenWebPBX}
  if ((Get-WebAppPoolState OpenWebPBX).Value -ne 'Started') { Start-WebAppPool OpenWebPBX }; WaitPool 'Started'
  if((Get-Website -Name OpenWebPBX).State -ne 'Started'){Start-Website OpenWebPBX}
 }
@@ -172,6 +179,7 @@ function RestorePbx([string]$Backup) {
  CopyTree "$Backup\config" $config -Mirror
  CopyTree "$Backup\switch-scripts" "$switch\scripts" -Mirror
  CopyTree "$Backup\switch-conf" "$switch\conf" -Mirror
+ Restore-OpenWebSupport -Backup $Backup -Root $root -StateRoot $private -EngineRoot $switch
  Copy-Item "$Backup\installation.json" "$private\installation.json" -Force
  Copy-Item "$Backup\runtime.json" "$private\runtime.json" -Force
  if(Test-Path "$Backup\updater-install.json"){
@@ -240,10 +248,13 @@ try {
     $state=Get-Content "$private\installation.json" -Raw|ConvertFrom-Json
    }
   }
-  StartPbx;CheckHealth $state.Version
-  Write-Host 'Update recovery checked; the phone system is running.'
+  StartPbx
+  $gate=Get-OpenWebRestoreGate -StateRoot $private
+  if(!$gate.Calls -and !$gate.Jobs){CheckHealth $state.Version}
+  if($gate.Calls -or $gate.Jobs){Write-Host 'Update recovery checked. Restored calling and background jobs remain held.'}else{Write-Host 'Update recovery checked; the phone system is running.'}
   return
  }
+ if(!$Recover){Assert-OpenWebUpgradeAllowed -StateRoot $private}
  if($Archive){
   if(!$FeedEnvelope -or !$TargetVersion){throw 'A signed feed and target version are required.'}
   $installedUpdater=Get-Content "$private\updater-install.json" -Raw|ConvertFrom-Json
@@ -302,6 +313,8 @@ try {
  foreach ($item in Get-ChildItem "$payload\web" -Force -Recurse) {
   if ($item.Name -eq '.git' -or $item.Name -like '.env*' -or $item.Extension -in '.dump','.key','.pfx') { throw 'The release contains a private configuration path.' }
  }
+ & "$payload\Install-NativeEngine.ps1" -PackageRoot $payload -Check
+ & "$payload\Install-LocalCodec.ps1" -PackageRoot $payload -Check
  CheckIdle
  if ($Check) { Write-Host "OpenWeb PBX $version update files and installed call engine passed preflight."; return }
  if($Automatic){CheckWindow}
@@ -315,6 +328,8 @@ try {
  CopyTree $config "$backup\config"
  CopyTree "$switch\scripts" "$backup\switch-scripts"
  CopyTree "$switch\conf" "$backup\switch-conf"
+ CopyTree "$switch\sounds" "$backup\switch-sounds"
+ CopyTree "$switch\mod" "$backup\switch-mod"
  CopyTree "$private\storage" "$backup\storage"
  Copy-Item "$private\installation.json","$private\runtime.json" $backup
  if(Test-Path "$private\updater-install.json"){Copy-Item "$private\updater-install.json" $backup}
@@ -330,6 +345,8 @@ try {
  # Capture media completed during the online copy before taking the matching
  # database snapshot. The second copy transfers only the changed files.
  CopyTree "$private\storage" "$backup\storage" -Mirror
+ CopyTree "$switch\conf" "$backup\switch-conf" -Mirror
+ Save-OpenWebSupport -Backup $backup -PackageRoot $payload -Root $root -StateRoot $private -EngineRoot $switch
  Run "$root\pgsql\bin\pg_dump.exe" @('-h','127.0.0.1','-p','5433','-U','postgres','-d','fusionpbx','-w','-Fc',"--file=$backup\database.dump")
  SealBackup $backup
  $backupReady = $true
@@ -337,7 +354,13 @@ try {
  Write-Host 'Backup complete. Updating the application and call-engine scripts...'
  # Keep local optional applications and server.json; only reviewed release files
  # are replaced. Database, settings, keys and existing media are never re-created.
- foreach ($part in 'web','server','desktop') { CopyTree "$payload\$part" "$root\$part" }
+ foreach ($part in 'web','server','desktop','acme') { CopyTree "$payload\$part" "$root\$part" }
+ CopyTree "$root\web\app\switch\resources\scripts" "$switch\scripts"
+ CopyTree "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_setup" "$switch\scripts\app\pbx_setup"
+ & "$payload\Install-NativeEngine.ps1" -PackageRoot $payload
+ & "$payload\Install-LocalCodec.ps1" -PackageRoot $payload
+ & "$payload\Configure-PHP.ps1" -PackageRoot $payload
+ & "$payload\configure-notifications.ps1" -StateRoot $private
  SaveJournal 'migrating'
  Push-Location "$root\web"
  try {
@@ -345,10 +368,14 @@ try {
   foreach ($step in '--defaults','--group','--menu') { Run "$root\php\php.exe" @('core\upgrade\upgrade.php',$step) }
   Run "$root\php\php.exe" @("$payload\bootstrap.php","$root\web",'migrate')
  } finally { Pop-Location }
+ Run "$root\php\php.exe" @("$payload\configure-codec.php","$root\web")
  CopyTree "$root\web\app\switch\resources\scripts" "$switch\scripts"
  CopyTree "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_setup" "$switch\scripts\app\pbx_setup"
  Copy-Item "$root\web\app\pbx_setup\resources\prompts\*.wav" "$switch\sounds\openwebpbx" -Force
  Copy-Item "$root\web\app\pbx_setup\resources\prompts\openweb.xml" "$switch\conf\languages\en\ivr\openweb.xml" -Force
+ Run "$root\php\php.exe" @("$payload\configure-music.php","$payload\music","$root\web","$switch\conf\vars.xml")
+ & "$payload\Install-Backups.ps1" -PackageRoot $payload -DeferRestart -UpgradeLockHeld
+ & "$payload\Install-MailQueue.ps1" -PackageRoot $payload -DeferStart -MaintenanceLock $lock
  Remove-Item "$private\cache\*" -Recurse -Force -ErrorAction SilentlyContinue
  $state.Version = $version
  WriteState "$private\installation.json" $state
@@ -356,6 +383,12 @@ try {
  StartPbx; ResumeEngine; $stopped = $false; CheckHealth $version
  if(Test-Path "$payload\updater\OpenWebPbx.Updater.exe"){& "$payload\Install-Updater.ps1" -PackageRoot $payload -DeferRestart}
  SaveJournal 'completed'
+ Enable-ScheduledTask -TaskName OpenWebPBX-Backups | Out-Null
+ Enable-ScheduledTask -TaskName 'OpenWebPBX Outgoing Mail' | Out-Null
+ if(Get-ScheduledTask -TaskName OpenWebPBX-Cleanup -ErrorAction SilentlyContinue){
+  $support=Get-Content "$backup\support-state.json" -Raw|ConvertFrom-Json
+  if($support.Tasks.'OpenWebPBX-Cleanup'.Enabled){Enable-ScheduledTask -TaskName OpenWebPBX-Cleanup|Out-Null}
+ }
  ResumeManagers
  $success = $true
  Write-Host "OpenWeb PBX $version is running. Private backup: $backup"

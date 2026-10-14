@@ -245,7 +245,12 @@ function send_email(id, uuid)
 				intro = voicemail_dir.."/"..id.."/intro_"..uuid.."."..vm_message_ext;
 				combined = voicemail_dir.."/"..id.."/intro_msg_"..uuid.."."..vm_message_ext;
 				if (file_exists(intro) and file_exists(file)) then
-					os.execute("sox "..intro.." "..shell_esc(file).." "..shell_esc(combined));
+					if package.config:sub(1,1)==[[\]] then
+                        local ok=pcall(require('resources.functions.windows_audio').concat,intro,file,combined)
+                        if not ok then error('Windows forwarded voicemail requires matching PCM WAV recordings') end
+                    else
+                        os.execute("sox "..intro.." "..shell_esc(file).." "..shell_esc(combined));
+                    end
 				end
 
 			--prepare the subject
