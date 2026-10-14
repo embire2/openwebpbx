@@ -157,7 +157,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $release = Get-Content "$env:ENGINE_WORK/engine/native-manifest.json" -Raw | ConvertFrom-Json
-          $python = (Get-Command python.exe -CommandType Application).Source
+          $python = (& python.exe -I -c 'import sys; print(sys.executable)').Trim()
+          if ($LASTEXITCODE -or !(Test-Path -LiteralPath $python -PathType Leaf)) { throw 'The actual hosted Python interpreter is unavailable.' }
           $pythonHash = (Get-FileHash -LiteralPath $python -Algorithm SHA256).Hash.ToLowerInvariant()
           & tests/windows-registrar-limits.ps1 -EngineRoot $env:NATIVE_CORE_ROOT -CandidateModule "$env:ENGINE_WORK/engine/mod/mod_sofia.dll" -ExpectedCandidateSha256 $release.files.'mod/mod_sofia.dll' -Python $python -ExpectedPythonSha256 $pythonHash -Report "$env:ENGINE_WORK/registrar-limits.json" -DisposableHostedRunner
           if (!$?) { throw 'Actual native canonical registration quotas did not qualify.' }
