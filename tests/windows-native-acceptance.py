@@ -27,6 +27,19 @@ def fixture_failure(record,action):
             'active_case':'fixture_php_'+action.replace('-','_')+'_'+record['stage']}
 
 
+def g729_negotiation_failure(call):
+    code=call.get('code');payload=call.get('media',{}).get('pt')
+    if type(code) is int and code==200 and type(payload) is int and payload==18:return None
+    failure=AssertionError('Forced G729 offer was not negotiated')
+    failure.active_case='independent_g729_offer_refused' if code!=200 else 'independent_g729_answer_payload_mismatch'
+    failure.sip_failure={}
+    if type(code) is int and 200<=code<=699:failure.sip_failure['sip_response_code']=code
+    challenges=call.get('digest_challenge_count')
+    if type(challenges) is int and 0<=challenges<=3:failure.sip_failure['digest_challenge_count']=challenges
+    if type(payload) is int and 0<=payload<=127:failure.sip_failure['negotiated_payload_type']=payload
+    return failure
+
+
 def guard():
     if os.name != 'nt' or os.environ.get('OPENWEB_WINDOWS_NATIVE_TEST') != '1' or os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted' or os.environ.get('GITHUB_REPOSITORY') != 'embire2/openwebpbx':
         raise RuntimeError('Explicit disposable Windows hosted runner required')
@@ -86,6 +99,19 @@ class Web:
         status,_,text=self.request('/app/pbx_setup/live.php');assert status==200
         token=json.loads(text)['token'];fields={token['name']:token['hash'],'operation':'agent','queue':'8190','number':number,'agent_state':state}
         status,_,text=self.request('/app/pbx_setup/live.php',fields);assert status==200 and 'error' not in json.loads(text),'Normal supervisor action failed'
+    def extension_codecs(self,user,codecs):
+        assert codecs in ('PCMU','PCMU,G729') and re.fullmatch(r'[a-f0-9-]{36}',user['extension_uuid'])
+        path='/app/extensions/extension_edit.php?id='+user['extension_uuid']
+        status,_,text=self.request(path);assert status==200,'Normal extension audio form unavailable'
+        forms=[form for form in Forms(text).forms if form['fields'].get('extension_uuid')==user['extension_uuid'] and 'absolute_codec_string' in form['fields']]
+        assert len(forms)==1,'Normal administrator audio choice unavailable'
+        fields=dict(forms[0]['fields'])
+        assert fields.get('domain_uuid')==user['domain_uuid'] and fields.get('extension')==user['auth'] and fields.get('password')==user['password'],'The audio form does not retain the fictional phone identity'
+        fields['absolute_codec_string']=codecs;fields['range']='1'
+        status,_,text=self.request(forms[0]['action'] or path,fields);assert status==200,'Normal administrator audio save failed'
+        forms=[form for form in Forms(text).forms if form['fields'].get('extension_uuid')==user['extension_uuid']]
+        assert len(forms)==1 and forms[0]['fields'].get('absolute_codec_string')==codecs,'Normal administrator audio choice did not reload'
+        assert forms[0]['fields'].get('domain_uuid')==user['domain_uuid'] and forms[0]['fields'].get('extension')==user['auth'] and forms[0]['fields'].get('password')==user['password'],'Audio save changed the fictional phone identity'
 
 
 class NativePlayback:
@@ -359,6 +385,12 @@ def normal_setup(f,web):
         web.submit('/app/pbx_setup/?view='+view+'&edit='+number,'save',fields)
     for n in ['8100','8101','8102','8103']:
         save('users',n,{'name':'Fictional Peer '+n,'email':'sink@example.invalid','enabled':'1','voicemail_enabled':'1','voicemail_email':'Attachment' if n=='8103' else 'None','profile':'Available','timeout':'3','auto_status':'','hold_music':'openweb-music','no_answer':'VoiceMail:'+n,'busy':'VoiceMail:'+n,'not_registered':'VoiceMail:'+n})
+    for index,codecs in [(0,'PCMU,G729'),(1,'PCMU')]:
+        f.active_case='normal_admin_owned_extension_audio_preferences'
+        user=f.s['users'][index];web.extension_codecs(user,codecs)
+        actual=f.cli('status')['extension_codec_preferences'][user['auth']]
+        assert actual['extension_uuid']==user['extension_uuid'] and actual['absolute_codec_string']==codecs and actual['password_sha256']==hashlib.sha256(user['password'].encode()).hexdigest(),'Normal audio save changed the owned tuple or preference'
+    f.record('normal_admin_https_csrf_explicit_caller_pcmu_g729_and_peer_pcmu_identity_preserved')
     save('ring_groups','new',{'name':'Fictional simultaneous group','number':'8180','members[]':['8101','8102'],'ring_order':'8101,8102','strategy':'RingAll','timeout':'4','destination':'Extension:8102'})
     save('ring_groups','new',{'name':'Fictional hunting group','number':'8181','members[]':['8101','8102'],'ring_order':'8101,8102','strategy':'Hunt','timeout':'4','destination':'Extension:8102'})
     save('queues','new',{'name':'Fictional queue','number':'8190','members[]':['8101','8102'],'ring_order':'8101,8102','strategy':'PrioritizedHunt','timeout':'8','ring_timeout':'3','wrap_up':'2','queue_options_present':'1','capacity':'0','service_target':'15','tier_wait':'2','callback_mode':'request','callback_after':'2','callback_attempts':'1','callback_prefix':'','destination':'Extension:8102','moh':'openweb-music'})
@@ -451,7 +483,13 @@ def native_calls(f):
         def response(self,*a,**kw):
             return super().response(*a,**kw).replace(f'@{self.ip}:{self.port}>'.encode(),f'@{self.ip}:{self.port};transport={self.transport}>'.encode())
     class G729Phone(Phone):
-        def __init__(self,u,codec):self.codec=codec;super().__init__(u,'tls')
+        def __init__(self,u,codec):self.codec=codec;self.invite_packets=[];super().__init__(u,'tls')
+        def packet(self,*args,**kwargs):
+            result=super().packet(*args,**kwargs)
+            if args and args[0]=='INVITE':
+                self.invite_packets.append(result);assert len(self.invite_packets)<=4 and sum(map(len,self.invite_packets))<=262144,'Owned G729 INVITE trace exceeded its bound'
+                (f.evidence/'g729-invite-requests.private.bin').write_bytes(b'\n\n'.join(self.invite_packets))
+            return result
         def media(self,pt=18):
             state=super().media(18);state['codec_contexts']=self.codec.contexts();return state
         def sdp(self,state,offer=False):
@@ -523,13 +561,19 @@ def native_calls(f):
                 raise failure
         f.record('native_tls_signalling_two_way_decoded_rtp',**call_check('8101'))
         f.active_case='independent_g729_pcmu_transcoding'
+        (f.evidence/'g729-profile.private.txt').write_text(f.cli('api','sofia status profile internal',json_result=False))
+        (f.evidence/'g729-implementations.private.json').write_text(f.cli('api','show codecs as json',json_result=False))
         codec=BCG729(f.s['private_state_root']);g729=G729Phone(users[0],codec)
         try:
             # The guided account permits one contact. Replace the regular
             # caller explicitly for this alternate-codec call, then restore it.
             assert caller.register((bind,5061),expires=0)['code']==200
             assert g729.register((bind,5061))['code']==200
-            old=set(a.dialogs);call=g729.dial('8101',(bind,5061));assert call['code']==200 and call['media']['pt']==18,'Forced G729 offer was not negotiated'
+            old=set(a.dialogs);call=g729.dial('8101',(bind,5061))
+            assert len(call.get('text',''))<=1048576,'Owned G729 response exceeded its bound'
+            (f.evidence/'g729-invite-response.private.txt').write_text(call.get('text',''))
+            failure=g729_negotiation_failure(call)
+            if failure:f.active_case=failure.active_case;raise failure
             remote=f.wait(lambda:next((v for k,v in a.dialogs.items() if k not in old and v.get('acked')),None));assert remote['pt']==0,'Opposite leg did not stay PCMU'
             time.sleep(7);sip.rtp_rate_check(call['media']);sip.rtp_rate_check(remote)
             up=original.decoded_tone_check(remote,g729.tone_hz);down=original.decoded_tone_check(call['media'],a.tone_hz)

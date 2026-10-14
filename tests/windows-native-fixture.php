@@ -83,9 +83,8 @@ if($action==='discover'){
   if(!isset($c['users'][$n]))throw new RuntimeException('Normal HTTPS users missing.');$u=&$c['users'][$n];
   $u['auth_id']=$auth;$u['contact_user']=(string)$n;
   $fixtureStage='extension_update';$q('update v_extensions set extension=? where domain_uuid=? and extension_uuid=?',[$auth,$domain,$u['extension_uuid']]);
-  if((string)$n==='8101')$q("update v_extensions set absolute_codec_string='PCMU' where domain_uuid=? and extension_uuid=?",[$domain,$u['extension_uuid']]);
   $password=$q('select password from v_extensions where domain_uuid=? and extension_uuid=?',[$domain,$u['extension_uuid']])->fetchColumn();
-  $s['users'][]=['number'=>(string)$n,'auth'=>$auth,'password'=>$password,'tone_hz'=>440+array_search($n,array_keys($auths),true)*110];
+  $s['users'][]=['number'=>(string)$n,'auth'=>$auth,'password'=>$password,'extension_uuid'=>$u['extension_uuid'],'domain_uuid'=>$domain,'tone_hz'=>440+array_search($n,array_keys($auths),true)*110];
  }unset($u);
  $fixtureStage='policy_save';$q('update v_pbx_restore set config=cast(? as jsonb) where domain_uuid=?',[json_encode($c,JSON_THROW_ON_ERROR),$domain]);$db->commit();$save();
  $fixtureStage='cache_refresh';foreach($s['users'] as $u)(new cache)->delete('directory:'.$u['auth'].'@'.$realm);event_socket::api('reloadxml');echo "{\"normal_https_users_discovered\":4,\"fictional_auth_collision\":true}\n";exit;
@@ -94,7 +93,8 @@ if($action==='status'){
  $status=event_socket::api('sofia status profile internal');if(!preg_match('/^\s*SIP-IP\s+([0-9.]+)\s*$/m',$status,$m))throw new RuntimeException('Native profile IP unavailable.');
  $messages=$q('select m.voicemail_message_uuid,m.message_length,v.voicemail_id from v_voicemail_messages m join v_voicemails v using(voicemail_uuid,domain_uuid) where m.domain_uuid=?',[$domain])->fetchAll(PDO::FETCH_ASSOC);
  foreach($messages as &$message)$message['message_path']=pbx_paths::voicemail().'/default/'.$realm.'/'.$message['voicemail_id'].'/msg_'.$message['voicemail_message_uuid'].'.wav';unset($message);
- echo json_encode(['bind'=>$m[1],'config'=>$c,'registration_limits'=>$q('select max_registrations from v_extensions where domain_uuid=? order by extension',[$domain])->fetchAll(PDO::FETCH_COLUMN),'jobs'=>$q('select job_uuid,kind,state,attempts,last_result,call_uuid from v_pbx_jobs where domain_uuid=? order by created_at',[$domain])->fetchAll(PDO::FETCH_ASSOC),'voicemail'=>$messages,'mail'=>$q('select email_queue_uuid,email_uuid,email_status,email_retry_count from v_email_queue where domain_uuid=?',[$domain])->fetchAll(PDO::FETCH_ASSOC)],JSON_THROW_ON_ERROR);exit;
+ $codecPreferences=[];foreach($q('select extension_uuid,extension,password,absolute_codec_string from v_extensions where domain_uuid=?',[$domain])->fetchAll(PDO::FETCH_ASSOC) as $row)$codecPreferences[$row['extension']]=['extension_uuid'=>$row['extension_uuid'],'absolute_codec_string'=>$row['absolute_codec_string']??'','password_sha256'=>hash('sha256',$row['password'])];
+ echo json_encode(['bind'=>$m[1],'config'=>$c,'extension_codec_preferences'=>$codecPreferences,'registration_limits'=>$q('select max_registrations from v_extensions where domain_uuid=? order by extension',[$domain])->fetchAll(PDO::FETCH_COLUMN),'jobs'=>$q('select job_uuid,kind,state,attempts,last_result,call_uuid from v_pbx_jobs where domain_uuid=? order by created_at',[$domain])->fetchAll(PDO::FETCH_ASSOC),'voicemail'=>$messages,'mail'=>$q('select email_queue_uuid,email_uuid,email_status,email_retry_count from v_email_queue where domain_uuid=?',[$domain])->fetchAll(PDO::FETCH_ASSOC)],JSON_THROW_ON_ERROR);exit;
 }
 if($action==='job'){
  // Synthetic callback uses an explicit internal target. A wire caller ID is
@@ -111,7 +111,7 @@ if($action==='voicemail-login'){
 }
 if($action==='api'){
  $command=$argv[3]??'';
- $allowed=in_array($command,['status','show channels as json','sofia status profile internal','fsctl pause_check'],true);
+ $allowed=in_array($command,['status','show channels as json','show codecs as json','sofia status profile internal','fsctl pause_check'],true);
  foreach($s['users'] as $u)foreach(['sofia_contact ','user_data '] as $prefix)if($command===$prefix.$u['auth'].'@'.$realm||$command===$prefix.$u['auth'].'@'.$realm.' param password')$allowed=true;
  if(!$allowed)throw new RuntimeException('Only owned read-only native queries are allowed.');echo event_socket::api($command);exit;
 }

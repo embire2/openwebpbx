@@ -48,9 +48,10 @@ function SafeFailureFields($Record){
  if(($Record.source_line -is [int] -or $Record.source_line -is [long]) -and $Record.source_line -gt 0 -and $Record.source_line -lt 100000){$safe.source_line=[int]$Record.source_line}
  if(($Record.caller_line -is [int] -or $Record.caller_line -is [long]) -and $Record.caller_line -gt 0 -and $Record.caller_line -lt 100000){$safe.caller_line=[int]$Record.caller_line}
  if(($Record.command_exit -is [int] -or $Record.command_exit -is [long]) -and $Record.command_exit -ge [int]::MinValue -and $Record.command_exit -le [int]::MaxValue){$safe.command_exit=[int]$Record.command_exit}
- if($Record.active_case -is [string] -and $Record.active_case -match '^native_media_peer_(udp|tcp|tls)_registration_[0-2]$'){
+ if($Record.active_case -is [string] -and $Record.active_case -match '^(native_media_peer_(udp|tcp|tls)_registration_[0-2]|independent_g729_(offer_refused|answer_payload_mismatch))$'){
   if(($Record.sip_response_code -is [int] -or $Record.sip_response_code -is [long]) -and $Record.sip_response_code -ge 200 -and $Record.sip_response_code -le 699){$safe.sip_response_code=[int]$Record.sip_response_code}
   if(($Record.digest_challenge_count -is [int] -or $Record.digest_challenge_count -is [long]) -and $Record.digest_challenge_count -ge 0 -and $Record.digest_challenge_count -le 3){$safe.digest_challenge_count=[int]$Record.digest_challenge_count}
+  if($Record.active_case -match '^independent_g729_' -and ($Record.negotiated_payload_type -is [int] -or $Record.negotiated_payload_type -is [long]) -and $Record.negotiated_payload_type -ge 0 -and $Record.negotiated_payload_type -le 127){$safe.negotiated_payload_type=[int]$Record.negotiated_payload_type}
  }
  return $safe
 }

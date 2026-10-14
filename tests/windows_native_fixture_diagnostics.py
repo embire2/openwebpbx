@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise bounded fixture diagnostics without installing or contacting a PBX."""
 import importlib.util
+import html
 import json
 import subprocess
 import tempfile
@@ -83,5 +84,35 @@ echo json_encode($results,JSON_THROW_ON_ERROR);
             check(not hasattr(error, 'fixture_failure'))
         else:
             raise AssertionError('Failed PHP subprocess was accepted')
+
+    check(native.g729_negotiation_failure({'code':200,'media':{'pt':18}}) is None)
+    failure=native.g729_negotiation_failure({'code':488,'text':'PRIVATE_SIP_RESPONSE','digest_challenge_count':1})
+    check(failure.active_case=='independent_g729_offer_refused' and failure.sip_failure=={'sip_response_code':488,'digest_challenge_count':1})
+    check('PRIVATE_SIP_RESPONSE' not in str(failure))
+    failure=native.g729_negotiation_failure({'code':200,'media':{'pt':0},'digest_challenge_count':1})
+    check(failure.active_case=='independent_g729_answer_payload_mismatch' and failure.sip_failure['negotiated_payload_type']==0)
+    for values in [{'code':True,'media':{'pt':False},'digest_challenge_count':False},
+                   {'code':'PRIVATE_CODE','media':{'pt':'PRIVATE_PT'},'digest_challenge_count':'PRIVATE_COUNT'},
+                   {'code':199,'media':{'pt':-1},'digest_challenge_count':-1},
+                   {'code':700,'media':{'pt':128},'digest_challenge_count':4}]:
+        check(native.g729_negotiation_failure(values).sip_failure=={})
+
+    user={'extension_uuid':'11111111-1111-4111-8111-111111111111','domain_uuid':'22222222-2222-4222-8222-222222222222','auth':'fixture-8100','password':'PRIVATE_PASSWORD&<"'}
+    fields={'extension_uuid':user['extension_uuid'],'domain_uuid':user['domain_uuid'],'extension':user['auth'],'password':user['password'],'absolute_codec_string':'PCMU','csrf-fictional':'PRIVATE_CSRF','max_registrations':'1','description':'Preserve fictional description'}
+    def form(values):return '<form method="post">'+''.join('<input name="'+html.escape(key,quote=True)+'" value="'+html.escape(value,quote=True)+'">' for key,value in values.items())+'</form>'
+    requests=[];web=native.Web.__new__(native.Web)
+    def request(path,payload=None):
+        requests.append((path,payload))
+        if payload is None:return 200,path,form(fields)
+        check(payload['csrf-fictional']==fields['csrf-fictional'] and payload['password']==user['password'] and payload['domain_uuid']==user['domain_uuid'])
+        check(payload['max_registrations']=='1' and payload['description']==fields['description'] and payload['range']=='1')
+        return 200,path,form(payload)
+    web.request=request;web.extension_codecs(user,'PCMU,G729')
+    check(len(requests)==2 and requests[1][1]['absolute_codec_string']=='PCMU,G729')
+    wrong=fields|{'domain_uuid':'33333333-3333-4333-8333-333333333333'};requests=[]
+    web.request=lambda path,payload=None:(requests.append((path,payload)) or (200,path,form(wrong)))
+    try:web.extension_codecs(user,'PCMU')
+    except AssertionError:check(len(requests)==1)
+    else:raise AssertionError('Foreign-domain audio form was submitted')
 
 print(f'PASS {checks} bounded PHP/Python fixture diagnostic checks; no PBX contacted')
