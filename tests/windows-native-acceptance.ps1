@@ -25,7 +25,12 @@ $envBefore=$env:OPENWEB_WINDOWS_NATIVE_TEST;$opensslBefore=$env:OPENSSL_CONF;$en
 $script="$source\tests\windows-native-acceptance.py";$fixture="$source\tests\windows-native-fixture.php";$pkiProcess=$null;$leaf=$null;$rootCertificate=$null;$binding=$null;$originalBinding=$null;$baseline=$false;$nativePassed=$false;$cleanupPassed=$false;$phase='factory inventory';$errorType=$null
 $facts=[ordered]@{schema=1;state='running';platform='Windows Server 2025 x64';scope='fictional disposable hosted runner';checks=@();gates=[ordered]@{native_sip_audio='pending';smtp='pending';notification_store='pending';cleanup='pending';public_acme='unqualified';physical_devices='unqualified';carrier='unqualified';android_hardware='unqualified'}}
 function Php([string]$Action){$output=& "$root\php\php.exe" $fixture $Action $privateInput 2>>"$evidence\private-php-errors.log";if($LASTEXITCODE){throw 'Private native fixture operation failed.'};return ($output -join "`n")}
-function Python([string]$Phase){& $python -I $script --input $privateInput --phase $Phase 1>>"$evidence\private-python.log" 2>>"$evidence\private-python-errors.log";if($LASTEXITCODE){throw 'Actual native qualification did not pass.'}}
+function Python([string]$Phase){
+ $beforeModules=$env:PSModulePath
+ $env:PSModulePath=(Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')
+ try{& $python -I $script --input $privateInput --phase $Phase 1>>"$evidence\private-python.log" 2>>"$evidence\private-python-errors.log";if($LASTEXITCODE){throw 'Actual native qualification did not pass.'}}
+ finally{if($null -eq $beforeModules){Remove-Item Env:\PSModulePath -ErrorAction SilentlyContinue}else{$env:PSModulePath=$beforeModules}}
+}
 function FixtureBinding([byte[]]$Hash,[string]$Store,[switch]$Read){
  Add-Type -Path "$env:windir\System32\inetsrv\Microsoft.Web.Administration.dll"
  $manager=[Microsoft.Web.Administration.ServerManager]::new()
@@ -43,6 +48,7 @@ function ConfigureFixturePhoneTls([string]$Thumbprint,[string]$Chain){
  # by the installed manager/updater/tasks, never a PS7 compatibility proxy.
  $start=[Diagnostics.ProcessStartInfo]::new("$env:windir\System32\WindowsPowerShell\v1.0\powershell.exe")
  $start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+ $start.Environment['PSModulePath']=(Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')
  foreach($arg in @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PackageRoot 'Enable-PhoneTLS.ps1'),'-CertificateThumbprint',$Thumbprint,'-FullChainPath',$Chain)){$start.ArgumentList.Add($arg)}
  $process=[Diagnostics.Process]::Start($start)
  try{

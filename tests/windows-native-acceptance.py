@@ -12,6 +12,8 @@ from email.policy import default
 from html.parser import HTMLParser
 from pathlib import Path
 
+WINPS=str(Path(os.environ.get('SystemRoot','C:/Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe')
+
 
 def guard():
     if os.name != 'nt' or os.environ.get('OPENWEB_WINDOWS_NATIVE_TEST') != '1' or os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted' or os.environ.get('GITHUB_REPOSITORY') != 'embire2/openwebpbx':
@@ -489,13 +491,13 @@ def smtp_and_queued_voicemail(f):
         worker=threading.Thread(target=sink.serve_forever,daemon=True);worker.start()
         try:
             f.cli('mail-seed');before=f.cli('status')['mail']
-            subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File','C:/OpenWebPBX/tools/Install-MailQueue.ps1','-Tick'],capture_output=True,check=True,timeout=110)
+            subprocess.run([WINPS,'-NoProfile','-NonInteractive','-File','C:/OpenWebPBX/tools/Install-MailQueue.ps1','-Tick'],capture_output=True,check=True,timeout=110)
             assert f.cli('status')['mail']==before,'Unconfigured queue consumed retry/status'
             f.record('native_global_smtp_unconfigured_queue_preserves_attempts')
             f.active_case='native_voicemail_global_smtp_ip_attachment'
             values={'smtp_host':'127.0.0.1','smtp_port':str(sink.server_address[1]),'smtp_secure':'none','smtp_from':'pbx@example.invalid','smtp_from_name':'Fictional Windows PBX','smtp_reply_to':'reply@example.invalid','smtp_ip_whitelisted':'1','smtp_username':'','smtp_password':''}
             f.web.submit('/app/smtp_settings/','save',values)
-            subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File','C:/OpenWebPBX/tools/Install-MailQueue.ps1','-Tick'],capture_output=True,check=True,timeout=110)
+            subprocess.run([WINPS,'-NoProfile','-NonInteractive','-File','C:/OpenWebPBX/tools/Install-MailQueue.ps1','-Tick'],capture_output=True,check=True,timeout=110)
             f.wait(lambda:len(sink.deliveries)>=2,15)
             messages=[BytesParser(policy=default).parsebytes(data) for _,data in sink.deliveries]
             assert all(str(m['From'])=='Fictional Windows PBX <pbx@example.invalid>' and str(m['Reply-To'])=='Fictional Windows PBX <reply@example.invalid>' for m in messages),'Global SMTP sender/reply identity not enforced'
@@ -506,7 +508,7 @@ def smtp_and_queued_voicemail(f):
             f.active_case='global_smtp_password_auth'
             f.cli('mail-seed');values.update(smtp_ip_whitelisted='0',smtp_username='fixture-user',smtp_password='fixture-password')
             f.web.submit('/app/smtp_settings/','save',values)
-            old=len(sink.deliveries);subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File','C:/OpenWebPBX/tools/Install-MailQueue.ps1','-Tick'],capture_output=True,check=True,timeout=110)
+            old=len(sink.deliveries);subprocess.run([WINPS,'-NoProfile','-NonInteractive','-File','C:/OpenWebPBX/tools/Install-MailQueue.ps1','-Tick'],capture_output=True,check=True,timeout=110)
             f.wait(lambda:len(sink.deliveries)>old,15);assert sink.deliveries[-1][0],'Global SMTP password AUTH failed'
             f.record('native_global_smtp_password_auth_actual_loopback')
         finally:sink.shutdown();worker.join(3)
@@ -524,7 +526,7 @@ def smtp_and_queued_voicemail(f):
             f.web.submit('/app/smtp_settings/','check',{})
             assert not sink.deliveries,'Saved connection check unexpectedly delivered mail'
             f.cli('mail-seed')
-            subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File','C:/OpenWebPBX/tools/Install-MailQueue.ps1','-Tick'],capture_output=True,check=True,timeout=110)
+            subprocess.run([WINPS,'-NoProfile','-NonInteractive','-File','C:/OpenWebPBX/tools/Install-MailQueue.ps1','-Tick'],capture_output=True,check=True,timeout=110)
             f.wait(lambda:bool(sink.deliveries),15);assert sink.deliveries[-1][0],'Trusted SMTP TLS/AUTH failed'
             f.record('native_global_smtp_trusted_tls_hostname_auth_actual_loopback',no_external_mail=True)
         finally:sink.shutdown();worker.join(3)

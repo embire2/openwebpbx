@@ -208,6 +208,7 @@ try{
 '@
  [IO.File]::WriteAllText($launcher,$launchCode,[Text.UTF8Encoding]::new($false))
  $start=[Diagnostics.ProcessStartInfo]::new();$start.FileName=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe';$start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+ $start.Environment['PSModulePath']=(Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell/Modules')
  foreach($arg in '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$launcher,'-InputPath',$installInput){$start.ArgumentList.Add($arg)}
  $process=[Diagnostics.Process]::Start($start);$stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
  if(!$process.WaitForExit(2400000)){throw 'The real installation is still running; its private state must not be interrupted.'}
@@ -262,7 +263,7 @@ try{
     finally{if($null -eq $prior){Remove-Item Env:\OPENWEB_WINDOWS_BACKUP_TEST -ErrorAction SilentlyContinue}else{$env:OPENWEB_WINDOWS_BACKUP_TEST=$prior}}
     foreach($path in (Join-Path $state ('storage/openwebpbx/'+$record.fixture_domain)),(Join-Path $state 'storage/recordings/backup-fixture.wav'),'C:/Program Files/FreeSWITCH/sounds/openwebpbx/backup-fixture.wav'){Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue}
    }
-   & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command 'Import-Module WebAdministration;if(Test-Path IIS:\Sites\OpenWebPBX){Stop-Website OpenWebPBX};if(Test-Path IIS:\AppPools\OpenWebPBX){Stop-WebAppPool OpenWebPBX}' *> $null
+   & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command '$env:PSModulePath=($PSHOME+"\Modules")+";"+($env:ProgramFiles+"\WindowsPowerShell\Modules");$ErrorActionPreference="Stop";if(Test-Path ($PSHOME+"\Modules\WebAdministration\WebAdministration.psd1")){Import-Module WebAdministration;if(Test-Path IIS:\Sites\OpenWebPBX){Stop-Website OpenWebPBX};if(Test-Path IIS:\AppPools\OpenWebPBX){Stop-WebAppPool OpenWebPBX}}' *> $null
    if($LASTEXITCODE){throw 'Owned IIS cleanup did not finish.'}
    if(Get-Service OpenWebPBX-Database -ErrorAction SilentlyContinue){Stop-Service OpenWebPBX-Database -Force}
   }
@@ -272,10 +273,13 @@ try{
    Remove-LocalUser -Name $sftp.name -ErrorAction SilentlyContinue;Remove-Item -LiteralPath $sftp.directory -Recurse -Force -ErrorAction SilentlyContinue
   }
   if($hostAdded){$text=[IO.File]::ReadAllText($hosts);$text=[regex]::Replace($text,'(?m)^127\.0\.0\.1 windowsqa\.example\.invalid '+[regex]::Escape($marker)+'\r?\n','');[IO.File]::WriteAllText($hosts,$text,[Text.UTF8Encoding]::new($false))}
- }catch{$cleanup=$false}
+ }catch{
+  $cleanup=$false
+  $facts.cleanup_failure=SafeFailureFields ([pscustomobject]@{error_type=$_.Exception.GetType().FullName;source_basename=(Split-Path -Leaf $_.InvocationInfo.ScriptName);source_line=[int]$_.InvocationInfo.ScriptLineNumber})
+ }
  if($acceptanceFile){Remove-Item -LiteralPath $acceptanceFile -Force -ErrorAction SilentlyContinue}
  $facts.cleanup=if($cleanup){'owned services stopped, SFTP receiver/account removed, hostname removed, activation holds preserved'}else{'failed'}
- if(!$cleanup){$facts.state='failed';$facts.failed_phase='owned cleanup'}
+ if(!$cleanup){if($facts.state -ne 'failed'){$facts.failed_phase='owned cleanup'};$facts.state='failed'}
  PublishFacts
  # Only the acceptance allowlist above is uploaded. This includes no backup,
  # machine configuration, PostgreSQL data, PEM/PFX, auth ID, password or logs.

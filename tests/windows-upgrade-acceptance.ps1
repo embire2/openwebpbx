@@ -25,6 +25,7 @@ function Python([string[]]$Arguments){& $python -I @Arguments;if($LASTEXITCODE){
 function InvokeHelper([string]$Path,[string[]]$Arguments,[string]$Name){
  $stdout=Join-Path $work ($Name+'.out');$stderr=Join-Path $work ($Name+'.err')
  $start=[Diagnostics.ProcessStartInfo]::new();$start.FileName=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe';$start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true;$start.CreateNoWindow=$true
+ $start.Environment['PSModulePath']=(Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell/Modules')
  foreach($argument in @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$Path)+$Arguments){$start.ArgumentList.Add($argument)}
  $process=[Diagnostics.Process]::Start($start);$out=$process.StandardOutput.ReadToEndAsync();$err=$process.StandardError.ReadToEndAsync()
  if(!$process.WaitForExit(1200000)){throw 'The native upgrade helper did not finish in its bounded time; its durable journal must recover it.'}
@@ -160,7 +161,9 @@ function BeginManager {
  }
  $script:managerOriginal=$original;WriteJson (Join-Path $work 'manager-task-original.json') $original
  $script:managerOwned=$true;$script:managerStarted=[DateTime]::UtcNow
- Start-Process -FilePath $managerExe -WorkingDirectory (Split-Path $managerExe)|Out-Null
+ $start=[Diagnostics.ProcessStartInfo]::new($managerExe);$start.UseShellExecute=$false;$start.WorkingDirectory=Split-Path $managerExe
+ $start.Environment['PSModulePath']=(Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell/Modules')
+ $process=[Diagnostics.Process]::Start($start);$process.Dispose()
  $visible=WaitManager
  if($visible){$script:managerAvailable=$true;WriteJson (Join-Path $work 'manager-initial.json') @{pid=$visible.Id;owner=$managerSid;session=$managerSession;title=$visible.MainWindowTitle}}
  else{$report.manager_environment='initial responsive installed window unavailable';ClearManager}
@@ -191,9 +194,11 @@ function ClearManager {
  if($managerOriginal.exists){
   Register-ScheduledTask -TaskName $managerName -Xml $managerOriginal.xml -Force|Out-Null
   if($managerOriginal.enabled){Enable-ScheduledTask -TaskName $managerName|Out-Null}else{Disable-ScheduledTask -TaskName $managerName|Out-Null}
-  $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect();$scheduler.GetFolder('\').GetTask($managerName).SetSecurityDescriptor($managerOriginal.security,0)
+  $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect();$native=$scheduler.GetFolder('\').GetTask($managerName)
+  # TASK_DONT_ADD_PRINCIPAL_ACE avoids silently widening the exact old task DACL.
+  $native.SetSecurityDescriptor($managerOriginal.security,0x10)
   $acl=[Security.AccessControl.FileSecurity]::new();$acl.SetSecurityDescriptorSddlForm($managerOriginal.file_acl);Set-Acl -LiteralPath (Join-Path $env:SystemRoot ('System32/Tasks/'+$managerName)) -AclObject $acl
-  Check ((Export-ScheduledTask -TaskName $managerName) -eq $managerOriginal.xml -and (Get-Acl -LiteralPath (Join-Path $env:SystemRoot ('System32/Tasks/'+$managerName))).Sddl -eq $managerOriginal.file_acl) 'The original own manager task XML/security did not restore exactly.'
+  Check ((Export-ScheduledTask -TaskName $managerName) -eq $managerOriginal.xml -and (Get-ScheduledTask -TaskName $managerName).Settings.Enabled -eq $managerOriginal.enabled -and (Get-Acl -LiteralPath (Join-Path $env:SystemRoot ('System32/Tasks/'+$managerName))).Sddl -eq $managerOriginal.file_acl -and $native.GetSecurityDescriptor(7) -eq $managerOriginal.security) 'The original own manager task XML/enabled state/file and Scheduler security did not restore exactly.'
  }elseif($task){Unregister-ScheduledTask -TaskName $managerName -Confirm:$false}
  $script:managerOwned=$false;$script:managerAvailable=$false
 }

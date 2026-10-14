@@ -30,6 +30,22 @@ b = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(b)
 
 
+class WindowsNativeModuleEnvironment(unittest.TestCase):
+    def test_native_module_roots_replace_core_paths_only_in_child(self):
+        inherited = 'C:/PowerShell7/Modules;C:/Users/Fictional/Documents/PowerShell/Modules'
+        with patch.dict(os.environ, {'SystemRoot': 'C:/Windows', 'ProgramFiles': 'C:/Program Files',
+                                     'PSModulePath': inherited, 'PSMODULEPATH': inherited,
+                                     'OPENWEB_BACKUP_TEST_ENV': 'preserved'}):
+            environment = b.native_powershell_environment()
+            paths = [value for key, value in environment.items() if key.upper() == 'PSMODULEPATH']
+            self.assertEqual(len(paths), 1)
+            self.assertEqual(paths[0], ';'.join(str(path) for path in (
+                Path('C:/Windows')/'System32/WindowsPowerShell/v1.0/Modules',
+                Path('C:/Program Files')/'WindowsPowerShell/Modules')))
+            self.assertEqual(environment['OPENWEB_BACKUP_TEST_ENV'], 'preserved')
+            self.assertEqual(os.environ['PSModulePath'], inherited)
+
+
 class WindowsBackups(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

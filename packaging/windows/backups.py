@@ -94,6 +94,18 @@ def tool(name):
     raise BackupError('An unsupported server tool was requested.')
 
 
+def native_powershell_environment():
+    # PowerShell 7 prepends its incompatible Core modules to inherited paths.
+    # Native IIS/security helpers require only trusted Windows PowerShell roots.
+    modules = [Path(os.environ.get('SystemRoot', 'C:/Windows')) / 'System32/WindowsPowerShell/v1.0/Modules',
+               Path(os.environ.get('ProgramFiles', 'C:/Program Files')) / 'WindowsPowerShell/Modules']
+    # Windows environment names are case-insensitive; never send duplicate keys
+    # with a differently cased inherited Core module path to CreateProcess.
+    environment = {key: value for key, value in os.environ.items() if key.upper() != 'PSMODULEPATH'}
+    environment['PSModulePath'] = ';'.join(str(path) for path in modules)
+    return environment
+
+
 def control(operation, value=None):
     work = STATE / 'backup-control'
     if reparse(work) or not work.is_dir():
@@ -106,7 +118,7 @@ def control(operation, value=None):
     try:
         result = run([str(Path(os.environ.get('SystemRoot', 'C:/Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe'),
                       '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', str(CONTROL),
-                      '-Operation', operation, '-Request', str(request)], timeout=180)
+                      '-Operation', operation, '-Request', str(request)], env=native_powershell_environment(), timeout=180)
         return json.loads(result.decode('utf-8-sig'))
     except (ValueError, UnicodeError):
         raise BackupError('Windows backup control returned an invalid result.') from None

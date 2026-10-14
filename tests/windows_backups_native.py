@@ -43,7 +43,7 @@ class Hidden(html.parser.HTMLParser):
 
 def ps(script, timeout=180):
     result=subprocess.run([str(Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/powershell.exe'),
-        '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',script],capture_output=True,timeout=timeout)
+        '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',script],env=b.native_powershell_environment(),capture_output=True,timeout=timeout)
     if result.returncode:raise RuntimeError('A native Windows qualification control failed.')
     return result.stdout.decode('utf-8-sig').strip()
 
