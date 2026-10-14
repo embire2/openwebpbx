@@ -15,7 +15,7 @@ $work=Join-Path $env:RUNNER_TEMP ('openwebpbx-suite-'+[Guid]::NewGuid().ToString
 $public=Join-Path $env:RUNNER_TEMP 'openwebpbx-suite-public'
 $state=Join-Path $env:ProgramData 'OpenWebPBX';$configuration=Join-Path $env:ProgramData 'fusionpbx'
 $domain='windowsqa.example.invalid';$installed=$false;$hostAdded=$false;$sftp=$null;$acceptanceFile=$null;$phase='source inputs'
-$facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';backups='pending';native_sip_audio='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
+$facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';backups='pending';native_sip_audio='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
 function PrivateDirectory([string]$Path){
  New-Item -ItemType Directory -Force -Path $Path|Out-Null
  & icacls.exe $Path /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F'|Out-Null
@@ -34,6 +34,16 @@ function CheckedPython([string[]]$Arguments){& python @Arguments|Out-Host;if($LA
 function PublishFacts {
  New-Item -ItemType Directory -Force -Path $public|Out-Null
  [IO.File]::WriteAllText((Join-Path $public 'qualification.json'),($facts|ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
+}
+function SafeFailureFields($Record){
+ $safe=@{}
+ foreach($field in 'failed_phase','error_type','source_basename','active_case'){
+  $value=$Record.$field
+  $pattern=if($field -eq 'source_basename'){'^[A-Za-z0-9_.-]+$'}else{'^[A-Za-z0-9_.+ /()-]+$'}
+  if($value -is [string] -and $value.Length -le 160 -and $value -match $pattern){$safe[$field]=$value}
+ }
+ if(($Record.source_line -is [int] -or $Record.source_line -is [long]) -and $Record.source_line -gt 0 -and $Record.source_line -lt 100000){$safe.source_line=[int]$Record.source_line}
+ return $safe
 }
 function Api([string]$Endpoint){
  if(!$env:GH_TOKEN){throw 'The repository-scoped artifact token is unavailable.'}
@@ -125,7 +135,7 @@ function LoopbackSftp {
  $capability=Get-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0'
  if($capability.State -ne 'Installed'){$result=Add-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0';if($result.RestartNeeded){throw 'The isolated SFTP server needs a restart.'}}
  $id=[Guid]::NewGuid().ToString('N').Substring(0,10);$name='owbqa'+$id;$directory='C:\OpenWebBackupQA'+$id
- $secret=ConvertTo-SecureString (RandomSecret) -AsPlainText -Force
+ $secret=ConvertTo-SecureString ('A9!'+(RandomSecret)) -AsPlainText -Force
  $user=New-LocalUser -Name $name -Password $secret -Description 'Owned disposable backup SFTP qualification' -AccountNeverExpires -PasswordNeverExpires
  $script:sftp=@{name=$name;directory=$directory;task=('OpenWebPBX-SFTP-QA-'+$id);config=(Join-Path $work 'sshd_config')}
  Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $name
@@ -160,13 +170,7 @@ function AcceptanceHook([string]$Name,[string]$Report){
  if(!(Test-Path -LiteralPath $Report)){if($failure){throw $failure};throw 'An optional native acceptance hook did not finish.'}
  $record=Get-Content -LiteralPath $Report -Raw|ConvertFrom-Json
  if($record.state -ne 'passed'){
-  $facts.hook_failure=@{}
-  foreach($field in 'failed_phase','error_type','source_basename','active_case'){
-   $value=$record.$field
-   $pattern=if($field -eq 'source_basename'){'^[A-Za-z0-9_.-]+$'}else{'^[A-Za-z0-9_.+ /()-]+$'}
-   if($value -is [string] -and $value.Length -le 160 -and $value -match $pattern){$facts.hook_failure[$field]=$value}
-  }
-  if(($record.source_line -is [int] -or $record.source_line -is [long]) -and $record.source_line -gt 0 -and $record.source_line -lt 100000){$facts.hook_failure.source_line=[int]$record.source_line}
+  $facts.hook_failure=SafeFailureFields $record
  }
  if($failure){throw $failure}
  if($record.state -ne 'passed'){throw 'An optional native acceptance hook did not pass.'}
@@ -185,8 +189,30 @@ try{
  if([IO.File]::ReadAllText($hosts) -match '(?im)^\s*[^#\r\n]+\s+windowsqa\.example\.invalid(?:\s|$)'){throw 'The suite hostname already has an unrelated hosts entry.'}
  [IO.File]::AppendAllText($hosts,"`r`n127.0.0.1 $domain $marker`r`n",[Text.UTF8Encoding]::new($false));$hostAdded=$true
  $installed=$true
- & (Join-Path $PackageRoot 'Install-OpenWebPBX.ps1') -RestoreServer -LocalCertificate -DomainName $domain -PublicAddress '127.0.0.1' -AdminEmail $admin -AdminPassword $password
- if(!$?){throw 'The real candidate installation failed.'}
+ $installInput=Join-Path $work 'install-input.json';$ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
+ try{$plain=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)}finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
+ [IO.File]::WriteAllText($installInput,(@{package_root=$PackageRoot;admin_email=$admin;admin_password=$plain;domain=$domain;error_path=(Join-Path $work 'install-failure.json')}|ConvertTo-Json),[Text.UTF8Encoding]::new($false));$plain=$null
+ $launcher=Join-Path $work 'install.ps1';$launchCode=@'
+param([string]$InputPath)
+$ErrorActionPreference='Stop';$record=Get-Content -LiteralPath $InputPath -Raw|ConvertFrom-Json
+try{
+ if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted'){throw 'Disposable hosted runner required.'}
+ $password=ConvertTo-SecureString $record.admin_password -AsPlainText -Force
+ & (Join-Path $record.package_root 'Install-OpenWebPBX.ps1') -RestoreServer -LocalCertificate -DomainName $record.domain -PublicAddress '127.0.0.1' -AdminEmail $record.admin_email -AdminPassword $password
+ if(!$?){throw 'The installed Windows helper did not finish.'}
+ exit 0
+}catch{
+ $safe=@{error_type=$_.Exception.GetType().FullName;source_basename=(Split-Path -Leaf $_.InvocationInfo.ScriptName);source_line=[int]$_.InvocationInfo.ScriptLineNumber}
+ [IO.File]::WriteAllText($record.error_path,($safe|ConvertTo-Json),[Text.UTF8Encoding]::new($false));exit 1
+}
+'@
+ [IO.File]::WriteAllText($launcher,$launchCode,[Text.UTF8Encoding]::new($false))
+ $start=[Diagnostics.ProcessStartInfo]::new();$start.FileName=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe';$start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+ foreach($arg in '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$launcher,'-InputPath',$installInput){$start.ArgumentList.Add($arg)}
+ $process=[Diagnostics.Process]::Start($start);$stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
+ if(!$process.WaitForExit(2400000)){throw 'The real installation is still running; its private state must not be interrupted.'}
+ [IO.File]::WriteAllText((Join-Path $work 'install-private.out'),$stdout.GetAwaiter().GetResult());[IO.File]::WriteAllText((Join-Path $work 'install-private.err'),$stderr.GetAwaiter().GetResult());$exit=$process.ExitCode;$process.Dispose();Remove-Item -LiteralPath $installInput -Force
+ if($exit){if(Test-Path (Join-Path $work 'install-failure.json')){$facts.helper_failure=SafeFailureFields (Get-Content (Join-Path $work 'install-failure.json') -Raw|ConvertFrom-Json)};throw 'The real candidate installation failed.'}
  $completed=Get-Content "$state\installation.json" -Raw|ConvertFrom-Json
  if(!$completed.Completed -or !$completed.RestoreServer -or $completed.AdminEmail -ne $admin){throw 'The candidate factory identity or completed state is invalid.'}
  foreach($service in 'OpenWebPBX-Database','OpenWebPBX','OpenWebPBXUpdater','FreeSWITCH'){if((Get-Service $service).Status -ne 'Running'){throw 'A candidate native service is not running.'}}
@@ -200,7 +226,7 @@ try{
  $phase='native acceptance hook';$native=AcceptanceHook 'windows-native-acceptance.ps1' (Join-Path $work 'native-acceptance.json')
  if($native){$facts.gates.native_sip_audio='passed'}
  $phase='upgrade acceptance hook';$upgrade=AcceptanceHook 'windows-upgrade-acceptance.ps1' (Join-Path $work 'upgrade-acceptance.json')
- if($upgrade){foreach($gate in 'installed_upgrade','failure_rollback','legacy_106_upgrade'){if($upgrade.gates.$gate -eq 'passed'){$facts.gates[$gate]='passed'}}}
+ if($upgrade){foreach($gate in 'direct_113_helper_reapply','direct_failure_rollback','restore_gate_startup','manager_reopen_success','manager_reopen_rollback','installed_upgrade','failure_rollback','legacy_106_upgrade'){if($upgrade.gates.$gate -eq 'passed'){$facts.gates[$gate]='passed'}}}
  $phase='backup qualification';$sftpConfig=LoopbackSftp
  & (Join-Path $PSScriptRoot 'windows-backups.ps1') -PackageRoot $PackageRoot -AdminEmail $admin -AdminPassword $password -DisposableFactory -SftpConfig $sftpConfig
  if(!$?){throw 'Actual Windows encrypted-backup qualification failed.'}
@@ -236,7 +262,8 @@ try{
     finally{if($null -eq $prior){Remove-Item Env:\OPENWEB_WINDOWS_BACKUP_TEST -ErrorAction SilentlyContinue}else{$env:OPENWEB_WINDOWS_BACKUP_TEST=$prior}}
     foreach($path in (Join-Path $state ('storage/openwebpbx/'+$record.fixture_domain)),(Join-Path $state 'storage/recordings/backup-fixture.wav'),'C:/Program Files/FreeSWITCH/sounds/openwebpbx/backup-fixture.wav'){Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue}
    }
-   Import-Module WebAdministration;if(Test-Path IIS:\Sites\OpenWebPBX){Stop-Website OpenWebPBX};if(Test-Path IIS:\AppPools\OpenWebPBX){Stop-WebAppPool OpenWebPBX}
+   & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command 'Import-Module WebAdministration;if(Test-Path IIS:\Sites\OpenWebPBX){Stop-Website OpenWebPBX};if(Test-Path IIS:\AppPools\OpenWebPBX){Stop-WebAppPool OpenWebPBX}' *> $null
+   if($LASTEXITCODE){throw 'Owned IIS cleanup did not finish.'}
    if(Get-Service OpenWebPBX-Database -ErrorAction SilentlyContinue){Stop-Service OpenWebPBX-Database -Force}
   }
   if($sftp){

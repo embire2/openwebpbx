@@ -26,6 +26,33 @@ $script="$source\tests\windows-native-acceptance.py";$fixture="$source\tests\win
 $facts=[ordered]@{schema=1;state='running';platform='Windows Server 2025 x64';scope='fictional disposable hosted runner';checks=@();gates=[ordered]@{native_sip_audio='pending';smtp='pending';notification_store='pending';cleanup='pending';public_acme='unqualified';physical_devices='unqualified';carrier='unqualified';android_hardware='unqualified'}}
 function Php([string]$Action){$output=& "$root\php\php.exe" $fixture $Action $privateInput 2>>"$evidence\private-php-errors.log";if($LASTEXITCODE){throw 'Private native fixture operation failed.'};return ($output -join "`n")}
 function Python([string]$Phase){& $python -I $script --input $privateInput --phase $Phase 1>>"$evidence\private-python.log" 2>>"$evidence\private-python-errors.log";if($LASTEXITCODE){throw 'Actual native qualification did not pass.'}}
+function FixtureBinding([byte[]]$Hash,[string]$Store,[switch]$Read){
+ Add-Type -Path "$env:windir\System32\inetsrv\Microsoft.Web.Administration.dll"
+ $manager=[Microsoft.Web.Administration.ServerManager]::new()
+ try{
+  $site=$manager.Sites['OpenWebPBX'];if(!$site){throw 'The installed fixture website is missing.'}
+  $bindings=@($site.Bindings|Where-Object {$_.Protocol -eq 'https' -and $_.BindingInformation -eq '*:8443:windowsqa.example.invalid'})
+  if($bindings.Count -ne 1){throw 'The exact owned local HTTPS binding is unavailable.'}
+  $binding=$bindings[0]
+  if($Read){return @{hash=[byte[]]$binding.CertificateHash;store=$binding.CertificateStoreName}}
+  $binding.CertificateHash=$Hash;$binding.CertificateStoreName=$Store;$manager.CommitChanges()
+ }finally{$manager.Dispose()}
+}
+function ConfigureFixturePhoneTls([string]$Thumbprint,[string]$Chain){
+ # Server management runs in the same real Windows PowerShell 5.1 host used
+ # by the installed manager/updater/tasks, never a PS7 compatibility proxy.
+ $start=[Diagnostics.ProcessStartInfo]::new("$env:windir\System32\WindowsPowerShell\v1.0\powershell.exe")
+ $start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+ foreach($arg in @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PackageRoot 'Enable-PhoneTLS.ps1'),'-CertificateThumbprint',$Thumbprint,'-FullChainPath',$Chain)){$start.ArgumentList.Add($arg)}
+ $process=[Diagnostics.Process]::Start($start)
+ try{
+  $output=$process.StandardOutput.ReadToEndAsync();$errors=$process.StandardError.ReadToEndAsync()
+  if(!$process.WaitForExit(180000)){$process.Kill($true);throw 'The native phone TLS helper exceeded its bounded fixture time.'}
+  [IO.File]::WriteAllText("$evidence\phone-tls-private.log",$output.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false))
+  [IO.File]::WriteAllText("$evidence\phone-tls-private-errors.log",$errors.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false))
+  if($process.ExitCode -ne 0){throw 'Actual trusted fictional phone TLS setup did not pass.'}
+ }finally{$process.Dispose()}
+}
 $paths=@('fusion-config.conf','phone-tls.json','phone-tls','mobile-notifications-config','mobile-notifications-lock','php-cacert')
 $originalFiles=@{ 'fusion-config.conf'=(Join-Path $env:ProgramData 'fusionpbx\config.conf');'phone-tls.json'="$state\phone-tls.json";'phone-tls'="$state\phone-tls";'mobile-notifications-config'="$state\mobile-notifications\config.json";'mobile-notifications-lock'="$state\mobile-notifications\config.json.lock";'php-cacert'="$root\php\extras\ssl\cacert.pem" }
 $originalPresent=@{};$originalAcl=@{};$parentAcl=(Get-Acl -LiteralPath $state).Sddl
@@ -41,13 +68,9 @@ try{
  $privatePki=Get-Content "$evidence\pki-private.json" -Raw|ConvertFrom-Json
  $rootCertificate=Import-Certificate -FilePath "$evidence\fixture-root.cer" -CertStoreLocation Cert:\LocalMachine\Root
  $leaf=Import-PfxCertificate -FilePath "$evidence\fixture.pfx" -CertStoreLocation Cert:\LocalMachine\My -Password (ConvertTo-SecureString $privatePki.password -AsPlainText -Force) -Exportable
- Import-Module WebAdministration
- $binding=Get-WebBinding -Name 'OpenWebPBX' -Protocol https|Where-Object {$_.bindingInformation -eq '*:8443:windowsqa.example.invalid'}
- if(@($binding).Count -ne 1){throw 'The original local test HTTPS binding is unavailable.'}
- $originalBinding=@{hash=if($binding.certificateHash -is [byte[]]){[Convert]::ToHexString($binding.certificateHash)}else{[string]$binding.certificateHash};store=$binding.certificateStoreName}
- $binding.AddSslCertificate($leaf.Thumbprint,'My')
- & (Join-Path $PackageRoot 'Enable-PhoneTLS.ps1') -CertificateThumbprint $leaf.Thumbprint -FullChainPath "$evidence\fixture-chain.pem" 1>>"$evidence\phone-tls-private.log" 2>>"$evidence\phone-tls-private-errors.log"
- if(!$?){throw 'Actual trusted fictional phone TLS setup did not pass.'}
+ $originalBinding=FixtureBinding -Read;$binding=$true
+ FixtureBinding -Hash ([Convert]::FromHexString($leaf.Thumbprint)) -Store 'My'
+ ConfigureFixturePhoneTls -Thumbprint $leaf.Thumbprint -Chain "$evidence\fixture-chain.pem"
  $facts.checks+='Generated local-PKI chain, Windows trust and real HTTPS/SIP TLS listeners; no public ACME claim'
  $phase='normal HTTPS and native calling';Python 'acceptance'
  $native=Get-Content "$evidence\software-native-report.json" -Raw|ConvertFrom-Json
@@ -98,7 +121,7 @@ finally{
  try{
   Stop-ScheduledTask -TaskName $notificationTask -ErrorAction SilentlyContinue;Unregister-ScheduledTask -TaskName $notificationTask -Confirm:$false -ErrorAction SilentlyContinue
   if($baseline){$clean=Php 'cleanup'|ConvertFrom-Json;if(!$clean.factory_empty -or $clean.owned_rows -ne 0 -or $clean.owned_contacts -ne 0){throw 'Native fixture cleanup is incomplete.'}}
-  if($binding -and $originalBinding){$binding.AddSslCertificate($originalBinding.hash,$originalBinding.store)}
+  if($binding -and $originalBinding){FixtureBinding -Hash $originalBinding.hash -Store $originalBinding.store}
   foreach($name in $paths){$path=$originalFiles[$name];if($originalPresent.ContainsKey($name)){if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Recurse -Force};if($originalPresent[$name]){Copy-Item -LiteralPath (Join-Path $saved $name) -Destination $path -Recurse;$acl=Get-Acl -LiteralPath $path;$acl.SetSecurityDescriptorSddlForm($originalAcl[$name]);Set-Acl -LiteralPath $path -AclObject $acl}}}
   if($baseline){Restart-Service FreeSWITCH;for($i=0;$i -lt 50 -and (Get-Service FreeSWITCH).Status -ne 'Running';$i++){Start-Sleep -Milliseconds 100};if((Get-Service FreeSWITCH).Status -ne 'Running'){throw 'Original factory call engine did not resume.'}}
   if($leaf){Remove-Item -LiteralPath ('Cert:\LocalMachine\My\'+$leaf.Thumbprint) -Force}

@@ -38,7 +38,7 @@ function PrivateAcl([string]$Path,[string]$Kind){
   $rights=if($Kind -in 'media','notifications'){[Security.AccessControl.FileSystemRights]::Modify}else{[Security.AccessControl.FileSystemRights]::ReadAndExecute}
   $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($web,$rights,$inherit,$propagation,$allow)))
   if($Kind -in 'config','media','notifications'){
-   $serviceRights=if($Kind -in 'media','notifications'){[Security.AccessControl.FileSystemRights]::Modify}else{[Security.AccessControl.FileSystemRights]::ReadAndExecute}
+   $serviceRights=if($Kind -eq 'media'){[Security.AccessControl.FileSystemRights]::Modify}else{[Security.AccessControl.FileSystemRights]::ReadAndExecute}
    $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule((New-Object Security.Principal.SecurityIdentifier('S-1-5-19')),$serviceRights,$inherit,$propagation,$allow)))
   }
  }

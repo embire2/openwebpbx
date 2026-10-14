@@ -12,7 +12,7 @@ Extract the complete matching Windows release and open its manager as an adminis
 
 For an empty replacement server, select **Prepare this server for restoring a backup**. It creates the instance administrator without demo phones or a company service. Normal setup creates the initial company and Main PBX.
 
-The equivalent administrator PowerShell command is:
+The equivalent command uses **Windows PowerShell 5.1 (`powershell.exe`) as administrator**. The manager and scheduled tasks use that built-in shell for native IIS management. Run:
 
 ```powershell
 .\Install-OpenWebPBX.ps1 -DomainName 'pbx.example.com' -EnablePublicAccess -AdminEmail 'admin@example.com'

@@ -2,6 +2,7 @@
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$PackageRoot,[switch]$DeferRestart)
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
+if($PSVersionTable.PSEdition -eq 'Core'){throw 'Run this helper in Windows PowerShell (powershell.exe) as administrator.'}
 if(-not ('OpenWebUpdaterCommit' -as [type])){Add-Type @'
 using System;
 using System.Runtime.InteropServices;

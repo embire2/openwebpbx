@@ -15,7 +15,9 @@ New-Item -ItemType Directory -Path $work|Out-Null
 & icacls.exe $work /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F'|Out-Null
 if($LASTEXITCODE){throw 'Private upgrade qualification permissions could not be secured.'}
 $python="$root\backup-runtime\python.exe";$helper="$root\tools\Upgrade-OpenWebPBX.ps1";$fixture=$null;$phase='private snapshots';$gatePlan=$null
-$report=[ordered]@{schema=1;state='running';checks=@();gates=[ordered]@{direct_113_helper_reapply='pending';direct_failure_rollback='pending';restore_gate_startup='pending';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified'};signed_fixtures='absent';baseline='installed candidate; same-version direct reapply is not a newer signed update'}
+$managerSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;$managerSession=[Diagnostics.Process]::GetCurrentProcess().SessionId
+$managerName='OpenWebPBX-Manager-'+$managerSid;$managerExe="$root\desktop\OpenWebPbx.Desktop.exe";$managerOriginal=$null;$managerOwned=$false;$managerStarted=$null;$managerAvailable=$false
+$report=[ordered]@{schema=1;state='running';checks=@();gates=[ordered]@{direct_113_helper_reapply='pending';direct_failure_rollback='pending';restore_gate_startup='pending';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified'};signed_fixtures='absent';baseline='installed candidate; same-version direct reapply is not a newer signed update'}
 function Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
 function WriteJson([string]$Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 10),[Text.UTF8Encoding]::new($false))}
 function Check([bool]$Value,[string]$Message){if(!$Value){throw $Message}}
@@ -112,6 +114,89 @@ function Equal([object]$Before,[object]$After,[string]$Message){
 }
 function StopUpdater {if((Get-Service OpenWebPBXUpdater).Status -ne 'Stopped'){Stop-Service OpenWebPBXUpdater;(Get-Service OpenWebPBXUpdater).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(45))}}
 function Journal {return Get-Content "$state\updates\install-journal.json" -Raw|ConvertFrom-Json}
+function ManagerTaskValid([bool]$RequireEnabled=$true) {
+ $task=Get-ScheduledTask -TaskName $managerName -ErrorAction SilentlyContinue
+ if(!$task){return $false}
+ $sid=if($task.Principal.UserId -like 'S-1-*'){$task.Principal.UserId}else{([Security.Principal.NTAccount]::new($task.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier]).Value}
+ return ($sid -eq $managerSid -and [string]$task.Principal.LogonType -eq 'Interactive' -and [string]$task.Principal.RunLevel -eq 'Limited' -and @($task.Actions).Count -eq 1 -and $task.Actions.Execute -eq $managerExe -and !$task.Actions.Arguments -and $task.Actions.WorkingDirectory -eq (Split-Path $managerExe) -and [string]$task.Settings.MultipleInstances -eq 'IgnoreNew' -and $task.Settings.ExecutionTimeLimit -eq 'PT0S' -and (!$RequireEnabled -or $task.Settings.Enabled) -and $task.Description -eq 'Reopen the OpenWeb PBX manager for this user after a verified update.')
+}
+function OwnedManagerProcesses {
+ $found=@()
+ foreach($record in @(Get-CimInstance Win32_Process -Filter "Name='OpenWebPbx.Desktop.exe'")){
+  $owner=Invoke-CimMethod -InputObject $record -MethodName GetOwnerSid
+  if($record.ExecutablePath -eq $managerExe -and $owner.ReturnValue -eq 0 -and $owner.Sid -eq $managerSid -and $record.SessionId -eq $managerSession){
+   $process=Get-Process -Id $record.ProcessId -ErrorAction SilentlyContinue
+   if($process -and $process.StartTime.ToUniversalTime() -ge $managerStarted){$found+=$process}
+  }
+ }
+ return $found
+}
+function WaitManager([int]$PreviousPid=0,[DateTime]$NotBefore=[DateTime]::MinValue){
+ $deadline=[DateTime]::UtcNow.AddSeconds(90)
+ $expected=[Reflection.AssemblyName]::GetAssemblyName("$root\desktop\OpenWebPbx.Desktop.dll").Version
+ Check ($expected -eq [version]((Get-Content "$state\installation.json" -Raw|ConvertFrom-Json).Version+'.0')) 'The installed desktop assembly does not match the real installed version.'
+ $title='OpenWeb PBX '+$expected.ToString(3)
+ do{
+  foreach($process in @(OwnedManagerProcesses)){
+   $process.Refresh()
+   if($process.Id -ne $PreviousPid -and $process.StartTime.ToUniversalTime() -ge $NotBefore -and $process.MainWindowHandle -ne [IntPtr]::Zero -and $process.Responding -and $process.MainWindowTitle -eq $title -and (ManagerTaskValid)){return $process}
+  }
+  Start-Sleep -Milliseconds 500
+ }while([DateTime]::UtcNow -lt $deadline)
+ return $null
+}
+function BeginManager {
+ # The product helper closes all manager processes. Refuse a foreign/pre-existing
+ # one even on this disposable machine rather than touching an unrelated window.
+ Check (@(Get-CimInstance Win32_Process -Filter "Name='OpenWebPbx.Desktop.exe'").Count -eq 0) 'A pre-existing manager must not be used or closed by this qualification.'
+ if($managerSession -eq 0 -or ![Environment]::UserInteractive){$report.manager_environment='interactive session unavailable';return}
+ $task=Get-ScheduledTask -TaskName $managerName -ErrorAction SilentlyContinue
+ $original=@{exists=[bool]$task}
+ if($task){
+  Check (ManagerTaskValid $false) 'The pre-existing own manager task does not match the installed interactive manager contract.'
+  $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect();$native=$scheduler.GetFolder('\').GetTask($managerName)
+  $original.xml=Export-ScheduledTask -TaskName $managerName;$original.enabled=[bool]$task.Settings.Enabled;$original.security=$native.GetSecurityDescriptor(7)
+  $original.file_acl=(Get-Acl -LiteralPath (Join-Path $env:SystemRoot ('System32/Tasks/'+$managerName))).Sddl
+ }
+ $script:managerOriginal=$original;WriteJson (Join-Path $work 'manager-task-original.json') $original
+ $script:managerOwned=$true;$script:managerStarted=[DateTime]::UtcNow
+ Start-Process -FilePath $managerExe -WorkingDirectory (Split-Path $managerExe)|Out-Null
+ $visible=WaitManager
+ if($visible){$script:managerAvailable=$true;WriteJson (Join-Path $work 'manager-initial.json') @{pid=$visible.Id;owner=$managerSid;session=$managerSession;title=$visible.MainWindowTitle}}
+ else{$report.manager_environment='initial responsive installed window unavailable';ClearManager}
+}
+function AssertManagerReopened([int]$PreviousPid,[DateTime]$NotBefore,[string]$Gate){
+ if(!$managerAvailable){return}
+ Check (!(Get-Process -Id $PreviousPid -ErrorAction SilentlyContinue)) 'The helper did not close the original owned desktop manager.'
+ Check (@((Journal).manager_tasks) -contains $managerName) 'The durable update journal did not record the actual owned interactive restart task.'
+ $visible=WaitManager $PreviousPid $NotBefore
+ Check ($null -ne $visible) 'The helper did not automatically reopen a responsive installed desktop in its original owner/session.'
+ WriteJson (Join-Path $work ($Gate+'.json')) @{previous_pid=$PreviousPid;new_pid=$visible.Id;owner=$managerSid;session=$managerSession;title=$visible.MainWindowTitle}
+ $report.gates[$Gate]='passed'
+}
+function CurrentManagerPid {
+ if(!$managerAvailable){return 0}
+ $visible=WaitManager
+ Check ($null -ne $visible -and @(OwnedManagerProcesses).Count -eq 1) 'The original owned responsive manager is unavailable before the helper runs.'
+ return $visible.Id
+}
+function ClearManager {
+ if(!$managerOwned){return}
+ foreach($process in @(OwnedManagerProcesses)){Stop-Process -Id $process.Id -Force -ErrorAction Stop}
+ $task=Get-ScheduledTask -TaskName $managerName -ErrorAction SilentlyContinue
+ if($task){
+  Check (ManagerTaskValid) 'Cleanup refused a changed manager task outside the owned contract.'
+  Stop-ScheduledTask -TaskName $managerName
+ }
+ if($managerOriginal.exists){
+  Register-ScheduledTask -TaskName $managerName -Xml $managerOriginal.xml -Force|Out-Null
+  if($managerOriginal.enabled){Enable-ScheduledTask -TaskName $managerName|Out-Null}else{Disable-ScheduledTask -TaskName $managerName|Out-Null}
+  $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect();$scheduler.GetFolder('\').GetTask($managerName).SetSecurityDescriptor($managerOriginal.security,0)
+  $acl=[Security.AccessControl.FileSecurity]::new();$acl.SetSecurityDescriptorSddlForm($managerOriginal.file_acl);Set-Acl -LiteralPath (Join-Path $env:SystemRoot ('System32/Tasks/'+$managerName)) -AclObject $acl
+  Check ((Export-ScheduledTask -TaskName $managerName) -eq $managerOriginal.xml -and (Get-Acl -LiteralPath (Join-Path $env:SystemRoot ('System32/Tasks/'+$managerName))).Sddl -eq $managerOriginal.file_acl) 'The original own manager task XML/security did not restore exactly.'
+ }elseif($task){Unregister-ScheduledTask -TaskName $managerName -Confirm:$false}
+ $script:managerOwned=$false;$script:managerAvailable=$false
+}
 function FaultPayload {
  $payload=Join-Path $work 'forced-payload'
  & robocopy.exe $PackageRoot $payload /E /COPY:DAT /DCOPY:T /R:1 /W:1 /NFL /NDL /NJH /NJS /NP|Out-Null
@@ -180,14 +265,19 @@ try{
  $before=DatabaseSnapshot 'before-reapply'
  $protected=@{};foreach($path in "$configuration\config.conf","$configuration\openweb-template.key","$state\runtime.json","$state\mobile-notifications\config.json","$state\phone-tls.json"){if(Test-Path $path){$protected[$path]=@{hash=(Hash $path);acl=(Get-Acl $path).Sddl}}}
  $phase='actual direct helper reapply';$result=InvokeHelper (Join-Path $PackageRoot 'Upgrade-OpenWebPBX.ps1') @('-Check') 'direct-preflight';Check ($result -eq 0) 'The installed helper bytes did not pass native preflight.'
+ BeginManager
+ $oldManager=CurrentManagerPid;$managerInvocation=[DateTime]::UtcNow
  $result=InvokeHelper (Join-Path $PackageRoot 'Upgrade-OpenWebPBX.ps1') @() 'direct-install';Check ($result -eq 0 -and (Journal).state -eq 'completed') 'The direct same-version helper reapply did not complete.'
+ AssertManagerReopened $oldManager $managerInvocation 'manager_reopen_success'
  StopUpdater;Equal $before (DatabaseSnapshot 'after-reapply') 'Direct reapply changed preserved database/security/routing data.'
  foreach($path in $protected.Keys){Check ((Hash $path) -eq $protected[$path].hash -and (Get-Acl $path).Sddl -eq $protected[$path].acl) 'Direct reapply changed protected credentials, keys, TLS or notification bytes/ACLs.'}
  $report.gates.direct_113_helper_reapply='passed';$report.checks+='Actual identical installed-1.0.13 helper native preflight and same-version reapply; protected PBX/PG roles/database/keys/notifications/TLS preserved'
  $phase='actual direct post-deploy rollback';$payload=FaultPayload
  $files=FilesSnapshot;$tasks=TaskSnapshot;$database=DatabaseSnapshot 'before-failure'
  WriteJson (Join-Path $work 'before-files.json') $files;WriteJson (Join-Path $work 'before-tasks.json') $tasks
+ $oldManager=CurrentManagerPid;$managerInvocation=[DateTime]::UtcNow
  $result=InvokeHelper (Join-Path $payload 'Upgrade-OpenWebPBX.ps1') @() 'forced-direct';Check ($result -ne 0 -and (Journal).state -eq 'rolled_back') 'The post-deploy fault did not finish its actual automatic rollback.'
+ AssertManagerReopened $oldManager $managerInvocation 'manager_reopen_rollback'
  $witness=Get-Content (Join-Path $payload 'fault-witness.json') -Raw|ConvertFrom-Json
  foreach($field in 'database_and_customer_mutated','notification_mutated','native_metadata_mutated','new_file_created','task_changed'){Check ($witness.$field -eq $true) 'The injected failure did not reach every required native mutation.'}
  StopUpdater;Equal $database (DatabaseSnapshot 'after-failure') 'The real rollback changed DB identity, owner/grants, roles/credentials, schema or preserved table values.'
@@ -195,6 +285,8 @@ try{
  Equal $tasks (TaskSnapshot) 'The real rollback changed original task XML, enabled state or task security.'
  Check (!(Test-Path "$root\backup-runtime\rollback-fixture-only.txt")) 'Rollback retained a newly created private runtime file.'
  $report.gates.direct_failure_rollback='passed';$report.checks+='Actual post-deploy DB/config/notification/native metadata/new-file/task fault; automatic rollback restored exact files/SDDL/tasks and HMAC-verified DB/security/customer values'
+ if($managerAvailable){$report.checks+='Actual installed WinUI window automatically closes and reopens after successful reapply and forced rollback, with real assembly/title, original SID/session and new PID'}
+ ClearManager
  $phase='restore gate native startup';$gatePlan=Join-Path $work 'gate-plan.json';Python @($probe,'holds',$gatePlan)
  $result=InvokeHelper $helper @('-Check') 'held-preflight';Check ($result -ne 0) 'A restore hold allowed upgrade preflight.'
  $result=InvokeHelper $helper @('-Recover') 'held-recover';Check ($result -eq 0) 'Held boot recovery did not preserve web-only administration.'
@@ -212,6 +304,7 @@ try{
  $report.error_type=$_.Exception.GetType().FullName;$report.source_basename=if($_.InvocationInfo.ScriptName){Split-Path -Leaf $_.InvocationInfo.ScriptName}else{'windows-upgrade-acceptance.ps1'};$report.source_line=[int]$_.InvocationInfo.ScriptLineNumber
  Write-Error ('Windows upgrade acceptance failed in '+$phase+'. Private recovery evidence retained.') -ErrorAction Continue
 }finally{
+ try{ClearManager}catch{$report.state='failed';$report.failed_phase='owned manager cleanup'}
  if($gatePlan){try{StopUpdater;Python @($probe,'release',$gatePlan)}catch{$report.state='failed';$report.failed_phase='restore hold cleanup'}}
  if($fixture -and (Test-Path $fixture)){
   try{Push-Location "$root\web";try{& "$root\php\php.exe" (Join-Path $PSScriptRoot 'windows-backups-fixture.php') clear $fixture;Check ($LASTEXITCODE -eq 0) 'Owned upgrade PBX cleanup failed.'}finally{Pop-Location}}catch{$report.state='failed';$report.failed_phase='owned fixture cleanup'}

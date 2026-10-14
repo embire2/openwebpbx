@@ -1,4 +1,31 @@
-# Building OpenWeb PBX 1.0.12
+# Building OpenWeb PBX
+
+## Windows Server 1.0.13 candidate
+
+The current checkout prepares Windows 1.0.13. Debian and Android remain on immutable 1.0.12 at `061f83c81`; use that revision for their matching builds. A successful compile is separate from server installation and calling qualification.
+
+The manual `windows-native.yml` workflow uses .NET SDK 10.0.401 and Visual Studio 2026 on Windows Server 2025. It publishes the complete service, updater and WinUI output, immutable source hashes, assembly versions and an actual responsive top-level-window check. Current matching C# outputs are from run `38592924897`.
+
+The `windows-engine.yml` workflow builds only the registrar from pinned FreeSWITCH/Sofia source and the original-identity patch. It reads the pinned MSI without executing its installer, derives DATA-aware imports, and checks the portable local codec's real callbacks and 1,000 APR memory-ownership cycles. Run `38594513765` passed; independent validation covered all 6,214 public source inputs, including 94 legitimate hidden files. Combined codec DLLs are excluded from uploads and release packages.
+
+Prepare the isolated Python backup runtime with `packaging/windows/build-backup-runtime.py`, the verified simple-acme bundle with `build-acme-runtime.py`, and the four-rate music bundle with `build-hold-music.py`. Retain their exact manifests, upstream sources and licences. Then package matching reviewed inputs:
+
+```sh
+python3 packaging/build-release.py --target windows \
+  --server /private/native/server --updater /private/native/updater \
+  --desktop /private/native/desktop --engine /private/engine/engine \
+  --codec-source /private/engine/codec-source/source \
+  --backup-runtime /private/backup-runtime --acme /private/acme \
+  --music /private/music --output artifacts/release-1.0.13
+```
+
+Only tracked source and exact verified runtime inventories are copied. At installation, the local codec recipe downloads its pinned compiler, builds and proves the converter privately, and installs it while the engine is stopped. The installer never distributes a combined converter binary. Native ZIP integrity does not qualify SIP/media, global mail, real service permissions, encrypted clean-server restore or rollback; the disposable `windows-suite.yml` workflow exercises those separately.
+
+Sign the final Windows archive with `packaging/updates/sign-feed.py --windows-only --windows <archive> --version 1.0.13 --sequence 113 --private-key <private-key> --output <windows-update-manifest.json>`. The private signing key stays outside the repository and hosted runners. Preserve the exact signed generic 1.0.12 envelope for Debian/Android clients in the Windows release, and verify both feeds with the matching validator. Publication and complete public downloads remain required before updating the homepage catalogue. See [Windows candidate installation](../docs/installing-1.0.13.md).
+
+## Historical 1.0.12 source build
+
+The commands below apply to the immutable 1.0.12 source revision. Its official server package targets Debian 13; no Windows 1.0.12 server package was published.
 
 The web application and call engine retain their upstream licenses. The C# projects in `platform/` add a .NET 10 background calling service and an unpackaged WinUI 3 administration manager. This release does not rewrite the PHP application in C# and the manager is not a softphone.
 

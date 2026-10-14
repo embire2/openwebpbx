@@ -108,9 +108,16 @@ def fingerprint(settings,domain,key):
 
 def local_service_check(private,archive):
     folder=private/'localservice';folder.mkdir(exist_ok=True)
-    b.secure_acl(folder,kind='notifications')
+    # This owned result directory is writable by the test identity; the actual
+    # notification store and script retain their independent read-only ACLs.
+    b.secure_acl(folder,kind='media')
     script=folder/'read.ps1';report=folder/'result.json'
-    script.write_text("$r=@{runtime=$false;archive=$false};try{$x=[IO.File]::ReadAllBytes('"+str(b.STATE/'runtime.json').replace("'","''")+"');$r.runtime=$x.Length -gt 0}catch{};try{$x=[IO.File]::ReadAllBytes('"+str(archive).replace("'","''")+"');$r.archive=$true}catch{};$r|ConvertTo-Json|Set-Content '"+str(report).replace("'","''")+"' -Encoding UTF8",encoding='utf-8')
+    report.unlink(missing_ok=True)
+    notification=b.STATE/'mobile-notifications/config.json'
+    assert notification.is_file(),'A normal HTTPS-created notification identity is required'
+    previous=notification.read_bytes()
+    script.write_text("$r=@{runtime=$false;archive=$false;notification_read=$false;notification_write=$false};try{$x=[IO.File]::ReadAllBytes('"+str(b.STATE/'runtime.json').replace("'","''")+"');$r.runtime=$x.Length -gt 0}catch{};try{$x=[IO.File]::ReadAllBytes('"+str(archive).replace("'","''")+"');$r.archive=$true}catch{};try{$x=[IO.File]::ReadAllBytes('"+str(notification).replace("'","''")+"');$r.notification_read=$x.Length -gt 0}catch{};try{$s=[IO.File]::Open('"+str(notification).replace("'","''")+"',[IO.FileMode]::Open,[IO.FileAccess]::Write,[IO.FileShare]::ReadWrite);$s.Dispose();$r.notification_write=$true}catch{};$r|ConvertTo-Json|Set-Content '"+str(report).replace("'","''")+"' -Encoding UTF8",encoding='utf-8')
+    b.secure_acl(script,kind='config')
     name='OpenWebPBX-Backup-LocalService-'+uuid.uuid4().hex
     try:
         ps("$a=New-ScheduledTaskAction -Execute ($env:SystemRoot+'/System32/WindowsPowerShell/v1.0/powershell.exe') -Argument '-NoProfile -NonInteractive -File \""+str(script)+"\"';$p=New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\\LOCAL SERVICE' -LogonType ServiceAccount -RunLevel Limited;Register-ScheduledTask -TaskName '"+name+"' -Action $a -Principal $p -Force|Out-Null;Start-ScheduledTask -TaskName '"+name+"'")
@@ -118,6 +125,8 @@ def local_service_check(private,archive):
         while not report.exists() and time.monotonic()<deadline:time.sleep(.2)
         result=json.loads(report.read_text(encoding='utf-8-sig'))
         assert result['runtime'] is True and result['archive'] is False,'Actual LocalService access exceeded the private backup boundary or cannot read its runtime'
+        assert result['notification_read'] is True and result['notification_write'] is False,'Actual LocalService notification permissions are not read-only'
+        assert notification.read_bytes()==previous,'The read-only permission probe changed notification identity bytes'
     finally:
         ps("Unregister-ScheduledTask -TaskName '"+name+"' -Confirm:$false -ErrorAction SilentlyContinue")
 
@@ -138,6 +147,11 @@ def main(path):
         code,raw=client.form('/app/pbx_backups/index.php',{'action':'save','enabled':'0','schedule_hour':'0','retention':'2','include_media':'1','passphrase':password,'sftp_enabled':'0','sftp_port':'22'})
         assert code==200 and b'Backup settings saved' in raw and password.encode() not in raw,'Normal HTTPS settings or secret masking failed'
         facts['checks'].append('normal HTTPS sign-in/settings/password masking/missing-CSRF denial')
+        phase='source notification identity'
+        code,raw=client.form('/app/pbx_mobile/push.php',{'enabled':'1','provider':'webpush','delivery':'direct','relay_url':'','relay_token':''})
+        assert code==200 and b'Incoming wake-up settings saved' in raw,'Normal IIS notification setup failed'
+        notification=b.STATE/'mobile-notifications/config.json';source_notification=notification.read_bytes()
+        assert json.loads(source_notification).get('vapid_private_key'),'The source notification identity is incomplete'
         phase='source trusted TLS'
         ps("& 'C:/OpenWebPBX/tools/Enable-PhoneTLS.ps1' -CertificateThumbprint '"+target_thumbprint()+"'")
         assert (b.STATE/'phone-tls.json').exists(),'A real source phone certificate is required for restore qualification'
@@ -216,6 +230,9 @@ def main(path):
         assert b.KEY.read_bytes()==source_key,'The original source encryption key did not restore'
         assert {key:value for key,value in b.read_settings().items() if key.startswith('database.0.')}==factory_credentials,'Target database identity changed'
         for file,payload in sentinel.items():assert file.read_bytes()==payload,'Native private media restore changed bytes'
+        assert notification.read_bytes()==source_notification,'Native restore changed the source notification identity'
+        local_service_check(private,protected)
+        facts['checks'].append('restored notification identity preserved; real LOCAL SERVICE reads config and cannot open it for writing or read private ciphertext')
         assert all(b.held(key) for key in b.HELD_UNITS),'Native restore lost a durable activation hold'
         states=json.loads(ps("@{calls=[string](Get-Service FreeSWITCH).Status;jobs=[string](Get-Service OpenWebPBX).Status;updates=[string](Get-Service OpenWebPBXUpdater).Status;backup=[bool](Get-ScheduledTask OpenWebPBX-Backups).Settings.Enabled;cleanup=[bool](Get-ScheduledTask OpenWebPBX-Cleanup).Settings.Enabled}|ConvertTo-Json -Compress"))
         assert states=={'calls':'Stopped','jobs':'Stopped','updates':'Stopped','backup':False,'cleanup':False},'Native restored services/tasks were not held'

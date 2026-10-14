@@ -3,6 +3,7 @@
 param([string]$RestoreBackup = '', [switch]$Check, [string]$Archive, [string]$FeedEnvelope, [string]$TargetVersion, [switch]$Recover, [switch]$Automatic)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+if($PSVersionTable.PSEdition -eq 'Core'){throw 'Run server upgrades in Windows PowerShell (powershell.exe) as administrator. It provides native IIS management.'}
 $root = 'C:\OpenWebPBX'
 $private = Join-Path $env:ProgramData 'OpenWebPBX'
 $config = Join-Path $env:ProgramData 'fusionpbx'
