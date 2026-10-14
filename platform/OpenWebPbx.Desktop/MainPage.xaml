@@ -64,6 +64,7 @@
       </ComboBox>
       <ComboBox x:Name="InstalledCertificate" Header="Installed certificate" DisplayMemberPath="Label" HorizontalAlignment="Stretch" Visibility="Collapsed"/>
       <TextBlock Text="For a public server, point the server name to this computer and allow ports 80 and 443 through your router. Setup obtains a free certificate, connects secure phones and renews it automatically. Use localhost with a local certificate for a private test." TextWrapping="Wrap"/>
+      <CheckBox x:Name="RestoreServerChoice" Content="Prepare a replacement server for restoring an OpenWeb PBX backup"/>
       <Button x:Name="InstallButton" Content="Install OpenWeb PBX" Click="InstallServer" Style="{StaticResource AccentButtonStyle}"/>
       <ProgressRing x:Name="InstallProgress" IsActive="False" Visibility="Collapsed" HorizontalAlignment="Left" Width="28" Height="28"/>
       <InfoBar x:Name="InstallMessage" IsOpen="False" IsClosable="False"/>

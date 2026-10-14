@@ -152,7 +152,7 @@ public sealed partial class MainPage : Page
                 security.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
             new DirectoryInfo(directory).SetAccessControl(security);
             requestFile = Path.Combine(directory, "request.json");
-            File.WriteAllText(requestFile, JsonSerializer.Serialize(new { DomainName = InstallDomain.Text, AdminEmail = InstallEmail.Text, AdminPassword = InstallPassword.Password, PublicAddress = InstallPublicAddress.Text.Trim(), EnablePublicAccess = CertificateChoice.SelectedIndex == 0, LocalCertificate = CertificateChoice.SelectedIndex == 1, CertificateThumbprint = CertificateChoice.SelectedIndex == 2 ? certificate!.Thumbprint : "" }));
+            File.WriteAllText(requestFile, JsonSerializer.Serialize(new { DomainName = InstallDomain.Text, AdminEmail = InstallEmail.Text, AdminPassword = InstallPassword.Password, RestoreServer = RestoreServerChoice.IsChecked == true, PublicAddress = InstallPublicAddress.Text.Trim(), EnablePublicAccess = CertificateChoice.SelectedIndex == 0, LocalCertificate = CertificateChoice.SelectedIndex == 1, CertificateThumbprint = CertificateChoice.SelectedIndex == 2 ? certificate!.Thumbprint : "" }));
             InstallPassword.Password = "";
             var start = new ProcessStartInfo("powershell.exe") { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden, WorkingDirectory = Path.GetDirectoryName(Installer)! };
             start.Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{Installer}\" -RequestFile \"{requestFile}\"";
