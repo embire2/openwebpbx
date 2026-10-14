@@ -16,6 +16,8 @@ $public=Join-Path $env:RUNNER_TEMP 'openwebpbx-suite-public'
 $candidatePublic=Join-Path $env:RUNNER_TEMP 'openwebpbx-suite-candidate';$candidateArchive=$null
 $state=Join-Path $env:ProgramData 'OpenWebPBX';$configuration=Join-Path $env:ProgramData 'fusionpbx'
 $domain='windowsqa.example.invalid';$installed=$false;$hostAdded=$false;$sftp=$null;$acceptanceFile=$null;$phase='source inputs'
+$recoveryPki=$null
+. (Join-Path $PSScriptRoot 'windows-suite-pki.ps1')
 $facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';backups='pending';native_sip_audio='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
 function PrivateDirectory([string]$Path){
  New-Item -ItemType Directory -Force -Path $Path|Out-Null
@@ -346,6 +348,7 @@ try{
  [IO.File]::WriteAllText($acceptanceFile,($acceptance|ConvertTo-Json),[Text.UTF8Encoding]::new($false));$plain=$null;$acceptance=$null
  $phase='native acceptance hook';$native=AcceptanceHook 'windows-native-acceptance.ps1' (Join-Path $work 'native-acceptance.json')
  if($native){$facts.gates.native_sip_audio='passed'}
+ $phase='independent trusted recovery fixture';$recoveryPki=Start-SuiteRecoveryPki -PackageRoot $PackageRoot -SourceRoot $source -Work $work
  $phase='upgrade acceptance hook';$upgrade=AcceptanceHook 'windows-upgrade-acceptance.ps1' (Join-Path $work 'upgrade-acceptance.json')
  if($upgrade){foreach($gate in 'direct_113_helper_reapply','direct_failure_rollback','restore_gate_startup','manager_reopen_success','manager_reopen_rollback','installed_upgrade','failure_rollback','legacy_106_upgrade'){if($upgrade.gates.$gate -eq 'passed'){$facts.gates[$gate]='passed'}}}
  $phase='backup qualification';$sftpConfig=LoopbackSftp
@@ -387,6 +390,7 @@ try{
    if($LASTEXITCODE){throw 'Owned IIS cleanup did not finish.'}
    if(Get-Service OpenWebPBX-Database -ErrorAction SilentlyContinue){Stop-Service OpenWebPBX-Database -Force}
   }
+  Stop-SuiteRecoveryPki $recoveryPki;$recoveryPki=$null
   if($sftp){
    if(Get-ScheduledTask -TaskName $sftp.task -ErrorAction SilentlyContinue){Stop-ScheduledTask -TaskName $sftp.task;Unregister-ScheduledTask -TaskName $sftp.task -Confirm:$false}
    foreach($process in @(Get-CimInstance Win32_Process -Filter "Name='sshd.exe'")){if($process.CommandLine -and $process.CommandLine.Contains($sftp.config)){Stop-Process -Id $process.ProcessId -Force}}

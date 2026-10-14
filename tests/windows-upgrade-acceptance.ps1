@@ -83,7 +83,7 @@ else:raise RuntimeError('Unsupported private qualification operation')
 [IO.File]::WriteAllText($probe,$code,[Text.UTF8Encoding]::new($false))
 function DatabaseSnapshot([string]$Name){$file=Join-Path $work ($Name+'-database.json');Python @($probe,'database',$file);return Get-Content -LiteralPath $file -Raw|ConvertFrom-Json -AsHashtable}
 function FilesSnapshot {
- $directories=@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots",$configuration,"$switch\conf","$switch\scripts","$switch\mod","$switch\sounds","$state\storage","$state\mobile-notifications","$state\phone-tls","$state\public-access")
+ $directories=@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots",$configuration,"$switch\conf","$switch\scripts","$switch\mod","$switch\sounds","$state\storage","$state\mobile-notifications","$state\phone-tls","$state\public-access","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build")
  $files=@{}
  # Parent DACLs determine inherited access and need independent recovery even
  # when every child file hash matches. Keep volatile siblings outside the scan.
