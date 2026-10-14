@@ -40,6 +40,16 @@ def g729_negotiation_failure(call):
     return failure
 
 
+def audio_identity_failure(fields,user):
+    matches={'owned_domain_matches':fields.get('domain_uuid')==user['domain_uuid'],
+             'authentication_id_matches':fields.get('extension')==user['auth'],
+             'sip_password_matches':fields.get('password')==user['password']}
+    if all(matches.values()):return None
+    failure=AssertionError('The audio form does not retain the fictional phone identity')
+    failure.audio_failure=matches
+    return failure
+
+
 def guard():
     if os.name != 'nt' or os.environ.get('OPENWEB_WINDOWS_NATIVE_TEST') != '1' or os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted' or os.environ.get('GITHUB_REPOSITORY') != 'embire2/openwebpbx':
         raise RuntimeError('Explicit disposable Windows hosted runner required')
@@ -106,12 +116,14 @@ class Web:
         forms=[form for form in Forms(text).forms if form['fields'].get('extension_uuid')==user['extension_uuid'] and 'absolute_codec_string' in form['fields']]
         assert len(forms)==1,'Normal administrator audio choice unavailable'
         fields=dict(forms[0]['fields'])
-        assert fields.get('domain_uuid')==user['domain_uuid'] and fields.get('extension')==user['auth'] and fields.get('password')==user['password'],'The audio form does not retain the fictional phone identity'
+        failure=audio_identity_failure(fields,user)
+        if failure:raise failure
         fields['absolute_codec_string']=codecs;fields['range']='1'
         status,_,text=self.request(forms[0]['action'] or path,fields);assert status==200,'Normal administrator audio save failed'
         forms=[form for form in Forms(text).forms if form['fields'].get('extension_uuid')==user['extension_uuid']]
         assert len(forms)==1 and forms[0]['fields'].get('absolute_codec_string')==codecs,'Normal administrator audio choice did not reload'
-        assert forms[0]['fields'].get('domain_uuid')==user['domain_uuid'] and forms[0]['fields'].get('extension')==user['auth'] and forms[0]['fields'].get('password')==user['password'],'Audio save changed the fictional phone identity'
+        failure=audio_identity_failure(forms[0]['fields'],user)
+        if failure:raise failure
 
 
 class NativePlayback:
@@ -740,6 +752,7 @@ def main():
         failure={'state':'failed','checks':f.checks,'error_type':type(e).__name__,'error':str(e),'source_basename':basename,'source_line':location.lineno,'active_case':f.active_case}
         if getattr(e,'fixture_failure',None):failure.update(e.fixture_failure)
         if getattr(e,'sip_failure',None):failure.update(e.sip_failure)
+        if getattr(e,'audio_failure',None):failure.update(e.audio_failure)
         (f.evidence/'software-native-report.json').write_text(json.dumps(failure,indent=2))
         raise
 

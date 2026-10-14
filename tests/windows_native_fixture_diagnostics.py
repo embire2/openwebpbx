@@ -112,7 +112,14 @@ echo json_encode($results,JSON_THROW_ON_ERROR);
     wrong=fields|{'domain_uuid':'33333333-3333-4333-8333-333333333333'};requests=[]
     web.request=lambda path,payload=None:(requests.append((path,payload)) or (200,path,form(wrong)))
     try:web.extension_codecs(user,'PCMU')
-    except AssertionError:check(len(requests)==1)
+    except AssertionError as error:
+        check(len(requests)==1)
+        check(error.audio_failure=={'owned_domain_matches':False,'authentication_id_matches':True,'sip_password_matches':True})
     else:raise AssertionError('Foreign-domain audio form was submitted')
+    check(native.audio_identity_failure(fields,user) is None)
+    for field,value in [('extension','other-fictional-user'),('password','PRIVATE_WRONG_SECRET')]:
+        failure=native.audio_identity_failure(fields|{field:value},user)
+        check(len(failure.audio_failure)==3 and all(type(value) is bool for value in failure.audio_failure.values()))
+        check('PRIVATE_' not in str(failure))
 
 print(f'PASS {checks} bounded PHP/Python fixture diagnostic checks; no PBX contacted')

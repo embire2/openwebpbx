@@ -163,7 +163,16 @@ class pbx_tenants {
     public function switchService(string $id): void {
         $s=$this->query('select s.*,d.domain_name from v_pbx_services s join v_domains d using(domain_uuid) where service_uuid=:id',['id'=>$this->id($id)])->fetch(PDO::FETCH_ASSOC);
         if(!$s || !$this->canDomain($s['domain_uuid']))throw new RuntimeException('PBX service access denied.');$this->assertTenant($s['tenant_uuid']);
-        $_SESSION['previous_domain_uuid']=$_SESSION['domain_uuid'];$_SESSION['domain_uuid']=$s['domain_uuid'];$_SESSION['domain_name']=$s['domain_name'];$_SESSION['context']=$s['domain_name'];unset($_SESSION['extension_array'],$_SESSION['menu']);
+        $previous=$_SESSION['domain_uuid'];$domains=new domains;
+        // New setup domains must be visible in ordinary extension forms.
+        // Refresh only after authorization, and keep tenant visibility scoped.
+        $domains->session();
+        if(!$this->platform()&&!$this->allowed('domain_all')) {
+            $_SESSION['domains']=array_filter($_SESSION['domains'],fn(array $row):bool=>$this->canDomain($row['domain_uuid']));
+        }
+        // session() can select HTTP_HOST when no username has been recorded;
+        // an explicitly authorized service switch remains the selected PBX.
+        $_SESSION['previous_domain_uuid']=$previous;$_SESSION['domain_uuid']=$s['domain_uuid'];$_SESSION['domain_name']=$s['domain_name'];$_SESSION['context']=$s['domain_name'];unset($_SESSION['extension_array'],$_SESSION['menu']);
         (new domains)->set();settings::clear_cache();
     }
     private function defaults(string $domain,string $name): void {

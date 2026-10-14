@@ -53,6 +53,9 @@ function SafeFailureFields($Record){
   if(($Record.digest_challenge_count -is [int] -or $Record.digest_challenge_count -is [long]) -and $Record.digest_challenge_count -ge 0 -and $Record.digest_challenge_count -le 3){$safe.digest_challenge_count=[int]$Record.digest_challenge_count}
   if($Record.active_case -match '^independent_g729_' -and ($Record.negotiated_payload_type -is [int] -or $Record.negotiated_payload_type -is [long]) -and $Record.negotiated_payload_type -ge 0 -and $Record.negotiated_payload_type -le 127){$safe.negotiated_payload_type=[int]$Record.negotiated_payload_type}
  }
+ if($Record.active_case -eq 'normal_admin_owned_extension_audio_preferences'){
+  foreach($field in 'owned_domain_matches','authentication_id_matches','sip_password_matches'){if($Record.$field -is [bool]){$safe[$field]=[bool]$Record.$field}}
+ }
  return $safe
 }
 function NativeStartupFailure([DateTime]$StartedAt,[string]$PrivateDirectory){

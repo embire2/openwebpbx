@@ -172,6 +172,9 @@ try {
      if(($child.digest_challenge_count -is [int] -or $child.digest_challenge_count -is [long]) -and $child.digest_challenge_count -ge 0 -and $child.digest_challenge_count -le 3){$facts.digest_challenge_count=[int]$child.digest_challenge_count}
      if($child.active_case -match '^independent_g729_' -and ($child.negotiated_payload_type -is [int] -or $child.negotiated_payload_type -is [long]) -and $child.negotiated_payload_type -ge 0 -and $child.negotiated_payload_type -le 127){$facts.negotiated_payload_type=[int]$child.negotiated_payload_type}
     }
+    if($child.active_case -eq 'normal_admin_owned_extension_audio_preferences'){
+     foreach($field in 'owned_domain_matches','authentication_id_matches','sip_password_matches'){if($child.$field -is [bool]){$facts[$field]=[bool]$child.$field}}
+    }
    }
   }catch{}
  }
