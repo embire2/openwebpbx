@@ -3,6 +3,7 @@
   "inputs": {
     "FreeSWITCH-1.11.3-Release-x64.msi": {"url": "https://github.com/signalwire/freeswitch/releases/download/v1.11.3/FreeSWITCH-1.11.3-Release-x64.msi", "sha256": "f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d", "kind": "msi"},
     "pthreads-w32-2-9-1.tar.gz": {"url": "https://files.freeswitch.org/downloads/libs/pthreads-w32-2-9-1.tar.gz", "sha256": "efcc3901f889edc946352dd5ae5e4eef5e7a2d9f3af04f0ce88725abe7f7660d", "kind": "tar"},
+    "pthreads4w-code-v2.10.0-rc.zip": {"url": "https://downloads.sourceforge.net/project/pthreads4w/pthreads4w-code-v2.10.0-rc.zip", "sha256": "59e80da688f45f3aba2931938e8274d9673a524078977c9087fc267cef96ccb5", "kind": "pthread-experiment"},
     "gawk.exe": {"url": "https://github.com/freeswitch/gawk/releases/download/v3.1.8/gawk.exe", "sha256": "897e14a092a82f544dccda9a49846523e8fb7dabc6bd8f1a1cd3ea066d93019c", "kind": "tool"},
     "openssl-3.4.3-binaries-x64-release.zip": {"url": "https://files.freeswitch.org/windows/packages/openssl/3.4.3/openssl-3.4.3-binaries-x64-release.zip", "sha256": "6d2583d312324bca7d38843d5ce0b7f89e6f7c61531e55c651f38e1b07a10d4e", "kind": "zip"},
     "openssl-3.4.3-headers.zip": {"url": "https://files.freeswitch.org/windows/packages/openssl/3.4.3/openssl-3.4.3-headers.zip", "sha256": "c9092c4a62e7033721f8ec70029e0824e8ff9181121933fa062b0b814273f547", "kind": "zip"},

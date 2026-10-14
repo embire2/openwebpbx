@@ -8,7 +8,9 @@ import re
 import struct
 
 
-def definition(data, expected):
+def definition(data, expected, library_name='FreeSwitch.dll'):
+    if library_name not in ('FreeSwitch.dll', 'pthread.dll'):
+        raise ValueError('Only reviewed native runtime library names are supported.')
     if hashlib.sha256(data).hexdigest() != expected:
         raise ValueError('The target core checksum differs from the verified MSI.')
     if data[:2] != b'MZ' or len(data) < 64:
@@ -72,7 +74,7 @@ def definition(data, expected):
         entries.append(f' {name} @{base + ordinal}' + (' DATA' if is_data else ''))
         if is_data:
             data_exports.append(name)
-    text = 'LIBRARY FreeSwitch.dll\nEXPORTS\n' + '\n'.join(entries) + '\n'
+    text = 'LIBRARY ' + library_name + '\nEXPORTS\n' + '\n'.join(entries) + '\n'
     return text, {'machine': 'x64', 'core_sha256': expected, 'named_exports': len(entries), 'data_exports': data_exports,
                   'definition_sha256': hashlib.sha256(text.encode('ascii')).hexdigest()}
 
@@ -82,11 +84,12 @@ def main():
     parser.add_argument('--dll', type=Path, required=True)
     parser.add_argument('--expected-sha256', required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--library-name', choices=('FreeSwitch.dll', 'pthread.dll'), default='FreeSwitch.dll')
     args = parser.parse_args()
     try:
         if args.dll.is_symlink() or args.dll.stat().st_size > 128 * 1024 * 1024:
             raise ValueError('The core input must be an ordinary bounded DLL.')
-        text, report = definition(args.dll.read_bytes(), args.expected_sha256)
+        text, report = definition(args.dll.read_bytes(), args.expected_sha256, args.library_name)
         args.output.write_text(text, encoding='ascii')
     except (ValueError, UnicodeError, OSError, struct.error, StopIteration):
         parser.exit(1, 'The exact x64 core export definition could not be generated.\n')

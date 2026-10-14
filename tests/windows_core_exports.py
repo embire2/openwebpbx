@@ -49,6 +49,19 @@ class CoreExportChecks(unittest.TestCase):
         with self.assertRaises(ValueError):
             exports.definition(dll(), '0' * 64)
 
+    def test_exact_pthread_library_name_retains_export_ordinals_and_data(self):
+        data = dll()
+        text, result = exports.definition(data, hashlib.sha256(data).hexdigest(), 'pthread.dll')
+        self.assertTrue(text.startswith('LIBRARY pthread.dll\nEXPORTS\n'))
+        self.assertIn('SWITCH_GLOBAL_x @2 DATA\n', text)
+        self.assertEqual(result['definition_sha256'], hashlib.sha256(text.encode('ascii')).hexdigest())
+
+    def test_unreviewed_import_library_name_is_refused(self):
+        data = dll()
+        for name in ('unreviewed.dll', 'pthread.dll\nEXPORTS\n injected', '../pthread.dll'):
+            with self.assertRaises(ValueError):
+                exports.definition(data, hashlib.sha256(data).hexdigest(), name)
+
     def test_zero_initialized_data_in_mapped_section_tail_is_valid(self):
         data = dll()
         struct.pack_into('<I', data, 0x98 + 240 + 40 + 8, 0x400)

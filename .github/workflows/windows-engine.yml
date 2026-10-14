@@ -2,6 +2,11 @@ name: Windows pinned native engine
 
 on:
   workflow_dispatch:
+    inputs:
+      use_msi_pthread:
+        description: 'Experimental exact MSI pthread linkage; no production installation'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -20,6 +25,7 @@ jobs:
     env:
       GIT_TERMINAL_PROMPT: '0'
       PYTHONDONTWRITEBYTECODE: '1'
+      USE_MSI_PTHREAD: '${{ inputs.use_msi_pthread }}'
     steps:
       - name: Preserve source bytes
         run: git config --global core.autocrlf false
@@ -75,7 +81,9 @@ jobs:
           Fetch-Source 'fs-repository' 'https://github.com/signalwire/freeswitch.git' 'ef32e205295e29f034f1453ad245ba5efb07b94a'
           Fetch-Source 'sofia-repository' 'https://github.com/freeswitch/sofia-sip.git' 'ad36ac8f755308e8b87f98a505e83d4e408e5cc3'
           Fetch-Source 'codec-repository' 'https://github.com/xadhoom/mod_bcg729.git' '4203247dee4719545005ec7ab9ea536fc83df1d8'
-          python packaging/freeswitch/windows-native-dependencies.py --downloads "$env:ENGINE_WORK/downloads" --fetch
+          $dependencyArgs=@('packaging/freeswitch/windows-native-dependencies.py','--downloads',"$env:ENGINE_WORK/downloads",'--fetch')
+          if ($env:USE_MSI_PTHREAD -eq 'true') { $dependencyArgs+='--use-msi-pthread' }
+          python @dependencyArgs
           if ($LASTEXITCODE) { throw 'Native dependency download or hash verification failed.' }
           python packaging/freeswitch/prepare-windows-native.py --freeswitch-repository "$env:ENGINE_WORK/fs-repository" --sofia-repository "$env:ENGINE_WORK/sofia-repository" --codec-repository "$env:ENGINE_WORK/codec-repository" --bcg729-archives "$env:ENGINE_WORK/downloads" --output "$env:ENGINE_WORK/source"
           if ($LASTEXITCODE) { throw 'Pinned native source preparation failed.' }
@@ -97,7 +105,20 @@ jobs:
           if ($LASTEXITCODE) { throw 'The exact x64 core exports could not be inspected.' }
           lib.exe /nologo /machine:X64 ("/def:$definition") ("/out:$env:ENGINE_WORK/FreeSwitch.lib")
           if ($LASTEXITCODE) { throw 'The MSI-derived native import library failed.' }
-          python packaging/freeswitch/windows-native-dependencies.py --downloads "$env:ENGINE_WORK/downloads" --source "$env:ENGINE_WORK/source" --core $core --import-library "$env:ENGINE_WORK/FreeSwitch.lib"
+          $dependencyArgs=@('packaging/freeswitch/windows-native-dependencies.py','--downloads',"$env:ENGINE_WORK/downloads",'--source',"$env:ENGINE_WORK/source",'--core',$core,'--import-library',"$env:ENGINE_WORK/FreeSwitch.lib")
+          if ($env:USE_MSI_PTHREAD -eq 'true') {
+            $pthread=Join-Path $coreRoot 'pthread.dll'
+            $pthreadHash='2d9d70378f13dcc06eed72005e74a12c6f7ba085e5fd31f97be49b7ef87cfdad'
+            $pthreadVersion=(Get-Item $pthread).VersionInfo
+            if ((Get-FileHash $pthread).Hash.ToLowerInvariant() -ne $pthreadHash -or $pthreadVersion.FileMajorPart -ne 2 -or $pthreadVersion.FileMinorPart -ne 10 -or $pthreadVersion.FileBuildPart -ne 0 -or $pthreadVersion.FilePrivatePart -ne 0) { throw 'The exact MSI pthread2.10 runtime did not verify.' }
+            python packaging/freeswitch/core-exports.py --dll $pthread --expected-sha256 $pthreadHash --library-name pthread.dll --output "$env:ENGINE_WORK/pthread.def" |
+              Tee-Object "$env:ENGINE_WORK/pthread-exports.json"
+            if ($LASTEXITCODE) { throw 'Exact MSI pthread exports did not verify.' }
+            lib.exe /nologo /machine:X64 ("/def:$env:ENGINE_WORK/pthread.def") ("/out:$env:ENGINE_WORK/pthread-msi.lib")
+            if ($LASTEXITCODE) { throw 'The exact MSI pthread import library could not be derived.' }
+            $dependencyArgs+=@('--use-msi-pthread','--pthread-import-library',"$env:ENGINE_WORK/pthread-msi.lib")
+          }
+          python @dependencyArgs
           if ($LASTEXITCODE) { throw 'The locked offline dependency tree failed.' }
           "NATIVE_CORE_ROOT=$coreRoot" >> $env:GITHUB_ENV
           "NATIVE_CORE_SHA256=$coreHash" >> $env:GITHUB_ENV
@@ -115,7 +136,7 @@ jobs:
           $source = "$env:ENGINE_WORK/source"
           $manifest = (Get-FileHash "$source/source-manifest.json" -Algorithm SHA256).Hash.ToLowerInvariant()
           $lock = (Get-FileHash "$source/dependency-lock.json" -Algorithm SHA256).Hash.ToLowerInvariant()
-          & packaging/freeswitch/Build-WindowsNative.ps1 -SourceRoot $source -SourceManifestSha256 $manifest -DependencyLock "$source/dependency-lock.json" -DependencyLockSha256 $lock -EngineRoot $env:NATIVE_CORE_ROOT -ExpectedCoreSha256 $env:NATIVE_CORE_SHA256 -BuildRoot "$env:ENGINE_WORK/build" -OutputRoot "$env:ENGINE_WORK/engine" -CodecOutputRoot "$env:ENGINE_WORK/local-codec" -PlatformToolset $env:NATIVE_TOOLSET -WindowsSdkVersion $env:WindowsSDKVersion.TrimEnd('\') -CMakeGenerator $env:NATIVE_GENERATOR -SkipMsvcCodec *>&1 |
+          & packaging/freeswitch/Build-WindowsNative.ps1 -SourceRoot $source -SourceManifestSha256 $manifest -DependencyLock "$source/dependency-lock.json" -DependencyLockSha256 $lock -EngineRoot $env:NATIVE_CORE_ROOT -ExpectedCoreSha256 $env:NATIVE_CORE_SHA256 -BuildRoot "$env:ENGINE_WORK/build" -OutputRoot "$env:ENGINE_WORK/engine" -CodecOutputRoot "$env:ENGINE_WORK/local-codec" -PlatformToolset $env:NATIVE_TOOLSET -WindowsSdkVersion $env:WindowsSDKVersion.TrimEnd('\') -CMakeGenerator $env:NATIVE_GENERATOR -SkipMsvcCodec -UseMsiPthread:($env:USE_MSI_PTHREAD -eq 'true') *>&1 |
             Tee-Object "$env:ENGINE_WORK/native-build.log"
           if (!$?) { throw 'The pinned native DLL build failed.' }
           $release = Get-Content "$env:ENGINE_WORK/engine/native-manifest.json" -Raw | ConvertFrom-Json
@@ -159,3 +180,15 @@ jobs:
           include-hidden-files: true
           retention-days: 14
           compression-level: 6
+      - name: Retain private experimental symbols and thread proof
+        if: ${{ always() && inputs.use_msi_pthread }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openwebpbx-windows-pthread-experiment-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/openwebpbx-engine/build/registrar-output/mod_sofia.pdb
+            ${{ runner.temp }}/openwebpbx-engine/build/pthread-check.out
+            ${{ runner.temp }}/openwebpbx-engine/build/pthread-check.err
+            ${{ runner.temp }}/openwebpbx-engine/pthread-exports.json
+          if-no-files-found: warn
+          retention-days: 7

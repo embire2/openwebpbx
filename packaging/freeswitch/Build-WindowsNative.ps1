@@ -13,7 +13,8 @@ param(
  [string]$PlatformToolset='v143',
  [string]$WindowsSdkVersion='10.0.26100.0',
  [string]$CMakeGenerator='Visual Studio 17 2022',
- [switch]$SkipMsvcCodec
+ [switch]$SkipMsvcCodec,
+ [switch]$UseMsiPthread
 )
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
@@ -66,6 +67,54 @@ if(!$dependencies.files.'freeswitch/x64/Release/FreeSwitch.lib'){throw 'The depe
 CheckHash (Join-Path $fs 'src\mod\endpoints\mod_sofia\sofia_reg.c') $regHash
 CheckHash (Join-Path $SourceRoot 'mod_bcg729\mod_bcg729.c') 'c2731d5cf1ea076c4d0c274cb7ed85e66a06c1e401ee0e8c065c3bf90eeb8ecc'
 New-Item -ItemType Directory $BuildRoot,$OutputRoot,(Join-Path $OutputRoot 'mod'),$CodecOutputRoot,(Join-Path $CodecOutputRoot 'mod')|Out-Null
+if($UseMsiPthread){
+ # Experimental only: retain every reviewed upstream/source-manifest byte.
+ # Mutate build projects in a private copy, never in the prepared source tree.
+ $pthread=Join-Path $EngineRoot 'pthread.dll'
+ CheckHash $pthread '2d9d70378f13dcc06eed72005e74a12c6f7ba085e5fd31f97be49b7ef87cfdad'
+ $pthreadVersion=(Get-Item $pthread).VersionInfo
+ if($pthreadVersion.FileMajorPart -ne 2 -or $pthreadVersion.FileMinorPart -ne 10 -or $pthreadVersion.FileBuildPart -ne 0 -or $pthreadVersion.FilePrivatePart -ne 0 -or !$dependencies.msi_pthread -or $dependencies.msi_pthread.runtime_sha256 -ne '2d9d70378f13dcc06eed72005e74a12c6f7ba085e5fd31f97be49b7ef87cfdad' -or $dependencies.msi_pthread.source_revision -ne '02fecc211d626f28e05ecbb0c10f739bd36d6442' -or $dependencies.msi_pthread.archive_sha256 -ne '59e80da688f45f3aba2931938e8274d9673a524078977c9087fc267cef96ccb5'){throw 'The reviewed matching MSI pthread experiment inputs are missing.'}
+ if(!(Get-Command lib.exe -ErrorAction SilentlyContinue)){throw 'The native import-library tool is required.'}
+ $copy=Join-Path $BuildRoot 'source-copy';Copy-Item -LiteralPath $fs -Destination $copy -Recurse
+ $fs=$copy;$coreLib=Join-Path $fs 'x64\Release\FreeSwitch.lib'
+ $pthreadLibrary=Join-Path $fs 'x64\Release\pthread-msi.lib'
+ CheckHash $pthreadLibrary $dependencies.msi_pthread.import_library_sha256
+ $pthreadHeaders=Join-Path $fs 'libs\pthreads-msi-2.10'
+ CheckHash (Join-Path $pthreadHeaders '_ptw32.h') $dependencies.msi_pthread.derived_import_header_sha256
+ foreach($relative in 'src\mod\endpoints\mod_sofia\mod_sofia.2017.vcxproj','libs\win32\sofia\libsofia_sip_ua_static.2017.vcxproj'){
+  $project=Join-Path $fs $relative;[xml]$xml=Get-Content -LiteralPath $project
+  $ns=New-Object Xml.XmlNamespaceManager($xml.NameTable);$ns.AddNamespace('m','http://schemas.microsoft.com/developer/msbuild/2003')
+  foreach($definitions in $xml.SelectNodes('//m:ClCompile/m:PreprocessorDefinitions',$ns)){
+   $definitions.InnerText=(@($definitions.InnerText.Split(';')|Where-Object {$_ -ne 'PTW32_STATIC_LIB'}) -join ';')
+  }
+  $group=$xml.CreateElement('ItemDefinitionGroup',$xml.DocumentElement.NamespaceURI)
+  $compile=$xml.CreateElement('ClCompile',$xml.DocumentElement.NamespaceURI)
+  $include=$xml.CreateElement('AdditionalIncludeDirectories',$xml.DocumentElement.NamespaceURI)
+  $include.InnerText=$pthreadHeaders+';%(AdditionalIncludeDirectories)';[void]$compile.AppendChild($include);[void]$group.AppendChild($compile)
+  $import=$xml.SelectSingleNode('//m:Import[contains(@Project,"Microsoft.Cpp.targets")]',$ns)
+  if(!$import){throw 'The experimental project target import is missing.'};[void]$xml.DocumentElement.InsertBefore($group,$import)
+  if($relative.StartsWith('libs\')){
+   foreach($reference in @($xml.SelectNodes('//m:ProjectReference',$ns))){
+    if($reference.Include.EndsWith('pthread\pthread.2017.vcxproj')){[void]$reference.ParentNode.RemoveChild($reference)}
+   }
+  }
+  $xml.Save($project)
+ }
+ # Independently exercise exact DLL declarations, thread identity, condition
+ # handoff and owning-thread join before attempting a registrar build.
+ $probeSource=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\tests\pbx_windows_pthread.c'))
+ $probe=Join-Path $BuildRoot 'pthread-check.exe'
+ Run cl.exe @('/nologo','/O2','/MD','/W4','/D_TIMESPEC_DEFINED',('/I'+$pthreadHeaders),$probeSource,('/Fe:'+$probe),'/link',$pthreadLibrary,'/MACHINE:X64')
+ $start=[Diagnostics.ProcessStartInfo]::new($probe);$start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+ $start.Environment['PATH']=$EngineRoot+';'+$env:PATH
+ $process=[Diagnostics.Process]::Start($start);$output=$process.StandardOutput.ReadToEndAsync();$errors=$process.StandardError.ReadToEndAsync()
+ try{
+  if(!$process.WaitForExit(15000)){$process.Kill($true);throw 'The private matching pthread probe timed out.'}
+  [IO.File]::WriteAllText((Join-Path $BuildRoot 'pthread-check.out'),$output.GetAwaiter().GetResult())
+  [IO.File]::WriteAllText((Join-Path $BuildRoot 'pthread-check.err'),$errors.GetAwaiter().GetResult())
+  if($process.ExitCode){throw 'The actual matching MSI pthread handoff/identity/join probe failed.'}
+ }finally{$process.Dispose()}
+}
 # The upstream projects otherwise retrieve mutable or unhashed dependencies.
 # All inputs must already be in the lock; suppress those download targets.
 $blocked=New-Object 'Collections.Generic.HashSet[string]'
@@ -99,20 +148,29 @@ $group=$moduleXml.CreateElement('ItemDefinitionGroup',$moduleXml.DocumentElement
 $link=$moduleXml.CreateElement('Link',$moduleXml.DocumentElement.NamespaceURI)
 $additional=$moduleXml.CreateElement('AdditionalDependencies',$moduleXml.DocumentElement.NamespaceURI)
 $privateLibs=@('x64\Release\libapr.lib','libs\win32\pthread\x64\Release\pthread.lib','libs\win32\sofia\x64\Release\libsofia_sip_ua_static.lib')|ForEach-Object {Join-Path $fs $_}
+if($UseMsiPthread){$privateLibs=@((Join-Path $fs 'x64\Release\libapr.lib'),$pthreadLibrary,(Join-Path $fs 'libs\win32\sofia\x64\Release\libsofia_sip_ua_static.lib'))}
 $additional.InnerText=(@($coreLib)+$privateLibs -join ';')+';%(AdditionalDependencies)'
 [void]$link.AppendChild($additional);[void]$group.AppendChild($link)
+if($UseMsiPthread){
+ foreach($setting in @{GenerateDebugInformation='true';ProgramDatabaseFile='$(OutDir)mod_sofia.pdb'}.GetEnumerator()){
+  $element=$moduleXml.CreateElement($setting.Key,$moduleXml.DocumentElement.NamespaceURI);$element.InnerText=$setting.Value;[void]$link.AppendChild($element)
+ }
+}
 $lastImport=$moduleXml.SelectSingleNode('//m:Import[contains(@Project,"Microsoft.Cpp.targets")]',$moduleNs)
 if(!$lastImport){throw 'The pinned module target import is missing.'}
 [void]$moduleXml.DocumentElement.InsertBefore($group,$lastImport)
 $moduleXml.Save($moduleProject)
 # Build the pinned private libraries without building/replacing FreeSwitch.dll.
-foreach($project in 'libs\win32\apr\libapr.2017.vcxproj','libs\win32\pthread\pthread.2017.vcxproj','libs\win32\sofia\libsofia_sip_ua_static.2017.vcxproj'){
+$libraryProjects=@('libs\win32\apr\libapr.2017.vcxproj','libs\win32\pthread\pthread.2017.vcxproj','libs\win32\sofia\libsofia_sip_ua_static.2017.vcxproj')
+if($UseMsiPthread){$libraryProjects=@($libraryProjects|Where-Object {$_ -ne 'libs\win32\pthread\pthread.2017.vcxproj'})}
+foreach($project in $libraryProjects){
  Run 'MSBuild.exe' (@((Join-Path $fs $project),'/t:Build','/m:1','/nologo')+$props)
 }
 foreach($library in $privateLibs){if(!(Test-Path -LiteralPath $library -PathType Leaf)){throw 'A private pinned registrar dependency import/static library was not built.'}}
 $moduleOutput=Join-Path $BuildRoot 'registrar-output'
 Run 'MSBuild.exe' (@($moduleProject,'/t:Build','/m:1','/nologo',('/p:OutDir='+$moduleOutput.TrimEnd('\')+'\'),('/p:IntDir='+$BuildRoot.TrimEnd('\')+'\sofia-objects\'))+$props)
 Copy-Item (Join-Path $moduleOutput 'mod_sofia.dll') (Join-Path $OutputRoot 'mod\mod_sofia.dll')
+if($UseMsiPthread -and !(Test-Path (Join-Path $moduleOutput 'mod_sofia.pdb') -PathType Leaf)){throw 'Retain the private experimental registrar PDB outside the engine package.'}
 $hashes=@{};$runtimeDependencies=@{};$toolHashes=@{}
 foreach($command in 'MSBuild.exe','cl.exe','cmake.exe','dumpbin.exe'){$toolHashes[$command]=Hash (Get-Command $command).Source}
 foreach($name in @('mod/mod_sofia.dll')){
@@ -136,6 +194,10 @@ foreach($name in @('mod/mod_sofia.dll')){
  }
 }
 $manifest=@{schema=1;upstream_commit=$revision;patch_sha256=$patchHash;source_reg_sha256=$regHash;core_version='1.11.3';core_sha256=$ExpectedCoreSha256;source_msi_sha256='f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d';files=$hashes;runtime_dependencies=$runtimeDependencies;source_manifest_sha256=$SourceManifestSha256;dependency_lock_sha256=$DependencyLockSha256;module_project_sha256=(Hash $moduleProject);toolset=$PlatformToolset;windows_sdk=$WindowsSdkVersion;build_tool_sha256=$toolHashes;native_runtime_qualified=$false;codec_not_in_release=$true}
+if($UseMsiPthread){
+ if(!$runtimeDependencies.ContainsKey('pthread.dll') -or $runtimeDependencies['pthread.dll'] -ne '2d9d70378f13dcc06eed72005e74a12c6f7ba085e5fd31f97be49b7ef87cfdad'){throw 'The experimental registrar did not import the exact MSI pthread runtime.'}
+ $manifest.msi_pthread_experiment=@{inputs=$dependencies.msi_pthread;standalone_thread_probe='passed';thread_probe_source_sha256=(Hash $probeSource);private_pdb_sha256=(Hash (Join-Path $moduleOutput 'mod_sofia.pdb'));native_startup='pending';production_installation='not performed'}
+}
 [IO.File]::WriteAllText((Join-Path $OutputRoot 'native-manifest.json'),($manifest|ConvertTo-Json -Depth 8),(New-Object Text.UTF8Encoding($false)))
 if($SkipMsvcCodec){Write-Host 'Pinned registrar built; portable local-codec proof and Windows SIP/media qualification are separate required gates.';return}
 $bcgBuild=Join-Path $BuildRoot 'bcg729'
