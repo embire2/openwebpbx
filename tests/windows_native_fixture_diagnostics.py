@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""Exercise bounded fixture diagnostics without installing or contacting a PBX."""
+import importlib.util
+import json
+import subprocess
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location('native', ROOT / 'tests/windows-native-acceptance.py')
+native = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(native)
+checks = 0
+
+
+def check(value):
+    global checks
+    assert value
+    checks += 1
+
+
+with tempfile.TemporaryDirectory() as folder:
+    base = Path(folder)
+    data = base / 'ProgramData'
+    scope = data / 'OpenWebPBX/native-qualification' / ('a' * 24)
+    scope.mkdir(parents=True)
+    input_path = scope / 'input.json'
+    input_path.write_text('{}')
+    source = (ROOT / 'tests/windows-native-fixture.php').read_text()
+    function = source[source.index('function windows_native_fixture_failure_record('):source.index("$fixtureStage='initialization';")]
+    probe = base / 'diagnostics.php'
+    probe.write_text('<?php\n' + function + r'''
+$input=$argv[1];$data=$argv[2];$secret='NEVER_PUBLISH_PRIVATE_FIXTURE_MESSAGE';
+$error=new RuntimeException($secret);$results=[];
+$results[]=windows_native_fixture_failure_record($error,$input,'discover','config_read',$data);
+$path=$input.'.discover.failure.json';$first=file_get_contents($path);
+$results[]=!windows_native_fixture_failure_record(new LogicException($secret),$input,'discover','policy_save',$data)&&file_get_contents($path)===$first;
+$row=json_decode($first,true,32,JSON_THROW_ON_ERROR);
+$results[]=array_keys($row)===['schema','error_type','source_basename','source_line','action','stage'];
+$results[]=$row['schema']===1&&$row['error_type']==='RuntimeException'&&$row['source_basename']==='external_component'&&$row['stage']==='config_read';
+$results[]=!str_contains($first,$secret)&&!str_contains($first,$data)&&strlen($first)<=2048;
+$results[]=!windows_native_fixture_failure_record($error,$input,'unknown','config_read',$data);
+$results[]=windows_native_fixture_failure_record($error,$input,'cleanup','UNBOUNDED_PRIVATE_STAGE',$data)&&json_decode(file_get_contents($input.'.cleanup.failure.json'),true)['stage']==='initialization';
+$outside=dirname($data).'/input.json';file_put_contents($outside,'{}');
+$results[]=!windows_native_fixture_failure_record($error,$outside,'discover','config_read',$data)&&!file_exists($outside.'.discover.failure.json');
+$results[]=!windows_native_fixture_failure_record($error,$input.'.absent','discover','config_read',$data);
+if(DIRECTORY_SEPARATOR==='/'){symlink($input,dirname($input).'/linked.json');$results[]=!windows_native_fixture_failure_record($error,dirname($input).'/linked.json','discover','config_read',$data);}
+echo json_encode($results,JSON_THROW_ON_ERROR);
+''')
+    result = subprocess.run(['php', str(probe), str(input_path), str(data)], capture_output=True, text=True, check=True)
+    for outcome in json.loads(result.stdout):
+        check(outcome)
+    record = json.loads(Path(str(input_path) + '.discover.failure.json').read_text())
+    safe = native.fixture_failure(record, 'discover')
+    check(safe['active_case'] == 'fixture_php_discover_config_read')
+    check(set(safe) == {'error_type', 'source_basename', 'source_line', 'active_case'})
+    for mutate in [dict(record, action='cleanup'), dict(record, source_basename='private.php'),
+                   dict(record, source_line=True), dict(record, source_line=100001),
+                   dict(record, stage='private message'), dict(record, error_type='secret!')]:
+        check(native.fixture_failure(mutate, 'discover') is None)
+    fixture = native.Fixture.__new__(native.Fixture)
+    fixture.php = Path('fictional-php')
+    fixture.script = Path('fictional-fixture.php')
+    fixture.path = input_path
+    fixture.evidence = scope
+    failed = subprocess.CompletedProcess([], 1, 'PRIVATE_STDOUT', 'PRIVATE_STDERR')
+    with patch.object(native.subprocess, 'run', return_value=failed):
+        try:
+            fixture.cli('discover')
+        except RuntimeError as error:
+            check(error.fixture_failure == safe)
+            check('PRIVATE_STDOUT' not in str(error) and 'PRIVATE_STDERR' not in str(error))
+            check((scope / 'fixture-discover.private.out').read_text() == 'PRIVATE_STDOUT')
+            check((scope / 'fixture-discover.private.err').read_text() == 'PRIVATE_STDERR')
+        else:
+            raise AssertionError('Failed PHP subprocess was accepted')
+    Path(str(input_path) + '.discover.failure.json').write_text('x' * 2049)
+    with patch.object(native.subprocess, 'run', return_value=failed):
+        try:
+            fixture.cli('discover')
+        except RuntimeError as error:
+            check(not hasattr(error, 'fixture_failure'))
+        else:
+            raise AssertionError('Failed PHP subprocess was accepted')
+
+print(f'PASS {checks} bounded PHP/Python fixture diagnostic checks; no PBX contacted')

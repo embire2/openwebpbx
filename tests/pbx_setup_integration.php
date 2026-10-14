@@ -19,7 +19,7 @@ $assert=function(bool $condition,string $message){if(!$condition)throw new Runti
 $reject=function(callable $fn,string $message)use($assert){try{$fn();}catch(Throwable $e){return;}$assert(false,$message);};
 try {
     $db->exec('create schema '.$schema); $db->exec('set search_path to '.$schema.',public');
-    $tables=['v_domains','v_users','v_user_groups','v_groups','v_group_permissions','v_permissions','v_menus','v_menu_items','v_menu_languages','v_menu_item_groups','v_dialplans','v_dialplan_details','v_domain_settings','v_extensions','v_voicemails','v_gateways','v_ring_groups','v_ring_group_destinations','v_destinations','v_default_settings'];
+    $tables=['v_domains','v_users','v_user_groups','v_groups','v_group_permissions','v_permissions','v_menus','v_menu_items','v_menu_languages','v_menu_item_groups','v_dialplans','v_dialplan_details','v_domain_settings','v_extensions','v_voicemails','v_gateways','v_ring_groups','v_ring_group_destinations','v_destinations','v_default_settings','v_pbx_restore'];
     foreach($tables as $table)$db->exec('create table '.$table.' (like public.'.$table.' including all)');
     foreach(['v_groups','v_group_permissions','v_permissions','v_menus','v_menu_items','v_menu_languages','v_menu_item_groups','v_default_settings'] as $table)$db->exec('insert into '.$table.' select * from public.'.$table);
     $db->exec("insert into v_domains select * from public.v_domains where domain_name='call.openweb.co.za'");
@@ -72,7 +72,7 @@ try {
     $input['sip_domain']='alias.example.invalid';$collision=$setup->reviewSetup($input);$reject(fn()=>$setup->createSetup($collision['draft_id']),'An assigned phone alias was reused as another PBX realm');
     $assert((int)$db->query('select count(*) from v_pbx_services')->fetchColumn()===2,'Rejected phone domain left a service');
     // Remove only this owned realm fixture before the existing rollback checks.
-    foreach(['v_dialplan_details','v_dialplans','v_extensions','v_voicemails','v_gateways','v_ring_groups','v_ring_group_destinations','v_destinations','v_domain_settings','v_pbx_services'] as $table)$query('delete from '.$table.' where domain_uuid=:d',['d'=>$customDomain]);
+    foreach(['v_dialplan_details','v_dialplans','v_extensions','v_voicemails','v_gateways','v_ring_groups','v_ring_group_destinations','v_destinations','v_domain_settings','v_pbx_services','v_pbx_restore'] as $table)$query('delete from '.$table.' where domain_uuid=:d',['d'=>$customDomain]);
     $query('delete from v_domains where domain_uuid=:d',['d'=>$customDomain]);$input['sip_domain']='';
     $input['tenant_uuid']=$tenant['tenant_uuid'];$input['service_name']='Rollback fixture';
     $rollback=$setup->reviewSetup($input);$query('update v_pbx_tenants set service_limit=1 where tenant_uuid=:id',['id'=>$tenant['tenant_uuid']]);

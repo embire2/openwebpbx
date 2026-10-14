@@ -212,8 +212,31 @@ class pbx_setup_provisioner {
         return $id;
     }
 
+    /** Defaults for a new user; generated SIP credentials stay in the native account. */
+    private function guidedUser(array $user, string $extension, string $mailbox, string $dialplan): array {
+        $destination = ['type'=>'VoiceMail', 'number'=>$user['number'], 'external'=>''];
+        $profiles = [];
+        foreach (['Available','Away','Out of office','Custom 1','Custom 2'] as $status) {
+            $available = in_array($status, ['Available','Custom 1'], true);
+            $profiles[$status] = ['name'=>$status, 'timeout'=>30, 'disable_ring_groups'=>!$available, 'ring_mobile'=>false,
+                'queue_status'=>'-1', 'busy_detection'=>'UsePBXStatus',
+                'available'=>$available ? array_fill_keys(['NoAnswer','Busy','NotRegistered'], ['internal_inactive'=>true, 'all'=>$destination, 'internal'=>$destination]) : [],
+                'away'=>$available ? [] : array_fill_keys(['Internal','External'], ['outside_inactive'=>true, 'all'=>$destination, 'outside'=>$destination])];
+        }
+        return ['number'=>$user['number'], 'auth_id'=>$user['auth_id'], 'contact_user'=>$user['number'],
+            'extension_uuid'=>$extension, 'voicemail_uuid'=>$mailbox, 'dialplan_uuid'=>$dialplan,
+            'name'=>$user['name'], 'email'=>$user['email'], 'enabled'=>$user['enabled'], 'voicemail_enabled'=>$user['enabled'],
+            'voicemail_email'=>$user['email']===''?'None':'Attachment', 'record_calls'=>false, 'record_external_only'=>false,
+            'mobile'=>'', 'outbound_caller_id'=>'', 'profile'=>'Available', 'queue_status'=>'LoggedIn', 'auto_status'=>'0',
+            'profiles'=>$profiles, 'hours'=>['hours'=>['type'=>'AllHours','periods'=>[]], 'breaks'=>['periods'=>[]], 'outside'=>'','break'=>'','holiday'=>'']];
+    }
+
+    private function coreActions(string $domain, string $realm, string $mode, string $key): array {
+        return [['set','domain_uuid='.$domain], ['set','domain_name='.$realm], ['lua','app.lua pbx_setup '.$mode.' '.$key]];
+    }
+
     /** @return array{counts:array,warnings:array} No credentials are returned. */
-    public function apply(string $domainUuid, string $domainName, array $plan): array {
+    public function apply(string $domainUuid, string $domainName, array $plan, ?string $timezone = null): array {
         if (!$this->db->inTransaction()) throw new LogicException('Setup provisioning requires a caller-owned transaction.');
         if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/Di', $domainUuid)) throw new InvalidArgumentException('Invalid PBX domain identifier.');
         $domainName = strtolower($this->text($domainName, 'PBX domain', 253));
@@ -221,9 +244,12 @@ class pbx_setup_provisioner {
         // V20 keeps dialled numbers in its routing table, separately from SIP accounts.
         // An authentication ID can legitimately equal another person's dialled number.
         $v20 = isset($plan['v20']);
+        $guided = ($plan['source_format'] ?? '') === 'guided_setup';
+        if ($guided && ($v20 || !in_array($timezone, DateTimeZone::listIdentifiers(), true))) throw new InvalidArgumentException('Guided setup requires its reviewed timezone and a new PBX plan.');
         $plan = $this->validate($plan);
         $domain = $this->query('select domain_name,domain_enabled from v_domains where domain_uuid=:id for update', ['id'=>$domainUuid])->fetch(PDO::FETCH_ASSOC);
         if (!$domain || $domain['domain_name'] !== $domainName || !$domain['domain_enabled']) throw new RuntimeException('The target PBX domain is unavailable or does not match.');
+        if ($guided && !$this->query('select 1 from v_pbx_services where domain_uuid=:domain and created_by=:user', ['domain'=>$domainUuid, 'user'=>$_SESSION['user_uuid']??''])->fetchColumn()) throw new RuntimeException('Guided setup requires its newly owned PBX service.');
         foreach (['v_extensions','v_voicemails','v_gateways','v_ring_groups','v_destinations'] as $table) {
             if ($this->query('select 1 from '.$table.' where domain_uuid=:domain limit 1', ['domain'=>$domainUuid])->fetchColumn()) throw new RuntimeException('Setup and backup import require a new, empty PBX service. Existing records were left unchanged.');
         }
@@ -232,46 +258,96 @@ class pbx_setup_provisioner {
         // The installed XML handler treats '@' contexts as exact-context only:
         // shared global extension and outbound behaviors cannot run at ingress.
         $ingressContext = 'ingress@'.$domainName;
+        if ($guided) {
+            if ($this->query('select 1 from v_pbx_restore where domain_uuid=:domain', ['domain'=>$domainUuid])->fetchColumn()) throw new RuntimeException('This PBX already has a calling policy.');
+            $policy = ['realm'=>$domainName, 'timezone'=>$timezone, 'origin'=>'OpenWeb PBX', 'users'=>[], 'trunks'=>[]];
+            foreach (['queues','ring_groups','receptionists','departments','inbound_rules','outbound_rules','phones','contacts','specials','scripts'] as $key) $policy[$key] = [];
+        }
         foreach ($plan['users'] as $user) {
             $password = $user['password']; if ($password === '' && !$v20) { $password = bin2hex(random_bytes(20)); $generatedPasswords++; }
             $pin = $user['voicemail_pin']; if ($pin === '' && !$v20) { $pin = (string)random_int(10000000,99999999); $generatedPins++; }
             $alias = $v20 || $user['auth_id'] === $user['number'] ? null : $user['number'];
             if ($alias !== null) $aliasedUsers++;
             $parts = explode(' ', $user['name'], 2);
-            $this->insert('v_extensions', ['extension_uuid'=>$this->uuid(), 'domain_uuid'=>$domainUuid, 'extension'=>$user['auth_id'], 'number_alias'=>$alias, 'password'=>$password, 'accountcode'=>$domainName, 'user_context'=>$domainName, 'dial_domain'=>$domainName, 'directory_first_name'=>$parts[0], 'directory_last_name'=>$parts[1] ?? '', 'effective_caller_id_name'=>$user['name'], 'effective_caller_id_number'=>$user['number'], 'directory_visible'=>true, 'directory_exten_visible'=>true, 'call_timeout'=>30, 'max_registrations'=>'1', 'limit_max'=>'5', 'limit_destination'=>'!USER_BUSY', 'extension_type'=>'default', 'enabled'=>$user['enabled'], 'description'=>'Created from reviewed PBX setup']);
-            $this->insert('v_voicemails', ['voicemail_uuid'=>$this->uuid(), 'domain_uuid'=>$domainUuid, 'voicemail_id'=>$user['number'], 'voicemail_password'=>$pin, 'voicemail_mail_to'=>$user['email'], 'voicemail_enabled'=>$user['enabled'], 'voicemail_tutorial'=>true, 'voicemail_file'=>'attach', 'voicemail_local_after_email'=>true, 'voicemail_description'=>$user['name']]);
+            $extension = $this->uuid(); $mailbox = $this->uuid();
+            $this->insert('v_extensions', ['extension_uuid'=>$extension, 'domain_uuid'=>$domainUuid, 'extension'=>$user['auth_id'], 'number_alias'=>$alias, 'password'=>$password, 'accountcode'=>$domainName, 'user_context'=>$domainName, 'dial_domain'=>$domainName, 'directory_first_name'=>$parts[0], 'directory_last_name'=>$parts[1] ?? '', 'effective_caller_id_name'=>$user['name'], 'effective_caller_id_number'=>$user['number'], 'directory_visible'=>true, 'directory_exten_visible'=>true, 'call_timeout'=>30, 'max_registrations'=>'1', 'limit_max'=>'5', 'limit_destination'=>'!USER_BUSY', 'extension_type'=>'default', 'enabled'=>$user['enabled'], 'description'=>'Created from reviewed PBX setup']);
+            $this->insert('v_voicemails', ['voicemail_uuid'=>$mailbox, 'domain_uuid'=>$domainUuid, 'voicemail_id'=>$user['number'], 'voicemail_password'=>$pin, 'voicemail_mail_to'=>$user['email'], 'voicemail_enabled'=>$user['enabled'], 'voicemail_tutorial'=>true, 'voicemail_file'=>'attach', 'voicemail_local_after_email'=>true, 'voicemail_description'=>$user['name']]);
+            if ($guided) {
+                $dialplan = $this->dialplan($domainUuid, $domainName, 'OpenWeb user '.$user['number'], $user['number'], 80,
+                    [['destination_number','^'.preg_quote($user['number'],'~').'$']], $this->coreActions($domainUuid,$domainName,'user',$user['number']), true, 'Manage this user in Admin.');
+                $policy['users'][$user['number']] = $this->guidedUser($user, $extension, $mailbox, $dialplan);
+            }
             $counts['users']++; $counts['voicemails']++;
         }
         $gateways = [];
         foreach ($plan['trunks'] as $trunk) {
             $id = $this->uuid(); $gateways[$trunk['source_id']] = $id;
-            $this->insert('v_gateways', pbx_v20_restore::gatewaySettings($trunk)+['gateway_uuid'=>$id, 'domain_uuid'=>$domainUuid, 'gateway'=>$trunk['name'], 'enabled'=>false, 'context'=>$ingressContext, 'profile'=>'external', 'retry_seconds'=>30, 'description'=>'Source trunk '.$trunk['source_id'].'. Disabled pending carrier verification and secure ingress binding.']);
+            $native = pbx_v20_restore::gatewaySettings($trunk);
+            $this->insert('v_gateways', $native+['gateway_uuid'=>$id, 'domain_uuid'=>$domainUuid, 'gateway'=>$trunk['name'], 'enabled'=>false, 'context'=>$ingressContext, 'profile'=>'external', 'retry_seconds'=>30, 'description'=>'Source trunk '.$trunk['source_id'].'. Disabled pending carrier verification and secure ingress binding.']);
+            if ($guided) {
+                $saved = $trunk; unset($saved['username'], $saved['password'], $saved['source_id']);
+                $policy['trunks'][$trunk['source_id']] = array_replace($saved, ['number'=>$trunk['source_id'], 'gateway_uuid'=>$id, 'enabled'=>false,
+                    'auth_mode'=>$native['username']!==''||$native['password']!==''?'credentials':'ip', 'auth_username'=>$native['auth_username'],
+                    'realm'=>$native['realm'], 'from_user'=>$native['from_user'], 'from_domain'=>$native['from_domain'],
+                    'register_proxy'=>$native['register_proxy'], 'outbound_proxy'=>$native['outbound_proxy'], 'contact_user'=>$native['extension'],
+                    'extension_in_contact'=>$native['extension_in_contact']==='true', 'caller_id_in_from'=>$native['caller_id_in_from'],
+                    'sip_cid_type'=>$native['sip_cid_type'], 'expires'=>$native['expire_seconds'], 'limit'=>$native['channels'],
+                    'allowed_ips'=>[], 'main_number'=>'', 'dids'=>[], 'caller_id'=>'', 'type'=>'Provider', 'headers'=>[], 'source_field'=>'RequestLineURIUser']);
+            }
             $counts['trunks']++;
         }
         foreach ($plan['ring_groups'] as $group) {
             $id = $this->uuid();
-            $dialplan = $this->dialplan($domainUuid, $domainName, $group['name'], $group['number'], 101, [['destination_number', '^'.preg_quote($group['number'], '~').'$']], [['ring_ready',''], ['set','ring_group_uuid='.$id], ['set','record_stereo=true'], ['lua','app.lua ring_groups']], true, 'Created from reviewed PBX setup', '1d61fb65-1eec-bc73-a6ee-a6203b4fe6f2');
+            $actions = $guided ? $this->coreActions($domainUuid,$domainName,'group',$group['number']) : [['ring_ready',''], ['set','ring_group_uuid='.$id], ['set','record_stereo=true'], ['lua','app.lua ring_groups']];
+            $dialplan = $this->dialplan($domainUuid, $domainName, $group['name'], $group['number'], $guided?80:101, [['destination_number', '^'.preg_quote($group['number'], '~').'$']], $actions, true, 'Created from reviewed PBX setup', '1d61fb65-1eec-bc73-a6ee-a6203b4fe6f2');
             $this->insert('v_ring_groups', ['ring_group_uuid'=>$id, 'domain_uuid'=>$domainUuid, 'ring_group_name'=>$group['name'], 'ring_group_extension'=>$group['number'], 'ring_group_strategy'=>$group['strategy'], 'ring_group_call_timeout'=>$group['timeout'], 'ring_group_context'=>$domainName, 'ring_group_enabled'=>true, 'ring_group_call_screen_enabled'=>false, 'ring_group_call_forward_enabled'=>false, 'ring_group_follow_me_enabled'=>false, 'ring_group_forward_enabled'=>false, 'ring_group_timeout_app'=>'hangup', 'ring_group_timeout_data'=>'NO_ANSWER', 'ring_group_description'=>'Created from reviewed PBX setup; unanswered calls end after the configured timeout.', 'dialplan_uuid'=>$dialplan]);
             foreach ($group['members'] as $position => $member) $this->insert('v_ring_group_destinations', ['ring_group_destination_uuid'=>$this->uuid(), 'domain_uuid'=>$domainUuid, 'ring_group_uuid'=>$id, 'destination_number'=>$member, 'destination_delay'=>$group['strategy'] === 'sequence' ? $position : 0, 'destination_timeout'=>$group['timeout'], 'destination_prompt'=>0, 'destination_enabled'=>true]);
+            if ($guided) $policy['ring_groups'][] = ['number'=>$group['number'], 'name'=>$group['name'], 'strategy'=>$group['strategy'], 'native_strategy'=>$group['strategy'],
+                'uuid'=>$id, 'dialplan_uuid'=>$dialplan, 'timeout'=>$group['timeout'], 'members'=>array_map(fn($number)=>['number'=>$number],$group['members']),
+                'destination'=>['type'=>'None','number'=>'','external'=>''], 'hours'=>['hours'=>['type'=>'AllHours','periods'=>[]],'breaks'=>['periods'=>[]],'outside'=>'','break'=>'','holiday'=>'']];
             $counts['ring_groups']++;
         }
         foreach ($plan['inbound_rules'] as $position => $rule) {
+            $destinationId = $this->uuid();
             $application = $rule['destination_type'] === 'hangup' ? 'hangup' : 'transfer';
             $data = $application === 'hangup' ? 'NORMAL_CLEARING' : ($rule['destination_type'] === 'voicemail' ? '*99' : '').$rule['destination'].' XML '.$domainName;
             $pattern = '^'.preg_quote($rule['number'], '~').'$';
             // These rules never enter the shared public context. A carrier must be
             // identified at the SIP ingress before its gateway/context is enabled.
             $description = 'Disabled pending verified carrier ingress; '.($rule['trunk_id'] !== '' ? 'source trunk '.$rule['trunk_id'].'.' : 'source trunk must be selected.');
-            $dialplan = $this->dialplan($domainUuid, $ingressContext, $rule['name'], $rule['number'], 110+$position, [['destination_number',$pattern]], [['export','call_direction=inbound',true], ['set','domain_uuid='.$domainUuid,true], ['set','domain_name='.$domainName,true], [$application,$data]], false, $description, 'c03b422e-13a8-bd1b-e42b-b6b9b4d27ce4');
-            $this->insert('v_destinations', ['destination_uuid'=>$this->uuid(), 'domain_uuid'=>$domainUuid, 'dialplan_uuid'=>$dialplan, 'destination_type'=>'inbound', 'destination_number'=>$rule['number'], 'destination_number_regex'=>$pattern, 'destination_condition_field'=>'destination_number', 'destination_context'=>$ingressContext, 'destination_app'=>$application, 'destination_data'=>$data, 'destination_actions'=>json_encode([['destination_app'=>$application,'destination_data'=>$data]], JSON_THROW_ON_ERROR), 'destination_enabled'=>false, 'destination_type_voice'=>1, 'destination_order'=>110+$position, 'destination_description'=>$description]);
+            $actions = [['export','call_direction=inbound',true], ['set','domain_uuid='.$domainUuid,true], ['set','domain_name='.$domainName,true], [$application,$data]];
+            if ($guided) { $application='lua'; $data='app.lua pbx_setup incoming '.$destinationId; $actions=$this->coreActions($domainUuid,$domainName,'incoming',$destinationId); }
+            $dialplan = $this->dialplan($domainUuid, $ingressContext, $rule['name'], $rule['number'], 110+$position, [['destination_number',$pattern]], $actions, false, $description, 'c03b422e-13a8-bd1b-e42b-b6b9b4d27ce4');
+            $this->insert('v_destinations', ['destination_uuid'=>$destinationId, 'domain_uuid'=>$domainUuid, 'dialplan_uuid'=>$dialplan, 'destination_type'=>'inbound', 'destination_number'=>$rule['number'], 'destination_number_regex'=>$pattern, 'destination_condition_field'=>'destination_number', 'destination_context'=>$ingressContext, 'destination_app'=>$application, 'destination_data'=>$data, 'destination_actions'=>json_encode([['destination_app'=>$application,'destination_data'=>$data]], JSON_THROW_ON_ERROR), 'destination_enabled'=>false, 'destination_type_voice'=>1, 'destination_order'=>110+$position, 'destination_description'=>$description]);
+            if ($guided) {
+                $target = ['type'=>match($rule['destination_type']){'extension'=>'Extension','ring_group'=>'RingGroup','voicemail'=>'VoiceMail','hangup'=>'None'}, 'number'=>$rule['destination'], 'external'=>''];
+                $empty = ['type'=>'None','number'=>'','external'=>''];
+                $policy['inbound_rules'][] = ['rule_id'=>$destinationId, 'dialplan_uuid'=>$dialplan, 'trunk_id'=>$rule['trunk_id'], 'number'=>$rule['number'], 'name'=>$rule['name'],
+                    'order'=>$position, 'condition'=>'BasedOnDID', 'hours'=>['type'=>'AllHours','periods'=>[]], 'office'=>$target, 'outside'=>$empty, 'holiday'=>$empty, 'use_outside'=>false,'use_holiday'=>false,'enabled'=>false];
+                if ($policy['trunks'][$rule['trunk_id']]['main_number']==='') $policy['trunks'][$rule['trunk_id']]['main_number']=$rule['number'];
+                $policy['trunks'][$rule['trunk_id']]['dids'][]=$rule['number'];
+            }
             $counts['inbound_rules']++;
         }
         if ($counts['trunks'] || $counts['inbound_rules']) $this->dialplan($domainUuid, $ingressContext, 'Reject unconfigured incoming calls', '', 9999, [['destination_number','^.*$']], [['hangup','UNALLOCATED_NUMBER']], true, 'Private ingress deny rule. Only verified, explicitly enabled incoming number routes can transfer into the PBX.');
         foreach ($plan['outbound_rules'] as $position => $rule) {
+            if ($guided) {
+                $policy['outbound_rules'][] = ['rule_id'=>$this->uuid(), 'priority'=>$position, 'name'=>$rule['name'], 'prefix'=>$rule['prefix'], 'lengths'=>implode(',',$rule['lengths']),
+                    'ranges'=>[], 'departments'=>[], 'routes'=>[['trunk_id'=>$rule['trunk_id'], 'strip'=>$rule['strip'], 'prepend'=>$rule['prepend'], 'caller_id'=>'']]];
+                continue;
+            }
             $length = $rule['lengths'] ? '(?='.implode('|', array_map(fn($length) => '.{'.$length.'}$', $rule['lengths'])).')' : '(?=.{'.max(strlen($rule['prefix']),$rule['strip']+1,2).',32}$)';
             $pattern = '^(?='.preg_quote($rule['prefix'],'~').')(?=\+?[0-9]+$)'.$length.'[+0-9]{'.$rule['strip'].'}([+0-9]+)$';
             $this->dialplan($domainUuid, $domainName, $rule['name'], '', 1000+$position*10, [['destination_number',$pattern]], [['set','hangup_after_bridge=true'], ['set','continue_on_fail=false'], ['bridge','sofia/gateway/'.$gateways[$rule['trunk_id']].'/'.$rule['prepend'].'$1']], true, 'Created from reviewed PBX setup. Source trunk '.$rule['trunk_id'].' is disabled pending verification.', '8c914ec3-9fc0-8ab5-4cda-6c9288bdc9a3');
             $counts['outbound_rules']++;
+        }
+        if ($guided) {
+            $this->dialplan($domainUuid,$domainName,'OpenWeb voicemail login','*97',80,[['destination_number','^\\*97$']],$this->coreActions($domainUuid,$domainName,'voicemail_login','*97'),true,'Manage voicemail in Admin.');
+            $this->dialplan($domainUuid,$domainName,'OpenWeb outbound','',900,[['destination_number','^.+$']],$this->coreActions($domainUuid,$domainName,'outbound','all'),true,'Manage outgoing calling rules in Admin.','8c914ec3-9fc0-8ab5-4cda-6c9288bdc9a3');
+            $counts['outbound_rules']=count($plan['outbound_rules']);
+            $policy['users']=(object)$policy['users']; $policy['trunks']=(object)$policy['trunks'];
+            $this->insert('v_pbx_restore', ['domain_uuid'=>$domainUuid, 'source_version'=>'OpenWeb PBX '.pbx_updates::version(), 'config'=>json_encode($policy,JSON_THROW_ON_ERROR),
+                'report'=>json_encode(['origin'=>'guided_setup','counts'=>$counts,'notes'=>[]],JSON_THROW_ON_ERROR)]);
         }
         if ($generatedPasswords) $warnings[] = 'New SIP passwords were generated for '.$generatedPasswords.' user(s) whose backup did not contain a password. Reprovision those endpoints.';
         if ($generatedPins) $warnings[] = 'New voicemail PINs were generated for '.$generatedPins.' user(s) whose backup did not contain a PIN.';

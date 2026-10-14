@@ -13,6 +13,18 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 WINPS=str(Path(os.environ.get('SystemRoot','C:/Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe')
+FIXTURE_PHP_SOURCES={'windows-native-fixture.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component'}
+FIXTURE_ACTIONS={'baseline','discover','cleanup','status','job','due','voicemail-login','api','mail-seed'}
+FIXTURE_STAGES={'initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh'}
+
+
+def fixture_failure(record,action):
+    if not isinstance(record,dict) or record.get('schema')!=1 or record.get('action')!=action or action not in FIXTURE_ACTIONS or record.get('stage') not in FIXTURE_STAGES:
+        return None
+    if record.get('source_basename') not in FIXTURE_PHP_SOURCES or type(record.get('source_line')) is not int or not 0<record['source_line']<=100000 or not isinstance(record.get('error_type'),str) or not re.fullmatch(r'[A-Za-z0-9_]{1,80}',record['error_type']):
+        return None
+    return {'source_basename':record['source_basename'],'source_line':record['source_line'],'error_type':record['error_type'],
+            'active_case':'fixture_php_'+action.replace('-','_')+'_'+record['stage']}
 
 
 def guard():
@@ -142,7 +154,16 @@ class Fixture:
         self.script=self.source/'tests/windows-native-fixture.php'; self.checks=[]; self.active_case='fixture_initialization'
     def cli(self,action,*args,json_result=True):
         r=subprocess.run([str(self.php),str(self.script),action,str(self.path),*args],capture_output=True,text=True,timeout=35)
-        if r.returncode: raise RuntimeError('Private fixture operation failed: '+action)
+        if r.returncode:
+            error=RuntimeError('Private fixture operation failed: '+action)
+            if action in FIXTURE_ACTIONS:
+                (self.evidence/('fixture-'+action+'.private.out')).write_text(r.stdout)
+                (self.evidence/('fixture-'+action+'.private.err')).write_text(r.stderr)
+                failure=Path(str(self.path)+'.'+action+'.failure.json')
+                if failure.is_file() and not failure.is_symlink() and failure.stat().st_size<=2048:
+                    try:error.fixture_failure=fixture_failure(json.loads(failure.read_text()),action)
+                    except (ValueError,OSError):pass
+            raise error
         return json.loads(r.stdout) if json_result else r.stdout.strip()
     def refresh(self): self.s=json.loads(self.path.read_text())
     def record(self,name,**facts):
@@ -630,7 +651,9 @@ def main():
         basename=Path(location.filename).name
         if basename not in ('windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py'):
             basename='external_component'
-        (f.evidence/'software-native-report.json').write_text(json.dumps({'state':'failed','checks':f.checks,'error_type':type(e).__name__,'error':str(e),'source_basename':basename,'source_line':location.lineno,'active_case':f.active_case},indent=2))
+        failure={'state':'failed','checks':f.checks,'error_type':type(e).__name__,'error':str(e),'source_basename':basename,'source_line':location.lineno,'active_case':f.active_case}
+        if getattr(e,'fixture_failure',None):failure.update(e.fixture_failure)
+        (f.evidence/'software-native-report.json').write_text(json.dumps(failure,indent=2))
         raise
 
 if __name__=='__main__':main()

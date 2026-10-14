@@ -1,7 +1,25 @@
 <?php
 /** SPDX-License-Identifier: AGPL-3.0-or-later. Fictional hosted-runner fixture only. */
 if(PHP_SAPI!=='cli'||PHP_OS_FAMILY!=='Windows'||getenv('OPENWEB_WINDOWS_NATIVE_TEST')!=='1'||getenv('GITHUB_ACTIONS')!=='true'||getenv('RUNNER_ENVIRONMENT')!=='github-hosted'||getenv('GITHUB_REPOSITORY')!=='embire2/openwebpbx')exit(2);
-set_exception_handler(static function(Throwable $e): void {fwrite(STDERR,"Private Windows native fixture failed.\n");exit(1);});
+function windows_native_fixture_failure_record(Throwable $error,string $inputFile,string $action,string $stage,string $programData): bool {
+ try{
+  $root=realpath(rtrim($programData,'/\\').'/OpenWebPBX/native-qualification');$input=realpath($inputFile);
+  if($root===false||$input===false||is_link($inputFile)||!is_file($inputFile)||basename($input)!=='input.json')return false;
+  $root=strtolower(rtrim(str_replace('\\','/',$root),'/'));$directory=strtolower(str_replace('\\','/',dirname($input)));
+  if(dirname($directory)!==$root||!preg_match('/^[a-f0-9]{24}$/D',basename($directory)))return false;
+  if(!in_array($action,['baseline','discover','cleanup','status','job','due','voicemail-login','api','mail-seed'],true))return false;
+  if(!in_array($stage,['initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh'],true))$stage='initialization';
+  $source=basename(str_replace('\\','/',$error->getFile()));
+  if(!in_array($source,['windows-native-fixture.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php'],true))$source='external_component';
+  $type=basename(str_replace('\\','/',get_class($error)));if(!preg_match('/^[A-Za-z0-9_]{1,80}$/D',$type))$type='Throwable';
+  $line=$error->getLine();if($line<1||$line>100000)$line=1;
+  $bytes=json_encode(['schema'=>1,'error_type'=>$type,'source_basename'=>$source,'source_line'=>$line,'action'=>$action,'stage'=>$stage],JSON_THROW_ON_ERROR);
+  if(strlen($bytes)>2048)return false;$stream=@fopen($input.'.'.$action.'.failure.json','xb');if($stream===false)return false;
+  try{return fwrite($stream,$bytes)===strlen($bytes)&&fflush($stream);}finally{fclose($stream);}
+ }catch(Throwable $ignored){return false;}
+}
+$fixtureStage='initialization';
+set_exception_handler(static function(Throwable $e): void {global $argv,$fixtureStage;windows_native_fixture_failure_record($e,(string)($argv[2]??''),(string)($argv[1]??''),$fixtureStage,(string)(getenv('ProgramData')?:'C:/ProgramData'));fwrite(STDERR,"Private Windows native fixture failed.\n");exit(1);});
 require 'C:/OpenWebPBX/web/resources/require.php';
 $path=str_replace('\\','/',$argv[2]??'');$root=pbx_paths::state().'/native-qualification/';
 if(!str_starts_with($path,$root)||is_link($path)||!is_file($path))throw new RuntimeException('Private fixture input required.');
@@ -43,32 +61,34 @@ if($action==='baseline'){
 }
 if(!isset($s['baseline']))throw new RuntimeException('Original factory inventory is required.');
 if($action==='discover'||$action==='cleanup'){
+ $fixtureStage='owned_service_lookup';
  $service=$q('select s.domain_uuid,s.tenant_uuid,d.domain_name,t.home_domain_uuid from v_pbx_services s join v_domains d using(domain_uuid) join v_pbx_tenants t using(tenant_uuid) where s.service_name=? and t.owner_user_uuid=?',[$s['service_name'],$s['factory_admin']['user_uuid']])->fetch(PDO::FETCH_ASSOC);
  if($service){$s['owned']=$service;$save();}
  if($action==='discover'&&!$service)throw new RuntimeException('Normal HTTPS setup did not create its owned PBX.');
 }
 $owned=$s['owned']??null;
 if(!$owned){if($action==='cleanup'){$restoreGlobals();foreach($q('select draft_uuid from v_pbx_setup_drafts where user_uuid=?',[$s['factory_admin']['user_uuid']])->fetchAll(PDO::FETCH_COLUMN) as $id)if(!in_array($id,$s['drafts_before'],true))$q('delete from v_pbx_setup_drafts where draft_uuid=?',[$id]);$factory();echo json_encode(['factory_empty'=>true,'owned_rows'=>0,'owned_contacts'=>0,'original_identity_preserved'=>true,'normal_login_bcrypt_rehash_proved'=>$s['normal_login_bcrypt_rehash_proved']??false,'original_factory_hash_restored'=>$s['original_factory_hash_restored']??false],JSON_THROW_ON_ERROR),PHP_EOL;exit;}throw new RuntimeException('Owned PBX is unavailable.');}
-$domain=$owned['domain_uuid'];$realm=$owned['domain_name'];if(!is_uuid($domain)||!preg_match('/^pbx-[a-f0-9]{12}\./D',$realm))throw new RuntimeException('Fixture ownership mismatch.');
+$fixtureStage='realm_validation';$domain=$owned['domain_uuid'];$realm=$owned['domain_name'];if(!is_uuid($domain)||!preg_match('/^pbx-[a-f0-9]{12}\./D',$realm))throw new RuntimeException('Fixture ownership mismatch.');
 if($q('select domain_name from v_domains where domain_uuid=?',[$domain])->fetchColumn()!==$realm)throw new RuntimeException('Fixture realm mismatch.');
-$admin=$s['factory_admin'];unset($_SESSION['permissions']);$permissions=(new permissions($database,$admin['domain_uuid'],$admin['user_uuid']))->get_permissions();
+$fixtureStage='admin_permissions';$admin=$s['factory_admin'];unset($_SESSION['permissions']);$permissions=(new permissions($database,$admin['domain_uuid'],$admin['user_uuid']))->get_permissions();
 if(empty($permissions['pbx_tenant_manage'])||empty($permissions['pbx_service_create']))throw new RuntimeException('The genuine factory administrator is required.');
 $_SESSION=['authorized'=>true,'user_uuid'=>$admin['user_uuid'],'domain_uuid'=>$domain,'domain_name'=>$realm,'user'=>['domain_uuid'=>$admin['domain_uuid']],'permissions'=>$permissions];
-$pbx=new pbx_admin($db);$c=$pbx->config();
+$fixtureStage='config_read';$pbx=new pbx_admin($db);$c=$pbx->config();
 if($action==='discover'){
  $s['realm']=$realm;$s['domain']=$domain;$s['music']=pbx_paths::storage().'/openweb-music/8000/lofi-beat-loop-schmoop.wav';
  $s['users']=[];
  $auths=['8100'=>'fixture-8100','8101'=>'8102','8102'=>'fixture-8102','8103'=>'fixture-8103'];
  $db->beginTransaction();foreach($auths as $n=>$auth){
+  $fixtureStage='users_discovery';
   if(!isset($c['users'][$n]))throw new RuntimeException('Normal HTTPS users missing.');$u=&$c['users'][$n];
   $u['auth_id']=$auth;$u['contact_user']=(string)$n;
-  $q('update v_extensions set extension=? where domain_uuid=? and extension_uuid=?',[$auth,$domain,$u['extension_uuid']]);
+  $fixtureStage='extension_update';$q('update v_extensions set extension=? where domain_uuid=? and extension_uuid=?',[$auth,$domain,$u['extension_uuid']]);
   if((string)$n==='8101')$q("update v_extensions set absolute_codec_string='PCMU' where domain_uuid=? and extension_uuid=?",[$domain,$u['extension_uuid']]);
   $password=$q('select password from v_extensions where domain_uuid=? and extension_uuid=?',[$domain,$u['extension_uuid']])->fetchColumn();
   $s['users'][]=['number'=>(string)$n,'auth'=>$auth,'password'=>$password,'tone_hz'=>440+array_search($n,array_keys($auths),true)*110];
  }unset($u);
- $q('update v_pbx_restore set config=cast(? as jsonb) where domain_uuid=?',[json_encode($c,JSON_THROW_ON_ERROR),$domain]);$db->commit();$save();
- foreach($s['users'] as $u)(new cache)->delete('directory:'.$u['auth'].'@'.$realm);event_socket::api('reloadxml');echo "{\"normal_https_users_discovered\":4,\"fictional_auth_collision\":true}\n";exit;
+ $fixtureStage='policy_save';$q('update v_pbx_restore set config=cast(? as jsonb) where domain_uuid=?',[json_encode($c,JSON_THROW_ON_ERROR),$domain]);$db->commit();$save();
+ $fixtureStage='cache_refresh';foreach($s['users'] as $u)(new cache)->delete('directory:'.$u['auth'].'@'.$realm);event_socket::api('reloadxml');echo "{\"normal_https_users_discovered\":4,\"fictional_auth_collision\":true}\n";exit;
 }
 if($action==='status'){
  $status=event_socket::api('sofia status profile internal');if(!preg_match('/^\s*SIP-IP\s+([0-9.]+)\s*$/m',$status,$m))throw new RuntimeException('Native profile IP unavailable.');
