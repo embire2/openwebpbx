@@ -302,6 +302,14 @@ def native_calls(f):
     for transport in ['udp','tcp','tls']:
         client=SIPClient(transport,bind,(bind,5061 if transport=='tls' else 5060),realm,ca,'windowsqa.example.invalid')
         try:
+            # The stock MSI directory must not authenticate its demonstration
+            # account through XML, Lua, cache or a default/IP realm fallback.
+            demo={'number':'1000','auth':'1000','password':'1234'}
+            demo_realms=sorted(set(['default','127.0.0.1',bind,'windowsqa.example.invalid',realm]))
+            for demo_realm in demo_realms:
+                result=client.register(demo,realm=demo_realm)
+                assert result['code'] in (401,403,404),'Stock demonstration credentials authenticated through a realm fallback'
+            f.record('native_'+transport+'_msi_demo_password_all_realm_fallbacks_rejected',realms_tested=len(demo_realms),accepted_demo_registrations=0)
             for u in users:
                 r=client.register(u);assert r['code']==200 and r['response_identity'] and r['requested'] in r['contacts'],'Exact fictional tuple/response failed'
                 assert client.register(u,reuse=True)['code']==200,'Authenticated refresh failed'
