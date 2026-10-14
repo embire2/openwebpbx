@@ -14,7 +14,7 @@ int checks=0;
 void Check(bool value,string label){if(!value)throw new Exception(label);Interlocked.Increment(ref checks);}
 byte[] Decode(string s)=>Convert.FromBase64String(s.Replace('-','+').Replace('_','/').PadRight((s.Length+3)/4*4,'='));
 string Encode(byte[] b)=>Convert.ToBase64String(b).TrimEnd('=').Replace('+','-').Replace('/','_');
-Check(AndroidPushSender.ConfigPath==(OperatingSystem.IsWindows()?Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"OpenWebPBX","mobile-push.json"):"/var/lib/openwebpbx/mobile-notifications/config.json"),"Default sender path uses the private notification directory on Debian and preserves Windows storage");
+Check(AndroidPushSender.ConfigPath==(OperatingSystem.IsWindows()?Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"OpenWebPBX","mobile-notifications","config.json"):"/var/lib/openwebpbx/mobile-notifications/config.json"),"Default sender path uses the private notification child on both platforms");
 // Published interoperability vector, RFC8291 §5 and Appendix A (numeric test data).
 var ua=Decode("BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4");
 var sp=Decode("BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8");
@@ -36,7 +36,14 @@ var handler=new FakeHttp(async(request,ct)=>{
 });
 var sender=new AndroidPushSender(new FakeFactory(handler),settingsPath,(_,_)=>Task.FromResult(new[]{IPAddress.Parse("8.8.8.8")}));
 try{
-    Check(sender.Settings() is not null,"Private enabled settings load");var requestId=Guid.NewGuid();var deviceId=Guid.NewGuid();
+    Check(sender.Settings() is not null,"Private enabled settings load");
+    var originalSettings=File.ReadAllBytes(settingsPath);
+    await File.WriteAllTextAsync(settingsPath,new string(' ',65537));
+    Check(sender.Settings() is null,"Oversized configuration is bounded before JSON parsing");
+    await File.WriteAllBytesAsync(settingsPath,Encoding.UTF8.GetPreamble().Concat(originalSettings).ToArray());
+    Check(sender.Settings()?["vapid_public_key"]?.GetValue<string>()==publicVapid,"UTF8 BOM identity remains readable after byte-preserving Windows migration");
+    await File.WriteAllBytesAsync(settingsPath,originalSettings);
+    var requestId=Guid.NewGuid();var deviceId=Guid.NewGuid();
     Check(await sender.Send(config,subscription,requestId,deviceId.ToString(),"incoming",DateTimeOffset.UtcNow.AddSeconds(30),default)==PushDelivery.Sent,"Direct Web Push accepted");
     var packet=sent.Last();var process=Process.Start(new ProcessStartInfo("node","tests/server-push/decrypt.mjs"){RedirectStandardInput=true,RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false})!;
     await process.StandardInput.WriteAsync(new JsonObject{["body"]=Convert.ToBase64String(packet.Body),["receiver"]=Encode(r.D!),["auth"]=Encode(auth),["authorization"]=packet.Authorization,["request"]=requestId.ToString(),["device"]=deviceId.ToString()}.ToJsonString());process.StandardInput.Close();var output=await process.StandardOutput.ReadToEndAsync();var errors=await process.StandardError.ReadToEndAsync();await process.WaitForExitAsync();Check(process.ExitCode==0&&output.StartsWith("PASS:")&&errors=="","Independent Node receiver decrypts and verifies VAPID");

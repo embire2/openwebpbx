@@ -2,6 +2,8 @@
 /** Release policy and authenticated requests. Privileged installation belongs to the updater service. */
 class pbx_updates {
     public const FEED_URL = 'https://github.com/embire2/openwebpbx/releases/latest/download/update-manifest.json';
+    public const WINDOWS_FEED_URL = 'https://github.com/embire2/openwebpbx/releases/latest/download/windows-update-manifest.json';
+    public static function serverFeedUrl(string $osFamily=PHP_OS_FAMILY): string { return $osFamily==='Windows'?self::WINDOWS_FEED_URL:self::FEED_URL; }
     private PDO $db;
     public function __construct(?PDO $db = null) {
         $this->db = $db ?? database::new()->db;
@@ -16,6 +18,10 @@ class pbx_updates {
     public static function version(): string {
         $version = trim((string)@file_get_contents(PROJECT_ROOT.'/VERSION'));
         return preg_match('/^\d+\.\d+\.\d+$/D', $version) ? $version : 'unknown';
+    }
+    public static function androidVersion(): string {
+        $version=trim((string)@file_get_contents(PROJECT_ROOT.'/ANDROID_VERSION'));
+        return preg_match('/^\d+\.\d+\.\d+$/D',$version)?$version:self::version();
     }
     public function instanceAdmin(): bool { return $this->allowed('pbx_update_instance'); }
     public function canView(): bool {
@@ -41,7 +47,7 @@ class pbx_updates {
         return $this->q('select mode,channel,maintenance_hour,maintenance_duration,updated_at,android_minimum_version from v_pbx_update_policies where scope_key=:scope', ['scope'=>$scope])->fetch(PDO::FETCH_ASSOC)
             ?: ['mode'=>'notify','channel'=>'stable','maintenance_hour'=>2,'maintenance_duration'=>2,'updated_at'=>null,'android_minimum_version'=>''];
     }
-    public function instancePolicy(): array { $this->access(true); return $this->policy('instance'); }
+    public function instancePolicy(): array { $this->access(true); return $this->policy('instance')+['feed_url'=>self::serverFeedUrl()]; }
     public function tenantPolicy(string $tenant): array { $this->tenant($tenant); return $this->policy('tenant:'.$tenant); }
     /** The public release requirement is visible to update administrators, not tenant data. */
     public function clientMinimumVersion(): string { $this->access(); return $this->policy('instance')['android_minimum_version']; }
@@ -49,7 +55,7 @@ class pbx_updates {
         $this->access(true);
         $version=$input['minimum_version']??null;
         if(!is_string($version)||($version!==''&&!preg_match('/^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$/D',$version)))throw new InvalidArgumentException('Use a release version such as 1.0.11, or clear the requirement.');
-        if($version!==''&&(self::version()==='unknown'||version_compare($version,self::version(),'>')))throw new InvalidArgumentException('Update this server before requiring a newer Android release.');
+        if($version!==''&&(self::androidVersion()==='unknown'||version_compare($version,self::androidVersion(),'>')))throw new InvalidArgumentException('Choose a published Android release supported by this server.');
         $this->q("update v_pbx_update_policies set android_minimum_version=:version,updated_by=:user,updated_at=now() where scope_key='instance'",['version'=>$version,'user'=>$_SESSION['user_uuid']]);
     }
     public function saveInstance(array $input): void {

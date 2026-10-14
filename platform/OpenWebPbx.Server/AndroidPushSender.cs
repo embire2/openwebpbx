@@ -25,7 +25,7 @@ public sealed class AndroidPushSender
     public AndroidPushSender(IHttpClientFactory clients, string settingsPath) : this(clients, settingsPath, Dns.GetHostAddressesAsync) { }
     public AndroidPushSender(IHttpClientFactory clients, string settingsPath, Func<string,CancellationToken,Task<IPAddress[]>> resolve) { this.clients = clients; this.settingsPath = settingsPath; this.resolve = resolve; }
     public static string ConfigPath => OperatingSystem.IsWindows()
-        ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "OpenWebPBX", "mobile-push.json")
+        ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "OpenWebPBX", "mobile-notifications", "config.json")
         : "/var/lib/openwebpbx/mobile-notifications/config.json";
     public JsonNode? Settings()
     {
@@ -34,7 +34,18 @@ public sealed class AndroidPushSender
             var file = new FileInfo(settingsPath);
             if (!file.Exists || file.Length > 65536 || file.LinkTarget is not null) return null;
             if (!OperatingSystem.IsWindows() && (File.GetUnixFileMode(settingsPath) & (UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute)) != 0) return null;
-            var settings = JsonNode.Parse(File.ReadAllText(settingsPath));
+            // Windows readers must permit the authenticated PHP writer to replace
+            // this file atomically while preserving its private directory ACL.
+            using var stream = new FileStream(settingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            if (stream.Length > 65536) return null;
+            var bytes = new byte[65537]; var length = 0;
+            while (length < bytes.Length)
+            {
+                var read = stream.Read(bytes.AsSpan(length)); if (read == 0) break; length += read;
+            }
+            if (length > 65536) return null;
+            using var reader = new StreamReader(new MemoryStream(bytes, 0, length), Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            var settings = JsonNode.Parse(reader.ReadToEnd());
             return settings?["enabled"]?.GetValue<bool>() == true ? settings : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException) { return null; }

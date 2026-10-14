@@ -7,12 +7,13 @@ class pbx_mobile_push {
     protected function settingsPath(): string {return self::path();}
     protected function authorized(): bool {return (new pbx_updates)->instanceAdmin()&&permission_exists('pbx_update_instance');}
     protected function engine(string $command): string {return (string)event_socket::api($command);}
-    public static function path(): string {return pbx_paths::state().(PHP_OS_FAMILY==='Windows'?'/mobile-push.json':'/mobile-notifications/config.json');}
+    public static function path(): string {return pbx_paths::state().'/mobile-notifications/config.json';}
     private function stored(): array {
         $path=$this->settingsPath();if(is_link($path))throw new RuntimeException('Wake-up settings unavailable.');
         if(!is_file($path))return [];
         if(filesize($path)>65536||(PHP_OS_FAMILY!=='Windows'&&(fileperms($path)&0077)!==0))throw new RuntimeException('Wake-up settings unavailable.');
-        $settings=json_decode((string)file_get_contents($path),true,32,JSON_THROW_ON_ERROR);
+        $bytes=(string)file_get_contents($path);if(str_starts_with($bytes,"\xef\xbb\xbf"))$bytes=substr($bytes,3);
+        $settings=json_decode($bytes,true,32,JSON_THROW_ON_ERROR);
         if(!is_array($settings))throw new RuntimeException('Wake-up settings unavailable.');return $settings;
     }
     /** Safe form state; neither a Google private key nor a relay key can be returned. */

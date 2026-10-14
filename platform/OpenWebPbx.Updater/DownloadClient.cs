@@ -13,7 +13,7 @@ public sealed class DownloadClient : IDisposable
         client.DefaultRequestHeaders.UserAgent.ParseAdd("OpenWebPBX-Updater/1");
     }
     public static bool Allowed(Uri uri) => uri.Scheme == "https" && uri.Port == 443 && uri.UserInfo.Length == 0 && uri.Fragment.Length == 0 && uri.AbsoluteUri.Length <= 16384 &&
-        ((uri.Host == "github.com" && (uri.AbsolutePath.StartsWith("/embire2/openwebpbx/releases/download/", StringComparison.Ordinal) || uri.AbsolutePath == "/embire2/openwebpbx/releases/latest/download/update-manifest.json")) ||
+        ((uri.Host == "github.com" && (uri.AbsolutePath.StartsWith("/embire2/openwebpbx/releases/download/", StringComparison.Ordinal) || uri.AbsolutePath is "/embire2/openwebpbx/releases/latest/download/update-manifest.json" or "/embire2/openwebpbx/releases/latest/download/windows-update-manifest.json")) ||
         uri.Host is "release-assets.githubusercontent.com" or "objects.githubusercontent.com");
     private async Task<HttpResponseMessage> Get(string url, long offset, CancellationToken ct)
     {
@@ -34,10 +34,10 @@ public sealed class DownloadClient : IDisposable
         }
         throw new InvalidDataException("The update server redirected too many times.");
     }
-    public async Task<byte[]> Feed(CancellationToken ct)
+    public async Task<byte[]> Feed(string platform, CancellationToken ct)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct); timeout.CancelAfter(TimeSpan.FromSeconds(45));
-        using var response = await Get(UpdaterPaths.FeedUrl, 0, timeout.Token); response.EnsureSuccessStatusCode();
+        using var response = await Get(UpdaterPaths.FeedUrlForPlatform(platform), 0, timeout.Token); response.EnsureSuccessStatusCode();
         if (response.Content.Headers.ContentLength > 262144) throw new InvalidDataException("Release metadata exceeds its limit.");
         using var input = await response.Content.ReadAsStreamAsync(timeout.Token); using var output = new MemoryStream();
         var buffer = new byte[16384];

@@ -82,6 +82,11 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
     {
         if (restartPending) return;
         var installed = paths.InstalledVersion();
+        if (OperatingSystem.IsWindows() && RestoreGates.BlocksUpdate(Path.GetDirectoryName(paths.Data)!))
+        {
+            await Status("maintenance", "Server updates are paused while backup restore services await activation", installed, ct);
+            return;
+        }
         if (!OneShot && installer.JournalState() == "completed" && UpdateJson.Version(installed) > (typeof(Worker).Assembly.GetName().Version ?? new Version(0,0,0))) {
             restartPending = true; installer.RestartUpdater(); return;
         }
@@ -100,7 +105,7 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
             if (newlyClaimed || candidate is null || now >= nextCheck || CheckOnly)
             {
                 Journal("checking"); await Status("checking", "Checking for a signed release", installed, ct);
-                var envelope = await downloads.Feed(ct);
+                var envelope = await downloads.Feed(paths.Platform, ct);
                 var previous = File.Exists(paths.Trust) ? UpdateJson.Read<TrustState>(paths.Trust) : null;
                 var nextCandidate = verifier.Verify(envelope, paths.Platform, previous, now);
                 if (candidate?.Asset.Sha256 != nextCandidate.Asset.Sha256) { verifiedArchive = null; preflightPassed = false; }

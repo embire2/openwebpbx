@@ -18,7 +18,7 @@ $schema='push_php_'.bin2hex(random_bytes(6));$dir='/var/lib/openwebpbx/push-chec
 $check=function($value,$label)use(&$checks){if(!$value)throw new RuntimeException($label);$checks++;};
 $reject=function($f,$label)use($check){try{$f();}catch(InvalidArgumentException|OutOfBoundsException|RuntimeException){$check(true,$label);return;}$check(false,$label);};
 try{
-$check(pbx_mobile_push::path()===(PHP_OS_FAMILY==='Windows'?pbx_paths::state().'/mobile-push.json':'/var/lib/openwebpbx/mobile-notifications/config.json'),'Default path uses the private notification directory on Debian and preserves Windows storage');
+$check(pbx_mobile_push::path()===pbx_paths::state().'/mobile-notifications/config.json','Default path uses the private notification child on both platforms');
 $db->exec('create schema '.$schema);$db->exec('set search_path to '.$schema.',public');foreach(['v_domains','v_users','v_extensions','v_pbx_tenants','v_pbx_services','v_pbx_mobile_devices','v_pbx_mobile_push_config','v_pbx_mobile_push_calls'] as $t)$db->exec('create table '.$t.'(like public.'.$t.' including all)');
 $push=new push_configuration_fixture($db,$path);$check(!$push->client()['enabled'],'Optional channel is unconfigured by default');
 $q("insert into v_pbx_mobile_push_config(singleton,enabled,project_id,client_config) values(true,true,'fixture-project','{}')");$legacy=$push->client();$check(!$legacy['enabled']&&$legacy['provider']==='fcm'&&str_contains($legacy['message'],'legacy Firebase'),'Legacy Firebase adapter is explicitly unavailable to current native app');$q('delete from v_pbx_mobile_push_config');

@@ -53,6 +53,20 @@ try
  Check(!DownloadClient.Allowed(new Uri("https://github.com/another/repo/releases/download/test")),"foreign repo redirect accepted");
  Check(!DownloadClient.Allowed(new Uri("https://github.com:444/embire2/openwebpbx/releases/download/test")),"alternate port accepted");
  Check(!DownloadClient.Allowed(new Uri("https://evil.example/")),"foreign host accepted");
+ Check(UpdaterPaths.FeedUrlForPlatform("windows-x64")==UpdaterPaths.WindowsFeedUrl,"Windows server did not select its fixed feed");
+ Check(UpdaterPaths.FeedUrlForPlatform("debian13-amd64")==UpdaterPaths.GenericFeedUrl,"Debian server lost its generic feed");
+ Check(DownloadClient.Allowed(new Uri(UpdaterPaths.WindowsFeedUrl))&&DownloadClient.Allowed(new Uri(UpdaterPaths.GenericFeedUrl)),"fixed platform feed was rejected");
+ Check(!DownloadClient.Allowed(new Uri("https://github.com/embire2/openwebpbx/releases/latest/download/foreign-feed.json")),"arbitrary latest feed filename accepted");
+ var feedRequests=new List<string>();
+ using(var downloader=new DownloadClient(new Handler(request=>{feedRequests.Add(request.RequestUri!.AbsoluteUri);return new(HttpStatusCode.OK){Content=new ByteArrayContent(envelope)};})))
+ {
+  Check((await downloader.Feed("windows-x64",default)).SequenceEqual(envelope)&&feedRequests[^1]==UpdaterPaths.WindowsFeedUrl,"Windows feed request was rerouted");
+  Check((await downloader.Feed("debian13-amd64",default)).SequenceEqual(envelope)&&feedRequests[^1]==UpdaterPaths.GenericFeedUrl,"Debian feed request was rerouted");
+  try{await downloader.Feed("https://example.invalid/feed",default);throw new Exception("arbitrary feed URL accepted");}catch(PlatformNotSupportedException){Check(feedRequests.Count==2,"unsupported feed reached the network");}
+ }
+ var injected=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{["Updater:FeedUrl"]="https://example.invalid/feed"}).Build();
+ var fixedPaths=new UpdaterPaths(injected);
+ Check(fixedPaths.FeedUrl==UpdaterPaths.FeedUrlForPlatform(fixedPaths.Platform),"configuration overrode the built-in feed");
  var path=Path.Combine(directory,"valid.zip");await File.WriteAllBytesAsync(path,archive);
  Check(Directory.Exists(await PackageExtractor.Extract(path,Path.Combine(directory,"good"),release,default)),"valid archive rejected");
  foreach(var kind in new[]{"traversal","duplicate","symlink","unlisted"})
@@ -67,6 +81,27 @@ try
  Check(UpdaterPaths.IsDebian13(new[]{"ID=debian","VERSION_ID=\"13\""}),"Debian 13 was not recognized");
  Check(!UpdaterPaths.IsDebian13(new[]{"ID=other","VERSION_ID=\"13\""}),"Another version-13 distribution was accepted");
  Check(!UpdaterPaths.IsDebian13(new[]{"ID=debian","VERSION_ID=\"12\""}),"Older Debian was accepted");
+ var restoreRoot=Path.Combine(directory,"restore-gates");Directory.CreateDirectory(restoreRoot);
+ Check(!RestoreGates.BlocksUpdate(restoreRoot),"A normal instance was blocked by restore gates");
+ var restoreDir=Path.Combine(restoreRoot,"backup-restore");Directory.CreateDirectory(restoreDir);
+ foreach(var name in new[]{"calls","jobs","updates","backups"})
+ {
+  var hold=Path.Combine(restoreDir,"hold-"+name);File.WriteAllText(hold,"{}");
+  Check(RestoreGates.BlocksUpdate(restoreRoot),"A persistent restore hold did not block updates: "+name);File.Delete(hold);
+ }
+ var restoreJournal=Path.Combine(restoreDir,"journal.json");
+ foreach(var state in new[]{"prepared","restoring","recovery_required","unknown"})
+ {
+  File.WriteAllText(restoreJournal,JsonSerializer.Serialize(new{schema=1,state}));
+  Check(RestoreGates.BlocksUpdate(restoreRoot),"Unsafe restore journal allowed an update: "+state);
+ }
+ foreach(var state in new[]{"restored","recovered"})
+ {
+  File.WriteAllText(restoreJournal,JsonSerializer.Serialize(new{schema=1,state}));
+  Check(!RestoreGates.BlocksUpdate(restoreRoot),"A completed and activated restore blocked updates: "+state);
+ }
+ File.WriteAllText(restoreJournal,"{invalid");Check(RestoreGates.BlocksUpdate(restoreRoot),"Malformed restore journal allowed an update");
+ File.Delete(restoreJournal);Directory.CreateDirectory(restoreJournal);Check(RestoreGates.BlocksUpdate(restoreRoot),"Directory-shaped restore journal allowed an update");
  var durable=Path.Combine(directory,"state.json");UpdateJson.Write(durable,new TrustState(104,"first"));UpdateJson.Write(durable,new TrustState(105,"second"));
  Check(UpdateJson.Read<TrustState>(durable).Sequence==105&&!Directory.EnumerateFiles(directory,"*.tmp").Any(),"Durable state replacement failed");
  var downloadDir=Path.Combine(directory,"download");Directory.CreateDirectory(downloadDir);var partial=Path.Combine(downloadDir,release.Asset.Sha256+".archive.partial");await File.WriteAllBytesAsync(partial,archive[..100]);

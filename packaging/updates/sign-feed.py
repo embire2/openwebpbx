@@ -19,6 +19,8 @@ parser.add_argument('--version', required=True)
 parser.add_argument('--sequence', type=int, required=True)
 parser.add_argument('--debian', type=Path)
 parser.add_argument('--windows', type=Path)
+parser.add_argument('--windows-only', action='store_true',
+                    help='Sign the independent Windows server feed; requires only --windows and windows-update-manifest.json output.')
 parser.add_argument('--android', type=Path)
 parser.add_argument('--android-version-code', type=int)
 parser.add_argument('--android-certificate-sha256')
@@ -33,6 +35,12 @@ parser.add_argument('--output', type=Path, required=True)
 a = parser.parse_args()
 version(a.version)
 if not any([a.debian, a.windows, a.android]):parser.error('Supply at least one completed platform artifact.')
+if a.windows_only and (a.windows is None or a.debian is not None or a.android is not None or a.play_published_metadata is not None or a.output.name!='windows-update-manifest.json'):
+    parser.error('The Windows-only feed requires only its Windows artifact and windows-update-manifest.json output.')
+if not a.windows_only and a.output.name=='windows-update-manifest.json':
+    parser.error('Use --windows-only for the fixed Windows release feed.')
+if not a.windows_only and a.windows is not None and a.debian is None and a.android is None:
+    parser.error('A Windows-only release must use --windows-only and retain the published generic feed separately.')
 if not 1 <= a.expires_days <= 366:parser.error('Use an expiry between 1 and 366 days.')
 if a.private_key.stat().st_uid != os.geteuid() or a.private_key.stat().st_mode & 0o077:
     parser.error('Use a private signing key owned by this account with mode 600.')

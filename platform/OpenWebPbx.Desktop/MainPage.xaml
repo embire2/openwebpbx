@@ -4,9 +4,17 @@
   <NavigationView.MenuItems>
    <NavigationViewItem Content="Dashboard" Tag="dashboard" Icon="Home" IsSelected="True"/>
    <NavigationViewItem Content="Admin" Tag="admin" Icon="Contact"/>
+   <NavigationViewItem Content="SIP Trunks &amp; First Calls" Tag="first_calls" Icon="Phone"/>
+   <NavigationViewItem Content="Phones" Tag="phones" Icon="CellPhone"/>
+   <NavigationViewItem Content="Call Handling" Tag="handling" Icon="Switch"/>
+   <NavigationViewItem Content="Office Hours" Tag="hours" Icon="Clock"/>
+   <NavigationViewItem Content="Switchboard" Tag="switchboard" Icon="People"/>
+   <NavigationViewItem Content="Wallboard" Tag="wallboard" Icon="View"/>
    <NavigationViewItem Content="Queue Callbacks" Tag="callbacks" Icon="Phone"/>
    <NavigationViewItem Content="Hotel Services" Tag="hotel" Icon="World"/>
    <NavigationViewItem Content="Android App" Tag="mobile" Icon="CellPhone"/>
+   <NavigationViewItem Content="Backups" Tag="backups" Icon="Save"/>
+   <NavigationViewItem Content="Outgoing Mail" Tag="smtp" Icon="Mail"/>
    <NavigationViewItem Content="Updates" Tag="updates" Icon="Download"/>
    <NavigationViewItem Content="Setup" Tag="setup" Icon="Setting"/>
   </NavigationView.MenuItems>
@@ -14,7 +22,7 @@
    <ScrollViewer x:Name="DashboardPanel" VerticalScrollBarVisibility="Auto">
     <StackPanel Spacing="22" MaxWidth="900" HorizontalAlignment="Stretch">
      <TextBlock Text="Your phone system" Style="{StaticResource TitleTextBlockStyle}"/>
-     <TextBlock Text="OpenWeb PBX 1.0.7" Style="{StaticResource SubtitleTextBlockStyle}"/>
+     <TextBlock x:Name="VersionLabel" Style="{StaticResource SubtitleTextBlockStyle}"/>
      <InfoBar x:Name="StatusBanner" IsOpen="True" IsClosable="False" Title="Checking this server" Message="Connecting to the OpenWeb PBX service." Severity="Informational"/>
      <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="24">
       <StackPanel Spacing="12">
@@ -31,7 +39,7 @@
       <AppBarButton Icon="Refresh" Label="Refresh status" Click="Refresh"/>
      </CommandBar>
      <TextBlock Text="Manage users, phones and calls" Style="{StaticResource SubtitleTextBlockStyle}"/>
-     <TextBlock Text="Sign in to Admin to manage your PBX, connect the Android app and check your phone providers. Queue callbacks and hotel wake-up calls continue when you close this window." TextWrapping="Wrap"/>
+     <TextBlock Text="Sign in to manage users, SIP trunks, office hours, ring groups, queues, voicemail and recordings. The call engine, database, background jobs, backups and updates run as Windows services or scheduled tasks and continue when this window closes." TextWrapping="Wrap"/>
     </StackPanel>
    </ScrollViewer>
    <ScrollViewer x:Name="SetupPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
@@ -45,15 +53,17 @@
      <TextBlock Text="Install on this Windows Server" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,20,0,0"/>
      <TextBlock Text="Install a new phone system on this server. Windows will ask for administrator access. Existing PBX installations are preserved." TextWrapping="Wrap"/>
      <StackPanel x:Name="InstallPanel" Spacing="12">
-      <TextBox x:Name="InstallDomain" Header="Server name" Text="localhost"/>
+      <TextBox x:Name="InstallDomain" Header="Server name" PlaceholderText="pbx.your-company.com"/>
+      <TextBox x:Name="InstallPublicAddress" Header="Public IP address (optional)" PlaceholderText="Use the address your server name points to"/>
       <TextBox x:Name="InstallEmail" Header="Administrator email" InputScope="EmailSmtpAddress"/>
       <PasswordBox x:Name="InstallPassword" Header="Administrator password" PasswordRevealMode="Peek"/>
       <ComboBox x:Name="CertificateChoice" Header="Secure connection" SelectedIndex="0" SelectionChanged="CertificateModeChanged" HorizontalAlignment="Stretch">
+       <ComboBoxItem Content="Automatic certificate (public server)"/>
        <ComboBoxItem Content="Local setup certificate (this server only)"/>
        <ComboBoxItem Content="Use a certificate installed on this server"/>
       </ComboBox>
       <ComboBox x:Name="InstalledCertificate" Header="Installed certificate" DisplayMemberPath="Label" HorizontalAlignment="Stretch" Visibility="Collapsed"/>
-      <TextBlock Text="The local certificate is for setup on this computer. Use a trusted certificate for other computers and phones. Setup uses HTTPS port 8443." TextWrapping="Wrap"/>
+      <TextBlock Text="For a public server, point the server name to this computer and allow ports 80 and 443 through your router. Setup obtains a free certificate, connects secure phones and renews it automatically. Use localhost with a local certificate for a private test." TextWrapping="Wrap"/>
       <Button x:Name="InstallButton" Content="Install OpenWeb PBX" Click="InstallServer" Style="{StaticResource AccentButtonStyle}"/>
       <ProgressRing x:Name="InstallProgress" IsActive="False" Visibility="Collapsed" HorizontalAlignment="Left" Width="28" Height="28"/>
       <InfoBar x:Name="InstallMessage" IsOpen="False" IsClosable="False"/>

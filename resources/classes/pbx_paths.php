@@ -8,7 +8,7 @@ class pbx_paths {
         return PHP_OS_FAMILY==='Windows'?str_replace('\\','/',getenv('ProgramData')?:'C:/ProgramData').'/OpenWebPBX':'/var/lib/openwebpbx';
     }
     public static function key(): string {return str_replace('\\','/',dirname(config::find())).'/openweb-template.key';}
-    public static function storage(): string {return rtrim(str_replace('\\','/',(string)config::load()->get('switch.storage.dir','/var/lib/freeswitch/storage')),'/');}
+    public static function storage(): string {return rtrim(str_replace('\\','/',(string)config::load()->get('switch.storage.dir',PHP_OS_FAMILY==='Windows'?self::state().'/storage':'/var/lib/freeswitch/storage')),'/');}
     public static function media(): string {return self::storage().'/openwebpbx';}
     public static function voicemail(): string {return rtrim(str_replace('\\','/',(string)config::load()->get('switch.voicemail.dir',self::storage().'/voicemail')),'/');}
     public static function uploads(): string {return self::state().'/uploads';}

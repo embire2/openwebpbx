@@ -24,6 +24,7 @@ public sealed partial class MainPage : Page
     public MainPage()
     {
         InitializeComponent();
+        VersionLabel.Text = "OpenWeb PBX " + typeof(MainPage).Assembly.GetName().Version!.ToString(3);
         try {
             var file = File.Exists(SettingsFile) ? SettingsFile : Path.Combine(AppContext.BaseDirectory, "server.json");
             if (File.Exists(file)) address = JsonSerializer.Deserialize<ManagerSettings>(File.ReadAllText(file))?.Address ?? "";
@@ -51,7 +52,7 @@ public sealed partial class MainPage : Page
         {
             var status = await client.GetFromJsonAsync<ServerHealth>("http://127.0.0.1:8087/health");
             StatusBanner.Title = status?.State ?? "Unavailable";
-            StatusBanner.Message = status?.State == "Running" ? "Callbacks and wake-up calls are running on this server." : "Complete the server installation to enable background calls.";
+            StatusBanner.Message = status?.State == "Running" ? "The call engine and background call services are running on this server." : "Complete the server installation to enable background calls.";
             StatusBanner.Severity = status?.State == "Running" ? InfoBarSeverity.Success : InfoBarSeverity.Warning;
             ServiceDetails.Text = $"Service version {status?.Version} · {status?.OperatingSystem}";
         }
@@ -74,7 +75,7 @@ public sealed partial class MainPage : Page
             using var document = JsonDocument.Parse(File.ReadAllText(UpdateStatusFile));
             var root = document.RootElement;
             var state = root.GetProperty("state").GetString();
-            UpdateBanner.Title = state switch { "available" => "An update is available", "downloading" => "Downloading an update", "ready" => "Update ready", "waiting_calls" => "Waiting for calls to finish", "waiting_window" => "Update scheduled", "installing" => "Installing a verified update", "completed" => "Update complete", "error" or "recovery_required" => "Update needs attention", "rolled_back" => "Previous version restored", "up_to_date" => "Your server is up to date", _ => "Checking for updates" };
+            UpdateBanner.Title = state switch { "maintenance" => "Restored services await activation", "available" => "An update is available", "downloading" => "Downloading an update", "ready" => "Update ready", "waiting_calls" => "Waiting for calls to finish", "waiting_window" => "Update scheduled", "installing" => "Installing a verified update", "completed" => "Update complete", "error" or "recovery_required" => "Update needs attention", "rolled_back" => "Previous version restored", "up_to_date" => "Your server is up to date", _ => "Checking for updates" };
             UpdateBanner.Message = root.GetProperty("message").GetString() ?? "";
             if (state == "installing") UpdateBanner.Message += " This manager will reopen after the update.";
             UpdateBanner.Severity = state is "error" or "recovery_required" ? InfoBarSeverity.Error : state == "rolled_back" ? InfoBarSeverity.Warning : state is "completed" or "up_to_date" ? InfoBarSeverity.Success : InfoBarSeverity.Informational;
@@ -100,7 +101,7 @@ public sealed partial class MainPage : Page
     {
         if (!loaded || args.SelectedItem is not NavigationViewItem item) return;
         var page = item.Tag?.ToString();
-        if (page is "admin" or "callbacks" or "hotel" or "mobile" or "updates") { OpenConsole(page); return; }
+        if (page is "admin" or "callbacks" or "hotel" or "mobile" or "updates" or "first_calls" or "phones" or "handling" or "hours" or "switchboard" or "wallboard" or "backups" or "smtp") { OpenConsole(page); return; }
         DashboardPanel.Visibility = page == "dashboard" ? Visibility.Visible : Visibility.Collapsed;
         SetupPanel.Visibility = page == "setup" ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -125,20 +126,20 @@ public sealed partial class MainPage : Page
     {
         if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Scheme != "https")
         {
-            DashboardPanel.Visibility = Visibility.Collapsed; SetupPanel.Visibility = Visibility.Visible; Navigation.SelectedItem = Navigation.MenuItems[6]; return;
+            DashboardPanel.Visibility = Visibility.Collapsed; SetupPanel.Visibility = Visibility.Visible; Navigation.SelectedItem = Navigation.MenuItems.OfType<NavigationViewItem>().First(item => item.Tag?.ToString() == "setup"); return;
         }
-        Launch(address + (page == "updates" ? "/app/pbx_updates/" : page == "mobile" ? "/app/pbx_mobile/" : "/app/pbx_setup/" + (page == "admin" ? "" : "?view=" + page)));
+        Launch(address + (page switch { "updates" => "/app/pbx_updates/", "mobile" => "/app/pbx_mobile/", "backups" => "/app/pbx_backups/", "smtp" => "/app/smtp_settings/", "admin" => "/app/pbx_setup/", _ => "/app/pbx_setup/?view=" + page }));
     }
     private void OpenFolder(object sender, RoutedEventArgs args) => Launch(AppContext.BaseDirectory);
     private void CertificateModeChanged(object sender, SelectionChangedEventArgs args)
-    { if (InstalledCertificate is not null) InstalledCertificate.Visibility = CertificateChoice.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed; }
+    { if (InstalledCertificate is not null) InstalledCertificate.Visibility = CertificateChoice.SelectedIndex == 2 ? Visibility.Visible : Visibility.Collapsed; }
     private async void InstallServer(object sender, RoutedEventArgs args)
     {
         InstallMessage.IsOpen = true; InstallMessage.Severity = InfoBarSeverity.Error;
         if (!Regex.IsMatch(InstallDomain.Text, "^[a-zA-Z0-9.-]+$") || !System.Net.Mail.MailAddress.TryCreate(InstallEmail.Text, out var email) || email.Address != InstallEmail.Text || InstallPassword.Password.Length < 8)
         { InstallMessage.Title = "Enter a server name, email and password of at least eight characters."; return; }
         var certificate = InstalledCertificate.SelectedItem as CertificateOption;
-        if (CertificateChoice.SelectedIndex == 1 && certificate is null)
+        if (CertificateChoice.SelectedIndex == 2 && certificate is null)
         { InstallMessage.Title = "Choose a certificate installed on this server, or use a local setup certificate."; return; }
         string? requestFile = null;
         InstallButton.IsEnabled = false; InstallProgress.Visibility = Visibility.Visible; InstallProgress.IsActive = true;
@@ -151,7 +152,7 @@ public sealed partial class MainPage : Page
                 security.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
             new DirectoryInfo(directory).SetAccessControl(security);
             requestFile = Path.Combine(directory, "request.json");
-            File.WriteAllText(requestFile, JsonSerializer.Serialize(new { DomainName = InstallDomain.Text, AdminEmail = InstallEmail.Text, AdminPassword = InstallPassword.Password, LocalCertificate = CertificateChoice.SelectedIndex == 0, CertificateThumbprint = CertificateChoice.SelectedIndex == 1 ? certificate!.Thumbprint : "" }));
+            File.WriteAllText(requestFile, JsonSerializer.Serialize(new { DomainName = InstallDomain.Text, AdminEmail = InstallEmail.Text, AdminPassword = InstallPassword.Password, PublicAddress = InstallPublicAddress.Text.Trim(), EnablePublicAccess = CertificateChoice.SelectedIndex == 0, LocalCertificate = CertificateChoice.SelectedIndex == 1, CertificateThumbprint = CertificateChoice.SelectedIndex == 2 ? certificate!.Thumbprint : "" }));
             InstallPassword.Password = "";
             var start = new ProcessStartInfo("powershell.exe") { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden, WorkingDirectory = Path.GetDirectoryName(Installer)! };
             start.Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{Installer}\" -RequestFile \"{requestFile}\"";
@@ -159,7 +160,7 @@ public sealed partial class MainPage : Page
             using var process = Process.Start(start) ?? throw new IOException("Windows could not start setup.");
             await process.WaitForExitAsync();
             if (process.ExitCode != 0) throw new IOException("Setup did not finish. Its private log is in " + directory);
-            AddressInput.Text = "https://" + InstallDomain.Text + ":8443"; SaveAddress(sender, args);
+            AddressInput.Text = "https://" + InstallDomain.Text + (CertificateChoice.SelectedIndex == 0 ? "" : ":8443"); SaveAddress(sender, args);
             InstallMessage.Severity = InfoBarSeverity.Success; InstallMessage.Title = "Your phone system is ready. Open Admin to sign in.";
             await RefreshStatus();
         }

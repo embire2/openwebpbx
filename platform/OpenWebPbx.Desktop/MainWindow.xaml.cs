@@ -15,6 +15,8 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Title = "OpenWeb PBX " + typeof(MainWindow).Assembly.GetName().Version!.ToString(3);
+        AppTitleBar.Title = Title;
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1100, 760));
 
         ExtendsContentIntoTitleBar = true;
