@@ -410,14 +410,18 @@ def native_calls(f):
     original.Path=lambda value: f.evidence/'last-invite-response.txt' if str(value)=='/var/lib/openwebpbx/restore-phone112/last-invite-response.txt' else Path(value)
     class Phone(original.SourcePhone):
         def __init__(self,u,transport='udp'):
-            self.transport=transport;super().__init__(u,realm,bind)
+            self.transport=transport;self.registration_packets=[];super().__init__(u,realm,bind)
             if transport!='udp':
                 self.stopped=True;self.thread.join(2);self.socket.close()
                 self.socket=SIPStream(bind,(bind,5061 if transport=='tls' else 5060),ca if transport=='tls' else None,'windowsqa.example.invalid')
                 self.port=self.socket.sock.getsockname()[1];self.stopped=False;self.thread=threading.Thread(target=self.run,daemon=True);self.thread.start()
         def packet(self,*a,**kw):
             result=super().packet(*a,**kw)
-            return result.replace(b'SIP/2.0/UDP',('SIP/2.0/'+self.transport.upper()).encode()).replace(f'@{self.ip}:{self.port}>'.encode(),f'@{self.ip}:{self.port};transport={self.transport}>'.encode())
+            result=result.replace(b'SIP/2.0/UDP',('SIP/2.0/'+self.transport.upper()).encode()).replace(f'@{self.ip}:{self.port}>'.encode(),f'@{self.ip}:{self.port};transport={self.transport}>'.encode())
+            if a and a[0]=='REGISTER':
+                self.registration_packets.append(result)
+                assert len(self.registration_packets)<=20,'Owned registration trace exceeded its bound'
+            return result
         def response(self,*a,**kw):
             return super().response(*a,**kw).replace(f'@{self.ip}:{self.port}>'.encode(),f'@{self.ip}:{self.port};transport={self.transport}>'.encode())
     class G729Phone(Phone):
@@ -482,7 +486,15 @@ def native_calls(f):
         remote=f.wait(lambda:next((v for k,v in expected.dialogs.items() if k not in old and v.get('acked')),None))
         result=media(call,remote);caller.hangup(call);time.sleep(.3);return result
     try:
-        for p in peers:assert p.register((bind,5061 if p.transport=='tls' else 5060))['code']==200
+        for index,p in enumerate(peers):
+            f.active_case='native_media_peer_'+p.transport+'_registration_'+str(index)
+            result=p.register((bind,5061 if p.transport=='tls' else 5060))
+            if result['code']!=200:
+                (f.evidence/('media-peer-'+str(index)+'-registration.private.txt')).write_text(result.get('text',''))
+                (f.evidence/('media-peer-'+str(index)+'-requests.private.bin')).write_bytes(b'\n\n'.join(p.registration_packets))
+                failure=RuntimeError('The independent media peer registration failed')
+                failure.sip_failure={'sip_response_code':int(result['code']),'digest_challenge_count':int(result.get('digest_challenge_count',0))}
+                raise failure
         f.record('native_tls_signalling_two_way_decoded_rtp',**call_check('8101'))
         f.active_case='independent_g729_pcmu_transcoding'
         codec=BCG729(f.s['private_state_root']);g729=G729Phone(users[0],codec)
@@ -653,6 +665,7 @@ def main():
             basename='external_component'
         failure={'state':'failed','checks':f.checks,'error_type':type(e).__name__,'error':str(e),'source_basename':basename,'source_line':location.lineno,'active_case':f.active_case}
         if getattr(e,'fixture_failure',None):failure.update(e.fixture_failure)
+        if getattr(e,'sip_failure',None):failure.update(e.sip_failure)
         (f.evidence/'software-native-report.json').write_text(json.dumps(failure,indent=2))
         raise
 

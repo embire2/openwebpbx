@@ -10,6 +10,8 @@ if($errors.Count){throw 'Suite source does not parse.'}
 $function=$ast.Find({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'NativeStartupFailure'},$true)
 if(!$function){throw 'Native startup observer missing.'}
 Invoke-Expression $function.Extent.Text
+$failureFunction=$ast.Find({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'SafeFailureFields'},$true)
+if(!$failureFunction){throw 'Caller failure filter missing.'};Invoke-Expression $failureFunction.Extent.Text
 $private=Join-Path ([IO.Path]::GetTempPath()) ('openweb-startup-test-'+[Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $private|Out-Null
 $state=$private;$started=[DateTime]::UtcNow
@@ -26,6 +28,15 @@ function Event([string]$App,[string]$Module,[DateTime]$Time,[string]$Code='c0000
 $count=0
 function Check([bool]$Value,[string]$Label){if(!$Value){throw $Label};$script:count++}
 try{
+ $filtered=SafeFailureFields ([pscustomobject]@{active_case='native_media_peer_tls_registration_0';sip_response_code=401;digest_challenge_count=3;response='private-token-never-public'})
+ Check ($filtered.sip_response_code -eq 401 -and $filtered.digest_challenge_count -eq 3) 'Exact media registration numeric fields were lost.'
+ Check (($filtered|ConvertTo-Json) -notmatch 'private-token|"response"') 'Private SIP reply escaped the filter.'
+ $filtered=SafeFailureFields ([pscustomobject]@{active_case='normal_admin_https_csrf_setup';sip_response_code=401;digest_challenge_count=3})
+ Check (!$filtered.ContainsKey('sip_response_code') -and !$filtered.ContainsKey('digest_challenge_count')) 'SIP fields escaped their exact case scope.'
+ foreach($values in @(@('401','3'),@(700,4),@(199,-1))){
+  $filtered=SafeFailureFields ([pscustomobject]@{active_case='native_media_peer_udp_registration_2';sip_response_code=$values[0];digest_challenge_count=$values[1]})
+  Check (!$filtered.ContainsKey('sip_response_code') -and !$filtered.ContainsKey('digest_challenge_count')) 'Malformed numeric SIP fields escaped.'
+ }
  $env:GITHUB_ACTIONS='true';$env:RUNNER_ENVIRONMENT='github-hosted';$env:RUNNER_OS='Windows';$env:GITHUB_REPOSITORY='embire2/openwebpbx'
  $script:sampleEvents=@((Event 'FreeSwitchConsole.exe' 'mod_sofia.dll' $started),(Event 'unrelated.exe' 'FreeSwitch.dll' $started),(Event 'FreeSwitchConsole.exe' 'other-private-library.dll' $started),(Event 'FreeSwitchConsole.exe' 'libapr.dll' $started.AddHours(-1)))
  $result=NativeStartupFailure -StartedAt $started -PrivateDirectory $private
