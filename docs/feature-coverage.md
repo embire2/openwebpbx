@@ -2,6 +2,8 @@
 
 ## Windows Server return — 1.0.13
 
+On 2026-10-14 the actual fresh Windows installation and all 14,092 package mappings passed, together with normal Admin setup and UDP/TCP/TLS credential matrices. Concurrent media-peer registration exposed a native quota defect: a phone number matching another account's Authentication ID counted that other account's contact. An independent Windows clone reproduced both registration orders; the corrected exact native DLL then passed 17 cases without raising the limit, including extra-contact refusal, refresh, wrong-password denial and exact cleanup. Final hosted media, backup/restore and update gates remain open. A separate runner launch failure selected a Windows Python shortcut before quota testing; its corrected rerun is pending.
+
 Candidate only, dated 2026-10-14. The owner resumed Windows Server development for its complete core suite and a separate Windows release. Debian and Android stay on published 1.0.12; no Windows 1.0.13 asset/feed is public and no complete Windows parity is claimed. The 133 roadmap IDs and 21 accepted entries are unchanged.
 
 The candidate adds a patched native registrar, a locally compiled corrected audio converter, portable four-rate hold music, shared private notification storage, encrypted scheduled Windows backups/restore, a guarded global-mail worker, automatic public certificate helpers, an empty replacement-server choice and expanded native/support/task recovery. Windows updates use their own signed feed; the generic Debian/Android112 envelope will remain byte-identical. An older Windows helper needs the verified one-time transition described in the [candidate guide](installing-1.0.13.md).
