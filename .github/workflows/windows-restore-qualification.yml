@@ -1,0 +1,97 @@
+name: Windows separate-server encrypted restore qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_suite_run_id:
+        description: Exact successful Windows13 suite with every essential native, backup and rollback gate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: windows-private-clean-restore-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source:
+    name: Fictional encrypted backup source
+    runs-on: windows-2025
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Preserve repository bytes
+        run: git config --global core.autocrlf false
+      - name: Check out guarded qualification source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Create fictional PBX and actual native media, then normal encrypted SYSTEM backup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SUITE_RUN_ID: ${{ inputs.base_suite_run_id }}
+          # Temporary independent TEST passphrase only; no customer/signer input.
+          WINDOWS_RESTORE_FIXTURE_PASSPHRASE: ${{ secrets.WINDOWS_RESTORE_FIXTURE_PASSPHRASE }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          & tests/windows-restore-qualification.ps1 -Role Source -BaseSuiteRunId $env:BASE_SUITE_RUN_ID -DisposableHostedRunner
+          if(!$?){throw 'The independent fictional backup source did not pass.'}
+      - name: Transfer only authenticated redacted HMAC facts and original fictional ciphertext
+        if: success()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openwebpbx-windows-restore-transfer-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/openwebpbx-restore-transfer/fixture.owpbx
+            ${{ runner.temp }}/openwebpbx-restore-transfer/capsule.json
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+      - name: Preserve only safe source qualification facts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openwebpbx-windows-restore-source-facts-${{ github.run_id }}
+          path: ${{ runner.temp }}/openwebpbx-restore-source-facts/qualification.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  target:
+    name: Independent clean replacement restore
+    needs: source
+    runs-on: windows-2025
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Preserve repository bytes
+        run: git config --global core.autocrlf false
+      - name: Check out exact guarded qualification source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Restore into distinct PG credentials and certificate, qualify late recovery and explicit activation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SUITE_RUN_ID: ${{ inputs.base_suite_run_id }}
+          WINDOWS_RESTORE_FIXTURE_PASSPHRASE: ${{ secrets.WINDOWS_RESTORE_FIXTURE_PASSPHRASE }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          & tests/windows-restore-qualification.ps1 -Role Target -BaseSuiteRunId $env:BASE_SUITE_RUN_ID -DisposableHostedRunner
+          if(!$?){throw 'The independent replacement-server restore did not pass.'}
+      - name: Preserve only safe replacement qualification facts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openwebpbx-windows-restore-target-facts-${{ github.run_id }}
+          path: ${{ runner.temp }}/openwebpbx-restore-target-facts/qualification.json
+          if-no-files-found: warn
+          retention-days: 14
