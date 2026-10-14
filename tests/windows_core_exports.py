@@ -2,9 +2,15 @@
 """Bounded PE export tests; no Windows runner, engine or installed files required."""
 import hashlib
 import importlib.util
+import contextlib
+import io
+import json
 from pathlib import Path
 import struct
+import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('core_exports', Path(__file__).resolve().parents[1] / 'packaging/freeswitch/core-exports.py')
 exports = importlib.util.module_from_spec(spec)
@@ -61,6 +67,28 @@ class CoreExportChecks(unittest.TestCase):
         for name in ('unreviewed.dll', 'pthread.dll\nEXPORTS\n injected', '../pthread.dll'):
             with self.assertRaises(ValueError):
                 exports.definition(data, hashlib.sha256(data).hexdigest(), name)
+
+    def test_real_cli_output_hash_matches_bytes_with_windows_newline_translation(self):
+        class WindowsTextPath(type(Path())):
+            def write_text(self, data, encoding=None, errors=None, newline=None):
+                # Model Windows' platform default while writing actual bytes.
+                written = data.replace('\n', '\r\n') if newline is None else data
+                self.write_bytes(written.encode(encoding or 'utf-8'))
+                return len(written)
+
+        with tempfile.TemporaryDirectory(prefix='openweb-def-') as directory:
+            source, output = Path(directory) / 'source.dll', Path(directory) / 'pthread.def'
+            source.write_bytes(dll())
+            captured = io.StringIO()
+            arguments = ['core-exports.py', '--dll', str(source), '--expected-sha256', hashlib.sha256(dll()).hexdigest(),
+                         '--output', str(output), '--library-name', 'pthread.dll']
+            with patch.object(exports, 'Path', WindowsTextPath), patch.object(sys, 'argv', arguments), contextlib.redirect_stdout(captured):
+                exports.main()
+            result = json.loads(captured.getvalue())
+            actual = output.read_bytes()
+            self.assertNotIn(b'\r', actual)
+            self.assertTrue(actual.startswith(b'LIBRARY pthread.dll\nEXPORTS\n'))
+            self.assertEqual(hashlib.sha256(actual).hexdigest(), result['definition_sha256'])
 
     def test_zero_initialized_data_in_mapped_section_tail_is_valid(self):
         data = dll()

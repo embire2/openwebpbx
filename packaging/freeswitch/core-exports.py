@@ -90,7 +90,7 @@ def main():
         if args.dll.is_symlink() or args.dll.stat().st_size > 128 * 1024 * 1024:
             raise ValueError('The core input must be an ordinary bounded DLL.')
         text, report = definition(args.dll.read_bytes(), args.expected_sha256, args.library_name)
-        args.output.write_text(text, encoding='ascii')
+        args.output.write_text(text, encoding='ascii', newline='\n')
     except (ValueError, UnicodeError, OSError, struct.error, StopIteration):
         parser.exit(1, 'The exact x64 core export definition could not be generated.\n')
     print(json.dumps(report, sort_keys=True))
