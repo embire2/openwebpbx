@@ -12,7 +12,8 @@ param(
  [Parameter(Mandatory)][string]$CodecOutputRoot,
  [string]$PlatformToolset='v143',
  [string]$WindowsSdkVersion='10.0.26100.0',
- [string]$CMakeGenerator='Visual Studio 17 2022'
+ [string]$CMakeGenerator='Visual Studio 17 2022',
+ [switch]$SkipMsvcCodec
 )
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
@@ -112,26 +113,6 @@ foreach($library in $privateLibs){if(!(Test-Path -LiteralPath $library -PathType
 $moduleOutput=Join-Path $BuildRoot 'registrar-output'
 Run 'MSBuild.exe' (@($moduleProject,'/t:Build','/m:1','/nologo',('/p:OutDir='+$moduleOutput.TrimEnd('\')+'\'),('/p:IntDir='+$BuildRoot.TrimEnd('\')+'\sofia-objects\'))+$props)
 Copy-Item (Join-Path $moduleOutput 'mod_sofia.dll') (Join-Path $OutputRoot 'mod\mod_sofia.dll')
-$bcgBuild=Join-Path $BuildRoot 'bcg729'
-$bcgInstall=Join-Path $BuildRoot 'bcg729-install'
-Run 'cmake.exe' @('-S',(Join-Path $SourceRoot 'bcg729'),'-B',$bcgBuild,'-G',$CMakeGenerator,'-A','x64',('-DCMAKE_INSTALL_PREFIX='+$bcgInstall),'-DBUILD_SHARED_LIBS=ON','-DENABLE_UNIT_TESTS=OFF','-DENABLE_STRICT=ON')
-Run 'cmake.exe' @('--build',$bcgBuild,'--config','Release','--parallel','2')
-Run 'cmake.exe' @('--install',$bcgBuild,'--config','Release')
-$codecSource=Join-Path $SourceRoot 'mod_bcg729\mod_bcg729.c'
-$bcgLib=Join-Path $bcgInstall 'lib\libbcg729.lib'
-if(!(Test-Path -LiteralPath $bcgLib)){throw 'The native shared bcg729 import library is missing.'}
-$compiler=@('/nologo','/O2','/MD','/W4','/std:c11','/DWIN32','/D_WINDOWS','/D_USRDLL','/DMOD_EXPORTS',('/I'+(Join-Path $fs 'src\include')),('/I'+(Join-Path $bcgInstall 'include')))
-Push-Location $BuildRoot
-try {
- Run 'cl.exe' ($compiler+@('/LD',$codecSource,('/Fe:'+(Join-Path $CodecOutputRoot 'mod\mod_bcg729.dll')),'/link',$coreLib,$bcgLib,'/MACHINE:X64','/DYNAMICBASE','/NXCOMPAT'))
- # The exact callback test exercises encode/decode/VAD/PLC and pre-write bounds.
- $test=Join-Path $BuildRoot 'codec-check.exe'
- $definition='/DOPENWEB_BCG729_SOURCE="'+$codecSource.Replace('\','/')+'"'
- Run 'cl.exe' ($compiler+@('/UNDEBUG',$definition,(Join-Path $SourceRoot 'codec-check.c'),('/Fe:'+$test),'/link',$coreLib,$bcgLib,'/MACHINE:X64'))
- Copy-Item (Join-Path $bcgInstall 'bin\libbcg729.dll') (Join-Path $CodecOutputRoot 'libbcg729.dll')
- $nativePriorPath=$env:PATH
- try{$env:PATH=$CodecOutputRoot+';'+$EngineRoot+';'+$env:PATH;Run $test @()}finally{$env:PATH=$nativePriorPath}
-} finally {Pop-Location}
 $hashes=@{};$runtimeDependencies=@{};$toolHashes=@{}
 foreach($command in 'MSBuild.exe','cl.exe','cmake.exe','dumpbin.exe'){$toolHashes[$command]=Hash (Get-Command $command).Source}
 foreach($name in @('mod/mod_sofia.dll')){
@@ -156,6 +137,27 @@ foreach($name in @('mod/mod_sofia.dll')){
 }
 $manifest=@{schema=1;upstream_commit=$revision;patch_sha256=$patchHash;source_reg_sha256=$regHash;core_version='1.11.3';core_sha256=$ExpectedCoreSha256;source_msi_sha256='f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d';files=$hashes;runtime_dependencies=$runtimeDependencies;source_manifest_sha256=$SourceManifestSha256;dependency_lock_sha256=$DependencyLockSha256;module_project_sha256=(Hash $moduleProject);toolset=$PlatformToolset;windows_sdk=$WindowsSdkVersion;build_tool_sha256=$toolHashes;native_runtime_qualified=$false;codec_not_in_release=$true}
 [IO.File]::WriteAllText((Join-Path $OutputRoot 'native-manifest.json'),($manifest|ConvertTo-Json -Depth 8),(New-Object Text.UTF8Encoding($false)))
+if($SkipMsvcCodec){Write-Host 'Pinned registrar built; portable local-codec proof and Windows SIP/media qualification are separate required gates.';return}
+$bcgBuild=Join-Path $BuildRoot 'bcg729'
+$bcgInstall=Join-Path $BuildRoot 'bcg729-install'
+Run 'cmake.exe' @('-S',(Join-Path $SourceRoot 'bcg729'),'-B',$bcgBuild,'-G',$CMakeGenerator,'-A','x64',('-DCMAKE_INSTALL_PREFIX='+$bcgInstall),'-DBUILD_SHARED_LIBS=ON','-DENABLE_UNIT_TESTS=OFF','-DENABLE_STRICT=ON')
+Run 'cmake.exe' @('--build',$bcgBuild,'--config','Release','--parallel','2')
+Run 'cmake.exe' @('--install',$bcgBuild,'--config','Release')
+$codecSource=Join-Path $SourceRoot 'mod_bcg729\mod_bcg729.c'
+$bcgLib=Join-Path $bcgInstall 'lib\bcg729.lib'
+if(!(Test-Path -LiteralPath $bcgLib)){throw 'The native shared bcg729 import library is missing.'}
+$compiler=@('/nologo','/O2','/MD','/W4','/std:c11','/DWIN32','/D_WINDOWS','/D_USRDLL','/DMOD_EXPORTS',('/I'+(Join-Path $fs 'src\include')),('/I'+(Join-Path $bcgInstall 'include')))
+Push-Location $BuildRoot
+try {
+ Run 'cl.exe' ($compiler+@('/LD',$codecSource,('/Fe:'+(Join-Path $CodecOutputRoot 'mod\mod_bcg729.dll')),'/link',$coreLib,$bcgLib,'/MACHINE:X64','/DYNAMICBASE','/NXCOMPAT'))
+ # The exact callback test exercises encode/decode/VAD/PLC and pre-write bounds.
+ $test=Join-Path $BuildRoot 'codec-check.exe'
+ $definition='/DOPENWEB_BCG729_SOURCE="'+$codecSource.Replace('\','/')+'"'
+ Run 'cl.exe' ($compiler+@('/UNDEBUG',$definition,(Join-Path $SourceRoot 'codec-check.c'),('/Fe:'+$test),'/link',$coreLib,$bcgLib,'/MACHINE:X64'))
+ Copy-Item (Join-Path $bcgInstall 'bin\libbcg729.dll') (Join-Path $CodecOutputRoot 'libbcg729.dll')
+ $nativePriorPath=$env:PATH
+ try{$env:PATH=$CodecOutputRoot+';'+$EngineRoot+';'+$env:PATH;Run $test @()}finally{$env:PATH=$nativePriorPath}
+} finally {Pop-Location}
 $codec=@{schema=1;codec_distribution_status='local-source-build-only';callback_test='passed';files=@{'mod/mod_bcg729.dll'=(Hash (Join-Path $CodecOutputRoot 'mod\mod_bcg729.dll'));'libbcg729.dll'=(Hash (Join-Path $CodecOutputRoot 'libbcg729.dll'))};native_rtp_qualified=$false}
 [IO.File]::WriteAllText((Join-Path $CodecOutputRoot 'local-codec-manifest.json'),($codec|ConvertTo-Json -Depth 8),(New-Object Text.UTF8Encoding($false)))
 Write-Host 'Native modules built from pinned sources. Windows SIP/media/ABI qualification and codec binary-distribution review remain required.'

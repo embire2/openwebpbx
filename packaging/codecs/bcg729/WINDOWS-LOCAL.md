@@ -25,7 +25,9 @@ C-only codec build. The library remains a separate dynamically linked DLL.
 The pinned FreeSWITCH headers select Windows networking/integer setup and RTP
 packing through MSVC-specific conditions. The helper checks three exact
 upstream header hashes, copies the headers into its private build directory,
-and extends only those conditions to the MinGW Windows target. Original
+and extends only those conditions to the MinGW Windows target. A private
+32-bit FreeSWITCH process-ID type retains the MSVC core ABI separately from
+MinGW's 64-bit CRT `pid_t`; the native proof checks that width. Original
 prepared inputs stay unchanged; the output manifest records each original
 and derived header hash. No structure members or core/module source change.
 

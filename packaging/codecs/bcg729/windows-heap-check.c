@@ -23,6 +23,10 @@ int main(void) {
     apr_pool_destroy_fn destroy;
     apr_terminate_fn terminate;
     unsigned i;
+    /* The pinned MSVC core uses a 32-bit process ID; MinGW CRT pid_t is 64-bit.
+     * The private header adapter retains the core type without redefining CRT. */
+    assert(sizeof(pid_t) == 4 && sizeof(switch_thread_id_t) == sizeof(DWORD));
+    assert(sizeof(void *) == 8);
     assert(core && apr);
     /* A DATA import points at the actual core object, never a function thunk. */
     assert((void *)&SWITCH_GLOBAL_dirs == (void *)GetProcAddress(core, "SWITCH_GLOBAL_dirs"));

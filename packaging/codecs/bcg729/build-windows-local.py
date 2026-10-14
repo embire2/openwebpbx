@@ -86,6 +86,7 @@ def windows_headers(fs, build_root):
         'switch_platform.h': [
             ('#ifdef _MSC_VER\n/* disable the following warnings', '#if defined(_MSC_VER) || defined(__MINGW32__)\n/* disable the following warnings', 1),
             ('#if !defined(_STDINT) && !defined(uint32_t)', '#if defined(__MINGW32__)\n#include <stdint.h>\n#endif\n#if !defined(_STDINT) && !defined(uint32_t) && !defined(__MINGW32__)', 1),
+            ('typedef int pid_t;', '#if defined(__MINGW32__)\ntypedef int openweb_freeswitch_pid_t;\n#define pid_t openweb_freeswitch_pid_t\n#else\ntypedef int pid_t;\n#endif', 1),
         ],
         'switch_types.h': [('#ifdef _MSC_VER\n#pragma pack', '#if defined(_MSC_VER) || defined(__MINGW32__)\n#pragma pack', 4)],
     }

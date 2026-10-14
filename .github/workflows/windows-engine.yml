@@ -109,19 +109,18 @@ jobs:
           $aprHash = (Get-FileHash "$env:NATIVE_CORE_ROOT/libapr.dll" -Algorithm SHA256).Hash.ToLowerInvariant()
           python packaging/freeswitch/bundle-windows-native.py --source $source --source-manifest-sha256 $manifest --core-export-helper packaging/freeswitch/core-exports.py --core-sha256 $env:NATIVE_CORE_SHA256 --apr-sha256 $aprHash --output "$env:ENGINE_WORK/codec-source"
           if ($LASTEXITCODE) { throw 'The public prepared source bundle did not verify.' }
-      - name: Build patched registrar and local-only source codec
+      - name: Build patched registrar
         run: |
           $ErrorActionPreference = 'Stop'
           $source = "$env:ENGINE_WORK/source"
           $manifest = (Get-FileHash "$source/source-manifest.json" -Algorithm SHA256).Hash.ToLowerInvariant()
           $lock = (Get-FileHash "$source/dependency-lock.json" -Algorithm SHA256).Hash.ToLowerInvariant()
-          & packaging/freeswitch/Build-WindowsNative.ps1 -SourceRoot $source -SourceManifestSha256 $manifest -DependencyLock "$source/dependency-lock.json" -DependencyLockSha256 $lock -EngineRoot $env:NATIVE_CORE_ROOT -ExpectedCoreSha256 $env:NATIVE_CORE_SHA256 -BuildRoot "$env:ENGINE_WORK/build" -OutputRoot "$env:ENGINE_WORK/engine" -CodecOutputRoot "$env:ENGINE_WORK/local-codec" -PlatformToolset $env:NATIVE_TOOLSET -WindowsSdkVersion $env:WindowsSDKVersion.TrimEnd('\') -CMakeGenerator $env:NATIVE_GENERATOR *>&1 |
+          & packaging/freeswitch/Build-WindowsNative.ps1 -SourceRoot $source -SourceManifestSha256 $manifest -DependencyLock "$source/dependency-lock.json" -DependencyLockSha256 $lock -EngineRoot $env:NATIVE_CORE_ROOT -ExpectedCoreSha256 $env:NATIVE_CORE_SHA256 -BuildRoot "$env:ENGINE_WORK/build" -OutputRoot "$env:ENGINE_WORK/engine" -CodecOutputRoot "$env:ENGINE_WORK/local-codec" -PlatformToolset $env:NATIVE_TOOLSET -WindowsSdkVersion $env:WindowsSDKVersion.TrimEnd('\') -CMakeGenerator $env:NATIVE_GENERATOR -SkipMsvcCodec *>&1 |
             Tee-Object "$env:ENGINE_WORK/native-build.log"
           if (!$?) { throw 'The pinned native DLL build failed.' }
           $release = Get-Content "$env:ENGINE_WORK/engine/native-manifest.json" -Raw | ConvertFrom-Json
           if ($release.files.'mod/mod_bcg729.dll' -or (Test-Path "$env:ENGINE_WORK/engine/libbcg729.dll")) { throw 'A local-only codec was mixed into the redistributable engine.' }
-          Copy-Item "$env:ENGINE_WORK/local-codec/local-codec-manifest.json" "$env:ENGINE_WORK/codec-callback-evidence.json"
-          "Patched Windows registrar built from the pinned source. Local codec callbacks passed. Native SIP/RTP and rollback qualification remain pending." >> $env:GITHUB_STEP_SUMMARY
+          "Patched Windows registrar built from the pinned source. Portable codec callbacks/heap proof are checked by the next step. Native SIP/RTP and rollback qualification remain pending." >> $env:GITHUB_STEP_SUMMARY
       - name: Prove the portable local-only source codec
         if: ${{ !cancelled() && env.NATIVE_CORE_ROOT != '' }}
         run: |
