@@ -59,3 +59,11 @@ jobs:
           if($LASTEXITCODE -or $actual -cne '1a1a8eb1386b739719c1869253357906fb9bedce'){throw 'The immutable updater-state source binding failed.'}
           & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_updater_state_ownership.ps1 -OriginalSourceRoot (Join-Path $baseline 'packaging/windows') -DisposableHostedRunner -ExecuteReviewedFictionalControl
           if($LASTEXITCODE){throw 'The isolated Windows updater-state ownership control failed.'}
+      - name: Test recovery ordering and exact metadata and stock-music restoration
+        run: |
+          $ErrorActionPreference='Stop'
+          $native=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          & $native -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_updater_recovery_order.ps1 -BaselineRoot (Join-Path $env:GITHUB_WORKSPACE 'baseline-source/packaging/windows')
+          if($LASTEXITCODE){throw 'The recovery ordering controls failed.'}
+          & $native -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_updater_state_recovery.ps1 -ExecuteReviewedFictionalControl
+          if($LASTEXITCODE){throw 'The native metadata and stock-music recovery controls failed.'}

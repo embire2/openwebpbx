@@ -200,15 +200,20 @@ function RestorePbx([string]$Backup) {
  CopyTree "$Backup\config" $config -Mirror
  CopyTree "$Backup\switch-scripts" "$switch\scripts" -Mirror
  CopyTree "$Backup\switch-conf" "$switch\conf" -Mirror
- Restore-OpenWebSupport -Backup $Backup -Root $root -StateRoot $private -EngineRoot $switch
+ # Retain presence for removal even when support restores original absence.
+ $hadUpdaterMetadata=Test-Path "$private\updater-install.json"
  Copy-Item "$Backup\installation.json" "$private\installation.json" -Force
  Copy-Item "$Backup\runtime.json" "$private\runtime.json" -Force
  if(Test-Path "$Backup\updater-install.json"){
   WriteState "$private\updater-install.json" (Get-Content "$Backup\updater-install.json" -Raw|ConvertFrom-Json)
+ }
+ # Finish exact original bytes/security after SYSTEM has replaced metadata.
+ Restore-OpenWebSupport -Backup $Backup -Root $root -StateRoot $private -EngineRoot $switch
+ if(Test-Path "$Backup\updater-install.json"){
   $previousUpdater=Get-Content "$private\updater-install.json" -Raw|ConvertFrom-Json
   & sc.exe config OpenWebPBXUpdater binPath= ('"'+$previousUpdater.Executable+'"')|Out-Null
  }
- if(!(Test-Path "$Backup\updater-install.json") -and (Test-Path "$private\updater-install.json") -and (Test-Path "$root\tools\Remove-Updater.ps1")){& "$root\tools\Remove-Updater.ps1"}
+ if(!(Test-Path "$Backup\updater-install.json") -and $hadUpdaterMetadata -and (Test-Path "$root\tools\Remove-Updater.ps1")){& "$root\tools\Remove-Updater.ps1"}
  if(Test-Path "$Backup\tools"){CopyTree "$Backup\tools" "$root\tools" -Mirror}
  if(Test-Path "$Backup\phone-tls"){CopyTree "$Backup\phone-tls" "$private\phone-tls" -Mirror}
  if(Test-Path "$Backup\phone-tls.json"){Copy-Item "$Backup\phone-tls.json" "$private\phone-tls.json" -Force}
