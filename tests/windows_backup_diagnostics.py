@@ -4,6 +4,7 @@ import http.server
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import socket
 import ssl
@@ -17,15 +18,17 @@ import urllib.parse
 ROOT=Path(__file__).resolve().parents[1]
 SOURCE=ROOT/'tests/windows_backups_native.py'
 MARKER='PRIVATE_BACKUP_DIAGNOSTIC_MARKER_91cb'
+OWNED='aaaaaaaa-1111-4111-8111-111111111111'
+FOREIGN='bbbbbbbb-2222-4222-8222-222222222222'
 
 
 def library(legacy=False):
     tree=ast.parse(SOURCE.read_text())
-    names={'BACKUP_PHASES','BACKUP_ERROR_TYPES','LAST_HTTP'}
+    names={'BACKUP_PHASES','BACKUP_ERROR_TYPES','LAST_HTTP','LAST_FAILED_COMMAND'}
     nodes=[n for n in tree.body if isinstance(n,(ast.Import,ast.ImportFrom)) or
         isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id in names for t in n.targets) or
         isinstance(n,ast.ClassDef) and n.name in {'Hidden','Http'} or
-        isinstance(n,ast.FunctionDef) and n.name=='backup_exception_fields']
+        isinstance(n,ast.FunctionDef) and n.name in {'backup_exception_fields','failed_command_fields','wait_command'}]
     if legacy:
         http=next(n for n in nodes if isinstance(n,ast.ClassDef) and n.name=='Http')
         login=next(n for n in http.body if isinstance(n,ast.FunctionDef) and n.name=='login')
@@ -34,6 +37,27 @@ def library(legacy=False):
         endpoint.value='/'  # The sole historical defect, with the actual class unchanged otherwise.
     namespace={};exec(compile(ast.Module(nodes,type_ignores=[]),str(SOURCE),'exec'),namespace)
     return namespace
+
+
+class ScopedQuery:
+    """Controlled query boundary: reject broad SQL and retain unrelated rows."""
+    def __init__(self):
+        self.settings={};self.seen=[];self.fail=False
+        self.command={'command_uuid':OWNED,'action':'create','status':'failed','message':'The backup could not finish. Check private storage, database access and installed backup tools.'}
+        self.backups={OWNED:[{'status':'ready','remote_status':'pending'}],FOREIGN:[{'status':'failed','remote_status':MARKER}]}
+    @staticmethod
+    def literal(value):return "'"+value+"'"
+    def query(self,settings,statement,*,json_result=False):
+        assert settings is self.settings and json_result is True
+        current="select row_to_json(t) from v_pbx_backup_commands t where command_uuid='"+OWNED+"'"
+        if statement==current:return dict(self.command)
+        prefix="select json_build_object('linked_count',count(*),'local_status',case when count(*)=1 then min(status) else null end,'remote_status',case when count(*)=1 then min(remote_status) else null end) from v_pbx_backups where command_uuid="
+        assert statement.startswith(prefix)
+        match=re.fullmatch("'([a-f0-9-]{36})'",statement[len(prefix):]);assert match
+        identifier=match.group(1);self.seen.append(identifier)
+        if self.fail:raise RuntimeError(MARKER)
+        rows=self.backups.get(identifier,[])
+        return {'linked_count':len(rows),'local_status':rows[0]['status'] if len(rows)==1 else None,'remote_status':rows[0]['remote_status'] if len(rows)==1 else None}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -125,20 +149,61 @@ class Diagnostics(unittest.TestCase):
         fields=self.ns['backup_exception_fields'](error,MARKER,[])
         self.assertEqual((fields['error_type'],fields['failed_phase']),('unknown','unknown'))
         self.assertNotIn(MARKER,json.dumps(fields))
+    def test_failed_command_query_is_exact_and_reports_no_foreign_values(self):
+        database=ScopedQuery();self.ns['b']=database
+        fields=self.ns['failed_command_fields'](database.settings,OWNED,database.command)
+        self.assertEqual(database.seen,[OWNED]);self.assertEqual(fields['report_status'],'read')
+        self.assertEqual((fields['action'],fields['status'],fields['local_status'],fields['remote_status']),('create','failed','ready','pending'))
+        self.assertEqual(fields['message_category'],'generic_non_backup_error')
+        for private in (OWNED,FOREIGN,MARKER,database.command['message']):self.assertNotIn(private,json.dumps(fields))
+        database.backups[OWNED]=[]
+        fields=self.ns['failed_command_fields'](database.settings,OWNED,database.command)
+        self.assertEqual((fields['linked_count'],fields['local_status'],fields['remote_status']),(0,'absent','absent'))
+        database.backups[OWNED]=[{'status':'ready','remote_status':'pending'}]*2
+        fields=self.ns['failed_command_fields'](database.settings,OWNED,database.command)
+        self.assertEqual(fields['report_status'],'refused');self.assertNotIn('local_status',fields)
+    def test_failed_command_refuses_invalid_or_other_command_before_query(self):
+        database=ScopedQuery();self.ns['b']=database
+        for identifier,row in [(OWNED+"' or true --",database.command),(OWNED.upper(),database.command),(FOREIGN,database.command),(OWNED,dict(database.command,command_uuid=FOREIGN)),(OWNED,dict(database.command,status='completed')),(OWNED,dict(database.command,action='delete'))]:
+            fields=self.ns['failed_command_fields'](database.settings,identifier,row)
+            self.assertNotEqual(fields['report_status'],'read')
+        self.assertEqual(database.seen,[])
+    def test_command_message_mapping_is_exact_not_private_text(self):
+        database=ScopedQuery();self.ns['b']=database
+        message='A private file changed during the backup. No completed copy was published. Retry at a quiet time.'
+        exact=self.ns['failed_command_fields'](database.settings,OWNED,dict(database.command,message=message))
+        self.assertEqual(exact['message_category'],'private_file_changed')
+        for altered in (message+MARKER,MARKER,'x'*4097):
+            fields=self.ns['failed_command_fields'](database.settings,OWNED,dict(database.command,message=altered))
+            self.assertEqual(fields['message_category'],'unknown');self.assertNotIn(MARKER,json.dumps(fields))
+    def test_actual_wait_assertion_survives_failed_observer_and_completed_bypasses_it(self):
+        database=ScopedQuery();self.ns['b']=database;database.fail=True
+        try:self.ns['wait_command'](database.settings,OWNED)
+        except AssertionError as error:fields=self.ns['backup_exception_fields'](error,'native SFTP',['one','two','three'])
+        else:self.fail('The failed command unexpectedly passed')
+        self.assertEqual(fields['error_type'],'AssertionError');self.assertEqual(fields['failed_command']['report_status'],'unavailable')
+        self.assertNotIn(MARKER,json.dumps(fields))
+        database.command['status']='completed';database.seen=[]
+        self.assertEqual(self.ns['wait_command'](database.settings,OWNED)['status'],'completed');self.assertEqual(database.seen,[])
+        self.assertIsNone(self.ns['LAST_FAILED_COMMAND'])
     def test_actual_powershell_report_projector_boundaries_privacy_and_original_failure(self):
         pwsh=os.environ.get('OPENWEB_TEST_PWSH') or shutil.which('pwsh')
         self.assertTrue(pwsh,'Pass OPENWEB_TEST_PWSH to require actual PowerShell projection controls')
         with tempfile.TemporaryDirectory(prefix='backup-diag-') as folder:
             directory=Path(folder);script=directory/'controls.ps1'
             script.write_text(PS_CONTROLS,encoding='utf-8')
-            result=subprocess.run([pwsh,'-NoProfile','-File',str(script),'-Suite',str(ROOT/'tests/windows-suite.ps1')],capture_output=True,text=True,timeout=30)
+            database=ScopedQuery();self.ns['b']=database;self.ns['LAST_HTTP'].update(target='backups',method='POST',status=200)
+            try:self.ns['wait_command'](database.settings,OWNED)
+            except AssertionError as error:fields=self.ns['backup_exception_fields'](error,'native SFTP',['one','two','three'])
+            fixture=directory/'python-failure.json';fixture.write_text(json.dumps({'state':'failed','failure':fields,'private':MARKER}),encoding='utf-8')
+            result=subprocess.run([pwsh,'-NoProfile','-File',str(script),'-Suite',str(ROOT/'tests/windows-suite.ps1'),'-FailureInput',str(fixture)],capture_output=True,text=True,timeout=30)
             self.assertEqual(result.returncode,0,'Actual PowerShell projection controls failed')
             self.assertNotIn(MARKER,result.stdout);self.assertNotIn(MARKER,result.stderr)
             summary=json.loads(result.stdout);self.assertEqual(summary['state'],'passed');self.assertGreaterEqual(summary['checks'],14)
 
 
 PS_CONTROLS=r'''
-param([string]$Suite)
+param([string]$Suite,[string]$FailureInput)
 $ErrorActionPreference='Stop';$count=0
 function Check([bool]$Value){if(!$Value){throw 'A backup diagnostic projection control failed.'};$script:count++}
 $tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($Suite,[ref]$tokens,[ref]$errors)
@@ -148,12 +213,17 @@ $definition=$ast.Find({param($node)$node -is [Management.Automation.Language.Fun
 $directory=Join-Path $PSScriptRoot 'backup-qualification';New-Item -ItemType Directory -Path $directory|Out-Null
 $path=Join-Path $directory 'report.json';$marker='PRIVATE_BACKUP_DIAGNOSTIC_MARKER_91cb'
 function Save($Record){[IO.File]::WriteAllText($path,($Record|ConvertTo-Json -Depth 12),[Text.UTF8Encoding]::new($false))}
-$record=@{state='failed';failure=@{schema=1;failed_phase='HTTPS and CSRF';error_type='AssertionError';source_frames=@(@{source_basename='windows_backups_native.py';source_line=100});completed_checks=0;last_http=@{target='login';method='POST';status=403}};private=$marker}
+$record=Get-Content -LiteralPath $FailureInput -Encoding UTF8 -Raw|ConvertFrom-Json -AsHashtable
 Check ((BackupFailureReport $path ([datetime]::MinValue)).report_status -ceq 'absent')
 Save $record;$safe=BackupFailureReport $path ([datetime]::MinValue)
-Check ($safe.report_status -ceq 'read' -and $safe.failed_phase -ceq 'HTTPS and CSRF' -and $safe.error_type -ceq 'AssertionError')
-Check ($safe.source_frames.Count -eq 1 -and $safe.source_frames[0].source_line -eq 100 -and $safe.last_http.status -eq 403)
+Check ($safe.report_status -ceq 'read' -and $safe.failed_phase -ceq 'native SFTP' -and $safe.error_type -ceq 'AssertionError')
+Check ($safe.source_frames.Count -ge 1 -and $safe.source_frames[0].source_line -gt 0 -and $safe.last_http.status -eq 200)
 Check (!(($safe|ConvertTo-Json -Depth 12).Contains($marker)))
+Check ($safe.failed_command.report_status -ceq 'read' -and $safe.failed_command.linked_count -eq 1 -and $safe.failed_command.local_status -ceq 'ready' -and $safe.failed_command.remote_status -ceq 'pending' -and $safe.failed_command.message_category -ceq 'generic_non_backup_error')
+$record.failure.failed_command.private=$marker
+foreach($key in 'action','status','message_category','local_status','remote_status'){$original=$record.failure.failed_command[$key];$record.failure.failed_command[$key]=@($original,$marker);Save $record;$safe=BackupFailureReport $path ([datetime]::MinValue);Check (!$safe.failed_command.ContainsKey($key) -and !(($safe|ConvertTo-Json -Depth 12).Contains($marker)));$record.failure.failed_command[$key]=$original}
+$record.failure.failed_command.linked_count=2;Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).failed_command.ContainsKey('linked_count'));$record.failure.failed_command.linked_count=1
+$record.failure.failed_command.schema=$true;Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).ContainsKey('failed_command'));$record.failure.failed_command.schema=1
 foreach($key in 'failed_phase','error_type'){$original=$record.failure[$key];$record.failure[$key]=@($original,$marker);Save $record;$safe=BackupFailureReport $path ([datetime]::MinValue);Check ($safe[$key] -ceq 'unknown' -and !(($safe|ConvertTo-Json -Depth 12).Contains($marker)));$record.failure[$key]=$original}
 foreach($key in 'target','method'){$original=$record.failure.last_http[$key];$record.failure.last_http[$key]=@($original,$marker);Save $record;$safe=BackupFailureReport $path ([datetime]::MinValue);Check ($safe.last_http[$key] -ceq 'unknown' -and !(($safe|ConvertTo-Json -Depth 12).Contains($marker)));$record.failure.last_http[$key]=$original}
 $record.failure.source_frames=@(@{source_basename=@('windows_backups_native.py',$marker);source_line=100},@{source_basename='backups.py';source_line=$true});$record.failure.last_http.status='403';Save $record;$safe=BackupFailureReport $path ([datetime]::MinValue)

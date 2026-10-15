@@ -38,6 +38,36 @@ BACKUP_ERROR_TYPES={'AssertionError','RuntimeError','BackupError','ModuleNotFoun
     'AttributeError','FileNotFoundError','PermissionError','OSError','ValueError','KeyError','IndexError','JSONDecodeError',
     'TimeoutExpired','CalledProcessError','SSLError','SSLCertVerificationError','URLError','HTTPError','UnicodeDecodeError','EOFError'}
 LAST_HTTP={'target':'unknown','method':'unknown','status':None}
+LAST_FAILED_COMMAND=None
+
+
+def failed_command_fields(settings,identifier,command):
+    safe={'schema':1,'report_status':'unavailable'}
+    try:
+        if not isinstance(identifier,str) or str(uuid.UUID(identifier))!=identifier or not isinstance(command,dict) or command.get('command_uuid')!=identifier or command.get('status')!='failed' or command.get('action') not in {'create','verify'}:
+            return safe|{'report_status':'refused'}
+        messages={
+            'A private file changed during the backup. No completed copy was published. Retry at a quiet time.':'private_file_changed',
+            'The saved backup password or SSH key cannot be read. Save it again in Backups.':'password_or_key_unreadable',
+            'A required backup operation could not finish. Check the server tools and free disk space.':'required_tool_timeout_or_unavailable',
+            'A required backup operation failed. Check the server tools, permissions and free disk space.':'required_tool_failed',
+            'A retained local backup is missing or damaged. Older copies were kept; review backup storage before cleanup.':'retention_integrity',
+            'A required private backup file is unavailable.':'private_storage_unavailable',
+            'The backup could not finish. Check private storage, database access and installed backup tools.':'generic_non_backup_error',
+        }
+        message=command.get('message');category=messages.get(message,'unknown') if isinstance(message,str) and len(message)<=4096 else 'unknown'
+        safe.update(action=command['action'],status='failed',message_category=category)
+        # Aggregate only this exact command; ambiguous associations expose no row.
+        linked=b.query(settings,"select json_build_object('linked_count',count(*),'local_status',case when count(*)=1 then min(status) else null end,'remote_status',case when count(*)=1 then min(remote_status) else null end) from v_pbx_backups where command_uuid="+b.literal(identifier),json_result=True)
+        if not isinstance(linked,dict) or type(linked.get('linked_count')) is not int or linked['linked_count'] not in (0,1):
+            return safe|{'report_status':'refused'}
+        count=linked['linked_count'];safe['linked_count']=count
+        safe['local_status']=linked.get('local_status') if count and isinstance(linked.get('local_status'),str) and linked['local_status'] in {'creating','ready','failed'} else ('unknown' if count else 'absent')
+        safe['remote_status']=linked.get('remote_status') if count and isinstance(linked.get('remote_status'),str) and linked['remote_status'] in {'disabled','pending','uploaded','failed'} else ('unknown' if count else 'absent')
+        safe['report_status']='read'
+    except BaseException:
+        pass
+    return safe
 
 
 def backup_exception_fields(error,phase,checks):
@@ -47,10 +77,12 @@ def backup_exception_fields(error,phase,checks):
         if name in {'windows_backups_native.py','backups.py'} and 0<current.tb_lineno<=20000:
             frames.append({'source_basename':name,'source_line':current.tb_lineno})
         current=current.tb_next
-    return {'schema':1,'failed_phase':phase if phase in BACKUP_PHASES else 'unknown',
+    fields={'schema':1,'failed_phase':phase if phase in BACKUP_PHASES else 'unknown',
         'error_type':type(error).__name__ if type(error).__name__ in BACKUP_ERROR_TYPES else 'unknown',
         'source_frames':frames[-8:],'completed_checks':len(checks) if isinstance(checks,list) and len(checks)<=64 else 0,
         'last_http':dict(LAST_HTTP)}
+    if LAST_FAILED_COMMAND is not None:fields['failed_command']=LAST_FAILED_COMMAND
+    return fields
 
 
 class Hidden(html.parser.HTMLParser):
@@ -107,10 +139,15 @@ def target_thumbprint():
 
 
 def wait_command(settings, identifier):
+    global LAST_FAILED_COMMAND
+    LAST_FAILED_COMMAND=None
     deadline=time.monotonic()+240
     while time.monotonic()<deadline:
         row=b.query(settings,'select row_to_json(t) from v_pbx_backup_commands t where command_uuid='+b.literal(identifier),json_result=True)
         if row and row['status'] in ('completed','failed'):
+            if row['status']=='failed':
+                try:LAST_FAILED_COMMAND=failed_command_fields(settings,identifier,row)
+                except BaseException:LAST_FAILED_COMMAND={'schema':1,'report_status':'unavailable'}
             assert row['status']=='completed','The actual SYSTEM task did not complete the backup request'
             return row
         time.sleep(.5)

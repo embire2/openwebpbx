@@ -437,6 +437,13 @@ function BackupFailureReport([string]$Path,[datetime]$StartedAt){
   if($http.target -is [string] -and $http.target -cin @('login','backups','notifications','download','unknown')){$safe.last_http.target=$http.target}
   if($http.method -is [string] -and $http.method -cin @('GET','POST','unknown')){$safe.last_http.method=$http.method}
   if(& $integer $http.status 100 599){$safe.last_http.status=[int]$http.status}
+  $command=$failure.failed_command
+  if((& $integer $command.schema 1 1) -and $command.report_status -is [string] -and $command.report_status -cin @('read','refused','unavailable')){
+   $safe.failed_command=@{schema=1;report_status=$command.report_status}
+   $categories=@{action=@('create','verify');status=@('failed');message_category=@('private_file_changed','password_or_key_unreadable','required_tool_timeout_or_unavailable','required_tool_failed','retention_integrity','private_storage_unavailable','generic_non_backup_error','unknown');local_status=@('creating','ready','failed','absent','unknown');remote_status=@('disabled','pending','uploaded','failed','absent','unknown')}
+   foreach($key in $categories.Keys){if($command.$key -is [string] -and $command.$key -cin $categories[$key]){$safe.failed_command[$key]=$command.$key}}
+   if(& $integer $command.linked_count 0 1){$safe.failed_command.linked_count=[int]$command.linked_count}
+  }
   $safe.report_status='read'
  }catch{}
  return $safe
