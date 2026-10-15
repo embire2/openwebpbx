@@ -162,6 +162,27 @@ function ManagerReopened([string]$Version,[int]$PreviousPid,[DateTime]$NotBefore
  $journal=Get-Content "$state\updates\install-journal.json" -Raw|ConvertFrom-Json;Check (@($journal.manager_tasks) -contains $managerName) 'The genuine product transaction must record the actual interactive restart task.'
  return WaitManager $Version $PreviousPid $NotBefore
 }
+function EqualTaskSnapshots($Before,$After,[string]$Message){
+ # Preserve the raw metadata and exact file ACLs; only the Scheduler descriptor
+ # uses the same narrowly scoped product comparator as actual task recovery.
+ Check ($Before -is [Collections.IDictionary] -and $After -is [Collections.IDictionary]) $Message
+ $left=@{};$right=@{}
+ foreach($pair in @(@{source=$Before;target=$left},@{source=$After;target=$right})){
+  foreach($name in $pair.source.Keys){
+   Check ($pair.source[$name] -is [Collections.IDictionary]) $Message
+   $copy=@{};foreach($key in $pair.source[$name].Keys){$copy[$key]=$pair.source[$name][$key]};$pair.target[$name]=$copy
+  }
+ }
+ foreach($name in $Before.Keys){
+  if($Before[$name].Keys -ccontains 'security'){
+   Check ($After.Keys -ccontains $name) $Message
+   Check ($After[$name].Keys -ccontains 'security' -and $Before[$name].security -is [string] -and $After[$name].security -is [string]) $Message
+   Check (Test-OpenWebTaskSecurityEquivalent $Before[$name].security $After[$name].security) $Message
+   $left[$name].Remove('security');$right[$name].Remove('security')
+  }
+ }
+ Equal $left $right $Message
+}
 function Equal($Before,$After,[string]$Label){$a=Join-Path $work ($Label+'-before.json');$b=Join-Path $work ($Label+'-after.json');WriteJson $a $Before;WriteJson $b $After;CheckedProcess "$root\backup-runtime\python.exe" @('-I','-c','import json,sys;assert json.load(open(sys.argv[1],encoding="utf-8-sig"))==json.load(open(sys.argv[2],encoding="utf-8-sig"))',$a,$b) ('compare-'+$Label)}
 function NormalTaskPreservation($Before,$After,[DateTime]$Started){
  WriteJson (Join-Path $work 'normal-tasks-exact-before.json') $Before;WriteJson (Join-Path $work 'normal-tasks-exact-after.json') $After
@@ -184,7 +205,7 @@ function NormalTaskPreservation($Before,$After,[DateTime]$Started){
    };$pair.target[$name]=$record
   }
  }
- Equal $normalizedBefore $normalizedAfter 'normal-task-contract-security'
+ EqualTaskSnapshots $normalizedBefore $normalizedAfter 'normal-task-contract-security'
 }
 function InstalledVersions([string]$Version){
  $installation=Get-Content "$state\installation.json" -Raw|ConvertFrom-Json;Check ($installation.Completed -and $installation.RestoreServer -and $installation.Version -eq $Version) 'The real installation version is invalid.'
@@ -235,6 +256,7 @@ try{
   foreach($modeName in 'fault','normal'){CheckedProcess 'python.exe' @((Join-Path $PSScriptRoot 'windows_candidate_archive.py'),'--archive',$archives[$modeName],'--version','1.0.14','--sha256',$packet.$modeName.archive_sha256) ('verify-'+$modeName)}
   Check (!(Test-Path $root) -and !(Test-Path "$state\installation.json") -and !(Test-Path "$configuration\config.conf") -and !(Get-Service FreeSWITCH -ErrorAction SilentlyContinue)) 'A completely separate empty runner is required; never reuse an owner or installed factory.'
   $packageDirectory=Join-Path $work 'baseline-package';PrivateDirectory $packageDirectory;ExpandSafe $base $packageDirectory;$package=Join-Path $packageDirectory 'openwebpbx-1.0.13-windows-x64';NativeVersions $package '1.0.13'|Out-Null
+  . (Join-Path $package 'Support-Recovery.ps1')
   $scope=[Guid]::NewGuid().ToString('N').Substring(0,24);$qa=Join-Path $state ('updater-qualification/'+$scope);PrivateDirectory $qa;$inputFile=Join-Path $qa 'input.json';$admin='updater-'+$scope+'@example.invalid';$secret='A9!'+(RandomSecret)
   $settings=@{schema=1;scope=$scope;run_id=$env:GITHUB_RUN_ID;admin_email=$admin;admin_password=$secret;company_name=('Fictional updater '+$scope);service_name=('Fictional updater PBX '+$scope);packet_file=$packetPath;provenance_file=$provenance;base_facts=(Join-Path $work 'baseline-facts.json');archives=$archives;public_key=(Join-Path $package 'release-public.pem');web_ca=(Join-Path $state 'local-test.cer')};WriteJson $inputFile $settings
   $env:OPENWEB_WINDOWS_UPDATER_TEST='1'
@@ -301,7 +323,7 @@ if(!$?){exit 1}
   foreach($flag in 'normal_migration_completed','backup_and_mail_deferred','candidate_actual_assemblies','original_worker_parent','services_stopped','new_noncustomer_table','new_noncustomer_file','owned_task_hidden_changed','owned_task_read_acl_changed'){Check ($seen.$flag -is [bool] -and $seen.$flag -eq $true) 'The late signed fault did not prove every required actual mutation.'}
   foreach($flag in 'customer_rows_modified','registration_sent','carrier_calls'){Check ($seen.$flag -is [bool] -and $seen.$flag -eq $false) 'The fault witness exceeded its noncustomer scope.'}
   $settings.owned_update_commands=@($failure.command);WriteJson $inputFile $settings
-  Equal $beforeDb (DatabaseSnapshot 'after-fault') 'fault-database';Equal $beforeFiles (FileSnapshot) 'fault-files';Equal $beforeTasks (TaskSnapshot) 'fault-tasks'
+  Equal $beforeDb (DatabaseSnapshot 'after-fault') 'fault-database';Equal $beforeFiles (FileSnapshot) 'fault-files';EqualTaskSnapshots $beforeTasks (TaskSnapshot) 'fault-tasks'
   $failed=Get-Content "$state\updates\failed-install.json" -Raw|ConvertFrom-Json;Check ($failed.version -eq '1.0.14' -and $failed.asset_sha256 -eq $verified.fault.sha256) 'The worker did not record the exact failed signed package.'
   $facts.gates.fault_https_download='passed';$facts.gates.fault_rollback='passed';$facts.checks+='Actual installed13 SYSTEM worker full trusted HTTPS fault14 transfer, original key/URLs, late real14 witness and exact DB/roles/credentials/files/ACL/task rollback'
   $phase='higher-sequence normal14 full HTTPS download and natural restart'

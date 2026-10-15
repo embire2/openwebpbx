@@ -82,6 +82,8 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           if($env:NATIVE_RUN_ID -notmatch '^[0-9]+$' -or $env:ENGINE_RUN_ID -notmatch '^[0-9]+$'){throw 'Both inputs must be numeric run IDs.'}
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_task_security.ps1
+          if($LASTEXITCODE){throw 'Native task security controls failed before upgrade diagnosis.'}
           & tests/windows-suite.ps1 -NativeRunId $env:NATIVE_RUN_ID -EngineRunId $env:ENGINE_RUN_ID -DisposableHostedRunner -UpgradeDiagnosticsOnly
           if(!$?){throw 'Diagnostic upgrade did not finish; this workflow never qualifies the full suite.'}
       - name: Store only credential-free acceptance facts

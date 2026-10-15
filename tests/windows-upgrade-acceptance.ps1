@@ -5,6 +5,7 @@ param([Parameter(Mandatory)][string]$PackageRoot,[switch]$DisposableHostedRunner
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-upgrade-lock-observer.ps1')
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){throw 'Only the owned disposable hosted Windows instance may run this hook.'}
+. (Join-Path $PackageRoot 'Support-Recovery.ps1')
 $fixtureInput=Get-Content -LiteralPath $InputPath -Raw|ConvertFrom-Json
 $root='C:\OpenWebPBX';$state=Join-Path $env:ProgramData 'OpenWebPBX';$switch='C:\Program Files\FreeSWITCH';$configuration=Join-Path $env:ProgramData 'fusionpbx'
 $installed=Get-Content "$state\installation.json" -Raw|ConvertFrom-Json
@@ -375,6 +376,27 @@ function TaskSnapshot {
  }
  return $tasks
 }
+function EqualTaskSnapshots($Before,$After,[string]$Message){
+ # Keep the raw snapshots. Only Scheduler descriptor serialization has the
+ # narrow product comparison; every other task field uses exact JSON equality.
+ Check ($Before -is [Collections.IDictionary] -and $After -is [Collections.IDictionary]) $Message
+ $left=@{};$right=@{}
+ foreach($pair in @(@{source=$Before;target=$left},@{source=$After;target=$right})){
+  foreach($name in $pair.source.Keys){
+   Check ($pair.source[$name] -is [Collections.IDictionary]) $Message
+   $copy=@{};foreach($key in $pair.source[$name].Keys){$copy[$key]=$pair.source[$name][$key]};$pair.target[$name]=$copy
+  }
+ }
+ foreach($name in $Before.Keys){
+  if($Before[$name].Keys -ccontains 'security'){
+   Check ($After.Keys -ccontains $name) $Message
+   Check ($After[$name].Keys -ccontains 'security' -and $Before[$name].security -is [string] -and $After[$name].security -is [string]) $Message
+   Check (Test-OpenWebTaskSecurityEquivalent $Before[$name].security $After[$name].security) $Message
+   $left[$name].Remove('security');$right[$name].Remove('security')
+  }
+ }
+ Equal $left $right $Message
+}
 function Equal([object]$Before,[object]$After,[string]$Message){
  # Hashtable ordering differs between fresh deserialization and COM queries.
  $beforeFile=Join-Path $work 'compare-before.json';$afterFile=Join-Path $work 'compare-after.json';WriteJson $beforeFile $Before;WriteJson $afterFile $After
@@ -486,7 +508,7 @@ function ClearManager {
   # TASK_DONT_ADD_PRINCIPAL_ACE avoids silently widening the exact old task DACL.
   $native.SetSecurityDescriptor($managerOriginal.security,0x10)
   $acl=[Security.AccessControl.FileSecurity]::new();$acl.SetSecurityDescriptorSddlForm($managerOriginal.file_acl);Set-Acl -LiteralPath (Join-Path $env:SystemRoot ('System32/Tasks/'+$managerName)) -AclObject $acl
-  Check ((Export-ScheduledTask -TaskName $managerName) -eq $managerOriginal.xml -and (Get-ScheduledTask -TaskName $managerName).Settings.Enabled -eq $managerOriginal.enabled -and (Get-Acl -LiteralPath (Join-Path $env:SystemRoot ('System32/Tasks/'+$managerName))).Sddl -eq $managerOriginal.file_acl -and $native.GetSecurityDescriptor(7) -eq $managerOriginal.security) 'The original own manager task XML/enabled state/file and Scheduler security did not restore exactly.'
+  Check ((Export-ScheduledTask -TaskName $managerName) -eq $managerOriginal.xml -and (Get-ScheduledTask -TaskName $managerName).Settings.Enabled -eq $managerOriginal.enabled -and (Get-Acl -LiteralPath (Join-Path $env:SystemRoot ('System32/Tasks/'+$managerName))).Sddl -eq $managerOriginal.file_acl -and (Test-OpenWebTaskSecurityEquivalent $managerOriginal.security ($native.GetSecurityDescriptor(7)))) 'The original own manager task XML/enabled state/file and Scheduler security did not restore.'
  }elseif($task){Unregister-ScheduledTask -TaskName $managerName -Confirm:$false}
  $script:managerOwned=$false;$script:managerAvailable=$false
 }
@@ -551,7 +573,7 @@ function SignedChecks {
   StopUpdater;Equal $database (DatabaseSnapshot 'after-signed') 'The signed upgrade changed protected DB/security/customer data.';$report.gates.installed_upgrade='passed'
   $files=FilesSnapshot;$tasks=TaskSnapshot;$database=DatabaseSnapshot 'before-signed-failure'
   $result=InvokeHelper $helper @('-Archive',$fixtureInput.failure_archive,'-FeedEnvelope',$fixtureInput.failure_feed,'-TargetVersion',$fixtureInput.failure_target_version) 'signed-failure';Check ($result -ne 0 -and (Journal).state -eq 'rolled_back') 'The verified signed failure did not finish exact rollback.'
-  StopUpdater;Equal $database (DatabaseSnapshot 'after-signed-failure') 'The signed rollback changed DB identity/security/customer state.';Equal $files (FilesSnapshot) 'Signed rollback changed byte/owner/DACL inventories.';Equal $tasks (TaskSnapshot) 'Signed rollback changed task state/security.';$report.gates.failure_rollback='passed'
+  StopUpdater;Equal $database (DatabaseSnapshot 'after-signed-failure') 'The signed rollback changed DB identity/security/customer state.';Equal $files (FilesSnapshot) 'Signed rollback changed byte/owner/DACL inventories.';EqualTaskSnapshots $tasks (TaskSnapshot) 'Signed rollback changed task state/security.';$report.gates.failure_rollback='passed'
   $report.checks+='Actual original installed signed-package verification/upgrade and signed failure rollback; private laboratory baseline, not a historical public Windows release'
  }
 }
@@ -592,7 +614,7 @@ try{
  foreach($field in 'database_and_customer_mutated','notification_mutated','native_metadata_mutated','new_file_created','task_changed','task_security_changed'){Check ($witness.$field -eq $true) 'The injected failure did not reach every required native mutation.'}
  StopUpdater;Equal $database (DatabaseSnapshot 'after-failure') 'The real rollback changed DB identity, owner/grants, roles/credentials, schema or preserved table values.'
  Equal $files (FilesSnapshot) 'The real rollback changed file bytes, original/new-file inventory or owner/DACL.'
- Equal $tasks (TaskSnapshot) 'The real rollback changed original task XML, enabled state, task-file ACL or Scheduler security.'
+ EqualTaskSnapshots $tasks (TaskSnapshot) 'The real rollback changed original task XML, enabled state, task-file ACL or Scheduler security.'
  Check (!(Test-Path "$root\backup-runtime\rollback-fixture-only.txt")) 'Rollback retained a newly created private runtime file.'
  $report.gates.direct_failure_rollback='passed';$report.checks+='Actual post-deploy DB/config/notification/native metadata/new-file/task fault; automatic rollback restored exact files/SDDL/tasks and HMAC-verified DB/security/customer values'
  if($managerAvailable){$report.checks+='Actual installed WinUI window automatically closes and reopens after successful reapply and forced rollback, with real assembly/title, original SID/session and new PID'}

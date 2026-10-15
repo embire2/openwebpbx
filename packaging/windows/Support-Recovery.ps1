@@ -1,4 +1,44 @@
 # Dot-sourced by the trusted upgrade transaction while upgrade.lock is held.
+function Test-OpenWebTaskSecurityEquivalent {
+ param([string]$Original,[string]$Current)
+ if([string]::IsNullOrWhiteSpace($Original) -or [string]::IsNullOrWhiteSpace($Current) -or $Original.Length -gt 65536 -or $Current.Length -gt 65536){return $false}
+ if([string]::Equals($Original,$Current,[StringComparison]::Ordinal)){return $true}
+ try{
+  # Task Scheduler may reorder identical Allow entries and set AutoInherited
+  # when applying a descriptor. Never extend this exception to file ACLs.
+  $before=[Security.AccessControl.RawSecurityDescriptor]::new($Original)
+  $after=[Security.AccessControl.RawSecurityDescriptor]::new($Current)
+  if(![object]::Equals($before.Owner,$after.Owner) -or ![object]::Equals($before.Group,$after.Group)){return $false}
+  if($before.ResourceManagerControl -ne $after.ResourceManagerControl){return $false}
+  $oldFlags=[int]$before.ControlFlags;$newFlags=[int]$after.ControlFlags
+  if(($oldFlags -bxor $newFlags) -band (-bnot 0x400)){return $false}
+  if(($oldFlags -band 0x400) -and !($newFlags -band 0x400)){return $false}
+  $oldSacl=$before.SystemAcl;$newSacl=$after.SystemAcl
+  if(($null -eq $oldSacl) -ne ($null -eq $newSacl)){return $false}
+  if($null -ne $oldSacl){
+   if($oldSacl.BinaryLength -ne $newSacl.BinaryLength){return $false}
+   $oldBytes=New-Object byte[] $oldSacl.BinaryLength;$newBytes=New-Object byte[] $newSacl.BinaryLength
+   $oldSacl.GetBinaryForm($oldBytes,0);$newSacl.GetBinaryForm($newBytes,0)
+   if([Convert]::ToBase64String($oldBytes) -cne [Convert]::ToBase64String($newBytes)){return $false}
+  }
+  $oldDacl=$before.DiscretionaryAcl;$newDacl=$after.DiscretionaryAcl
+  # Null/empty or unusual ACLs retain the exact-text contract above.
+  if($null -eq $oldDacl -or $null -eq $newDacl -or $oldDacl.Count -eq 0 -or $oldDacl.Revision -ne $newDacl.Revision -or $oldDacl.BinaryLength -ne $newDacl.BinaryLength -or $oldDacl.Count -ne $newDacl.Count){return $false}
+  $counts=[Collections.Generic.Dictionary[string,int]]::new([StringComparer]::Ordinal)
+  foreach($ace in $oldDacl){
+   if($ace -isnot [Security.AccessControl.CommonAce] -or $ace.IsCallback -or $ace.AceType -ne [Security.AccessControl.AceType]::AccessAllowed -or $ace.AceQualifier -ne [Security.AccessControl.AceQualifier]::AccessAllowed){return $false}
+   $bytes=New-Object byte[] $ace.BinaryLength;$ace.GetBinaryForm($bytes,0);$key=[Convert]::ToBase64String($bytes)
+   if($counts.ContainsKey($key)){$counts[$key]++}else{$counts.Add($key,1)}
+  }
+  foreach($ace in $newDacl){
+   if($ace -isnot [Security.AccessControl.CommonAce] -or $ace.IsCallback -or $ace.AceType -ne [Security.AccessControl.AceType]::AccessAllowed -or $ace.AceQualifier -ne [Security.AccessControl.AceQualifier]::AccessAllowed){return $false}
+   $bytes=New-Object byte[] $ace.BinaryLength;$ace.GetBinaryForm($bytes,0);$key=[Convert]::ToBase64String($bytes)
+   if(!$counts.ContainsKey($key) -or $counts[$key] -eq 0){return $false};$counts[$key]--
+  }
+  foreach($count in $counts.Values){if($count -ne 0){return $false}}
+  return $true
+ }catch{return $false}
+}
 function Save-OpenWebSupport {
  param([string]$Backup,[string]$PackageRoot,[string]$Root,[string]$StateRoot,[string]$EngineRoot)
  $record=[ordered]@{schema=1;Files=@{};Directories=@{};Acls=@{};Tasks=@{};OpenSshClient=(Get-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0).State.ToString()}
@@ -98,14 +138,14 @@ function Restore-OpenWebSupport {
    if($entry.Value.Security){
     $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect();$nativeTask=$scheduler.GetFolder('\').GetTask($entry.Name)
     $nativeTask.SetSecurityDescriptor([string]$entry.Value.Security,0x10)
-    if($nativeTask.GetSecurityDescriptor(7) -ne $entry.Value.Security){throw 'The original scheduled-task security did not restore.'}
+    if(!(Test-OpenWebTaskSecurityEquivalent ([string]$entry.Value.Security) ($nativeTask.GetSecurityDescriptor(7)))){throw 'The original scheduled-task security did not restore.'}
    }
    if($entry.Value.FileAcl){
     $taskFile=Join-Path $env:SystemRoot ('System32\Tasks\'+$entry.Name)
     $acl=[Security.AccessControl.FileSecurity]::new();$acl.SetSecurityDescriptorSddlForm([string]$entry.Value.FileAcl)
     Set-Acl -LiteralPath $taskFile -AclObject $acl
     if((Get-Acl -LiteralPath $taskFile).Sddl -ne $entry.Value.FileAcl){throw 'The original scheduled-task file permissions did not restore.'}
-    if($entry.Value.Security -and $nativeTask.GetSecurityDescriptor(7) -ne $entry.Value.Security){throw 'Scheduled-task file restoration changed its original security.'}
+    if($entry.Value.Security -and !(Test-OpenWebTaskSecurityEquivalent ([string]$entry.Value.Security) ($nativeTask.GetSecurityDescriptor(7)))){throw 'Scheduled-task file restoration changed its original security.'}
    }
   }else{Unregister-ScheduledTask -TaskName $entry.Name -Confirm:$false -ErrorAction SilentlyContinue}
  }
