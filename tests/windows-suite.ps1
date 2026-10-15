@@ -484,8 +484,8 @@ function BackupFailureReport([string]$Path,[datetime]$StartedAt){
   if($http.method -is [string] -and $http.method -cin @('GET','POST','unknown')){$safe.last_http.method=$http.method}
   if(& $integer $http.status 100 599){$safe.last_http.status=[int]$http.status}
   $tls=$failure.tls_preparation
-  if((& $integer $tls.schema 1 1) -and $tls.operation -is [string] -and $tls.operation -ceq 'prepare_restored_tls' -and $tls.report_status -is [string] -and $tls.report_status -cin @('read','unavailable')){
-   $safe.tls_preparation=@{schema=1;operation='prepare_restored_tls';report_status=$tls.report_status;source_frames=@()}
+  if((& $integer $tls.schema 1 1) -and $tls.operation -is [string] -and $tls.operation -cin @('prepare_restored_tls','source_trusted_tls') -and $tls.report_status -is [string] -and $tls.report_status -cin @('read','unavailable')){
+   $safe.tls_preparation=@{schema=1;operation=$tls.operation;report_status=$tls.report_status;source_frames=@()}
    if($tls.state -is [string] -and $tls.state -ceq 'failed'){$safe.tls_preparation.state='failed'}
    $tlsTypes=@('RuntimeException','MethodInvocationException','InvalidOperationException','UnauthorizedAccessException','IOException','FileNotFoundException','ItemNotFoundException','CryptographicException','Win32Exception','COMException','ParameterBindingException','CommandNotFoundException','PSArgumentException','ActionPreferenceStopException','unknown')
    $tlsClasses=@('configuration_missing','restore_blocked','calls_not_held_and_stopped','public_hostname','certificate_not_eligible','certificate_chain','certificate_chain_size','backup_access','certificate_access','native_php','unknown')

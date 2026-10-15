@@ -20,6 +20,8 @@ try{
   $env:OPENWEB_TEST_PWSH=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
   & 'C:\OpenWebPBX\backup-runtime\python.exe' -I (Join-Path $PSScriptRoot 'windows_backup_control_protocol.py') 1>(Join-Path $private 'protocol-private.out') 2>(Join-Path $private 'protocol-private.err')
   if($LASTEXITCODE){throw 'Native backup control protocol tests failed; private evidence retained.'}
+  & 'C:\OpenWebPBX\backup-runtime\python.exe' -I -B (Join-Path $PSScriptRoot 'windows_private_state.py') 1>(Join-Path $private 'private-state-private.out') 2>(Join-Path $private 'private-state-private.err')
+  if($LASTEXITCODE){throw 'Native private-state writer tests failed; private evidence retained.'}
  }finally{
   if($null -eq $priorProtocolPowerShell){Remove-Item Env:\OPENWEB_TEST_PWSH -ErrorAction SilentlyContinue}else{$env:OPENWEB_TEST_PWSH=$priorProtocolPowerShell}
  }

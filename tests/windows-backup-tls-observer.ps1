@@ -1,6 +1,6 @@
 # Test-only failure observation. The product helper and its guards are unchanged.
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$CertificateThumbprint,[Parameter(Mandatory)][string]$ReportPath)
+param([Parameter(Mandatory)][string]$CertificateThumbprint,[Parameter(Mandatory)][string]$ReportPath,[switch]$SourceTls)
 
 function Get-BackupTlsFailure($Failure){
  $types=@('RuntimeException','MethodInvocationException','InvalidOperationException','UnauthorizedAccessException','IOException','FileNotFoundException','ItemNotFoundException','CryptographicException','Win32Exception','COMException','ParameterBindingException','CommandNotFoundException','PSArgumentException','ActionPreferenceStopException')
@@ -42,12 +42,15 @@ function Get-BackupTlsFailure($Failure){
  return $safe
 }
 
-function Invoke-ObservedBackupTlsPreparation([string]$Thumbprint,[string]$OutputPath){
- try{& 'C:/OpenWebPBX/tools/Enable-PhoneTLS.ps1' -CertificateThumbprint $Thumbprint -PrepareRestored}
+function Invoke-ObservedBackupTlsPreparation([string]$Thumbprint,[string]$OutputPath,[switch]$SourceTls){
+ try{
+  if($SourceTls){& 'C:/OpenWebPBX/tools/Enable-PhoneTLS.ps1' -CertificateThumbprint $Thumbprint}
+  else{& 'C:/OpenWebPBX/tools/Enable-PhoneTLS.ps1' -CertificateThumbprint $Thumbprint -PrepareRestored}
+ }
  catch{
   $original=$_
   try{
-   $safe=Get-BackupTlsFailure $original;$json=ConvertTo-Json -InputObject $safe -Depth 8 -Compress
+   $safe=Get-BackupTlsFailure $original;if($SourceTls){$safe.operation='source_trusted_tls'};$json=ConvertTo-Json -InputObject $safe -Depth 8 -Compress
    if($json.Length -le 8192){[IO.File]::WriteAllText($OutputPath,$json,[Text.UTF8Encoding]::new($false))}
   }catch{}
   throw $original
@@ -55,7 +58,8 @@ function Invoke-ObservedBackupTlsPreparation([string]$Thumbprint,[string]$Output
 }
 
 if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx' -or $env:OPENWEB_WINDOWS_BACKUP_TEST -cne '1'){throw 'Only the disposable hosted backup qualification may observe preparation.'}
-$expected=Join-Path $env:ProgramData 'OpenWebPBX/backup-qualification/tls-prepare-failure.json'
+$name=if($SourceTls){'tls-source-failure.json'}else{'tls-prepare-failure.json'}
+$expected=Join-Path $env:ProgramData ('OpenWebPBX/backup-qualification/'+$name)
 if($CertificateThumbprint -cnotmatch '^[a-fA-F0-9]{40,64}$' -or [IO.Path]::GetFullPath($ReportPath) -cne [IO.Path]::GetFullPath($expected) -or (Test-Path -LiteralPath $ReportPath)){throw 'The exact fresh private preparation observation is required.'}
 for($part=Split-Path -Parent $ReportPath;$part;$part=Split-Path -Parent $part){if(!(Test-Path -LiteralPath $part -PathType Container) -or ((Get-Item -LiteralPath $part -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Private ordinary preparation evidence directory required.'}}
-Invoke-ObservedBackupTlsPreparation $CertificateThumbprint $ReportPath
+Invoke-ObservedBackupTlsPreparation $CertificateThumbprint $ReportPath -SourceTls:$SourceTls

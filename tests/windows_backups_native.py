@@ -110,14 +110,18 @@ def ps(script, timeout=180):
     return result.stdout.decode('utf-8-sig').strip()
 
 
-def prepare_restored_tls(thumbprint,private):
+def prepare_restored_tls(thumbprint,private,source=False):
     global LAST_TLS_PREPARATION
-    LAST_TLS_PREPARATION={'schema':1,'operation':'prepare_restored_tls','report_status':'unavailable'}
-    report=private/'tls-prepare-failure.json'
-    result=subprocess.run([str(Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/powershell.exe'),
+    operation='source_trusted_tls' if source else 'prepare_restored_tls'
+    prefix='tls-source' if source else 'tls-prepare'
+    LAST_TLS_PREPARATION={'schema':1,'operation':operation,'report_status':'unavailable'}
+    report=private/(prefix+'-failure.json')
+    arguments=[str(Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/powershell.exe'),
         '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',str(Path(__file__).with_name('windows-backup-tls-observer.ps1')),
-        '-CertificateThumbprint',str(thumbprint),'-ReportPath',str(report)],env=b.native_powershell_environment(),capture_output=True,timeout=180)
-    for name,value in [('tls-prepare-private.out',result.stdout),('tls-prepare-private.err',result.stderr)]:
+        '-CertificateThumbprint',str(thumbprint),'-ReportPath',str(report)]
+    if source:arguments.append('-SourceTls')
+    result=subprocess.run(arguments,env=b.native_powershell_environment(),capture_output=True,timeout=180)
+    for name,value in [(prefix+'-private.out',result.stdout),(prefix+'-private.err',result.stderr)]:
         try:(private/name).write_bytes(value)
         except OSError:pass
     if result.returncode:
@@ -247,7 +251,7 @@ def main(path):
         notification=b.STATE/'mobile-notifications/config.json';source_notification=notification.read_bytes()
         assert json.loads(source_notification).get('vapid_private_key'),'The source notification identity is incomplete'
         phase='source trusted TLS'
-        ps("& 'C:/OpenWebPBX/tools/Enable-PhoneTLS.ps1' -CertificateThumbprint '"+target_thumbprint()+"'")
+        prepare_restored_tls(target_thumbprint(),private,source=True)
         assert (b.STATE/'phone-tls.json').exists(),'A real source phone certificate is required for restore qualification'
         phase='owned PBX';fixture('create',path,data['fixture_php']);data=json.loads(path.read_text(encoding='utf-8-sig'));domain=data['fixture_domain']
         b.atomic_json(private/'owned-fixture.json',{key:data[key] for key in ('fixture_domain','fixture_realm')})
