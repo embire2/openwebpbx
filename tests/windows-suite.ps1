@@ -3,16 +3,24 @@
 [CmdletBinding()]
 param(
  [string]$NativeRunId,[string]$EngineRunId,[string]$PackageRoot,
- [switch]$DisposableHostedRunner,[switch]$UpgradeDiagnosticsOnly
+ [switch]$DisposableHostedRunner,[switch]$UpgradeDiagnosticsOnly,[switch]$BackupsDiagnosticsOnly
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
-function SuiteMusicWorkflow([bool]$DiagnosticOnly){if($DiagnosticOnly){return '.github/workflows/windows-upgrade-diagnostics.yml'};return '.github/workflows/windows-suite.yml'}
-function AssertSuiteMode([bool]$DiagnosticOnly,[string]$WorkflowRef,[string]$WorkflowSha,[string]$SourceSha,[string]$ProvidedPackage){
- $diagnosticRef=$WorkflowRef -cmatch '^embire2/openwebpbx/\.github/workflows/windows-upgrade-diagnostics\.yml@refs/(heads|tags)/[A-Za-z0-9._/-]+$'
- if(!$DiagnosticOnly){if($diagnosticRef){throw 'The diagnostic workflow requires its explicit diagnostic-only switch.'};return}
+function SuiteMusicWorkflow([bool]$DiagnosticOnly,[bool]$BackupDiagnosticOnly=$false){
+ if($DiagnosticOnly -and $BackupDiagnosticOnly){throw 'Diagnostic modes are mutually exclusive.'}
+ if($BackupDiagnosticOnly){return '.github/workflows/windows-backups-diagnostics.yml'}
+ if($DiagnosticOnly){return '.github/workflows/windows-upgrade-diagnostics.yml'}
+ return '.github/workflows/windows-suite.yml'
+}
+function AssertSuiteMode([bool]$DiagnosticOnly,[string]$WorkflowRef,[string]$WorkflowSha,[string]$SourceSha,[string]$ProvidedPackage,[bool]$BackupDiagnosticOnly=$false){
+ if($DiagnosticOnly -and $BackupDiagnosticOnly){throw 'Diagnostic modes are mutually exclusive.'}
+ $upgradeDiagnosticRef=$WorkflowRef -cmatch '^embire2/openwebpbx/\.github/workflows/windows-upgrade-diagnostics\.yml@refs/(heads|tags)/[A-Za-z0-9._/-]+$'
+ $backupDiagnosticRef=$WorkflowRef -cmatch '^embire2/openwebpbx/\.github/workflows/windows-backups-diagnostics\.yml@refs/(heads|tags)/[A-Za-z0-9._/-]+$'
+ if(!$DiagnosticOnly -and !$BackupDiagnosticOnly){if($upgradeDiagnosticRef -or $backupDiagnosticRef){throw 'The diagnostic workflow requires its explicit diagnostic-only switch.'};return}
+ $diagnosticRef=if($BackupDiagnosticOnly){$backupDiagnosticRef}else{$upgradeDiagnosticRef}
  if(!$diagnosticRef -or $WorkflowSha -cnotmatch '^[a-f0-9]{40}$' -or $WorkflowSha -cne $SourceSha -or $ProvidedPackage){throw 'Diagnostic mode requires the exact diagnostic workflow/source and pinned build inputs.'}
 }
-AssertSuiteMode $UpgradeDiagnosticsOnly $env:GITHUB_WORKFLOW_REF $env:GITHUB_WORKFLOW_SHA $env:GITHUB_SHA $PackageRoot
+AssertSuiteMode $UpgradeDiagnosticsOnly $env:GITHUB_WORKFLOW_REF $env:GITHUB_WORKFLOW_SHA $env:GITHUB_SHA $PackageRoot $BackupsDiagnosticsOnly
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){
  throw 'Run only on the explicitly disposable Windows hosted runner of this repository.'
 }
@@ -27,6 +35,7 @@ $recoveryPki=$null
 . (Join-Path $PSScriptRoot 'windows-suite-pki.ps1')
 $facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';backups='pending';native_sip_audio='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
 if($UpgradeDiagnosticsOnly){$facts.mode='upgrade_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Post-native state is not reproduced.'}
+elseif($BackupsDiagnosticsOnly){$facts.mode='backup_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Native, upgrade and post-native state are not reproduced.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false}
 function PrivateDirectory([string]$Path){
  New-Item -ItemType Directory -Force -Path $Path|Out-Null
  & icacls.exe $Path /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F'|Out-Null
@@ -293,7 +302,7 @@ function ExpandSafe([string]$Archive,[string]$Destination){
 function Artifact([string]$RunId,[string]$Kind){
  if($RunId -notmatch '^[0-9]+$'){throw 'Artifact run IDs must be numeric.'}
  $run=Api ('actions/runs/'+$RunId)
- $workflow=if($Kind -eq 'music'){SuiteMusicWorkflow $UpgradeDiagnosticsOnly}else{'.github/workflows/windows-'+$Kind+'.yml'}
+ $workflow=if($Kind -eq 'music'){SuiteMusicWorkflow $UpgradeDiagnosticsOnly $BackupsDiagnosticsOnly}else{'.github/workflows/windows-'+$Kind+'.yml'}
  if($run.repository.full_name -ne 'embire2/openwebpbx' -or $run.head_repository.full_name -ne 'embire2/openwebpbx' -or $run.event -ne 'workflow_dispatch' -or $run.path -ne $workflow -or $run.head_sha -notmatch '^[a-f0-9]{40}$'){throw 'The input run does not belong to the expected repository workflow.'}
  if($Kind -eq 'music'){if($RunId -ne $env:GITHUB_RUN_ID -or $run.head_sha -ne $env:GITHUB_SHA){throw 'Music must come from this exact suite source.'}}
  elseif($run.status -ne 'completed' -or $run.conclusion -ne 'success'){throw 'A source build did not complete successfully.'}
@@ -534,13 +543,15 @@ try{
  $acceptance=@{schema=1;run_id=$env:GITHUB_RUN_ID;restore_server=$true;admin_email=$admin;admin_password=$plain;public_url=('https://'+$domain+':8443');package_root=$PackageRoot;source_root=$source;private_state_root=$state;python='C:/OpenWebPBX/backup-runtime/python.exe';evidence_directory=(Join-Path $work 'native-private-evidence')}
  [IO.File]::WriteAllText($acceptanceFile,($acceptance|ConvertTo-Json),[Text.UTF8Encoding]::new($false));$plain=$null;$acceptance=$null
  # BEGIN qualification-gate-routing
- if(!$UpgradeDiagnosticsOnly){
+ if(!$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly){
   $phase='native acceptance hook';$nativeStartTime=[DateTime]::UtcNow;$native=NativeAcceptanceHook (Join-Path $work 'native-acceptance.json') $nativeStartTime
   if($native){$facts.gates.native_sip_audio='passed'}
  }
  $phase='independent trusted recovery fixture';$recoveryPki=Start-SuiteRecoveryPki -PackageRoot $PackageRoot -SourceRoot $source -Work $work
- $phase='upgrade acceptance hook';$upgrade=AcceptanceHook 'windows-upgrade-acceptance.ps1' (Join-Path $work 'upgrade-acceptance.json')
- if($upgrade){foreach($gate in 'direct_113_helper_reapply','direct_failure_rollback','restore_gate_startup','manager_reopen_success','manager_reopen_rollback','installed_upgrade','failure_rollback','legacy_106_upgrade'){if($upgrade.gates.$gate -eq 'passed'){$facts.gates[$gate]='passed'}}}
+ if(!$BackupsDiagnosticsOnly){
+  $phase='upgrade acceptance hook';$upgrade=AcceptanceHook 'windows-upgrade-acceptance.ps1' (Join-Path $work 'upgrade-acceptance.json')
+  if($upgrade){foreach($gate in 'direct_113_helper_reapply','direct_failure_rollback','restore_gate_startup','manager_reopen_success','manager_reopen_rollback','installed_upgrade','failure_rollback','legacy_106_upgrade'){if($upgrade.gates.$gate -eq 'passed'){$facts.gates[$gate]='passed'}}}
+ }
  if(!$UpgradeDiagnosticsOnly){
   $phase='backup qualification';$sftpConfig=LoopbackSftp
   & (Join-Path $PSScriptRoot 'windows-backups.ps1') -PackageRoot $PackageRoot -AdminEmail $admin -AdminPassword $password -DisposableFactory -SftpConfig $sftpConfig
@@ -550,7 +561,7 @@ try{
   $facts.gates.backups='passed';$facts.checks+=@($backup.checks)
  }
  $missing=@($facts.gates.GetEnumerator()|Where-Object {$_.Value -ne 'passed'}|ForEach-Object Key)
- $facts.state=if($facts.state -eq 'failed'){'failed'}elseif($UpgradeDiagnosticsOnly){'partial'}elseif($missing.Count){'partial'}else{'passed'};$facts.unqualified=$missing
+ $facts.state=if($facts.state -eq 'failed'){'failed'}elseif($UpgradeDiagnosticsOnly -or $BackupsDiagnosticsOnly){'partial'}elseif($missing.Count){'partial'}else{'passed'};$facts.unqualified=$missing
  # END qualification-gate-routing
 }catch{
  RememberSuiteFailure $_ $phase
