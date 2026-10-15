@@ -115,6 +115,152 @@ class CleanupObservationControls(unittest.TestCase):
         self.assertTrue(self.sidecar.exists())
 
 
+class NativeCleanupControls(unittest.TestCase):
+    """Actual orchestration/cleanup source with controlled peers, not SIP acceptance."""
+    def setUp(self):
+        self.temporary=tempfile.TemporaryDirectory();self.root=Path(self.temporary.name)
+        self.fixture=q.Qualification.__new__(q.Qualification);self.fixture.work=self.root
+        self.fixture.path=self.root/'input.json';self.fixture.facts_path=self.root/'facts.json'
+        self.fixture.s={'realm':'fictional.invalid'};self.fixture.facts={'checks':[],'gates':{}}
+        self.primary=None;self.mode='success';self.commands=[];self.status_calls=0
+        owner=self
+        class Peer:
+            def __init__(self,index):
+                self.index=index;self.auth_user='owned'+str(index);self.dialogs={};self.closed=False;self.unregisters=0;self.dials=0
+                self.registration_call_ids=['a'*24+'@localfixture']
+            def register(self,destination,expires=None):
+                if expires==0:
+                    self.unregisters+=1
+                    if self.index==0 and owner.mode=='register_error':raise TimeoutError('PRIVATE password/path')
+                    if self.index==0 and owner.mode=='status_error':return {'code':503}
+                return {'code':200}
+            def dial(self,number,destination):
+                self.dials+=1
+                if owner.mode=='voicemail_error' and self.dials==2:raise RuntimeError('PRIVATE deposit/password')
+                owner.peers[1].dialogs['fictional']={'acked':True}
+                return {'code':200,'media':{}}
+            def hangup(self,call):pass
+            def close(self):
+                self.closed=True
+                if self.index==0 and owner.mode=='close_error':raise RuntimeError('PRIVATE close/password')
+        self.peers=[Peer(0),Peer(1)]
+        def rate(_):
+            if self.primary is not None:raise self.primary
+        self.fixture.peers=lambda:(SimpleNamespace(rtp_rate_check=rate),SimpleNamespace(decoded_tone_check=lambda *_:None),self.peers,('127.0.0.1',5060))
+        def php(action):
+            self.assertEqual(action,'status');self.status_calls+=1
+            return {'recordings':[] if self.status_calls==1 else [{'media_uuid':'fictional-answered','media':{'exists':True,'size':40001}}]}
+        self.fixture.php=php
+        def es_api(command):
+            self.commands.append(command)
+            if command.startswith('sofia_contact'):
+                return 'PRIVATE contact/password' if self.mode=='contact_error' else 'error/user_not_registered'
+            if self.mode=='flush_error':raise ConnectionError('PRIVATE socket/password')
+            return '+OK'
+        self.fixture.es_api=es_api
+
+    def tearDown(self):self.temporary.cleanup()
+    def run_native(self):
+        with mock.patch.object(q.time,'sleep',return_value=None):return self.fixture.native()
+
+    def test_primary_only_is_original_exception_and_cleanup_still_runs(self):
+        self.primary=AssertionError('PRIVATE body/password')
+        with self.assertRaises(AssertionError) as caught:self.run_native()
+        self.assertIs(caught.exception,self.primary);self.assertEqual(caught.exception.completed_native_cases,[])
+        self.assertFalse(hasattr(caught.exception,'peer_cleanup_failure'))
+        self.assertTrue(all(peer.closed and peer.unregisters==1 for peer in self.peers))
+        self.assertEqual(len([c for c in self.commands if c.startswith('sofia_contact')]),2)
+
+    def test_cleanup_only_fails_and_retains_only_genuinely_completed_cases(self):
+        self.mode='status_error'
+        with self.assertRaisesRegex(RuntimeError,'^Owned peer cleanup is incomplete[.]$') as caught:self.run_native()
+        fields=caught.exception.peer_cleanup_failure
+        self.assertEqual(len(fields),1);self.assertEqual(fields[0]['stage'],'unregister')
+        self.assertEqual(fields[0]['status_code'],503);self.assertEqual(fields[0]['peer_index'],0)
+        self.assertEqual(fields[0]['error_type'],'check_failed')
+        self.assertEqual(fields[0]['source_basename'],'windows-restore-qualification.py')
+        self.assertEqual(caught.exception.completed_native_cases,list(q.NATIVE_CASES['native-source']))
+        self.assertEqual(self.fixture.facts['checks'],list(q.NATIVE_CASES['native-source']))
+        self.assertTrue(all(peer.closed for peer in self.peers))
+        self.assertEqual(len([c for c in self.commands if c.startswith('sofia_contact')]),2)
+
+    def test_both_failures_preserve_primary_and_closed_secondary(self):
+        self.primary=AssertionError('PRIVATE primary/password');self.mode='status_error'
+        with self.assertRaises(AssertionError) as caught:self.run_native()
+        self.assertIs(caught.exception,self.primary)
+        self.assertEqual(caught.exception.peer_cleanup_failure[0]['status_code'],503)
+        self.assertEqual(caught.exception.completed_native_cases,[])
+        self.assertNotIn('PRIVATE',json.dumps(caught.exception.peer_cleanup_failure))
+        self.assertTrue(all(peer.closed for peer in self.peers))
+
+    def test_success_preserves_checks_and_exact_contact_absence(self):
+        self.assertIsNone(self.run_native())
+        self.assertEqual(self.fixture.facts['gates'],{name:'passed' for name in q.NATIVE_CASES['native-source']})
+        self.assertTrue(all(peer.closed for peer in self.peers))
+        self.assertEqual(len([c for c in self.commands if c.startswith('sofia_contact')]),2)
+
+    def test_only_completed_first_case_survives_later_body_failure(self):
+        self.mode='voicemail_error'
+        with self.assertRaises(RuntimeError) as caught:self.run_native()
+        self.assertEqual(caught.exception.completed_native_cases,[q.NATIVE_CASES['native-source'][0]])
+        self.assertEqual(self.fixture.facts['checks'],[q.NATIVE_CASES['native-source'][0]])
+        self.assertTrue(all(peer.closed for peer in self.peers))
+
+    def test_actual_main_json_preserves_primary_and_keeps_secondary_and_progress_closed(self):
+        self.primary=AssertionError('PRIVATE primary/password');self.mode='status_error'
+        with self.assertRaises(AssertionError) as caught:self.run_native()
+        final=ast.parse((HERE/'windows-restore-qualification.py').read_text()).body[-1]
+        program=compile(ast.Module(body=[final],type_ignores=[]),str(HERE/'windows-restore-qualification.py'),'exec')
+        error=caught.exception
+        def fail():raise error
+        namespace=q.__dict__.copy()|{'__name__':'__main__','main':fail};output=io.StringIO()
+        with contextlib.redirect_stdout(output),self.assertRaises(SystemExit) as stopped:exec(program,namespace)
+        self.assertEqual(stopped.exception.code,1);facts=json.loads(output.getvalue())
+        self.assertEqual(facts['error_type'],'AssertionError');self.assertEqual(facts['completed_native_cases'],[])
+        self.assertEqual(facts['peer_cleanup_failure'][0]['status_code'],503);self.assertNotIn('PRIVATE',output.getvalue())
+        error.peer_cleanup_failure[0]['message']='PRIVATE';error.completed_native_cases=['PRIVATE']
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output),self.assertRaises(SystemExit):exec(program,namespace)
+        facts=json.loads(output.getvalue())
+        self.assertNotIn('peer_cleanup_failure',facts);self.assertNotIn('completed_native_cases',facts)
+        self.assertEqual(facts['error_type'],'AssertionError');self.assertNotIn('PRIVATE',output.getvalue())
+
+    def test_contact_exception_close_and_foreign_id_fail_closed_without_private_data(self):
+        for mode,stage,kind in [('contact_error','contact_absence','check_failed'),('register_error','unregister','TimeoutError'),
+                                ('close_error','peer_close','RuntimeError'),('flush_error','flush_registration','ConnectionError'),
+                                ('foreign_id','registration_ids','ValueError')]:
+            with self.subTest(mode=mode):
+                self.mode=mode
+                if mode=='foreign_id':self.peers[0].registration_call_ids=['PRIVATE foreign/password']
+                with self.assertRaises(RuntimeError) as caught:self.fixture.clean_peers(self.peers,('127.0.0.1',5060))
+                fields=caught.exception.peer_cleanup_failure
+                self.assertEqual(fields[0]['stage'],stage);self.assertEqual(fields[0]['error_type'],kind)
+                self.assertNotIn('PRIVATE',json.dumps(fields));self.assertTrue(all(peer.closed for peer in self.peers))
+
+    def test_peer_observation_shape_bounds_and_private_fields_refused(self):
+        row=q.peer_failure(0,'unregister',503)
+        self.assertEqual(q.restore_peer_failure_fields([row]),[row])
+        self.assertEqual(len(q.restore_peer_failure_fields([row]*12)),12)
+        for records in (None,{},[],[row]*13,[row|{'message':'PRIVATE'}],[row|{'source_basename':'C:/PRIVATE.py'}]):
+            self.assertEqual(q.restore_peer_failure_fields(records),[])
+        for key in row:
+            for value in (None,True,False,[],{},'PRIVATE password/path',1.5):
+                self.assertEqual(q.restore_peer_failure_fields([row|{key:value}]),[])
+        for key,values in {'peer_index':(-1,2),'status_code':(-1,1,99,700),'source_line':(-1,1000000)}.items():
+            for value in values:self.assertEqual(q.restore_peer_failure_fields([row|{key:value}]),[])
+        error=type('PRIVATE_PasswordError',(Exception,),{})('PRIVATE message')
+        self.assertEqual(q.peer_failure(0,'unregister',0,error)['error_type'],'external_error')
+        facts={'checks':[q.NATIVE_CASES['native-source'][0],'PRIVATE'],'gates':{q.NATIVE_CASES['native-source'][0]:'passed',q.NATIVE_CASES['native-source'][1]:'passed','PRIVATE':'passed'}}
+        self.assertEqual(q.completed_native_cases(facts,'native-source'),[q.NATIVE_CASES['native-source'][0]])
+        facts['gates'][q.NATIVE_CASES['native-source'][0]]=True
+        self.assertEqual(q.completed_native_cases(facts,'native-source'),[])
+        names=list(q.NATIVE_CASES['native-source'])
+        self.assertEqual(q.restore_completed_native_cases(names,'native-source'),names)
+        for cases,action in ((names*2,'native-source'),([names[0],names[0]],'native-source'),(names,'native-target'),
+                             (names,'cleanup'),(names,None),(names,[]),(['PRIVATE'],'native-source'),([True],'native-source')):
+            self.assertIsNone(q.restore_completed_native_cases(cases,action))
+
+
 class Controls(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(); self.root = Path(self.temporary.name)

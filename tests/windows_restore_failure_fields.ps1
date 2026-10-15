@@ -8,7 +8,7 @@ if([string]::IsNullOrWhiteSpace($SourceRoot)){$SourceRoot=Split-Path $PSScriptRo
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-restore-qualification.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Restore qualification source must parse.'}
-foreach($name in 'SafeRestoreFixtureFailure','NativeFixture'){
+foreach($name in 'SafeRestoreFixtureFailure','SafeRestorePeerFailures','NativeFixture'){
  $nodes=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true))
  if($nodes.Count -ne 1){throw 'One exact source function is required.'}
  if($name -eq 'NativeFixture'){$nativeDefinition=$nodes[0].Extent.Text}else{Invoke-Expression $nodes[0].Extent.Text}
@@ -42,6 +42,13 @@ Assert ($null -eq (SafeRestoreFixtureFailure $null))
 Assert ($null -eq (SafeRestoreFixtureFailure @($good,$good)))
 $candidate=Clone $good;$candidate.action=@('cleanup');Assert ($null -eq (SafeRestoreFixtureFailure $candidate))
 $candidate=Clone $good;$candidate.step='FACTORY_GUARD';Assert ($null -eq (SafeRestoreFixtureFailure $candidate))
+$peerGood=@{peer_index=0;stage='unregister';status_code=503;error_type='check_failed';source_basename='windows-restore-qualification.py';source_line=408}
+$peerFields=SafeRestorePeerFailures @((Clone $peerGood));Assert ($peerFields.Count -eq 1 -and $peerFields[0].status_code -eq 503)
+foreach($key in $peerGood.Keys){foreach($value in @($null,$true,$false,@(),@{},1.5,'PRIVATE password/path')){$candidate=Clone $peerGood;$candidate.$key=$value;Assert ($null -eq (SafeRestorePeerFailures @($candidate)))}}
+foreach($stage in 'unregister','registration_ids','flush_registration','contact_absence','peer_close'){$candidate=Clone $peerGood;$candidate.stage=$stage;Assert ($null -ne (SafeRestorePeerFailures @($candidate)))}
+foreach($definition in @(@{key='peer_index';values=@(-1,2)},@{key='status_code';values=@(-1,1,99,700)},@{key='source_line';values=@(-1,1000000)})){foreach($value in $definition.values){$candidate=Clone $peerGood;$candidate.($definition.key)=$value;Assert ($null -eq (SafeRestorePeerFailures @($candidate)))}}
+$candidate=Clone $peerGood;$candidate|Add-Member noteproperty message 'PRIVATE';Assert ($null -eq (SafeRestorePeerFailures @($candidate)))
+Assert ($null -eq (SafeRestorePeerFailures (@($peerGood)*13)))
 
 $work=Join-Path ([IO.Path]::GetTempPath()) ('openweb-restore-projection-'+[guid]::NewGuid().ToString('N'))
 $null=New-Item -ItemType Directory -Path $work
@@ -99,6 +106,25 @@ try{
    Assert (($null -ne $facts.native_failure.identity_field) -eq ($mode -eq 'valid'))
    if($mode -eq 'valid'){Assert ($facts.native_failure.failure_kind -ceq 'non_distinct_installation_identity' -and $facts.native_failure.identity_field -ceq $field)}
    Assert (($facts|ConvertTo-Json -Depth 20 -Compress) -notmatch 'PRIVATE|password|C:/secret')
+  }
+ }
+ foreach($action in 'native-source','native-target'){
+  $names=if($action -ceq 'native-source'){@('source_real_two_way_recorded_call','source_real_native_voicemail_deposit')}else{@('restored_original_credentials_two_way_decoded_native_audio','restored_original_native_voicemail_pin_rfc2833_retrieval')}
+  foreach($mode in 'valid','duplicate','oversize','wrong_action','private_case','private_peer'){
+   $facts=@{gates=@{}};$script:childRecord=@{state='failed';error_type='AssertionError';source_basename='sip_trunk_live.py';source_line=249;peer_cleanup_failure=@((Clone $peerGood));completed_native_cases=$names;message='PRIVATE'}
+   switch($mode){
+    'duplicate'{$script:childRecord.completed_native_cases=@($names[0],$names[0])}
+    'oversize'{$script:childRecord.completed_native_cases=@($names[0],$names[0],$names[0])}
+    'wrong_action'{$script:childRecord.completed_native_cases=@('source_real_two_way_recorded_call');if($action -ceq 'native-source'){$script:childRecord.completed_native_cases=@('restored_original_credentials_two_way_decoded_native_audio')}}
+    'private_case'{$script:childRecord.completed_native_cases=@('PRIVATE')}
+    'private_peer'{$script:childRecord.peer_cleanup_failure[0]|Add-Member noteproperty message 'PRIVATE'}
+   }
+   $caught=$null;try{NativeFixture $action}catch{$caught=$_}
+   Assert ([object]::ReferenceEquals($caught.Exception,$script:childFailure))
+   Assert ($facts.native_failure.error_type -ceq 'AssertionError' -and $facts.native_failure.source_line -eq 249)
+   $validCases=$mode -in 'valid','private_peer';Assert (($facts.gates.Count -eq 2) -eq $validCases)
+   Assert (($null -ne $facts.native_failure.peer_cleanup_failure) -eq ($mode -ne 'private_peer'))
+   Assert (($facts|ConvertTo-Json -Depth 20 -Compress) -notmatch 'PRIVATE|password|path')
   }
  }
 }finally{Remove-Item -LiteralPath $work -Recurse -Force}

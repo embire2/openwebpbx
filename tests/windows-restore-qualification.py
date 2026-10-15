@@ -147,6 +147,48 @@ def restore_identity_failure_fields(error):
     return {'failure_kind': 'non_distinct_installation_identity', 'identity_field': error.identity_field}
 
 
+NATIVE_CASES = {'native-source': ('source_real_two_way_recorded_call', 'source_real_native_voicemail_deposit'),
+                'native-target': ('restored_original_credentials_two_way_decoded_native_audio', 'restored_original_native_voicemail_pin_rfc2833_retrieval')}
+PEER_ERROR_TYPES = ('RuntimeError','AssertionError','ValueError','TypeError','KeyError','AttributeError','OSError','TimeoutError',
+                    'ConnectionError','ConnectionResetError','ConnectionAbortedError','ConnectionRefusedError','BrokenPipeError',
+                    'SSLError','SSLEOFError','SSLCertVerificationError','JSONDecodeError','UnicodeDecodeError','check_failed','external_error')
+PEER_ERROR_SOURCES = ('windows-restore-qualification.py','pbx_v20_restore_native.py','sip_trunk_live.py','socket.py','ssl.py','decoder.py','external_component')
+
+
+def restore_peer_failure_fields(records):
+    keys = {'peer_index','stage','status_code','error_type','source_basename','source_line'}
+    if not isinstance(records,list) or not 0 < len(records) <= 12:return []
+    for row in records:
+        if (not isinstance(row,dict) or set(row)!=keys or type(row['peer_index']) is not int or row['peer_index'] not in (0,1)
+                or row['stage'] not in ('unregister','registration_ids','flush_registration','contact_absence','peer_close')
+                or type(row['status_code']) is not int or not (row['status_code']==0 or 100<=row['status_code']<=699)
+                or row['error_type'] not in PEER_ERROR_TYPES or row['source_basename'] not in PEER_ERROR_SOURCES
+                or type(row['source_line']) is not int or not 0<=row['source_line']<1000000):return []
+    return [dict(row) for row in records]
+
+
+def peer_failure(index,stage,code=0,error=None):
+    trace = error.__traceback__ if error else None
+    while trace and trace.tb_next:trace=trace.tb_next
+    source = Path(trace.tb_frame.f_code.co_filename).name if trace else 'windows-restore-qualification.py'
+    kind = type(error).__name__ if error else 'check_failed'
+    return {'peer_index':index,'stage':stage,'status_code':code if type(code) is int and 100<=code<=699 else 0,
+            'error_type':kind if kind in PEER_ERROR_TYPES else 'external_error',
+            'source_basename':source if source in PEER_ERROR_SOURCES else 'external_component',
+            'source_line':trace.tb_lineno if trace else sys._getframe(1).f_lineno}
+
+
+def completed_native_cases(facts, action):
+    return [name for name in NATIVE_CASES.get(action,()) if name in facts.get('checks',[]) and facts.get('gates',{}).get(name)=='passed']
+
+
+def restore_completed_native_cases(cases,action):
+    if (not isinstance(action,str) or action not in NATIVE_CASES or not isinstance(cases,list) or len(cases)>2
+            or any(not isinstance(name,str) or name not in NATIVE_CASES[action] for name in cases)
+            or len(set(cases))!=len(cases)):return None
+    return list(cases)
+
+
 def distinct_installations(source, target):
     # Numeric DB OIDs can legitimately coincide between fresh clusters. The
     # system identifier and actual credential HMAC must differ independently.
@@ -395,17 +437,27 @@ class Qualification:
 
     def clean_peers(self, peers, destination):
         failures = []
-        for peer in peers:
+        for index,peer in enumerate(peers):
+            stage='unregister';code=0
             try:
-                if peer.register(destination, expires=0)['code'] != 200: failures.append('unregister')
+                code=peer.register(destination, expires=0)['code']
+                if code != 200: failures.append(peer_failure(index,stage,code))
+                stage='registration_ids'
                 for callid in peer.registration_call_ids:
                     if not re.fullmatch('[a-f0-9]{24}@localfixture', callid): raise ValueError('Foreign registration cleanup refused.')
+                    stage='flush_registration'
                     self.es_api('sofia profile internal flush_inbound_reg ' + callid)
+                    stage='registration_ids'
+                stage='contact_absence'
                 if not self.es_api('sofia_contact ' + peer.auth_user + '@' + self.s['realm']).strip().startswith('error/'):
-                    failures.append('contact')
-            except Exception: failures.append('native cleanup')
-            finally: peer.close()
-        if failures: raise RuntimeError('Owned peer cleanup is incomplete.')
+                    failures.append(peer_failure(index,stage,code))
+            except Exception as error: failures.append(peer_failure(index,stage,code,error))
+            finally:
+                try:peer.close()
+                except Exception as error:failures.append(peer_failure(index,'peer_close',code,error))
+        if failures:
+            error=RuntimeError('Owned peer cleanup is incomplete.');error.peer_cleanup_failure=restore_peer_failure_fields(failures)
+            raise error
 
     def peer_ledger(self, peers):
         # Retain exact original REGISTER identities even when a later media
@@ -416,6 +468,7 @@ class Qualification:
     def native(self, target=False):
         sip, original, peers, destination = self.peers(); caller, called = peers; call = None
         earlier_recordings = {row['media_uuid'] for row in self.php('status')['recordings']}
+        primary=None
         try:
             for peer in peers:
                 if peer.register(destination)['code'] != 200: raise RuntimeError('Actual original-tuple registration failed.')
@@ -461,11 +514,20 @@ class Qualification:
                 if call['code'] != 200: raise RuntimeError('Actual native voicemail deposit was not answered.')
                 time.sleep(32); caller.hangup(call); call = None
                 self.record('source_real_native_voicemail_deposit')
+        except BaseException as error:
+            primary=error;raise
         finally:
             if call is not None:
                 try: (called if target else caller).hangup(call)
                 except Exception: pass
-            self.clean_peers(peers, destination)
+            try:self.clean_peers(peers, destination)
+            except Exception as cleanup:
+                if primary is None:primary=cleanup;raise
+                primary.peer_cleanup_failure=restore_peer_failure_fields(getattr(cleanup,'peer_cleanup_failure',[]))
+            finally:
+                if primary is not None:
+                    primary.native_action='native-target' if target else 'native-source'
+                    primary.completed_native_cases=completed_native_cases(self.facts,primary.native_action)
 
     def media(self):
         def finalized():
@@ -816,4 +878,8 @@ if __name__ == '__main__':
         observation = restore_fixture_failure_fields(getattr(error, 'fixture_failure', None), 'cleanup')
         if observation: facts['fixture_failure'] = observation
         facts.update(restore_identity_failure_fields(error))
+        peer_failures=restore_peer_failure_fields(getattr(error,'peer_cleanup_failure',None))
+        if peer_failures:facts['peer_cleanup_failure']=peer_failures
+        cases=restore_completed_native_cases(getattr(error,'completed_native_cases',None),getattr(error,'native_action',None))
+        if cases is not None:facts['completed_native_cases']=cases
         print(json.dumps(facts)); sys.exit(1)
