@@ -1,5 +1,34 @@
-# Test-only, failure-only observations for the disposable loopback SFTP receiver.
+# Test-only key preparation and failure observations for the loopback SFTP receiver.
 # Never return command lines, account names, configuration, key material or logs.
+function Test-OpenWebSftpHostKeySecurity($OwnerSid,$Protected,[object[]]$Rules) {
+ if($OwnerSid -cne 'S-1-5-18' -or $Protected -isnot [bool] -or !$Protected -or @($Rules).Count -ne 2){return $false}
+ $seen=@{}
+ foreach($rule in @($Rules)){
+  if($rule.sid -cnotin @('S-1-5-18','S-1-5-32-544') -or $seen.ContainsKey($rule.sid)){return $false}
+  if($rule.access -cne 'Allow' -or $rule.inherited -isnot [bool] -or $rule.inherited -or $rule.inheritance -isnot [int] -or $rule.inheritance -ne 0 -or $rule.propagation -isnot [int] -or $rule.propagation -ne 0){return $false}
+  if($rule.rights -isnot [int64] -or $rule.rights -ne [int64][Security.AccessControl.FileSystemRights]::FullControl){return $false}
+  $seen[$rule.sid]=$true
+ }
+ return ($seen.ContainsKey('S-1-5-18') -and $seen.ContainsKey('S-1-5-32-544'))
+}
+function Set-OpenWebSftpHostKeySecurity([string]$Path,[string]$OwnedDirectory) {
+ if([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT){throw 'The fixture host key requires native Windows file security.'}
+ if([IO.Path]::GetFullPath($Path) -cne [IO.Path]::GetFullPath((Join-Path $OwnedDirectory 'hostkey'))){throw 'The fixture host key has an unexpected boundary.'}
+ $directory=Get-Item -LiteralPath $OwnedDirectory -Force -ErrorAction Stop;$file=Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+ if(!$directory.PSIsContainer -or ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'The fixture host key must be an owned ordinary file.'}
+ # ssh-keygen mode0600 creates an explicit creator ACE. /grant:r does not
+ # remove it; SYSTEM's private-key check correctly rejects that foreign ACE.
+ # Replace the owned key's entire DACL, retaining OpenSSH StrictModes checks.
+ $security=[Security.AccessControl.FileSecurity]::new()
+ $security.SetSecurityDescriptorSddlForm('D:P(A;;FA;;;SY)(A;;FA;;;BA)',[Security.AccessControl.AccessControlSections]::Access)
+ Set-Acl -LiteralPath $Path -AclObject $security -ErrorAction Stop
+ & icacls.exe $Path /setowner '*S-1-5-18' 2>&1|Out-Null
+ if($LASTEXITCODE){throw 'The fixture host key owner could not be secured.'}
+ $actual=Get-Acl -LiteralPath $Path -ErrorAction Stop
+ $rules=@($actual.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])|ForEach-Object {@{sid=$_.IdentityReference.Value;rights=[int64]$_.FileSystemRights;access=[string]$_.AccessControlType;inherited=[bool]$_.IsInherited;inheritance=[int]$_.InheritanceFlags;propagation=[int]$_.PropagationFlags}})
+ $ownerSid=$actual.GetOwner([Security.Principal.SecurityIdentifier]).Value
+ if(!(Test-OpenWebSftpHostKeySecurity $ownerSid $actual.AreAccessRulesProtected $rules)){throw 'The fixture host key security did not match its exact private policy.'}
+}
 function ConvertTo-OpenWebSftpTaskResult($Value) {
  if($null -eq $Value){return $null}
  try {

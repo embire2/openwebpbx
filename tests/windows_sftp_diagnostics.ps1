@@ -7,6 +7,25 @@ function Check([bool]$Condition,[string]$Case){if(!$Condition){throw ('SFTP diag
 $canary='PRIVATE_SFTP_CANARY_0f81';$root=Join-Path ([IO.Path]::GetTempPath()) ('owb-sftp-controls-'+[Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $root|Out-Null
 try {
+ $fullControl=[int64][Security.AccessControl.FileSystemRights]::FullControl
+ $systemRule=@{sid='S-1-5-18';rights=$fullControl;access='Allow';inherited=$false;inheritance=[int]0;propagation=[int]0}
+ $adminRule=$systemRule.Clone();$adminRule.sid='S-1-5-32-544'
+ $creatorRule=$systemRule.Clone();$creatorRule.sid='S-1-5-21-123-456-789-1001';$creatorRule.rights=[int64]([Security.AccessControl.FileSystemRights]::Read -bor [Security.AccessControl.FileSystemRights]::Write)
+ $retainedCreator=@($systemRule,$adminRule,$creatorRule)
+ Check (!(Test-OpenWebSftpHostKeySecurity 'S-1-5-18' $true $retainedCreator)) 'original grant replacement retains forbidden explicit creator ACE'
+ $replacement=@($systemRule,$adminRule)
+ Check (Test-OpenWebSftpHostKeySecurity 'S-1-5-18' $true $replacement) 'exact protected two-principal replacement accepted'
+ Check (Test-OpenWebSftpHostKeySecurity 'S-1-5-18' $true @($adminRule,$systemRule)) 'equivalent ACE ordering accepted'
+ foreach($owner in $creatorRule.sid,'S-1-5-32-544',$null){Check (!(Test-OpenWebSftpHostKeySecurity $owner $true $replacement)) 'non-SYSTEM hostkey owner refused'}
+ foreach($protected in $false,'true',$null){Check (!(Test-OpenWebSftpHostKeySecurity 'S-1-5-18' $protected $replacement)) 'unprotected or untyped DACL refused'}
+ foreach($change in @(@('sid',$creatorRule.sid),@('rights',[int64]1),@('rights','2032127'),@('access','Deny'),@('inherited',$true),@('inherited','false'),@('inheritance',[int]1),@('propagation',[int]1))){
+  $modified=$adminRule.Clone();$modified[$change[0]]=$change[1]
+  Check (!(Test-OpenWebSftpHostKeySecurity 'S-1-5-18' $true @($systemRule,$modified))) ('unsafe hostkey rule '+$change[0]+' refused')
+ }
+ Check (!(Test-OpenWebSftpHostKeySecurity 'S-1-5-18' $true @($systemRule,$systemRule.Clone()))) 'duplicate SYSTEM ACE cannot replace Administrators'
+ Check ($adminRule.sid -ceq 'S-1-5-32-544' -and $adminRule.rights -eq $fullControl -and !$adminRule.inherited) 'mutated negative rules are independent copies'
+ $privacy=Test-OpenWebSftpHostKeySecurity $creatorRule.sid $true $retainedCreator
+ Check (($privacy -is [bool]) -and !(($privacy|ConvertTo-Json).Contains($creatorRule.sid))) 'key-security result exposes no creator identity'
  foreach($pair in @(@([int32]-2147024894,2147942402L),@([uint32]4294967295,4294967295L),@([int32]-1,4294967295L),@([int32]267009,267009L),@([int64]0,0L))){Check ((ConvertTo-OpenWebSftpTaskResult $pair[0]) -eq $pair[1]) 'signed task normalization'}
  foreach($value in @($null,$true,'1',[double]1.2,[int64]-2147483649,[uint64]4294967296)){Check ($null -eq (ConvertTo-OpenWebSftpTaskResult $value)) 'invalid task type/range refused'}
  $messages=@{
@@ -133,6 +152,17 @@ try {
  Check ($loop.Contains("if(!`$connected){try{")) 'observer only on original failed readiness'
  Check ($loop.Contains("}catch{};throw 'The separate loopback SFTP server did not start.'}")) 'observer failure preserves original throw'
  Check ($loop.Contains('UtcNow.AddSeconds(30)') -and $loop.Contains("'-D -f ") -and $loop.Contains('-E "')) 'original startup command and deadline retained'
+ Check ($loop.Contains("'StrictModes yes'")) 'OpenSSH strict key checks remain enabled'
+ $keyCalls=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -ceq 'Set-OpenWebSftpHostKeySecurity'},$true))
+ Check ($keyCalls.Count -eq 1 -and $keyCalls[0].CommandElements[1].Extent.Text -ceq '$hostkey' -and $keyCalls[0].CommandElements[2].Extent.Text -ceq '$work') 'exact hostkey-only preparation call'
+ Check (!$loop.Contains("& icacls.exe `$hostkey /inheritance:r /grant:r")) 'incomplete hostkey grant operation removed'
+ Check ($loop.Contains("& icacls.exe `$authorized /inheritance:r /grant:r")) 'authorized key policy unchanged'
+ $helperTokens=$null;$helperErrors=$null
+ $helperAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'windows-sftp-diagnostics.ps1'),[ref]$helperTokens,[ref]$helperErrors)
+ $keyFunction=$helperAst.Find({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Set-OpenWebSftpHostKeySecurity'},$true).Extent.Text
+ Check ($helperErrors.Count -eq 0 -and $keyFunction.Contains("'D:P(A;;FA;;;SY)(A;;FA;;;BA)'")) 'exact fresh protected DACL source'
+ Check ($keyFunction.Contains('[Security.AccessControl.AccessControlSections]::Access') -and $keyFunction.Contains('Set-Acl -LiteralPath $Path -AclObject $security')) 'entire owned DACL replaced without inherited creator ACE'
+ Check ($keyFunction.Contains("/setowner '*S-1-5-18'") -and $keyFunction.Contains('Test-OpenWebSftpHostKeySecurity $ownerSid $actual.AreAccessRulesProtected $rules')) 'SYSTEM owner and exact ACL readback required'
  $realSshd=$false
  if($IsLinux -and (Test-Path -LiteralPath '/usr/sbin/sshd' -PathType Leaf)){
   $config=Join-Path $root 'sshd_config'
