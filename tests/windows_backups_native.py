@@ -39,6 +39,7 @@ BACKUP_ERROR_TYPES={'AssertionError','RuntimeError','BackupError','ModuleNotFoun
     'TimeoutExpired','CalledProcessError','SSLError','SSLCertVerificationError','URLError','HTTPError','UnicodeDecodeError','EOFError'}
 LAST_HTTP={'target':'unknown','method':'unknown','status':None}
 LAST_FAILED_COMMAND=None
+LAST_WORKER_OBSERVATION=None
 
 
 def failed_command_fields(settings,identifier,command):
@@ -82,6 +83,9 @@ def backup_exception_fields(error,phase,checks):
         'source_frames':frames[-8:],'completed_checks':len(checks) if isinstance(checks,list) and len(checks)<=64 else 0,
         'last_http':dict(LAST_HTTP)}
     if LAST_FAILED_COMMAND is not None:fields['failed_command']=LAST_FAILED_COMMAND
+    if LAST_WORKER_OBSERVATION is not None:
+        try:fields['worker_observation']=LAST_WORKER_OBSERVATION.safe_report()
+        except BaseException:pass
     return fields
 
 
@@ -196,6 +200,7 @@ def local_service_check(private,archive):
 
 
 def main(path):
+    global LAST_WORKER_OBSERVATION
     data=json.loads(path.read_text(encoding='utf-8-sig'));private=path.parent;report=Path(data['report'])
     facts={'platform':'native Windows hosted runner','checks':[],'fully_qualified':False,'sftp':'unqualified'}
     phase='factory guard';settings=b.read_settings();password=secrets.token_hex(32);audit_key=os.urandom(32)
@@ -251,16 +256,20 @@ def main(path):
             values={'action':'save','enabled':'0','schedule_hour':'0','retention':'2','include_media':'1','passphrase':'','sftp_enabled':'1','sftp_identity':remote['identity']}
             values.update({key:remote[key] for key in ('sftp_host','sftp_port','sftp_user','sftp_directory','sftp_host_key')})
             code,raw=client.form('/app/pbx_backups/index.php',values);assert code==200 and b'Backup settings saved' in raw,'Normal HTTPS SFTP configuration was rejected'
-            sent=request_backup(client,settings);archive=b.STORE/sent['filename']
-            assert sent['status']=='ready' and sent['remote_status']=='uploaded','The actual SYSTEM SFTP worker did not report verified upload'
-            target=Path(remote['observed_directory'])/archive.name
-            assert b.checksum(target)==b.checksum(archive),'The separate loopback SFTP receiver has different ciphertext'
-            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-            from cryptography.hazmat.primitives.serialization import Encoding,PublicFormat
-            key=Ed25519PrivateKey.generate().public_key().public_bytes(Encoding.OpenSSH,PublicFormat.OpenSSH).decode()
-            code,_=client.form('/app/pbx_backups/index.php',values|{'sftp_host_key':key});assert code==200,'The isolated wrong-host-key setup was not saved'
-            refused=request_backup(client,settings)
-            assert refused['status']=='ready' and refused['remote_status']=='failed' and not (Path(remote['observed_directory'])/refused['filename']).exists(),'The actual SYSTEM SFTP worker accepted the wrong host key or discarded its safe local copy'
+            observer_spec=importlib.util.spec_from_file_location('backup_worker_observer',Path(__file__).with_name('windows-backups-worker-observer.py'))
+            observer=importlib.util.module_from_spec(observer_spec);observer_spec.loader.exec_module(observer)
+            LAST_WORKER_OBSERVATION=observer.TaskActionLease(b,ps,private,Path(data['package_root']))
+            with LAST_WORKER_OBSERVATION:
+                sent=request_backup(client,settings);archive=b.STORE/sent['filename']
+                assert sent['status']=='ready' and sent['remote_status']=='uploaded','The actual SYSTEM SFTP worker did not report verified upload'
+                target=Path(remote['observed_directory'])/archive.name
+                assert b.checksum(target)==b.checksum(archive),'The separate loopback SFTP receiver has different ciphertext'
+                from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+                from cryptography.hazmat.primitives.serialization import Encoding,PublicFormat
+                key=Ed25519PrivateKey.generate().public_key().public_bytes(Encoding.OpenSSH,PublicFormat.OpenSSH).decode()
+                code,_=client.form('/app/pbx_backups/index.php',values|{'sftp_host_key':key});assert code==200,'The isolated wrong-host-key setup was not saved'
+                refused=request_backup(client,settings)
+                assert refused['status']=='ready' and refused['remote_status']=='failed' and not (Path(remote['observed_directory'])/refused['filename']).exists(),'The actual SYSTEM SFTP worker accepted the wrong host key or discarded its safe local copy'
             facts['sftp']='real SYSTEM loopback upload/wrong-host-key refusal/local-copy preservation passed';facts['checks'].append(facts['sftp'])
         phase='factory reset';fixture('clear',path,data['fixture_php'])
         for file in sentinel:file.unlink(missing_ok=True)

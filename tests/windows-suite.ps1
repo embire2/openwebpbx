@@ -444,6 +444,20 @@ function BackupFailureReport([string]$Path,[datetime]$StartedAt){
    foreach($key in $categories.Keys){if($command.$key -is [string] -and $command.$key -cin $categories[$key]){$safe.failed_command[$key]=$command.$key}}
    if(& $integer $command.linked_count 0 1){$safe.failed_command.linked_count=[int]$command.linked_count}
   }
+  $worker=$failure.worker_observation
+  if((& $integer $worker.schema 1 1) -and $worker.report_status -is [string] -and $worker.report_status -cin @('read','refused','unavailable')){
+   $safe.worker_observation=@{schema=1;report_status=$worker.report_status;events=@()}
+   foreach($key in 'action_restored','truncated'){if($worker.$key -is [bool]){$safe.worker_observation[$key]=$worker.$key}}
+   $events=@($worker.events)
+   if($events.Count -le 8){foreach($event in $events){
+    if($event.event -isnot [string] -or $event.event -cnotin @('tool_failure','run_failure','upload_failure') -or $event.phase -isnot [string] -or $event.phase -cnotin @('before_upload','upload','after_upload')){continue}
+    $entry=@{event=$event.event;phase=$event.phase}
+    $choices=@{tool=@('psql','pg_dump','pg_restore','ssh-keygen','sftp','powershell','unknown');failure_class=@('database_invalid_encoding','database_client_encoding','database_permission','database_connection','database_syntax','ssh_private_key_permissions','ssh_private_key_format','ssh_private_key_unreadable','ssh_host_key','ssh_authentication','ssh_connection','ssh_remote_path','unknown');error_type=@('BackupError','TimeoutExpired','OSError','FileNotFoundError','PermissionError','UnicodeDecodeError','unknown')}
+    foreach($key in $choices.Keys){if($event.$key -is [string] -and $event.$key -cin $choices[$key]){$entry[$key]=$event.$key}}
+    if(& $integer $event.returncode -2147483648 2147483647){$entry.returncode=[int64]$event.returncode}
+    $safe.worker_observation.events+=,$entry
+   }}
+  }
   $safe.report_status='read'
  }catch{}
  return $safe

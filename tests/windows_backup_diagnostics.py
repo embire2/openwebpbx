@@ -24,7 +24,7 @@ FOREIGN='bbbbbbbb-2222-4222-8222-222222222222'
 
 def library(legacy=False):
     tree=ast.parse(SOURCE.read_text())
-    names={'BACKUP_PHASES','BACKUP_ERROR_TYPES','LAST_HTTP','LAST_FAILED_COMMAND'}
+    names={'BACKUP_PHASES','BACKUP_ERROR_TYPES','LAST_HTTP','LAST_FAILED_COMMAND','LAST_WORKER_OBSERVATION'}
     nodes=[n for n in tree.body if isinstance(n,(ast.Import,ast.ImportFrom)) or
         isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id in names for t in n.targets) or
         isinstance(n,ast.ClassDef) and n.name in {'Hidden','Http'} or
@@ -195,6 +195,9 @@ class Diagnostics(unittest.TestCase):
             database=ScopedQuery();self.ns['b']=database;self.ns['LAST_HTTP'].update(target='backups',method='POST',status=200)
             try:self.ns['wait_command'](database.settings,OWNED)
             except AssertionError as error:fields=self.ns['backup_exception_fields'](error,'native SFTP',['one','two','three'])
+            fields['worker_observation']={'schema':1,'report_status':'read','action_restored':True,'truncated':False,'events':[
+                {'event':'tool_failure','phase':'upload','tool':'sftp','failure_class':'ssh_host_key','returncode':7,'private':MARKER},
+                {'event':'tool_failure','phase':'after_upload','tool':'psql','failure_class':'database_invalid_encoding','returncode':3}]}
             fixture=directory/'python-failure.json';fixture.write_text(json.dumps({'state':'failed','failure':fields,'private':MARKER}),encoding='utf-8')
             result=subprocess.run([pwsh,'-NoProfile','-File',str(script),'-Suite',str(ROOT/'tests/windows-suite.ps1'),'-FailureInput',str(fixture)],capture_output=True,text=True,timeout=30)
             self.assertEqual(result.returncode,0,'Actual PowerShell projection controls failed')
@@ -220,6 +223,13 @@ Check ($safe.report_status -ceq 'read' -and $safe.failed_phase -ceq 'native SFTP
 Check ($safe.source_frames.Count -ge 1 -and $safe.source_frames[0].source_line -gt 0 -and $safe.last_http.status -eq 200)
 Check (!(($safe|ConvertTo-Json -Depth 12).Contains($marker)))
 Check ($safe.failed_command.report_status -ceq 'read' -and $safe.failed_command.linked_count -eq 1 -and $safe.failed_command.local_status -ceq 'ready' -and $safe.failed_command.remote_status -ceq 'pending' -and $safe.failed_command.message_category -ceq 'generic_non_backup_error')
+Check ($safe.worker_observation.report_status -ceq 'read' -and $safe.worker_observation.action_restored -ceq $true -and $safe.worker_observation.events.Count -eq 2)
+Check ($safe.worker_observation.events[0].tool -ceq 'sftp' -and $safe.worker_observation.events[0].failure_class -ceq 'ssh_host_key' -and $safe.worker_observation.events[1].tool -ceq 'psql' -and $safe.worker_observation.events[1].failure_class -ceq 'database_invalid_encoding')
+foreach($key in 'tool','failure_class','error_type'){$original=$record.failure.worker_observation.events[0][$key];$record.failure.worker_observation.events[0][$key]=@('sftp',$marker);Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).worker_observation.events[0].ContainsKey($key));$record.failure.worker_observation.events[0][$key]=$original}
+$record.failure.worker_observation.events[0].returncode=$true;Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).worker_observation.events[0].ContainsKey('returncode'));$record.failure.worker_observation.events[0].returncode=7
+$record.failure.worker_observation.events[0].phase=$marker;Save $record;Check ((BackupFailureReport $path ([datetime]::MinValue)).worker_observation.events.Count -eq 1);$record.failure.worker_observation.events[0].phase='upload'
+$record.failure.worker_observation.events=@($record.failure.worker_observation.events[0])*9;Save $record;Check ((BackupFailureReport $path ([datetime]::MinValue)).worker_observation.events.Count -eq 0)
+$record.failure.worker_observation.schema=$true;Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).ContainsKey('worker_observation'))
 $record.failure.failed_command.private=$marker
 foreach($key in 'action','status','message_category','local_status','remote_status'){$original=$record.failure.failed_command[$key];$record.failure.failed_command[$key]=@($original,$marker);Save $record;$safe=BackupFailureReport $path ([datetime]::MinValue);Check (!$safe.failed_command.ContainsKey($key) -and !(($safe|ConvertTo-Json -Depth 12).Contains($marker)));$record.failure.failed_command[$key]=$original}
 $record.failure.failed_command.linked_count=2;Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).failed_command.ContainsKey('linked_count'));$record.failure.failed_command.linked_count=1

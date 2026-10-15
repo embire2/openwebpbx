@@ -1,0 +1,224 @@
+"""Real child-process and PowerShell controls; no installed worker/task is loaded."""
+import ast
+import copy
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import types
+import unittest
+from unittest.mock import patch
+
+ROOT=Path(__file__).resolve().parents[1]
+SOURCE=ROOT/'tests/windows-backups-worker-observer.py'
+MARKER='PRIVATE_WORKER_OBSERVER_MARKER_c92e'
+
+
+def library():
+    spec=importlib.util.spec_from_file_location('worker_observer_controls',SOURCE)
+    result=importlib.util.module_from_spec(spec);spec.loader.exec_module(result);return result
+
+
+def backup_module(tool='sftp'):
+    source=ROOT/'packaging/windows/backups.py';tree=ast.parse(source.read_text())
+    nodes=[n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='BackupError' or isinstance(n,ast.FunctionDef) and n.name=='run']
+    module=types.ModuleType('controlled_backup');module.subprocess=subprocess
+    exec(compile(ast.Module(nodes,type_ignores=[]),str(source),'exec'),module.__dict__)
+    module.tool=lambda name:sys.executable if name==tool else str(Path('/not-a-real-tool')/name)
+    module.upload_sftp=lambda *args,**kwargs:None
+    return module
+
+
+class Controls(unittest.TestCase):
+    def setUp(self):self.observer=library()
+    def test_exact_tool_classes_and_no_private_values(self):
+        cases=[('psql',b'ERROR: invalid byte sequence for encoding "UTF8": 0x92','database_invalid_encoding'),
+            ('psql',b'ERROR: invalid value for parameter "client_encoding": private','database_client_encoding'),
+            ('psql',b'ERROR: permission denied for table private','database_permission'),
+            ('psql',b'connection to server at "private" failed: private','database_connection'),
+            ('psql',b'ERROR: syntax error at or near "private"','database_syntax'),
+            ('ssh-keygen',b'WARNING: UNPROTECTED PRIVATE KEY FILE!','ssh_private_key_permissions'),
+            ('ssh-keygen',b'Load key "private": invalid format','ssh_private_key_format'),
+            ('sftp',b'Load key "private": No such file or directory','ssh_private_key_unreadable'),
+            ('sftp',b'Host key verification failed.','ssh_host_key'),
+            ('sftp',b'private: Permission denied (publickey,password).','ssh_authentication'),
+            ('sftp',b'ssh: connect to host private port 22: Connection refused','ssh_connection'),
+            ('sftp',b'dest open "private": Permission denied','ssh_remote_path')]
+        for tool,message,category in cases:
+            self.assertEqual(self.observer.closed_stderr(tool,message+b'\n'+MARKER.encode()),category)
+        for tool,raw in [('psql',MARKER.encode()),('unknown',b'Host key verification failed.'),('powershell',b'ERROR: permission denied'),('sftp',MARKER),('sftp',b'x'*262145)]:
+            self.assertEqual(self.observer.closed_stderr(tool,raw),'unknown')
+    def test_actual_failed_child_and_both_original_failures_preserved(self):
+        module=backup_module();original_error=module.BackupError(MARKER);calls=[]
+        with tempfile.TemporaryDirectory(prefix='backup-worker-') as temporary:
+            report=Path(temporary)/'report.json';count=Path(temporary)/'counter'
+            command=[sys.executable,'-c','import pathlib,sys; p=pathlib.Path(sys.argv[1]);p.write_text(p.read_text()+"x" if p.exists() else "x");sys.stderr.write("Host key verification failed. '+MARKER+'");sys.exit(7)',str(count)]
+            def upload(value,*,flag):
+                calls.append((value,flag))
+                try:module.run(command,timeout=10)
+                except module.BackupError:raise original_error
+            module.upload_sftp=upload;observation=self.observer.WorkerObservation(module,report);observation.install()
+            try:module.upload_sftp('unchanged',flag=MARKER)
+            except module.BackupError as error:self.assertIs(error,original_error)
+            else:self.fail('The original upload exception was swallowed')
+            self.assertEqual(calls,[('unchanged',MARKER)]);self.assertEqual(count.read_text(),'x')
+            module.tool=lambda name:sys.executable if name=='psql' else '/not-a-real-tool/'+name
+            observation.tools={self.observer.ntpath.normcase(sys.executable):'psql'}
+            with self.assertRaises(module.BackupError):module.run([sys.executable,'-c','import sys;sys.stderr.write(\'ERROR: invalid byte sequence for encoding "UTF8": 0x92 '+MARKER+'\');sys.exit(3)'])
+            value=json.loads(report.read_text());events=self.observer.projected_events(value)
+            self.assertEqual([(e['tool'],e['phase'],e['failure_class'],e['returncode']) for e in events if e['event']=='tool_failure'],[('sftp','upload','ssh_host_key',7),('psql','after_upload','database_invalid_encoding',3)])
+            self.assertEqual([e['error_type'] for e in events if e['event']=='upload_failure'],['BackupError'])
+            self.assertNotIn(MARKER,report.read_text());self.assertNotIn(str(count),report.read_text())
+    def test_actual_success_result_identity_stdout_and_delegate_once(self):
+        module=backup_module();calls=[];real=subprocess.run
+        class Boundary:
+            PIPE=subprocess.PIPE;TimeoutExpired=subprocess.TimeoutExpired
+            @staticmethod
+            def run(*args,**kwargs):calls.append((args,kwargs));return real(*args,**kwargs)
+        module.subprocess=Boundary()
+        with tempfile.TemporaryDirectory() as temporary:
+            report=Path(temporary)/'report.json';observation=self.observer.WorkerObservation(module,report);observation.install()
+            self.assertEqual(module.run([sys.executable,'-c','import sys;sys.stdout.buffer.write(b"exact\\x00bytes")'],timeout=10),b'exact\0bytes')
+            self.assertEqual(len(calls),1);self.assertEqual(calls[0][1]['timeout'],10);self.assertFalse(report.exists())
+            expected=subprocess.CompletedProcess(['fiction'],4,b'unchanged',b'private')
+            module.subprocess.__dict__.clear()  # The proxy has no state on its own.
+            with patch.object(Boundary,'run',return_value=expected) as delegated:
+                result=module.subprocess.run(['fiction'])
+            self.assertIs(result,expected);delegated.assert_called_once_with(['fiction'])
+            with patch.object(Boundary,'run',return_value=expected),patch.object(self.observer,'closed_stderr',side_effect=RuntimeError(MARKER)),patch.object(observation,'record',side_effect=RuntimeError(MARKER)):
+                self.assertIs(module.subprocess.run(['fiction']),expected)
+    def test_process_exception_and_failed_observer_never_mask_original(self):
+        module=backup_module();error=PermissionError(MARKER)
+        class Boundary:
+            PIPE=subprocess.PIPE;TimeoutExpired=subprocess.TimeoutExpired
+            @staticmethod
+            def run(*args,**kwargs):raise error
+        module.subprocess=Boundary();observation=self.observer.WorkerObservation(module,Path('/nonexistent-observer-parent/result.json'));observation.install()
+        try:module.subprocess.run(['fiction'])
+        except PermissionError as caught:self.assertIs(caught,error)
+        else:self.fail('The actual exception identity changed')
+        with self.assertRaises(module.BackupError):module.run(['fiction'])
+    def test_projection_bounds_types_and_private_fields(self):
+        value={'schema':1,'truncated':False,'events':[{'event':'tool_failure','phase':'upload','tool':'sftp','failure_class':'ssh_authentication','returncode':1,'private':MARKER}]}
+        self.assertNotIn(MARKER,json.dumps(self.observer.projected_events(value)))
+        bad=copy.deepcopy(value);bad['events'][0].update(tool=[MARKER],failure_class=MARKER,returncode=True)
+        self.assertEqual(self.observer.projected_events(bad),[{'event':'tool_failure','phase':'upload'}])
+        for change in ({'schema':True},{'truncated':MARKER},{'events':value['events']*9},{'events':[{'event':MARKER,'phase':'upload'}]}):
+            with self.assertRaises((ValueError,TypeError)):self.observer.projected_events(value|change)
+    def test_task_lease_actual_powershell_restoration_and_primary_failure(self):
+        pwsh=os.environ.get('OPENWEB_TEST_PWSH') or shutil.which('pwsh');self.assertTrue(pwsh)
+        with tempfile.TemporaryDirectory(prefix="backup worker's control ") as temporary:
+            root=Path(temporary);private=root/'ProgramData/OpenWebPBX/backup-qualification';private.mkdir(parents=True)
+            installed=root/'C:/OpenWebPBX/tools/backups.py';installed.parent.mkdir(parents=True);installed.write_text('fictional installed source')
+            package=root/'package';package.mkdir();shutil.copyfile(installed,package/'backups.py')
+            state=root/'task.json';original={'execute':'C:\\OpenWebPBX\\backup-runtime\\python.exe','arguments':'-I "C:\\OpenWebPBX\\tools\\backups.py" worker','working_directory':'C:\\OpenWebPBX\\tools'}
+            state.write_text(json.dumps(original));calls=[]
+            def ps(code):
+                calls.append(code)
+                prefix=PS_BOUNDARY.replace('__STATE__',str(state).replace("'","''"))
+                result=subprocess.run([pwsh,'-NoProfile','-Command',prefix+'\n'+code],capture_output=True,text=True,timeout=20)
+                self.assertEqual(result.returncode,0,'Owned PowerShell action boundary failed')
+                return result.stdout.strip()
+            fake=types.SimpleNamespace(STATE=private.parent,reparse=lambda path:Path(path).is_symlink(),secure_acl=lambda path:None,
+                atomic_json=lambda path,value:Path(path).write_text(json.dumps(value),encoding='utf-8'))
+            environment=os.environ|{'GITHUB_ACTIONS':'true','OPENWEB_WINDOWS_BACKUP_TEST':'1','GITHUB_RUN_ID':'12345','GITHUB_SHA':'a'*40,
+                'GITHUB_REPOSITORY':'embire2/openwebpbx','GITHUB_WORKFLOW_REF':'embire2/openwebpbx/.github/workflows/windows-backups-diagnostics.yml@refs/heads/customization','ProgramData':str(root/'ProgramData')}
+            fake_os=types.SimpleNamespace(name='nt',environ=environment)
+            previous=Path.cwd()
+            try:
+                os.chdir(root)
+                with patch.object(self.observer,'os',fake_os):
+                    lease=self.observer.TaskActionLease(fake,ps,private,package)
+                    original_error=AssertionError(MARKER)
+                    try:
+                        with lease:
+                            self.assertEqual(json.loads(state.read_text())['arguments'],lease.arguments)
+                            raise original_error
+                    except AssertionError as error:self.assertIs(error,original_error)
+                    self.assertTrue(lease.restored);self.assertEqual(json.loads(state.read_text()),original)
+            finally:os.chdir(previous)
+            self.assertEqual(sum('Set-ScheduledTask' in code for code in calls),2)
+            self.assertTrue(all('-Action $a' in code for code in calls if 'Set-ScheduledTask' in code))
+    def test_restore_refuses_foreign_metadata_and_preserves_primary_exception(self):
+        lease=object.__new__(self.observer.TaskActionLease);lease.snapshot={'arguments':'original','principal':'SYSTEM'};lease.arguments='observer';lease.restored=False
+        lease.task=lambda:{'arguments':'observer','principal':MARKER};lease.set_arguments=lambda value:self.fail('Foreign task metadata was rewritten')
+        with self.assertRaises(RuntimeError):lease.restore()
+        self.assertFalse(lease.__exit__(AssertionError,AssertionError(MARKER),None));self.assertFalse(lease.restored)
+        with self.assertRaises(RuntimeError):lease.__exit__(None,None,None)
+    def test_config_binding_scope_and_hash_refusals(self):
+        with tempfile.TemporaryDirectory(prefix='observer-scope-') as temporary:
+            root=Path(temporary);private=root/'OpenWebPBX/backup-qualification';private.mkdir(parents=True);path=private/'worker-observer-config.json'
+            valid={'schema':1,'disposable_hosted_runner':True,'hostname':socket.gethostname(),'run_id':'12345','source_commit':'a'*40,
+                'repository':'embire2/openwebpbx','workflow_ref':'embire2/openwebpbx/.github/workflows/windows-backups-diagnostics.yml@refs/heads/customization',
+                'source_sha256':'b'*64,'launcher_sha256':hashlib.sha256(SOURCE.read_bytes()).hexdigest()}
+            with patch.dict(os.environ,{'ProgramData':str(root)}):
+                path.write_text(json.dumps(valid));self.assertEqual(self.observer.validated_config(path),valid)
+                for change in ({'schema':True},{'disposable_hosted_runner':False},{'hostname':MARKER},{'run_id':MARKER},{'source_commit':'a'*39},
+                    {'repository':MARKER},{'workflow_ref':'embire2/openwebpbx/.github/workflows/windows-suite.yml@refs/heads/main'},
+                    {'workflow_ref':'embire2/openwebpbx/.github/workflows/windows-suite.yml@refs/heads/foreign'},
+                    {'source_sha256':MARKER},{'launcher_sha256':'0'*64}):
+                    path.write_text(json.dumps(valid|change))
+                    with self.assertRaises(RuntimeError):self.observer.validated_config(path)
+                path.write_text(json.dumps(valid));other=private/'foreign-config.json';other.write_text(json.dumps(valid))
+                with self.assertRaises(RuntimeError):self.observer.validated_config(other)
+    def test_native_entrypoint_refuses_nonwindows_before_installed_access(self):
+        if os.name=='nt':self.skipTest('This negative is specific to the portable control host')
+        with self.assertRaisesRegex(RuntimeError,'Disposable native Windows'):self.observer.launch(Path('/not-an-installed-config'))
+    def test_actual_launcher_imports_one_bound_module_and_preserves_cli_outcome(self):
+        with tempfile.TemporaryDirectory(prefix='worker-launcher-') as temporary:
+            root=Path(temporary);source=root/'controlled-backups.py';report=root/'worker-observer-report.json';sentinel=root/'one-main-call'
+            original=(ROOT/'packaging/windows/backups.py').read_text();tree=ast.parse(original)
+            run=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='run')
+            # Use the actual product run() body and an explicit fictional module.
+            source.write_text('import subprocess,sys\nfrom pathlib import Path\nclass BackupError(RuntimeError):pass\n'+ast.get_source_segment(original,run)+'\n'+
+                'def tool(name):return sys.executable if name=="sftp" else "/not-a-real-tool/"+name\n'+
+                'def read_settings():return {"openweb.public_url":"https://localhost"}\n'+
+                'def upload_sftp():return run([sys.executable,"-c",\'import sys;sys.stderr.write("Permission denied (publickey). '+MARKER+'");sys.exit(9)\'])\n'+
+                'def main():\n assert sys.argv==['+repr(str(source))+',"worker"]\n Path('+repr(str(sentinel))+').write_text("once")\n try:upload_sftp()\n except BackupError:return 23\n',encoding='utf-8')
+            digest=hashlib.sha256(source.read_bytes()).hexdigest();real_ordinary=self.observer.ordinary
+            def bound(path):
+                self.assertEqual(str(path),'C:/OpenWebPBX/tools/backups.py');return real_ordinary(source)
+            class NativeOS:
+                name='nt';environ=os.environ
+                def __getattr__(self,name):return getattr(os,name)
+            fake_os=NativeOS()
+            fake_ctypes=types.SimpleNamespace(windll=types.SimpleNamespace(shell32=types.SimpleNamespace(IsUserAnAdmin=lambda:True)))
+            with patch.object(self.observer,'os',fake_os),patch.object(self.observer,'ctypes',fake_ctypes),patch.object(self.observer,'validated_config',return_value={'source_sha256':digest}),patch.object(self.observer,'ordinary',side_effect=bound),patch.object(sys,'argv',['worker-observer.py',str(root/'worker-observer-config.json'),'worker']):
+                self.assertEqual(self.observer.launch(root/'worker-observer-config.json'),23)
+            with patch.object(self.observer,'os',fake_os),patch.object(self.observer,'ctypes',fake_ctypes),patch.object(self.observer,'validated_config',return_value={'source_sha256':'0'*64}),patch.object(self.observer,'ordinary',side_effect=bound):
+                with self.assertRaisesRegex(RuntimeError,'Installed backup source changed'):self.observer.launch(root/'worker-observer-config.json')
+            self.assertEqual(sentinel.read_text(),'once')
+            events=self.observer.projected_events(json.loads(report.read_text()))
+            self.assertEqual(events[0],{'event':'tool_failure','phase':'upload','tool':'sftp','failure_class':'ssh_authentication','returncode':9})
+            self.assertNotIn(MARKER,report.read_text())
+
+
+PS_BOUNDARY=r'''
+$ErrorActionPreference='Stop'
+$statePath='__STATE__';$record=Get-Content -LiteralPath $statePath -Encoding UTF8 -Raw|ConvertFrom-Json
+function Get-ScheduledTask {
+ param($TaskName)
+ if($TaskName -cne 'OpenWebPBX-Backups'){throw 'Unexpected task scope'}
+ [pscustomobject]@{Actions=@([pscustomobject]@{Execute=$record.execute;Arguments=$record.arguments;WorkingDirectory=$record.working_directory});Principal=[pscustomobject]@{UserId='SYSTEM';LogonType='ServiceAccount'}}
+}
+function Export-ScheduledTask {
+ param($TaskName)
+ if($TaskName -cne 'OpenWebPBX-Backups'){throw 'Unexpected task scope'}
+ '<Task><Principals><Principal id="fixture"><UserId>S-1-5-18</UserId></Principal></Principals><Triggers><BootTrigger/></Triggers><Settings><Enabled>true</Enabled></Settings></Task>'
+}
+function Set-ScheduledTask {
+ param($TaskName,$Action)
+ if($TaskName -cne 'OpenWebPBX-Backups' -or @($Action).Count -ne 1){throw 'Unexpected task mutation scope'}
+ $record.execute=$Action[0].Execute;$record.arguments=$Action[0].Arguments;$record.working_directory=$Action[0].WorkingDirectory
+ [IO.File]::WriteAllText($statePath,($record|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+}
+'''
+
+
+if __name__=='__main__':unittest.main()
