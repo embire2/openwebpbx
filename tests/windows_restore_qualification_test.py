@@ -493,11 +493,11 @@ class Controls(unittest.TestCase):
     def test_different_machine_and_cluster_accepted(self): q.distinct_installations(*self.identities())
     def test_same_db_or_credentials_refused(self):
         for key in ('cluster', 'database_credentials'):
-            source, target = self.identities(); target['target_owned'][key] = source['target_owned'][key]
+            source, target = self.identities(); target['hostname_hmac']=source['hostname_hmac']; target['target_owned'][key] = source['target_owned'][key]
             with self.subTest(key=key), self.assertRaises(ValueError): q.distinct_installations(source, target)
     def test_same_machine_or_private_material_refused(self):
-        for key in ('hardware_uuid_hmac','hostname_hmac','certificate_sha256', 'template_key_sha256'):
-            source, target = self.identities(); target[key] = source[key]
+        for key in ('hardware_uuid_hmac','certificate_sha256', 'template_key_sha256'):
+            source, target = self.identities(); target['hostname_hmac']=source['hostname_hmac']; target[key] = source[key]
             with self.subTest(key=key), self.assertRaises(ValueError) as caught: q.distinct_installations(source, target)
             self.assertEqual(q.restore_identity_failure_fields(caught.exception),
                              {'failure_kind':'non_distinct_installation_identity','identity_field':key})
@@ -515,7 +515,7 @@ class Controls(unittest.TestCase):
         self.assertNotIn('PRIVATE',json.dumps(q.restore_identity_failure_fields(error)))
 
     def test_actual_main_failure_json_preserves_error_source_and_projects_only_fixed_identity(self):
-        source,target=self.identities();target['hostname_hmac']=source['hostname_hmac']
+        source,target=self.identities();target['hardware_uuid_hmac']=source['hardware_uuid_hmac']
         try:q.distinct_installations(source,target)
         except ValueError as error:actual=error
         actual.private='PRIVATE SQL/password C:/secret'
@@ -530,9 +530,9 @@ class Controls(unittest.TestCase):
         self.assertEqual(facts['state'],'failed');self.assertEqual(facts['error_type'],'ValueError')
         self.assertEqual(facts['source_basename'],'windows-restore-qualification.py')
         self.assertGreater(facts['source_line'],0);self.assertEqual(facts['active_case'],'restore_qualification')
-        self.assertEqual(facts['failure_kind'],'non_distinct_installation_identity');self.assertEqual(facts['identity_field'],'hostname_hmac')
+        self.assertEqual(facts['failure_kind'],'non_distinct_installation_identity');self.assertEqual(facts['identity_field'],'hardware_uuid_hmac')
         self.assertEqual(set(facts),{'state','error_type','active_case','source_basename','source_line','failure_kind','identity_field'})
-        self.assertNotIn('PRIVATE',output.getvalue());self.assertNotIn(source['hostname_hmac'],output.getvalue())
+        self.assertNotIn('PRIVATE',output.getvalue());self.assertNotIn(source['hardware_uuid_hmac'],output.getvalue())
         namespace['main']=lambda:None;output=io.StringIO()
         with contextlib.redirect_stdout(output):exec(program,namespace)
         self.assertEqual(output.getvalue(),'')
@@ -548,9 +548,13 @@ class Controls(unittest.TestCase):
     def test_same_image_sid_with_distinct_actual_vm_and_jobs_accepted(self):
         source,target=self.identities();target['machine_sid_hmac']=source['machine_sid_hmac']
         q.distinct_installations(source,target)
+    def test_reused_hostname_and_image_sid_with_distinct_hardware_jobs_and_private_state_accepted(self):
+        source,target=self.identities()
+        for key in ('hostname_hmac','machine_sid_hmac'):target[key]=source[key]
+        q.distinct_installations(source,target)
     def test_same_hardware_or_reforged_hosted_job_refused(self):
         for key in ('hardware_uuid_hmac','hosted_job_id'):
-            source,target=self.identities();target[key]=source[key]
+            source,target=self.identities();target['hostname_hmac']=source['hostname_hmac'];target[key]=source[key]
             with self.subTest(key=key),self.assertRaises(ValueError):q.distinct_installations(source,target)
         payload=self.payload|{'hosted_job_id':'12346'}
         with self.assertRaises(ValueError):self.open(self.envelope(payload),self.binding|{'hosted_job_id':'12345'})
@@ -559,6 +563,54 @@ class Controls(unittest.TestCase):
         for key in ('machine_sid_hmac','hardware_uuid_hmac','hostname_hmac','runner_name_hmac','hosted_job_id'):
             altered=copy.deepcopy(target);altered[key]='changed'
             with self.subTest(key=key),self.assertRaises(ValueError):q.preserve_machine_identity(altered,target)
+
+    def restored_identity_fixture(self):
+        # Execute the complete actual restore orchestration with controlled
+        # external boundaries; these controls do not restore a PBX or authenticate jobs.
+        source,target=self.identities();target['hostname_hmac']=source['hostname_hmac']
+        source['notification_sha256']='source-notification'
+        snapshot=self.snapshot();payload=source|{'source_snapshot':copy.deepcopy(snapshot),'owned':{},'owned_job_uuid':'owned-job',
+            'owned_backup_commands':[],'owned_draft_ids':[],'owned_scheduled_backup_commands':[],'media':{}}
+        media=self.root/'storage/voicemail/message.wav';media.parent.mkdir(parents=True,exist_ok=True);media.write_bytes(b'owned original native bytes')
+        payload['media']['voicemail']={'relative':'voicemail/message.wav','sha256':q.digest(media),'bytes':media.stat().st_size}
+        fixture=q.Qualification.__new__(q.Qualification);fixture.work=self.root;fixture.s={'passphrase':self.secret}
+        fixture.settings={'database.0.name':'fictional'};fixture.target_source=lambda:(payload,self.archive)
+        fixture.backups=SimpleNamespace(STATE=self.root,HELD_UNITS=('calls','jobs','updates','backups'),held=lambda _:True)
+        fixture.cli=mock.Mock();fixture.save=mock.Mock();fixture.web=mock.Mock();fixture.record=mock.Mock()
+        fixture.php=lambda action:{'state':'waiting','attempts':0} if action=='seed-job' else {}
+        fixture.snapshot=lambda _:copy.deepcopy(snapshot)
+        fixture.observed_identity=target|{'template_key_sha256':source['template_key_sha256'],'notification_sha256':source['notification_sha256']}
+        def identity():
+            q.preserve_machine_identity(fixture.observed_identity,target)
+            return copy.deepcopy(fixture.observed_identity)
+        fixture.identity=identity
+        q.write_json(self.root/'target-before-database.json',snapshot)
+        q.write_json(self.root/'phone-tls.json',{'RestorePending':True})
+        return fixture,payload,media
+
+    def test_actual_restore_accepts_reused_hostname_and_preserves_target_with_source_private_state(self):
+        fixture,payload,media=self.restored_identity_fixture();fixture.restore()
+        fixture.cli.assert_called_once_with(['restore',str(self.archive),'--confirm-database','fictional'],password=self.secret)
+        fixture.web.assert_called_once_with(True)
+        fixture.record.assert_called_once_with('supported_private_cli_clean_server_restore_target_identity_all_holds_admin_https')
+        self.assertEqual(fixture.observed_identity['hostname_hmac'],payload['hostname_hmac'])
+        self.assertEqual(q.digest(media),payload['media']['voicemail']['sha256'])
+
+    def test_actual_restore_still_refuses_adopted_machine_changed_target_or_wrong_private_state(self):
+        for key in ('certificate_sha256','hardware_uuid_hmac','hosted_job_id','machine_sid_hmac','hostname_hmac','runner_name_hmac',
+                    'template_key_sha256','notification_sha256'):
+            fixture,payload,_=self.restored_identity_fixture()
+            fixture.observed_identity[key]=payload[key] if key in ('certificate_sha256','hardware_uuid_hmac','hosted_job_id') else 'changed'
+            with self.subTest(key=key),self.assertRaises((ValueError,RuntimeError)):fixture.restore()
+            fixture.web.assert_not_called();fixture.record.assert_not_called()
+
+    def test_actual_restore_still_refuses_missing_holds_and_changed_native_media(self):
+        for fault in ('hold','media'):
+            fixture,_,media=self.restored_identity_fixture()
+            if fault=='hold':fixture.backups.held=lambda selection:selection!='calls'
+            else:media.write_bytes(b'changed owned bytes')
+            with self.subTest(fault=fault),self.assertRaises(RuntimeError):fixture.restore()
+            fixture.web.assert_not_called();fixture.record.assert_not_called()
 
     def snapshot(self):
         tables = {'v_extensions': {'rows': 2, 'hmac': 'exact-credentials'}, 'v_pbx_jobs': {'rows': 1, 'hmac': 'future'},

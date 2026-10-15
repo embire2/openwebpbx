@@ -219,7 +219,9 @@ def distinct_installations(source, target):
     for key in ('cluster', 'database_credentials'):
         if source['target_owned'][key] == target['target_owned'][key]:
             raise ValueError('Source and target must be genuinely distinct PostgreSQL installations.')
-    for key in ('hardware_uuid_hmac', 'hostname_hmac', 'certificate_sha256', 'template_key_sha256'):
+    # Hostname labels, like image SIDs, may be reused on distinct hosted VMs.
+    # Each target's original hostname remains pinned by preserve_machine_identity.
+    for key in ('hardware_uuid_hmac', 'certificate_sha256', 'template_key_sha256'):
         if source[key] == target[key]:
             error = ValueError('Source and replacement identities or private material are identical.')
             error.failure_kind = 'non_distinct_installation_identity'; error.identity_field = key
@@ -717,8 +719,8 @@ class Qualification:
 
     def identity(self):
         # Independently re-read the target after restore. An image SID can be
-        # reused between hosted images, but this target's original SID cannot
-        # change. The authenticated jobs plus hardware/hostname prove separation.
+        # reused between hosted images, as can hostname labels. This target's
+        # original SID and hostname cannot change; hardware and jobs prove separation.
         command="$admin=@(Get-LocalUser|Where-Object {$_.SID.Value -match '-500$'});if($admin.Count -ne 1){exit 2};@{sid=($admin[0].SID.Value -replace '-500$','');hardware=(Get-CimInstance Win32_ComputerSystemProduct).UUID;hostname=[Environment]::MachineName}|ConvertTo-Json -Compress"
         executable=str(Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/powershell.exe')
         child=subprocess.run([executable,'-NoProfile','-NonInteractive','-Command',command],env=self.backups.native_powershell_environment(),capture_output=True,timeout=30)
@@ -840,7 +842,7 @@ class Qualification:
         if identity['template_key_sha256'] != payload['template_key_sha256'] or identity['notification_sha256'] != payload['notification_sha256']:
             raise RuntimeError('Source private encryption or notification identity was not restored.')
         if (identity['certificate_sha256'] == payload['certificate_sha256'] or identity['hardware_uuid_hmac']==payload['hardware_uuid_hmac']
-                or identity['hostname_hmac']==payload['hostname_hmac'] or identity['hosted_job_id']==payload['hosted_job_id']):
+                or identity['hosted_job_id']==payload['hosted_job_id']):
             raise RuntimeError('Restore adopted source machine or certificate-store bindings.')
         tls = read_json(self.backups.STATE / 'phone-tls.json')
         if tls.get('CertificateThumbprint') or tls.get('RestorePending') is not True:
