@@ -415,6 +415,32 @@ function ExportOriginalCandidate($Release){
  [IO.Directory]::Move($staging,$candidatePublic)
  $facts.candidate_artifact=@{filename=$filename;sha256=$checksum;verified_before_credentials=$true;private_exclusions='passed';qualification='reported separately'}
 }
+function BackupFailureReport([string]$Path,[datetime]$StartedAt){
+ $safe=@{schema=1;observation='failure_only';report_status='unavailable'}
+ try{
+  if([IO.Path]::GetFileName($Path) -cne 'report.json' -or [IO.Path]::GetFileName([IO.Path]::GetDirectoryName($Path)) -cne 'backup-qualification'){$safe.report_status='refused';return $safe}
+  if(!(Test-Path -LiteralPath $Path -PathType Leaf)){$safe.report_status='absent';return $safe}
+  $file=Get-Item -LiteralPath $Path -Force;$parent=Get-Item -LiteralPath $file.DirectoryName -Force
+  if($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $file.LinkType -or ($parent.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $file.Length -gt 65536 -or $file.LastWriteTimeUtc -lt $StartedAt){$safe.report_status='refused';return $safe}
+  $record=Get-Content -LiteralPath $Path -Encoding UTF8 -Raw|ConvertFrom-Json
+  $failure=$record.failure
+  $integer={param($Value,$Minimum,$Maximum) return (($Value -is [int] -or $Value -is [int64]) -and $Value -ge $Minimum -and $Value -le $Maximum)}
+  if($record.state -isnot [string] -or $record.state -cne 'failed' -or !(& $integer $failure.schema 1 1)){$safe.report_status='invalid';return $safe}
+  $phases=@('factory guard','HTTPS and CSRF','source notification identity','source trusted TLS','owned PBX','actual SYSTEM backup','retention','native SFTP','factory reset','native restore recovery','native successful restore','activation','unknown')
+  $types=@('AssertionError','RuntimeError','BackupError','ModuleNotFoundError','ImportError','NameError','TypeError','AttributeError','FileNotFoundError','PermissionError','OSError','ValueError','KeyError','IndexError','JSONDecodeError','TimeoutExpired','CalledProcessError','SSLError','SSLCertVerificationError','URLError','HTTPError','UnicodeDecodeError','EOFError','unknown')
+  $safe.failed_phase=if($failure.failed_phase -is [string] -and $failure.failed_phase -cin $phases){$failure.failed_phase}else{'unknown'}
+  $safe.error_type=if($failure.error_type -is [string] -and $failure.error_type -cin $types){$failure.error_type}else{'unknown'}
+  $safe.source_frames=@();$frames=@($failure.source_frames)
+  if($frames.Count -le 8){foreach($frame in $frames){if($frame.source_basename -is [string] -and $frame.source_basename -cin @('windows_backups_native.py','backups.py') -and (& $integer $frame.source_line 1 20000)){$safe.source_frames+=@{source_basename=$frame.source_basename;source_line=[int]$frame.source_line}}}}
+  if(& $integer $failure.completed_checks 0 64){$safe.completed_checks=[int]$failure.completed_checks}
+  $http=$failure.last_http;$safe.last_http=@{target='unknown';method='unknown';status=$null}
+  if($http.target -is [string] -and $http.target -cin @('login','backups','notifications','download','unknown')){$safe.last_http.target=$http.target}
+  if($http.method -is [string] -and $http.method -cin @('GET','POST','unknown')){$safe.last_http.method=$http.method}
+  if(& $integer $http.status 100 599){$safe.last_http.status=[int]$http.status}
+  $safe.report_status='read'
+ }catch{}
+ return $safe
+}
 function LoopbackSftp {
  $capability=Get-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0'
  if($capability.State -ne 'Installed'){$result=Add-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0';if($result.RestartNeeded){throw 'The isolated SFTP server needs a restart.'}}
@@ -584,8 +610,11 @@ try{
  }
  if(!$UpgradeDiagnosticsOnly){
   $phase='backup qualification';$sftpConfig=LoopbackSftp
-  & (Join-Path $PSScriptRoot 'windows-backups.ps1') -PackageRoot $PackageRoot -AdminEmail $admin -AdminPassword $password -DisposableFactory -SftpConfig $sftpConfig
-  if(!$?){throw 'Actual Windows encrypted-backup qualification failed.'}
+  $backupStartedAt=[DateTime]::UtcNow
+  try{
+   & (Join-Path $PSScriptRoot 'windows-backups.ps1') -PackageRoot $PackageRoot -AdminEmail $admin -AdminPassword $password -DisposableFactory -SftpConfig $sftpConfig
+   if(!$?){throw 'Actual Windows encrypted-backup qualification failed.'}
+  }catch{try{$facts.backup_failure=BackupFailureReport (Join-Path $state 'backup-qualification/report.json') $backupStartedAt}catch{};throw}
   $backup=Get-Content "$state\backup-qualification\report.json" -Raw|ConvertFrom-Json
   if($backup.state -ne 'passed' -or !$backup.fully_qualified){throw 'Actual backup/SFTP qualification is incomplete.'}
   $facts.gates.backups='passed';$facts.checks+=@($backup.checks)

@@ -32,6 +32,26 @@ if os.name != 'nt' or os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.g
 spec=importlib.util.spec_from_file_location('native_backups',Path('C:/OpenWebPBX/tools/backups.py'))
 b=importlib.util.module_from_spec(spec);spec.loader.exec_module(b)
 
+BACKUP_PHASES={'factory guard','HTTPS and CSRF','source notification identity','source trusted TLS','owned PBX',
+    'actual SYSTEM backup','retention','native SFTP','factory reset','native restore recovery','native successful restore','activation'}
+BACKUP_ERROR_TYPES={'AssertionError','RuntimeError','BackupError','ModuleNotFoundError','ImportError','NameError','TypeError',
+    'AttributeError','FileNotFoundError','PermissionError','OSError','ValueError','KeyError','IndexError','JSONDecodeError',
+    'TimeoutExpired','CalledProcessError','SSLError','SSLCertVerificationError','URLError','HTTPError','UnicodeDecodeError','EOFError'}
+LAST_HTTP={'target':'unknown','method':'unknown','status':None}
+
+
+def backup_exception_fields(error,phase,checks):
+    frames=[];current=error.__traceback__
+    while current is not None:
+        name=Path(current.tb_frame.f_code.co_filename).name
+        if name in {'windows_backups_native.py','backups.py'} and 0<current.tb_lineno<=20000:
+            frames.append({'source_basename':name,'source_line':current.tb_lineno})
+        current=current.tb_next
+    return {'schema':1,'failed_phase':phase if phase in BACKUP_PHASES else 'unknown',
+        'error_type':type(error).__name__ if type(error).__name__ in BACKUP_ERROR_TYPES else 'unknown',
+        'source_frames':frames[-8:],'completed_checks':len(checks) if isinstance(checks,list) and len(checks)<=64 else 0,
+        'last_http':dict(LAST_HTTP)}
+
 
 class Hidden(html.parser.HTMLParser):
     def __init__(self):super().__init__();self.tokens={}
@@ -53,17 +73,24 @@ class Http:
         self.base=base.rstrip('/');self.cookies=http.cookiejar.CookieJar()
         self.opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.cookies),urllib.request.HTTPSHandler(context=ssl.create_default_context()))
     def request(self,path,data=None):
+        target={'/':'login','/login.php':'login','/app/pbx_backups/index.php':'backups',
+            '/app/pbx_mobile/push.php':'notifications','/app/pbx_backups/download.php':'download'}.get(urllib.parse.urlsplit(path).path,'unknown')
+        LAST_HTTP.update(target=target,method='POST' if data is not None else 'GET',status=None)
         body=urllib.parse.urlencode(data).encode() if data is not None else None
         request=urllib.request.Request(self.base+path,data=body,headers={'User-Agent':'OpenWebPBX-Native-Backup-Qualification','Referer':self.base+path})
         try:
-            with self.opener.open(request,timeout=30) as result:return result.status,result.read()
-        except urllib.error.HTTPError as error:return error.code,error.read()
+            with self.opener.open(request,timeout=30) as result:
+                LAST_HTTP['status']=result.status
+                return result.status,result.read()
+        except urllib.error.HTTPError as error:
+            LAST_HTTP['status']=error.code
+            return error.code,error.read()
     def form(self,path,data):
         code,raw=self.request(path);assert code==200,'The authorized form is unavailable'
         parser=Hidden();parser.feed(raw.decode());assert parser.tokens,'The normal form has no CSRF token'
         return self.request(path,parser.tokens|data)
     def login(self,email,password):
-        code,_=self.form('/',{'username':email,'password':password,'domain_name':urllib.parse.urlparse(self.base).hostname})
+        code,_=self.form('/login.php',{'username':email,'password':password,'domain_name':urllib.parse.urlparse(self.base).hostname})
         assert code==200,'Normal HTTPS sign-in failed'
         code,raw=self.request('/app/pbx_backups/index.php');assert code==200 and b'Automatic backups' in raw,'The signed-in instance administrator cannot open Backups'
 
@@ -255,8 +282,8 @@ def main(path):
         facts['fully_qualified']=facts['sftp']!='unqualified';facts['state']='passed' if facts['fully_qualified'] else 'core passed; native SFTP unqualified'
         b.atomic_json(report,facts)
         print('Native Windows backup core qualification passed. '+('SFTP passed.' if facts['fully_qualified'] else 'Native SFTP remains unqualified.'))
-    except BaseException:
-        facts['state']='failed';facts['failed_phase']=phase;b.atomic_json(report,facts)
+    except BaseException as error:
+        facts['state']='failed';facts['failed_phase']=phase;facts['failure']=backup_exception_fields(error,phase,facts['checks']);b.atomic_json(report,facts)
         print('Native Windows backup qualification failed in '+phase+'. Private evidence retained; no passing result claimed.',file=sys.stderr)
         return 1
     return 0
