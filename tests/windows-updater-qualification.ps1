@@ -27,9 +27,10 @@ $phase='verified baseline artifacts';$installed=$false;$transport=$null;$transpo
 $managerOwned=$false;$managerStarted=$null;$managerName=$null;$managerSid=$null;$managerSession=0
 $retainedProcesses=[Collections.Generic.List[Diagnostics.Process]]::new()
 $script:qualificationFailedChild=$null
+$script:qualificationComparisonFailure=$null
 $facts=[ordered]@{schema=1;mode=$Mode;run_id=$env:GITHUB_RUN_ID;source_commit=$env:GITHUB_SHA;state='running';scope='disposable Windows Server 2025, fictional PBX, laboratory trusted HTTPS';checks=@();gates=[ordered]@{canary_build='pending';fault_https_download='unqualified';fault_rollback='unqualified';normal_https_download='unqualified';newer_upgrade='unqualified';natural_updater_restart='unqualified';manager_reopen_rollback='unqualified';manager_reopen_success='unqualified';protected_data='unqualified';public_github_delivery='unqualified';owner_106_upgrade='unqualified';carrier='unqualified'};cleanup='pending'}
 function Check([bool]$Value,[string]$Message){if(!$Value){throw $Message}}
-function QualificationFailureObservation([string]$Trace,$Child){
+function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null){
  # Project only known source callsites and fixed child identities. Messages,
  # process arguments, private streams and the paths in the trace stay private.
  $frames=[Collections.Generic.List[object]]::new();$seen=@{}
@@ -44,13 +45,18 @@ function QualificationFailureObservation([string]$Trace,$Child){
    if(!$seen.ContainsKey($key)){$seen[$key]=$true;$frames.Add(@{source_basename=$sourceName;source_line=$line;function=$name})}
   }
  }
- $labels=@('fetch-immutable-source','source-worktree','server-14-build','updater-14-build','desktop-14-build','OpenWebPbx.Checks-checks','OpenWebPbx.Updater.Checks-checks','prepare-audited-canary','verify-qualified-base','verify-fault','verify-normal','verify-private-signatures','actual-fresh13','python-setup','python-prepare-pki','python-request','compare-fault-database','compare-fault-files','compare-normal-database','compare-normal-protected-files','compare-normal-installation-secrets','fixture-baseline','fixture-discover','fixture-status','fixture-snapshot','fixture-cleanup')
+ $labels=@('fetch-immutable-source','source-worktree','server-14-build','updater-14-build','desktop-14-build','OpenWebPbx.Checks-checks','OpenWebPbx.Updater.Checks-checks','prepare-audited-canary','verify-qualified-base','verify-fault','verify-normal','verify-private-signatures','actual-fresh13','python-setup','python-prepare-pki','python-request','compare-fault-database','compare-fault-files','compare-fault-tasks','compare-normal-tasks','compare-normal-database','compare-normal-protected-files','compare-normal-installation-secrets','fixture-baseline','fixture-discover','fixture-status','fixture-snapshot','fixture-cleanup')
  $childReport=$null
  if($Child -is [Collections.IDictionary] -and $Child.label -is [string] -and $Child.label -cin $labels -and $Child.caller -cin @('CheckedProcess','Fixture') -and $Child.caller -cin $frames.ToArray().function){
   if($Child.completion -ceq 'exit' -and $Child.exit_code -is [int] -and $Child.exit_code -ne 0){$childReport=@{label=$Child.label;completion='exit';exit_code=$Child.exit_code}}
   elseif($Child.completion -ceq 'deadline' -and $null -eq $Child.exit_code){$childReport=@{label=$Child.label;completion='deadline';exit_code=$null}}
  }
- return @{schema=1;callsites=$frames.ToArray();child=$childReport}
+ $safe=@{schema=1;callsites=$frames.ToArray();child=$childReport}
+ if($childReport -and $frames.ToArray().function -ccontains 'Equal' -and $Comparison -is [Collections.IDictionary] -and $Comparison.label -is [string] -and $Comparison.label -cin @('fault-database','fault-files','fault-tasks','normal-database','normal-protected-files','normal-installation-secrets','normal-tasks') -and $childReport.label -ceq ('compare-'+$Comparison.label)){
+  $report=QualificationComparisonFields $Comparison.report
+  if($report -and (($report.comparison_result -ceq 'different' -and $childReport.completion -ceq 'exit' -and $childReport.exit_code -eq 1) -or ($report.comparison_result -ceq 'error' -and $childReport.completion -ceq 'exit' -and $childReport.exit_code -eq 2) -or $report.comparison_result -ceq 'unavailable')){$safe.comparison=$report}
+ }
+ return $safe
 }
 function Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
 function WriteJson([string]$Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 32),[Text.UTF8Encoding]::new($false))}
@@ -271,7 +277,67 @@ function EqualTaskSnapshots($Before,$After,[string]$Message){
  }
  Equal $left $right $Message
 }
-function Equal($Before,$After,[string]$Label){$a=Join-Path $work ($Label+'-before.json');$b=Join-Path $work ($Label+'-after.json');WriteJson $a $Before;WriteJson $b $After;CheckedProcess "$root\backup-runtime\python.exe" @('-I','-c','import json,sys;assert json.load(open(sys.argv[1],encoding="utf-8-sig"))==json.load(open(sys.argv[2],encoding="utf-8-sig"))',$a,$b) ('compare-'+$Label)}
+function QualificationComparisonFields($Record){
+ $result=$Record.comparison_result;$stage=$Record.comparison_stage
+ if($result -isnot [string] -or $result -cnotin 'equal','different','error','unavailable' -or $stage -isnot [string]){return $null}
+ $safe=@{comparison_result=$result;comparison_stage=$stage}
+ if($result -ceq 'unavailable'){if($stage -cnotin 'launch','report_validation'){return $null};return $safe}
+ if($result -ceq 'error'){
+  if($stage -cnotin 'usage','read_before','parse_before','read_after','parse_after','compare' -or $Record.comparison_error_type -isnot [string] -or $Record.comparison_error_type -cnotin 'OSError','FileNotFoundError','PermissionError','UnicodeDecodeError','JSONDecodeError','RecursionError','ValueError','TypeError','ExternalError'){return $null}
+  $safe.comparison_error_type=$Record.comparison_error_type;return $safe
+ }
+ if($stage -cne 'compare'){return $null};if($result -ceq 'equal'){return $safe}
+ $tables=@('v_vars','v_default_settings','v_domain_settings','v_domains','v_users','v_extensions','v_gateways','v_dialplans','v_dialplan_details','v_sip_profiles','v_sip_profile_settings','v_permissions','v_groups','v_group_permissions','v_user_groups','v_menu','v_menu_items','v_pbx_tenants','v_pbx_tenant_users','v_pbx_services','v_pbx_templates','v_pbx_service_assignments','v_pbx_setup_templates','v_pbx_restore','v_pbx_sip_domains')
+ $columns=@(foreach($table in $tables){foreach($column in 'insert_date','update_date','insert_user','update_user'){$table+'.'+$column};if($table -ceq 'v_vars'){foreach($column in 'var_uuid','var_category','var_name','var_value','var_order','var_enabled','var_description'){$table+'.'+$column}};if($table -ceq 'v_default_settings'){foreach($column in 'default_setting_uuid','default_setting_category','default_setting_subcategory','default_setting_name','default_setting_value','default_setting_order','default_setting_enabled','default_setting_description'){$table+'.'+$column}}})
+ $arrays=@{comparison_changed_sections=@('identity','roles','memberships','schema','tables','columns','values','table_count');comparison_critical_tables=$tables;comparison_critical_columns=$columns}
+ foreach($field in $arrays.Keys){
+  $values=$Record.$field;if($values -isnot [Array] -or $values.Count -gt $arrays[$field].Count){return $null}
+  $seen=@();foreach($value in $values){if($value -isnot [string] -or $value -cnotin $arrays[$field] -or $value -cin $seen){return $null};$seen+=,$value}
+  $safe[$field]=@($seen)
+ }
+ foreach($field in 'comparison_unknown_section_count','comparison_changed_values_table_count','comparison_other_table_count','comparison_changed_column_count','comparison_other_column_count'){
+  $value=$Record.$field;if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 100000){return $null};$safe[$field]=[int]$value
+ }
+ foreach($field in 'comparison_values_observed','comparison_counts_capped','comparison_columns_observed','comparison_column_counts_capped'){
+  if($Record.$field -isnot [bool]){return $null};$safe[$field]=$Record.$field
+ }
+ $fileFields=@('comparison_files_observed','comparison_changed_file_entry_count','comparison_file_counts_capped','comparison_file_field_counts','comparison_file_category_counts')
+ $names=if($Record -is [Collections.IDictionary]){@($Record.Keys)}else{@($Record.PSObject.Properties.Name)}
+ $present=@($fileFields|Where-Object {$names -ccontains $_})
+ if($present.Count){
+  if($present.Count -ne $fileFields.Count -or $Record.comparison_files_observed -isnot [bool] -or $Record.comparison_file_counts_capped -isnot [bool]){return $null}
+  $count=$Record.comparison_changed_file_entry_count
+  if(($count -isnot [int] -and $count -isnot [long]) -or $count -lt 0 -or $count -gt 100000){return $null}
+  $safe.comparison_files_observed=$Record.comparison_files_observed;$safe.comparison_changed_file_entry_count=[int]$count;$safe.comparison_file_counts_capped=$Record.comparison_file_counts_capped
+  $maps=@{comparison_file_field_counts=@('acl','sha256','bytes','directory','added','removed','shape','other');comparison_file_category_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','other')}
+  foreach($field in $maps.Keys){
+   $map=$Record.$field
+   if($map -is [Collections.IDictionary]){$keys=@($map.Keys)}elseif($map -is [pscustomobject]){$keys=@($map.PSObject.Properties.Name)}else{return $null}
+   if($keys.Count -gt $maps[$field].Count){return $null};$copy=@{}
+   foreach($key in $keys){$value=$map.$key;if($key -isnot [string] -or $key -cnotin $maps[$field] -or ($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 100000){return $null};$copy[$key]=[int]$value}
+   $safe[$field]=$copy
+  }
+ }
+ return $safe
+}
+function Equal($Before,$After,[string]$Label){
+ $script:qualificationComparisonFailure=$null
+ $a=Join-Path $work ($Label+'-before.json');$b=Join-Path $work ($Label+'-after.json');WriteJson $a $Before;WriteJson $b $After
+ try{CheckedProcess "$root\backup-runtime\python.exe" @('-I','-B',(Join-Path $PSScriptRoot 'windows-compare-json.py'),$a,$b) ('compare-'+$Label)}catch{
+  # The exact predicate still owns refusal. Read only its bounded machine report;
+  # private snapshots, arbitrary keys/values and error streams are never exported.
+  $report=@{comparison_result='unavailable';comparison_stage='report_validation'}
+  try{
+   $path=Join-Path $work ('compare-'+$Label+'.out');$item=Get-Item -LiteralPath $path -Force
+   if(!$item.PSIsContainer -and !($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -and $item.Length -le 65536){
+    $record=Get-Content -LiteralPath $path -Raw|ConvertFrom-Json -AsHashtable -NoEnumerate
+    if($record -is [Collections.IDictionary] -and ($record.schema -is [int] -or $record.schema -is [long]) -and $record.schema -eq 1 -and $record.producer -is [string] -and $record.producer -ceq 'windows-exact-json-comparison'){$observed=QualificationComparisonFields $record;if($observed){$report=$observed}}
+   }
+  }catch{}
+  $script:qualificationComparisonFailure=@{label=$Label;report=$report}
+  throw
+ }
+}
 function NormalTaskPreservation($Before,$After,[DateTime]$Started){
  WriteJson (Join-Path $work 'normal-tasks-exact-before.json') $Before;WriteJson (Join-Path $work 'normal-tasks-exact-after.json') $After
  $normalizedBefore=@{};$normalizedAfter=@{}
@@ -440,7 +506,7 @@ if(!$?){exit 1}
  }
 }catch{
  $facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$_.Exception.GetType().Name;$facts.source_basename=if($_.InvocationInfo.ScriptName){Split-Path -Leaf $_.InvocationInfo.ScriptName}else{'external_component'};$facts.source_line=[int]$_.InvocationInfo.ScriptLineNumber
- $facts.failure_observation=QualificationFailureObservation $_.ScriptStackTrace $script:qualificationFailedChild
+ $facts.failure_observation=QualificationFailureObservation $_.ScriptStackTrace $script:qualificationFailedChild $script:qualificationComparisonFailure
  Write-Error ('Disposable updater qualification failed in '+$phase+'. Private streams are not published.') -ErrorAction Continue
 }finally{
  Remove-Item Env:\GH_TOKEN,Env:\WINDOWS_UPDATER_SIGNED_PACKETS_B64 -ErrorAction SilentlyContinue
