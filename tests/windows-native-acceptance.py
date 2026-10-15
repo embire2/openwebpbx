@@ -14,7 +14,7 @@ from pathlib import Path
 
 WINPS=str(Path(os.environ.get('SystemRoot','C:/Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe')
 FIXTURE_PHP_SOURCES={'windows-native-fixture.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component'}
-FIXTURE_ACTIONS={'baseline','discover','cleanup','status','job','due','voicemail-login','api','mail-seed'}
+FIXTURE_ACTIONS={'baseline','discover','cleanup','status','queue-state','job','due','voicemail-login','api','mail-seed'}
 FIXTURE_STAGES={'initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh'}
 NATIVE_SUBSTAGES={'native_case','g729_regular_unregister','g729_alternate_register','g729_invite','g729_answer_validation',
     'g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister',
@@ -463,6 +463,28 @@ def bridged_media_window(states,seconds,rate_check):
     return views
 
 
+def queue_case_snapshot(f,peers,baseline,phase,call=None):
+    """Only observe owned state; diagnostic failures cannot replace the call failure."""
+    facts={};complete=True
+    try:
+        state=f.cli('queue-state',call['callid'] if call else '')
+        assert isinstance(state,dict)
+        facts.update({'queue_'+phase+'_'+key:value for key,value in state.items()})
+    except BaseException:complete=False
+    for label,peer in peers.items():
+        try:
+            previous=baseline[label];dialogs=list(peer.dialogs.items())
+            fresh=[value for key,value in dialogs if key not in previous['dialogs']]
+            prefix='queue_'+phase+'_'+label+'_'
+            facts.update({prefix+'invites':len(peer.invites)-previous['invites'],
+                prefix+'acks':sum(bool(value.get('acked')) for value in fresh),
+                prefix+'ended':sum(bool(value.get('ended')) for value in fresh),
+                prefix+'open_dialogs':sum(not value.get('ended',False) for key,value in dialogs),
+                prefix+'receiver_failed':getattr(peer,'receiver_failure',None) is not None})
+        except BaseException:complete=False
+    return facts,complete
+
+
 class BCG729:
     """Independent peer codec; never invoke the native PBX codec callbacks."""
     def __init__(self,state_root):
@@ -647,18 +669,19 @@ def native_calls(f):
                         trace=f.evidence/'g729-sip-responses.private.bin'
                         if not trace.exists() or trace.stat().st_size+len(data)<=262144:
                             with trace.open('ab') as output:output.write(data+b'\n\n')
-                        if cid in self.queues:self.queues[cid].put((text,peer))
+                        self.receive_response(text,peer)
                     elif text.startswith('INVITE '):
                         state=self.dialogs.get(cid) or self.media();state['target']=self.target(text);state['incoming']={'headers':h,'peer':peer};self.dialogs[cid]=state
-                        self.socket.sendto(self.response(200,h,self.sdp(state)),peer)
+                        self.send_invite_response(self.response(200,h,self.sdp(state)),h,peer)
                     elif text.startswith('ACK '):
-                        if cid in self.dialogs:self.dialogs[cid]['acked']=True
+                        self.acknowledge_invite(h)
                     elif text.startswith(('BYE ','OPTIONS ','CANCEL ','INFO ','NOTIFY ')):
                         self.socket.sendto(self.response(200,h),peer)
                         if text.startswith(('BYE ','CANCEL ')) and cid in self.dialogs:self.dialogs[cid]['ended']=True
                 except (socket.timeout,BlockingIOError):pass
                 except OSError:
                     if not self.stopped:raise
+                self.service_sip_transactions()
                 now=time.monotonic()
                 if now-last<.02:continue
                 last=now if last==0 or now-last>.2 else last+.02
@@ -699,10 +722,19 @@ def native_calls(f):
         return {'caller_decoded_ratio':ratios['caller'],'peer_decoded_ratio':ratios['destination'],'duration_seconds':seconds,'caller_packets':views['caller']['received'],'peer_packets':views['destination']['received']}
     def call_check(target,expected=a,digit=None):
         f.active_case={'8101':'basic_decoded_audio','8180':'simultaneous_ring_group','8181':'hunting_ring_group','8190':'queue_agent_delivery','8170':'ivr_wire_digit_or_timeout'}[target]
-        old=set(expected.dialogs);call=caller.dial(target,destination);assert call['code']==200,'Native call was not answered'
-        if digit is not None:send_ivr_digit(caller,call,digit,f.wait)
-        remote=f.wait(lambda:next((v for k,v in expected.dialogs.items() if k not in old and v.get('acked')),None))
-        result=media(call,remote);caller.hangup(call);time.sleep(.3);return result
+        observed={'expected':a,'other':b};baseline={label:{'dialogs':set(peer.dialogs),'invites':len(peer.invites)} for label,peer in observed.items()}
+        facts={};complete=True;call=None
+        if target=='8190':facts,complete=queue_case_snapshot(f,observed,baseline,'before')
+        try:
+            old=set(expected.dialogs);call=caller.dial(target,destination);assert call['code']==200,'Native call was not answered'
+            if digit is not None:send_ivr_digit(caller,call,digit,f.wait)
+            remote=f.wait(lambda:next((v for k,v in expected.dialogs.items() if k not in old and v.get('acked')),None))
+            result=media(call,remote);caller.hangup(call);time.sleep(.3);return result
+        except BaseException as error:
+            if target=='8190':
+                after,finished=queue_case_snapshot(f,observed,baseline,'after',call);facts.update(after)
+                facts['queue_diagnostics_complete']=complete and finished;error.queue_failure=facts
+            raise
     try:
         for index,p in enumerate(peers):
             f.active_case='native_media_peer_'+p.transport+'_registration_'+str(index)
@@ -905,6 +937,7 @@ def main():
         if getattr(e,'native_failure',None):failure.update(e.native_failure)
         if getattr(e,'media_failure',None):failure.update(e.media_failure)
         if getattr(e,'media_window_private',None):failure['media_window_private']=e.media_window_private
+        if getattr(e,'queue_failure',None):failure.update(e.queue_failure)
         (f.evidence/'software-native-report.json').write_text(json.dumps(failure,indent=2))
         raise
 

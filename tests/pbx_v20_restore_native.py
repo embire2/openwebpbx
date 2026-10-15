@@ -51,12 +51,12 @@ class SourcePhone(Peer):
                 data, peer = self.socket.recvfrom(65535)
                 text = data.decode(errors='replace'); h = headers(text); cid = h.get('call-id', '')
                 if text.startswith('SIP/2.0 '):
-                    if cid in self.queues:
-                        self.queues[cid].put((text, peer))
+                    self.receive_response(text, peer)
                 elif text.startswith('INVITE '):
                     transaction = (cid, h['cseq'])
                     if transaction in self.replies:
                         self.socket.sendto(self.replies[transaction], peer)
+                        self.service_sip_transactions()
                         continue
                     offered = re.search(r'm=audio \d+ RTP/AVP ([^\r\n]+)', text)
                     wanted = 8 if self.provider else 0
@@ -93,10 +93,9 @@ class SourcePhone(Peer):
                                          'headers': h, 'sdp': text.split('\r\n\r\n', 1)[-1], 'received_at': time.monotonic()})
                     reply = self.response(code, h, body)
                     self.replies[transaction] = reply
-                    self.socket.sendto(reply, peer)
+                    self.send_invite_response(reply, h, peer)
                 elif text.startswith('ACK '):
-                    if cid in self.dialogs:
-                        self.dialogs[cid]['acked'] = True
+                    self.acknowledge_invite(h)
                 elif text.startswith('REGISTER '):
                     self.register_requests += 1
                     self.socket.sendto(self.response(403, h), peer)
@@ -109,6 +108,7 @@ class SourcePhone(Peer):
             except OSError:
                 if not self.stopped:
                     raise
+            self.service_sip_transactions()
             now = time.monotonic()
             if now-last < .02:
                 continue

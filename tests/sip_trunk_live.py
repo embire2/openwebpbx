@@ -47,6 +47,10 @@ def digest(challenge, user, password, method, uri):
 
 
 class Peer:
+    sip_t1 = .5
+    sip_t2 = 4.
+    sip_transaction_timeout = 32.
+
     def __init__(self, ip='127.0.0.1', provider=False, first=False):
         self.ip, self.provider, self.first = ip, provider, first
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -59,6 +63,8 @@ class Peer:
         self.auth = None; self.auth_passed = 0; self.register_requests = 0; self.outgoing = []
         self.challenge_nonces = {}; self.challenges = 0
         self.registration_call_ids = []
+        self._sip_lock = threading.RLock()
+        self._invite_2xx, self._bye_transactions = {}, {}
         self.stopped = False
         self.thread = threading.Thread(target=self.run, daemon=True)
         self.thread.start()
@@ -87,6 +93,138 @@ class Peer:
         if body: lines.append('Content-Type: application/sdp')
         return ('\r\n'.join(lines + [f'Content-Length: {len(body.encode())}', '', body])).encode()
 
+    @staticmethod
+    def _tag(value):
+        match = re.search(r'(?:^|;)tag=([^;>\s]+)', value)
+        return match.group(1) if match else ''
+
+    @staticmethod
+    def _branch(h):
+        match = re.search(r'(?:^|;)branch=([^;\s]+)', h.get('via', ''))
+        return match.group(1) if match else ''
+
+    def send_invite_response(self, reply, request, peer):
+        """RFC 3261 13.3.1.4: replay one exact 2xx until its matching ACK."""
+        if reply.startswith(b'SIP/2.0 2'):
+            answer = headers(reply.decode())
+            seq = int(request['cseq'].split()[0])
+            key = (request['call-id'], seq, self._tag(request['from']), self._tag(answer['to']))
+            now = time.monotonic()
+            with self._sip_lock:
+                assert key in self._invite_2xx or len(self._invite_2xx) < 128, 'Pending INVITE responses exceeded their bound'
+                if key not in self._invite_2xx:
+                    self._invite_2xx[key] = {'packet': reply, 'peer': peer, 'next': now+self.sip_t1,
+                        'interval': self.sip_t1, 'deadline': now+self.sip_transaction_timeout,
+                        'dialog': self.dialogs[request['call-id']]}
+                else:
+                    # A duplicate cannot allocate media or extend its ACK bound.
+                    reply=self._invite_2xx[key]['packet'];peer=self._invite_2xx[key]['peer']
+        self.socket.sendto(reply, peer)
+
+    def acknowledge_invite(self, h):
+        if not h.get('cseq', '').endswith(' ACK'):
+            return False
+        key = (h.get('call-id'), int(h['cseq'].split()[0]), self._tag(h.get('from', '')), self._tag(h.get('to', '')))
+        with self._sip_lock:
+            response = self._invite_2xx.pop(key, None)
+        if response is not None:
+            response['dialog']['acked'] = True
+            response['dialog']['acked_cseq'] = key[1]
+            return True
+        return False
+
+    def _finish_bye(self, transaction, error=None, response=None):
+        with self._sip_lock:
+            if transaction['done'].is_set():
+                return
+            self._bye_transactions.pop(transaction['key'], None)
+            transaction.update(error=error, response=response)
+            transaction['done'].set()
+
+    def receive_response(self, text, peer):
+        """Keep ordinary response queues and complete exact BYE transactions."""
+        h = headers(text)
+        key = (h.get('call-id'), h.get('cseq'), self._branch(h))
+        with self._sip_lock:
+            transaction = self._bye_transactions.get(key)
+        if transaction is not None:
+            code = int(text.split(' ', 2)[1])
+            if code >= 200:
+                error = None if code == 200 else AssertionError('Exact owned BYE did not receive 200')
+                self._finish_bye(transaction, error, text)
+            else:
+                with self._sip_lock:
+                    transaction.update(interval=self.sip_t2, next=time.monotonic()+self.sip_t2)
+        if h.get('call-id') in self.queues:
+            self.queues[h['call-id']].put((text, peer))
+
+    def _start_bye(self, packet, peer, state):
+        with self._sip_lock:
+            if state.get('bye_transaction') is not None:
+                return state['bye_transaction']
+            h = headers(packet.decode());now = time.monotonic()
+            key = (h['call-id'], h['cseq'], self._branch(h))
+            assert len(self._bye_transactions) < 128, 'Pending BYE transactions exceeded their bound'
+            transaction = {'key': key, 'packet': packet, 'peer': peer, 'done': threading.Event(),
+                'next': now+self.sip_t1, 'interval': self.sip_t1,
+                'deadline': now+self.sip_transaction_timeout, 'udp': getattr(self, 'transport', 'udp') == 'udp',
+                'error': None, 'response': None}
+            state['bye_transaction'] = transaction
+            state['ended'] = True  # RFC 3261 15.1.1: stop local media immediately.
+            self._bye_transactions[key] = transaction
+        try:
+            self.socket.sendto(packet, peer)
+        except BaseException as error:
+            self._finish_bye(transaction, error)
+        return transaction
+
+    def _wait_bye(self, transaction):
+        while not transaction['done'].wait(.05):
+            if not self.thread.is_alive():
+                self._finish_bye(transaction, RuntimeError('SIP receiver stopped during owned BYE'))
+            elif time.monotonic() > transaction['deadline']+self.sip_t1:
+                self._finish_bye(transaction, TimeoutError('Owned BYE transaction exceeded its deadline'))
+        if transaction['error'] is not None:
+            raise transaction['error']
+
+    def _incoming_bye(self, cid):
+        state = self.dialogs[cid];incoming = state['incoming'];h = incoming['headers']
+        remote = re.search(r'<([^>]+)>', h['contact']).group(1)
+        local = h['to'] if ';tag=' in h['to'] else h['to']+';tag=localfixture'
+        packet = self.packet('BYE', remote, cid, int(h['cseq'].split()[0])+1, local, h['from'])
+        return self._start_bye(packet, incoming['peer'], state)
+
+    def service_sip_transactions(self):
+        """One receiver loop services bounded retransmits without new dialogs."""
+        now = time.monotonic();replays=[];expired=[]
+        with self._sip_lock:
+            for key, response in list(self._invite_2xx.items()):
+                if response['dialog'].get('ended'):
+                    del self._invite_2xx[key]
+                elif now >= response['deadline']:
+                    del self._invite_2xx[key];expired.append(key[0])
+                elif now >= response['next']:
+                    replays.append((response['packet'], response['peer'], None))
+                    response['interval'] = min(response['interval']*2, self.sip_t2)
+                    response['next'] = now+response['interval']
+            for transaction in list(self._bye_transactions.values()):
+                if now >= transaction['deadline']:
+                    self._finish_bye(transaction, TimeoutError('Owned BYE final response was not received'))
+                elif transaction['udp'] and now >= transaction['next']:
+                    replays.append((transaction['packet'], transaction['peer'], transaction))
+                    transaction['interval'] = min(transaction['interval']*2, self.sip_t2)
+                    transaction['next'] = now+transaction['interval']
+        for cid in expired:
+            self.dialogs[cid]['invite_ack_timeout'] = True
+            self._incoming_bye(cid)  # 13.3.1.4: terminate an unacknowledged session.
+        for packet, peer, transaction in replays:
+            try:
+                self.socket.sendto(packet, peer)
+            except OSError as error:
+                if transaction is None:
+                    raise
+                self._finish_bye(transaction, error)
+
     def media(self, pt=0):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind((self.ip, 0)); sock.setblocking(False)
@@ -110,11 +248,11 @@ class Peer:
                 data, peer = self.socket.recvfrom(65535)
                 text = data.decode(errors='replace'); h = headers(text); cid = h.get('call-id','')
                 if text.startswith('SIP/2.0 '):
-                    if cid in self.queues: self.queues[cid].put((text, peer))
+                    self.receive_response(text, peer)
                 elif text.startswith('INVITE '):
                     transaction = (cid, h['cseq'])
                     if transaction in self.replies:
-                        self.socket.sendto(self.replies[transaction], peer); continue
+                        self.socket.sendto(self.replies[transaction], peer);self.service_sip_transactions();continue
                     number = text.split(' ', 2)[1].split(':',1)[1].split('@',1)[0]
                     self.invites.append({'callid':cid,'number':number,'headers':h,'sdp':text.split('\r\n\r\n',1)[-1],'received_at':time.monotonic()})
                     code = 503 if self.first and number.endswith('101') else 486 if self.first and number.endswith('102') else 603 if self.first and number.endswith('103') else 200
@@ -138,9 +276,9 @@ class Peer:
                         state = self.media(8 if self.provider else 0);state['target'] = self.target(text)
                         state['incoming'] = {'headers': h, 'peer': peer}
                         self.dialogs[cid] = state;body = self.sdp(state)
-                    reply = self.response(code,h,body);self.replies[transaction] = reply;self.socket.sendto(reply,peer)
+                    reply = self.response(code,h,body);self.replies[transaction] = reply;self.send_invite_response(reply,h,peer)
                 elif text.startswith('ACK '):
-                    if cid in self.dialogs:self.dialogs[cid]['acked']=True
+                    self.acknowledge_invite(h)
                 elif text.startswith('REGISTER '):
                     self.register_requests+=1;self.socket.sendto(self.response(403,h),peer)
                 elif text.startswith(('BYE ','OPTIONS ','CANCEL ')):
@@ -150,6 +288,7 @@ class Peer:
             except (socket.timeout, BlockingIOError): pass
             except OSError:
                 if not self.stopped: raise
+            self.service_sip_transactions()
             if time.monotonic()-last < .02: continue
             last = time.monotonic()
             for state in list(self.dialogs.values()):
@@ -208,36 +347,38 @@ class Peer:
 
     def hangup(self, call):
         remote=re.search(r'<([^>]+)>',headers(call['text']).get('contact','<'+call['uri']+'>')).group(1)
-        self.socket.sendto(self.packet('BYE',remote,call['callid'],call['seq']+1,call['from'],call['to']),call['peer'])
-        self.dialogs[call['callid']]['ended']=True
+        packet=self.packet('BYE',remote,call['callid'],call['seq']+1,call['from'],call['to'])
+        self._wait_bye(self._start_bye(packet,call['peer'],self.dialogs[call['callid']]))
 
     def hangup_incoming(self, cid):
         """End an answered callback provider leg as the remote callee."""
-        state=self.dialogs[cid];incoming=state['incoming'];h=incoming['headers']
+        state=self.dialogs[cid]
         deadline=time.monotonic()+3
         while time.monotonic()<deadline and not state.get('acked'):time.sleep(.02)
         assert state.get('acked'),'Answered callback provider INVITE received no ACK'
-        remote=re.search(r'<([^>]+)>',h['contact']).group(1)
-        local=h['to'] if ';tag=' in h['to'] else h['to']+';tag=localfixture'
-        seq=int(h['cseq'].split(' ',1)[0])+1
-        self.queues[cid]=queue.Queue()
-        self.socket.sendto(self.packet('BYE',remote,cid,seq,local,h['from']),incoming['peer'])
-        deadline=time.monotonic()+3
-        while time.monotonic()<deadline:
-            try:reply,_=self.queues[cid].get(timeout=max(.02,deadline-time.monotonic()))
-            except queue.Empty:break
-            reply_headers=headers(reply)
-            if reply_headers.get('cseq')==f'{seq} BYE':
-                assert reply.startswith('SIP/2.0 200 '),'Callback provider BYE was not accepted'
-                state['ended']=True;return
-        raise AssertionError('Callback provider BYE received no 200 response')
+        self._wait_bye(self._incoming_bye(cid))
 
     def close(self):
-        for call in self.outgoing:
-            if not call['media'].get('ended'):self.hangup(call)
-        self.stopped=True;self.thread.join(2)
-        self.socket.close()
-        for state in self.dialogs.values():state['socket'].close()
+        failure=None;receiver_already_failed=not self.thread.is_alive()
+        self.close_failures=[]
+        try:
+            for call in self.outgoing:
+                try:
+                    if not call['media'].get('ended'):self.hangup(call)
+                except BaseException as error:
+                    self.close_failures.append(error)
+                    if failure is None:failure=error
+        finally:
+            self.stopped=True;self.thread.join(2)
+            self.socket.close()
+            for state in self.dialogs.values():state['socket'].close()
+            with self._sip_lock:
+                self._invite_2xx.clear()
+                for transaction in list(self._bye_transactions.values()):
+                    self._finish_bye(transaction,RuntimeError('Owned SIP peer closed'))
+        # A dead receiver's original failure remains primary; still release all
+        # local resources and retain any best-effort BYE failure for diagnostics.
+        if failure is not None and not receiver_already_failed:raise failure
 
 
 def rtp_rate_check(state):

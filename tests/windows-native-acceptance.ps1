@@ -51,6 +51,28 @@ function MediaFailureFields($Record){
  if(($Record.media_packets -is [int] -or $Record.media_packets -is [long]) -and $Record.media_packets -ge 0 -and $Record.media_packets -le 1000000){$safe.media_packets=$Record.media_packets}
  return $safe
 }
+function QueueFailureFields($Record){
+ $safe=@{}
+ if($Record.active_case -cne 'queue_agent_delivery'){return $safe}
+ if($Record.queue_diagnostics_complete -is [bool]){$safe.queue_diagnostics_complete=$Record.queue_diagnostics_complete}
+ $enums=@{status=@('Unknown','Logged Out','Available','Available (On Demand)','On Break');state=@('Unknown','Waiting','Receiving','In a queue call','Idle','Reserved');tier_state=@('Unknown','No Answer','Ready','Offering','Active Inbound','Standby');cancel_reason=@('UNKNOWN','NONE','TIMEOUT','NO_AGENT_TIMEOUT','BREAK_OUT','EXIT_WITH_KEY');originate_cause=@('UNKNOWN','SUCCESS','NO_ANSWER','USER_BUSY','CALL_REJECTED','NORMAL_CLEARING','NORMAL_TEMPORARY_FAILURE','SUBSCRIBER_ABSENT','UNALLOCATED_NUMBER','NO_ROUTE_DESTINATION','NORMAL_UNSPECIFIED','RECOVERY_ON_TIMER_EXPIRE','LOSE_RACE','DESTINATION_OUT_OF_ORDER','ORIGINATOR_CANCEL','SERVICE_UNAVAILABLE','MEDIA_TIMEOUT','INCOMPATIBLE_DESTINATION','INVALID_NUMBER_FORMAT','NORMAL_CIRCUIT_CONGESTION')}
+ foreach($phase in 'before','after'){
+  $prefix='queue_'+$phase+'_'
+  foreach($suffix in 'config_matches','queue_readable','caller_found','agent_bridged','queue_waiting'){if($Record.($prefix+$suffix) -is [bool]){$safe[$prefix+$suffix]=$Record.($prefix+$suffix)}}
+  foreach($suffix in 'waiting_members','trying_members','answered_members'){$value=$Record.($prefix+$suffix);if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 64){$safe[$prefix+$suffix]=$value}}
+  foreach($suffix in 'cancel_reason','originate_cause'){$value=$Record.($prefix+$suffix);if($value -is [string] -and $value -cin $enums[$suffix]){$safe[$prefix+$suffix]=$value}}
+  foreach($peer in 'expected','other'){
+   $name=$prefix+$peer+'_'
+   foreach($suffix in 'registered','agent_present','contact_matches','ready_due','wrap_due','policy_ready','receiver_failed'){if($Record.($name+$suffix) -is [bool]){$safe[$name+$suffix]=$Record.($name+$suffix)}}
+   foreach($suffix in 'busy_channels','open_dialogs','invites','acks','ended','tier_position'){
+    $value=$Record.($name+$suffix);$max=if($suffix -eq 'tier_position'){1000}else{64}
+    if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le $max){$safe[$name+$suffix]=$value}
+   }
+   foreach($suffix in 'status','state','tier_state'){$value=$Record.($name+$suffix);if($value -is [string] -and $value -cin $enums[$suffix]){$safe[$name+$suffix]=$value}}
+  }
+ }
+ return $safe
+}
 function FixtureBinding([byte[]]$Hash,[string]$Store,[switch]$Read){
  Add-Type -Path "$env:windir\System32\inetsrv\Microsoft.Web.Administration.dll"
  $manager=[Microsoft.Web.Administration.ServerManager]::new()
@@ -195,6 +217,7 @@ try {
     $facts.source_basename=$child.source_basename;$facts.source_line=[int]$child.source_line;$facts.active_case=$child.active_case;$facts.error_type=$child.error_type
     $completed=@(CompletedMediaCases $child.checks);if($completed.Count){$facts.completed_media_cases=$completed}
     foreach($entry in (MediaFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
+    foreach($entry in (QueueFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
     if($child.active_case -match '^(native_media_peer_(udp|tcp|tls)_registration_[0-2]|independent_g729_(offer_refused|answer_payload_mismatch))$'){
      if(($child.sip_response_code -is [int] -or $child.sip_response_code -is [long]) -and $child.sip_response_code -ge 200 -and $child.sip_response_code -le 699){$facts.sip_response_code=[int]$child.sip_response_code}
      if(($child.digest_challenge_count -is [int] -or $child.digest_challenge_count -is [long]) -and $child.digest_challenge_count -ge 0 -and $child.digest_challenge_count -le 3){$facts.digest_challenge_count=[int]$child.digest_challenge_count}

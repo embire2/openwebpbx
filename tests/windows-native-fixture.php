@@ -7,7 +7,7 @@ function windows_native_fixture_failure_record(Throwable $error,string $inputFil
   if($root===false||$input===false||is_link($inputFile)||!is_file($inputFile)||basename($input)!=='input.json')return false;
   $root=strtolower(rtrim(str_replace('\\','/',$root),'/'));$directory=strtolower(str_replace('\\','/',dirname($input)));
   if(dirname($directory)!==$root||!preg_match('/^[a-f0-9]{24}$/D',basename($directory)))return false;
-  if(!in_array($action,['baseline','discover','cleanup','status','job','due','voicemail-login','api','mail-seed'],true))return false;
+  if(!in_array($action,['baseline','discover','cleanup','status','queue-state','job','due','voicemail-login','api','mail-seed'],true))return false;
   if(!in_array($stage,['initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh'],true))$stage='initialization';
   $source=basename(str_replace('\\','/',$error->getFile()));
   if(!in_array($source,['windows-native-fixture.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php'],true))$source='external_component';
@@ -17,6 +17,46 @@ function windows_native_fixture_failure_record(Throwable $error,string $inputFil
   if(strlen($bytes)>2048)return false;$stream=@fopen($input.'.'.$action.'.failure.json','xb');if($stream===false)return false;
   try{return fwrite($stream,$bytes)===strlen($bytes)&&fflush($stream);}finally{fclose($stream);}
  }catch(Throwable $ignored){return false;}
+}
+function windows_native_queue_table(string $text): array {
+ if(strlen($text)>65536)return [];$lines=preg_split('/\r?\n/',trim($text));$keys=explode('|',array_shift($lines)??'');
+ if(!$keys||count($keys)>64||array_filter($keys,static fn($key)=>!preg_match('/^[a-z_]+$/D',$key)))return [];
+ $out=[];foreach(array_slice($lines,0,64) as $line){$values=explode('|',$line);if(count($values)===count($keys))$out[]=array_combine($keys,$values);}return $out;
+}
+function windows_native_queue_snapshot(array $c,array $users,callable $owned,callable $api,string $sipCallId=''): array {
+ if($sipCallId!==''&&!preg_match('/^[a-f0-9]{24}@localfixture$/D',$sipCallId))throw new RuntimeException('Only an owned peer call is observable.');
+ $queues=array_values(array_filter($c['queues']??[],static fn($row)=>($row['number']??'')==='8190'));
+ if(count($queues)!==1||count($users)!==4)throw new RuntimeException('Exact fictional queue required.');$queue=$queues[0];$realm=$c['realm'];
+ $out=['config_matches'=>array_column($queue['members'],'number')===['8101','8102']&&($queue['native_strategy']??'')==='top-down'&&($queue['polling_mode']??'')==='native'&&($queue['timeout']??0)===8&&($queue['ring_timeout']??0)===3&&($queue['wrap_up']??0)===2&&($queue['callback_mode']??'')==='request'&&($queue['destination']['number']??'')==='8102'];
+ $channels=json_decode($api('show channels as json'),true);$channelRows=is_array($channels['rows']??null)?array_slice($channels['rows'],0,64):[];
+ $tiers=windows_native_queue_table($api('callcenter_config queue list tiers 8190@'.$realm));
+ $membersText=$api('callcenter_config queue list members 8190@'.$realm);$members=windows_native_queue_table($membersText);$out['queue_readable']=!str_starts_with(trim($membersText),'-ERR');
+ foreach(['Waiting'=>'waiting_members','Trying'=>'trying_members','Answered'=>'answered_members'] as $state=>$field)$out[$field]=count(array_filter($members,static fn($row)=>($row['state']??'')===$state));
+ foreach(['expected'=>1,'other'=>2] as $label=>$index){
+  $user=$users[$index];$number=$index===1?'8101':'8102';$member=array_values(array_filter($queue['members'],static fn($row)=>($row['number']??'')===$number));
+  if(($user['number']??'')!==$number||count($member)!==1||($c['users'][$number]['auth_id']??null)!==$user['auth']||!is_uuid($member[0]['agent_uuid']??'')||!$owned($member[0]['agent_uuid']))throw new RuntimeException('Exact owned queue agent required.');
+  $id=$member[0]['agent_uuid'];$records=windows_native_queue_table($api('callcenter_config agent list '.$id));$agent=array_values(array_filter($records,static fn($row)=>($row['name']??'')===$id));$agent=$agent[0]??[];
+  $tier=array_values(array_filter($tiers,static fn($row)=>($row['agent']??'')===$id&&($row['queue']??'')==='8190@'.$realm));$tier=$tier[0]??[];
+  $out[$label.'_registered']=str_starts_with(trim($api('sofia_contact '.$user['auth'].'@'.$realm)),'sofia/');
+  $out[$label.'_agent_present']=$agent!==[];$out[$label.'_contact_matches']=str_ends_with($agent['contact']??'','user/'.$user['auth'].'@'.$realm);
+  $out[$label.'_status']=in_array($agent['status']??'', ['Unknown','Logged Out','Available','Available (On Demand)','On Break'],true)?$agent['status']:'Unknown';
+  $out[$label.'_state']=in_array($agent['state']??'', ['Unknown','Waiting','Receiving','In a queue call','Idle','Reserved'],true)?$agent['state']:'Unknown';
+  $out[$label.'_tier_state']=in_array($tier['state']??'', ['Unknown','No Answer','Ready','Offering','Active Inbound','Standby'],true)?$tier['state']:'Unknown';
+  $out[$label.'_tier_position']=ctype_digit((string)($tier['position']??''))?min(1000,(int)$tier['position']):0;
+  $out[$label.'_ready_due']=$agent!==[]&&(int)($agent['ready_time']??0)<=time();
+  $out[$label.'_wrap_due']=$agent!==[]&&(int)($agent['last_bridge_end']??0)+(int)($agent['wrap_up_time']??0)<=time();
+  $u=$c['users'][$number];$profile=$u['profiles'][$u['profile']]??[];$forced=(string)($profile['queue_status']??'-1');
+  $out[$label.'_policy_ready']=!empty($u['enabled'])&&empty($member[0]['supervisor_break'])&&($member[0]['status']??'')==='LoggedIn'&&($forced==='1'||$forced==='-1'&&($u['queue_status']??'')==='LoggedIn');
+  $out[$label.'_busy_channels']=count(array_filter($channelRows,static fn($row)=>($row['presence_id']??'')===$user['auth'].'@'.$realm));
+ }
+ $out['caller_found']=false;$out['agent_bridged']=false;$out['queue_waiting']=false;$out['cancel_reason']='UNKNOWN';$out['originate_cause']='UNKNOWN';
+ if($sipCallId!=='')foreach($channelRows as $row){
+  $id=$row['uuid']??'';if(!is_uuid($id)||($row['context']??'')!==$realm||trim($api('uuid_getvar '.$id.' sip_call_id'))!==$sipCallId)continue;
+  $out['caller_found']=true;$out['agent_bridged']=trim($api('uuid_getvar '.$id.' cc_agent_bridged'))==='true';$out['queue_waiting']=trim($api('uuid_getvar '.$id.' openweb_queue_waiting'))==='true';
+  $cancel=trim($api('uuid_getvar '.$id.' cc_cancel_reason'));$out['cancel_reason']=in_array($cancel,['NONE','TIMEOUT','NO_AGENT_TIMEOUT','BREAK_OUT','EXIT_WITH_KEY'],true)?$cancel:'UNKNOWN';
+  $cause=trim($api('uuid_getvar '.$id.' originate_disposition'));$out['originate_cause']=in_array($cause,['SUCCESS','NO_ANSWER','USER_BUSY','CALL_REJECTED','NORMAL_CLEARING','NORMAL_TEMPORARY_FAILURE','SUBSCRIBER_ABSENT','UNALLOCATED_NUMBER','NO_ROUTE_DESTINATION','NORMAL_UNSPECIFIED','RECOVERY_ON_TIMER_EXPIRE','LOSE_RACE','DESTINATION_OUT_OF_ORDER','ORIGINATOR_CANCEL','SERVICE_UNAVAILABLE','MEDIA_TIMEOUT','INCOMPATIBLE_DESTINATION','INVALID_NUMBER_FORMAT','NORMAL_CIRCUIT_CONGESTION'],true)?$cause:'UNKNOWN';break;
+ }
+ return $out;
 }
 $fixtureStage='initialization';
 set_exception_handler(static function(Throwable $e): void {global $argv,$fixtureStage;windows_native_fixture_failure_record($e,(string)($argv[2]??''),(string)($argv[1]??''),$fixtureStage,(string)(getenv('ProgramData')?:'C:/ProgramData'));fwrite(STDERR,"Private Windows native fixture failed.\n");exit(1);});
@@ -95,6 +135,10 @@ if($action==='status'){
  foreach($messages as &$message)$message['message_path']=pbx_paths::voicemail().'/default/'.$realm.'/'.$message['voicemail_id'].'/msg_'.$message['voicemail_message_uuid'].'.wav';unset($message);
  $codecPreferences=[];foreach($q('select extension_uuid,extension,password,absolute_codec_string from v_extensions where domain_uuid=?',[$domain])->fetchAll(PDO::FETCH_ASSOC) as $row)$codecPreferences[$row['extension']]=['extension_uuid'=>$row['extension_uuid'],'absolute_codec_string'=>$row['absolute_codec_string']??'','password_sha256'=>hash('sha256',$row['password'])];
  echo json_encode(['bind'=>$m[1],'config'=>$c,'extension_codec_preferences'=>$codecPreferences,'registration_limits'=>$q('select max_registrations from v_extensions where domain_uuid=? order by extension',[$domain])->fetchAll(PDO::FETCH_COLUMN),'jobs'=>$q('select job_uuid,kind,state,attempts,last_result,call_uuid from v_pbx_jobs where domain_uuid=? order by created_at',[$domain])->fetchAll(PDO::FETCH_ASSOC),'voicemail'=>$messages,'mail'=>$q('select email_queue_uuid,email_uuid,email_status,email_retry_count from v_email_queue where domain_uuid=?',[$domain])->fetchAll(PDO::FETCH_ASSOC)],JSON_THROW_ON_ERROR);exit;
+}
+if($action==='queue-state'){
+ $ownedAgent=static fn(string $id):bool=>(bool)$q('select 1 from v_call_center_agents where domain_uuid=? and call_center_agent_uuid=?',[$domain,$id])->fetchColumn();
+ echo json_encode(windows_native_queue_snapshot($c,$s['users'],$ownedAgent,static fn(string $command):string=>(string)event_socket::api($command),(string)($argv[3]??'')),JSON_THROW_ON_ERROR),PHP_EOL;exit;
 }
 if($action==='job'){
  // Synthetic callback uses an explicit internal target. A wire caller ID is
