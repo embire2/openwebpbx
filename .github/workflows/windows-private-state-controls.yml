@@ -67,3 +67,8 @@ jobs:
           if($LASTEXITCODE){throw 'The recovery ordering controls failed.'}
           & $native -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_updater_state_recovery.ps1 -ExecuteReviewedFictionalControl
           if($LASTEXITCODE){throw 'The native metadata and stock-music recovery controls failed.'}
+      - name: Test successful-upgrade private permissions without reverting content or hardening
+        run: |
+          $ErrorActionPreference='Stop'
+          & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_upgrade_permissions.ps1
+          if($LASTEXITCODE){throw 'The native successful-upgrade permission controls failed.'}

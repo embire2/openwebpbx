@@ -39,6 +39,76 @@ function Test-OpenWebTaskSecurityEquivalent {
   return $true
  }catch{return $false}
 }
+function Get-OpenWebUpgradePermissionScope {
+ param([string]$Root,[string]$StateRoot,[string]$EngineRoot)
+ # Existing private/support objects only. Program directories, tasks and mutable
+ # installation/updater metadata deliberately keep their upgrade contracts.
+ @{
+  Files=@((Join-Path $Root 'php\php.ini'),(Join-Path $Root 'php\extras\ssl\openssl.cnf'),(Join-Path $Root 'php\extras\ssl\cacert.pem'),(Join-Path $StateRoot 'native-engine.json'),(Join-Path $StateRoot 'local-codec.json'),(Join-Path $EngineRoot 'libbcg729.dll'))
+  Directories=@('mobile-notifications','mail','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','storage\openweb-music'|ForEach-Object {Join-Path $StateRoot $_})
+ }
+}
+function Get-OpenWebUpgradePermissions {
+ param([string]$Root,[string]$StateRoot,[string]$EngineRoot)
+ $scope=Get-OpenWebUpgradePermissionScope -Root $Root -StateRoot $StateRoot -EngineRoot $EngineRoot
+ $permissions=New-Object 'Collections.Generic.List[object]'
+ foreach($path in @($scope.Files)+@($scope.Directories)){
+  if(!(Test-Path -LiteralPath $path)){continue}
+  $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+  $directory=$path -in $scope.Directories
+  if([bool]$item.PSIsContainer -ne $directory -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'An upgrade permission target is not ordinary local storage.'}
+  $ancestor=$item
+  while($null -ne $ancestor){
+   if($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'An upgrade permission target is a link or junction.'}
+   $parent=[IO.Path]::GetDirectoryName($ancestor.FullName)
+   if(!$parent -or $parent -eq $ancestor.FullName){break}
+   $ancestor=Get-Item -LiteralPath $parent -Force -ErrorAction Stop
+  }
+  $items=@($item)
+  if($directory){$items+=@(Get-ChildItem -LiteralPath $path -Force -Recurse -ErrorAction Stop)}
+  foreach($entry in $items){
+   if($entry.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'An upgrade permission target is a link or junction.'}
+   $sddl=(Get-Acl -LiteralPath $entry.FullName -ErrorAction Stop).Sddl
+   if($sddl -isnot [string] -or [string]::IsNullOrWhiteSpace($sddl) -or $sddl.Length -gt 131072 -or $sddl.IndexOf([char]0) -ge 0){throw 'An upgrade permission descriptor is invalid.'}
+   $permissions.Add(@{Path=$entry.FullName;Directory=[bool]$entry.PSIsContainer;Sddl=$sddl})
+  }
+ }
+ $permissions
+}
+function Restore-OpenWebUpgradePermissions {
+ param([AllowEmptyCollection()][object[]]$Permissions,[string]$Root,[string]$StateRoot,[string]$EngineRoot)
+ $scope=Get-OpenWebUpgradePermissionScope -Root $Root -StateRoot $StateRoot -EngineRoot $EngineRoot
+ $files=@($scope.Files|ForEach-Object {[IO.Path]::GetFullPath($_)})
+ $directories=@($scope.Directories|ForEach-Object {[IO.Path]::GetFullPath($_).TrimEnd([IO.Path]::DirectorySeparatorChar)})
+ $seen=New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+ $checked=New-Object 'Collections.Generic.List[object]'
+ # Validate the entire captured list before the first security write.
+ foreach($permission in $Permissions){
+  if($null -eq $permission -or $permission.Path -isnot [string] -or [string]::IsNullOrWhiteSpace($permission.Path) -or $permission.Directory -isnot [bool] -or $permission.Sddl -isnot [string] -or [string]::IsNullOrWhiteSpace($permission.Sddl) -or $permission.Sddl.Length -gt 131072 -or $permission.Sddl.IndexOf([char]0) -ge 0){throw 'An upgrade permission snapshot is invalid.'}
+  $descriptor=[Security.AccessControl.RawSecurityDescriptor]::new($permission.Sddl)
+  if($null -eq $descriptor.Owner -or $null -eq $descriptor.Group -or !($descriptor.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclPresent) -or $descriptor.BinaryLength -gt 262144){throw 'A complete original upgrade permission descriptor is required.'}
+  if(![IO.Path]::IsPathRooted($permission.Path) -or $permission.Path.Length -gt 32767 -or $permission.Path.IndexOf([char]0) -ge 0){throw 'An upgrade permission path is invalid.'}
+  $path=[IO.Path]::GetFullPath($permission.Path)
+  if(!$path.Equals($permission.Path,[StringComparison]::OrdinalIgnoreCase)){throw 'An upgrade permission path is not canonical.'}
+  $allowed=$path -in $files
+  foreach($directory in $directories){if($path.Equals($directory,[StringComparison]::OrdinalIgnoreCase) -or $path.StartsWith($directory+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){$allowed=$true;break}}
+  if(!$allowed -or !$seen.Add($path)){throw 'An upgrade permission target is outside its original scope or duplicated.'}
+  $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+  if([bool]$item.PSIsContainer -ne $permission.Directory){throw 'An upgrade permission target changed its file type.'}
+  $ancestor=$item
+  while($null -ne $ancestor){
+   if($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'An upgrade permission target is a link or junction.'}
+   $parent=[IO.Path]::GetDirectoryName($ancestor.FullName)
+   if(!$parent -or $parent -eq $ancestor.FullName){break}
+   $ancestor=Get-Item -LiteralPath $parent -Force -ErrorAction Stop
+  }
+  $checked.Add(@{Path=$path;Directory=$permission.Directory;Depth=$path.Split([IO.Path]::DirectorySeparatorChar).Count;Sddl=$permission.Sddl})
+ }
+ . (Join-Path $PSScriptRoot 'File-Security.ps1')
+ foreach($permission in ($checked|Sort-Object @{Expression={if($_.Directory){0}else{1}}},Depth,Path)){
+  Set-OpenWebFileSddl -LiteralPath $permission.Path -Sddl $permission.Sddl
+ }
+}
 function Save-OpenWebSupport {
  param([string]$Backup,[string]$PackageRoot,[string]$Root,[string]$StateRoot,[string]$EngineRoot)
  $record=[ordered]@{schema=1;Files=@{};Directories=@{};Acls=@{};Tasks=@{};OpenSshClient=(Get-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0).State.ToString()}

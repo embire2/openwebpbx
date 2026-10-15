@@ -381,6 +381,9 @@ try {
  # Historical installations inherited writable system-drive permissions. Match
  # fresh-install program protection only after the original ACLs are sealed.
  Run icacls.exe @($root,'/inheritance:r','/grant:r','*S-1-5-32-544:(OI)(CI)F','*S-1-5-18:(OI)(CI)F','*S-1-5-32-545:(OI)(CI)RX')
+ # Preserve existing private/support security after intentional program hardening.
+ # This in-memory success inventory never restores old contents or new objects.
+ $upgradePermissions=@(Get-OpenWebUpgradePermissions -Root $root -StateRoot $private -EngineRoot $switch)
  # Keep local optional applications and server.json; only reviewed release files
  # are replaced. Database, settings, keys and existing media are never re-created.
  foreach ($part in 'web','server','desktop','acme') { CopyTree "$payload\$part" "$root\$part" }
@@ -409,6 +412,7 @@ try {
  $state.Version = $version
  WriteState "$private\installation.json" $state
  SaveJournal 'validating'
+ Restore-OpenWebUpgradePermissions -Permissions $upgradePermissions -Root $root -StateRoot $private -EngineRoot $switch
  StartPbx; ResumeEngine; $stopped = $false; CheckHealth $version
  if(Test-Path "$payload\updater\OpenWebPbx.Updater.exe"){& "$payload\Install-Updater.ps1" -PackageRoot $payload -DeferRestart}
  SaveJournal 'completed'
