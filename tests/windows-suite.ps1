@@ -33,6 +33,7 @@ $state=Join-Path $env:ProgramData 'OpenWebPBX';$configuration=Join-Path $env:Pro
 $domain='windowsqa.example.invalid';$installed=$false;$hostAdded=$false;$sftp=$null;$acceptanceFile=$null;$phase='source inputs'
 $recoveryPki=$null
 . (Join-Path $PSScriptRoot 'windows-suite-pki.ps1')
+. (Join-Path $PSScriptRoot 'windows-upgrade-lock-observer.ps1')
 $facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';backups='pending';native_sip_audio='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
 if($UpgradeDiagnosticsOnly){$facts.mode='upgrade_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Post-native state is not reproduced.'}
 elseif($BackupsDiagnosticsOnly){$facts.mode='backup_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Native, upgrade and post-native state are not reproduced.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false}
@@ -175,6 +176,7 @@ function SafeComparisonFields($Record){
 }
 function SafeFailureFields($Record){
  $safe=@{}
+ if(($Record.lock_observer_schema -is [int] -or $Record.lock_observer_schema -is [long]) -and $Record.lock_observer_schema -eq 1){$lockFields=SafeOpenWebUpgradeLockFields $Record;foreach($entry in $lockFields.GetEnumerator()){$safe[$entry.Key]=$entry.Value}}
  foreach($field in 'failed_phase','error_type','source_basename','active_case','command_basename','caller_basename'){
   $value=$Record.$field
   $pattern=if($field -in 'source_basename','command_basename','caller_basename'){'^[A-Za-z0-9_.-]+$'}else{'^[A-Za-z0-9_.+ /()-]+$'}
@@ -603,7 +605,10 @@ try{
  try{
   if($installed){
    $cleanupLock=$null
-   try{$cleanupLock=[IO.File]::Open("$state\upgrade.lock",'OpenOrCreate','ReadWrite','None')}catch{throw 'An owned transaction is still running; cleanup must not interrupt it.'}
+   try{$cleanupLock=[IO.File]::Open("$state\upgrade.lock",'OpenOrCreate','ReadWrite','None')}catch{
+    try{$facts.cleanup_lock_observation=SafeOpenWebUpgradeLockFields (Get-OpenWebUpgradeLockObservation $state $work (Read-OpenWebUpdaterGeneration $work))}catch{}
+    throw 'An owned transaction is still running; cleanup must not interrupt it.'
+   }
    $cleanupLock.Dispose()
    # Shutdown honors activation holds. This owned ephemeral instance is never
    # restarted by cleanup, and no customer/factory hold marker is removed.

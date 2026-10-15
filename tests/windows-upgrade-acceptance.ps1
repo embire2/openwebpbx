@@ -3,6 +3,7 @@
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$PackageRoot,[switch]$DisposableHostedRunner,[Parameter(Mandatory)][string]$InputPath,[Parameter(Mandatory)][string]$ReportPath)
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
+. (Join-Path $PSScriptRoot 'windows-upgrade-lock-observer.ps1')
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){throw 'Only the owned disposable hosted Windows instance may run this hook.'}
 $fixtureInput=Get-Content -LiteralPath $InputPath -Raw|ConvertFrom-Json
 $root='C:\OpenWebPBX';$state=Join-Path $env:ProgramData 'OpenWebPBX';$switch='C:\Program Files\FreeSWITCH';$configuration=Join-Path $env:ProgramData 'fusionpbx'
@@ -348,7 +349,12 @@ function Equal([object]$Before,[object]$After,[string]$Message){
  if(($code -is [int] -or $code -is [long]) -and $code -ge [int]::MinValue -and $code -le [int]::MaxValue){$comparisonFailure.command_basename='windows-compare-json.py';$comparisonFailure.command_exit=[int]$code}
  Check ($null -ne $safe -and $code -eq 0 -and $safe.comparison_result -ceq 'equal') $Message
 }
-function StopUpdater {if((Get-Service OpenWebPBXUpdater).Status -ne 'Stopped'){Stop-Service OpenWebPBXUpdater;(Get-Service OpenWebPBXUpdater).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(45))}}
+function StopUpdater {
+ $script:updaterGeneration=Get-OpenWebUpdaterGeneration $updaterGeneration
+ try{WriteJson (Join-Path (Split-Path $InputPath -Parent) 'updater-generation-private.json') $updaterGeneration}catch{}
+ if((Get-Service OpenWebPBXUpdater).Status -ne 'Stopped'){Stop-Service OpenWebPBXUpdater;(Get-Service OpenWebPBXUpdater).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(45))}
+ if($updaterGeneration.observed){$updaterGeneration.stopped=$true;$updaterGeneration.stopped_at=[DateTime]::UtcNow.ToFileTimeUtc();try{WriteJson (Join-Path (Split-Path $InputPath -Parent) 'updater-generation-private.json') $updaterGeneration}catch{}}
+}
 function Journal {return Get-Content "$state\updates\install-journal.json" -Raw|ConvertFrom-Json}
 function ManagerTaskValid([bool]$RequireEnabled=$true) {
  $task=Get-ScheduledTask -TaskName $managerName -ErrorAction SilentlyContinue
@@ -568,6 +574,9 @@ try{
   foreach($field in 'error_type','command_basename','command_exit'){if($helperFailure.ContainsKey($field)){$report[$field]=$helperFailure[$field]}}
  }
  if($checkFailure.active_case -ceq 'direct_reapply_preflight' -and $payloadInventory){foreach($entry in $payloadInventory.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
+ if($checkFailure.active_case -ceq 'direct_reapply_preflight'){
+  try{$observation=SafeOpenWebUpgradeLockFields (Get-OpenWebUpgradeLockObservation $state $work $updaterGeneration);foreach($entry in $observation.GetEnumerator()){$report[$entry.Key]=$entry.Value}}catch{}
+ }
  if($checkFailure.active_case -ceq 'direct_reapply_complete' -and $musicFailure){foreach($entry in $musicFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
  if($comparisonFailure -and $checkFailure){foreach($entry in $comparisonFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
  Write-Error ('Windows upgrade acceptance failed in '+$phase+'. Private recovery evidence retained.') -ErrorAction Continue
