@@ -47,9 +47,9 @@ function ExpandSafe([string]$Archive,[string]$Destination){
 function Artifact([string]$RunId,[string]$Name,[string]$Workflow){
  $run=Api ('actions/runs/'+$RunId)
  Check ($run.repository.full_name -eq 'embire2/openwebpbx' -and $run.head_repository.full_name -eq 'embire2/openwebpbx' -and $run.event -eq 'workflow_dispatch' -and $run.path -eq $Workflow -and $run.head_sha -match '^[a-f0-9]{40}$' -and $run.status -eq 'completed' -and $run.conclusion -eq 'success') 'The exact successful owned workflow is required.'
- $matches=@((Api ('actions/runs/'+$RunId+'/artifacts?per_page=100')).artifacts|Where-Object {$_.name -eq $Name -and !$_.expired})
- Check ($matches.Count -eq 1 -and $matches[0].digest -match '^sha256:[a-f0-9]{64}$' -and $matches[0].size_in_bytes -le 8GB) 'One exact bounded artifact is required.'
- $artifact=$matches[0];$path=Join-Path $work ($Name+'.zip')
+ $artifacts=@((Api ('actions/runs/'+$RunId+'/artifacts?per_page=100')).artifacts|Where-Object {$_.name -eq $Name -and !$_.expired})
+ Check ($artifacts.Count -eq 1 -and $artifacts[0].digest -match '^sha256:[a-f0-9]{64}$' -and $artifacts[0].size_in_bytes -le 8GB) 'One exact bounded artifact is required.'
+ $artifact=$artifacts[0];$path=Join-Path $work ($Name+'.zip')
  $handler=[Net.Http.HttpClientHandler]::new();$handler.AllowAutoRedirect=$false;$client=[Net.Http.HttpClient]::new($handler)
  $client.DefaultRequestHeaders.Authorization=[Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer',$env:GH_TOKEN);$client.DefaultRequestHeaders.UserAgent.ParseAdd('OpenWebPBX-Private-Updater-Qualification')
  try{$response=$client.GetAsync('https://api.github.com/repos/embire2/openwebpbx/actions/artifacts/'+$artifact.id+'/zip').GetAwaiter().GetResult();Check ([int]$response.StatusCode -eq 302) 'Artifact storage redirect is unavailable.';$location=$response.Headers.Location}finally{$client.Dispose();$handler.Dispose()}
