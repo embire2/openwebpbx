@@ -2,6 +2,8 @@
 
 **Candidate under qualification; no 1.0.13 download is published yet.** Debian and Android remain on the published 1.0.12 release. Do not substitute a Windows package for a Debian update or require an Android version that has not been released. Current results are recorded in [feature coverage](feature-coverage.md#windows-server-return--1013).
 
+The ordered work and pass criteria for publication are in the [Windows 1.0.13 release plan](../3CX.md#windows-1013-release-plan).
+
 This server uses Windows Server 2025 x64 Desktop Experience, local PostgreSQL, IIS/PHP, FreeSWITCH, the .NET 10 background service and independent updater, and the WinUI 3 administration manager. The manager opens the existing Admin workflows; the separate [Windows calling client](windows-client-plan.md) remains planned. Windows 10/11 server installation is not qualified.
 
 ## New installation
