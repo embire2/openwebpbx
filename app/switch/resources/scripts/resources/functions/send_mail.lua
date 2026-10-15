@@ -48,12 +48,14 @@ if (email_queue_enabled == 'true') then
 		local settings = Settings.new(db, domain_name, domain_uuid);
 
 		--set the email settings
+			local from_name;
 		if (email_from == nil or email_from == "") then
 			email_from = settings:get('email', 'smtp_from', 'text');
 			from_name = settings:get('email', 'smtp_from_name', 'text');
 		end
 		if (email_from == nil or email_from == "") then
-			email_from = address;
+				-- Queue until global mail is configured; delivery supplies its sender.
+				email_from = '';
 		elseif (from_name ~= nil and from_name ~= "") then
 			email_from = from_name .. "<" .. email_from .. ">";
 		end

@@ -19,7 +19,7 @@ function Start-SuiteRecoveryPki([string]$PackageRoot,[string]$SourceRoot,[string
  if(!$installation.Completed -or !$installation.RestoreServer -or $installation.DomainName -ne 'windowsqa.example.invalid' -or $installation.Version -ne '1.0.13'){throw 'The exact completed disposable replacement factory is required.'}
  $directory=Join-Path $Work 'recovery-pki';PrivateDirectory $directory
  $inputFile=Join-Path $directory 'input.json';$evidence=Join-Path $directory 'evidence';PrivateDirectory $evidence
- [IO.File]::WriteAllText($inputFile,(@{scope=[Guid]::NewGuid().ToString('N');source_root=$SourceRoot;evidence_directory=$evidence}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+ [IO.File]::WriteAllText($inputFile,(@{scope=[Guid]::NewGuid().ToString('N').Substring(0,24);source_root=$SourceRoot;evidence_directory=$evidence}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
  $context=@{root=$null;leaf=$null;binding=$null;process=$null;out=$null;err=$null;directory=$directory}
  $python=Join-Path $PackageRoot 'backup-runtime\python.exe';$script=Join-Path $SourceRoot 'tests\windows-native-acceptance.py';$prior=$env:OPENWEB_WINDOWS_NATIVE_TEST
  try {

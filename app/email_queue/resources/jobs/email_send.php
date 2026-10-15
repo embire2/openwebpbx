@@ -361,7 +361,7 @@ if (PHP_OS_FAMILY === 'Windows') {
 //send the email
 	$email = new email;
 	$email->domain_uuid = $domain_uuid;
-	$email->from_address = $email_from_address;
+	$email->from_address = $email_from_address ?? '';
 	if (!empty($email_from_name)) {
 		$email->from_name = $email_from_name;
 	}

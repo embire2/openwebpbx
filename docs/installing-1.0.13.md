@@ -32,7 +32,7 @@ Android users keep the released standalone app and connect through their extensi
 
 ## Updating an older Windows installation
 
-Windows 1.0.3–1.0.7 need one transition because their installed helper does not inventory the new native modules. Download the complete 1.0.13 archive and signed **windows-update-manifest.json** from the same release. From the extracted release, run:
+Windows 1.0.3–1.0.7 need one transition because their installed helper does not inventory the new native modules. Use these steps if the older manager reports that the release does not support this server architecture. Download the complete 1.0.13 archive and signed **windows-update-manifest.json** from the same release. From the extracted release, run:
 
 ```powershell
 .\Upgrade-LegacyWindows.ps1 -Archive 'C:\Downloads\openwebpbx-1.0.13-windows-x64.zip' -FeedEnvelope 'C:\Downloads\windows-update-manifest.json' -TargetVersion '1.0.13'

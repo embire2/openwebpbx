@@ -524,7 +524,7 @@ class email {
 				}
 
 				//add SMTP Options if the array exists
-				if (is_array($smtp_options)) {
+				if (isset($smtp_options) && is_array($smtp_options)) {
 					$mail->SMTPOptions = $smtp_options;
 				}
 
