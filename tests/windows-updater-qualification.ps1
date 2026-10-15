@@ -34,7 +34,7 @@ function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null
  # Project only known source callsites and fixed child identities. Messages,
  # process arguments, private streams and the paths in the trace stay private.
  $frames=[Collections.Generic.List[object]]::new();$seen=@{}
- $functions=@('Check','Hash','WriteJson','PrivateDirectory','SecureCanaryFaultContract','Api','SafeRelative','ExpandSafe','Artifact','CheckedProcess','NativeVersions','StopQualificationIis','PrepareCanary','Fixture','Python','DatabaseSnapshot','FileSnapshot','TaskSnapshot','ManagerTaskValid','OwnedManagers','WaitManager','BeginManager','OriginalProcessProofSource','RetainQualificationProcess','AssertOriginalProcessState','ManagerReopened','EqualTaskSnapshots','Equal','NormalTaskPreservation','InstalledVersions','WaitInstall','DownloadProof','GetManagerOriginalExitProof','<ScriptBlock>')
+ $functions=@('Check','Hash','WriteJson','PrivateDirectory','SecureCanaryFaultContract','Api','SafeRelative','ExpandSafe','Artifact','CheckedProcess','NativeVersions','StopQualificationIis','PrepareCanary','Fixture','Python','InitializeQualificationBackupWorker','DatabaseSnapshot','FileSnapshot','TaskSnapshot','ManagerTaskValid','OwnedManagers','WaitManager','BeginManager','OriginalProcessProofSource','RetainQualificationProcess','AssertOriginalProcessState','ManagerReopened','EqualTaskSnapshots','Equal','NormalTaskPreservation','InstalledVersions','WaitInstall','DownloadProof','GetManagerOriginalExitProof','<ScriptBlock>')
  if($Trace -and $Trace.Length -le 16384){
   $lines=[regex]::Split($Trace,'\r?\n')
   for($i=0;$i -lt [Math]::Min($lines.Count,64) -and $frames.Count -lt 6;$i++){
@@ -182,6 +182,65 @@ function Fixture([string]$Action){
  $process=[Diagnostics.Process]::Start($start);$out=$process.StandardOutput.ReadToEndAsync();$err=$process.StandardError.ReadToEndAsync();$finished=$process.WaitForExit(90000);if(!$finished){$script:qualificationFailedChild=@{caller='Fixture';label=('fixture-'+$Action);completion='deadline';exit_code=$null}};Check $finished 'The private scoped audit exceeded its deadline.';$text=$out.GetAwaiter().GetResult();[IO.File]::WriteAllText((Join-Path $work ($Action+'-private.err')),$err.GetAwaiter().GetResult());$exit=$process.ExitCode;$process.Dispose();if($exit -ne 0){$script:qualificationFailedChild=@{caller='Fixture';label=('fixture-'+$Action);completion='exit';exit_code=$exit}};Check ($exit -eq 0) 'The private scoped audit failed.';return $text|ConvertFrom-Json
 }
 function Python([string]$Action){CheckedProcess "$root\backup-runtime\python.exe" @('-I','-B',(Join-Path $PSScriptRoot 'windows-updater-fixture.py'),'--input',$inputFile,'--action',$Action) ('python-'+$Action)}
+function InitializeQualificationBackupWorker([string]$Root,[string]$StateRoot,[string]$PackageRoot){
+ # Let the real normal SYSTEM task initialize its own persistent runtime files
+ # before every acceptance baseline. Never synthesize or exclude those files.
+ . (Join-Path $PackageRoot 'Restore-Gates.ps1')
+ $unheld={
+  Assert-OpenWebUpgradeAllowed -StateRoot $StateRoot
+  Check (!(Test-Path -LiteralPath (Join-Path $StateRoot 'updates/maintenance'))) 'Backup warm-up refuses an active maintenance marker.'
+ }
+ & $unheld
+ $ancestor=[IO.Path]::GetFullPath($StateRoot)
+ while($ancestor){$item=Get-Item -LiteralPath $ancestor -Force;Check ($item.PSIsContainer -and !($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) 'Backup warm-up refuses linked state storage.';$ancestor=[IO.Path]::GetDirectoryName($ancestor)}
+ $python=Join-Path $Root 'backup-runtime/python.exe';$scriptPath=Join-Path $Root 'tools/backups.py';$arguments='-I "'+$scriptPath+'" worker'
+ foreach($pair in @(@($python,(Join-Path $PackageRoot 'backup-runtime/python.exe')),@($scriptPath,(Join-Path $PackageRoot 'backups.py')))){
+  foreach($path in $pair){$item=Get-Item -LiteralPath $path -Force;Check (!$item.PSIsContainer -and !($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) 'Backup warm-up requires the exact ordinary installed runtime.'}
+  Check ((Hash $pair[0]) -ceq (Hash $pair[1])) 'Backup warm-up refuses a changed installed runtime.'
+ }
+ $identity={param($Task)
+  Check ($Task.TaskName -eq 'OpenWebPBX-Backups' -and $Task.TaskPath -eq '\' -and $Task.Settings.Enabled -and [string]$Task.Settings.MultipleInstances -eq 'IgnoreNew' -and [string]$Task.Principal.UserId -in 'SYSTEM','S-1-5-18','NT AUTHORITY\SYSTEM' -and [string]$Task.Principal.LogonType -eq 'ServiceAccount' -and [string]$Task.Principal.RunLevel -eq 'Highest' -and @($Task.Actions).Count -eq 1 -and $Task.Actions[0].Execute -eq $python -and $Task.Actions[0].Arguments -eq $arguments -and $Task.Actions[0].WorkingDirectory -eq (Join-Path $Root 'tools') -and [string]$Task.State -in 'Ready','Running','Queued') 'Backup warm-up refuses an unexpected normal SYSTEM task.'
+ }
+ $task=Get-ScheduledTask -TaskName OpenWebPBX-Backups -ErrorAction Stop;& $identity $task
+ $definition=(TaskSnapshot)['OpenWebPBX-Backups']
+ Check ($definition.exists -eq $true) 'The normal backup task definition is unavailable.'
+ $remaining=120
+ while([string]$task.State -in 'Running','Queued'){
+  Check ($remaining -gt 0) 'The normal backup task did not become idle before the baseline.'
+  Start-Sleep -Milliseconds 500;$remaining--;& $unheld
+  $task=Get-ScheduledTask -TaskName OpenWebPBX-Backups -ErrorAction Stop;& $identity $task
+ }
+ Check ($remaining -gt 0) 'The normal backup task did not become idle before the baseline.'
+ $prior=Get-ScheduledTaskInfo -TaskName OpenWebPBX-Backups -ErrorAction Stop
+ Check ($prior.LastRunTime -is [DateTime]) 'The normal backup task execution time is unavailable.'
+ # Scheduler records may have whole-second precision. Start only after that
+ # recorded second, retaining the same bounded budget and strict fresh-run test.
+ while((Get-Date) -le $prior.LastRunTime.AddSeconds(1)){
+  Check ($remaining -gt 0) 'The normal backup task execution clock did not advance before the baseline.'
+  Start-Sleep -Milliseconds 500;$remaining--;& $unheld
+ }
+ Check ($remaining -gt 0) 'The normal backup task did not become ready before the baseline deadline.'
+ Start-ScheduledTask -TaskName OpenWebPBX-Backups -ErrorAction Stop
+ $completed=$false
+ do{
+  & $unheld
+  $task=Get-ScheduledTask -TaskName OpenWebPBX-Backups -ErrorAction Stop;& $identity $task
+  $info=Get-ScheduledTaskInfo -TaskName OpenWebPBX-Backups -ErrorAction Stop
+  Check ($info.LastRunTime -is [DateTime]) 'The normal backup task execution time is unavailable.'
+  if($info.LastRunTime -gt $prior.LastRunTime -and [string]$task.State -eq 'Ready'){
+   Check ($info.LastTaskResult -eq 0) 'The actual normal backup task did not finish successfully.'
+   $completed=$true;break
+  }
+  $remaining--;if($remaining -gt 0){Start-Sleep -Milliseconds 500}
+ }while($remaining -gt 0)
+ Check $completed 'The actual normal backup task did not finish before the baseline deadline.'
+ & $unheld
+ $directory=Get-Item -LiteralPath (Join-Path $StateRoot 'automatic-backups') -Force
+ $worker=Get-Item -LiteralPath (Join-Path $StateRoot 'automatic-backups/worker.lock') -Force
+ Check ($directory.PSIsContainer -and !($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -and !$worker.PSIsContainer -and !($worker.Attributes -band [IO.FileAttributes]::ReparsePoint)) 'The actual backup worker did not initialize its ordinary runtime lock.'
+ $after=(TaskSnapshot)['OpenWebPBX-Backups']
+ foreach($field in 'exists','enabled','xml','acl','security'){Check ($after[$field] -ceq $definition[$field]) 'Backup warm-up changed the normal task definition or security.'}
+}
 function DatabaseSnapshot([string]$Label){$settings.snapshot_label=$Label;WriteJson $inputFile $settings;Fixture 'snapshot'|Out-Null;return Get-Content (Join-Path (Split-Path $inputFile -Parent) ($Label+'-database.json')) -Raw|ConvertFrom-Json -AsHashtable}
 function FileSnapshot([switch]$Protected){
  $directories=if($Protected){@($configuration,"$state\storage","$state\mobile-notifications","$state\phone-tls","$state\public-access","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build")}else{@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots",$configuration,"$engine\conf","$engine\scripts","$engine\mod","$engine\sounds","$state\storage","$state\mobile-notifications","$state\phone-tls","$state\public-access","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build")}
@@ -581,6 +640,10 @@ if(!$?){exit 1}
   foreach($modeName in 'fault','normal'){$cache="$state\updates\downloads\$($verified[$modeName].sha256).archive";Check (!(Test-Path $cache) -and !(Test-Path ($cache+'.partial'))) 'The test refuses preseeded or partial canary archives.'}
   if(Test-Path "$state\updates\trust.json"){$prior=Get-Content "$state\updates\trust.json" -Raw|ConvertFrom-Json;Check ($prior.sequence -le $verified.fault.sequence) 'The private fault sequence must not lower existing trust.'}
   Check ((Fixture 'status').channels -eq 0) 'The actual call engine must be idle.'
+  $phase='ordinary SYSTEM backup worker baseline initialization'
+  InitializeQualificationBackupWorker -Root $root -StateRoot $state -PackageRoot $package
+  $facts.checks+='Actual unchanged installed SYSTEM backup task completed normally and initialized its regular worker lock before every acceptance baseline'
+  $phase='fault14 full HTTPS download and rollback'
   $beforeDb=DatabaseSnapshot 'before-fault';$beforeFiles=FileSnapshot;$beforeTasks=TaskSnapshot;$protected=FileSnapshot -Protected
   $installationProtected=Get-Content "$state\installation.json" -Raw|ConvertFrom-Json -AsHashtable;$installationProtected.Remove('Version')|Out-Null
   $script:priorCommands=@((Fixture 'status').commands|ForEach-Object command_uuid);$requestStarted=[DateTime]::UtcNow;Python 'request';$failure=WaitInstall 'rolled_back' 'failed' $requestStarted
