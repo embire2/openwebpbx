@@ -5,7 +5,7 @@ from pathlib import Path
 
 parser=argparse.ArgumentParser();parser.add_argument('--prepared',type=Path,required=True);args=parser.parse_args()
 source=args.prepared/'freeswitch/src/mod/endpoints/mod_sofia/sofia_reg.c'
-assert hashlib.sha256(source.read_bytes()).hexdigest()=='8f1a818239d9f264e9e04a6be6e81d0e91259389be2d22f1595cda2deb3dd810'
+assert hashlib.sha256(source.read_bytes()).hexdigest()=='8cee43d5f88b7e1cd158f125b2780409b0c52c7cbac37fd3039a2a8981ddc317'
 
 def quota(text):
     section=text.index('/* The max-registrations-per-extension-option only affects REGISTER-authentications */')
@@ -13,7 +13,7 @@ def quota(text):
     return text[start:end]+'\n return count;\n'
 
 def expiry_cleanup(text):
-    marker=text.index('delete from sip_registrations where contact=\'%q\' and expires!=')
+    marker=text.index('and expires!=%ld')
     start=text.rfind('\t\tif (multi_reg) {',0,marker)
     end=text.index('\n\t\t}\n',marker)+len('\n\t\t}')
     assert start>=0
@@ -80,35 +80,44 @@ static char *pending[8];static int pending_count;
 static void execute(profile_t *profile,char *sql){assert(sqlite3_exec(profile->db,sql,NULL,NULL,NULL)==SQLITE_OK);sqlite3_free(sql);}
 static void sofia_glue_execute_sql(profile_t *profile,char **sql,int dynamic){(void)profile;assert(dynamic&&pending_count<8);pending[pending_count++]=*sql;*sql=NULL;}
 static void sofia_glue_execute_sql_now(profile_t *profile,char **sql,int dynamic){assert(dynamic);execute(profile,*sql);*sql=NULL;}
-static void cleanup(profile_t *profile,int multi_reg,int multi_reg_contact,const char *contact_str,const char *call_id,long reg_time,long exptime){char *sql=NULL;
+static void cleanup(profile_t *profile,int multi_reg,int multi_reg_contact,const char *contact_str,const char *call_id,const char *to_user,const char *reg_host,long reg_time,long exptime){char *sql=NULL;
 '''
     cleanup_suffix=r'''
 }
 static int scalar(sqlite3 *db,const char *sql){sqlite3_stmt *s=NULL;assert(sqlite3_prepare_v2(db,sql,-1,&s,NULL)==SQLITE_OK);assert(sqlite3_step(s)==SQLITE_ROW);int value=sqlite3_column_int(s,0);assert(sqlite3_finalize(s)==SQLITE_OK);return value;}
-int main(void){sqlite3 *db=NULL;assert(sqlite3_open(":memory:",&db)==SQLITE_OK);profile_t profile={db,0};int retained[2],queued_before_response[2];
+int main(void){sqlite3 *db=NULL;assert(sqlite3_open(":memory:",&db)==SQLITE_OK);profile_t profile={db,0};int retained[2],queued_before_response[2],foreign_preserved[2],owned_current[2],owned_stale[2];
  for(int mode=0;mode<2;mode++){
-  assert(sqlite3_exec(db,"drop table if exists sip_registrations;create table sip_registrations(call_id text,contact text,expires integer);insert into sip_registrations values('own','sip:own@loopback',1200),('own','sip:own@loopback',1199),('other','sip:other@loopback',1200)",NULL,NULL,NULL)==SQLITE_OK);
+  assert(sqlite3_exec(db,"drop table if exists sip_registrations;create table sip_registrations(sip_user text,sip_host text,call_id text,contact text,expires integer);insert into sip_registrations values('canonical-own','owned.invalid','own','sip:own@loopback',1200),('canonical-own','owned.invalid','own','sip:own@loopback',1199),('canonical-other','foreign.invalid','other','sip:other@loopback',1200)",NULL,NULL,NULL)==SQLITE_OK);
   pending_count=0;
-  cleanup(&profile,1,mode,"sip:own@loopback","own",1000,200);
+  cleanup(&profile,1,mode,"sip:own@loopback","own","canonical-own","owned.invalid",1000,200);
   queued_before_response[mode]=pending_count;
   /* A genuine acknowledged refresh advances its absolute expiry one second.
    * Execute the old/current ACTUAL cleanup block on either side of it, then
    * let the ordinary deferred worker drain after the two SIP responses. */
   assert(sqlite3_exec(db,"update sip_registrations set expires=1201 where call_id='own'",NULL,NULL,NULL)==SQLITE_OK);
-  cleanup(&profile,1,mode,"sip:own@loopback","own",1001,200);
+  cleanup(&profile,1,mode,"sip:own@loopback","own","canonical-own","owned.invalid",1001,200);
   for(int i=0;i<pending_count;i++)execute(&profile,pending[i]);
   retained[mode]=scalar(db,"select count(*) from sip_registrations where call_id='own' and expires=1201");
   assert(scalar(db,"select count(*) from sip_registrations where call_id='other' and expires=1200")==1);
+  /* Identical Call-ID AND Contact bytes on different canonical accounts/realms.
+   * The owned current/stale rows and all three foreign cases are deliberate. */
+  assert(sqlite3_exec(db,"delete from sip_registrations;insert into sip_registrations values('canonical-own','owned.invalid','shared-call-id','sip:1000@loopback:15060',1200),('canonical-own','owned.invalid','shared-call-id','sip:1000@loopback:15060',1199),('canonical-other','owned.invalid','shared-call-id','sip:1000@loopback:15060',1198),('canonical-own','foreign.invalid','shared-call-id','sip:1000@loopback:15060',1197),('canonical-other','foreign.invalid','shared-call-id','sip:1000@loopback:15060',1196)",NULL,NULL,NULL)==SQLITE_OK);
+  pending_count=0;
+  cleanup(&profile,1,mode,"sip:1000@loopback:15060","shared-call-id","canonical-own","owned.invalid",1000,200);
+  for(int i=0;i<pending_count;i++)execute(&profile,pending[i]);
+  foreign_preserved[mode]=scalar(db,"select count(*) from sip_registrations where sip_user!='canonical-own' or sip_host!='owned.invalid'");
+  owned_current[mode]=scalar(db,"select count(*) from sip_registrations where sip_user='canonical-own' and sip_host='owned.invalid' and expires=1200");
+  owned_stale[mode]=scalar(db,"select count(*) from sip_registrations where sip_user='canonical-own' and sip_host='owned.invalid' and expires=1199");
  }
- printf("{\"call_id_retained\":%d,\"contact_retained\":%d,\"call_id_deferred_before_response\":%d,\"contact_deferred_before_response\":%d}\n",retained[0],retained[1],queued_before_response[0],queued_before_response[1]);
+ printf("{\"call_id_retained\":%d,\"contact_retained\":%d,\"call_id_deferred_before_response\":%d,\"contact_deferred_before_response\":%d,\"call_id_foreign_preserved\":%d,\"contact_foreign_preserved\":%d,\"call_id_owned_current\":%d,\"contact_owned_current\":%d,\"call_id_owned_stale\":%d,\"contact_owned_stale\":%d}\n",retained[0],retained[1],queued_before_response[0],queued_before_response[1],foreign_preserved[0],foreign_preserved[1],owned_current[0],owned_current[1],owned_stale[0],owned_stale[1]);
  assert(sqlite3_close(db)==SQLITE_OK);return 0;}
 '''
     cleanup_results={}
     for label,text in [('current',source.read_text()),('upstream',(args.prepared/'sofia_reg.upstream.c').read_text())]:
         c=work/(label+'-cleanup.c');exe=work/(label+'-cleanup')
         c.write_text(cleanup_prefix+expiry_cleanup(text)+cleanup_suffix)
-        subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Wno-unused-function',str(c),'-lsqlite3','-o',str(exe)],check=True)
+        subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Wno-unused-function','-Wno-unused-parameter',str(c),'-lsqlite3','-o',str(exe)],check=True)
         cleanup_results[label]=json.loads(subprocess.check_output([str(exe)],text=True))
-    assert cleanup_results['current']=={'call_id_retained':1,'contact_retained':1,'call_id_deferred_before_response':0,'contact_deferred_before_response':0}
-    assert cleanup_results['upstream']=={'call_id_retained':0,'contact_retained':0,'call_id_deferred_before_response':1,'contact_deferred_before_response':1}
-print('PASS actual patched/upstream C quota and expiry-cleanup statements: isolated SQLite collision/limit/refresh/realm/identity guards, second-boundary cleanup ordering in both Call-ID/contact modes, exact refreshed/foreign row preservation; no native PBX acceptance implied')
+    assert cleanup_results['current']=={'call_id_retained':1,'contact_retained':1,'call_id_deferred_before_response':0,'contact_deferred_before_response':0,'call_id_foreign_preserved':3,'contact_foreign_preserved':3,'call_id_owned_current':1,'contact_owned_current':1,'call_id_owned_stale':0,'contact_owned_stale':0}
+    assert cleanup_results['upstream']=={'call_id_retained':0,'contact_retained':0,'call_id_deferred_before_response':1,'contact_deferred_before_response':1,'call_id_foreign_preserved':0,'contact_foreign_preserved':0,'call_id_owned_current':1,'contact_owned_current':1,'call_id_owned_stale':0,'contact_owned_stale':0}
+print('PASS actual patched/upstream C quota and expiry-cleanup statements: isolated SQLite collision/limit/refresh/realm/identity guards, second-boundary cleanup ordering in both Call-ID/contact modes, exact refreshed row and same-Call-ID/same-Contact foreign user/realm preservation; no native PBX acceptance implied')

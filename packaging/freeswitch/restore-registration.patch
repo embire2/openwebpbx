@@ -35,11 +35,20 @@
  				}
  			} else {
  				sql = switch_mprintf("delete from sip_registrations where sip_user='%q' and sip_host='%q'", to_user, reg_host);
-@@ -2051,7 +2061,10 @@
- 				sql = switch_mprintf("delete from sip_registrations where call_id='%q' and expires!=%ld", call_id, (long) reg_time + (long) exptime + profile->sip_expires_late_margin);
- 			}
+@@ -2046,12 +2056,15 @@
  
+ 		if (multi_reg) {
+ 			if (multi_reg_contact) {
+-				sql = switch_mprintf("delete from sip_registrations where contact='%q' and expires!=%ld", contact_str, (long) reg_time + (long) exptime + profile->sip_expires_late_margin);
++				sql = switch_mprintf("delete from sip_registrations where sip_user='%q' and sip_host='%q' and contact='%q' and expires!=%ld", to_user, reg_host, contact_str, (long) reg_time + (long) exptime + profile->sip_expires_late_margin);
+ 			} else {
+-				sql = switch_mprintf("delete from sip_registrations where call_id='%q' and expires!=%ld", call_id, (long) reg_time + (long) exptime + profile->sip_expires_late_margin);
+-			}
+-
 -			sofia_glue_execute_sql(profile, &sql, SWITCH_TRUE);
++				sql = switch_mprintf("delete from sip_registrations where sip_user='%q' and sip_host='%q' and call_id='%q' and expires!=%ld", to_user, reg_host, call_id, (long) reg_time + (long) exptime + profile->sip_expires_late_margin);
++			}
++
 +			/* Finish expiry cleanup before SIP 200. A delayed DELETE with the
 +			 * previous expiry can erase a later same-Call-ID refresh.
 +			 */

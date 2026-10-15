@@ -1,5 +1,5 @@
 """Disposable loopback native registrar quotas; no product database or services."""
-import argparse,importlib.util,json,math,re,socket,sqlite3,sys,time
+import argparse,importlib.util,json,math,re,secrets,socket,sqlite3,sys,time
 from pathlib import Path
 
 def load(name,path):
@@ -11,8 +11,11 @@ def main():
     assert state['schema']==1 and state['scope']=='fictional-loopback-registration-limits'
     assert state['qualification'] is True
     assert state['sip_port']==19264 and state['esl_port']==18224 and re.fullmatch(r'native-limit-[a-f0-9]{24}\.invalid',state['realm'])
+    assert state['collision_realm']=='native-limit-collision-'+state['realm'][len('native-limit-'):]
     root=path.parent;realm=state['realm'];profile='private_limits';rows=[];peers=[];cleanup=[]
+    realms=(realm,state['collision_realm'])
     boundary_gate={'passed':False,'cycles_required':24,'cycles_completed':0,'attempts':0,'samples_checked':0,'observation_delays_ms':[0,50,250],'same_call_id_and_increasing_cseq':False,'both_accounts_present_each_sample':False,'sqlite_readonly':True,'sql_writes_or_queue_pauses':False}
+    isolation_gate={'passed':False,'cases_required':3,'cases_completed':0,'native_mode':'call-id','native_contact_mode_tested':False,'sqlite_readonly':True,'sql_writes_or_queue_pauses':False,'cases':[]}
     load('sip_trunk_live',root/'sip_trunk_live.py');source=load('private_source_phone',root/'pbx_v20_restore_native.py')
     sock=socket.create_connection(('127.0.0.1',18224),timeout=5);sock.settimeout(5);buffer=bytearray()
     def frame():
@@ -27,9 +30,11 @@ def main():
     sock.sendall(('auth '+state['esl_password']+'\n\n').encode());assert frame()[0].get('Reply-Text')=='+OK accepted'
     def api(command):
         allowed=command=='sofia status profile private_limits'
-        for record in state['users']:
-            key=record['auth']+'@'+realm
-            allowed|=command in ['sofia_contact */'+key,'sofia profile private_limits flush_inbound_reg '+key]
+        for owned_realm in realms:
+            for record in state['users']:
+                key=record['auth']+'@'+owned_realm
+                allowed|=command=='sofia_contact */'+key
+                if owned_realm==realm:allowed|=command=='sofia profile private_limits flush_inbound_reg '+key
         assert allowed;sock.sendall(('api '+command+'\n\n').encode());return frame()[1]
     def registered(record):
         result=api('sofia_contact */'+record['auth']+'@'+realm).strip()
@@ -43,6 +48,7 @@ def main():
         def packet(self,*args,**kwargs):
             data=super().packet(*args,**kwargs)
             if args and args[0]=='REGISTER':
+                if hasattr(self,'fixed_contact'):data=re.sub(rb'(?m)^Contact: [^\r\n]*',b'Contact: <'+self.fixed_contact.encode()+b'>',data)
                 self.trace.append(data);assert len(self.trace)<=self.max_packets
                 if self.label.startswith('boundary-'):
                     with (root/(self.label+'-registers.private.bin')).open('ab') as stream:stream.write(data+b'\n\n')
@@ -121,6 +127,92 @@ def main():
             if i==1:assert registered(state['users'][0]),'Boundary exact unregister removed another account'
             active[i].close();peers.remove((active[i],state['users'][i]))
         boundary_gate.update(passed=True,same_call_id_and_increasing_cseq=True,both_accounts_present_each_sample=True)
+    def shared_binding_isolation():
+        # One genuine UA/socket owns two AORs. Its Contact and Call-ID are
+        # deliberately identical; only the authenticated user/realm changes.
+        # This profile exercises Call-ID mode; actual-C/SQLite covers Contact mode.
+        database=(root/'db/sofia_reg_private_limits.db').resolve()
+        assert database.is_file() and not database.is_symlink()
+        cases=((1,realm,'different-user-same-realm'),(0,realms[1],'same-user-different-realm'),(1,realms[1],'different-user-different-realm'))
+        for foreign_index,foreign_realm,label in cases:
+            phone=Phone(state['users'][0],'shared-'+label,40)
+            phone.fixed_contact='sip:9001@127.0.0.1:'+str(phone.port)
+            shared_id=secrets.token_hex(12)+'@shared-native-fixture';tag=secrets.token_hex(5)
+            phone.registration_transaction={'cid':shared_id,'seq':0,'from':''}
+            owner=(0,realm);foreign=(foreign_index,foreign_realm);last_seq=0
+            private=root/('shared-'+label+'.private.jsonl');case={'case':label,'passed':False,'samples_checked':0,'exact_cleanup':False};isolation_gate['cases'].append(case)
+            def select(identity):
+                index,owned_realm=identity;record=state['users'][index]
+                phone.aor=record['number'];phone.auth_user=record['auth'];phone.password=record['password'];phone.realm=owned_realm
+                phone.registration_transaction['from']='<sip:'+phone.aor+'@'+owned_realm+'>;tag='+tag
+            def send(identity,expires,stage):
+                nonlocal last_seq
+                select(identity);result=phone.register(('127.0.0.1',19264),expires=expires)
+                with private.open('a') as stream:stream.write(json.dumps({'stage':stage,'code':result['code'],'cseq':result['seq'],'response':result.get('text','')})+'\n')
+                assert result['code']==200 and phone.receiver_failure is None,'Shared-binding SIP/receiver failed'
+                assert result['callid']==shared_id and result['seq']>last_seq,'Shared-binding Call-ID/CSeq changed'
+                last_seq=result['seq']
+                for packet in phone.trace:
+                    assert re.search(rb'(?m)^Call-ID: ([^\r\n]+)',packet)[1]==shared_id.encode()
+                    assert re.search(rb'(?m)^Contact: ([^\r\n]+)',packet)[1]==b'<'+phone.fixed_contact.encode()+b'>'
+                return time.monotonic()
+            def read(identity):
+                index,owned_realm=identity;auth=state['users'][index]['auth']
+                with sqlite3.connect(database.as_uri()+'?mode=ro',uri=True,timeout=.2) as db:
+                    db.execute('PRAGMA query_only=ON')
+                    actual=db.execute('select sip_user,sip_host,call_id,contact,expires from sip_registrations where profile_name=? and sip_user=? and sip_host=? order by call_id,contact',(profile,auth,owned_realm)).fetchall()
+                contact=api('sofia_contact */'+auth+'@'+owned_realm).strip()
+                with private.open('a') as stream:stream.write(json.dumps({'read_identity':[index,realms.index(owned_realm)],'sql_rows':actual,'api_contact':contact})+'\n')
+                return actual,contact
+            def present(identity):
+                actual,contact=read(identity)
+                assert len(actual)==1 and actual[0][2]==shared_id and phone.fixed_contact in actual[0][3],'Shared-binding exact SQLite row missing'
+                assert contact and not contact.startswith('error/') and phone.fixed_contact in contact,'Shared-binding exact API contact missing'
+                return actual[0]
+            def absent(identity):
+                actual,contact=read(identity)
+                assert not actual and (not contact or contact.startswith('error/')),'Shared-binding exact unregister left a contact'
+            def observe(stage,completed,owner_present):
+                for delay in (0,50,250):
+                    wanted=completed+delay/1000
+                    while time.monotonic()<wanted:time.sleep(min(.002,max(.0002,wanted-time.monotonic())))
+                    preserved=present(foreign)
+                    assert preserved==foreign_row,'Shared-binding operation changed the foreign row'
+                    if owner_present:
+                        own=present(owner)
+                        assert own[2]==preserved[2] and own[3]==preserved[3],'Actual Call-ID/Contact collision was not identical'
+                        assert own[4]!=preserved[4],'Actual colliding expiries did not differ'
+                        assert (own[0]!=preserved[0])==(foreign_index!=0),'Actual canonical user collision case differed'
+                        assert (own[1]!=preserved[1])==(foreign_realm!=realm),'Actual canonical realm collision case differed'
+                    else:absent(owner);own=None
+                    assert phone.receiver_failure is None,'Shared-binding receiver stopped'
+                    with private.open('a') as stream:stream.write(json.dumps({'stage':stage,'delay_ms':delay,'actual_delay_ms':round((time.monotonic()-completed)*1000,3),'foreign_sql_row':preserved,'owner_sql_row':own})+'\n')
+                    case['samples_checked']+=1
+            primary=None;cleanup_errors=[]
+            try:
+                send(foreign,180,'foreign-register');foreign_row=present(foreign)
+                observe('owner-register',send(owner,120,'owner-register'),True)
+                observe('owner-refresh',send(owner,120,'owner-refresh'),True)
+                observe('owner-unregister',send(owner,0,'owner-unregister'),False)
+                send(foreign,0,'foreign-unregister');absent(owner);absent(foreign)
+            except BaseException as failure:primary=failure
+            finally:
+                # Exact SIP transactions only; no SQL/API flush or global cleanup.
+                for identity in (owner,foreign):
+                    try:
+                        actual,_=read(identity)
+                        if actual:send(identity,0,'cleanup-unregister')
+                        absent(identity)
+                    except BaseException as failure:cleanup_errors.append(type(failure).__name__)
+                (root/('shared-'+label+'.requests.private.bin')).write_bytes(b'\n\n'.join(phone.trace))
+                phone.close()
+                case['exact_cleanup']=not cleanup_errors
+                if cleanup_errors:case['cleanup_error_types']=cleanup_errors
+            if primary:raise primary
+            assert not cleanup_errors,'Shared-binding exact cleanup failed'
+            case.update(passed=True,identical_call_id_and_contact=True,different_expiries=True,foreign_preserved_after_register_refresh_unregister=True)
+            isolation_gate['cases_completed']+=1
+        isolation_gate['passed']=isolation_gate['cases_completed']==3
     error=None
     try:
         assert api('sofia status profile private_limits').find('127.0.0.1')>=0
@@ -151,6 +243,7 @@ def main():
                 if index==order[1]:assert registered(state['users'][order[0]]),'Exact unregister removed the other canonical account'
                 phone.close();peers.remove((phone,state['users'][index]))
         boundary_refresh()
+        shared_binding_isolation()
     except BaseException as failure:error=type(failure).__name__
     finally:
         for phone,record in peers:
@@ -161,10 +254,13 @@ def main():
             present=registered(record)
             if present:api('sofia profile private_limits flush_inbound_reg '+record['auth']+'@'+realm)
             cleanup.append(not registered(record))
+        for record in state['users']:
+            result=api('sofia_contact */'+record['auth']+'@'+realms[1]).strip()
+            cleanup.append(not result or result.startswith('error/'))
         sock.close()
         by_case={row['case']:row for row in rows}
         report={'schema':1,'scope':'fictional-loopback-registration-limits','loopback_only':True,'product_database_or_services_accessed':False,'private_sqlite_only':True,
-                'cases':rows,'boundary_refresh':boundary_gate,'contacts_after_cleanup':sum(not value for value in cleanup),
+                'cases':rows,'boundary_refresh':boundary_gate,'shared_binding_isolation':isolation_gate,'contacts_after_cleanup':sum(not value for value in cleanup),
                 'individual_tuples_authenticated':all(by_case.get('individual-'+str(i),{}).get('code')==200 for i in range(2)),
                 'both_orders_accepted':all(by_case.get('simultaneous-'+order+'-'+str(i),{}).get('code')==200 for order in ['0-1','1-0'] for i in range(2)),
                 'same_account_second_contact_refused':all(by_case.get('simultaneous-'+order+'-extra-contact',{}).get('code')==403 for order in ['0-1','1-0']),
@@ -172,6 +268,6 @@ def main():
         if error:report['error_type']=error
         (root/'registration-report.json').write_text(json.dumps(report,indent=2))
         print(json.dumps(report))
-    if error or not all(cleanup) or not boundary_gate['passed'] or not report['both_orders_accepted'] or not report['same_account_second_contact_refused']:return 1
+    if error or not all(cleanup) or not boundary_gate['passed'] or not isolation_gate['passed'] or not report['both_orders_accepted'] or not report['same_account_second_contact_refused']:return 1
     return 0
 if __name__=='__main__':sys.exit(main())
