@@ -15,6 +15,14 @@ $prior=$env:OPENWEB_WINDOWS_BACKUP_TEST;$env:OPENWEB_WINDOWS_BACKUP_TEST='1'
 try{
  & 'C:\OpenWebPBX\backup-runtime\python.exe' -I (Join-Path $PSScriptRoot 'pbx_windows_backup_unicode.py') PortableTransport 1>(Join-Path $private 'unicode-private.out') 2>(Join-Path $private 'unicode-private.err')
  if($LASTEXITCODE){throw 'Native backup SQL transport controls failed; private evidence retained.'}
+ $priorProtocolPowerShell=$env:OPENWEB_TEST_PWSH
+ try{
+  $env:OPENWEB_TEST_PWSH=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+  & 'C:\OpenWebPBX\backup-runtime\python.exe' -I (Join-Path $PSScriptRoot 'windows_backup_control_protocol.py') 1>(Join-Path $private 'protocol-private.out') 2>(Join-Path $private 'protocol-private.err')
+  if($LASTEXITCODE){throw 'Native backup control protocol tests failed; private evidence retained.'}
+ }finally{
+  if($null -eq $priorProtocolPowerShell){Remove-Item Env:\OPENWEB_TEST_PWSH -ErrorAction SilentlyContinue}else{$env:OPENWEB_TEST_PWSH=$priorProtocolPowerShell}
+ }
  & 'C:\OpenWebPBX\backup-runtime\python.exe' -I (Join-Path $PSScriptRoot 'windows_backups_native.py') $input 1>(Join-Path $private 'child-private.out') 2>(Join-Path $private 'child-private.err')
  if($LASTEXITCODE){throw 'Native backup qualification failed; private report retained. No passing hosted result is implied.'}
 }finally{

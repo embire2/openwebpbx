@@ -99,6 +99,8 @@ try{
  if($item.PSIsContainer -or $item.Length -gt 67108864){throw 'A backup control request is invalid.'}
  $value=Get-Content -LiteralPath $request -Raw -Encoding UTF8|ConvertFrom-Json
  $result=@{}
+ # Keep incidental cmdlet output outside the single JSON machine response.
+ $null = . {
  switch($Operation){
   'secure'{PrivateAcl ([string]$value.path) ([string]$value.kind)}
   'plan'{$result=Plan}
@@ -149,6 +151,7 @@ try{
    }
   }
  }
+ } 3>$null 4>$null 5>$null 6>$null
  [Console]::Out.WriteLine(($result|ConvertTo-Json -Depth 12 -Compress))
 }catch{
  [Console]::Error.WriteLine('The Windows backup control operation failed. Review its owned services, storage and permissions.')

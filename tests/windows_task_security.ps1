@@ -82,14 +82,18 @@ function ReorderedDescriptor($Value,[int[]]$Order,[bool]$SetAutoInherited=$true)
 function AssertDescriptorResult($Before,$After,[bool]$Expected){
  $a=DescriptorText $Before;$b=DescriptorText $After
  $beforeBytes=New-Object byte[] $Before.BinaryLength;$afterBytes=New-Object byte[] $After.BinaryLength;$Before.GetBinaryForm($beforeBytes,0);$After.GetBinaryForm($afterBytes,0)
- AssertControl ((Test-OpenWebTaskSecurityEquivalent $a $b) -eq $Expected)
+ $actual=Test-OpenWebTaskSecurityEquivalent $a $b
+ if($actual -ne $Expected){throw ('Task security public_string comparison failed; source caller line '+(@(Get-PSCallStack)[1].ScriptLineNumber))}
+ AssertControl ($actual -eq $Expected)
  AssertControl ((DescriptorText $Before) -ceq $a -and (DescriptorText $After) -ceq $b)
  $a2=New-Object byte[] $Before.BinaryLength;$b2=New-Object byte[] $After.BinaryLength;$Before.GetBinaryForm($a2,0);$After.GetBinaryForm($b2,0)
  AssertControl ([Convert]::ToBase64String($beforeBytes) -ceq [Convert]::ToBase64String($a2) -and [Convert]::ToBase64String($afterBytes) -ceq [Convert]::ToBase64String($b2))
 }
 function AssertRawResult($Before,$After,[bool]$Expected){
  $beforeBytes=New-Object byte[] $Before.BinaryLength;$afterBytes=New-Object byte[] $After.BinaryLength;$Before.GetBinaryForm($beforeBytes,0);$After.GetBinaryForm($afterBytes,0)
- $actual=@(& $rawFallback $Before $After);AssertControl ($actual.Count -eq 1 -and $actual[0] -is [bool] -and $actual[0] -eq $Expected)
+ $actual=@(& $rawFallback $Before $After)
+ if($actual.Count -ne 1 -or $actual[0] -isnot [bool] -or $actual[0] -ne $Expected){throw ('Task security raw_body comparison failed; source caller line '+(@(Get-PSCallStack)[1].ScriptLineNumber))}
+ AssertControl ($actual.Count -eq 1 -and $actual[0] -is [bool] -and $actual[0] -eq $Expected)
  $a2=New-Object byte[] $Before.BinaryLength;$b2=New-Object byte[] $After.BinaryLength;$Before.GetBinaryForm($a2,0);$After.GetBinaryForm($b2,0)
  AssertControl ([Convert]::ToBase64String($beforeBytes) -ceq [Convert]::ToBase64String($a2) -and [Convert]::ToBase64String($afterBytes) -ceq [Convert]::ToBase64String($b2))
 }
@@ -104,7 +108,9 @@ AssertDescriptorResult $changed $original $false
 foreach($attribute in 'Owner','Group'){$bad=CloneDescriptor $changed;$bad.$attribute=[Security.Principal.SecurityIdentifier]::new('S-1-5-20');AssertDescriptorResult $original $bad $false}
 foreach($flag in 0x1,0x2,0x4,0x8,0x10,0x20,0x100,0x200,0x800,0x1000,0x2000,0x4000){
  $bad=CloneDescriptor $changed;$bad.SetFlags([Security.AccessControl.ControlFlags]([int]$bad.ControlFlags -bxor $flag));AssertRawResult $original $bad $false
- if($flag -in 0x1000,0x2000){AssertDescriptorResult $original $bad $false}
+ # Windows omits SACL protection from SDDL when the SACL is null. Its raw
+ # negative remains above; the string negative below uses a present SACL.
+ if($flag -eq 0x1000){AssertDescriptorResult $original $bad $false}
 }
 foreach($mutation in 'mask','sid','flags','added','removed','multiplicity','revision','empty','null','deny','callback','object'){
  $bad=CloneDescriptor $changed;$acl=$bad.DiscretionaryAcl
@@ -127,14 +133,29 @@ foreach($mutation in 'mask','sid','flags','added','removed','multiplicity','revi
 }
 # Even the same unsupported ACEs reordered must fail fallback, not become an
 # ordering-insensitive comparison for mixed deny/object/callback semantics.
-foreach($sddl in 'O:SYG:BAD:(D;;FW;;;LS)(A;;FA;;;SY)','O:SYG:BAD:(XA;;FR;;;LS)(A;;FA;;;SY)','O:SYG:BAD:(OA;;FR;;;LS)(A;;FA;;;SY)'){
- $unsupported=[Security.AccessControl.RawSecurityDescriptor]::new($sddl);AssertDescriptorResult $unsupported (ReorderedDescriptor $unsupported @(1,0)) $false
+# OA without a GUID converts to ordinary Allowed, so this fixture needs one:
+# https://learn.microsoft.com/en-us/windows/win32/secauthz/ace-strings
+foreach($sddl in 'O:SYG:BAD:(D;;FW;;;LS)(A;;FA;;;SY)','O:SYG:BAD:(OA;;FR;11111111-2222-3333-4444-555555555555;;LS)(A;;FA;;;SY)'){
+ $unsupported=[Security.AccessControl.RawSecurityDescriptor]::new($sddl)
+ if($sddl.Contains('(OA;')){AssertControl ($unsupported.DiscretionaryAcl[0] -is [Security.AccessControl.ObjectAce] -and $unsupported.DiscretionaryAcl[0].AceType -eq [Security.AccessControl.AceType]::AccessAllowedObject -and $unsupported.DiscretionaryAcl[0].ObjectAceType -eq [Guid]'11111111-2222-3333-4444-555555555555')}
+ AssertDescriptorResult $unsupported (ReorderedDescriptor $unsupported @(1,0)) $false
 }
+# Opaque callback data is binary, not an unconditioned XA string. Keep its
+# exact ACE bytes and compare the actual raw fallback, without SDDL conversion.
+$callbackDescriptor=CloneDescriptor $original;$callbackAcl=[Security.AccessControl.RawAcl]::new(2,2)
+$callbackAcl.InsertAce(0,[Security.AccessControl.CommonAce]::new([Security.AccessControl.AceFlags]::None,[Security.AccessControl.AceQualifier]::AccessAllowed,1,[Security.Principal.SecurityIdentifier]::new('S-1-5-19'),$true,[byte[]]@(1,2,3,4)))
+$callbackAcl.InsertAce(1,$original.DiscretionaryAcl[0]);$callbackDescriptor.DiscretionaryAcl=$callbackAcl
+AssertControl ($callbackDescriptor.DiscretionaryAcl[0].IsCallback -and $callbackDescriptor.DiscretionaryAcl[0].AceType -eq [Security.AccessControl.AceType]::AccessAllowedCallback)
+AssertRawResult $callbackDescriptor (ReorderedDescriptor $callbackDescriptor @(1,0)) $false
 $duplicates=[Security.AccessControl.RawSecurityDescriptor]::new('O:SYG:BAD:(A;;FR;;;LS)(A;;FR;;;LS)(A;;FA;;;SY)')
 AssertDescriptorResult $duplicates (ReorderedDescriptor $duplicates @(2,1,0)) $true
 $bad=ReorderedDescriptor $duplicates @(2,1,0);$bad.DiscretionaryAcl.RemoveAce(1);$bad.DiscretionaryAcl.InsertAce(1,$bad.DiscretionaryAcl[0]);AssertDescriptorResult $duplicates $bad $false
 $withSacl=[Security.AccessControl.RawSecurityDescriptor]::new('O:SYG:BAD:(A;;FR;;;LS)(A;;FA;;;SY)S:(AU;SA;FR;;;WD)(AU;FA;FW;;;BA)')
 AssertDescriptorResult $withSacl (ReorderedDescriptor $withSacl @(1,0)) $true
+$protectedSacl=ReorderedDescriptor $withSacl @(1,0);$protectedSacl.SetFlags([Security.AccessControl.ControlFlags]([int]$protectedSacl.ControlFlags -bor 0x2000))
+$reparsedSacl=[Security.AccessControl.RawSecurityDescriptor]::new((DescriptorText $protectedSacl))
+AssertControl ($null -ne $reparsedSacl.SystemAcl -and [int]$protectedSacl.ControlFlags -eq [int]$reparsedSacl.ControlFlags -and ([int]$reparsedSacl.ControlFlags -band 0x2000) -eq 0x2000)
+AssertDescriptorResult $withSacl $protectedSacl $false
 foreach($mode in 'removed','reordered','mask','revision'){
  $bad=ReorderedDescriptor $withSacl @(1,0)
  switch($mode){
@@ -145,7 +166,10 @@ foreach($mode in 'removed','reordered','mask','revision'){
  };AssertRawResult $withSacl $bad $false;if($mode -ne 'revision'){AssertDescriptorResult $withSacl $bad $false}
 }
 foreach($sddl in 'O:SYG:BAD:NO_ACCESS_CONTROL','O:SYG:BAD:','O:SYG:BA'){
- $unusual=[Security.AccessControl.RawSecurityDescriptor]::new($sddl);$bad=CloneDescriptor $unusual;$bad.SetFlags([Security.AccessControl.ControlFlags]([int]$bad.ControlFlags -bor 0x400));AssertDescriptorResult $unusual $bad $false
+ $unusual=[Security.AccessControl.RawSecurityDescriptor]::new($sddl);$bad=CloneDescriptor $unusual;$bad.SetFlags([Security.AccessControl.ControlFlags]([int]$bad.ControlFlags -bor 0x400))
+ # Without DACL_PRESENT, SDDL omits D: and cannot carry this AI-only mutation.
+ # https://learn.microsoft.com/en-us/windows/win32/secauthz/security-descriptor-string-format
+ if($sddl -ceq 'O:SYG:BA'){AssertRawResult $unusual $bad $false}else{AssertDescriptorResult $unusual $bad $false}
 }
 $bad=CloneDescriptor $changed;$bad.ResourceManagerControl=1;AssertRawResult $original $bad $false
 foreach($node in $snapshotFunctions){LoadControlFunction $node;$a=TaskFixture (DescriptorText $original);$b=TaskFixture (DescriptorText $changed);$equalCalls=0;EqualTaskSnapshots $a $b 'owned control';AssertControl ($equalCalls -eq 1 -and $a['fictional-owned-task'].security -ceq (DescriptorText $original) -and $b['fictional-owned-task'].security -ceq (DescriptorText $changed))}
