@@ -154,7 +154,8 @@ class WorkerObservation:
                 try:
                     if type(result.returncode) is int and result.returncode!=0:
                         event={'event':'tool_failure','tool':tool,'failure_class':observer.classify(tool,result.stderr)}
-                        if -(2**31)<=result.returncode<2**31:event['returncode']=result.returncode
+                        if -(2**31)<=result.returncode<2**32:
+                            event['returncode']=result.returncode if result.returncode<2**31 else result.returncode-2**32
                         try:event.update(observer.details(tool,result.stderr))
                         except BaseException:pass
                         emit(event)
@@ -173,6 +174,47 @@ class WorkerObservation:
                 raise
             finally:observer.phase='after_upload'
         self.module.subprocess=Subprocess();self.module.run=run;self.module.upload_sftp=upload
+
+
+class LocalQueryObservation(WorkerObservation):
+    """Observe local query failures independently of the separate SYSTEM worker."""
+    def __init__(self,module,report):
+        super().__init__(module,report);self.phase='local_query';self.active=False;self.originals={};self.wrappers_restored=False
+    def record(self,event):
+        if self.active:super().record(event)
+    def __enter__(self):
+        self.originals={name:getattr(self.module,name) for name in ('run','subprocess','upload_sftp','query')}
+        try:
+            super().install();original=self.originals['query'];observer=self
+            def query(*arguments,**keywords):
+                previous=observer.active;observer.active=True
+                try:return original(*arguments,**keywords)
+                except BaseException as error:
+                    try:observer.record({'event':'query_failure','error_type':type(error).__name__ if type(error).__name__ in ERRORS else 'unknown'})
+                    except BaseException:pass
+                    raise
+                finally:observer.active=previous
+            self.module.query=query
+        except BaseException:
+            self.__exit__(*sys.exc_info());raise
+        return self
+    def __exit__(self,kind,error,trace):
+        try:
+            for name,value in self.originals.items():setattr(self.module,name,value)
+            self.wrappers_restored=all(getattr(self.module,name) is value for name,value in self.originals.items())
+        except BaseException:
+            if error is None:raise
+        return False
+    def safe_report(self):
+        events=[]
+        for event in self.events[:8]:
+            if event.get('phase')!='local_query' or event.get('event') not in {'tool_failure','run_failure','query_failure'}:continue
+            value={'event':event['event']}
+            for key,choices in [('tool',TOOLS),('failure_class',CLASSES),('error_type',ERRORS)]:
+                if isinstance(event.get(key),str) and event[key] in choices:value[key]=event[key]
+            if type(event.get('returncode')) is int and -(2**31)<=event['returncode']<2**31:value['returncode']=event['returncode']
+            events.append(value)
+        return {'schema':1,'wrappers_restored':self.wrappers_restored,'events':events,'truncated':self.truncated}
 
 
 def recovery_error(error):

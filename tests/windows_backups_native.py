@@ -40,6 +40,7 @@ BACKUP_ERROR_TYPES={'AssertionError','RuntimeError','BackupError','ModuleNotFoun
 LAST_HTTP={'target':'unknown','method':'unknown','status':None}
 LAST_FAILED_COMMAND=None
 LAST_WORKER_OBSERVATION=None
+LAST_LOCAL_QUERY_OBSERVATION=None
 LAST_RECOVERY_OBSERVATION=None
 LAST_TLS_PREPARATION=None
 
@@ -87,6 +88,9 @@ def backup_exception_fields(error,phase,checks):
     if LAST_FAILED_COMMAND is not None:fields['failed_command']=LAST_FAILED_COMMAND
     if LAST_WORKER_OBSERVATION is not None:
         try:fields['worker_observation']=LAST_WORKER_OBSERVATION.safe_report()
+        except BaseException:pass
+    if LAST_LOCAL_QUERY_OBSERVATION is not None:
+        try:fields['local_query_observation']=LAST_LOCAL_QUERY_OBSERVATION.safe_report()
         except BaseException:pass
     if LAST_RECOVERY_OBSERVATION is not None:
         try:fields['recovery_observation']=LAST_RECOVERY_OBSERVATION.safe_report()
@@ -229,7 +233,7 @@ def local_service_check(private,archive):
 
 
 def main(path):
-    global LAST_WORKER_OBSERVATION,LAST_RECOVERY_OBSERVATION
+    global LAST_WORKER_OBSERVATION,LAST_LOCAL_QUERY_OBSERVATION,LAST_RECOVERY_OBSERVATION
     data=json.loads(path.read_text(encoding='utf-8-sig'));private=path.parent;report=Path(data['report'])
     facts={'platform':'native Windows hosted runner','checks':[],'fully_qualified':False,'sftp':'unqualified'}
     phase='factory guard';settings=b.read_settings();password=secrets.token_hex(32);audit_key=os.urandom(32)
@@ -288,7 +292,8 @@ def main(path):
             observer_spec=importlib.util.spec_from_file_location('backup_worker_observer',Path(__file__).with_name('windows-backups-worker-observer.py'))
             observer=importlib.util.module_from_spec(observer_spec);observer_spec.loader.exec_module(observer)
             LAST_WORKER_OBSERVATION=observer.TaskActionLease(b,ps,private,Path(data['package_root']))
-            with LAST_WORKER_OBSERVATION:
+            LAST_LOCAL_QUERY_OBSERVATION=observer.LocalQueryObservation(b,private/'local-query-observer-report.json')
+            with LAST_LOCAL_QUERY_OBSERVATION,LAST_WORKER_OBSERVATION:
                 sent=request_backup(client,settings);archive=b.STORE/sent['filename']
                 assert sent['status']=='ready' and sent['remote_status']=='uploaded','The actual SYSTEM SFTP worker did not report verified upload'
                 target=Path(remote['observed_directory'])/archive.name

@@ -27,6 +27,11 @@ foreach($pair in @(@($ast,'SafeVoicemailFailureFields'),@($nativeAst,'VoicemailF
  Invoke-Expression $voicemailNodes[0].Extent.Text
 }
 $checks=0
+foreach($pair in @(@($ast,'SafeSmtpFailureFields'),@($nativeAst,'SmtpFailureFields'))){
+ $smtpNodes=@($pair[0].FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $pair[1]},$true))
+ if($smtpNodes.Count -ne 1){throw 'The actual SMTP filter must be uniquely identified.'}
+ Invoke-Expression $smtpNodes[0].Extent.Text
+}
 function Check([bool]$Value){if(!$Value){throw ('The bounded native failure field check failed at control line '+(Get-PSCallStack)[1].ScriptLineNumber)};$script:checks++}
 $record=[pscustomobject]@{
  active_case='independent_g729_pcmu_transcoding';error_type='AssertionError';source_basename='pbx_v20_restore_native.py';source_line=236
@@ -252,4 +257,17 @@ foreach($field in 'payload_extra_categories','payload_extra_extensions','payload
 $music=[pscustomobject]@{active_case='direct_reapply_complete';command_basename='php.exe';command_exit=[long]255;music_stage='native_default';source_basename='pbx_music.php';source_line=9;error_type='RuntimeException';message='private-never-copy';path='private-never-copy'}
 foreach($stage in 'initialization','bootstrap','music_install','native_default','completion'){$copy=$music.PSObject.Copy();$copy.music_stage=$stage;$safe=SafeFailureFields $copy;Check ($safe.music_stage -ceq $stage -and $safe.command_exit -eq 255);Check (($safe|ConvertTo-Json) -notmatch 'private-never-copy|"message"|"path"')}
 foreach($bad in @(@('active_case','manager_reopened'),@('active_case','DIRECT_REAPPLY_COMPLETE'),@('command_basename','other.exe'),@('command_exit','255'),@('command_exit',$true),@('command_exit',0),@('music_stage','PRIVATE_SECRET'),@('music_stage','NATIVE_DEFAULT'),@('music_stage',1),@('music_stage',$true))){$copy=$music.PSObject.Copy();$copy.($bad[0])=$bad[1];Check (!(SafeFailureFields $copy).ContainsKey('music_stage'))}
-Write-Output "PASS $checks actual caller native primary/cleanup/media/queue/voicemail/mailbox/hotel/payload/music privacy allowlist checks; no PBX contacted"
+$smtp=[pscustomobject]@{active_case='global_smtp_trusted_tls_hostname_auth';smtp_stage='delivery';smtp_connection_check_passed=$true;smtp_queue_observed=$true;smtp_tick_outcome='processed';smtp_tick_exit=[long]0;smtp_tick_selected=[long]1;smtp_tick_processed=1;smtp_tick_maintenance_deferrals=1;smtp_tick_retry_count=1;smtp_delivery_count=0;smtp_envelope_count=0;smtp_session_count=1;smtp_authenticated_session_count=1;smtp_tls_accepted_count=2;smtp_tls_handshake_completed_count=1;smtp_tls_handshake_failed_count=1;smtp_tls_error_type='SSLError';smtp_seed_row_count=1;smtp_seed_status='waiting';smtp_seed_retry_count=1;smtp_seed_response_class='certificate';password='private-never-copy';smtp_private='private-never-copy'}
+foreach($filter in 'SmtpFailureFields','SafeSmtpFailureFields','SafeFailureFields'){
+ $safe=& $filter $smtp;Check ($safe.smtp_stage -ceq 'delivery' -and $safe.smtp_tick_processed -eq 1 -and $safe.smtp_tls_handshake_failed_count -eq 1 -and $safe.smtp_seed_response_class -ceq 'certificate')
+ Check (($safe|ConvertTo-Json -Depth 8) -notmatch 'private-never-copy|password|smtp_private')
+ foreach($field in 'smtp_connection_check_passed','smtp_queue_observed'){foreach($bad in 'true',1,$null){$copy=$smtp.PSObject.Copy();$copy.$field=$bad;Check (!(& $filter $copy).ContainsKey($field))}}
+ foreach($pair in @(@('smtp_delivery_count',64),@('smtp_envelope_count',64),@('smtp_session_count',64),@('smtp_authenticated_session_count',64),@('smtp_tls_accepted_count',64),@('smtp_tls_handshake_completed_count',64),@('smtp_tls_handshake_failed_count',64),@('smtp_seed_row_count',64),@('smtp_tick_maintenance_deferrals',64),@('smtp_tick_retry_count',64),@('smtp_tick_selected',10),@('smtp_tick_processed',10),@('smtp_seed_retry_count',100))){
+  foreach($bad in '1',$true,1.5,-1,($pair[1]+1),[double]::NaN,[double]::PositiveInfinity){$copy=$smtp.PSObject.Copy();$copy.($pair[0])=$bad;Check (!(& $filter $copy).ContainsKey($pair[0]))}
+ }
+ foreach($field in 'smtp_stage','smtp_tick_outcome','smtp_tls_error_type','smtp_seed_status','smtp_seed_response_class'){foreach($bad in 'private-never-copy','DELIVERY',1,$true,$null){$copy=$smtp.PSObject.Copy();$copy.$field=$bad;Check (!(& $filter $copy).ContainsKey($field))}}
+ foreach($bad in '0',$true,1.5,([long][int]::MinValue-1),([long][int]::MaxValue+1)){$copy=$smtp.PSObject.Copy();$copy.smtp_tick_exit=$bad;Check (!(& $filter $copy).ContainsKey('smtp_tick_exit'))}
+ foreach($bad in 'global_smtp_password_auth','GLOBAL_SMTP_TRUSTED_TLS_HOSTNAME_AUTH','private-never-copy',$null){$copy=$smtp.PSObject.Copy();$copy.active_case=$bad;Check (@((& $filter $copy).Keys|Where-Object {$_ -like 'smtp_*'}).Count -eq 0)}
+ $roundtrip=$smtp|ConvertTo-Json|ConvertFrom-Json;Check ((& $filter $roundtrip).smtp_tick_processed -eq 1)
+}
+Write-Output "PASS $checks actual caller native primary/cleanup/media/queue/voicemail/mailbox/hotel/payload/music/SMTP privacy allowlist checks; no PBX contacted"

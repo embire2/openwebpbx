@@ -202,6 +202,20 @@ function SafeComparisonFields($Record){
  }
  return $safe
 }
+function SafeSmtpFailureFields($Record){
+ $safe=@{}
+ if($Record.active_case -isnot [string] -or $Record.active_case -cne 'global_smtp_trusted_tls_hostname_auth'){return $safe}
+ foreach($field in 'smtp_connection_check_passed','smtp_queue_observed'){if($Record.$field -is [bool]){$safe[$field]=$Record.$field}}
+ foreach($field in 'smtp_delivery_count','smtp_envelope_count','smtp_session_count','smtp_authenticated_session_count','smtp_tls_accepted_count','smtp_tls_handshake_completed_count','smtp_tls_handshake_failed_count','smtp_seed_row_count','smtp_tick_maintenance_deferrals','smtp_tick_retry_count'){$value=$Record.$field;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 64){$safe[$field]=$value}}
+ foreach($field in 'smtp_tick_selected','smtp_tick_processed'){$value=$Record.$field;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 10){$safe[$field]=$value}}
+ $value=$Record.smtp_seed_retry_count;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 100){$safe.smtp_seed_retry_count=$value}
+ $value=$Record.smtp_tick_exit;if(($value -is [int] -or $value -is [long]) -and $value -ge [int]::MinValue -and $value -le [int]::MaxValue){$safe.smtp_tick_exit=$value}
+ foreach($pair in @(@('smtp_stage',@('save','connection_check','seed','dispatch','delivery')),@('smtp_tick_outcome',@('unrecognized','command_failed','command_timeout','deferred_maintenance','deferred_restore','unconfigured','processed')),@('smtp_tls_error_type',@('SSLError','TimeoutError','OSError','external_error')),@('smtp_seed_status',@('waiting','trying','sent','failed')),@('smtp_seed_response_class',@('none','configuration','certificate','authentication','connection','other')))){
+  $value=$Record.($pair[0]);if($value -is [string] -and $value -cin $pair[1]){$safe[$pair[0]]=$value}
+ }
+ return $safe
+}
+
 function SafeFailureFields($Record){
  $safe=@{}
  if($Record.active_case -is [string] -and $Record.active_case -ceq 'manager_original_closed'){
@@ -279,6 +293,7 @@ function SafeFailureFields($Record){
  foreach($entry in (SafeVoicemailFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  foreach($entry in (SafeMailboxFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  foreach($entry in (SafeHotelFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
+ foreach($entry in (SafeSmtpFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  foreach($entry in (SafeNativeCleanupFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  return $safe
 }
@@ -465,6 +480,28 @@ function ExportOriginalCandidate($Release){
  [IO.Directory]::Move($staging,$candidatePublic)
  $facts.candidate_artifact=@{filename=$filename;sha256=$checksum;verified_before_credentials=$true;private_exclusions='passed';qualification='reported separately'}
 }
+function Acquire-SuiteCleanupLock([string]$StateRoot,[string]$PrivateDirectory){
+ $timer=[Diagnostics.Stopwatch]::StartNew();$attempts=0;$contended=$false
+ do{
+  $attempts++
+  try{
+   $handle=[IO.File]::Open("$StateRoot\upgrade.lock",'OpenOrCreate','ReadWrite','None')
+   $facts.cleanup_lock_acquisition=@{attempts=$attempts;initial_contended=$contended;acquired=$true}
+   return $handle
+  }catch{
+   $failure=$_
+   $native=$failure.Exception;while($native.InnerException){$native=$native.InnerException}
+   if(!$contended){
+    $contended=$true
+    try{$facts.cleanup_lock_observation=SafeOpenWebUpgradeLockFields (Get-OpenWebUpgradeLockObservation $StateRoot $PrivateDirectory (Read-OpenWebUpdaterGeneration $PrivateDirectory))}catch{}
+   }
+   $facts.cleanup_lock_acquisition=@{attempts=$attempts;initial_contended=$contended;acquired=$false}
+   if($native -isnot [IO.IOException] -or $timer.Elapsed.TotalSeconds -ge 40){throw 'An owned transaction is still running; cleanup must not interrupt it.'}
+   Start-Sleep -Milliseconds 250
+  }
+ }while($timer.Elapsed.TotalSeconds -lt 40)
+ throw 'An owned transaction is still running; cleanup must not interrupt it.'
+}
 function BackupFailureReport([string]$Path,[datetime]$StartedAt){
  $safe=@{schema=1;observation='failure_only';report_status='unavailable'}
  try{
@@ -508,6 +545,19 @@ function BackupFailureReport([string]$Path,[datetime]$StartedAt){
    $categories=@{action=@('create','verify');status=@('failed');message_category=@('private_file_changed','password_or_key_unreadable','required_tool_timeout_or_unavailable','required_tool_failed','retention_integrity','private_storage_unavailable','generic_non_backup_error','unknown');local_status=@('creating','ready','failed','absent','unknown');remote_status=@('disabled','pending','uploaded','failed','absent','unknown')}
    foreach($key in $categories.Keys){if($command.$key -is [string] -and $command.$key -cin $categories[$key]){$safe.failed_command[$key]=$command.$key}}
    if(& $integer $command.linked_count 0 1){$safe.failed_command.linked_count=[int]$command.linked_count}
+  }
+  $local=$failure.local_query_observation
+  if((& $integer $local.schema 1 1) -and $local.wrappers_restored -is [bool] -and $local.truncated -is [bool]){
+   $safe.local_query_observation=@{schema=1;wrappers_restored=$local.wrappers_restored;truncated=$local.truncated;events=@()}
+   $events=@($local.events)
+   if($events.Count -le 8){foreach($event in $events){
+    if($event.event -isnot [string] -or $event.event -cnotin @('tool_failure','run_failure','query_failure')){continue}
+    $entry=@{event=$event.event}
+    $choices=@{tool=@('psql','pg_dump','pg_restore','ssh-keygen','sftp','powershell','unknown');failure_class=@('database_invalid_encoding','database_client_encoding','database_permission','database_connection','database_syntax','ssh_private_key_permissions','ssh_private_key_format','ssh_private_key_unreadable','ssh_host_key','ssh_authentication','ssh_connection','ssh_remote_path','unknown');error_type=@('BackupError','TimeoutExpired','OSError','FileNotFoundError','PermissionError','UnicodeDecodeError','unknown')}
+    foreach($key in $choices.Keys){if($event.$key -is [string] -and $event.$key -cin $choices[$key]){$entry[$key]=$event.$key}}
+    if(& $integer $event.returncode -2147483648 2147483647){$entry.returncode=[int64]$event.returncode}
+    $safe.local_query_observation.events+=,$entry
+   }}
   }
   $worker=$failure.worker_observation
   if((& $integer $worker.schema 1 1) -and $worker.report_status -is [string] -and $worker.report_status -cin @('read','refused','unavailable')){
@@ -766,14 +816,12 @@ try{
 }finally{
  Remove-Item Env:\GH_TOKEN -ErrorAction SilentlyContinue
  $cleanup=$true
+ $cleanupLock=$null
  try{
   if($installed){
-   $cleanupLock=$null
-   try{$cleanupLock=[IO.File]::Open("$state\upgrade.lock",'OpenOrCreate','ReadWrite','None')}catch{
-    try{$facts.cleanup_lock_observation=SafeOpenWebUpgradeLockFields (Get-OpenWebUpgradeLockObservation $state $work (Read-OpenWebUpdaterGeneration $work))}catch{}
-    throw 'An owned transaction is still running; cleanup must not interrupt it.'
-   }
-   $cleanupLock.Dispose()
+   $cleanupLock=Acquire-SuiteCleanupLock $state $work
+   # Retain this exclusive guard through teardown. Releasing after the probe
+   # lets an owned background task begin a transaction before shutdown.
    # Shutdown honors activation holds. This owned ephemeral instance is never
    # restarted by cleanup, and no customer/factory hold marker is removed.
    foreach($name in 'OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate','OpenWebPBX Outgoing Mail'){if(Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue){Disable-ScheduledTask -TaskName $name|Out-Null}}
@@ -801,7 +849,7 @@ try{
  }catch{
   $cleanup=$false
   $facts.cleanup_failure=SafeFailureFields ([pscustomobject]@{error_type=$_.Exception.GetType().FullName;source_basename=(Split-Path -Leaf $_.InvocationInfo.ScriptName);source_line=[int]$_.InvocationInfo.ScriptLineNumber})
- }
+ }finally{if($cleanupLock){$cleanupLock.Dispose()}}
  if($acceptanceFile){Remove-Item -LiteralPath $acceptanceFile -Force -ErrorAction SilentlyContinue}
  $facts.cleanup=if($cleanup){'owned services stopped, SFTP receiver/account removed, hostname removed, activation holds preserved'}else{'failed'}
  if(!$cleanup){if($facts.state -ne 'failed'){$facts.failed_phase='owned cleanup'};$facts.state='failed'}

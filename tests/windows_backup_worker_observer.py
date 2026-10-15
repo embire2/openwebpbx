@@ -37,6 +37,59 @@ def backup_module(tool='sftp'):
 
 class Controls(unittest.TestCase):
     def setUp(self):self.observer=library()
+    def query_module(self,command):
+        module=backup_module('psql');module.json=json
+        tree=ast.parse((ROOT/'packaging/windows/backups.py').read_text())
+        definition=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='query')
+        exec(compile(ast.Module([definition],type_ignores=[]),str(ROOT/'packaging/windows/backups.py'),'exec'),module.__dict__)
+        module.database_command=lambda settings:command
+        module.database_environment=lambda settings:os.environ.copy()
+        return module
+    def test_local_actual_query_failure_once_closed_class_and_wrappers_restored(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);counter=root/'counter';received=root/'sql-private'
+            child=root/'fake-tool.py';child.write_text('import pathlib,sys\npathlib.Path('+repr(str(counter))+').write_text("once")\npathlib.Path('+repr(str(received))+').write_bytes(sys.stdin.buffer.read())\nsys.stderr.write("connection to server at \\\"'+MARKER+'\\\" failed: private")\nsys.exit(2)\n')
+            module=self.query_module([sys.executable,str(child)]);originals={key:getattr(module,key) for key in ('query','run','subprocess','upload_sftp')}
+            observation=self.observer.LocalQueryObservation(module,root/'report.json')
+            with self.assertRaises(module.BackupError):
+                with observation:module.query({},'SELECT '+MARKER,json_result=True)
+            self.assertEqual(counter.read_text(),'once');self.assertEqual(received.read_bytes(),('SET standard_conforming_strings=on;\nSELECT '+MARKER).encode())
+            self.assertTrue(all(getattr(module,key) is value for key,value in originals.items()))
+            safe=observation.safe_report();self.assertTrue(safe['wrappers_restored'])
+            self.assertEqual(safe['events'],[{'event':'tool_failure','tool':'psql','failure_class':'database_connection','returncode':2},
+                {'event':'run_failure','tool':'psql','error_type':'BackupError'},{'event':'query_failure','error_type':'BackupError'}])
+            self.assertNotIn(MARKER,json.dumps(safe));self.assertNotIn(str(root),json.dumps(safe))
+    def test_local_actual_query_success_exact_result_and_unrelated_failure_not_recorded(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);counter=root/'count';child=root/'fake-tool.py'
+            child.write_text('import pathlib,sys\npathlib.Path('+repr(str(counter))+').write_text("once")\nsys.stdout.write(\'{"value":"'+MARKER+'"}\')\n')
+            module=self.query_module([sys.executable,str(child)]);observation=self.observer.LocalQueryObservation(module,root/'report.json')
+            with observation:
+                self.assertEqual(module.query({},'SELECT '+MARKER,json_result=True),{'value':MARKER})
+                with self.assertRaises(module.BackupError):module.run([sys.executable,'-c','raise SystemExit(7)'])
+            self.assertEqual(counter.read_text(),'once');self.assertEqual(observation.safe_report()['events'],[])
+            self.assertTrue(observation.safe_report()['wrappers_restored']);self.assertFalse((root/'report.json').exists())
+    def test_local_query_original_exception_and_failed_observation_remain_exact(self):
+        module=backup_module('psql');original=module.BackupError(MARKER);calls=[]
+        def query(*args,**kwargs):calls.append((args,kwargs));raise original
+        module.query=query;before={key:getattr(module,key) for key in ('query','run','subprocess','upload_sftp')}
+        with tempfile.TemporaryDirectory() as temporary:
+            observation=self.observer.LocalQueryObservation(module,Path(temporary)/'report.json')
+            with self.assertRaises(module.BackupError) as failure:
+                with observation,patch.object(observation,'record',side_effect=RuntimeError(MARKER)):module.query('unchanged',mode=MARKER)
+            self.assertIs(failure.exception,original);self.assertEqual(calls,[(('unchanged',),{'mode':MARKER})])
+            self.assertTrue(all(getattr(module,key) is value for key,value in before.items()))
+            observation.events=[{'event':'tool_failure','phase':'local_query','tool':['psql',MARKER],'returncode':True,'private':MARKER}]
+            self.assertEqual(observation.safe_report()['events'],[{'event':'tool_failure'}]);self.assertNotIn(MARKER,json.dumps(observation.safe_report()))
+    def test_windows_high_bit_exit_is_observed_without_changing_process_result(self):
+        module=backup_module('psql');module.query=lambda:module.subprocess.run([sys.executable])
+        expected=subprocess.CompletedProcess([sys.executable],0xc0000005,b'',MARKER.encode())
+        with tempfile.TemporaryDirectory() as temporary:
+            observation=self.observer.LocalQueryObservation(module,Path(temporary)/'report.json')
+            with patch.object(subprocess,'run',return_value=expected) as delegated:
+                with observation:result=module.query()
+            delegated.assert_called_once_with([sys.executable]);self.assertIs(result,expected);self.assertEqual(result.returncode,0xc0000005)
+            self.assertEqual(observation.safe_report()['events'],[{'event':'tool_failure','tool':'psql','failure_class':'unknown','returncode':-1073741819}])
     def test_exact_tool_classes_and_no_private_values(self):
         cases=[('psql',b'ERROR: invalid byte sequence for encoding "UTF8": 0x92','database_invalid_encoding'),
             ('psql',b'ERROR: invalid value for parameter "client_encoding": private','database_client_encoding'),

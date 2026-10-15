@@ -18,6 +18,15 @@ function windows_native_fixture_failure_record(Throwable $error,string $inputFil
   try{return fwrite($stream,$bytes)===strlen($bytes)&&fflush($stream);}finally{fclose($stream);}
  }catch(Throwable $ignored){return false;}
 }
+function windows_native_mail_response_class(?string $response): string {
+ if($response===null||$response==='')return 'none';
+ if(strlen($response)>65536)return 'other';
+ if(str_contains($response,'Configure global outgoing mail'))return 'configuration';
+ if(preg_match('/certificate verify failed|certificate verification|peer certificate|certificate.*(?:expired|hostname|name)/i',$response))return 'certificate';
+ if(preg_match('/(?:could not|failed to) authenticate|authentication failed|535[ -]/i',$response))return 'authentication';
+ if(preg_match('/could not connect|failed to connect|connection (?:refused|timed out)|connect\(\) failed|SMTP connect\(\) failed/i',$response))return 'connection';
+ return 'other';
+}
 function windows_native_queue_table(string $text): array {
  if(strlen($text)>65536)return [];$lines=preg_split('/\r?\n/',trim($text));$keys=explode('|',array_shift($lines)??'');
  if(!$keys||count($keys)>64||array_filter($keys,static fn($key)=>!preg_match('/^[a-z_]+$/D',$key)))return [];
@@ -135,7 +144,9 @@ if($action==='status'){
  $messages=$q('select m.voicemail_message_uuid,m.message_length,v.voicemail_id from v_voicemail_messages m join v_voicemails v using(voicemail_uuid,domain_uuid) where m.domain_uuid=?',[$domain])->fetchAll(PDO::FETCH_ASSOC);
  foreach($messages as &$message)$message['message_path']=pbx_paths::voicemail().'/default/'.$realm.'/'.$message['voicemail_id'].'/msg_'.$message['voicemail_message_uuid'].'.wav';unset($message);
  $codecPreferences=[];foreach($q('select extension_uuid,extension,password,absolute_codec_string from v_extensions where domain_uuid=?',[$domain])->fetchAll(PDO::FETCH_ASSOC) as $row)$codecPreferences[$row['extension']]=['extension_uuid'=>$row['extension_uuid'],'absolute_codec_string'=>$row['absolute_codec_string']??'','password_sha256'=>hash('sha256',$row['password'])];
- echo json_encode(['bind'=>$m[1],'config'=>$c,'extension_codec_preferences'=>$codecPreferences,'registration_limits'=>$q('select max_registrations from v_extensions where domain_uuid=? order by extension',[$domain])->fetchAll(PDO::FETCH_COLUMN),'jobs'=>$q('select job_uuid,kind,queue_number,target_number,internal_target,request_key,state,attempts,max_attempts,last_result,call_uuid,due_at<=now() as due,expires_at<=now() as expired,lease_until<now() as lease_expired,lease_until is not null as has_lease from v_pbx_jobs where domain_uuid=? order by created_at',[$domain])->fetchAll(PDO::FETCH_ASSOC),'voicemail'=>$messages,'mail'=>$q('select email_queue_uuid,email_uuid,email_status,email_retry_count from v_email_queue where domain_uuid=?',[$domain])->fetchAll(PDO::FETCH_ASSOC)],JSON_THROW_ON_ERROR);exit;
+ $mail=$q('select email_queue_uuid,email_uuid,email_status,email_retry_count,email_response from v_email_queue where domain_uuid=?',[$domain])->fetchAll(PDO::FETCH_ASSOC);
+ foreach($mail as &$row){$row['response_class']=windows_native_mail_response_class($row['email_response']);unset($row['email_response']);}unset($row);
+ echo json_encode(['bind'=>$m[1],'config'=>$c,'extension_codec_preferences'=>$codecPreferences,'registration_limits'=>$q('select max_registrations from v_extensions where domain_uuid=? order by extension',[$domain])->fetchAll(PDO::FETCH_COLUMN),'jobs'=>$q('select job_uuid,kind,queue_number,target_number,internal_target,request_key,state,attempts,max_attempts,last_result,call_uuid,due_at<=now() as due,expires_at<=now() as expired,lease_until<now() as lease_expired,lease_until is not null as has_lease from v_pbx_jobs where domain_uuid=? order by created_at',[$domain])->fetchAll(PDO::FETCH_ASSOC),'voicemail'=>$messages,'mail'=>$mail],JSON_THROW_ON_ERROR);exit;
 }
 if($action==='queue-state'){
  $ownedAgent=static fn(string $id):bool=>(bool)$q('select 1 from v_call_center_agents where domain_uuid=? and call_center_agent_uuid=?',[$domain,$id])->fetchColumn();

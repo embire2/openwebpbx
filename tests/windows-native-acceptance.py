@@ -1203,6 +1203,87 @@ def native_calls(f):
         native_cleanup(sys.exc_info()[1],stage,steps)
 
 
+def smtp_tick_fields(result):
+    facts={'smtp_tick_outcome':'unrecognized'}
+    if type(result.returncode) is int and -(2**31)<=result.returncode<2**31:facts['smtp_tick_exit']=result.returncode
+    if result.returncode:
+        facts['smtp_tick_outcome']='command_failed';return facts
+    try:
+        assert len(result.stdout)<=4096
+        row=json.loads(result.stdout)
+        assert type(row) is dict
+        if set(row)=={'deferred','reason'} and row.get('deferred') is True and row.get('reason') in ('maintenance','restore'):
+            facts['smtp_tick_outcome']='deferred_'+row['reason']
+        elif set(row)=={'configured','selected','attempts_consumed'} and row.get('configured') is False and all(type(row.get(k)) is int and row[k]==0 for k in ('selected','attempts_consumed')):
+            facts['smtp_tick_outcome']='unconfigured'
+        elif set(row)=={'configured','selected','processed'} and row.get('configured') is True and all(type(row.get(k)) is int and 0<=row[k]<=10 for k in ('selected','processed')) and row['processed']<=row['selected']:
+            facts.update(smtp_tick_outcome='processed',smtp_tick_selected=row['selected'],smtp_tick_processed=row['processed'])
+    except (AssertionError,ValueError,TypeError):pass
+    return facts
+
+
+def smtp_tick(f,deadline=None):
+    f.smtp_failure.update(smtp_tick_maintenance_deferrals=0,smtp_tick_retry_count=0)
+    while True:
+        remaining=110 if deadline is None else deadline-time.monotonic()
+        assert remaining>0,'Mail dispatch exhausted its existing observation budget'
+        try:result=subprocess.run([WINPS,'-NoProfile','-NonInteractive','-File','C:/OpenWebPBX/tools/Install-MailQueue.ps1','-Tick'],capture_output=True,timeout=min(110,remaining))
+        except subprocess.TimeoutExpired:
+            f.smtp_failure['smtp_tick_outcome']='command_timeout';raise
+        # A task can exit zero after deliberately deferring maintenance. Preserve
+        # its real result instead of presenting that as an attempted SMTP send.
+        with (f.evidence/'smtp-tick.private.out').open('ab') as stream:stream.write(result.stdout)
+        with (f.evidence/'smtp-tick.private.err').open('ab') as stream:stream.write(result.stderr)
+        f.smtp_failure.update(smtp_tick_fields(result));result.check_returncode()
+        outcome=f.smtp_failure['smtp_tick_outcome']
+        if outcome!='deferred_maintenance' or deadline is None:
+            assert outcome in ('processed','unconfigured'),'Mail dispatch did not attempt the configured queue'
+            return result
+        f.smtp_failure['smtp_tick_maintenance_deferrals']+=1
+        remaining=deadline-time.monotonic()
+        assert remaining>0 and f.smtp_failure['smtp_tick_maintenance_deferrals']<64,'Mail maintenance deferral exhausted its existing observation budget'
+        time.sleep(min(.25,remaining))
+        f.smtp_failure['smtp_tick_retry_count']+=1
+
+
+def smtp_snapshot(f,sink,seed):
+    facts=dict(f.smtp_failure)
+    with sink.record_lock:
+        facts.update(smtp_delivery_count=min(64,len(sink.deliveries)),smtp_envelope_count=min(64,len(sink.envelopes)),
+            smtp_session_count=min(64,len(sink.connections)),smtp_authenticated_session_count=min(64,sum(auth for auth,_ in sink.connections)))
+        for name in ('accepted','handshake_completed','handshake_failed'):
+            if hasattr(sink,name):facts['smtp_tls_'+name+'_count']=min(64,getattr(sink,name))
+        if getattr(sink,'handshake_error',None) in ('SSLError','TimeoutError','OSError','external_error'):facts['smtp_tls_error_type']=sink.handshake_error
+    try:
+        rows=f.cli('status')['mail'];assert type(rows) is list and len(rows)<=64
+        owned=[row for row in rows if row.get('email_queue_uuid')==seed]
+        facts['smtp_seed_row_count']=len(owned)
+        if len(owned)==1:
+            row=owned[0]
+            if row.get('email_status') in ('waiting','trying','sent','failed'):facts['smtp_seed_status']=row['email_status']
+            value=row.get('email_retry_count')
+            if type(value) is int and 0<=value<=100:facts['smtp_seed_retry_count']=value
+            if row.get('response_class') in ('none','configuration','certificate','authentication','connection','other'):facts['smtp_seed_response_class']=row['response_class']
+        facts['smtp_queue_observed']=True
+    except BaseException:facts['smtp_queue_observed']=False
+    return facts
+
+
+class NativeSMTPTLSSink(socketserver.ThreadingTCPServer):
+    def get_request(self):
+        raw,address=super().get_request()
+        with self.record_lock:self.accepted+=1
+        try:connection=self.tls_context.wrap_socket(raw,server_side=True)
+        except BaseException as error:
+            raw.close()
+            with self.record_lock:
+                self.handshake_failed+=1
+                self.handshake_error=next((name for cls,name in ((ssl.SSLError,'SSLError'),(TimeoutError,'TimeoutError'),(OSError,'OSError')) if isinstance(error,cls)),'external_error')
+            raise
+        with self.record_lock:self.handshake_completed+=1
+        return connection,address
+
+
 def smtp_and_queued_voicemail(f):
     f.active_case='global_smtp_unconfigured_queue_preservation'
     module=load_module('smtp_fixture',f.source/'tests/smtp_transport_integration.py')
@@ -1233,22 +1314,31 @@ def smtp_and_queued_voicemail(f):
             f.record('native_global_smtp_password_auth_actual_loopback')
         finally:sink.shutdown();worker.join(3)
     context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.load_cert_chain(f.evidence/'fixture-leaf.pem',f.evidence/'fixture-key.pem')
-    class TLSSink(socketserver.ThreadingTCPServer):
-        def get_request(self):
-            raw,address=super().get_request();return context.wrap_socket(raw,server_side=True),address
-    with TLSSink(('127.0.0.1',0),module.SMTPFixture) as sink:
+    with NativeSMTPTLSSink(('127.0.0.1',0),module.SMTPFixture) as sink:
         sink.deliveries=[];sink.connections=[];sink.envelopes=[];sink.record_lock=threading.Lock();sink.daemon_threads=True
+        sink.tls_context=context;sink.accepted=0;sink.handshake_completed=0;sink.handshake_failed=0
         worker=threading.Thread(target=sink.serve_forever,daemon=True);worker.start()
+        seed=None;f.smtp_failure={}
         try:
             f.active_case='global_smtp_trusted_tls_hostname_auth'
+            f.smtp_failure['smtp_stage']='save'
             values.update(smtp_host='windowsqa.example.invalid',smtp_port=str(sink.server_address[1]),smtp_secure='ssl')
             f.web.submit('/app/smtp_settings/','save',values)
-            f.web.submit('/app/smtp_settings/','check',{})
+            f.smtp_failure['smtp_stage']='connection_check'
+            result=f.web.submit('/app/smtp_settings/','check',{})
+            f.smtp_failure['smtp_connection_check_passed']='SMTP connection succeeded. No email was sent.' in result[2]
+            assert f.smtp_failure['smtp_connection_check_passed'],'Normal SMTP connection check did not confirm success'
             assert not sink.deliveries,'Saved connection check unexpectedly delivered mail'
-            f.cli('mail-seed')
-            subprocess.run([WINPS,'-NoProfile','-NonInteractive','-File','C:/OpenWebPBX/tools/Install-MailQueue.ps1','-Tick'],capture_output=True,check=True,timeout=110)
-            f.wait(lambda:bool(sink.deliveries),15);assert sink.deliveries[-1][0],'Trusted SMTP TLS/AUTH failed'
-            f.record('native_global_smtp_trusted_tls_hostname_auth_actual_loopback',no_external_mail=True)
+            f.smtp_failure['smtp_stage']='seed';seed=f.cli('mail-seed')['id']
+            f.smtp_failure['smtp_stage']='dispatch';deadline=time.monotonic()+15;smtp_tick(f,deadline)
+            f.smtp_failure['smtp_stage']='delivery'
+            if not sink.deliveries:f.wait(lambda:bool(sink.deliveries),max(0,deadline-time.monotonic()))
+            assert sink.deliveries[-1][0],'Trusted SMTP TLS/AUTH failed'
+            observed=smtp_snapshot(f,sink,seed)
+            assert observed.get('smtp_seed_row_count')==1 and observed.get('smtp_seed_status')=='sent','Trusted SMTP queue did not finish its owned seeded message'
+            f.record('native_global_smtp_trusted_tls_hostname_auth_actual_loopback',no_external_mail=True,maintenance_deferrals=f.smtp_failure['smtp_tick_maintenance_deferrals'],dispatch_retries=f.smtp_failure['smtp_tick_retry_count'])
+        except BaseException as error:
+            error.smtp_failure=smtp_snapshot(f,sink,seed);raise
         finally:sink.shutdown();worker.join(3)
 
 
@@ -1276,6 +1366,7 @@ def main():
         if getattr(e,'voicemail_failure',None):failure.update(e.voicemail_failure)
         if getattr(e,'mailbox_failure',None):failure.update(e.mailbox_failure)
         if getattr(e,'hotel_failure',None):failure.update(e.hotel_failure)
+        if getattr(e,'smtp_failure',None):failure.update(e.smtp_failure)
         (f.evidence/'software-native-report.json').write_text(json.dumps(failure,indent=2))
         raise
 

@@ -24,7 +24,7 @@ FOREIGN='bbbbbbbb-2222-4222-8222-222222222222'
 
 def library(legacy=False):
     tree=ast.parse(SOURCE.read_text())
-    names={'BACKUP_PHASES','BACKUP_ERROR_TYPES','LAST_HTTP','LAST_FAILED_COMMAND','LAST_WORKER_OBSERVATION','LAST_RECOVERY_OBSERVATION','LAST_TLS_PREPARATION'}
+    names={'BACKUP_PHASES','BACKUP_ERROR_TYPES','LAST_HTTP','LAST_FAILED_COMMAND','LAST_WORKER_OBSERVATION','LAST_LOCAL_QUERY_OBSERVATION','LAST_RECOVERY_OBSERVATION','LAST_TLS_PREPARATION'}
     nodes=[n for n in tree.body if isinstance(n,(ast.Import,ast.ImportFrom)) or
         isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id in names for t in n.targets) or
         isinstance(n,ast.ClassDef) and n.name in {'Hidden','Http'} or
@@ -198,6 +198,10 @@ class Diagnostics(unittest.TestCase):
             fields['worker_observation']={'schema':1,'report_status':'read','action_restored':True,'truncated':False,'events':[
                 {'event':'tool_failure','phase':'upload','tool':'sftp','failure_class':'ssh_host_key','returncode':7,'private':MARKER},
                 {'event':'tool_failure','phase':'after_upload','tool':'psql','failure_class':'database_invalid_encoding','returncode':3}]}
+            fields['local_query_observation']={'schema':1,'wrappers_restored':True,'truncated':False,'private':MARKER,'events':[
+                {'event':'tool_failure','tool':'psql','failure_class':'database_connection','returncode':2,'private':MARKER},
+                {'event':'run_failure','tool':'psql','error_type':'BackupError'},
+                {'event':'query_failure','error_type':'BackupError'}]}
             fields['recovery_observation']={'schema':1,'journal_state':'recovery_required','injection_reached':False,'recover_called':True,'wrappers_restored':True,'truncated':False,
                 'original_error':{'error_type':'BackupError','source_frames':[{'source_basename':'backups.py','source_line':1061,'private':MARKER}]},
                 'recovery_error':{'error_type':'BackupError','source_frames':[{'source_basename':'backups.py','source_line':1151}]},
@@ -229,6 +233,11 @@ Check (!(($safe|ConvertTo-Json -Depth 12).Contains($marker)))
 Check ($safe.failed_command.report_status -ceq 'read' -and $safe.failed_command.linked_count -eq 1 -and $safe.failed_command.local_status -ceq 'ready' -and $safe.failed_command.remote_status -ceq 'pending' -and $safe.failed_command.message_category -ceq 'generic_non_backup_error')
 Check ($safe.worker_observation.report_status -ceq 'read' -and $safe.worker_observation.action_restored -ceq $true -and $safe.worker_observation.events.Count -eq 2)
 Check ($safe.worker_observation.events[0].tool -ceq 'sftp' -and $safe.worker_observation.events[0].failure_class -ceq 'ssh_host_key' -and $safe.worker_observation.events[1].tool -ceq 'psql' -and $safe.worker_observation.events[1].failure_class -ceq 'database_invalid_encoding')
+Check ($safe.local_query_observation.wrappers_restored -ceq $true -and $safe.local_query_observation.events.Count -eq 3 -and $safe.local_query_observation.events[0].failure_class -ceq 'database_connection' -and $safe.local_query_observation.events[0].returncode -eq 2)
+foreach($key in 'tool','failure_class','error_type'){$original=$record.failure.local_query_observation.events[0][$key];$record.failure.local_query_observation.events[0][$key]=@('psql',$marker);Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).local_query_observation.events[0].ContainsKey($key));$record.failure.local_query_observation.events[0][$key]=$original}
+$record.failure.local_query_observation.events[0].returncode=$true;Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).local_query_observation.events[0].ContainsKey('returncode'));$record.failure.local_query_observation.events[0].returncode=2
+$record.failure.local_query_observation.events=@($record.failure.local_query_observation.events[0])*9;Save $record;Check ((BackupFailureReport $path ([datetime]::MinValue)).local_query_observation.events.Count -eq 0)
+foreach($key in 'schema','wrappers_restored','truncated'){$original=$record.failure.local_query_observation[$key];$record.failure.local_query_observation[$key]=@($original,$marker);Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).ContainsKey('local_query_observation'));$record.failure.local_query_observation[$key]=$original}
 foreach($key in 'tool','failure_class','error_type'){$original=$record.failure.worker_observation.events[0][$key];$record.failure.worker_observation.events[0][$key]=@('sftp',$marker);Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).worker_observation.events[0].ContainsKey($key));$record.failure.worker_observation.events[0][$key]=$original}
 $record.failure.worker_observation.events[0].returncode=$true;Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).worker_observation.events[0].ContainsKey('returncode'));$record.failure.worker_observation.events[0].returncode=7
 $record.failure.worker_observation.events[0].phase=$marker;Save $record;Check ((BackupFailureReport $path ([datetime]::MinValue)).worker_observation.events.Count -eq 1);$record.failure.worker_observation.events[0].phase='upload'
