@@ -18,6 +18,7 @@ $python="$root\backup-runtime\python.exe";$helper="$root\tools\Upgrade-OpenWebPB
 $managerSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;$managerSession=[Diagnostics.Process]::GetCurrentProcess().SessionId
 $managerName='OpenWebPBX-Manager-'+$managerSid;$managerExe="$root\desktop\OpenWebPbx.Desktop.exe";$managerOriginal=$null;$managerOwned=$false;$managerStarted=$null;$managerAvailable=$false
 $report=[ordered]@{schema=1;state='running';checks=@();gates=[ordered]@{direct_113_helper_reapply='pending';direct_failure_rollback='pending';restore_gate_startup='pending';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified'};signed_fixtures='absent';baseline='installed candidate; same-version direct reapply is not a newer signed update'}
+$databaseSidecars=@()
 function Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
 function WriteJson([string]$Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 10),[Text.UTF8Encoding]::new($false))}
 function PayloadInventory([string]$Directory,[string]$PrivatePath){
@@ -81,6 +82,33 @@ function Check([bool]$Value,[string]$Message){
  # expected forced failure. Later manager/preservation checks have no child.
  $script:helperFailure=$null
  $script:musicFailure=$null
+ $script:comparisonFailure=$null
+}
+function ComparisonFields($Record){
+ $result=$Record.comparison_result;$stage=$Record.comparison_stage
+ if($result -isnot [string] -or $result -cnotin 'equal','different','error','unavailable' -or $stage -isnot [string]){return $null}
+ $safe=@{comparison_result=$result;comparison_stage=$stage}
+ if($result -ceq 'unavailable'){if($stage -cnotin 'launch','report_validation'){return $null};return $safe}
+ if($result -ceq 'error'){
+  if($stage -cnotin 'usage','read_before','parse_before','read_after','parse_after','compare' -or $Record.comparison_error_type -isnot [string] -or $Record.comparison_error_type -cnotin 'OSError','FileNotFoundError','PermissionError','UnicodeDecodeError','JSONDecodeError','RecursionError','ValueError','TypeError','ExternalError'){return $null}
+  $safe.comparison_error_type=$Record.comparison_error_type;return $safe
+ }
+ if($stage -cne 'compare'){return $null};if($result -ceq 'equal'){return $safe}
+ $tables=@('v_vars','v_default_settings','v_domain_settings','v_domains','v_users','v_extensions','v_gateways','v_dialplans','v_dialplan_details','v_sip_profiles','v_sip_profile_settings','v_permissions','v_groups','v_group_permissions','v_user_groups','v_menu','v_menu_items','v_pbx_tenants','v_pbx_tenant_users','v_pbx_services','v_pbx_templates','v_pbx_service_assignments','v_pbx_setup_templates','v_pbx_restore','v_pbx_sip_domains')
+ $columns=@(foreach($table in $tables){foreach($column in 'insert_date','update_date','insert_user','update_user'){$table+'.'+$column};if($table -ceq 'v_vars'){foreach($column in 'var_uuid','var_category','var_name','var_value','var_order','var_enabled','var_description'){$table+'.'+$column}};if($table -ceq 'v_default_settings'){foreach($column in 'default_setting_uuid','default_setting_category','default_setting_subcategory','default_setting_name','default_setting_value','default_setting_order','default_setting_enabled','default_setting_description'){$table+'.'+$column}}})
+ $arrays=@{comparison_changed_sections=@('identity','roles','memberships','schema','tables','columns','values','table_count');comparison_critical_tables=$tables;comparison_critical_columns=$columns}
+ foreach($field in $arrays.Keys){
+  $values=$Record.$field;if($values -isnot [Array] -or $values.Count -gt $arrays[$field].Count){return $null}
+  $seen=@();foreach($value in $values){if($value -isnot [string] -or $value -cnotin $arrays[$field] -or $value -cin $seen){return $null};$seen+=,$value}
+  $safe[$field]=@($seen)
+ }
+ foreach($field in 'comparison_unknown_section_count','comparison_changed_values_table_count','comparison_other_table_count','comparison_changed_column_count','comparison_other_column_count'){
+  $value=$Record.$field;if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 100000){return $null};$safe[$field]=[int]$value
+ }
+ foreach($field in 'comparison_values_observed','comparison_counts_capped','comparison_columns_observed','comparison_column_counts_capped'){
+  if($Record.$field -isnot [bool]){return $null};$safe[$field]=$Record.$field
+ }
+ return $safe
 }
 function MusicFailure([string]$Text){
  if(!$Text -or $Text.Length -gt 4MB){return $null}
@@ -216,7 +244,7 @@ if action=='database':
  # Background heartbeats/logs can change after service recovery. Their schema
  # stays covered; all customer and security/routing table values remain exact.
  volatile={'v_pbx_update_status','v_pbx_backup_status','v_pbx_update_commands','v_pbx_job_slots','v_user_logs','v_logs','v_pbx_user_presence','v_pbx_presence'}
- values={}
+ values={};column_hmacs={}
  stage='database_values'
  for entry in tables:
   table=entry['name']
@@ -224,7 +252,17 @@ if action=='database':
   quoted='"'+table.replace('"','""')+'"'
   rows=b.query(settings,"select coalesce(json_agg(t order by row_to_json(t)::text),'[]') from "+quoted+' t',json_result=True)
   values[table]=digest(rows)
+  # Separate optional diagnostics from the original row-HMAC snapshot. Reuse
+  # only already loaded rows/column metadata, with no additional SQL query.
+  try:
+   if column_hmacs is not None:
+    names=[column['column_name'] for column in columns if column['table_name']==table]
+    column_hmacs[table]={name:digest(sorted(json.dumps(row[name],sort_keys=True,separators=(',',':')) for row in rows)) for name in names}
+  except Exception:column_hmacs=None
  stage='database_save';save({'identity':digest(identity),'roles':digest(roles),'memberships':digest(memberships),'schema':digest(schema),'tables':digest(tables),'columns':digest(columns),'values':values,'table_count':len(tables)})
+ try:
+  if column_hmacs is not None:path.with_name(path.name+'.columns-private.json').write_text(json.dumps({'schema':1,'producer':'windows-private-column-hmac','tables':column_hmacs},sort_keys=True),encoding='utf-8')
+ except Exception:pass
 elif action=='holds':
  stage='restore_holds'
  if (b.RESTORE/'journal.json').exists():raise RuntimeError('An unrelated restore journal exists')
@@ -248,7 +286,12 @@ elif action=='pending-remove':
 else:raise RuntimeError('Unsupported private qualification operation')
 '@
 [IO.File]::WriteAllText($probe,$code,[Text.UTF8Encoding]::new($false))
-function DatabaseSnapshot([string]$Name){$file=Join-Path $work ($Name+'-database.json');Python @($probe,'database',$file);return Get-Content -LiteralPath $file -Raw|ConvertFrom-Json -AsHashtable}
+function DatabaseSnapshot([string]$Name){
+ $file=Join-Path $work ($Name+'-database.json');Python @($probe,'database',$file)
+ $snapshot=Get-Content -LiteralPath $file -Raw|ConvertFrom-Json -AsHashtable
+ $script:databaseSidecars+=,@{snapshot=$snapshot;path=$file+'.columns-private.json'}
+ return $snapshot
+}
 function FilesSnapshot {
  $directories=@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots",$configuration,"$switch\conf","$switch\scripts","$switch\mod","$switch\sounds","$state\storage","$state\mobile-notifications","$state\phone-tls","$state\public-access","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build")
  $files=@{}
@@ -287,8 +330,23 @@ function TaskSnapshot {
 function Equal([object]$Before,[object]$After,[string]$Message){
  # Hashtable ordering differs between fresh deserialization and COM queries.
  $beforeFile=Join-Path $work 'compare-before.json';$afterFile=Join-Path $work 'compare-after.json';WriteJson $beforeFile $Before;WriteJson $afterFile $After
- & $python -I -c 'import json,sys;assert json.load(open(sys.argv[1],encoding="utf-8-sig"))==json.load(open(sys.argv[2],encoding="utf-8-sig"))' $beforeFile $afterFile *> $null
- Check ($LASTEXITCODE -eq 0) $Message
+ $script:comparisonFailure=@{comparison_result='unavailable';comparison_stage='launch'};$arguments=@('-I','-B',(Join-Path $PSScriptRoot 'windows-compare-json.py'),$beforeFile,$afterFile)
+ $sidecars=@(foreach($snapshot in $Before,$After){$match=@($databaseSidecars|Where-Object {[object]::ReferenceEquals($_.snapshot,$snapshot)});if($match.Count -eq 1){$match[0].path}})
+ if($sidecars.Count -eq 2){$arguments+=$sidecars}
+ $output=Join-Path $work 'compare-result.json';$stderr=Join-Path $work 'compare-private.err';$code=$null;$safe=$null
+ try{
+  & $python @arguments 1>$output 2>$stderr;$code=$LASTEXITCODE
+  $comparisonFailure.comparison_stage='report_validation'
+  $item=Get-Item -LiteralPath $output
+  if($item.Length -le 16384 -and !($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){
+   $row=Get-Content -LiteralPath $output -Raw|ConvertFrom-Json
+   $safe=ComparisonFields $row
+   if(($row.schema -isnot [int] -and $row.schema -isnot [long]) -or $row.schema -ne 1 -or $row.producer -cne 'windows-exact-json-comparison' -or !$safe -or @($row.PSObject.Properties).Count -ne ($safe.Count+2) -or $code -cnotin 0,1,2 -or $safe.comparison_result -cne @('equal','different','error')[$code]){$safe=$null}
+  }
+ }catch{[IO.File]::AppendAllText($stderr,($_|Out-String),[Text.UTF8Encoding]::new($false))}
+ if($safe){$script:comparisonFailure=$safe}
+ if(($code -is [int] -or $code -is [long]) -and $code -ge [int]::MinValue -and $code -le [int]::MaxValue){$comparisonFailure.command_basename='windows-compare-json.py';$comparisonFailure.command_exit=[int]$code}
+ Check ($null -ne $safe -and $code -eq 0 -and $safe.comparison_result -ceq 'equal') $Message
 }
 function StopUpdater {if((Get-Service OpenWebPBXUpdater).Status -ne 'Stopped'){Stop-Service OpenWebPBXUpdater;(Get-Service OpenWebPBXUpdater).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(45))}}
 function Journal {return Get-Content "$state\updates\install-journal.json" -Raw|ConvertFrom-Json}
@@ -511,6 +569,7 @@ try{
  }
  if($checkFailure.active_case -ceq 'direct_reapply_preflight' -and $payloadInventory){foreach($entry in $payloadInventory.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
  if($checkFailure.active_case -ceq 'direct_reapply_complete' -and $musicFailure){foreach($entry in $musicFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
+ if($comparisonFailure -and $checkFailure){foreach($entry in $comparisonFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
  Write-Error ('Windows upgrade acceptance failed in '+$phase+'. Private recovery evidence retained.') -ErrorAction Continue
 }finally{
  try{ClearManager}catch{$report.state='failed';$report.failed_phase='owned manager cleanup'}

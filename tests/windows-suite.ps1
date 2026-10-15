@@ -147,6 +147,32 @@ function SafeNativeCleanupFields($Record){
  }
  return $safe
 }
+function SafeComparisonFields($Record){
+ $result=$Record.comparison_result;$stage=$Record.comparison_stage
+ if($result -isnot [string] -or $result -cnotin 'equal','different','error','unavailable' -or $stage -isnot [string]){return $null}
+ $safe=@{comparison_result=$result;comparison_stage=$stage}
+ if($result -ceq 'unavailable'){if($stage -cnotin 'launch','report_validation'){return $null};return $safe}
+ if($result -ceq 'error'){
+  if($stage -cnotin 'usage','read_before','parse_before','read_after','parse_after','compare' -or $Record.comparison_error_type -isnot [string] -or $Record.comparison_error_type -cnotin 'OSError','FileNotFoundError','PermissionError','UnicodeDecodeError','JSONDecodeError','RecursionError','ValueError','TypeError','ExternalError'){return $null}
+  $safe.comparison_error_type=$Record.comparison_error_type;return $safe
+ }
+ if($stage -cne 'compare'){return $null};if($result -ceq 'equal'){return $safe}
+ $tables=@('v_vars','v_default_settings','v_domain_settings','v_domains','v_users','v_extensions','v_gateways','v_dialplans','v_dialplan_details','v_sip_profiles','v_sip_profile_settings','v_permissions','v_groups','v_group_permissions','v_user_groups','v_menu','v_menu_items','v_pbx_tenants','v_pbx_tenant_users','v_pbx_services','v_pbx_templates','v_pbx_service_assignments','v_pbx_setup_templates','v_pbx_restore','v_pbx_sip_domains')
+ $columns=@(foreach($table in $tables){foreach($column in 'insert_date','update_date','insert_user','update_user'){$table+'.'+$column};if($table -ceq 'v_vars'){foreach($column in 'var_uuid','var_category','var_name','var_value','var_order','var_enabled','var_description'){$table+'.'+$column}};if($table -ceq 'v_default_settings'){foreach($column in 'default_setting_uuid','default_setting_category','default_setting_subcategory','default_setting_name','default_setting_value','default_setting_order','default_setting_enabled','default_setting_description'){$table+'.'+$column}}})
+ $arrays=@{comparison_changed_sections=@('identity','roles','memberships','schema','tables','columns','values','table_count');comparison_critical_tables=$tables;comparison_critical_columns=$columns}
+ foreach($field in $arrays.Keys){
+  $values=$Record.$field;if($values -isnot [Array] -or $values.Count -gt $arrays[$field].Count){return $null}
+  $seen=@();foreach($value in $values){if($value -isnot [string] -or $value -cnotin $arrays[$field] -or $value -cin $seen){return $null};$seen+=,$value}
+  $safe[$field]=@($seen)
+ }
+ foreach($field in 'comparison_unknown_section_count','comparison_changed_values_table_count','comparison_other_table_count','comparison_changed_column_count','comparison_other_column_count'){
+  $value=$Record.$field;if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 100000){return $null};$safe[$field]=[int]$value
+ }
+ foreach($field in 'comparison_values_observed','comparison_counts_capped','comparison_columns_observed','comparison_column_counts_capped'){
+  if($Record.$field -isnot [bool]){return $null};$safe[$field]=$Record.$field
+ }
+ return $safe
+}
 function SafeFailureFields($Record){
  $safe=@{}
  foreach($field in 'failed_phase','error_type','source_basename','active_case','command_basename','caller_basename'){
@@ -157,6 +183,10 @@ function SafeFailureFields($Record){
  if(($Record.source_line -is [int] -or $Record.source_line -is [long]) -and $Record.source_line -gt 0 -and $Record.source_line -lt 100000){$safe.source_line=[int]$Record.source_line}
  if(($Record.caller_line -is [int] -or $Record.caller_line -is [long]) -and $Record.caller_line -gt 0 -and $Record.caller_line -lt 100000){$safe.caller_line=[int]$Record.caller_line}
  if(($Record.command_exit -is [int] -or $Record.command_exit -is [long]) -and $Record.command_exit -ge [int]::MinValue -and $Record.command_exit -le [int]::MaxValue){$safe.command_exit=[int]$Record.command_exit}
+ if($Record.command_basename -ceq 'windows-compare-json.py'){
+  $comparison=SafeComparisonFields $Record
+  if($comparison){foreach($entry in $comparison.GetEnumerator()){$safe[$entry.Key]=$entry.Value}}
+ }
  if($Record.active_case -is [string] -and $Record.active_case -ceq 'direct_reapply_complete' -and $Record.command_basename -ceq 'php.exe' -and ($Record.command_exit -is [int] -or $Record.command_exit -is [long]) -and $Record.command_exit -eq 255 -and $Record.music_stage -is [string] -and $Record.music_stage -cin 'initialization','bootstrap','music_install','native_default','completion'){$safe.music_stage=$Record.music_stage}
  if($Record.active_case -is [string] -and $Record.active_case -ceq 'direct_reapply_preflight'){
   if($Record.payload_inventory_observed -is [bool]){$safe.payload_inventory_observed=$Record.payload_inventory_observed}
