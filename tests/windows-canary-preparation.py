@@ -139,7 +139,14 @@ Push-Location "$root\web"
 try{& "$root\php\php.exe" (Join-Path $PSScriptRoot 'canary-fault.php') "$root\web" $nonce;Check ($LASTEXITCODE -eq 0) 'The bounded noncustomer database witness did not finish.'}
 finally{Pop-Location;if($null -eq $before){Remove-Item Env:\OPENWEB_WINDOWS_CANARY_CONTRACT -ErrorAction SilentlyContinue}else{$env:OPENWEB_WINDOWS_CANARY_CONTRACT=$before};if($null -eq $beforeNonce){Remove-Item Env:\OPENWEB_WINDOWS_CANARY_NONCE -ErrorAction SilentlyContinue}else{$env:OPENWEB_WINDOWS_CANARY_NONCE=$beforeNonce}}
 [IO.File]::WriteAllText($newFile,'Private disposable canary '+$nonce,[Text.UTF8Encoding]::new($false))
-[xml]$xml=Export-ScheduledTask -TaskName 'OpenWebPBX-Backups';$xml.Task.Settings.Hidden='true'
+[xml]$xml=Export-ScheduledTask -TaskName 'OpenWebPBX-Backups'
+$namespace=[Xml.XmlNamespaceManager]::new($xml.NameTable);$uri=$xml.DocumentElement.NamespaceURI
+if($uri){$namespace.AddNamespace('task',$uri)}
+$settings=$xml.SelectSingleNode($(if($uri){'/task:Task/task:Settings'}else{'/Task/Settings'}),$namespace)
+if(!$settings){throw 'The owned task settings are unavailable.'}
+$hidden=$settings.SelectSingleNode($(if($uri){'task:Hidden'}else{'Hidden'}),$namespace)
+if(!$hidden){$hidden=$xml.CreateElement('Hidden',$uri);[void]$settings.AppendChild($hidden)}
+$hidden.InnerText='true'
 Register-ScheduledTask -TaskName 'OpenWebPBX-Backups' -Xml $xml.OuterXml -Force|Out-Null
 $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect();$native=$scheduler.GetFolder('\').GetTask('OpenWebPBX-Backups')
 $original=$native.GetSecurityDescriptor(7);$security=[Security.AccessControl.RawSecurityDescriptor]::new($original)

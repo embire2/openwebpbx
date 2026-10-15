@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the exact fault XML statements and PHP child-exit branch without a PBX."""
 import argparse
+import ast
 import json
 import os
 from pathlib import Path
@@ -19,13 +20,22 @@ fragment = php[php.index("passthru("):]
 assert fragment.count("passthru(") == 1 and fragment.endswith("exit(73);")
 assert "if($code!==0)exit(74);" in fragment
 checks = 2
+canary_ast = ast.parse((root / 'tests/windows-canary-preparation.py').read_text())
+canary_nodes = [node for node in canary_ast.body if isinstance(node, ast.Assign)
+                and any(isinstance(target, ast.Name) and target.id == 'FAULT_PS'
+                        for target in node.targets)]
+assert len(canary_nodes) == 1 and isinstance(canary_nodes[0].value, ast.Constant)
+canary_ps = canary_nodes[0].value.value
+assert isinstance(canary_ps, str)
 
 with tempfile.TemporaryDirectory(prefix="openweb task's fault ") as temporary:
     work = Path(temporary)
     control = work / 'control.ps1'
     extracted = work / 'fault.php.txt'
+    canary = work / 'canary-fault.ps1'
+    canary.write_text(canary_ps)
     control.write_text(r'''
-param([string]$SourceRoot,[string]$Output)
+param([string]$SourceRoot,[string]$Output,[string]$Canary)
 $ErrorActionPreference='Stop';$checks=0
 function Check([bool]$Value){if(!$Value){throw ('Task XML control failed at line '+(@(Get-PSCallStack)[1].ScriptLineNumber))};$script:checks++}
 $tokens=$null;$errors=$null
@@ -76,16 +86,44 @@ Check ($oldFailed -and $null -eq $captured)
 $script:inputXml='<Task><Actions/></Task>';$script:captured=$null;$refused=$false
 try{Invoke-Expression $actual}catch{$refused=$_.Exception.Message -ceq 'The owned task settings are unavailable.'}
 Check ($refused -and $null -eq $captured)
+# Parse the Python literal's complete PowerShell source, then execute only its
+# exact Export/XML/Register statements with the same two task-command stubs.
+$canaryAst=[Management.Automation.Language.Parser]::ParseFile($Canary,[ref]$tokens,[ref]$errors)
+Check ($errors.Count -eq 0)
+$canaryStatements=$canaryAst.EndBlock.Statements;$start=-1;$end=-1
+for($i=0;$i -lt $canaryStatements.Count;$i++){
+ if($canaryStatements[$i].Extent.Text.StartsWith('[xml]$xml=Export-ScheduledTask')){$start=$i}
+ if($start -ge 0 -and $canaryStatements[$i].Extent.Text.StartsWith("Register-ScheduledTask -TaskName 'OpenWebPBX-Backups'")){$end=$i;break}
+}
+Check ($start -ge 0 -and $end -gt $start)
+$canaryActual=(@($canaryStatements[$start..$end]|ForEach-Object {$_.Extent.Text}) -join [Environment]::NewLine)
+foreach($input in $cases){
+ $script:inputXml=$input;$script:captured=$null
+ [xml]$before=$input
+ $oldHidden=$before.SelectSingleNode('/*[local-name()="Task"]/*[local-name()="Settings"]/*[local-name()="Hidden"]')
+ if($oldHidden){[void]$oldHidden.ParentNode.RemoveChild($oldHidden)}
+ $expected=$before.OuterXml
+ Invoke-Expression $canaryActual
+ Check ($null -ne $captured)
+ [xml]$after=$captured
+ $hiddenNodes=$after.SelectNodes('/*[local-name()="Task"]/*[local-name()="Settings"]/*[local-name()="Hidden"]')
+ Check ($hiddenNodes.Count -eq 1 -and $hiddenNodes[0].InnerText -ceq 'true' -and $hiddenNodes[0].NamespaceURI -ceq $after.DocumentElement.NamespaceURI)
+ [void]$hiddenNodes[0].ParentNode.RemoveChild($hiddenNodes[0])
+ Check ($after.OuterXml -ceq $expected)
+}
+$script:inputXml='<Task><Actions/></Task>';$script:captured=$null;$refused=$false
+try{Invoke-Expression $canaryActual}catch{$refused=$_.Exception.Message -ceq 'The owned task settings are unavailable.'}
+Check ($refused -and $null -eq $captured)
 $phpNodes=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left -is [Management.Automation.Language.VariableExpressionAst] -and $n.Left.VariablePath.UserPath -ceq 'fault'},$true))
 Check ($phpNodes.Count -eq 1)
 $literals=@($phpNodes[0].Right.FindAll({param($n)$n -is [Management.Automation.Language.StringConstantExpressionAst] -and $n.StringConstantType -eq 'SingleQuotedHereString'},$true))
 Check ($literals.Count -eq 1)
 [IO.File]::WriteAllText($Output,$literals[0].Value,[Text.UTF8Encoding]::new($false))
-Write-Output ('PASS '+$checks+' actual task-fault XML namespace/preservation/refusal controls')
+Write-Output ('PASS '+$checks+' actual upgrade/canary task-fault XML namespace/preservation/refusal controls')
 ''')
     result = subprocess.run(
         [args.powershell, '-NoProfile', '-NonInteractive', '-File', str(control),
-         '-SourceRoot', str(root), '-Output', str(extracted)],
+         '-SourceRoot', str(root), '-Output', str(extracted), '-Canary', str(canary)],
         capture_output=True, text=True, check=True)
     print(result.stdout.strip())
     assert extracted.read_text() == php

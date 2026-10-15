@@ -1,5 +1,7 @@
 # OpenWeb PBX feature coverage
 
+- Newer-update qualification uses the same safe optional task-XML handling, with independent 65 XML/nine child/23 canary checks passing. The candidate package remains frozen at `cbf2718db`; newer signed-update/owner integration remain pending.
+- Actual Windows Task Scheduler fault/restoration passed: added-access refusal, exact four product restoration steps, exact XML/enabled/file ACL and owned cleanup, with all original services/files/tasks/listeners preserved. Candidate `cbf2718db` is undergoing the complete release suite and separate backup recovery repeat; complete acceptance/publication is still pending.
 - Native Windows permission controls passed **63 source/metadata +152 descriptor cases**, preserving all observed originals without task/PBX actions. Actual owned-task restore remains pending. Backup helper responses now isolate JSON from incidental cmdlet output; four independent actual-source controls passed locally, with native/full backup acceptance still required.
 - Backup diagnostic **38709511745** confirms the injected failure and reaches service resumption; decoding the successful helper response fails, leaving `recovery_required`. Exact cleanup and four earlier groups passed. Actual stdout was not exported; complete backup recovery/activation remains open.
 - The native permission-control test stopped before installation because its string fixture lost a null-SACL control flag. Actual Windows roundtrip proved that loss; the fixture is being corrected while product permission checks remain unchanged.
