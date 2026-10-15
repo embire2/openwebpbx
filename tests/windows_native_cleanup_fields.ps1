@@ -27,6 +27,8 @@ function Unregister-ScheduledTask {MaybeFail}
 function Php {MaybeFail;return '{"factory_empty":true,"owned_rows":0,"owned_contacts":0}'}
 function FixtureBinding {MaybeFail}
 function Restart-Service {MaybeFail}
+function New-NativeRestartWindow {return @{observed=$false}}
+function Get-NativeRestartObservation {return @{native_restart_observer=$true;native_restart_window_observed=$false}}
 function Get-Service {return [pscustomobject]@{Status='Running'}}
 function Stop-Process {MaybeFail}
 function Remove-Item {MaybeFail}

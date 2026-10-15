@@ -41,6 +41,7 @@ LAST_HTTP={'target':'unknown','method':'unknown','status':None}
 LAST_FAILED_COMMAND=None
 LAST_WORKER_OBSERVATION=None
 LAST_RECOVERY_OBSERVATION=None
+LAST_TLS_PREPARATION=None
 
 
 def failed_command_fields(settings,identifier,command):
@@ -90,6 +91,7 @@ def backup_exception_fields(error,phase,checks):
     if LAST_RECOVERY_OBSERVATION is not None:
         try:fields['recovery_observation']=LAST_RECOVERY_OBSERVATION.safe_report()
         except BaseException:pass
+    if LAST_TLS_PREPARATION is not None:fields['tls_preparation']=LAST_TLS_PREPARATION
     return fields
 
 
@@ -106,6 +108,25 @@ def ps(script, timeout=180):
         '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',script],env=b.native_powershell_environment(),capture_output=True,timeout=timeout)
     if result.returncode:raise RuntimeError('A native Windows qualification control failed.')
     return result.stdout.decode('utf-8-sig').strip()
+
+
+def prepare_restored_tls(thumbprint,private):
+    global LAST_TLS_PREPARATION
+    LAST_TLS_PREPARATION={'schema':1,'operation':'prepare_restored_tls','report_status':'unavailable'}
+    report=private/'tls-prepare-failure.json'
+    result=subprocess.run([str(Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/powershell.exe'),
+        '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',str(Path(__file__).with_name('windows-backup-tls-observer.ps1')),
+        '-CertificateThumbprint',str(thumbprint),'-ReportPath',str(report)],env=b.native_powershell_environment(),capture_output=True,timeout=180)
+    for name,value in [('tls-prepare-private.out',result.stdout),('tls-prepare-private.err',result.stderr)]:
+        try:(private/name).write_bytes(value)
+        except OSError:pass
+    if result.returncode:
+        try:
+            if report.is_file() and not report.is_symlink() and report.stat().st_size<=8192:
+                LAST_TLS_PREPARATION=json.loads(report.read_text(encoding='utf-8-sig'))|{'report_status':'read','returncode':result.returncode}
+        except (OSError,ValueError,TypeError):pass
+        raise RuntimeError('A native Windows qualification control failed.')
+    LAST_TLS_PREPARATION=None
 
 
 class Http:
@@ -327,7 +348,7 @@ def main(path):
             metadata=json.loads(tls.read_text(encoding='utf-8-sig'));assert metadata.get('RestorePending') is True,'Source certificate metadata was silently activated'
             thumbprint=json.loads(factory_files[b.STATE/'installation.json']).get('CertificateThumbprint') or target_thumbprint()
             assert re.fullmatch('[a-fA-F0-9]{40,64}',str(thumbprint)),'The target IIS certificate identity is unavailable'
-            ps("& 'C:/OpenWebPBX/tools/Enable-PhoneTLS.ps1' -CertificateThumbprint '"+str(thumbprint)+"' -PrepareRestored")
+            prepare_restored_tls(thumbprint,private)
         b.activate(settings,['calls'],settings['openweb.public_host'])
         assert not b.held('calls') and all(b.held(key) for key in ('jobs','updates','backups')),'Calls-only activation released other services'
         states=json.loads(ps("@{calls=[string](Get-Service FreeSWITCH).Status;jobs=[string](Get-Service OpenWebPBX).Status;updates=[string](Get-Service OpenWebPBXUpdater).Status}|ConvertTo-Json -Compress"))

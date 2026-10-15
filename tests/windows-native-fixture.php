@@ -179,7 +179,9 @@ if($action==='cleanup'){
  foreach([$domain,$owned['home_domain_uuid']] as $d)$q('delete from v_domains where domain_uuid=?',[$d]);
  foreach($q('select draft_uuid from v_pbx_setup_drafts where user_uuid=?',[$admin['user_uuid']])->fetchAll(PDO::FETCH_COLUMN) as $id)if(!in_array($id,$s['drafts_before'],true))$q('delete from v_pbx_setup_drafts where draft_uuid=?',[$id]);
  $restoreGlobals();
- $db->commit();settings::clear_cache();event_socket::api('reloadxml');
+ $db->commit();settings::clear_cache();
+ $sofiaCache=new cache();$sofiaCache->delete('configuration:sofia.conf');$sofiaCache->delete(gethostname().':configuration:sofia.conf');
+ $cleanupReloadXml=trim((string)event_socket::api('reloadxml'));
  $removeDirectory=static function(string $path)use(&$removeDirectory):void{
   if(!is_dir($path))return;if(is_link($path))throw new RuntimeException('Owned storage must be ordinary.');
   foreach(new DirectoryIterator($path) as $file){if($file->isDot())continue;if($file->isLink())throw new RuntimeException('Owned storage link refused.');if($file->isDir())$removeDirectory($file->getPathname());else unlink($file->getPathname());}rmdir($path);
@@ -188,6 +190,6 @@ if($action==='cleanup'){
  $factory();if($identity()!==$s['baseline'])throw new RuntimeException('Factory administrator or domain identity changed.');
  foreach($tables as $t)if(preg_match('/^v_[a-z0-9_]+$/D',$t))foreach([$domain,$owned['home_domain_uuid']] as $d)if((int)$q('select count(*) from '.$t.' where domain_uuid=?',[$d])->fetchColumn())throw new RuntimeException('Owned rows remain.');
  foreach($s['users']??[] as $u)if(!str_starts_with(trim(event_socket::api('sofia_contact '.$u['auth'].'@'.$realm)),'error/'))throw new RuntimeException('Owned native contact remains.');
- echo json_encode(['factory_empty'=>true,'owned_rows'=>0,'owned_contacts'=>0,'original_identity_preserved'=>true,'normal_login_bcrypt_rehash_proved'=>$s['normal_login_bcrypt_rehash_proved']??false,'original_factory_hash_restored'=>$s['original_factory_hash_restored']??false],JSON_THROW_ON_ERROR),PHP_EOL;exit;
+ echo json_encode(['factory_empty'=>true,'owned_rows'=>0,'owned_contacts'=>0,'original_identity_preserved'=>true,'normal_login_bcrypt_rehash_proved'=>$s['normal_login_bcrypt_rehash_proved']??false,'original_factory_hash_restored'=>$s['original_factory_hash_restored']??false,'cleanup_reloadxml'=>$cleanupReloadXml===''?'empty':(str_starts_with($cleanupReloadXml,'+OK')?'success':(str_starts_with($cleanupReloadXml,'-ERR')?'error':'other'))],JSON_THROW_ON_ERROR),PHP_EOL;exit;
 }
 throw new RuntimeException('Unknown native fixture operation.');

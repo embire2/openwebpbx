@@ -24,7 +24,7 @@ FOREIGN='bbbbbbbb-2222-4222-8222-222222222222'
 
 def library(legacy=False):
     tree=ast.parse(SOURCE.read_text())
-    names={'BACKUP_PHASES','BACKUP_ERROR_TYPES','LAST_HTTP','LAST_FAILED_COMMAND','LAST_WORKER_OBSERVATION','LAST_RECOVERY_OBSERVATION'}
+    names={'BACKUP_PHASES','BACKUP_ERROR_TYPES','LAST_HTTP','LAST_FAILED_COMMAND','LAST_WORKER_OBSERVATION','LAST_RECOVERY_OBSERVATION','LAST_TLS_PREPARATION'}
     nodes=[n for n in tree.body if isinstance(n,(ast.Import,ast.ImportFrom)) or
         isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id in names for t in n.targets) or
         isinstance(n,ast.ClassDef) and n.name in {'Hidden','Http'} or
