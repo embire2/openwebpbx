@@ -71,6 +71,17 @@ function SafeQueueFailureFields($Record){
 
  return $safe
 }
+function SafeVoicemailFailureFields($Record){
+ $safe=@{}
+ if($Record.active_case -isnot [string] -or $Record.active_case -cne 'native_voicemail_recording_and_email_queue'){return $safe}
+ if($Record.voicemail_diagnostics_complete -is [bool]){$safe.voicemail_diagnostics_complete=$Record.voicemail_diagnostics_complete}
+ foreach($phase in 'before','after'){
+  $prefix='voicemail_'+$phase+'_'
+  foreach($suffix in 'message_count','mail_count','wav_count'){$value=$Record.($prefix+$suffix);if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 64){$safe[$prefix+$suffix]=$value}}
+  foreach($suffix in 'recording_exists','recording_size_gt4096','recording_header_finalized','wav_any_size_gt4096','wav_any_header_finalized'){if($Record.($prefix+$suffix) -is [bool]){$safe[$prefix+$suffix]=$Record.($prefix+$suffix)}}
+ }
+ return $safe
+}
 function SafeFailureFields($Record){
  $safe=@{}
  foreach($field in 'failed_phase','error_type','source_basename','active_case','command_basename','caller_basename'){
@@ -89,9 +100,9 @@ function SafeFailureFields($Record){
  if($Record.active_case -eq 'normal_admin_owned_extension_audio_preferences'){
   foreach($field in 'owned_domain_matches','authentication_id_matches','sip_password_matches'){if($Record.$field -is [bool]){$safe[$field]=[bool]$Record.$field}}
  }
- $nativeStages=@('native_case','g729_regular_unregister','g729_alternate_register','g729_invite','g729_answer_validation','g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister','g729_peer_close','g729_codec_close','g729_regular_reregister','native_peer_unregister','native_peer_close','native_ledger_write','callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed')
+ $nativeStages=@('native_case','g729_regular_unregister','g729_alternate_register','g729_invite','g729_answer_validation','g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister','g729_peer_close','g729_codec_close','g729_regular_reregister','native_peer_unregister','native_peer_close','native_ledger_write','callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed','voicemail_message_created','voicemail_recording_finalized','voicemail_mail_queued')
  foreach($prefix in 'primary','cleanup'){
-  if($Record.($prefix+'_substage') -notin $nativeStages){continue}
+  if($Record.($prefix+'_substage') -isnot [string] -or $Record.($prefix+'_substage') -cnotin $nativeStages){continue}
   $safe[$prefix+'_substage']=$Record.($prefix+'_substage')
   $type=$Record.($prefix+'_error_type');if($type -is [string] -and $type -match '^[A-Za-z0-9_]{1,80}$'){$safe[$prefix+'_error_type']=$type}
   foreach($where in 'source','caller'){
@@ -100,7 +111,7 @@ function SafeFailureFields($Record){
   }
  }
  if(($Record.cleanup_failure_count -is [int] -or $Record.cleanup_failure_count -is [long]) -and $Record.cleanup_failure_count -ge 1 -and $Record.cleanup_failure_count -le 32){$safe.cleanup_failure_count=[int]$Record.cleanup_failure_count}
- $mediaCases=@('native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout')
+ $mediaCases=@('native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav')
  $completed=@(foreach($name in $mediaCases){foreach($value in @($Record.completed_media_cases)){if($value -is [string] -and $value -ceq $name){$name;break}}})
  if($completed.Count){$safe.completed_media_cases=$completed}
  if($Record.media_peer -is [string] -and $Record.media_peer -cin 'caller','destination' -and $Record.media_direction -is [string] -and $Record.media_direction -cin 'sent','received'){
@@ -111,6 +122,7 @@ function SafeFailureFields($Record){
   if(($Record.media_packets -is [int] -or $Record.media_packets -is [long]) -and $Record.media_packets -ge 0 -and $Record.media_packets -le 1000000){$safe.media_packets=$Record.media_packets}
  }
  foreach($entry in (SafeQueueFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
+ foreach($entry in (SafeVoicemailFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  return $safe
 }
 function NativeStartupFailure([DateTime]$StartedAt,[string]$PrivateDirectory){
@@ -334,6 +346,56 @@ function LoopbackSftp {
  [IO.File]::WriteAllText($json,($values|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
  return $json
 }
+function RememberHookFailure($Record){
+ $safe=SafeFailureFields $Record
+ if(!$facts.hook_failure){$facts.hook_failure=$safe}
+ else{
+  if(!$facts.secondary_failure){$facts.secondary_failure=@{}}
+  if(!$facts.secondary_failure.hook_failure){$facts.secondary_failure.hook_failure=$safe}
+ }
+}
+function RememberSuiteFailure($Failure,[string]$Phase){
+ $safe=SafeFailureFields ([pscustomobject]@{failed_phase=$Phase;error_type=$Failure.Exception.GetType().FullName;source_basename=$(if($Failure.InvocationInfo.ScriptName){Split-Path -Leaf $Failure.InvocationInfo.ScriptName}else{'windows-suite.ps1'});source_line=[int]$Failure.InvocationInfo.ScriptLineNumber})
+ if($facts.state -ne 'failed'){$facts.state='failed';foreach($entry in $safe.GetEnumerator()){$facts[$entry.Key]=$entry.Value}}
+ elseif($facts.failed_phase -cne $Phase){
+  if(!$facts.secondary_failure){$facts.secondary_failure=@{}}
+  if(!$facts.secondary_failure.runner_failure){$facts.secondary_failure.runner_failure=$safe}
+ }
+}
+function NativeCleanupIsExact($Record){
+ return ($Record.schema -is [int] -or $Record.schema -is [long]) -and $Record.schema -eq 1 -and $Record.state -is [string] -and $Record.state -ceq 'failed' -and $Record.gates.cleanup -is [string] -and $Record.gates.cleanup -ceq 'passed' -and $Record.cleanup -is [string] -and $Record.cleanup -ceq 'Original factory rows/contacts/identity/profile/config/certificate binding restored; owned CA/leaf and private probe task removed'
+}
+function NativeIdleIsHealthy($Observer){
+ if(($Observer.schema -isnot [int] -and $Observer.schema -isnot [long]) -or $Observer.schema -ne 1 -or $Observer.service_state -isnot [string] -or $Observer.service_state -cne 'Running' -or $Observer.service_status -isnot [string] -or $Observer.service_status -cne 'OK' -or $Observer.events -isnot [array] -or $Observer.events.Count -ne 0){return $false}
+ foreach($value in @($Observer.service_observed,$Observer.event_query_succeeded,$Observer.native_queries.attempted,$Observer.native_queries.authenticated,$Observer.native_queries.sofia_loaded,$Observer.native_queries.lua_loaded,$Observer.native_queries.pgsql_loaded,$Observer.native_queries.pause_state_known,$Observer.native_queries.channels_known,$Observer.native_queries.internal_profile_available)){
+  if($value -isnot [bool] -or !$value){return $false}
+ }
+ foreach($value in @($Observer.win32_exit_code,$Observer.service_specific_exit_code,$Observer.native_queries.channels_count)){
+  if(($value -isnot [int] -and $value -isnot [long] -and $value -isnot [uint32] -and $value -isnot [uint64]) -or $value -ne 0){return $false}
+ }
+ return $true
+}
+function NativeAcceptanceHook([string]$Report,[DateTime]$StartedAt){
+ try{
+  $record=AcceptanceHook 'windows-native-acceptance.ps1' $Report
+  if(!$record){throw 'The required native acceptance hook is unavailable.'}
+  return $record
+ }catch{
+  $failure=$_;RememberSuiteFailure $failure 'native acceptance hook'
+  try{
+   $file=Get-Item -LiteralPath $Report -ErrorAction Stop
+   if($file.Length -gt 1MB -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Invalid native report.'}
+   $record=Get-Content -LiteralPath $Report -Raw|ConvertFrom-Json
+   if(!(NativeCleanupIsExact $record)){throw 'Exact native cleanup is not proved.'}
+  }catch{$facts.native_continuation='aborted_cleanup';throw $failure}
+  try{$observer=NativeStartupFailure -StartedAt $StartedAt -PrivateDirectory $work}catch{$observer=@{schema=1;observer_failed=$true}}
+  $facts.native_runtime_failure=$observer
+  if(!(NativeIdleIsHealthy $observer)){$facts.native_continuation='aborted_health';throw $failure}
+  # Independent gates can produce evidence, while the original native failure
+  # remains the suite's primary failure and its native gate stays unqualified.
+  $facts.native_continuation='independent gates only';return $null
+ }
+}
 function AcceptanceHook([string]$Name,[string]$Report){
  $script=Join-Path $PSScriptRoot $Name
  if(!(Test-Path -LiteralPath $script -PathType Leaf)){return $null}
@@ -342,7 +404,7 @@ function AcceptanceHook([string]$Name,[string]$Report){
  if(!(Test-Path -LiteralPath $Report)){if($failure){throw $failure};throw 'An optional native acceptance hook did not finish.'}
  $record=Get-Content -LiteralPath $Report -Raw|ConvertFrom-Json
  if($record.state -ne 'passed'){
-  $facts.hook_failure=SafeFailureFields $record
+  RememberHookFailure $record
  }
  if($failure){throw $failure}
  if($record.state -ne 'passed'){throw 'An optional native acceptance hook did not pass.'}
@@ -405,7 +467,7 @@ try{
  try{$plain=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)}finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
  $acceptance=@{schema=1;run_id=$env:GITHUB_RUN_ID;restore_server=$true;admin_email=$admin;admin_password=$plain;public_url=('https://'+$domain+':8443');package_root=$PackageRoot;source_root=$source;private_state_root=$state;python='C:/OpenWebPBX/backup-runtime/python.exe';evidence_directory=(Join-Path $work 'native-private-evidence')}
  [IO.File]::WriteAllText($acceptanceFile,($acceptance|ConvertTo-Json),[Text.UTF8Encoding]::new($false));$plain=$null;$acceptance=$null
- $phase='native acceptance hook';$nativeStartTime=[DateTime]::UtcNow;$native=AcceptanceHook 'windows-native-acceptance.ps1' (Join-Path $work 'native-acceptance.json')
+ $phase='native acceptance hook';$nativeStartTime=[DateTime]::UtcNow;$native=NativeAcceptanceHook (Join-Path $work 'native-acceptance.json') $nativeStartTime
  if($native){$facts.gates.native_sip_audio='passed'}
  $phase='independent trusted recovery fixture';$recoveryPki=Start-SuiteRecoveryPki -PackageRoot $PackageRoot -SourceRoot $source -Work $work
  $phase='upgrade acceptance hook';$upgrade=AcceptanceHook 'windows-upgrade-acceptance.ps1' (Join-Path $work 'upgrade-acceptance.json')
@@ -417,15 +479,12 @@ try{
  if($backup.state -ne 'passed' -or !$backup.fully_qualified){throw 'Actual backup/SFTP qualification is incomplete.'}
  $facts.gates.backups='passed';$facts.checks+=@($backup.checks)
  $missing=@($facts.gates.GetEnumerator()|Where-Object {$_.Value -ne 'passed'}|ForEach-Object Key)
- $facts.state=if($missing.Count){'partial'}else{'passed'};$facts.unqualified=$missing
+ $facts.state=if($facts.state -eq 'failed'){'failed'}elseif($missing.Count){'partial'}else{'passed'};$facts.unqualified=$missing
 }catch{
- $facts.state='failed';$facts.failed_phase=$phase
- if($phase -eq 'native acceptance hook' -and $nativeStartTime){
+ RememberSuiteFailure $_ $phase
+ if($phase -eq 'native acceptance hook' -and $nativeStartTime -and !$facts.native_runtime_failure){
   try{$facts.native_runtime_failure=NativeStartupFailure -StartedAt $nativeStartTime -PrivateDirectory $work}catch{$facts.native_runtime_failure=@{schema=1;observer_failed=$true}}
  }
- $facts.error_type=$_.Exception.GetType().FullName
- $facts.source_basename=if($_.InvocationInfo.ScriptName){Split-Path -Leaf $_.InvocationInfo.ScriptName}else{'windows-suite.ps1'}
- $facts.source_line=[int]$_.InvocationInfo.ScriptLineNumber
  Write-Error ('Disposable Windows suite failed in '+$phase+'. No passing result is implied.') -ErrorAction Continue
 }finally{
  Remove-Item Env:\GH_TOKEN -ErrorAction SilentlyContinue

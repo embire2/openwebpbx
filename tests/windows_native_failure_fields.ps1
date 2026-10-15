@@ -21,6 +21,11 @@ Invoke-Expression $failureNodes[0].Extent.Text
 $queueNodes=@($nativeAst.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'QueueFailureFields'},$true))
 if($queueNodes.Count -ne 1){throw 'The actual native queue filter must be uniquely identified.'}
 Invoke-Expression $queueNodes[0].Extent.Text
+foreach($pair in @(@($ast,'SafeVoicemailFailureFields'),@($nativeAst,'VoicemailFailureFields'))){
+ $voicemailNodes=@($pair[0].FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $pair[1]},$true))
+ if($voicemailNodes.Count -ne 1){throw 'The actual voicemail filter must be uniquely identified.'}
+ Invoke-Expression $voicemailNodes[0].Extent.Text
+}
 $checks=0
 function Check([bool]$Value){if(!$Value){throw 'The bounded native failure field check failed.'};$script:checks++}
 $record=[pscustomobject]@{
@@ -43,7 +48,7 @@ foreach($prefix in 'primary','cleanup'){
  }
 }
 foreach($bad in '2',0,33,$true){$copy=$record.PSObject.Copy();$copy.cleanup_failure_count=$bad;Check (!(SafeFailureFields $copy).ContainsKey('cleanup_failure_count'))}
-$allowed=@('native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout')
+$allowed=@('native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav')
 $childChecks=@(foreach($name in $allowed){[pscustomobject]@{case=$name;passed=$true;password='private-never-copy';decoded_ratio=.99;error='private-never-copy'}})
 $completed=@(CompletedMediaCases $childChecks)
 Check (($completed -join '|') -ceq ($allowed -join '|'))
@@ -127,5 +132,35 @@ foreach($filter in 'QueueFailureFields','SafeQueueFailureFields','SafeFailureFie
  }
  $copy=$callback.PSObject.Copy();$copy.callback_before_job_count=65;Check (!(& $filter $copy).ContainsKey('callback_before_job_count'))
  $copy=$callback.PSObject.Copy();$copy.active_case='queue_agent_delivery';Check (@((& $filter $copy).Keys|Where-Object {$_ -like 'callback_*'}).Count -eq 0)
+}
+$voicemailStages=@('voicemail_message_created','voicemail_recording_finalized','voicemail_mail_queued')
+foreach($stage in $voicemailStages){
+ Check ($stage -cin $nativeStages)
+ foreach($prefix in 'primary','cleanup'){
+  $copy=$record.PSObject.Copy();$copy.($prefix+'_substage')=$stage
+  Check ((SafeFailureFields $copy).($prefix+'_substage') -ceq $stage)
+  foreach($bad in $stage.ToUpperInvariant(),($stage+' '),1,$true,@($stage)){
+   $copy.($prefix+'_substage')=$bad;Check (!(SafeFailureFields $copy).ContainsKey($prefix+'_substage'))
+  }
+ }
+}
+$voicemail=[pscustomobject]@{active_case='native_voicemail_recording_and_email_queue';voicemail_diagnostics_complete=$true;voicemail_before_message_count=0;voicemail_after_message_count=1;voicemail_before_mail_count=0;voicemail_after_mail_count=1;voicemail_before_wav_count=0;voicemail_after_wav_count=1;voicemail_before_wav_any_size_gt4096=$false;voicemail_after_wav_any_size_gt4096=$true;voicemail_before_wav_any_header_finalized=$false;voicemail_after_wav_any_header_finalized=$true;voicemail_before_recording_exists=$false;voicemail_before_recording_size_gt4096=$false;voicemail_before_recording_header_finalized=$false;voicemail_after_recording_exists=$true;voicemail_after_recording_size_gt4096=$true;voicemail_after_recording_header_finalized=$false;voicemail_message_uuid='private-never-copy';voicemail_message_path='private-never-copy';voicemail_recording_bytes=12345;voicemail_recording_audio='private-never-copy';voicemail_mail_message='private-never-copy'}
+foreach($filter in 'VoicemailFailureFields','SafeVoicemailFailureFields','SafeFailureFields'){
+ $safe=& $filter $voicemail
+ foreach($field in @('voicemail_diagnostics_complete','voicemail_before_message_count','voicemail_after_message_count','voicemail_before_mail_count','voicemail_after_mail_count','voicemail_before_recording_exists','voicemail_before_recording_size_gt4096','voicemail_before_recording_header_finalized','voicemail_after_recording_exists','voicemail_after_recording_size_gt4096','voicemail_after_recording_header_finalized','voicemail_before_wav_count','voicemail_after_wav_count','voicemail_before_wav_any_size_gt4096','voicemail_after_wav_any_size_gt4096','voicemail_before_wav_any_header_finalized','voicemail_after_wav_any_header_finalized')){Check ($safe.ContainsKey($field) -and $safe[$field] -ceq $voicemail.$field)}
+ Check (($safe|ConvertTo-Json) -notmatch 'private-never-copy|message_uuid|message_path|recording_bytes|recording_audio|mail_message')
+ foreach($bad in 'native_voicemail_recording_and_email_queue ','NATIVE_VOICEMAIL_RECORDING_AND_EMAIL_QUEUE','native_voicemail_wire_forwarding_binary_copy',$null){$copy=$voicemail.PSObject.Copy();$copy.active_case=$bad;Check (@((& $filter $copy).Keys|Where-Object {$_ -like 'voicemail_*'}).Count -eq 0)}
+ foreach($phase in 'before','after'){
+  foreach($suffix in 'message_count','mail_count','wav_count'){
+   $field='voicemail_'+$phase+'_'+$suffix
+   foreach($bad in '1',$true,1.5,-1,65,[double]::NaN,[double]::PositiveInfinity){$copy=$voicemail.PSObject.Copy();$copy.$field=$bad;Check (!(& $filter $copy).ContainsKey($field))}
+   $copy=$voicemail.PSObject.Copy();$copy.$field=64;Check ((& $filter $copy)[$field] -eq 64)
+  }
+  foreach($suffix in 'recording_exists','recording_size_gt4096','recording_header_finalized','wav_any_size_gt4096','wav_any_header_finalized'){
+   $field='voicemail_'+$phase+'_'+$suffix
+   foreach($bad in 'true',1,$null,@{private='private-never-copy'}){$copy=$voicemail.PSObject.Copy();$copy.$field=$bad;Check (!(& $filter $copy).ContainsKey($field))}
+  }
+ }
+ foreach($bad in 'true',1,$null,@{private='private-never-copy'}){$copy=$voicemail.PSObject.Copy();$copy.voicemail_diagnostics_complete=$bad;Check (!(& $filter $copy).ContainsKey('voicemail_diagnostics_complete'))}
 }
 Write-Output "PASS $checks actual caller native primary/cleanup/media/queue privacy allowlist checks; no PBX contacted"

@@ -4,7 +4,7 @@ Actual disposable Windows SIP/audio/HTTPS qualification. All identities are fict
 No carrier endpoints, customer archives, TLS bypass or physical-device claims.
 """
 import argparse, base64, ctypes, hashlib, http.cookiejar, http.server, importlib.util, json, math
-import os, queue, re, secrets, socket, socketserver, ssl, struct, subprocess, sys
+import os, queue, re, secrets, socket, socketserver, ssl, stat, struct, subprocess, sys
 import threading, time, urllib.error, urllib.parse, urllib.request, uuid, wave
 from datetime import datetime, timedelta, timezone
 from email.parser import BytesParser
@@ -19,7 +19,8 @@ FIXTURE_STAGES={'initialization','owned_service_lookup','realm_validation','admi
 NATIVE_SUBSTAGES={'native_case','g729_regular_unregister','g729_alternate_register','g729_invite','g729_answer_validation',
     'g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister',
     'g729_peer_close','g729_codec_close','g729_regular_reregister','native_peer_unregister','native_peer_close','native_ledger_write',
-    'callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed'}
+    'callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed',
+    'voicemail_message_created','voicemail_recording_finalized','voicemail_mail_queued'}
 
 
 class WindowsRtpSocket:
@@ -494,6 +495,71 @@ def callback_wait(f,stage,predicate,seconds):
         raise
 
 
+def voicemail_wait(f,stage,predicate,seconds):
+    assert stage in {'voicemail_message_created','voicemail_recording_finalized','voicemail_mail_queued'}
+    f.native_substage=stage
+    try:return f.wait(predicate,seconds)
+    except BaseException as error:
+        if not getattr(error,'native_failure',None):error.native_failure=native_exception_fields(error,stage)
+        raise
+
+
+def voicemail_file_state(file):
+    info=file.lstat()
+    assert stat.S_ISREG(info.st_mode) and info.st_nlink==1 and not (getattr(info,'st_file_attributes',0)&0x400)
+    finalized=False
+    try:
+        with file.open('rb') as stream:header=stream.read(12)
+        if len(header)==12 and header[:4]==b'RIFF' and header[8:]==b'WAVE' and int.from_bytes(header[4:8],'little')+8==info.st_size:
+            with wave.open(str(file)) as wav:
+                finalized=0<wav.getnframes()*wav.getnchannels()*wav.getsampwidth()<=info.st_size-12
+    except (EOFError,wave.Error):pass
+    return info.st_size>4096,finalized
+
+
+def voicemail_scan(f):
+    # This is the fresh installer's exact storage/voicemail root. Never infer a
+    # directory from an absent SQL row or follow a linked parent/file.
+    realm=f.s['realm'];assert re.fullmatch(r'pbx-[a-f0-9]{12}\.[a-z0-9][a-z0-9.-]{0,240}',realm)
+    directory=Path(f.s['private_state_root'])/'storage/voicemail/default'/realm/'8103'
+    assert directory.is_absolute()
+    empty={'wav_count':0,'wav_any_size_gt4096':False,'wav_any_header_finalized':False}
+    for parent in [*reversed(directory.parents),directory]:
+        if not parent.exists() and not parent.is_symlink():return directory,empty
+        info=parent.lstat()
+        assert stat.S_ISDIR(info.st_mode) and not (getattr(info,'st_file_attributes',0)&0x400)
+    files=[]
+    for index,file in enumerate(directory.iterdir()):
+        assert index<64,'Owned mailbox scan exceeded its entry bound'
+        info=file.lstat();assert not stat.S_ISLNK(info.st_mode) and not (getattr(info,'st_file_attributes',0)&0x400)
+        if not re.fullmatch(r'msg_[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}\.wav',file.name):continue
+        files.append(voicemail_file_state(file))
+    return directory,{'wav_count':len(files),'wav_any_size_gt4096':any(row[0] for row in files),'wav_any_header_finalized':any(row[1] for row in files)}
+
+
+def voicemail_snapshot(f,phase,file=None):
+    """Read only owned SQL counts and bounded recording-state booleans."""
+    assert phase in {'before','after'}
+    prefix='voicemail_'+phase+'_';facts={};complete=True
+    try:
+        status=f.cli('status');messages=status['voicemail'];mail=status['mail']
+        assert isinstance(messages,list) and len(messages)<=64 and isinstance(mail,list) and len(mail)<=64
+        owned=[row for row in messages if row.get('voicemail_id')=='8103']
+        facts.update({prefix+'message_count':len(owned),prefix+'mail_count':len(mail)})
+        directory,scan=voicemail_scan(f);facts.update({prefix+name:value for name,value in scan.items()})
+        if file is None and owned:file=Path(owned[0]['message_path'])
+        if file is None:return facts,complete  # No SQL row means no known exact file.
+        assert file.parent==directory and re.fullmatch(r'msg_[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}\.wav',file.name)
+        try:file.lstat();exists=True
+        except FileNotFoundError:exists=False
+        facts.update({prefix+'recording_exists':exists,prefix+'recording_size_gt4096':False,prefix+'recording_header_finalized':False})
+        if exists:
+            large,finalized=voicemail_file_state(file)
+            facts.update({prefix+'recording_size_gt4096':large,prefix+'recording_header_finalized':finalized})
+    except BaseException:complete=False
+    return facts,complete
+
+
 def callback_job_facts(rows,job=None):
     """Classify owned SQL rows without publishing identities or raw results."""
     assert isinstance(rows,list) and len(rows)<=64
@@ -886,18 +952,26 @@ def native_calls(f):
         f.record('native_hotel_wakeup_localservice_claim_wire_confirmation')
         # Unregistered destination invokes the normal native voicemail recorder.
         f.active_case='native_voicemail_recording_and_email_queue'
-        call=caller.dial('8103',destination);assert call['code']==200
-        time.sleep(32);caller.hangup(call)
-        voicemail=f.wait(lambda:next((m for m in f.cli('status')['voicemail'] if m['voicemail_id']=='8103'),None),20)
-        file=Path(voicemail['message_path']);f.wait(lambda:file.exists() and file.stat().st_size>4096,15)
-        with wave.open(str(file)) as wav:
-            assert wav.getsampwidth()==2 and wav.getnchannels()==1
-            raw=wav.readframes(wav.getnframes());rate=wav.getframerate()
-        sample={'decoded_pcm':bytearray(raw)}
-        if rate==8000:ratio=original.decoded_tone_check(sample,caller.tone_hz)
-        else:raise AssertionError('Voicemail fixture unexpectedly changed negotiated rate')
-        f.record('native_voicemail_recording_private_owned_wav',decoded_ratio=ratio,recording_sha256=hashlib.sha256(raw).hexdigest())
-        f.wait(lambda:f.cli('status')['mail'],15)
+        facts,complete=voicemail_snapshot(f,'before');file=None
+        try:
+            call=caller.dial('8103',destination);assert call['code']==200
+            time.sleep(32);caller.hangup(call)
+            voicemail=voicemail_wait(f,'voicemail_message_created',lambda:next((m for m in f.cli('status')['voicemail'] if m['voicemail_id']=='8103'),None),20)
+            file=Path(voicemail['message_path']);voicemail_wait(f,'voicemail_recording_finalized',lambda:file.exists() and file.stat().st_size>4096,15)
+            with wave.open(str(file)) as wav:
+                assert wav.getsampwidth()==2 and wav.getnchannels()==1
+                raw=wav.readframes(wav.getnframes());rate=wav.getframerate()
+            sample={'decoded_pcm':bytearray(raw)}
+            if rate==8000:ratio=original.decoded_tone_check(sample,caller.tone_hz)
+            else:raise AssertionError('Voicemail fixture unexpectedly changed negotiated rate')
+            f.record('native_voicemail_recording_private_owned_wav',decoded_ratio=ratio,recording_sha256=hashlib.sha256(raw).hexdigest())
+            voicemail_wait(f,'voicemail_mail_queued',lambda:f.cli('status')['mail'],15)
+        except BaseException as error:
+            after,finished=voicemail_snapshot(f,'after',file);facts.update(after)
+            facts['voicemail_diagnostics_complete']=complete and finished;error.voicemail_failure=facts
+            stage=getattr(f,'native_substage',None)
+            if stage in {'voicemail_message_created','voicemail_recording_finalized','voicemail_mail_queued'} and not getattr(error,'native_failure',None):error.native_failure=native_exception_fields(error,stage)
+            raise
         # Retrieve that real recording through *97 and forward it with wire
         # RFC2833. Native playback events synchronize actual menu prompts;
         # they never inject digits or bypass the mailbox authentication.
@@ -1006,6 +1080,7 @@ def main():
         if getattr(e,'media_failure',None):failure.update(e.media_failure)
         if getattr(e,'media_window_private',None):failure['media_window_private']=e.media_window_private
         if getattr(e,'queue_failure',None):failure.update(e.queue_failure)
+        if getattr(e,'voicemail_failure',None):failure.update(e.voicemail_failure)
         (f.evidence/'software-native-report.json').write_text(json.dumps(failure,indent=2))
         raise
 
