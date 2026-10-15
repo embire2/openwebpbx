@@ -121,6 +121,7 @@ function GuardFails([string]$Path){
  Check $failed;Check ($script:runs.Count -eq 0)
 }
 $outer=Join-Path ([IO.Path]::GetTempPath()) ('openweb-root-policy-'+[Guid]::NewGuid().ToString('N'))
+$link=Join-Path $outer 'directory-link'
 try{
  $root=Join-Path $outer 'program';$null=[IO.Directory]::CreateDirectory($root);$script:expectedAclPath=[IO.Path]::GetFullPath($root)
  ApplyActualGuard $root;Check ($script:runs.Count -eq 0)
@@ -135,13 +136,22 @@ try{
  GuardFails (Join-Path $outer 'missing');Check ($script:aclCalls -eq $priorAclCalls)
  $file=Join-Path $outer 'ordinary-file';[IO.File]::WriteAllText($file,'fixture');GuardFails $file;Check ($script:aclCalls -eq $priorAclCalls)
  $target=Join-Path $outer 'target';$null=[IO.Directory]::CreateDirectory((Join-Path $target 'child'))
- $link=Join-Path $outer 'directory-link'
+ $sentinel=Join-Path $target 'child/sentinel';[IO.File]::WriteAllText($sentinel,'retained target bytes')
  if($native){$null=New-Item -ItemType Junction -Path $link -Target $target}else{$null=New-Item -ItemType SymbolicLink -Path $link -Target $target}
  GuardFails $link;GuardFails (Join-Path $link 'child');Check ($script:aclCalls -eq $priorAclCalls)
  # Remove the known link itself; never recurse through its target.
- Remove-Item -LiteralPath $link -Force -ErrorAction Stop
+ [IO.Directory]::Delete($link)
+ Check (!(Test-Path -LiteralPath $link))
+ Check (Test-Path -LiteralPath $target)
  Check (Test-Path -LiteralPath (Join-Path $target 'child'))
+ Check ([IO.File]::ReadAllText($sentinel) -ceq 'retained target bytes')
 }finally{
+ # A failed assertion must not leave a junction for recursive outer cleanup.
+ $linkItem=Get-Item -LiteralPath $link -Force -ErrorAction SilentlyContinue
+ if($null -ne $linkItem){
+  if(!([int]$linkItem.Attributes -band [int][IO.FileAttributes]::ReparsePoint)){throw 'Owned link cleanup refused an unexpected ordinary path.'}
+  [IO.Directory]::Delete($link)
+ }
  if(Test-Path -LiteralPath $outer){Remove-Item -LiteralPath $outer -Recurse -Force -ErrorAction Stop}
 }
 Check (!(Test-Path -LiteralPath $outer))
