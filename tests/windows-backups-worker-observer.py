@@ -4,6 +4,7 @@ No arguments, SQL, paths, key material or raw child output enter the report.
 The task lease changes only Arguments and restores the original action exactly.
 """
 import ctypes
+from contextlib import contextmanager
 import hashlib
 import importlib.util
 import ipaddress
@@ -28,6 +29,64 @@ RECOVERY_ERRORS=ERRORS|{'AssertionError','RuntimeError','NameError','TypeError',
 OPERATIONS={'secure','plan','hold','hold-selection','start-web','recover-startup','resume-factory','activate','acl-read','acl-restore','none','unknown'}
 RECOVERY_CLASSES=CLASSES|{'shell_command_not_found','shell_permission','shell_parameter_binding','shell_path','shell_invalid_operation',
     'control_path_boundary','control_permission_class','control_startup_snapshot','control_stop_timeout','control_start_timeout','control_request','control_acl_snapshot'}
+ACL_CATEGORIES={'config','template_key','runtime','installation','phone_tls_metadata','phone_tls_material','public_access_source',
+    'notifications','legacy_push','freeswitch_config','voicemail','recordings','other_owned'}
+ACL_BOOLEANS={'before_null','after_null','raw_binary_equal','ace_sequence_equal','ace_set_equal','ace_multiset_equal',
+    'ace_multiplicity_equal','all_ordinary_allow_before','all_ordinary_allow_after'}
+DESCRIPTOR_BOOLEANS={'strict_sddl_equal','descriptor_binary_equal','owner_equal','group_equal',
+    'owner_before_null','owner_after_null','group_before_null','group_after_null'}
+
+
+def projected_acl(record):
+    if (not isinstance(record,dict) or type(record.get('schema')) is not int or record['schema']!=1 or
+        record.get('report_status') not in {'read','unavailable','refused'} or not isinstance(record.get('mismatches'),list) or len(record['mismatches'])>3):raise ValueError()
+    safe={'schema':1,'report_status':record['report_status'],'mismatches':[]}
+    for item in record['mismatches']:
+        if not isinstance(item,dict) or not isinstance(item.get('file_category'),str) or item['file_category'] not in ACL_CATEGORIES:raise ValueError()
+        entry={'file_category':item['file_category']}
+        for key in DESCRIPTOR_BOOLEANS:
+            if type(item.get(key)) is not bool:raise ValueError()
+            entry[key]=item[key]
+        for key,maximum in [('control_flags_before',65535),('control_flags_after',65535),('control_flags_xor',65535),
+            ('descriptor_revision_before',255),('descriptor_revision_after',255),('resource_manager_control_before',255),('resource_manager_control_after',255)]:
+            if type(item.get(key)) is not int or not 0<=item[key]<=maximum:raise ValueError()
+            entry[key]=item[key]
+        for label in ('dacl','sacl'):
+            acl=item.get(label)
+            if not isinstance(acl,dict):raise ValueError()
+            value={}
+            for key in ACL_BOOLEANS:
+                if type(acl.get(key)) is not bool:raise ValueError()
+                value[key]=acl[key]
+            for side in ('before','after'):
+                revision=acl.get('revision_'+side)
+                if revision is not None and (type(revision) is not int or not 0<=revision<=255):raise ValueError()
+                value['revision_'+side]=revision
+                for prefix in ('size_','count_','unique_ace_count_','duplicate_ace_count_'):
+                    key=prefix+side
+                    if type(acl.get(key)) is not int or not 0<=acl[key]<=65535:raise ValueError()
+                    value[key]=acl[key]
+            entry[label]=value
+        safe['mismatches'].append(entry)
+    return safe
+
+
+def acl_category(module,name):
+    path=ntpath.normcase(ntpath.normpath(name))
+    exact={ntpath.normcase(ntpath.normpath(str(value))):label for value,label in (
+        (module.CONFIG,'config'),(module.KEY,'template_key'),(module.STATE/'runtime.json','runtime'),
+        (module.STATE/'installation.json','installation'),(module.STATE/'phone-tls.json','phone_tls_metadata'))}
+    if path in exact:return exact[path]
+    roots=[(module.ROOTS.get(key),label) for key,label in (
+        ('phone-tls','phone_tls_material'),('mobile-notifications','notifications'),('mobile-push','legacy_push'),
+        ('mobile-push-settings','legacy_push'),('freeswitch-config','freeswitch_config'))]
+    roots.extend([(module.STATE/'restored-source/public-access','public_access_source'),
+        (module.STATE/'storage/voicemail','voicemail'),(module.STATE/'storage/recordings','recordings')])
+    for root,label in roots:
+        if root is not None:
+            parent=ntpath.normcase(ntpath.normpath(str(root)))
+            if path==parent or path.startswith(parent+'\\'):return label
+    return 'other_owned'
 
 
 def closed_stderr(tool,raw):
@@ -175,6 +234,7 @@ class RecoveryObservation(WorkerObservation):
         super().__init__(module,report);self.phase='restore';self.operation='none';self.injected=injected
         self.classify=recovery_stderr;self.details=recovery_position;self.recover_called=False;self.wrappers_restored=False
         self.original_error=None;self.recovery_error=None;self.reported_error=None;self.originals={}
+        self.acl_observation=None;self.acl_checks_restored=False
     def record(self,event):
         super().record(event|{'operation':self.operation if isinstance(self.operation,str) and self.operation in OPERATIONS else 'unknown'})
     def __enter__(self):
@@ -218,6 +278,38 @@ class RecoveryObservation(WorkerObservation):
     def note_reported(self,error):
         try:self.reported_error=recovery_error(error)
         except BaseException:pass
+    @contextmanager
+    def acl_checks(self,files):
+        original=self.module.control;observer=self
+        def control(operation,*arguments,**keywords):
+            result=original(operation,*arguments,**keywords)
+            try:
+                if operation=='acl-read' and len(arguments)==1 and not keywords and isinstance(arguments[0],dict):
+                    paths=arguments[0].get('paths')
+                    if isinstance(paths,list) and len(paths)==1 and isinstance(paths[0],str):
+                        name=paths[0];entry=files.get(name)
+                        if isinstance(entry,dict) and entry.get('exists') is True and isinstance(entry.get('sddl'),str) and isinstance(result,dict) and isinstance(result.get(name),str) and result[name]!=entry['sddl']:
+                            observer.note_acl_mismatch(name,entry['sddl'],result[name])
+            except BaseException:pass
+            return result
+        self.module.control=control
+        try:yield
+        finally:
+            self.module.control=original;self.acl_checks_restored=self.module.control is original
+    def note_acl_mismatch(self,name,before,after):
+        try:
+            if self.acl_observation is None:self.acl_observation={'schema':1,'report_status':'unavailable','mismatches':[]}
+            if len(self.acl_observation['mismatches'])>=3:return
+            if len(before)>131072 or len(after)>131072:return
+            request={'schema':1,'items':[{'file_category':acl_category(self.module,name),'before':before,'after':after}]}
+            powershell=str(Path(os.environ.get('SystemRoot','C:/Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe')
+            output=self.module.run([powershell,'-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',str(Path(__file__).with_name('windows-backup-sddl.ps1'))],
+                input=json.dumps(request,separators=(',',':')).encode('utf-8'),env=self.module.native_powershell_environment(),timeout=20)
+            if not isinstance(output,bytes) or len(output)>65536:return
+            value=projected_acl(json.loads(output.decode('utf-8-sig')))
+            if value['report_status']=='read' and len(value['mismatches'])==1:
+                self.acl_observation['mismatches'].extend(value['mismatches']);self.acl_observation['report_status']='read'
+        except BaseException:pass
     def safe_report(self):
         state='unavailable'
         try:
@@ -236,6 +328,9 @@ class RecoveryObservation(WorkerObservation):
         except BaseException:pass
         for key in ('original_error','recovery_error','reported_error'):
             if getattr(self,key) is not None:result[key]=getattr(self,key)
+        if self.acl_observation is not None:
+            try:result['acl_observation']=projected_acl(self.acl_observation)|{'control_restored':self.acl_checks_restored}
+            except BaseException:pass
         return result
 
 

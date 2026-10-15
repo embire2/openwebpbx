@@ -300,8 +300,10 @@ def main(path):
         assert json.loads((b.RESTORE/'journal.json').read_text())['state']=='recovered','Native recovery did not finish'
         for file,payload in factory_files.items():assert file.read_bytes()==payload,'Native recovery changed factory private bytes'
         assert all(not b.held(key) for key in b.HELD_UNITS),'Native factory recovery retained activation gates'
-        for name,entry in json.loads((b.RESTORE/'journal.json').read_text())['files'].items():
-            if entry['exists']:assert b.control('acl-read',{'paths':[name]})[name]==entry['sddl'],'Native recovery changed original file ACL/owner'
+        recovery_files=json.loads((b.RESTORE/'journal.json').read_text())['files']
+        with LAST_RECOVERY_OBSERVATION.acl_checks(recovery_files):
+            for name,entry in recovery_files.items():
+                if entry['exists']:assert b.control('acl-read',{'paths':[name]})[name]==entry['sddl'],'Native recovery changed original file ACL/owner'
         facts['checks'].append('actual Windows services/IIS failure recovery and exact private bytes/ACL restoration')
         # Retain completed failure evidence rather than deleting recovery material.
         history=private/'recovered-attempt';shutil.move(str(b.RESTORE),str(history));b.safe_private_directory(b.RESTORE)

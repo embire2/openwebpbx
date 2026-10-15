@@ -110,6 +110,23 @@ function ComparisonFields($Record){
  foreach($field in 'comparison_values_observed','comparison_counts_capped','comparison_columns_observed','comparison_column_counts_capped'){
   if($Record.$field -isnot [bool]){return $null};$safe[$field]=$Record.$field
  }
+ $fileFields=@('comparison_files_observed','comparison_changed_file_entry_count','comparison_file_counts_capped','comparison_file_field_counts','comparison_file_category_counts')
+ $names=if($Record -is [Collections.IDictionary]){@($Record.Keys)}else{@($Record.PSObject.Properties.Name)}
+ $present=@($fileFields|Where-Object {$names -ccontains $_})
+ if($present.Count){
+  if($present.Count -ne $fileFields.Count -or $Record.comparison_files_observed -isnot [bool] -or $Record.comparison_file_counts_capped -isnot [bool]){return $null}
+  $count=$Record.comparison_changed_file_entry_count
+  if(($count -isnot [int] -and $count -isnot [long]) -or $count -lt 0 -or $count -gt 100000){return $null}
+  $safe.comparison_files_observed=$Record.comparison_files_observed;$safe.comparison_changed_file_entry_count=[int]$count;$safe.comparison_file_counts_capped=$Record.comparison_file_counts_capped
+  $maps=@{comparison_file_field_counts=@('acl','sha256','bytes','directory','added','removed','shape','other');comparison_file_category_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','other')}
+  foreach($field in $maps.Keys){
+   $map=$Record.$field
+   if($map -is [Collections.IDictionary]){$keys=@($map.Keys)}elseif($map -is [pscustomobject]){$keys=@($map.PSObject.Properties.Name)}else{return $null}
+   if($keys.Count -gt $maps[$field].Count){return $null};$copy=@{}
+   foreach($key in $keys){$value=$map.$key;if($key -isnot [string] -or $key -cnotin $maps[$field] -or ($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 100000){return $null};$copy[$key]=[int]$value}
+   $safe[$field]=$copy
+  }
+ }
  return $safe
 }
 function MusicFailure([string]$Text){

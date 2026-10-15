@@ -2,6 +2,7 @@
 """Real exact-JSON children, actual snapshot producer and AST privacy controls."""
 import argparse
 import ast
+import copy
 import json
 import os
 from pathlib import Path
@@ -152,6 +153,73 @@ def query(settings,sql,*,json_result=False):
     side = json.loads(before_sidecar.read_text())
     for columns in side['tables'].values():
         check(all(len(value) == 64 and set(value) <= set('0123456789abcdef') for value in columns.values()))
+    # Real FilesSnapshot-shaped JSON retains exact bytes/equality while the
+    # public report carries only field/category counts, never path fragments.
+    base_files = {
+        r'C:\OpenWebPBX\web\PRIVATE_USER\file.php':
+            {'acl': 'PRIVATE_ACL_OLD', 'sha256': '0' * 64, 'bytes': 10, 'directory': False},
+        r'C:\OpenWebPBX\server\PRIVATE.dll':
+            {'acl': 'PRIVATE_ACL_OLD', 'sha256': '1' * 64, 'bytes': 20, 'directory': False},
+    }
+    web_path = next(iter(base_files))
+
+    def file_case(before, after, fields, categories):
+        left.write_text(json.dumps(before), encoding='utf-8-sig')
+        right.write_text(json.dumps(after), encoding='utf-8')
+        original = (left.read_bytes(), right.read_bytes())
+        code, record = run(left, right)
+        check(code == 1 and record['comparison_files_observed'] is True)
+        check(record['comparison_file_field_counts'] == fields)
+        check(record['comparison_file_category_counts'] == categories)
+        check(record['comparison_changed_file_entry_count'] == sum(categories.values()))
+        check(record['comparison_file_counts_capped'] is False)
+        check((left.read_bytes(), right.read_bytes()) == original)
+        check('0' * 64 not in json.dumps(record) and '1' * 64 not in json.dumps(record))
+        records.append(record)
+
+    for field, value in [('acl', 'PRIVATE_ACL_NEW'), ('sha256', '2' * 64),
+                         ('bytes', 11), ('directory', True)]:
+        changed_files = copy.deepcopy(base_files);changed_files[web_path][field] = value
+        file_case(base_files, changed_files, {field: 1}, {'web': 1})
+    added_files = copy.deepcopy(base_files)
+    added_files[r'C:\OpenWebPBX\tools\PRIVATE_NEW.py'] = copy.deepcopy(base_files[web_path])
+    file_case(base_files, added_files, {'added': 1}, {'tools': 1})
+    file_case(added_files, base_files, {'removed': 1}, {'tools': 1})
+    changed_files = copy.deepcopy(base_files);changed_files[web_path] = 'PRIVATE_NONOBJECT'
+    file_case(base_files, changed_files, {'shape': 1}, {'web': 1})
+    changed_files = copy.deepcopy(base_files);changed_files[web_path]['PRIVATE_FIELD'] = 'PRIVATE_VALUE'
+    file_case(base_files, changed_files, {'other': 1}, {'web': 1})
+    categories = {
+        'web': r'C:\OpenWebPBX\web\PRIVATE_MORE.php',
+        'server': r'C:\OpenWebPBX\server\PRIVATE_MORE.dll',
+        'desktop': r'C:\OpenWebPBX\desktop\PRIVATE_MORE.dll',
+        'tools': r'C:\OpenWebPBX\tools\PRIVATE_MORE.ps1',
+        'updater': r'C:\OpenWebPBX\updater\PRIVATE_MORE.dll',
+        'config': r'C:\ProgramData\fusionpbx\PRIVATE_MORE.conf',
+        'notifications': r'C:\ProgramData\OpenWebPBX\mobile-notifications\PRIVATE_MORE.json',
+        'media': r'C:\ProgramData\OpenWebPBX\storage\PRIVATE_USER\PRIVATE_MORE.wav',
+        'native': r'C:\Program Files\FreeSWITCH\conf\PRIVATE_MORE.xml',
+        'other': r'C:\PRIVATE_ROOT\PRIVATE_USER\PRIVATE_MORE',
+    }
+    for category, private_path in categories.items():
+        before_files = copy.deepcopy(base_files);before_files[private_path] = copy.deepcopy(base_files[web_path])
+        after_files = copy.deepcopy(before_files);after_files[private_path]['acl'] = 'PRIVATE_ACL_NEW'
+        file_case(before_files, after_files, {'acl': 1}, {category: 1})
+    # Exercise the actual cap branch on three genuine entries with a bounded
+    # control limit, without constructing hundreds of thousands of files.
+    namespace = {'__name__': 'exact_file_comparison_controls'}
+    exec(compile(helper.read_text(), str(helper), 'exec'), namespace)
+    namespace['LIMIT'] = 2
+    before_files = {r'C:\OpenWebPBX\web\PRIVATE_' + str(i): copy.deepcopy(base_files[web_path]) for i in range(3)}
+    after_files = copy.deepcopy(before_files)
+    for entry in after_files.values():entry['acl'] = 'PRIVATE_CHANGED'
+    capped = namespace['file_difference'](before_files, after_files, namespace['changed_keys'](before_files, after_files))
+    check(capped['comparison_changed_file_entry_count'] == 2 and capped['comparison_file_counts_capped'] is True)
+    check(capped['comparison_file_field_counts'] == {'acl': 2} and capped['comparison_file_category_counts'] == {'web': 2})
+    namespace['file_category'] = lambda value: (_ for _ in ()).throw(ValueError('PRIVATE_DIAGNOSTIC_FAILURE'))
+    unavailable = namespace['difference'](before_files, after_files)
+    check(unavailable['comparison_unknown_section_count'] == 2 and 'comparison_files_observed' not in unavailable)
+    check('comparison_files_observed' not in records[7])
     records_path = work / 'records.json'
     records_path.write_text(json.dumps(records))
     stubs = []
@@ -195,7 +263,7 @@ foreach($record in (Get-Content -LiteralPath $RecordsPath -Raw|ConvertFrom-Json)
  foreach($entry in $filtered.GetEnumerator()){$report[$entry.Key]=$entry.Value}
  $safe=SafeFailureFields ([pscustomobject]$report)
  AssertControl ($safe.comparison_result -ceq $record.comparison_result -and $safe.source_line -eq 291 -and $safe.active_case -ceq 'direct_reapply_database_preserved')
- AssertControl (($safe|ConvertTo-Json -Depth 10) -notmatch 'PRIVATE_|audit.key|HMAC|sha256')
+ AssertControl (($safe|ConvertTo-Json -Depth 10) -notmatch 'PRIVATE_|audit.key|HMAC|[a-f0-9]{64}')
  $report.command_basename='other.py';AssertControl (!(SafeFailureFields ([pscustomobject]$report)).ContainsKey('comparison_result'))
  $copy=$record.PSObject.Copy();$copy|Add-Member raw_private 'PRIVATE_PASSWORD';AssertControl (((ComparisonFields $copy)|ConvertTo-Json -Depth 10) -notmatch 'PRIVATE_')
  foreach($bad in @(@('comparison_result','PRIVATE_PASSWORD'),@('comparison_result',$true),@('comparison_stage','PRIVATE_PATH'),@('comparison_stage',42))){$copy=$record.PSObject.Copy();$copy.($bad[0])=$bad[1];AssertControl ($null -eq (ComparisonFields $copy))}
@@ -209,6 +277,21 @@ foreach($record in (Get-Content -LiteralPath $RecordsPath -Raw|ConvertFrom-Json)
   }
   foreach($field in 'comparison_values_observed','comparison_counts_capped','comparison_columns_observed','comparison_column_counts_capped'){
    foreach($bad in 'true',1,$null){$copy=$record.PSObject.Copy();$copy.$field=$bad;AssertControl ($null -eq (ComparisonFields $copy))}
+  }
+  if(@($record.PSObject.Properties.Name) -ccontains 'comparison_files_observed'){
+   foreach($field in 'comparison_files_observed','comparison_file_counts_capped'){
+    foreach($bad in 'true',1,$null){$copy=$record.PSObject.Copy();$copy.$field=$bad;AssertControl ($null -eq (ComparisonFields $copy))}
+   }
+   foreach($bad in '1',$true,-1,100001,1.5,[double]::NaN,[double]::PositiveInfinity){$copy=$record.PSObject.Copy();$copy.comparison_changed_file_entry_count=$bad;AssertControl ($null -eq (ComparisonFields $copy))}
+   foreach($field in 'comparison_files_observed','comparison_changed_file_entry_count','comparison_file_counts_capped','comparison_file_field_counts','comparison_file_category_counts'){
+    $copy=$record.PSObject.Copy();$copy.PSObject.Properties.Remove($field);AssertControl ($null -eq (ComparisonFields $copy))
+   }
+   foreach($field in 'comparison_file_field_counts','comparison_file_category_counts'){
+    $validKey=if($field -ceq 'comparison_file_field_counts'){'acl'}else{'web'}
+    foreach($bad in 'PRIVATE_SDDL',@('acl'),$true,42,$null){$copy=$record.PSObject.Copy();$copy.$field=$bad;AssertControl ($null -eq (ComparisonFields $copy))}
+    foreach($bad in '1',$true,-1,100001,1.5,[double]::NaN,[double]::PositiveInfinity){$copy=$record.PSObject.Copy();$copy.$field=[pscustomobject]@{};$copy.$field|Add-Member -NotePropertyName $validKey -NotePropertyValue $bad;AssertControl ($null -eq (ComparisonFields $copy))}
+    foreach($key in 'PRIVATE_PATH','O:SYG:BAD','C:/PRIVATE_ROOT','ACL','other PRIVATE_VALUE'){$copy=$record.PSObject.Copy();$copy.$field=[pscustomobject]@{};$copy.$field|Add-Member -NotePropertyName $key -NotePropertyValue 1;AssertControl ($null -eq (ComparisonFields $copy))}
+   }
   }
  }
  if($record.comparison_result -ceq 'error'){$copy=$record.PSObject.Copy();$copy.comparison_error_type='PRIVATE_MESSAGE';AssertControl ($null -eq (ComparisonFields $copy))}

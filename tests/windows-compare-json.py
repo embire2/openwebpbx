@@ -2,6 +2,7 @@
 """Compare private qualification snapshots exactly; emit only closed diagnostics."""
 import json
 import sys
+from collections import Counter
 
 
 SECTIONS = ('identity', 'roles', 'memberships', 'schema', 'tables', 'columns',
@@ -16,6 +17,9 @@ CRITICAL_TABLES = (
     'v_pbx_sip_domains',
 )
 LIMIT = 100000
+FILE_FIELDS = ('acl', 'sha256', 'bytes', 'directory', 'added', 'removed', 'shape', 'other')
+FILE_CATEGORIES = ('web', 'server', 'desktop', 'tools', 'updater', 'config',
+                   'notifications', 'media', 'native', 'other')
 PUBLIC_COLUMNS = {
     table: ('insert_date', 'update_date', 'insert_user', 'update_user')
     for table in CRITICAL_TABLES
@@ -33,6 +37,64 @@ def changed_keys(before, after):
     # Membership distinguishes a missing entry from an explicit JSON null.
     return {key for key in before.keys() | after.keys()
             if key not in before or key not in after or before[key] != after[key]}
+
+
+def file_category(path):
+    """Return fixed labels only; never return any supplied path component."""
+    if not isinstance(path, str) or len(path) > 4096:
+        return None
+    path = path.replace('\\', '/').casefold()
+    prefixes = (
+        ('c:/openwebpbx/web', 'web'), ('c:/openwebpbx/server', 'server'),
+        ('c:/openwebpbx/desktop', 'desktop'), ('c:/openwebpbx/tools', 'tools'),
+        ('c:/openwebpbx/updater', 'updater'), ('c:/programdata/fusionpbx', 'config'),
+        ('c:/programdata/openwebpbx/mobile-notifications', 'notifications'),
+        ('c:/programdata/openwebpbx/storage', 'media'),
+        ('c:/program files/freeswitch/sounds/openwebpbx', 'media'),
+        ('c:/program files/freeswitch', 'native'),
+        ('c:/programdata/openwebpbx', 'config'), ('c:/openwebpbx', 'other'),
+    )
+    for prefix, category in prefixes:
+        if path == prefix or path.startswith(prefix + '/'):
+            return category
+    return None
+
+
+def file_difference(before, after, changed):
+    # A DB/task/general snapshot has no known absolute file entry with this
+    # exact producer shape. Keep its existing report unchanged.
+    if not any(file_category(name) is not None and isinstance(entry, dict)
+               and isinstance(entry.get('acl'), str)
+               and type(entry.get('directory')) is bool
+               for side in (before, after) for name, entry in side.items()):
+        return {}
+    fields, categories = Counter(), Counter()
+    for name in changed:
+        categories[file_category(name) or 'other'] += 1
+        if name not in before:
+            fields['added'] += 1
+            continue
+        if name not in after:
+            fields['removed'] += 1
+            continue
+        left, right = before[name], after[name]
+        if not isinstance(left, dict) or not isinstance(right, dict):
+            fields['shape'] += 1
+            continue
+        keys = changed_keys(left, right)
+        for field in ('acl', 'sha256', 'bytes', 'directory'):
+            if field in keys:
+                fields[field] += 1
+        if keys - {'acl', 'sha256', 'bytes', 'directory'}:
+            fields['other'] += 1
+    return {
+        'comparison_files_observed': True,
+        'comparison_changed_file_entry_count': min(len(changed), LIMIT),
+        'comparison_file_counts_capped': (len(changed) > LIMIT
+                                        or any(n > LIMIT for n in (*fields.values(), *categories.values()))),
+        'comparison_file_field_counts': {name: min(fields[name], LIMIT) for name in FILE_FIELDS if fields[name]},
+        'comparison_file_category_counts': {name: min(categories[name], LIMIT) for name in FILE_CATEGORIES if categories[name]},
+    }
 
 
 def column_difference(paths, tables):
@@ -97,6 +159,11 @@ def difference(before, after, sidecars=()):
         unknown = len(changed - set(SECTIONS))
         result['comparison_unknown_section_count'] = min(unknown, LIMIT)
         result['comparison_counts_capped'] = unknown > LIMIT
+        try:
+            result.update(file_difference(before, after, changed))
+        except Exception:
+            # Optional classification must never replace the original mismatch.
+            pass
         left, right = before.get('values'), after.get('values')
         if isinstance(left, dict) and isinstance(right, dict):
             result['comparison_values_observed'] = True

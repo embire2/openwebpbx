@@ -172,6 +172,23 @@ function SafeComparisonFields($Record){
  foreach($field in 'comparison_values_observed','comparison_counts_capped','comparison_columns_observed','comparison_column_counts_capped'){
   if($Record.$field -isnot [bool]){return $null};$safe[$field]=$Record.$field
  }
+ $fileFields=@('comparison_files_observed','comparison_changed_file_entry_count','comparison_file_counts_capped','comparison_file_field_counts','comparison_file_category_counts')
+ $names=if($Record -is [Collections.IDictionary]){@($Record.Keys)}else{@($Record.PSObject.Properties.Name)}
+ $present=@($fileFields|Where-Object {$names -ccontains $_})
+ if($present.Count){
+  if($present.Count -ne $fileFields.Count -or $Record.comparison_files_observed -isnot [bool] -or $Record.comparison_file_counts_capped -isnot [bool]){return $null}
+  $count=$Record.comparison_changed_file_entry_count
+  if(($count -isnot [int] -and $count -isnot [long]) -or $count -lt 0 -or $count -gt 100000){return $null}
+  $safe.comparison_files_observed=$Record.comparison_files_observed;$safe.comparison_changed_file_entry_count=[int]$count;$safe.comparison_file_counts_capped=$Record.comparison_file_counts_capped
+  $maps=@{comparison_file_field_counts=@('acl','sha256','bytes','directory','added','removed','shape','other');comparison_file_category_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','other')}
+  foreach($field in $maps.Keys){
+   $map=$Record.$field
+   if($map -is [Collections.IDictionary]){$keys=@($map.Keys)}elseif($map -is [pscustomobject]){$keys=@($map.PSObject.Properties.Name)}else{return $null}
+   if($keys.Count -gt $maps[$field].Count){return $null};$copy=@{}
+   foreach($key in $keys){$value=$map.$key;if($key -isnot [string] -or $key -cnotin $maps[$field] -or ($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 100000){return $null};$copy[$key]=[int]$value}
+   $safe[$field]=$copy
+  }
+ }
  return $safe
 }
 function SafeFailureFields($Record){
@@ -489,6 +506,31 @@ function BackupFailureReport([string]$Path,[datetime]$StartedAt){
     return $entry
    }
    foreach($key in 'original_error','recovery_error','reported_error'){if($recovery.$key){$safe.recovery_observation[$key]=& $errorFields $recovery.$key}}
+   $acl=$recovery.acl_observation
+   if((& $integer $acl.schema 1 1) -and $acl.report_status -is [string] -and $acl.report_status -cin @('read','refused','unavailable')){
+    $projected=@{schema=1;report_status=$acl.report_status;mismatches=@()}
+    if($acl.control_restored -is [bool]){$projected.control_restored=$acl.control_restored}
+    $items=@($acl.mismatches)
+    if($items.Count -le 3){foreach($item in $items){
+     if($item.file_category -isnot [string] -or $item.file_category -cnotin @('config','template_key','runtime','installation','phone_tls_metadata','phone_tls_material','public_access_source','notifications','legacy_push','freeswitch_config','voicemail','recordings','other_owned')){continue}
+     $entry=@{file_category=$item.file_category};$valid=$true
+     foreach($key in 'strict_sddl_equal','descriptor_binary_equal','owner_equal','group_equal','owner_before_null','owner_after_null','group_before_null','group_after_null'){if($item.$key -is [bool]){$entry[$key]=$item.$key}else{$valid=$false}}
+     foreach($key in 'control_flags_before','control_flags_after','control_flags_xor'){if(& $integer $item.$key 0 65535){$entry[$key]=[int]$item.$key}else{$valid=$false}}
+     foreach($key in 'descriptor_revision_before','descriptor_revision_after','resource_manager_control_before','resource_manager_control_after'){if(& $integer $item.$key 0 255){$entry[$key]=[int]$item.$key}else{$valid=$false}}
+     foreach($label in 'dacl','sacl'){
+      $value=$item.$label;$part=@{}
+      foreach($key in 'before_null','after_null','raw_binary_equal','ace_sequence_equal','ace_set_equal','ace_multiset_equal','ace_multiplicity_equal','all_ordinary_allow_before','all_ordinary_allow_after'){if($value.$key -is [bool]){$part[$key]=$value.$key}else{$valid=$false}}
+      foreach($side in 'before','after'){
+       $key='revision_'+$side
+       if($null -eq $value.$key){$part[$key]=$null}elseif(& $integer $value.$key 0 255){$part[$key]=[int]$value.$key}else{$valid=$false}
+       foreach($prefix in 'size_','count_','unique_ace_count_','duplicate_ace_count_'){$key=$prefix+$side;if(& $integer $value.$key 0 65535){$part[$key]=[int]$value.$key}else{$valid=$false}}
+      }
+      $entry[$label]=$part
+     }
+     if($valid){$projected.mismatches+=,$entry}
+    }}
+    $safe.recovery_observation.acl_observation=$projected
+   }
    $events=@($recovery.events)
    if($events.Count -le 8){foreach($event in $events){
     if($event.event -isnot [string] -or $event.event -cnotin @('tool_failure','run_failure','control_failure','recovery_failure') -or $event.phase -isnot [string] -or $event.phase -cnotin @('restore','recovery')){continue}
