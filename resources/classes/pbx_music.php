@@ -10,7 +10,23 @@ class pbx_music {
         $xml=file_get_contents($vars);
         if(preg_match('/<!\s*(?:DOCTYPE|ENTITY)/i',$xml))throw new RuntimeException('The native variable file is unsafe.');
         $document=new DOMDocument();$previous=libxml_use_internal_errors(true);
-        try{if(!$document->loadXML($xml,LIBXML_NONET))throw new RuntimeException('The native variable file is invalid.');}
+        try{
+            if(!$document->loadXML($xml,LIBXML_NONET)){
+                // save_var_xml() writes native preprocessor fragments, without
+                // an enclosing document. Validate that exact shape in memory;
+                // never serialize or persist this temporary wrapper.
+                libxml_clear_errors();
+                if(!$document->loadXML('<openweb_music_fragment>'.$xml.'</openweb_music_fragment>',LIBXML_NONET))throw new RuntimeException('The native variable file is invalid.');
+                $elements=0;
+                foreach($document->documentElement->childNodes as $node){
+                    if($node->nodeType===XML_COMMENT_NODE)continue;
+                    if($node->nodeType===XML_TEXT_NODE&&trim($node->textContent)==='')continue;
+                    if($node->nodeType!==XML_ELEMENT_NODE||$node->nodeName!=='X-PRE-PROCESS'||$node->hasChildNodes())throw new RuntimeException('The native variable file is invalid.');
+                    $elements++;
+                }
+                if($elements===0)throw new RuntimeException('The native variable file is invalid.');
+            }
+        }
         finally{libxml_clear_errors();libxml_use_internal_errors($previous);}
         $xpath=new DOMXPath($document);$stock=$xpath->query('//X-PRE-PROCESS[@cmd="set" and @data="hold_music=local_stream://default"]');
         if($stock->length>1)throw new RuntimeException('The stock music default is ambiguous.');
