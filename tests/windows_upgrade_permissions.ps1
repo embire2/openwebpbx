@@ -6,6 +6,13 @@ if([string]::IsNullOrWhiteSpace($SourceRoot)){$SourceRoot=Split-Path $PSScriptRo
 if($PSVersionTable.PSEdition -eq 'Desktop'){$env:PSModulePath=$PSHOME+'\Modules;'+[Environment]::GetFolderPath('ProgramFiles')+'\WindowsPowerShell\Modules'}
 $script:checks=0;$native=[Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
 function AssertControl([bool]$Value){if(!$Value){throw ('Upgrade permission control failed at source line '+(@(Get-PSCallStack)[1].ScriptLineNumber))};$script:checks++}
+$inheritedAce={([int]$_.AceFlags -band [int][Security.AccessControl.AceFlags]::Inherited) -ne 0}
+$explicitAce={([int]$_.AceFlags -band [int][Security.AccessControl.AceFlags]::Inherited) -eq 0}
+foreach($value in 0,16,17,1){
+ $ace=[pscustomobject]@{AceFlags=[Security.AccessControl.AceFlags]$value}
+ AssertControl ((@($ace|Where-Object $inheritedAce).Count -eq 1) -eq (($value -band 16) -ne 0))
+ AssertControl ((@($ace|Where-Object $explicitAce).Count -eq 1) -eq (($value -band 16) -eq 0))
+}
 function ParseSource([string]$Path){
  $tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($Path,[ref]$tokens,[ref]$errors)
  AssertControl ($errors.Count -eq 0);return $ast
@@ -139,8 +146,8 @@ try{
  if($native){
   $descriptor=[Security.AccessControl.RawSecurityDescriptor]::new($newFileAcl)
   $localService=@($descriptor.DiscretionaryAcl|Where-Object {$_ -is [Security.AccessControl.CommonAce] -and $_.SecurityIdentifier.Value -ceq 'S-1-5-19'})
-  AssertControl (@($localService|Where-Object {($_.AceFlags -band [Security.AccessControl.AceFlags]::Inherited) -ne 0}).Count -gt 0)
-  AssertControl (@($localService|Where-Object {($_.AceFlags -band [Security.AccessControl.AceFlags]::Inherited) -eq 0}).Count -gt 0)
+  AssertControl (@($localService|Where-Object $inheritedAce).Count -gt 0)
+  AssertControl (@($localService|Where-Object $explicitAce).Count -gt 0)
  }
  $newDirectory=Join-Path $state 'mail';$null=[IO.Directory]::CreateDirectory($newDirectory);$newDirectoryAcl=CurrentAcl $newDirectory;$newPrivate=Join-Path $newDirectory 'new.lock';NewText $newPrivate 'NEW-PRIVATE';$newPrivateAcl=CurrentAcl $newPrivate
  Restore-OpenWebUpgradePermissions -Permissions $permissions -Root $root -StateRoot $state -EngineRoot $engine
