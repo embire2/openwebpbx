@@ -106,13 +106,19 @@ try{
  foreach($file in 'installation','runtime','updater-install','native-engine','local-codec','phone-tls'){$known['C:\ProgramData\OpenWebPBX\'+$file+'.json']=Record}
  foreach($path in @('C:\ProgramData\OpenWebPBX\storage','C:\ProgramData\OpenWebPBX\storage\openweb-music','C:\ProgramData\OpenWebPBX\storage\openweb-music\README.md','C:\ProgramData\OpenWebPBX\storage\openweb-music\manifest.json','C:\Program Files\FreeSWITCH\sounds','C:\Program Files\FreeSWITCH\sounds\openwebpbx')+$tracks+@(8000,16000,32000,48000|ForEach-Object {'C:\ProgramData\OpenWebPBX\storage\openweb-music\'+$_})){$known[$path]=Record}
  foreach($path in @('C:\ProgramData\fusionpbx','C:\ProgramData\fusionpbx\config.conf','C:\ProgramData\fusionpbx\openweb-template.key','C:\ProgramData\OpenWebPBX\automatic-backups\worker.lock')+@('phone-tls','public-access','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build'|ForEach-Object {'C:\ProgramData\OpenWebPBX\'+$_})){$known[$path]=Record}
+ foreach($path in 'C:\OpenWebPBX','C:\OpenWebPBX\php\php.ini','C:\OpenWebPBX\php\extras\ssl\openssl.cnf','C:\OpenWebPBX\php\extras\ssl\cacert.pem','C:\ProgramData\OpenWebPBX\mobile-notifications','C:\ProgramData\OpenWebPBX\mobile-notifications\config.json','C:\ProgramData\OpenWebPBX\mobile-notifications\config.json.lock'){$known[$path]=Record}
  $changed=JsonCopy $known;foreach($path in @($changed.Keys)){$changed[$path].acl='changed'}
  $caught=$null;try{Equal $known $changed 'fault-files'}catch{$caught=$_};$children++
  $detail=(Observe $caught).comparison
- Verify ($detail.comparison_known_file_field_counts.Count -eq 32 -and $detail.comparison_unknown_file_entry_count -eq 0)
+ Verify ($detail.comparison_known_file_field_counts.Count -eq 39 -and $detail.comparison_unknown_file_entry_count -eq 0)
  Verify ($detail.comparison_config_scope_field_counts.Count -eq 9 -and $detail.comparison_config_scope_field_counts.automatic_backups.acl -eq 2)
  foreach($row in $detail.comparison_known_file_field_counts.Values){Verify ($row.Count -eq 1 -and $row.acl -eq 1)}
  $rawDetail=Get-Content -LiteralPath (Join-Path $work 'compare-fault-files.out') -Raw|ConvertFrom-Json -AsHashtable
+ foreach($label in 'program_root','php_ini','php_openssl','php_cacert','notification_store','notification_config','notification_lock'){
+  Verify ($detail.comparison_known_file_field_counts[$label].acl -eq 1)
+  $invalid=JsonCopy $rawDetail;$invalid.comparison_known_file_field_counts.Remove($label);$invalid.comparison_known_file_field_counts[$label+'_'+$sensitive]=@{acl=1}
+  Verify ($null -eq (QualificationComparisonDetails $invalid))
+ }
  foreach($mutation in 'category','label','field','row_type','map_type','negative','string','boolean','large','unknown_count','partial','private_scope','scope_type','scope_count'){
   $invalid=JsonCopy $rawDetail
   switch($mutation){

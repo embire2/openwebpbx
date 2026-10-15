@@ -28,6 +28,13 @@ KNOWN_FILE_PATHS = {
                         ('local-codec', 'local_codec'), ('phone-tls', 'phone_tls_metadata'))
 }
 KNOWN_FILE_PATHS.update({
+    'c:/openwebpbx': 'program_root',
+    'c:/openwebpbx/php/php.ini': 'php_ini',
+    'c:/openwebpbx/php/extras/ssl/openssl.cnf': 'php_openssl',
+    'c:/openwebpbx/php/extras/ssl/cacert.pem': 'php_cacert',
+    'c:/programdata/openwebpbx/mobile-notifications': 'notification_store',
+    'c:/programdata/openwebpbx/mobile-notifications/config.json': 'notification_config',
+    'c:/programdata/openwebpbx/mobile-notifications/config.json.lock': 'notification_lock',
     'c:/programdata/fusionpbx': 'fusionpbx_root',
     'c:/programdata/fusionpbx/config.conf': 'fusionpbx_config',
     'c:/programdata/fusionpbx/openweb-template.key': 'fusionpbx_template_key',

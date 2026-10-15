@@ -66,8 +66,8 @@ class DiagnosticChecks(unittest.TestCase):
         self.assertEqual(a['comparison_unknown_file_entry_count'], 1)
         self.assertEqual(b['comparison_unknown_file_entry_count'], 1)
 
-    def test_all_thirty_two_labels_accept_only_exact_known_paths(self):
-        self.assertEqual(len(set(comparison.KNOWN_FILE_LABELS)), 32)
+    def test_all_thirty_nine_labels_accept_only_exact_known_paths(self):
+        self.assertEqual(len(set(comparison.KNOWN_FILE_LABELS)), 39)
         for path, label in comparison.KNOWN_FILE_PATHS.items():
             with self.subTest(label=label):
                 native_path = path.upper().replace('/', '\\')
@@ -81,6 +81,28 @@ class DiagnosticChecks(unittest.TestCase):
         self.assertEqual(row['comparison_known_file_field_counts'], {})
         self.assertEqual(row['comparison_unknown_file_entry_count'], 1)
         self.assertEqual(row['comparison_file_category_field_counts'], {'media': {'removed': 1}})
+
+    def test_seven_support_labels_have_exact_path_and_privacy_boundaries(self):
+        expected = {
+            'c:/openwebpbx': 'program_root',
+            'c:/openwebpbx/php/php.ini': 'php_ini',
+            'c:/openwebpbx/php/extras/ssl/openssl.cnf': 'php_openssl',
+            'c:/openwebpbx/php/extras/ssl/cacert.pem': 'php_cacert',
+            'c:/programdata/openwebpbx/mobile-notifications': 'notification_store',
+            'c:/programdata/openwebpbx/mobile-notifications/config.json': 'notification_config',
+            'c:/programdata/openwebpbx/mobile-notifications/config.json.lock': 'notification_lock',
+        }
+        for path, label in expected.items():
+            with self.subTest(label=label):
+                self.assertEqual(comparison.KNOWN_FILE_PATHS[path], label)
+                for near in (path + '-' + SENSITIVE, path + '/' + SENSITIVE,
+                             path + '/../' + SENSITIVE,
+                             'C:/foreign/' + SENSITIVE + '/' + path.rsplit('/', 1)[-1]):
+                    baseline = {'C:/ProgramData/OpenWebPBX/runtime.json': entry()}
+                    row = self.run_comparator(baseline | {near: entry()}, baseline)
+                    self.assertEqual(row['comparison_known_file_field_counts'], {})
+                    self.assertEqual(row['comparison_unknown_file_entry_count'], 1)
+        self.assertEqual(len(comparison.CONFIG_SCOPES), 9)
 
     def test_residual_added_lock_and_closed_subroots_keep_exact_refusal(self):
         baseline = {'C:/ProgramData/OpenWebPBX/runtime.json': entry()}
