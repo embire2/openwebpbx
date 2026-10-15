@@ -38,6 +38,29 @@ RESTORE_TRANSFORMED_TABLES = frozenset(('v_pbx_backup_settings','v_pbx_backups',
                                       'v_pbx_backup_commands','v_pbx_update_commands'))
 
 
+def restore_fixture_failure_fields(record, action):
+    """Closed cleanup observations; never consume error messages or private data."""
+    fields = {'schema', 'action', 'step', 'reason', 'error_type', 'source_basename', 'source_line'}
+    steps = ('initialization', 'owned_lookup', 'gateway_guard', 'native_quiescence', 'native_contacts',
+             'backup_inventory', 'owned_rows_delete', 'update_commands_delete', 'backup_commands_delete',
+             'drafts_delete', 'archive_files_delete', 'cache_cleanup', 'native_reload', 'factory_guard', 'input_commit')
+    reasons = ('owned_service_lookup', 'enabled_gateway', 'active_calls', 'phone_identity', 'live_contact',
+               'missing_backup_command', 'backup_command_guard', 'backup_metadata_guard', 'backup_link',
+               'backup_integrity', 'original_command', 'command_ownership', 'backup_command_changed',
+               'original_draft', 'draft_ownership', 'archive_unlink', 'factory_not_empty', 'database_error',
+               'json_error', 'type_error', 'runtime_guard', 'external_error')
+    types = ('RuntimeException', 'PDOException', 'JsonException', 'TypeError', 'ValueError', 'Error', 'Exception', 'external_error')
+    sources = ('windows-restore-qualification.php', 'database.php', 'pbx_paths.php', 'cache.php',
+               'event_socket.php', 'config.php', 'external_component')
+    if (not isinstance(record, dict) or set(record) != fields or action != 'cleanup'
+            or type(record['schema']) is not int or record['schema'] != 1 or record['action'] != action
+            or record['step'] not in steps or record['reason'] not in reasons
+            or record['error_type'] not in types or record['source_basename'] not in sources
+            or type(record['source_line']) is not int or not 0 < record['source_line'] < 1000000):
+        return {}
+    return {key: record[key] for key in sorted(fields)}
+
+
 def canonical(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False,
                       separators=(',', ':'), allow_nan=False).encode('utf-8')
@@ -230,11 +253,22 @@ class Qualification:
     def record(self, name):
         self.facts['checks'].append(name); self.facts['gates'][name] = 'passed'; write_json(self.facts_path, self.facts)
     def php(self, action):
+        failure_path = Path(str(self.path) + '.cleanup.failure.json')
+        failure_absent = not failure_path.exists() and not failure_path.is_symlink()
         child = subprocess.run(['C:/OpenWebPBX/php/php.exe', str(self.source / 'tests/windows-restore-qualification.php'),
             action, str(self.path)], cwd='C:/OpenWebPBX/web', stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
         (self.work / (action + '.private.out')).write_bytes(child.stdout)
         (self.work / (action + '.private.err')).write_bytes(child.stderr)
-        if child.returncode: raise RuntimeError('The private scoped PHP fixture failed.')
+        if child.returncode:
+            error = RuntimeError('The private scoped PHP fixture failed.')
+            if action == 'cleanup' and failure_absent:
+                try:
+                    if not failure_path.is_symlink() and failure_path.is_file() and failure_path.stat().st_size <= 2048:
+                        fields = restore_fixture_failure_fields(read_json(failure_path, 2048), action)
+                        if fields: error.fixture_failure = fields
+                except Exception:
+                    pass  # Observation failure must not replace the original child failure.
+            raise error
         self.refresh(); return json.loads(child.stdout.decode('utf-8-sig'))
     def snapshot(self, label):
         self.s['snapshot_label'] = label; self.save(); self.php('snapshot')
@@ -768,4 +802,6 @@ if __name__ == '__main__':
         facts = {'state': 'failed', 'error_type': type(error).__name__, 'active_case': 'restore_qualification',
                  'source_basename': basename if re.fullmatch(r'[A-Za-z0-9_.-]{1,120}', basename) else 'unknown',
                  'source_line': trace.tb_lineno if trace and 0 < trace.tb_lineno < 1000000 else 0}
+        observation = restore_fixture_failure_fields(getattr(error, 'fixture_failure', None), 'cleanup')
+        if observation: facts['fixture_failure'] = observation
         print(json.dumps(facts)); sys.exit(1)

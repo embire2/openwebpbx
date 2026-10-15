@@ -26,8 +26,32 @@ $public=Join-Path $env:RUNNER_TEMP 'openwebpbx-updater-facts';$output=Join-Path 
 $phase='verified baseline artifacts';$installed=$false;$transport=$null;$transportRoot=$null;$ownHosts=$false;$serviceEnvironment=$null;$inputFile=$null;$settings=$null;$scope=$null;$fixtureCreated=$false
 $managerOwned=$false;$managerStarted=$null;$managerName=$null;$managerSid=$null;$managerSession=0
 $retainedProcesses=[Collections.Generic.List[Diagnostics.Process]]::new()
+$script:qualificationFailedChild=$null
 $facts=[ordered]@{schema=1;mode=$Mode;run_id=$env:GITHUB_RUN_ID;source_commit=$env:GITHUB_SHA;state='running';scope='disposable Windows Server 2025, fictional PBX, laboratory trusted HTTPS';checks=@();gates=[ordered]@{canary_build='pending';fault_https_download='unqualified';fault_rollback='unqualified';normal_https_download='unqualified';newer_upgrade='unqualified';natural_updater_restart='unqualified';manager_reopen_rollback='unqualified';manager_reopen_success='unqualified';protected_data='unqualified';public_github_delivery='unqualified';owner_106_upgrade='unqualified';carrier='unqualified'};cleanup='pending'}
 function Check([bool]$Value,[string]$Message){if(!$Value){throw $Message}}
+function QualificationFailureObservation([string]$Trace,$Child){
+ # Project only known source callsites and fixed child identities. Messages,
+ # process arguments, private streams and the paths in the trace stay private.
+ $frames=[Collections.Generic.List[object]]::new();$seen=@{}
+ $functions=@('Check','Hash','WriteJson','PrivateDirectory','Api','SafeRelative','ExpandSafe','Artifact','CheckedProcess','NativeVersions','StopQualificationIis','PrepareCanary','Fixture','Python','DatabaseSnapshot','FileSnapshot','TaskSnapshot','ManagerTaskValid','OwnedManagers','WaitManager','BeginManager','OriginalProcessProofSource','RetainQualificationProcess','AssertOriginalProcessState','ManagerReopened','EqualTaskSnapshots','Equal','NormalTaskPreservation','InstalledVersions','WaitInstall','DownloadProof','GetManagerOriginalExitProof','<ScriptBlock>')
+ if($Trace -and $Trace.Length -le 16384){
+  $lines=[regex]::Split($Trace,'\r?\n')
+  for($i=0;$i -lt [Math]::Min($lines.Count,64) -and $frames.Count -lt 6;$i++){
+   $match=[regex]::Match($lines[$i].Trim(),'^at (?<function>[^,\r\n]{1,80}), (?:[^\r\n]*[\\/])?(?<source>windows-updater-qualification\.ps1|windows-upgrade-acceptance\.ps1): line (?<line>[0-9]{1,5})$')
+   if(!$match.Success -or $match.Groups['function'].Value -cnotin $functions){continue}
+   $line=[int]$match.Groups['line'].Value;if($line -lt 1){continue}
+   $name=$match.Groups['function'].Value;$sourceName=$match.Groups['source'].Value;$key=$sourceName+':'+$name+':'+$line
+   if(!$seen.ContainsKey($key)){$seen[$key]=$true;$frames.Add(@{source_basename=$sourceName;source_line=$line;function=$name})}
+  }
+ }
+ $labels=@('fetch-immutable-source','source-worktree','server-14-build','updater-14-build','desktop-14-build','OpenWebPbx.Checks-checks','OpenWebPbx.Updater.Checks-checks','prepare-audited-canary','verify-qualified-base','verify-fault','verify-normal','verify-private-signatures','actual-fresh13','python-setup','python-prepare-pki','python-request','compare-fault-database','compare-fault-files','compare-normal-database','compare-normal-protected-files','compare-normal-installation-secrets','fixture-baseline','fixture-discover','fixture-status','fixture-snapshot','fixture-cleanup')
+ $childReport=$null
+ if($Child -is [Collections.IDictionary] -and $Child.label -is [string] -and $Child.label -cin $labels -and $Child.caller -cin @('CheckedProcess','Fixture') -and $Child.caller -cin $frames.ToArray().function){
+  if($Child.completion -ceq 'exit' -and $Child.exit_code -is [int] -and $Child.exit_code -ne 0){$childReport=@{label=$Child.label;completion='exit';exit_code=$Child.exit_code}}
+  elseif($Child.completion -ceq 'deadline' -and $null -eq $Child.exit_code){$childReport=@{label=$Child.label;completion='deadline';exit_code=$null}}
+ }
+ return @{schema=1;callsites=$frames.ToArray();child=$childReport}
+}
 function Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
 function WriteJson([string]$Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 32),[Text.UTF8Encoding]::new($false))}
 function PrivateDirectory([string]$Path){New-Item -ItemType Directory -Force $Path|Out-Null;& icacls.exe $Path /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F'|Out-Null;Check ($LASTEXITCODE -eq 0) 'Private qualification permissions failed.'}
@@ -60,15 +84,17 @@ function Artifact([string]$RunId,[string]$Name,[string]$Workflow){
  return @{directory=$directory;run=$run;artifact=$artifact}
 }
 function CheckedProcess([string]$Executable,[string[]]$Arguments,[string]$Label,[string]$WorkingDirectory=$source,[int]$Timeout=2400000){
+ $script:qualificationFailedChild=$null
  $start=[Diagnostics.ProcessStartInfo]::new($Executable);$start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true;$start.WorkingDirectory=$WorkingDirectory
  if($Executable -like '*WindowsPowerShell*'){$start.Environment['PSModulePath']=(Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell/Modules')}
  foreach($argument in $Arguments){$start.ArgumentList.Add($argument)}
  $process=[Diagnostics.Process]::Start($start);$stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
  # Do not kill an in-flight installer transaction. The ephemeral runner timeout
  # and durable product journal own recovery when it cannot complete in bounds.
- Check ($process.WaitForExit($Timeout)) 'A private qualification child exceeded its deadline; do not interrupt its transaction.'
+ $finished=$process.WaitForExit($Timeout);if(!$finished){$script:qualificationFailedChild=@{caller='CheckedProcess';label=$Label;completion='deadline';exit_code=$null}}
+ Check $finished 'A private qualification child exceeded its deadline; do not interrupt its transaction.'
  [IO.File]::WriteAllText((Join-Path $work ($Label+'.out')),$stdout.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false));[IO.File]::WriteAllText((Join-Path $work ($Label+'.err')),$stderr.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false))
- $exit=$process.ExitCode;$process.Dispose();Check ($exit -eq 0) 'A private qualification operation failed; its streams remain private.'
+ $exit=$process.ExitCode;$process.Dispose();if($exit -ne 0){$script:qualificationFailedChild=@{caller='CheckedProcess';label=$Label;completion='exit';exit_code=$exit}};Check ($exit -eq 0) 'A private qualification operation failed; its streams remain private.'
 }
 function NativeVersions([string]$Directory,[string]$Version){
  $paths=@{'server/OpenWebPbx.Server.dll'='server';'desktop/OpenWebPbx.Desktop.dll'='desktop';'updater/OpenWebPbx.Updater.dll'='updater'};$records=@()
@@ -120,9 +146,10 @@ function PrepareCanary($Base,$BaseFacts){
  $facts.gates.canary_build='passed';$facts.checks+='Genuine 1.0.14 server/manager/updater builds, responsive manager, exactly two source overlays, complete normal/fault manifest and source/hash evidence';$facts.state='prepared';$script:phase=$phaseBefore
 }
 function Fixture([string]$Action){
+ $script:qualificationFailedChild=$null
  $start=[Diagnostics.ProcessStartInfo]::new("$root\php\php.exe");$start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.WorkingDirectory="$root\web";$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
  foreach($argument in @((Join-Path $PSScriptRoot 'windows-updater-fixture.php'),$Action,$inputFile)){$start.ArgumentList.Add($argument)}
- $process=[Diagnostics.Process]::Start($start);$out=$process.StandardOutput.ReadToEndAsync();$err=$process.StandardError.ReadToEndAsync();Check ($process.WaitForExit(90000)) 'The private scoped audit exceeded its deadline.';$text=$out.GetAwaiter().GetResult();[IO.File]::WriteAllText((Join-Path $work ($Action+'-private.err')),$err.GetAwaiter().GetResult());$exit=$process.ExitCode;$process.Dispose();Check ($exit -eq 0) 'The private scoped audit failed.';return $text|ConvertFrom-Json
+ $process=[Diagnostics.Process]::Start($start);$out=$process.StandardOutput.ReadToEndAsync();$err=$process.StandardError.ReadToEndAsync();$finished=$process.WaitForExit(90000);if(!$finished){$script:qualificationFailedChild=@{caller='Fixture';label=('fixture-'+$Action);completion='deadline';exit_code=$null}};Check $finished 'The private scoped audit exceeded its deadline.';$text=$out.GetAwaiter().GetResult();[IO.File]::WriteAllText((Join-Path $work ($Action+'-private.err')),$err.GetAwaiter().GetResult());$exit=$process.ExitCode;$process.Dispose();if($exit -ne 0){$script:qualificationFailedChild=@{caller='Fixture';label=('fixture-'+$Action);completion='exit';exit_code=$exit}};Check ($exit -eq 0) 'The private scoped audit failed.';return $text|ConvertFrom-Json
 }
 function Python([string]$Action){CheckedProcess "$root\backup-runtime\python.exe" @('-I','-B',(Join-Path $PSScriptRoot 'windows-updater-fixture.py'),'--input',$inputFile,'--action',$Action) ('python-'+$Action)}
 function DatabaseSnapshot([string]$Label){$settings.snapshot_label=$Label;WriteJson $inputFile $settings;Fixture 'snapshot'|Out-Null;return Get-Content (Join-Path (Split-Path $inputFile -Parent) ($Label+'-database.json')) -Raw|ConvertFrom-Json -AsHashtable}
@@ -319,22 +346,25 @@ if(!$?){exit 1}
   InstalledVersions '1.0.13'|Out-Null
   # Python/OpenSSL needs the actual installed self-signed public certificate in
   # PEM form; it never bypasses certificate/hostname validation.
+  $phase='installed13 HTTPS certificate preparation'
   $cert=[Security.Cryptography.X509Certificates.X509Certificate2]::new([IO.File]::ReadAllBytes("$state\local-test.cer"));$webPem=Join-Path $qa 'web-root.pem';[IO.File]::WriteAllText($webPem,"-----BEGIN CERTIFICATE-----`n"+[Convert]::ToBase64String($cert.RawData,[Base64FormattingOptions]::InsertLineBreaks)+"`n-----END CERTIFICATE-----`n",[Text.UTF8Encoding]::new($false));$cert.Dispose();$settings.web_ca=$webPem;WriteJson $inputFile $settings
-  Fixture 'baseline'|Out-Null;$phase='normal HTTPS fictional PBX setup';Python 'setup';Fixture 'discover'|Out-Null;$fixtureCreated=$true;$settings=Get-Content $inputFile -Raw|ConvertFrom-Json -AsHashtable
+  $phase='empty factory baseline capture';Fixture 'baseline'|Out-Null
+  $phase='normal HTTPS fictional PBX setup';Python 'setup'
+  $phase='owned fictional PBX discovery';Fixture 'discover'|Out-Null;$fixtureCreated=$true;$settings=Get-Content $inputFile -Raw|ConvertFrom-Json -AsHashtable
   # Seed ordinary owned media and inactive private PEM bytes, not certificates
   # falsely marked ready. Active phone TLS was already proved by the base suite.
-  $media=Join-Path $state ('storage/updater-'+$scope);PrivateDirectory $media
+  $phase='owned fictional PBX media preparation';$media=Join-Path $state ('storage/updater-'+$scope);PrivateDirectory $media
   $stream=[IO.File]::Create((Join-Path $media 'fictional.wav'));$writer=[IO.BinaryWriter]::new($stream)
   try{$writer.Write([Text.Encoding]::ASCII.GetBytes('RIFF'));$writer.Write([uint32]4132);$writer.Write([Text.Encoding]::ASCII.GetBytes('WAVEfmt '));$writer.Write([uint32]16);$writer.Write([uint16]1);$writer.Write([uint16]1);$writer.Write([uint32]8000);$writer.Write([uint32]16000);$writer.Write([uint16]2);$writer.Write([uint16]16);$writer.Write([Text.Encoding]::ASCII.GetBytes('data'));$writer.Write([uint32]4096);$writer.Write([Security.Cryptography.RandomNumberGenerator]::GetBytes(4096))}finally{$writer.Dispose();$stream.Dispose()};$settings.owned_media=$media
-  Python 'prepare-pki';$pki=Get-Content (Join-Path $qa 'pki.json') -Raw|ConvertFrom-Json
+  $phase='laboratory HTTPS PKI preparation';Python 'prepare-pki';$pki=Get-Content (Join-Path $qa 'pki.json') -Raw|ConvertFrom-Json
   $privatePem=Join-Path $state ('phone-tls/updater-'+$scope);PrivateDirectory $privatePem;Copy-Item (Join-Path $qa 'transport-chain.pem'),(Join-Path $qa 'transport-leaf.key') $privatePem;$settings.owned_private_pem=$privatePem
   [IO.File]::WriteAllBytes((Join-Path $qa 'audit.key'),[Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
-  $transportRoot=Import-Certificate -FilePath (Join-Path $qa 'transport-root.cer') -CertStoreLocation Cert:\LocalMachine\Root;Check ($transportRoot.Thumbprint.ToLowerInvariant() -eq $pki.root_thumbprint) 'The exact owned laboratory trust root was not installed.'
+  $phase='laboratory HTTPS trust import';$transportRoot=Import-Certificate -FilePath (Join-Path $qa 'transport-root.cer') -CertStoreLocation Cert:\LocalMachine\Root;Check ($transportRoot.Thumbprint.ToLowerInvariant() -eq $pki.root_thumbprint) 'The exact owned laboratory trust root was not installed.'
   [IO.File]::AppendAllText($hosts,"127.0.0.1 github.com $marker`r`n",[Text.UTF8Encoding]::new($false));Clear-DnsClientCache
-  $serviceKey='HKLM:\SYSTEM\CurrentControlSet\Services\OpenWebPBXUpdater';$environmentProperty=Get-ItemProperty -LiteralPath $serviceKey -Name Environment -ErrorAction SilentlyContinue;$serviceEnvironment=@{exists=($null -ne $environmentProperty);value=if($environmentProperty){$environmentProperty.Environment}else{@()}}
+  $phase='laboratory HTTPS worker environment';$serviceKey='HKLM:\SYSTEM\CurrentControlSet\Services\OpenWebPBXUpdater';$environmentProperty=Get-ItemProperty -LiteralPath $serviceKey -Name Environment -ErrorAction SilentlyContinue;$serviceEnvironment=@{exists=($null -ne $environmentProperty);value=if($environmentProperty){$environmentProperty.Environment}else{@()}}
   Check (@($serviceEnvironment.value|Where-Object {$_ -match '^(?i:no_proxy|https?_proxy|all_proxy)='}).Count -eq 0) 'The disposable worker has an unexpected pre-existing proxy environment.'
   New-ItemProperty -LiteralPath $serviceKey -Name Environment -PropertyType MultiString -Value @($serviceEnvironment.value+@('NO_PROXY=github.com,windowsqa.example.invalid,127.0.0.1','no_proxy=github.com,windowsqa.example.invalid,127.0.0.1')) -Force|Out-Null
-  WriteJson (Join-Path $qa 'mode.json') @{mode='fault'};WriteJson $inputFile $settings
+  $phase='laboratory HTTPS endpoint startup';WriteJson (Join-Path $qa 'mode.json') @{mode='fault'};WriteJson $inputFile $settings
   # The long-lived laboratory server runs the independent, hash-verified
   # extracted baseline runtime. Keeping the installed Python DLLs mapped would
   # artificially prevent the normal installer replacing its backup runtime.
@@ -342,15 +372,15 @@ if(!$?){exit 1}
   for($i=0;$i -lt 100 -and !(Test-Path (Join-Path $qa 'transport-ready.json')) -and !$transport.HasExited;$i++){Start-Sleep -Milliseconds 100};Check (!$transport.HasExited -and (Test-Path (Join-Path $qa 'transport-ready.json'))) 'The owned trusted HTTPS endpoint failed to start.'
   # Initial fixture-only service environment setup precedes all acceptance
   # snapshots. No test restarts/kills the updater during either transaction.
-  Stop-Service OpenWebPBXUpdater;(Get-Service OpenWebPBXUpdater).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(45));Start-Service OpenWebPBXUpdater
+  $phase='initial installed13 worker startup';Stop-Service OpenWebPBXUpdater;(Get-Service OpenWebPBXUpdater).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(45));Start-Service OpenWebPBXUpdater
   . (OriginalProcessProofSource (Join-Path $PSScriptRoot 'windows-upgrade-acceptance.ps1'))
   Start-Sleep -Seconds 2;[int]$initialPid=InstalledVersions '1.0.13'
-  $originalWorker=RetainQualificationProcess ([Diagnostics.Process]::GetProcessById($initialPid)) $initialPid "$root\updater\slots\1.0.13\OpenWebPbx.Updater.exe" 'S-1-5-18' 0 ([DateTime]::MinValue)
-  $contractDirectory=Join-Path $state 'qualification113';PrivateDirectory $contractDirectory
+  $phase='initial installed13 worker identity';$originalWorker=RetainQualificationProcess ([Diagnostics.Process]::GetProcessById($initialPid)) $initialPid "$root\updater\slots\1.0.13\OpenWebPbx.Updater.exe" 'S-1-5-18' 0 ([DateTime]::MinValue)
+  $phase='owned SYSTEM canary fault contract';$contractDirectory=Join-Path $state 'qualification113';PrivateDirectory $contractDirectory
   $contract=@{schema=1;authorized=$true;disposable=$true;fault_authorized=$true;disposable_hosted_runner=$true;github_actions=$true;runner_environment='github-hosted';nonce=$scope;run_id=$env:GITHUB_RUN_ID;repository='embire2/openwebpbx';expected_computer=$env:COMPUTERNAME;expected_domain='windowsqa.example.invalid';original_version='1.0.13';baseline_version='1.0.13';target_version='1.0.14'}
   WriteJson (Join-Path $contractDirectory 'canary-fault-contract.json') $contract;WriteJson (Join-Path $contractDirectory 'canary-host-sentinel.json') $contract
   foreach($file in 'canary-fault-contract.json','canary-host-sentinel.json'){& icacls.exe (Join-Path $contractDirectory $file) /inheritance:r /grant:r '*S-1-5-32-544:F' '*S-1-5-18:F' /setowner '*S-1-5-32-544'|Out-Null;Check ($LASTEXITCODE -eq 0) 'The owned SYSTEM fault contract file could not be secured.'}
-  $originalManager=BeginManager
+  $phase='original13 interactive manager startup';$originalManager=BeginManager
   $heldOriginalManager=RetainQualificationProcess $originalManager ([int]$originalManager.Id) "$root\desktop\OpenWebPbx.Desktop.exe" $managerSid $managerSession $managerStarted
   $phase='fault14 full HTTPS download and rollback'
   foreach($modeName in 'fault','normal'){$cache="$state\updates\downloads\$($verified[$modeName].sha256).archive";Check (!(Test-Path $cache) -and !(Test-Path ($cache+'.partial'))) 'The test refuses preseeded or partial canary archives.'}
@@ -389,6 +419,7 @@ if(!$?){exit 1}
  }
 }catch{
  $facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$_.Exception.GetType().Name;$facts.source_basename=if($_.InvocationInfo.ScriptName){Split-Path -Leaf $_.InvocationInfo.ScriptName}else{'external_component'};$facts.source_line=[int]$_.InvocationInfo.ScriptLineNumber
+ $facts.failure_observation=QualificationFailureObservation $_.ScriptStackTrace $script:qualificationFailedChild
  Write-Error ('Disposable updater qualification failed in '+$phase+'. Private streams are not published.') -ErrorAction Continue
 }finally{
  Remove-Item Env:\GH_TOKEN,Env:\WINDOWS_UPDATER_SIGNED_PACKETS_B64 -ErrorAction SilentlyContinue

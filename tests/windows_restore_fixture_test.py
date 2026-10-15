@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -197,6 +198,87 @@ class RestoreFixture(unittest.TestCase):
             path.symlink_to(outside)
             self.assert_refuses(code, {'path': str(path), 'root': str(root)})
             self.assert_refuses(code, {'path': str(outside), 'root': str(root)})
+
+    failure_code = "echo json_encode(restore_fixture_failure_record(new $input['type']($input['message']),$input['path'],$input['action'],$input['step'],$input['root']));"
+
+    def failure_input(self, root, **updates):
+        path = root / SCOPE / 'input.json'
+        path.parent.mkdir(exist_ok=True);path.write_bytes(b'{"original":true}')
+        return dict(path=str(path),root=str(root),action='cleanup',step='factory_guard',
+                    type='RuntimeException',message='A distinct empty factory is required.') | updates
+
+    def test_cleanup_failure_actual_php_record_is_closed_and_exclusive(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            data=self.failure_input(Path(temporary));path=Path(data['path']);sidecar=Path(str(path)+'.cleanup.failure.json')
+            self.assertEqual(self.assert_accepts(self.failure_code,data),'true')
+            record=json.loads(sidecar.read_bytes())
+            self.assertEqual(set(record),{'schema','action','step','reason','error_type','source_basename','source_line'})
+            self.assertEqual(record | {'source_line':1},dict(schema=1,action='cleanup',step='factory_guard',reason='factory_not_empty',
+                             error_type='RuntimeException',source_basename='external_component',source_line=1))
+            self.assertGreater(record['source_line'],0);self.assertLess(record['source_line'],1000000)
+            self.assertLessEqual(sidecar.stat().st_size,2048)
+            original=sidecar.read_bytes();data['message']='PRIVATE SQL password /private/path'
+            self.assertEqual(self.assert_accepts(self.failure_code,data),'false')
+            self.assertEqual(sidecar.read_bytes(),original);self.assertEqual(path.read_bytes(),b'{"original":true}')
+
+    def test_cleanup_failure_private_messages_only_become_fixed_type_reason(self):
+        for kind,reason in [('RuntimeException','runtime_guard'),('PDOException','database_error'),('JsonException','json_error'),
+                            ('TypeError','type_error'),('ValueError','type_error'),('Error','external_error'),('Exception','external_error')]:
+            with self.subTest(kind=kind),tempfile.TemporaryDirectory() as temporary:
+                data=self.failure_input(Path(temporary),type=kind,message='PRIVATE SQL password /private/path')
+                self.assertEqual(self.assert_accepts(self.failure_code,data),'true')
+                raw=Path(data['path']+'.cleanup.failure.json').read_text();record=json.loads(raw)
+                self.assertEqual(record['error_type'],kind);self.assertEqual(record['reason'],reason)
+                self.assertNotIn('PRIVATE',raw);self.assertNotIn('password',raw);self.assertNotIn('/private',raw)
+
+    def test_cleanup_failure_captures_actual_source_guard_origin(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            data=self.failure_input(Path(temporary))
+            code="try{restore_fixture_private_path($input['root'].'/missing.json',$input['root']);}catch(Throwable $error){echo json_encode(restore_fixture_failure_record($error,$input['path'],$input['action'],$input['step'],$input['root']));}"
+            self.assertEqual(self.assert_accepts(code,data),'true')
+            record=json.loads(Path(data['path']+'.cleanup.failure.json').read_text())
+            self.assertEqual(record['source_basename'],'windows-restore-qualification.php')
+            self.assertEqual(record['error_type'],'RuntimeException');self.assertEqual(record['reason'],'runtime_guard')
+            lines=FIXTURE.read_text().splitlines()
+            self.assertIn('An ordinary private scoped input is required.',lines[record['source_line']-1])
+
+    def test_cleanup_failure_fixed_reasons_and_stages_match_actual_cleanup_source(self):
+        source=FIXTURE.read_text()
+        # All exact source guards used for classification must still be thrown
+        # by the actual routine rather than merely existing in its allowlist.
+        reasons=dict(re.findall(r"'([^']+)'=>'([a-z_]+)'",source.split('function restore_fixture_failure_record',1)[1].split('$type=get_class',1)[0]))
+        actual=source.split('function restore_fixture_main',1)[1]
+        for message,reason in reasons.items():
+            with self.subTest(reason=reason),tempfile.TemporaryDirectory() as temporary:
+                self.assertIn("throw new RuntimeException('"+message+"')",actual if reason not in ('backup_command_guard',) else source.split('function restore_fixture_failure_record',1)[0])
+                data=self.failure_input(Path(temporary),message=message)
+                self.assertEqual(self.assert_accepts(self.failure_code,data),'true')
+                self.assertEqual(json.loads(Path(data['path']+'.cleanup.failure.json').read_text())['reason'],reason)
+        for step in ('initialization','owned_lookup','gateway_guard','native_quiescence','native_contacts','backup_inventory',
+                     'owned_rows_delete','update_commands_delete','backup_commands_delete','drafts_delete','archive_files_delete',
+                     'cache_cleanup','native_reload','factory_guard','input_commit'):
+            with self.subTest(step=step),tempfile.TemporaryDirectory() as temporary:
+                self.assertIn("$GLOBALS['restore_fixture_failure_step']='"+step+"'",actual)
+                data=self.failure_input(Path(temporary),step=step)
+                self.assertEqual(self.assert_accepts(self.failure_code,data),'true')
+
+    def test_cleanup_failure_refuses_wrong_action_step_path_and_links(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);data=self.failure_input(root)
+            variants=[data|{'action':'snapshot'},data|{'step':'PRIVATE'},data|{'path':str(root/SCOPE/'other.json')},
+                      data|{'root':str(root/'missing')},data|{'path':str(root/'input.json')}]
+            (root/SCOPE/'other.json').write_text('{}');(root/'input.json').write_text('{}')
+            for item in variants:
+                with self.subTest(item=item):self.assertEqual(self.assert_accepts(self.failure_code,item),'false')
+            alias=root/('d'*24);alias.symlink_to(root/SCOPE,target_is_directory=True)
+            self.assertEqual(self.assert_accepts(self.failure_code,data|{'path':str(alias/'input.json')}),'false')
+            path=Path(data['path']);path.unlink();path.symlink_to(root/'input.json')
+            self.assertEqual(self.assert_accepts(self.failure_code,data),'false')
+            path.unlink();path.write_text('{}')
+            sidecar=Path(str(path)+'.cleanup.failure.json');sidecar.symlink_to(root/'input.json')
+            self.assertEqual(self.assert_accepts(self.failure_code,data),'false')
+            self.assertEqual((root/'input.json').read_text(),'{}')
+            self.assertEqual({p.name for p in (root/SCOPE).iterdir()},{'input.json','input.json.cleanup.failure.json','other.json'})
 
     def test_indexed_media_is_read_only_and_owned(self):
         with tempfile.TemporaryDirectory() as temporary:

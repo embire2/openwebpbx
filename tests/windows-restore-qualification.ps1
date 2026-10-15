@@ -37,13 +37,27 @@ function Derived([string]$Label){
 function Fixture([string]$Action){
  CheckedProcess "$root\php\php.exe" @((Join-Path $PSScriptRoot 'windows-restore-qualification.php'),$Action,$inputFile) ('php-'+$Action) "$root\web" 120000
 }
+function SafeRestoreFixtureFailure($Record){
+ if($null -eq $Record -or $Record -is [array]){return $null}
+ $keys=@('schema','action','step','reason','error_type','source_basename','source_line')
+ if($Record -is [System.Collections.IDictionary]){$actual=@($Record.Keys)}else{$actual=@($Record.PSObject.Properties.Name)}
+ if($actual.Count -ne $keys.Count -or @($actual|Where-Object {$_ -cnotin $keys}).Count){return $null}
+ if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.action -isnot [string] -or $Record.action -cne 'cleanup'){return $null}
+ $steps=@('initialization','owned_lookup','gateway_guard','native_quiescence','native_contacts','backup_inventory','owned_rows_delete','update_commands_delete','backup_commands_delete','drafts_delete','archive_files_delete','cache_cleanup','native_reload','factory_guard','input_commit')
+ $reasons=@('owned_service_lookup','enabled_gateway','active_calls','phone_identity','live_contact','missing_backup_command','backup_command_guard','backup_metadata_guard','backup_link','backup_integrity','original_command','command_ownership','backup_command_changed','original_draft','draft_ownership','archive_unlink','factory_not_empty','database_error','json_error','type_error','runtime_guard','external_error')
+ $types=@('RuntimeException','PDOException','JsonException','TypeError','ValueError','Error','Exception','external_error')
+ $sources=@('windows-restore-qualification.php','database.php','pbx_paths.php','cache.php','event_socket.php','config.php','external_component')
+ if($Record.step -isnot [string] -or $Record.step -cnotin $steps -or $Record.reason -isnot [string] -or $Record.reason -cnotin $reasons -or $Record.error_type -isnot [string] -or $Record.error_type -cnotin $types -or $Record.source_basename -isnot [string] -or $Record.source_basename -cnotin $sources){return $null}
+ if(($Record.source_line -isnot [int] -and $Record.source_line -isnot [long]) -or $Record.source_line -le 0 -or $Record.source_line -ge 1000000){return $null}
+ return @{schema=1;action='cleanup';step=$Record.step;reason=$Record.reason;error_type=$Record.error_type;source_basename=$Record.source_basename;source_line=$Record.source_line}
+}
 function NativeFixture([string]$Action){
  $script:phase=$Action
  # The extracted interpreter remains independent of private installed state.
  try{CheckedProcess $python @('-I','-B',(Join-Path $PSScriptRoot 'windows-restore-qualification.py'),'--input',$inputFile,'--action',$Action) ('restore-'+$Action) $source 1200000}
  catch{
   $privateOutput=Join-Path $work ('restore-'+$Action+'.out')
-  if(Test-Path $privateOutput){try{$safe=Get-Content $privateOutput -Raw|ConvertFrom-Json;if($safe.state -eq 'failed' -and $safe.error_type -match '^[A-Za-z0-9_.]{1,120}$' -and $safe.source_basename -match '^[A-Za-z0-9_.-]{1,120}$' -and ($safe.source_line -is [long] -or $safe.source_line -is [int]) -and $safe.source_line -ge 0 -and $safe.source_line -lt 1000000){$facts.native_failure=@{error_type=$safe.error_type;source_basename=$safe.source_basename;source_line=$safe.source_line;active_case=$Action}}}catch{}}
+  if(Test-Path $privateOutput){try{$safe=Get-Content $privateOutput -Raw|ConvertFrom-Json;if($safe.state -eq 'failed' -and $safe.error_type -match '^[A-Za-z0-9_.]{1,120}$' -and $safe.source_basename -match '^[A-Za-z0-9_.-]{1,120}$' -and ($safe.source_line -is [long] -or $safe.source_line -is [int]) -and $safe.source_line -ge 0 -and $safe.source_line -lt 1000000){$facts.native_failure=@{error_type=$safe.error_type;source_basename=$safe.source_basename;source_line=$safe.source_line;active_case=$Action};if($Action -ceq 'cleanup'){$observation=SafeRestoreFixtureFailure $safe.fixture_failure;if($observation){$facts.native_failure.fixture_failure=$observation}}}}catch{}}
   throw
  }
 }

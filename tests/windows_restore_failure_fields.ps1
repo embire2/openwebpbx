@@ -1,0 +1,82 @@
+#Requires -Version 5.1
+<# Actual AST projector/caller controls only. No installed application or Windows
+restore is executed; all child output and failures below are fictional. #>
+[CmdletBinding()]
+param([string]$SourceRoot='')
+$ErrorActionPreference='Stop'
+if([string]::IsNullOrWhiteSpace($SourceRoot)){$SourceRoot=Split-Path $PSScriptRoot -Parent}
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-restore-qualification.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Restore qualification source must parse.'}
+foreach($name in 'SafeRestoreFixtureFailure','NativeFixture'){
+ $nodes=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true))
+ if($nodes.Count -ne 1){throw 'One exact source function is required.'}
+ if($name -eq 'NativeFixture'){$nativeDefinition=$nodes[0].Extent.Text}else{Invoke-Expression $nodes[0].Extent.Text}
+}
+$script:count=0
+function Assert([bool]$Condition){$script:count++;if(!$Condition){throw ('A closed restore-observation control failed at source line '+(Get-PSCallStack)[1].ScriptLineNumber+'.')}}
+function Clone($Value){return ($Value|ConvertTo-Json -Depth 20 -Compress|ConvertFrom-Json)}
+$good=[ordered]@{schema=1;action='cleanup';step='factory_guard';reason='factory_not_empty';error_type='RuntimeException';source_basename='windows-restore-qualification.php';source_line=123}
+$safe=SafeRestoreFixtureFailure (Clone $good)
+Assert ($safe.Count -eq 7 -and $safe.step -ceq 'factory_guard' -and $safe.source_line -eq 123)
+foreach($definition in @(
+ @{key='step';values=@('initialization','owned_lookup','gateway_guard','native_quiescence','native_contacts','backup_inventory','owned_rows_delete','update_commands_delete','backup_commands_delete','drafts_delete','archive_files_delete','cache_cleanup','native_reload','factory_guard','input_commit')},
+ @{key='reason';values=@('owned_service_lookup','enabled_gateway','active_calls','phone_identity','live_contact','missing_backup_command','backup_command_guard','backup_metadata_guard','backup_link','backup_integrity','original_command','command_ownership','backup_command_changed','original_draft','draft_ownership','archive_unlink','factory_not_empty','database_error','json_error','type_error','runtime_guard','external_error')},
+ @{key='error_type';values=@('RuntimeException','PDOException','JsonException','TypeError','ValueError','Error','Exception','external_error')},
+ @{key='source_basename';values=@('windows-restore-qualification.php','database.php','pbx_paths.php','cache.php','event_socket.php','config.php','external_component')}
+)){
+ foreach($value in $definition.values){$candidate=Clone $good;$candidate.($definition.key)=$value;$projected=SafeRestoreFixtureFailure $candidate;Assert ($null -ne $projected -and $projected.($definition.key) -ceq $value)}
+}
+foreach($key in $good.Keys){
+ foreach($value in @($null,$true,$false,@(),@{},1.5,'PRIVATE SQL password C:/private')){
+  $candidate=Clone $good;$candidate.$key=$value;Assert ($null -eq (SafeRestoreFixtureFailure $candidate))
+ }
+ $candidate=Clone $good;$candidate.PSObject.Properties.Remove($key);Assert ($null -eq (SafeRestoreFixtureFailure $candidate))
+}
+foreach($value in -1,0,1000000,'123'){$candidate=Clone $good;$candidate.source_line=$value;Assert ($null -eq (SafeRestoreFixtureFailure $candidate))}
+foreach($value in 0,2,'1'){$candidate=Clone $good;$candidate.schema=$value;Assert ($null -eq (SafeRestoreFixtureFailure $candidate))}
+foreach($value in 1,([long]1)){$candidate=Clone $good;$candidate.schema=$value;Assert ($null -ne (SafeRestoreFixtureFailure $candidate))}
+foreach($value in 1,999999){$candidate=Clone $good;$candidate.source_line=$value;Assert ($null -ne (SafeRestoreFixtureFailure $candidate))}
+$candidate=Clone $good;$candidate|Add-Member noteproperty message 'PRIVATE SQL password C:/private';Assert ($null -eq (SafeRestoreFixtureFailure $candidate))
+Assert ($null -eq (SafeRestoreFixtureFailure $null))
+Assert ($null -eq (SafeRestoreFixtureFailure @($good,$good)))
+$candidate=Clone $good;$candidate.action=@('cleanup');Assert ($null -eq (SafeRestoreFixtureFailure $candidate))
+$candidate=Clone $good;$candidate.step='FACTORY_GUARD';Assert ($null -eq (SafeRestoreFixtureFailure $candidate))
+
+$work=Join-Path ([IO.Path]::GetTempPath()) ('openweb-restore-projection-'+[guid]::NewGuid().ToString('N'))
+$null=New-Item -ItemType Directory -Path $work
+$python='fictional-extracted-python';$source='fictional-source';$inputFile='fictional-private-input'
+$script:childFailure=[InvalidOperationException]::new('PRIVATE child failure preserved')
+$script:childRecord=$null;$script:seen=$null
+function CheckedProcess($Executable,$Arguments,$Label,$WorkingDirectory,$Timeout){
+ $script:seen=@($Executable,$Arguments,$Label,$WorkingDirectory,$Timeout)
+ $privateOutput=Join-Path $work ($Label+'.out')
+ if($script:childRecord){[IO.File]::WriteAllText($privateOutput,($script:childRecord|ConvertTo-Json -Depth 20 -Compress))}
+ elseif(Test-Path $privateOutput){Remove-Item -LiteralPath $privateOutput}
+ throw $script:childFailure
+}
+try{
+ # A real temporary source file preserves PSScriptRoot for the unmodified
+ # extracted function; only CheckedProcess is replaced by the private delegate.
+ $definitions=Join-Path $work 'actual-functions.ps1';[IO.File]::WriteAllText($definitions,$nativeDefinition)
+ . $definitions
+ foreach($mode in 'valid','extra','wrong_action','missing','private_message'){
+  $facts=@{};$observation=Clone $good
+  $script:childRecord=[ordered]@{state='failed';error_type='RuntimeError';source_basename='windows-restore-qualification.py';source_line=237}
+  if($mode -eq 'extra'){$observation|Add-Member noteproperty message 'PRIVATE SQL password C:/private'}
+  if($mode -eq 'wrong_action'){$observation.action='snapshot'}
+  if($mode -eq 'private_message'){$observation.reason='PRIVATE SQL password C:/private'}
+  if($mode -ne 'missing'){$script:childRecord.fixture_failure=$observation}
+  $caught=$null;try{NativeFixture 'cleanup'}catch{$caught=$_}
+  Assert ($null -ne $caught -and [object]::ReferenceEquals($caught.Exception,$script:childFailure))
+  Assert ($facts.native_failure.error_type -ceq 'RuntimeError' -and $facts.native_failure.source_basename -ceq 'windows-restore-qualification.py' -and $facts.native_failure.source_line -eq 237 -and $facts.native_failure.active_case -ceq 'cleanup')
+  Assert ($script:seen[0] -ceq $python -and $script:seen[2] -ceq 'restore-cleanup' -and $script:seen[3] -ceq $source -and $script:seen[4] -eq 1200000)
+  Assert (($script:seen[1] -join '|') -ceq ('-I|-B|'+(Join-Path $work 'windows-restore-qualification.py')+'|--input|'+$inputFile+'|--action|cleanup'))
+  Assert (($null -ne $facts.native_failure.fixture_failure) -eq ($mode -eq 'valid'))
+  Assert (($facts|ConvertTo-Json -Depth 20 -Compress) -notmatch 'PRIVATE|password|C:/private')
+ }
+ $facts=@{};$script:childRecord.fixture_failure=Clone $good
+ try{NativeFixture 'restore'}catch{}
+ Assert ($facts.native_failure.active_case -ceq 'restore' -and $null -eq $facts.native_failure.fixture_failure)
+}finally{Remove-Item -LiteralPath $work -Recurse -Force}
+Write-Output ("Restore cleanup source/projection controls passed: {0}" -f $script:count)

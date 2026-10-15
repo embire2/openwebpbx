@@ -122,6 +122,46 @@ function restore_fixture_private_path(string $path,string $root): string {
     return $directory;
 }
 
+function restore_fixture_failure_record(Throwable $error,string $input,string $action,string $step,string $root): bool {
+    if($action!=='cleanup')return false;
+    try {
+        $directory=restore_fixture_private_path($input,$root);
+        if(strtolower(str_replace('\\','/',dirname($input)))!==strtolower(str_replace('\\','/',$directory)))return false;
+        $steps=['initialization','owned_lookup','gateway_guard','native_quiescence','native_contacts','backup_inventory','owned_rows_delete','update_commands_delete','backup_commands_delete','drafts_delete','archive_files_delete','cache_cleanup','native_reload','factory_guard','input_commit'];
+        if(!in_array($step,$steps,true))return false;
+        $reasons=[
+            'Exactly one normal-setup owned PBX is required.'=>'owned_service_lookup',
+            'The recorded source service identity changed.'=>'owned_service_lookup',
+            'Cleanup refuses any enabled or registering gateway.'=>'enabled_gateway',
+            'Cleanup refuses active native calls.'=>'active_calls',
+            'Owned phone identity changed.'=>'phone_identity',
+            'Unregister the exact owned peer before cleanup.'=>'live_contact',
+            'A recorded owned backup command is missing.'=>'missing_backup_command',
+            'Only the exact completed owned manual or scheduled backup command is permitted.'=>'backup_command_guard',
+            'Only exact new owned encrypted backup metadata may be removed.'=>'backup_metadata_guard',
+            'Linked backup cleanup is refused.'=>'backup_link',
+            'Owned archive integrity changed before cleanup.'=>'backup_integrity',
+            'An unowned original command cannot be removed.'=>'original_command',
+            'Only exact completed qualification commands may be removed.'=>'command_ownership',
+            'A recorded owned backup command changed.'=>'backup_command_changed',
+            'An original draft cannot be removed.'=>'original_draft',
+            'Only recorded owned drafts may be removed.'=>'draft_ownership',
+            'An exact owned encrypted backup file could not be removed.'=>'archive_unlink',
+            'A distinct empty factory is required.'=>'factory_not_empty',
+        ];
+        $type=get_class($error);$types=['RuntimeException','PDOException','JsonException','TypeError','ValueError','Error','Exception'];
+        if(!in_array($type,$types,true))$type='external_error';
+        $reason=$reasons[$error->getMessage()]??match($type){'PDOException'=>'database_error','JsonException'=>'json_error','TypeError','ValueError'=>'type_error','RuntimeException'=>'runtime_guard',default=>'external_error'};
+        $source=basename(str_replace('\\','/',$error->getFile()));
+        if(!in_array($source,['windows-restore-qualification.php','database.php','pbx_paths.php','cache.php','event_socket.php','config.php'],true))$source='external_component';
+        $line=$error->getLine();if($line<1||$line>=1000000)return false;
+        $raw=json_encode(['schema'=>1,'action'=>$action,'step'=>$step,'reason'=>$reason,'error_type'=>$type,'source_basename'=>$source,'source_line'=>$line],JSON_THROW_ON_ERROR);
+        if(strlen($raw)>2048)return false;
+        $stream=@fopen($input.'.cleanup.failure.json','xb');if(!$stream)return false;
+        try{return fwrite($stream,$raw)===strlen($raw)&&fflush($stream);}finally{fclose($stream);}
+    }catch(Throwable $ignored){return false;}
+}
+
 function restore_fixture_write(string $path,array $value): void {
     if(is_link($path)||(file_exists($path)&&!is_file($path)))throw new RuntimeException('Private evidence must be an ordinary file.');
     $raw=json_encode($value,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES);
@@ -145,6 +185,7 @@ function restore_fixture_media(string $path,array $roots): array {
 
 function restore_fixture_main(array $argv): void {
     if(PHP_SAPI!=='cli'||PHP_OS_FAMILY!=='Windows')exit(2);
+    $GLOBALS['restore_fixture_failure_step']='initialization';
     $environment=[];foreach(['OPENWEB_WINDOWS_RESTORE_TEST','GITHUB_ACTIONS','RUNNER_ENVIRONMENT','GITHUB_REPOSITORY','GITHUB_RUN_ID'] as $name)$environment[$name]=getenv($name)?:'';
     // Refuse before loading any installed application or credential file.
     if($environment['OPENWEB_WINDOWS_RESTORE_TEST']!=='1'||$environment['GITHUB_ACTIONS']!=='true'
@@ -272,6 +313,7 @@ function restore_fixture_main(array $argv): void {
         restore_fixture_snapshot_shape($out);restore_fixture_write($directory.'/'.$label.'-database.json',$out);
         echo json_encode(['private_hmac_inventory'=>true,'tables'=>count($out['all_table_values']),'scoped_tables'=>count($out['scoped_values']),'target_identity_separate'=>true],JSON_THROW_ON_ERROR),PHP_EOL;return;
     }
+    $GLOBALS['restore_fixture_failure_step']='owned_lookup';
     $owned=$lookup();$domain=$owned['domain_uuid'];$realm=$owned['domain_name'];
     if($action==='status') {
         $status=(string)event_socket::api('sofia status profile internal');$bind=preg_match('/^\s*SIP-IP\s+([0-9.]+)\s*$/m',$status,$match)?$match[1]:null;
@@ -308,10 +350,12 @@ function restore_fixture_main(array $argv): void {
         echo json_encode(['job_uuid'=>$id,'kind'=>$row['kind'],'state'=>$row['state'],'attempts'=>(int)$row['attempts'],'last_result'=>$row['last_result'],'call_uuid'=>$row['call_uuid'],'future'=>in_array($future,[true,'t','1',1],true),'internal_target'=>true],JSON_THROW_ON_ERROR),PHP_EOL;return;
     }
     if($action==='cleanup') {
+        $GLOBALS['restore_fixture_failure_step']='gateway_guard';
         // No unqualified gateway or live call can be hidden by fixture removal.
         foreach($q('select enabled,register from v_gateways where domain_uuid=?',[$domain])->fetchAll(PDO::FETCH_ASSOC) as $gateway)
             if(filter_var($gateway['enabled'],FILTER_VALIDATE_BOOLEAN)||filter_var($gateway['register'],FILTER_VALIDATE_BOOLEAN))throw new RuntimeException('Cleanup refuses any enabled or registering gateway.');
         if(($s['cleanup_native']??false)===true) {
+            $GLOBALS['restore_fixture_failure_step']='native_quiescence';
             $channels=json_decode(event_socket::api('show channels as json'),true,32,JSON_THROW_ON_ERROR);
             if(!isset($channels['row_count'])||(int)$channels['row_count']!==0)throw new RuntimeException('Cleanup refuses active native calls.');
             foreach($q('select call_center_agent_uuid from v_call_center_agents where domain_uuid=?',[$domain])->fetchAll(PDO::FETCH_COLUMN) as $id)
@@ -320,12 +364,13 @@ function restore_fixture_main(array $argv): void {
                 if(preg_match('/^[0-9]{2,10}$/D',$number))event_socket::api('callcenter_config queue unload '.$number.'@'.$realm);
             foreach($q('select gateway_uuid from v_gateways where domain_uuid=?',[$domain])->fetchAll(PDO::FETCH_COLUMN) as $id)
                 if(restore_fixture_uuid($id))event_socket::api('sofia profile external killgw '.$id);
+            $GLOBALS['restore_fixture_failure_step']='native_contacts';
             foreach($s['users']??[] as $user) {
                 if(!preg_match('/^[A-Za-z0-9_.+%-]{1,128}$/D',$user['auth']??''))throw new RuntimeException('Owned phone identity changed.');
                 if(!str_starts_with(trim(event_socket::api('sofia_contact '.$user['auth'].'@'.$realm)),'error/'))throw new RuntimeException('Unregister the exact owned peer before cleanup.');
             }
         }
-        $backupFiles=[];
+        $GLOBALS['restore_fixture_failure_step']='backup_inventory';$backupFiles=[];
         foreach([false=>'owned_backup_commands',true=>'owned_scheduled_backup_commands'] as $scheduled=>$list)foreach($s[$list]??[] as $id) {
             $row=$q('select command_uuid,status,requested_by from v_pbx_backup_commands where command_uuid=?',[$id])->fetch(PDO::FETCH_ASSOC);
             if(!$row)throw new RuntimeException('A recorded owned backup command is missing.');
@@ -344,7 +389,7 @@ function restore_fixture_main(array $argv): void {
                 }
             }
         }
-        $db->beginTransaction();
+        $GLOBALS['restore_fixture_failure_step']='owned_rows_delete';$db->beginTransaction();
         try {
             foreach(['domain_uuid'=>[$domain,$owned['home_domain_uuid']],'tenant_uuid'=>[$owned['tenant_uuid']]] as $column=>$ids) {
                 $tables=$q("select distinct c.table_name from information_schema.columns c join information_schema.tables t using(table_schema,table_name) where c.table_schema='public' and c.column_name=? and c.table_name like 'v_%' and t.table_type='BASE TABLE' order by c.table_name",[$column])->fetchAll(PDO::FETCH_COLUMN);
@@ -353,18 +398,21 @@ function restore_fixture_main(array $argv): void {
             foreach([$domain,$owned['home_domain_uuid']] as $id)$q('delete from v_domains where domain_uuid=?',[$id]);
             // IDs are captured by the parent immediately after normal HTTPS;
             // never delete a global row merely because it is new or same user.
+            $GLOBALS['restore_fixture_failure_step']='update_commands_delete';
             foreach(['update'=>'v_pbx_update_commands'] as $kind=>$table)foreach($s['owned_'.$kind.'_commands']??[] as $id) {
                 if(!restore_fixture_uuid($id)||in_array($id,$s['baseline'][$kind.'_commands']??[],true))throw new RuntimeException('An unowned original command cannot be removed.');
                 $row=$q('select status,requested_by from '.$table.' where command_uuid=?',[$id])->fetch(PDO::FETCH_ASSOC);
                 if(!$row||!in_array($row['status'],['completed','failed'],true)||$row['requested_by']!==$admin['user_uuid'])throw new RuntimeException('Only exact completed qualification commands may be removed.');
                 $q('delete from '.$table.' where command_uuid=? and requested_by=?',[$id,$admin['user_uuid']]);
             }
+            $GLOBALS['restore_fixture_failure_step']='backup_commands_delete';
             foreach([false=>'owned_backup_commands',true=>'owned_scheduled_backup_commands'] as $scheduled=>$list)foreach($s[$list]??[] as $id) {
                 $row=$q('select command_uuid,status,requested_by from v_pbx_backup_commands where command_uuid=? for update',[$id])->fetch(PDO::FETCH_ASSOC);
                 if(!$row)throw new RuntimeException('A recorded owned backup command changed.');
                 restore_fixture_backup_command($row,$id,$admin['user_uuid'],$s['baseline']['backup_commands'],(bool)$scheduled);
                 $q('delete from v_pbx_backups where command_uuid=?',[$id]);$q('delete from v_pbx_backup_commands where command_uuid=?',[$id]);
             }
+            $GLOBALS['restore_fixture_failure_step']='drafts_delete';
             foreach($s['owned_draft_ids']??[] as $id) {
                 if(!restore_fixture_uuid($id)||in_array($id,$s['baseline']['drafts'],true))throw new RuntimeException('An original draft cannot be removed.');
                 $row=$q('select user_uuid from v_pbx_setup_drafts where draft_uuid=?',[$id])->fetch(PDO::FETCH_ASSOC);
@@ -373,11 +421,15 @@ function restore_fixture_main(array $argv): void {
             }
             $db->commit();
         } catch(Throwable $error){if($db->inTransaction())$db->rollBack();throw $error;}
+        $GLOBALS['restore_fixture_failure_step']='archive_files_delete';
         foreach($backupFiles as $file)if(!unlink($file))throw new RuntimeException('An exact owned encrypted backup file could not be removed.');
+        $GLOBALS['restore_fixture_failure_step']='cache_cleanup';
         $cache=new cache;foreach(['dialplan:'.$realm,'dialplan:ingress@'.$realm,'configuration:callcenter.conf',gethostname().':configuration:callcenter.conf','configuration:acl.conf',gethostname().':configuration:acl.conf',gethostname().':configuration:sofia.conf','dialplan:openweb-incoming:'.gethostname()] as $name)$cache->delete($name);
         foreach($s['users']??[] as $user)foreach(array_unique([$user['number'],$user['auth']]) as $number)$cache->delete('directory:'.$number.'@'.$realm);
+        $GLOBALS['restore_fixture_failure_step']='native_reload';
         if(($s['cleanup_native']??false)===true){event_socket::api('reloadxml');event_socket::api('reloadacl');}
-        $factory();$s['cleanup_completed']=true;$save();
+        $GLOBALS['restore_fixture_failure_step']='factory_guard';$factory();$s['cleanup_completed']=true;
+        $GLOBALS['restore_fixture_failure_step']='input_commit';$save();
         echo "{\"owned_rows\":0,\"factory_empty\":true,\"owned_media_cleanup_caller_required\":true}\n";return;
     }
 }
@@ -385,6 +437,8 @@ function restore_fixture_main(array $argv): void {
 if(!defined('OPENWEB_RESTORE_FIXTURE_LIBRARY_ONLY')) {
     set_exception_handler(static function(Throwable $error):void {
         // SQL/runtime/phone credentials never appear in runner console output.
+        global $argv;
+        restore_fixture_failure_record($error,(string)($argv[2]??''),(string)($argv[1]??''),(string)($GLOBALS['restore_fixture_failure_step']??'initialization'),rtrim((string)(getenv('ProgramData')?:'C:/ProgramData'),'/\\').'/OpenWebPBX/restore-qualification');
         fwrite(STDERR,"Private Windows restore qualification fixture failed.\n");exit(1);
     });
     restore_fixture_main($argv);

@@ -19,6 +19,99 @@ spec = importlib.util.spec_from_file_location('windows_restore_qualification', H
 q = importlib.util.module_from_spec(spec); spec.loader.exec_module(q)
 
 
+class CleanupObservationControls(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(); self.root = Path(self.temporary.name)
+        self.fixture = q.Qualification.__new__(q.Qualification)
+        self.fixture.work = self.root; self.fixture.source = self.root / 'source with spaces'
+        self.fixture.path = self.root / 'input.json'; self.fixture.path.write_text('{"original":true}')
+        self.fixture.refresh = mock.Mock()
+        self.sidecar = Path(str(self.fixture.path) + '.cleanup.failure.json')
+        self.record = dict(schema=1, action='cleanup', step='factory_guard', reason='factory_not_empty',
+                           error_type='RuntimeException', source_basename='windows-restore-qualification.php', source_line=123)
+
+    def tearDown(self): self.temporary.cleanup()
+
+    def test_closed_fields_json_roundtrip_and_all_fixed_values(self):
+        self.assertEqual(q.restore_fixture_failure_fields(json.loads(json.dumps(self.record)), 'cleanup'), self.record)
+        for key, values in {
+            'step': ('initialization','owned_lookup','gateway_guard','native_quiescence','native_contacts','backup_inventory',
+                     'owned_rows_delete','update_commands_delete','backup_commands_delete','drafts_delete','archive_files_delete',
+                     'cache_cleanup','native_reload','factory_guard','input_commit'),
+            'reason': ('owned_service_lookup','enabled_gateway','active_calls','phone_identity','live_contact','missing_backup_command',
+                       'backup_command_guard','backup_metadata_guard','backup_link','backup_integrity','original_command',
+                       'command_ownership','backup_command_changed','original_draft','draft_ownership','archive_unlink',
+                       'factory_not_empty','database_error','json_error','type_error','runtime_guard','external_error'),
+            'error_type': ('RuntimeException','PDOException','JsonException','TypeError','ValueError','Error','Exception','external_error'),
+            'source_basename': ('windows-restore-qualification.php','database.php','pbx_paths.php','cache.php','event_socket.php','config.php','external_component'),
+        }.items():
+            for value in values:
+                with self.subTest(key=key,value=value):
+                    self.assertEqual(q.restore_fixture_failure_fields(self.record | {key:value},'cleanup'),self.record | {key:value})
+
+    def test_malformed_untrusted_private_fields_refused(self):
+        bad = [None, [], {}, self.record | {'message':'PRIVATE SQL password path'},
+               {k:v for k,v in self.record.items() if k!='step'}]
+        for key in ('schema','action','step','reason','error_type','source_basename','source_line'):
+            for value in (None, True, False, [], {}, 'PRIVATE SQL password C:/private', 1.5):
+                bad.append(self.record | {key:value})
+        bad.extend(self.record | {'source_line':value} for value in (-1,0,1000000,'123'))
+        bad.extend(self.record | {'schema':value} for value in (0,2,'1'))
+        for record in bad:
+            with self.subTest(record=record):self.assertEqual(q.restore_fixture_failure_fields(record,'cleanup'),{})
+        self.assertEqual(q.restore_fixture_failure_fields(self.record,'snapshot'),{})
+
+    def delegate(self, output=None, action='cleanup', returncode=1):
+        def child(arguments, **kwargs):
+            self.assertEqual(arguments,['C:/OpenWebPBX/php/php.exe',str(self.fixture.source/'tests/windows-restore-qualification.php'),action,str(self.fixture.path)])
+            self.assertEqual(kwargs,dict(cwd='C:/OpenWebPBX/web',stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=120))
+            if output:output()
+            return subprocess.CompletedProcess(arguments,returncode,b'{"ordinary":true}',b'PRIVATE SQL password C:/private')
+        with mock.patch.object(q.subprocess,'run',side_effect=child):
+            if returncode:
+                with self.assertRaisesRegex(RuntimeError,'^The private scoped PHP fixture failed[.]$') as caught:
+                    self.fixture.php(action)
+                self.fixture.refresh.assert_not_called()
+                self.assertEqual((self.root/(action+'.private.err')).read_bytes(),b'PRIVATE SQL password C:/private')
+                self.assertEqual((self.root/(action+'.private.out')).read_bytes(),b'{"ordinary":true}')
+                self.assertEqual(self.fixture.path.read_text(),'{"original":true}')
+                return caught.exception
+            return self.fixture.php(action)
+
+    def test_failed_real_delegate_consumes_only_fresh_closed_sidecar(self):
+        error=self.delegate(lambda:self.sidecar.write_text(json.dumps(self.record)))
+        self.assertEqual(error.fixture_failure,self.record)
+        self.assertNotIn('PRIVATE',json.dumps(error.fixture_failure))
+
+    def test_stale_missing_symlink_oversized_malformed_observation_cannot_mask_primary(self):
+        for mode in ('stale','missing','symlink','oversized','malformed','duplicate','extra','foreign','directory'):
+            with self.subTest(mode=mode):
+                self.fixture.refresh.reset_mock()
+                if self.sidecar.is_dir() and not self.sidecar.is_symlink():self.sidecar.rmdir()
+                elif self.sidecar.exists() or self.sidecar.is_symlink():self.sidecar.unlink()
+                if mode=='stale':self.sidecar.write_text(json.dumps(self.record))
+                def write():
+                    if mode=='symlink':self.sidecar.symlink_to(self.fixture.path)
+                    elif mode=='oversized':self.sidecar.write_text(' '*2049)
+                    elif mode=='malformed':self.sidecar.write_text('{')
+                    elif mode=='duplicate':self.sidecar.write_text(json.dumps(self.record)[:-1]+',"schema":1}')
+                    elif mode=='extra':self.sidecar.write_text(json.dumps(self.record | {'message':'PRIVATE'}))
+                    elif mode=='foreign':self.sidecar.write_text(json.dumps(self.record | {'action':'snapshot'}))
+                    elif mode=='directory':self.sidecar.mkdir()
+                self.assertFalse(hasattr(self.delegate(write),'fixture_failure'))
+
+    def test_observer_read_exception_and_wrong_action_never_replace_primary(self):
+        with mock.patch.object(q,'read_json',side_effect=PermissionError('PRIVATE')):
+            self.assertFalse(hasattr(self.delegate(lambda:self.sidecar.write_text(json.dumps(self.record))),'fixture_failure'))
+        self.sidecar.unlink()
+        self.assertFalse(hasattr(self.delegate(lambda:self.sidecar.write_text(json.dumps(self.record)),action='snapshot'),'fixture_failure'))
+
+    def test_success_keeps_return_refresh_and_does_not_consume_failure(self):
+        result=self.delegate(lambda:self.sidecar.write_text(json.dumps(self.record)),returncode=0)
+        self.assertEqual(result,{'ordinary':True});self.fixture.refresh.assert_called_once_with()
+        self.assertTrue(self.sidecar.exists())
+
+
 class Controls(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(); self.root = Path(self.temporary.name)
