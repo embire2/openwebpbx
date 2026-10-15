@@ -3,9 +3,16 @@
 [CmdletBinding()]
 param(
  [string]$NativeRunId,[string]$EngineRunId,[string]$PackageRoot,
- [switch]$DisposableHostedRunner
+ [switch]$DisposableHostedRunner,[switch]$UpgradeDiagnosticsOnly
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
+function SuiteMusicWorkflow([bool]$DiagnosticOnly){if($DiagnosticOnly){return '.github/workflows/windows-upgrade-diagnostics.yml'};return '.github/workflows/windows-suite.yml'}
+function AssertSuiteMode([bool]$DiagnosticOnly,[string]$WorkflowRef,[string]$WorkflowSha,[string]$SourceSha,[string]$ProvidedPackage){
+ $diagnosticRef=$WorkflowRef -cmatch '^embire2/openwebpbx/\.github/workflows/windows-upgrade-diagnostics\.yml@refs/(heads|tags)/[A-Za-z0-9._/-]+$'
+ if(!$DiagnosticOnly){if($diagnosticRef){throw 'The diagnostic workflow requires its explicit diagnostic-only switch.'};return}
+ if(!$diagnosticRef -or $WorkflowSha -cnotmatch '^[a-f0-9]{40}$' -or $WorkflowSha -cne $SourceSha -or $ProvidedPackage){throw 'Diagnostic mode requires the exact diagnostic workflow/source and pinned build inputs.'}
+}
+AssertSuiteMode $UpgradeDiagnosticsOnly $env:GITHUB_WORKFLOW_REF $env:GITHUB_WORKFLOW_SHA $env:GITHUB_SHA $PackageRoot
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){
  throw 'Run only on the explicitly disposable Windows hosted runner of this repository.'
 }
@@ -19,6 +26,7 @@ $domain='windowsqa.example.invalid';$installed=$false;$hostAdded=$false;$sftp=$n
 $recoveryPki=$null
 . (Join-Path $PSScriptRoot 'windows-suite-pki.ps1')
 $facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';backups='pending';native_sip_audio='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
+if($UpgradeDiagnosticsOnly){$facts.mode='upgrade_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Post-native state is not reproduced.'}
 function PrivateDirectory([string]$Path){
  New-Item -ItemType Directory -Force -Path $Path|Out-Null
  & icacls.exe $Path /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F'|Out-Null
@@ -89,6 +97,22 @@ function SafeMailboxFailureFields($Record){
  foreach($suffix in 'observed_event_count','owned_event_count','matched_event_count','realm_event_count'){$field='mailbox_'+$suffix;$value=$Record.$field;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 1000){$safe[$field]=$value}}
  return $safe
 }
+function SafeNativeCleanupFields($Record){
+ $safe=@{}
+ if($Record.native_child_state -is [string] -and $Record.native_child_state -cin 'passed','failed'){$safe.native_child_state=$Record.native_child_state}
+ if($Record.native_cleanup_stage -isnot [string] -or $Record.native_cleanup_stage -cnotin 'stop_notification_task','remove_notification_task','restore_factory','restore_binding','restore_files','restart_engine','remove_leaf','remove_root','stop_pki','collect_pki_logs','parent_write_guard','cleanup_unknown'){return $safe}
+ $safe.native_cleanup_stage=$Record.native_cleanup_stage
+ $type=$Record.native_cleanup_error_type;if($type -is [string] -and $type -cmatch '^[A-Za-z0-9_]{1,80}$'){$safe.native_cleanup_error_type=$type}
+ $name=$Record.native_cleanup_source_basename;$line=$Record.native_cleanup_source_line
+ if($name -is [string] -and $name -cin 'windows-native-acceptance.ps1','external_component' -and ($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$safe.native_cleanup_source_basename=$name;$safe.native_cleanup_source_line=$line}
+ if($Record.native_cleanup_stage -ceq 'restore_factory' -and $Record.native_cleanup_fixture_action -is [string] -and $Record.native_cleanup_fixture_action -ceq 'cleanup'){
+  $stage=$Record.native_cleanup_fixture_stage;$source=$Record.native_cleanup_fixture_source_basename;$row=$Record.native_cleanup_fixture_source_line;$errorType=$Record.native_cleanup_fixture_error_type
+  if($stage -is [string] -and $stage -cin 'initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh' -and $source -is [string] -and $source -cin 'windows-native-fixture.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component' -and ($row -is [int] -or $row -is [long]) -and $row -gt 0 -and $row -le 100000 -and $errorType -is [string] -and $errorType -cmatch '^[A-Za-z0-9_]{1,80}$'){
+   foreach($field in 'action','stage','source_basename','source_line','error_type'){$safe['native_cleanup_fixture_'+$field]=$Record.('native_cleanup_fixture_'+$field)}
+  }
+ }
+ return $safe
+}
 function SafeFailureFields($Record){
  $safe=@{}
  foreach($field in 'failed_phase','error_type','source_basename','active_case','command_basename','caller_basename'){
@@ -118,7 +142,7 @@ function SafeFailureFields($Record){
   }
  }
  if(($Record.cleanup_failure_count -is [int] -or $Record.cleanup_failure_count -is [long]) -and $Record.cleanup_failure_count -ge 1 -and $Record.cleanup_failure_count -le 32){$safe.cleanup_failure_count=[int]$Record.cleanup_failure_count}
- $mediaCases=@('native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav')
+ $mediaCases=@('native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav','native_tls_mailbox_wire_forwarding_exact_binary_wav','native_global_smtp_unconfigured_queue_preserves_attempts','native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment','native_global_smtp_password_auth_actual_loopback','native_global_smtp_trusted_tls_hostname_auth_actual_loopback','native_localservice_notification_store_reader')
  $completed=@(foreach($name in $mediaCases){foreach($value in @($Record.completed_media_cases)){if($value -is [string] -and $value -ceq $name){$name;break}}})
  if($completed.Count){$safe.completed_media_cases=$completed}
  if($Record.media_peer -is [string] -and $Record.media_peer -cin 'caller','destination' -and $Record.media_direction -is [string] -and $Record.media_direction -cin 'sent','received'){
@@ -131,6 +155,7 @@ function SafeFailureFields($Record){
  foreach($entry in (SafeQueueFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  foreach($entry in (SafeVoicemailFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  foreach($entry in (SafeMailboxFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
+ foreach($entry in (SafeNativeCleanupFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  return $safe
 }
 function NativeStartupFailure([DateTime]$StartedAt,[string]$PrivateDirectory){
@@ -235,7 +260,7 @@ function ExpandSafe([string]$Archive,[string]$Destination){
 function Artifact([string]$RunId,[string]$Kind){
  if($RunId -notmatch '^[0-9]+$'){throw 'Artifact run IDs must be numeric.'}
  $run=Api ('actions/runs/'+$RunId)
- $workflow=if($Kind -eq 'music'){'.github/workflows/windows-suite.yml'}else{'.github/workflows/windows-'+$Kind+'.yml'}
+ $workflow=if($Kind -eq 'music'){SuiteMusicWorkflow $UpgradeDiagnosticsOnly}else{'.github/workflows/windows-'+$Kind+'.yml'}
  if($run.repository.full_name -ne 'embire2/openwebpbx' -or $run.head_repository.full_name -ne 'embire2/openwebpbx' -or $run.event -ne 'workflow_dispatch' -or $run.path -ne $workflow -or $run.head_sha -notmatch '^[a-f0-9]{40}$'){throw 'The input run does not belong to the expected repository workflow.'}
  if($Kind -eq 'music'){if($RunId -ne $env:GITHUB_RUN_ID -or $run.head_sha -ne $env:GITHUB_SHA){throw 'Music must come from this exact suite source.'}}
  elseif($run.status -ne 'completed' -or $run.conclusion -ne 'success'){throw 'A source build did not complete successfully.'}
@@ -475,19 +500,25 @@ try{
  try{$plain=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)}finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
  $acceptance=@{schema=1;run_id=$env:GITHUB_RUN_ID;restore_server=$true;admin_email=$admin;admin_password=$plain;public_url=('https://'+$domain+':8443');package_root=$PackageRoot;source_root=$source;private_state_root=$state;python='C:/OpenWebPBX/backup-runtime/python.exe';evidence_directory=(Join-Path $work 'native-private-evidence')}
  [IO.File]::WriteAllText($acceptanceFile,($acceptance|ConvertTo-Json),[Text.UTF8Encoding]::new($false));$plain=$null;$acceptance=$null
- $phase='native acceptance hook';$nativeStartTime=[DateTime]::UtcNow;$native=NativeAcceptanceHook (Join-Path $work 'native-acceptance.json') $nativeStartTime
- if($native){$facts.gates.native_sip_audio='passed'}
+ # BEGIN qualification-gate-routing
+ if(!$UpgradeDiagnosticsOnly){
+  $phase='native acceptance hook';$nativeStartTime=[DateTime]::UtcNow;$native=NativeAcceptanceHook (Join-Path $work 'native-acceptance.json') $nativeStartTime
+  if($native){$facts.gates.native_sip_audio='passed'}
+ }
  $phase='independent trusted recovery fixture';$recoveryPki=Start-SuiteRecoveryPki -PackageRoot $PackageRoot -SourceRoot $source -Work $work
  $phase='upgrade acceptance hook';$upgrade=AcceptanceHook 'windows-upgrade-acceptance.ps1' (Join-Path $work 'upgrade-acceptance.json')
  if($upgrade){foreach($gate in 'direct_113_helper_reapply','direct_failure_rollback','restore_gate_startup','manager_reopen_success','manager_reopen_rollback','installed_upgrade','failure_rollback','legacy_106_upgrade'){if($upgrade.gates.$gate -eq 'passed'){$facts.gates[$gate]='passed'}}}
- $phase='backup qualification';$sftpConfig=LoopbackSftp
- & (Join-Path $PSScriptRoot 'windows-backups.ps1') -PackageRoot $PackageRoot -AdminEmail $admin -AdminPassword $password -DisposableFactory -SftpConfig $sftpConfig
- if(!$?){throw 'Actual Windows encrypted-backup qualification failed.'}
- $backup=Get-Content "$state\backup-qualification\report.json" -Raw|ConvertFrom-Json
- if($backup.state -ne 'passed' -or !$backup.fully_qualified){throw 'Actual backup/SFTP qualification is incomplete.'}
- $facts.gates.backups='passed';$facts.checks+=@($backup.checks)
+ if(!$UpgradeDiagnosticsOnly){
+  $phase='backup qualification';$sftpConfig=LoopbackSftp
+  & (Join-Path $PSScriptRoot 'windows-backups.ps1') -PackageRoot $PackageRoot -AdminEmail $admin -AdminPassword $password -DisposableFactory -SftpConfig $sftpConfig
+  if(!$?){throw 'Actual Windows encrypted-backup qualification failed.'}
+  $backup=Get-Content "$state\backup-qualification\report.json" -Raw|ConvertFrom-Json
+  if($backup.state -ne 'passed' -or !$backup.fully_qualified){throw 'Actual backup/SFTP qualification is incomplete.'}
+  $facts.gates.backups='passed';$facts.checks+=@($backup.checks)
+ }
  $missing=@($facts.gates.GetEnumerator()|Where-Object {$_.Value -ne 'passed'}|ForEach-Object Key)
- $facts.state=if($facts.state -eq 'failed'){'failed'}elseif($missing.Count){'partial'}else{'passed'};$facts.unqualified=$missing
+ $facts.state=if($facts.state -eq 'failed'){'failed'}elseif($UpgradeDiagnosticsOnly){'partial'}elseif($missing.Count){'partial'}else{'passed'};$facts.unqualified=$missing
+ # END qualification-gate-routing
 }catch{
  RememberSuiteFailure $_ $phase
  if($phase -eq 'native acceptance hook' -and $nativeStartTime -and !$facts.native_runtime_failure){

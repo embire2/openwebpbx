@@ -34,12 +34,61 @@ function Python([string]$Phase){
 function CompletedMediaCases($Checks){
  # Publish only fixed completed case names; peer metrics and raw child data
  # remain in the administrator-private report.
- $allowed=@('native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav')
+ $allowed=@('native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav','native_tls_mailbox_wire_forwarding_exact_binary_wav','native_global_smtp_unconfigured_queue_preserves_attempts','native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment','native_global_smtp_password_auth_actual_loopback','native_global_smtp_trusted_tls_hostname_auth_actual_loopback')
  foreach($name in $allowed){
   foreach($check in @($Checks)){
    if($check.case -is [string] -and $check.case -ceq $name -and $check.passed -is [bool] -and $check.passed -eq $true){$name;break}
   }
  }
+}
+function CollectNativeProgress($Facts,[string]$Evidence){
+ $checks=@()
+ foreach($name in 'software-native-report.json','native-progress.json'){
+  try{
+   $file=Get-Item -LiteralPath (Join-Path $Evidence $name) -ErrorAction Stop
+   if($file.PSIsContainer -or $file.Length -gt 1MB -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)){continue}
+   $child=Get-Content -LiteralPath $file.FullName -Raw|ConvertFrom-Json
+   if(($child.schema -isnot [int] -and $child.schema -isnot [long]) -or $child.schema -ne 1 -or $child.producer -isnot [string] -or $child.producer -cne 'windows-native-acceptance.py' -or $child.state -isnot [string] -or $child.state -cnotin 'running','passed','failed' -or $child.checks -isnot [array] -or $child.checks.Count -gt 256){continue}
+   if($name -ceq 'software-native-report.json'){
+    if($child.state -cnotin 'passed','failed'){continue}
+    $Facts.native_child_state=$child.state
+   }elseif($child.state -cne 'running'){continue}
+   $checks+=@($child.checks)
+  }catch{}
+ }
+ $completed=@(CompletedMediaCases $checks)
+ # Only the PS probe, after all its assertions, owns this completion name.
+ foreach($value in @($Facts.completed_media_cases)){if($value -is [string] -and $value -ceq 'native_localservice_notification_store_reader'){$completed+='native_localservice_notification_store_reader';break}}
+ if($completed.Count){$Facts.completed_media_cases=$completed}
+}
+function RecordNativeCleanupFailure($Facts,[string]$Stage,$Failure){
+ $allowed=@('stop_notification_task','remove_notification_task','restore_factory','restore_binding','restore_files','restart_engine','remove_leaf','remove_root','stop_pki','collect_pki_logs','parent_write_guard')
+ if($Stage -cnotin $allowed){$Stage='cleanup_unknown'}
+ $Facts.state='failed';$Facts.cleanup='failed';$Facts.native_cleanup_stage=$Stage
+ $type=$Failure.Exception.GetType().Name
+ if($type -match '^[A-Za-z0-9_]{1,80}$'){$Facts.cleanup_error_type=$type;$Facts.native_cleanup_error_type=$type}
+ $name=if($Failure.InvocationInfo.ScriptName){Split-Path -Leaf $Failure.InvocationInfo.ScriptName}else{'external_component'}
+ if($name -cne 'windows-native-acceptance.ps1'){$name='external_component'}
+ $Facts.native_cleanup_source_basename=$name
+ $line=$Failure.InvocationInfo.ScriptLineNumber
+ if(($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$Facts.native_cleanup_source_line=$line}
+ if(!$Facts.failed_phase){
+  $Facts.failed_phase='exact scoped cleanup';$Facts.active_case='exact_scoped_cleanup'
+  $Facts.error_type=$type;$Facts.source_basename=$name
+  if($Facts.native_cleanup_source_line){$Facts.source_line=$Facts.native_cleanup_source_line}
+ }
+}
+function NativeCleanupFixtureFields([string]$InputFile){
+ $safe=@{}
+ try{
+  $file=Get-Item -LiteralPath ($InputFile+'.cleanup.failure.json') -ErrorAction Stop
+  if($file.PSIsContainer -or $file.Length -gt 2048 -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)){return $safe}
+  $row=Get-Content -LiteralPath $file.FullName -Raw|ConvertFrom-Json
+  $sources=@('windows-native-fixture.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component')
+  if(($row.schema -isnot [int] -and $row.schema -isnot [long]) -or $row.schema -ne 1 -or $row.action -isnot [string] -or $row.action -cne 'cleanup' -or $row.stage -isnot [string] -or $row.stage -cnotin 'initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh' -or $row.source_basename -isnot [string] -or $row.source_basename -cnotin $sources -or ($row.source_line -isnot [int] -and $row.source_line -isnot [long]) -or $row.source_line -le 0 -or $row.source_line -gt 100000 -or $row.error_type -isnot [string] -or $row.error_type -cnotmatch '^[A-Za-z0-9_]{1,80}$'){return $safe}
+  foreach($key in 'action','stage','source_basename','source_line','error_type'){$safe['native_cleanup_fixture_'+$key]=$row.$key}
+ }catch{}
+ return $safe
 }
 function MediaFailureFields($Record){
  $safe=@{}
@@ -201,7 +250,7 @@ try{
  $facts.checks+='Generated local-PKI chain, Windows trust and real HTTPS/SIP TLS listeners; no public ACME claim'
  $phase='normal HTTPS and native calling';Python 'acceptance'
  $native=Get-Content "$evidence\software-native-report.json" -Raw|ConvertFrom-Json
- if($native.state -ne 'passed'){throw 'Actual software native matrix failed.'}
+ if(($native.schema -isnot [int] -and $native.schema -isnot [long]) -or $native.schema -ne 1 -or $native.producer -isnot [string] -or $native.producer -cne 'windows-native-acceptance.py' -or $native.state -isnot [string] -or $native.state -cne 'passed' -or $native.checks -isnot [array] -or $native.checks.Count -gt 256){throw 'Actual software native matrix failed.'}
  $facts.checks=@($native.checks);$facts.gates.native_sip_audio='passed';$facts.gates.smtp='passed'
  # Execute the exact production reader's sharing/access pattern under LOCAL SERVICE.
  # No endpoint/device is enrolled, so this probe sends no notification.
@@ -229,6 +278,7 @@ try {
  if((Get-Acl -LiteralPath $state).Sddl -ne $parentAcl){throw 'Containing private-state ACL changed.'}
  $service=Get-CimInstance Win32_Service -Filter "Name='OpenWebPBX'";if($service.StartName -notin 'NT AUTHORITY\LocalService','NT AUTHORITY\LOCAL SERVICE'){throw 'Native background service uses an unexpected identity.'}
  $facts.checks+='Actual LOCAL SERVICE reads IIS-generated stable keys with parent write denied; production C# reader source tested separately; no delivery sent'
+ $facts.completed_media_cases=@('native_localservice_notification_store_reader')
  $facts.gates.notification_store='passed';$nativePassed=$true
 }catch{
  $errorType=$_.Exception.GetType().Name;$facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$errorType
@@ -274,24 +324,34 @@ try {
 }
 finally{
  $phase='exact scoped cleanup'
+ $cleanupStage='stop_notification_task'
  try{
-  Stop-ScheduledTask -TaskName $notificationTask -ErrorAction SilentlyContinue;Unregister-ScheduledTask -TaskName $notificationTask -Confirm:$false -ErrorAction SilentlyContinue
+  Stop-ScheduledTask -TaskName $notificationTask -ErrorAction SilentlyContinue
+  $cleanupStage='remove_notification_task';Unregister-ScheduledTask -TaskName $notificationTask -Confirm:$false -ErrorAction SilentlyContinue
+  $cleanupStage='restore_factory'
   if($baseline){$clean=Php 'cleanup'|ConvertFrom-Json;if(!$clean.factory_empty -or $clean.owned_rows -ne 0 -or $clean.owned_contacts -ne 0){throw 'Native fixture cleanup is incomplete.'};if($clean.normal_login_bcrypt_rehash_proved){if(!$clean.original_factory_hash_restored){throw 'Original factory password hash was not restored.'};$facts.checks+='Normal generated-factory login bcrypt12-to-10 rehash proved with unchanged password, then original hash restored during cleanup'}}
-  if($binding -and $originalBinding){FixtureBinding -Hash $originalBinding.hash -Store $originalBinding.store}
+  $cleanupStage='restore_binding';if($binding -and $originalBinding){FixtureBinding -Hash $originalBinding.hash -Store $originalBinding.store}
+  $cleanupStage='restore_files'
   foreach($name in $paths){$path=$originalFiles[$name];if($originalPresent.ContainsKey($name)){if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Recurse -Force};if($originalPresent[$name]){Copy-Item -LiteralPath (Join-Path $saved $name) -Destination $path -Recurse;$acl=Get-Acl -LiteralPath $path;$acl.SetSecurityDescriptorSddlForm($originalAcl[$name]);Set-Acl -LiteralPath $path -AclObject $acl}}}
-  if($baseline){Restart-Service FreeSWITCH;for($i=0;$i -lt 50 -and (Get-Service FreeSWITCH).Status -ne 'Running';$i++){Start-Sleep -Milliseconds 100};if((Get-Service FreeSWITCH).Status -ne 'Running'){throw 'Original factory call engine did not resume.'}}
-  if($leaf){Remove-Item -LiteralPath ('Cert:\LocalMachine\My\'+$leaf.Thumbprint) -Force}
-  if($rootCertificate){Remove-Item -LiteralPath ('Cert:\LocalMachine\Root\'+$rootCertificate.Thumbprint) -Force}
+  $cleanupStage='restart_engine';if($baseline){Restart-Service FreeSWITCH;for($i=0;$i -lt 50 -and (Get-Service FreeSWITCH).Status -ne 'Running';$i++){Start-Sleep -Milliseconds 100};if((Get-Service FreeSWITCH).Status -ne 'Running'){throw 'Original factory call engine did not resume.'}}
+  $cleanupStage='remove_leaf';if($leaf){Remove-Item -LiteralPath ('Cert:\LocalMachine\My\'+$leaf.Thumbprint) -Force}
+  $cleanupStage='remove_root';if($rootCertificate){Remove-Item -LiteralPath ('Cert:\LocalMachine\Root\'+$rootCertificate.Thumbprint) -Force}
+  $cleanupStage='stop_pki'
   if($pkiProcess){
    if(!$pkiProcess.HasExited){Stop-Process -Id $pkiProcess.Id -Force}
    if(!$pkiProcess.WaitForExit(5000)){throw 'Owned certificate-revocation fixture did not stop.'}
+   $cleanupStage='collect_pki_logs'
    [IO.File]::WriteAllText("$evidence\pki-stdout.log",$pkiOutput.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false))
    [IO.File]::WriteAllText("$evidence\pki-stderr.log",$pkiErrors.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false))
    $pkiProcess.Dispose()
   }
-  if(Test-Path "$state\unexpected-localservice-$scope"){Remove-Item "$state\unexpected-localservice-$scope" -Force;throw 'LOCAL SERVICE incorrectly wrote containing state.'}
+  $cleanupStage='parent_write_guard';if(Test-Path "$state\unexpected-localservice-$scope"){Remove-Item "$state\unexpected-localservice-$scope" -Force;throw 'LOCAL SERVICE incorrectly wrote containing state.'}
   $cleanupPassed=$true;$facts.gates.cleanup='passed';$facts.cleanup='Original factory rows/contacts/identity/profile/config/certificate binding restored; owned CA/leaf and private probe task removed'
- }catch{$cleanupPassed=$false;$facts.state='failed';$facts.cleanup='failed';$facts.cleanup_error_type=$_.Exception.GetType().Name}
+ }catch{
+  $cleanupPassed=$false;RecordNativeCleanupFailure $facts $cleanupStage $_
+  if($cleanupStage -ceq 'restore_factory'){foreach($entry in (NativeCleanupFixtureFields $privateInput).GetEnumerator()){$facts[$entry.Key]=$entry.Value}}
+ }
+ CollectNativeProgress $facts $evidence
  if($null -eq $envBefore){Remove-Item Env:\OPENWEB_WINDOWS_NATIVE_TEST -ErrorAction SilentlyContinue}else{$env:OPENWEB_WINDOWS_NATIVE_TEST=$envBefore}
  if($null -eq $opensslBefore){Remove-Item Env:\OPENSSL_CONF -ErrorAction SilentlyContinue}else{$env:OPENSSL_CONF=$opensslBefore}
  if($nativePassed -and $cleanupPassed){$facts.state='passed'}

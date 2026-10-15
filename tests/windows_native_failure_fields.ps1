@@ -21,13 +21,13 @@ Invoke-Expression $failureNodes[0].Extent.Text
 $queueNodes=@($nativeAst.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'QueueFailureFields'},$true))
 if($queueNodes.Count -ne 1){throw 'The actual native queue filter must be uniquely identified.'}
 Invoke-Expression $queueNodes[0].Extent.Text
-foreach($pair in @(@($ast,'SafeVoicemailFailureFields'),@($nativeAst,'VoicemailFailureFields'),@($ast,'SafeMailboxFailureFields'),@($nativeAst,'MailboxFailureFields'))){
+foreach($pair in @(@($ast,'SafeVoicemailFailureFields'),@($nativeAst,'VoicemailFailureFields'),@($ast,'SafeMailboxFailureFields'),@($nativeAst,'MailboxFailureFields'),@($ast,'SafeNativeCleanupFields'))){
  $voicemailNodes=@($pair[0].FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $pair[1]},$true))
  if($voicemailNodes.Count -ne 1){throw 'The actual voicemail/mailbox filter must be uniquely identified.'}
  Invoke-Expression $voicemailNodes[0].Extent.Text
 }
 $checks=0
-function Check([bool]$Value){if(!$Value){throw 'The bounded native failure field check failed.'};$script:checks++}
+function Check([bool]$Value){if(!$Value){throw ('The bounded native failure field check failed at control line '+(Get-PSCallStack)[1].ScriptLineNumber)};$script:checks++}
 $record=[pscustomobject]@{
  active_case='independent_g729_pcmu_transcoding';error_type='AssertionError';source_basename='pbx_v20_restore_native.py';source_line=236
  primary_substage='g729_peer_receiver';primary_error_type='AssertionError';primary_source_basename='windows-native-acceptance.py';primary_source_line=384;primary_caller_basename='windows-native-acceptance.py';primary_caller_line=653
@@ -48,7 +48,7 @@ foreach($prefix in 'primary','cleanup'){
  }
 }
 foreach($bad in '2',0,33,$true){$copy=$record.PSObject.Copy();$copy.cleanup_failure_count=$bad;Check (!(SafeFailureFields $copy).ContainsKey('cleanup_failure_count'))}
-$allowed=@('native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav')
+$allowed=@('native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav','native_tls_mailbox_wire_forwarding_exact_binary_wav','native_global_smtp_unconfigured_queue_preserves_attempts','native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment','native_global_smtp_password_auth_actual_loopback','native_global_smtp_trusted_tls_hostname_auth_actual_loopback')
 $childChecks=@(foreach($name in $allowed){[pscustomobject]@{case=$name;passed=$true;password='private-never-copy';decoded_ratio=.99;error='private-never-copy'}})
 $completed=@(CompletedMediaCases $childChecks)
 Check (($completed -join '|') -ceq ($allowed -join '|'))
@@ -63,7 +63,7 @@ Check ((@(CompletedMediaCases @($childChecks[0],$childChecks[0])) -join '|') -ce
 $partial=[pscustomobject]@{completed_media_cases=$completed;checks=$childChecks;password='private-never-copy';metrics=@{private='private-never-copy'}}
 $filtered=SafeFailureFields $partial
 Check ($filtered.Count -eq 1 -and ($filtered.completed_media_cases -join '|') -ceq ($allowed -join '|'))
-Check (($filtered|ConvertTo-Json -Depth 8) -notmatch 'private-never-copy|decoded_ratio|password|metrics')
+Check (($filtered|ConvertTo-Json -Depth 8) -notmatch 'private-never-copy|decoded_ratio|"password"|metrics')
 foreach($bad in 'private-never-copy',$allowed[0].ToUpperInvariant(),($allowed[0]+' '),($allowed[0]+'_secret'),1,$true,@($allowed[0]),[pscustomobject]@{case=$allowed[0];passed=$true}){
  $invalid=[pscustomobject]@{completed_media_cases=[object[]]::new(1)};$invalid.completed_media_cases[0]=$bad
  Check (!(SafeFailureFields $invalid).ContainsKey('completed_media_cases'))

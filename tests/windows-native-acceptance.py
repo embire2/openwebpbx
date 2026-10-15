@@ -321,7 +321,7 @@ class Fixture:
     def refresh(self): self.s=json.loads(self.path.read_text())
     def record(self,name,**facts):
         self.checks.append({'case':name,'passed':True,**facts})
-        (self.evidence/'native-progress.json').write_text(json.dumps({'checks':self.checks},indent=2))
+        (self.evidence/'native-progress.json').write_text(json.dumps({'schema':1,'producer':'windows-native-acceptance.py','state':'running','checks':self.checks},indent=2))
     def wait(self,predicate,seconds=12):
         end=time.monotonic()+seconds
         while time.monotonic()<end:
@@ -1150,14 +1150,14 @@ def main():
     if a.phase=='pki-server':serve_pki(f);return
     try:
         f.web=Web(f.s['public_url'],f.evidence/'fixture-root.pem');normal_setup(f,f.web);native_calls(f);smtp_and_queued_voicemail(f);f.web.request('/logout.php')
-        (f.evidence/'software-native-report.json').write_text(json.dumps({'state':'passed','checks':f.checks,'carrier':'unqualified','physical_devices':'unqualified','android_hardware':'unqualified','public_acme':'unqualified','scope':'fictional-hosted-runner'},indent=2))
+        (f.evidence/'software-native-report.json').write_text(json.dumps({'schema':1,'producer':'windows-native-acceptance.py','state':'passed','checks':f.checks,'carrier':'unqualified','physical_devices':'unqualified','android_hardware':'unqualified','public_acme':'unqualified','scope':'fictional-hosted-runner'},indent=2))
     except BaseException as e:
         import traceback
         location=traceback.extract_tb(e.__traceback__)[-1]
         basename=Path(location.filename).name
         if basename not in ('windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py'):
             basename='external_component'
-        failure={'state':'failed','checks':f.checks,'error_type':type(e).__name__,'error':str(e),'source_basename':basename,'source_line':location.lineno,'active_case':f.active_case}
+        failure={'schema':1,'producer':'windows-native-acceptance.py','state':'failed','checks':f.checks,'error_type':type(e).__name__,'error':str(e),'source_basename':basename,'source_line':location.lineno,'active_case':f.active_case}
         if getattr(e,'fixture_failure',None):failure.update(e.fixture_failure)
         if getattr(e,'sip_failure',None):failure.update(e.sip_failure)
         if getattr(e,'audio_failure',None):failure.update(e.audio_failure)
