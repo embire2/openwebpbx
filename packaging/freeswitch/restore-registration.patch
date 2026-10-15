@@ -35,7 +35,19 @@
  				}
  			} else {
  				sql = switch_mprintf("delete from sip_registrations where sip_user='%q' and sip_host='%q'", to_user, reg_host);
-@@ -2128,7 +2138,7 @@
+@@ -2051,7 +2061,10 @@
+ 				sql = switch_mprintf("delete from sip_registrations where call_id='%q' and expires!=%ld", call_id, (long) reg_time + (long) exptime + profile->sip_expires_late_margin);
+ 			}
+ 
+-			sofia_glue_execute_sql(profile, &sql, SWITCH_TRUE);
++			/* Finish expiry cleanup before SIP 200. A delayed DELETE with the
++			 * previous expiry can erase a later same-Call-ID refresh.
++			 */
++			sofia_glue_execute_sql_now(profile, &sql, SWITCH_TRUE);
+ 		}
+ 
+ 
+@@ -2128,7 +2141,7 @@
  				sql =
  					switch_mprintf("delete from sip_registrations where sip_user='%q' and sip_host='%q' and contact='%q'", to_user, reg_host, contact_str);
  			} else {
@@ -44,7 +56,7 @@
  			}
  
  			sofia_glue_execute_sql_now(profile, &sql, SWITCH_TRUE);
-@@ -2248,7 +2258,7 @@
+@@ -2248,7 +2261,7 @@
  						TAG_IF(!zstr(expbuf), SIPTAG_EXPIRES_STR(expbuf)),
  						NUTAG_WITH_THIS_MSG(de->data->e_msg), SIPTAG_DATE_STR(date), TAG_END());
  
@@ -53,7 +65,7 @@
  			/* all + 1 tag_i elements initialized as NULL - last one implies TAG_END() */
  			switch_zmalloc(contact_tags, sizeof(*contact_tags) * (contact_list->count + 1));
  			i = 0;
-@@ -3370,11 +3380,30 @@
+@@ -3370,11 +3383,30 @@
  		/* expires == 0 means the phone is going to unregiser, so don't count against max */
  		uint32_t count = 0;
  

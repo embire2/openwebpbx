@@ -1,5 +1,5 @@
 """Disposable loopback native registrar quotas; no product database or services."""
-import argparse,importlib.util,json,re,socket,sys,time
+import argparse,importlib.util,json,math,re,socket,sqlite3,sys,time
 from pathlib import Path
 
 def load(name,path):
@@ -12,6 +12,7 @@ def main():
     assert state['qualification'] is True
     assert state['sip_port']==19264 and state['esl_port']==18224 and re.fullmatch(r'native-limit-[a-f0-9]{24}\.invalid',state['realm'])
     root=path.parent;realm=state['realm'];profile='private_limits';rows=[];peers=[];cleanup=[]
+    boundary_gate={'passed':False,'cycles_required':24,'cycles_completed':0,'attempts':0,'samples_checked':0,'observation_delays_ms':[0,50,250],'same_call_id_and_increasing_cseq':False,'both_accounts_present_each_sample':False,'sqlite_readonly':True,'sql_writes_or_queue_pauses':False}
     load('sip_trunk_live',root/'sip_trunk_live.py');source=load('private_source_phone',root/'pbx_v20_restore_native.py')
     sock=socket.create_connection(('127.0.0.1',18224),timeout=5);sock.settimeout(5);buffer=bytearray()
     def frame():
@@ -35,13 +36,19 @@ def main():
         (root/('contact-'+record['number']+'.private.txt')).write_text(result)
         return not result.startswith('error/') and result!=''
     class Phone(source.SourcePhone):
-        def __init__(self,record,label):self.trace=[];self.label=label;super().__init__(record,realm,'127.0.0.1')
+        def __init__(self,record,label,max_packets=20):self.trace=[];self.label=label;self.max_packets=max_packets;self.receiver_failure=None;super().__init__(record,realm,'127.0.0.1')
+        def run(self):
+            try:super().run()
+            except BaseException as error:self.receiver_failure=type(error).__name__;raise
         def packet(self,*args,**kwargs):
             data=super().packet(*args,**kwargs)
-            if args and args[0]=='REGISTER':self.trace.append(data);assert len(self.trace)<=20
+            if args and args[0]=='REGISTER':
+                self.trace.append(data);assert len(self.trace)<=self.max_packets
+                if self.label.startswith('boundary-'):
+                    with (root/(self.label+'-registers.private.bin')).open('ab') as stream:stream.write(data+b'\n\n')
             return data
-    def peer(index,label):
-        phone=Phone(state['users'][index],label);peers.append((phone,state['users'][index]));return phone
+    def peer(index,label,max_packets=20):
+        phone=Phone(state['users'][index],label,max_packets);peers.append((phone,state['users'][index]));return phone
     def register(phone,index,label,expires=120):
         result=phone.register(('127.0.0.1',19264),expires=expires)
         code=int(result['code']);assert 200<=code<=699
@@ -52,6 +59,68 @@ def main():
     def unregister(phone,index,label):
         row=register(phone,index,label,0)
         assert row['code']==200 and not row['canonical_contact_present'],'Exact owned unregister failed'
+    def boundary_refresh():
+        # Genuine SIP renewals exercise the SQL worker's normal batching window.
+        # Reads use the clone's actual SQLite database and exact owned API keys.
+        database=(root/'db/sofia_reg_private_limits.db').resolve()
+        assert database.is_file() and not database.is_symlink()
+        active=[peer(i,'boundary-'+str(i),600) for i in range(2)]
+        previous={};private=root/'boundary-refresh.private.jsonl'
+        def renew(index,label):
+            phone=active[index];started=time.time();result=phone.register(('127.0.0.1',19264));completed=time.time()
+            assert result['code']==200 and phone.receiver_failure is None,'Boundary refresh SIP/receiver failed'
+            old=previous.get(index)
+            if old:assert result['callid']==old['callid'] and result['seq']>old['seq'],'Boundary refresh changed its Call-ID/CSeq'
+            previous[index]=result
+            with private.open('a') as stream:stream.write(json.dumps({'stage':label,'peer':index,'started_epoch':started,'completed_epoch':completed,'call_id':result['callid'],'cseq':result['seq'],'response':result.get('text','')})+'\n')
+            return dict(result,completed_epoch=completed)
+        def observe(stage,reference,delay):
+            with sqlite3.connect(database.as_uri()+'?mode=ro',uri=True,timeout=.2) as db:
+                db.execute('PRAGMA query_only=ON')
+                actual=db.execute('select call_id,sip_user,contact,expires,ping_status,ping_count from sip_registrations where profile_name=? and sip_host=? and sip_user in (?,?) order by sip_user,call_id',(profile,realm,state['users'][0]['auth'],state['users'][1]['auth'])).fetchall()
+            contacts={i:api('sofia_contact */'+state['users'][i]['auth']+'@'+realm).strip() for i in range(2)}
+            row={'stage':stage,'delay_requested_ms':delay,'observed_epoch':time.time(),'actual_after_register_ms':round((time.time()-reference['completed_epoch'])*1000,3),'sql_rows':actual,'api_contacts':contacts}
+            with private.open('a') as stream:stream.write(json.dumps(row)+'\n')
+            for i in range(2):
+                owned=[r for r in actual if r[0]==previous[i]['callid'] and r[1]==state['users'][i]['auth']]
+                uri='sip:'+active[i].aor+'@127.0.0.1:'+str(active[i].port)
+                assert len(owned)==1 and uri in owned[0][2],'Boundary refresh lost/duplicated an exact owned SQLite row'
+                assert contacts[i] and not contacts[i].startswith('error/') and uri in contacts[i],'Boundary refresh lost an exact owned API contact'
+                assert active[i].receiver_failure is None,'Boundary peer receiver stopped'
+            return {i:next(r[3] for r in actual if r[0]==previous[i]['callid'] and r[1]==state['users'][i]['auth']) for i in range(2)}
+        warmup=None
+        for i in range(2):warmup=renew(i,'warmup')
+        observe('warmup',warmup,0)
+        while boundary_gate['cycles_completed']<24 and boundary_gate['attempts']<48:
+            boundary_gate['attempts']+=1;index=boundary_gate['attempts']%2
+            target=math.floor(time.time())+.94
+            if target<=time.time():target+=1
+            while time.time()<target:time.sleep(min(.005,max(.0002,target-time.time())))
+            initial=renew(index,'initial');before=observe('initial',initial,0)
+            for pressure in range(5):
+                if time.time()>=math.floor(initial['completed_epoch'])+1+.015:break
+                renew(1-index,'legitimate-other-account-pressure')
+            target=math.floor(initial['completed_epoch'])+1+.02
+            while time.time()<target:time.sleep(min(.002,max(.0002,target-time.time())))
+            refreshed=renew(index,'refresh');after=None
+            for delay in (0,50,250):
+                wanted=refreshed['completed_epoch']+delay/1000
+                while time.time()<wanted:time.sleep(min(.002,max(.0002,wanted-time.time())))
+                after=observe('refreshed',refreshed,delay);boundary_gate['samples_checked']+=2
+            # Count only actual native expiry advances across one UTC second;
+            # timing misses are observed strictly but do not manufacture cycles.
+            if (math.floor(refreshed['completed_epoch'])==math.floor(initial['completed_epoch'])+1
+                    and 0<refreshed['completed_epoch']-initial['completed_epoch']<.195
+                    and after[index]==before[index]+1):
+                boundary_gate['cycles_completed']+=1
+        for i,phone in enumerate(active):
+            (root/('boundary-peer-'+str(i)+'-registers.private.bin')).write_bytes(b'\n\n'.join(phone.trace))
+        assert boundary_gate['cycles_completed']==24,'Twenty-four actual second-boundary expiry advances were not observed'
+        for i in reversed(range(2)):
+            unregister(active[i],i,'boundary-'+str(i)+'-unregister')
+            if i==1:assert registered(state['users'][0]),'Boundary exact unregister removed another account'
+            active[i].close();peers.remove((active[i],state['users'][i]))
+        boundary_gate.update(passed=True,same_call_id_and_increasing_cseq=True,both_accounts_present_each_sample=True)
     error=None
     try:
         assert api('sofia status profile private_limits').find('127.0.0.1')>=0
@@ -81,6 +150,7 @@ def main():
                 if code==200:unregister(phone,index,label+'-'+str(index)+'-unregister')
                 if index==order[1]:assert registered(state['users'][order[0]]),'Exact unregister removed the other canonical account'
                 phone.close();peers.remove((phone,state['users'][index]))
+        boundary_refresh()
     except BaseException as failure:error=type(failure).__name__
     finally:
         for phone,record in peers:
@@ -94,7 +164,7 @@ def main():
         sock.close()
         by_case={row['case']:row for row in rows}
         report={'schema':1,'scope':'fictional-loopback-registration-limits','loopback_only':True,'product_database_or_services_accessed':False,'private_sqlite_only':True,
-                'cases':rows,'contacts_after_cleanup':sum(not value for value in cleanup),
+                'cases':rows,'boundary_refresh':boundary_gate,'contacts_after_cleanup':sum(not value for value in cleanup),
                 'individual_tuples_authenticated':all(by_case.get('individual-'+str(i),{}).get('code')==200 for i in range(2)),
                 'both_orders_accepted':all(by_case.get('simultaneous-'+order+'-'+str(i),{}).get('code')==200 for order in ['0-1','1-0'] for i in range(2)),
                 'same_account_second_contact_refused':all(by_case.get('simultaneous-'+order+'-extra-contact',{}).get('code')==403 for order in ['0-1','1-0']),
@@ -102,6 +172,6 @@ def main():
         if error:report['error_type']=error
         (root/'registration-report.json').write_text(json.dumps(report,indent=2))
         print(json.dumps(report))
-    if error or not all(cleanup) or not report['both_orders_accepted'] or not report['same_account_second_contact_refused']:return 1
+    if error or not all(cleanup) or not boundary_gate['passed'] or not report['both_orders_accepted'] or not report['same_account_second_contact_refused']:return 1
     return 0
 if __name__=='__main__':sys.exit(main())

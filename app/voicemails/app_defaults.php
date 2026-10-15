@@ -27,6 +27,19 @@
 //process this only one time
 if ($domains_processed == 1) {
 
+	//use the installed Windows path when no database override is configured
+	$switch_configuration_dir = $settings->get('switch','conf');
+	if (empty($switch_configuration_dir)) {
+		if (PHP_OS_FAMILY === 'Windows') {
+			$switch_configuration_dir = config::load()->get('switch.conf.dir');
+			if (!is_string($switch_configuration_dir) || trim($switch_configuration_dir) === '' || !is_dir($switch_configuration_dir)) {
+				throw new RuntimeException('The Windows call-engine configuration directory is unavailable.');
+			}
+		} else {
+			$switch_configuration_dir = '/etc/freeswitch';
+		}
+	}
+
 	//make sure the voicemail directory exists
 	$sql = "select d.domain_name, v.voicemail_id \n";
 	$sql .= "from v_voicemails as v, v_domains as d \n";
@@ -45,7 +58,6 @@ if ($domains_processed == 1) {
 	}
 
 	//define initial, get current, define correct languages folder paths
-	$switch_configuration_dir = !empty($settings->get('switch','conf')) ? $settings->get('switch','conf') : '/etc/freeswitch';
 	$switch_languages_dir_initial = $switch_configuration_dir.'/lang';
 	$switch_languages_dir_current = $settings->get('switch','languages') ?? '';
 	$switch_languages_dir_correct = $switch_configuration_dir.'/languages';
@@ -94,6 +106,9 @@ if ($domains_processed == 1) {
 				$voicemail_xml_source = $_SERVER['PROJECT_ROOT'].'/app/voicemails/resources/switch/languages/'.$language_abbreviation.'/vm/voicemail.xml';
 				$voicemail_xml_target = $switch_languages_dir_correct.'/'.$language_abbreviation.'/vm/voicemail.xml';
 				if (!file_exists($voicemail_xml_target)) {
+					if (!is_file($voicemail_xml_source)) {
+						$voicemail_xml_source = $_SERVER['PROJECT_ROOT'].'/app/switch/resources/conf/languages/'.$language_abbreviation.'/vm/voicemail.xml';
+					}
 					copy($voicemail_xml_source, $voicemail_xml_target);
 				}
 			}

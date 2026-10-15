@@ -122,6 +122,9 @@ try{
  $phase='actual Windows RTP socket reset and recovery'
  & $python -I (Join-Path $source 'tests/windows_rtp_socket.py') 1>>"$evidence\private-python.log" 2>>"$evidence\private-python-errors.log"
  if($LASTEXITCODE){throw 'Actual Windows UDP reset/recovery controls did not pass.'}
+ $phase='actual Windows voicemail language filesystem defaults'
+ & "$root\php\php.exe" -d extension=php_pdo_sqlite.dll (Join-Path $source 'tests/windows_voicemail_defaults.php') $source 1>>"$evidence\private-php.log" 2>>"$evidence\private-php-errors.log"
+ if($LASTEXITCODE){throw 'Actual Windows voicemail defaults did not pass.'}
  $phase='generated fictional local PKI';Python 'prepare-pki'
  $pkiProcess=StartFixturePkiServer
  for($i=0;$i -lt 50 -and !(Test-Path "$evidence\pki-ready.json") -and !$pkiProcess.HasExited;$i++){Start-Sleep -Milliseconds 100}

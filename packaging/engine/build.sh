@@ -21,10 +21,10 @@ cd "$build_root/freeswitch"
 registration_patch="$script_root/../freeswitch/restore-registration.patch"
 if [[ ! -f "$registration_patch" ]]; then registration_patch="$script_root/../packaging/freeswitch/restore-registration.patch"; fi
 test -f "$registration_patch"
-printf '%s  %s\n' 'a4a8e19c78aabcb2f185c6c0a7f07e41fe70f13264bdb4cff3628a0dfbc47eda' "$registration_patch" | sha256sum --check --status
+printf '%s  %s\n' '41199046755bc2a3b2f71d87e8f8b99a8c774d5fed04403a645a2bbb91b140a6' "$registration_patch" | sha256sum --check --status
 printf '%s  %s\n' '1eed13a2ae440201bcc1bf6aa1f82899140794b96202496f2e21bf2bf070c9d9' 'src/mod/endpoints/mod_sofia/sofia_reg.c' | sha256sum --check --status
 patch --batch --forward -p1 < "$registration_patch"
-printf '%s  %s\n' '5319b1b6c26708149552f3135e96ee2e693009890cb5b0aeee3169a81c0c20e7' 'src/mod/endpoints/mod_sofia/sofia_reg.c' | sha256sum --check --status
+printf '%s  %s\n' '8f1a818239d9f264e9e04a6be6e81d0e91259389be2d22f1595cda2deb3dd810' 'src/mod/endpoints/mod_sofia/sofia_reg.c' | sha256sum --check --status
 ./bootstrap.sh -j
 cp "$script_root/modules.conf" modules.conf
 export CPPFLAGS='-DHAVE_NUA_RELOAD_TLS'

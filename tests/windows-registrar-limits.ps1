@@ -67,9 +67,9 @@ finally{
  if($reader){$reader.Dispose()};if($socket){$socket.Dispose()};if($child){if(!$child.HasExited){$child.Kill();[void]$child.WaitForExit(10000)};$child.Dispose()}
  if($process){if(!$process.HasExited){$process.Kill();[void]$process.WaitForExit(10000)};$facts.final_exit=$process.ExitCode;if($out){WritePrivate "$root\private.out" ($out.GetAwaiter().GetResult())};if($err){WritePrivate "$root\private.err" ($err.GetAwaiter().GetResult())};$process.Dispose()}
  $random.Dispose();$preserved=$true;foreach($file in $pins.Keys){if((Hash (Join-Path $engine $file)) -ne $pins[$file]){$preserved=$false}};$facts.original_native_hashes_preserved=$preserved
- $facts.state=if($facts.clean_shutdown -and $facts.peer_exit -eq 0 -and $facts.registration.individual_tuples_authenticated -and $facts.registration.both_orders_accepted -and $facts.registration.same_account_second_contact_refused -and $facts.registration.contacts_after_cleanup -eq 0 -and $facts.original_native_hashes_preserved){'passed'}else{'failed'}
+ $facts.state=if($facts.clean_shutdown -and $facts.peer_exit -eq 0 -and $facts.registration.individual_tuples_authenticated -and $facts.registration.both_orders_accepted -and $facts.registration.same_account_second_contact_refused -and ($facts.registration.boundary_refresh.passed -eq $true) -and ($facts.registration.boundary_refresh.cycles_completed -eq 24) -and $facts.registration.contacts_after_cleanup -eq 0 -and $facts.original_native_hashes_preserved){'passed'}else{'failed'}
  WritePrivate "$root\report.json" ($facts|ConvertTo-Json -Depth 10)
  WritePrivate $Report ($facts|ConvertTo-Json -Depth 10)
 }
 if($facts.state -ne 'passed'){throw 'Actual native registration quotas did not pass.'}
-Write-Host 'PASS actual native limit-one identity collision/both orders/second-contact refusal/refresh/unregister/wrong-password/clean-shutdown checks; no customer or physical result.'
+Write-Host 'PASS actual native limit-one identity collision/both orders/second-contact refusal/refresh/unregister/wrong-password/24-real-boundary-refresh-cycles/clean-shutdown checks; no customer or physical result.'

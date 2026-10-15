@@ -5,12 +5,19 @@ from pathlib import Path
 
 parser=argparse.ArgumentParser();parser.add_argument('--prepared',type=Path,required=True);args=parser.parse_args()
 source=args.prepared/'freeswitch/src/mod/endpoints/mod_sofia/sofia_reg.c'
-assert hashlib.sha256(source.read_bytes()).hexdigest()=='5319b1b6c26708149552f3135e96ee2e693009890cb5b0aeee3169a81c0c20e7'
+assert hashlib.sha256(source.read_bytes()).hexdigest()=='8f1a818239d9f264e9e04a6be6e81d0e91259389be2d22f1595cda2deb3dd810'
 
 def quota(text):
     section=text.index('/* The max-registrations-per-extension-option only affects REGISTER-authentications */')
     start=text.index('\t\tuint32_t count = 0;',section);end=text.index('\t\tfree(sql);',start)+len('\t\tfree(sql);')
     return text[start:end]+'\n return count;\n'
+
+def expiry_cleanup(text):
+    marker=text.index('delete from sip_registrations where contact=\'%q\' and expires!=')
+    start=text.rfind('\t\tif (multi_reg) {',0,marker)
+    end=text.index('\n\t\t}\n',marker)+len('\n\t\t}')
+    assert start>=0
+    return text[start:end]
 
 prefix=r'''
 #include <assert.h>
@@ -62,4 +69,46 @@ with tempfile.TemporaryDirectory(prefix='openweb-registrar-quota-') as folder:
         results[label]=json.loads(subprocess.check_output([str(exe)],text=True))
     assert results['current']=={'foreign_collision_count':0,'own_contact_count':1,'escaped_identity_count':1,'multiple_contact_count':2}
     assert results['upstream']['foreign_collision_count']==1 and results['upstream']['own_contact_count']==0
-print('PASS actual patched/upstream C quota statements: isolated SQLite collision, own limit, same-Call-ID refresh, realm isolation, no/empty/untrusted force, quoted identity and multiple-contact checks; no native PBX acceptance implied')
+    cleanup_prefix=r'''
+#include <assert.h>
+#include <stdio.h>
+#include <sqlite3.h>
+#define switch_mprintf sqlite3_mprintf
+#define SWITCH_TRUE 1
+typedef struct profile {sqlite3 *db;int sip_expires_late_margin;} profile_t;
+static char *pending[8];static int pending_count;
+static void execute(profile_t *profile,char *sql){assert(sqlite3_exec(profile->db,sql,NULL,NULL,NULL)==SQLITE_OK);sqlite3_free(sql);}
+static void sofia_glue_execute_sql(profile_t *profile,char **sql,int dynamic){(void)profile;assert(dynamic&&pending_count<8);pending[pending_count++]=*sql;*sql=NULL;}
+static void sofia_glue_execute_sql_now(profile_t *profile,char **sql,int dynamic){assert(dynamic);execute(profile,*sql);*sql=NULL;}
+static void cleanup(profile_t *profile,int multi_reg,int multi_reg_contact,const char *contact_str,const char *call_id,long reg_time,long exptime){char *sql=NULL;
+'''
+    cleanup_suffix=r'''
+}
+static int scalar(sqlite3 *db,const char *sql){sqlite3_stmt *s=NULL;assert(sqlite3_prepare_v2(db,sql,-1,&s,NULL)==SQLITE_OK);assert(sqlite3_step(s)==SQLITE_ROW);int value=sqlite3_column_int(s,0);assert(sqlite3_finalize(s)==SQLITE_OK);return value;}
+int main(void){sqlite3 *db=NULL;assert(sqlite3_open(":memory:",&db)==SQLITE_OK);profile_t profile={db,0};int retained[2],queued_before_response[2];
+ for(int mode=0;mode<2;mode++){
+  assert(sqlite3_exec(db,"drop table if exists sip_registrations;create table sip_registrations(call_id text,contact text,expires integer);insert into sip_registrations values('own','sip:own@loopback',1200),('own','sip:own@loopback',1199),('other','sip:other@loopback',1200)",NULL,NULL,NULL)==SQLITE_OK);
+  pending_count=0;
+  cleanup(&profile,1,mode,"sip:own@loopback","own",1000,200);
+  queued_before_response[mode]=pending_count;
+  /* A genuine acknowledged refresh advances its absolute expiry one second.
+   * Execute the old/current ACTUAL cleanup block on either side of it, then
+   * let the ordinary deferred worker drain after the two SIP responses. */
+  assert(sqlite3_exec(db,"update sip_registrations set expires=1201 where call_id='own'",NULL,NULL,NULL)==SQLITE_OK);
+  cleanup(&profile,1,mode,"sip:own@loopback","own",1001,200);
+  for(int i=0;i<pending_count;i++)execute(&profile,pending[i]);
+  retained[mode]=scalar(db,"select count(*) from sip_registrations where call_id='own' and expires=1201");
+  assert(scalar(db,"select count(*) from sip_registrations where call_id='other' and expires=1200")==1);
+ }
+ printf("{\"call_id_retained\":%d,\"contact_retained\":%d,\"call_id_deferred_before_response\":%d,\"contact_deferred_before_response\":%d}\n",retained[0],retained[1],queued_before_response[0],queued_before_response[1]);
+ assert(sqlite3_close(db)==SQLITE_OK);return 0;}
+'''
+    cleanup_results={}
+    for label,text in [('current',source.read_text()),('upstream',(args.prepared/'sofia_reg.upstream.c').read_text())]:
+        c=work/(label+'-cleanup.c');exe=work/(label+'-cleanup')
+        c.write_text(cleanup_prefix+expiry_cleanup(text)+cleanup_suffix)
+        subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Wno-unused-function',str(c),'-lsqlite3','-o',str(exe)],check=True)
+        cleanup_results[label]=json.loads(subprocess.check_output([str(exe)],text=True))
+    assert cleanup_results['current']=={'call_id_retained':1,'contact_retained':1,'call_id_deferred_before_response':0,'contact_deferred_before_response':0}
+    assert cleanup_results['upstream']=={'call_id_retained':0,'contact_retained':0,'call_id_deferred_before_response':1,'contact_deferred_before_response':1}
+print('PASS actual patched/upstream C quota and expiry-cleanup statements: isolated SQLite collision/limit/refresh/realm/identity guards, second-boundary cleanup ordering in both Call-ID/contact modes, exact refreshed/foreign row preservation; no native PBX acceptance implied')

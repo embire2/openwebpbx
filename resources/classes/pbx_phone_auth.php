@@ -34,7 +34,7 @@ final class pbx_phone_auth {
         $expected=$manifest['files']['mod/mod_sofia.dll']??'';
         $coreExpected=$manifest['core_sha256']??'';
         if(($manifest['schema']??null)!==1||($manifest['upstream_commit']??'')!=='ef32e205295e29f034f1453ad245ba5efb07b94a'||
-            ($manifest['source_reg_sha256']??'')!=='5319b1b6c26708149552f3135e96ee2e693009890cb5b0aeee3169a81c0c20e7'||
+            ($manifest['source_reg_sha256']??'')!=='8f1a818239d9f264e9e04a6be6e81d0e91259389be2d22f1595cda2deb3dd810'||
             !is_string($expected)||!preg_match('/^[a-f0-9]{64}$/D',$expected)||
             !is_string($coreExpected)||!preg_match('/^[a-f0-9]{64}$/D',$coreExpected)||
             !hash_equals($expected,(string)@hash_file('sha256',$engine.'/mod/mod_sofia.dll'))||

@@ -78,8 +78,8 @@ if args.target == 'windows':
         if directory == args.engine:
             pins = {
                 'upstream_commit': 'ef32e205295e29f034f1453ad245ba5efb07b94a',
-                'patch_sha256': 'a4a8e19c78aabcb2f185c6c0a7f07e41fe70f13264bdb4cff3628a0dfbc47eda',
-                'source_reg_sha256': '5319b1b6c26708149552f3135e96ee2e693009890cb5b0aeee3169a81c0c20e7',
+                'patch_sha256': '41199046755bc2a3b2f71d87e8f8b99a8c774d5fed04403a645a2bbb91b140a6',
+                'source_reg_sha256': '8f1a818239d9f264e9e04a6be6e81d0e91259389be2d22f1595cda2deb3dd810',
                 'core_sha256': '8553d88348093d5067d93369aa9793b38fe9e3c9c9ca0c38216791700bd7f726',
                 'source_msi_sha256': 'f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d',
                 'core_version': '1.11.3',
