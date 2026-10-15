@@ -39,6 +39,36 @@ function Test-OpenWebTaskSecurityEquivalent {
   return $true
  }catch{return $false}
 }
+function Test-OpenWebProgramRootDescriptorPolicy {
+ param($Descriptor)
+ if($null -eq $Descriptor.Owner -or $null -eq $Descriptor.Group -or $Descriptor.BinaryLength -gt 262144 -or !([int]$Descriptor.ControlFlags -band [int][Security.AccessControl.ControlFlags]::DiscretionaryAclPresent) -or !([int]$Descriptor.ControlFlags -band [int][Security.AccessControl.ControlFlags]::DiscretionaryAclProtected)){return $false}
+ $acl=$Descriptor.DiscretionaryAcl
+ if($null -eq $acl -or $acl.Revision -ne 2 -or $acl.Count -ne 3){return $false}
+ $expected=@{'S-1-5-32-544'=[int][Security.AccessControl.FileSystemRights]::FullControl;'S-1-5-18'=[int][Security.AccessControl.FileSystemRights]::FullControl;'S-1-5-32-545'=([int][Security.AccessControl.FileSystemRights]::ReadAndExecute -bor [int][Security.AccessControl.FileSystemRights]::Synchronize)}
+ foreach($ace in $acl){
+  if($ace -isnot [Security.AccessControl.CommonAce] -or $ace.IsCallback -or $ace.AceType -ne [Security.AccessControl.AceType]::AccessAllowed -or $ace.AceQualifier -ne [Security.AccessControl.AceQualifier]::AccessAllowed -or [int]$ace.AceFlags -ne 3){return $false}
+  $sid=$ace.SecurityIdentifier.Value
+  if(!$expected.ContainsKey($sid) -or $ace.AccessMask -ne $expected[$sid]){return $false}
+  $expected.Remove($sid)
+ }
+ return $expected.Count -eq 0
+}
+function Test-OpenWebProgramRootPolicy {
+ param([string]$Root)
+ $item=Get-Item -LiteralPath $Root -Force -ErrorAction Stop
+ if(!$item.PSIsContainer){throw 'The program root is not an ordinary directory.'}
+ $ancestor=$item
+ while($null -ne $ancestor){
+  if([int]$ancestor.Attributes -band [int][IO.FileAttributes]::ReparsePoint){throw 'The program root is a link or junction.'}
+  $parent=[IO.Path]::GetDirectoryName($ancestor.FullName)
+  if(!$parent -or $parent -eq $ancestor.FullName){break}
+  $ancestor=Get-Item -LiteralPath $parent -Force -ErrorAction Stop
+ }
+ $sddl=(Get-Acl -LiteralPath $item.FullName -ErrorAction Stop).Sddl
+ if($sddl -isnot [string] -or [string]::IsNullOrWhiteSpace($sddl) -or $sddl.Length -gt 131072 -or $sddl.IndexOf([char]0) -ge 0){throw 'The program root security descriptor is invalid.'}
+ $descriptor=[Security.AccessControl.RawSecurityDescriptor]::new($sddl)
+ return Test-OpenWebProgramRootDescriptorPolicy $descriptor
+}
 function Get-OpenWebUpgradePermissionScope {
  param([string]$Root,[string]$StateRoot,[string]$EngineRoot)
  # Existing private/support objects only. Program directories, tasks and mutable

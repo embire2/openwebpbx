@@ -42,6 +42,9 @@ foreach($name in $names){
 $upgrade=Get-Content -LiteralPath $upgradePath -Raw;$upgradeAst=ParseSource $upgradePath
 $hardening=@($upgradeAst.FindAll({param($node)$node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Run' -and $node.Extent.Text -like 'Run icacls.exe @($root,*'},$true))
 AssertControl ($hardening.Count -eq 1)
+$hardeningGuard=$hardening[0].Parent
+while($hardeningGuard -and $hardeningGuard -isnot [Management.Automation.Language.IfStatementAst]){$hardeningGuard=$hardeningGuard.Parent}
+AssertControl ($hardeningGuard -and $hardeningGuard.Extent.Text.Contains('if(!(Test-OpenWebProgramRootPolicy -Root $root))'))
 $capture=$upgrade.IndexOf('$upgradePermissions=@(Get-OpenWebUpgradePermissions')
 $firstWriter=$upgrade.IndexOf('foreach ($part in ''web'',''server'',''desktop'',''acme'')')
 $replay=$upgrade.IndexOf('Restore-OpenWebUpgradePermissions -Permissions $upgradePermissions')
@@ -66,6 +69,9 @@ $originalSddl='O:BAG:BAD:PAI(A;;FA;;;BA)(A;;FA;;;SY)(A;;FR;;;AU)'
 $hardenedSddl='O:BAG:BAD:PAI(A;;FA;;;BA)(A;;FA;;;SY)(A;;FR;;;BU)'
 $changedSddl='O:BAG:BAD:PAI(A;;FA;;;BA)(A;;FA;;;SY)(A;;FR;;;LS)'
 if(!$native){
+ # This portable legacy filesystem fixture is deliberately nonmatching. The
+ # actual descriptor policy has separate native and portable predicate controls.
+ function Test-OpenWebProgramRootPolicy {return $false}
  function ReadControlDescriptor([string]$Value){
   if($Value -notin @($originalSddl,$hardenedSddl,$changedSddl)){throw 'Portable descriptor fixture refused.'}
   @{Owner='fixture-owner';Group='fixture-group';ControlFlags=4;BinaryLength=96}
@@ -110,8 +116,8 @@ try{
  # exact product hardening statement, never from the rollback snapshot.
  if($native){& icacls.exe (Join-Path $outer 'legacy') /grant '*S-1-5-11:(OI)(CI)M'|Out-Null;AssertControl ($LASTEXITCODE -eq 0)}
  $preHardening=CurrentAcl $php
- if($native){AssertControl (HasAuthenticatedUsersWrite $preHardening)}
- if($native){function Run([string]$Exe,[string[]]$Arguments){& $Exe @Arguments|Out-Null;if($LASTEXITCODE){throw 'Owned hardening control failed.'}};& ([scriptblock]::Create($hardening[0].Extent.Text))}
+ if($native){AssertControl ((HasAuthenticatedUsersWrite $preHardening) -and !(Test-OpenWebProgramRootPolicy -Root $root))}
+ if($native){function Run([string]$Exe,[string[]]$Arguments){& $Exe @Arguments|Out-Null;if($LASTEXITCODE){throw 'Owned hardening control failed.'}};& ([scriptblock]::Create($hardeningGuard.Extent.Text));AssertControl (Test-OpenWebProgramRootPolicy -Root $root)}
  else{$script:fakeAcls[$php]=$hardenedSddl;$script:fakeAcls[$root]=$hardenedSddl}
  $postHardening=CurrentAcl $php;$programAcl=CurrentAcl $root
  AssertControl ($preHardening -cne $postHardening)

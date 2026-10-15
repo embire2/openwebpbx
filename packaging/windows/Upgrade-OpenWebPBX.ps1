@@ -380,7 +380,11 @@ try {
  Write-Host 'Backup complete. Updating the application and call-engine scripts...'
  # Historical installations inherited writable system-drive permissions. Match
  # fresh-install program protection only after the original ACLs are sealed.
- Run icacls.exe @($root,'/inheritance:r','/grant:r','*S-1-5-32-544:(OI)(CI)F','*S-1-5-18:(OI)(CI)F','*S-1-5-32-545:(OI)(CI)RX')
+ # Reapplying an identical root policy can reorder restored descendant ACEs.
+ # Preserve those descriptors when the exact fresh root rules already apply.
+ if(!(Test-OpenWebProgramRootPolicy -Root $root)){
+  Run icacls.exe @($root,'/inheritance:r','/grant:r','*S-1-5-32-544:(OI)(CI)F','*S-1-5-18:(OI)(CI)F','*S-1-5-32-545:(OI)(CI)RX')
+ }
  # Preserve existing private/support security after intentional program hardening.
  # This in-memory success inventory never restores old contents or new objects.
  $upgradePermissions=@(Get-OpenWebUpgradePermissions -Root $root -StateRoot $private -EngineRoot $switch)

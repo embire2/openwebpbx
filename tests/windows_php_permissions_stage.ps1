@@ -13,7 +13,10 @@ $install=Parse (Join-Path $windows 'Install-OpenWebPBX.ps1');$upgrade=Parse (Joi
 $initial=@($install.FindAll({param($n)$n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -ceq 'icacls' -and $n.Extent.Text.StartsWith('icacls $root /inheritance:r /grant:r ')},$true))
 $hardening=@($upgrade.FindAll({param($n)$n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -ceq 'Run' -and $n.Extent.Text.StartsWith('Run icacls.exe @($root,')},$true))
 Require ($initial.Count -eq 1 -and $hardening.Count -eq 1)
-$initialPolicy=[scriptblock]::Create($initial[0].Extent.Text+"`nRequire (`$LASTEXITCODE -eq 0)");$hardenPolicy=[scriptblock]::Create($hardening[0].Extent.Text)
+$guard=$hardening[0].Parent
+while($guard -and $guard -isnot [Management.Automation.Language.IfStatementAst]){$guard=$guard.Parent}
+Require ($guard -and $guard.Extent.Text.Contains('if(!(Test-OpenWebProgramRootPolicy -Root $root))'))
+$initialPolicy=[scriptblock]::Create($initial[0].Extent.Text+"`nRequire (`$LASTEXITCODE -eq 0)");$hardenPolicy=[scriptblock]::Create($guard.Extent.Text)
 $statements=@($configure.EndBlock.Statements);$end=@(0..($statements.Count-1)|Where-Object {$statements[$_].Extent.Text -ceq 'Import-Module WebAdministration'})
 Require ($end.Count -eq 1 -and $end[0] -gt 4)
 $fileWriters=[scriptblock]::Create(($statements[0..($end[0]-1)]|ForEach-Object {$_.Extent.Text}) -join "`n")
@@ -89,6 +92,7 @@ try{
   $stage='php_file_writers';& $fileWriters|Out-Null;$written=Snapshot;$caseFacts.after_hardening_to_writers=CompareStages $hardened $written
   $stage='permission_replay';Restore-OpenWebUpgradePermissions -Permissions $permissions -Root $root -StateRoot $state -EngineRoot $engine;$replayed=Snapshot
   $caseFacts.writers_to_replay=CompareStages $written $replayed;$caseFacts.posthardening_to_final=CompareStages $hardened $replayed;$caseFacts.original_to_final=CompareStages $baseline $replayed
+  foreach($label in $paths.Keys){Require ($baseline[$label].Sddl -ceq $replayed[$label].Sddl -and (EqualBytes (BinaryForm $baseline[$label].Descriptor) (BinaryForm $replayed[$label].Descriptor)))}
   foreach($permission in $permissions){Require ((Get-Acl -LiteralPath $permission.Path).Sddl -ceq $permission.Sddl)}
   foreach($label in $paths.Keys){Require ($baseline[$label].Hash -ceq $replayed[$label].Hash -and $baseline[$label].Length -eq $replayed[$label].Length)}
   Require ((& whoami.exe /priv|Out-String) -ceq $privileges -and $LASTEXITCODE -eq 0)

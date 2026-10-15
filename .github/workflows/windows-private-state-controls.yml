@@ -70,6 +70,8 @@ jobs:
       - name: Test successful-upgrade private permissions without reverting content or hardening
         run: |
           $ErrorActionPreference='Stop'
+          & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_program_root_policy.ps1
+          if($LASTEXITCODE){throw 'The exact program-root policy controls failed.'}
           & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_upgrade_permissions.ps1
           if($LASTEXITCODE){throw 'The native successful-upgrade permission controls failed.'}
       - name: Observe PHP file security across exact hardening and replay stages
