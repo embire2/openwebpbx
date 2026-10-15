@@ -122,13 +122,19 @@ function Restore-OpenWebSupport {
   if($entry.Value.Exists){CopyTree (Join-Path $Backup $entry.Name) $target -Mirror}
   else{Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue}
  }
+ . (Join-Path $PSScriptRoot 'File-Security.ps1')
+ $permissions=New-Object 'Collections.Generic.List[object]'
  foreach($entry in $record.Acls.PSObject.Properties){
   $target=Check-SupportPath $entry.Name
   if(!(Test-Path -LiteralPath $target)){throw 'A support recovery permission target is missing.'}
   $item=Get-Item -LiteralPath $target -Force
   if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'A support recovery permission target is a link or junction.'}
-  $acl=if($item.PSIsContainer){[Security.AccessControl.DirectorySecurity]::new()}else{[Security.AccessControl.FileSecurity]::new()}
-  $acl.SetSecurityDescriptorSddlForm([string]$entry.Value);Set-Acl -LiteralPath $target -AclObject $acl
+  if($entry.Value -isnot [string] -or !$entry.Value -or $entry.Value.Length -gt 131072){throw 'A support recovery permission snapshot is invalid.'}
+  $permissions.Add(@{Path=$target;Directory=[bool]$item.PSIsContainer;Depth=$target.Split('\').Count;Sddl=$entry.Value})
+ }
+ # Native inheritance can update descendants; finish parents before their files.
+ foreach($permission in ($permissions|Sort-Object @{Expression={if($_.Directory){0}else{1}}},Depth,Path)){
+  Set-OpenWebFileSddl -LiteralPath $permission.Path -Sddl $permission.Sddl
  }
  foreach($entry in $record.Tasks.PSObject.Properties){
   if($entry.Name -notin 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){throw 'The support recovery task inventory is invalid.'}

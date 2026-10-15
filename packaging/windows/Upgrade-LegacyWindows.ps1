@@ -25,7 +25,7 @@ try{
  $payload=[IO.Path]::GetFullPath([string]$verified.package_path)
  $prefix=[IO.Path]::GetFullPath($transition).TrimEnd('\')+'\'
  if($verified.version -ne $TargetVersion -or !$payload.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)){throw 'The verified transition payload is invalid.'}
- foreach($name in 'Upgrade-OpenWebPBX.ps1','Restore-Gates.ps1','Support-Recovery.ps1','Install-NativeEngine.ps1','Install-LocalCodec.ps1'){if(!(Test-Path -LiteralPath (Join-Path $payload $name) -PathType Leaf)){throw 'The verified release lacks its complete transaction helpers.'}}
+ foreach($name in 'Upgrade-OpenWebPBX.ps1','Restore-Gates.ps1','Support-Recovery.ps1','File-Security.ps1','Install-NativeEngine.ps1','Install-LocalCodec.ps1'){if(!(Test-Path -LiteralPath (Join-Path $payload $name) -PathType Leaf)){throw 'The verified release lacks its complete transaction helpers.'}}
  Stop-Service OpenWebPBXUpdater
  (Get-Service OpenWebPBXUpdater).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(40));$stopped=$true
  $command=[IO.Path]::Combine($env:SystemRoot,'System32\WindowsPowerShell\v1.0\powershell.exe')
