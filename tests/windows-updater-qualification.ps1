@@ -53,7 +53,7 @@ function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null
  }
  $safe=@{schema=1;callsites=$frames.ToArray();child=$childReport}
  if($childReport -and $frames.ToArray().function -ccontains 'Equal' -and $Comparison -is [Collections.IDictionary] -and $Comparison.label -is [string] -and $Comparison.label -cin @('fault-database','fault-files','fault-tasks','normal-database','normal-protected-files','normal-installation-secrets','normal-tasks') -and $childReport.label -ceq ('compare-'+$Comparison.label)){
-  $report=QualificationComparisonFields $Comparison.report
+  $report=QualificationComparisonDetails $Comparison.report
   if($report -and (($report.comparison_result -ceq 'different' -and $childReport.completion -ceq 'exit' -and $childReport.exit_code -eq 1) -or ($report.comparison_result -ceq 'error' -and $childReport.completion -ceq 'exit' -and $childReport.exit_code -eq 2) -or $report.comparison_result -ceq 'unavailable')){$safe.comparison=$report}
  }
  return $safe
@@ -320,6 +320,37 @@ function QualificationComparisonFields($Record){
  }
  return $safe
 }
+function QualificationComparisonDetails($Record){
+ $safe=QualificationComparisonFields $Record;if(!$safe){return $null}
+ $fields=@('comparison_file_category_field_counts','comparison_known_file_field_counts','comparison_unknown_file_entry_count')
+ $names=if($Record -is [Collections.IDictionary]){@($Record.Keys)}else{@($Record.PSObject.Properties.Name)}
+ $present=@($fields|Where-Object {$names -ccontains $_});if(!$present.Count){return $safe}
+ if($present.Count -ne $fields.Count -or $safe.comparison_result -cne 'different' -or $safe.comparison_files_observed -ne $true){return $null}
+ $count=$Record.comparison_unknown_file_entry_count
+ if(($count -isnot [int] -and $count -isnot [long]) -or $count -lt 0 -or $count -gt 100000){return $null}
+ $safe.comparison_unknown_file_entry_count=[int]$count
+ $labels=@('installation','runtime','updater_install','native_engine','local_codec','phone_tls_metadata','storage_root','stock_music_root','stock_music_readme','stock_music_manifest','stock_sounds_root','stock_sounds_openwebpbx')
+ foreach($rate in 8000,16000,32000,48000){$labels+=@(('stock_music_'+$rate+'_dir'),('stock_music_'+$rate+'_track'))}
+ $maps=@{comparison_file_category_field_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','other');comparison_known_file_field_counts=$labels}
+ foreach($field in $maps.Keys){
+  $map=$Record.$field
+  if($map -is [Collections.IDictionary]){$keys=@($map.Keys)}elseif($map -is [pscustomobject]){$keys=@($map.PSObject.Properties.Name)}else{return $null}
+  if($keys.Count -gt $maps[$field].Count){return $null};$copy=@{}
+  foreach($key in $keys){
+   if($key -isnot [string] -or $key -cnotin $maps[$field]){return $null};$row=$map.$key
+   if($row -is [Collections.IDictionary]){$columns=@($row.Keys)}elseif($row -is [pscustomobject]){$columns=@($row.PSObject.Properties.Name)}else{return $null}
+   if($columns.Count -gt 8){return $null};$values=@{}
+   foreach($column in $columns){
+    $value=$row.$column
+    if($column -isnot [string] -or $column -cnotin @('acl','sha256','bytes','directory','added','removed','shape','other') -or ($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 100000){return $null}
+    $values[$column]=[int]$value
+   }
+   $copy[$key]=$values
+  }
+  $safe[$field]=$copy
+ }
+ return $safe
+}
 function Equal($Before,$After,[string]$Label){
  $script:qualificationComparisonFailure=$null
  $a=Join-Path $work ($Label+'-before.json');$b=Join-Path $work ($Label+'-after.json');WriteJson $a $Before;WriteJson $b $After
@@ -331,7 +362,7 @@ function Equal($Before,$After,[string]$Label){
    $path=Join-Path $work ('compare-'+$Label+'.out');$item=Get-Item -LiteralPath $path -Force
    if(!$item.PSIsContainer -and !($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -and $item.Length -le 65536){
     $record=Get-Content -LiteralPath $path -Raw|ConvertFrom-Json -AsHashtable -NoEnumerate
-    if($record -is [Collections.IDictionary] -and ($record.schema -is [int] -or $record.schema -is [long]) -and $record.schema -eq 1 -and $record.producer -is [string] -and $record.producer -ceq 'windows-exact-json-comparison'){$observed=QualificationComparisonFields $record;if($observed){$report=$observed}}
+    if($record -is [Collections.IDictionary] -and ($record.schema -is [int] -or $record.schema -is [long]) -and $record.schema -eq 1 -and $record.producer -is [string] -and $record.producer -ceq 'windows-exact-json-comparison'){$observed=QualificationComparisonDetails $record;if($observed){$report=$observed}}
    }
   }catch{}
   $script:qualificationComparisonFailure=@{label=$Label;report=$report}

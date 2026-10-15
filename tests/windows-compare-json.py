@@ -20,6 +20,28 @@ LIMIT = 100000
 FILE_FIELDS = ('acl', 'sha256', 'bytes', 'directory', 'added', 'removed', 'shape', 'other')
 FILE_CATEGORIES = ('web', 'server', 'desktop', 'tools', 'updater', 'config',
                    'notifications', 'media', 'native', 'other')
+# Classification only: these public fixed paths never affect equality.
+KNOWN_FILE_PATHS = {
+    'c:/programdata/openwebpbx/' + name + '.json': label
+    for name, label in (('installation', 'installation'), ('runtime', 'runtime'),
+                        ('updater-install', 'updater_install'), ('native-engine', 'native_engine'),
+                        ('local-codec', 'local_codec'), ('phone-tls', 'phone_tls_metadata'))
+}
+KNOWN_FILE_PATHS.update({
+    'c:/programdata/openwebpbx/storage': 'storage_root',
+    'c:/programdata/openwebpbx/storage/openweb-music': 'stock_music_root',
+    'c:/programdata/openwebpbx/storage/openweb-music/readme.md': 'stock_music_readme',
+    'c:/programdata/openwebpbx/storage/openweb-music/manifest.json': 'stock_music_manifest',
+    'c:/program files/freeswitch/sounds': 'stock_sounds_root',
+    'c:/program files/freeswitch/sounds/openwebpbx': 'stock_sounds_openwebpbx',
+})
+for _rate in (8000, 16000, 32000, 48000):
+    _directory = 'c:/programdata/openwebpbx/storage/openweb-music/' + str(_rate)
+    KNOWN_FILE_PATHS[_directory] = 'stock_music_' + str(_rate) + '_dir'
+    KNOWN_FILE_PATHS[_directory + '/lofi-beat-loop-schmoop.wav'] = 'stock_music_' + str(_rate) + '_track'
+KNOWN_FILE_LABELS = tuple(KNOWN_FILE_PATHS.values())
+
+
 PUBLIC_COLUMNS = {
     table: ('insert_date', 'update_date', 'insert_user', 'update_user')
     for table in CRITICAL_TABLES
@@ -69,24 +91,31 @@ def file_difference(before, after, changed):
                for side in (before, after) for name, entry in side.items()):
         return {}
     fields, categories = Counter(), Counter()
+    category_fields, known_fields = {}, {}
+    unknown = 0
     for name in changed:
-        categories[file_category(name) or 'other'] += 1
+        category = file_category(name) or 'other'
+        categories[category] += 1
+        label = (KNOWN_FILE_PATHS.get(name.replace('\\', '/').casefold())
+                 if isinstance(name, str) and len(name) <= 4096 else None)
+        unknown += label is None
         if name not in before:
-            fields['added'] += 1
-            continue
-        if name not in after:
-            fields['removed'] += 1
-            continue
-        left, right = before[name], after[name]
-        if not isinstance(left, dict) or not isinstance(right, dict):
-            fields['shape'] += 1
-            continue
-        keys = changed_keys(left, right)
-        for field in ('acl', 'sha256', 'bytes', 'directory'):
-            if field in keys:
-                fields[field] += 1
-        if keys - {'acl', 'sha256', 'bytes', 'directory'}:
-            fields['other'] += 1
+            entry_fields = {'added'}
+        elif name not in after:
+            entry_fields = {'removed'}
+        else:
+            left, right = before[name], after[name]
+            if not isinstance(left, dict) or not isinstance(right, dict):
+                entry_fields = {'shape'}
+            else:
+                keys = changed_keys(left, right)
+                entry_fields = keys & {'acl', 'sha256', 'bytes', 'directory'}
+                if keys - {'acl', 'sha256', 'bytes', 'directory'}:
+                    entry_fields.add('other')
+        fields.update(entry_fields)
+        category_fields.setdefault(category, Counter()).update(entry_fields)
+        if label is not None:
+            known_fields.setdefault(label, Counter()).update(entry_fields)
     return {
         'comparison_files_observed': True,
         'comparison_changed_file_entry_count': min(len(changed), LIMIT),
@@ -94,6 +123,9 @@ def file_difference(before, after, changed):
                                         or any(n > LIMIT for n in (*fields.values(), *categories.values()))),
         'comparison_file_field_counts': {name: min(fields[name], LIMIT) for name in FILE_FIELDS if fields[name]},
         'comparison_file_category_counts': {name: min(categories[name], LIMIT) for name in FILE_CATEGORIES if categories[name]},
+        'comparison_file_category_field_counts': {category: {field: min(category_fields[category][field], LIMIT) for field in FILE_FIELDS if category_fields[category][field]} for category in FILE_CATEGORIES if category in category_fields},
+        'comparison_known_file_field_counts': {label: {field: min(known_fields[label][field], LIMIT) for field in FILE_FIELDS if known_fields[label][field]} for label in KNOWN_FILE_LABELS if label in known_fields},
+        'comparison_unknown_file_entry_count': min(unknown, LIMIT),
     }
 
 
