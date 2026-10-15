@@ -24,6 +24,76 @@ spec = importlib.util.spec_from_file_location('windows_restore_qualification', H
 q = importlib.util.module_from_spec(spec); spec.loader.exec_module(q)
 
 
+class SchedulerDateControls(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        tree = ast.parse((HERE / 'windows-restore-qualification.py').read_text())
+        method = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == 'backup_request')
+        assignment = next(n for n in ast.walk(method) if isinstance(n, ast.Assign)
+                          and any(isinstance(t, ast.Name) and t.id == 'changed' for t in n.targets))
+        parent = next(n for n in ast.walk(method) if isinstance(n, ast.If) and assignment in n.body)
+        following = parent.body[parent.body.index(assignment) + 1]
+        cls.seed = compile(ast.Module(body=[assignment, following], type_ignores=[]),
+                           str(HERE / 'windows-restore-qualification.py'), 'exec')
+        cls.caller_line = assignment.lineno
+
+    def test_actual_seed_uses_top_level_json_query_and_exact_one_row_guard(self):
+        fixture = q.Qualification.__new__(q.Qualification)
+        fixture.settings = {'fictional': 'private settings'}
+        for rows in ([{'singleton': 1}], [], [{'singleton': 1}, {'singleton': 1}]):
+            with self.subTest(rows=rows):
+                fixture.backups = SimpleNamespace(query=mock.Mock(return_value=rows))
+                if len(rows) == 1:
+                    exec(self.seed, {'self': fixture})
+                else:
+                    with self.assertRaisesRegex(RuntimeError, '^The exact fixture-only previous-date seed failed[.]$'):
+                        exec(self.seed, {'self': fixture})
+                args, kwargs = fixture.backups.query.call_args
+                self.assertIs(args[0], fixture.settings)
+                self.assertEqual(kwargs, {'json_result': True})
+                sql = args[1]
+                self.assertTrue(sql.startswith('with changed as (update v_pbx_backup_settings '))
+                self.assertIn("where singleton=1 and last_scheduled_date=(now() at time zone 'UTC')::date returning singleton)", sql)
+                self.assertTrue(sql.endswith("select coalesce(json_agg(row_to_json(changed)),'[]'::json) from changed"))
+                fixture.backups.query.assert_called_once()
+
+    def failed_query(self, *, wrapped=False, source='backups.py', function='query', error_type=None):
+        class BackupError(RuntimeError): pass
+        error = (error_type or BackupError)('PRIVATE SQL password C:/private')
+        error.private_sql = 'PRIVATE SQL password'; error.query_caller_line = 'PRIVATE'
+        namespace = {'error': error}
+        exec(compile('def '+function+'(*args, **kwargs):\n raise error\n', '/private/' + source, 'exec'), namespace)
+        fixture = q.Qualification.__new__(q.Qualification)
+        fixture.settings = {}; fixture.backups = SimpleNamespace(query=namespace[function])
+        try:
+            if wrapped:
+                caller = {}
+                exec(compile('\n' * 40 + 'def backup_request(self):\n return self.query("PRIVATE SQL")\n',
+                             '/private/windows-restore-qualification.py', 'exec'), caller)
+                caller['backup_request'](fixture)
+            else:
+                exec(self.seed, {'self': fixture})
+        except BaseException as caught:
+            return caught
+        self.fail('The fictional query must fail.')
+
+    def test_actual_seed_and_generic_wrapper_keep_only_innermost_qualifier_caller(self):
+        for wrapped, line in ((False, self.caller_line), (True, 42)):
+            with self.subTest(wrapped=wrapped):
+                error = self.failed_query(wrapped=wrapped)
+                fields = q.restore_query_failure_fields(error)
+                self.assertEqual(fields, {'query_caller_line': line})
+                self.assertNotIn('PRIVATE', json.dumps(fields))
+                self.assertEqual(str(error), 'PRIVATE SQL password C:/private')
+
+    def test_unrelated_errors_and_untrusted_query_attributes_are_not_observations(self):
+        for values in ({'source': 'foreign.py'}, {'function': 'run'}, {'error_type': ValueError}):
+            with self.subTest(values=values):
+                self.assertEqual(q.restore_query_failure_fields(self.failed_query(**values)), {})
+        for error in (None, ValueError('PRIVATE'), SimpleNamespace(__traceback__='PRIVATE')):
+            self.assertEqual(q.restore_query_failure_fields(error), {})
+
+
 class CleanupObservationControls(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(); self.root = Path(self.temporary.name)

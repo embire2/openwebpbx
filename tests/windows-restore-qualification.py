@@ -147,6 +147,21 @@ def restore_identity_failure_fields(error):
     return {'failure_kind': 'non_distinct_installation_identity', 'identity_field': error.identity_field}
 
 
+def restore_query_failure_fields(error):
+    """Keep only the actual qualifier caller; SQL and native errors stay private."""
+    if not isinstance(error, BaseException) or type(error).__name__ != 'BackupError':
+        return {}
+    trace = error.__traceback__; caller = None; database_query = False
+    while trace:
+        code = trace.tb_frame.f_code; basename = Path(code.co_filename).name
+        if basename == 'windows-restore-qualification.py' and code.co_name != 'query':
+            caller = trace.tb_lineno
+        if basename == 'backups.py' and code.co_name == 'query':
+            database_query = True
+        trace = trace.tb_next
+    return {'query_caller_line': caller} if database_query and type(caller) is int and 0 < caller < 1000000 else {}
+
+
 def restore_schema_failure_fields(error):
     if (type(error) is not ValueError
             or getattr(error, 'comparison_label', None) not in ('target-wrongpass', 'target-recovered', 'target-restored')):
@@ -723,7 +738,8 @@ class Qualification:
             if any(r['command_uuid'] not in existing for r in self.query("select command_uuid from v_pbx_backup_commands where requested_by is null")):
                 raise RuntimeError('The normal restored-TODAY schedule created a duplicate backup.')
             self.record('normal_restored_today_schedule_actual_system_task_no_duplicate')
-            changed=self.query("with changed as (update v_pbx_backup_settings set last_scheduled_date=(now() at time zone 'UTC')::date-1 where singleton=1 and last_scheduled_date=(now() at time zone 'UTC')::date returning singleton) select * from changed")
+            # A modifying CTE must remain top-level; query() wraps SELECTs in FROM.
+            changed=self.backups.query(self.settings,"with changed as (update v_pbx_backup_settings set last_scheduled_date=(now() at time zone 'UTC')::date-1 where singleton=1 and last_scheduled_date=(now() at time zone 'UTC')::date returning singleton) select coalesce(json_agg(row_to_json(changed)),'[]'::json) from changed",json_result=True)
             if len(changed)!=1:raise RuntimeError('The exact fixture-only previous-date seed failed.')
             self.facts['target_scheduler_date']='private_previous_date_fixture_seed_after_exact_restore_and_today_no_duplicate_proof'
         def scheduled():
@@ -969,6 +985,7 @@ if __name__ == '__main__':
         observation = restore_fixture_failure_fields(getattr(error, 'fixture_failure', None), 'cleanup')
         if observation: facts['fixture_failure'] = observation
         facts.update(restore_identity_failure_fields(error))
+        facts.update(restore_query_failure_fields(error))
         facts.update(restore_schema_failure_fields(error))
         peer_failures=restore_peer_failure_fields(getattr(error,'peer_cleanup_failure',None))
         if peer_failures:facts['peer_cleanup_failure']=peer_failures

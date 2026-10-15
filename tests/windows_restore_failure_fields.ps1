@@ -72,12 +72,13 @@ $work=Join-Path ([IO.Path]::GetTempPath()) ('openweb-restore-projection-'+[guid]
 $null=New-Item -ItemType Directory -Path $work
 $python='fictional-extracted-python';$source='fictional-source';$inputFile='fictional-private-input'
 $script:childFailure=[InvalidOperationException]::new('PRIVATE child failure preserved')
-$script:childRecord=$null;$script:seen=$null
+$script:childRecord=$null;$script:seen=$null;$script:childOutputHook=$null
 function CheckedProcess($Executable,$Arguments,$Label,$WorkingDirectory,$Timeout){
  $script:seen=@($Executable,$Arguments,$Label,$WorkingDirectory,$Timeout)
  $privateOutput=Join-Path $work ($Label+'.out')
  if($script:childRecord){[IO.File]::WriteAllText($privateOutput,($script:childRecord|ConvertTo-Json -Depth 20 -Compress))}
  elseif(Test-Path $privateOutput){Remove-Item -LiteralPath $privateOutput}
+ if($script:childOutputHook){& $script:childOutputHook $privateOutput}
  throw $script:childFailure
 }
 try{
@@ -103,6 +104,59 @@ try{
  $facts=@{};$script:childRecord.fixture_failure=Clone $good
  try{NativeFixture 'restore'}catch{}
  Assert ($facts.native_failure.active_case -ceq 'restore' -and $null -eq $facts.native_failure.fixture_failure)
+ foreach($action in 'export-source','target-backup'){
+  foreach($mode in 'int','long','low','high','zero','negative','too_high','string','boolean','array','object','missing','wrong_action','wrong_type','wrong_source','array_type','array_source'){
+   $facts=@{};$invoke=$action
+   $script:childRecord=@{state='failed';error_type='BackupError';source_basename='backups.py';source_line=292;query_caller_line=726;message='PRIVATE SQL password C:/secret';sql='PRIVATE'}
+   switch($mode){
+    'long'{$script:childRecord.query_caller_line=[long]726}
+    'low'{$script:childRecord.query_caller_line=1}
+    'high'{$script:childRecord.query_caller_line=999999}
+    'zero'{$script:childRecord.query_caller_line=0}
+    'negative'{$script:childRecord.query_caller_line=-1}
+    'too_high'{$script:childRecord.query_caller_line=1000000}
+    'string'{$script:childRecord.query_caller_line='726'}
+    'boolean'{$script:childRecord.query_caller_line=$true}
+    'array'{$script:childRecord.query_caller_line=@(726)}
+    'object'{$script:childRecord.query_caller_line=@{message='PRIVATE'}}
+    'missing'{$script:childRecord.Remove('query_caller_line')}
+    'wrong_action'{$invoke='cleanup'}
+    'wrong_type'{$script:childRecord.error_type='RuntimeError'}
+    'wrong_source'{$script:childRecord.source_basename='foreign.py'}
+    'array_type'{$script:childRecord.error_type=@('BackupError')}
+    'array_source'{$script:childRecord.source_basename=@('backups.py')}
+   }
+   $caught=$null;try{NativeFixture $invoke}catch{$caught=$_}
+   Assert ([object]::ReferenceEquals($caught.Exception,$script:childFailure))
+   $expected=$mode -cin @('int','long','low','high')
+   Assert (($null -ne $facts.native_failure.query_caller_line) -eq $expected)
+   if($expected){Assert ($facts.native_failure.query_caller_line -eq $script:childRecord.query_caller_line)}
+   Assert (($facts|ConvertTo-Json -Depth 20 -Compress) -notmatch 'PRIVATE|SQL|password|C:/secret')
+  }
+ }
+ foreach($mode in 'missing','malformed','oversized','directory','metadata_failure'){
+  $facts=@{native_failure=@{error_type='BackupError';source_basename='backups.py';source_line=292}}
+  $script:childRecord=@{state='failed';error_type='BackupError';source_basename='backups.py';source_line=292;query_caller_line=726}
+  # A stale caller-scope value must not be consumed if fresh output is absent/bad.
+  $safe=$script:childRecord
+  $script:childOutputHook={param($Output)
+   switch($mode){
+    'missing'{Remove-Item -LiteralPath $Output}
+    'malformed'{[IO.File]::WriteAllText($Output,'PRIVATE invalid JSON')}
+    'oversized'{[IO.File]::AppendAllText($Output,(' '*1048577))}
+    'directory'{Remove-Item -LiteralPath $Output;$null=New-Item -ItemType Directory -Path $Output}
+    'metadata_failure'{function script:Get-Item {throw [IO.IOException]::new('PRIVATE metadata failure')}}
+   }
+  }
+  $caught=$null;try{NativeFixture 'target-backup'}catch{$caught=$_}
+  Assert ([object]::ReferenceEquals($caught.Exception,$script:childFailure))
+  Assert ($null -eq $facts.native_failure.query_caller_line)
+  Assert (($facts|ConvertTo-Json -Depth 20 -Compress) -notmatch 'PRIVATE|SQL|password')
+  $script:childOutputHook=$null
+  if($mode -eq 'metadata_failure'){Remove-Item Function:\Get-Item}
+  $privateOutput=Join-Path $work 'restore-target-backup.out'
+  if(Test-Path -LiteralPath $privateOutput){Remove-Item -LiteralPath $privateOutput -Recurse -Force}
+ }
  foreach($field in 'hardware_uuid_hmac','hostname_hmac','certificate_sha256','template_key_sha256'){
   foreach($mode in 'valid','unknown_kind','private_field','array_field','wrong_action','wrong_type','wrong_source','missing_kind','missing_field'){
    $facts=@{};$action='late-restore'
