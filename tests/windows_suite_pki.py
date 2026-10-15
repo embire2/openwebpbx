@@ -5,7 +5,9 @@ import hashlib
 import importlib.util
 import json
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from cryptography import x509
@@ -44,11 +46,18 @@ if($errors.Count){throw 'The actual recovery fixture must parse.'}
 $nodes=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and $node.Extent.Text.StartsWith('[IO.File]::WriteAllText($inputFile,')},$true))
 if($nodes.Count -ne 1){throw 'The actual recovery input writer must be uniquely identified.'}
 Invoke-Expression $nodes[0].Extent.Text
+$commands=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.CommandAst] -and $node.Extent.Text.StartsWith('& $python ') -and $node.Extent.Text.Contains('--phase prepare-pki')},$true))
+if($commands.Count -ne 1){throw 'The actual PKI preparation command must be unique.'}
+$flags=@();foreach($element in $commands[0].CommandElements|Select-Object -Skip 1){if($element.Extent.Text -ceq '$script'){break};$flags+=$element.Extent.Text}
+[IO.File]::WriteAllText(($inputFile+'.flags.json'),(ConvertTo-Json -InputObject $flags),[Text.UTF8Encoding]::new($false))
 ''')
     subprocess.run([args.powershell, '-NoProfile', '-NonInteractive', '-File', str(extractor),
                     '-SourceRoot', str(root), '-inputFile', str(input_path), '-evidence', str(evidence)],
                    check=True, capture_output=True)
     source_input = json.loads(input_path.read_text(encoding='utf-8-sig'))
+    flags = json.loads(Path(str(input_path) + '.flags.json').read_text(encoding='utf-8-sig'))
+    check(flags == ['-I', '-B'])
+    check("@('-I','-B',$script,'--input',$inputFile,'--phase','pki-server')" in (root / 'tests/windows-suite-pki.ps1').read_text())
     check(re.fullmatch('[a-f0-9]{24}', source_input['scope']) is not None)
     check(source_input['source_root'] == str(root) and source_input['evidence_directory'] == str(evidence))
     # Reproduce the previous complete-GUID input through the actual generator.
@@ -90,4 +99,44 @@ Invoke-Expression $nodes[0].Extent.Text
     check((evidence / 'fixture-chain.pem').read_bytes() == (evidence / 'fixture-leaf.pem').read_bytes() + (evidence / 'fixture-root.pem').read_bytes())
     check(private['root_thumbprint'] == hashlib.sha1(ca.public_bytes(serialization.Encoding.DER)).hexdigest())
     check(private['leaf_thumbprint'] == hashlib.sha1(leaf.public_bytes(serialization.Encoding.DER)).hexdigest())
+    # Run the actual PKI generator in fresh child interpreters against ordinary
+    # copied cryptography sources. Like the packaged Windows _pth runtime,
+    # these live outside the standard-library ZIP. -I ignores the workflow's
+    # PYTHONDONTWRITEBYTECODE; only explicit -B keeps the extraction immutable.
+    import cryptography
+    package = Path(cryptography.__file__).resolve().parent
+    for label, arguments in [('previous', ['-I']), ('actual', flags)]:
+        runtime = base / (label + '-runtime')
+        runtime.mkdir()
+        shutil.copytree(package, runtime / 'cryptography', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+        before = {path.relative_to(runtime).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                  for path in runtime.rglob('*') if path.is_file()}
+        child_evidence = base / (label + '-evidence')
+        child_evidence.mkdir()
+        child_input = base / (label + '-input.json')
+        child_input.write_text(json.dumps(source_input | {'evidence_directory': str(child_evidence)}))
+        child = base / (label + '-child.py')
+        child.write_text('import importlib.util,json,sys\nfrom pathlib import Path\n'
+                         + 'sys.path.insert(0,' + repr(str(runtime)) + ')\n'
+                         + 'spec=importlib.util.spec_from_file_location("actual_native",' + repr(str(root / 'tests/windows-native-acceptance.py')) + ')\n'
+                         + 'native=importlib.util.module_from_spec(spec);spec.loader.exec_module(native)\n'
+                         + 'native.prepare_pki(native.Fixture(' + repr(str(child_input)) + '))\n'
+                         + 'import cryptography\n'
+                         + 'assert Path(cryptography.__file__).resolve() == Path(' + repr(str(runtime / 'cryptography/__init__.py')) + ').resolve()\n'
+                         + 'print(json.dumps({"isolated":sys.flags.isolated,"dont_write_bytecode":sys.dont_write_bytecode}))\n')
+        import os
+        result = subprocess.run([sys.executable] + arguments + [str(child)],
+                                env=os.environ | {'PYTHONDONTWRITEBYTECODE': '1'},
+                                check=True, capture_output=True, text=True)
+        status = json.loads(result.stdout)
+        check(status['isolated'] == 1 and status['dont_write_bytecode'] == (label == 'actual'))
+        after = {path.relative_to(runtime).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                 for path in runtime.rglob('*') if path.is_file()}
+        check(all(after.get(path) == digest for path, digest in before.items()))
+        if label == 'previous':
+            added = set(after) - set(before)
+            check(bool(added) and all('__pycache__/' in path and path.endswith('.pyc') for path in added))
+        else:
+            check(before == after)
+        check((child_evidence / 'fixture.pfx').is_file() and (child_evidence / 'pki-private.json').is_file())
 print(f'PASS {checks} actual AST/X509 recovery-PKI input/signature/key controls; no store or PBX touched')

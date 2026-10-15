@@ -24,12 +24,12 @@ function Start-SuiteRecoveryPki([string]$PackageRoot,[string]$SourceRoot,[string
  $python=Join-Path $PackageRoot 'backup-runtime\python.exe';$script=Join-Path $SourceRoot 'tests\windows-native-acceptance.py';$prior=$env:OPENWEB_WINDOWS_NATIVE_TEST
  try {
   $env:OPENWEB_WINDOWS_NATIVE_TEST='1'
-  & $python -I $script --input $inputFile --phase prepare-pki 1>"$directory\prepare-private.out" 2>"$directory\prepare-private.err"
+  & $python -I -B $script --input $inputFile --phase prepare-pki 1>"$directory\prepare-private.out" 2>"$directory\prepare-private.err"
   if($LASTEXITCODE){throw 'The independent recovery CA preparation failed.'}
   # Use the extracted interpreter: upgrades must be free to replace the
   # installed backup runtime without a laboratory DLL lock.
   $start=[Diagnostics.ProcessStartInfo]::new($python);$start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
-  foreach($argument in @('-I',$script,'--input',$inputFile,'--phase','pki-server')){$start.ArgumentList.Add($argument)}
+  foreach($argument in @('-I','-B',$script,'--input',$inputFile,'--phase','pki-server')){$start.ArgumentList.Add($argument)}
   $context.process=[Diagnostics.Process]::Start($start);$context.out=$context.process.StandardOutput.ReadToEndAsync();$context.err=$context.process.StandardError.ReadToEndAsync()
   for($i=0;$i -lt 50 -and !(Test-Path "$evidence\pki-ready.json") -and !$context.process.HasExited;$i++){Start-Sleep -Milliseconds 100}
   if($context.process.HasExited -or !(Test-Path "$evidence\pki-ready.json")){throw 'The owned recovery CRL listener failed to start.'}
