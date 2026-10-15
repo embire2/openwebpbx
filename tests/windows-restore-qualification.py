@@ -152,18 +152,23 @@ NATIVE_CASES = {'native-source': ('source_real_two_way_recorded_call', 'source_r
 PEER_ERROR_TYPES = ('RuntimeError','AssertionError','ValueError','TypeError','KeyError','AttributeError','OSError','TimeoutError',
                     'ConnectionError','ConnectionResetError','ConnectionAbortedError','ConnectionRefusedError','BrokenPipeError',
                     'SSLError','SSLEOFError','SSLCertVerificationError','JSONDecodeError','UnicodeDecodeError','check_failed','external_error')
-PEER_ERROR_SOURCES = ('windows-restore-qualification.py','pbx_v20_restore_native.py','sip_trunk_live.py','socket.py','ssl.py','decoder.py','external_component')
+PEER_ERROR_SOURCES = ('windows-restore-qualification.py','windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','socket.py','ssl.py','decoder.py','external_component')
+RESTORE_NATIVE_STAGES = ('registration','internal_invite','internal_ack','internal_media','internal_hangup','answered_recording',
+    'voicemail_isolation','voicemail_deposit','mailbox_invite','mailbox_login_prompt','mailbox_pin','mailbox_main_prompt',
+    'mailbox_recording_playback','mailbox_media','mailbox_hangup','peer_cleanup','peer_receiver')
 
 
-def restore_peer_failure_fields(records):
+def restore_peer_failure_fields(records,receiver=False):
     keys = {'peer_index','stage','status_code','error_type','source_basename','source_line'}
-    if not isinstance(records,list) or not 0 < len(records) <= 12:return []
+    if receiver:keys.add('winerror_kind')
+    if not isinstance(records,list) or not 0 < len(records) <= (2 if receiver else 12):return []
     for row in records:
         if (not isinstance(row,dict) or set(row)!=keys or type(row['peer_index']) is not int or row['peer_index'] not in (0,1)
-                or row['stage'] not in ('unregister','registration_ids','flush_registration','contact_absence','peer_close')
+                or row['stage'] not in (('receiver',) if receiver else ('unregister','registration_ids','flush_registration','contact_absence','peer_close'))
                 or type(row['status_code']) is not int or not (row['status_code']==0 or 100<=row['status_code']<=699)
                 or row['error_type'] not in PEER_ERROR_TYPES or row['source_basename'] not in PEER_ERROR_SOURCES
                 or type(row['source_line']) is not int or not 0<=row['source_line']<1000000):return []
+        if receiver and row['winerror_kind'] not in ('connection_reset_10054','other_winerror','unavailable'):return []
     return [dict(row) for row in records]
 
 
@@ -187,6 +192,25 @@ def restore_completed_native_cases(cases,action):
             or any(not isinstance(name,str) or name not in NATIVE_CASES[action] for name in cases)
             or len(set(cases))!=len(cases)):return None
     return list(cases)
+
+
+def windows_restore_phone(source_phone,rtp_socket):
+    """Restore-only adapter; peers() selects it exclusively on Windows."""
+    class WindowsRestorePhone(source_phone):
+        def __init__(self,*args,**kwargs):
+            self.receiver_failure=None;super().__init__(*args,**kwargs)
+        def media(self,pt=0):
+            state=super().media(pt);state['socket']=rtp_socket(state['socket']);return state
+        def run(self):
+            try:super().run()
+            except BaseException as error:self.receiver_failure=error
+        def check_receiver(self):
+            if self.receiver_failure is not None:raise self.receiver_failure
+        def exchange(self,*args,**kwargs):
+            self.check_receiver()
+            try:return super().exchange(*args,**kwargs)
+            except BaseException:self.check_receiver();raise
+    return WindowsRestorePhone
 
 
 def distinct_installations(source, target):
@@ -432,7 +456,11 @@ class Qualification:
             raise RuntimeError('The actual local engine IPv4 address is required.')
         # A local socket bind is an independent refusal for an off-machine address.
         probe = socket.socket(); probe.bind((bind, 0)); probe.close()
-        records = self.s['users']; peers = [original.SourcePhone(u, self.s['realm'], bind) for u in records]
+        phone=original.SourcePhone
+        if os.name=='nt':
+            native=load_module('restore_qualification_windows_peer',self.source/'tests/windows-native-acceptance.py')
+            phone=windows_restore_phone(phone,native.WindowsRtpSocket)
+        records = self.s['users']; peers = [phone(u, self.s['realm'], bind) for u in records]
         return sip, original, peers, (bind, 5060)
 
     def clean_peers(self, peers, destination):
@@ -468,18 +496,22 @@ class Qualification:
     def native(self, target=False):
         sip, original, peers, destination = self.peers(); caller, called = peers; call = None
         earlier_recordings = {row['media_uuid'] for row in self.php('status')['recordings']}
-        primary=None
+        primary=None;stage='registration'
         try:
             for peer in peers:
                 if peer.register(destination)['code'] != 200: raise RuntimeError('Actual original-tuple registration failed.')
                 self.peer_ledger(peers)
-            old = set(called.dialogs); call = caller.dial('8101', destination)
+            stage='internal_invite';old = set(called.dialogs); call = caller.dial('8101', destination)
             if call['code'] != 200: raise RuntimeError('The real internal native call was not answered.')
+            stage='internal_ack'
             remote = wait_for(lambda: next((v for k, v in called.dialogs.items() if k not in old and v.get('acked')), None))
+            stage='internal_media'
             time.sleep(7); sip.rtp_rate_check(call['media']); sip.rtp_rate_check(remote)
             original.decoded_tone_check(call['media'], 550); original.decoded_tone_check(remote, 440)
+            stage='internal_hangup'
             caller.hangup(call); call = None; time.sleep(.5)
             if not target:
+                stage='answered_recording'
                 # Record the answered-call identity BEFORE the subsequent
                 # voicemail-deposit leg creates its separate recording. UUID
                 # sort order does not identify two-way call content.
@@ -495,39 +527,59 @@ class Qualification:
                 native = load_module('restore_qualification_prompts', self.source / 'tests/windows-native-acceptance.py')
                 observer = native.NativePlayback(self.s['event_socket'], self.s['realm'])
                 try:
+                    stage='mailbox_invite'
                     call = called.dial('*97', destination)
                     if call['code'] != 200: raise RuntimeError('Restored native mailbox retrieval was not answered.')
+                    stage='mailbox_login_prompt'
                     index, prompt = observer.prompt(call['callid'], ['vm-enter_pass.wav', 'vm-listen_new.wav'])
                     if prompt.endswith('vm-enter_pass.wav'):
+                        stage='mailbox_pin'
                         for digit in self.s['users'][1]['voicemail_pin'] + '#': called.dtmf(call, digit)
+                        stage='mailbox_main_prompt'
                         index, _ = observer.prompt(call['callid'], ['vm-listen_new.wav'], after=index)
+                    stage='mailbox_recording_playback'
                     called.dtmf(call, '1')
                     capsule = read_json(self.work / 'source-capsule-private.json')['payload']
                     message_name = Path(capsule['media']['voicemail']['relative']).name
                     observer.prompt(call['callid'], [message_name], after=index)
+                    stage='mailbox_media'
                     time.sleep(4); original.decoded_tone_check(call['media'], 440)
+                    stage='mailbox_hangup'
                     called.hangup(call); call = None; self.record('restored_original_native_voicemail_pin_rfc2833_retrieval')
                 finally: observer.close()
             else:
+                stage='voicemail_isolation'
                 if called.register(destination, expires=0)['code'] != 200: raise RuntimeError('Native voicemail deposit isolation failed.')
+                stage='voicemail_deposit'
                 call = caller.dial('8101', destination)
                 if call['code'] != 200: raise RuntimeError('Actual native voicemail deposit was not answered.')
                 time.sleep(32); caller.hangup(call); call = None
                 self.record('source_real_native_voicemail_deposit')
         except BaseException as error:
-            primary=error;raise
+            primary=error;primary.native_substage=stage;raise
         finally:
             if call is not None:
                 try: (called if target else caller).hangup(call)
                 except Exception: pass
             try:self.clean_peers(peers, destination)
             except Exception as cleanup:
-                if primary is None:primary=cleanup;raise
+                if primary is None:primary=cleanup;primary.native_substage='peer_cleanup';raise
                 primary.peer_cleanup_failure=restore_peer_failure_fields(getattr(cleanup,'peer_cleanup_failure',[]))
             finally:
+                receivers=[(index,getattr(peer,'receiver_failure',None)) for index,peer in enumerate(peers)
+                           if isinstance(getattr(peer,'receiver_failure',None),BaseException)]
+                unexpected=primary is None and bool(receivers)
+                if unexpected:primary=receivers[0][1];primary.native_substage='peer_receiver'
                 if primary is not None:
+                    records=[]
+                    for index,error in receivers:
+                        row=peer_failure(index,'receiver',error=error);code=getattr(error,'winerror',None)
+                        row['winerror_kind']='connection_reset_10054' if isinstance(error,ConnectionResetError) and code==10054 else ('other_winerror' if type(code) is int else 'unavailable')
+                        records.append(row)
+                    primary.peer_receiver_failure=restore_peer_failure_fields(records,receiver=True)
                     primary.native_action='native-target' if target else 'native-source'
                     primary.completed_native_cases=completed_native_cases(self.facts,primary.native_action)
+                if unexpected:raise primary
 
     def media(self):
         def finalized():
@@ -880,6 +932,9 @@ if __name__ == '__main__':
         facts.update(restore_identity_failure_fields(error))
         peer_failures=restore_peer_failure_fields(getattr(error,'peer_cleanup_failure',None))
         if peer_failures:facts['peer_cleanup_failure']=peer_failures
+        receivers=restore_peer_failure_fields(getattr(error,'peer_receiver_failure',None),receiver=True)
+        if receivers:facts['peer_receiver_failure']=receivers
+        if getattr(error,'native_substage',None) in RESTORE_NATIVE_STAGES:facts['native_substage']=error.native_substage
         cases=restore_completed_native_cases(getattr(error,'completed_native_cases',None),getattr(error,'native_action',None))
         if cases is not None:facts['completed_native_cases']=cases
         print(json.dumps(facts)); sys.exit(1)

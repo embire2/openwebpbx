@@ -8,10 +8,12 @@ import io
 import json
 from pathlib import Path
 import shutil
+import socket
 import math
 import struct
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest import mock
 import wave
@@ -115,6 +117,89 @@ class CleanupObservationControls(unittest.TestCase):
         self.assertTrue(self.sidecar.exists())
 
 
+class RestoreAdapterControls(unittest.TestCase):
+    """Real source receiver/UDP traffic with an injected OS error, no PBX."""
+    @classmethod
+    def setUpClass(cls):
+        cls.native=q.load_module('restore_adapter_windows_controls',HERE/'windows-native-acceptance.py')
+        cls.original=q.load_module('restore_adapter_source_controls',HERE/'pbx_v20_restore_native.py')
+
+    def test_peers_installs_exact_existing_adapter_only_on_windows(self):
+        class Base:
+            def __init__(self,*args):self.arguments=args
+            def media(self,pt=0):return {'socket':object(),'pt':pt}
+        for platform in ('nt','posix'):
+            with self.subTest(platform=platform),tempfile.TemporaryDirectory() as temporary:
+                fixture=q.Qualification.__new__(q.Qualification);fixture.source=HERE.parent;fixture.work=Path(temporary)
+                fixture.s={'realm':'fictional.invalid','users':[{},{}]};fixture.php=lambda _:dict(bind='127.0.0.1')
+                original=SimpleNamespace(SourcePhone=Base);loaded=[]
+                def load(name,path):
+                    loaded.append((name,path))
+                    return original if name=='restore_qualification_native' else (self.native if name=='restore_qualification_windows_peer' else SimpleNamespace())
+                probe=mock.Mock()
+                with mock.patch.object(q.os,'name',platform),mock.patch.object(q,'load_module',side_effect=load),mock.patch.object(q.socket,'socket',return_value=probe):
+                    _,_,peers,destination=fixture.peers()
+                    self.assertEqual(destination,('127.0.0.1',5060));probe.bind.assert_called_once_with(('127.0.0.1',0));probe.close.assert_called_once_with()
+                    self.assertEqual(len(peers),2)
+                    if platform=='nt':
+                        self.assertIs(type(peers[0].media()['socket']),self.native.WindowsRtpSocket)
+                        self.assertIsNone(peers[0].receiver_failure)
+                    else:self.assertIs(type(peers[0]),Base)
+                self.assertEqual(any(name=='restore_qualification_windows_peer' for name,_ in loaded),platform=='nt')
+
+    def test_actual_receiver_survives_only_windows_10054_then_ack_and_two_way_udp(self):
+        for code in (10054,10053):
+            with self.subTest(code=code):
+                error=ConnectionResetError('PRIVATE injected OS error');error.winerror=code;faults=[]
+                class FaultOnce:
+                    def __init__(self,sock):self.socket=sock;self.raised=False;faults.append(self)
+                    def __getattr__(self,name):return getattr(self.socket,name)
+                    def recv(self,*args):
+                        if not self.raised:self.raised=True;raise error
+                        return self.socket.recv(*args)
+                adapter=lambda sock:self.native.WindowsRtpSocket(FaultOnce(sock))
+                phone=q.windows_restore_phone(self.original.SourcePhone,adapter)({'number':'8101','auth':'owned-auth','password':'fictional'},'fictional.invalid')
+                signal=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);signal.bind(('127.0.0.1',0));signal.settimeout(2)
+                rtp=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);rtp.bind(('127.0.0.1',0));rtp.settimeout(2)
+                cid='a'*24+'@localfixture';tag='owned-tag';endpoint=phone.socket.getsockname()
+                body=f'v=0\r\no=fixture 1 1 IN IP4 127.0.0.1\r\ns=owned\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=audio {rtp.getsockname()[1]} RTP/AVP 0 101\r\na=rtpmap:0 PCMU/8000\r\n'
+                def packet(method,to,cseq,content=''):
+                    return (f'{method} sip:8101@fictional.invalid SIP/2.0\r\nVia: SIP/2.0/UDP 127.0.0.1:{signal.getsockname()[1]};branch=z9hG4bK-owned\r\nFrom: <sip:8100@fictional.invalid>;tag={tag}\r\nTo: {to}\r\nCall-ID: {cid}\r\nCSeq: {cseq} {method}\r\nContact: <sip:8100@127.0.0.1:{signal.getsockname()[1]}>\r\nContent-Type: application/sdp\r\nContent-Length: {len(content)}\r\n\r\n'+content).encode()
+                try:
+                    with mock.patch.object(self.native.os,'name','nt'):
+                        signal.sendto(packet('INVITE','<sip:8101@fictional.invalid>',1,body),endpoint)
+                        answer=signal.recvfrom(65535)[0].decode();self.assertTrue(answer.startswith('SIP/2.0 200'))
+                        end=time.monotonic()+2
+                        while not (faults and faults[0].raised) and time.monotonic()<end:time.sleep(.005)
+                        self.assertTrue(faults and faults[0].raised)
+                        if code==10054:
+                            signal.sendto(packet('ACK',self.original.headers(answer)['to'],1),endpoint)
+                            end=time.monotonic()+2
+                            while not phone.dialogs[cid].get('acked') and time.monotonic()<end:time.sleep(.005)
+                            self.assertTrue(phone.dialogs[cid]['acked']);self.assertTrue(phone.thread.is_alive());self.assertIsNone(phone.receiver_failure)
+                            state=phone.dialogs[cid]
+                            for index in range(6):
+                                rtp.sendto(struct.pack('!BBHII',0x80,0,index,index*160,91)+b'\xff'*160,state['socket'].getsockname())
+                                self.assertGreaterEqual(len(rtp.recvfrom(4096)[0]),172);time.sleep(.02)
+                            self.assertGreaterEqual(state['sent'],6);self.assertGreaterEqual(state['received'],5)
+                            signal.sendto(packet('BYE',self.original.headers(answer)['to'],2),endpoint)
+                            self.assertTrue(signal.recvfrom(65535)[0].startswith(b'SIP/2.0 200'))
+                            end=time.monotonic()+2
+                            while not state.get('ended') and time.monotonic()<end:time.sleep(.005)
+                            self.assertTrue(state.get('ended'))
+                        else:
+                            phone.thread.join(2);self.assertFalse(phone.thread.is_alive());self.assertIs(phone.receiver_failure,error)
+                            with self.assertRaises(ConnectionResetError) as caught:phone.register(endpoint)
+                            self.assertIs(caught.exception,error)
+                finally:phone.close();signal.close();rtp.close()
+
+    def test_adapter_does_not_absorb_linux_or_other_socket_errors(self):
+        for platform,code,kind in [('posix',10054,ConnectionResetError),('nt',10053,ConnectionResetError),('nt',10054,OSError)]:
+            error=kind('PRIVATE');error.winerror=code;raw=SimpleNamespace(recv=mock.Mock(side_effect=error))
+            with mock.patch.object(self.native.os,'name',platform),self.assertRaises(kind) as caught:self.native.WindowsRtpSocket(raw).recv(1)
+            self.assertIs(caught.exception,error)
+
+
 class NativeCleanupControls(unittest.TestCase):
     """Actual orchestration/cleanup source with controlled peers, not SIP acceptance."""
     def setUp(self):
@@ -137,7 +222,7 @@ class NativeCleanupControls(unittest.TestCase):
             def dial(self,number,destination):
                 self.dials+=1
                 if owner.mode=='voicemail_error' and self.dials==2:raise RuntimeError('PRIVATE deposit/password')
-                owner.peers[1].dialogs['fictional']={'acked':True}
+                owner.peers[1].dialogs['fictional']={'acked':owner.mode!='ack_missing'}
                 return {'code':200,'media':{}}
             def hangup(self,call):pass
             def close(self):
@@ -149,7 +234,7 @@ class NativeCleanupControls(unittest.TestCase):
         self.fixture.peers=lambda:(SimpleNamespace(rtp_rate_check=rate),SimpleNamespace(decoded_tone_check=lambda *_:None),self.peers,('127.0.0.1',5060))
         def php(action):
             self.assertEqual(action,'status');self.status_calls+=1
-            return {'recordings':[] if self.status_calls==1 else [{'media_uuid':'fictional-answered','media':{'exists':True,'size':40001}}]}
+            return {'recordings':[] if self.status_calls==1 or self.mode=='recording_missing' else [{'media_uuid':'fictional-answered','media':{'exists':True,'size':40001}}]}
         self.fixture.php=php
         def es_api(command):
             self.commands.append(command)
@@ -206,6 +291,35 @@ class NativeCleanupControls(unittest.TestCase):
         self.assertEqual(self.fixture.facts['checks'],[q.NATIVE_CASES['native-source'][0]])
         self.assertTrue(all(peer.closed for peer in self.peers))
 
+    def test_closed_substage_distinguishes_ack_and_recording_waits_without_deadline_change(self):
+        for mode,stage in [('ack_missing','internal_ack'),('recording_missing','answered_recording')]:
+            self.mode=mode;self.status_calls=0;self.fixture.facts={'checks':[],'gates':{}};self.peers[1].dialogs={}
+            def wait(predicate,seconds=120):
+                self.assertEqual(seconds,120)
+                value=predicate()
+                if not value:raise TimeoutError('PRIVATE wait')
+                return value
+            with mock.patch.object(q,'wait_for',side_effect=wait),self.assertRaises(TimeoutError) as caught:self.run_native()
+            self.assertEqual(caught.exception.native_substage,stage);self.assertEqual(caught.exception.completed_native_cases,[])
+
+    def test_unexpected_receiver_error_is_failure_and_closed_when_body_also_fails(self):
+        for body_fails in (False,True):
+            self.peers[1].dialogs={}
+            error=ConnectionResetError('PRIVATE receiver');error.winerror=10053
+            self.peers[1].receiver_failure=error
+            if body_fails:self.primary=AssertionError('PRIVATE primary')
+            with self.assertRaises(AssertionError if body_fails else ConnectionResetError) as caught:self.run_native()
+            self.assertIs(caught.exception,self.primary if body_fails else error)
+            records=caught.exception.peer_receiver_failure
+            self.assertEqual(records[0]['peer_index'],1);self.assertEqual(records[0]['stage'],'receiver')
+            self.assertEqual(records[0]['winerror_kind'],'other_winerror');self.assertNotIn('PRIVATE',json.dumps(records))
+            self.assertEqual(caught.exception.native_substage,'internal_media' if body_fails else 'peer_receiver')
+            self.assertTrue(all(peer.closed for peer in self.peers))
+        row=q.peer_failure(0,'receiver',error=error)|{'winerror_kind':'connection_reset_10054'}
+        self.assertEqual(q.restore_peer_failure_fields([row],receiver=True),[row])
+        for records in ([row]*3,[row|{'winerror_kind':10054}],[row|{'winerror_kind':'PRIVATE'}],[row|{'message':'PRIVATE'}]):
+            self.assertEqual(q.restore_peer_failure_fields(records,receiver=True),[])
+
     def test_actual_main_json_preserves_primary_and_keeps_secondary_and_progress_closed(self):
         self.primary=AssertionError('PRIVATE primary/password');self.mode='status_error'
         with self.assertRaises(AssertionError) as caught:self.run_native()
@@ -218,11 +332,12 @@ class NativeCleanupControls(unittest.TestCase):
         self.assertEqual(stopped.exception.code,1);facts=json.loads(output.getvalue())
         self.assertEqual(facts['error_type'],'AssertionError');self.assertEqual(facts['completed_native_cases'],[])
         self.assertEqual(facts['peer_cleanup_failure'][0]['status_code'],503);self.assertNotIn('PRIVATE',output.getvalue())
-        error.peer_cleanup_failure[0]['message']='PRIVATE';error.completed_native_cases=['PRIVATE']
+        error.peer_cleanup_failure[0]['message']='PRIVATE';error.completed_native_cases=['PRIVATE'];error.native_substage='PRIVATE'
         output=io.StringIO()
         with contextlib.redirect_stdout(output),self.assertRaises(SystemExit):exec(program,namespace)
         facts=json.loads(output.getvalue())
         self.assertNotIn('peer_cleanup_failure',facts);self.assertNotIn('completed_native_cases',facts)
+        self.assertNotIn('native_substage',facts)
         self.assertEqual(facts['error_type'],'AssertionError');self.assertNotIn('PRIVATE',output.getvalue())
 
     def test_contact_exception_close_and_foreign_id_fail_closed_without_private_data(self):
