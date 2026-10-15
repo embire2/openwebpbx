@@ -19,7 +19,7 @@ FIXTURE_STAGES={'initialization','owned_service_lookup','realm_validation','admi
 NATIVE_SUBSTAGES={'native_case','g729_regular_unregister','g729_alternate_register','g729_invite','g729_answer_validation',
     'g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister',
     'g729_peer_close','g729_codec_close','g729_regular_reregister','native_peer_unregister','native_peer_close','native_ledger_write',
-    'callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed',
+    'callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed','hotel_phone_answer','hotel_wire_confirmation','hotel_job_completed',
     'voicemail_message_created','voicemail_recording_finalized','voicemail_mail_queued',
     'mailbox_login_prompt','mailbox_main_menu_prompt','mailbox_tutorial_complete','mailbox_recording_playback',
     'mailbox_forward_extension_prompt','mailbox_forward_intro_prompt','mailbox_forwarded_prompt',
@@ -656,6 +656,60 @@ def callback_job_facts(rows,job=None):
     return facts
 
 
+def hotel_job_facts(rows):
+    """Only fixed facts from this fixture's wake-up rows; no identifiers/results."""
+    assert isinstance(rows,list) and len(rows)<=64
+    rows=[row for row in rows if row.get('kind')=='wakeup']
+    facts={'job_count':len(rows),'job_state':'absent' if not rows else 'unknown'}
+    if len(rows)!=1:return facts
+    row=rows[0]
+    if row.get('state') in {'waiting','starting','calling','completed','failed','cancelled'}:facts['job_state']=row['state']
+    facts['target_matches']=row.get('target_number')=='8102'
+    for name in ('attempts','max_attempts'):
+        if type(row.get(name)) is int and 0<=row[name]<=1000:facts[name]=row[name]
+    for name in ('due','expired','lease_expired','has_lease'):
+        if type(row.get(name)) is bool:facts[name]=row[name]
+    facts['has_call_uuid']=isinstance(row.get('call_uuid'),str) and re.fullmatch(r'[a-f0-9-]{36}',row['call_uuid']) is not None
+    results={'':'unset','Room is checked out':'room_checked_out','Room phone unavailable':'room_unavailable',
+             'Waiting for an agent':'agent','Room did not answer':'room_no_answer','Phone reconnected; retrying':'reconnected',
+             'Wake-up was not confirmed':'unconfirmed','Wake-up confirmed':'confirmed','Interrupted; rescheduled':'interrupted',
+             'Request expired':'expired','PBX phone domain is unavailable':'domain','Call could not be completed':'native_error'}
+    facts['result_class']=results.get(row.get('last_result') or '','unknown')
+    return facts
+
+
+def hotel_snapshot(f,peer,baseline,phase,event=None):
+    facts={};complete=True;prefix='hotel_'+phase+'_';clock_started=None
+    try:facts.update({prefix+key:value for key,value in hotel_job_facts(f.cli('status')['jobs']).items()})
+    except BaseException:complete=False
+    try:
+        dialogs=[state for key,state in list(peer.dialogs.items()) if key not in baseline['dialogs']]
+        assert len(dialogs)<=64
+        invites=len(peer.invites)-baseline['invites'];assert 0<=invites<=64
+        clock_started=any(type(state.get('rtp_clock')) is int and state['rtp_clock']>0 for state in dialogs)
+        facts.update({prefix+'peer_invites':invites,prefix+'peer_acks':sum(bool(state.get('acked')) for state in dialogs),
+                      prefix+'peer_ended':sum(bool(state.get('ended')) for state in dialogs),
+                      prefix+'peer_open_dialogs':sum(not state.get('ended',False) for state in dialogs),
+                      prefix+'peer_received_rtp':any(state.get('received',0)>0 for state in dialogs),
+                      prefix+'peer_sent_rtp':any(state.get('sent',0)>0 for state in dialogs),
+                      prefix+'peer_receiver_failed':getattr(peer,'receiver_failure',None) is not None})
+    except BaseException:complete=False
+    facts[prefix+'dtmf_attempted']=event is not None
+    if event is not None:
+        facts[prefix+'dtmf_completed']=event.get('completed') is True
+        if type(clock_started) is bool:facts[prefix+'dtmf_clock_started']=clock_started
+    return facts,complete
+
+
+def hotel_wait(f,stage,predicate,seconds):
+    assert stage in {'hotel_phone_answer','hotel_job_completed'}
+    f.native_substage=stage
+    try:return f.wait(predicate,seconds)
+    except BaseException as error:
+        if not getattr(error,'native_failure',None):error.native_failure=native_exception_fields(error,stage)
+        raise
+
+
 def callback_snapshot(f,peers,baseline,phase,call=None,job=None,previous_success=None):
     facts,complete=queue_case_snapshot(f,peers,baseline,phase,call);prefix='callback_'+phase+'_';success=None
     try:
@@ -1014,13 +1068,27 @@ def native_calls(f):
         f.active_case='hotel_wakeup_worker_wire_confirmation'
         wake=(datetime.now(timezone.utc)+timedelta(minutes=2)).strftime('%Y-%m-%dT%H:%M')
         f.web.submit('/app/pbx_setup/?view=hotel','hotel_action',{'hotel_action':'wakeup','number':'8102','timezone':'UTC','wake_at':wake})
-        before=set(b.dialogs);f.cli('due')
-        wr=f.wait(lambda:next((v for k,v in b.dialogs.items() if k not in before and v.get('acked')),None),25)
-        incoming=wr['incoming'];h=incoming['headers'];wcall={'callid':h['call-id'],'seq':int(h['cseq'].split()[0]),'from':h['to']+';tag=localfixture','to':h['from'],'text':'SIP/2.0 200 OK\r\nContact: '+h['contact']+'\r\n\r\n'+b.sdp(wr),'peer':incoming['peer'],'uri':h['contact'].strip('<>'),'media':wr}
-        # RFC2833 events are sent on the actual answered wake-up leg.
-        wr.setdefault('dtmf_events',[]).append({'digit':1});time.sleep(3)
-        f.wait(lambda:any(j['kind']=='wakeup' and j['state']=='completed' for j in f.cli('status')['jobs']),20)
-        f.record('native_hotel_wakeup_localservice_claim_wire_confirmation')
+        before=set(b.dialogs);baseline={'dialogs':before,'invites':len(b.invites)};event=None
+        facts,complete=hotel_snapshot(f,b,baseline,'before')
+        try:
+            due=f.cli('due')
+            value=due.get('owned_wakeup_updated_count')
+            if type(value) is int and 0<=value<=64:facts['hotel_due_update_count']=value
+            wr=hotel_wait(f,'hotel_phone_answer',lambda:next((v for k,v in b.dialogs.items() if k not in before and v.get('acked')),None),25)
+            # Reuse the actual wire helper: ACK alone does not establish this
+            # peer's RTP clock, and timestamp zero is native's inactive sentinel.
+            f.native_substage='hotel_wire_confirmation';event={'completed':False}
+            offer=next((invite['sdp'] for invite in reversed(b.invites) if invite['callid']==wr['incoming']['headers']['call-id']),None)
+            assert offer is not None,'The owned wake-up SDP offer is missing'
+            send_ivr_digit(b,{'text':offer,'media':wr},'1',f.wait)
+            event['completed']=True;time.sleep(3)
+            hotel_wait(f,'hotel_job_completed',lambda:any(j['kind']=='wakeup' and j['state']=='completed' for j in f.cli('status')['jobs']),20)
+            f.record('native_hotel_wakeup_localservice_claim_wire_confirmation')
+        except BaseException as error:
+            after,finished=hotel_snapshot(f,b,baseline,'after',event);facts.update(after)
+            facts['hotel_diagnostics_complete']=complete and finished;error.hotel_failure=facts
+            if not getattr(error,'native_failure',None):error.native_failure=native_exception_fields(error,getattr(f,'native_substage','native_case'))
+            raise
         # Unregistered destination invokes the normal native voicemail recorder.
         f.active_case='native_voicemail_recording_and_email_queue'
         facts,complete=voicemail_snapshot(f,'before');file=None
@@ -1167,6 +1235,7 @@ def main():
         if getattr(e,'queue_failure',None):failure.update(e.queue_failure)
         if getattr(e,'voicemail_failure',None):failure.update(e.voicemail_failure)
         if getattr(e,'mailbox_failure',None):failure.update(e.mailbox_failure)
+        if getattr(e,'hotel_failure',None):failure.update(e.hotel_failure)
         (f.evidence/'software-native-report.json').write_text(json.dumps(failure,indent=2))
         raise
 

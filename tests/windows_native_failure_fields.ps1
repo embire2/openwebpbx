@@ -21,7 +21,7 @@ Invoke-Expression $failureNodes[0].Extent.Text
 $queueNodes=@($nativeAst.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'QueueFailureFields'},$true))
 if($queueNodes.Count -ne 1){throw 'The actual native queue filter must be uniquely identified.'}
 Invoke-Expression $queueNodes[0].Extent.Text
-foreach($pair in @(@($ast,'SafeVoicemailFailureFields'),@($nativeAst,'VoicemailFailureFields'),@($ast,'SafeMailboxFailureFields'),@($nativeAst,'MailboxFailureFields'),@($ast,'SafeNativeCleanupFields'))){
+foreach($pair in @(@($ast,'SafeVoicemailFailureFields'),@($nativeAst,'VoicemailFailureFields'),@($ast,'SafeMailboxFailureFields'),@($nativeAst,'MailboxFailureFields'),@($ast,'SafeNativeCleanupFields'),@($ast,'SafeHotelFailureFields'),@($nativeAst,'HotelFailureFields'))){
  $voicemailNodes=@($pair[0].FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $pair[1]},$true))
  if($voicemailNodes.Count -ne 1){throw 'The actual voicemail/mailbox filter must be uniquely identified.'}
  Invoke-Expression $voicemailNodes[0].Extent.Text
@@ -192,4 +192,28 @@ foreach($filter in 'MailboxFailureFields','SafeMailboxFailureFields','SafeFailur
   $copy=$mailbox.PSObject.Copy();$copy.$field=1000;Check ((& $filter $copy)[$field] -eq 1000)
  }
 }
-Write-Output "PASS $checks actual caller native primary/cleanup/media/queue/voicemail/mailbox privacy allowlist checks; no PBX contacted"
+$hotelData=@{active_case='hotel_wakeup_worker_wire_confirmation';hotel_diagnostics_complete=$true;hotel_due_update_count=[long]1;job_uuid='private-never-copy';last_result='private-never-copy';hotel_peer_packet='private-never-copy'}
+$hotelBooleans=@('target_matches','due','expired','lease_expired','has_lease','has_call_uuid','peer_received_rtp','peer_sent_rtp','peer_receiver_failed','dtmf_attempted','dtmf_completed','dtmf_clock_started')
+$hotelCounts=@('job_count','attempts','max_attempts','peer_invites','peer_acks','peer_ended','peer_open_dialogs')
+foreach($phase in 'before','after'){
+ foreach($suffix in $hotelBooleans){$hotelData['hotel_'+$phase+'_'+$suffix]=$false}
+ foreach($suffix in $hotelCounts){$hotelData['hotel_'+$phase+'_'+$suffix]=[long]1}
+ $hotelData['hotel_'+$phase+'_job_state']='calling';$hotelData['hotel_'+$phase+'_result_class']='unconfirmed'
+}
+$hotel=[pscustomobject]$hotelData
+foreach($filter in 'HotelFailureFields','SafeHotelFailureFields','SafeFailureFields'){
+ $safe=& $filter $hotel
+ Check ($safe.hotel_diagnostics_complete -eq $true -and $safe.hotel_due_update_count -eq 1)
+ Check (($safe|ConvertTo-Json) -notmatch 'private-never-copy|job_uuid|last_result|hotel_peer_packet')
+ foreach($bad in $null,'HOTEL_WAKEUP_WORKER_WIRE_CONFIRMATION','hotel_wakeup_worker_wire_confirmation ','queue_pause_logout_wire_callback'){$copy=$hotel.PSObject.Copy();$copy.active_case=$bad;Check (@((& $filter $copy).Keys|Where-Object {$_ -like 'hotel_*'}).Count -eq 0)}
+ foreach($phase in 'before','after'){
+  foreach($suffix in $hotelBooleans){$field='hotel_'+$phase+'_'+$suffix;Check ($safe.ContainsKey($field) -and $safe[$field] -is [bool]);foreach($bad in 'false',0,$null){$copy=$hotel.PSObject.Copy();$copy.$field=$bad;Check (!(& $filter $copy).ContainsKey($field))}}
+  foreach($suffix in $hotelCounts){
+   $field='hotel_'+$phase+'_'+$suffix;$maximum=if($suffix -in 'attempts','max_attempts'){1000}else{64};Check ($safe[$field] -eq 1)
+   foreach($bad in '1',$true,1.5,-1,($maximum+1),[double]::NaN,[double]::PositiveInfinity){$copy=$hotel.PSObject.Copy();$copy.$field=$bad;Check (!(& $filter $copy).ContainsKey($field))}
+  }
+  foreach($suffix in 'job_state','result_class'){$field='hotel_'+$phase+'_'+$suffix;Check ($safe.ContainsKey($field));$copy=$hotel.PSObject.Copy();$copy.$field='private-never-copy';Check (!(& $filter $copy).ContainsKey($field))}
+ }
+}
+foreach($stage in 'hotel_phone_answer','hotel_wire_confirmation','hotel_job_completed'){$copy=$record.PSObject.Copy();$copy.primary_substage=$stage;Check ((SafeFailureFields $copy).primary_substage -ceq $stage)}
+Write-Output "PASS $checks actual caller native primary/cleanup/media/queue/voicemail/mailbox/hotel privacy allowlist checks; no PBX contacted"

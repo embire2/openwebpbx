@@ -5,7 +5,7 @@ $native=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoo
 if($errors.Count){throw 'Native hook must parse.'}
 $suite=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-suite.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Suite must parse.'}
-foreach($pair in @(@($native,@('CompletedMediaCases','CollectNativeProgress','RecordNativeCleanupFailure','NativeCleanupFixtureFields')),@($suite,@('SafeQueueFailureFields','SafeVoicemailFailureFields','SafeMailboxFailureFields','SafeNativeCleanupFields','SafeFailureFields','NativeCleanupIsExact')))){
+foreach($pair in @(@($native,@('CompletedMediaCases','CollectNativeProgress','RecordNativeCleanupFailure','NativeCleanupFixtureFields')),@($suite,@('SafeQueueFailureFields','SafeVoicemailFailureFields','SafeMailboxFailureFields','SafeHotelFailureFields','SafeNativeCleanupFields','SafeFailureFields','NativeCleanupIsExact')))){
  foreach($name in $pair[1]){
   $nodes=@($pair[0].FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true))
   if($nodes.Count -ne 1){throw 'Actual function must be uniquely identified.'};Invoke-Expression $nodes[0].Extent.Text

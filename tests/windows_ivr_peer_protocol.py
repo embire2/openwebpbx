@@ -29,18 +29,18 @@ def wait(predicate,seconds):
 record={'number':'9001','auth':'fictional-ivr-wire','password':'fictional-local-only'}
 answer='SIP/2.0 200 OK\r\n\r\nm=audio 1 RTP/AVP 0 101\r\na=rtpmap:101 telephone-event/8000\r\n'
 
-def wire_case(corrected):
+def wire_case(corrected,digit='2'):
     receiver=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);receiver.bind(('127.0.0.1',0));receiver.settimeout(2)
     phone=source.SourcePhone(record,'ivr-wire-check.invalid','127.0.0.1')
     media=phone.media();media['dtmf_events']=[]
     # Queue the old first event BEFORE exposing its target to the actual sender.
     # This deterministically reproduces the immediate-key scheduling order.
-    if not corrected:media['dtmf_events'].append({'digit':2})
+    if not corrected:media['dtmf_events'].append({'digit':int(digit)})
     media['target']=receiver.getsockname();phone.dialogs['owned-wire-case']=media
     packets=[]
     try:
         if corrected:
-            native.send_ivr_digit(phone,{'text':answer,'media':media},'2',wait)
+            native.send_ivr_digit(phone,{'text':answer,'media':media},digit,wait)
         until=time.monotonic()+2
         while time.monotonic()<until:
             packet,_=receiver.recvfrom(4096)
@@ -50,7 +50,7 @@ def wire_case(corrected):
             if sum(p[0]==101 for p in packets)>=12 and any(p[0]==0 for p in packets):break
         events=[p for p in packets if p[0]==101]
         check(len(events)==12)
-        check(all(len(p[3])==4 and p[3][0]==2 for p in events))
+        check(all(len(p[3])==4 and p[3][0]==int(digit) for p in events))
         check(len({p[2] for p in events})==1)
         check(sum(bool(p[3][1]&128) for p in events)==3)
         check(all(struct.unpack('!H',p[3][2:])[0]<=1600 for p in events))
@@ -66,8 +66,9 @@ def wire_case(corrected):
     finally:
         media['ended']=True;phone.close();receiver.close()
 
-old=wire_case(False);new=wire_case(True)
-check(old==0 and new>0)
+for digit in ('2','1'):
+    old=wire_case(False,digit);new=wire_case(True,digit)
+    check(old==0 and new>0)
 sent=[]
 class StoppedPhone:
     def dtmf(self,*args):sent.append(True);return True

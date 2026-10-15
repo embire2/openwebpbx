@@ -144,6 +144,23 @@ function VoicemailFailureFields($Record){
  }
  return $safe
 }
+function HotelFailureFields($Record){
+ $safe=@{}
+ if($Record.active_case -isnot [string] -or $Record.active_case -cne 'hotel_wakeup_worker_wire_confirmation'){return $safe}
+ if($Record.hotel_diagnostics_complete -is [bool]){$safe.hotel_diagnostics_complete=$Record.hotel_diagnostics_complete}
+ if(($Record.hotel_due_update_count -is [int] -or $Record.hotel_due_update_count -is [long]) -and $Record.hotel_due_update_count -ge 0 -and $Record.hotel_due_update_count -le 64){$safe.hotel_due_update_count=$Record.hotel_due_update_count}
+ foreach($phase in 'before','after'){
+  $prefix='hotel_'+$phase+'_'
+  foreach($suffix in 'job_count','attempts','max_attempts','peer_invites','peer_acks','peer_ended','peer_open_dialogs'){
+   $value=$Record.($prefix+$suffix);$maximum=if($suffix -in 'attempts','max_attempts'){1000}else{64}
+   if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le $maximum){$safe[$prefix+$suffix]=$value}
+  }
+  foreach($suffix in 'target_matches','due','expired','lease_expired','has_lease','has_call_uuid','peer_received_rtp','peer_sent_rtp','peer_receiver_failed','dtmf_attempted','dtmf_completed','dtmf_clock_started'){if($Record.($prefix+$suffix) -is [bool]){$safe[$prefix+$suffix]=$Record.($prefix+$suffix)}}
+  $known=@{job_state=@('absent','unknown','waiting','starting','calling','completed','failed','cancelled');result_class=@('unset','room_checked_out','room_unavailable','agent','room_no_answer','reconnected','unconfirmed','confirmed','interrupted','expired','domain','native_error','unknown')}
+  foreach($suffix in 'job_state','result_class'){$value=$Record.($prefix+$suffix);if($value -is [string] -and $value -cin $known[$suffix]){$safe[$prefix+$suffix]=$value}}
+ }
+ return $safe
+}
 function MailboxFailureFields($Record){
  $safe=@{}
  if($Record.active_case -isnot [string] -or $Record.active_case -cne 'native_voicemail_wire_forwarding_binary_copy'){return $safe}
@@ -299,6 +316,7 @@ try {
     foreach($entry in (QueueFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
     foreach($entry in (VoicemailFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
     foreach($entry in (MailboxFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
+    foreach($entry in (HotelFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
     if($child.active_case -match '^(native_media_peer_(udp|tcp|tls)_registration_[0-2]|independent_g729_(offer_refused|answer_payload_mismatch))$'){
      if(($child.sip_response_code -is [int] -or $child.sip_response_code -is [long]) -and $child.sip_response_code -ge 200 -and $child.sip_response_code -le 699){$facts.sip_response_code=[int]$child.sip_response_code}
      if(($child.digest_challenge_count -is [int] -or $child.digest_challenge_count -is [long]) -and $child.digest_challenge_count -ge 0 -and $child.digest_challenge_count -le 3){$facts.digest_challenge_count=[int]$child.digest_challenge_count}
@@ -307,7 +325,7 @@ try {
     if($child.active_case -eq 'normal_admin_owned_extension_audio_preferences'){
      foreach($field in 'owned_domain_matches','authentication_id_matches','sip_password_matches'){if($child.$field -is [bool]){$facts[$field]=[bool]$child.$field}}
     }
-    $nativeStages=@('native_case','g729_regular_unregister','g729_alternate_register','g729_invite','g729_answer_validation','g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister','g729_peer_close','g729_codec_close','g729_regular_reregister','native_peer_unregister','native_peer_close','native_ledger_write','callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed','voicemail_message_created','voicemail_recording_finalized','voicemail_mail_queued','mailbox_login_prompt','mailbox_main_menu_prompt','mailbox_tutorial_complete','mailbox_recording_playback','mailbox_forward_extension_prompt','mailbox_forward_intro_prompt','mailbox_forwarded_prompt','mailbox_forwarded_message_created','mailbox_forwarded_binary_copy','mailbox_observer_close')
+    $nativeStages=@('native_case','g729_regular_unregister','g729_alternate_register','g729_invite','g729_answer_validation','g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister','g729_peer_close','g729_codec_close','g729_regular_reregister','native_peer_unregister','native_peer_close','native_ledger_write','callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed','hotel_phone_answer','hotel_wire_confirmation','hotel_job_completed','voicemail_message_created','voicemail_recording_finalized','voicemail_mail_queued','mailbox_login_prompt','mailbox_main_menu_prompt','mailbox_tutorial_complete','mailbox_recording_playback','mailbox_forward_extension_prompt','mailbox_forward_intro_prompt','mailbox_forwarded_prompt','mailbox_forwarded_message_created','mailbox_forwarded_binary_copy','mailbox_observer_close')
     foreach($prefix in 'primary','cleanup'){
      if($child.($prefix+'_substage') -isnot [string] -or $child.($prefix+'_substage') -cnotin $nativeStages){continue}
      $facts[$prefix+'_substage']=$child.($prefix+'_substage')

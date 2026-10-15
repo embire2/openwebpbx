@@ -146,7 +146,7 @@ if($action==='job'){
  // never reclassified as internal. The normal C# service claims this row.
  $id=uuid();$q("insert into v_pbx_jobs(job_uuid,domain_uuid,kind,queue_number,target_number,internal_target,request_key,due_at,expires_at,max_attempts) values(?,?,'callback','8190','8100',true,?,now(),now()+interval '10 minutes',1)",[$id,$domain,'windows-native/'.$id]);echo json_encode(['job'=>$id],JSON_THROW_ON_ERROR);exit;
 }
-if($action==='due'){$q("update v_pbx_jobs set due_at=now() where domain_uuid=? and kind='wakeup' and state='waiting'",[$domain]);echo "{\"owned_wakeup_due\":true}\n";exit;}
+if($action==='due'){$updated=$q("update v_pbx_jobs set due_at=now() where domain_uuid=? and kind='wakeup' and state='waiting'",[$domain])->rowCount();echo json_encode(['owned_wakeup_due'=>true,'owned_wakeup_updated_count'=>$updated],JSON_THROW_ON_ERROR),PHP_EOL;exit;}
 if($action==='voicemail-login'){
  $pin=$q('select voicemail_password from v_voicemails where domain_uuid=? and voicemail_id=? and voicemail_enabled=true',[$domain,'8103'])->fetchColumn();
  if(!is_string($pin)||!preg_match('/^[0-9]{2,20}$/D',$pin))throw new RuntimeException('Owned generated mailbox PIN unavailable.');
