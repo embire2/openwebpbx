@@ -8,7 +8,7 @@ if([string]::IsNullOrWhiteSpace($SourceRoot)){$SourceRoot=Split-Path $PSScriptRo
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-restore-qualification.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Restore qualification source must parse.'}
-foreach($name in 'SafeRestoreFixtureFailure','SafeRestorePeerFailures','SafeRestoreSchemaFailure','NativeFixture'){
+foreach($name in 'SafeRestoreFixtureFailure','SafeRestorePeerFailures','SafeRestoreSchemaFailure','SafeRestoreMailboxFailure','NativeFixture'){
  $nodes=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true))
  if($nodes.Count -ne 1){throw 'One exact source function is required.'}
  if($name -eq 'NativeFixture'){$nativeDefinition=$nodes[0].Extent.Text}else{Invoke-Expression $nodes[0].Extent.Text}
@@ -57,6 +57,17 @@ Assert ($null -eq (SafeRestorePeerFailures (@($receiver)*3) -Receiver))
 foreach($kind in 'connection_reset_10054','other_winerror','unavailable'){$candidate=Clone $receiver;$candidate.winerror_kind=$kind;Assert ($null -ne (SafeRestorePeerFailures @($candidate) -Receiver))}
 foreach($kind in $null,$true,10054,@(),@{},'PRIVATE'){$candidate=Clone $receiver;$candidate.winerror_kind=$kind;Assert ($null -eq (SafeRestorePeerFailures @($candidate) -Receiver))}
 
+$mailboxGood=@{mailbox_pin_sent=$true;mailbox_tutorial_skip_sent=$true;mailbox_prompt_password_seen=$true;mailbox_prompt_tutorial_seen=$true;mailbox_prompt_main_menu_seen=$false;mailbox_prompt_auth_failed_seen=$false;mailbox_prompt_recording_seen=$false;mailbox_observer_failed=$false}
+Assert ((SafeRestoreMailboxFailure (Clone $mailboxGood) 'native-target').Count -eq 8)
+foreach($key in $mailboxGood.Keys){
+ foreach($value in $true,$false){Assert ((SafeRestoreMailboxFailure @{$key=$value} 'native-target').$key -eq $value)}
+ foreach($value in $null,0,1,1.5,'PRIVATE password/path',@(),@{}){
+  $candidate=Clone $mailboxGood;$candidate.$key=$value;Assert ($null -eq (SafeRestoreMailboxFailure $candidate 'native-target'))
+ }
+}
+foreach($action in 'native-source','cleanup','PRIVATE','NATIVE-TARGET'){Assert ($null -eq (SafeRestoreMailboxFailure $mailboxGood $action))}
+foreach($bad in $null,@(),@{},@($mailboxGood),@{PRIVATE=$true}){Assert ($null -eq (SafeRestoreMailboxFailure $bad 'native-target'))}
+$candidate=Clone $mailboxGood;$candidate|Add-Member noteproperty message 'PRIVATE';Assert ($null -eq (SafeRestoreMailboxFailure $candidate 'native-target'))
 $work=Join-Path ([IO.Path]::GetTempPath()) ('openweb-restore-projection-'+[guid]::NewGuid().ToString('N'))
 $null=New-Item -ItemType Directory -Path $work
 $python='fictional-extracted-python';$source='fictional-source';$inputFile='fictional-private-input'
@@ -159,6 +170,20 @@ try{
    Assert (($null -ne $facts.native_failure.native_substage) -eq ($mode -ne 'private_peer'))
    Assert (($facts|ConvertTo-Json -Depth 20 -Compress) -notmatch 'PRIVATE|password|path')
   }
+ }
+ foreach($mode in 'valid','private','wrong_action','integer','empty'){
+  $action=if($mode -ceq 'wrong_action'){'native-source'}else{'native-target'}
+  $observation=Clone $mailboxGood
+  if($mode -ceq 'private'){$observation|Add-Member noteproperty message 'PRIVATE'}
+  if($mode -ceq 'integer'){$observation.mailbox_pin_sent=1}
+  if($mode -ceq 'empty'){$observation=@{}}
+  $facts=@{gates=@{}};$script:childRecord=@{state='failed';error_type='AssertionError';source_basename='windows-native-acceptance.py';source_line=246;native_substage='mailbox_tutorial_complete';mailbox_observation=$observation;completed_native_cases=@('restored_original_credentials_two_way_decoded_native_audio');message='PRIVATE'}
+  $caught=$null;try{NativeFixture $action}catch{$caught=$_}
+  Assert ([object]::ReferenceEquals($caught.Exception,$script:childFailure))
+  Assert (($null -ne $facts.native_failure.mailbox_observation) -eq ($mode -ceq 'valid'))
+  Assert (($facts.native_failure.native_substage -ceq 'mailbox_tutorial_complete') -eq ($action -ceq 'native-target'))
+  if($mode -ceq 'valid'){Assert ($facts.native_failure.mailbox_observation.Count -eq 8 -and $facts.native_failure.mailbox_observation.mailbox_tutorial_skip_sent -eq $true -and $facts.gates.Count -eq 1)}
+  Assert (($facts|ConvertTo-Json -Depth 20 -Compress) -notmatch 'PRIVATE|C:/private|SQL|"message"')
  }
 }finally{Remove-Item -LiteralPath $work -Recurse -Force}
 Write-Output ("Restore cleanup/identity source/projection controls passed: {0}" -f $script:count)

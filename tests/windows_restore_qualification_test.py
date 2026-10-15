@@ -117,6 +117,21 @@ class CleanupObservationControls(unittest.TestCase):
         self.assertTrue(self.sidecar.exists())
 
 
+class RestoreMailboxObservationControls(unittest.TestCase):
+    def test_closed_boolean_observations_and_wrong_action_refusal(self):
+        record={key:True for key in q.RESTORE_MAILBOX_FIELDS}
+        self.assertEqual(len(record),8)
+        self.assertEqual(q.restore_mailbox_failure_fields(record,'native-target'),record)
+        for key in record:
+            self.assertEqual(q.restore_mailbox_failure_fields({key:False},'native-target'),{key:False})
+            for value in (None,0,1,'PRIVATE password/path',[],{},1.5):
+                self.assertEqual(q.restore_mailbox_failure_fields(record|{key:value},'native-target'),{})
+        for bad in (None,[],{},record|{'message':'PRIVATE'},record|{'mailbox_pin_sent':'true'}):
+            self.assertEqual(q.restore_mailbox_failure_fields(bad,'native-target'),{})
+        for action in ('native-source','cleanup','PRIVATE',None):
+            self.assertEqual(q.restore_mailbox_failure_fields(record,action),{})
+
+
 class RestoreAdapterControls(unittest.TestCase):
     """Real source receiver/UDP traffic with an injected OS error, no PBX."""
     @classmethod
@@ -374,6 +389,94 @@ class NativeCleanupControls(unittest.TestCase):
         for cases,action in ((names*2,'native-source'),([names[0],names[0]],'native-source'),(names,'native-target'),
                              (names,'cleanup'),(names,None),(names,[]),(['PRIVATE'],'native-source'),([True],'native-source')):
             self.assertIsNone(q.restore_completed_native_cases(cases,action))
+
+
+class RestoreMailboxFlowControls(unittest.TestCase):
+    """Actual restore body/helper; controlled endpoints, not Windows acceptance."""
+    setUp=NativeCleanupControls.setUp
+    tearDown=NativeCleanupControls.tearDown
+
+    def run_target(self, mode='fresh', snapshot_error=False):
+        native=q.load_module('restore_mailbox_helper_controls',HERE/'windows-native-acceptance.py')
+        self.fixture.source=HERE.parent
+        self.fixture.s.update(event_socket={'host':'127.0.0.1','port':1,'password':'PRIVATE'},users=[{}, {'voicemail_pin':'12'}])
+        q.write_json(self.root/'source-capsule-private.json',{'payload':{'media':{'voicemail':{'relative':'voicemail/EXACT_SOURCE_MESSAGE.wav'}}}})
+        self.digits=[];self.prompts=[];self.seen=set();self.observer_closed=False
+        sip,original,peers,destination=self.fixture.peers()
+        original.decoded_tone_check=mock.Mock();self.tones=original.decoded_tone_check
+        self.fixture.peers=lambda:(sip,original,peers,destination)
+        for peer in peers:
+            old=peer.dial
+            def dial(number,destination,old=old):return old(number,destination)|{'callid':'a'*24+'@localfixture'}
+            peer.dial=dial;peer.dtmf=lambda call,digit:self.digits.append(digit)
+        paths=['vm-enter_pass.wav']+(['vm-tutorial_yes_no.wav'] if mode!='existing' else [])+['vm-listen_new.wav','EXACT_SOURCE_MESSAGE.wav']
+        if mode=='wrong_pin':paths=['vm-enter_pass.wav','vm-fail_auth.wav']
+        if mode=='missing_menu':paths=['vm-enter_pass.wav','vm-tutorial_yes_no.wav']
+        owner=self
+        class Observer:
+            def prompt(self,callid,suffixes,after=-1,seconds=30):
+                owner.assertEqual(callid,'a'*24+'@localfixture');owner.assertGreater(seconds,0);owner.assertLessEqual(seconds,30)
+                owner.prompts.append((list(suffixes),seconds))
+                for index,path in enumerate(paths):
+                    if index<=after:continue
+                    owner.seen.add(path)
+                    if any(path.endswith(suffix) for suffix in suffixes):return index,path
+                raise AssertionError('PRIVATE prompt path/PIN must remain private')
+            def snapshot(self,callid,recording):
+                if snapshot_error:raise PermissionError('PRIVATE observer collection')
+                return {'mailbox_prompt_password_seen':'vm-enter_pass.wav' in owner.seen,
+                        'mailbox_prompt_tutorial_seen':'vm-tutorial_yes_no.wav' in owner.seen,
+                        'mailbox_prompt_main_menu_seen':'vm-listen_new.wav' in owner.seen,
+                        'mailbox_prompt_auth_failed_seen':'vm-fail_auth.wav' in owner.seen,
+                        'mailbox_prompt_recording_seen':'EXACT_SOURCE_MESSAGE.wav' in owner.seen,
+                        'mailbox_observer_failed':False,'PRIVATE_MESSAGE':'PRIVATE SIP/PIN/path'}
+            def close(self):owner.observer_closed=True
+        observer=Observer();helper=mock.Mock(wraps=native.mailbox_menu);self.helper=helper
+        wrapped=SimpleNamespace(NativePlayback=mock.Mock(return_value=observer),mailbox_menu=helper)
+        with mock.patch.object(q,'load_module',return_value=wrapped),mock.patch.object(q.time,'sleep',return_value=None):
+            return self.fixture.native(True)
+
+    def test_actual_restore_body_uses_proven_helper_for_fresh_and_existing_mailbox(self):
+        for mode in ('fresh','existing'):
+            with self.subTest(mode=mode):
+                self.fixture.facts={'checks':[],'gates':{}};self.peers[1].dialogs={}
+                self.run_target(mode)
+                self.assertEqual(self.digits,list('12#21' if mode=='fresh' else '12#1'));self.helper.assert_called_once()
+                self.assertEqual(self.prompts[-1][0],['EXACT_SOURCE_MESSAGE.wav'])
+                self.assertEqual([call.args[1] for call in self.tones.call_args_list],[550,440,440])
+                self.assertEqual(self.fixture.facts['checks'],list(q.NATIVE_CASES['native-target']))
+                self.assertTrue(self.observer_closed);self.assertTrue(all(peer.closed for peer in self.peers))
+
+    def test_real_helper_failure_keeps_precise_stage_observation_and_audio_only_progress(self):
+        for mode,stage in [('wrong_pin','mailbox_main_prompt'),('missing_menu','mailbox_tutorial_complete')]:
+            with self.subTest(mode=mode):
+                self.fixture.facts={'checks':[],'gates':{}};self.peers[1].dialogs={}
+                with self.assertRaises(AssertionError) as caught:self.run_target(mode)
+                error=caught.exception
+                self.assertEqual(error.native_substage,stage)
+                self.assertEqual(error.completed_native_cases,[q.NATIVE_CASES['native-target'][0]])
+                fields=error.mailbox_observation;self.assertEqual(len(fields),8)
+                self.assertTrue(fields['mailbox_pin_sent']);self.assertEqual(fields['mailbox_tutorial_skip_sent'],mode=='missing_menu')
+                self.assertFalse(fields['mailbox_prompt_main_menu_seen']);self.assertEqual(fields['mailbox_prompt_auth_failed_seen'],mode=='wrong_pin')
+                self.assertNotIn('PRIVATE',json.dumps(fields));self.assertNotIn('EXACT_SOURCE_MESSAGE.wav',self.seen)
+                self.assertTrue(self.observer_closed);self.assertTrue(all(peer.closed for peer in self.peers))
+                self.assertEqual([call.args[1] for call in self.tones.call_args_list],[550,440])
+
+    def test_observation_failure_cannot_mask_original_and_main_json_is_closed(self):
+        with self.assertRaises(AssertionError) as caught:self.run_target('missing_menu',snapshot_error=True)
+        error=caught.exception
+        self.assertEqual(error.native_substage,'mailbox_tutorial_complete')
+        self.assertEqual(error.mailbox_observation,{'mailbox_pin_sent':True,'mailbox_tutorial_skip_sent':True})
+        final=ast.parse((HERE/'windows-restore-qualification.py').read_text()).body[-1]
+        program=compile(ast.Module(body=[final],type_ignores=[]),'actual_restore_main','exec')
+        def fail():raise error
+        namespace=q.__dict__.copy()|{'__name__':'__main__','main':fail};output=io.StringIO()
+        with contextlib.redirect_stdout(output),self.assertRaises(SystemExit):exec(program,namespace)
+        self.assertEqual(json.loads(output.getvalue())['mailbox_observation'],error.mailbox_observation)
+        self.assertNotIn('PRIVATE',output.getvalue())
+        error.mailbox_observation['message']='PRIVATE';output=io.StringIO()
+        with contextlib.redirect_stdout(output),self.assertRaises(SystemExit):exec(program,namespace)
+        self.assertNotIn('mailbox_observation',json.loads(output.getvalue()));self.assertNotIn('PRIVATE',output.getvalue())
 
 
 class Controls(unittest.TestCase):

@@ -166,7 +166,17 @@ PEER_ERROR_TYPES = ('RuntimeError','AssertionError','ValueError','TypeError','Ke
 PEER_ERROR_SOURCES = ('windows-restore-qualification.py','windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','socket.py','ssl.py','decoder.py','external_component')
 RESTORE_NATIVE_STAGES = ('registration','internal_invite','internal_ack','internal_media','internal_hangup','answered_recording',
     'voicemail_isolation','voicemail_deposit','mailbox_invite','mailbox_login_prompt','mailbox_pin','mailbox_main_prompt',
-    'mailbox_recording_playback','mailbox_media','mailbox_hangup','peer_cleanup','peer_receiver')
+    'mailbox_tutorial_complete','mailbox_recording_playback','mailbox_media','mailbox_hangup','peer_cleanup','peer_receiver')
+RESTORE_MAILBOX_FIELDS = ('mailbox_pin_sent','mailbox_tutorial_skip_sent','mailbox_prompt_password_seen',
+    'mailbox_prompt_tutorial_seen','mailbox_prompt_main_menu_seen','mailbox_prompt_auth_failed_seen',
+    'mailbox_prompt_recording_seen','mailbox_observer_failed')
+
+
+def restore_mailbox_failure_fields(record, action):
+    if (action != 'native-target' or type(record) is not dict or not 0 < len(record) <= 8
+            or any(key not in RESTORE_MAILBOX_FIELDS or type(value) is not bool for key,value in record.items())):
+        return {}
+    return dict(record)
 
 
 def restore_peer_failure_fields(records,receiver=False):
@@ -541,28 +551,40 @@ class Qualification:
                 self.s['answered_recording_uuid'] = recording['media_uuid']; self.save()
             self.record('restored_original_credentials_two_way_decoded_native_audio' if target else 'source_real_two_way_recorded_call')
             if target:
+                stage='mailbox_invite'
+                capsule = read_json(self.work / 'source-capsule-private.json')['payload']
+                message_name = Path(capsule['media']['voicemail']['relative']).name
                 native = load_module('restore_qualification_prompts', self.source / 'tests/windows-native-acceptance.py')
                 observer = native.NativePlayback(self.s['event_socket'], self.s['realm'])
+                flags={'mailbox_pin_sent':False,'mailbox_tutorial_skip_sent':False}
                 try:
                     stage='mailbox_invite'
                     call = called.dial('*97', destination)
                     if call['code'] != 200: raise RuntimeError('Restored native mailbox retrieval was not answered.')
-                    stage='mailbox_login_prompt'
-                    index, prompt = observer.prompt(call['callid'], ['vm-enter_pass.wav', 'vm-listen_new.wav'])
-                    if prompt.endswith('vm-enter_pass.wav'):
-                        stage='mailbox_pin'
-                        for digit in self.s['users'][1]['voicemail_pin'] + '#': called.dtmf(call, digit)
-                        stage='mailbox_main_prompt'
-                        index, _ = observer.prompt(call['callid'], ['vm-listen_new.wav'], after=index)
+                    # Reuse the qualified PIN -> optional first-login tutorial
+                    # -> main-menu flow, including its existing 30s PIN budget.
+                    stage='mailbox_main_prompt';self.native_substage=None
+                    index=native.mailbox_menu(self,observer,called,call,self.s['users'][1]['voicemail_pin'],flags)
                     stage='mailbox_recording_playback'
                     called.dtmf(call, '1')
-                    capsule = read_json(self.work / 'source-capsule-private.json')['payload']
-                    message_name = Path(capsule['media']['voicemail']['relative']).name
                     observer.prompt(call['callid'], [message_name], after=index)
                     stage='mailbox_media'
                     time.sleep(4); original.decoded_tone_check(call['media'], 440)
                     stage='mailbox_hangup'
                     called.hangup(call); call = None; self.record('restored_original_native_voicemail_pin_rfc2833_retrieval')
+                except BaseException as error:
+                    if stage=='mailbox_main_prompt':
+                        helper=getattr(error,'native_failure',None)
+                        precise=helper.get('primary_substage') if type(helper) is dict else None
+                        stage={'mailbox_login_prompt':'mailbox_login_prompt','mailbox_main_menu_prompt':'mailbox_main_prompt',
+                               'mailbox_tutorial_complete':'mailbox_tutorial_complete'}.get(precise,stage)
+                    observation={key:flags[key] for key in RESTORE_MAILBOX_FIELDS if type(flags.get(key)) is bool}
+                    try:
+                        snapshot=observer.snapshot(call['callid'],message_name)
+                        observation.update({key:snapshot[key] for key in RESTORE_MAILBOX_FIELDS if type(snapshot.get(key)) is bool})
+                    except BaseException:pass # Observation must never replace the original failure.
+                    error.mailbox_observation=restore_mailbox_failure_fields(observation,'native-target')
+                    raise
                 finally: observer.close()
             else:
                 stage='voicemail_isolation'
@@ -955,4 +977,6 @@ if __name__ == '__main__':
         if getattr(error,'native_substage',None) in RESTORE_NATIVE_STAGES:facts['native_substage']=error.native_substage
         cases=restore_completed_native_cases(getattr(error,'completed_native_cases',None),getattr(error,'native_action',None))
         if cases is not None:facts['completed_native_cases']=cases
+        mailbox=restore_mailbox_failure_fields(getattr(error,'mailbox_observation',None),getattr(error,'native_action',None))
+        if mailbox:facts['mailbox_observation']=mailbox
         print(json.dumps(facts)); sys.exit(1)
