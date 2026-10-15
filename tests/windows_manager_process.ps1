@@ -1,6 +1,7 @@
 #Requires -Version 5.1
 [CmdletBinding()]param([string]$SourceRoot=(Split-Path $PSScriptRoot -Parent))
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';$checks=0;$nativeIdentityChecks=0
+if($env:OS -ceq 'Windows_NT'){$env:PSModulePath=(Join-Path $PSHOME 'Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell/Modules')}
 function Verify([bool]$Value){$script:checks++;if(!$Value){throw ('Owned process control failed at caller line '+(Get-PSCallStack)[1].ScriptLineNumber)}}
 function LoadAst([string]$Path){$t=$null;$e=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($Path,[ref]$t,[ref]$e);Verify (@($e).Count -eq 0);return $ast}
 function Check([bool]$Value,[string]$Message){if(!$Value){throw $Message}}
