@@ -185,6 +185,24 @@ function SafeFailureFields($Record){
  if(($Record.source_line -is [int] -or $Record.source_line -is [long]) -and $Record.source_line -gt 0 -and $Record.source_line -lt 100000){$safe.source_line=[int]$Record.source_line}
  if(($Record.caller_line -is [int] -or $Record.caller_line -is [long]) -and $Record.caller_line -gt 0 -and $Record.caller_line -lt 100000){$safe.caller_line=[int]$Record.caller_line}
  if(($Record.command_exit -is [int] -or $Record.command_exit -is [long]) -and $Record.command_exit -ge [int]::MinValue -and $Record.command_exit -le [int]::MaxValue){$safe.command_exit=[int]$Record.command_exit}
+ $recoveryCommands=@('php.exe','icacls.exe','pg_dump.exe','pg_restore.exe','psql.exe','robocopy.exe','powershell.exe','python.exe','OpenWebPbx.Updater.exe','OpenWebPbx.Server.exe')
+ if(($Record.recovery_observations_schema -is [int] -or $Record.recovery_observations_schema -is [long]) -and $Record.recovery_observations_schema -eq 1 -and $Record.recovery_observations_only -is [bool] -and $Record.recovery_observations_only){
+  $safe.recovery_observations_schema=1;$safe.recovery_observations_only=$true
+  if(($Record.recovery_preexisting_error_count -is [int] -or $Record.recovery_preexisting_error_count -is [long]) -and $Record.recovery_preexisting_error_count -ge 0 -and $Record.recovery_preexisting_error_count -le 256){$safe.recovery_preexisting_error_count=[int]$Record.recovery_preexisting_error_count}
+  if($Record.recovery_journal_state -is [string] -and $Record.recovery_journal_state -cin 'prepared','quiescing','deploying','migrating','validating','rolling_back','recovery_required','rolled_back','completed'){$safe.recovery_journal_state=$Record.recovery_journal_state}
+  $recoveryTypes=@('System.InvalidOperationException','System.IO.IOException','System.IO.FileNotFoundException','System.IO.DirectoryNotFoundException','System.UnauthorizedAccessException','System.ArgumentException','System.FormatException','System.ComponentModel.Win32Exception','System.Runtime.InteropServices.COMException','System.Net.WebException','System.Management.Automation.RuntimeException','System.Management.Automation.MethodInvocationException','System.Management.Automation.ActionPreferenceStopException','System.Management.Automation.ParameterBindingException','System.Management.Automation.ParameterBindingValidationException','System.Management.Automation.ItemNotFoundException','System.Management.Automation.ProviderInvocationException','Microsoft.PowerShell.Commands.ServiceCommandException')
+  $frames=@($Record.recovery_error_observations);$observations=@()
+  if($frames.Count -le 8){
+   foreach($frame in $frames){
+    if($null -eq $frame -or $frame.source_basename -isnot [string] -or $frame.source_basename -cnotin 'Upgrade-OpenWebPBX.ps1','Support-Recovery.ps1','Restore-Gates.ps1' -or ($frame.source_line -isnot [int] -and $frame.source_line -isnot [long]) -or $frame.source_line -lt 1 -or $frame.source_line -ge 100000 -or $frame.error_type -isnot [string] -or $frame.error_type -cnotin $recoveryTypes){continue}
+    $entry=@{source_basename=$frame.source_basename;source_line=[int]$frame.source_line;error_type=$frame.error_type}
+    if($frame.caller_basename -is [string] -and $frame.caller_basename -cin 'Upgrade-OpenWebPBX.ps1','Support-Recovery.ps1','Restore-Gates.ps1' -and ($frame.caller_line -is [int] -or $frame.caller_line -is [long]) -and $frame.caller_line -gt 0 -and $frame.caller_line -lt 100000){$entry.caller_basename=$frame.caller_basename;$entry.caller_line=[int]$frame.caller_line}
+    if($frame.command_basename -is [string] -and $frame.command_basename -cin $recoveryCommands -and ($frame.command_exit -is [int] -or $frame.command_exit -is [long]) -and $frame.command_exit -ge [int]::MinValue -and $frame.command_exit -le [int]::MaxValue){$entry.command_basename=$frame.command_basename;$entry.command_exit=[int]$frame.command_exit}
+    $observations+=,$entry
+   }
+  }
+  $safe.recovery_error_observations=$observations
+ }
  if($Record.command_basename -ceq 'windows-compare-json.py'){
   $comparison=SafeComparisonFields $Record
   if($comparison){foreach($entry in $comparison.GetEnumerator()){$safe[$entry.Key]=$entry.Value}}

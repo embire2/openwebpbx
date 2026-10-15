@@ -152,6 +152,23 @@ function HelperFailure($Record){
   if($name -is [string] -and $name -cin $scripts -and ($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$safe[$prefix+'_basename']=$name;$safe[$prefix+'_line']=[int]$line}
  }
  if($Record.command_basename -is [string] -and $Record.command_basename -cin $commands -and ($Record.command_exit -is [int] -or $Record.command_exit -is [long]) -and $Record.command_exit -ge [int]::MinValue -and $Record.command_exit -le [int]::MaxValue){$safe.command_basename=$Record.command_basename;$safe.command_exit=[int]$Record.command_exit}
+ if(($Record.recovery_observations_schema -is [int] -or $Record.recovery_observations_schema -is [long]) -and $Record.recovery_observations_schema -eq 1 -and $Record.recovery_observations_only -is [bool] -and $Record.recovery_observations_only){
+  $safe.recovery_observations_schema=1;$safe.recovery_observations_only=$true
+  if(($Record.recovery_preexisting_error_count -is [int] -or $Record.recovery_preexisting_error_count -is [long]) -and $Record.recovery_preexisting_error_count -ge 0 -and $Record.recovery_preexisting_error_count -le 256){$safe.recovery_preexisting_error_count=[int]$Record.recovery_preexisting_error_count}
+  if($Record.recovery_journal_state -is [string] -and $Record.recovery_journal_state -cin 'prepared','quiescing','deploying','migrating','validating','rolling_back','recovery_required','rolled_back','completed'){$safe.recovery_journal_state=$Record.recovery_journal_state}
+  $types=@('System.InvalidOperationException','System.IO.IOException','System.IO.FileNotFoundException','System.IO.DirectoryNotFoundException','System.UnauthorizedAccessException','System.ArgumentException','System.FormatException','System.ComponentModel.Win32Exception','System.Runtime.InteropServices.COMException','System.Net.WebException','System.Management.Automation.RuntimeException','System.Management.Automation.MethodInvocationException','System.Management.Automation.ActionPreferenceStopException','System.Management.Automation.ParameterBindingException','System.Management.Automation.ParameterBindingValidationException','System.Management.Automation.ItemNotFoundException','System.Management.Automation.ProviderInvocationException','Microsoft.PowerShell.Commands.ServiceCommandException')
+  $frames=@($Record.recovery_error_observations);$observations=@()
+  if($frames.Count -le 8){
+   foreach($frame in $frames){
+    if($null -eq $frame -or $frame.source_basename -isnot [string] -or $frame.source_basename -cnotin 'Upgrade-OpenWebPBX.ps1','Support-Recovery.ps1','Restore-Gates.ps1' -or ($frame.source_line -isnot [int] -and $frame.source_line -isnot [long]) -or $frame.source_line -lt 1 -or $frame.source_line -ge 100000 -or $frame.error_type -isnot [string] -or $frame.error_type -cnotin $types){continue}
+    $entry=@{source_basename=$frame.source_basename;source_line=[int]$frame.source_line;error_type=$frame.error_type}
+    if($frame.caller_basename -is [string] -and $frame.caller_basename -cin 'Upgrade-OpenWebPBX.ps1','Support-Recovery.ps1','Restore-Gates.ps1' -and ($frame.caller_line -is [int] -or $frame.caller_line -is [long]) -and $frame.caller_line -gt 0 -and $frame.caller_line -lt 100000){$entry.caller_basename=$frame.caller_basename;$entry.caller_line=[int]$frame.caller_line}
+    if($frame.command_basename -is [string] -and $frame.command_basename -cin $commands -and ($frame.command_exit -is [int] -or $frame.command_exit -is [long]) -and $frame.command_exit -ge [int]::MinValue -and $frame.command_exit -le [int]::MaxValue){$entry.command_basename=$frame.command_basename;$entry.command_exit=[int]$frame.command_exit}
+    $observations+=,$entry
+   }
+  }
+  $safe.recovery_error_observations=$observations
+ }
  return $safe
 }
 function HelperLauncher([string]$Path,[string[]]$Arguments,[string]$FailurePath){
@@ -167,6 +184,8 @@ function HelperLauncher([string]$Path,[string[]]$Arguments,[string]$FailurePath)
  $template=@'
 $ErrorActionPreference='Stop'
 function HelperFailure { __FILTER__ }
+$preCallErrors=@($Error|Select-Object -First 256)
+$preCallErrorCount=[Math]::Min(256,$Error.Count)
 try {
  $global:LASTEXITCODE=0
  __CALL__
@@ -176,8 +195,36 @@ try {
  if(!$helperSucceeded){exit $LASTEXITCODE}
  exit 0
 } catch {
+ $primary=$_
  $record=@{error_type=$_.Exception.GetType().FullName;source_basename=$(if($_.InvocationInfo.ScriptName){[IO.Path]::GetFileName($_.InvocationInfo.ScriptName)}else{''});source_line=[int]$_.InvocationInfo.ScriptLineNumber}
  foreach($field in 'command_basename','command_exit','caller_basename','caller_line'){if($_.Exception.Data.Contains($field)){$record[$field]=$_.Exception.Data[$field]}}
+ try{
+  # Observations only: caught/ignored errors may be present here. Never select
+  # one as the recovery cause, clear $Error, or change the original throw.
+  $observations=@();$seen=@{};$examined=0
+  foreach($entry in @($Error)){
+   if($examined++ -ge 32 -or $observations.Count -ge 8){break}
+   $old=[object]::ReferenceEquals($entry,$primary) -or [object]::ReferenceEquals($entry.Exception,$primary.Exception)
+   foreach($prior in $preCallErrors){if([object]::ReferenceEquals($entry,$prior) -or [object]::ReferenceEquals($entry.Exception,$prior.Exception)){$old=$true;break}}
+   if($old){continue}
+   $frame=@{source_basename=$(if($entry.InvocationInfo.ScriptName){[IO.Path]::GetFileName($entry.InvocationInfo.ScriptName)}else{''});source_line=[int]$entry.InvocationInfo.ScriptLineNumber;error_type=$entry.Exception.GetType().FullName}
+   foreach($field in 'command_basename','command_exit','caller_basename','caller_line'){if($entry.Exception.Data.Contains($field)){$frame[$field]=$entry.Exception.Data[$field]}}
+   $validated=HelperFailure ([pscustomobject]@{recovery_observations_schema=1;recovery_observations_only=$true;recovery_error_observations=@([pscustomobject]$frame)})
+   foreach($clean in @($validated.recovery_error_observations)){
+    $key=$clean|ConvertTo-Json -Compress
+    if(!$seen.ContainsKey($key)){$seen[$key]=$true;$observations+=,$clean}
+   }
+  }
+  $record.recovery_observations_schema=1;$record.recovery_observations_only=$true;$record.recovery_preexisting_error_count=$preCallErrorCount;$record.recovery_error_observations=$observations
+  $journal=Join-Path $env:ProgramData 'OpenWebPBX/updates/install-journal.json'
+  if(Test-Path -LiteralPath $journal -PathType Leaf){
+   $item=Get-Item -LiteralPath $journal -Force
+   if($item.Length -le 16384 -and !($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){
+    $value=Get-Content -LiteralPath $journal -Raw|ConvertFrom-Json
+    if(($value.schema -is [int] -or $value.schema -is [long]) -and $value.schema -eq 1){$record.recovery_journal_state=$value.state}
+   }
+  }
+ }catch{} # A missing/malformed observation cannot replace the primary failure.
  $safe=HelperFailure ([pscustomobject]$record)
  [IO.File]::WriteAllText('__FAILURE__',($safe|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
  throw
@@ -572,6 +619,7 @@ try{
   if($helperFailure.caller_basename){$report.source_basename=$helperFailure.caller_basename;$report.source_line=$helperFailure.caller_line}
   elseif($helperFailure.source_basename){$report.source_basename=$helperFailure.source_basename;$report.source_line=$helperFailure.source_line}
   foreach($field in 'error_type','command_basename','command_exit'){if($helperFailure.ContainsKey($field)){$report[$field]=$helperFailure[$field]}}
+  foreach($field in 'recovery_observations_schema','recovery_observations_only','recovery_preexisting_error_count','recovery_journal_state','recovery_error_observations'){if($helperFailure.ContainsKey($field)){$report[$field]=$helperFailure[$field]}}
  }
  if($checkFailure.active_case -ceq 'direct_reapply_preflight' -and $payloadInventory){foreach($entry in $payloadInventory.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
  if($checkFailure.active_case -ceq 'direct_reapply_preflight'){
