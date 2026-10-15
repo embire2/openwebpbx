@@ -368,6 +368,51 @@ class RestoreFixture(unittest.TestCase):
                 protected=json.loads(pg('psql',*args,input="select row_to_json(t) from v_pbx_backup_commands t where command_uuid='"+original+"';").stdout)
                 self.assert_refuses(code,{'row':protected,'id':original,'admin':ADMIN,'baseline':[original]})
                 self.assertEqual(pg('psql',*args,input='select count(*) from v_pbx_backup_commands;').stdout.strip(),'2')
+
+                # Execute the actual cleanup transaction against the real
+                # production draft FK. The former order loses its recorded
+                # draft through ON DELETE CASCADE, then refuses and rolls back.
+                source=FIXTURE.read_text();start=source.index('$db->beginTransaction();',source.index("if($action==='cleanup')"))
+                end=source.index("\n        $GLOBALS['restore_fixture_failure_step']='archive_files_delete';",start)
+                transaction=source[start:end]
+                draft_start=transaction.index("            $GLOBALS['restore_fixture_failure_step']='drafts_delete';")
+                draft_end=transaction.index("            $GLOBALS['restore_fixture_failure_step']='owned_rows_delete';",draft_start)
+                draft_body=transaction[draft_start:draft_end]
+                self.assertLess(transaction.index("foreach($s['owned_draft_ids']"),transaction.index('delete from v_domains'))
+                former=transaction.replace(draft_body,'',1).replace('            $db->commit();',draft_body+'            $db->commit();',1)
+                self.assertGreater(former.index("foreach($s['owned_draft_ids']"),former.index('delete from v_domains'))
+                schema=FIXTURE.parent.parent/'app/pbx_setup/resources/install.sql'
+                ddl=schema.read_text().split('CREATE TABLE IF NOT EXISTS v_pbx_setup_drafts (',1)[1].split('\n);',1)[0]
+                self.assertIn('completed_domain_uuid uuid REFERENCES v_domains(domain_uuid) ON DELETE CASCADE',ddl)
+                factory='aaaaaaaa-1111-4111-8111-111111111111';home='bbbbbbbb-1111-4111-8111-111111111111'
+                foreign='cccccccc-1111-4111-8111-111111111111';foreign_user='dddddddd-1111-4111-8111-111111111111'
+                draft='eeeeeeee-1111-4111-8111-111111111111';foreign_draft='ffffffff-1111-4111-8111-111111111111'
+                baseline_draft='aaaaaaaa-2222-4222-8222-222222222222';missing='bbbbbbbb-2222-4222-8222-222222222222'
+                pg('psql',*args,input='create table v_domains(domain_uuid uuid primary key,domain_name text);'
+                    +'create table v_users(user_uuid uuid primary key,domain_uuid uuid references v_domains(domain_uuid));'
+                    +'CREATE TABLE IF NOT EXISTS v_pbx_setup_drafts ('+ddl+'\n);'
+                    +f"insert into v_domains values('{factory}','factory.invalid'),('{DOMAIN}','owned.invalid'),('{home}','owned-home.invalid'),('{foreign}','foreign.invalid');"
+                    +f"insert into v_users values('{ADMIN}','{factory}'),('{foreign_user}','{foreign}');"
+                    +f"insert into v_pbx_setup_drafts(draft_uuid,user_uuid,kind,preview,expires_at,completed_domain_uuid) values('{draft}','{ADMIN}','setup','{{}}',now()+interval '1 hour','{DOMAIN}'),('{foreign_draft}','{foreign_user}','setup','{{}}',now()+interval '1 hour','{foreign}'),('{baseline_draft}','{ADMIN}','setup','{{}}',now()+interval '1 hour',null);")
+                snapshot_sql="select json_build_object('domains',(select json_agg(t order by domain_uuid) from v_domains t),'users',(select json_agg(t order by user_uuid) from v_users t),'drafts',(select json_agg(t order by draft_uuid) from v_pbx_setup_drafts t),'commands',(select json_agg(t order by command_uuid) from v_pbx_backup_commands t));"
+                before=json.loads(pg('psql',*args,input=snapshot_sql).stdout)
+                state={'owned_draft_ids':[draft],'owned_backup_commands':[],'owned_scheduled_backup_commands':[],
+                       'baseline':{'drafts':[baseline_draft],'backup_commands':[original]}}
+                setup="$db=new PDO('pgsql:host='.$input['socket'].';dbname=postgres','postgres',null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);$s=$input['state'];$domain=$input['domain'];$owned=$input['owned'];$admin=['user_uuid'=>$input['admin']];$q=static function(string $sql,array $args=[])use($db):PDOStatement{$p=$db->prepare($sql);$p->execute($args);return $p;};"
+                data={'socket':str(cluster),'state':state,'domain':DOMAIN,'owned':{'home_domain_uuid':home,'tenant_uuid':JOB},'admin':ADMIN}
+                former_code=setup+"try{"+former+"}catch(Throwable $error){if($error->getMessage()!=='Only recorded owned drafts may be removed.')throw $error;echo '{\"former_cascade_guard_refused\":true}';}"
+                self.assertEqual(json.loads(self.assert_accepts(former_code,data)),{'former_cascade_guard_refused':True})
+                self.assertEqual(json.loads(pg('psql',*args,input=snapshot_sql).stdout),before)
+                for refused in (baseline_draft,foreign_draft,missing):
+                    with self.subTest(refused=refused):
+                        bad=copy.deepcopy(data);bad['state']['owned_draft_ids']=[refused]
+                        self.assert_refuses(setup+transaction,bad)
+                        self.assertEqual(json.loads(pg('psql',*args,input=snapshot_sql).stdout),before)
+                self.assert_accepts(setup+transaction,data)
+                after=json.loads(pg('psql',*args,input=snapshot_sql).stdout)
+                self.assertEqual(after['domains'],[row for row in before['domains'] if row['domain_uuid'] not in (DOMAIN,home)])
+                self.assertEqual(after['drafts'],[row for row in before['drafts'] if row['draft_uuid']!=draft])
+                self.assertEqual(after['users'],before['users']);self.assertEqual(after['commands'],before['commands'])
                 pg('psql',*args,input="begin;delete from v_pbx_backup_commands where command_uuid='"+owned+"' and requested_by is null and status in ('completed','failed');commit;")
                 self.assertEqual(pg('psql',*args,input='select command_uuid from v_pbx_backup_commands;').stdout.strip(),original)
             finally:

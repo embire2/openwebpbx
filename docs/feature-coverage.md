@@ -1,5 +1,7 @@
 # OpenWeb PBX feature coverage
 
+Latest Step 2 diagnosis: restore run **38780574011** confirmed a test cleanup ordering defect involving the setup-draft foreign key; the narrow reorder passed real PostgreSQL preservation and refusal checks. Signed-update run **38780687994** identified an invalid combined Windows permissions command before the update transaction; separate commands passed native Windows reproduction. Complete reruns remain required. The original-server copy investigation has passed independent Python and native Windows reads of all 14,096 archive entries; copy-boundary checks continue, and the supplied server remains on 1.0.6.
+
 ## Hosted provider setup patch — 2026-10-15
 
 Voice & Chat and Add SIP Trunk now resolve incoming addresses from the configured provider server and proxies on save/connect. Manual incoming IPs are optional Advanced overrides; existing overrides, ports, credentials and routes are preserved. Blank new ports permit native service discovery. Unresolved activation fails atomically, and source-address restrictions remain exact. Automatic/proxy readiness reports DNS discovery without guessing a connection port.

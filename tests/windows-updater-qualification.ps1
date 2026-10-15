@@ -33,7 +33,7 @@ function QualificationFailureObservation([string]$Trace,$Child){
  # Project only known source callsites and fixed child identities. Messages,
  # process arguments, private streams and the paths in the trace stay private.
  $frames=[Collections.Generic.List[object]]::new();$seen=@{}
- $functions=@('Check','Hash','WriteJson','PrivateDirectory','Api','SafeRelative','ExpandSafe','Artifact','CheckedProcess','NativeVersions','StopQualificationIis','PrepareCanary','Fixture','Python','DatabaseSnapshot','FileSnapshot','TaskSnapshot','ManagerTaskValid','OwnedManagers','WaitManager','BeginManager','OriginalProcessProofSource','RetainQualificationProcess','AssertOriginalProcessState','ManagerReopened','EqualTaskSnapshots','Equal','NormalTaskPreservation','InstalledVersions','WaitInstall','DownloadProof','GetManagerOriginalExitProof','<ScriptBlock>')
+ $functions=@('Check','Hash','WriteJson','PrivateDirectory','SecureCanaryFaultContract','Api','SafeRelative','ExpandSafe','Artifact','CheckedProcess','NativeVersions','StopQualificationIis','PrepareCanary','Fixture','Python','DatabaseSnapshot','FileSnapshot','TaskSnapshot','ManagerTaskValid','OwnedManagers','WaitManager','BeginManager','OriginalProcessProofSource','RetainQualificationProcess','AssertOriginalProcessState','ManagerReopened','EqualTaskSnapshots','Equal','NormalTaskPreservation','InstalledVersions','WaitInstall','DownloadProof','GetManagerOriginalExitProof','<ScriptBlock>')
  if($Trace -and $Trace.Length -le 16384){
   $lines=[regex]::Split($Trace,'\r?\n')
   for($i=0;$i -lt [Math]::Min($lines.Count,64) -and $frames.Count -lt 6;$i++){
@@ -55,6 +55,27 @@ function QualificationFailureObservation([string]$Trace,$Child){
 function Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
 function WriteJson([string]$Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 32),[Text.UTF8Encoding]::new($false))}
 function PrivateDirectory([string]$Path){New-Item -ItemType Directory -Force $Path|Out-Null;& icacls.exe $Path /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F'|Out-Null;Check ($LASTEXITCODE -eq 0) 'Private qualification permissions failed.'}
+function SecureCanaryFaultContract([string]$Path,[string]$Directory){
+ Check ([IO.Path]::IsPathRooted($Path) -and [IO.Path]::IsPathRooted($Directory)) 'An absolute owned contract path is required.'
+ $full=[IO.Path]::GetFullPath($Path);$parent=[IO.Path]::GetFullPath($Directory).TrimEnd([IO.Path]::DirectorySeparatorChar,[IO.Path]::AltDirectorySeparatorChar)
+ Check ([IO.Path]::GetDirectoryName($full).Equals($parent,[StringComparison]::OrdinalIgnoreCase) -and [IO.Path]::GetFileName($full) -cin @('canary-fault-contract.json','canary-host-sentinel.json')) 'Only the two exact owned canary contracts may be secured.'
+ $folder=Get-Item -LiteralPath $parent -Force;$item=Get-Item -LiteralPath $full -Force
+ Check ($folder.PSIsContainer -and !($folder.Attributes -band [IO.FileAttributes]::ReparsePoint) -and !$item.PSIsContainer -and !($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -and $item.Length -le 65536) 'An ordinary bounded owned canary contract is required.'
+ $before=Hash $full;$length=$item.Length
+ & "$env:SystemRoot\System32\icacls.exe" $full /inheritance:r /grant:r '*S-1-5-32-544:F' '*S-1-5-18:F'|Out-Null
+ Check ($LASTEXITCODE -eq 0) 'The owned canary contract DACL command failed.'
+ & "$env:SystemRoot\System32\icacls.exe" $full /setowner '*S-1-5-32-544'|Out-Null
+ Check ($LASTEXITCODE -eq 0) 'The owned canary contract owner command failed.'
+ $acl=Get-Acl -LiteralPath $full;$rules=@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
+ Check ($acl.AreAccessRulesProtected -and $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ceq 'S-1-5-32-544' -and $rules.Count -eq 2) 'The owned canary contract protection or owner differs.'
+ $seen=@{}
+ foreach($rule in $rules){
+  $sid=$rule.IdentityReference.Value
+  Check ($sid -cin @('S-1-5-32-544','S-1-5-18') -and !$seen.ContainsKey($sid) -and !$rule.IsInherited -and $rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and [int64]$rule.FileSystemRights -eq [int64][Security.AccessControl.FileSystemRights]::FullControl -and $rule.InheritanceFlags -eq [Security.AccessControl.InheritanceFlags]::None -and $rule.PropagationFlags -eq [Security.AccessControl.PropagationFlags]::None) 'The owned canary contract grants unexpected access.'
+  $seen[$sid]=$true
+ }
+ Check ((Get-Item -LiteralPath $full -Force).Length -eq $length -and (Hash $full) -ceq $before) 'The owned canary contract content changed.'
+}
 function RandomSecret {return [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()}
 function Api([string]$Endpoint){Check (![string]::IsNullOrEmpty($env:GH_TOKEN)) 'The scoped artifact token is unavailable.';return Invoke-RestMethod ('https://api.github.com/repos/embire2/openwebpbx/'+$Endpoint) -Headers @{Authorization=('Bearer '+$env:GH_TOKEN);Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}}
 function SafeRelative([string]$Path){
@@ -379,7 +400,7 @@ if(!$?){exit 1}
   $phase='owned SYSTEM canary fault contract';$contractDirectory=Join-Path $state 'qualification113';PrivateDirectory $contractDirectory
   $contract=@{schema=1;authorized=$true;disposable=$true;fault_authorized=$true;disposable_hosted_runner=$true;github_actions=$true;runner_environment='github-hosted';nonce=$scope;run_id=$env:GITHUB_RUN_ID;repository='embire2/openwebpbx';expected_computer=$env:COMPUTERNAME;expected_domain='windowsqa.example.invalid';original_version='1.0.13';baseline_version='1.0.13';target_version='1.0.14'}
   WriteJson (Join-Path $contractDirectory 'canary-fault-contract.json') $contract;WriteJson (Join-Path $contractDirectory 'canary-host-sentinel.json') $contract
-  foreach($file in 'canary-fault-contract.json','canary-host-sentinel.json'){& icacls.exe (Join-Path $contractDirectory $file) /inheritance:r /grant:r '*S-1-5-32-544:F' '*S-1-5-18:F' /setowner '*S-1-5-32-544'|Out-Null;Check ($LASTEXITCODE -eq 0) 'The owned SYSTEM fault contract file could not be secured.'}
+  foreach($file in 'canary-fault-contract.json','canary-host-sentinel.json'){SecureCanaryFaultContract (Join-Path $contractDirectory $file) $contractDirectory}
   $phase='original13 interactive manager startup';$originalManager=BeginManager
   $heldOriginalManager=RetainQualificationProcess $originalManager ([int]$originalManager.Id) "$root\desktop\OpenWebPbx.Desktop.exe" $managerSid $managerSession $managerStarted
   $phase='fault14 full HTTPS download and rollback'

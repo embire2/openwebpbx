@@ -391,6 +391,16 @@ function restore_fixture_main(array $argv): void {
         }
         $GLOBALS['restore_fixture_failure_step']='owned_rows_delete';$db->beginTransaction();
         try {
+            // completed_domain_uuid cascades when its owned domain is removed;
+            // validate the recorded draft while its original row still exists.
+            $GLOBALS['restore_fixture_failure_step']='drafts_delete';
+            foreach($s['owned_draft_ids']??[] as $id) {
+                if(!restore_fixture_uuid($id)||in_array($id,$s['baseline']['drafts'],true))throw new RuntimeException('An original draft cannot be removed.');
+                $row=$q('select user_uuid from v_pbx_setup_drafts where draft_uuid=?',[$id])->fetch(PDO::FETCH_ASSOC);
+                if(!$row||$row['user_uuid']!==$admin['user_uuid'])throw new RuntimeException('Only recorded owned drafts may be removed.');
+                $q('delete from v_pbx_setup_drafts where draft_uuid=? and user_uuid=?',[$id,$admin['user_uuid']]);
+            }
+            $GLOBALS['restore_fixture_failure_step']='owned_rows_delete';
             foreach(['domain_uuid'=>[$domain,$owned['home_domain_uuid']],'tenant_uuid'=>[$owned['tenant_uuid']]] as $column=>$ids) {
                 $tables=$q("select distinct c.table_name from information_schema.columns c join information_schema.tables t using(table_schema,table_name) where c.table_schema='public' and c.column_name=? and c.table_name like 'v_%' and t.table_type='BASE TABLE' order by c.table_name",[$column])->fetchAll(PDO::FETCH_COLUMN);
                 foreach($tables as $table)if($table!=='v_domains'&&preg_match('/^v_[a-z0-9_]+$/D',$table))foreach($ids as $id)$q('delete from '.$table.' where '.$column.'=?',[$id]);
@@ -411,13 +421,6 @@ function restore_fixture_main(array $argv): void {
                 if(!$row)throw new RuntimeException('A recorded owned backup command changed.');
                 restore_fixture_backup_command($row,$id,$admin['user_uuid'],$s['baseline']['backup_commands'],(bool)$scheduled);
                 $q('delete from v_pbx_backups where command_uuid=?',[$id]);$q('delete from v_pbx_backup_commands where command_uuid=?',[$id]);
-            }
-            $GLOBALS['restore_fixture_failure_step']='drafts_delete';
-            foreach($s['owned_draft_ids']??[] as $id) {
-                if(!restore_fixture_uuid($id)||in_array($id,$s['baseline']['drafts'],true))throw new RuntimeException('An original draft cannot be removed.');
-                $row=$q('select user_uuid from v_pbx_setup_drafts where draft_uuid=?',[$id])->fetch(PDO::FETCH_ASSOC);
-                if(!$row||$row['user_uuid']!==$admin['user_uuid'])throw new RuntimeException('Only recorded owned drafts may be removed.');
-                $q('delete from v_pbx_setup_drafts where draft_uuid=? and user_uuid=?',[$id,$admin['user_uuid']]);
             }
             $db->commit();
         } catch(Throwable $error){if($db->inTransaction())$db->rollBack();throw $error;}
