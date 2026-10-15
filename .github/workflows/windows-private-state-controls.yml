@@ -72,3 +72,16 @@ jobs:
           $ErrorActionPreference='Stop'
           & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_upgrade_permissions.ps1
           if($LASTEXITCODE){throw 'The native successful-upgrade permission controls failed.'}
+      - name: Observe PHP file security across exact hardening and replay stages
+        run: |
+          $ErrorActionPreference='Stop'
+          & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_php_permissions_stage.ps1 -DisposableHostedRunner | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'php-permissions-stage.json')
+          if($LASTEXITCODE){throw 'The isolated PHP stage observation failed.'}
+      - name: Preserve only the closed PHP stage observations
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openwebpbx-php-permissions-stage-${{ github.run_id }}
+          path: ${{ runner.temp }}/php-permissions-stage.json
+          if-no-files-found: warn
+          retention-days: 14
