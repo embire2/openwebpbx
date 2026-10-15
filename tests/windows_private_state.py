@@ -53,8 +53,8 @@ class PrivateState(unittest.TestCase):
             arguments.append('-Locked')
         environment = os.environ.copy()
         if os.name == 'nt':
-            environment['PSModulePath'] = (str(Path(environment['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/Modules')
-                                           + ';' + str(Path(environment['ProgramFiles']) / 'WindowsPowerShell/Modules'))
+            environment['PSMODULEPATH'] = (str(Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/Modules')
+                                           + ';' + str(Path(os.environ['ProgramFiles']) / 'WindowsPowerShell/Modules'))
         result = subprocess.run(arguments, capture_output=True, timeout=30, env=environment)
         self.assertEqual(result.returncode, 0, 'The actual private-state writer control failed.')
         self.assertEqual(result.stderr, b'')
