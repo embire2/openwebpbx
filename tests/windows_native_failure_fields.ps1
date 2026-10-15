@@ -12,6 +12,9 @@ if($errors.Count){throw 'The reviewed native hook must parse.'}
 $mediaNodes=@($nativeAst.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'CompletedMediaCases'},$true))
 if($mediaNodes.Count -ne 1){throw 'The actual completed-media filter must be uniquely identified.'}
 Invoke-Expression $mediaNodes[0].Extent.Text
+$failureNodes=@($nativeAst.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'MediaFailureFields'},$true))
+if($failureNodes.Count -ne 1){throw 'The actual native media failure filter must be uniquely identified.'}
+Invoke-Expression $failureNodes[0].Extent.Text
 $checks=0
 function Check([bool]$Value){if(!$Value){throw 'The bounded native failure field check failed.'};$script:checks++}
 $record=[pscustomobject]@{
@@ -57,4 +60,18 @@ foreach($bad in 'private-never-copy',$allowed[0].ToUpperInvariant(),($allowed[0]
 $mixed=SafeFailureFields ([pscustomobject]@{completed_media_cases=@('private-never-copy',$allowed[4],$allowed[4],$allowed[0]);checks=$childChecks})
 Check (($mixed.completed_media_cases -join '|') -ceq ($allowed[0]+'|'+$allowed[4]) -and $mixed.Count -eq 1)
 Check (!(SafeFailureFields ([pscustomobject]@{checks=$childChecks})).ContainsKey('completed_media_cases'))
+$media=[pscustomobject]@{media_peer='caller';media_direction='received';media_window_seconds=5.0;media_span_seconds=4.98;media_rate_pps=49.9;media_packets=250;media_window_private='private-never-copy';password='private-never-copy';decoded_pcm='private-never-copy'}
+foreach($filter in 'MediaFailureFields','SafeFailureFields'){
+ $safe=& $filter $media
+ Check ($safe.Count -eq 6 -and ($safe|ConvertTo-Json) -notmatch 'private-never-copy|password|decoded_pcm|media_window_private')
+ foreach($field in 'media_peer','media_direction','media_window_seconds','media_span_seconds','media_rate_pps','media_packets'){Check ($safe[$field] -ceq $media.$field)}
+ foreach($field in 'media_peer','media_direction'){
+  foreach($bad in 'secret-shaped-value',$media.$field.ToUpperInvariant(),1,$true,$null){$copy=$media.PSObject.Copy();$copy.$field=$bad;Check ((& $filter $copy).Count -eq 0)}
+ }
+ foreach($field in 'media_window_seconds','media_span_seconds','media_rate_pps'){
+  foreach($bad in '5',$true,[double]::NaN,[double]::PositiveInfinity,[double]::NegativeInfinity,-1,1000001){$copy=$media.PSObject.Copy();$copy.$field=$bad;Check (!(& $filter $copy).ContainsKey($field))}
+ }
+ foreach($bad in '250',$true,1.5,-1,1000001){$copy=$media.PSObject.Copy();$copy.media_packets=$bad;Check (!(& $filter $copy).ContainsKey('media_packets'))}
+ foreach($pair in @(@('media_window_seconds',.49),@('media_window_seconds',10.01),@('media_span_seconds',11.01),@('media_rate_pps',100000.01))){$copy=$media.PSObject.Copy();$copy.($pair[0])=$pair[1];Check (!(& $filter $copy).ContainsKey($pair[0]))}
+}
 Write-Output "PASS $checks actual caller native primary/cleanup/completed-media privacy allowlist checks; no PBX contacted"

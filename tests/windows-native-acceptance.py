@@ -406,6 +406,63 @@ def send_ivr_digit(phone,call,digit,wait):
     assert phone.dtmf(call,digit),'Negotiated IVR key did not leave the peer'
 
 
+def media_failure(error,peer,direction,seconds,view):
+    first=view.get(direction+'_first_at');last=view.get(direction+'_last_at')
+    span=last-first if first is not None and last is not None else 0
+    packets=view[direction];rate=(packets-1)/span if packets>1 and span>0 else 0
+    error.media_failure={'media_peer':peer,'media_direction':direction,'media_window_seconds':round(seconds,3),
+        'media_span_seconds':round(span,6),'media_packets':packets,'media_rate_pps':round(rate,3)}
+    return error
+
+
+def bridged_media_window(states,seconds,rate_check):
+    """Measure fresh bridged RTP, keeping prompt/wait history out of its rate."""
+    assert .5<=seconds<=10 and math.isfinite(seconds),'Invalid bridged media observation interval'
+    assert tuple(states)==('caller','destination'),'Exact owned media peers required'
+    starts={peer:{direction:state[direction] for direction in ('sent','received')} for peer,state in states.items()}
+    views={peer:{'sent':0,'received':0,'sent_first_at':None,'sent_last_at':None,
+        'received_first_at':None,'received_last_at':None} for peer in states}
+    # These are owned per-dialog buffers. Counters/clocks stay untouched so
+    # their complete history remains available in the private failure report.
+    for state in states.values():state['decoded_pcm'].clear()
+    started=time.monotonic();deadline=started+seconds
+    while True:
+        for peer,state in states.items():
+            for direction in ('sent','received'):
+                count=state[direction]-starts[peer][direction]
+                if count>views[peer][direction]:
+                    stamp=state[direction+'_last_at']
+                    if stamp is None or stamp<started:continue
+                    if views[peer][direction+'_first_at'] is None:views[peer][direction+'_first_at']=stamp
+                    views[peer][direction+'_last_at']=stamp;views[peer][direction]=count
+        remaining=deadline-time.monotonic()
+        if remaining<=0:break
+        time.sleep(min(.005,remaining))
+    finished=time.monotonic()
+    for peer,state in states.items():
+        view=views[peer];view['decoded_pcm']=bytes(state['decoded_pcm'])
+        checking_rate=False
+        try:
+            for direction in ('sent','received'):
+                assert view[direction+'_first_at'] is not None,'No new bridged RTP was observed'
+                assert view[direction+'_first_at']<=started+.25,'Bridged RTP did not begin when the observation started'
+                assert view[direction+'_last_at']>=finished-.25,'Bridged RTP stopped before the observation ended'
+            checking_rate=True
+            rate_check(view)  # Preserve the existing >=.3s and 30..70 packets/s limits.
+        except AssertionError as error:
+            if checking_rate:
+                direction=next(d for d in ('sent','received') if view[d+'_last_at']-view[d+'_first_at']<.3 or
+                    not 30<=(view[d]-1)/max(view[d+'_last_at']-view[d+'_first_at'],.000001)<=70)
+            error=media_failure(error,peer,direction,seconds,view)
+            error.media_window_private={'window':error.media_failure,'start_counts':starts[peer],
+                'observation_started':started,'observation_finished':finished,
+                'end_counts':{d:state[d] for d in ('sent','received')},
+                'cumulative_first':{d:state[d+'_first_at'] for d in ('sent','received')},
+                'cumulative_last':{d:state[d+'_last_at'] for d in ('sent','received')}}
+            raise error
+    return views
+
+
 class BCG729:
     """Independent peer codec; never invoke the native PBX codec callbacks."""
     def __init__(self,state_root):
@@ -634,8 +691,12 @@ def native_calls(f):
     peers=[Phone(users[0],'tls'),Phone(users[1]),Phone(users[2])]
     caller,a,b=peers;destination=(bind,5061)
     def media(call,remote,seconds=5):
-        time.sleep(seconds);sip.rtp_rate_check(call['media']);sip.rtp_rate_check(remote)
-        return {'caller_decoded_ratio':original.decoded_tone_check(call['media'],a.tone_hz if remote in a.dialogs.values() else b.tone_hz),'peer_decoded_ratio':original.decoded_tone_check(remote,caller.tone_hz),'duration_seconds':seconds,'caller_packets':call['media']['received'],'peer_packets':remote['received']}
+        views=bridged_media_window({'caller':call['media'],'destination':remote},seconds,sip.rtp_rate_check)
+        ratios={}
+        for peer,frequency in [('caller',a.tone_hz if remote in a.dialogs.values() else b.tone_hz),('destination',caller.tone_hz)]:
+            try:ratios[peer]=original.decoded_tone_check(views[peer],frequency)
+            except AssertionError as error:raise media_failure(error,peer,'received',seconds,views[peer])
+        return {'caller_decoded_ratio':ratios['caller'],'peer_decoded_ratio':ratios['destination'],'duration_seconds':seconds,'caller_packets':views['caller']['received'],'peer_packets':views['destination']['received']}
     def call_check(target,expected=a,digit=None):
         f.active_case={'8101':'basic_decoded_audio','8180':'simultaneous_ring_group','8181':'hunting_ring_group','8190':'queue_agent_delivery','8170':'ivr_wire_digit_or_timeout'}[target]
         old=set(expected.dialogs);call=caller.dial(target,destination);assert call['code']==200,'Native call was not answered'
@@ -842,6 +903,8 @@ def main():
         if getattr(e,'sip_failure',None):failure.update(e.sip_failure)
         if getattr(e,'audio_failure',None):failure.update(e.audio_failure)
         if getattr(e,'native_failure',None):failure.update(e.native_failure)
+        if getattr(e,'media_failure',None):failure.update(e.media_failure)
+        if getattr(e,'media_window_private',None):failure['media_window_private']=e.media_window_private
         (f.evidence/'software-native-report.json').write_text(json.dumps(failure,indent=2))
         raise
 

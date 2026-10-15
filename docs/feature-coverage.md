@@ -2,6 +2,8 @@
 
 ## Windows Server return — 1.0.13
 
+The IVR sampling correction passed35 real UDP/SourcePhone controls independently: identical traffic failed the old lifetime rate (27.231pps) and passed the fresh five-second bridged window (50.207/49.815pps). Original pacing/decoded-tone thresholds are retained, with bounded start/end freshness; absent, slow, fast, stale, late, silent and wrong-tone media are refused. Existing DTMF/TLS-G729/cleanup checks passed, and171 safe-report controls passed on native Windows PowerShell5.1 as well as the portable runner. This is fixture evidence; complete actual Windows media remains pending.
+
 Current qualification: native build 38659343840 passed 24 real second-boundary refresh cycles and 144 SQLite/API observations. Full suite 38659768581 at c797b933c passed the 14,092-file fresh installation and five exported real media cases (TLS audio, G729/PCMU, simultaneous/hunting groups and queue delivery). The IVR destination answered before a cumulative RTP-rate assertion failed; a post-answer media-window correction is under development. Cleanup passed, but complete calling/backups/upgrades remain unqualified.
 
 A distinct exact-C/SQLite check reproduced cleanup of foreign users/realms sharing identical Call-ID and Contact. The candidate now scopes both expiry-cleanup branches to the trusted canonical user and realm; both actual-C branches preserve all three foreign rows while removing only the owned stale row. Root verified all 6,214 prepared source hashes. A bounded real-SIP collision gate and rebuilt Windows DLL/full suite remain required. No owner upgrade, publication or acceptance checkmark is implied.

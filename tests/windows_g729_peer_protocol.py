@@ -76,6 +76,7 @@ with tempfile.TemporaryDirectory() as folder:
     def fixture_stream(bind,destination,ca,name):return native.SIPStream(bind,server.getsockname(),ca,name)
     scope={'original':original,'sip':sip,'bind':'127.0.0.1','realm':'fictional.invalid','ca':base/'fixture-root.pem',
            'SIPStream':fixture_stream,'threading':threading,'time':time,'struct':struct,'math':math,'socket':socket,
+           'os':native.os,'WindowsRtpSocket':native.WindowsRtpSocket,
            'f':SimpleNamespace(evidence=base)}
     exec(classes,scope);peer=scope['G729Phone']({'number':'8100','auth':'auth-8100','password':'fictional-only'},FrameCodec())
     try:
