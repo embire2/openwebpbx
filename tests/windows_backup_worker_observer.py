@@ -91,7 +91,7 @@ class Controls(unittest.TestCase):
             with patch.object(Boundary,'run',return_value=expected) as delegated:
                 result=module.subprocess.run(['fiction'])
             self.assertIs(result,expected);delegated.assert_called_once_with(['fiction'])
-            with patch.object(Boundary,'run',return_value=expected),patch.object(self.observer,'closed_stderr',side_effect=RuntimeError(MARKER)),patch.object(observation,'record',side_effect=RuntimeError(MARKER)):
+            with patch.object(Boundary,'run',return_value=expected),patch.object(observation,'classify',side_effect=RuntimeError(MARKER)),patch.object(observation,'record',side_effect=RuntimeError(MARKER)):
                 self.assertIs(module.subprocess.run(['fiction']),expected)
     def test_process_exception_and_failed_observer_never_mask_original(self):
         module=backup_module();error=PermissionError(MARKER)
@@ -197,6 +197,103 @@ class Controls(unittest.TestCase):
             events=self.observer.projected_events(json.loads(report.read_text()))
             self.assertEqual(events[0],{'event':'tool_failure','phase':'upload','tool':'sftp','failure_class':'ssh_authentication','returncode':9})
             self.assertNotIn(MARKER,report.read_text())
+
+
+class RecoveryControls(unittest.TestCase):
+    def setUp(self):self.observer=library()
+    def module(self,directory):
+        module=backup_module();module.RESTORE=directory;module.control=lambda *args,**kwargs:{};module._recover=lambda *args,**kwargs:None
+        return module
+    def test_exact_delegation_results_and_all_module_attributes_restored(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);module=self.module(root);returned=object();calls=[]
+            def control(*args,**kwargs):calls.append(('control',args,kwargs));return returned
+            def recover(*args,**kwargs):calls.append(('recover',args,kwargs));return returned
+            module.control=control;module._recover=recover;originals={name:getattr(module,name) for name in ('run','control','_recover','subprocess','upload_sftp')}
+            observation=self.observer.RecoveryObservation(module,root/'report.json',lambda:False)
+            with observation:
+                self.assertIs(module.control('plan',MARKER,flag=MARKER),returned)
+                self.assertIs(module._recover(MARKER,flag=MARKER),returned)
+                self.assertEqual(module.run([sys.executable,'-I','-c','import sys;sys.stdout.buffer.write(sys.stdin.buffer.read())'],input=b'unchanged',timeout=10),b'unchanged')
+            self.assertEqual(calls,[('control',('plan',MARKER),{'flag':MARKER}),('recover',(MARKER,),{'flag':MARKER})])
+            self.assertTrue(all(getattr(module,name) is value for name,value in originals.items()))
+            fields=observation.safe_report();self.assertEqual(fields['journal_state'],'absent');self.assertTrue(fields['recover_called']);self.assertFalse(fields['injection_reached']);self.assertTrue(fields['wrappers_restored']);self.assertEqual(fields['events'],[])
+            self.assertNotIn(MARKER,json.dumps(fields))
+    def test_actual_product_swallow_handler_retains_original_and_native_recovery_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);module=self.module(root);journal={'state':'restoring'};reached=False;control_calls=[]
+            native='The factory web/task snapshot is invalid.\nAt C:\\private-'+MARKER+'\\Backup-Control.ps1:61 char:4\n    + FullyQualifiedErrorId : The factory web/task snapshot is invalid.\n'
+            def native_control(operation,value=None):
+                control_calls.append((operation,value))
+                return module.run([sys.executable,'-I','-c','import sys;sys.stderr.write('+repr(native)+');sys.exit(7)'])
+            namespace={'control':lambda operation,value:module.control(operation,value)}
+            exec(compile('def recover(settings):\n return control("acl-restore",settings)\n','backups.py','exec'),namespace)
+            module.control=native_control;module._recover=namespace['recover'];original_error=module.BackupError(MARKER)
+            def injected_copy():
+                nonlocal reached
+                reached=True;raise original_error
+            # Execute the exact product exception handler that swallows recovery.
+            source=ROOT/'packaging/windows/backups.py';tree=ast.parse(source.read_text())
+            restore=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='_restore')
+            original_try=next(node for node in ast.walk(restore) if isinstance(node,ast.Try) and any(isinstance(call,ast.Call) and isinstance(call.func,ast.Name) and call.func.id=='_recover' for handler in node.handlers for call in ast.walk(handler)))
+            controlled=copy.deepcopy(restore);controlled.name='controlled_restore';controlled.args=ast.arguments(posonlyargs=[],args=[],kwonlyargs=[],kw_defaults=[],defaults=[])
+            controlled_try=copy.deepcopy(original_try);controlled_try.body=[ast.copy_location(ast.Expr(value=ast.Call(func=ast.Name(id='injected_copy',ctx=ast.Load()),args=[],keywords=[])),original_try.body[0])]
+            controlled.body=[controlled_try];ast.fix_missing_locations(controlled)
+            namespace={'_recover':lambda settings:module._recover(settings),'settings':{'private':MARKER},'journal':journal,'RESTORE':root,'BackupError':module.BackupError,
+                'atomic_json':lambda path,value:Path(path).write_text(json.dumps(value)),'injected_copy':injected_copy}
+            exec(compile(ast.Module([controlled],type_ignores=[]),'backups.py','exec'),namespace)
+            originals={name:getattr(module,name) for name in ('run','control','_recover','subprocess','upload_sftp')}
+            observation=self.observer.RecoveryObservation(module,root/'report.json',lambda:reached)
+            observation.tools={self.observer.ntpath.normcase(sys.executable):'powershell'}
+            with observation:
+                try:namespace['controlled_restore']()
+                except module.BackupError as error:
+                    self.assertIn('Services remain held',str(error));observation.note_reported(error)
+                else:self.fail('The unchanged product handler swallowed its public failure')
+            fields=observation.safe_report()
+            self.assertEqual(fields['journal_state'],'recovery_required');self.assertTrue(fields['injection_reached']);self.assertTrue(fields['recover_called']);self.assertTrue(fields['wrappers_restored'])
+            self.assertEqual(control_calls,[('acl-restore',{'private':MARKER})]);self.assertTrue(all(getattr(module,name) is value for name,value in originals.items()))
+            self.assertEqual(fields['original_error']['error_type'],'BackupError');self.assertEqual(fields['recovery_error']['error_type'],'BackupError');self.assertEqual(fields['reported_error']['error_type'],'BackupError')
+            self.assertTrue(fields['original_error']['source_frames']);self.assertTrue(fields['recovery_error']['source_frames'])
+            event=fields['events'][0];self.assertEqual((event['event'],event['phase'],event['operation'],event['tool'],event['returncode'],event['failure_class']),('tool_failure','recovery','acl-restore','powershell',7,'control_startup_snapshot'))
+            self.assertEqual((event['native_source_basename'],event['native_source_line']),('Backup-Control.ps1',61))
+            self.assertNotIn(MARKER,json.dumps(fields));self.assertNotIn(native,json.dumps(fields));self.assertNotIn(str(root),json.dumps(fields))
+    def test_original_control_and_recovery_exception_identity_never_changes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);module=self.module(root);error=ValueError(MARKER);calls=[]
+            def failure(*args,**kwargs):calls.append((args,kwargs));raise error
+            module.control=failure;module._recover=failure;observation=self.observer.RecoveryObservation(module,root/'report.json',lambda:False)
+            with observation:
+                for call in (lambda:module.control('hold',MARKER),lambda:module._recover(MARKER)):
+                    try:call()
+                    except ValueError as caught:self.assertIs(caught,error)
+                    else:self.fail('The actual exception was swallowed')
+            self.assertEqual(len(calls),2);self.assertFalse(observation.safe_report()['injection_reached']);self.assertTrue(observation.wrappers_restored)
+            self.assertNotIn(MARKER,json.dumps(observation.safe_report()))
+    def test_known_native_position_and_static_category_are_strict_and_private(self):
+        raw=('At C:\\private-'+MARKER+'\\Backup-Control.ps1:145 char:5\n    + FullyQualifiedErrorId : A factory private-data permission snapshot is invalid.\n').encode()
+        self.assertEqual(self.observer.recovery_position('powershell',raw),{'native_source_basename':'Backup-Control.ps1','native_source_line':145})
+        self.assertEqual(self.observer.recovery_stderr('powershell',raw),'control_acl_snapshot')
+        for text in ('At C:\\private\\Foreign.ps1:145 char:5','At C:\\private\\Backup-Control.ps1:0 char:5','At C:\\private\\Backup-Control.ps1:20001 char:5',
+            'At C:\\private\\Backup-Control.ps1:145 char:5 private','At C:\\private\\Backup-Control.ps1:145 char:5\nAt C:\\private\\Backup-Control.ps1:146 char:5'):
+            self.assertEqual(self.observer.recovery_position('powershell',text.encode()),{})
+        self.assertEqual(self.observer.recovery_position('psql',raw),{})
+        self.assertEqual(self.observer.recovery_stderr('powershell',b'private A factory private-data permission snapshot is invalid. private'),'unknown')
+        self.assertEqual(self.observer.recovery_stderr('powershell',b'The factory startup snapshot is invalid.\nA factory private-data permission snapshot is invalid.\n'),'unknown')
+        self.assertEqual(self.observer.recovery_stderr('powershell',b'FullyQualifiedErrorId : CommandNotFoundException'),'shell_command_not_found')
+        messages=['A backup path is outside the owned private locations.','Backup paths must not contain links or junctions.','An unknown backup permission class was requested.',
+            'The factory startup snapshot is invalid.','The factory service startup snapshot is invalid.','The factory running-service snapshot is invalid.',
+            'The factory web/task snapshot is invalid.','The certificate-task snapshot is invalid.','The additional-task snapshot is invalid.',
+            'The PBX application pool did not stop.','The PBX application pool did not start.','A backup control request is invalid.','A factory private-data permission snapshot is invalid.']
+        product=(ROOT/'packaging/windows/Backup-Control.ps1').read_text()
+        for message in messages:self.assertIn("throw '"+message+"'",product)
+    def test_journal_state_is_observed_and_never_inferred_from_injection(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);module=self.module(root);observation=self.observer.RecoveryObservation(module,root/'report.json',lambda:False)
+            for state in ('prepared','restoring','restored','recovery_required','recovered',MARKER):
+                (root/'journal.json').write_text(json.dumps({'state':state,'private':MARKER}))
+                fields=observation.safe_report();self.assertEqual(fields['journal_state'],state if state!=MARKER else 'unknown');self.assertFalse(fields['injection_reached']);self.assertNotIn(MARKER,json.dumps(fields))
+            (root/'journal.json').write_text('{invalid');self.assertEqual(observation.safe_report()['journal_state'],'unavailable')
 
 
 PS_BOUNDARY=r'''

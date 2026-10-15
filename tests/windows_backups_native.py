@@ -40,6 +40,7 @@ BACKUP_ERROR_TYPES={'AssertionError','RuntimeError','BackupError','ModuleNotFoun
 LAST_HTTP={'target':'unknown','method':'unknown','status':None}
 LAST_FAILED_COMMAND=None
 LAST_WORKER_OBSERVATION=None
+LAST_RECOVERY_OBSERVATION=None
 
 
 def failed_command_fields(settings,identifier,command):
@@ -85,6 +86,9 @@ def backup_exception_fields(error,phase,checks):
     if LAST_FAILED_COMMAND is not None:fields['failed_command']=LAST_FAILED_COMMAND
     if LAST_WORKER_OBSERVATION is not None:
         try:fields['worker_observation']=LAST_WORKER_OBSERVATION.safe_report()
+        except BaseException:pass
+    if LAST_RECOVERY_OBSERVATION is not None:
+        try:fields['recovery_observation']=LAST_RECOVERY_OBSERVATION.safe_report()
         except BaseException:pass
     return fields
 
@@ -200,7 +204,7 @@ def local_service_check(private,archive):
 
 
 def main(path):
-    global LAST_WORKER_OBSERVATION
+    global LAST_WORKER_OBSERVATION,LAST_RECOVERY_OBSERVATION
     data=json.loads(path.read_text(encoding='utf-8-sig'));private=path.parent;report=Path(data['report'])
     facts={'platform':'native Windows hosted runner','checks':[],'fully_qualified':False,'sftp':'unqualified'}
     phase='factory guard';settings=b.read_settings();password=secrets.token_hex(32);audit_key=os.urandom(32)
@@ -285,10 +289,14 @@ def main(path):
             nonlocal failed
             if not failed:failed=True;raise b.BackupError('Injected qualification-only file failure')
             return original_copy(source,target,**arguments)
-        try:
-            with patch.object(b,'atomic_copy',fail_once):b.restore(protected,password,settings,confirm_database=settings['database.0.name'])
-        except b.BackupError:pass
-        else:raise AssertionError('The injected native restore failure was ignored')
+        recovery_spec=importlib.util.spec_from_file_location('backup_recovery_observer',Path(__file__).with_name('windows-backups-worker-observer.py'))
+        recovery_observer=importlib.util.module_from_spec(recovery_spec);recovery_spec.loader.exec_module(recovery_observer)
+        LAST_RECOVERY_OBSERVATION=recovery_observer.RecoveryObservation(b,private/'recovery-observer-report.json',lambda:failed)
+        with LAST_RECOVERY_OBSERVATION:
+            try:
+                with patch.object(b,'atomic_copy',fail_once):b.restore(protected,password,settings,confirm_database=settings['database.0.name'])
+            except b.BackupError as error:LAST_RECOVERY_OBSERVATION.note_reported(error)
+            else:raise AssertionError('The injected native restore failure was ignored')
         assert json.loads((b.RESTORE/'journal.json').read_text())['state']=='recovered','Native recovery did not finish'
         for file,payload in factory_files.items():assert file.read_bytes()==payload,'Native recovery changed factory private bytes'
         assert all(not b.held(key) for key in b.HELD_UNITS),'Native factory recovery retained activation gates'

@@ -476,6 +476,30 @@ function BackupFailureReport([string]$Path,[datetime]$StartedAt){
     $safe.worker_observation.events+=,$entry
    }}
   }
+  $recovery=$failure.recovery_observation
+  if(& $integer $recovery.schema 1 1){
+   $safe.recovery_observation=@{schema=1;events=@()}
+   if($recovery.journal_state -is [string] -and $recovery.journal_state -cin @('absent','prepared','restoring','restored','recovery_required','recovered','unknown','unavailable')){$safe.recovery_observation.journal_state=$recovery.journal_state}
+   foreach($key in 'injection_reached','recover_called','wrappers_restored','truncated'){if($recovery.$key -is [bool]){$safe.recovery_observation[$key]=$recovery.$key}}
+   $errorFields={param($value)
+    $entry=@{source_frames=@()}
+    if($value.error_type -is [string] -and $value.error_type -cin $types){$entry.error_type=$value.error_type}
+    $frames=@($value.source_frames)
+    if($frames.Count -le 8){foreach($frame in $frames){if($frame.source_basename -is [string] -and $frame.source_basename -cin @('windows_backups_native.py','backups.py') -and (& $integer $frame.source_line 1 20000)){$entry.source_frames+=@{source_basename=$frame.source_basename;source_line=[int]$frame.source_line}}}}
+    return $entry
+   }
+   foreach($key in 'original_error','recovery_error','reported_error'){if($recovery.$key){$safe.recovery_observation[$key]=& $errorFields $recovery.$key}}
+   $events=@($recovery.events)
+   if($events.Count -le 8){foreach($event in $events){
+    if($event.event -isnot [string] -or $event.event -cnotin @('tool_failure','run_failure','control_failure','recovery_failure') -or $event.phase -isnot [string] -or $event.phase -cnotin @('restore','recovery')){continue}
+    $entry=(& $errorFields $event)+@{event=$event.event;phase=$event.phase}
+    $choices=@{operation=@('secure','plan','hold','hold-selection','start-web','recover-startup','resume-factory','activate','acl-read','acl-restore','none','unknown');tool=@('psql','pg_dump','pg_restore','ssh-keygen','sftp','powershell','unknown');failure_class=@('database_invalid_encoding','database_client_encoding','database_permission','database_connection','database_syntax','ssh_private_key_permissions','ssh_private_key_format','ssh_private_key_unreadable','ssh_host_key','ssh_authentication','ssh_connection','ssh_remote_path','shell_command_not_found','shell_permission','shell_parameter_binding','shell_path','shell_invalid_operation','control_path_boundary','control_permission_class','control_startup_snapshot','control_stop_timeout','control_start_timeout','control_request','control_acl_snapshot','unknown')}
+    foreach($key in $choices.Keys){if($event.$key -is [string] -and $event.$key -cin $choices[$key]){$entry[$key]=$event.$key}}
+    if(& $integer $event.returncode -2147483648 2147483647){$entry.returncode=[int64]$event.returncode}
+    if($event.native_source_basename -is [string] -and $event.native_source_basename -ceq 'Backup-Control.ps1' -and (& $integer $event.native_source_line 1 20000)){$entry.native_source_basename='Backup-Control.ps1';$entry.native_source_line=[int]$event.native_source_line}
+    $safe.recovery_observation.events+=,$entry
+   }}
+  }
   $safe.report_status='read'
  }catch{}
  return $safe

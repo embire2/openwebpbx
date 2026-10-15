@@ -24,6 +24,10 @@ CLASSES={'database_invalid_encoding','database_client_encoding','database_permis
     'database_syntax','ssh_private_key_permissions','ssh_private_key_format','ssh_private_key_unreadable',
     'ssh_host_key','ssh_authentication','ssh_connection','ssh_remote_path','unknown'}
 ERRORS={'BackupError','TimeoutExpired','OSError','FileNotFoundError','PermissionError','UnicodeDecodeError','unknown'}
+RECOVERY_ERRORS=ERRORS|{'AssertionError','RuntimeError','NameError','TypeError','AttributeError','ValueError','KeyError','IndexError','JSONDecodeError'}
+OPERATIONS={'secure','plan','hold','hold-selection','start-web','recover-startup','resume-factory','activate','acl-read','acl-restore','none','unknown'}
+RECOVERY_CLASSES=CLASSES|{'shell_command_not_found','shell_permission','shell_parameter_binding','shell_path','shell_invalid_operation',
+    'control_path_boundary','control_permission_class','control_startup_snapshot','control_stop_timeout','control_start_timeout','control_request','control_acl_snapshot'}
 
 
 def closed_stderr(tool,raw):
@@ -59,7 +63,7 @@ def tool_name(command,tools):
 
 class WorkerObservation:
     def __init__(self,module,report):
-        self.module=module;self.report=report;self.phase='before_upload';self.events=[];self.truncated=False
+        self.module=module;self.report=report;self.phase='before_upload';self.events=[];self.truncated=False;self.classify=closed_stderr;self.details=lambda tool,raw:{}
         self.tools={ntpath.normcase(ntpath.normpath(module.tool(name))):name for name in TOOLS-{'powershell','unknown'}}
         powershell=str(Path(os.environ.get('SystemRoot','C:/Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe')
         self.tools[ntpath.normcase(ntpath.normpath(powershell))]='powershell'
@@ -90,8 +94,10 @@ class WorkerObservation:
                     raise
                 try:
                     if type(result.returncode) is int and result.returncode!=0:
-                        event={'event':'tool_failure','tool':tool,'failure_class':closed_stderr(tool,result.stderr)}
+                        event={'event':'tool_failure','tool':tool,'failure_class':observer.classify(tool,result.stderr)}
                         if -(2**31)<=result.returncode<2**31:event['returncode']=result.returncode
+                        try:event.update(observer.details(tool,result.stderr))
+                        except BaseException:pass
                         emit(event)
                 except BaseException:pass
                 return result
@@ -108,6 +114,129 @@ class WorkerObservation:
                 raise
             finally:observer.phase='after_upload'
         self.module.subprocess=Subprocess();self.module.run=run;self.module.upload_sftp=upload
+
+
+def recovery_error(error):
+    frames=[];trace=error.__traceback__
+    while trace is not None:
+        name=Path(trace.tb_frame.f_code.co_filename).name
+        if name in {'backups.py','windows_backups_native.py'} and 0<trace.tb_lineno<=20000:
+            frames.append({'source_basename':name,'source_line':trace.tb_lineno})
+        trace=trace.tb_next
+    return {'error_type':type(error).__name__ if type(error).__name__ in RECOVERY_ERRORS else 'unknown','source_frames':frames[-8:]}
+
+
+def recovery_stderr(tool,raw):
+    category=closed_stderr(tool,raw)
+    if category!='unknown' or tool!='powershell' or not isinstance(raw,bytes) or len(raw)>262144:return category
+    text=raw.decode('utf-8',errors='replace')
+    messages={
+        'A backup path is outside the owned private locations.':'control_path_boundary',
+        'Backup paths must not contain links or junctions.':'control_path_boundary',
+        'An unknown backup permission class was requested.':'control_permission_class',
+        'The factory startup snapshot is invalid.':'control_startup_snapshot',
+        'The factory service startup snapshot is invalid.':'control_startup_snapshot',
+        'The factory running-service snapshot is invalid.':'control_startup_snapshot',
+        'The factory web/task snapshot is invalid.':'control_startup_snapshot',
+        'The certificate-task snapshot is invalid.':'control_startup_snapshot',
+        'The additional-task snapshot is invalid.':'control_startup_snapshot',
+        'The PBX application pool did not stop.':'control_stop_timeout',
+        'The PBX application pool did not start.':'control_start_timeout',
+        'A backup control request is invalid.':'control_request',
+        'A factory private-data permission snapshot is invalid.':'control_acl_snapshot'}
+    matched={category for message,category in messages.items()
+             if re.search(r'(?m)^\s*(?:\+?\s*FullyQualifiedErrorId\s*:\s*)?'+re.escape(message)+r'\s*$',text)}
+    if len(matched)==1:return matched.pop()
+    if matched:return 'unknown'
+    for pattern,category in (
+        (r'\bCommandNotFoundException\b','shell_command_not_found'),
+        (r'\b(?:UnauthorizedAccessException|PSSecurityException|SecurityException)\b','shell_permission'),
+        (r'\bParameterBinding(?:Validation)?Exception\b','shell_parameter_binding'),
+        (r'\b(?:FileNotFoundException|DirectoryNotFoundException|ItemNotFoundException|PathNotFound)\b','shell_path'),
+        (r'\bInvalidOperationException\b','shell_invalid_operation')):
+        if re.search(pattern,text):return category
+    return 'unknown'
+
+
+def recovery_position(tool,raw):
+    if tool!='powershell' or not isinstance(raw,bytes) or len(raw)>262144:return {}
+    positions=set()
+    for line in raw.decode('utf-8',errors='replace').splitlines():
+        if len(line)>2048:continue
+        match=re.fullmatch(r'\s*At [^\r\n]*[\\/]Backup-Control\.ps1:([1-9][0-9]{0,4}) char:[1-9][0-9]{0,5}\s*',line)
+        if match and 1<=int(match[1])<=20000:positions.add(int(match[1]))
+    if len(positions)!=1:return {}
+    return {'native_source_basename':'Backup-Control.ps1','native_source_line':positions.pop()}
+
+
+class RecoveryObservation(WorkerObservation):
+    """Local harness call only; every original function/outcome is retained."""
+    def __init__(self,module,report,injected):
+        super().__init__(module,report);self.phase='restore';self.operation='none';self.injected=injected
+        self.classify=recovery_stderr;self.details=recovery_position;self.recover_called=False;self.wrappers_restored=False
+        self.original_error=None;self.recovery_error=None;self.reported_error=None;self.originals={}
+    def record(self,event):
+        super().record(event|{'operation':self.operation if isinstance(self.operation,str) and self.operation in OPERATIONS else 'unknown'})
+    def __enter__(self):
+        self.originals={name:getattr(self.module,name) for name in ('run','control','_recover','subprocess','upload_sftp')}
+        try:
+            super().install();original_control=self.originals['control'];original_recover=self.originals['_recover'];observer=self
+            def control(operation,*arguments,**keywords):
+                previous=observer.operation;observer.operation=operation if isinstance(operation,str) and operation in OPERATIONS else 'unknown'
+                try:return original_control(operation,*arguments,**keywords)
+                except BaseException as error:
+                    try:observer.record({'event':'control_failure'}|recovery_error(error))
+                    except BaseException:pass
+                    raise
+                finally:observer.operation=previous
+            def recover(*arguments,**keywords):
+                observer.recover_called=True
+                try:
+                    original=sys.exception()
+                    if original is not None:observer.original_error=recovery_error(original)
+                except BaseException:pass
+                previous=observer.phase;observer.phase='recovery'
+                try:return original_recover(*arguments,**keywords)
+                except BaseException as error:
+                    try:
+                        observer.recovery_error=recovery_error(error)
+                        observer.record({'event':'recovery_failure'}|observer.recovery_error)
+                    except BaseException:pass
+                    raise
+                finally:observer.phase=previous
+            self.module.control=control;self.module._recover=recover
+        except BaseException:
+            self.__exit__(*sys.exc_info());raise
+        return self
+    def __exit__(self,kind,error,trace):
+        try:
+            for name,value in self.originals.items():setattr(self.module,name,value)
+            self.wrappers_restored=all(getattr(self.module,name) is value for name,value in self.originals.items())
+        except BaseException:
+            if error is None:raise
+        return False
+    def note_reported(self,error):
+        try:self.reported_error=recovery_error(error)
+        except BaseException:pass
+    def safe_report(self):
+        state='unavailable'
+        try:
+            journal=self.module.RESTORE/'journal.json'
+            if not journal.exists():state='absent'
+            else:
+                journal=ordinary(journal)
+                if journal.stat().st_size<=8*1024*1024:
+                    value=json.loads(journal.read_text(encoding='utf-8-sig')).get('state')
+                    state=value if isinstance(value,str) and value in {'prepared','restoring','restored','recovery_required','recovered'} else 'unknown'
+        except BaseException:pass
+        result={'schema':1,'journal_state':state,'recover_called':self.recover_called,'wrappers_restored':self.wrappers_restored,'events':self.events,'truncated':self.truncated}
+        try:
+            reached=self.injected()
+            if type(reached) is bool:result['injection_reached']=reached
+        except BaseException:pass
+        for key in ('original_error','recovery_error','reported_error'):
+            if getattr(self,key) is not None:result[key]=getattr(self,key)
+        return result
 
 
 def projected_events(record):

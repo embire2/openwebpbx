@@ -502,6 +502,7 @@ $db=$database->db;$db->exec('CREATE TABLE openweb_windows_rollback_fixture(id in
 $p=$db->prepare('update v_pbx_restore set config=config || cast(:extra as jsonb)');$p->execute(['extra'=>'{"forced_rollback_fixture":true}']);
 if($p->rowCount()!==1)exit(74);
 passthru('powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '.escapeshellarg(__DIR__.'/forced-failure.ps1'),$code);
+if($code!==0)exit(74);
 exit(73);
 '@
  $faultPs=@'
@@ -513,7 +514,15 @@ if(!$installation.RestoreServer -or $installation.DomainName -ne 'windowsqa.exam
 [IO.File]::WriteAllText("$state/mobile-notifications/config.json",'{"forced_fixture":true}')
 [IO.File]::WriteAllText("$state/native-engine.json",'{"schema":1,"forced_fixture":true}')
 [xml]$task=Export-ScheduledTask -TaskName OpenWebPBX-Backups
-$task.Task.Settings.Hidden='true';Register-ScheduledTask -TaskName OpenWebPBX-Backups -Xml $task.OuterXml -Force|Out-Null
+$namespace=[Xml.XmlNamespaceManager]::new($task.NameTable)
+$uri=$task.DocumentElement.NamespaceURI
+if($uri){$namespace.AddNamespace('task',$uri)}
+$settings=$task.SelectSingleNode($(if($uri){'/task:Task/task:Settings'}else{'/Task/Settings'}),$namespace)
+if(!$settings){throw 'The owned task settings are unavailable.'}
+$hidden=$settings.SelectSingleNode($(if($uri){'task:Hidden'}else{'Hidden'}),$namespace)
+if(!$hidden){$hidden=$task.CreateElement('Hidden',$uri);[void]$settings.AppendChild($hidden)}
+$hidden.InnerText='true'
+Register-ScheduledTask -TaskName OpenWebPBX-Backups -Xml $task.OuterXml -Force|Out-Null
 $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect();$native=$scheduler.GetFolder('\').GetTask('OpenWebPBX-Backups')
 $before=$native.GetSecurityDescriptor(7);$security=[Security.AccessControl.RawSecurityDescriptor]::new($before)
 # Change only this owned task's read access; no new ability to run the task.

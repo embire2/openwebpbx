@@ -24,7 +24,7 @@ FOREIGN='bbbbbbbb-2222-4222-8222-222222222222'
 
 def library(legacy=False):
     tree=ast.parse(SOURCE.read_text())
-    names={'BACKUP_PHASES','BACKUP_ERROR_TYPES','LAST_HTTP','LAST_FAILED_COMMAND','LAST_WORKER_OBSERVATION'}
+    names={'BACKUP_PHASES','BACKUP_ERROR_TYPES','LAST_HTTP','LAST_FAILED_COMMAND','LAST_WORKER_OBSERVATION','LAST_RECOVERY_OBSERVATION'}
     nodes=[n for n in tree.body if isinstance(n,(ast.Import,ast.ImportFrom)) or
         isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id in names for t in n.targets) or
         isinstance(n,ast.ClassDef) and n.name in {'Hidden','Http'} or
@@ -198,6 +198,10 @@ class Diagnostics(unittest.TestCase):
             fields['worker_observation']={'schema':1,'report_status':'read','action_restored':True,'truncated':False,'events':[
                 {'event':'tool_failure','phase':'upload','tool':'sftp','failure_class':'ssh_host_key','returncode':7,'private':MARKER},
                 {'event':'tool_failure','phase':'after_upload','tool':'psql','failure_class':'database_invalid_encoding','returncode':3}]}
+            fields['recovery_observation']={'schema':1,'journal_state':'recovery_required','injection_reached':False,'recover_called':True,'wrappers_restored':True,'truncated':False,
+                'original_error':{'error_type':'BackupError','source_frames':[{'source_basename':'backups.py','source_line':1061,'private':MARKER}]},
+                'recovery_error':{'error_type':'BackupError','source_frames':[{'source_basename':'backups.py','source_line':1151}]},
+                'events':[{'event':'tool_failure','phase':'recovery','operation':'acl-restore','tool':'powershell','returncode':1,'failure_class':'control_acl_snapshot','native_source_basename':'Backup-Control.ps1','native_source_line':145,'private':MARKER}]}
             fixture=directory/'python-failure.json';fixture.write_text(json.dumps({'state':'failed','failure':fields,'private':MARKER}),encoding='utf-8')
             result=subprocess.run([pwsh,'-NoProfile','-File',str(script),'-Suite',str(ROOT/'tests/windows-suite.ps1'),'-FailureInput',str(fixture)],capture_output=True,text=True,timeout=30)
             self.assertEqual(result.returncode,0,'Actual PowerShell projection controls failed')
@@ -230,6 +234,18 @@ $record.failure.worker_observation.events[0].returncode=$true;Save $record;Check
 $record.failure.worker_observation.events[0].phase=$marker;Save $record;Check ((BackupFailureReport $path ([datetime]::MinValue)).worker_observation.events.Count -eq 1);$record.failure.worker_observation.events[0].phase='upload'
 $record.failure.worker_observation.events=@($record.failure.worker_observation.events[0])*9;Save $record;Check ((BackupFailureReport $path ([datetime]::MinValue)).worker_observation.events.Count -eq 0)
 $record.failure.worker_observation.schema=$true;Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).ContainsKey('worker_observation'))
+Save $record;$safe=BackupFailureReport $path ([datetime]::MinValue)
+Check ($safe.recovery_observation.journal_state -ceq 'recovery_required' -and $safe.recovery_observation.injection_reached -ceq $false -and $safe.recovery_observation.recover_called -ceq $true -and $safe.recovery_observation.wrappers_restored -ceq $true)
+Check ($safe.recovery_observation.original_error.error_type -ceq 'BackupError' -and $safe.recovery_observation.original_error.source_frames[0].source_basename -ceq 'backups.py')
+Check ($safe.recovery_observation.events[0].operation -ceq 'acl-restore' -and $safe.recovery_observation.events[0].native_source_basename -ceq 'Backup-Control.ps1' -and $safe.recovery_observation.events[0].native_source_line -eq 145)
+Check (!(($safe|ConvertTo-Json -Depth 12).Contains($marker)))
+foreach($key in 'journal_state','injection_reached','recover_called','wrappers_restored'){$original=$record.failure.recovery_observation[$key];$record.failure.recovery_observation[$key]=@($original,$marker);Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).recovery_observation.ContainsKey($key));$record.failure.recovery_observation[$key]=$original}
+foreach($key in 'operation','tool','failure_class','native_source_basename'){$original=$record.failure.recovery_observation.events[0][$key];$record.failure.recovery_observation.events[0][$key]=@($original,$marker);Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).recovery_observation.events[0].ContainsKey($key));$record.failure.recovery_observation.events[0][$key]=$original}
+$record.failure.recovery_observation.events[0].native_source_line=$true;Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).recovery_observation.events[0].ContainsKey('native_source_line'))
+$record.failure.recovery_observation.original_error.error_type=@('BackupError',$marker);$record.failure.recovery_observation.original_error.source_frames=@(@{source_basename=$marker;source_line=1});Save $record;$safe=BackupFailureReport $path ([datetime]::MinValue)
+Check (!$safe.recovery_observation.original_error.ContainsKey('error_type') -and $safe.recovery_observation.original_error.source_frames.Count -eq 0 -and !(($safe|ConvertTo-Json -Depth 12).Contains($marker)))
+$record.failure.recovery_observation.events=@($record.failure.recovery_observation.events[0])*9;Save $record;Check ((BackupFailureReport $path ([datetime]::MinValue)).recovery_observation.events.Count -eq 0)
+$record.failure.recovery_observation.schema=$true;Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).ContainsKey('recovery_observation'))
 $record.failure.failed_command.private=$marker
 foreach($key in 'action','status','message_category','local_status','remote_status'){$original=$record.failure.failed_command[$key];$record.failure.failed_command[$key]=@($original,$marker);Save $record;$safe=BackupFailureReport $path ([datetime]::MinValue);Check (!$safe.failed_command.ContainsKey($key) -and !(($safe|ConvertTo-Json -Depth 12).Contains($marker)));$record.failure.failed_command[$key]=$original}
 $record.failure.failed_command.linked_count=2;Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).failed_command.ContainsKey('linked_count'));$record.failure.failed_command.linked_count=1
