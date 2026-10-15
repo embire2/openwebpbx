@@ -1,5 +1,10 @@
 # OpenWeb PBX workspace
 
+## Windows Steps 1–3 continuation — 2026-10-15
+
+- User explicitly authorized continuing the combined qualification, parallel restore/update/migration rehearsals and guarded owner upgrade. Full `38745703895` at `4014d4864` failed after fifteen native calling/mail cases: trusted-TLS SMTP delivery timed out after a zero-exit worker; later backup PostgreSQL polling failed; global cleanup refused a held upgrade lock with no verified holder. Reapply, forced rollback, held startup and both actual manager reopen paths passed. No common cause is established. Two agents are investigating independent failure paths while root prepares migration and the independent reviewer checks Step 2 tooling. Owner transactions remain gated on successful integration.
+- Root audited original candidate SHA `c67110fe05eb711f23ccaf7354db44a1fad93110d396f6f22b693c21f453b0be` (314,756,483 bytes): all 14,095 mappings, 6,473 tracked source mappings, 1,099 native .NET files, 6,214 codec inputs and 54 unchanged C# inputs passed. This archive audit does not waive the failed suite or cleanup. Private report: `/var/lib/openwebpbx/windows113/candidate-4014-root-audit.json`. Windows remains 1.0.6; no release or roadmap acceptance is implied.
+
 ## Automatic provider addresses — 2026-10-15
 
 - Removed the separate Provider IP requirement from Voice & Chat and Add SIP Trunk. Configured server/proxy names resolve to exact incoming addresses on save/connect; optional Advanced overrides and legacy numeric ports are preserved. New blank ports allow native SIP service discovery. Unresolved connections cannot enable; read-only automatic/proxy checks avoid guessing ports or claiming carrier success.
