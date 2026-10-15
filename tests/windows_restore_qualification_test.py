@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Offline evidence/refusal controls, not a claim of Windows qualification."""
 import copy
+import ast
+import contextlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import shutil
@@ -234,7 +237,52 @@ class Controls(unittest.TestCase):
     def test_same_machine_or_private_material_refused(self):
         for key in ('hardware_uuid_hmac','hostname_hmac','certificate_sha256', 'template_key_sha256'):
             source, target = self.identities(); target[key] = source[key]
-            with self.subTest(key=key), self.assertRaises(ValueError): q.distinct_installations(source, target)
+            with self.subTest(key=key), self.assertRaises(ValueError) as caught: q.distinct_installations(source, target)
+            self.assertEqual(q.restore_identity_failure_fields(caught.exception),
+                             {'failure_kind':'non_distinct_installation_identity','identity_field':key})
+
+    def test_identity_observation_refuses_arbitrary_types_values_and_private_messages(self):
+        for kind in (ValueError,RuntimeError,type('FictionalValueError',(ValueError,),{})):
+            for field in ('PRIVATE C:/secret password',True,None,[],{},'HARDWARE_UUID_HMAC'):
+                error=kind('PRIVATE SQL/password C:/secret');error.failure_kind='non_distinct_installation_identity';error.identity_field=field
+                self.assertEqual(q.restore_identity_failure_fields(error),{})
+        error=ValueError('PRIVATE SQL/password C:/secret');error.identity_field='hostname_hmac'
+        for kind in (None,True,[],{},'PRIVATE','NON_DISTINCT_INSTALLATION_IDENTITY'):
+            error.failure_kind=kind;self.assertEqual(q.restore_identity_failure_fields(error),{})
+        error.failure_kind='non_distinct_installation_identity'
+        self.assertEqual(q.restore_identity_failure_fields(error),{'failure_kind':error.failure_kind,'identity_field':'hostname_hmac'})
+        self.assertNotIn('PRIVATE',json.dumps(q.restore_identity_failure_fields(error)))
+
+    def test_actual_main_failure_json_preserves_error_source_and_projects_only_fixed_identity(self):
+        source,target=self.identities();target['hostname_hmac']=source['hostname_hmac']
+        try:q.distinct_installations(source,target)
+        except ValueError as error:actual=error
+        actual.private='PRIVATE SQL/password C:/secret'
+        final=ast.parse((HERE/'windows-restore-qualification.py').read_text()).body[-1]
+        program=compile(ast.Module(body=[final],type_ignores=[]),str(HERE/'windows-restore-qualification.py'),'exec')
+        def fail():raise actual
+        namespace=q.__dict__.copy() | {'__name__':'__main__','main':fail}
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output),self.assertRaises(SystemExit) as stopped:exec(program,namespace)
+        self.assertEqual(stopped.exception.code,1)
+        facts=json.loads(output.getvalue())
+        self.assertEqual(facts['state'],'failed');self.assertEqual(facts['error_type'],'ValueError')
+        self.assertEqual(facts['source_basename'],'windows-restore-qualification.py')
+        self.assertGreater(facts['source_line'],0);self.assertEqual(facts['active_case'],'restore_qualification')
+        self.assertEqual(facts['failure_kind'],'non_distinct_installation_identity');self.assertEqual(facts['identity_field'],'hostname_hmac')
+        self.assertEqual(set(facts),{'state','error_type','active_case','source_basename','source_line','failure_kind','identity_field'})
+        self.assertNotIn('PRIVATE',output.getvalue());self.assertNotIn(source['hostname_hmac'],output.getvalue())
+        namespace['main']=lambda:None;output=io.StringIO()
+        with contextlib.redirect_stdout(output):exec(program,namespace)
+        self.assertEqual(output.getvalue(),'')
+
+    def test_pg_and_hosted_job_refusals_do_not_claim_an_identity_field(self):
+        for key in ('cluster','database_credentials','hosted_job_id'):
+            source,target=self.identities()
+            if key=='hosted_job_id':target[key]=source[key]
+            else:target['target_owned'][key]=source['target_owned'][key]
+            with self.assertRaises(ValueError) as caught:q.distinct_installations(source,target)
+            self.assertEqual(q.restore_identity_failure_fields(caught.exception),{})
 
     def test_same_image_sid_with_distinct_actual_vm_and_jobs_accepted(self):
         source,target=self.identities();target['machine_sid_hmac']=source['machine_sid_hmac']

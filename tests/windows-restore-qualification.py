@@ -138,6 +138,15 @@ def open_capsule(envelope, key, expected_binding, cipherpath):
     return payload
 
 
+def restore_identity_failure_fields(error):
+    if (type(error) is not ValueError
+            or getattr(error, 'failure_kind', None) != 'non_distinct_installation_identity'
+            or not isinstance(getattr(error, 'identity_field', None), str)
+            or error.identity_field not in ('hardware_uuid_hmac', 'hostname_hmac', 'certificate_sha256', 'template_key_sha256')):
+        return {}
+    return {'failure_kind': 'non_distinct_installation_identity', 'identity_field': error.identity_field}
+
+
 def distinct_installations(source, target):
     # Numeric DB OIDs can legitimately coincide between fresh clusters. The
     # system identifier and actual credential HMAC must differ independently.
@@ -146,7 +155,9 @@ def distinct_installations(source, target):
             raise ValueError('Source and target must be genuinely distinct PostgreSQL installations.')
     for key in ('hardware_uuid_hmac', 'hostname_hmac', 'certificate_sha256', 'template_key_sha256'):
         if source[key] == target[key]:
-            raise ValueError('Source and replacement identities or private material are identical.')
+            error = ValueError('Source and replacement identities or private material are identical.')
+            error.failure_kind = 'non_distinct_installation_identity'; error.identity_field = key
+            raise error
     if source['hosted_job_id']==target['hosted_job_id'] or not all(re.fullmatch('[1-9][0-9]{0,19}',str(v['hosted_job_id'])) for v in (source,target)):
         raise ValueError('Distinct authenticated hosted jobs are required.')
 
@@ -804,4 +815,5 @@ if __name__ == '__main__':
                  'source_line': trace.tb_lineno if trace and 0 < trace.tb_lineno < 1000000 else 0}
         observation = restore_fixture_failure_fields(getattr(error, 'fixture_failure', None), 'cleanup')
         if observation: facts['fixture_failure'] = observation
+        facts.update(restore_identity_failure_fields(error))
         print(json.dumps(facts)); sys.exit(1)

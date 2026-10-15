@@ -78,5 +78,28 @@ try{
  $facts=@{};$script:childRecord.fixture_failure=Clone $good
  try{NativeFixture 'restore'}catch{}
  Assert ($facts.native_failure.active_case -ceq 'restore' -and $null -eq $facts.native_failure.fixture_failure)
+ foreach($field in 'hardware_uuid_hmac','hostname_hmac','certificate_sha256','template_key_sha256'){
+  foreach($mode in 'valid','unknown_kind','private_field','array_field','wrong_action','wrong_type','wrong_source','missing_kind','missing_field'){
+   $facts=@{};$action='late-restore'
+   $script:childRecord=[ordered]@{state='failed';error_type='ValueError';source_basename='windows-restore-qualification.py';source_line=149;failure_kind='non_distinct_installation_identity';identity_field=$field;message='PRIVATE SQL/password C:/secret'}
+   switch($mode){
+    'unknown_kind'{$script:childRecord.failure_kind='PRIVATE'}
+    'private_field'{$script:childRecord.identity_field='PRIVATE'}
+    'array_field'{$script:childRecord.identity_field=@($field)}
+    'wrong_action'{$action='restore'}
+    'wrong_type'{$script:childRecord.error_type='RuntimeError'}
+    'wrong_source'{$script:childRecord.source_basename='fictional.php'}
+    'missing_kind'{$script:childRecord.Remove('failure_kind')}
+    'missing_field'{$script:childRecord.Remove('identity_field')}
+   }
+   $caught=$null;try{NativeFixture $action}catch{$caught=$_}
+   Assert ($null -ne $caught -and [object]::ReferenceEquals($caught.Exception,$script:childFailure))
+   Assert ($facts.native_failure.error_type -ceq $script:childRecord.error_type -and $facts.native_failure.source_basename -ceq $script:childRecord.source_basename -and $facts.native_failure.source_line -eq 149 -and $facts.native_failure.active_case -ceq $action)
+   Assert (($null -ne $facts.native_failure.failure_kind) -eq ($mode -eq 'valid'))
+   Assert (($null -ne $facts.native_failure.identity_field) -eq ($mode -eq 'valid'))
+   if($mode -eq 'valid'){Assert ($facts.native_failure.failure_kind -ceq 'non_distinct_installation_identity' -and $facts.native_failure.identity_field -ceq $field)}
+   Assert (($facts|ConvertTo-Json -Depth 20 -Compress) -notmatch 'PRIVATE|password|C:/secret')
+  }
+ }
 }finally{Remove-Item -LiteralPath $work -Recurse -Force}
-Write-Output ("Restore cleanup source/projection controls passed: {0}" -f $script:count)
+Write-Output ("Restore cleanup/identity source/projection controls passed: {0}" -f $script:count)
