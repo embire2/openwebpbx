@@ -148,6 +148,7 @@ function SafeFailureFields($Record){
  if(($Record.source_line -is [int] -or $Record.source_line -is [long]) -and $Record.source_line -gt 0 -and $Record.source_line -lt 100000){$safe.source_line=[int]$Record.source_line}
  if(($Record.caller_line -is [int] -or $Record.caller_line -is [long]) -and $Record.caller_line -gt 0 -and $Record.caller_line -lt 100000){$safe.caller_line=[int]$Record.caller_line}
  if(($Record.command_exit -is [int] -or $Record.command_exit -is [long]) -and $Record.command_exit -ge [int]::MinValue -and $Record.command_exit -le [int]::MaxValue){$safe.command_exit=[int]$Record.command_exit}
+ if($Record.active_case -is [string] -and $Record.active_case -ceq 'direct_reapply_complete' -and $Record.command_basename -ceq 'php.exe' -and ($Record.command_exit -is [int] -or $Record.command_exit -is [long]) -and $Record.command_exit -eq 255 -and $Record.music_stage -is [string] -and $Record.music_stage -cin 'initialization','bootstrap','music_install','native_default','completion'){$safe.music_stage=$Record.music_stage}
  if($Record.active_case -is [string] -and $Record.active_case -ceq 'direct_reapply_preflight'){
   if($Record.payload_inventory_observed -is [bool]){$safe.payload_inventory_observed=$Record.payload_inventory_observed}
   foreach($field in 'payload_extra_count','payload_reparse_count'){$value=$Record.$field;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 100000){$safe[$field]=$value}}
@@ -578,7 +579,7 @@ try{
     finally{if($null -eq $prior){Remove-Item Env:\OPENWEB_WINDOWS_BACKUP_TEST -ErrorAction SilentlyContinue}else{$env:OPENWEB_WINDOWS_BACKUP_TEST=$prior}}
     foreach($path in (Join-Path $state ('storage/openwebpbx/'+$record.fixture_domain)),(Join-Path $state 'storage/recordings/backup-fixture.wav'),'C:/Program Files/FreeSWITCH/sounds/openwebpbx/backup-fixture.wav'){Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue}
    }
-   & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command '$env:PSModulePath=($PSHOME+"\Modules")+";"+($env:ProgramFiles+"\WindowsPowerShell\Modules");$ErrorActionPreference="Stop";if(Test-Path ($PSHOME+"\Modules\WebAdministration\WebAdministration.psd1")){Import-Module WebAdministration;if(Test-Path IIS:\Sites\OpenWebPBX){Stop-Website OpenWebPBX};if(Test-Path IIS:\AppPools\OpenWebPBX){Stop-WebAppPool OpenWebPBX}}' *> $null
+   & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command '$env:PSModulePath=($PSHOME+"\Modules")+";"+($env:ProgramFiles+"\WindowsPowerShell\Modules");$ErrorActionPreference="Stop";if(Test-Path ($PSHOME+"\Modules\WebAdministration\WebAdministration.psd1")){Import-Module WebAdministration;if(Test-Path IIS:\Sites\OpenWebPBX){Stop-Website OpenWebPBX};if(Test-Path IIS:\AppPools\OpenWebPBX){$poolState=(Get-WebAppPoolState OpenWebPBX).Value;if($poolState -eq "Started"){Stop-WebAppPool OpenWebPBX}elseif($poolState -ne "Stopped"){throw "Owned pool cleanup found an unexpected state."};if((Get-WebAppPoolState OpenWebPBX).Value -ne "Stopped"){throw "Owned pool cleanup did not stop."}}}' *> $null
    if($LASTEXITCODE){throw 'Owned IIS cleanup did not finish.'}
    if(Get-Service OpenWebPBX-Database -ErrorAction SilentlyContinue){Stop-Service OpenWebPBX-Database -Force}
   }

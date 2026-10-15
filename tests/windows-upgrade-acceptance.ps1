@@ -80,6 +80,17 @@ function Check([bool]$Value,[string]$Message){
  # A successful assertion accepts the preceding helper result, including an
  # expected forced failure. Later manager/preservation checks have no child.
  $script:helperFailure=$null
+ $script:musicFailure=$null
+}
+function MusicFailure([string]$Text){
+ if(!$Text -or $Text.Length -gt 4MB){return $null}
+ $matches=[regex]::Matches($Text,'(?m)^(?:(?:php\.exe|C:\\OpenWebPBX\\php\\php\.exe) : )?OPENWEB_MUSIC_FAILURE (\{[^\r\n]{1,2048}\})\r?$')
+ if($matches.Count -ne 1){return $null}
+ try{$row=$matches[0].Groups[1].Value|ConvertFrom-Json}catch{return $null}
+ if($row -isnot [pscustomobject] -or @($row.PSObject.Properties).Count -ne 5){return $null}
+ foreach($name in @($row.PSObject.Properties.Name)){if($name -cnotin 'schema','stage','error_type','source_basename','source_line'){return $null}}
+ if(($row.schema -isnot [int] -and $row.schema -isnot [long]) -or $row.schema -ne 1 -or $row.stage -isnot [string] -or $row.stage -cnotin 'initialization','bootstrap','music_install','native_default','completion' -or $row.error_type -isnot [string] -or $row.error_type -cnotin 'RuntimeException','PDOException','Error','TypeError','ValueError','JsonException','ErrorException','Exception','external_error' -or $row.source_basename -isnot [string] -or $row.source_basename -cnotin 'configure-music.php','pbx_music.php','pbx_paths.php','database.php','config.php','cache.php','require.php','external_component' -or ($row.source_line -isnot [int] -and $row.source_line -isnot [long]) -or $row.source_line -lt 1 -or $row.source_line -ge 100000){return $null}
+ return @{music_stage=$row.stage;error_type=$row.error_type;source_basename=$row.source_basename;source_line=[int]$row.source_line}
 }
 function ProbeFailure($Record){
  $stages=@('probe_import','probe_settings','database_installation','database_identity','database_roles','database_memberships','database_schema','database_tables','database_columns','database_values','database_save','restore_holds','restore_release','pending_create','pending_check','pending_remove')
@@ -148,7 +159,7 @@ try {
 }
 function InvokeHelper([string]$Path,[string[]]$Arguments,[string]$Name){
  $stdout=Join-Path $work ($Name+'.out');$stderr=Join-Path $work ($Name+'.err')
- $failurePath=Join-Path $work ($Name+'-failure.json');$launcher=Join-Path $work ($Name+'-launcher.ps1');$script:helperFailure=$null
+ $failurePath=Join-Path $work ($Name+'-failure.json');$launcher=Join-Path $work ($Name+'-launcher.ps1');$script:helperFailure=$null;$script:musicFailure=$null
  Remove-Item -LiteralPath $failurePath -Force -ErrorAction SilentlyContinue
  [IO.File]::WriteAllText($launcher,(HelperLauncher $Path $Arguments $failurePath),[Text.UTF8Encoding]::new($false))
  $start=[Diagnostics.ProcessStartInfo]::new();$start.FileName=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe';$start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true;$start.CreateNoWindow=$true
@@ -161,6 +172,7 @@ function InvokeHelper([string]$Path,[string[]]$Arguments,[string]$Name){
   $item=Get-Item -LiteralPath $failurePath
   if($item.Length -le 16384 -and !($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){try{$script:helperFailure=HelperFailure (Get-Content -LiteralPath $failurePath -Raw|ConvertFrom-Json)}catch{}}
  }
+ if($code -ne 0 -and $Name -ceq 'direct-install' -and $helperFailure.command_basename -ceq 'php.exe' -and $helperFailure.command_exit -eq 255){$script:musicFailure=MusicFailure ([IO.File]::ReadAllText($stderr))}
  return $code
 }
 $probe=Join-Path $work 'private-probe.py'
@@ -498,6 +510,7 @@ try{
   foreach($field in 'error_type','command_basename','command_exit'){if($helperFailure.ContainsKey($field)){$report[$field]=$helperFailure[$field]}}
  }
  if($checkFailure.active_case -ceq 'direct_reapply_preflight' -and $payloadInventory){foreach($entry in $payloadInventory.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
+ if($checkFailure.active_case -ceq 'direct_reapply_complete' -and $musicFailure){foreach($entry in $musicFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
  Write-Error ('Windows upgrade acceptance failed in '+$phase+'. Private recovery evidence retained.') -ErrorAction Continue
 }finally{
  try{ClearManager}catch{$report.state='failed';$report.failed_phase='owned manager cleanup'}
