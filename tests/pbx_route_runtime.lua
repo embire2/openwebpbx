@@ -422,6 +422,7 @@ local calls={};local native={execute=function(_,_,data)
  calls[#calls+1]=data
  if data:match('^agent list ')then return 'name|state|status|\n'..config.queues[1].members[1].agent_uuid..'|Receiving|On Break|'end
  if data:match('^tier add ')then return '-ERR Tier already exist!\n'end
+ if data:match('^queue list tiers ')then return 'queue|agent|state|level|position\n300@'..config.realm..'|'..config.queues[1].members[1].agent_uuid..'|Active Inbound|1|1\n+OK\n'end
  return '+OK'
 end}
 queue_runtime.ensure(native,config,config.queues[1],domain,function()error('Existing contact must stay intact')end)
@@ -432,10 +433,11 @@ calls={};native.execute=function(_,_,data)
  if data:match('^agent list ')then return '-ERR Agent not found!'end
  if data:match('^agent add ')then return '-ERR Agent already exist!'end
  if data:match('^tier add ')then return '-ERR Tier already exist!'end
+ if data:match('^queue list tiers ')then return 'queue|agent|state|level|position\n300@'..config.realm..'|'..config.queues[1].members[1].agent_uuid..'|Ready|1|1\n+OK\n'end
  return '+OK'
 end
 local created=queue_runtime.ensure(native,config,config.queues[1],domain,function()error('Concurrent winner owns initialization')end)
-check(not next(created) and #calls==3,'Concurrent creation winner is never overwritten or globally reloaded')
+check(not next(created) and #calls==4,'Concurrent creation winner is never overwritten or globally reloaded')
 local function status_sync(f)
  local env=environment(f);env.argv={domain,'100'};assert(loadfile(base..'/app/pbx_setup/mobile_state.lua','t',env))()
  local status;for _,v in ipairs(f.api_calls)do if v.command=='callcenter_config' then status=v.data end end;return status

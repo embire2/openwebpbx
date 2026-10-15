@@ -39,7 +39,7 @@ foreach($users as $u)$c['users'][$u['number']]=['auth_id'=>$u['auth'],'enabled'=
 $owned=static fn(string $id):bool=>in_array($id,[$id1,$id2],true);
 $table=static function(array $rows):string{if(!$rows)return '';return implode('|',array_keys($rows[0]))."\n".implode("\n",array_map(static fn($r)=>implode('|',$r),$rows))."\n+OK\n";};
 $agents=[];foreach([$id1,$id2] as $i=>$id)$agents[$id]=['name'=>$id,'contact'=>'[leg_timeout=3]user/'.$users[$i+1]['auth'].'@'.$realm,'status'=>'Available','state'=>'Waiting','ready_time'=>'0','last_bridge_end'=>'0','wrap_up_time'=>'2'];
-$tiers=[['queue'=>'8190@'.$realm,'agent'=>$id1,'state'=>'Ready','position'=>'1'],['queue'=>'8190@'.$realm,'agent'=>$id2,'state'=>'Ready','position'=>'2']];
+$tiers=[['queue'=>'8190@'.$realm,'agent'=>$id1,'state'=>'Ready','position'=>'1','level'=>'1'],['queue'=>'8190@'.$realm,'agent'=>$id2,'state'=>'Ready','position'=>'2','level'=>'1']];
 $channels=[['uuid'=>$caller,'context'=>$realm,'presence_id'=>'8102@'.$realm],['uuid'=>$foreign,'context'=>'foreign.invalid','presence_id'=>'8102@foreign.invalid']];
 $members=[['state'=>'Waiting'],['state'=>'Trying'],['state'=>'Answered']];$registered=true;$vars=['sip_call_id'=>$call,'cc_agent_bridged'=>'false','openweb_queue_waiting'=>'true','cc_cancel_reason'=>'TIMEOUT','originate_disposition'=>'USER_BUSY'];$commands=[];
 $api=static function(string $command)use(&$commands,&$agents,&$tiers,&$members,&$channels,&$registered,&$vars,$table,$realm,$caller):string{
@@ -56,6 +56,7 @@ $state=windows_native_queue_snapshot($c,$users,$owned,$api,$call);
 $check($state['config_matches']&&$state['expected_registered']&&$state['other_contact_matches']&&$state['expected_policy_ready']);
 $check($state['waiting_members']===1&&$state['trying_members']===1&&$state['answered_members']===1);
 $check($state['expected_status']==='Available'&&$state['expected_state']==='Waiting'&&$state['expected_tier_state']==='Ready'&&$state['expected_tier_position']===1);
+$check($state['expected_tier_level']===1&&$state['other_tier_level']===1&&$state['other_tier_position']===2);
 $check($state['expected_ready_due']&&$state['expected_wrap_due']&&$state['expected_busy_channels']===1&&$state['other_busy_channels']===0);
 $check($state['caller_found']&&!$state['agent_bridged']&&$state['queue_waiting']&&$state['cancel_reason']==='TIMEOUT'&&$state['originate_cause']==='USER_BUSY');
 $bytes=json_encode($state,JSON_THROW_ON_ERROR);$check(!str_contains($bytes,$realm)&&!str_contains($bytes,$id1)&&!str_contains($bytes,'PRIVATE_')&&!str_contains($bytes,'other-private'));
@@ -150,6 +151,33 @@ else:
     raise AssertionError('Queue call failure was hidden')
 check(native.Fixture.wait.__defaults__ == (12,))
 check(call_check.args.defaults[0].id == 'a')
+check(any(isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'declared_queue_tiers'
+          for node in ast.walk(call_check)))
+gate_state = {'config_matches': True, 'agent_bridged': True, 'expected_tier_level': 1,
+              'expected_tier_position': 1, 'other_tier_level': 1, 'other_tier_position': 2}
+
+
+class TierFixture:
+    def __init__(self, state):
+        self.state, self.calls = state, []
+
+    def cli(self, *args):
+        self.calls.append(args)
+        return self.state
+
+
+owned_call = {'callid': 'a' * 24 + '@localfixture'}
+gate = TierFixture(gate_state)
+native.declared_queue_tiers(gate, owned_call)
+check(gate.calls == [('queue-state', owned_call['callid'])])
+for field, value in [('other_tier_position', 1), ('expected_tier_level', 0), ('other_tier_level', 0),
+                     ('expected_tier_position', 2), ('config_matches', False), ('agent_bridged', False)]:
+    try:
+        native.declared_queue_tiers(TierFixture(gate_state | {field: value}), owned_call)
+    except AssertionError:
+        check(True)
+    else:
+        raise AssertionError('An undeclared/unbridged native tier order qualified')
 row = {'job_uuid': 'private-job', 'kind': 'callback', 'queue_number': '8190', 'state': 'starting',
        'attempts': 0, 'max_attempts': 1, 'target_number': '8100', 'internal_target': True,
        'request_key': 'call/' + '11111111-1111-4111-8111-111111111111',

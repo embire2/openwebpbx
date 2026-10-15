@@ -21,7 +21,27 @@ $report=[ordered]@{schema=1;state='running';checks=@();gates=[ordered]@{direct_1
 function Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
 function WriteJson([string]$Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 10),[Text.UTF8Encoding]::new($false))}
 function Check([bool]$Value,[string]$Message){if(!$Value){throw $Message}}
-function Python([string[]]$Arguments){& $python -I @Arguments;if($LASTEXITCODE){throw 'A private database or restore-gate qualification operation failed.'}}
+function ProbeFailure($Record){
+ $stages=@('probe_import','probe_settings','database_installation','database_identity','database_roles','database_memberships','database_schema','database_tables','database_columns','database_values','database_save','restore_holds','restore_release','pending_create','pending_check','pending_remove')
+ $types=@('BackupError','JSONDecodeError','KeyError','FileNotFoundError','PermissionError','ImportError','ModuleNotFoundError','RuntimeError','ValueError','TypeError','OSError','TimeoutError','AssertionError','UnicodeDecodeError','ExternalFailure')
+ if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.active_case -isnot [string] -or $Record.active_case -cnotin $stages -or $Record.error_type -isnot [string] -or $Record.error_type -cnotin $types -or $Record.source_basename -isnot [string] -or $Record.source_basename -cnotin 'private-probe.py','backups.py' -or ($Record.source_line -isnot [int] -and $Record.source_line -isnot [long]) -or $Record.source_line -lt 1 -or $Record.source_line -ge 100000){return $null}
+ return @{active_case=$Record.active_case;error_type=$Record.error_type;source_basename=$Record.source_basename;source_line=[int]$Record.source_line}
+}
+function Python([string[]]$Arguments){
+ $failurePath=Join-Path $work 'probe-failure.json';Remove-Item -LiteralPath $failurePath -Force -ErrorAction SilentlyContinue
+ & $python -I @Arguments 1>(Join-Path $work 'probe-private.out') 2>(Join-Path $work 'probe-private.err');$code=$LASTEXITCODE
+ if($code){
+  $script:probeFailure=$null
+  if(Test-Path -LiteralPath $failurePath -PathType Leaf){
+   $item=Get-Item -LiteralPath $failurePath
+   if($item.Length -le 16384 -and !($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){
+    try{$script:probeFailure=ProbeFailure (Get-Content -LiteralPath $failurePath -Raw|ConvertFrom-Json)}catch{}
+   }
+  }
+  $script:probeExit=[int]$code
+  throw 'A private database or restore-gate qualification operation failed.'
+ }
+}
 function InvokeHelper([string]$Path,[string[]]$Arguments,[string]$Name){
  $stdout=Join-Path $work ($Name+'.out');$stderr=Join-Path $work ($Name+'.err')
  $start=[Diagnostics.ProcessStartInfo]::new();$start.FileName=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe';$start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true;$start.CreateNoWindow=$true
@@ -33,50 +53,73 @@ function InvokeHelper([string]$Path,[string[]]$Arguments,[string]$Name){
 }
 $probe=Join-Path $work 'private-probe.py'
 $code=@'
-import hashlib,hmac,importlib.util,json,os,sys,uuid
+import hashlib,hmac,importlib.util,json,os,sys,uuid,traceback
 from pathlib import Path
 if os.name!='nt' or os.environ.get('GITHUB_ACTIONS')!='true':raise SystemExit(2)
+action=sys.argv[1];path=Path(sys.argv[2]);stage='probe_import'
+def failure(kind,value,tb):
+ allowed_types={'BackupError','JSONDecodeError','KeyError','FileNotFoundError','PermissionError','ImportError','ModuleNotFoundError','RuntimeError','ValueError','TypeError','OSError','TimeoutError','AssertionError','UnicodeDecodeError'}
+ frames=[frame for frame in traceback.extract_tb(tb) if Path(frame.filename).name in {'private-probe.py','backups.py'}]
+ frame=frames[-1] if frames else None
+ safe={'schema':1,'active_case':stage,'error_type':kind.__name__ if kind.__name__ in allowed_types else 'ExternalFailure','source_basename':Path(frame.filename).name if frame else 'private-probe.py','source_line':frame.lineno if frame else 1}
+ try:(path.parent/'probe-failure.json').write_text(json.dumps(safe),encoding='utf-8')
+ except OSError:pass
+ sys.__excepthook__(kind,value,tb)
+sys.excepthook=failure
 spec=importlib.util.spec_from_file_location('backup',Path('C:/OpenWebPBX/tools/backups.py'));b=importlib.util.module_from_spec(spec);spec.loader.exec_module(b)
-action=sys.argv[1];path=Path(sys.argv[2]);settings=b.read_settings()
+stage='probe_settings';settings=b.read_settings()
 key_file=path.parent/'audit.key'
 if not key_file.exists():key_file.write_bytes(os.urandom(32))
 key=key_file.read_bytes()
 def digest(value):return hmac.new(key,json.dumps(value,sort_keys=True,separators=(',',':')).encode(),hashlib.sha256).hexdigest()
 def save(value):path.write_text(json.dumps(value,sort_keys=True),encoding='utf-8')
 if action=='database':
+ stage='database_installation'
  installation=json.loads((b.STATE/'installation.json').read_text(encoding='utf-8-sig'))
  admin=settings|{'database.0.username':'postgres','database.0.password':installation['PostgresPassword']}
+ stage='database_identity'
  identity=b.query(admin,"select jsonb_build_object('name',datname,'oid',oid,'owner',datdba,'acl',datacl::text) from pg_database where datname=current_database()",json_result=True)
+ stage='database_roles'
  roles=b.query(admin,"select json_agg(t order by oid) from (select oid,rolname,rolsuper,rolinherit,rolcreaterole,rolcreatedb,rolcanlogin,rolreplication,rolbypassrls,rolconnlimit,rolpassword,rolvaliduntil,(select coalesce(json_agg(s order by setdatabase),'[]') from (select setdatabase,setconfig from pg_db_role_setting where setrole=a.oid) s) role_config from pg_authid a) t",json_result=True)
+ stage='database_memberships'
  memberships=b.query(admin,"select coalesce(json_agg(t order by roleid,member,grantor),'[]') from pg_auth_members t",json_result=True)
+ stage='database_schema'
  schema=b.query(admin,"select coalesce(json_agg(t order by name),'[]') from (select nspname name,pg_get_userbyid(nspowner) owner,nspacl::text acl from pg_namespace where nspname='public') t",json_result=True)
+ stage='database_tables'
  tables=b.query(settings,"select coalesce(json_agg(t order by name),'[]') from (select c.relname name,pg_get_userbyid(c.relowner) owner,c.relacl::text acl from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind in ('r','p')) t",json_result=True)
+ stage='database_columns'
  columns=b.query(settings,"select coalesce(json_agg(t order by table_name,ordinal_position),'[]') from (select table_name,column_name,ordinal_position,data_type,udt_name,is_nullable,column_default from information_schema.columns where table_schema='public') t",json_result=True)
  # Background heartbeats/logs can change after service recovery. Their schema
  # stays covered; all customer and security/routing table values remain exact.
  volatile={'v_pbx_update_status','v_pbx_backup_status','v_pbx_update_commands','v_pbx_job_slots','v_user_logs','v_logs','v_pbx_user_presence','v_pbx_presence'}
  values={}
+ stage='database_values'
  for entry in tables:
   table=entry['name']
   if table in volatile:continue
   quoted='"'+table.replace('"','""')+'"'
   rows=b.query(settings,"select coalesce(json_agg(t order by row_to_json(t)::text),'[]') from "+quoted+' t',json_result=True)
   values[table]=digest(rows)
- save({'identity':digest(identity),'roles':digest(roles),'memberships':digest(memberships),'schema':digest(schema),'tables':digest(tables),'columns':digest(columns),'values':values,'table_count':len(tables)})
+ stage='database_save';save({'identity':digest(identity),'roles':digest(roles),'memberships':digest(memberships),'schema':digest(schema),'tables':digest(tables),'columns':digest(columns),'values':values,'table_count':len(tables)})
 elif action=='holds':
+ stage='restore_holds'
  if (b.RESTORE/'journal.json').exists():raise RuntimeError('An unrelated restore journal exists')
  with b.exclusive_guard(b.UPGRADE_LOCK):
   plan=b.control('plan');save(plan);b.install_service_holds(plan)
 elif action=='release':
+ stage='restore_release'
  plan=json.loads(path.read_text());b.control('recover-startup',plan)
  for name in b.HELD_UNITS:(b.RESTORE/('hold-'+name)).unlink(missing_ok=True)
  b.control('resume-factory',plan)
 elif action=='pending':
+ stage='pending_create'
  identifier=str(uuid.uuid4());b.query(settings,"insert into v_pbx_update_commands(command_uuid,action) values("+b.literal(identifier)+",'check')");save({'command':identifier})
 elif action=='pending-check':
+ stage='pending_check'
  identifier=json.loads(path.read_text())['command']
  if b.query(settings,'select status from v_pbx_update_commands where command_uuid='+b.literal(identifier))!='pending':raise RuntimeError('A held update was claimed')
 elif action=='pending-remove':
+ stage='pending_remove'
  identifier=json.loads(path.read_text())['command'];b.query(settings,'delete from v_pbx_update_commands where command_uuid='+b.literal(identifier))
 else:raise RuntimeError('Unsupported private qualification operation')
 '@
@@ -324,6 +367,11 @@ try{
 }catch{
  $report.state='failed';$report.failed_phase=$phase
  $report.error_type=$_.Exception.GetType().FullName;$report.source_basename=if($_.InvocationInfo.ScriptName){Split-Path -Leaf $_.InvocationInfo.ScriptName}else{'windows-upgrade-acceptance.ps1'};$report.source_line=[int]$_.InvocationInfo.ScriptLineNumber
+ if($probeFailure){
+  $report.caller_basename=$report.source_basename;$report.caller_line=$report.source_line
+  foreach($entry in $probeFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}
+  $report.command_basename='private-probe.py';$report.command_exit=$probeExit
+ }
  Write-Error ('Windows upgrade acceptance failed in '+$phase+'. Private recovery evidence retained.') -ErrorAction Continue
 }finally{
  try{ClearManager}catch{$report.state='failed';$report.failed_phase='owned manager cleanup'}

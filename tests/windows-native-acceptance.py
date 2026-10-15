@@ -487,6 +487,15 @@ def queue_case_snapshot(f,peers,baseline,phase,call=None):
     return facts,complete
 
 
+def declared_queue_tiers(f,call):
+    # Check actual native rows after the declared first agent answers. A tied
+    # accidental first answer must not qualify the configured priority order.
+    state=f.cli('queue-state',call['callid'])
+    assert state['config_matches'] and state['agent_bridged'],'The declared native queue was not bridged'
+    assert (state['expected_tier_level'],state['expected_tier_position'],
+            state['other_tier_level'],state['other_tier_position'])==(1,1,1,2),'The declared native queue tier order was lost'
+
+
 def callback_wait(f,stage,predicate,seconds):
     assert stage in {'callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed'}
     try:return f.wait(predicate,seconds)
@@ -853,6 +862,7 @@ def native_calls(f):
             old=set(expected.dialogs);call=caller.dial(target,destination);assert call['code']==200,'Native call was not answered'
             if digit is not None:send_ivr_digit(caller,call,digit,f.wait)
             remote=f.wait(lambda:next((v for k,v in expected.dialogs.items() if k not in old and v.get('acked')),None))
+            if target=='8190':declared_queue_tiers(f,call)
             result=media(call,remote);caller.hangup(call);time.sleep(.3);return result
         except BaseException as error:
             if target=='8190':

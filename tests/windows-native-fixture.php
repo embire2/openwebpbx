@@ -43,6 +43,7 @@ function windows_native_queue_snapshot(array $c,array $users,callable $owned,cal
   $out[$label.'_state']=in_array($agent['state']??'', ['Unknown','Waiting','Receiving','In a queue call','Idle','Reserved'],true)?$agent['state']:'Unknown';
   $out[$label.'_tier_state']=in_array($tier['state']??'', ['Unknown','No Answer','Ready','Offering','Active Inbound','Standby'],true)?$tier['state']:'Unknown';
   $out[$label.'_tier_position']=ctype_digit((string)($tier['position']??''))?min(1000,(int)$tier['position']):0;
+  $out[$label.'_tier_level']=ctype_digit((string)($tier['level']??''))?min(1000,(int)$tier['level']):0;
   $out[$label.'_ready_due']=$agent!==[]&&(int)($agent['ready_time']??0)<=time();
   $out[$label.'_wrap_due']=$agent!==[]&&(int)($agent['last_bridge_end']??0)+(int)($agent['wrap_up_time']??0)<=time();
   $u=$c['users'][$number];$profile=$u['profiles'][$u['profile']]??[];$forced=(string)($profile['queue_status']??'-1');
