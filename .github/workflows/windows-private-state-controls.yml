@@ -29,3 +29,8 @@ jobs:
           $env:OPENWEB_TEST_PWSH=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
           python.exe -B tests/windows_private_state.py -v
           if($LASTEXITCODE){throw 'The actual Windows private-state writer controls failed.'}
+      - name: Test held original process identity and closure using native Windows PowerShell
+        run: |
+          $ErrorActionPreference='Stop'
+          & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_manager_process.ps1
+          if($LASTEXITCODE){throw 'The actual Windows held-process controls failed.'}

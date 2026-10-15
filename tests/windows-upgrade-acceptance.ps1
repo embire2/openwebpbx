@@ -19,6 +19,7 @@ if($LASTEXITCODE){throw 'Private upgrade qualification permissions could not be 
 $python="$root\backup-runtime\python.exe";$helper="$root\tools\Upgrade-OpenWebPBX.ps1";$fixture=$null;$phase='private snapshots';$gatePlan=$null
 $managerSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;$managerSession=[Diagnostics.Process]::GetCurrentProcess().SessionId
 $managerName='OpenWebPBX-Manager-'+$managerSid;$managerExe="$root\desktop\OpenWebPbx.Desktop.exe";$managerOriginal=$null;$managerOwned=$false;$managerStarted=$null;$managerAvailable=$false
+$managerHeldProcess=$null;$managerHeldHandles=[Collections.Generic.List[Diagnostics.Process]]::new();$managerClosureFailure=$null
 $report=[ordered]@{schema=1;state='running';checks=@();gates=[ordered]@{direct_113_helper_reapply='pending';direct_failure_rollback='pending';restore_gate_startup='pending';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified'};signed_fixtures='absent';baseline='installed candidate; same-version direct reapply is not a newer signed update'}
 $databaseSidecars=@()
 function Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
@@ -495,9 +496,24 @@ function BeginManager {
  if($visible){$script:managerAvailable=$true;WriteJson (Join-Path $work 'manager-initial.json') @{pid=$visible.Id;owner=$managerSid;session=$managerSession;title=$visible.MainWindowTitle}}
  else{$report.manager_environment='initial responsive installed window unavailable';ClearManager}
 }
+function GetManagerOriginalExitProof($Held,[int]$ExpectedPid){
+ $safe=@{manager_original_handle_pinned=$false;manager_original_identity_verified=$false;manager_original_exit_observed=$false;manager_original_process_class='unavailable'}
+ try{
+  if($Held -isnot [Collections.IDictionary] -or $Held.process -isnot [Diagnostics.Process]){return $safe}
+  $original=$Held.process
+  $safe.manager_original_handle_pinned=($Held.handle -is [IntPtr] -and $Held.handle -ne [IntPtr]::Zero -and $original.Handle -eq $Held.handle)
+  $safe.manager_original_identity_verified=($Held.identity_verified -is [bool] -and $Held.identity_verified -and $Held.pid -is [int] -and $Held.pid -eq $ExpectedPid -and $original.Id -eq $ExpectedPid -and $Held.start_ticks -is [long] -and $original.StartTime.ToUniversalTime().Ticks -eq $Held.start_ticks)
+  if(!$safe.manager_original_handle_pinned -or !$safe.manager_original_identity_verified){return $safe}
+  $original.Refresh();$safe.manager_original_has_exited=[bool]$original.HasExited;$safe.manager_original_exit_observed=$true
+  $safe.manager_original_process_class=if($safe.manager_original_has_exited){'exited_original'}else{'live_original'}
+ }catch{}
+ return $safe
+}
 function AssertManagerReopened([int]$PreviousPid,[DateTime]$NotBefore,[string]$Gate){
  if(!$managerAvailable){return}
- Check (!(Get-Process -Id $PreviousPid -ErrorAction SilentlyContinue)) 'The helper did not close the original owned desktop manager.'
+ $proof=GetManagerOriginalExitProof $managerHeldProcess $PreviousPid
+ if(!$proof.manager_original_exit_observed -or !$proof.manager_original_has_exited){$script:managerClosureFailure=$proof}
+ Check ($proof.manager_original_handle_pinned -and $proof.manager_original_identity_verified -and $proof.manager_original_exit_observed -and $proof.manager_original_has_exited) 'The helper did not close the original owned desktop manager.'
  Check (@((Journal).manager_tasks) -contains $managerName) 'The durable update journal did not record the actual owned interactive restart task.'
  $visible=WaitManager $PreviousPid $NotBefore
  Check ($null -ne $visible) 'The helper did not automatically reopen a responsive installed desktop in its original owner/session.'
@@ -506,9 +522,22 @@ function AssertManagerReopened([int]$PreviousPid,[DateTime]$NotBefore,[string]$G
 }
 function CurrentManagerPid {
  if(!$managerAvailable){return 0}
+ $script:managerClosureFailure=$null
  $visible=WaitManager
  Check ($null -ne $visible -and @(OwnedManagerProcesses).Count -eq 1) 'The original owned responsive manager is unavailable before the helper runs.'
- return $visible.Id
+ $retained=$false
+ try{
+  # Hold the actual process object before invoking the helper. A released PID
+  # may be reused: https://learn.microsoft.com/windows/win32/api/processthreadsapi/ns-processthreadsapi-process_information
+  $handle=$visible.Handle;$start=$visible.StartTime.ToUniversalTime()
+  $records=@(Get-CimInstance Win32_Process -Filter ('ProcessId='+$visible.Id));$owner=if($records.Count -eq 1){Invoke-CimMethod -InputObject $records[0] -MethodName GetOwnerSid}else{$null}
+  $verified=($handle -ne [IntPtr]::Zero -and !$visible.HasExited -and $records.Count -eq 1 -and $records[0].ExecutablePath -eq $managerExe -and $visible.Path -eq $managerExe -and $owner.ReturnValue -eq 0 -and $owner.Sid -eq $managerSid -and $records[0].SessionId -eq $managerSession -and $visible.SessionId -eq $managerSession -and $start -ge $managerStarted)
+  Check $verified 'The original owned responsive manager is unavailable before the helper runs.'
+  $script:managerHeldProcess=@{process=$visible;handle=$handle;pid=[int]$visible.Id;start_ticks=[long]$start.Ticks;identity_verified=[bool]$verified}
+  $script:managerHeldHandles.Add($visible);$retained=$true
+  WriteJson (Join-Path $work ('manager-held-'+$managerHeldHandles.Count+'.json')) @{pid=$visible.Id;owner=$owner.Sid;session=$visible.SessionId;path=$visible.Path;start_utc=$start.ToString('o');handle_pinned=($handle -ne [IntPtr]::Zero)}
+  return $visible.Id
+ }finally{if(!$retained){$visible.Dispose()}}
 }
 function ClearManager {
  if(!$managerOwned){return}
@@ -674,10 +703,11 @@ try{
   try{$observation=SafeOpenWebUpgradeLockFields (Get-OpenWebUpgradeLockObservation $state $work $updaterGeneration);foreach($entry in $observation.GetEnumerator()){$report[$entry.Key]=$entry.Value}}catch{}
  }
  if($checkFailure.active_case -ceq 'direct_reapply_complete' -and $musicFailure){foreach($entry in $musicFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
+ if($checkFailure.active_case -ceq 'manager_original_closed' -and $managerClosureFailure){foreach($entry in $managerClosureFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
  if($comparisonFailure -and $checkFailure){foreach($entry in $comparisonFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
  Write-Error ('Windows upgrade acceptance failed in '+$phase+'. Private recovery evidence retained.') -ErrorAction Continue
 }finally{
- try{ClearManager}catch{$report.state='failed';$report.failed_phase='owned manager cleanup'}
+ try{ClearManager}catch{$report.state='failed';$report.failed_phase='owned manager cleanup'}finally{foreach($heldProcess in $managerHeldHandles){$heldProcess.Dispose()}}
  if($gatePlan){try{StopUpdater;Python @($probe,'release',$gatePlan)}catch{$report.state='failed';$report.failed_phase='restore hold cleanup'}}
  if($fixture -and (Test-Path $fixture)){
   try{Push-Location "$root\web";try{& "$root\php\php.exe" (Join-Path $PSScriptRoot 'windows-backups-fixture.php') clear $fixture;Check ($LASTEXITCODE -eq 0) 'Owned upgrade PBX cleanup failed.'}finally{Pop-Location}}catch{$report.state='failed';$report.failed_phase='owned fixture cleanup'}

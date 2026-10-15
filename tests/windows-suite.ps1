@@ -204,6 +204,10 @@ function SafeComparisonFields($Record){
 }
 function SafeFailureFields($Record){
  $safe=@{}
+ if($Record.active_case -is [string] -and $Record.active_case -ceq 'manager_original_closed'){
+  foreach($key in 'manager_original_handle_pinned','manager_original_identity_verified','manager_original_exit_observed','manager_original_has_exited'){if($Record.$key -is [bool]){$safe[$key]=$Record.$key}}
+  if($Record.manager_original_process_class -is [string] -and $Record.manager_original_process_class -cin 'live_original','exited_original','unavailable'){$safe.manager_original_process_class=$Record.manager_original_process_class}
+ }
  if(($Record.lock_observer_schema -is [int] -or $Record.lock_observer_schema -is [long]) -and $Record.lock_observer_schema -eq 1){$lockFields=SafeOpenWebUpgradeLockFields $Record;foreach($entry in $lockFields.GetEnumerator()){$safe[$entry.Key]=$entry.Value}}
  foreach($field in 'failed_phase','error_type','source_basename','active_case','command_basename','caller_basename'){
   $value=$Record.$field
