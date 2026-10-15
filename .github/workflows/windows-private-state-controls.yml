@@ -34,3 +34,8 @@ jobs:
           $ErrorActionPreference='Stop'
           & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_manager_process.ps1
           if($LASTEXITCODE){throw 'The actual Windows held-process controls failed.'}
+      - name: Test future updater worker and manager lifetimes using native Windows PowerShell
+        run: |
+          $ErrorActionPreference='Stop'
+          & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_updater_process.ps1
+          if($LASTEXITCODE){throw 'The actual Windows updater process controls failed.'}

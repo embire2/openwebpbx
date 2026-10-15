@@ -25,6 +25,7 @@ $work=Join-Path $env:RUNNER_TEMP ('openwebpbx-updater-'+[Guid]::NewGuid().ToStri
 $public=Join-Path $env:RUNNER_TEMP 'openwebpbx-updater-facts';$output=Join-Path $env:RUNNER_TEMP 'openwebpbx-updater-canary'
 $phase='verified baseline artifacts';$installed=$false;$transport=$null;$transportRoot=$null;$ownHosts=$false;$serviceEnvironment=$null;$inputFile=$null;$settings=$null;$scope=$null;$fixtureCreated=$false
 $managerOwned=$false;$managerStarted=$null;$managerName=$null;$managerSid=$null;$managerSession=0
+$retainedProcesses=[Collections.Generic.List[Diagnostics.Process]]::new()
 $facts=[ordered]@{schema=1;mode=$Mode;run_id=$env:GITHUB_RUN_ID;source_commit=$env:GITHUB_SHA;state='running';scope='disposable Windows Server 2025, fictional PBX, laboratory trusted HTTPS';checks=@();gates=[ordered]@{canary_build='pending';fault_https_download='unqualified';fault_rollback='unqualified';normal_https_download='unqualified';newer_upgrade='unqualified';natural_updater_restart='unqualified';manager_reopen_rollback='unqualified';manager_reopen_success='unqualified';protected_data='unqualified';public_github_delivery='unqualified';owner_106_upgrade='unqualified';carrier='unqualified'};cleanup='pending'}
 function Check([bool]$Value,[string]$Message){if(!$Value){throw $Message}}
 function Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
@@ -157,8 +158,34 @@ function BeginManager {
  $script:managerOwned=$true;$script:managerStarted=[DateTime]::UtcNow;$start=[Diagnostics.ProcessStartInfo]::new("$root\desktop\OpenWebPbx.Desktop.exe");$start.UseShellExecute=$false;$start.WorkingDirectory="$root\desktop";$start.Environment['PSModulePath']=(Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell/Modules');$process=[Diagnostics.Process]::Start($start);$process.Dispose()
  return WaitManager '1.0.13'
 }
-function ManagerReopened([string]$Version,[int]$PreviousPid,[DateTime]$NotBefore){
- Check (!(Get-Process -Id $PreviousPid -ErrorAction SilentlyContinue)) 'The updater did not close the original owned installed manager.'
+function OriginalProcessProofSource([string]$Path){
+ # Import only the independently Windows-qualified proof function, never the
+ # upgrade hook's entrypoint or any service/fixture operation.
+ $tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($Path,[ref]$tokens,[ref]$errors)
+ Check (@($errors).Count -eq 0) 'The retained-process proof source did not parse.'
+ $nodes=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'GetManagerOriginalExitProof'},$true))
+ Check ($nodes.Count -eq 1) 'Exactly one retained-process proof is required.'
+ return [ScriptBlock]::Create($nodes[0].Extent.Text)
+}
+function RetainQualificationProcess([Diagnostics.Process]$Process,[int]$ExpectedPid,[string]$ExpectedPath,[string]$ExpectedSid,[int]$ExpectedSession,[DateTime]$NotBefore){
+ $retained=$false
+ try{
+  $handle=$Process.Handle;$start=$Process.StartTime.ToUniversalTime()
+  $records=@(Get-CimInstance Win32_Process -Filter ('ProcessId='+$ExpectedPid));$owner=if($records.Count -eq 1){Invoke-CimMethod -InputObject $records[0] -MethodName GetOwnerSid}else{$null}
+  $verified=($handle -ne [IntPtr]::Zero -and !$Process.HasExited -and $Process.Id -eq $ExpectedPid -and $records.Count -eq 1 -and $records[0].ExecutablePath -eq $ExpectedPath -and $Process.Path -eq $ExpectedPath -and $owner.ReturnValue -eq 0 -and $owner.Sid -eq $ExpectedSid -and $records[0].SessionId -eq $ExpectedSession -and $Process.SessionId -eq $ExpectedSession -and $start -ge $NotBefore)
+  Check $verified 'The original qualification process identity is unavailable before the request.'
+  $held=@{process=$Process;handle=$handle;pid=[int]$Process.Id;start_ticks=[long]$start.Ticks;identity_verified=[bool]$verified}
+  $script:retainedProcesses.Add($Process);$retained=$true
+  return $held
+ }finally{if(!$retained -and $Process){$Process.Dispose()}}
+}
+function AssertOriginalProcessState($Held,[int]$ExpectedPid,[bool]$Exited,[string]$Message){
+ $proof=GetManagerOriginalExitProof $Held $ExpectedPid
+ Check ($proof.manager_original_handle_pinned -and $proof.manager_original_identity_verified -and $proof.manager_original_exit_observed -and $proof.manager_original_has_exited -eq $Exited) $Message
+}
+function ManagerReopened([string]$Version,$Held,[DateTime]$NotBefore){
+ $PreviousPid=[int]$Held.pid
+ AssertOriginalProcessState $Held $PreviousPid $true 'The updater did not close the original owned installed manager.'
  $journal=Get-Content "$state\updates\install-journal.json" -Raw|ConvertFrom-Json;Check (@($journal.manager_tasks) -contains $managerName) 'The genuine product transaction must record the actual interactive restart task.'
  return WaitManager $Version $PreviousPid $NotBefore
 }
@@ -303,12 +330,15 @@ if(!$?){exit 1}
   # Initial fixture-only service environment setup precedes all acceptance
   # snapshots. No test restarts/kills the updater during either transaction.
   Stop-Service OpenWebPBXUpdater;(Get-Service OpenWebPBXUpdater).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(45));Start-Service OpenWebPBXUpdater
-  Start-Sleep -Seconds 2;$initialPid=InstalledVersions '1.0.13'
+  . (OriginalProcessProofSource (Join-Path $PSScriptRoot 'windows-upgrade-acceptance.ps1'))
+  Start-Sleep -Seconds 2;[int]$initialPid=InstalledVersions '1.0.13'
+  $originalWorker=RetainQualificationProcess ([Diagnostics.Process]::GetProcessById($initialPid)) $initialPid "$root\updater\slots\1.0.13\OpenWebPbx.Updater.exe" 'S-1-5-18' 0 ([DateTime]::MinValue)
   $contractDirectory=Join-Path $state 'qualification113';PrivateDirectory $contractDirectory
   $contract=@{schema=1;authorized=$true;disposable=$true;fault_authorized=$true;disposable_hosted_runner=$true;github_actions=$true;runner_environment='github-hosted';nonce=$scope;run_id=$env:GITHUB_RUN_ID;repository='embire2/openwebpbx';expected_computer=$env:COMPUTERNAME;expected_domain='windowsqa.example.invalid';original_version='1.0.13';baseline_version='1.0.13';target_version='1.0.14'}
   WriteJson (Join-Path $contractDirectory 'canary-fault-contract.json') $contract;WriteJson (Join-Path $contractDirectory 'canary-host-sentinel.json') $contract
   foreach($file in 'canary-fault-contract.json','canary-host-sentinel.json'){& icacls.exe (Join-Path $contractDirectory $file) /inheritance:r /grant:r '*S-1-5-32-544:F' '*S-1-5-18:F' /setowner '*S-1-5-32-544'|Out-Null;Check ($LASTEXITCODE -eq 0) 'The owned SYSTEM fault contract file could not be secured.'}
   $originalManager=BeginManager
+  $heldOriginalManager=RetainQualificationProcess $originalManager ([int]$originalManager.Id) "$root\desktop\OpenWebPbx.Desktop.exe" $managerSid $managerSession $managerStarted
   $phase='fault14 full HTTPS download and rollback'
   foreach($modeName in 'fault','normal'){$cache="$state\updates\downloads\$($verified[$modeName].sha256).archive";Check (!(Test-Path $cache) -and !(Test-Path ($cache+'.partial'))) 'The test refuses preseeded or partial canary archives.'}
   if(Test-Path "$state\updates\trust.json"){$prior=Get-Content "$state\updates\trust.json" -Raw|ConvertFrom-Json;Check ($prior.sequence -le $verified.fault.sequence) 'The private fault sequence must not lower existing trust.'}
@@ -317,7 +347,9 @@ if(!$?){exit 1}
   $installationProtected=Get-Content "$state\installation.json" -Raw|ConvertFrom-Json -AsHashtable;$installationProtected.Remove('Version')|Out-Null
   $script:priorCommands=@((Fixture 'status').commands|ForEach-Object command_uuid);$requestStarted=[DateTime]::UtcNow;Python 'request';$failure=WaitInstall 'rolled_back' 'failed' $requestStarted
   DownloadProof 'fault' $verified.fault;Check ((InstalledVersions '1.0.13') -eq $initialPid) 'The original ordinary installed13 worker must remain running after rollback.'
-  $rollbackManager=ManagerReopened '1.0.13' $originalManager.Id $requestStarted;$facts.gates.manager_reopen_rollback='passed'
+  AssertOriginalProcessState $originalWorker $initialPid $false 'The original ordinary installed13 worker must remain running after rollback.'
+  $rollbackManager=ManagerReopened '1.0.13' $heldOriginalManager $requestStarted;$facts.gates.manager_reopen_rollback='passed'
+  $heldRollbackManager=RetainQualificationProcess $rollbackManager ([int]$rollbackManager.Id) "$root\desktop\OpenWebPbx.Desktop.exe" $managerSid $managerSession $requestStarted
   $witness=Join-Path $contractDirectory ('canary-fault-witness-'+$scope+'.json');Check (Test-Path $witness) 'The signed fault must prove genuine post-deployment 1.0.14 code and normal migration/task setup before failing.'
   $seen=Get-Content $witness -Raw|ConvertFrom-Json;Check ($seen.nonce -eq $scope -and $seen.run_id -eq $env:GITHUB_RUN_ID -and $seen.state -eq 'post_deploy_fault' -and $seen.baseline_version -eq '1.0.13' -and $seen.target_version -eq '1.0.14') 'The late signed fault witness is incomplete.'
   foreach($flag in 'normal_migration_completed','backup_and_mail_deferred','candidate_actual_assemblies','original_worker_parent','services_stopped','new_noncustomer_table','new_noncustomer_file','owned_task_hidden_changed','owned_task_read_acl_changed'){Check ($seen.$flag -is [bool] -and $seen.$flag -eq $true) 'The late signed fault did not prove every required actual mutation.'}
@@ -331,8 +363,8 @@ if(!$?){exit 1}
   $restartDeadline=[DateTime]::UtcNow.AddSeconds(120);$newPid=0
   do{try{$newPid=InstalledVersions '1.0.14'}catch{};if($newPid -and $newPid -ne $initialPid){break};Start-Sleep -Milliseconds 500}while([DateTime]::UtcNow -lt $restartDeadline)
   Check ($newPid -gt 0 -and $newPid -ne $initialPid) 'The installed restart task must naturally select and run genuine updater14 without a manual service restart.'
-  Check (!(Get-Process -Id $initialPid -ErrorAction SilentlyContinue)) 'The previous worker must naturally exit after its installed restart task executes.'
-  $upgradedManager=ManagerReopened '1.0.14' $rollbackManager.Id $requestStarted;$facts.gates.manager_reopen_success='passed'
+  AssertOriginalProcessState $originalWorker $initialPid $true 'The previous worker must naturally exit after its installed restart task executes.'
+  $upgradedManager=ManagerReopened '1.0.14' $heldRollbackManager $requestStarted;$facts.gates.manager_reopen_success='passed'
   $settings.owned_update_commands+=@($success.command);WriteJson $inputFile $settings
   DownloadProof 'normal' $verified.normal;Equal $beforeDb (DatabaseSnapshot 'after-normal') 'normal-database';Equal $protected (FileSnapshot -Protected) 'normal-protected-files'
   $afterProtected=Get-Content "$state\installation.json" -Raw|ConvertFrom-Json -AsHashtable;$afterProtected.Remove('Version')|Out-Null;Equal $installationProtected $afterProtected 'normal-installation-secrets'
@@ -384,6 +416,7 @@ if(!$?){exit 1}
   if($inputFile){Remove-Item -LiteralPath $inputFile -Force -ErrorAction SilentlyContinue}
   Remove-Item Env:\OPENWEB_WINDOWS_UPDATER_TEST -ErrorAction SilentlyContinue
  }catch{$cleanup=$false;$facts.cleanup_error_type=$_.Exception.GetType().Name;$facts.cleanup_source_line=[int]$_.InvocationInfo.ScriptLineNumber}
+ finally{foreach($process in $retainedProcesses){$process.Dispose()}}
  $facts.cleanup=if($cleanup){'owned fixture rows/media, laboratory transport/trust/hosts/environment removed; disposable owned services stopped'}else{'failed'}
  if(!$cleanup){$facts.state='failed'}
  New-Item -ItemType Directory -Force $public|Out-Null;WriteJson (Join-Path $public 'qualification.json') $facts

@@ -178,7 +178,7 @@ class TaskNormalizationChecks(unittest.TestCase):
             self.skipTest('Private local PowerShell parser/runtime is unavailable.')
         source = Path(__file__).with_name('windows-updater-qualification.ps1')
         script = r'''
-param([string]$Source,[string]$Work)
+param([string]$Source,[string]$Work,[string]$SupportSource)
 $ErrorActionPreference='Stop';$work=$Work
 function Check([bool]$Value,[string]$Message){if(!$Value){throw $Message}}
 function WriteJson([string]$Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 32))}
@@ -189,8 +189,16 @@ function Equal($Before,$After,[string]$Label){
 }
 $errors=$null;$tokens=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Source parse failed'}
-$function=$ast.Find({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'NormalTaskPreservation'},$true)
-Invoke-Expression $function.Extent.Text
+foreach($name in 'EqualTaskSnapshots','NormalTaskPreservation'){
+ $functions=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
+ if($functions.Count -ne 1){throw 'Unique actual task comparator/normalizer required'}
+ . ([ScriptBlock]::Create($functions[0].Extent.Text))
+}
+$support=[Management.Automation.Language.Parser]::ParseFile($SupportSource,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Support source parse failed'}
+$functions=@($support.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Test-OpenWebTaskSecurityEquivalent'},$true))
+if($functions.Count -ne 1){throw 'Unique actual Scheduler security comparator required'}
+. ([ScriptBlock]::Create($functions[0].Extent.Text))
 $started=[DateTime]::UtcNow.AddSeconds(-5);$afterBoundary=[DateTime]::UtcNow.AddMinutes(1).ToString('o')
 $original='<Task xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Date>2026-01-01T00:00:00</Date><Author>Administrator</Author></RegistrationInfo><Triggers><TimeTrigger><StartBoundary>2026-01-01T00:00:00</StartBoundary><Repetition><Interval>PT1M</Interval></Repetition></TimeTrigger></Triggers><Actions><Exec><Command>owned.exe</Command></Exec></Actions><Principals><Principal><UserId>S-1-5-18</UserId></Principal></Principals><Settings><Enabled>true</Enabled></Settings></Task>'
 $changed=$original.Replace('2026-01-01T00:00:00',$afterBoundary).Replace('Administrator','SYSTEM')
@@ -214,7 +222,8 @@ foreach($case in 'action','file_acl','com_acl','enabled','future_schedule','extr
 '''
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'task-checks.ps1'; path.write_text(script)
-            result = subprocess.run([str(pwsh), '-NoProfile', '-File', str(path), str(source), temporary],
+            support = source.parents[1] / 'packaging/windows/Support-Recovery.ps1'
+            result = subprocess.run([str(pwsh), '-NoProfile', '-File', str(path), str(source), temporary, str(support)],
                                     capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn('Seven actual PowerShell', result.stdout)
