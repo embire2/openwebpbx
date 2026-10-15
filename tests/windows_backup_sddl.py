@@ -204,7 +204,9 @@ foreach($flag in [Enum]::GetValues([Security.AccessControl.ControlFlags])){
 $a=$one.DiscretionaryAcl[0];$b=$one.DiscretionaryAcl[1]
 $value=AclMetadata (Acl 2 @($a,$b)) (Acl 2 @($b,$a))
 Check (!$value.raw_binary_equal -and !$value.ace_sequence_equal -and $value.ace_set_equal -and $value.ace_multiset_equal -and $value.ace_multiplicity_equal)
-$value=AclMetadata (Acl 2 @($a,$a,$b)) (Acl 2 @($a,$b,$b))
+$equalSize=(Descriptor 'D:(A;;FR;;;LS)').DiscretionaryAcl[0]
+Check ($a.BinaryLength -eq $equalSize.BinaryLength -and !(EqualBytes (BinaryForm $a) (BinaryForm $equalSize)))
+$value=AclMetadata (Acl 2 @($a,$a,$equalSize)) (Acl 2 @($a,$equalSize,$equalSize))
 Check ($value.count_before -eq $value.count_after -and $value.size_before -eq $value.size_after -and $value.ace_set_equal -and !$value.ace_multiset_equal -and !$value.ace_multiplicity_equal -and $value.duplicate_ace_count_before -eq 1)
 $value=AclMetadata (Acl 2 @($a)) (Acl 4 @($a))
 Check (!$value.raw_binary_equal -and $value.ace_multiset_equal -and $value.revision_before -eq 2 -and $value.revision_after -eq 4)
