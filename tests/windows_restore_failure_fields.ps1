@@ -8,7 +8,7 @@ if([string]::IsNullOrWhiteSpace($SourceRoot)){$SourceRoot=Split-Path $PSScriptRo
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-restore-qualification.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Restore qualification source must parse.'}
-foreach($name in 'SafeRestoreFixtureFailure','SafeRestorePeerFailures','NativeFixture'){
+foreach($name in 'SafeRestoreFixtureFailure','SafeRestorePeerFailures','SafeRestoreSchemaFailure','NativeFixture'){
  $nodes=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true))
  if($nodes.Count -ne 1){throw 'One exact source function is required.'}
  if($name -eq 'NativeFixture'){$nativeDefinition=$nodes[0].Extent.Text}else{Invoke-Expression $nodes[0].Extent.Text}
@@ -113,6 +113,30 @@ try{
    Assert (($null -ne $facts.native_failure.identity_field) -eq ($mode -eq 'valid'))
    if($mode -eq 'valid'){Assert ($facts.native_failure.failure_kind -ceq 'non_distinct_installation_identity' -and $facts.native_failure.identity_field -ceq $field)}
    Assert (($facts|ConvertTo-Json -Depth 20 -Compress) -notmatch 'PRIVATE|password|C:/secret')
+  }
+ }
+ foreach($label in 'target-wrongpass','target-recovered','target-restored'){
+  foreach($mode in 'valid','wrong_action','wrong_type','wrong_source','wrong_label','extra','missing','all_false','integer','string'){
+   $action=if($label -ceq 'target-restored'){'restore'}else{'late-restore'}
+   $facts=@{};$groups=@{schema=$true;tables=$false;columns=$true}
+   $script:childRecord=@{state='failed';error_type='ValueError';source_basename='windows-restore-qualification.py';source_line=243;comparison_label=$label;schema_groups_differ=$groups;message='PRIVATE SQL/password/path'}
+   switch($mode){
+    'wrong_action'{$action='cleanup'}
+    'wrong_type'{$script:childRecord.error_type='RuntimeError'}
+    'wrong_source'{$script:childRecord.source_basename='unknown.py'}
+    'wrong_label'{$script:childRecord.comparison_label='PRIVATE'}
+    'extra'{$groups.message='PRIVATE'}
+    'missing'{$groups.Remove('columns')}
+    'all_false'{$groups.schema=$false;$groups.columns=$false}
+    'integer'{$groups.schema=1}
+    'string'{$groups.schema='true'}
+   }
+   $caught=$null;try{NativeFixture $action}catch{$caught=$_}
+   Assert ([object]::ReferenceEquals($caught.Exception,$script:childFailure))
+   Assert (($null -ne $facts.native_failure.comparison_label) -eq ($mode -eq 'valid'))
+   Assert (($null -ne $facts.native_failure.schema_groups_differ) -eq ($mode -eq 'valid'))
+   if($mode -eq 'valid'){Assert ($facts.native_failure.comparison_label -ceq $label -and $facts.native_failure.schema_groups_differ.Count -eq 3 -and $facts.native_failure.schema_groups_differ.schema -eq $true -and $facts.native_failure.schema_groups_differ.tables -eq $false)}
+   Assert (($facts|ConvertTo-Json -Depth 20 -Compress) -notmatch 'PRIVATE|SQL|password|path')
   }
  }
  foreach($action in 'native-source','native-target'){

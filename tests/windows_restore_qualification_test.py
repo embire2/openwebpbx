@@ -623,6 +623,25 @@ class Controls(unittest.TestCase):
         before = self.snapshot(); q.compare_snapshots(before, copy.deepcopy(before), 'factory-recovery')
         after = copy.deepcopy(before); after['target_owned']['cluster'] = 'different-target'
         q.compare_snapshots(before, after, 'source-restored')
+    def test_exact_schema_failure_reports_only_closed_label_and_three_actual_group_differences(self):
+        for label in ('target-wrongpass','target-recovered','target-restored'):
+            for mask in range(1,8):
+                before=self.snapshot();before['schema_metadata']={name:'original' for name in ('schema','tables','columns')}
+                after=copy.deepcopy(before);after['label']=label
+                expected={name:bool(mask&(1<<index)) for index,name in enumerate(('schema','tables','columns'))}
+                for name,changed in expected.items():
+                    if changed:after['schema_metadata'][name]='PRIVATE raw SQL/schema/owner'
+                with self.assertRaises(ValueError) as caught:q.compare_snapshots(before,after,'factory-recovery')
+                self.assertEqual(q.restore_schema_failure_fields(caught.exception),{'comparison_label':label,'schema_groups_differ':expected})
+                self.assertNotIn('PRIVATE',json.dumps(q.restore_schema_failure_fields(caught.exception)))
+        for label in (None,True,[],{},'PRIVATE','TARGET-RECOVERED'):
+            error=ValueError('PRIVATE');error.comparison_label=label;error.schema_groups_differ={'schema':True,'tables':False,'columns':False}
+            self.assertEqual(q.restore_schema_failure_fields(error),{})
+        for groups in (None,[],{}, {'schema':1,'tables':False,'columns':False},
+                       {'schema':True,'tables':False,'columns':False,'message':'PRIVATE'},
+                       {'schema':False,'tables':False,'columns':False}):
+            error=ValueError('PRIVATE');error.comparison_label='target-recovered';error.schema_groups_differ=groups
+            self.assertEqual(q.restore_schema_failure_fields(error),{})
     def test_operational_heartbeat_only_allowed(self):
         before = self.snapshot(); after = copy.deepcopy(before)
         after['all_table_values']['v_pbx_backup_status']['hmac'] = 'new-heartbeat'

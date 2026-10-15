@@ -45,6 +45,49 @@ class WindowsNativeModuleEnvironment(unittest.TestCase):
             self.assertEqual(environment['OPENWEB_BACKUP_TEST_ENV'], 'preserved')
             self.assertEqual(os.environ['PSModulePath'], inherited)
 
+    def test_original_admin_credentials_are_bound_before_any_privileged_connection(self):
+        self.assertEqual(b.LOCAL_DATABASE, ('5433','fusionpbx','fusionpbx'))
+        good={'database.0.host':'127.0.0.1','database.0.port':'5433','database.0.name':'fusionpbx',
+              'database.0.username':'fusionpbx','database.0.password':'fictional-app'}
+        installed={'DatabasePassword':'fictional-app','PostgresPassword':'fictional-admin'}
+        cases=[]
+        for key in ('database.0.port','database.0.name','database.0.username','database.0.host'):
+            cases.append((good|{key:'unrelated'},installed))
+        for key in ('DatabasePassword','PostgresPassword'):
+            for value in (None,'',True,1,[],{}):
+                cases.append((good,installed|{key:value}))
+            cases.append((good,{k:v for k,v in installed.items() if k!=key}))
+        for value in (None,'',True,1,[],{},'different'):
+            cases.append((good|{'database.0.password':value},installed))
+        cases.append(({k:v for k,v in good.items() if k!='database.0.password'},{}))
+        for settings,installation in cases:
+            with self.subTest(settings_keys=sorted(settings),installation_type=type(installation).__name__),patch.object(b,'query') as query:
+                with self.assertRaises(b.BackupError):b.local_database_administrator(settings,installation)
+                query.assert_not_called()
+        for host in ('127.0.0.1','localhost','::1'):
+            with patch.object(b,'query',return_value='t') as query:
+                actual=b.local_database_administrator(good|{'database.0.host':host},installed)
+                self.assertEqual(actual['database.0.username'],'postgres')
+                self.assertEqual(actual['database.0.password'],installed['PostgresPassword'])
+                self.assertEqual(actual['database.0.name'],'fusionpbx');query.assert_called_once()
+        with patch.object(b,'query',return_value='f'):
+            with self.assertRaises(b.BackupError):b.local_database_administrator(good,installed)
+
+    def test_native_security_subset_contains_only_original_public_security_metadata(self):
+        lines=['1; 1 1 SCHEMA - public pg_database_owner','2; 1 2 ACL - SCHEMA public postgres',
+               '3; 1 3 COMMENT - SCHEMA public postgres','4; 1 4 DEFAULT ACL public DEFAULT PRIVILEGES FOR TABLES fusionpbx',
+               '5; 1 5 TABLE public v_users fusionpbx','6; 1 6 TABLE DATA public v_users fusionpbx',
+               '7; 1 7 ACL public TABLE v_users fusionpbx']
+        with tempfile.TemporaryDirectory() as temporary:
+            dump=Path(temporary)/'native.dump';dump.write_bytes(b'fictional native transport')
+            with patch.object(b,'run',return_value=('\n'.join(lines)+'\n').encode()):
+                self.assertEqual(b.database_security_entries(dump),lines[:4])
+            for extra in ('8; 1 8 SCHEMA - foreign postgres',lines[0]):
+                with patch.object(b,'run',return_value=('\n'.join(lines+[extra])+'\n').encode()):
+                    with self.assertRaises(b.BackupError):b.database_security_entries(dump)
+            with patch.object(b,'run',return_value=b'8; 1 8 SCHEMA - foreign postgres\n'):
+                with self.assertRaises(b.BackupError):b.portable_database_entries(dump)
+
 
 class WindowsBackups(unittest.TestCase):
     @classmethod
@@ -68,9 +111,12 @@ class WindowsBackups(unittest.TestCase):
         cls.source_password = secrets.token_hex(24)
         cls.target_password = 'fixture-target;quoted"' + secrets.token_hex(16)
         cls.admin_sql('create role source_app login password '+b.literal(cls.source_password)+';create role target_app login password '+b.literal(cls.target_password))
+        cls.admin_sql("alter role postgres password 'target-admin-only'")
+        cls.admin_sql('create role fixture_schema_owner;create role fixture_acl_reader;create role fixture_acl_delegate')
         cls.admin_sql('create database source_pbx owner source_app')
         cls.source = cls.settings('source_pbx', 'source_app', cls.source_password)
         cls.schema(cls.source, source=True)
+        b.query(cls.source, "CREATE FUNCTION public.fixture_body_bytes() RETURNS text LANGUAGE sql AS $$SELECT 'fictional café';\r\n$$;")
         cls.source_state = cls.private/'source'
         cls.source_state.mkdir(mode=0o700)
         cls.source_roots = cls.roots(cls.source_state)
@@ -174,6 +220,7 @@ class WindowsBackups(unittest.TestCase):
                         patch.object(b,'MEDIA',{k:self.target_roots[k] for k in ('storage','recordings','custom-sounds')}),
                         patch.object(b,'STATE',self.target_state),patch.object(b,'STORE',self.target_state/'automatic-backups'),
                         patch.object(b,'RESTORE',self.target_state/'backup-restore'),patch.object(b,'UPGRADE_LOCK',self.target_state/'upgrade.lock'),
+                        patch.object(b,'LOCAL_DATABASE',(str(self.port),self.target_name,'target_app')),
                         patch.object(b,'WEB_VERSION',self.target_state/'VERSION'),patch.object(b,'control',self.control)]
         self.patches.append(patch.object(b,'installation_layout',lambda:self.manifest['installation_layout']))
         for p in self.patches:p.start()
@@ -246,6 +293,8 @@ class WindowsBackups(unittest.TestCase):
         b.restore(self.archive,self.password,self.target,confirm_database=self.target_name)
         self.assertEqual(b.query(self.target,'select current_database()'),self.target_name)
         self.assertEqual(b.query(self.target,'select current_user'),'target_app')
+        body_sql="select encode(convert_to(prosrc,'UTF8'),'hex') from pg_proc where oid='public.fixture_body_bytes()'::regprocedure"
+        self.assertTrue(b.query(self.target,body_sql)==b.query(self.source,body_sql))
         self.assertEqual(b.query(self.target,'select count(*) from fixture_objects'),'3')
         self.assertEqual((self.target_roots['fusionpbx-config']/'openweb-template.key').read_bytes(),self.key)
         self.assertEqual(b.read_settings(self.target_roots['fusionpbx-config']/'config.conf')['database.0.password'],self.target_password)
@@ -431,10 +480,13 @@ class WindowsBackups(unittest.TestCase):
             self.assertFalse(list(target.parent.glob('.backup-restore-*')))
 
     def test_16_file_only_legacy_journal_still_recovers(self):
+        legacy=self.target_state/'legacy-factory.dump';b.snapshot_database(self.target,legacy)
         with patch.object(b,'atomic_copy',side_effect=b.BackupError('Injected first copy')),patch.object(b,'_recover',side_effect=b.BackupError('Retain old recovery fixture')):
             with self.assertRaisesRegex(b.BackupError,'Services remain held'):b.restore(self.archive,self.password,self.target,confirm_database=self.target_name)
-        path=b.RESTORE/'journal.json';journal=json.loads(path.read_text());journal.pop('directories');b.atomic_json(path,journal)
-        b.recover(self.target)
+        path=b.RESTORE/'journal.json';journal=json.loads(path.read_text());journal.pop('directories');journal.pop('factory_security_version')
+        shutil.copyfile(legacy,b.RESTORE/'factory.dump');journal['factory_dump_sha256']=b.checksum(b.RESTORE/'factory.dump');b.atomic_json(path,journal)
+        with patch.object(b,'local_database_administrator',side_effect=AssertionError('Legacy recovery must not invent security metadata')):
+            b.recover(self.target)
         self.assertEqual(b.query(self.target,'select count(*) from fixture_objects'),'0')
         self.assertEqual(json.loads(path.read_text())['state'],'recovered')
         self.assertFalse(any(b.held(selection) for selection in b.HELD_UNITS))
@@ -461,6 +513,109 @@ class WindowsBackups(unittest.TestCase):
             with self.subTest(target=target),self.assertRaises(b.BackupError):b.atomic_copy(source,target)
         self.assertEqual(collision.read_bytes(),b'ordinary existing file')
         self.assertFalse((self.target_roots['custom-sounds']/'target').exists())
+
+    def database_security_state(self):
+        admin=b.local_database_administrator(self.target,json.loads((self.target_state/'installation.json').read_text()))
+        program="define('OPENWEB_RESTORE_FIXTURE_LIBRARY_ONLY',true);require $argv[1];echo json_encode(restore_fixture_schema_queries(),JSON_THROW_ON_ERROR);"
+        queries=json.loads(subprocess.run(['php','-r',program,str(ROOT/'tests/windows-restore-qualification.php')],
+                                         capture_output=True,check=True).stdout)
+        def rows(sql):
+            return b.query(admin,"select coalesce(json_agg(row_to_json(t)),'[]') from ("+sql+") t",json_result=True)
+        out={key:rows(sql) for key,sql in queries.items()}
+        grantee="case when a.grantee=0 then 'PUBLIC' else pg_get_userbyid(a.grantee) end"
+        out['column_acls']=rows("select c.relname,t.attname,pg_get_userbyid(a.grantor) grantor,"+grantee+" grantee,a.privilege_type,a.is_grantable from pg_attribute t join pg_class c on c.oid=t.attrelid join pg_namespace n on n.oid=c.relnamespace cross join lateral aclexplode(t.attacl) a where n.nspname='public' order by c.relname,t.attname,grantor,grantee,a.privilege_type,a.is_grantable")
+        out['sequence_acls']=rows("select c.relname,pg_get_userbyid(c.relowner) owner_name,pg_get_userbyid(a.grantor) grantor,"+grantee+" grantee,a.privilege_type,a.is_grantable from pg_class c join pg_namespace n on n.oid=c.relnamespace cross join lateral aclexplode(coalesce(c.relacl,acldefault('s',c.relowner))) a where n.nspname='public' and c.relkind='S' order by c.relname,grantor,grantee,a.privilege_type,a.is_grantable")
+        out['default_acls']=rows("select coalesce(n.nspname,'global') namespace,pg_get_userbyid(d.defaclrole) owner_name,d.defaclobjtype,pg_get_userbyid(a.grantor) grantor,"+grantee+" grantee,a.privilege_type,a.is_grantable from pg_default_acl d left join pg_namespace n on n.oid=d.defaclnamespace cross join lateral aclexplode(d.defaclacl) a where n.nspname='public' or d.defaclnamespace=0 order by namespace,owner_name,d.defaclobjtype,grantor,grantee,a.privilege_type,a.is_grantable")
+        out['roles']=b.query(admin,"select md5(coalesce(jsonb_agg(to_jsonb(r) order by oid),'[]')::text) from pg_authid r")
+        out['database']=rows("select oid,datdba,datacl::text from pg_database where datname=current_database()")
+        return out
+
+    def custom_database_security(self):
+        admin=self.target|{'database.0.username':'postgres','database.0.password':'target-admin-only'}
+        b.query(admin,"""alter schema public owner to fixture_schema_owner;
+          revoke all on schema public from public;grant usage,create on schema public to target_app;
+          grant usage on schema public to fixture_acl_reader with grant option;
+          set role fixture_acl_reader;grant usage on schema public to fixture_acl_delegate;reset role;
+          alter table public.v_users owner to fixture_schema_owner;grant all on public.v_users to target_app;
+          grant select on public.v_users to fixture_acl_reader with grant option;
+          set role fixture_acl_reader;grant select on public.v_users to fixture_acl_delegate;reset role;
+          grant update(username) on public.v_users to fixture_acl_reader with grant option;
+          create sequence public.fixture_sequence;alter sequence public.fixture_sequence owner to fixture_schema_owner;
+          grant usage on sequence public.fixture_sequence to fixture_acl_reader with grant option;
+          set role fixture_acl_reader;grant usage on sequence public.fixture_sequence to fixture_acl_delegate;reset role;
+          alter default privileges for role target_app in schema public grant select on tables to fixture_acl_reader with grant option;
+          alter default privileges for role target_app in schema public grant usage on sequences to fixture_acl_reader;""")
+
+    def test_19_wrong_password_refuses_before_privileged_metadata_access(self):
+        before=self.database_security_state()
+        with patch.object(b,'local_database_administrator',side_effect=AssertionError('Wrong password must refuse before privileged access')):
+            with self.assertRaises(b.BackupError):b.restore(self.archive,self.password+'wrong',self.target,confirm_database=self.target_name)
+        self.assertTrue(self.database_security_state()==before)
+        self.assertFalse((b.RESTORE/'journal.json').exists())
+
+    def test_20_late_recovery_preserves_native_owner_grantor_options_and_default_column_sequence_acls(self):
+        self.custom_database_security();before=self.database_security_state()
+        original=b.atomic_copy;failed=False
+        def once(source,target,**kwargs):
+            nonlocal failed
+            original(source,target,**kwargs)
+            if not failed:failed=True;raise b.BackupError('Injected native metadata recovery control')
+        with patch.object(b,'atomic_copy',once):
+            with self.assertRaisesRegex(b.BackupError,'Injected native metadata'):b.restore(self.archive,self.password,self.target,confirm_database=self.target_name)
+        self.assertTrue(self.database_security_state()==before)
+        journal=json.loads((b.RESTORE/'journal.json').read_text())
+        self.assertIs(type(journal['factory_security_version']),int);self.assertEqual(journal['factory_security_version'],1)
+        self.assertEqual(journal['state'],'recovered')
+        self.assertEqual(b.query(self.target,'select count(*) from fixture_objects'),'0')
+        self.assertFalse(any(b.held(selection) for selection in b.HELD_UNITS))
+
+    def test_21_portable_restore_preserves_target_schema_and_default_privileges_using_target_credentials(self):
+        self.custom_database_security();before=self.database_security_state()
+        b.restore(self.archive,self.password,self.target,confirm_database=self.target_name)
+        after=self.database_security_state()
+        for key in ('schema','default_acls','roles','database'):
+            with self.subTest(key=key):self.assertTrue(after[key]==before[key])
+        self.assertTrue(all(row['owner_name']=='target_app' for row in after['tables']))
+        self.assertEqual(b.query(self.target,'select count(*) from fixture_objects'),'3')
+        self.assertEqual(json.loads((self.target_state/'installation.json').read_text())['PostgresPassword'],'target-admin-only')
+
+    def test_22_failed_post_drop_import_rolls_back_then_recovers_exact_factory_security(self):
+        before=self.database_security_state();original=b.run;original_recover=b._recover;injected=False;rollback_observed=[]
+        def fail_sql(command,**kwargs):
+            nonlocal injected
+            if not injected and command[0]==b.tool('psql') and any(Path(str(value)).name=='native-source.sql' for value in command):
+                injected=True
+                with (b.RESTORE/'native-source.sql').open('a') as stream:stream.write('\nselect missing_owned_fixture_function();\n')
+            return original(command,**kwargs)
+        def observe_recovery(settings):
+            rollback_observed.append(self.database_security_state()==before)
+            self.assertTrue(rollback_observed[-1])
+            return original_recover(settings)
+        with patch.object(b,'run',fail_sql),patch.object(b,'_recover',observe_recovery):
+            with self.assertRaises(b.BackupError):b.restore(self.archive,self.password,self.target,confirm_database=self.target_name)
+        self.assertTrue(injected);self.assertEqual(rollback_observed,[True]);self.assertTrue(self.database_security_state()==before)
+        self.assertEqual(json.loads((b.RESTORE/'journal.json').read_text())['state'],'recovered')
+
+    def test_23_security_marker_refuses_wrong_types_before_hold_and_valid_marker_recovers(self):
+        with patch.object(b,'atomic_copy',side_effect=b.BackupError('Injected copy')),patch.object(b,'_recover',side_effect=b.BackupError('Retain native recovery fixture')):
+            with self.assertRaises(b.BackupError):b.restore(self.archive,self.password,self.target,confirm_database=self.target_name)
+        path=b.RESTORE/'journal.json';original=json.loads(path.read_text())
+        for version in (None,True,False,0,1.0,'1',2,{},[]):
+            b.atomic_json(path,original|{'factory_security_version':version})
+            with patch.object(b,'control') as native,patch.object(b,'local_database_administrator') as admin:
+                with self.subTest(version_type=type(version).__name__),self.assertRaises(b.BackupError):b.recover(self.target)
+                native.assert_not_called();admin.assert_not_called()
+        b.atomic_json(path,original);b.recover(self.target)
+        self.assertEqual(json.loads(path.read_text())['state'],'recovered')
+
+    def test_24_invalid_native_factory_metadata_refuses_before_service_hold_or_schema_mutation(self):
+        before=self.database_security_state();original=b.snapshot_database
+        def corrupt(settings,destination,**kwargs):
+            original(settings,destination,**kwargs);destination.write_bytes(b'not a native dump')
+        with patch.object(b,'snapshot_database',corrupt):
+            with self.assertRaises(b.BackupError):b.restore(self.archive,self.password,self.target,confirm_database=self.target_name)
+        self.assertFalse(any(operation=='hold' for operation,_ in self.native_calls))
+        self.assertFalse((b.RESTORE/'journal.json').exists());self.assertTrue(self.database_security_state()==before)
 
 
 if __name__=='__main__':

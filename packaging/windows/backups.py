@@ -49,6 +49,7 @@ WEB_VERSION = APP / 'web/VERSION'
 UPGRADE_LOCK = STATE / 'upgrade.lock'
 CONTROL = APP / 'tools/Backup-Control.ps1'
 PG_BIN = APP / 'pgsql/bin'
+LOCAL_DATABASE = ('5433', 'fusionpbx', 'fusionpbx')
 SSH_BIN = Path(os.environ.get('SystemRoot', 'C:/Windows')) / 'System32/OpenSSH'
 HELD_UNITS = {'calls': 'FreeSWITCH', 'jobs': 'OpenWebPBX',
               'updates': 'OpenWebPBXUpdater', 'backups': 'OpenWebPBX-Backups'}
@@ -428,8 +429,11 @@ def validate_database_layout(settings):
     return info
 
 
-def snapshot_database(settings, destination):
-    run(database_command(settings, 'pg_dump') + ['--format=custom', '--no-owner', '--no-acl',
+def snapshot_database(settings, destination, *, security=False):
+    # Portable exports intentionally omit arbitrary source grants. Only the
+    # original local factory dump retains native owner/ACL recovery metadata.
+    flags = [] if security else ['--no-owner', '--no-acl']
+    run(database_command(settings, 'pg_dump') + ['--format=custom', *flags,
                                                 '--serializable-deferrable', '--file', str(destination)],
         env=database_environment(settings))
     destination.chmod(0o600)
@@ -785,7 +789,100 @@ def target_is_factory(settings):
             raise BackupError('Restore refused an installation containing users, phones, tenants or customer media. Use a separate fresh installation.')
 
 
-def restore_database(settings, dump, workspace):
+def local_database_administrator(settings, installation):
+    if (settings.get('database.0.host', '127.0.0.1') not in ('127.0.0.1', 'localhost', '::1')
+            or tuple(settings.get(key) for key in ('database.0.port', 'database.0.name', 'database.0.username')) != LOCAL_DATABASE
+            or not isinstance(installation, dict)
+            or not isinstance(installation.get('DatabasePassword'), str) or not installation['DatabasePassword']
+            or not isinstance(settings.get('database.0.password'), str) or not settings['database.0.password']
+            or installation.get('DatabasePassword') != settings.get('database.0.password')
+            or not isinstance(installation.get('PostgresPassword'), str) or not installation['PostgresPassword']):
+        raise BackupError('The original local database administrator identity is incomplete.')
+    administrator = settings | {'database.0.username': 'postgres', 'database.0.password': installation['PostgresPassword']}
+    if query(administrator, "select current_user='postgres' and (select rolsuper from pg_roles where rolname=current_user)") != 't':
+        raise BackupError('The original local database administrator identity could not be verified.')
+    return administrator
+
+
+def database_security_entries(factory_dump):
+    ordinary(factory_dump)
+    listing = run([tool('pg_restore'), '--list', str(factory_dump)]).decode('utf-8')
+    public_entry = re.compile(r'^\d+; \d+ \d+ (?:SCHEMA - public |(?:ACL|COMMENT) - SCHEMA public |DEFAULT ACL public )')
+    schema_entry = re.compile(r'^\d+; \d+ \d+ SCHEMA - public ')
+    schema_lines = [line for line in listing.splitlines() if public_entry.match(line)]
+    # The exact initdb public schema can be omitted entirely by native pg_dump.
+    if (sum(bool(schema_entry.match(line)) for line in schema_lines) > 1
+            or any(re.match(r'^\d+; \d+ \d+ SCHEMA - ', line) and not schema_entry.match(line) for line in listing.splitlines())
+            or not any(re.match(r'^\d+; \d+ \d+ TABLE public ', line) for line in listing.splitlines())):
+        raise BackupError('The original native public schema recovery metadata is incomplete.')
+    return schema_lines
+
+
+def portable_database_entries(dump):
+    listing = run([tool('pg_restore'), '--list', str(ordinary(dump))]).decode('utf-8').splitlines()
+    if any(re.match(r'^\d+; \d+ \d+ SCHEMA - ', line) and not re.match(r'^\d+; \d+ \d+ SCHEMA - public ', line) for line in listing):
+        raise BackupError('The portable backup contains an unsupported schema.')
+    return listing
+
+
+def restore_database_security(settings, dump, workspace, factory_dump, administrator, *, recovery=False):
+    if not isinstance(administrator, dict) or administrator.get('database.0.username') != 'postgres':
+        raise BackupError('Native database security restoration needs the original local administrator.')
+    # Preserve the connection tuple from the original application configuration.
+    if any(administrator.get(key) != settings.get(key) for key in ('database.0.host', 'database.0.port', 'database.0.name')):
+        raise BackupError('Native database security restoration refused a different target.')
+    ordinary(dump); schema_lines = database_security_entries(factory_dump)
+    public_entry = re.compile(r'^\d+; \d+ \d+ (?:SCHEMA - public |(?:ACL|COMMENT) - SCHEMA public |DEFAULT ACL public )')
+    files = []
+    def render(source, name, entries=None, portable=False):
+        output = workspace / name
+        command = [tool('pg_restore'), '--exit-on-error']
+        if portable:
+            command += ['--no-owner', '--no-acl']
+        if entries is not None:
+            selected = output.with_suffix('.list')
+            selected.write_text('\n'.join(entries)+'\n', encoding='utf-8', newline='\n')
+            selected.chmod(0o600); files.append(selected)
+            command += ['--use-list', str(selected)]
+        run(command + ['--file', str(output), str(source)])
+        output.chmod(0o600); files.append(output)
+        return output
+    if recovery:
+        if Path(dump) != Path(factory_dump):
+            raise BackupError('Factory recovery refused a different native dump.')
+        schema_sql = render(dump, 'native-factory.sql')
+        sql_files = [schema_sql]
+    else:
+        source_listing = portable_database_entries(dump)
+        schema_sql = render(factory_dump, 'native-schema.sql', schema_lines)
+        source_sql = render(dump, 'native-source.sql', [line for line in source_listing if not public_entry.match(line)], True)
+        role = settings.get('database.0.username')
+        if not isinstance(role, str) or not role or '\x00' in role:
+            raise BackupError('The original application database role is incomplete.')
+        # Do not normalize native SQL body bytes (including function CR/LF).
+        source_sql.write_bytes(('SET LOCAL ROLE "'+role.replace('"', '""')+'";\n').encode('utf-8')
+                               +source_sql.read_bytes()+b'\nRESET ROLE;\n')
+        sql_files = [schema_sql, source_sql]
+    reset = workspace / 'native-reset.sql'
+    value = 'DROP SCHEMA public CASCADE;\n'
+    if not re.search(r'^CREATE SCHEMA (?:public|"public");', schema_sql.read_text(encoding='utf-8'), re.MULTILINE):
+        # pg_dump omits the initdb public-schema definition/default ACL.
+        # Recreate that prerequisite before native owner/custom-ACL replay.
+        value += 'CREATE SCHEMA public AUTHORIZATION pg_database_owner;\nGRANT USAGE ON SCHEMA public TO PUBLIC;\n'
+    reset.write_text(value, encoding='utf-8', newline='\n'); reset.chmod(0o600); files.append(reset)
+    arguments = ['-X', '-v', 'ON_ERROR_STOP=1', '--single-transaction']
+    for path in [reset, *sql_files]:
+        arguments += ['-f', str(path)]
+    run(database_command(administrator) + arguments, env=database_environment(administrator))
+    for path in files:
+        path.unlink(missing_ok=True)
+
+
+def restore_database(settings, dump, workspace, *, factory_dump=None, administrator=None, recovery=False):
+    if factory_dump is not None:
+        return restore_database_security(settings, dump, workspace, factory_dump, administrator, recovery=recovery)
+    # Schema-one journals without the new marker retain their original recovery
+    # behavior. Their dumps cannot invent ACL entries that were never recorded.
     sql = workspace / 'restore.sql'
     run([tool('pg_restore'), '--no-owner', '--no-acl', '--file', str(sql), str(ordinary(dump))])
     sql.chmod(0o600)
@@ -1032,7 +1129,10 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
         recovery_targets = list(mapping.values()) + ([notification_fallback] if notification_fallback is not None else [])
         parent_paths = recovery_parent_paths(recovery_targets)
         # Create durable recovery material before stopping any service or changing a file.
-        snapshot_database(settings, RESTORE / 'factory.dump')
+        administrator = local_database_administrator(settings, original_installation)
+        snapshot_database(administrator, RESTORE / 'factory.dump', security=True)
+        database_security_entries(RESTORE / 'factory.dump')
+        portable_database_entries(extracted / 'database.dump')
         recovery_files = RESTORE / 'factory-files'
         recovery_files.mkdir(mode=0o700)
         original = {}
@@ -1058,14 +1158,15 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
                 entry['sddl'] = acls[path]
         journal = {'schema': 1, 'database': settings['database.0.name'], 'user': settings['database.0.username'],
                    'services': services, 'gates': gates, 'source_host': manifest['source_host'],
-                   'factory_dump_sha256': checksum(RESTORE / 'factory.dump'), 'files': original,
+                   'factory_dump_sha256': checksum(RESTORE / 'factory.dump'), 'factory_security_version': 1, 'files': original,
                    'directories': directories, 'state': 'prepared'}
         atomic_json(RESTORE / 'journal.json', journal)
         try:
             install_service_holds(journal['gates'])
             journal['state'] = 'restoring'
             atomic_json(RESTORE / 'journal.json', journal)
-            restore_database(settings, extracted / 'database.dump', RESTORE)
+            restore_database(settings, extracted / 'database.dump', RESTORE,
+                             factory_dump=RESTORE / 'factory.dump', administrator=administrator)
             for name, target in mapping.items():
                 mode = manifest['files'][name]['mode'] & 0o750
                 if name.endswith(('config.conf', '.key', 'runtime.json')) or name.startswith('mobile-push'):
@@ -1151,9 +1252,24 @@ def _recover(settings):
                 raise BackupError('The factory directory permission inventory is invalid.')
     if checksum(ordinary(RESTORE / 'factory.dump')) != journal.get('factory_dump_sha256'):
         raise BackupError('The factory recovery database failed its integrity check.')
+    security = journal.get('factory_security_version')
+    administrator = None
+    if 'factory_security_version' in journal:
+        if type(security) is not int or security != 1:
+            raise BackupError('The factory database security inventory version is invalid.')
+        installation = mapping.get(str(STATE / 'installation.json'), {})
+        if installation.get('exists') is not True:
+            raise BackupError('The original local database administrator recovery input is missing.')
+        original = ordinary(RESTORE / 'factory-files' / installation['copy'])
+        administrator = local_database_administrator(settings, json.loads(original.read_text(encoding='utf-8-sig')))
+        database_security_entries(RESTORE / 'factory.dump')
     # Each database restore runs in one transaction. Files then return to the exact factory inventory.
     control('hold', journal['gates'])
-    restore_database(settings, ordinary(RESTORE / 'factory.dump'), RESTORE)
+    if security == 1:
+        restore_database(settings, ordinary(RESTORE / 'factory.dump'), RESTORE,
+                         factory_dump=RESTORE / 'factory.dump', administrator=administrator, recovery=True)
+    else:
+        restore_database(settings, ordinary(RESTORE / 'factory.dump'), RESTORE)
     for target_name, entry in mapping.items():
         target = Path(target_name)
         if entry['exists']:

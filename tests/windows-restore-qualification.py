@@ -147,6 +147,17 @@ def restore_identity_failure_fields(error):
     return {'failure_kind': 'non_distinct_installation_identity', 'identity_field': error.identity_field}
 
 
+def restore_schema_failure_fields(error):
+    if (type(error) is not ValueError
+            or getattr(error, 'comparison_label', None) not in ('target-wrongpass', 'target-recovered', 'target-restored')):
+        return {}
+    groups = getattr(error, 'schema_groups_differ', None)
+    if (type(groups) is not dict or set(groups) != {'schema', 'tables', 'columns'}
+            or any(type(value) is not bool for value in groups.values()) or not any(groups.values())):
+        return {}
+    return {'comparison_label': error.comparison_label, 'schema_groups_differ': dict(groups)}
+
+
 NATIVE_CASES = {'native-source': ('source_real_two_way_recorded_call', 'source_real_native_voicemail_deposit'),
                 'native-target': ('restored_original_credentials_two_way_decoded_native_audio', 'restored_original_native_voicemail_pin_rfc2833_retrieval')}
 PEER_ERROR_TYPES = ('RuntimeError','AssertionError','ValueError','TypeError','KeyError','AttributeError','OSError','TimeoutError',
@@ -240,7 +251,11 @@ def compare_snapshots(before, after, mode):
     if mode not in ('factory-recovery', 'source-restored'):
         raise ValueError('Unknown snapshot comparison.')
     if before['schema_metadata'] != after['schema_metadata']:
-        raise ValueError('Schema ownership, grants or definitions changed.')
+        error = ValueError('Schema ownership, grants or definitions changed.')
+        error.comparison_label = after.get('label')
+        error.schema_groups_differ = {name: before['schema_metadata'].get(name) != after['schema_metadata'].get(name)
+                                     for name in ('schema', 'tables', 'columns')}
+        raise error
     if mode == 'factory-recovery' and before['target_owned'] != after['target_owned']:
         raise ValueError('Factory PostgreSQL identity, roles or private credentials changed.')
     exclusions = OPERATIONAL_TABLES | (RESTORE_TRANSFORMED_TABLES if mode == 'source-restored' else frozenset())
@@ -932,6 +947,7 @@ if __name__ == '__main__':
         observation = restore_fixture_failure_fields(getattr(error, 'fixture_failure', None), 'cleanup')
         if observation: facts['fixture_failure'] = observation
         facts.update(restore_identity_failure_fields(error))
+        facts.update(restore_schema_failure_fields(error))
         peer_failures=restore_peer_failure_fields(getattr(error,'peer_cleanup_failure',None))
         if peer_failures:facts['peer_cleanup_failure']=peer_failures
         receivers=restore_peer_failure_fields(getattr(error,'peer_receiver_failure',None),receiver=True)
