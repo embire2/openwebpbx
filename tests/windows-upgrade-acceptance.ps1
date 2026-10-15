@@ -20,7 +20,34 @@ $managerName='OpenWebPBX-Manager-'+$managerSid;$managerExe="$root\desktop\OpenWe
 $report=[ordered]@{schema=1;state='running';checks=@();gates=[ordered]@{direct_113_helper_reapply='pending';direct_failure_rollback='pending';restore_gate_startup='pending';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified'};signed_fixtures='absent';baseline='installed candidate; same-version direct reapply is not a newer signed update'}
 function Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
 function WriteJson([string]$Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 10),[Text.UTF8Encoding]::new($false))}
-function Check([bool]$Value,[string]$Message){if(!$Value){throw $Message}}
+function Check([bool]$Value,[string]$Message){
+ if(!$Value){
+  $stages=@{
+   'The installed helper bytes did not pass native preflight.'='direct_reapply_preflight'
+   'The direct same-version helper reapply did not complete.'='direct_reapply_complete'
+   'Direct reapply changed preserved database/security/routing data.'='direct_reapply_database_preserved'
+   'Direct reapply changed protected credentials, keys, TLS or notification bytes/ACLs.'='direct_reapply_private_files_preserved'
+   'A pre-existing manager must not be used or closed by this qualification.'='manager_no_preexisting_process'
+   'The installed desktop assembly does not match the real installed version.'='manager_version_matches'
+   'The pre-existing own manager task does not match the installed interactive manager contract.'='manager_initial_task_contract'
+   'The original owned responsive manager is unavailable before the helper runs.'='manager_original_window_present'
+   'The helper did not close the original owned desktop manager.'='manager_original_closed'
+   'The durable update journal did not record the actual owned interactive restart task.'='manager_restart_task_recorded'
+   'The helper did not automatically reopen a responsive installed desktop in its original owner/session.'='manager_reopened'
+  }
+  $stage=if($stages.ContainsKey($Message)){$stages[$Message]}else{'qualification_assertion'}
+  $script:checkFailure=@{active_case=$stage}
+  $callers=@(Get-PSCallStack)
+  if($callers.Count -gt 1){
+   $caller=$callers[1]
+   if($caller.ScriptName -and [IO.Path]::GetFileName($caller.ScriptName) -ceq 'windows-upgrade-acceptance.ps1' -and $caller.ScriptLineNumber -gt 0 -and $caller.ScriptLineNumber -lt 100000){$script:checkFailure.source_basename='windows-upgrade-acceptance.ps1';$script:checkFailure.source_line=[int]$caller.ScriptLineNumber}
+  }
+  throw $Message
+ }
+ # A successful assertion accepts the preceding helper result, including an
+ # expected forced failure. Later manager/preservation checks have no child.
+ $script:helperFailure=$null
+}
 function ProbeFailure($Record){
  $stages=@('probe_import','probe_settings','database_installation','database_identity','database_roles','database_memberships','database_schema','database_tables','database_columns','database_values','database_save','restore_holds','restore_release','pending_create','pending_check','pending_remove')
  $types=@('BackupError','JSONDecodeError','KeyError','FileNotFoundError','PermissionError','ImportError','ModuleNotFoundError','RuntimeError','ValueError','TypeError','OSError','TimeoutError','AssertionError','UnicodeDecodeError','ExternalFailure')
@@ -42,14 +69,66 @@ function Python([string[]]$Arguments){
   throw 'A private database or restore-gate qualification operation failed.'
  }
 }
+function HelperFailure($Record){
+ $scripts=@('Upgrade-OpenWebPBX.ps1','Enable-PhoneTLS.ps1','Restore-Gates.ps1','Support-Recovery.ps1','Install-Updater.ps1','Install-NativeEngine.ps1','Install-LocalCodec.ps1','Configure-PHP.ps1','configure-notifications.ps1','Install-Backups.ps1','Install-MailQueue.ps1','Write-PrivateState.ps1')
+ $commands=@('php.exe','icacls.exe','pg_dump.exe','pg_restore.exe','psql.exe','robocopy.exe','powershell.exe','python.exe','OpenWebPbx.Updater.exe','OpenWebPbx.Server.exe')
+ $safe=@{}
+ if($Record.error_type -is [string] -and $Record.error_type -match '^System\.[A-Za-z0-9_.+]{1,150}$'){$safe.error_type=$Record.error_type}
+ foreach($prefix in 'source','caller'){
+  $name=$Record.($prefix+'_basename');$line=$Record.($prefix+'_line')
+  if($name -is [string] -and $name -cin $scripts -and ($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$safe[$prefix+'_basename']=$name;$safe[$prefix+'_line']=[int]$line}
+ }
+ if($Record.command_basename -is [string] -and $Record.command_basename -cin $commands -and ($Record.command_exit -is [int] -or $Record.command_exit -is [long]) -and $Record.command_exit -ge [int]::MinValue -and $Record.command_exit -le [int]::MaxValue){$safe.command_basename=$Record.command_basename;$safe.command_exit=[int]$Record.command_exit}
+ return $safe
+}
+function HelperLauncher([string]$Path,[string[]]$Arguments,[string]$FailurePath){
+ $command="& '"+$Path.Replace("'","''")+"'"
+ for($index=0;$index -lt $Arguments.Count;$index++){
+  $argument=$Arguments[$index]
+  if($argument -cin '-Check','-Recover','-Automatic'){$command+=' '+$argument}
+  elseif($argument -cin '-Archive','-FeedEnvelope','-TargetVersion','-CertificateThumbprint','-RestoreBackup'){
+   $index++;if($index -ge $Arguments.Count){throw 'A private helper argument is incomplete.'}
+   $command+=' '+$argument+" '"+$Arguments[$index].Replace("'","''")+"'"
+  }else{throw 'A private helper argument is unsupported.'}
+ }
+ $template=@'
+$ErrorActionPreference='Stop'
+function HelperFailure { __FILTER__ }
+try {
+ $global:LASTEXITCODE=0
+ __CALL__
+ # An explicit script exit sets $? false for a nonzero result. A successful
+ # script may leave a benign native command's LASTEXITCODE behind.
+ $helperSucceeded=$?
+ if(!$helperSucceeded){exit $LASTEXITCODE}
+ exit 0
+} catch {
+ $record=@{error_type=$_.Exception.GetType().FullName;source_basename=$(if($_.InvocationInfo.ScriptName){[IO.Path]::GetFileName($_.InvocationInfo.ScriptName)}else{''});source_line=[int]$_.InvocationInfo.ScriptLineNumber}
+ foreach($field in 'command_basename','command_exit','caller_basename','caller_line'){if($_.Exception.Data.Contains($field)){$record[$field]=$_.Exception.Data[$field]}}
+ $safe=HelperFailure ([pscustomobject]$record)
+ [IO.File]::WriteAllText('__FAILURE__',($safe|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+ throw
+}
+'@
+ $replacements=@{'__FILTER__'=${function:HelperFailure}.ToString();'__CALL__'=$command;'__FAILURE__'=$FailurePath.Replace("'","''")}
+ return [regex]::Replace($template,'__(FILTER|CALL|FAILURE)__',{param($match)$replacements[$match.Value]})
+}
 function InvokeHelper([string]$Path,[string[]]$Arguments,[string]$Name){
  $stdout=Join-Path $work ($Name+'.out');$stderr=Join-Path $work ($Name+'.err')
+ $failurePath=Join-Path $work ($Name+'-failure.json');$launcher=Join-Path $work ($Name+'-launcher.ps1');$script:helperFailure=$null
+ Remove-Item -LiteralPath $failurePath -Force -ErrorAction SilentlyContinue
+ [IO.File]::WriteAllText($launcher,(HelperLauncher $Path $Arguments $failurePath),[Text.UTF8Encoding]::new($false))
  $start=[Diagnostics.ProcessStartInfo]::new();$start.FileName=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe';$start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true;$start.CreateNoWindow=$true
  $start.Environment['PSModulePath']=(Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell/Modules')
- foreach($argument in @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$Path)+$Arguments){$start.ArgumentList.Add($argument)}
+ foreach($argument in @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$launcher)){$start.ArgumentList.Add($argument)}
  $process=[Diagnostics.Process]::Start($start);$out=$process.StandardOutput.ReadToEndAsync();$err=$process.StandardError.ReadToEndAsync()
  if(!$process.WaitForExit(1200000)){throw 'The native upgrade helper did not finish in its bounded time; its durable journal must recover it.'}
- [IO.File]::WriteAllText($stdout,$out.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false));[IO.File]::WriteAllText($stderr,$err.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false));$code=$process.ExitCode;$process.Dispose();return $code
+ [IO.File]::WriteAllText($stdout,$out.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false));[IO.File]::WriteAllText($stderr,$err.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false));$code=$process.ExitCode;$process.Dispose()
+ if($code -ne 0 -and (Test-Path -LiteralPath $failurePath -PathType Leaf)){
+  $item=Get-Item -LiteralPath $failurePath
+  if($item.Length -le 16384 -and !($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){try{$script:helperFailure=HelperFailure (Get-Content -LiteralPath $failurePath -Raw|ConvertFrom-Json)}catch{}}
+ }
+ return $code
 }
 $probe=Join-Path $work 'private-probe.py'
 $code=@'
@@ -371,6 +450,18 @@ try{
   $report.caller_basename=$report.source_basename;$report.caller_line=$report.source_line
   foreach($entry in $probeFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}
   $report.command_basename='private-probe.py';$report.command_exit=$probeExit
+ }
+ if($checkFailure){
+  $report.caller_basename=$report.source_basename;$report.caller_line=$report.source_line
+  foreach($entry in $checkFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}
+ }
+ if($helperFailure -and $checkFailure){
+  # Keep the assertion's actual invocation as caller. A product Run wrapper's
+  # validated command caller is the more useful child source location.
+  if($checkFailure.source_basename){$report.caller_basename=$checkFailure.source_basename;$report.caller_line=$checkFailure.source_line}
+  if($helperFailure.caller_basename){$report.source_basename=$helperFailure.caller_basename;$report.source_line=$helperFailure.caller_line}
+  elseif($helperFailure.source_basename){$report.source_basename=$helperFailure.source_basename;$report.source_line=$helperFailure.source_line}
+  foreach($field in 'error_type','command_basename','command_exit'){if($helperFailure.ContainsKey($field)){$report[$field]=$helperFailure[$field]}}
  }
  Write-Error ('Windows upgrade acceptance failed in '+$phase+'. Private recovery evidence retained.') -ErrorAction Continue
 }finally{

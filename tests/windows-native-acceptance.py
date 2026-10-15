@@ -20,7 +20,14 @@ NATIVE_SUBSTAGES={'native_case','g729_regular_unregister','g729_alternate_regist
     'g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister',
     'g729_peer_close','g729_codec_close','g729_regular_reregister','native_peer_unregister','native_peer_close','native_ledger_write',
     'callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed',
-    'voicemail_message_created','voicemail_recording_finalized','voicemail_mail_queued'}
+    'voicemail_message_created','voicemail_recording_finalized','voicemail_mail_queued',
+    'mailbox_login_prompt','mailbox_main_menu_prompt','mailbox_tutorial_complete','mailbox_recording_playback',
+    'mailbox_forward_extension_prompt','mailbox_forward_intro_prompt','mailbox_forwarded_prompt',
+    'mailbox_forwarded_message_created','mailbox_forwarded_binary_copy','mailbox_observer_close'}
+MAILBOX_STAGES={stage for stage in NATIVE_SUBSTAGES if stage.startswith('mailbox_')}
+MAILBOX_PROMPTS={'password':'vm-enter_pass.wav','tutorial':'vm-tutorial_yes_no.wav','main_menu':'vm-listen_new.wav',
+    'forward_extension':'vm-forward_enter_ext.wav','forward_intro':'vm-forward_add_intro.wav',
+    'forwarded':'vm-message_forwarded.wav','auth_failed':'vm-fail_auth.wav','mailbox_id':'vm-enter_id.wav','goodbye':'vm-goodbye.wav'}
 
 
 class WindowsRtpSocket:
@@ -186,7 +193,7 @@ class NativePlayback:
         assert settings['host'] in ('127.0.0.1','localhost') and 1<=int(settings['port'])<=65535
         password=settings['password'];assert password and '\n' not in password and '\r' not in password
         self.realm=realm;self.socket=socket.create_connection((settings['host'],int(settings['port'])),timeout=5)
-        self.socket.settimeout(.5);self.buffer=b'';self.events=[];self.lock=threading.Lock();self.stopped=False;self.error=None
+        self.socket.settimeout(.5);self.buffer=b'';self.events=[];self.observed=[];self.lock=threading.Lock();self.stopped=False;self.error=None
         assert self.frame(5)[0].get('Content-Type')=='auth/request','Native event authentication challenge missing'
         self.socket.sendall(('auth '+password+'\n\n').encode())
         assert self.frame(5)[0].get('Reply-Text','').startswith('+OK'),'Native event authentication failed'
@@ -216,8 +223,12 @@ class NativePlayback:
                 except TimeoutError:continue
                 if headers.get('Content-Type')!='text/event-plain':continue
                 event={k:urllib.parse.unquote(v) for k,v in (line.split(': ',1) for line in body.decode().splitlines() if ': ' in line)}
-                if event.get('Event-Name')!='PLAYBACK_START' or event.get('variable_domain_name')!=self.realm:continue
                 with self.lock:
+                    assert len(self.observed)<1000,'Native event observations exceeded their bound'
+                    self.observed.append({'callid':event.get('variable_sip_call_id'),
+                        'domain_header_present':'variable_domain_name' in event,'domain_matches':event.get('variable_domain_name')==self.realm,
+                        'event_name_matches':event.get('Event-Name')=='PLAYBACK_START','path_header_present':'Playback-File-Path' in event})
+                    if event.get('Event-Name')!='PLAYBACK_START' or event.get('variable_domain_name')!=self.realm:continue
                     self.events.append(event)
                     assert len(self.events)<=1000,'Owned native prompt events exceeded their bound'
         except BaseException as error:
@@ -233,8 +244,58 @@ class NativePlayback:
                     if any(path.endswith(suffix) for suffix in suffixes):return index,path
             time.sleep(.02)
         raise AssertionError('The actual owned native mailbox prompt was not observed')
+    def snapshot(self,callid,recording_name):
+        assert re.fullmatch(r'[a-f0-9]{24}@localfixture',callid)
+        with self.lock:
+            owned=[event for event in self.observed if event['callid']==callid]
+            realm=[event for event in self.observed if event['domain_matches']]
+            matched=[event for event in self.events if event.get('variable_sip_call_id')==callid]
+            facts={'mailbox_observer_failed':self.error is not None,'mailbox_observed_event_count':len(self.observed),
+                'mailbox_owned_event_count':len(owned),'mailbox_matched_event_count':len(matched),'mailbox_owned_call_seen':bool(owned),
+                'mailbox_realm_event_count':len(realm),'mailbox_realm_call_id_header_present':any(event['callid'] is not None for event in realm)}
+            for field in ('domain_header_present','domain_matches','event_name_matches','path_header_present'):
+                facts['mailbox_owned_'+field]=any(event[field] for event in owned)
+            seen=set()
+            for event in matched:
+                path=event.get('Playback-File-Path','').replace('\\','/')
+                names={name for name,suffix in MAILBOX_PROMPTS.items() if path.endswith(suffix)}
+                if path==recording_name or path.endswith('/'+recording_name):names.add('recording')
+                seen.update(names or {'other'})
+            for name in (*MAILBOX_PROMPTS,'recording','other'):facts['mailbox_prompt_'+name+'_seen']=name in seen
+            return facts
     def close(self):
         self.stopped=True;self.socket.close();self.thread.join(2)
+
+
+def mailbox_step(f,stage,operation):
+    assert stage in MAILBOX_STAGES
+    f.native_substage=stage
+    try:return operation()
+    except BaseException as error:
+        if not getattr(error,'native_failure',None):error.native_failure=native_exception_fields(error,stage)
+        raise
+
+
+def mailbox_prompt(f,playback,call,stage,suffixes,after=-1,seconds=30):
+    return mailbox_step(f,stage,lambda:playback.prompt(call['callid'],suffixes,after=after,seconds=seconds))
+
+
+def mailbox_menu(f,playback,phone,call,pin,flags):
+    # A genuine fresh mailbox authenticates before offering its tutorial. Use
+    # the real skip key, keeping the existing 30s menu budget across that step.
+    deadline=time.monotonic()+30
+    index,prompt=mailbox_prompt(f,playback,call,'mailbox_login_prompt',
+        ['vm-enter_pass.wav','vm-tutorial_yes_no.wav','vm-listen_new.wav'])
+    if prompt.endswith('vm-enter_pass.wav'):
+        for digit in pin+'#':phone.dtmf(call,digit)
+        flags['mailbox_pin_sent']=True;deadline=time.monotonic()+30
+        index,prompt=mailbox_prompt(f,playback,call,'mailbox_main_menu_prompt',
+            ['vm-tutorial_yes_no.wav','vm-listen_new.wav'],after=index,seconds=max(0,deadline-time.monotonic()))
+    if prompt.endswith('vm-tutorial_yes_no.wav'):
+        phone.dtmf(call,'2');flags['mailbox_tutorial_skip_sent']=True
+        index,_=mailbox_prompt(f,playback,call,'mailbox_tutorial_complete',
+            ['vm-listen_new.wav'],after=index,seconds=max(0,deadline-time.monotonic()))
+    return index
 
 
 
@@ -986,30 +1047,44 @@ def native_calls(f):
         # RFC2833. Native playback events synchronize actual menu prompts;
         # they never inject digits or bypass the mailbox authentication.
         f.active_case='native_voicemail_wire_forwarding_binary_copy'
+        f.native_substage='native_case'
         mailbox_info=f.cli('voicemail-login');playback=NativePlayback(mailbox_info['event_socket'],realm)
         mailbox=Phone(users[3],'tls');peers.append(mailbox)
+        retrieve=None;flags={'mailbox_pin_sent':False,'mailbox_tutorial_skip_sent':False,
+            'mailbox_forward_destination_sent':False,'mailbox_forward_no_intro_sent':False}
         try:
             assert mailbox.register((bind,5061))['code']==200
             retrieve=mailbox.dial('*97',(bind,5061));assert retrieve['code']==200
-            index,prompt=playback.prompt(retrieve['callid'],['vm-enter_pass.wav','vm-listen_new.wav'])
-            if prompt.endswith('vm-enter_pass.wav'):
-                for digit in mailbox_info['pin']+'#':mailbox.dtmf(retrieve,digit)
-                index,_=playback.prompt(retrieve['callid'],['vm-listen_new.wav'],after=index)
+            index=mailbox_menu(f,playback,mailbox,retrieve,mailbox_info['pin'],flags)
             mailbox.dtmf(retrieve,'1')
-            index,_=playback.prompt(retrieve['callid'],[file.name],after=index,seconds=45)
+            index,_=mailbox_prompt(f,playback,retrieve,'mailbox_recording_playback',[file.name],after=index,seconds=45)
             time.sleep(3);original.decoded_tone_check(retrieve['media'],caller.tone_hz)
             mailbox.dtmf(retrieve,'8')
-            index,_=playback.prompt(retrieve['callid'],['vm-forward_enter_ext.wav'],after=index)
+            index,_=mailbox_prompt(f,playback,retrieve,'mailbox_forward_extension_prompt',['vm-forward_enter_ext.wav'],after=index)
             for digit in '8102#':mailbox.dtmf(retrieve,digit)
-            index,_=playback.prompt(retrieve['callid'],['vm-forward_add_intro.wav'],after=index)
-            mailbox.dtmf(retrieve,'2')
-            index,_=playback.prompt(retrieve['callid'],['vm-message_forwarded.wav'],after=index)
-            forwarded=f.wait(lambda:next((m for m in f.cli('status')['voicemail'] if m['voicemail_id']=='8102'),None),15)
+            flags['mailbox_forward_destination_sent']=True
+            index,_=mailbox_prompt(f,playback,retrieve,'mailbox_forward_intro_prompt',['vm-forward_add_intro.wav'],after=index)
+            mailbox.dtmf(retrieve,'2');flags['mailbox_forward_no_intro_sent']=True
+            index,_=mailbox_prompt(f,playback,retrieve,'mailbox_forwarded_prompt',['vm-message_forwarded.wav'],after=index)
+            forwarded=mailbox_step(f,'mailbox_forwarded_message_created',lambda:f.wait(lambda:next((m for m in f.cli('status')['voicemail'] if m['voicemail_id']=='8102'),None),15))
             forwarded_file=Path(forwarded['message_path'])
+            f.native_substage='mailbox_forwarded_binary_copy'
             assert forwarded_file.is_file() and forwarded_file.read_bytes()==file.read_bytes(),'Native forwarded WAV did not preserve exact source bytes'
             mailbox.hangup(retrieve)
             f.record('native_tls_mailbox_wire_forwarding_exact_binary_wav',wire_digits='RFC2833',source_and_forwarded_sha256=hashlib.sha256(file.read_bytes()).hexdigest(),drive_letter_path_verified=bool(re.match(r'^[A-Za-z]:[/\\]',str(file))),path_spaces_observed=' ' in str(file),bytes=forwarded_file.stat().st_size)
-        finally:playback.close()
+        except BaseException as error:
+            facts={**flags,'mailbox_diagnostics_complete':False}
+            try:
+                facts.update(playback.snapshot(retrieve['callid'],file.name))
+                facts['mailbox_dialog_ended']=bool(retrieve['media'].get('ended'))
+                facts['mailbox_received_rtp']=retrieve['media']['received']>0
+                facts['mailbox_diagnostics_complete']=True
+            except BaseException:pass
+            error.mailbox_failure=facts
+            stage=getattr(f,'native_substage','native_case')
+            if stage in MAILBOX_STAGES and not getattr(error,'native_failure',None):error.native_failure=native_exception_fields(error,stage)
+            raise
+        finally:native_cleanup(sys.exc_info()[1],getattr(f,'native_substage','native_case'),[('mailbox_observer_close',playback.close)])
     finally:
         steps=[]
         for p in peers:
@@ -1091,6 +1166,7 @@ def main():
         if getattr(e,'media_window_private',None):failure['media_window_private']=e.media_window_private
         if getattr(e,'queue_failure',None):failure.update(e.queue_failure)
         if getattr(e,'voicemail_failure',None):failure.update(e.voicemail_failure)
+        if getattr(e,'mailbox_failure',None):failure.update(e.mailbox_failure)
         (f.evidence/'software-native-report.json').write_text(json.dumps(failure,indent=2))
         raise
 

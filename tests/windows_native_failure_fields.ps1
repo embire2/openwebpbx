@@ -21,9 +21,9 @@ Invoke-Expression $failureNodes[0].Extent.Text
 $queueNodes=@($nativeAst.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'QueueFailureFields'},$true))
 if($queueNodes.Count -ne 1){throw 'The actual native queue filter must be uniquely identified.'}
 Invoke-Expression $queueNodes[0].Extent.Text
-foreach($pair in @(@($ast,'SafeVoicemailFailureFields'),@($nativeAst,'VoicemailFailureFields'))){
+foreach($pair in @(@($ast,'SafeVoicemailFailureFields'),@($nativeAst,'VoicemailFailureFields'),@($ast,'SafeMailboxFailureFields'),@($nativeAst,'MailboxFailureFields'))){
  $voicemailNodes=@($pair[0].FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $pair[1]},$true))
- if($voicemailNodes.Count -ne 1){throw 'The actual voicemail filter must be uniquely identified.'}
+ if($voicemailNodes.Count -ne 1){throw 'The actual voicemail/mailbox filter must be uniquely identified.'}
  Invoke-Expression $voicemailNodes[0].Extent.Text
 }
 $checks=0
@@ -163,4 +163,33 @@ foreach($filter in 'VoicemailFailureFields','SafeVoicemailFailureFields','SafeFa
  }
  foreach($bad in 'true',1,$null,@{private='private-never-copy'}){$copy=$voicemail.PSObject.Copy();$copy.voicemail_diagnostics_complete=$bad;Check (!(& $filter $copy).ContainsKey('voicemail_diagnostics_complete'))}
 }
-Write-Output "PASS $checks actual caller native primary/cleanup/media/queue privacy allowlist checks; no PBX contacted"
+$mailboxStages=@('mailbox_login_prompt','mailbox_main_menu_prompt','mailbox_tutorial_complete','mailbox_recording_playback','mailbox_forward_extension_prompt','mailbox_forward_intro_prompt','mailbox_forwarded_prompt','mailbox_forwarded_message_created','mailbox_forwarded_binary_copy','mailbox_observer_close')
+foreach($stage in $mailboxStages){
+ Check ($stage -cin $nativeStages)
+ foreach($prefix in 'primary','cleanup'){
+  $copy=$record.PSObject.Copy();$copy.($prefix+'_substage')=$stage;Check ((SafeFailureFields $copy).($prefix+'_substage') -ceq $stage)
+  foreach($bad in $stage.ToUpperInvariant(),($stage+' '),1,$true,@($stage)){$copy.($prefix+'_substage')=$bad;Check (!(SafeFailureFields $copy).ContainsKey($prefix+'_substage'))}
+ }
+}
+$mailboxBool=@('diagnostics_complete','observer_failed','owned_call_seen','realm_call_id_header_present','owned_domain_header_present','owned_domain_matches','owned_event_name_matches','owned_path_header_present','pin_sent','tutorial_skip_sent','forward_destination_sent','forward_no_intro_sent','dialog_ended','received_rtp','prompt_password_seen','prompt_tutorial_seen','prompt_main_menu_seen','prompt_forward_extension_seen','prompt_forward_intro_seen','prompt_forwarded_seen','prompt_auth_failed_seen','prompt_mailbox_id_seen','prompt_goodbye_seen','prompt_recording_seen','prompt_other_seen')
+$mailboxCount=@('observed_event_count','owned_event_count','matched_event_count','realm_event_count')
+$mailboxData=@{active_case='native_voicemail_wire_forwarding_binary_copy';mailbox_callid='private-never-copy';mailbox_path='private-never-copy';mailbox_pin='private-never-copy';mailbox_prompt_PRIVATE_seen=$true;mailbox_event_body='private-never-copy';mailbox_audio='private-never-copy'}
+foreach($suffix in $mailboxBool){$mailboxData['mailbox_'+$suffix]=$suffix -notin 'observer_failed','dialog_ended'}
+foreach($suffix in $mailboxCount){$mailboxData['mailbox_'+$suffix]=2}
+$mailbox=[pscustomobject]$mailboxData
+foreach($filter in 'MailboxFailureFields','SafeMailboxFailureFields','SafeFailureFields'){
+ $safe=& $filter $mailbox
+ foreach($suffix in @($mailboxBool)+@($mailboxCount)){$field='mailbox_'+$suffix;Check ($safe.ContainsKey($field) -and $safe[$field] -ceq $mailbox.$field)}
+ Check (($safe|ConvertTo-Json) -notmatch 'private-never-copy|callid|event_body|mailbox_pin"|mailbox_path|mailbox_audio|PRIVATE')
+ foreach($bad in 'NATIVE_VOICEMAIL_WIRE_FORWARDING_BINARY_COPY','native_voicemail_wire_forwarding_binary_copy ','native_voicemail_recording_and_email_queue',$null){$copy=$mailbox.PSObject.Copy();$copy.active_case=$bad;Check (@((& $filter $copy).Keys|Where-Object {$_ -like 'mailbox_*'}).Count -eq 0)}
+ foreach($suffix in $mailboxBool){
+  $field='mailbox_'+$suffix
+  foreach($bad in 'true',1,$null,@{private='private-never-copy'}){$copy=$mailbox.PSObject.Copy();$copy.$field=$bad;Check (!(& $filter $copy).ContainsKey($field))}
+ }
+ foreach($suffix in $mailboxCount){
+  $field='mailbox_'+$suffix
+  foreach($bad in '2',$true,1.5,-1,1001,[double]::NaN,[double]::PositiveInfinity){$copy=$mailbox.PSObject.Copy();$copy.$field=$bad;Check (!(& $filter $copy).ContainsKey($field))}
+  $copy=$mailbox.PSObject.Copy();$copy.$field=1000;Check ((& $filter $copy)[$field] -eq 1000)
+ }
+}
+Write-Output "PASS $checks actual caller native primary/cleanup/media/queue/voicemail/mailbox privacy allowlist checks; no PBX contacted"
