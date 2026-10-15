@@ -12,7 +12,7 @@ $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-updater-qualification.ps1'),[ref]$tokens,[ref]$errors)
 Verify (@($errors).Count -eq 0)
 $definitions=@{}
-foreach($name in 'Check','Hash','WriteJson','CheckedProcess','QualificationComparisonFields','QualificationComparisonDetails','QualificationFailureObservation','Equal'){
+foreach($name in 'Check','Hash','WriteJson','CheckedProcess','QualificationComparisonFields','QualificationComparisonDetails','QualificationFileCaptureFields','QualificationFileCapture','QualificationFailureObservation','Equal'){
  $nodes=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
  Verify ($nodes.Count -eq 1);$definitions[$name]=$nodes[0].Extent.Text
 }
@@ -47,7 +47,7 @@ try{
  # The actual static comparator is copied byte-exact beside these definitions.
  $equalBody=$definitions.Equal.Replace('"$root\backup-runtime\python.exe"','$script:testPython')
  Verify ($equalBody -cne $definitions.Equal -and $equalBody.Replace('$script:testPython','"$root\backup-runtime\python.exe"') -ceq $definitions.Equal)
- [IO.File]::WriteAllText($fixture,((@('Check','Hash','WriteJson','CheckedProcess','QualificationComparisonFields','QualificationComparisonDetails','QualificationFailureObservation'|ForEach-Object {$definitions[$_]})+@($equalBody)) -join "`n"))
+ [IO.File]::WriteAllText($fixture,((@('Check','Hash','WriteJson','CheckedProcess','QualificationComparisonFields','QualificationComparisonDetails','QualificationFileCaptureFields','QualificationFileCapture','QualificationFailureObservation'|ForEach-Object {$definitions[$_]})+@($equalBody)) -join "`n"))
  . $fixture
  $before=@{'C:\OpenWebPBX\web\private.php'=(Record $sensitive);'C:\ProgramData\OpenWebPBX\runtime.json'=(Record 'same');'C:\OpenWebPBX\desktop\manager.exe'=(Record 'same')}
  $beforeJson=$before|ConvertTo-Json -Depth 32 -Compress
@@ -105,13 +105,15 @@ try{
  $known=@{}
  foreach($file in 'installation','runtime','updater-install','native-engine','local-codec','phone-tls'){$known['C:\ProgramData\OpenWebPBX\'+$file+'.json']=Record}
  foreach($path in @('C:\ProgramData\OpenWebPBX\storage','C:\ProgramData\OpenWebPBX\storage\openweb-music','C:\ProgramData\OpenWebPBX\storage\openweb-music\README.md','C:\ProgramData\OpenWebPBX\storage\openweb-music\manifest.json','C:\Program Files\FreeSWITCH\sounds','C:\Program Files\FreeSWITCH\sounds\openwebpbx')+$tracks+@(8000,16000,32000,48000|ForEach-Object {'C:\ProgramData\OpenWebPBX\storage\openweb-music\'+$_})){$known[$path]=Record}
+ foreach($path in @('C:\ProgramData\fusionpbx','C:\ProgramData\fusionpbx\config.conf','C:\ProgramData\fusionpbx\openweb-template.key','C:\ProgramData\OpenWebPBX\automatic-backups\worker.lock')+@('phone-tls','public-access','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build'|ForEach-Object {'C:\ProgramData\OpenWebPBX\'+$_})){$known[$path]=Record}
  $changed=JsonCopy $known;foreach($path in @($changed.Keys)){$changed[$path].acl='changed'}
  $caught=$null;try{Equal $known $changed 'fault-files'}catch{$caught=$_};$children++
  $detail=(Observe $caught).comparison
- Verify ($detail.comparison_known_file_field_counts.Count -eq 20 -and $detail.comparison_unknown_file_entry_count -eq 0)
+ Verify ($detail.comparison_known_file_field_counts.Count -eq 32 -and $detail.comparison_unknown_file_entry_count -eq 0)
+ Verify ($detail.comparison_config_scope_field_counts.Count -eq 9 -and $detail.comparison_config_scope_field_counts.automatic_backups.acl -eq 2)
  foreach($row in $detail.comparison_known_file_field_counts.Values){Verify ($row.Count -eq 1 -and $row.acl -eq 1)}
  $rawDetail=Get-Content -LiteralPath (Join-Path $work 'compare-fault-files.out') -Raw|ConvertFrom-Json -AsHashtable
- foreach($mutation in 'category','label','field','row_type','map_type','negative','string','boolean','large','unknown_count','partial'){
+ foreach($mutation in 'category','label','field','row_type','map_type','negative','string','boolean','large','unknown_count','partial','private_scope','scope_type','scope_count'){
   $invalid=JsonCopy $rawDetail
   switch($mutation){
    'category'{$invalid.comparison_file_category_field_counts[$sensitive]=@{acl=1}}
@@ -125,11 +127,24 @@ try{
    'large'{$invalid.comparison_file_category_field_counts.config.acl=100001}
    'unknown_count'{$invalid.comparison_unknown_file_entry_count=$true}
    'partial'{$invalid.Remove('comparison_unknown_file_entry_count')}
+   'private_scope'{$invalid.comparison_config_scope_field_counts[$sensitive]=@{added=1}}
+   'scope_type'{$invalid.comparison_config_scope_field_counts=@()}
+   'scope_count'{$invalid.comparison_config_scope_field_counts.automatic_backups.added=$true}
   }
   Verify ($null -eq (QualificationComparisonDetails $invalid))
   $projected=QualificationFailureObservation $caught.ScriptStackTrace $script:qualificationFailedChild @{label='fault-files';report=$invalid}
   Verify (!$projected.ContainsKey('comparison') -and !($projected|ConvertTo-Json -Depth 16 -Compress).Contains($sensitive))
  }
+ # An unexpected read-only observer failure cannot replace the actual refusal.
+ $captureBody=(Get-Item Function:QualificationFileCapture).ScriptBlock
+ try{
+  function QualificationFileCapture {throw $sensitive}
+  $left=@{'C:\ProgramData\OpenWebPBX\runtime.json'=(Record)};$right=JsonCopy $left;$right['C:\ProgramData\OpenWebPBX\automatic-backups\worker.lock']=Record
+  $caught=$null;try{Equal $left $right 'fault-files'}catch{$caught=$_};$children++
+  $observed=Observe $caught
+  Verify ($observed.child.exit_code -eq 1 -and $observed.comparison.comparison_known_file_field_counts.automatic_backups_worker_lock.added -eq 1)
+  Verify ($observed.file_capture.state -ceq 'unavailable' -and $observed.file_capture.paths.Count -eq 0)
+ }finally{Set-Item Function:QualificationFileCapture $captureBody}
  # Database equality remains exact; private table/column names stay private.
  $database=@{roles=@{original=$sensitive};values=@{($sensitive)=@('same')}};$changed=JsonCopy $database;$changed.roles.original='changed';$changed.values[$sensitive]=@('changed')
  $caught=$null;try{Equal $database $changed 'fault-database'}catch{$caught=$_};$children++
@@ -224,4 +239,4 @@ function CheckedProcess([string]$Executable,[string[]]$Arguments,[string]$Label)
  if(Test-Path -LiteralPath $temporary){Remove-Item -LiteralPath $temporary -Recurse -Force}
 }
 Verify (!(Test-Path -LiteralPath $temporary))
-@{schema=1;state='passed';actual_source_controls=$checks;real_owned_python_children=$children;fixture_test_bindings='fixed Python executable, malformed snapshots and protocol-negative child reports only';exact_existing_comparator=$true;private_values_excluded=$true;pbx_services_or_network_executed=$false}|ConvertTo-Json -Compress
+@{schema=1;state='passed';actual_source_controls=$checks;real_owned_python_children=$children;fixture_test_bindings='fixed Python executable, malformed snapshots, protocol-negative child reports and failing read-only capture observer';exact_existing_comparator=$true;private_values_excluded=$true;pbx_services_or_network_executed=$false}|ConvertTo-Json -Compress

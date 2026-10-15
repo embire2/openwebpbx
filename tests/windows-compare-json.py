@@ -28,6 +28,10 @@ KNOWN_FILE_PATHS = {
                         ('local-codec', 'local_codec'), ('phone-tls', 'phone_tls_metadata'))
 }
 KNOWN_FILE_PATHS.update({
+    'c:/programdata/fusionpbx': 'fusionpbx_root',
+    'c:/programdata/fusionpbx/config.conf': 'fusionpbx_config',
+    'c:/programdata/fusionpbx/openweb-template.key': 'fusionpbx_template_key',
+    'c:/programdata/openwebpbx/automatic-backups/worker.lock': 'automatic_backups_worker_lock',
     'c:/programdata/openwebpbx/storage': 'storage_root',
     'c:/programdata/openwebpbx/storage/openweb-music': 'stock_music_root',
     'c:/programdata/openwebpbx/storage/openweb-music/readme.md': 'stock_music_readme',
@@ -35,6 +39,14 @@ KNOWN_FILE_PATHS.update({
     'c:/program files/freeswitch/sounds': 'stock_sounds_root',
     'c:/program files/freeswitch/sounds/openwebpbx': 'stock_sounds_openwebpbx',
 })
+CONFIG_SCOPES = {
+    'c:/programdata/fusionpbx': 'fusionpbx',
+    **{'c:/programdata/openwebpbx/' + name: name.replace('-', '_')
+       for name in ('phone-tls', 'public-access', 'automatic-backups', 'backup-restore',
+                    'backup-control', 'backup-downloads', 'codec-compiler-cache', 'codec-build')},
+}
+for _path, _label in CONFIG_SCOPES.items():
+    KNOWN_FILE_PATHS.setdefault(_path, _label + '_root')
 for _rate in (8000, 16000, 32000, 48000):
     _directory = 'c:/programdata/openwebpbx/storage/openweb-music/' + str(_rate)
     KNOWN_FILE_PATHS[_directory] = 'stock_music_' + str(_rate) + '_dir'
@@ -91,7 +103,7 @@ def file_difference(before, after, changed):
                for side in (before, after) for name, entry in side.items()):
         return {}
     fields, categories = Counter(), Counter()
-    category_fields, known_fields = {}, {}
+    category_fields, known_fields, scope_fields = {}, {}, {}
     unknown = 0
     for name in changed:
         category = file_category(name) or 'other'
@@ -116,6 +128,12 @@ def file_difference(before, after, changed):
         category_fields.setdefault(category, Counter()).update(entry_fields)
         if label is not None:
             known_fields.setdefault(label, Counter()).update(entry_fields)
+        if isinstance(name, str) and len(name) <= 4096:
+            folded = name.replace('\\', '/').casefold()
+            for prefix, scope in CONFIG_SCOPES.items():
+                if folded == prefix or folded.startswith(prefix + '/'):
+                    scope_fields.setdefault(scope, Counter()).update(entry_fields)
+                    break
     return {
         'comparison_files_observed': True,
         'comparison_changed_file_entry_count': min(len(changed), LIMIT),
@@ -126,6 +144,7 @@ def file_difference(before, after, changed):
         'comparison_file_category_field_counts': {category: {field: min(category_fields[category][field], LIMIT) for field in FILE_FIELDS if category_fields[category][field]} for category in FILE_CATEGORIES if category in category_fields},
         'comparison_known_file_field_counts': {label: {field: min(known_fields[label][field], LIMIT) for field in FILE_FIELDS if known_fields[label][field]} for label in KNOWN_FILE_LABELS if label in known_fields},
         'comparison_unknown_file_entry_count': min(unknown, LIMIT),
+        'comparison_config_scope_field_counts': {scope: {field: min(scope_fields[scope][field], LIMIT) for field in FILE_FIELDS if scope_fields[scope][field]} for scope in CONFIG_SCOPES.values() if scope in scope_fields},
     }
 
 

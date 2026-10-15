@@ -66,8 +66,8 @@ class DiagnosticChecks(unittest.TestCase):
         self.assertEqual(a['comparison_unknown_file_entry_count'], 1)
         self.assertEqual(b['comparison_unknown_file_entry_count'], 1)
 
-    def test_all_twenty_labels_accept_only_exact_known_paths(self):
-        self.assertEqual(len(set(comparison.KNOWN_FILE_LABELS)), 20)
+    def test_all_thirty_two_labels_accept_only_exact_known_paths(self):
+        self.assertEqual(len(set(comparison.KNOWN_FILE_LABELS)), 32)
         for path, label in comparison.KNOWN_FILE_PATHS.items():
             with self.subTest(label=label):
                 native_path = path.upper().replace('/', '\\')
@@ -81,6 +81,24 @@ class DiagnosticChecks(unittest.TestCase):
         self.assertEqual(row['comparison_known_file_field_counts'], {})
         self.assertEqual(row['comparison_unknown_file_entry_count'], 1)
         self.assertEqual(row['comparison_file_category_field_counts'], {'media': {'removed': 1}})
+
+    def test_residual_added_lock_and_closed_subroots_keep_exact_refusal(self):
+        baseline = {'C:/ProgramData/OpenWebPBX/runtime.json': entry()}
+        path = 'C:/ProgramData/OpenWebPBX/automatic-backups/worker.lock'
+        after = baseline | {path: entry()}
+        row = self.run_comparator(baseline, after)
+        self.assertEqual(row['comparison_file_field_counts'], {'added': 1})
+        self.assertEqual(row['comparison_known_file_field_counts'], {'automatic_backups_worker_lock': {'added': 1}})
+        self.assertEqual(row['comparison_config_scope_field_counts'], {'automatic_backups': {'added': 1}})
+        self.assertEqual(row['comparison_unknown_file_entry_count'], 0)
+        for prefix, label in comparison.CONFIG_SCOPES.items():
+            with self.subTest(scope=label):
+                row = self.run_comparator(baseline, baseline | {prefix + '/' + SENSITIVE: entry()})
+                self.assertEqual(row['comparison_config_scope_field_counts'], {label: {'added': 1}})
+                self.assertEqual(row['comparison_known_file_field_counts'], {})
+                self.assertEqual(row['comparison_unknown_file_entry_count'], 1)
+                for name in (prefix + '-foreign/' + SENSITIVE, prefix + 'x/' + SENSITIVE):
+                    self.assertEqual(self.run_comparator(baseline, baseline | {name: entry()})['comparison_config_scope_field_counts'], {})
 
     def test_every_field_is_associated_with_its_actual_category(self):
         path = 'C:/ProgramData/OpenWebPBX/runtime.json'

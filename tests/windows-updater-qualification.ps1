@@ -54,7 +54,10 @@ function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null
  $safe=@{schema=1;callsites=$frames.ToArray();child=$childReport}
  if($childReport -and $frames.ToArray().function -ccontains 'Equal' -and $Comparison -is [Collections.IDictionary] -and $Comparison.label -is [string] -and $Comparison.label -cin @('fault-database','fault-files','fault-tasks','normal-database','normal-protected-files','normal-installation-secrets','normal-tasks') -and $childReport.label -ceq ('compare-'+$Comparison.label)){
   $report=QualificationComparisonDetails $Comparison.report
-  if($report -and (($report.comparison_result -ceq 'different' -and $childReport.completion -ceq 'exit' -and $childReport.exit_code -eq 1) -or ($report.comparison_result -ceq 'error' -and $childReport.completion -ceq 'exit' -and $childReport.exit_code -eq 2) -or $report.comparison_result -ceq 'unavailable')){$safe.comparison=$report}
+  if($report -and (($report.comparison_result -ceq 'different' -and $childReport.completion -ceq 'exit' -and $childReport.exit_code -eq 1) -or ($report.comparison_result -ceq 'error' -and $childReport.completion -ceq 'exit' -and $childReport.exit_code -eq 2) -or $report.comparison_result -ceq 'unavailable')){
+   $safe.comparison=$report
+   if($Comparison.label -ceq 'fault-files' -and $report.comparison_result -ceq 'different'){$capture=QualificationFileCaptureFields $Comparison.capture;if($capture){$safe.file_capture=$capture}}
+  }
  }
  return $safe
 }
@@ -330,8 +333,10 @@ function QualificationComparisonDetails($Record){
  if(($count -isnot [int] -and $count -isnot [long]) -or $count -lt 0 -or $count -gt 100000){return $null}
  $safe.comparison_unknown_file_entry_count=[int]$count
  $labels=@('installation','runtime','updater_install','native_engine','local_codec','phone_tls_metadata','storage_root','stock_music_root','stock_music_readme','stock_music_manifest','stock_sounds_root','stock_sounds_openwebpbx')
+ $labels+=@('fusionpbx_root','fusionpbx_config','fusionpbx_template_key','automatic_backups_worker_lock','phone_tls_root','public_access_root','automatic_backups_root','backup_restore_root','backup_control_root','backup_downloads_root','codec_compiler_cache_root','codec_build_root')
  foreach($rate in 8000,16000,32000,48000){$labels+=@(('stock_music_'+$rate+'_dir'),('stock_music_'+$rate+'_track'))}
  $maps=@{comparison_file_category_field_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','other');comparison_known_file_field_counts=$labels}
+ if($names -ccontains 'comparison_config_scope_field_counts'){$maps.comparison_config_scope_field_counts=@('fusionpbx','phone_tls','public_access','automatic_backups','backup_restore','backup_control','backup_downloads','codec_compiler_cache','codec_build')}
  foreach($field in $maps.Keys){
   $map=$Record.$field
   if($map -is [Collections.IDictionary]){$keys=@($map.Keys)}elseif($map -is [pscustomobject]){$keys=@($map.PSObject.Properties.Name)}else{return $null}
@@ -351,6 +356,74 @@ function QualificationComparisonDetails($Record){
  }
  return $safe
 }
+function QualificationFileCaptureFields($Record){
+ if($Record -isnot [Collections.IDictionary] -or $Record.Count -ne 2 -or $Record.state -isnot [string] -or $Record.state -cnotin 'verified','unavailable' -or $Record.paths -isnot [Collections.IDictionary]){return $null}
+ $labels=@('installation','runtime','updater_install','native_engine','local_codec','phone_tls_metadata','fusionpbx_root','fusionpbx_config','fusionpbx_template_key','automatic_backups_worker_lock','phone_tls_root','public_access_root','automatic_backups_root','backup_restore_root','backup_control_root','backup_downloads_root','codec_compiler_cache_root','codec_build_root')
+ if(($Record.state -ceq 'unavailable' -and $Record.paths.Count) -or ($Record.state -ceq 'verified' -and $Record.paths.Count -ne $labels.Count)){return $null}
+ $paths=@{}
+ foreach($label in $Record.paths.Keys){
+  $row=$Record.paths[$label]
+  if($label -isnot [string] -or $label -cnotin $labels -or $row -isnot [Collections.IDictionary] -or $row.Count -ne 3 -or $row.before_present -isnot [bool] -or $row.after_present -isnot [bool] -or $row.support_capture -isnot [string] -or $row.support_capture -cnotin 'present','absent','unobserved'){return $null}
+  $paths[$label]=@{before_present=$row.before_present;after_present=$row.after_present;support_capture=$row.support_capture}
+ }
+ return @{state=$Record.state;paths=$paths}
+}
+function QualificationFileCapture($Before,$After,[string]$StateRoot,[string]$ConfigurationRoot){
+ # Failure-only, read-only observation of a sealed, quiesced support inventory.
+ # An online configuration copy is not claimed as a quiesced support capture.
+ $unavailable=@{state='unavailable';paths=@{}}
+ try{
+  function NoCaptureLinks([string]$Path){
+   for($current=[IO.Path]::GetFullPath($Path);$current;$current=[IO.Path]::GetDirectoryName($current)){
+    $item=Get-Item -LiteralPath $current -Force -ErrorAction Stop
+    if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Capture observation unavailable.'}
+   }
+  }
+  function ReadCapture([string]$Path,[int]$Maximum){
+   NoCaptureLinks $Path;$item=Get-Item -LiteralPath $Path -Force
+   if($item.PSIsContainer -or $item.Length -gt $Maximum){throw 'Capture observation unavailable.'}
+   $stream=[IO.File]::Open($Path,'Open','Read',([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete));$memory=[IO.MemoryStream]::new()
+   try{$buffer=[byte[]]::new(65536);while(($count=$stream.Read($buffer,0,[Math]::Min($buffer.Length,$Maximum+1-$memory.Length))) -gt 0){$memory.Write($buffer,0,$count);if($memory.Length -gt $Maximum){throw 'Capture observation unavailable.'}};$bytes=$memory.ToArray()}finally{$stream.Dispose();$memory.Dispose()}
+   $text=[Text.UTF8Encoding]::new($false,$true).GetString($bytes).TrimStart([char]0xfeff)
+   return @{bytes=$bytes;value=($text|ConvertFrom-Json -AsHashtable -NoEnumerate)}
+  }
+  function CaptureHash([byte[]]$Bytes){return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($Bytes)).ToLowerInvariant()}
+  function CaptureEntry($Map,[string]$Path){
+   if($Map -isnot [Collections.IDictionary]){throw 'Capture observation unavailable.'}
+   foreach($key in $Map.Keys){if($key -is [string] -and $key.Replace('\','/').Equals($Path.Replace('\','/'),[StringComparison]::OrdinalIgnoreCase)){return @{found=$true;value=$Map[$key]}}}
+   return @{found=$false;value=$null}
+  }
+  if($Before -isnot [Collections.IDictionary] -or $After -isnot [Collections.IDictionary]){throw 'Capture observation unavailable.'}
+  $journalPath=Join-Path $StateRoot 'updates/install-journal.json';$journal=ReadCapture $journalPath 65536;$j=$journal.value
+  if(($j.schema -isnot [int] -and $j.schema -isnot [long]) -or $j.schema -ne 1 -or $j.state -cne 'rolled_back' -or $j.version -cne '1.0.14' -or $j.previous_version -cne '1.0.13' -or $j.operator_rollback -isnot [bool] -or $j.operator_rollback -or $j.backup_path -isnot [string]){throw 'Capture observation unavailable.'}
+  $backup=[IO.Path]::GetFullPath($j.backup_path);$name=[IO.Path]::GetFileName($backup)
+  if($name -cnotmatch '^[0-9]{8}-[0-9]{6}-[a-f0-9]{8}$' -or !$backup.Equals([IO.Path]::GetFullPath((Join-Path (Join-Path $StateRoot 'backups') $name)),[StringComparison]::OrdinalIgnoreCase)){throw 'Capture observation unavailable.'}
+  $complete=ReadCapture (Join-Path $backup 'complete.json') 65536;$manifest=ReadCapture (Join-Path $backup 'backup-manifest.json') 8388608
+  if($complete.value.version -cne '1.0.13' -or $complete.value.integrity_sha256 -isnot [string] -or $complete.value.integrity_sha256 -cnotmatch '^[a-f0-9]{64}$' -or (CaptureHash $manifest.bytes) -cne $complete.value.integrity_sha256 -or ($manifest.value.schema -isnot [int] -and $manifest.value.schema -isnot [long]) -or $manifest.value.schema -ne 1 -or $manifest.value.files -isnot [Collections.IDictionary]){throw 'Capture observation unavailable.'}
+  $support=ReadCapture (Join-Path $backup 'support-state.json') 16777216
+  if($manifest.value.files['support-state.json'] -isnot [string] -or $manifest.value.files['support-state.json'] -cnotmatch '^[a-f0-9]{64}$' -or (CaptureHash $support.bytes) -cne $manifest.value.files['support-state.json'] -or ($support.value.schema -isnot [int] -and $support.value.schema -isnot [long]) -or $support.value.schema -ne 1){throw 'Capture observation unavailable.'}
+  $record=$support.value
+  foreach($field in 'Acls','Files','Directories'){if($record[$field] -isnot [Collections.IDictionary] -or $record[$field].Count -gt 100000){throw 'Capture observation unavailable.'}}
+  $selected=@{}
+  foreach($pair in @(@('installation','installation'),@('runtime','runtime'),@('updater-install','updater_install'),@('native-engine','native_engine'),@('local-codec','local_codec'),@('phone-tls','phone_tls_metadata'))){$selected[$pair[1]]=@{path=(Join-Path $StateRoot ($pair[0]+'.json'));directory=$null}}
+  foreach($directory in 'phone-tls','public-access','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build'){$selected[$directory.Replace('-','_')+'_root']=@{path=(Join-Path $StateRoot $directory);directory=$directory}}
+  $selected.automatic_backups_worker_lock=@{path=(Join-Path $StateRoot 'automatic-backups/worker.lock');directory='automatic-backups'}
+  $selected.fusionpbx_root=@{path=$ConfigurationRoot;directory=$null};$selected.fusionpbx_config=@{path=(Join-Path $ConfigurationRoot 'config.conf');directory=$null};$selected.fusionpbx_template_key=@{path=(Join-Path $ConfigurationRoot 'openweb-template.key');directory=$null}
+  $paths=@{}
+  foreach($label in $selected.Keys){
+   $entry=$selected[$label];$presence='unobserved';$file=CaptureEntry $record.Files $entry.path
+   if($file.found){if($file.value.Exists -isnot [bool]){throw 'Capture observation unavailable.'};$presence=if($file.value.Exists){'present'}else{'absent'}}
+   elseif($entry.directory -and $record.Directories.Contains($entry.directory)){
+    $dir=$record.Directories[$entry.directory]
+    if($dir.Exists -isnot [bool] -or $dir.Path -isnot [string] -or !$dir.Path.Replace('\','/').Equals((Join-Path $StateRoot $entry.directory).Replace('\','/'),[StringComparison]::OrdinalIgnoreCase)){throw 'Capture observation unavailable.'}
+    $presence=if(!$dir.Exists){'absent'}elseif($entry.path -eq $dir.Path -or (CaptureEntry $record.Acls $entry.path).found){'present'}else{'absent'}
+   }
+   $paths[$label]=@{before_present=(CaptureEntry $Before $entry.path).found;after_present=(CaptureEntry $After $entry.path).found;support_capture=$presence}
+  }
+  if((CaptureHash (ReadCapture $journalPath 65536).bytes) -cne (CaptureHash $journal.bytes)){throw 'Capture observation unavailable.'}
+  return QualificationFileCaptureFields @{state='verified';paths=$paths}
+ }catch{return $unavailable}
+}
 function Equal($Before,$After,[string]$Label){
  $script:qualificationComparisonFailure=$null
  $a=Join-Path $work ($Label+'-before.json');$b=Join-Path $work ($Label+'-after.json');WriteJson $a $Before;WriteJson $b $After
@@ -366,6 +439,9 @@ function Equal($Before,$After,[string]$Label){
    }
   }catch{}
   $script:qualificationComparisonFailure=@{label=$Label;report=$report}
+  if($Label -ceq 'fault-files' -and $report.comparison_result -ceq 'different' -and $report.comparison_files_observed -eq $true){
+   try{$script:qualificationComparisonFailure.capture=QualificationFileCapture $Before $After $state $configuration}catch{$script:qualificationComparisonFailure.capture=@{state='unavailable';paths=@{}}}
+  }
   throw
  }
 }
