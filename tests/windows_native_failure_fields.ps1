@@ -43,7 +43,7 @@ foreach($prefix in 'primary','cleanup'){
  }
 }
 foreach($bad in '2',0,33,$true){$copy=$record.PSObject.Copy();$copy.cleanup_failure_count=$bad;Check (!(SafeFailureFields $copy).ContainsKey('cleanup_failure_count'))}
-$allowed=@('native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first')
+$allowed=@('native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout')
 $childChecks=@(foreach($name in $allowed){[pscustomobject]@{case=$name;passed=$true;password='private-never-copy';decoded_ratio=.99;error='private-never-copy'}})
 $completed=@(CompletedMediaCases $childChecks)
 Check (($completed -join '|') -ceq ($allowed -join '|'))
@@ -102,5 +102,30 @@ foreach($filter in 'QueueFailureFields','SafeQueueFailureFields','SafeFailureFie
  }
  $copy=$queue.PSObject.Copy();$copy.queue_before_expected_tier_position=1000;$copy.queue_after_other_invites=64
  $safe=& $filter $copy;Check ($safe.queue_before_expected_tier_position -eq 1000 -and $safe.queue_after_other_invites -eq 64)
+}
+$callbackStages=@('callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed')
+$stageNodes=@($nativeAst.FindAll({param($n)$n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left -is [Management.Automation.Language.VariableExpressionAst] -and $n.Left.VariablePath.UserPath -eq 'nativeStages'},$true))
+Check ($stageNodes.Count -eq 1)
+$nativeStages=Invoke-Expression $stageNodes[0].Right.Extent.Text
+foreach($stage in $callbackStages){
+ Check ($stage -cin $nativeStages)
+ $copy=$record.PSObject.Copy();$copy.primary_substage=$stage;Check ((SafeFailureFields $copy).primary_substage -ceq $stage)
+}
+$callback=[pscustomobject]@{active_case='queue_pause_logout_wire_callback';queue_diagnostics_complete=$true;queue_before_expected_registered=$true;queue_after_target_invites=1;queue_after_target_acks=0;callback_wire_digit_emitted=$true;callback_wire_sent_rtp=$true;callback_wire_received_rtp=$false;callback_before_job_count=0;callback_after_job_count=1;callback_after_job_state='starting';callback_after_attempts=0;callback_after_max_attempts=1;callback_after_target_matches=$true;callback_after_request_is_call=$true;callback_after_has_call_uuid=$true;callback_after_has_lease=$true;callback_after_call_uuid_alive=$false;callback_after_due=$true;callback_after_expired=$false;callback_after_lease_expired=$false;callback_before_jobs_held=$false;callback_after_worker_state='Running';callback_after_last_success_present=$true;callback_after_last_success_advanced=$true;callback_after_pause_state='active';callback_after_result_class='agent_or_route';callback_job_uuid='private-never-copy';callback_after_last_result='private-never-copy';callback_lastSuccess='private-never-copy'}
+foreach($filter in 'QueueFailureFields','SafeQueueFailureFields','SafeFailureFields'){
+ $safe=& $filter $callback
+ foreach($field in $callback.PSObject.Properties.Name|Where-Object {$_ -ne 'active_case' -and $_ -notin 'callback_job_uuid','callback_after_last_result','callback_lastSuccess'}){Check ($safe.ContainsKey($field) -and $safe[$field] -ceq $callback.$field)}
+ Check (($safe|ConvertTo-Json) -notmatch 'private-never-copy|last_result|lastSuccess|job_uuid')
+ foreach($field in 'callback_wire_digit_emitted','callback_after_due','callback_after_has_lease','callback_after_call_uuid_alive','callback_after_last_success_advanced'){
+  foreach($bad in 'true',1,$null,@{private='private-never-copy'}){$copy=$callback.PSObject.Copy();$copy.$field=$bad;Check (!(& $filter $copy).ContainsKey($field))}
+ }
+ foreach($field in 'callback_before_job_count','callback_after_attempts','callback_after_max_attempts'){
+  foreach($bad in '1',$true,1.5,-1,1001,[double]::NaN,[double]::PositiveInfinity){$copy=$callback.PSObject.Copy();$copy.$field=$bad;Check (!(& $filter $copy).ContainsKey($field))}
+ }
+ foreach($field in 'callback_after_job_state','callback_after_worker_state','callback_after_result_class','callback_after_pause_state'){
+  foreach($bad in 'private-never-copy',$callback.$field.ToUpperInvariant(),1,$true,@{private='private-never-copy'}){$copy=$callback.PSObject.Copy();$copy.$field=$bad;Check (!(& $filter $copy).ContainsKey($field))}
+ }
+ $copy=$callback.PSObject.Copy();$copy.callback_before_job_count=65;Check (!(& $filter $copy).ContainsKey('callback_before_job_count'))
+ $copy=$callback.PSObject.Copy();$copy.active_case='queue_agent_delivery';Check (@((& $filter $copy).Keys|Where-Object {$_ -like 'callback_*'}).Count -eq 0)
 }
 Write-Output "PASS $checks actual caller native primary/cleanup/media/queue privacy allowlist checks; no PBX contacted"

@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 source = (ROOT / 'tests/windows-native-acceptance.py').read_text()
@@ -149,4 +150,70 @@ else:
     raise AssertionError('Queue call failure was hidden')
 check(native.Fixture.wait.__defaults__ == (12,))
 check(call_check.args.defaults[0].id == 'a')
+row = {'job_uuid': 'private-job', 'kind': 'callback', 'queue_number': '8190', 'state': 'starting',
+       'attempts': 0, 'max_attempts': 1, 'target_number': '8100', 'internal_target': True,
+       'request_key': 'call/' + '11111111-1111-4111-8111-111111111111',
+       'call_uuid': '22222222-2222-4222-8222-222222222222', 'last_result': 'Waiting for an available agent and call route',
+       'due': True, 'expired': False, 'lease_expired': False, 'has_lease': True}
+classified = native.callback_job_facts([row], 'private-job')
+check(classified['job_state'] == 'starting' and classified['attempts'] == 0 and classified['result_class'] == 'agent_or_route')
+check(classified['target_matches'] and classified['request_is_call'] and classified['has_call_uuid'] and classified['has_lease'])
+check('private-job' not in json.dumps(classified) and row['call_uuid'] not in json.dumps(classified))
+check(native.callback_job_facts([row], 'foreign-private-job') == {'job_count': 0, 'job_state': 'absent'})
+check(native.callback_job_facts([row, row]) == {'job_count': 2, 'job_state': 'unknown'})
+for field, value in [('state', 'PRIVATE_STATE'), ('last_result', 'PRIVATE_RESULT'), ('request_key', 'PRIVATE_REQUEST'),
+                     ('call_uuid', 'PRIVATE_UUID'), ('attempts', True), ('max_attempts', 1001), ('due', 'true')]:
+    facts = native.callback_job_facts([row | {field: value}])
+    check('PRIVATE_' not in json.dumps(facts))
+for stage in ('callback_request_created', 'callback_agent_answer', 'callback_target_answer', 'callback_job_completed'):
+    sentinel = AssertionError('PRIVATE_CALLBACK_FAILURE')
+    fake.wait = lambda predicate, seconds: (_ for _ in ()).throw(sentinel)
+    try:
+        native.callback_wait(fake, stage, lambda: False, 12)
+    except AssertionError as error:
+        check(error is sentinel and error.native_failure['primary_substage'] == stage)
+        native.native_cleanup(error, 'native_case', [('native_peer_close', lambda: None)])
+        check(error.native_failure['primary_substage'] == stage and 'PRIVATE_' not in json.dumps(error.native_failure))
+    else:
+        raise AssertionError('The fixed callback wait failure was lost')
+try:
+    native.callback_wait(fake, 'PRIVATE_STAGE', lambda: True, 12)
+except AssertionError:
+    check(True)
+else:
+    raise AssertionError('An arbitrary callback stage was accepted')
+with tempfile.TemporaryDirectory() as directory:
+    held = Path(directory) / 'backup-restore'
+    held.mkdir()
+    (held / 'hold-jobs').touch()
+
+    class CallbackFixture(Fixture):
+        s = {'private_state_root': directory}
+
+        def cli(self, *args, **kwargs):
+            if args[0] == 'status':
+                return {'jobs': [row]}
+            if args[:2] == ('api', 'fsctl pause_check'):
+                return 'false'
+            if args[:2] == ('api', 'uuid_exists ' + row['call_uuid']):
+                return 'false'  # A leased UUID alone does not prove a live leg.
+            return super().cli(*args)
+
+    response = SimpleNamespace(read=lambda size: json.dumps({'state': 'Running', 'lastSuccess': 'PRIVATE_SUCCESS_NEW'}).encode(),
+                               __enter__=lambda self: self, __exit__=lambda *args: False)
+
+    class Response:
+        def __enter__(self):
+            return response
+
+        def __exit__(self, *args):
+            return False
+
+    with patch.object(native.urllib.request, 'urlopen', return_value=Response()):
+        facts, complete, success = native.callback_snapshot(CallbackFixture(), peers, baseline, 'after', job='private-job', previous_success='PRIVATE_SUCCESS_OLD')
+    check(complete and success == 'PRIVATE_SUCCESS_NEW')
+    check(facts['callback_after_worker_state'] == 'Running' and facts['callback_after_last_success_advanced'])
+    check(facts['callback_after_jobs_held'] and facts['callback_after_pause_state'] == 'active')
+    check(facts['callback_after_has_call_uuid'] and not facts['callback_after_call_uuid_alive'])
+    check('PRIVATE_' not in json.dumps(facts) and row['call_uuid'] not in json.dumps(facts))
 print(f'PASS {checks} actual-source queue scope/state/peer/privacy/primary-failure controls; no PBX contacted')

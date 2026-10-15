@@ -35,7 +35,15 @@ local function environment(f)
     function s:hangup(cause)f.hangup=cause;self.alive=false end
     function s:answer()f.answers=(f.answers or 0)+1 end
     function s:streamFile()end
-    function s:playAndGetDigits(_,_,_,timeout)f.prompt_timeout=timeout;f.now=f.now+(f.prompt_delay or 0);return f.answer_digit or '1'end
+    function s:playAndGetDigits(min,max,tries,timeout,terminators,prompt,bad,regex,var,digit_timeout)
+        if prompt=='phrase:openweb_callback_intro' then
+            f.intro_reads=(f.intro_reads or 0)+1;f.intro_args={min,max,tries,timeout,terminators,prompt,bad,regex,var,digit_timeout}
+            f.intro_visit_state={self.variables.cc_agent_bridged,self.variables.cc_agent_found,self.variables.cc_exit_key,self.variables.cc_exit_keys}
+            local delay=f.intro_delay or 0;local budget=f.scheduled_seconds or delay
+            f.now=f.now+math.min(delay,budget);return delay>=budget and 'D' or f.intro_digit or ''
+        end
+        f.prompt_timeout=timeout;f.now=f.now+(f.prompt_delay or 0);return f.answer_digit or '1'
+    end
     function s:transfer(number,_,realm)f.transfers[#f.transfers+1]={number=number,realm=realm}end
     function s:execute(application,data)
         if application=='callcenter' then
@@ -72,8 +80,10 @@ local function environment(f)
         elseif sql:find('select 1 as ok from v_pbx_jobs',1,true) and sql:find('agent_number=:number',1,true) then if f.reserved then callback({ok=1})end
         elseif sql:find('insert into v_pbx_queue_tickets',1,true) then
             if not f.capacity_full then callback({joined=f.now}) end
-        elseif sql:find('update v_pbx_queue_tickets',1,true) then f.queue_finished=(f.queue_finished or 0)+1
+        elseif sql:find('update v_pbx_queue_tickets',1,true) then
+            if sql:find("set state='callback'",1,true) then f.queue_callback=(f.queue_callback or 0)+1 else f.queue_finished=(f.queue_finished or 0)+1 end
         elseif sql:find('insert into v_pbx_jobs',1,true) then if not f.callback_refused then f.callback_created=params;callback({job_uuid=params.id}) end
+        elseif sql:find('select 1 as ok from v_pbx_jobs',1,true) and sql:find('target_number=:target',1,true) then f.callback_lookup=params;if f.callback_existing then callback({ok=1}) end
         elseif sql:find('from v_gateways',1,true) then
             local native=f.gateways[params.id]
             if native and native.domain==(params.domain or params.d) and callback then callback(native) end
@@ -387,6 +397,26 @@ for _,change in ipairs({'source_foreign','source_gone','answered','found','stale
  check(not guard(f),'Scheduled guard refuses '..change..' caller')
 end
 f=fixture();f.config.queues[1].callback_mode='automatic';f.config.queues[1].callback_after=3;f.intro_delay=4;run(f,'queue','300');check(f.now==1004 and f.callback_created and #f.waits==0,'An introduction crossing the callback threshold saves the due job before starting another wait')
+f=fixture();f.intro_digit='2';f.intro_delay=2;run(f,'queue','300')
+check(f.callback_created and f.callback_created.target=='100' and f.callback_created.internal=='true' and f.callback_created.request=='call/'..f.variables.uuid and f.hangup=='NORMAL_CLEARING' and #f.waits==0,'Early invitation key uses the owned internal caller and existing durable request path')
+check(f.intro_args[1]==1 and f.intro_args[2]==1 and f.intro_args[3]==1 and f.intro_args[4]==1 and f.intro_args[5]=='D' and f.intro_args[7]=='' and f.intro_args[8]=='^2$' and f.intro_args[9]=='' and f.intro_args[10]==1,'Invitation uses one bounded native digit read without a separate post-prompt listening window')
+check(f.queue_callback==1 and f.queue_finished==1 and f.variables.openweb_queue_limit_token=='' and f.variables.cc_exit_keys=='','Early callback marks one callback visit and clears its live deadline guard')
+for _,digit in ipairs({'','9','D'})do
+ f=fixture();f.intro_digit=digit;f.intro_delay=4;run(f,'queue','300')
+ check(not f.callback_created and f.now==1010 and #f.waits==1 and f.waits[1].seconds==6,'No or invalid invitation key '..digit..' preserves the original queue deadline')
+end
+for _,reason in ipairs({'disabled','invalid_caller'})do
+ f=fixture();f.intro_digit='2'
+ if reason=='disabled' then f.config.queues[1].callback_mode='disabled' else f.variables.sip_auth_username=nil;f.variables.caller_id_number='anonymous' end
+ run(f,'queue','300');check(not f.callback_created and not f.intro_reads,'Invitation cannot create a callback for '..reason)
+end
+f=fixture();f.intro_digit='2';f.callback_refused=true;f.intro_delay=2;run(f,'queue','300')
+check(not f.callback_created and f.now==1010 and f.transfers[1].number=='200','Refused callback capacity continues through the bounded normal queue fallback')
+f=fixture();f.intro_digit='2';f.callback_refused=true;f.callback_existing=true;run(f,'queue','300')
+check(not f.callback_created and f.callback_lookup.domain==domain and f.callback_lookup.queue=='300' and f.callback_lookup.target=='100' and f.hangup=='NORMAL_CLEARING','Early duplicate request reuses only the same owned queue target without a second insert')
+f=fixture();f.intro_delay=12;f.intro_digit='2';f.variables.cc_agent_bridged='true';f.variables.cc_agent_found='true';f.variables.cc_exit_key='2';f.variables.cc_exit_keys='old';run(f,'queue','300')
+check(f.intro_visit_state[1]=='false' and f.intro_visit_state[2]=='false' and f.intro_visit_state[3]=='' and f.intro_visit_state[4]=='','Invitation guard starts with this queue visit flags, clearing a stale earlier bridge and exit')
+check(not f.callback_created and f.now==1010 and #f.waits==0 and f.transfers[1].number=='200','An overlong introduction terminates at the original deadline without saving a late key')
 local queue_runtime=assert(loadfile(base..'/app/pbx_setup/queue_runtime.lua'))()
 local calls={};local native={execute=function(_,_,data)
  calls[#calls+1]=data

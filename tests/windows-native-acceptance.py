@@ -18,7 +18,8 @@ FIXTURE_ACTIONS={'baseline','discover','cleanup','status','queue-state','job','d
 FIXTURE_STAGES={'initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh'}
 NATIVE_SUBSTAGES={'native_case','g729_regular_unregister','g729_alternate_register','g729_invite','g729_answer_validation',
     'g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister',
-    'g729_peer_close','g729_codec_close','g729_regular_reregister','native_peer_unregister','native_peer_close','native_ledger_write'}
+    'g729_peer_close','g729_codec_close','g729_regular_reregister','native_peer_unregister','native_peer_close','native_ledger_write',
+    'callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed'}
 
 
 class WindowsRtpSocket:
@@ -485,6 +486,63 @@ def queue_case_snapshot(f,peers,baseline,phase,call=None):
     return facts,complete
 
 
+def callback_wait(f,stage,predicate,seconds):
+    assert stage in {'callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed'}
+    try:return f.wait(predicate,seconds)
+    except BaseException as error:
+        error.native_failure=native_exception_fields(error,stage)
+        raise
+
+
+def callback_job_facts(rows,job=None):
+    """Classify owned SQL rows without publishing identities or raw results."""
+    assert isinstance(rows,list) and len(rows)<=64
+    rows=[row for row in rows if row.get('kind')=='callback' and row.get('queue_number')=='8190' and (job is None or row.get('job_uuid')==job)]
+    facts={'job_count':len(rows),'job_state':'absent' if not rows else 'unknown'}
+    if len(rows)!=1:return facts
+    row=rows[0];state=row.get('state')
+    if state in {'waiting','starting','calling','completed','failed','cancelled'}:facts['job_state']=state
+    for field in ('attempts','max_attempts'):
+        value=row.get(field)
+        if type(value) is int and 0<=value<=1000:facts[field]=value
+    for field in ('due','expired','lease_expired','has_lease'):
+        value=row.get(field)
+        if type(value) is bool:facts[field]=value
+    facts['target_matches']=row.get('target_number')=='8100' and row.get('internal_target') is True
+    facts['request_is_call']=isinstance(row.get('request_key'),str) and re.fullmatch(r'call/[a-f0-9-]{36}',row['request_key']) is not None
+    facts['has_call_uuid']=isinstance(row.get('call_uuid'),str) and re.fullmatch(r'[a-f0-9-]{36}',row['call_uuid']) is not None
+    classes={'':'unset','Waiting for office hours':'hours','Waiting for the queue':'queue','Waiting for an earlier caller':'earlier_caller',
+        'Waiting for an agent':'agent','Waiting for an available agent and call route':'agent_or_route','Agent did not answer':'agent_no_answer',
+        'Phone reconnected; retrying':'reconnected','Caller did not answer or no provider route was available':'caller_or_route',
+        'Interrupted; rescheduled':'interrupted','Request expired':'expired','Queue callbacks are off':'disabled',
+        'PBX phone domain is unavailable':'domain','Call could not be completed':'native_error','Connected':'connected'}
+    facts['result_class']=classes.get(row.get('last_result') or '','unknown')
+    return facts
+
+
+def callback_snapshot(f,peers,baseline,phase,call=None,job=None,previous_success=None):
+    facts,complete=queue_case_snapshot(f,peers,baseline,phase,call);prefix='callback_'+phase+'_';success=None
+    try:
+        rows=f.cli('status')['jobs'];classified=callback_job_facts(rows,job)
+        facts.update({prefix+key:value for key,value in classified.items()})
+        if classified.get('has_call_uuid'):
+            row=next(row for row in rows if row.get('kind')=='callback' and row.get('queue_number')=='8190' and (job is None or row.get('job_uuid')==job))
+            facts[prefix+'call_uuid_alive']=f.cli('api','uuid_exists '+row['call_uuid'],json_result=False)=='true'
+    except BaseException:complete=False
+    try:
+        with urllib.request.urlopen('http://127.0.0.1:8087/health',timeout=2) as response:
+            raw=response.read(4097);assert len(raw)<=4096;health=json.loads(raw)
+        state=health.get('state');assert state in {'Starting','Running','Connection unavailable','Setup required'}
+        success=health.get('lastSuccess');assert success is None or isinstance(success,str) and len(success)<=64
+        facts.update({prefix+'worker_state':state,prefix+'last_success_present':success is not None,
+            prefix+'last_success_advanced':success is not None and previous_success is not None and success!=previous_success})
+        facts[prefix+'jobs_held']=(Path(f.s['private_state_root'])/'backup-restore/hold-jobs').exists()
+        pause=f.cli('api','fsctl pause_check',json_result=False)
+        facts[prefix+'pause_state']={'true':'paused','false':'active'}.get(pause,'unknown')
+    except BaseException:complete=False
+    return facts,complete,success
+
+
 class BCG729:
     """Independent peer codec; never invoke the native PBX codec callbacks."""
     def __init__(self,state_root):
@@ -794,18 +852,28 @@ def native_calls(f):
         # negotiated wire digit requests the durable callback.
         f.active_case='queue_pause_logout_wire_callback'
         f.web.agent('8101','break');f.web.agent('8102','logout')
-        before_invites=(len(a.invites),len(b.invites));before_a=set(a.dialogs);before_c=set(caller.dialogs)
-        waiting=caller.dial('8190',destination);assert waiting['code']==200;time.sleep(2)
-        assert (len(a.invites),len(b.invites))==before_invites,'Paused/signed-out queue member was rung'
-        caller.dtmf(waiting,'2')
-        requested=f.wait(lambda:next((j for j in f.cli('status')['jobs'] if j['kind']=='callback'),None),12);job=requested['job_uuid']
-        f.web.agent('8101','ready');f.web.agent('8102','ready')
-        ar=f.wait(lambda:next((v for k,v in a.dialogs.items() if k not in before_a and v.get('acked')),None),90)
-        cr=f.wait(lambda:next((v for k,v in caller.dialogs.items() if k not in before_c and k!=waiting['callid'] and v.get('acked')),None),25)
-        time.sleep(5);original.decoded_tone_check(ar,caller.tone_hz);original.decoded_tone_check(cr,a.tone_hz)
-        caller.hangup_incoming(next(k for k,v in caller.dialogs.items() if v is cr))
-        f.wait(lambda:next((j for j in f.cli('status')['jobs'] if j['job_uuid']==job and j['state']=='completed'),None),15)
-        f.record('native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp')
+        observed={'expected':a,'other':b,'target':caller}
+        baseline={label:{'dialogs':set(peer.dialogs),'invites':len(peer.invites)} for label,peer in observed.items()}
+        facts,complete,health=callback_snapshot(f,observed,baseline,'before');waiting=None;job=None
+        facts['callback_wire_digit_emitted']=False
+        try:
+            before_invites=(len(a.invites),len(b.invites));before_a=set(a.dialogs);before_c=set(caller.dialogs)
+            waiting=caller.dial('8190',destination);assert waiting['code']==200;time.sleep(2)
+            assert (len(a.invites),len(b.invites))==before_invites,'Paused/signed-out queue member was rung'
+            caller.dtmf(waiting,'2');facts['callback_wire_digit_emitted']=True
+            facts['callback_wire_sent_rtp']=waiting['media']['sent']>0;facts['callback_wire_received_rtp']=waiting['media']['received']>0
+            requested=callback_wait(f,'callback_request_created',lambda:next((j for j in f.cli('status')['jobs'] if j['kind']=='callback'),None),12);job=requested['job_uuid']
+            f.web.agent('8101','ready');f.web.agent('8102','ready')
+            ar=callback_wait(f,'callback_agent_answer',lambda:next((v for k,v in a.dialogs.items() if k not in before_a and v.get('acked')),None),90)
+            cr=callback_wait(f,'callback_target_answer',lambda:next((v for k,v in caller.dialogs.items() if k not in before_c and k!=waiting['callid'] and v.get('acked')),None),25)
+            time.sleep(5);original.decoded_tone_check(ar,caller.tone_hz);original.decoded_tone_check(cr,a.tone_hz)
+            caller.hangup_incoming(next(k for k,v in caller.dialogs.items() if v is cr))
+            callback_wait(f,'callback_job_completed',lambda:next((j for j in f.cli('status')['jobs'] if j['job_uuid']==job and j['state']=='completed'),None),15)
+            f.record('native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp')
+        except BaseException as error:
+            after,finished,_=callback_snapshot(f,observed,baseline,'after',waiting,job,health);facts.update(after)
+            facts['queue_diagnostics_complete']=complete and finished;error.queue_failure=facts
+            raise
         f.active_case='hotel_wakeup_worker_wire_confirmation'
         wake=(datetime.now(timezone.utc)+timedelta(minutes=2)).strftime('%Y-%m-%dT%H:%M')
         f.web.submit('/app/pbx_setup/?view=hotel','hotel_action',{'hotel_action':'wakeup','number':'8102','timezone':'UTC','wake_at':wake})

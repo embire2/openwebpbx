@@ -281,6 +281,10 @@ run_queue=function(number)
         session:setVariable('cc_last_agent_tier_position','')
         Q.finish(db,domain,number,queue_callid,session,joined)
     end
+    -- A transferred caller can carry flags from an earlier queue bridge.
+    -- Initialize this visit before its invitation starts the first wait guard.
+    session:setVariable('cc_agent_bridged','false');session:setVariable('cc_agent_found','false')
+    session:setVariable('cc_exit_key','');session:setVariable('cc_exit_keys','')
     queue_runtime.ensure(api,config,q,domain,function(u)return user_contact(u,q.ring_timeout,number)end)
     session:setVariable('openweb_call_internal',tostring(internal))
     for _,m in ipairs(q.members) do
@@ -340,7 +344,18 @@ run_queue=function(number)
         if stored then pcall(Q.callback,db,domain,number,queue_callid,caller);session:execute('phrase','openweb_callback_saved');session:hangup('NORMAL_CLEARING');return true end
         return false
     end
-    if callback_mode~='disabled' and callback_valid then session:execute('phrase','openweb_callback_intro') end
+    if callback_mode~='disabled' and callback_valid then
+        -- Capture the advertised key while the invitation is playing. A plain
+        -- phrase consumes that digit before callcenter installs its exit keys.
+        -- Zero is not an immediate native timeout; one millisecond adds no
+        -- separate listening window after the prompt. Guard its full duration
+        -- with the same original queue deadline as the later native wait.
+        local remaining=q.timeout-(os.time()-started)
+        local digit=remaining>0 and timed_wait(remaining,function()
+            return session:playAndGetDigits(1,1,1,1,'D','phrase:openweb_callback_intro','','^2$','',1)
+        end) or ''
+        if digit=='2' and request_callback() then return end
+    end
     local function due_offer()
         if offered or not callback_valid or (callback_mode~='automatic' and callback_mode~='offer')
           or os.time()-started<(q.callback_after or 600) then return false end
