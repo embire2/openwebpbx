@@ -8,6 +8,8 @@ Version **1.0.13** is being prepared for Windows Server 2025 x64 with its own se
 
 Debian and Android remain on released **1.0.12**. See the [Windows candidate guide](docs/installing-1.0.13.md) and [qualification record](docs/feature-coverage.md#windows-server-return--1013). The Windows administration manager and planned Windows calling client have separate roles.
 
+The [hosted admin instance](https://call.openweb.co.za/) and current source now find provider addresses from the server name automatically. Incoming IP addresses are an optional Advanced override. This 2026-10-15 hosted patch preserves existing trunks; the immutable 1.0.12 downloads retain their original bytes. See [provider setup](docs/core-calling.md).
+
 ## Version 1.0.12
 
 This version focuses on moving existing direct SIP phones after a supported 3CX V20 restore: preserve original extension numbers, separate Authentication IDs and password bytes; choose the new phone domain once; retain existing Android accounts and shared routes. It adds owned public phone addresses, source group/queue ringing order, caller-local queue timeouts, stable live agent state, Ring My Mobile and **Connect Provider and Numbers** for an atomic handover. [Desk-phone instructions](docs/desk-phone-handover.md) cover Yealink W60B and Fanvil V62W.

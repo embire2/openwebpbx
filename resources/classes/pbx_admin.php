@@ -5,6 +5,7 @@ class pbx_admin {
     private string $domain;
     public function __construct(?PDO $db=null){$this->db=$db??database::new()->db;$this->domain=$_SESSION['domain_uuid'];if(!(new pbx_setup($this->db))->canManage()||!(new pbx_tenants($this->db))->canDomain($this->domain))throw new RuntimeException('Administrator access required.');}
     protected function engine(string $command): string {return (string)event_socket::api($command);}
+    protected function providerDns(): pbx_provider_dns {return new pbx_provider_dns;}
     private function query(string $sql,array $params=[]): PDOStatement {$s=$this->db->prepare($sql);foreach($params as $k=>$v)$s->bindValue(':'.$k,$v,$v===null?PDO::PARAM_NULL:(is_bool($v)?PDO::PARAM_BOOL:(is_int($v)?PDO::PARAM_INT:PDO::PARAM_STR)));$s->execute();return $s;}
     private function insert(string $table,array $row): void {$keys=array_keys($row);$this->query('insert into '.$table.'('.implode(',',$keys).') values('.implode(',',array_map(fn($k)=>':'.$k,$keys)).')',$row);}
     private function text(array $input,string $key,int $max=120,string $default=''): string {$v=$input[$key]??$default;if(!is_string($v)||mb_strlen($v)>$max||preg_match('/[\x00-\x1f\x7f]/',$v))throw new InvalidArgumentException('Enter a valid '.str_replace('_',' ',$key).'.');return trim($v);}
@@ -148,7 +149,8 @@ class pbx_admin {
         $department=$this->text($in,'department',40);foreach($c['departments'] as &$dep){$dep['members']=array_values(array_filter($dep['members'],fn($m)=>!($m['number']===$key&&$m['primary'])));if($dep['number']===$department){$found=false;foreach($dep['members'] as &$m)if($m['number']===$key){$m['primary']=true;$found=true;}unset($m);if(!$found)$dep['members'][]=['number'=>$key,'primary'=>true];}}unset($dep);return $key;
     }
     private function saveTrunk(string $key,array $in,array &$c): string {
-        if($key==='new'){
+        $new=$key==='new';
+        if($new){
             $key='ow-'.substr(str_replace('-','',uuid()),0,12);$id=uuid();
             $c['trunks'][$key]=['number'=>$key,'gateway_uuid'=>$id,'name'=>'','host'=>'','port'=>5060,'transport'=>'udp','auth_mode'=>'ip','register'=>false,'enabled'=>false,'allowed_ips'=>[],'main_number'=>'','caller_id'=>'','limit'=>10,'expires'=>180,'type'=>'Provider','headers'=>[],'source_field'=>'RequestLineURIUser'];
             $this->insert('v_gateways',['gateway_uuid'=>$id,'domain_uuid'=>$this->domain,'gateway'=>'New SIP Trunk','context'=>'ingress@'.$c['realm'],'profile'=>'external','enabled'=>false,'register'=>false,'register_transport'=>'udp','expire_seconds'=>180,'retry_seconds'=>30]);
@@ -178,21 +180,23 @@ class pbx_admin {
         $password=$in['password']??'';
         if(!is_string($password)||strlen($password)>256||preg_match('/[\x00-\x1f]/',$password)||str_contains($password,'${'))throw new InvalidArgumentException('Enter a valid password.');
         if($password==='')$password=(string)($native['password']??'');
-        $ips=preg_split('/[ ,\r\n]+/',$this->text($in,'allowed_ips',1000,implode(', ',$t['allowed_ips']??[])),-1,PREG_SPLIT_NO_EMPTY);
-        foreach($ips as $ip)if(!filter_var($ip,FILTER_VALIDATE_IP))throw new InvalidArgumentException('Enter the IP addresses supplied by your provider.');
+        $ips=preg_split('/[ ,\r\n]+/',$this->text($in,'allowed_ips',1000,pbx_provider_dns::inputAddresses($t)),-1,PREG_SPLIT_NO_EMPTY);
+        foreach($ips as $ip)if(pbx_provider_dns::address($ip)===null)throw new InvalidArgumentException('Enter individual incoming IP addresses supplied by your provider.');
         $enabled=!empty($in['enabled']);
-        if($enabled&&!$ips)throw new InvalidArgumentException('Add the provider IP addresses before connecting the trunk.');
         if($enabled&&($t['type']??'')==='BridgeMaster')throw new InvalidArgumentException('This 3CX bridge needs a new connection.');
         if($auth==='password'&&($user===''||($enabled&&$password==='')))throw new InvalidArgumentException('Enter the provider authentication ID and password.');
-        $t['name']=$name;$t['host']=$host;$t['port']=$this->integer($in,'port',1,65535,(int)($t['port']??5060));
-        $t['auth_mode']=$auth==='password'?'credentials':'ip';$t['enabled']=$enabled;$t['allowed_ips']=array_values(array_unique($ips));
+        $t['name']=$name;$t['host']=$host;
+        $t['transport']=$this->text($in,'transport',3,$t['transport']??'udp');
+        if(!in_array($t['transport'],['udp','tcp','tls'],true))throw new InvalidArgumentException('Choose a valid transport.');
+        $automaticPort=array_key_exists('port',$in)?$in['port']==='':($new||!empty($t['provider_port_auto']));
+        if($new||array_key_exists('port',$in)||array_key_exists('provider_port_auto',$t))$t['provider_port_auto']=$automaticPort;
+        $t['port']=$automaticPort?($t['transport']==='tls'?5061:5060):$this->integer($in,'port',1,65535,(int)($t['port']??5060));
+        $t['auth_mode']=$auth==='password'?'credentials':'ip';$t['enabled']=$enabled;
         if(array_key_exists('register',$in)){
             if(!is_scalar($in['register'])||filter_var($in['register'],FILTER_VALIDATE_BOOLEAN,FILTER_NULL_ON_FAILURE)===null)throw new InvalidArgumentException('Choose whether this provider requires registration.');
             $t['register']=filter_var($in['register'],FILTER_VALIDATE_BOOLEAN);
         }
         if($t['register']&&$t['auth_mode']!=='credentials')throw new InvalidArgumentException('Registration requires provider authentication details.');
-        $t['transport']=$this->text($in,'transport',3,$t['transport']??'udp');
-        if(!in_array($t['transport'],['udp','tcp','tls'],true))throw new InvalidArgumentException('Choose a valid transport.');
         foreach(['main_number','caller_id'] as $field){$t[$field]=$this->text($in,$field,32,$t[$field]??'');if($t[$field]!==''&&!preg_match('/^\+?[0-9]{1,32}$/D',$t[$field]))throw new InvalidArgumentException('Enter a valid phone number.');}
         foreach(['realm','auth_username','from_user','from_domain','register_proxy','outbound_proxy','contact_user'] as $field)if(array_key_exists($field,$in))$t[$field]=$this->text($in,$field,253);
         if(isset($in['codecs'])){$codecs=$this->text($in,'codecs',500);if(!preg_match('/^[A-Za-z0-9_, .-]{0,500}$/D',$codecs))throw new InvalidArgumentException('Enter codec names separated by commas.');$t['codecs']=array_values(array_unique(preg_split('/[ ,]+/',$codecs,-1,PREG_SPLIT_NO_EMPTY)));}
@@ -203,6 +207,12 @@ class pbx_admin {
         $gatewayPolicy=$t+['username'=>$user,'password'=>$password];$gatewayPolicy['username']=$auth==='ip'?'':$user;$gatewayPolicy['password']=$auth==='ip'?'':$password;
         if($auth==='ip'){$gatewayPolicy['auth_username']='';$t['auth_username']='';}
         $fields=pbx_v20_restore::gatewaySettings($gatewayPolicy);
+        // A hostname without a forced port lets Sofia perform transport SRV
+        // discovery. Legacy and explicitly selected numeric ports stay exact.
+        if($automaticPort)$fields['proxy']=str_contains($host,':')?'['.$host.']':$host;
+        $t['allowed_ips_source']=$ips?'manual':'dns';
+        $t['allowed_ips']=$ips?array_values(array_unique($ips)):$this->providerDns()->addresses($t);
+        if($enabled&&!$t['allowed_ips'])throw new InvalidArgumentException('The provider server could not be resolved to an incoming address. Check its name, or enter the incoming IP addresses supplied by your provider in Advanced settings.');
         $t['sip_cid_type']=$fields['sip_cid_type'];
         $fields['gateway']=$name;$fields['context']='ingress@'.$c['realm'];$fields['profile']='external';$fields['enabled']=$enabled;
         $params=['d'=>$this->domain,'id'=>$t['gateway_uuid']];$assignments=[];

@@ -1,5 +1,7 @@
 # OpenWeb PBX core system status
 
+The hosted instance received a provider-setup patch on 2026-10-15: **Voice & Chat** now finds incoming addresses from the provider server name, with an optional override under Advanced and automatic discovery when Port is blank. Fifteen normal HTTPS checks and six desktop/mobile layouts passed; the temporary PBX was removed and all existing customer/provider settings were preserved. This patch is in current source and the hosted instance; immutable 1.0.12 downloads are unchanged. Wider SETUP-01/02 and CALL-01 acceptance remains open.
+
 Status date: **2026-10-15**. Latest verified public Debian/Android baseline: **[1.0.12](https://github.com/embire2/openwebpbx/releases/tag/v1.0.12)** at immutable tag `061f83c81`. Eight complete public downloads/signed sequence-112 feed, original installed-worker HTTPS upgrade/all 7,113 mappings/customer preservation, trusted owned phone domain, seventeen global minimum-release checks and full homepage qualification passed. Five focused exact direct-APK and one exact AAB-derived native cases passed; physical phones/carriers and the recorded broader limits remain open.
 
 

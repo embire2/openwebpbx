@@ -16,15 +16,17 @@ if($key!=='new'&&isset($readiness['trunks'][$key])):$state=$readiness['trunks'][
 <?php endif; ?>
 <div class="setup-fields"><?php
 $input('name','Name',$row['name']??'','text','required');$input('host','Registrar/Server',$row['host']??'','text','required');
-$input('port','Port',$row['port']??5060,'number','min="1" max="65535"');$select('transport','Transport',['udp'=>'UDP','tcp'=>'TCP','tls'=>'TLS'],$row['transport']??$gateway['register_transport']??'udp');
+$input('port','Port (optional)',!empty($row['provider_port_auto'])?'':($row['port']??''),'number','min="1" max="65535" placeholder="Automatic"');$select('transport','Transport',['udp'=>'UDP','tcp'=>'TCP','tls'=>'TLS'],$row['transport']??$gateway['register_transport']??'udp');
 $input('main_number','Main Trunk Number',$row['main_number']??'','tel');$select('authentication','Authentication',['ip'=>'IP Authentication','password'=>'Username and Password'],$authentication,'data-authentication');
 echo '<div data-password-auth>';$input('username','Account ID',$gateway['username']??'');echo '</div><div data-password-auth>';$input('password','Authentication Password','','password','autocomplete="new-password" placeholder="Leave blank to keep the saved password"');echo '<small>'.(!empty($gateway['has_password'])?'A password is saved.':'No password is saved.').'</small></div>';
-$input('caller_id','Outbound Caller ID',$row['caller_id']??'','tel');$input('allowed_ips','Provider IP Addresses',implode(', ',$row['allowed_ips']??[])); ?></div>
+$input('caller_id','Outbound Caller ID',$row['caller_id']??'','tel'); ?></div>
+<p class="setup-hint">The provider server name supplies its incoming addresses automatically when you save or connect. Leave Port blank to use automatic discovery.</p>
 <input type="hidden" name="register" value="0"><?php $check('register','Register with provider',$row['register']??false); ?>
 <?php $check('enabled','Enable SIP Trunk',$row['enabled']??false); ?>
 <p>For IP Authentication, ask your provider to whitelist <strong><?= $e(pbx_paths::address()) ?></strong>. The incoming SIP address for UDP/TCP is <strong><?= $e($admin->providerAddress()) ?></strong>.</p>
 <details class="trunk-advanced"><summary>Advanced provider settings</summary><p>Keep the settings supplied by your provider. Registration and password authentication are separate options.</p>
 <div class="setup-fields"><?php
+$input('allowed_ips','Incoming IP addresses (optional override)',pbx_provider_dns::inputAddresses($row));
 $select('source_field','Incoming number is supplied in',['ToUserPart'=>'To: User Part','RequestLineURIUser'=>'Request Line URI: User Part'],$row['source_field']??'ToUserPart');
 $input('realm','Authentication Realm',$advanced('realm'));$input('auth_username','Authentication ID (optional override)',$advanced('auth_username'));
 $input('from_user','From: User Part',$advanced('from_user'));$input('from_domain','From: Host Part',$advanced('from_domain'));
@@ -35,7 +37,7 @@ $input('codecs','Codecs',implode(', ',$row['codecs']??array_filter(explode(',',(
 $input('contact_user','Contact: User Part',$advanced('contact_user','extension'));
 $cid=$row['sip_cid_type']??($gateway['sip_cid_type']??'');if($cid==='')$cid=isset($row['headers']['RemotePartyIDCallingPartyUserPart'])?'rpid':(isset($row['headers']['PAssertedIdentityUserPart'])?'pid':'none');
 $select('sip_cid_type','Caller ID Header',['none'=>'None','rpid'=>'Remote Party ID','pid'=>'P-Asserted-Identity'],$cid);
-?></div>
+?></div><p class="setup-hint">Leave incoming IP addresses blank to use the provider server and proxy names. Enter individual addresses only if your provider supplies different incoming servers.</p>
 <input type="hidden" name="extension_in_contact" value="0"><?php $check('extension_in_contact','Use Contact: User Part',filter_var($advanced('extension_in_contact'),FILTER_VALIDATE_BOOLEAN)); ?>
 <input type="hidden" name="caller_id_in_from" value="0"><?php $check('caller_id_in_from','Use outgoing caller ID in From',filter_var($advanced('caller_id_in_from'),FILTER_VALIDATE_BOOLEAN)); ?>
 </details>

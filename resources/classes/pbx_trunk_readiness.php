@@ -46,12 +46,12 @@ class pbx_trunk_readiness {
         $registration=self::on($trunk['register']??false);
         $authentication=$trunk['auth_mode']??($registration?'credentials':'ip');
         if ($authentication==='credentials' && (empty($gateway['has_username']) || empty($gateway['has_password']))) $issues[]='Add the provider authentication ID and password.';
-        if (empty($trunk['allowed_ips'])) $issues[]='Add the provider IP addresses for incoming calls.';
+        if (empty($trunk['allowed_ips'])) $issues[]='The provider server has no incoming addresses. Check its name, or enter the addresses supplied by your provider in Advanced settings.';
         $missingAudio=in_array('G729',$trunk['codecs']??[],true) && ($runtime['g729_transcoding']??null)===false;
         if ($missingAudio) $issues[]='One of the saved audio formats needs extra server support. Ask your instance administrator to enable G729 audio support, then test a call.';
         $enabled=self::on($trunk['enabled']??false);
         $state=$runtime['state']??'unknown';
-        if (!$enabled) {$status='Off';$tone='muted';$next='Review provider settings and arrange the change from 3CX before enabling this trunk.';}
+        if (!$enabled) {$status='Off';$tone='muted';$next=$issues?$issues[0]:'Review provider settings and arrange the change from 3CX before enabling this trunk.';}
         elseif ($issues) {$status='Needs settings';$tone='warning';$next=$issues[0];}
         elseif ($state==='REGED') {$status='Registered';$tone='success';$next='Registration passed. Incoming and outgoing calls, caller ID and two-way audio still need testing.';}
         elseif ($state==='NOREG' && !$registration && ($runtime['availability']??'')!=='DOWN') {$status='Configured';$tone='neutral';$next=$authentication==='credentials'?'Provider authentication is saved without registration. Incoming and outgoing carrier calls still need testing.':'Ask your provider to whitelist this server and confirm incoming delivery. Carrier calls are not verified.';}
@@ -70,6 +70,10 @@ class pbx_trunk_readiness {
         $addresses=[];
         foreach ($records?:[] as $record) if (isset($record['ip']) || isset($record['ipv6'])) $addresses[]=$record['ip']??$record['ipv6'];
         return array_values(array_unique($addresses));
+    }
+    protected function resolveProvider(array $trunk): array {
+        if(empty($trunk['provider_port_auto'])&&empty($trunk['register_proxy'])&&empty($trunk['outbound_proxy']))return $this->resolveHost($trunk['host']);
+        return (new pbx_provider_dns)->addresses($trunk);
     }
 
     protected function localAddresses(): array {
@@ -95,8 +99,13 @@ class pbx_trunk_readiness {
             || !in_array($transport,['udp','tcp','tls'],true)) {
             throw new InvalidArgumentException('Save a valid provider server, port and transport first.');
         }
-        $addresses=$this->resolveHost($host);
+        $addresses=$this->resolveProvider($trunk);
         if (!$addresses) return ['dns'=>'Failed','connection'=>'Not checked','tone'=>'warning','message'=>'The provider server could not be found. Check its spelling and your server DNS settings.'];
+        // SRV targets can use different ports; proxy certificates can use different names.
+        // A flattened incoming allowlist is not a validated connection endpoint.
+        if (!empty($trunk['provider_port_auto']) || !empty($trunk['register_proxy']) || !empty($trunk['outbound_proxy'])) {
+            return ['dns'=>'Found','connection'=>'Not checked','tone'=>'neutral','message'=>'The provider server and configured proxies were found. Automatic ports and proxy connections need an actual incoming and outgoing call test, including two-way audio. No connection, registration or call was attempted.'];
+        }
         // Do not probe private networks or this instance's known local/public addresses.
         $local=array_map('inet_pton',$this->localAddresses());
         $public=array_values(array_filter($addresses,static fn($ip)=>filter_var($ip,FILTER_VALIDATE_IP,FILTER_FLAG_NO_PRIV_RANGE|FILTER_FLAG_NO_RES_RANGE)&&!in_array(inet_pton($ip),$local,true)));
