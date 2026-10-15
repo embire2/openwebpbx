@@ -22,12 +22,12 @@ $public=Join-Path $env:RUNNER_TEMP ('openwebpbx-restore-'+$Role.ToLowerInvariant
 $transfer=Join-Path $env:RUNNER_TEMP 'openwebpbx-restore-transfer'
 $phase='verified qualified package';$installed=$false;$pki=$null;$inputFile=$null;$hostsBefore=$null;$hostsExpected=$null;$settings=$null;$python=$null;$winps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
 $facts=[ordered]@{schema=1;role=$Role.ToLowerInvariant();run_id=$env:GITHUB_RUN_ID;source_commit=$env:GITHUB_SHA;state='running';gates=@{};actual_os_boot='unqualified';carrier='unqualified';owner_upgrade='unqualified';cleanup='pending'}
-# Import only pure, reviewed artifact/process functions. Do not dot-source the
-# executable updater qualification stage or its unrelated environment guards.
+# Import only the reviewed artifact/process and bounded IIS cleanup functions.
+# Do not dot-source the executable updater stage or its environment guards.
 $tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'windows-updater-qualification.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'The independently reviewed artifact helper no longer parses.'}
-foreach($name in 'Check','Hash','WriteJson','PrivateDirectory','SafeRelative','ExpandSafe','Api','Artifact','CheckedProcess','NativeVersions'){
- $nodes=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true));if($nodes.Count -ne 1){throw 'One exact pure artifact helper is required.'};Invoke-Expression $nodes[0].Extent.Text
+foreach($name in 'Check','Hash','WriteJson','PrivateDirectory','SafeRelative','ExpandSafe','Api','Artifact','CheckedProcess','NativeVersions','StopQualificationIis'){
+ $nodes=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true));if($nodes.Count -ne 1){throw 'One exact qualification helper is required.'};Invoke-Expression $nodes[0].Extent.Text
 }
 . (Join-Path $PSScriptRoot 'windows-suite-pki.ps1')
 function Derived([string]$Label){
@@ -40,7 +40,7 @@ function Fixture([string]$Action){
 function NativeFixture([string]$Action){
  $script:phase=$Action
  # The extracted interpreter remains independent of private installed state.
- try{CheckedProcess $python @('-I',(Join-Path $PSScriptRoot 'windows-restore-qualification.py'),'--input',$inputFile,'--action',$Action) ('restore-'+$Action) $source 1200000}
+ try{CheckedProcess $python @('-I','-B',(Join-Path $PSScriptRoot 'windows-restore-qualification.py'),'--input',$inputFile,'--action',$Action) ('restore-'+$Action) $source 1200000}
  catch{
   $privateOutput=Join-Path $work ('restore-'+$Action+'.out')
   if(Test-Path $privateOutput){try{$safe=Get-Content $privateOutput -Raw|ConvertFrom-Json;if($safe.state -eq 'failed' -and $safe.error_type -match '^[A-Za-z0-9_.]{1,120}$' -and $safe.source_basename -match '^[A-Za-z0-9_.-]{1,120}$' -and ($safe.source_line -is [long] -or $safe.source_line -is [int]) -and $safe.source_line -ge 0 -and $safe.source_line -lt 1000000){$facts.native_failure=@{error_type=$safe.error_type;source_basename=$safe.source_basename;source_line=$safe.source_line;active_case=$Action}}}catch{}}
@@ -198,7 +198,7 @@ $r=Get-Content -LiteralPath $InputFile -Raw|ConvertFrom-Json
   if($installed -and (Test-Path "$env:SystemRoot\System32\inetsrv\Microsoft.Web.Administration.dll")){
    Add-Type -Path "$env:SystemRoot\System32\inetsrv\Microsoft.Web.Administration.dll"
    $manager=[Microsoft.Web.Administration.ServerManager]::new()
-   try{if($manager.Sites['OpenWebPBX']){$manager.Sites['OpenWebPBX'].Stop()|Out-Null};if($manager.ApplicationPools['OpenWebPBX']){$manager.ApplicationPools['OpenWebPBX'].Stop()|Out-Null}}finally{$manager.Dispose()}
+   try{StopQualificationIis $manager.Sites['OpenWebPBX'] $manager.ApplicationPools['OpenWebPBX']}finally{$manager.Dispose()}
   }
   if($hostsBefore){$hostsPath=Join-Path $env:SystemRoot 'System32/drivers/etc/hosts';Check ([Convert]::ToBase64String([IO.File]::ReadAllBytes($hostsPath)) -eq [Convert]::ToBase64String($hostsExpected)) 'Hostname cleanup refuses unexpected foreign changes.';[IO.File]::WriteAllBytes($hostsPath,$hostsBefore)}
   Check (@(Get-Service -Name FreeSWITCH,OpenWebPBX,OpenWebPBXUpdater -ErrorAction SilentlyContinue|Where-Object Status -eq 'Running').Count -eq 0) 'Owned fixture services remain active.'

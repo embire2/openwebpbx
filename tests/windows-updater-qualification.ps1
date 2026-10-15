@@ -74,6 +74,19 @@ function NativeVersions([string]$Directory,[string]$Version){
  $paths=@{'server/OpenWebPbx.Server.dll'='server';'desktop/OpenWebPbx.Desktop.dll'='desktop';'updater/OpenWebPbx.Updater.dll'='updater'};$records=@()
  foreach($path in $paths.Keys){$full=Join-Path $Directory $path;Check ([Reflection.AssemblyName]::GetAssemblyName($full).Version -eq [version]($Version+'.0')) 'The genuine service, desktop and updater assembly versions must match.';$records+=@{path=$path;assembly_version=$Version+'.0';sha256=(Hash $full)}};return $records
 }
+function StopQualificationIis($Site,$Pool){
+ foreach($item in @($Site,$Pool)){
+  if(!$item){continue}
+  $state=[string]$item.State
+  if($state -eq 'Started'){$item.Stop()|Out-Null}elseif($state -notin 'Stopped','Stopping'){throw 'Owned IIS cleanup found an unexpected state.'}
+  for($poll=0;$poll -lt 160;$poll++){
+   $state=[string]$item.State;if($state -eq 'Stopped'){break}
+   if($state -notin 'Started','Stopping'){throw 'Owned IIS cleanup found an unexpected state.'}
+   Start-Sleep -Milliseconds 250
+  }
+  Check ([string]$item.State -eq 'Stopped') 'Owned IIS cleanup did not stop.'
+ }
+}
 function PrepareCanary($Base,$BaseFacts){
  $phaseBefore=$script:phase;$script:phase='isolated real 1.0.14 build'
  $overlay=Join-Path $work 'source-overlay';$native=Join-Path $work 'native14';PrivateDirectory $native
@@ -111,7 +124,7 @@ function Fixture([string]$Action){
  foreach($argument in @((Join-Path $PSScriptRoot 'windows-updater-fixture.php'),$Action,$inputFile)){$start.ArgumentList.Add($argument)}
  $process=[Diagnostics.Process]::Start($start);$out=$process.StandardOutput.ReadToEndAsync();$err=$process.StandardError.ReadToEndAsync();Check ($process.WaitForExit(90000)) 'The private scoped audit exceeded its deadline.';$text=$out.GetAwaiter().GetResult();[IO.File]::WriteAllText((Join-Path $work ($Action+'-private.err')),$err.GetAwaiter().GetResult());$exit=$process.ExitCode;$process.Dispose();Check ($exit -eq 0) 'The private scoped audit failed.';return $text|ConvertFrom-Json
 }
-function Python([string]$Action){CheckedProcess "$root\backup-runtime\python.exe" @('-I',(Join-Path $PSScriptRoot 'windows-updater-fixture.py'),'--input',$inputFile,'--action',$Action) ('python-'+$Action)}
+function Python([string]$Action){CheckedProcess "$root\backup-runtime\python.exe" @('-I','-B',(Join-Path $PSScriptRoot 'windows-updater-fixture.py'),'--input',$inputFile,'--action',$Action) ('python-'+$Action)}
 function DatabaseSnapshot([string]$Label){$settings.snapshot_label=$Label;WriteJson $inputFile $settings;Fixture 'snapshot'|Out-Null;return Get-Content (Join-Path (Split-Path $inputFile -Parent) ($Label+'-database.json')) -Raw|ConvertFrom-Json -AsHashtable}
 function FileSnapshot([switch]$Protected){
  $directories=if($Protected){@($configuration,"$state\storage","$state\mobile-notifications","$state\phone-tls","$state\public-access","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build")}else{@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots",$configuration,"$engine\conf","$engine\scripts","$engine\mod","$engine\sounds","$state\storage","$state\mobile-notifications","$state\phone-tls","$state\public-access","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build")}
@@ -289,7 +302,7 @@ try{
   $env:OPENWEB_WINDOWS_UPDATER_TEST='1'
   # Verify signatures independently before installation. The later worker still
   # verifies them with its unchanged embedded original signing key.
-  CheckedProcess (Join-Path $package 'backup-runtime/python.exe') @('-I',(Join-Path $PSScriptRoot 'windows-updater-fixture.py'),'--input',$inputFile,'--action','validate') 'verify-private-signatures'
+  CheckedProcess (Join-Path $package 'backup-runtime/python.exe') @('-I','-B',(Join-Path $PSScriptRoot 'windows-updater-fixture.py'),'--input',$inputFile,'--action','validate') 'verify-private-signatures'
   $verified=Get-Content (Join-Path $qa 'verified-packets.json') -Raw|ConvertFrom-Json -AsHashtable;$settings.packets=$verified;WriteJson $inputFile $settings
   $hosts=Join-Path $env:SystemRoot 'System32/drivers/etc/hosts';$hostOriginal=[IO.File]::ReadAllBytes($hosts);$hostAcl=(Get-Acl $hosts).Sddl;$marker='# OpenWebPBX disposable updater '+$scope
   Check ([IO.File]::ReadAllText($hosts) -notmatch '(?im)^\s*[^#\r\n]+\s(?:github\.com|windowsqa\.example\.invalid)(?:\s|$)') 'The fixture refuses existing hostname overrides.'
@@ -325,7 +338,7 @@ if(!$?){exit 1}
   # The long-lived laboratory server runs the independent, hash-verified
   # extracted baseline runtime. Keeping the installed Python DLLs mapped would
   # artificially prevent the normal installer replacing its backup runtime.
-  $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $package 'backup-runtime/python.exe'));$start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true;foreach($argument in @('-I',(Join-Path $PSScriptRoot 'windows-updater-fixture.py'),'--input',$inputFile,'--action','serve')){$start.ArgumentList.Add($argument)};$transport=[Diagnostics.Process]::Start($start);$transportOutput=$transport.StandardOutput.ReadToEndAsync();$transportErrors=$transport.StandardError.ReadToEndAsync()
+  $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $package 'backup-runtime/python.exe'));$start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true;foreach($argument in @('-I','-B',(Join-Path $PSScriptRoot 'windows-updater-fixture.py'),'--input',$inputFile,'--action','serve')){$start.ArgumentList.Add($argument)};$transport=[Diagnostics.Process]::Start($start);$transportOutput=$transport.StandardOutput.ReadToEndAsync();$transportErrors=$transport.StandardError.ReadToEndAsync()
   for($i=0;$i -lt 100 -and !(Test-Path (Join-Path $qa 'transport-ready.json')) -and !$transport.HasExited;$i++){Start-Sleep -Milliseconds 100};Check (!$transport.HasExited -and (Test-Path (Join-Path $qa 'transport-ready.json'))) 'The owned trusted HTTPS endpoint failed to start.'
   # Initial fixture-only service environment setup precedes all acceptance
   # snapshots. No test restarts/kills the updater during either transaction.
@@ -397,7 +410,7 @@ if(!$?){exit 1}
     try{
      $site=$iis.Sites['OpenWebPBX'];$pool=$iis.ApplicationPools['OpenWebPBX']
      Check ($site -and $pool -and $site.Applications['/'].ApplicationPoolName -eq 'OpenWebPBX' -and $site.Applications['/'].VirtualDirectories['/'].PhysicalPath -eq "$root\web") 'Cleanup refused IIS objects outside the exact disposable application.'
-     if($site.State -ne 'Stopped'){$site.Stop()|Out-Null};if($pool.State -ne 'Stopped'){$pool.Stop()|Out-Null}
+     StopQualificationIis $site $pool
     }finally{$iis.Dispose()}
     if($serviceEnvironment){if($serviceEnvironment.exists){New-ItemProperty -LiteralPath $serviceKey -Name Environment -PropertyType MultiString -Value $serviceEnvironment.value -Force|Out-Null}else{Remove-ItemProperty -LiteralPath $serviceKey -Name Environment -ErrorAction Stop}}
     if(Get-Service OpenWebPBX-Database -ErrorAction SilentlyContinue){Stop-Service OpenWebPBX-Database -Force}
