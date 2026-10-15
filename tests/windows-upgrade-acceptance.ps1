@@ -20,6 +20,39 @@ $managerName='OpenWebPBX-Manager-'+$managerSid;$managerExe="$root\desktop\OpenWe
 $report=[ordered]@{schema=1;state='running';checks=@();gates=[ordered]@{direct_113_helper_reapply='pending';direct_failure_rollback='pending';restore_gate_startup='pending';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified'};signed_fixtures='absent';baseline='installed candidate; same-version direct reapply is not a newer signed update'}
 function Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
 function WriteJson([string]$Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 10),[Text.UTF8Encoding]::new($false))}
+function PayloadInventory([string]$Directory,[string]$PrivatePath){
+ # Observe, never repair, the exact extraction before its strict product check.
+ # Relative paths remain inside the admin-only evidence directory.
+ $safe=@{payload_inventory_observed=$false}
+ try{
+  $rootItem=Get-Item -LiteralPath $Directory -Force
+  if(!$rootItem.PSIsContainer -or ($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint)){return $safe}
+  $prefix=$rootItem.FullName.TrimEnd([char[]]@('\','/'))+[IO.Path]::DirectorySeparatorChar
+  $manifest=Get-Content -LiteralPath (Join-Path $Directory 'release-manifest.json') -Raw|ConvertFrom-Json
+  $known=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+  foreach($entry in $manifest.files.PSObject.Properties){[void]$known.Add($entry.Name)}
+  $pending=[Collections.Generic.Stack[string]]::new();$pending.Push($rootItem.FullName)
+  $extra=[Collections.Generic.List[string]]::new();$categories=@{};$extensions=@{};$basenames=@{};$links=0;$seen=0
+  while($pending.Count){
+   foreach($item in Get-ChildItem -LiteralPath $pending.Pop() -Force){
+    $seen++;if($seen -gt 100000){throw 'The private inventory exceeded its bounded size.'}
+    if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){$links++;continue}
+    if($item.PSIsContainer){$pending.Push($item.FullName);continue}
+    $relative=$item.FullName.Substring($prefix.Length).Replace('\','/')
+    if($relative -ieq 'release-manifest.json' -or $known.Contains($relative)){continue}
+    $extra.Add($relative)
+    $cache=$relative -cmatch '(^|/)__pycache__/[^/]+\.(pyc|pyo)$'
+    $category=if($cache -and $relative.StartsWith('codecs/bcg729/',[StringComparison]::OrdinalIgnoreCase)){'codec_helper_cache'}elseif($cache -and $relative.StartsWith('backup-runtime/',[StringComparison]::OrdinalIgnoreCase)){'runtime_cache'}elseif($cache){'other_bytecode'}elseif($relative.StartsWith('codecs/',[StringComparison]::OrdinalIgnoreCase)){'codec_other'}elseif($relative.StartsWith('backup-runtime/',[StringComparison]::OrdinalIgnoreCase)){'runtime_other'}elseif($relative.StartsWith('web/',[StringComparison]::OrdinalIgnoreCase)){'web_other'}elseif(!$relative.Contains('/')){'root_other'}else{'other'}
+    $categories[$category]=$true
+    $extension=$item.Extension.ToLowerInvariant();if(!$extension){$extension='none'}elseif($extension -cnotin '.pyc','.pyo','.log','.json','.txt','.tmp','.ps1','.py','.dll'){$extension='other'}
+    $extensions[$extension]=$true
+    if($item.Name -cin 'core-exports.cpython-313.pyc','build-windows-local.cpython-313.pyc'){$basenames[$item.Name]=$true}
+   }
+  }
+  WriteJson $PrivatePath @{schema=1;extra_relative_paths=@($extra);reparse_count=$links}
+  return @{payload_inventory_observed=$true;payload_extra_count=$extra.Count;payload_reparse_count=$links;payload_extra_categories=@($categories.Keys|Sort-Object);payload_extra_extensions=@($extensions.Keys|Sort-Object);payload_extra_known_basenames=@($basenames.Keys|Sort-Object)}
+ }catch{return $safe}
+}
 function Check([bool]$Value,[string]$Message){
  if(!$Value){
   $stages=@{
@@ -408,7 +441,8 @@ try{
  StopUpdater;SignedChecks
  $before=DatabaseSnapshot 'before-reapply'
  $protected=@{};foreach($path in "$configuration\config.conf","$configuration\openweb-template.key","$state\runtime.json","$state\mobile-notifications\config.json","$state\phone-tls.json"){if(Test-Path $path){$protected[$path]=@{hash=(Hash $path);acl=(Get-Acl $path).Sddl}}}
- $phase='actual direct helper reapply';$result=InvokeHelper (Join-Path $PackageRoot 'Upgrade-OpenWebPBX.ps1') @('-Check') 'direct-preflight';Check ($result -eq 0) 'The installed helper bytes did not pass native preflight.'
+ $phase='actual direct helper reapply';$payloadInventory=PayloadInventory $PackageRoot (Join-Path $work 'payload-inventory-private.json')
+ $result=InvokeHelper (Join-Path $PackageRoot 'Upgrade-OpenWebPBX.ps1') @('-Check') 'direct-preflight';Check ($result -eq 0) 'The installed helper bytes did not pass native preflight.'
  BeginManager
  $oldManager=CurrentManagerPid;$managerInvocation=[DateTime]::UtcNow
  $result=InvokeHelper (Join-Path $PackageRoot 'Upgrade-OpenWebPBX.ps1') @() 'direct-install';Check ($result -eq 0 -and (Journal).state -eq 'completed') 'The direct same-version helper reapply did not complete.'
@@ -463,6 +497,7 @@ try{
   elseif($helperFailure.source_basename){$report.source_basename=$helperFailure.source_basename;$report.source_line=$helperFailure.source_line}
   foreach($field in 'error_type','command_basename','command_exit'){if($helperFailure.ContainsKey($field)){$report[$field]=$helperFailure[$field]}}
  }
+ if($checkFailure.active_case -ceq 'direct_reapply_preflight' -and $payloadInventory){foreach($entry in $payloadInventory.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
  Write-Error ('Windows upgrade acceptance failed in '+$phase+'. Private recovery evidence retained.') -ErrorAction Continue
 }finally{
  try{ClearManager}catch{$report.state='failed';$report.failed_phase='owned manager cleanup'}

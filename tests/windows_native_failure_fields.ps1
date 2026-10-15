@@ -216,4 +216,19 @@ foreach($filter in 'HotelFailureFields','SafeHotelFailureFields','SafeFailureFie
  }
 }
 foreach($stage in 'hotel_phone_answer','hotel_wire_confirmation','hotel_job_completed'){$copy=$record.PSObject.Copy();$copy.primary_substage=$stage;Check ((SafeFailureFields $copy).primary_substage -ceq $stage)}
-Write-Output "PASS $checks actual caller native primary/cleanup/media/queue/voicemail/mailbox/hotel privacy allowlist checks; no PBX contacted"
+$payload=[pscustomobject]@{active_case='direct_reapply_preflight';payload_inventory_observed=$true;payload_extra_count=[long]2;payload_reparse_count=[long]0;payload_extra_categories=@('codec_helper_cache','runtime_cache','private-never-copy','codec_helper_cache');payload_extra_extensions=@('.pyc','.log','private-never-copy','.pyc');payload_extra_known_basenames=@('core-exports.cpython-313.pyc','private-never-copy','core-exports.cpython-313.pyc');extra_relative_paths=@('private-never-copy');password='private-never-copy'}
+$safe=SafeFailureFields $payload
+Check ($safe.payload_inventory_observed -eq $true -and $safe.payload_extra_count -eq 2 -and $safe.payload_reparse_count -eq 0)
+Check (($safe.payload_extra_categories -join ',') -ceq 'codec_helper_cache,runtime_cache')
+Check (($safe.payload_extra_extensions -join ',') -ceq '.pyc,.log')
+Check (($safe.payload_extra_known_basenames -join ',') -ceq 'core-exports.cpython-313.pyc')
+Check (($safe|ConvertTo-Json -Depth 5) -notmatch 'private-never-copy|extra_relative_paths|password')
+foreach($bad in $null,'direct_reapply_complete','DIRECT_REAPPLY_PREFLIGHT','direct_reapply_preflight '){$copy=$payload.PSObject.Copy();$copy.active_case=$bad;Check (@((SafeFailureFields $copy).Keys|Where-Object {$_ -like 'payload_*'}).Count -eq 0)}
+foreach($field in 'payload_extra_count','payload_reparse_count'){
+ foreach($bad in '2',$true,1.5,-1,100001,[double]::NaN,[double]::PositiveInfinity){$copy=$payload.PSObject.Copy();$copy.$field=$bad;Check (!(SafeFailureFields $copy).ContainsKey($field))}
+}
+foreach($bad in 'true',1,$null){$copy=$payload.PSObject.Copy();$copy.payload_inventory_observed=$bad;Check (!(SafeFailureFields $copy).ContainsKey('payload_inventory_observed'))}
+foreach($field in 'payload_extra_categories','payload_extra_extensions','payload_extra_known_basenames'){
+ foreach($bad in @('private-never-copy'),@('core-exports.cpython-313.pyc/private-never-copy'),@('CODEC_HELPER_CACHE'),@($true),@([pscustomobject]@{name='core-exports.cpython-313.pyc'})){$copy=$payload.PSObject.Copy();$copy.$field=$bad;Check (!(SafeFailureFields $copy).ContainsKey($field))}
+}
+Write-Output "PASS $checks actual caller native primary/cleanup/media/queue/voicemail/mailbox/hotel/payload privacy allowlist checks; no PBX contacted"
