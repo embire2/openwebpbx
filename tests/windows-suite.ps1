@@ -110,8 +110,16 @@ function SafeHotelFailureFields($Record){
 function SafeMailboxFailureFields($Record){
  $safe=@{}
  if($Record.active_case -isnot [string] -or $Record.active_case -cne 'native_voicemail_wire_forwarding_binary_copy'){return $safe}
- foreach($suffix in 'diagnostics_complete','observer_failed','owned_call_seen','realm_call_id_header_present','owned_domain_header_present','owned_domain_matches','owned_event_name_matches','owned_path_header_present','pin_sent','tutorial_skip_sent','forward_destination_sent','forward_no_intro_sent','dialog_ended','received_rtp','prompt_password_seen','prompt_tutorial_seen','prompt_main_menu_seen','prompt_forward_extension_seen','prompt_forward_intro_seen','prompt_forwarded_seen','prompt_auth_failed_seen','prompt_mailbox_id_seen','prompt_goodbye_seen','prompt_recording_seen','prompt_other_seen'){$field='mailbox_'+$suffix;if($Record.$field -is [bool]){$safe[$field]=$Record.$field}}
+ foreach($suffix in 'diagnostics_complete','observer_failed','owned_call_seen','realm_call_id_header_present','owned_domain_header_present','owned_domain_matches','owned_event_name_matches','owned_path_header_present','pin_sent','tutorial_skip_sent','forward_destination_sent','forward_no_intro_sent','dialog_ended','received_rtp','prompt_password_seen','prompt_tutorial_seen','prompt_main_menu_seen','prompt_forward_extension_seen','prompt_forward_intro_seen','prompt_forwarded_seen','prompt_auth_failed_seen','prompt_mailbox_id_seen','prompt_goodbye_seen','prompt_recording_seen','prompt_other_seen','register_started','register_completed','invite_started','invite_completed','receiver_failed','receiver_thread_alive','transport_socket_open','transport_eof_seen'){$field='mailbox_'+$suffix;if($Record.$field -is [bool]){$safe[$field]=$Record.$field}}
  foreach($suffix in 'observed_event_count','owned_event_count','matched_event_count','realm_event_count'){$field='mailbox_'+$suffix;$value=$Record.$field;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 1000){$safe[$field]=$value}}
+
+ foreach($name in 'register','invite'){
+  $field='mailbox_'+$name+'_response_code';$value=$Record.$field;if(($value -is [int] -or $value -is [long]) -and $value -ge 200 -and $value -le 699){$safe[$field]=$value}
+  $field='mailbox_'+$name+'_challenge_count';$value=$Record.$field;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 3){$safe[$field]=$value}
+ }
+ foreach($pair in @(@('mailbox_sip_method',@('REGISTER','INVITE')),@('mailbox_transport',@('udp','tcp','tls')),@('mailbox_receiver_error_type',@('OSError','SSLError','SSLEOFError','SSLZeroReturnError','SSLWantReadError','SSLWantWriteError','ConnectionResetError','ConnectionAbortedError','BrokenPipeError','TimeoutError','RuntimeError','AssertionError','ValueError','KeyError','external_error')))){
+  $value=$Record.($pair[0]);if($value -is [string] -and $value -cin $pair[1]){$safe[$pair[0]]=$value}
+ }
  return $safe
 }
 function SafeNativeCleanupFields($Record){
@@ -154,7 +162,7 @@ function SafeFailureFields($Record){
  if($Record.active_case -eq 'normal_admin_owned_extension_audio_preferences'){
   foreach($field in 'owned_domain_matches','authentication_id_matches','sip_password_matches'){if($Record.$field -is [bool]){$safe[$field]=[bool]$Record.$field}}
  }
- $nativeStages=@('native_case','g729_regular_unregister','g729_alternate_register','g729_invite','g729_answer_validation','g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister','g729_peer_close','g729_codec_close','g729_regular_reregister','native_peer_unregister','native_peer_close','native_ledger_write','callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed','hotel_phone_answer','hotel_wire_confirmation','hotel_job_completed','voicemail_message_created','voicemail_recording_finalized','voicemail_mail_queued','mailbox_login_prompt','mailbox_main_menu_prompt','mailbox_tutorial_complete','mailbox_recording_playback','mailbox_forward_extension_prompt','mailbox_forward_intro_prompt','mailbox_forwarded_prompt','mailbox_forwarded_message_created','mailbox_forwarded_binary_copy','mailbox_observer_close')
+ $nativeStages=@('native_case','g729_regular_unregister','g729_alternate_register','g729_invite','g729_answer_validation','g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister','g729_peer_close','g729_codec_close','g729_regular_reregister','native_peer_unregister','native_peer_close','native_ledger_write','callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed','hotel_phone_answer','hotel_wire_confirmation','hotel_job_completed','voicemail_message_created','voicemail_recording_finalized','voicemail_mail_queued','mailbox_register','mailbox_invite','mailbox_login_prompt','mailbox_main_menu_prompt','mailbox_tutorial_complete','mailbox_recording_playback','mailbox_forward_extension_prompt','mailbox_forward_intro_prompt','mailbox_forwarded_prompt','mailbox_forwarded_message_created','mailbox_forwarded_binary_copy','mailbox_observer_close')
  foreach($prefix in 'primary','cleanup'){
   if($Record.($prefix+'_substage') -isnot [string] -or $Record.($prefix+'_substage') -cnotin $nativeStages){continue}
   $safe[$prefix+'_substage']=$Record.($prefix+'_substage')

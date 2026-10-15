@@ -21,7 +21,7 @@ NATIVE_SUBSTAGES={'native_case','g729_regular_unregister','g729_alternate_regist
     'g729_peer_close','g729_codec_close','g729_regular_reregister','native_peer_unregister','native_peer_close','native_ledger_write',
     'callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed','hotel_phone_answer','hotel_wire_confirmation','hotel_job_completed',
     'voicemail_message_created','voicemail_recording_finalized','voicemail_mail_queued',
-    'mailbox_login_prompt','mailbox_main_menu_prompt','mailbox_tutorial_complete','mailbox_recording_playback',
+    'mailbox_register','mailbox_invite','mailbox_login_prompt','mailbox_main_menu_prompt','mailbox_tutorial_complete','mailbox_recording_playback',
     'mailbox_forward_extension_prompt','mailbox_forward_intro_prompt','mailbox_forwarded_prompt',
     'mailbox_forwarded_message_created','mailbox_forwarded_binary_copy','mailbox_observer_close'}
 MAILBOX_STAGES={stage for stage in NATIVE_SUBSTAGES if stage.startswith('mailbox_')}
@@ -280,6 +280,42 @@ def mailbox_prompt(f,playback,call,stage,suffixes,after=-1,seconds=30):
     return mailbox_step(f,stage,lambda:playback.prompt(call['callid'],suffixes,after=after,seconds=seconds))
 
 
+def mailbox_signalling(f,method,operation,flags):
+    assert method in ('REGISTER','INVITE')
+    name='register' if method=='REGISTER' else 'invite'
+    flags['mailbox_sip_method']=method
+    flags['mailbox_'+name+'_started']=True
+    result=mailbox_step(f,'mailbox_'+name,operation)
+    flags['mailbox_'+name+'_completed']=True
+    code=result.get('code');challenges=result.get('digest_challenge_count')
+    if type(code) is int and 200<=code<=699:flags['mailbox_'+name+'_response_code']=code
+    if type(challenges) is int and 0<=challenges<=3:flags['mailbox_'+name+'_challenge_count']=challenges
+    return result
+
+
+def mailbox_peer_snapshot(phone):
+    facts={}
+    try:
+        error=phone.receiver_failure
+        facts['mailbox_receiver_failed']=error is not None
+        if error is not None:
+            kind=type(error).__name__
+            allowed={'OSError','SSLError','SSLEOFError','SSLZeroReturnError','SSLWantReadError','SSLWantWriteError',
+                     'ConnectionResetError','ConnectionAbortedError','BrokenPipeError','TimeoutError','RuntimeError',
+                     'AssertionError','ValueError','KeyError'}
+            facts['mailbox_receiver_error_type']=kind if kind in allowed else 'external_error'
+        facts['mailbox_receiver_thread_alive']=bool(phone.thread.is_alive())
+    except BaseException:pass
+    try:
+        if phone.transport in ('udp','tcp','tls'):facts['mailbox_transport']=phone.transport
+        # A descriptor can stay open after remote EOF. Report these separately;
+        # neither observation proves a usable TLS/account connection.
+        facts['mailbox_transport_socket_open']=phone.socket.sock.fileno()>=0
+        facts['mailbox_transport_eof_seen']=phone.socket.peer_closed
+    except BaseException:pass
+    return facts
+
+
 def mailbox_menu(f,playback,phone,call,pin,flags):
     # A genuine fresh mailbox authenticates before offering its tutorial. Use
     # the real skip key, keeping the existing 30s menu budget across that step.
@@ -448,14 +484,14 @@ class SIPStream:
     def __init__(self,bind,server,ca=None,name=None):
         raw=socket.socket();raw.bind((bind,0));raw.settimeout(5);raw.connect(server)
         self.sock=ssl.create_default_context(cafile=str(ca)).wrap_socket(raw,server_hostname=name) if ca else raw
-        self.sock.settimeout(.005);self.buffer=b'';self.server=server;self.lock=threading.Lock()
+        self.sock.settimeout(.005);self.buffer=b'';self.server=server;self.lock=threading.Lock();self.peer_closed=False
     def recvfrom(self,size):
         while True:
             if b'\r\n\r\n' in self.buffer:
                 head=self.buffer.split(b'\r\n\r\n',1)[0];m=re.search(br'(?im)^Content-Length:\s*(\d+)',head);n=int(m.group(1)) if m else 0;end=len(head)+4+n
                 if len(self.buffer)>=end:packet=self.buffer[:end];self.buffer=self.buffer[end:];return packet,self.server
             packet=self.sock.recv(size)
-            if not packet:raise OSError('Native SIP stream ended')
+            if not packet:self.peer_closed=True;raise OSError('Native SIP stream ended')
             self.buffer+=packet
     def sendto(self,data,peer):
         with self.lock:self.sock.sendall(data)
@@ -1119,10 +1155,14 @@ def native_calls(f):
         mailbox_info=f.cli('voicemail-login');playback=NativePlayback(mailbox_info['event_socket'],realm)
         mailbox=Phone(users[3],'tls');peers.append(mailbox)
         retrieve=None;flags={'mailbox_pin_sent':False,'mailbox_tutorial_skip_sent':False,
-            'mailbox_forward_destination_sent':False,'mailbox_forward_no_intro_sent':False}
+            'mailbox_forward_destination_sent':False,'mailbox_forward_no_intro_sent':False,
+            'mailbox_register_started':False,'mailbox_register_completed':False,
+            'mailbox_invite_started':False,'mailbox_invite_completed':False}
         try:
-            assert mailbox.register((bind,5061))['code']==200
-            retrieve=mailbox.dial('*97',(bind,5061));assert retrieve['code']==200
+            registered=mailbox_signalling(f,'REGISTER',lambda:mailbox.register((bind,5061)),flags)
+            assert registered['code']==200
+            retrieve=mailbox_signalling(f,'INVITE',lambda:mailbox.dial('*97',(bind,5061)),flags)
+            assert retrieve['code']==200
             index=mailbox_menu(f,playback,mailbox,retrieve,mailbox_info['pin'],flags)
             mailbox.dtmf(retrieve,'1')
             index,_=mailbox_prompt(f,playback,retrieve,'mailbox_recording_playback',[file.name],after=index,seconds=45)
@@ -1141,7 +1181,7 @@ def native_calls(f):
             mailbox.hangup(retrieve)
             f.record('native_tls_mailbox_wire_forwarding_exact_binary_wav',wire_digits='RFC2833',source_and_forwarded_sha256=hashlib.sha256(file.read_bytes()).hexdigest(),drive_letter_path_verified=bool(re.match(r'^[A-Za-z]:[/\\]',str(file))),path_spaces_observed=' ' in str(file),bytes=forwarded_file.stat().st_size)
         except BaseException as error:
-            facts={**flags,'mailbox_diagnostics_complete':False}
+            facts={**flags,**mailbox_peer_snapshot(mailbox),'mailbox_diagnostics_complete':False}
             try:
                 facts.update(playback.snapshot(retrieve['callid'],file.name))
                 facts['mailbox_dialog_ended']=bool(retrieve['media'].get('ended'))

@@ -17,7 +17,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: windows-suite-${{ github.ref }}
+  group: windows-suite-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:

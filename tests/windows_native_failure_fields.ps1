@@ -163,7 +163,7 @@ foreach($filter in 'VoicemailFailureFields','SafeVoicemailFailureFields','SafeFa
  }
  foreach($bad in 'true',1,$null,@{private='private-never-copy'}){$copy=$voicemail.PSObject.Copy();$copy.voicemail_diagnostics_complete=$bad;Check (!(& $filter $copy).ContainsKey('voicemail_diagnostics_complete'))}
 }
-$mailboxStages=@('mailbox_login_prompt','mailbox_main_menu_prompt','mailbox_tutorial_complete','mailbox_recording_playback','mailbox_forward_extension_prompt','mailbox_forward_intro_prompt','mailbox_forwarded_prompt','mailbox_forwarded_message_created','mailbox_forwarded_binary_copy','mailbox_observer_close')
+$mailboxStages=@('mailbox_register','mailbox_invite','mailbox_login_prompt','mailbox_main_menu_prompt','mailbox_tutorial_complete','mailbox_recording_playback','mailbox_forward_extension_prompt','mailbox_forward_intro_prompt','mailbox_forwarded_prompt','mailbox_forwarded_message_created','mailbox_forwarded_binary_copy','mailbox_observer_close')
 foreach($stage in $mailboxStages){
  Check ($stage -cin $nativeStages)
  foreach($prefix in 'primary','cleanup'){
@@ -171,7 +171,7 @@ foreach($stage in $mailboxStages){
   foreach($bad in $stage.ToUpperInvariant(),($stage+' '),1,$true,@($stage)){$copy.($prefix+'_substage')=$bad;Check (!(SafeFailureFields $copy).ContainsKey($prefix+'_substage'))}
  }
 }
-$mailboxBool=@('diagnostics_complete','observer_failed','owned_call_seen','realm_call_id_header_present','owned_domain_header_present','owned_domain_matches','owned_event_name_matches','owned_path_header_present','pin_sent','tutorial_skip_sent','forward_destination_sent','forward_no_intro_sent','dialog_ended','received_rtp','prompt_password_seen','prompt_tutorial_seen','prompt_main_menu_seen','prompt_forward_extension_seen','prompt_forward_intro_seen','prompt_forwarded_seen','prompt_auth_failed_seen','prompt_mailbox_id_seen','prompt_goodbye_seen','prompt_recording_seen','prompt_other_seen')
+$mailboxBool=@('diagnostics_complete','observer_failed','owned_call_seen','realm_call_id_header_present','owned_domain_header_present','owned_domain_matches','owned_event_name_matches','owned_path_header_present','pin_sent','tutorial_skip_sent','forward_destination_sent','forward_no_intro_sent','dialog_ended','received_rtp','prompt_password_seen','prompt_tutorial_seen','prompt_main_menu_seen','prompt_forward_extension_seen','prompt_forward_intro_seen','prompt_forwarded_seen','prompt_auth_failed_seen','prompt_mailbox_id_seen','prompt_goodbye_seen','prompt_recording_seen','prompt_other_seen','register_started','register_completed','invite_started','invite_completed','receiver_failed','receiver_thread_alive','transport_socket_open','transport_eof_seen')
 $mailboxCount=@('observed_event_count','owned_event_count','matched_event_count','realm_event_count')
 $mailboxData=@{active_case='native_voicemail_wire_forwarding_binary_copy';mailbox_callid='private-never-copy';mailbox_path='private-never-copy';mailbox_pin='private-never-copy';mailbox_prompt_PRIVATE_seen=$true;mailbox_event_body='private-never-copy';mailbox_audio='private-never-copy'}
 foreach($suffix in $mailboxBool){$mailboxData['mailbox_'+$suffix]=$suffix -notin 'observer_failed','dialog_ended'}
@@ -191,6 +191,24 @@ foreach($filter in 'MailboxFailureFields','SafeMailboxFailureFields','SafeFailur
   foreach($bad in '2',$true,1.5,-1,1001,[double]::NaN,[double]::PositiveInfinity){$copy=$mailbox.PSObject.Copy();$copy.$field=$bad;Check (!(& $filter $copy).ContainsKey($field))}
   $copy=$mailbox.PSObject.Copy();$copy.$field=1000;Check ((& $filter $copy)[$field] -eq 1000)
  }
+}
+$signalling=$mailbox.PSObject.Copy()
+$signalling|Add-Member mailbox_sip_method 'REGISTER';$signalling|Add-Member mailbox_transport 'tls';$signalling|Add-Member mailbox_receiver_error_type 'SSLError'
+foreach($name in 'register','invite'){$signalling|Add-Member ('mailbox_'+$name+'_response_code') ([long]200);$signalling|Add-Member ('mailbox_'+$name+'_challenge_count') ([long]1)}
+foreach($filter in 'MailboxFailureFields','SafeMailboxFailureFields','SafeFailureFields'){
+ $safe=& $filter $signalling
+ foreach($name in 'register','invite'){
+  $field='mailbox_'+$name+'_response_code';Check ($safe[$field] -eq 200)
+  foreach($bad in '200',$true,200.5,199,700,[double]::NaN,[double]::PositiveInfinity){$copy=$signalling.PSObject.Copy();$copy.$field=$bad;Check (!(& $filter $copy).ContainsKey($field))}
+  $field='mailbox_'+$name+'_challenge_count';Check ($safe[$field] -eq 1)
+  foreach($bad in '1',$true,1.5,-1,4,[double]::NaN,[double]::PositiveInfinity){$copy=$signalling.PSObject.Copy();$copy.$field=$bad;Check (!(& $filter $copy).ContainsKey($field))}
+ }
+ foreach($pair in @(@('mailbox_sip_method',@('REGISTER','INVITE')),@('mailbox_transport',@('udp','tcp','tls')),@('mailbox_receiver_error_type',@('OSError','SSLError','SSLEOFError','SSLZeroReturnError','SSLWantReadError','SSLWantWriteError','ConnectionResetError','ConnectionAbortedError','BrokenPipeError','TimeoutError','RuntimeError','AssertionError','ValueError','KeyError','external_error')))){
+  $field=$pair[0]
+  foreach($value in $pair[1]){$copy=$signalling.PSObject.Copy();$copy.$field=$value;Check ((& $filter $copy)[$field] -ceq $value)}
+  foreach($bad in 'private-never-copy','register','TLS','SSLError private-never-copy',1,$true,@{private='private-never-copy'}){$copy=$signalling.PSObject.Copy();$copy.$field=$bad;Check (!(& $filter $copy).ContainsKey($field))}
+ }
+ Check (($safe|ConvertTo-Json) -notmatch 'private-never-copy|mailbox_callid|mailbox_path|mailbox_pin\"')
 }
 $hotelData=@{active_case='hotel_wakeup_worker_wire_confirmation';hotel_diagnostics_complete=$true;hotel_due_update_count=[long]1;job_uuid='private-never-copy';last_result='private-never-copy';hotel_peer_packet='private-never-copy'}
 $hotelBooleans=@('target_matches','due','expired','lease_expired','has_lease','has_call_uuid','peer_received_rtp','peer_sent_rtp','peer_receiver_failed','dtmf_attempted','dtmf_completed','dtmf_clock_started')

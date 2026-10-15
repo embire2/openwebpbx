@@ -7,6 +7,7 @@ import importlib.util
 import json
 import re
 import socket
+import ssl
 import struct
 import subprocess
 import tempfile
@@ -334,4 +335,96 @@ with patch.object(native.time, 'monotonic', side_effect=lambda: clock[0]):
     native.mailbox_menu(SimpleNamespace(), MenuObserver(), MenuPhone(), {'callid': CALL}, '12', {})
 check(seen == [30, 30, 24])
 check(native.mailbox_prompt.__defaults__ == (-1, 30))
+
+# Actual source step/result projection distinguishes the two transactions,
+# retaining the original exception and omitting unobserved response values.
+for method, stage in [('REGISTER', 'mailbox_register'), ('INVITE', 'mailbox_invite')]:
+    fixture = SimpleNamespace()
+    flags = {}
+    result = {'code': 200, 'digest_challenge_count': 1, 'text': 'PRIVATE_SIP_AND_CREDENTIALS'}
+    check(native.mailbox_signalling(fixture, method, lambda: result, flags) is result)
+    name = method.lower()
+    check(fixture.native_substage == stage and flags['mailbox_sip_method'] == method)
+    check(flags['mailbox_'+name+'_started'] and flags['mailbox_'+name+'_completed'])
+    check(flags['mailbox_'+name+'_response_code'] == 200 and flags['mailbox_'+name+'_challenge_count'] == 1)
+    check('PRIVATE_' not in json.dumps(flags))
+    primary = RuntimeError('PRIVATE_TRANSACTION_TIMEOUT')
+    flags = {}
+    try:
+        native.mailbox_signalling(fixture, method, lambda: (_ for _ in ()).throw(primary), flags)
+    except RuntimeError as error:
+        check(error is primary and error.native_failure['primary_substage'] == stage)
+        check(flags['mailbox_sip_method'] == method and flags['mailbox_'+name+'_started'])
+        check('mailbox_'+name+'_completed' not in flags and 'mailbox_'+name+'_response_code' not in flags)
+        native.native_cleanup(error, stage, [('native_peer_unregister', lambda: (_ for _ in ()).throw(ssl.SSLError('PRIVATE_CLEANUP')))])
+        check(error.native_failure['primary_substage'] == stage and error.native_failure['cleanup_substage'] == 'native_peer_unregister')
+    else:
+        raise AssertionError('The actual mailbox transaction timeout was hidden')
+    for invalid in [{'code': True, 'digest_challenge_count': True}, {'code': 700, 'digest_challenge_count': 4},
+                    {'code': '200', 'digest_challenge_count': '1'}]:
+        flags = {}
+        native.mailbox_signalling(fixture, method, lambda: invalid, flags)
+        check('mailbox_'+name+'_response_code' not in flags and 'mailbox_'+name+'_challenge_count' not in flags)
+
+# The same real TLS stream records remote EOF without claiming its still-open
+# local descriptor is healthy. No SIP/PBX service or global trust is involved.
+with tempfile.TemporaryDirectory(prefix='openweb-mailbox-tls-') as temporary:
+    folder = Path(temporary)
+    native.prepare_pki(SimpleNamespace(evidence=folder, s={'scope': 'c'*24}))
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(folder/'fixture-leaf.pem', folder/'fixture-key.pem')
+    server = socket.socket()
+    server.bind(('127.0.0.1', 0))
+    server.listen()
+    server.settimeout(5)
+    release = threading.Event()
+    errors = []
+
+    def close_tls_peer():
+        try:
+            raw, _ = server.accept()
+            with context.wrap_socket(raw, server_side=True) as connection:
+                if not release.wait(5):
+                    raise AssertionError('The isolated TLS close control exceeded its deadline')
+        except BaseException as error:
+            errors.append(error)
+
+    worker = threading.Thread(target=close_tls_peer)
+    worker.start()
+    stream = native.SIPStream('127.0.0.1', server.getsockname(), folder/'fixture-root.pem', 'windowsqa.example.invalid')
+    phone = SimpleNamespace(receiver_failure=None, thread=SimpleNamespace(is_alive=lambda: True), socket=stream, transport='tls')
+    try:
+        facts = native.mailbox_peer_snapshot(phone)
+        check(facts['mailbox_transport_socket_open'] and not facts['mailbox_transport_eof_seen'])
+        check(facts['mailbox_transport'] == 'tls' and facts['mailbox_receiver_thread_alive'] and not facts['mailbox_receiver_failed'])
+        release.set()
+        deadline = time.monotonic()+3
+        while time.monotonic() < deadline:
+            try:
+                stream.recvfrom(4096)
+            except socket.timeout:
+                continue
+            except OSError as error:
+                phone.receiver_failure = error
+                break
+        check(stream.peer_closed is True)
+        facts = native.mailbox_peer_snapshot(phone)
+        check(facts['mailbox_transport_eof_seen'] and facts['mailbox_transport_socket_open'])
+        check(facts['mailbox_receiver_failed'] and facts['mailbox_receiver_error_type'] == 'OSError')
+        check('PRIVATE_' not in json.dumps(facts))
+        stream.close()
+        check(not native.mailbox_peer_snapshot(phone)['mailbox_transport_socket_open'])
+        class PrivateReceiverError(Exception):
+            pass
+        phone.receiver_failure = PrivateReceiverError('PRIVATE_EXCEPTION_AND_CREDENTIALS')
+        check(native.mailbox_peer_snapshot(phone)['mailbox_receiver_error_type'] == 'external_error')
+    finally:
+        release.set()
+        stream.close()
+        worker.join(6)
+        server.close()
+    check(not worker.is_alive() and not errors)
+source_text = (ROOT/'tests/windows-native-acceptance.py').read_text()
+check("mailbox_signalling(f,'REGISTER',lambda:mailbox.register((bind,5061)),flags)" in source_text)
+check("mailbox_signalling(f,'INVITE',lambda:mailbox.dial('*97',(bind,5061)),flags)" in source_text)
 print(f'PASS {checks} actual mailbox Lua/auth/tutorial, loopback framed-event/RFC2833, ownership/header/frame bounds, deadline and primary/cleanup controls; no PBX contacted')

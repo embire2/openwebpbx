@@ -72,7 +72,8 @@ function PrepareManagers {
    }
    $taskSid=$null
    if($task){try{$taskSid=if($task.Principal.UserId -like 'S-1-*'){$task.Principal.UserId}else{(New-Object Security.Principal.NTAccount($task.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier]).Value}}catch{}}
-   $actions=if($task){@($task.Actions)}else{@()}
+   $actions=@()
+   if($task){$actions=@($task.Actions)}
    $expectedAction=$actions.Count -eq 1 -and $actions[0].Execute -eq "$root\desktop\OpenWebPbx.Desktop.exe" -and $actions[0].WorkingDirectory -eq "$root\desktop" -and !$actions[0].Arguments
    if($task -and $task.Principal.LogonType -eq 'Interactive' -and $taskSid -eq $owner.Sid -and $expectedAction){$script:managerTasks+=$name}
    else{throw 'The manager could not be prepared to reopen. Close it before requesting installation again.'}

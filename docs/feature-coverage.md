@@ -2,6 +2,10 @@
 
 ## Windows Server return — 1.0.13
 
+Actual **38683490510** at **acbfde46a** crossed strict preflight, then failed the manager restart-task guard. Native Windows PowerShell 5.1 proved its valid single CIM action became a scalar with no count. Explicit array assignment passed 21 actual native controlled cases with zero mutations; root reviewed that proof and passed 17 portable AST cases. The complete reapply/rollback/backup gates remain unqualified. Independent runner commits can now run concurrently with unchanged jobs, permissions and acceptance requirements.
+
+Full **38682705755** at **70181ff42** passed eleven native cases, including hotel wake-up confirmation and decoded voicemail recording, then timed out during mailbox registration or call setup; the old report cannot distinguish the method. A separate unregister SSL error was retained, while exact parent cleanup and authenticated healthy idle observation passed. New fixed transaction stages and bounded actual response/receiver/EOF facts retain the original retries/deadlines. Root passed 136 mailbox/real-TLS and 2,875 privacy controls. These tests do not qualify complete mailbox forwarding or the release.
+
 The codec installer now uses explicit `-B` as well. Its actual helper-import block independently reproduces another cache inside the extracted release; corrected invocation preserves the entire package. Root passed 22 import/launcher/inventory controls and 2,507 report-privacy controls. Unknown files are observed without deletion or acceptance, and strict manifest verification remains unchanged. Actual Windows reapply still needs to pass; no engine or C# input changed.
 
 The hotel test now uses the existing negotiated-wire digit helper after real RTP begins. Independent UDP checks reproduce the former zero timestamp and corrected positive timestamp, twelve packets and three end repeats. Root passed 47 hotel snapshot/deadline controls, 36 actual UDP controls and 2,466 privacy controls; fixed hotel substages retain the original 25/20-second waits. No product hotel/job routing changed, and the historical failed wait remains unidentified. Full Windows acceptance is still required.
