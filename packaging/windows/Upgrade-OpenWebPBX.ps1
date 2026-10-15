@@ -389,8 +389,8 @@ try {
  Push-Location "$root\web"
  try {
   Run "$root\php\php.exe" @('core\upgrade\upgrade_schema.php')
-  foreach ($step in '--defaults','--group','--menu') { Run "$root\php\php.exe" @('core\upgrade\upgrade.php',$step) }
   Run "$root\php\php.exe" @("$payload\bootstrap.php","$root\web",'migrate')
+  Run "$root\php\php.exe" @("$payload\bootstrap.php","$root\web",'upgrade_defaults',"$backup\web")
  } finally { Pop-Location }
  Run "$root\php\php.exe" @("$payload\configure-codec.php","$root\web")
  CopyTree "$root\web\app\switch\resources\scripts" "$switch\scripts"

@@ -161,15 +161,39 @@ class dialplan {
 	 *
 	 * @param array $domains An array of domain data, where each domain is an associative array containing 'domain_uuid' and
 	 *                       other relevant information.
+	 * @param ?array $allowed_app_uuids Optional reviewed new application IDs. Requires an existing transaction;
+	 *                                 inserts only those applications without regenerating existing XML.
 	 *
 	 * @return void
 	 */
-	public function import($domains) {
+	public function import($domains, ?array $allowed_app_uuids = null) {
 		//set the row id
 		$x = 0;
 
 		//get the array of xml files
 		$xml_list = glob(dirname(__DIR__, 4) . "/*/*/resources/switch/conf/dialplan/*.xml");
+		if ($allowed_app_uuids !== null) {
+			if (!$this->database->db->inTransaction()) throw new LogicException('Filtered dialplan import requires a transaction.');
+			$allowed = [];
+			foreach ($allowed_app_uuids as $id) {
+				if (!is_string($id) || !is_uuid($id) || isset($allowed[strtolower($id)])) throw new InvalidArgumentException('Invalid or ambiguous dialplan application filter.');
+				$allowed[strtolower($id)] = true;
+			}
+			if (count($allowed) > 4096) throw new InvalidArgumentException('The dialplan application filter is too large.');
+			$known = [];
+			foreach ($xml_list as $file) {
+				$text = file_get_contents($file);
+				if ($text === false || strlen($text) > 1048576 || preg_match('/<!\s*(DOCTYPE|ENTITY)\b/i', $text)) throw new RuntimeException('Invalid filtered dialplan metadata.');
+				$document = new DOMDocument();
+				if (!$document->loadXML($text, LIBXML_NONET) || $document->documentElement->tagName !== 'extension') throw new RuntimeException('Invalid filtered dialplan metadata.');
+				$id = strtolower($document->documentElement->getAttribute('app_uuid'));
+				if (!is_uuid($id) || isset($known[$id])) throw new RuntimeException('Ambiguous filtered dialplan metadata.');
+				$known[$id] = true;
+			}
+			if (array_diff_key($allowed, $known)) throw new InvalidArgumentException('Unknown filtered dialplan application.');
+			$allowed_app_uuids = array_keys($allowed);
+			if (!$allowed_app_uuids) return;
+		}
 
 		//add a band-aid for CLI editors with faulty syntax highlighting
 		/* **/
@@ -241,6 +265,7 @@ class dialplan {
 						//convert to an array
 						$dialplan = json_decode($json, true);
 					}
+					if ($allowed_app_uuids !== null && !in_array(strtolower($dialplan['@attributes']['app_uuid'] ?? ''), $allowed_app_uuids, true)) continue;
 
 					//ensure the condition array is uniform
 					if (!empty($dialplan)) {
@@ -407,9 +432,10 @@ class dialplan {
 								$order = $order + 5;
 
 								//increase the row number
-								$x++;
+								if ($allowed_app_uuids === null) $x++;
 							}
 						}
+						if ($allowed_app_uuids !== null) $x++;
 
 						//update the session array
 						$_SESSION['upgrade']['app_defaults']['dialplans'][$domain['domain_name']][]['dialplan_name'] = $dialplan_name ?? null;
@@ -418,6 +444,31 @@ class dialplan {
 				} //end foreach $xml_list
 
 				//grant temporary permissions
+				if ($allowed_app_uuids !== null) {
+					foreach ($array['dialplans'] ?? [] as $plan) {
+						$details = $plan['dialplan_details'];
+						unset($plan['dialplan_details']);
+						$this->insert_import_row('v_dialplans', $plan);
+						foreach ($details as $detail) {
+							$detail['dialplan_detail_uuid'] = uuid();
+							$this->insert_import_row('v_dialplan_details', $detail);
+						}
+						// Generate XML for this new row alone. Existing NULL/custom
+						// XML, audit fields, and other domains are never rewritten.
+						$this->uuid = $plan['dialplan_uuid'];
+						$this->context = $plan['dialplan_context'];
+						$this->dialplan_details = null;
+						$this->source = 'details';
+						$this->destination = 'array';
+						$this->is_empty = 'dialplan_xml';
+						$generated = $this->xml();
+						if (empty($generated[$this->uuid])) throw new RuntimeException('New stock dialplan XML could not be generated.');
+						$statement = $this->database->db->prepare('update v_dialplans set dialplan_xml=? where dialplan_uuid=?');
+						$statement->execute([$generated[$this->uuid], $this->uuid]);
+					}
+					unset($array);
+					continue;
+				}
 				$p = permissions::new();
 				$p->add('dialplan_add', 'temp');
 				$p->add('dialplan_edit', 'temp');
@@ -445,6 +496,16 @@ class dialplan {
 
 			} //foreach domains
 		}
+	}
+
+	/** Insert trusted, already parsed stock rows within the caller's transaction. */
+	private function insert_import_row(string $table, array $row): void {
+		if (!in_array($table, ['v_dialplans', 'v_dialplan_details'], true)) throw new LogicException('Invalid dialplan import table.');
+		foreach (array_keys($row) as $field) if (!preg_match('/^[a-z_]+$/D', $field)) throw new LogicException('Invalid dialplan import field.');
+		$fields = array_keys($row);
+		$statement = $this->database->db->prepare('insert into '.$table.' ('.implode(',', $fields).',insert_date) values ('.implode(',', array_fill(0, count($fields), '?')).',CURRENT_TIMESTAMP)');
+		foreach (array_values($row) as $index => $value) $statement->bindValue($index + 1, $value, $value === null ? PDO::PARAM_NULL : (is_bool($value) ? PDO::PARAM_BOOL : PDO::PARAM_STR));
+		$statement->execute();
 	}
 
 	/**

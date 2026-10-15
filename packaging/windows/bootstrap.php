@@ -13,6 +13,14 @@ if($stage==='xml'){
  save_var_xml();
  echo "Call-engine variables saved.\n";exit;
 }
+if($stage==='upgrade_defaults'){
+ if(PHP_OS_FAMILY!=='Windows')throw new RuntimeException('The Windows upgrade initializer requires Windows.');
+ $previous=$argv[3]??'';
+ $initializer=new pbx_upgrade_defaults($db,$web,$previous);
+ $counts=$initializer->apply();
+ $phrases=$initializer->voicemailFiles((string)config::load()->get('switch.conf.dir'));
+ echo json_encode(['additive_upgrade_defaults'=>$counts,'phrase_compatibility'=>$phrases],JSON_THROW_ON_ERROR)."\n";exit;
+}
 if($stage==='migrate'){
  // The currently installed updater runs this candidate migration after backing
  // up private configuration and stopping the call engine, including 1.0.4 hosts.
@@ -49,7 +57,7 @@ $user=sql('select user_uuid from v_users where lower(username)=lower(?)',[$email
 if(!$user){
  $db->beginTransaction();try{
   $group=sql("select group_uuid from v_groups where group_name='superadmin' and domain_uuid is null")->fetchColumn();if(!$group)throw new RuntimeException('Default administrator permissions are unavailable.');
-  $user=uuid();sql('insert into v_users(user_uuid,domain_uuid,username,user_email,password,user_enabled) values(?,?,?,?,?,true)',[$user,$domain,$email,$email,password_hash($password,PASSWORD_DEFAULT)]);
+  $user=uuid();sql("insert into v_users(user_uuid,domain_uuid,username,user_email,password,user_enabled,user_type) values(?,?,?,?,?,true,'default')",[$user,$domain,$email,$email,password_hash($password,PASSWORD_DEFAULT)]);
   sql("insert into v_user_groups(user_group_uuid,domain_uuid,user_uuid,group_uuid,group_name) values(?,?,?,?,'superadmin')",[uuid(),$domain,$user,$group]);$db->commit();
  }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
 }

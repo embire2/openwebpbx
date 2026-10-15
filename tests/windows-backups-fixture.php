@@ -19,6 +19,9 @@ if($action==='create'){
  $domain_uuid=uuid();$realm='backup-native-'.bin2hex(random_bytes(6)).'.invalid';
  $_SESSION=['authorized'=>true,'user_uuid'=>$user_uuid,'domain_uuid'=>$domain_uuid,'domain_name'=>$realm,'user'=>['domain_uuid'=>$factory_admin['domain_uuid']],'permissions'=>$native_permissions];
  $q('insert into v_domains(domain_uuid,domain_name,domain_enabled,domain_description) values(?,?,true,?)',[$domain_uuid,$realm,'Owned native backup qualification']);
+ // Complete ordinary stock routing only for this new empty owned domain,
+ // before customer objects and the preservation baseline are created.
+ (new dialplan(['database'=>$database]))->import([['domain_uuid'=>$domain_uuid,'domain_name'=>$realm]]);
  $s['fixture_domain']=$domain_uuid;$s['fixture_realm']=$realm;file_put_contents($path,json_encode($s,JSON_THROW_ON_ERROR));
  file_put_contents($root.'/owned-fixture.json',json_encode(['fixture_domain'=>$domain_uuid,'fixture_realm'=>$realm],JSON_THROW_ON_ERROR));
  $admin=new pbx_admin($db);$db->beginTransaction();$admin->initialize($realm);$db->commit();

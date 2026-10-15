@@ -19,6 +19,6 @@ CREATE TABLE IF NOT EXISTS v_pbx_call_history (
  source_id text NOT NULL, UNIQUE(domain_uuid,source_id)
 );
 CREATE INDEX IF NOT EXISTS openweb_history_domain ON v_pbx_call_history(domain_uuid,start_time DESC);
-UPDATE v_menu_items SET menu_item_title='Admin' WHERE menu_item_link='/app/pbx_setup/';
-UPDATE v_menu_languages SET menu_item_title='Admin' WHERE menu_item_uuid IN(SELECT menu_item_uuid FROM v_menu_items WHERE menu_item_link='/app/pbx_setup/');
+UPDATE v_menu_items SET menu_item_title='Admin' WHERE menu_item_link='/app/pbx_setup/' AND menu_item_title='PBX Setup';
+UPDATE v_menu_languages SET menu_item_title='Admin' WHERE menu_item_title='PBX Setup' AND menu_item_uuid IN(SELECT menu_item_uuid FROM v_menu_items WHERE menu_item_link='/app/pbx_setup/');
 COMMIT;
