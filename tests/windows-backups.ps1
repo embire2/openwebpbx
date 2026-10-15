@@ -13,6 +13,8 @@ $value=@{admin_email=$AdminEmail;admin_password=$password;package_root=[IO.Path]
 [IO.File]::WriteAllText($input,($value|ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)));$password=$null;$value=$null
 $prior=$env:OPENWEB_WINDOWS_BACKUP_TEST;$env:OPENWEB_WINDOWS_BACKUP_TEST='1'
 try{
+ & 'C:\OpenWebPBX\backup-runtime\python.exe' -I (Join-Path $PSScriptRoot 'pbx_windows_backup_unicode.py') PortableTransport 1>(Join-Path $private 'unicode-private.out') 2>(Join-Path $private 'unicode-private.err')
+ if($LASTEXITCODE){throw 'Native backup SQL transport controls failed; private evidence retained.'}
  & 'C:\OpenWebPBX\backup-runtime\python.exe' -I (Join-Path $PSScriptRoot 'windows_backups_native.py') $input 1>(Join-Path $private 'child-private.out') 2>(Join-Path $private 'child-private.err')
  if($LASTEXITCODE){throw 'Native backup qualification failed; private report retained. No passing hosted result is implied.'}
 }finally{

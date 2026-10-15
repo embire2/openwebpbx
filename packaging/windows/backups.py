@@ -278,12 +278,13 @@ def database_environment(settings):
     # Credentials never enter shell commands, arguments, logs or archived metadata.
     return os.environ | {'PGPASSWORD': settings.get('database.0.password', ''),
                          'PGSSLMODE': settings.get('database.0.sslmode', 'prefer'),
-                         'PGCONNECT_TIMEOUT': '10'}
+                         'PGCONNECT_TIMEOUT': '10', 'PGCLIENTENCODING': 'UTF8'}
 
 
-def run(command, *, env=None, timeout=7200):
+def run(command, *, env=None, timeout=7200, input=None):
     try:
-        result = subprocess.run(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+        result = subprocess.run(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout,
+                                **({'input': input} if input is not None else {}))
     except (OSError, subprocess.TimeoutExpired):
         raise BackupError('A required backup operation could not finish. Check the server tools and free disk space.') from None
     if result.returncode:
@@ -303,8 +304,9 @@ def literal(value):
 
 def query(settings, sql, *, json_result=False):
     # All callers supply application-owned SQL. DB strings are quoted with literal().
-    result = run(database_command(settings) + ['-X', '-q', '-A', '-t', '-v', 'ON_ERROR_STOP=1', '-c', 'SET standard_conforming_strings=on;\n'+sql],
-                 env=database_environment(settings), timeout=60).decode().strip()
+    # UTF-8 stdin avoids Windows narrow-argv code pages; keep batch atomicity.
+    result = run(database_command(settings) + ['-X', '-q', '-A', '-t', '-v', 'ON_ERROR_STOP=1', '--single-transaction', '-f', '-'],
+                 env=database_environment(settings), timeout=60, input=('SET standard_conforming_strings=on;\n'+sql).encode('utf-8')).decode().strip()
     return json.loads(result) if json_result else result
 
 
