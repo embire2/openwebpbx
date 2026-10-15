@@ -35,6 +35,51 @@ class Controls(unittest.TestCase):
         return q.open_capsule(envelope or self.envelope(), self.key, binding or self.binding, self.archive)
 
     def test_authenticated_exact_ciphertext(self): self.assertEqual(self.open(), self.payload)
+    def export_fixture(self):
+        # Exercise the actual exporter with a real Path/stat/copy/HMAC. Only
+        # acquisition from Windows/PG/native peers is replaced by fictional data.
+        fixture=q.Qualification.__new__(q.Qualification)
+        fixture.work=self.root;fixture.facts_path=self.root/'facts.json'
+        fixture.facts={'state':'running','checks':[],'gates':{}}
+        fixture.s=self.binding | {'owned':{'domain_uuid':'fictional-owned'},'owned_job_uuid':'fictional-job',
+            'owned_backup_commands':['fictional-backup'],'owned_scheduled_backup_commands':['fictional-schedule'],
+            'owned_draft_ids':['fictional-draft'],'transfer_directory':str(self.root/'transfer'),'passphrase':self.secret}
+        calls=[]
+        def acquisition(name,value):
+            calls.append(name);return value
+        fixture.media=lambda:acquisition('media',{'recording':{'sha256':'c'*64}})
+        fixture.backup_request=lambda:acquisition('backup',self.archive)
+        fixture.snapshot=lambda label:acquisition(label,self.snapshot())
+        fixture.identity=lambda:acquisition('identity',{'hosted_job_id':'12345','certificate_sha256':'d'*64})
+        return fixture,calls
+
+    def test_actual_exporter_real_path_size_copy_and_authenticated_capsule(self):
+        fixture,calls=self.export_fixture();fixture.export_source()
+        target=Path(fixture.s['transfer_directory']);transferred=target/'fixture.owpbx'
+        self.assertEqual(calls,['media','backup','source','identity'])
+        self.assertEqual({p.name for p in target.iterdir()},{'fixture.owpbx','capsule.json'})
+        self.assertEqual(transferred.read_bytes(),self.archive.read_bytes())
+        envelope=q.read_json(target/'capsule.json')
+        actual=q.open_capsule(envelope,self.key,self.binding,transferred)
+        self.assertIs(type(actual['cipher_bytes']),int)
+        self.assertEqual(actual['cipher_bytes'],self.archive.stat().st_size)
+        self.assertEqual(actual['cipher_sha256'],q.digest(self.archive))
+        self.assertEqual(actual['owned_backup_commands'],fixture.s['owned_backup_commands'])
+        self.assertEqual(actual['owned_scheduled_backup_commands'],fixture.s['owned_scheduled_backup_commands'])
+        self.assertEqual(actual['owned_draft_ids'],fixture.s['owned_draft_ids'])
+        self.assertEqual(actual['hosted_job_id'],'12345')
+        self.assertNotIn(self.secret,(target/'capsule.json').read_text())
+        facts=q.read_json(fixture.facts_path)
+        self.assertEqual(facts['state'],'passed')
+        self.assertEqual(facts['gates'],{'authenticated_ciphertext_only_distinct_job_transfer':'passed'})
+        transferred.write_bytes(transferred.read_bytes()+b'changed')
+        with self.assertRaises(ValueError):q.open_capsule(envelope,self.key,self.binding,transferred)
+
+    def test_actual_exporter_missing_ciphertext_never_exports_or_passes(self):
+        fixture,_=self.export_fixture();self.archive.unlink()
+        with self.assertRaises(FileNotFoundError):fixture.export_source()
+        self.assertFalse(Path(fixture.s['transfer_directory']).exists())
+        self.assertEqual(fixture.facts,{'state':'running','checks':[],'gates':{}})
     def test_canonical_object_order(self):
         self.assertEqual(q.canonical({'b': 2, 'a': [1, True]}), q.canonical({'a': [1, True], 'b': 2}))
     def test_shared_key_labels_independent(self):

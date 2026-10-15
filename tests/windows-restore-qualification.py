@@ -585,7 +585,7 @@ class Qualification:
             'service_name': self.s['service_name'], 'owned_job_uuid': self.s['owned_job_uuid'], 'media': media,
             'owned_backup_commands': self.s['owned_backup_commands'], 'owned_draft_ids': self.s.get('owned_draft_ids', []),
             'owned_scheduled_backup_commands': self.s['owned_scheduled_backup_commands'],
-            'source_snapshot': snapshot, 'cipher_sha256': digest(archive), 'cipher_bytes': archive.stat().st_size()} | self.identity()
+            'source_snapshot': snapshot, 'cipher_sha256': digest(archive), 'cipher_bytes': archive.stat().st_size} | self.identity()
         envelope = seal_capsule(payload, derive(self.s['passphrase'], 'capsule'))
         destination = Path(self.s['transfer_directory']); destination.mkdir()
         shutil.copyfile(archive, destination / 'fixture.owpbx'); write_json(destination / 'capsule.json', envelope)
