@@ -568,6 +568,79 @@ class NativeCleanupControls(unittest.TestCase):
             self.assertIsNone(q.restore_completed_native_cases(cases,action))
 
 
+class RestoreToneObservationControls(unittest.TestCase):
+    """Exact tone assertion body and restore error path; no native acceptance."""
+    setUp=NativeCleanupControls.setUp
+    tearDown=NativeCleanupControls.tearDown
+    run_native=NativeCleanupControls.run_native
+
+    def tone_check(self):
+        path=HERE/'pbx_v20_restore_native.py'
+        node=next(n for n in ast.parse(path.read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='decoded_tone_check')
+        namespace={'math':math,'struct':struct}
+        exec(compile(ast.Module(body=[node],type_ignores=[]),str(path),'exec'),namespace)
+        return namespace['decoded_tone_check']
+
+    def state(self,frequency=440,count=8000):
+        pcm=struct.pack('<'+'h'*count,*[int(6500*math.sin(2*math.pi*frequency*i/8000)) for i in range(count)])
+        return {'decoded_pcm':pcm,'sent':350,'received':348,'unexpected_audio':0,'address':'PRIVATE'}
+
+    def test_real_assertion_locals_keep_ratio_count_and_packets_without_pcm(self):
+        check=self.tone_check();state=self.state()
+        try:check(state,550)
+        except AssertionError as error:
+            observation=q.observe_restore_tone_failure(error,HERE/'pbx_v20_restore_native.py')
+            self.assertEqual({k:v for k,v in observation.items() if k!='tone_ratio'},{'expected_hz':550,'sample_count':8000,'sent_packets':350,'received_packets':348,'unexpected_audio_packets':0})
+            self.assertLess(observation['tone_ratio'],.001)
+            self.assertEqual(q.observe_restore_tone_failure(error,HERE/'windows-restore-qualification.py'),{})
+        else:self.fail('The unchanged native assertion must refuse the wrong tone.')
+        self.assertGreaterEqual(check(self.state(550),550),.8)
+
+    def test_real_short_and_silent_assertions_keep_unknown_ratio(self):
+        check=self.tone_check()
+        for state in (self.state(count=3999),self.state(frequency=0)):
+            with self.subTest(count=len(state['decoded_pcm'])):
+                try:check(state,550)
+                except AssertionError as error:
+                    observation=q.observe_restore_tone_failure(error,HERE/'pbx_v20_restore_native.py')
+                    self.assertEqual(observation['sample_count'],len(state['decoded_pcm'])//2)
+                    self.assertIsNone(observation['tone_ratio'])
+                else:self.fail('The unchanged duration/energy guards must refuse.')
+
+    def test_actual_restore_and_main_keep_primary_and_closed_observation(self):
+        self.fixture.source=HERE.parent;check=self.tone_check();state=self.state()
+        old=self.peers[0].dial
+        self.peers[0].dial=lambda number,destination:old(number,destination)|{'media':state}
+        self.fixture.peers=lambda:(SimpleNamespace(rtp_rate_check=lambda state:None),SimpleNamespace(decoded_tone_check=check),self.peers,('127.0.0.1',5060))
+        with self.assertRaises(AssertionError) as caught:self.run_native()
+        error=caught.exception
+        self.assertEqual(error.native_substage,'internal_media');self.assertEqual(error.tone_observation['expected_hz'],550)
+        self.assertEqual(error.completed_native_cases,[]);self.assertTrue(all(peer.closed for peer in self.peers))
+        final=ast.parse((HERE/'windows-restore-qualification.py').read_text()).body[-1]
+        def fail():raise error
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output),self.assertRaises(SystemExit):
+            exec(compile(ast.Module(body=[final],type_ignores=[]),str(HERE/'windows-restore-qualification.py'),'exec'),q.__dict__.copy()|{'__name__':'__main__','main':fail})
+        facts=json.loads(output.getvalue());self.assertEqual(facts['tone_observation'],error.tone_observation)
+        self.assertNotIn('PRIVATE',output.getvalue());self.assertNotIn('decoded_pcm',output.getvalue())
+        self.peers[1].dialogs.clear()
+        with mock.patch.object(q,'observe_restore_tone_failure',side_effect=ValueError('PRIVATE observation failure')):
+            with self.assertRaises(AssertionError) as again:self.run_native()
+        self.assertFalse(hasattr(again.exception,'tone_observation'))
+
+    def test_closed_shape_types_bounds_and_foreign_frame_refusal(self):
+        record={'expected_hz':440,'sample_count':16000,'tone_ratio':.799,'sent_packets':350,'received_packets':348,'unexpected_audio_packets':0}
+        for action in ('native-source','native-target'):self.assertEqual(q.restore_tone_failure_fields(record,action),record)
+        for bad in (record|{'pcm':'PRIVATE'},record|{'expected_hz':660},record|{'sample_count':16001},record|{'tone_ratio':float('nan')},record|{'tone_ratio':float('inf')},record|{'tone_ratio':2.001},record|{'sent_packets':10000001}):
+            self.assertEqual(q.restore_tone_failure_fields(bad,'native-source'),{})
+        for key in record:
+            for value in (True,'PRIVATE',[],{}):self.assertEqual(q.restore_tone_failure_fields(record|{key:value},'native-source'),{})
+            self.assertEqual(q.restore_tone_failure_fields({k:v for k,v in record.items() if k!=key},'native-source'),{})
+        self.assertEqual(q.restore_tone_failure_fields(record,'restore'),{})
+        try:raise AssertionError('PRIVATE')
+        except AssertionError as error:self.assertEqual(q.observe_restore_tone_failure(error,HERE/'pbx_v20_restore_native.py'),{})
+
+
 class RestoreMailboxFlowControls(unittest.TestCase):
     """Actual restore body/helper; controlled endpoints, not Windows acceptance."""
     setUp=NativeCleanupControls.setUp

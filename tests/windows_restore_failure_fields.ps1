@@ -8,7 +8,7 @@ if([string]::IsNullOrWhiteSpace($SourceRoot)){$SourceRoot=Split-Path $PSScriptRo
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-restore-qualification.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Restore qualification source must parse.'}
-foreach($name in 'SafeRestoreFixtureFailure','SafeRestorePeerFailures','SafeRestoreSchemaFailure','SafeRestoreMailboxFailure','SafeRestoreCliFailure','SafeRestoreServiceActivationFailure','AssertRestoredServiceActivation','NativeFixture'){
+foreach($name in 'SafeRestoreFixtureFailure','SafeRestorePeerFailures','SafeRestoreSchemaFailure','SafeRestoreMailboxFailure','SafeRestoreToneFailure','SafeRestoreCliFailure','SafeRestoreServiceActivationFailure','AssertRestoredServiceActivation','NativeFixture'){
  $nodes=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true))
  if($nodes.Count -ne 1){throw 'One exact source function is required.'}
  if($name -eq 'NativeFixture'){$nativeDefinition=$nodes[0].Extent.Text}else{Invoke-Expression $nodes[0].Extent.Text}
@@ -169,6 +169,18 @@ $candidate=Clone $cliGood;$candidate.source_frames=@();Assert ((SafeRestoreCliFa
 $candidate=Clone $cliGood;$candidate.source_frames=@($candidate.source_frames*5);Assert ($null -eq (SafeRestoreCliFailure $candidate))
 $candidate=Clone $cliGood;$candidate|Add-Member noteproperty message 'PRIVATE';Assert ($null -eq (SafeRestoreCliFailure $candidate))
 $candidate=Clone $cliGood;$candidate.source_frames[0]|Add-Member noteproperty path 'PRIVATE';Assert ($null -eq (SafeRestoreCliFailure $candidate))
+$toneGood=@{expected_hz=550;sample_count=16000;tone_ratio=0.799;sent_packets=350;received_packets=348;unexpected_audio_packets=0}
+foreach($action in 'native-source','native-target'){Assert ((SafeRestoreToneFailure (Clone $toneGood) $action).Count -eq 6)}
+foreach($key in $toneGood.Keys){
+ foreach($value in @($true,$false,'PRIVATE',@(),@{})){$candidate=Clone $toneGood;$candidate.$key=$value;Assert ($null -eq (SafeRestoreToneFailure $candidate 'native-source'))}
+ $candidate=Clone $toneGood;$candidate.PSObject.Properties.Remove($key);Assert ($null -eq (SafeRestoreToneFailure $candidate 'native-source'))
+}
+foreach($definition in @(@{key='expected_hz';values=@(0,660)},@{key='sample_count';values=@(-1,16001,1.5)},@{key='tone_ratio';values=@(-0.1,2.01,[double]::NaN,[double]::PositiveInfinity)},@{key='received_packets';values=@(-1,10000001,1.5)})){
+ foreach($value in $definition.values){$candidate=Clone $toneGood;$candidate.($definition.key)=$value;Assert ($null -eq (SafeRestoreToneFailure $candidate 'native-source'))}
+}
+foreach($key in 'tone_ratio','sent_packets','received_packets','unexpected_audio_packets'){$candidate=Clone $toneGood;$candidate.$key=$null;Assert ($null -ne (SafeRestoreToneFailure $candidate 'native-source'))}
+$candidate=Clone $toneGood;$candidate|Add-Member noteproperty pcm 'PRIVATE';Assert ($null -eq (SafeRestoreToneFailure $candidate 'native-source'))
+Assert ($null -eq (SafeRestoreToneFailure (Clone $toneGood) 'restore'))
 $work=Join-Path ([IO.Path]::GetTempPath()) ('openweb-restore-projection-'+[guid]::NewGuid().ToString('N'))
 $null=New-Item -ItemType Directory -Path $work
 $python='fictional-extracted-python';$source='fictional-source';$inputFile='fictional-private-input'
@@ -360,6 +372,26 @@ try{
   Assert (($facts.native_failure.native_substage -ceq 'mailbox_tutorial_complete') -eq ($action -ceq 'native-target'))
   if($mode -ceq 'valid'){Assert ($facts.native_failure.mailbox_observation.Count -eq 8 -and $facts.native_failure.mailbox_observation.mailbox_tutorial_skip_sent -eq $true -and $facts.gates.Count -eq 1)}
   Assert (($facts|ConvertTo-Json -Depth 20 -Compress) -notmatch 'PRIVATE|C:/private|SQL|"message"')
+ }
+ foreach($action in 'native-source','native-target'){
+  foreach($mode in 'valid','short','extra','wrong_action','wrong_type','wrong_source','wrong_stage','passed','oversize'){
+   $facts=@{gates=@{};native_failure=@{}};$observation=Clone $toneGood;$invoke=$action
+   $script:childRecord=@{state='failed';error_type='AssertionError';source_basename='pbx_v20_restore_native.py';source_line=404;native_substage='internal_media';tone_observation=$observation;message='PRIVATE'}
+   switch($mode){
+    'short'{$observation.sample_count=3999;$observation.tone_ratio=$null}
+    'extra'{$observation|Add-Member noteproperty pcm 'PRIVATE'}
+    'wrong_action'{$invoke='restore'}
+    'wrong_type'{$script:childRecord.error_type='RuntimeError'}
+    'wrong_source'{$script:childRecord.source_basename='windows-restore-qualification.py'}
+    'wrong_stage'{$script:childRecord.native_substage='internal_ack'}
+    'passed'{$script:childRecord.state='passed';$facts.native_failure=@{error_type='AssertionError'}}
+    'oversize'{$script:childOutputHook={param($Path)[IO.File]::WriteAllText($Path,('x'*1048577))}}
+   }
+   $caught=$null;try{NativeFixture $invoke}catch{$caught=$_};$script:childOutputHook=$null
+   Assert ([object]::ReferenceEquals($caught.Exception,$script:childFailure))
+   Assert (($null -ne $facts.native_failure.tone_observation) -eq ($mode -cin @('valid','short')))
+   Assert (($facts|ConvertTo-Json -Depth 20 -Compress) -notmatch 'PRIVATE|decoded_pcm|address|"message"')
+  }
  }
 }finally{Remove-Item -LiteralPath $work -Recurse -Force}
 Write-Output ("Restore cleanup/identity source/projection controls passed: {0}" -f $script:count)

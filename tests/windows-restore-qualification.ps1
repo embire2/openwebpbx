@@ -90,6 +90,17 @@ function SafeRestoreMailboxFailure($Record,[string]$Action){
  foreach($key in $keys){if($key -cnotin $allowed -or $Record.$key -isnot [bool]){return $null};$safe[$key]=$Record.$key}
  return $safe
 }
+function SafeRestoreToneFailure($Record,[string]$Action){
+ if($Action -cnotin @('native-source','native-target') -or $null -eq $Record -or $Record -is [Array]){return $null}
+ $keys=@('expected_hz','sample_count','tone_ratio','sent_packets','received_packets','unexpected_audio_packets')
+ if($Record -is [Collections.IDictionary]){$actual=@($Record.Keys)}else{$actual=@($Record.PSObject.Properties.Name)}
+ if($actual.Count -ne $keys.Count -or @($actual|Where-Object {$_ -cnotin $keys}).Count){return $null}
+ if(($Record.expected_hz -isnot [int] -and $Record.expected_hz -isnot [long]) -or $Record.expected_hz -notin 440,550 -or ($Record.sample_count -isnot [int] -and $Record.sample_count -isnot [long]) -or $Record.sample_count -lt 0 -or $Record.sample_count -gt 16000){return $null}
+ $ratio=$Record.tone_ratio
+ if($null -ne $ratio -and (($ratio -isnot [double] -and $ratio -isnot [int] -and $ratio -isnot [long]) -or [double]::IsNaN($ratio) -or [double]::IsInfinity($ratio) -or $ratio -lt 0 -or $ratio -gt 2)){return $null}
+ foreach($key in 'sent_packets','received_packets','unexpected_audio_packets'){$value=$Record.$key;if($null -ne $value -and (($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 10000000)){return $null}}
+ return @{expected_hz=$Record.expected_hz;sample_count=$Record.sample_count;tone_ratio=$ratio;sent_packets=$Record.sent_packets;received_packets=$Record.received_packets;unexpected_audio_packets=$Record.unexpected_audio_packets}
+}
 function SafeRestoreCliFailure($Record){
  if($null -eq $Record -or $Record -is [Array]){return $null}
  $keys=@('exit_code','error_type','category','source_frames');$actual=@();if($Record -is [Collections.IDictionary]){$actual=@($Record.Keys)}else{$actual=@($Record.PSObject.Properties.Name)}
@@ -147,6 +158,12 @@ function NativeFixture([string]$Action){
    $mailbox=SafeRestoreMailboxFailure $safe.mailbox_observation $Action
    if($mailbox){$facts.native_failure.mailbox_observation=$mailbox}
   }catch{}}
+  try{
+   if($Action -cin @('native-source','native-target') -and $facts.native_failure -and $safe.state -ceq 'failed' -and $safe.error_type -ceq 'AssertionError' -and $safe.source_basename -ceq 'pbx_v20_restore_native.py' -and $safe.native_substage -cin @('internal_media','mailbox_media') -and (Test-Path -LiteralPath $privateOutput -PathType Leaf)){
+    $toneOutput=Get-Item -LiteralPath $privateOutput -Force
+    if($toneOutput.Length -gt 0 -and $toneOutput.Length -le 1048576 -and ($toneOutput.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0){$tone=SafeRestoreToneFailure $safe.tone_observation $Action;if($tone){$facts.native_failure.tone_observation=$tone}}
+   }
+  }catch{}
   try{
    if($Action -cin @('export-source','target-backup') -and $facts.native_failure -and (Test-Path -LiteralPath $privateOutput -PathType Leaf)){
     $queryOutput=Get-Item -LiteralPath $privateOutput -Force

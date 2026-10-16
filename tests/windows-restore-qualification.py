@@ -248,6 +248,37 @@ def restore_mailbox_failure_fields(record, action):
     return dict(record)
 
 
+def restore_tone_failure_fields(record, action):
+    keys={'expected_hz','sample_count','tone_ratio','sent_packets','received_packets','unexpected_audio_packets'}
+    if (action not in ('native-source','native-target') or type(record) is not dict or set(record)!=keys
+            or type(record['expected_hz']) is not int or record['expected_hz'] not in (440,550)
+            or type(record['sample_count']) is not int or not 0<=record['sample_count']<=16000):return {}
+    ratio=record['tone_ratio']
+    if ratio is not None and (type(ratio) not in (int,float) or not math.isfinite(ratio) or not 0<=ratio<=2):return {}
+    for key in ('sent_packets','received_packets','unexpected_audio_packets'):
+        value=record[key]
+        if value is not None and (type(value) is not int or not 0<=value<=10000000):return {}
+    return dict(record)
+
+
+def observe_restore_tone_failure(error, source):
+    """Read scalar locals from the unchanged exact native assertion only."""
+    if type(error) is not AssertionError:return {}
+    expected=os.path.normcase(os.path.abspath(source));trace=error.__traceback__
+    while trace:
+        frame=trace.tb_frame
+        if (frame.f_code.co_name=='decoded_tone_check'
+                and os.path.normcase(os.path.abspath(frame.f_code.co_filename))==expected):
+            local=frame.f_locals;samples=local.get('samples');state=local.get('state')
+            if type(samples) is not list or type(state) is not dict:return {}
+            record={'expected_hz':local.get('frequency'),'sample_count':len(samples),'tone_ratio':local.get('ratio')}
+            record.update({public:state.get(private) for public,private in
+                           (('sent_packets','sent'),('received_packets','received'),('unexpected_audio_packets','unexpected_audio'))})
+            return restore_tone_failure_fields(record,'native-source')
+        trace=trace.tb_next
+    return {}
+
+
 def restore_peer_failure_fields(records,receiver=False):
     keys = {'peer_index','stage','status_code','error_type','source_basename','source_line'}
     if receiver:keys.add('winerror_kind')
@@ -669,7 +700,13 @@ class Qualification:
                 time.sleep(32); caller.hangup(call); call = None
                 self.record('source_real_native_voicemail_deposit')
         except BaseException as error:
-            primary=error;primary.native_substage=stage;raise
+            primary=error;primary.native_substage=stage
+            try:
+                if stage in ('internal_media','mailbox_media'):
+                    observation=observe_restore_tone_failure(error,self.source/'tests/pbx_v20_restore_native.py')
+                    if observation:primary.tone_observation=observation
+            except BaseException:pass # Scalar observation must preserve the actual assertion.
+            raise
         finally:
             if call is not None:
                 try: (called if target else caller).hangup(call)
@@ -1057,4 +1094,6 @@ if __name__ == '__main__':
         if cases is not None:facts['completed_native_cases']=cases
         mailbox=restore_mailbox_failure_fields(getattr(error,'mailbox_observation',None),getattr(error,'native_action',None))
         if mailbox:facts['mailbox_observation']=mailbox
+        tone=restore_tone_failure_fields(getattr(error,'tone_observation',None),getattr(error,'native_action',None))
+        if tone:facts['tone_observation']=tone
         print(json.dumps(facts)); sys.exit(1)
