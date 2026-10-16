@@ -1,8 +1,10 @@
-# OpenWeb PBX for Android
+# OpenWebPBX Free Phone for Android
 
 Version **1.0.12 (code 112)** keeps the native calling interface, fixes readiness on private LAN/VPN networks without requiring Android Internet validation, and accompanies the restored desk-phone/server compatibility update. Exact signed-artifact regression and public release are tracked in [feature coverage](../../docs/feature-coverage.md#restore-and-desk-phone-handover--1012).
 
 A standalone native Android phone, built with Kotlin and the Linphone SIP/media engine. There is no embedded website or WebView.
+
+The 1.0.14 candidate is named **OpenWebPBX Free Phone** (code 114), with the same package and signing identity for upgrades. Public downloads remain on 1.0.12 until candidate runtime/release qualification finishes.
 
 Version 1.0.12 supports Android 9 and newer. It adds visible Call Hold / Resume Call and personal Settings, retains the 1.0.9 calling features and 1.0.10 private wake-up-storage correction, and honours the instance minimum-version policy without interrupting active calls. Use the matching [1.0.12 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.12); publication, production and handset qualifications are recorded separately in feature coverage. The universal APK contains ARMv7, ARM64 and x86-64 builds. Install the signed APK from the project's GitHub release with the matching server, then scan the connection QR in your PBX's **Users → Phone Provisioning**. The QR contains a short-lived one-time code, not your SIP password.
 
@@ -28,7 +30,7 @@ The native updater uses the pinned public release key in `app/src/main/assets/re
 
 `UpdateRulesTest` covers detached signatures, allowed origins, monotonic metadata, versions and required-update safety states. `UpdateWorkflowTest` is opt-in with `updateFixture=true`; it requires a disposable account, private signed future-version APK/envelope and a fixture peer. Keep those inputs outside source and release archives. It exercises real download verification, Android installation permission/confirmation/cancellation and account-preserving replacement. Adding `updatePublic=true` uses the normal production HTTPS feed/download transport instead of fixture bytes, while still requiring the fixture guard and disposable account. The internal transport interface permits private instrumentation to supply signed bytes without introducing any production test URL, private key or verification bypass.
 
-Private qualification can override the build version using `-PopenwebPrivateVersionCode=113 -PopenwebPrivateVersionName=1.0.13`. Such APKs and manifests are local fixtures only. The 1.0.12 candidate release build uses the default 1.0.12/code112 values and the stable signing identity. The corresponding-source archive includes the root VERSION file, all recursively tracked SDK/submodule source (including upstream build directories), and the exact Maven runtime source JARs.
+Private qualification can override the build version using `-PopenwebPrivateVersionCode=115 -PopenwebPrivateVersionName=1.0.15`. Such APKs and manifests are local fixtures only. The 1.0.14 candidate release build uses the default 1.0.14/code114 values and the stable signing identity. The corresponding-source archive includes the root VERSION file, all recursively tracked SDK/submodule source (including upstream build directories), and the exact Maven runtime source JARs.
 
 `CallAudioTest` uses `audioFixture=true` and a disposable `audio-setup.json` to verify Android communication audio mode, audio-focus hold/resume, background calling and incoming SRTP audio. An independent auto-answer peer must be registered as extension 1001 in that isolated PBX. Never point these checks at customer accounts.
 

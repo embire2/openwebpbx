@@ -1,5 +1,11 @@
 (() => {
   'use strict';
+  const extension = document.querySelector('[data-extension-number]');
+  const automatic = document.querySelector('[data-auto-extension]');
+  extension?.addEventListener('input', () => { if (automatic) automatic.checked = extension.value.trim() === ''; });
+  automatic?.addEventListener('change', () => {
+    if (automatic.checked) extension.value = automatic.form.elements.suggested_number.value;
+  });
   document.querySelectorAll('[data-panel]').forEach(panel => { panel.hidden = panel.dataset.panel !== 'general'; });
   document.querySelectorAll('[data-tab]').forEach(button => button.addEventListener('click', () => {
     const form = button.closest('form');

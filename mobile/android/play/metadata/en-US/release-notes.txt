@@ -1,1 +1,1 @@
-Ear protection helps prevent accidental touches during earpiece calls on supported phones. Updates are easier to see, with clear actions and progress. Includes Android 16 targeting, privacy and support links, secure QR setup, company contacts, recent calls and voicemail. Google Play manages installation for this edition.
+OpenWebPBX Free Phone 1.0.14: new app name, with existing accounts and calling settings retained. The matching PBX adds automatic user extensions and department routing controls.

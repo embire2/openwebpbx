@@ -199,7 +199,7 @@ class PhoneService: Service() {
         flushPending()
     }
     private fun notification(): Notification = Notification.Builder(this, "connection")
-        .setSmallIcon(com.openweb.pbx.R.drawable.ic_phone).setContentTitle("OpenWeb PBX")
+        .setSmallIcon(com.openweb.pbx.R.drawable.ic_phone).setContentTitle(getString(R.string.app_name))
         .setContentText(if (call != null) "Call in progress" else status)
         .setOngoing(true).setVisibility(Notification.VISIBILITY_PRIVATE)
         .setContentIntent(openIntent()).build()

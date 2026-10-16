@@ -190,6 +190,7 @@ function P.object_destination(config,object,clock)
     end
     local hours=schedule.hours or {type='AllHours'}
     local open,break_now,holiday=P.office(config,object.number,clock,hours.ignore_holidays)
+    if schedule.follow_department==false then open,break_now,holiday=true,false,false end
     local day,time=clock((P.department(config,object.number) or {}).timezone or config.timezone)
     if hours.type~='OfficeHours' and hours.type~='OutOfOfficeHours' then
         open=P.in_hours(hours,day,time)
@@ -203,10 +204,17 @@ function P.object_destination(config,object,clock)
     return P.route_string(schedule.office)
 end
 local function member_allowed(config,rule,caller)
-    if #(rule.ranges or {})==0 and #(rule.departments or {})==0 then return true end
+    if #(rule.ranges or {})==0 and #(rule.departments or {})==0 and #(rule.department_ids or {})==0 then return true end
     for _, range in ipairs(rule.ranges or {}) do
         local c,f,t=tonumber(caller),tonumber(range.from),tonumber(range.to)
         if c and f and t and c>=f and c<=t then return true end
+    end
+    for _, id in ipairs(rule.department_ids or {}) do
+        for _, department in ipairs(config.departments or {}) do
+            if tostring(department.number)==tostring(id) then
+                for _, member in ipairs(department.members or {}) do if tostring(member.number)==tostring(caller) then return true end end
+            end
+        end
     end
     for _, name in ipairs(rule.departments or {}) do
         for _, department in ipairs(config.departments or {}) do

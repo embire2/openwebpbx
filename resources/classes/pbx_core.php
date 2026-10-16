@@ -143,7 +143,11 @@ class pbx_core {
         [$kind,$number]=array_pad(explode(':',$choice,2),2,'');$destination=null;$label='';$dept=null;
         if($kind==='user'&&isset($c['users'][$number])){$u=$c['users'][$number];$status=pbx_mobile_state::profile($u,$c,$number,$clock->getTimestamp());$profile=$u['profiles'][$status];$dept=pbx_schedule::department($c,$number);$label=$u['name'].' · '.$number;$destination=!empty($profile['away'])?($profile['away']['External']['all']??['type'=>'EndCall']):['type'=>'Extension','number'=>$number];}
         elseif($kind==='incoming'){foreach($c['inbound_rules'] as $r)if($r['rule_id']===$number){$destination=$r['office'];$dept=pbx_schedule::department($c,(string)($r['office_department']??$destination['number']??''));$office=$dept?pbx_schedule::office($dept,$c['timezone'],$clock->getTimestamp()):['open'=>true,'break'=>false,'holiday'=>false];if(($r['hours']['type']??'OfficeHours')!=='OfficeHours')$office['open']=pbx_schedule::inside($r['hours'],(int)$clock->format('w'),$clock->format('H:i'));if($office['holiday']&&!empty($r['use_holiday']))$destination=$r['holiday'];elseif(!$office['open']&&!empty($r['use_outside']))$destination=$r['outside'];$label=$r['number']?:'Main number';break;}}
-        else throw new InvalidArgumentException('Choose a user or incoming number in this PBX.');
+        elseif(in_array($kind,['queues','ring_groups','receptionists'],true)){
+            foreach($c[$kind] as $object)if((string)$object['number']===$number){$dept=pbx_schedule::department($c,$number);$label=$object['name'].' · '.$number;$destination=pbx_schedule::objectDestination($c,$object,$clock->getTimestamp());
+                if($destination===null)$destination=['type'=>['queues'=>'Queue','ring_groups'=>'RingGroup','receptionists'=>'IVR'][$kind],'number'=>$number,'external'=>''];break;}
+        }
+        else throw new InvalidArgumentException('Choose a user, incoming number or call-handling item in this PBX.');
         if($destination===null)throw new OutOfBoundsException('This item is not in your PBX.');
         $office=$dept?pbx_schedule::office($dept,$c['timezone'],$clock->getTimestamp()):['open'=>true,'break'=>false,'holiday'=>false];$type=$destination['type']??'None';$n=(string)($destination['number']??'');
         $name=match($type){'Extension'=>($c['users'][$n]['name']??$n).' · '.$n,'VoiceMail'=>'Voicemail for '.($c['users'][$n]['name']??$n),'External'=>'Outside number '.($destination['external']??''),'None','EndCall'=>'End call',default=>$type.' '.$n};

@@ -59,10 +59,10 @@ $editLink=static fn($v,$id,$title)=>'<a href="?view='.$e($v).'&amp;edit='.$e($id
 $newLink=static fn($v,$title)=>'<a class="setup-button primary" href="?view='.$e($v).'&amp;edit=new">'.$e($title).'</a>';
 $toolbar=static function(string $new=''){echo '<div class="admin-toolbar setup-form"><input type="search" data-search placeholder="Search" aria-label="Search this page">'.$new.'</div>';};
 $trunkStatus=static function(array $status)use($e){return '<span class="trunk-status '.$e($status['tone']).'">'.$e($status['status']).'</span>';};
-$department=static function(string $number)use($c): array{foreach($c['departments'] as $d)foreach($d['members'] as $m)if((string)$m['number']===$number&&$m['primary'])return $d;return ['number'=>'','name'=>''];};
+$department=static fn(string $number): array=>pbx_schedule::department($c,$number)??['number'=>'','name'=>''];
 $document['title']=$labels[$view].' · Admin';require_once PROJECT_ROOT.'/resources/header.php';
 ?>
-<link rel="stylesheet" href="/app/pbx_setup/setup.css?v=5"><link rel="stylesheet" href="/app/pbx_setup/core.css?v=1"><script src="/app/pbx_setup/admin.js?v=2" defer></script>
+<link rel="stylesheet" href="/app/pbx_setup/setup.css?v=5"><link rel="stylesheet" href="/app/pbx_setup/core.css?v=1"><script src="/app/pbx_setup/admin.js?v=3" defer></script>
 <main class="pbx-setup"><header class="setup-heading"><div><span class="setup-eyebrow">OPENWEB PBX · <?= $e(pbx_updates::version()) ?></span><h1>Admin</h1></div><form method="post" class="setup-form admin-switch"><?php $csrf(); ?><input type="hidden" name="action" value="switch"><select name="domain" aria-label="PBX"><?php foreach($services as $s): ?><option value="<?= $e($s['domain_uuid']) ?>" <?= $s['domain_uuid']===$_SESSION['domain_uuid']?'selected':'' ?>><?= $e($s['tenant_name'].' · '.$s['service_name']) ?></option><?php endforeach; ?></select><button class="setup-button" type="submit">Open</button></form></header>
 <div class="setup-shell"><nav class="setup-nav" aria-label="Admin pages">
 <?php foreach(['overview'=>'fa-chart-simple','users'=>'fa-users','phones'=>'fa-phone','voice'=>'fa-phone-volume','outbound'=>'fa-arrow-up-right-from-square','departments'=>'fa-building','hours'=>'fa-business-time','handling'=>'fa-diagram-project','switchboard'=>'fa-table-cells','wallboard'=>'fa-chart-simple','routing'=>'fa-route','contacts'=>'fa-address-book','reports'=>'fa-chart-column','recordings'=>'fa-microphone','voicemails'=>'fa-voicemail','import'=>'fa-hard-drive','hotel'=>'fa-hotel','settings'=>'fa-gear'] as $v=>$icon):$active=$view===$v||($v==='handling'&&in_array($view,['queues','ring_groups','receptionists','scripts','callbacks'],true))||($v==='voice'&&in_array($view,['incoming','provider_setup','first_calls'],true)); ?><a class="<?= $active?'selected':'' ?>" href="?view=<?= $v ?>"><i class="fa-solid <?= $icon ?>" aria-hidden="true"></i><?= $e($labels[$v]??'Backup & Restore') ?></a><?php endforeach; ?></nav><div class="setup-content">
@@ -72,6 +72,10 @@ $document['title']=$labels[$view].' · Admin';require_once PROJECT_ROOT.'/resour
 <?php if(in_array($view,['provider_setup','first_calls','routing','switchboard','wallboard','queue_reports'],true)):require __DIR__.'/core.php';
 elseif($key&&isset($types[$view])):
     $row=$key==='new'?[]:match($view){'users'=>$c['users'][$key]??null,'voice'=>$c['trunks'][$key]??null,'departments','hours'=>$find($c['departments'],$key),'queues'=>$find($c['queues'],$key),'ring_groups'=>$find($c['ring_groups'],$key),'receptionists'=>$find($c['receptionists'],$key),'scripts'=>$find($c['scripts'],$key),'outbound'=>$find($c['outbound_rules'],$key,'rule_id'),'incoming'=>$find($c['inbound_rules'],$key,'rule_id'),default=>null};
+    if($view==='users'&&$key==='new'){
+        try{$suggestedExtension=$admin->nextExtension($c);}catch(InvalidArgumentException $ex){$suggestedExtension='';$error=$ex->getMessage();echo '<p role="alert">'.$e($error).'</p>';}
+        $row['number']=is_string($_POST['number']??null)?$_POST['number']:$suggestedExtension;
+    }
     if($row===null): ?><p>This item is not in your PBX.</p><?php else: ?>
     <form method="post" class="setup-form admin-form-tabs"><?php $csrf(); ?><input type="hidden" name="action" value="save">
     <?php require __DIR__.'/edit.php'; ?>

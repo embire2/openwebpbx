@@ -210,4 +210,18 @@ check(P.hunt_start({1,2},'00000000-0000-4000-a000-000000000010')==0 and P.hunt_s
 object.hours={hours={type='OfficeHours',ignore_holidays=true},office='Extension.110.',outside='Extension.111.',holiday='Extension.112.'};check(P.object_destination(c,object,function()return 1,'09:00','2026-12-25'end).number=='110','OfficeHours IgnoreHolidays restores actual opening, not only the holiday flag')
 check(P.callback_open(c,{number='100',hours={hours={type='OfficeHours',ignore_holidays=true}}},function()return 1,'09:00','2026-12-25'end),'Queue callback OfficeHours honors IgnoreHolidays')
 check(P.user_busy({row_count=0},{auth_id='canonical'},'realm.invalid','self')==false,'Native zero-channel response without rows leaves an idle phone eligible')
+local restricted=c.outbound_rules[1]
+restricted.departments={};restricted.department_ids={'GRP1'}
+check(P.outbound(c,'0111234567','100')==restricted,'Stable department ID permits its member')
+c.departments[1].name='Renamed Sales'
+check(P.outbound(c,'0111234567','100')==restricted,'Department rename preserves ID-based outgoing calls')
+check(not P.outbound(c,'0111234567','300'),'Stable ID denies a caller outside the department')
+restricted.department_ids={'missing'}
+check(not P.outbound(c,'0111234567','100'),'Missing restricted department must not open the rule to everyone')
+restricted.department_ids={'GRP1'}
+object.number='100';object.hours={hours={type='AllHours'},follow_department=false,office='Extension.110.',outside='Extension.111.',holiday='Extension.112.',['break']='Extension.113.'}
+check(P.object_destination(c,object,clock('12:30')).number=='110','Explicit always-open handling ignores department breaks')
+check(P.object_destination(c,object,function()return 1,'09:00','2026-12-25'end).number=='110','Explicit always-open handling ignores department holidays')
+object.hours.follow_department=true;object.hours.hours.type='OfficeHours'
+check(P.object_destination(c,object,clock('12:30')).number=='113','Selected department break applies when inheritance is enabled')
 print('PASS: '..n..' office-hours, forwarding, outbound and callback decisions')

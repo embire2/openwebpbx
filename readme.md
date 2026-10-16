@@ -2,6 +2,10 @@
 
 An open-source, multi-tenant PBX powered by FreeSWITCH, with a Windows 11 inspired administration desktop.
 
+## 1.0.14 candidate — simpler users and department routing
+
+New users receive a free, editable extension automatically. Departments can include users and call-handling objects, with office-hour routing, editable outbound restrictions and Android directory visibility. The Android app is now **OpenWebPBX Free Phone**, version **1.0.14 / code 114**, retaining its existing application and signing identity. See the [user/group guide](docs/users-and-departments.md) and [candidate installation status](docs/installing-1.0.14.md). Public downloads remain on 1.0.12 until qualification and publication finish.
+
 ## Windows Server 1.0.13 development
 
 Version **1.0.13** is being prepared for Windows Server 2025 x64 with its own server package and signed update feed. It brings the current core web/calling workflows to Windows and adds restored-phone registration, local audio conversion, global queued mail, notification permissions, portable hold music, encrypted scheduled backups/restore and automatic public certificate management. The .NET 10/Visual Studio 2026 WinUI manager has built and opened responsively on Windows Server 2025. No 1.0.13 download is published yet.

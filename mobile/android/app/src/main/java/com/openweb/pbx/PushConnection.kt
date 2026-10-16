@@ -24,7 +24,7 @@ object PushConnection {
             // Play Services. No Google client SDK or Firebase project is bundled.
             UnifiedPush.saveDistributor(context,context.packageName)
             state(context,"connecting")
-            UnifiedPush.register(context,stored.getString("device_id"),"OpenWeb PBX incoming calls",settings.getString("vapid_public_key"))
+            UnifiedPush.register(context,stored.getString("device_id"),"${context.getString(R.string.app_name)} incoming calls",settings.getString("vapid_public_key"))
         }catch(_:Exception){state(context,"unavailable")}
     }
     fun state(context:Context,value:String){PhoneStore(context).update{it.put("push_state",value)};PhoneService.changed?.invoke()}
@@ -42,7 +42,7 @@ object PushConnection {
         manager.createNotificationChannel(NotificationChannel("calls","Incoming calls",NotificationManager.IMPORTANCE_HIGH).apply{lockscreenVisibility=Notification.VISIBILITY_PRIVATE})
         fun action(answer:Boolean,decline:Boolean=false)=PendingIntent.getActivity(context,(id+answer+decline).hashCode(),Intent(context,IncomingCallActivity::class.java).putExtra("push_request",id).putExtra("answer",answer).putExtra("decline",decline),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val open=action(false);val answer=action(true);val decline=action(false,true)
-        val person=Person.Builder().setName("OpenWeb PBX caller").build()
+        val person=Person.Builder().setName("OpenWebPBX Free Phone caller").build()
         val note=Notification.Builder(context,"calls").setSmallIcon(R.drawable.ic_phone).setContentTitle("Incoming call").setContentText("Connecting your phone…").setContentIntent(open).setCategory(Notification.CATEGORY_CALL).setVisibility(Notification.VISIBILITY_PRIVATE).setTimeoutAfter(((expires-Instant.now().epochSecond)*1000).coerceIn(1,60000))
         // Push does not play a second ringtone; the native incoming SIP call owns audio focus.
         if(Build.VERSION.SDK_INT<34 || manager.canUseFullScreenIntent())note.setFullScreenIntent(open,true)

@@ -111,7 +111,7 @@ class pbx_mobile {
         event_socket::api('hupall NORMAL_CLEARING sip_to_user '.$e['sip_username']);
     }
     public function directory(array $e): array {
-        $rows=[];foreach($e['config']['users'] as $n=>$u)if(!empty($u['enabled']))$rows[]=['id'=>'extension:'.$n,'name'=>$u['name'],'number'=>(string)$n,'status'=>pbx_mobile_state::profile($u,$e['config'],(string)$n)];
+        $rows=[];foreach($e['config']['users'] as $n=>$u)if(!empty($u['enabled'])&&pbx_departments::visible($e['config'],(string)$e['number'],(string)$n))$rows[]=['id'=>'extension:'.$n,'name'=>$u['name'],'number'=>(string)$n,'status'=>pbx_mobile_state::profile($u,$e['config'],(string)$n)];
         foreach($e['config']['contacts']??[] as $i=>$c){$owner=(string)($c['owner']??'');if($owner!==''&&$owner!==$e['number'])continue;$number=(string)($c['phone']??'');if(!preg_match('/^\+?[0-9*#]{1,32}$/D',$number))continue;$rows[]=['id'=>'contact:'.$i,'name'=>trim(($c['first_name']??'').' '.($c['last_name']??''))?:($c['company']??$number),'number'=>$number];}
         usort($rows,fn($a,$b)=>strcasecmp($a['name'],$b['name']));return ['contacts'=>array_slice($rows,0,2000)];
     }

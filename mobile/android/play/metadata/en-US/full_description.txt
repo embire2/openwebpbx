@@ -1,6 +1,6 @@
 Bring your OpenWeb PBX extension to your Android phone.
 
-OpenWeb PBX is a native Android calling app from a nonprofit, open-source project. Connect to your organisation’s PBX by scanning the QR code supplied by your administrator, then call your team, reach customers and listen to voicemail.
+OpenWebPBX Free Phone is a native Android calling app from a nonprofit, open-source project. Connect to your organisation’s PBX by scanning the QR code supplied by your administrator, then call your team, reach customers and listen to voicemail.
 
 A PHONE FOR YOUR WORK
 • Scan your PBX connection code, or enter it manually.

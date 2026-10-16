@@ -156,7 +156,7 @@ class MainActivity: ComponentActivity() {
         window.decorView.systemUiVisibility=if(dark)0 else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         window.statusBarColor=paper;window.navigationBarColor=paper
         val heading=layout(true); heading.gravity=Gravity.CENTER_VERTICAL
-        heading.addView(text("OpenWeb PBX",24f,ink,true),LinearLayout.LayoutParams(0,dp(if(compact)44 else 52),1f))
+        heading.addView(text(getString(R.string.app_name),if(compact)18f else 20f,ink,true).apply { maxLines=2; minimumHeight=dp(if(compact)44 else 52); gravity=Gravity.CENTER_VERTICAL },LinearLayout.LayoutParams(0,-2,1f))
         if(store.read()!=null) heading.addView(button(if(section=="Settings")"Done" else "Settings") { if(section=="Settings"){section=settingsReturnSection;draw()}else settings() })
         root.addView(heading)
         status=text("Your work phone, wherever you are",14f,soft); status.setPadding(dp(12),dp(if(compact)5 else 10),dp(12),dp(if(compact)5 else 10));status.background=rounded(card);val statusRow=layout(true);statusRow.gravity=Gravity.CENTER_VERTICAL;statusRow.addView(status,LinearLayout.LayoutParams(0,-2,1f));if(store.read()!=null)statusRow.addView(button("Status"){availability()},LinearLayout.LayoutParams(dp(78),dp(48)));root.addView(statusRow)
@@ -503,7 +503,7 @@ class MainActivity: ComponentActivity() {
         }
         val unrestricted=getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
         item("Battery optimization",if(unrestricted)"Unrestricted · Background calls are allowed" else "Allow background use for reliable incoming calls"){androidSettings(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))}
-        body.addView(text("Keep the connection notification running. Reopen OpenWeb PBX after restarting your phone or stopping the app. Incoming wake-up depends on your administrator’s setup.",14f,soft))
+        body.addView(text("Keep the connection notification running. Reopen OpenWebPBX Free Phone after restarting your phone or stopping the app. Incoming wake-up depends on your administrator’s setup.",14f,soft))
         body.addView(text("Updates and support",20f,ink,true))
         item("App updates","Check for updates · Your administrator manages update requirements"){updateDialog()}
         item("Privacy and support","Privacy, help and deleting your account"){privacy()}
