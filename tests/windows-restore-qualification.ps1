@@ -90,6 +90,19 @@ function SafeRestoreMailboxFailure($Record,[string]$Action){
  foreach($key in $keys){if($key -cnotin $allowed -or $Record.$key -isnot [bool]){return $null};$safe[$key]=$Record.$key}
  return $safe
 }
+function SafeRestoreCliFailure($Record){
+ if($null -eq $Record -or $Record -is [Array]){return $null}
+ $keys=@('exit_code','error_type','category','source_frames');$actual=@();if($Record -is [Collections.IDictionary]){$actual=@($Record.Keys)}else{$actual=@($Record.PSObject.Properties.Name)}
+ if($actual.Count -ne $keys.Count -or @($actual|Where-Object {$_ -cnotin $keys}).Count){return $null}
+ if($null -ne $Record.exit_code -and (($Record.exit_code -isnot [int] -and $Record.exit_code -isnot [long]) -or $Record.exit_code -lt 0 -or $Record.exit_code -gt 255)){return $null}
+ if($Record.error_type -isnot [string] -or $Record.error_type -cnotin @('BackupError','PermissionError','FileNotFoundError','OSError','ValueError','TypeError','RuntimeError','JSONDecodeError','other','unavailable') -or $Record.category -isnot [string] -or $Record.category -cnotin @('operation_busy','operation_lock_review','activation_server_guard','activation_selection_guard','activation_service_missing','required_tool_failed','required_tool_unavailable','private_control_unavailable','unclassified') -or $Record.source_frames -isnot [Array] -or $Record.source_frames.Count -gt 4){return $null}
+ $frames=@();foreach($frame in $Record.source_frames){
+  if($null -eq $frame -or $frame -is [Array]){return $null};$fields=@();if($frame -is [Collections.IDictionary]){$fields=@($frame.Keys)}else{$fields=@($frame.PSObject.Properties.Name)}
+  if($fields.Count -ne 3 -or @($fields|Where-Object {$_ -cnotin @('source_basename','source_line','function')}).Count -or $frame.source_basename -isnot [string] -or $frame.source_basename -cne 'backups.py' -or $frame.function -isnot [string] -or $frame.function -cnotin @('main','activate','exclusive_guard','control','run','read_settings','ordinary','reparse','atomic_json','held','lock_file','unlock_file') -or ($frame.source_line -isnot [int] -and $frame.source_line -isnot [long]) -or $frame.source_line -le 0 -or $frame.source_line -ge 1000000){return $null}
+  $frames+=@{source_basename='backups.py';source_line=$frame.source_line;function=$frame.function}
+ }
+ return @{exit_code=$Record.exit_code;error_type=$Record.error_type;category=$Record.category;source_frames=@($frames)}
+}
 function SafeRestoreServiceActivationFailure($Record){
  if($null -eq $Record -or $Record -is [Array]){return $null}
  $keys=@('stage','service','state','start_mode','is_expected_identity','exit_code','service_specific_exit_code')
@@ -138,6 +151,12 @@ function NativeFixture([string]$Action){
    if($Action -cin @('export-source','target-backup') -and $facts.native_failure -and (Test-Path -LiteralPath $privateOutput -PathType Leaf)){
     $queryOutput=Get-Item -LiteralPath $privateOutput -Force
     if($queryOutput.Length -gt 0 -and $queryOutput.Length -le 1048576 -and ($queryOutput.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 -and $safe.state -ceq 'failed' -and $safe.error_type -is [string] -and $safe.error_type -ceq 'BackupError' -and $safe.source_basename -is [string] -and $safe.source_basename -ceq 'backups.py' -and ($safe.query_caller_line -is [int] -or $safe.query_caller_line -is [long]) -and $safe.query_caller_line -gt 0 -and $safe.query_caller_line -lt 1000000){$facts.native_failure.query_caller_line=$safe.query_caller_line}
+   }
+  }catch{}
+  try{
+   if($Action -cin @('export-source','late-restore','restore','activate-calls','job','activate-updates','activate-backups','target-backup') -and $facts.native_failure -and $safe.state -ceq 'failed' -and $safe.error_type -is [string] -and $safe.error_type -ceq 'RuntimeError' -and $safe.source_basename -is [string] -and $safe.source_basename -ceq 'windows-restore-qualification.py' -and (Test-Path -LiteralPath $privateOutput -PathType Leaf)){
+    $cliOutput=Get-Item -LiteralPath $privateOutput -Force
+    if($cliOutput.Length -gt 0 -and $cliOutput.Length -le 1048576 -and ($cliOutput.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0){$cli=SafeRestoreCliFailure $safe.cli_failure;if($cli){$facts.native_failure.cli_failure=$cli}}
    }
   }catch{}
   throw

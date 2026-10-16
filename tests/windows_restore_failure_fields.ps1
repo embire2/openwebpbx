@@ -8,7 +8,7 @@ if([string]::IsNullOrWhiteSpace($SourceRoot)){$SourceRoot=Split-Path $PSScriptRo
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-restore-qualification.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Restore qualification source must parse.'}
-foreach($name in 'SafeRestoreFixtureFailure','SafeRestorePeerFailures','SafeRestoreSchemaFailure','SafeRestoreMailboxFailure','SafeRestoreServiceActivationFailure','AssertRestoredServiceActivation','NativeFixture'){
+foreach($name in 'SafeRestoreFixtureFailure','SafeRestorePeerFailures','SafeRestoreSchemaFailure','SafeRestoreMailboxFailure','SafeRestoreCliFailure','SafeRestoreServiceActivationFailure','AssertRestoredServiceActivation','NativeFixture'){
  $nodes=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true))
  if($nodes.Count -ne 1){throw 'One exact source function is required.'}
  if($name -eq 'NativeFixture'){$nativeDefinition=$nodes[0].Extent.Text}else{Invoke-Expression $nodes[0].Extent.Text}
@@ -147,6 +147,28 @@ foreach($key in $mailboxGood.Keys){
 foreach($action in 'native-source','cleanup','PRIVATE','NATIVE-TARGET'){Assert ($null -eq (SafeRestoreMailboxFailure $mailboxGood $action))}
 foreach($bad in $null,@(),@{},@($mailboxGood),@{PRIVATE=$true}){Assert ($null -eq (SafeRestoreMailboxFailure $bad 'native-target'))}
 $candidate=Clone $mailboxGood;$candidate|Add-Member noteproperty message 'PRIVATE';Assert ($null -eq (SafeRestoreMailboxFailure $candidate 'native-target'))
+$cliGood=@{exit_code=1;error_type='BackupError';category='operation_busy';source_frames=@(@{source_basename='backups.py';source_line=249;function='exclusive_guard'})}
+Assert ((SafeRestoreCliFailure (Clone $cliGood)).Count -eq 4)
+foreach($key in $cliGood.Keys){
+ foreach($value in @($null,$true,$false,@(),@{},1.5,'PRIVATE')){
+  if($key -ceq 'exit_code' -and $null -eq $value){continue}
+  if($key -ceq 'source_frames' -and $value -is [Array] -and $value.Count -eq 0){continue}
+  $candidate=Clone $cliGood;$candidate.$key=$value;Assert ($null -eq (SafeRestoreCliFailure $candidate))
+ }
+ $candidate=Clone $cliGood;$candidate.PSObject.Properties.Remove($key);Assert ($null -eq (SafeRestoreCliFailure $candidate))
+}
+foreach($value in $null,0,255,([long]1)){$candidate=Clone $cliGood;$candidate.exit_code=$value;Assert ($null -ne (SafeRestoreCliFailure $candidate))}
+foreach($value in -1,256,'1'){$candidate=Clone $cliGood;$candidate.exit_code=$value;Assert ($null -eq (SafeRestoreCliFailure $candidate))}
+foreach($type in 'BackupError','PermissionError','FileNotFoundError','OSError','ValueError','TypeError','RuntimeError','JSONDecodeError','other','unavailable'){$candidate=Clone $cliGood;$candidate.error_type=$type;Assert ($null -ne (SafeRestoreCliFailure $candidate))}
+foreach($category in 'operation_busy','operation_lock_review','activation_server_guard','activation_selection_guard','activation_service_missing','required_tool_failed','required_tool_unavailable','private_control_unavailable','unclassified'){$candidate=Clone $cliGood;$candidate.category=$category;Assert ($null -ne (SafeRestoreCliFailure $candidate))}
+foreach($function in 'main','activate','exclusive_guard','control','run','read_settings','ordinary','reparse','atomic_json','held','lock_file','unlock_file'){$candidate=Clone $cliGood;$candidate.source_frames[0].function=$function;Assert ($null -ne (SafeRestoreCliFailure $candidate))}
+foreach($definition in @(@{key='source_basename';values=@('PRIVATE.py',@('backups.py'))},@{key='function';values=@('PRIVATE',@('main'))},@{key='source_line';values=@(0,-1,1000000,$true,'249')})){
+ foreach($value in $definition.values){$candidate=Clone $cliGood;$candidate.source_frames[0].($definition.key)=$value;Assert ($null -eq (SafeRestoreCliFailure $candidate))}
+}
+$candidate=Clone $cliGood;$candidate.source_frames=@();Assert ((SafeRestoreCliFailure $candidate).source_frames.Count -eq 0)
+$candidate=Clone $cliGood;$candidate.source_frames=@($candidate.source_frames*5);Assert ($null -eq (SafeRestoreCliFailure $candidate))
+$candidate=Clone $cliGood;$candidate|Add-Member noteproperty message 'PRIVATE';Assert ($null -eq (SafeRestoreCliFailure $candidate))
+$candidate=Clone $cliGood;$candidate.source_frames[0]|Add-Member noteproperty path 'PRIVATE';Assert ($null -eq (SafeRestoreCliFailure $candidate))
 $work=Join-Path ([IO.Path]::GetTempPath()) ('openweb-restore-projection-'+[guid]::NewGuid().ToString('N'))
 $null=New-Item -ItemType Directory -Path $work
 $python='fictional-extracted-python';$source='fictional-source';$inputFile='fictional-private-input'
@@ -235,6 +257,27 @@ try{
   if($mode -eq 'metadata_failure'){Remove-Item Function:\Get-Item}
   $privateOutput=Join-Path $work 'restore-target-backup.out'
   if(Test-Path -LiteralPath $privateOutput){Remove-Item -LiteralPath $privateOutput -Recurse -Force}
+ }
+ foreach($action in 'export-source','late-restore','restore','activate-calls','job','activate-updates','activate-backups','target-backup'){
+  foreach($mode in 'valid','empty_frames','extra','unknown_frame','wrong_type','wrong_source','wrong_action','passed_state','missing'){
+   $facts=@{native_failure=@{error_type='RuntimeError';source_basename='windows-restore-qualification.py';source_line=414}};$invoke=$action;$observation=Clone $cliGood
+   $script:childRecord=@{state='failed';error_type='RuntimeError';source_basename='windows-restore-qualification.py';source_line=414;cli_failure=$observation;message='PRIVATE SQL password/path'}
+   switch($mode){
+    'empty_frames'{$observation.source_frames=@()}
+    'extra'{$observation|Add-Member noteproperty message 'PRIVATE'}
+    'unknown_frame'{$observation.source_frames[0].function='PRIVATE'}
+    'wrong_type'{$script:childRecord.error_type='BackupError'}
+    'wrong_source'{$script:childRecord.source_basename='backups.py'}
+    'wrong_action'{$invoke='native-target'}
+    'passed_state'{$script:childRecord.state='passed'}
+    'missing'{$script:childRecord.Remove('cli_failure')}
+   }
+   $caught=$null;try{NativeFixture $invoke}catch{$caught=$_}
+   Assert ([object]::ReferenceEquals($caught.Exception,$script:childFailure))
+   Assert (($null -ne $facts.native_failure.cli_failure) -eq ($mode -cin @('valid','empty_frames')))
+   if($mode -ceq 'valid'){Assert ($facts.native_failure.cli_failure.exit_code -eq 1 -and $facts.native_failure.cli_failure.source_frames[0].function -ceq 'exclusive_guard')}
+   Assert (($facts|ConvertTo-Json -Depth 20 -Compress) -notmatch 'PRIVATE|SQL|password|path')
+  }
  }
  foreach($field in 'hardware_uuid_hmac','hostname_hmac','certificate_sha256','template_key_sha256'){
   foreach($mode in 'valid','unknown_kind','private_field','array_field','wrong_action','wrong_type','wrong_source','missing_kind','missing_field'){

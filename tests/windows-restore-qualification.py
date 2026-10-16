@@ -162,6 +162,60 @@ def restore_query_failure_fields(error):
     return {'query_caller_line': caller} if database_query and type(caller) is int and 0 < caller < 1000000 else {}
 
 
+CLI_ERROR_TYPES = ('BackupError', 'PermissionError', 'FileNotFoundError', 'OSError', 'ValueError',
+                   'TypeError', 'RuntimeError', 'JSONDecodeError', 'other', 'unavailable')
+CLI_FUNCTIONS = ('main', 'activate', 'exclusive_guard', 'control', 'run', 'read_settings', 'ordinary',
+                 'reparse', 'atomic_json', 'held', 'lock_file', 'unlock_file')
+CLI_ERROR_CATEGORIES = {
+    'Another backup, restore or release update is running. Retry after it finishes.': 'operation_busy',
+    'The operation lock needs administrator review.': 'operation_lock_review',
+    'Confirm the restored server name and complete the activation checklist first.': 'activation_server_guard',
+    'Choose the restored call, job, update or backup service to activate.': 'activation_selection_guard',
+    'The requested restored service is not installed.': 'activation_service_missing',
+    'A required backup operation failed. Check the server tools, permissions and free disk space.': 'required_tool_failed',
+    'A required backup operation could not finish. Check the server tools and free disk space.': 'required_tool_unavailable',
+    'The private Windows backup control directory is unavailable. Repair the backup installation.': 'private_control_unavailable',
+}
+
+
+def restore_cli_failure_fields(record):
+    fields = {'exit_code', 'error_type', 'category', 'source_frames'}
+    if (type(record) is not dict or set(record) != fields
+            or (record['exit_code'] is not None and (type(record['exit_code']) is not int or not 0 <= record['exit_code'] <= 255))
+            or type(record['error_type']) is not str or record['error_type'] not in CLI_ERROR_TYPES
+            or type(record['category']) is not str or record['category'] not in (*CLI_ERROR_CATEGORIES.values(), 'unclassified')
+            or type(record['source_frames']) is not list or len(record['source_frames']) > 4):
+        return {}
+    for frame in record['source_frames']:
+        if (type(frame) is not dict or set(frame) != {'source_basename', 'source_line', 'function'}
+                or type(frame['source_basename']) is not str or frame['source_basename'] != 'backups.py'
+                or type(frame['function']) is not str or frame['function'] not in CLI_FUNCTIONS
+                or type(frame['source_line']) is not int or not 0 < frame['source_line'] < 1000000):
+            return {}
+    return dict(record, source_frames=[dict(frame) for frame in record['source_frames']])
+
+
+def observe_restore_cli_failure(code, exit_error, installed_source):
+    # main's parser.exit keeps the caught error in __context__. Never format it.
+    cause = exit_error.__context__ if isinstance(exit_error, SystemExit) else None
+    kind = type(cause).__name__ if cause is not None else 'unavailable'
+    category = 'unclassified'; frames = []
+    if kind == 'BackupError' and len(cause.args) == 1 and type(cause.args[0]) is str and len(cause.args[0]) <= 512:
+        category = CLI_ERROR_CATEGORIES.get(cause.args[0], 'unclassified')
+    expected = os.path.normcase(os.path.abspath(installed_source))
+    trace = cause.__traceback__ if isinstance(cause, BaseException) else None
+    for _ in range(32):
+        if trace is None: break
+        frame = trace.tb_frame.f_code
+        if (os.path.normcase(os.path.abspath(frame.co_filename)) == expected
+                and Path(frame.co_filename).name == 'backups.py' and frame.co_name in CLI_FUNCTIONS
+                and 0 < trace.tb_lineno < 1000000):
+            frames.append({'source_basename': 'backups.py', 'source_line': trace.tb_lineno, 'function': frame.co_name})
+        trace = trace.tb_next
+    return restore_cli_failure_fields({'exit_code': code if type(code) is int and 0 <= code <= 255 else None,
+        'error_type': kind if kind in CLI_ERROR_TYPES else 'other', 'category': category, 'source_frames': frames[-4:]})
+
+
 def restore_schema_failure_fields(error):
     if (type(error) is not ValueError
             or getattr(error, 'comparison_label', None) not in ('target-wrongpass', 'target-recovered', 'target-restored')):
@@ -399,19 +453,24 @@ class Qualification:
         # implementation. Only interactive passphrase delivery is adapted by
         # this private subprocess; passwords never enter process arguments.
         previous_args, previous_prompt = sys.argv, self.backups.getpass.getpass
-        output, errors = io.StringIO(), io.StringIO(); code = 0
+        output, errors = io.StringIO(), io.StringIO(); code = 0; exit_error = None
         sys.argv = ['backups.py', *arguments]
         if password is not None: self.backups.getpass.getpass = lambda _prompt: password
         try:
             with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
                 try: self.backups.main()
-                except SystemExit as result: code = result.code or 0
+                except SystemExit as result: code = result.code or 0; exit_error = result
         finally:
             sys.argv, self.backups.getpass.getpass = previous_args, previous_prompt
             (self.work / ('cli-' + arguments[0] + '.private.out')).write_text(output.getvalue(), encoding='utf-8')
             (self.work / ('cli-' + arguments[0] + '.private.err')).write_text(errors.getvalue(), encoding='utf-8')
         if (expect_failure and code != 1) or (not expect_failure and code != 0):
-            raise RuntimeError('The real administrator CLI did not return its expected result.')
+            failure = RuntimeError('The real administrator CLI did not return its expected result.')
+            try:
+                observation = observe_restore_cli_failure(code, exit_error, self.backups.__file__)
+                if observation: failure.cli_failure = observation
+            except Exception: pass
+            raise failure
         self.facts['cli_entry'] = 'real_installed_main_argparse_and_administrator_guard'
         self.facts['passphrase_input'] = 'private_fixture_getpass_adapter_no_password_arguments'
         self.facts['actual_console_keyboard_input'] = 'unqualified'
@@ -986,6 +1045,8 @@ if __name__ == '__main__':
         if observation: facts['fixture_failure'] = observation
         facts.update(restore_identity_failure_fields(error))
         facts.update(restore_query_failure_fields(error))
+        observation = restore_cli_failure_fields(getattr(error, 'cli_failure', None))
+        if observation: facts['cli_failure'] = observation
         facts.update(restore_schema_failure_fields(error))
         peer_failures=restore_peer_failure_fields(getattr(error,'peer_cleanup_failure',None))
         if peer_failures:facts['peer_cleanup_failure']=peer_failures

@@ -6,11 +6,14 @@ import contextlib
 import importlib.util
 import io
 import json
+import ctypes
+import os
 from pathlib import Path
 import shutil
 import socket
 import math
 import struct
+import sys
 import subprocess
 import tempfile
 import time
@@ -22,6 +25,110 @@ from types import SimpleNamespace
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('windows_restore_qualification', HERE / 'windows-restore-qualification.py')
 q = importlib.util.module_from_spec(spec); spec.loader.exec_module(q)
+
+
+class RestoreCliObservationControls(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(); self.root = Path(self.temporary.name)
+        spec = importlib.util.spec_from_file_location('restore_cli_actual_runtime', HERE.parent/'packaging/windows/backups.py')
+        self.b = importlib.util.module_from_spec(spec); spec.loader.exec_module(self.b)
+        self.fixture = q.Qualification.__new__(q.Qualification)
+        self.fixture.backups = self.b; self.fixture.work = self.root; self.fixture.facts = {}
+        self.arguments = ['activate', '--backups', '--confirm-server', 'windowsqa.example.invalid']
+        (self.root/'journal.json').write_text(json.dumps({'state':'restored','source_host':'windowsqa.example.invalid','gates':{}}))
+        self.stack = contextlib.ExitStack(); self.addCleanup(self.stack.close); self.addCleanup(self.temporary.cleanup)
+        self.stack.enter_context(mock.patch.object(self.b, 'os', SimpleNamespace(name='nt', umask=lambda _: None)))
+        self.stack.enter_context(mock.patch.object(ctypes, 'windll', SimpleNamespace(shell32=SimpleNamespace(IsUserAnAdmin=lambda:True)), create=True))
+        self.stack.enter_context(mock.patch.object(self.b, 'read_settings', return_value={'openweb.public_host':'windowsqa.example.invalid'}))
+        self.stack.enter_context(mock.patch.object(self.b, 'RESTORE', self.root))
+        self.stack.enter_context(mock.patch.object(self.b, 'UPGRADE_LOCK', self.root/'upgrade.lock'))
+        self.stack.enter_context(mock.patch.object(self.b, 'held', return_value=True))
+
+    def failure(self, *, password=None, expect_failure=False):
+        original_args, original_prompt = sys.argv, self.b.getpass.getpass
+        with self.assertRaisesRegex(RuntimeError, '^The real administrator CLI did not return its expected result[.]$') as caught:
+            self.fixture.cli(self.arguments, password=password, expect_failure=expect_failure)
+        self.assertIs(sys.argv, original_args); self.assertIs(self.b.getpass.getpass, original_prompt)
+        fields = q.restore_cli_failure_fields(getattr(caught.exception, 'cli_failure', None))
+        self.assertNotIn('PRIVATE', json.dumps(fields)); self.assertNotIn(str(self.root), json.dumps(fields))
+        return caught.exception, fields
+
+    def test_actual_main_parser_exit_retains_actual_exclusive_guard_error_and_frames(self):
+        with mock.patch.object(self.b, 'lock_file', side_effect=OSError('PRIVATE native sharing detail')), mock.patch.object(self.b, 'control') as control:
+            error, fields = self.failure()
+        self.assertEqual(fields['exit_code'], 1); self.assertEqual(fields['error_type'], 'BackupError')
+        self.assertEqual(fields['category'], 'operation_busy')
+        self.assertEqual([f['function'] for f in fields['source_frames']], ['main','activate','exclusive_guard'])
+        self.assertTrue(all(f['source_basename']=='backups.py' and 0<f['source_line']<1000000 for f in fields['source_frames']))
+        self.assertIn('Another backup, restore or release update is running.', (self.root/'cli-activate.private.err').read_text())
+        control.assert_not_called(); self.assertFalse(self.fixture.facts)
+        self.assertFalse(hasattr(error, 'private_sql'))
+
+    def test_expected_code_one_then_new_error_cannot_reuse_prior_observation(self):
+        with mock.patch.object(self.b, 'lock_file', side_effect=OSError('PRIVATE')):
+            self.fixture.cli(self.arguments, expect_failure=True)
+        self.assertIn('cli_entry', self.fixture.facts)
+        with mock.patch.object(self.b, 'activate', side_effect=PermissionError('PRIVATE account SQL path')):
+            _, fields = self.failure()
+        self.assertEqual(fields['exit_code'], 1); self.assertEqual(fields['error_type'], 'PermissionError')
+        self.assertEqual(fields['category'], 'unclassified')
+        self.assertEqual([f['function'] for f in fields['source_frames']], ['main'])
+
+    def test_actual_main_admin_refusal_and_unknown_caught_error_stay_closed(self):
+        with mock.patch.object(ctypes.windll.shell32, 'IsUserAnAdmin', return_value=False):
+            _, fields = self.failure()
+        self.assertEqual(fields, dict(exit_code=2,error_type='unavailable',category='unclassified',source_frames=[]))
+        with mock.patch.object(self.b, 'read_settings', return_value={'openweb.public_host':'PRIVATE other host'}):
+            _, fields = self.failure()
+        self.assertEqual(fields['category'], 'activation_server_guard')
+        class PrivateCustomerError(Exception): pass
+        with mock.patch.object(self.b, 'activate', side_effect=PrivateCustomerError('PRIVATE customer data')):
+            _, fields = self.failure()
+        self.assertEqual(fields['error_type'], 'other'); self.assertNotIn('PrivateCustomer', json.dumps(fields))
+
+    def test_getpass_args_private_streams_and_success_outcomes_are_unchanged(self):
+        def native_main():
+            self.assertEqual(sys.argv, ['backups.py', *self.arguments])
+            self.assertEqual(self.b.getpass.getpass('ignored'), 'PRIVATE passphrase')
+            print('PRIVATE native stdout'); print('PRIVATE native stderr', file=sys.stderr)
+            raise SystemExit(2)
+        with mock.patch.object(self.b, 'main', side_effect=native_main):
+            _, fields = self.failure(password='PRIVATE passphrase')
+        self.assertEqual(fields['exit_code'], 2)
+        self.assertEqual((self.root/'cli-activate.private.out').read_text(), 'PRIVATE native stdout\n')
+        self.assertEqual((self.root/'cli-activate.private.err').read_text(), 'PRIVATE native stderr\n')
+        for result in (None, 0):
+            with mock.patch.object(self.b, 'main', side_effect=lambda: (_ for _ in ()).throw(SystemExit(result))):
+                self.fixture.cli(self.arguments)
+        with mock.patch.object(self.b, 'main', return_value=None):
+            _, fields = self.failure(expect_failure=True)
+        self.assertEqual(fields['exit_code'], 0)
+
+    def test_observer_failure_or_direct_native_exception_never_changes_primary(self):
+        with mock.patch.object(self.b, 'main', side_effect=SystemExit(2)), mock.patch.object(q, 'observe_restore_cli_failure', side_effect=ValueError('PRIVATE observer')):
+            error, fields = self.failure()
+        self.assertFalse(fields); self.assertFalse(hasattr(error, 'cli_failure'))
+        original = ValueError('PRIVATE direct exception')
+        with mock.patch.object(self.b, 'main', side_effect=original), self.assertRaises(ValueError) as caught:
+            self.fixture.cli(self.arguments)
+        self.assertIs(caught.exception, original)
+
+    def test_strict_shape_type_bounds_and_private_field_refusals(self):
+        good = dict(exit_code=1,error_type='BackupError',category='operation_busy',source_frames=[dict(source_basename='backups.py',source_line=249,function='exclusive_guard')])
+        self.assertEqual(q.restore_cli_failure_fields(good), good)
+        for key in good:
+            for value in (None, True, [], {}, 1.5, 'PRIVATE'):
+                if key=='exit_code' and value is None: continue
+                if key=='source_frames' and type(value) is list and not value: continue
+                with self.subTest(key=key,value=value):self.assertEqual(q.restore_cli_failure_fields(good|{key:value}), {})
+        for code in (-1,256,'1',False):self.assertEqual(q.restore_cli_failure_fields(good|{'exit_code':code}), {})
+        for code in (None,0,255):self.assertEqual(q.restore_cli_failure_fields(good|{'exit_code':code})['exit_code'], code)
+        self.assertEqual(q.restore_cli_failure_fields(good|{'source_frames':[]})['source_frames'], [])
+        for bad in (None, [], good|{'sql':'PRIVATE'}, {k:v for k,v in good.items() if k!='category'}, good|{'source_frames':good['source_frames']*5}):
+            self.assertEqual(q.restore_cli_failure_fields(bad), {})
+        for key, value in (('source_basename','PRIVATE.py'),('function','PRIVATE'),('source_line',0),('source_line',1000000),('source_line',True),('message','PRIVATE')):
+            frame=good['source_frames'][0]|{key:value}
+            self.assertEqual(q.restore_cli_failure_fields(good|{'source_frames':[frame]}), {})
 
 
 class SchedulerDateControls(unittest.TestCase):
