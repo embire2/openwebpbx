@@ -50,6 +50,10 @@ try{
   $_SESSION['domain_uuid']=$b;$other=new staff_role_scope($db);$ok(!$other->active(),'Same-number role crossed PBX domains');
  }
  $_SESSION=['authorized'=>true,'user_uuid'=>$people['department_admin']['id'],'domain_uuid'=>$a,'domain_name'=>$c['realm']];$scope=new staff_role_scope($db);$sadmin=new staff_role_admin($db,$scope);
+ // Shared prompts are readable; private department prompts cannot be selected by UUID.
+ $sharedPrompt=uuid();$privatePrompt=uuid();$q("insert into v_pbx_media(media_uuid,domain_uuid,category,owner_number,file_path,title,source_path)values(?,?,'prompts','',?,'Shared','shared115.wav'),(?,?,'prompts','1006',?,'Private','private115.wav')",[$sharedPrompt,$a,'/fictional/shared.wav',$privatePrompt,$a,'/fictional/private.wav']);
+ $ok(count($sadmin->media('prompts'))===1,'Shared/private prompt visibility differs');
+ $queueInput=['name'=>'Sales Queue','number'=>'1102','timeout'=>30,'ring_timeout'=>10,'wrap_up'=>0,'members'=>['1000'],'department'=>$sales,'destination'=>'None:','intro'=>$privatePrompt];$denied(fn()=>$sadmin->save('queue','new',$queueInput),'Private prompt was selected across departments');$sadmin->save('queue','new',array_replace($queueInput,['intro'=>$sharedPrompt]));$beforePrompt=$admin->config()['queues'][0]['intro'];$sadmin->save('queue','1102',array_replace($queueInput,['intro'=>'keep-existing']));$ok($admin->config()['queues'][0]['intro']===$beforePrompt,'Saving a queue cleared its existing audio');
  $number=$sadmin->save('user','new',$input+['department'=>$sales]);$ok($scope->permits('users',$number),'Created user not bound to managed department');
  $denied(fn()=>$sadmin->save('user',$people['owner']['number'],$input),'Department administrator changed a higher staff role');
  $denied(fn()=>$sadmin->save('user',$number,$input+['department'=>$support]),'User was moved outside delegated departments');

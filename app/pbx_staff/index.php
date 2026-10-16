@@ -36,7 +36,7 @@ $members=static function($selected)use($c,$access,$full,$check){$numbers=array_m
 $department=static fn($n)=>$n==='new'?['number'=>$_GET['department']??'']:(pbx_schedule::department($c,(string)$n)??['number'=>'']);
 $readiness=$tab==='voice'?$admin->trunkReadiness():['trunks'=>[]];$trunkStatus=static fn($state)=>$e($state['status']);
 $departmentName=static fn($name)=>in_array($name,['__DEFAULT','__DEFAULT__'],true)?'Default':$name;
-$audioChoices=[''=>'None'];$audioIds=[];foreach($admin->media('prompts')as$audio){$audioChoices[$audio['media_uuid']]=$audio['title'];$audioIds[$audio['file_path']]=$audio['media_uuid'];}
+$audioChoices=[''=>'None','keep-existing'=>'Keep Current Audio'];$audioIds=[];foreach($admin->media('prompts')as$audio){$audioChoices[$audio['media_uuid']]=$audio['title'];$audioIds[$audio['file_path']]=$audio['media_uuid'];}
 $document['title']=$labels[$tab].' · My PBX';require PROJECT_ROOT.'/resources/header.php';
 ?>
 <link rel="stylesheet" href="/app/pbx_setup/setup.css?v=5"><link rel="stylesheet" href="/app/pbx_setup/core.css?v=1"><link rel="stylesheet" href="/app/pbx_staff/staff.css?v=1"><script src="/app/pbx_setup/admin.js?v=3" defer></script>

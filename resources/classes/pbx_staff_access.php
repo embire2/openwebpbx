@@ -64,6 +64,7 @@ class pbx_staff_access {
         if($this->owner())return;$cap=match($type){'user'=>'users','hours'=>'hours','trunk'=>'providers','queue','ring_group','receptionist'=>'routing',default=>throw new pbx_staff_denied('This setting is managed by the PBX owner.')};
         if($type==='hours'){if(!in_array($key,$this->departments('hours',$c),true))throw new pbx_staff_denied('Choose your department.');return;}
         if($key!=='new')$this->requireNumber($cap,$key,$c,true);
+        if($key!=='new'&&in_array($type,['queue','ring_group'],true)){foreach($c[$type==='queue'?'queues':'ring_groups']as$o)if((string)$o['number']===$key)foreach($o['members']??[]as$m)$this->requireNumber('routing',(string)$m['number'],$c,true);}
         if($type==='user'&&$key!=='new'){
             $rank=['user'=>0,'receptionist'=>1,'supervisor'=>2,'manager'=>3,'department_admin'=>3,'owner'=>4];$mine=0;
             foreach($this->grants($c)as$g)$mine=max($mine,$rank[$g['role']]);
