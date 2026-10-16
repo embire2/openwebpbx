@@ -1,6 +1,6 @@
 # Users, departments and call routing
 
-These controls are included in the **1.0.14 candidate**. The published baseline remains 1.0.12 until release qualification and publication finish.
+These controls are included in **1.0.14**. See the [release status](feature-coverage.md#users-and-departments--1014) for installation, publication and deployment results.
 
 ## Add a user
 

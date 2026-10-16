@@ -2,9 +2,9 @@
 
 An open-source, multi-tenant PBX powered by FreeSWITCH, with a Windows 11 inspired administration desktop.
 
-## 1.0.14 candidate — simpler users and department routing
+## Version 1.0.14 — simpler users and department routing
 
-New users receive a free, editable extension automatically. Departments can include users and call-handling objects, with office-hour routing, editable outbound restrictions and Android directory visibility. The Android app is now **OpenWebPBX Free Phone**, version **1.0.14 / code 114**, retaining its existing application and signing identity. See the [user/group guide](docs/users-and-departments.md) and [candidate installation status](docs/installing-1.0.14.md). Public downloads remain on 1.0.12 until qualification and publication finish.
+New users receive a free, editable extension automatically. Departments can include users and call-handling objects, with office-hour routing, editable outbound restrictions and Android directory visibility. The Android app is now **OpenWebPBX Free Phone**, version **1.0.14 / code 114**, retaining its existing application and signing identity. See the [user/group guide](docs/users-and-departments.md) and [installation guide](docs/installing-1.0.14.md). Use the [1.0.14 downloads](https://github.com/embire2/openwebpbx/releases/tag/v1.0.14). Fresh installation, signed upgrade/recovery, native calls, administration layouts and Android replacement passed. [Release and deployment status](docs/feature-coverage.md#users-and-departments--1014) records the exact checks and remaining limits.
 
 ## Windows Server 1.0.13 development
 
@@ -12,7 +12,7 @@ Version **1.0.13** is being prepared for Windows Server 2025 x64 with its own se
 
 The current Windows candidate passed fresh installation, native internal calling and audio, encrypted backups, same-version reapply, forced recovery, both manager-reopening paths and independent verification of its complete package. A Windows test also proved the corrected updater waits through a busy lock and recovers automatically without a manual restart. An encrypted backup also restored successfully onto a separate clean Windows server, preserving phone credentials, settings and media, with working internal audio and voicemail. The signed newer-version test also passed: genuine HTTPS downloads, exact recovery from an intentional failure, a successful newer build and automatic updater/manager recovery, with original data preserved. Migration from the supplied server's original 1.0.6 installation remains on hold while unexplained changes to copied test files await host investigation. A fresh read-only check confirmed the original five services remain running with firewalls enabled. Follow the [1.0.13 release plan](3CX.md#windows-1013-release-plan) for the current result of each step.
 
-Debian and Android remain on released **1.0.12**. See the [Windows candidate guide](docs/installing-1.0.13.md) and [qualification record](docs/feature-coverage.md#windows-server-return--1013). The Windows administration manager and planned Windows calling client have separate roles.
+Debian and Android now release **1.0.14** independently of the frozen Windows candidate. See the [Windows candidate guide](docs/installing-1.0.13.md) and [qualification record](docs/feature-coverage.md#windows-server-return--1013). The Windows administration manager and planned Windows calling client have separate roles.
 
 The [hosted admin instance](https://call.openweb.co.za/) and current source now find provider addresses from the server name automatically. Incoming IP addresses are an optional Advanced override. This 2026-10-15 hosted patch preserves existing trunks; the immutable 1.0.12 downloads retain their original bytes. See [provider setup](docs/core-calling.md).
 
