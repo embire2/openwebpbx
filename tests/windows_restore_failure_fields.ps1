@@ -270,7 +270,7 @@ try{
   $privateOutput=Join-Path $work 'restore-target-backup.out'
   if(Test-Path -LiteralPath $privateOutput){Remove-Item -LiteralPath $privateOutput -Recurse -Force}
  }
- foreach($action in 'export-source','late-restore','restore','activate-calls','job','activate-updates','activate-backups','target-backup'){
+ foreach($action in 'export-source','late-restore','restore','activate-calls','job','activate-updates','activate-backups','activate-updates-backups','target-backup'){
   foreach($mode in 'valid','empty_frames','extra','unknown_frame','wrong_type','wrong_source','wrong_action','passed_state','missing'){
    $facts=@{native_failure=@{error_type='RuntimeError';source_basename='windows-restore-qualification.py';source_line=414}};$invoke=$action;$observation=Clone $cliGood
    $script:childRecord=@{state='failed';error_type='RuntimeError';source_basename='windows-restore-qualification.py';source_line=414;cli_failure=$observation;message='PRIVATE SQL password/path'}

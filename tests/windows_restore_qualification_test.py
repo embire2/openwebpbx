@@ -294,6 +294,73 @@ class CleanupObservationControls(unittest.TestCase):
         self.assertTrue(self.sidecar.exists())
 
 
+class RestoreCombinedActivationControls(unittest.TestCase):
+    setUp=RestoreCliObservationControls.setUp
+
+    def prepare_activation(self):
+        self.fixture.facts={'checks':[],'gates':{}};self.fixture.facts_path=self.root/'facts.json'
+        for selection in self.b.HELD_UNITS:(self.root/('hold-'+selection)).write_text('{}')
+        self.b.held.side_effect=lambda selection:(self.root/('hold-'+selection)).exists()
+        self.lock_depth=0;self.lock_entries=0;self.events=[]
+        def lock(stream):self.lock_depth+=1;self.lock_entries+=1
+        def unlock(stream):self.lock_depth-=1
+        self.stack.enter_context(mock.patch.object(self.b,'lock_file',side_effect=lock))
+        self.stack.enter_context(mock.patch.object(self.b,'unlock_file',side_effect=unlock))
+        def control(operation,value):
+            self.assertEqual(self.lock_depth,1)
+            self.events.append((operation,copy.deepcopy(value)))
+            self.assertTrue(self.b.held('calls'));self.assertTrue(self.b.held('jobs'))
+        self.control=self.stack.enter_context(mock.patch.object(self.b,'control',side_effect=control))
+
+    def test_actual_parser_main_combines_only_updates_backups_under_one_guard(self):
+        self.prepare_activation();actual=self.b.main
+        with mock.patch.object(self.b,'main',wraps=actual) as main, mock.patch.object(q,'Qualification',return_value=self.fixture), mock.patch.object(sys,'argv',['qualifier','--input',str(self.root/'input.json'),'--action','activate-updates-backups']):
+            q.main()
+        self.assertEqual(main.call_count,1);self.assertEqual(self.lock_entries,1);self.assertEqual(self.lock_depth,0)
+        self.assertEqual([(op,row['selections'])for op,row in self.events],[('activate',['updates']),('activate',['backups'])])
+        self.assertEqual(self.fixture.facts['gates'],{'explicit_restored_updates_activation':'passed','explicit_restored_backups_activation':'passed'})
+        self.assertFalse(self.b.held('updates'));self.assertFalse(self.b.held('backups'))
+        ps=(HERE/'windows-restore-qualification.ps1').read_text()
+        self.assertIn("NativeFixture 'activate-calls';NativeFixture 'native-target';NativeFixture 'job'",ps)
+        self.assertIn("NativeFixture 'activate-updates-backups';NativeFixture 'target-backup';AssertBackupTask",ps)
+        self.assertIn("foreach($name in 'FreeSWITCH','OpenWebPBX','OpenWebPBXUpdater'){AssertRestoredServiceActivation $name}",ps)
+
+    def test_individual_calls_and_jobs_remain_separate_original_commands(self):
+        self.prepare_activation();self.control.side_effect=lambda op,value:self.events.append((op,copy.deepcopy(value)))
+        for selection in ('calls','jobs'):self.fixture.activate(selection)
+        self.assertEqual(self.lock_entries,2)
+        self.assertEqual([(op,row['selections'])for op,row in self.events],[('activate',['calls']),('activate',['jobs'])])
+        self.assertTrue(self.b.held('updates'));self.assertTrue(self.b.held('backups'))
+        self.assertEqual(set(self.fixture.facts['gates']),{'explicit_restored_calls_activation','explicit_restored_jobs_activation'})
+
+    def test_original_missing_hold_or_busy_refuses_without_calls_or_pass_gates(self):
+        for mode in ('missing_hold','busy'):
+            with self.subTest(mode=mode):
+                self.prepare_activation()
+                if mode=='missing_hold':(self.root/'hold-backups').unlink()
+                else:self.b.lock_file.side_effect=OSError('PRIVATE native lock')
+                with self.assertRaises(RuntimeError) as caught:self.fixture.activate_updates_backups()
+                fields=q.restore_cli_failure_fields(caught.exception.cli_failure)
+                self.assertEqual(fields['category'],'activation_service_missing' if mode=='missing_hold' else 'operation_busy')
+                self.assertEqual(self.events,[]);self.assertEqual(self.fixture.facts['gates'],{})
+                self.assertTrue(self.b.held('updates'));self.assertTrue(self.b.held('calls'));self.assertTrue(self.b.held('jobs'))
+                self.assertNotIn('PRIVATE',json.dumps(fields))
+
+    def test_later_real_control_failure_retains_failed_hold_and_never_marks_pass(self):
+        self.prepare_activation();original=self.control.side_effect
+        def control(operation,value):
+            original(operation,value)
+            if operation=='activate' and value['selections']==['backups']:
+                raise self.b.BackupError('A required backup operation failed. Check the server tools, permissions and free disk space.')
+        self.control.side_effect=control
+        with mock.patch.object(self.b,'atomic_json',side_effect=lambda path,value:path.write_text(json.dumps(value))):
+            with self.assertRaises(RuntimeError) as caught:self.fixture.activate_updates_backups()
+        fields=q.restore_cli_failure_fields(caught.exception.cli_failure)
+        self.assertEqual(fields['category'],'required_tool_failed');self.assertEqual(self.fixture.facts['gates'],{})
+        self.assertTrue(self.b.held('backups'));self.assertFalse(self.b.held('updates'))
+        self.assertEqual(self.events[-1],('hold-selection',{'selection':'backups'}));self.assertEqual(self.lock_entries,1)
+
+
 class RestoreMailboxObservationControls(unittest.TestCase):
     def test_closed_boolean_observations_and_wrong_action_refusal(self):
         record={key:True for key in q.RESTORE_MAILBOX_FIELDS}

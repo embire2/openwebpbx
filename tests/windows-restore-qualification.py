@@ -1010,6 +1010,15 @@ class Qualification:
         if self.backups.held(selection): raise RuntimeError('Selected activation remained held.')
         self.record('explicit_restored_' + selection + '_activation')
 
+    def activate_updates_backups(self):
+        # The documented administrator workflow selects both under one genuine
+        # product guard, without a second lock-acquisition window between them.
+        self.cli(['activate', '--updates', '--backups', '--confirm-server', 'windowsqa.example.invalid'])
+        for selection in ('updates', 'backups'):
+            if self.backups.held(selection): raise RuntimeError('Selected activation remained held.')
+        for selection in ('updates', 'backups'):
+            self.record('explicit_restored_' + selection + '_activation')
+
     def job(self):
         sip, original, peers, destination = self.peers(); caller = peers[0]
         try:
@@ -1056,13 +1065,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input', type=Path, required=True)
     parser.add_argument('--action', choices=('setup', 'native-source', 'export-source', 'late-restore', 'restore',
-        'activate-calls', 'native-target', 'job', 'activate-updates', 'activate-backups', 'target-backup', 'cleanup'), required=True)
+        'activate-calls', 'native-target', 'job', 'activate-updates', 'activate-backups', 'activate-updates-backups', 'target-backup', 'cleanup'), required=True)
     args = parser.parse_args(); qualification = Qualification(args.input)
     actions = {'setup': qualification.setup, 'native-source': qualification.native, 'export-source': qualification.export_source,
         'late-restore': qualification.late_restore, 'restore': qualification.restore,
         'activate-calls': lambda: qualification.activate('calls'), 'native-target': lambda: qualification.native(True),
         'job': qualification.job, 'activate-updates': lambda: qualification.activate('updates'),
-        'activate-backups': lambda: qualification.activate('backups'), 'target-backup': lambda: qualification.backup_request(True),
+        'activate-backups': lambda: qualification.activate('backups'), 'activate-updates-backups': qualification.activate_updates_backups,
+        'target-backup': lambda: qualification.backup_request(True),
         'cleanup': qualification.cleanup}
     actions[args.action]()
 

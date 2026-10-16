@@ -171,7 +171,7 @@ function NativeFixture([string]$Action){
    }
   }catch{}
   try{
-   if($Action -cin @('export-source','late-restore','restore','activate-calls','job','activate-updates','activate-backups','target-backup') -and $facts.native_failure -and $safe.state -ceq 'failed' -and $safe.error_type -is [string] -and $safe.error_type -ceq 'RuntimeError' -and $safe.source_basename -is [string] -and $safe.source_basename -ceq 'windows-restore-qualification.py' -and (Test-Path -LiteralPath $privateOutput -PathType Leaf)){
+   if($Action -cin @('export-source','late-restore','restore','activate-calls','job','activate-updates','activate-backups','activate-updates-backups','target-backup') -and $facts.native_failure -and $safe.state -ceq 'failed' -and $safe.error_type -is [string] -and $safe.error_type -ceq 'RuntimeError' -and $safe.source_basename -is [string] -and $safe.source_basename -ceq 'windows-restore-qualification.py' -and (Test-Path -LiteralPath $privateOutput -PathType Leaf)){
     $cliOutput=Get-Item -LiteralPath $privateOutput -Force
     if($cliOutput.Length -gt 0 -and $cliOutput.Length -le 1048576 -and ($cliOutput.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0){$cli=SafeRestoreCliFailure $safe.cli_failure;if($cli){$facts.native_failure.cli_failure=$cli}}
    }
@@ -299,7 +299,7 @@ $r=Get-Content -LiteralPath $InputFile -Raw|ConvertFrom-Json
   Check ([Convert]::ToHexString($currentBinding.hash) -eq $pki.leaf.Thumbprint -and $currentBinding.store -eq 'My') 'Restore changed the replacement machine actual IIS certificate binding.'
   HeldServiceRestart
   EnableTargetTls -Prepared;NativeFixture 'activate-calls';NativeFixture 'native-target';NativeFixture 'job'
-  NativeFixture 'activate-updates';NativeFixture 'activate-backups';NativeFixture 'target-backup';AssertBackupTask
+  NativeFixture 'activate-updates-backups';NativeFixture 'target-backup';AssertBackupTask
   $phase='postactivation original task states'
   foreach($name in $originalTaskStates.Keys){Check ([bool](Get-ScheduledTask -TaskName $name).Settings.Enabled -eq $originalTaskStates[$name]) 'Explicit activation failed to preserve an original cleanup/mail/certificate task enabled state.'}
   $phase='postactivation service state'
