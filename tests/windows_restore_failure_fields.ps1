@@ -8,7 +8,7 @@ if([string]::IsNullOrWhiteSpace($SourceRoot)){$SourceRoot=Split-Path $PSScriptRo
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-restore-qualification.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Restore qualification source must parse.'}
-foreach($name in 'SafeRestoreFixtureFailure','SafeRestorePeerFailures','SafeRestoreSchemaFailure','SafeRestoreMailboxFailure','NativeFixture'){
+foreach($name in 'SafeRestoreFixtureFailure','SafeRestorePeerFailures','SafeRestoreSchemaFailure','SafeRestoreMailboxFailure','SafeRestoreServiceActivationFailure','AssertRestoredServiceActivation','NativeFixture'){
  $nodes=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true))
  if($nodes.Count -ne 1){throw 'One exact source function is required.'}
  if($name -eq 'NativeFixture'){$nativeDefinition=$nodes[0].Extent.Text}else{Invoke-Expression $nodes[0].Extent.Text}
@@ -16,6 +16,85 @@ foreach($name in 'SafeRestoreFixtureFailure','SafeRestorePeerFailures','SafeRest
 $script:count=0
 function Assert([bool]$Condition){$script:count++;if(!$Condition){throw ('A closed restore-observation control failed at source line '+(Get-PSCallStack)[1].ScriptLineNumber+'.')}}
 function Clone($Value){return ($Value|ConvertTo-Json -Depth 20 -Compress|ConvertFrom-Json)}
+$updaterAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-updater-qualification.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'The real qualification Check helper must parse.'}
+$checks=@($updaterAst.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Check'},$true))
+if($checks.Count -ne 1){throw 'Exactly one real qualification Check helper is required.'}
+Invoke-Expression $checks[0].Extent.Text
+$script:actualCheck=${function:Check};$script:actualPrimary=$null
+function Check([bool]$Value,[string]$Message){try{& $script:actualCheck $Value $Message}catch{$script:actualPrimary=$_.Exception;throw}}
+$script:cimCalls=0;$script:serviceRow=$null;$script:cimFailure=$null
+function Get-CimInstance($ClassName,[string]$Filter){
+ $script:cimCalls++;Assert ($ClassName -ceq 'Win32_Service' -and $Filter -cin @("Name='FreeSWITCH'","Name='OpenWebPBX'","Name='OpenWebPBXUpdater'"))
+ if($script:cimFailure){throw $script:cimFailure};return $script:serviceRow
+}
+foreach($name in 'FreeSWITCH','OpenWebPBX','OpenWebPBXUpdater'){
+ $account=if($name -ceq 'OpenWebPBX'){'NT AUTHORITY\LocalService'}else{'LocalSystem'}
+ $script:serviceRow=[pscustomobject]@{Name=$name;State='Running';StartMode='Auto';StartName=$account;ExitCode=[uint32]0;ServiceSpecificExitCode=[uint32]0}
+ Assert (@(AssertRestoredServiceActivation $name).Count -eq 0)
+ foreach($mode in 'stopped','manual','wrong_identity','wrong_name','unknown','missing','invalid_exit'){
+  $script:serviceRow=[pscustomobject]@{Name=$name;State='Stopped';StartMode='Auto';StartName=$account;ExitCode=[uint32]1066;ServiceSpecificExitCode=[uint32]42}
+  switch($mode){
+   'manual'{$script:serviceRow.State='Running';$script:serviceRow.StartMode='Manual'}
+   'wrong_identity'{$script:serviceRow.StartName='PRIVATE principal'}
+   'wrong_name'{$script:serviceRow.Name='PRIVATE service'}
+   'unknown'{$script:serviceRow.State='PRIVATE';$script:serviceRow.StartMode='PRIVATE'}
+   'missing'{$script:serviceRow=$null}
+   'invalid_exit'{$script:serviceRow.ExitCode='PRIVATE';$script:serviceRow.ServiceSpecificExitCode=-1}
+  }
+  $caught=$null;try{AssertRestoredServiceActivation $name}catch{$caught=$_}
+  Assert ([object]::ReferenceEquals($caught.Exception,$script:actualPrimary))
+  $observation=SafeRestoreServiceActivationFailure $caught.Exception.Data['restore_service_activation']
+  Assert ($observation.Count -eq 7 -and $observation.stage -ceq 'service_running_auto' -and $observation.service -ceq $name)
+  Assert ($observation.is_expected_identity -eq ($mode -cnotin @('wrong_identity','wrong_name','missing')))
+  if($mode -ceq 'unknown'){Assert ($observation.state -ceq 'unknown' -and $observation.start_mode -ceq 'unknown')}
+  if($mode -ceq 'missing'){Assert ($observation.state -ceq 'unavailable' -and $observation.start_mode -ceq 'unavailable')}
+  if($mode -cin @('missing','invalid_exit')){Assert ($null -eq $observation.exit_code -and $null -eq $observation.service_specific_exit_code)}else{Assert ($observation.exit_code -eq 1066 -and $observation.service_specific_exit_code -eq 42)}
+  Assert (($observation|ConvertTo-Json -Compress) -notmatch 'PRIVATE|principal|StartName')
+ }
+}
+$before=$script:cimCalls;$caught=$null;try{AssertRestoredServiceActivation 'PRIVATE'}catch{$caught=$_}
+Assert ($null -ne $caught -and $script:cimCalls -eq $before)
+$script:cimFailure=[InvalidOperationException]::new('PRIVATE native query failure');$caught=$null
+try{AssertRestoredServiceActivation 'OpenWebPBXUpdater'}catch{$caught=$_}
+Assert ([object]::ReferenceEquals($caught.Exception,$script:cimFailure))
+Assert ((SafeRestoreServiceActivationFailure $caught.Exception.Data['restore_service_activation']).state -ceq 'unavailable')
+$script:cimFailure=$null
+$script:serviceRow=[pscustomobject]@{Name='OpenWebPBXUpdater';State='Stopped';StartMode='Auto'}
+$script:serviceRow|Add-Member ScriptProperty StartName {throw 'PRIVATE metadata getter failure'}
+$caught=$null;try{AssertRestoredServiceActivation 'OpenWebPBXUpdater'}catch{$caught=$_}
+Assert ([object]::ReferenceEquals($caught.Exception,$script:actualPrimary))
+Assert ((SafeRestoreServiceActivationFailure $caught.Exception.Data['restore_service_activation']).is_expected_identity -eq $false)
+Assert (($caught.Exception.Data['restore_service_activation']|ConvertTo-Json -Compress) -notmatch 'PRIVATE')
+Remove-Item Function:\Get-CimInstance
+$serviceGood=@{stage='service_running_auto';service='OpenWebPBXUpdater';state='Stopped';start_mode='Auto';is_expected_identity=$true;exit_code=1066;service_specific_exit_code=42}
+Assert ((SafeRestoreServiceActivationFailure (Clone $serviceGood)).Count -eq 7)
+foreach($key in $serviceGood.Keys){
+ foreach($value in @($null,$true,$false,@(),@{},1.5,'PRIVATE SQL password/path')){
+  if($key -cin @('exit_code','service_specific_exit_code') -and $null -eq $value){continue}
+  if($key -ceq 'is_expected_identity' -and $value -is [bool]){continue}
+  $candidate=Clone $serviceGood;$candidate.$key=$value;Assert ($null -eq (SafeRestoreServiceActivationFailure $candidate))
+ }
+ $candidate=Clone $serviceGood;$candidate.PSObject.Properties.Remove($key);Assert ($null -eq (SafeRestoreServiceActivationFailure $candidate))
+}
+foreach($key in 'exit_code','service_specific_exit_code'){
+ foreach($value in $null,0,([long]4294967295)){$candidate=Clone $serviceGood;$candidate.$key=$value;Assert ($null -ne (SafeRestoreServiceActivationFailure $candidate))}
+ foreach($value in -1,([long]4294967296),'1066'){$candidate=Clone $serviceGood;$candidate.$key=$value;Assert ($null -eq (SafeRestoreServiceActivationFailure $candidate))}
+}
+$candidate=Clone $serviceGood;$candidate|Add-Member noteproperty message 'PRIVATE';Assert ($null -eq (SafeRestoreServiceActivationFailure $candidate))
+foreach($value in $null,@(),@{},@($serviceGood)){Assert ($null -eq (SafeRestoreServiceActivationFailure $value))}
+$mainCatch=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.CatchClauseAst] -and $n.Body.Extent.Text.Contains("`$facts.state='failed';`$facts.failed_phase=`$phase")},$true))
+Assert ($mainCatch.Count -eq 1)
+foreach($mode in 'valid','extra','unknown'){
+ $record=Clone $serviceGood;if($mode -ceq 'extra'){$record|Add-Member noteproperty account 'PRIVATE'};if($mode -ceq 'unknown'){$record.service='PRIVATE'}
+ $script:activationError=[InvalidOperationException]::new('PRIVATE actual original exception');$script:activationError.Data['restore_service_activation']=$record
+ $facts=@{};$phase='postactivation service state'
+ $projectionCaught=$null;try{Invoke-Expression ('try{throw $script:activationError}'+$mainCatch[0].Extent.Text)}catch{$projectionCaught=$_}
+ Assert ([object]::ReferenceEquals($projectionCaught.Exception,$script:activationError))
+ Assert ($facts.state -ceq 'failed' -and $facts.failed_phase -ceq $phase -and $facts.error_type -ceq 'InvalidOperationException')
+ Assert (($null -ne $facts.service_activation_failure) -eq ($mode -ceq 'valid'))
+ Assert (($facts|ConvertTo-Json -Depth 20 -Compress) -notmatch 'PRIVATE|account|actual original')
+}
 $good=[ordered]@{schema=1;action='cleanup';step='factory_guard';reason='factory_not_empty';error_type='RuntimeException';source_basename='windows-restore-qualification.php';source_line=123}
 $safe=SafeRestoreFixtureFailure (Clone $good)
 Assert ($safe.Count -eq 7 -and $safe.step -ceq 'factory_guard' -and $safe.source_line -eq 123)

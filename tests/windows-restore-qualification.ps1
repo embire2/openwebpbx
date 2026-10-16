@@ -90,6 +90,37 @@ function SafeRestoreMailboxFailure($Record,[string]$Action){
  foreach($key in $keys){if($key -cnotin $allowed -or $Record.$key -isnot [bool]){return $null};$safe[$key]=$Record.$key}
  return $safe
 }
+function SafeRestoreServiceActivationFailure($Record){
+ if($null -eq $Record -or $Record -is [Array]){return $null}
+ $keys=@('stage','service','state','start_mode','is_expected_identity','exit_code','service_specific_exit_code')
+ $actual=@();if($Record -is [Collections.IDictionary]){$actual=@($Record.Keys)}else{$actual=@($Record.PSObject.Properties.Name)}
+ if($actual.Count -ne $keys.Count -or @($actual|Where-Object {$_ -cnotin $keys}).Count){return $null}
+ if($Record.stage -isnot [string] -or $Record.stage -cne 'service_running_auto' -or $Record.service -isnot [string] -or $Record.service -cnotin @('FreeSWITCH','OpenWebPBX','OpenWebPBXUpdater')){return $null}
+ if($Record.state -isnot [string] -or $Record.state -cnotin @('Running','Stopped','Start Pending','Stop Pending','Continue Pending','Pause Pending','Paused','Unknown','unavailable','unknown') -or $Record.start_mode -isnot [string] -or $Record.start_mode -cnotin @('Auto','Manual','Disabled','Boot','System','Unknown','unavailable','unknown') -or $Record.is_expected_identity -isnot [bool]){return $null}
+ foreach($key in 'exit_code','service_specific_exit_code'){$v=$Record.$key;if($null -ne $v -and (($v -isnot [int] -and $v -isnot [long]) -or $v -lt 0 -or $v -gt 4294967295)){return $null}}
+ return @{stage=$Record.stage;service=$Record.service;state=$Record.state;start_mode=$Record.start_mode;is_expected_identity=$Record.is_expected_identity;exit_code=$Record.exit_code;service_specific_exit_code=$Record.service_specific_exit_code}
+}
+function AssertRestoredServiceActivation([string]$Name){
+ if($Name -cnotin @('FreeSWITCH','OpenWebPBX','OpenWebPBXUpdater')){throw 'Only the three fixed restored fixture services may be observed.'}
+ $service=$null
+ try{
+  $service=Get-CimInstance Win32_Service -Filter ("Name='"+$Name+"'")
+  Check ($service.State -eq 'Running' -and $service.StartMode -eq 'Auto') 'Every explicitly activated service must be Running with automatic startup.'
+ }catch{
+  try{
+   $state='unavailable';$mode='unavailable';$identity=$false;$nativeExit=$null;$specificExit=$null
+   if($null -ne $service){
+    $state=if($service.State -is [string] -and $service.State -cin @('Running','Stopped','Start Pending','Stop Pending','Continue Pending','Pause Pending','Paused','Unknown')){$service.State}else{'unknown'}
+    $mode=if($service.StartMode -is [string] -and $service.StartMode -cin @('Auto','Manual','Disabled','Boot','System','Unknown')){$service.StartMode}else{'unknown'}
+    $accounts=if($Name -ceq 'OpenWebPBX'){@('NT AUTHORITY\LocalService','NT AUTHORITY\Local Service')}else{@('LocalSystem','NT AUTHORITY\SYSTEM')}
+    $identity=[bool]($service.Name -is [string] -and $service.Name -ceq $Name -and $service.StartName -is [string] -and $service.StartName -in $accounts)
+    foreach($item in @(@('ExitCode','exit'),@('ServiceSpecificExitCode','specific'))){$v=$service.($item[0]);if(($v -is [int] -or $v -is [long] -or $v -is [uint32]) -and $v -ge 0 -and $v -le 4294967295){if($item[1] -ceq 'exit'){$nativeExit=[long]$v}else{$specificExit=[long]$v}}}
+   }
+   $_.Exception.Data['restore_service_activation']=@{stage='service_running_auto';service=$Name;state=$state;start_mode=$mode;is_expected_identity=$identity;exit_code=$nativeExit;service_specific_exit_code=$specificExit}
+  }catch{}
+  throw
+ }
+}
 function NativeFixture([string]$Action){
  $script:phase=$Action
  # The extracted interpreter remains independent of private installed state.
@@ -233,8 +264,11 @@ $r=Get-Content -LiteralPath $InputFile -Raw|ConvertFrom-Json
   HeldServiceRestart
   EnableTargetTls -Prepared;NativeFixture 'activate-calls';NativeFixture 'native-target';NativeFixture 'job'
   NativeFixture 'activate-updates';NativeFixture 'activate-backups';NativeFixture 'target-backup';AssertBackupTask
+  $phase='postactivation original task states'
   foreach($name in $originalTaskStates.Keys){Check ([bool](Get-ScheduledTask -TaskName $name).Settings.Enabled -eq $originalTaskStates[$name]) 'Explicit activation failed to preserve an original cleanup/mail/certificate task enabled state.'}
-  foreach($name in 'FreeSWITCH','OpenWebPBX','OpenWebPBXUpdater'){$service=Get-CimInstance Win32_Service -Filter ("Name='"+$name+"'");Check ($service.State -eq 'Running' -and $service.StartMode -eq 'Auto') 'Every explicitly activated service must be Running with automatic startup.'}
+  $phase='postactivation service state'
+  foreach($name in 'FreeSWITCH','OpenWebPBX','OpenWebPBXUpdater'){AssertRestoredServiceActivation $name}
+  $phase='postactivation jobs identity'
   Check ((Get-CimInstance Win32_Service -Filter "Name='OpenWebPBX'").StartName -in 'NT AUTHORITY\LocalService','NT AUTHORITY\Local Service') 'Restored automatic jobs must still run under the actual LOCAL SERVICE identity.'
   $facts.gates.explicit_all_class_activation_preserves_owned_task_states_and_service_identities='passed'
  }
@@ -249,6 +283,7 @@ $r=Get-Content -LiteralPath $InputFile -Raw|ConvertFrom-Json
 }catch{
  $facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$_.Exception.GetType().Name
  $facts.source_basename=[IO.Path]::GetFileName($_.InvocationInfo.ScriptName);$facts.source_line=[int]$_.InvocationInfo.ScriptLineNumber
+ try{$activationFailure=SafeRestoreServiceActivationFailure $_.Exception.Data['restore_service_activation'];if($activationFailure){$facts.service_activation_failure=$activationFailure}}catch{}
  throw
 }finally{
  try{
