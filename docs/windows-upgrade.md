@@ -2,7 +2,11 @@
 
 ## Windows 1.0.13 candidate
 
-The current Windows work uses a separate signed Windows feed while Debian and Android stay on 1.0.12. No Windows 1.0.13 release is published yet. Use the [matching candidate guide](installing-1.0.13.md) and [qualification record](feature-coverage.md#windows-server-return--1013); complete native installation, upgrade/rollback and calling remain required.
+The current Windows work uses a separate signed Windows feed while Debian and Android stay on 1.0.12. No Windows 1.0.13 release is published yet. Use the [matching candidate guide](installing-1.0.13.md) and [qualification record](feature-coverage.md#windows-server-return--1013).
+
+Full isolated run **38841661033** at source `1f8beff8b` passed all six essential gates, both manager checks, exact cleanup and the independent original-package audit. Native build **38840969235** and startup-contention check **38845174962** passed. Separate-server restore **38845992035** passed nine source and eighteen target gates, including explicit activation, with both cleanups and independently confirmed temporary-secret removal. These checks used fictional data and laboratory trusted HTTPS.
+
+The signed newer-version test **38848638287** at qualifier `ac739c1ed` passed all nine required gates: actual HTTPS downloads, exact recovery after deliberate late failure, a successful newer upgrade, natural updater restart, both manager-reopening paths and protected data. Root independently verified original results, exact cleanup and temporary-secret removal. This private newer build is not a public release. The supplied original 1.0.6 installation remains running; its migration/upgrade is blocked by unexplained changes to test copies. Public certificate issuance, Android-to-Windows connection, physical handsets/live carriers and an actual OS restart remain separate unqualified work.
 
 Installed Windows 1.0.3–1.0.7 need the verified one-time `Upgrade-LegacyWindows.ps1` transition from that guide. Their older helpers do not inventory the new native modules. The transition uses the installed signature verifier before invoking the complete new helper; later releases use **Admin → System → Updates**. The candidate snapshots native modules, local codec, notification identity, support runtimes and owned scheduled-task state for recovery.
 

@@ -4,6 +4,10 @@
 
 The ordered work and pass criteria for publication are in the [Windows 1.0.13 release plan](../3CX.md#windows-1013-release-plan).
 
+Isolated qualification passed full run **38841661033** at source `1f8beff8b` (archive `b8fe4760…`): all six essential gates, both manager checks, exact cleanup and the independent original-package audit. Native build **38840969235** and startup-contention check **38845174962** passed. Separate-server restore **38845992035** passed all nine source and eighteen target gates with fictional data, both cleanups and independently confirmed temporary-secret removal.
+
+Signed newer-version test **38848638287** passed all nine required gates, including genuine HTTPS downloads, exact intentional-failure recovery, successful upgrade, natural updater restart, both manager-reopening paths and protected data. Original results, exact cleanup and temporary-secret removal were independently verified. The supplied original 1.0.6 installation remains running, with its migration/upgrade blocked by unexplained changes to test copies. Public certificate issuance, Android-to-Windows connection, physical handsets/live carriers and an actual OS restart remain open. These isolated results do not publish Windows 1.0.13 or qualify the supplied installation.
+
 This server uses Windows Server 2025 x64 Desktop Experience, local PostgreSQL, IIS/PHP, FreeSWITCH, the .NET 10 background service and independent updater, and the WinUI 3 administration manager. The manager opens the existing Admin workflows; the separate [Windows calling client](windows-client-plan.md) remains planned. Windows 10/11 server installation is not qualified.
 
 ## New installation
