@@ -13,7 +13,8 @@ import tempfile
 PACKAGE = Path(__file__).resolve().parent
 UPDATES = Path('/var/lib/openwebpbx/updates')
 BACKUPS = Path('/var/backups/openwebpbx')
-SUPPORT = {'backups.py': Path('/opt/openwebpbx/tools/backups.py'),
+SUPPORT = {'openwebpbx-call-records.conf': Path('/etc/systemd/system/openwebpbx.service.d/call-records.conf'),
+           'backups.py': Path('/opt/openwebpbx/tools/backups.py'),
            'install-backups.sh': Path('/opt/openwebpbx/tools/install-backups.sh'),
            'install-support.py': Path('/opt/openwebpbx/tools/install-support.py'),
            'install-mobile-notifications.py': Path('/opt/openwebpbx/tools/install-mobile-notifications.py'),
@@ -168,6 +169,12 @@ def install():
             stream.write((PACKAGE/name).read_bytes());stream.flush();os.fsync(stream.fileno())
             os.fchmod(stream.fileno(),0o644)
         os.replace(temporary,target);sync_dir(target.parent)
+    target=SUPPORT['openwebpbx-call-records.conf']
+    target.parent.mkdir(parents=True,exist_ok=True,mode=0o755)
+    with tempfile.NamedTemporaryFile(dir=target.parent,prefix='.call-records-',delete=False) as stream:
+        temporary=Path(stream.name);stream.write((PACKAGE/'openwebpbx-call-records.conf').read_bytes());stream.flush();os.fsync(stream.fileno());os.fchmod(stream.fileno(),0o644)
+    os.replace(temporary,target);sync_dir(target.parent)
+    subprocess.run(['systemctl','daemon-reload'],check=True)
     subprocess.run(['python3', str(PACKAGE / 'install-mobile-notifications.py')],
                    check=True, cwd=PACKAGE, timeout=60)
     # A legacy updater must be able to roll back without a running new timer.

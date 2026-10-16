@@ -6,6 +6,7 @@ if(!$setup->canManage()){http_response_code(403);exit('Access denied.');}
 header('Cache-Control: no-store');header('Referrer-Policy: no-referrer');
 pbx_admin::openPreferred();$admin=new pbx_admin;
 $view=is_string($_GET['view']??null)?$_GET['view']:'overview';
+if($view==='staff'){header('Location: /app/pbx_staff/?view=staff');exit;}
 if(isset($_GET['audio'])){
     try{$file=$admin->mediaFile((string)$_GET['audio']);$size=filesize($file['file_path']);$start=0;$end=$size-1;
         if(isset($_SERVER['HTTP_RANGE'])&&preg_match('/^bytes=(\d+)-(\d*)$/D',$_SERVER['HTTP_RANGE'],$m)){$start=(int)$m[1];$end=$m[2]!==''?min((int)$m[2],$end):$end;if($start>$end||$start>=$size){http_response_code(416);exit;}http_response_code(206);header('Content-Range: bytes '.$start.'-'.$end.'/'.$size);}
@@ -19,7 +20,12 @@ $types=['users'=>'user','voice'=>'trunk','departments'=>'department','hours'=>'h
 if($_SERVER['REQUEST_METHOD']==='POST'){
     try{
         if(!(new token)->validate('/app/pbx_setup/index.php')){http_response_code(403);throw new RuntimeException('Your form expired. Refresh the page.');}
-        if(($_POST['action']??'')==='switch'){$setup->switchDomain((string)($_POST['domain']??''));header('Location: /app/pbx_setup/');exit;}
+        if(($_POST['action']??'')==='phone_inspect'){$checked=(new pbx_phone_migration)->inspectUpload($_FILES['backup']??[]);$issueCount=count($checked['issues']);$_SESSION['pbx_setup_notice']=$checked['matched'].' / '.$checked['source_users'].' original user identities match. No settings or passwords were changed.'.($issueCount?' '.$issueCount.' identities need review: '.implode(', ',array_column($checked['issues'],'number')):'');header('Location: /app/pbx_setup/?view=phones');exit;}
+        elseif(($_POST['action']??'')==='phone_prepare'){$configuration=null;$upload=$_FILES['phone_configuration']??[];if(($upload['error']??UPLOAD_ERR_NO_FILE)!==UPLOAD_ERR_NO_FILE){if(($upload['error']??null)!==UPLOAD_ERR_OK||!is_uploaded_file($upload['tmp_name']??'')||($upload['size']??0)>2097152)throw new InvalidArgumentException('Upload a plain phone export up to 2 MB.');$configuration=file_get_contents($upload['tmp_name']);}$move=(new pbx_phone_migration)->prepare($_POST,$configuration);header('Location: /app/pbx_setup/?view=phones&move='.rawurlencode($move));exit;}
+        elseif(($_POST['action']??'')==='phone_export'){$file=(new pbx_phone_migration)->export((string)($_POST['move']??''),($_POST['export_kind']??'')==='original');header('Content-Type: application/octet-stream');header('Content-Disposition: attachment; filename="'.$file['filename'].'"');header('X-Content-Type-Options: nosniff');header('Content-Length: '.strlen($file['bytes']));echo $file['bytes'];exit;}
+        elseif(($_POST['action']??'')==='phone_check'){(new pbx_phone_migration)->record($_POST);$_SESSION['pbx_setup_notice']='Phone test recorded against this saved configuration.';header('Location: /app/pbx_setup/?view=phones&move='.rawurlencode((string)$_POST['move']));exit;}
+        elseif(($_POST['action']??'')==='accept_limitation'){(new pbx_phone_migration)->acceptLimitation($_POST);$_SESSION['pbx_setup_notice']='Source-data limitation recorded. The original Restore Report warning is retained.';header('Location: /app/pbx_setup/?view=phones');exit;}
+        elseif(($_POST['action']??'')==='switch'){$setup->switchDomain((string)($_POST['domain']??''));header('Location: /app/pbx_setup/');exit;}
         if(($_POST['action']??'')==='job_action'){$operations->jobAction((string)($_POST['job']??''),(string)($_POST['job_action']??''));$_SESSION['pbx_setup_notice']='Call request updated.';header('Location: /app/pbx_setup/?view='.($view==='wakeups'?'wakeups':'callbacks'));exit;}
         elseif(($_POST['action']??'')==='hotel_action'){$hotel=$_POST;$hotel['action']=$_POST['hotel_action']??'';$operations->hotelAction($hotel);$_SESSION['pbx_setup_notice']='Hotel settings updated.';header('Location: /app/pbx_setup/?view=hotel');exit;}
         elseif(($_POST['action']??'')==='check_provider'&&$view==='voice')$providerCheck=$admin->checkTrunkProvider($key);
@@ -41,7 +47,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
     }catch(PDOException){$error='The change could not be saved. Check the details and try again.';}catch(Throwable $ex){$error=$ex->getMessage();}
 }
 $c=$admin->config();$report=$admin->report();$services=$admin->services();$notice=$_SESSION['pbx_setup_notice']??'';unset($_SESSION['pbx_setup_notice']);
-$labels=['overview'=>'Dashboard','users'=>'Users','phones'=>'Phones','voice'=>'Voice & Chat','outbound'=>'Outbound Rules','departments'=>'Departments','hours'=>'Office Hours','handling'=>'Call Handling','queues'=>'Call Queues','ring_groups'=>'Ring Groups','receptionists'=>'Digital Receptionists','incoming'=>'DID Numbers','scripts'=>'Call Scripts','contacts'=>'Contacts','reports'=>'Reports','recordings'=>'Recordings','voicemails'=>'Voicemail','settings'=>'System','callbacks'=>'Queue Callbacks','hotel'=>'Hotel Services','wakeups'=>'Wake-up Calls','provider_setup'=>'Add SIP Trunk','first_calls'=>'First Calls','routing'=>'Call Routing','switchboard'=>'Switchboard','wallboard'=>'Wallboard','queue_reports'=>'Queue Reports'];
+$labels=['overview'=>'Dashboard','staff'=>'Staff Access','users'=>'Users','phones'=>'Phones','voice'=>'Voice & Chat','outbound'=>'Outbound Rules','departments'=>'Departments','hours'=>'Office Hours','handling'=>'Call Handling','queues'=>'Call Queues','ring_groups'=>'Ring Groups','receptionists'=>'Digital Receptionists','incoming'=>'DID Numbers','scripts'=>'Call Scripts','contacts'=>'Contacts','reports'=>'Reports','recordings'=>'Recordings','voicemails'=>'Voicemail','settings'=>'System','callbacks'=>'Queue Callbacks','hotel'=>'Hotel Services','wakeups'=>'Wake-up Calls','provider_setup'=>'Add SIP Trunk','first_calls'=>'First Calls','routing'=>'Call Routing','switchboard'=>'Switchboard','wallboard'=>'Wallboard','queue_reports'=>'Queue Reports'];
 if(!isset($labels[$view]))$view='overview';
 $readiness=in_array($view,['overview','voice','incoming','first_calls'],true)?$admin->trunkReadiness():null;
 $e=static fn($s)=>htmlspecialchars(is_scalar($s)?(string)$s:'',ENT_QUOTES,'UTF-8');
@@ -91,7 +97,7 @@ elseif($view==='voice'):
 ?> <a class="setup-button" href="?view=incoming">DID Numbers</a> <a class="setup-button primary" href="?view=first_calls">First Call Checklist</a>
 <p class="setup-hint">Registration confirms provider sign-in. Incoming calls, outgoing calls, caller ID and two-way audio must pass before you replace 3CX.</p>
 <?php elseif($view==='phones'):
-    require __DIR__.'/phone_domain.php';
+    require __DIR__.'/phone_domain.php';require __DIR__.'/phone_migration.php';
     $toolbar();$rows=[];foreach($c['phones'] as $r)$rows[]=[$e($r['number']),$e($c['users'][$r['number']]['name']),$e(str_contains($r['template'],'fanvil')?'Fanvil':'Generic IP Phone'),$e($r['mac']),$editLink('users',$r['number'],'Phone Provisioning')];$table(['Extension','User','Phone','MAC Address','Configure'],$rows);
 elseif(in_array($view,['departments','hours'],true)):
     $toolbar($view==='departments'?$newLink('departments','Add Department'):'');$rows=[];foreach($c['departments'] as $r)$rows[]=[$editLink($view,$r['number'],$departmentName($r['name'])),$e(count($r['members'])),$e(str_replace('_',' ',$r['timezone'])),($r['hours']['type']??'')==='AllHours'?'Always Open':'Office Hours'];$table(['Department','Members','Timezone','Hours'],$rows);

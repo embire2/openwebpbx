@@ -60,6 +60,7 @@ class Peer:
         self.socket.settimeout(.005)
         self.port = self.socket.getsockname()[1]
         self.queues, self.dialogs, self.invites, self.replies = {}, {}, [], {}
+        self.aor = None; self.authentication_user = None
         self.auth = None; self.auth_passed = 0; self.register_requests = 0; self.outgoing = []
         self.challenge_nonces = {}; self.challenges = 0
         self.registration_call_ids = []
@@ -311,7 +312,9 @@ class Peer:
     def exchange(self, method, uri, dest, user='fixture', realm='fixture.invalid', password='', body='', to_uri=None, expires=None):
         cid=secrets.token_hex(12)+'@localfixture'; self.queues[cid]=queue.Queue()
         if method=='REGISTER' and expires and expires>0:self.registration_call_ids.append(cid)
-        from_header=f'<sip:{user}@{realm}>;tag='+secrets.token_hex(5)
+        wire_user=self.aor or user
+        from_header=f'<sip:{wire_user}@{realm}>;tag='+secrets.token_hex(5)
+        if method=='REGISTER' and self.aor and not to_uri:to_uri='sip:'+self.aor+'@'+realm
         to_header='<'+(to_uri or uri)+'>';seq=1;branch='z9hG4bK'+secrets.token_hex(9)
         extra=[] if expires is None else ['Expires: '+str(expires)]
         self.socket.sendto(self.packet(method,uri,cid,seq,from_header,to_header,body,extra,branch),dest)
@@ -325,7 +328,7 @@ class Peer:
             if code<200:continue
             if code in (401,407) and password:
                 if method=='INVITE':self.socket.sendto(self.packet('ACK',uri,cid,seq,from_header,h['to'],branch=branch),peer)
-                auth=digest(h.get('www-authenticate',h.get('proxy-authenticate','')),user,password,method,uri)
+                auth=digest(h.get('www-authenticate',h.get('proxy-authenticate','')),self.authentication_user or user,password,method,uri)
                 extra=[x for x in extra if not x.startswith(('Authorization:','Proxy-Authorization:'))]
                 extra.append(('Authorization: ' if code==401 else 'Proxy-Authorization: ')+auth)
                 seq+=1;branch='z9hG4bK'+secrets.token_hex(9)
@@ -483,13 +486,14 @@ def main():
         subprocess.run(['php',str(root/'tests/sip_trunk_live_fixture.php'),'create',str(statefile),str(first.port),str(second.port)],check=True,cwd=root,timeout=60)
         state=json.loads(statefile.read_text());realm=state['realm'];users=state['users'];first.auth=state['provider_auth'];time.sleep(1)
         for peer,user in zip([caller,phone],users):
+            peer.aor=user['number'];peer.authentication_user=user['auth']
             result=peer.exchange('REGISTER','sip:'+realm,(bind,5060),user['auth'],realm,user['password'],expires=90)
-            assert result['code']==200,'Fixture phone did not register'
+            assert result['code']==200,'Fixture numeric SIP user/separate authentication ID did not register; SIP '+str(result['code'])
             saved=json.loads(statefile.read_text());saved.setdefault('registration_call_ids',[]).append(result['callid'])
             statefile.write_text(json.dumps(saved));statefile.chmod(0o600)
         before=set(second.dialogs)
         result=caller.call('sip:99101@'+realm,(bind,5060),users[0]['auth'],realm,users[0]['password'])
-        audio_check(result,second,before);caller.hangup(result)
+        audio_check(result,second,before);time.sleep(1.2);caller.hangup(result)
         assert first.invites[-1]['number']==second.invites[-1]['number']=='55101','Per-route number rewrite failed'
         assert '+27100000002' in second.invites[-1]['headers']['from'],'Failover retained the wrong caller ID'
         assert 'sip:+27100000002@' in second.invites[-1]['headers']['contact'],'Dynamic provider Contact identity was lost'
@@ -510,6 +514,9 @@ def main():
         assert first.auth_passed==before+1,'Callback worker provider digest authentication failed'
         assert first.register_requests==second.register_requests==0,'Callback worker sent REGISTER to a nonregistering provider'
         for invite in first.invites+second.invites:codec_check(invite)
+        time.sleep(2.1)
+        subprocess.run(['php',str(root/'app/pbx_setup/call_records.php')],check=True,cwd=root,timeout=20)
+        subprocess.run(['php',str(root/'tests/sip_trunk_live_fixture.php'),'attempt-check',str(statefile)],check=True,cwd=root,timeout=15)
         before=set(phone.dialogs)
         result=first.call('sip:contact-alias@'+bind,(bind,5080),to_uri='sip:999100001@'+bind)
         audio_check(result,phone,before);first.hangup(result)

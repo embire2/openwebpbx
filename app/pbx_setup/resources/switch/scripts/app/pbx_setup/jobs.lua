@@ -3,6 +3,7 @@ require 'resources.functions.config'
 local Database=require 'resources.functions.database'
 local json=require 'resources.functions.lunajson'
 local P=loadfile(scripts_dir..'/app/pbx_setup/policy.lua')()
+local attempts=loadfile(scripts_dir..'/app/pbx_setup/provider_attempts.lua')()
 local registered=loadfile(scripts_dir..'/app/pbx_setup/registered.lua')()
 local Q=loadfile(scripts_dir..'/app/pbx_setup/core_queue.lua')()
 local queue_runtime=loadfile(scripts_dir..'/app/pbx_setup/queue_runtime.lua')()
@@ -67,8 +68,9 @@ local function outbound(number,agent,q)
     local rule=P.outbound(config,number,agent)
     if not rule then return nil end
     local routes={}
-    for _,r in ipairs(rule.routes) do if gateway_contact(number,agent,r) then routes[#routes+1]={number=number,route=r,agent=agent} end end
-    if #routes>0 then return routes end
+    local usable=false
+    for _,r in ipairs(rule.routes) do routes[#routes+1]={number=number,route=r,agent=agent};if gateway_contact(number,agent,r) then usable=true end end
+    if usable then return routes end
 end
 local function deliver()
     query([[select j.*,r.config from v_pbx_jobs j join v_pbx_restore r using(domain_uuid)
@@ -143,6 +145,8 @@ local function deliver()
     else
         call:setVariable('hangup_after_bridge','false');call:setVariable('continue_on_fail','true')
         call:setVariable('openweb_call_internal',internal_target() and 'true' or 'false')
+        call:setVariable('call_direction',internal_target() and 'local' or 'outbound')
+        call:setVariable('openweb_scope_origin',agent.number);call:setVariable('openweb_scope_target',internal_target() and job.target_number or agent.number)
         call:execute('lua','app.lua pbx_setup record_user '..agent.number)
         call:setVariable('call_timeout','45')
         local connected=false
@@ -151,7 +155,10 @@ local function deliver()
             -- Recheck the tenant-owned native gateway after the agent answers:
             -- it may have disconnected or been switched off while ringing.
             local contact=candidate.contact or gateway_contact(candidate.number,candidate.agent,candidate.route)
+            local observation=not candidate.contact and attempts.begin(db,api,call,job.domain_uuid,config.trunks[tostring(candidate.route.trunk_id)],agent.number,candidate.number,contact~=nil) or nil
+            contact=attempts.contact(observation,contact)
             if contact then
+                if not candidate.contact then call:setVariable('provider_uuid',config.trunks[tostring(candidate.route.trunk_id)].gateway_uuid) end
                 if candidate.contact then contact='[rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,domain_uuid='..job.domain_uuid..',domain_name='..config.realm..',origination_caller_id_name=Queue Callback]'..contact end
                 contact=P.track_answer(contact,call:getVariable('uuid'))
                 if not contact then break end
@@ -162,8 +169,11 @@ local function deliver()
                 call:setVariable('openweb_provider_answered','false')
                 call:execute('bridge',contact)
                 local cause=call:getVariable('originate_disposition')
-                if cause=='SUCCESS' or call:getVariable('openweb_provider_answered')=='true' then connected=true;break end
-                if not P.failover(cause,call:getVariable('last_bridge_proto_specific_hangup_cause'),call:getVariable('openweb_provider_answered'),call:getVariable('sip_invite_failure_status')) then break end
+                local answered=cause=='SUCCESS' or call:getVariable('openweb_provider_answered')=='true'
+                local retry=call:ready() and active() and not answered and P.failover(cause,call:getVariable('last_bridge_proto_specific_hangup_cause'),call:getVariable('openweb_provider_answered'),call:getVariable('sip_invite_failure_status'))
+                attempts.finish(db,observation,cause,call:getVariable('last_bridge_proto_specific_hangup_cause'),call:getVariable('sip_invite_failure_status'),answered,call:ready(),retry)
+                if answered then connected=true;break end
+                if not retry then break end
             end
         end
         if connected then finish('completed','Connected') else retry('Caller did not answer or no provider route was available') end

@@ -49,3 +49,16 @@ Phones still receiving automatic provisioning from 3CX can have manual edits ove
 The candidate server has passed all 23 original SIP identity/password combinations over UDP, TCP and TLS, including separate Authentication IDs, refresh, unregister and exact ownership of a new phone address. Physical W60B and V62W firmware, each site's router/NAT behavior and customer carrier calls still require the checks above. The backup contains only two phone-setting records; it does not describe every physical handset or its active port/transport. Keep the settings on the actual phone when those values are absent.
 
 The 3CX Android app is not supported by OpenWeb PBX. Use the native OpenWeb PBX Android app and the extension's setup QR code. Existing OpenWeb Android accounts keep their canonical account domain when an additional desk-phone address is added.
+
+## Guided handover in 1.0.15
+
+**Admin → Phones → Move Your Phones** records the move of each Yealink W60B account or Fanvil V62W SIP line. New supported restores seal a proof of each original extension, authentication ID and password. For an older restore, upload its original backup in **Check Original Backup Credentials**. This comparison changes no credentials, routes or provider enablement.
+
+1. Enter the phone's actual model, firmware, account/line, current domain, port and connection type. Review old 3CX provisioning/RPS/DHCP settings so they cannot overwrite the move.
+2. Optionally upload a complete unmasked phone configuration export. The download changes only the selected account's matching old SIP server/domain/proxy hostnames. It preserves credentials, ports, other accounts and unrelated settings byte for byte. Encrypted, unfamiliar, masked or mismatched exports are refused. Use the displayed manual domain change instead.
+3. Keep the original export for rollback. Stored exports are encrypted with the instance key; authenticated, CSRF-protected downloads expire after 48 hours. Changed credentials, phone domain or call settings invalidate an old preparation.
+4. Test internal calls in both directions, outside calls in both directions, hold/music/resume, transfer, a ring group/queue and voicemail. Link each confirmation to an answered call made after preparation. Confirm the actual physical phone and the expected audio. Registration alone does not complete this checklist.
+
+The original Restore Report stays visible. An explicitly accepted source-data limitation records its explanation without claiming that the missing behavior now works. Replace missing prompts and choose an active greeting where the backup omitted that choice.
+
+**Verification boundary, 2026-10-16:** 23 original backup extension/authentication/password tuples registered successfully on a new owned SIP domain using software phones. Vendor configuration preservation and encrypted-export tests passed. The actual W60B and V62W are unavailable; physical firmware, audio, buttons and provisioning behavior remain **awaiting handset access**, with no physical-device pass recorded. Domain-only migration also requires the existing port/transport to be supported and reachable and any required TLS certificate to cover the new name.

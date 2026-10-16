@@ -80,3 +80,88 @@ create table if not exists v_pbx_sip_domains (
     created_at timestamptz not null default now()
 );
 create index if not exists pbx_sip_domains_owner on v_pbx_sip_domains(domain_uuid,enabled);
+
+-- Department-scoped staff accounts. These do not receive native administrator permissions.
+BEGIN;
+CREATE TABLE IF NOT EXISTS v_pbx_staff_roles (
+ staff_role_uuid uuid PRIMARY KEY, domain_uuid uuid NOT NULL REFERENCES v_domains(domain_uuid) ON DELETE CASCADE,
+ user_uuid uuid NOT NULL REFERENCES v_users(user_uuid) ON DELETE CASCADE,
+ extension_uuid uuid NOT NULL REFERENCES v_extensions(extension_uuid) ON DELETE CASCADE,
+ department_id text NOT NULL, role text NOT NULL CHECK(role IN ('user','receptionist','supervisor','department_admin','manager','owner')),
+ enabled boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+ UNIQUE(domain_uuid,user_uuid,department_id)
+);
+CREATE INDEX IF NOT EXISTS openweb_staff_lookup ON v_pbx_staff_roles(user_uuid,domain_uuid) WHERE enabled;
+CREATE TABLE IF NOT EXISTS v_pbx_staff_invites (
+ invite_uuid uuid PRIMARY KEY, domain_uuid uuid NOT NULL REFERENCES v_domains(domain_uuid) ON DELETE CASCADE,
+ user_uuid uuid NOT NULL REFERENCES v_users(user_uuid) ON DELETE CASCADE,
+ token_hash text NOT NULL UNIQUE, expires_at timestamptz NOT NULL, consumed_at timestamptz,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS v_pbx_staff_audit (
+ audit_uuid uuid PRIMARY KEY, domain_uuid uuid NOT NULL REFERENCES v_domains(domain_uuid) ON DELETE CASCADE,
+ actor_uuid uuid NOT NULL, action text NOT NULL, target text NOT NULL, result text NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
+DO $$
+DECLARE g uuid; m uuid; existing_item uuid; item uuid := 'c493b34d-1ca4-4a1c-8dc3-129662029e61';
+BEGIN
+ SELECT group_uuid INTO g FROM v_groups WHERE domain_uuid IS NULL AND group_name='openweb_staff';
+ IF g IS NULL THEN
+  g:=gen_random_uuid();INSERT INTO v_groups(group_uuid,group_name,group_description)VALUES(g,'openweb_staff','Department-scoped OpenWeb PBX staff');
+ END IF;
+ INSERT INTO v_permissions(permission_uuid,permission_name,application_name,application_uuid,permission_description)
+ SELECT gen_random_uuid(),'pbx_staff_view','PBX Staff','c493b34d-1ca4-4a1c-8dc3-129662029e60','Open the department-scoped staff workspace'
+ WHERE NOT EXISTS(SELECT 1 FROM v_permissions WHERE permission_name='pbx_staff_view');
+ INSERT INTO v_group_permissions(group_permission_uuid,group_uuid,group_name,permission_name,permission_assigned)
+ SELECT gen_random_uuid(),g,'openweb_staff','pbx_staff_view','true'
+ WHERE NOT EXISTS(SELECT 1 FROM v_group_permissions WHERE group_uuid=g AND permission_name='pbx_staff_view');
+ SELECT menu_uuid INTO m FROM v_menus ORDER BY (menu_name='default') DESC,menu_name LIMIT 1;
+ SELECT menu_item_uuid INTO existing_item FROM v_menu_items WHERE menu_uuid=m AND (uuid=item OR menu_item_uuid=item) LIMIT 1;
+ IF existing_item IS NOT NULL THEN item:=existing_item; END IF;
+ INSERT INTO v_menu_items(menu_item_uuid,menu_uuid,uuid,menu_item_title,menu_item_link,menu_item_category,menu_item_order,menu_item_icon)
+ VALUES(item,m,item,'My PBX','/app/pbx_staff/','internal',1,'fa-solid fa-users') ON CONFLICT(menu_item_uuid) DO NOTHING;
+ INSERT INTO v_menu_item_groups(menu_item_group_uuid,menu_uuid,menu_item_uuid,group_uuid,group_name)
+ SELECT gen_random_uuid(),m,item,g,'openweb_staff' WHERE NOT EXISTS(SELECT 1 FROM v_menu_item_groups WHERE menu_item_uuid=item AND group_uuid=g);
+END $$;
+COMMIT;
+
+BEGIN;
+CREATE TABLE IF NOT EXISTS v_pbx_phone_moves (
+ move_uuid uuid PRIMARY KEY, domain_uuid uuid NOT NULL REFERENCES v_domains(domain_uuid) ON DELETE CASCADE,
+ extension_uuid uuid NOT NULL REFERENCES v_extensions(extension_uuid) ON DELETE CASCADE,
+ number text NOT NULL, model text NOT NULL CHECK(model IN ('yealink_w60b','fanvil_v62w')),
+ firmware text NOT NULL, line_number integer NOT NULL CHECK(line_number BETWEEN 1 AND 8),
+ mac text NOT NULL DEFAULT '', old_domain text NOT NULL, phone_domain text NOT NULL,
+ sip_port integer NOT NULL CHECK(sip_port BETWEEN 1 AND 65535), transport text NOT NULL CHECK(transport IN ('udp','tcp','tls')),
+ identity_hmac text NOT NULL, policy_hmac text NOT NULL, backup_verified boolean NOT NULL,
+ provisioning_reviewed boolean NOT NULL DEFAULT false, source_ciphertext text, source_sha256 text,
+ export_expires timestamptz NOT NULL DEFAULT (now()+interval '48 hours'),
+ created_at timestamptz NOT NULL DEFAULT now(), created_by uuid NOT NULL,
+ UNIQUE(domain_uuid,extension_uuid,mac,line_number)
+);
+CREATE TABLE IF NOT EXISTS v_pbx_phone_move_checks (
+ check_uuid uuid PRIMARY KEY, domain_uuid uuid NOT NULL REFERENCES v_domains(domain_uuid) ON DELETE CASCADE,
+ move_uuid uuid NOT NULL REFERENCES v_pbx_phone_moves(move_uuid) ON DELETE CASCADE,
+ check_kind text NOT NULL, call_uuid uuid, policy_hmac text NOT NULL, note text NOT NULL DEFAULT '',
+ checked_by uuid NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS v_pbx_migration_resolutions (
+ resolution_uuid uuid PRIMARY KEY, domain_uuid uuid NOT NULL REFERENCES v_domains(domain_uuid) ON DELETE CASCADE,
+ note_hash text NOT NULL, decision text NOT NULL CHECK(decision='accepted_source_limitation'),
+ explanation text NOT NULL, actor_uuid uuid NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
+);
+COMMIT;
+
+BEGIN;
+CREATE TABLE IF NOT EXISTS v_pbx_provider_attempts (
+ attempt_uuid uuid PRIMARY KEY, domain_uuid uuid NOT NULL REFERENCES v_domains(domain_uuid) ON DELETE CASCADE,
+ call_uuid uuid NOT NULL, attempt_no integer NOT NULL CHECK(attempt_no BETWEEN 1 AND 100), leg_uuid uuid NOT NULL,
+ trunk_id text NOT NULL, provider_uuid uuid NOT NULL, owner_number text NOT NULL, dialled_number text NOT NULL,
+ state text NOT NULL CHECK(state IN ('calling','skipped','answered','failed','cancelled')),
+ cause text NOT NULL DEFAULT '', sip_status integer NOT NULL DEFAULT 0, will_retry boolean NOT NULL DEFAULT false,
+ config_hash text NOT NULL, started_at timestamptz NOT NULL DEFAULT now(), finished_at timestamptz,
+ UNIQUE(domain_uuid,call_uuid,attempt_no)
+);
+CREATE INDEX IF NOT EXISTS openweb_provider_calls ON v_pbx_provider_attempts(domain_uuid,started_at DESC);
+COMMIT;

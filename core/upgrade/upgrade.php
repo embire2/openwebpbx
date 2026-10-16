@@ -173,6 +173,7 @@
 	}
 
 // Initiliaze the schema object
+	if (defined('STDIN') && count($argv) === 2 && pbx_debian_upgrade_defaults::run($database->db, $upgrade_type)) exit;
 	$schema = new schema(['database' => $database]);
 
 // Use upgrade language file

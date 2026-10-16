@@ -10,6 +10,6 @@ try{
     }elseif($_SERVER['REQUEST_METHOD']==='GET'){$result=$core->live();}
     else{http_response_code(405);throw new RuntimeException('Use the call controls on this page.');}
     $result['token']=(new token)->create('/app/pbx_setup/live.php');echo json_encode($result,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES);
-}catch(pbx_core_access $e){http_response_code(403);echo json_encode(['error'=>$e->getMessage()]);}
+}catch(pbx_core_access|pbx_staff_denied $e){http_response_code(403);echo json_encode(['error'=>$e->getMessage()]);}
 catch(OutOfBoundsException|InvalidArgumentException $e){http_response_code(422);echo json_encode(['error'=>$e->getMessage(),'token'=>(new token)->create('/app/pbx_setup/live.php')]);}
 catch(Throwable $e){if(http_response_code()===200)http_response_code(503);echo json_encode(['error'=>$e instanceof PDOException?'The call list is not ready. Ask your administrator to complete the server update.':$e->getMessage(),'token'=>(new token)->create('/app/pbx_setup/live.php')]);}

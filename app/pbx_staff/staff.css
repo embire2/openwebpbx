@@ -1,0 +1,9 @@
+.pbx-staff .admin-nav{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 24px;padding:12px;border:1px solid var(--openweb-line,#dce5f2);border-radius:12px;background:var(--openweb-surface,#fff)}
+.pbx-staff .admin-nav a{display:inline-flex;align-items:center;min-height:40px;padding:9px 13px;border-radius:7px;color:inherit;text-decoration:none;font-weight:550}
+.pbx-staff .admin-nav a:hover{background:var(--openweb-hover,#eef4fb)}
+.pbx-staff .admin-nav a.active{color:white;background:var(--openweb-accent,#0067b8)}
+.pbx-staff .admin-nav a:focus-visible{outline:2px solid var(--openweb-accent,#0067b8);outline-offset:2px}
+.pbx-staff>.setup-form,.pbx-staff>section{padding:20px;margin:20px 0;border:1px solid var(--openweb-line,#dce5f2);border-radius:12px;background:var(--openweb-surface,#fff)}
+.pbx-staff audio{display:block;max-width:100%;margin:8px 0}
+.pbx-staff .setup-table form{margin:5px 0}
+@media(max-width:600px){.pbx-staff .admin-nav{gap:4px;padding:8px}.pbx-staff .admin-nav a{padding:9px;font-size:12px}.pbx-staff>.setup-form,.pbx-staff>section{padding:16px}}

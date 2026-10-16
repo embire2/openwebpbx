@@ -5,12 +5,14 @@ class pbx_core {
     private PDO $db;
     private string $domain;
     private string $actor;
+    private ?pbx_staff_access $staff=null;
     public function __construct(?PDO $db=null){
         $this->db=$db??database::new()->db;$this->domain=(string)($_SESSION['domain_uuid']??'');$this->actor=(string)($_SESSION['user_uuid']??'');
+        if(!(new pbx_setup($this->db))->canManage()){ $candidate=new pbx_staff_access($this->db);if($candidate->active())$this->staff=$candidate;}
         if(empty($_SESSION['authorized'])||!is_uuid($this->domain)||!is_uuid($this->actor)||!$this->allowed('pbx_core_view')||!$this->tenantAccess())throw new pbx_core_access('PBX access denied.');
         $this->config();
     }
-    protected function allowed(string $name): bool {return permission_exists($name)||(new pbx_setup($this->db))->canManage();}
+    protected function allowed(string $name): bool {return permission_exists($name)||(new pbx_setup($this->db))->canManage()||($this->staff&&$this->staff->can(match($name){'pbx_core_view'=>'live','pbx_core_control'=>'control','pbx_core_supervise'=>'queues',default=>'unsupported'}));}
     protected function tenantAccess(): bool {return (new pbx_tenants($this->db))->canDomain($this->domain);}
     protected function engine(string $command): string {return (string)event_socket::api($command);}
     private function q(string $sql,array $args=[]): PDOStatement {$s=$this->db->prepare($sql);$s->execute($args);return $s;}
@@ -28,6 +30,12 @@ class pbx_core {
     }
     private function call(string $id): void {
         if(!is_uuid($id)||trim($this->engine('uuid_exists '.$id))!=='true'||trim($this->engine('uuid_getvar '.$id.' domain_uuid'))!==$this->domain)throw new OutOfBoundsException('This call has ended or is outside your PBX.');
+        if($this->staff&&!$this->scopedCall($id,'control'))throw new pbx_core_access('This call is outside your department permissions.');
+    }
+    private function scopedCall(string $id,string $cap): bool {
+        if(!$this->staff)return true;$c=$this->config();
+        foreach(['openweb_scope_origin','openweb_scope_target','openweb_scope_service']as$variable){$n=trim($this->engine('uuid_getvar '.$id.' '.$variable));if($n!==''&&$this->staff->permits($cap,$n,$c))return true;}
+        return false;
     }
     public function live(): array {
         $c=$this->config();$raw=$this->engine('show channels as json');if(strlen($raw)>1048576)throw new RuntimeException('The live call list is too large. Try again shortly.');
@@ -35,12 +43,13 @@ class pbx_core {
         if(!is_array($data)||!is_array($data['rows']??null))throw new RuntimeException('The calling service is unavailable.');
         $calls=[];$busy=[];
         foreach(array_slice($data['rows'],0,256) as $r){$id=(string)($r['uuid']??'');if(!is_uuid($id)||trim($this->engine('uuid_getvar '.$id.' domain_uuid'))!==$this->domain)continue;
+            if($this->staff&&!$this->scopedCall($id,'live'))continue;
             $number='';foreach($c['users'] as $n=>$u)if(($r['presence_id']??'')===$u['auth_id'].'@'.$c['realm']||($r['presence_id']??'')===$n.'@'.$c['realm']){$number=(string)$n;$busy[$number]=true;break;}
             $calls[]=['id'=>$id,'from'=>(string)($r['cid_num']??''),'name'=>(string)($r['cid_name']??''),'to'=>(string)($r['dest']??''),'user'=>$number,'state'=>(string)($r['callstate']??$r['state']??''),'started'=>(int)($r['created_epoch']??0),'parked'=>str_starts_with((string)($r['application']??''),'valet_park')];
         }
-        $people=[];foreach($c['users'] as $n=>$u){if(empty($u['enabled']))continue;$state=pbx_mobile_state::profile($u,$c,(string)$n);$people[]=['number'=>(string)$n,'name'=>$u['name'],'status'=>isset($busy[$n])?'On a call':$state];}
-        $queues=[];foreach($c['queues'] as $q){$members=self::pipeRows($this->engine('callcenter_config queue list members '.$q['number'].'@'.$c['realm']));$waiting=0;$longest=0;foreach($members as $m)if(in_array($m['state']??'',['Waiting','Trying'],true)){$waiting++;$longest=max($longest,time()-(int)($m['system_epoch']??time()));}
-            $agents=[];foreach($q['members'] as $m){if(!is_uuid($m['agent_uuid']??''))continue;$row=self::pipeRows($this->engine('callcenter_config agent list '.$m['agent_uuid']));$r=$row[0]??[];$agents[]=['number'=>(string)$m['number'],'name'=>$c['users'][$m['number']]['name']??$m['number'],'status'=>$r['status']??'Unavailable','state'=>$r['state']??'Unknown','joined'=>($m['status']??'LoggedOut')==='LoggedIn'];}
+        $people=[];foreach($c['users'] as $n=>$u){if(empty($u['enabled'])||($this->staff&&!$this->staff->permits('live',(string)$n,$c)))continue;$state=pbx_mobile_state::profile($u,$c,(string)$n);$people[]=['number'=>(string)$n,'name'=>$u['name'],'status'=>isset($busy[$n])?'On a call':$state];}
+        $queues=[];foreach($c['queues'] as $q){if($this->staff&&!$this->staff->permits('queues',(string)$q['number'],$c)&&!$this->staff->permits('live',(string)$q['number'],$c))continue;$members=self::pipeRows($this->engine('callcenter_config queue list members '.$q['number'].'@'.$c['realm']));$waiting=0;$longest=0;foreach($members as $m)if(in_array($m['state']??'',['Waiting','Trying'],true)){$waiting++;$longest=max($longest,time()-(int)($m['system_epoch']??time()));}
+            $agents=[];foreach($q['members'] as $m){if($this->staff&&!$this->staff->visible((string)$m['number'],$c))continue;if(!is_uuid($m['agent_uuid']??''))continue;$row=self::pipeRows($this->engine('callcenter_config agent list '.$m['agent_uuid']));$r=$row[0]??[];$agents[]=['number'=>(string)$m['number'],'name'=>$c['users'][$m['number']]['name']??$m['number'],'status'=>$r['status']??'Unavailable','state'=>$r['state']??'Unknown','joined'=>($m['status']??'LoggedOut')==='LoggedIn'];}
             $queues[]=['number'=>(string)$q['number'],'name'=>$q['name'],'waiting'=>$waiting,'longest_wait'=>$longest,'agents'=>$agents,'target_seconds'=>(int)($q['service_target']??60),'alert'=>$waiting>0&&$longest>(int)($q['service_target']??60)];
         }
         return ['server_time'=>gmdate('c'),'calls'=>$calls,'people'=>$people,'queues'=>$queues,'can_control'=>$this->allowed('pbx_core_control'),'can_supervise'=>$this->allowed('pbx_core_supervise'),'parking_enabled'=>!empty($c['parking_enabled'])];
@@ -49,7 +58,7 @@ class pbx_core {
         if(!$this->allowed('pbx_core_control'))throw new pbx_core_access('Call-control permission required.');
         $c=$this->config();$id=$this->text($in,'call',36);$action=$this->text($in,'operation',24);$target=$this->text($in,'target',20);$this->call($id);
         if(!in_array($action,['hold','resume','transfer','pickup','park','end'],true))throw new InvalidArgumentException('Choose a call action.');
-        if(in_array($action,['transfer','pickup'],true)){if(!isset($c['users'][$target])||empty($c['users'][$target]['enabled']))throw new InvalidArgumentException('Choose an enabled user in your PBX.');}
+        if(in_array($action,['transfer','pickup'],true)){if(!isset($c['users'][$target])||empty($c['users'][$target]['enabled'])||($this->staff&&!$this->staff->visible($target,$c)))throw new InvalidArgumentException('Choose an enabled user in your PBX.');}
         if($action==='park'&&(!ctype_digit($target)||(int)$target<1||(int)$target>20))throw new InvalidArgumentException('Choose parking space 1 to 20.');
         $command='lua app/pbx_setup/core_control.lua '.$this->domain.' '.$id.' '.$action.' '.($target?:'-');
         $result=trim($this->engine($command));$ok=str_starts_with($result,'+OK');
@@ -58,7 +67,7 @@ class pbx_core {
     }
     public function agent(array $in): string {
         if(!$this->allowed('pbx_core_supervise'))throw new pbx_core_access('Queue-supervisor permission required.');
-        $queue=$this->text($in,'queue',10);$number=$this->text($in,'number',10);$state=$this->text($in,'agent_state',12);
+        $queue=$this->text($in,'queue',10);$number=$this->text($in,'number',10);if($this->staff){$this->staff->requireNumber('queues',$queue);$this->staff->requireNumber('queues',$number);}$state=$this->text($in,'agent_state',12);
         if(!in_array($state,['ready','break','logout'],true))throw new InvalidArgumentException('Choose Ready, Break or Sign Out.');
         $this->db->beginTransaction();try{$c=$this->config(true);$found=false;
             foreach($c['queues'] as $i=>$q)if((string)$q['number']===$queue)foreach($q['members'] as $j=>$m)if((string)$m['number']===$number&&isset($c['users'][$number])&&!empty($c['users'][$number]['enabled'])){
@@ -81,10 +90,12 @@ class pbx_core {
         }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
     }
     public function firstCalls(string $trunk): array {
-        $c=$this->config();if(!isset($c['trunks'][$trunk]))throw new OutOfBoundsException('Choose a provider in this PBX.');
+        $this->admin();$c=$this->config();if(!isset($c['trunks'][$trunk]))throw new OutOfBoundsException('Choose a provider in this PBX.');
         $checks=$this->q('select check_kind,result,note,created_at from v_pbx_core_checks where domain_uuid=? and trunk_id=? and config_hash=? order by created_at desc limit 30',[$this->domain,$trunk,$this->fingerprint($c,$trunk)])->fetchAll(PDO::FETCH_ASSOC);
         $calls=$this->q("select xml_cdr_uuid,direction,caller_id_number,destination_number,billsec,start_stamp,hangup_cause,read_codec,write_codec from v_xml_cdr where domain_uuid=? and start_stamp>now()-interval '24 hours' and (leg='a' or leg is null) order by start_stamp desc limit 30",[$this->domain])->fetchAll(PDO::FETCH_ASSOC);
-        return ['checks'=>$checks,'calls'=>$calls];
+        $attempts=$this->q("select a.call_uuid,a.attempt_no,a.trunk_id,a.state,a.cause,a.sip_status,a.will_retry,a.started_at from v_pbx_provider_attempts a where a.domain_uuid=? and a.started_at>now()-interval '24 hours' and exists(select 1 from v_pbx_provider_attempts p where p.domain_uuid=a.domain_uuid and p.call_uuid=a.call_uuid and p.trunk_id=?) order by a.started_at desc,a.attempt_no desc limit 90",[$this->domain,$trunk])->fetchAll(PDO::FETCH_ASSOC);
+        foreach($attempts as&$r){$r['provider_name']=$c['trunks'][$r['trunk_id']]['name']??'Previous provider';$r['explanation']=self::providerMessage($r);}unset($r);
+        return ['checks'=>$checks,'calls'=>$calls,'attempts'=>$attempts];
     }
     public function callPlan(array $in): array {
         $this->admin();$c=$this->config();$trunk=$this->text($in,'trunk',40);$owner=$this->text($in,'test_phone',10);$number=$this->text($in,'test_number',32);
@@ -95,8 +106,8 @@ class pbx_core {
         if(!is_array($plan)||!is_array($plan['routes']??null))throw new RuntimeException('The calling service could not check this route.');
         if(!empty($plan['error']))throw new InvalidArgumentException((string)$plan['error']);
         if(empty($plan['registered']))throw new InvalidArgumentException('Connect the chosen phone before starting the test.');
-        if(($plan['provider']??'')!==$trunk)throw new InvalidArgumentException('This number currently uses another provider. Review Outbound Rules or choose that provider before testing.');
-        return ['trunk'=>$trunk,'phone'=>$owner,'number'=>$number,'rule'=>(string)($plan['rule']??''),'routes'=>$plan['routes']];
+        if((string)($plan['routes'][0]['id']??'')!==$trunk)throw new InvalidArgumentException('This number has another primary provider. Review Outbound Rules or choose that provider before testing.');
+        return ['trunk'=>$trunk,'phone'=>$owner,'number'=>$number,'rule'=>(string)($plan['rule']??''),'selected'=>(string)($plan['provider']??''),'routes'=>$plan['routes']];
     }
     public function startCallTest(array $in): string {
         $plan=$this->callPlan($in);if(empty($in['confirm_test']))throw new InvalidArgumentException('Confirm that you want to call this outside test number.');
@@ -116,6 +127,29 @@ class pbx_core {
         $key=@file_get_contents(pbx_paths::key());if(!is_string($key)||strlen($key)<32)throw new RuntimeException('The instance encryption key is unavailable. Ask your administrator to repair it.');
         return hash_hmac('sha256',json_encode([gethostname(),pbx_paths::host(),pbx_paths::address(),$providers,$native,array_values(array_filter($c['inbound_rules'],fn($r)=>$r['trunk_id']===$trunk)),$routes],JSON_THROW_ON_ERROR),$key);
     }
+    public static function providerMessage(array $r): string {
+        if($r['state']==='answered')return 'Connected. Confirm speech both ways on the phones.';
+        if($r['state']==='calling')return 'The call is still being placed, or its final result has not been saved.';
+        if($r['state']==='skipped')return 'This provider was unavailable. The next saved provider was considered.';
+        if($r['state']==='cancelled')return 'The caller ended the call. No further provider was called.';
+        $code=(int)($r['sip_status']??0);$cause=$r['cause']??'';
+        if(in_array($code,[401,403,407],true))return 'The provider rejected sign-in or permission. Check its account details and approved server address.';
+        if(in_array($code,[404,484],true))return 'The provider could not use this number. Check the number format in Outbound Rules.';
+        if(in_array($code,[486,600],true)||$cause==='USER_BUSY')return 'The called phone is busy. The call stops here.';
+        if(in_array($cause,['NO_ANSWER','ALLOTTED_TIMEOUT'],true))return 'The called phone did not answer. The call stops here.';
+        if($code===488)return 'The provider and phone could not agree on an audio format. Review the provider audio settings.';
+        return filter_var($r['will_retry']??false,FILTER_VALIDATE_BOOLEAN)?'This provider could not complete the call. The next saved provider was considered.':'The call could not be completed. Review this provider and the dialled number.';
+    }
+    private function attemptFingerprint(): string {
+        return (string)$this->q("select md5(r.config::text||coalesce((select string_agg(md5(row(g.gateway_uuid,g.enabled,g.username,g.auth_username,g.password,g.realm,g.proxy,g.register_proxy,g.outbound_proxy,g.register,g.register_transport,g.from_user,g.from_domain,g.codec_prefs)::text),'' order by g.gateway_uuid) from v_gateways g where g.domain_uuid=r.domain_uuid),'')) from v_pbx_restore r where r.domain_uuid=?",[$this->domain])->fetchColumn();
+    }
+    private function verifyFailover(string $call,string $trunk,array $c): void {
+        $rows=$this->q('select trunk_id,state,will_retry,config_hash,attempt_no from v_pbx_provider_attempts where domain_uuid=? and call_uuid=? order by attempt_no',[$this->domain,$call])->fetchAll(PDO::FETCH_ASSOC);
+        $hash=$this->attemptFingerprint();$chain=array_column($rows,'trunk_id');$valid=count($rows)>=2&&$chain[0]===$trunk;
+        $matched=false;foreach($c['outbound_rules']as$rule){$saved=array_map('strval',array_column($rule['routes']??[],'trunk_id'));if(array_slice($saved,0,count($chain))===$chain)$matched=true;}
+        foreach($rows as$i=>$r){$final=$i===count($rows)-1;$valid=$valid&&hash_equals($hash,$r['config_hash'])&&(int)$r['attempt_no']===$i+1&&($final?$r['state']==='answered':(in_array($r['state'],['failed','skipped'],true)&&filter_var($r['will_retry'],FILTER_VALIDATE_BOOLEAN)));}
+        if(!$valid||!$matched)throw new InvalidArgumentException('Choose a call with a recorded primary-provider failure followed by one connected backup in the same saved route. An unrelated backup call cannot verify this step.');
+    }
     public function recordCheck(array $in): void {
         $this->admin();$c=$this->config();$trunk=$this->text($in,'trunk',40);$kind=$this->text($in,'check_kind',24);$id=$this->text($in,'call_uuid',36);
         if(!isset($c['trunks'][$trunk])||!in_array($kind,['internal','incoming','outgoing','digits','caller_id','failover','long_call'],true))throw new InvalidArgumentException('Choose the provider and test step.');
@@ -124,15 +158,16 @@ class pbx_core {
         if(!$call||(int)$call['billsec']<=0)throw new InvalidArgumentException('Use an answered call from this PBX within the last 24 hours.');
         if(in_array($kind,['incoming','outgoing','failover'],true)&&$call['direction']!==($kind==='incoming'?'inbound':'outbound'))throw new InvalidArgumentException('Select a call in the required direction.');
         if($kind==='internal'&&$call['direction']!=='local')throw new InvalidArgumentException('Select an internal call for this step.');
-        $providers=[$c['trunks'][$trunk]['gateway_uuid']];if($kind==='failover'){$providers=[];foreach($c['outbound_rules'] as $rule){$selected=false;foreach($rule['routes']??[] as $r){if($r['trunk_id']===$trunk){$selected=true;continue;}if($selected&&isset($c['trunks'][$r['trunk_id']]))$providers[]=$c['trunks'][$r['trunk_id']]['gateway_uuid'];}}}
-        if($kind!=='internal'&&!array_filter($providers,fn($id)=>($call['provider_uuid']??'')===$id||str_contains((string)($call['last_arg']??''),$id)))throw new InvalidArgumentException($kind==='failover'?'Select an answered outside call identifying a configured backup after this provider.':'This call does not identify the selected provider. Keep this step unverified until the provider call is recorded.');
+        $providers=[$c['trunks'][$trunk]['gateway_uuid']];
+        if($kind==='failover')$this->verifyFailover($id,$trunk,$c);
+        elseif($kind!=='internal'&&!array_filter($providers,fn($id)=>($call['provider_uuid']??'')===$id||str_contains((string)($call['last_arg']??''),$id)))throw new InvalidArgumentException('This call does not identify the selected provider. Keep this step unverified until the provider call is recorded.');
         if(empty($in['confirmed']))throw new InvalidArgumentException('Confirm the result on the actual phones.');
         if($kind==='long_call'&&(int)$call['billsec']<300)throw new InvalidArgumentException('Use a test call lasting at least five minutes.');
         $note=$this->text($in,'note',500);$this->q('insert into v_pbx_core_checks(check_uuid,domain_uuid,trunk_id,check_kind,call_uuid,result,note,checked_by,config_hash) values(?,?,?,?,?,?,?,?,?)',[uuid(),$this->domain,$trunk,$kind,$id,'confirmed',$note,$this->actor,$this->fingerprint($c,$trunk)]);
     }
     public function queueReport(int $days=1): array {
-        $days=max(1,min(31,$days));$c=$this->config();$rows=[];
-        foreach($c['queues'] as $queue){$q=(string)$queue['number'];$r=$this->q("select count(*) filter(where state in ('finished','abandoned')) total,count(*) filter(where state='finished') answered,count(*) filter(where state='abandoned') abandoned,coalesce(round(avg(wait_seconds) filter(where state='finished')),0) average_wait from v_pbx_queue_tickets where domain_uuid=? and queue_number=? and joined_at>now()-(? * interval '1 day')",[$this->domain,$q,$days])->fetch(PDO::FETCH_ASSOC);
+        $days=max(1,min(31,$days));$c=$this->config();if($this->staff&&!$this->staff->can('reports',$c))throw new pbx_core_access('Report access is not allowed.');$rows=[];
+        foreach($c['queues'] as $queue){$q=(string)$queue['number'];if($this->staff&&!$this->staff->permits('reports',$q,$c))continue;$r=$this->q("select count(*) filter(where state in ('finished','abandoned')) total,count(*) filter(where state='finished') answered,count(*) filter(where state='abandoned') abandoned,coalesce(round(avg(wait_seconds) filter(where state='finished')),0) average_wait from v_pbx_queue_tickets where domain_uuid=? and queue_number=? and joined_at>now()-(? * interval '1 day')",[$this->domain,$q,$days])->fetch(PDO::FETCH_ASSOC);
             $jobs=$this->q("select count(*) filter(where state='completed') completed,count(*) filter(where state='failed') failed,count(*) filter(where state in ('waiting','starting','calling')) pending from v_pbx_jobs where domain_uuid=? and queue_number=? and kind='callback' and created_at>now()-(? * interval '1 day')",[$this->domain,$q,$days])->fetch(PDO::FETCH_ASSOC);
             $rows[]=['number'=>$q,'name'=>$queue['name'],'calls'=>$r,'callbacks'=>$jobs];
         }return ['days'=>$days,'timezone'=>$c['timezone']??'UTC','queues'=>$rows];

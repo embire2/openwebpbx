@@ -23,6 +23,7 @@ if (!string.IsNullOrWhiteSpace(connection))
     builder.Services.AddHostedService<JobWorker>();
     builder.Services.AddHostedService<MobileStateWorker>();
     builder.Services.AddHostedService<QueueStateWorker>();
+    builder.Services.AddHostedService<CallRecordWorker>();
     builder.Services.AddHostedService<MobilePushWorker>();
 }
 // This local service has no public administrative routes. The PBX web console retains

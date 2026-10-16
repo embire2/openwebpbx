@@ -48,16 +48,19 @@ local function run()
         end
         if P.user_busy(channels,u,config.realm,session:getVariable('uuid'),owned_realms)~=false then return end
     end
+    local scope_origin=uuid(source) and api:execute('uuid_getvar',source..' openweb_scope_origin'):gsub('%s+$','') or number
+    if not config.users[scope_origin] then scope_origin='' end
+    session:setVariable('openweb_scope_origin',scope_origin);session:setVariable('openweb_scope_target',number)
     session:setVariable('domain_name',config.realm);session:setVariable('hangup_after_bridge','true');session:setVariable('continue_on_fail','false')
     mobile_wake(db,api,P,session,domain,{u})
     if not session:ready() then return end
     local phone=registered(db,api,P,domain,u,config.realm)
-    local answer=uuid(source) and 'lua app/pbx_setup/core_queue_answer.lua '..domain..' '..queue..' '..source or nil
+    local answer=uuid(source) and 'lua app/pbx_setup/core_queue_answer.lua '..domain..' '..queue..' '..source..' '..number or nil
     local mobile=mobile_contact.available(db,api,P,domain,config,u,profile)
       and mobile_contact.dial(domain,config.realm,u,q.ring_timeout,session:getVariable('uuid'),session:getVariable('openweb_call_internal')=='true',answer)
     if not phone and not mobile then return end
-    local vars='sip_h_X-OpenWeb-Push-ID='..session:getVariable('uuid')..',domain_uuid='..domain..',domain_name='..config.realm..',rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,leg_timeout='..q.ring_timeout
-    if uuid(source) then vars=vars..",api_on_answer='lua app/pbx_setup/core_queue_answer.lua "..domain..' '..queue..' '..source.."'" end
+    local vars='extension_uuid='..u.extension_uuid..',openweb_scope_origin='..scope_origin..',openweb_scope_target='..number..',sip_h_X-OpenWeb-Push-ID='..session:getVariable('uuid')..',domain_uuid='..domain..',domain_name='..config.realm..',rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,leg_timeout='..q.ring_timeout
+    if uuid(source) then vars=vars..",api_on_answer='lua app/pbx_setup/core_queue_answer.lua "..domain..' '..queue..' '..source..' '..number.."'" end
     if uuid(source) and u.record_calls and not (u.record_external_only and session:getVariable('openweb_call_internal')=='true') then
         vars=vars..',openweb_call_internal='..tostring(session:getVariable('openweb_call_internal')=='true')..",execute_on_answer='lua app.lua pbx_setup record_user "..number.."'"
     end

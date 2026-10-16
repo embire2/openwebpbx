@@ -1,5 +1,12 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+## Department roles, phone handover and first calls — 1.0.15 candidate
+
+The next version implements [staff roles and invitations](docs/department-staff.md), [per-phone migration](docs/desk-phone-handover.md#guided-handover-in-1015) and [same-call provider evidence](docs/core-calling.md#first-calls-and-provider-evidence-in-1015). Production and the public release remain 1.0.14 while complete-package qualification runs. Hardware access is unavailable; physical W60B/V62W checks remain awaiting access.
+
+Source/native progress: six staff roles passed 177 normal HTTPS invitation/login/page boundaries and 24 live-control/phone-setup checks; a department administrator created an automatically numbered user through the browser. The original source backup passed 99 identity/configuration checks, and all 23 original extension/authentication/password tuples registered on a new owned SIP domain with software phones. Five native ordinary/callback provider chains passed, including actual CDR import and same-call backup-check recording. Initial failures exposed the missing fresh-install CDR worker and an overly strict duplicate-variable check; the corrected native run imported all five records with no retention/quarantine. Full package, automatic-worker, preservation/rollback and publication gates remain pending. The broader 133 roadmap IDs/21 accepted items are unchanged.
+
+
 ## Users and department routing — 1.0.14
 
 The released and deployed core/Android version is **1.0.14 / Android code 114**. Add User now fills a free extension, permits a manual override and rechecks automatic assignment under the PBX transaction lock. Departments support primary/additional memberships, users and call-handling objects, explicit office-hour destinations, stable outgoing-rule restrictions and optional Android directory visibility. The app display name is **OpenWebPBX Free Phone**; application ID and release signing identity are preserved. [Workflow and limits](docs/users-and-departments.md).

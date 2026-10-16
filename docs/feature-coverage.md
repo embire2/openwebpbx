@@ -1,5 +1,12 @@
 # OpenWeb PBX feature coverage
 
+## Department staff, phone handover and provider evidence — 1.0.15 candidate
+
+The implementation adds six scoped staff roles, separate invitations/web passwords, a guarded My PBX workspace, department call/media/phone controls, original-backup identity proofs, encrypted vendor-export preparation and per-phone checks. First Calls now records provider attempts for ordinary calls and callbacks and requires a real same-call backup chain. A new background importer brings native CDRs and per-user history into the application from a durable spool.
+
+Intermediate qualification: 177 native HTTPS staff/invitation/page checks, 24 native live-call/hold/resume/phone boundaries, browser user creation and 18 responsive page layouts. The supplied backup passed 99 identity/configuration checks and 23 exact original identities registered on a new owned SIP domain using software peers. Native providers passed ordinary/callback fallback, busy stopping, per-route formatting/caller-ID, digest, negotiated paced two-way RTP, incoming filtering, five exact attempt chains, all five CDR imports and checklist recording. Physical W60B/V62W access is unavailable; those tests remain awaiting access. Publication/installed-worker/rollback acceptance is pending; public production remains 1.0.14. The Windows 1.0.13 candidate remains separate.
+
+
 ## Users and departments — 1.0.14
 
 Automatic extensions, primary/additional department membership, call-handling office hours, stable outgoing restrictions and Android directory visibility are delivered. The app is **OpenWebPBX Free Phone**, version 1.0.14/code114. See the [workflow and limits](users-and-departments.md).

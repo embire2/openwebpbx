@@ -14,6 +14,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+ReadWritePaths=/var/log/freeswitch /var/cache/fusionpbx
 
 [Install]
 WantedBy=multi-user.target

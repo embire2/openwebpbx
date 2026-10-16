@@ -22,8 +22,10 @@ class pbx_mobile {
     }
     public function adminExtension(string $number): array {
         $domain=$_SESSION['domain_uuid']??'';
-        if(!permission_exists('extension_edit')||!(new pbx_setup($this->db))->canManage()||!(new pbx_tenants($this->db))->canDomain($domain))throw new RuntimeException('Administrator access required.');
-        $c=(new pbx_admin($this->db))->config();$u=$c['users'][$number]??null;
+        $owner=permission_exists('extension_edit')&&(new pbx_setup($this->db))->canManage()&&(new pbx_tenants($this->db))->canDomain($domain);
+        $staff=$owner?null:new pbx_staff_access($this->db);
+        if(!$owner&&(!$staff->active()||(!$staff->permits('personal',$number)&&!$staff->permits('phones',$number,null,true))))throw new pbx_staff_denied('Phone setup is outside your department permissions.');
+        $c=(new pbx_admin($this->db,$staff))->config();$u=$c['users'][$number]??null;
         if(!$u)throw new InvalidArgumentException('Choose a user in your PBX.');return $this->extension($domain,$u['extension_uuid']);
     }
     protected function tlsReady(): bool {return filter_var(config::load()->get('openweb.mobile_tls_ready','false'),FILTER_VALIDATE_BOOLEAN);}

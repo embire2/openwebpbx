@@ -22,6 +22,7 @@ if not session or not session:ready() then return end
 local Database=require 'resources.functions.database'
 local json=require 'resources.functions.lunajson'
 local P=loadfile(scripts_dir..'/app/pbx_setup/policy.lua')()
+local attempts=loadfile(scripts_dir..'/app/pbx_setup/provider_attempts.lua')()
 local registered=loadfile(scripts_dir..'/app/pbx_setup/registered.lua')()
 local Q=loadfile(scripts_dir..'/app/pbx_setup/core_queue.lua')()
 local queue_runtime=loadfile(scripts_dir..'/app/pbx_setup/queue_runtime.lua')()
@@ -59,6 +60,10 @@ if type(auth)=='string' and auth~='' and (not auth_realm or P.realm_allowed(owne
     end
 end
 local internal=authenticated_user and mode~='incoming'
+-- Server-derived scope markers; raw caller ID and SIP headers never grant staff access.
+session:setVariable('openweb_scope_origin',authenticated_user and tostring(caller) or '')
+session:setVariable('openweb_scope_target',tostring(key or ''))
+session:setVariable('openweb_scope_service',tostring(key or ''))
 if mode=='record_user' then internal=session:getVariable('openweb_call_internal')=='true' end
 if authenticated_user and mode~='incoming' and mode~='record_user' then session:setVariable('call_direction','local') end
 local function clock(zone)
@@ -124,11 +129,12 @@ local function user_contact(u,timeout,queue)
         if dial then return dial end
     end
     local call=queue and '${uuid}' or session:getVariable('uuid');local origin=queue and '${openweb_call_internal}' or tostring(internal)
-    local variables='sip_h_X-OpenWeb-Push-ID='..call..',rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,leg_timeout='..timeout..',domain_uuid='..domain..',domain_name='..realm..',openweb_call_internal='..origin
+    local variables='extension_uuid='..u.extension_uuid..',openweb_scope_origin='..(queue and '${openweb_scope_origin}' or tostring(authenticated_user and caller or ''))..',openweb_scope_target='..u.number..',sip_h_X-OpenWeb-Push-ID='..call..',rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,leg_timeout='..timeout..',domain_uuid='..domain..',domain_name='..realm..',openweb_call_internal='..origin
     if u.record_calls and not (u.record_external_only and internal) then
         variables=variables..",execute_on_answer='lua app.lua pbx_setup record_user "..u.number.."'"
     end
-    if queue then variables=variables..",api_on_answer='lua app/pbx_setup/core_queue_answer.lua "..domain..' '..queue..' '..call.."'" end
+    if queue then variables=variables..",api_on_answer='lua app/pbx_setup/core_queue_answer.lua "..domain..' '..queue..' '..call..' '..u.number.."'"
+    else variables=variables..",api_on_answer='uuid_setvar "..call..' openweb_scope_target '..u.number.."'" end
     local phone='['..variables..']user/'..u.auth_id..'@'..realm
     if not queue and mobile_contact.available(db,api,P,domain,config,u,profile) then
         local mobile=mobile_contact.dial(domain,realm,u,timeout,session:getVariable('uuid'),internal)
@@ -154,6 +160,8 @@ run_outbound=function(number,owner)
     for _,r in ipairs(rule.routes) do
         local contact=outbound_contact(number,r,origin)
         contact=contact and P.track_answer(contact,session:getVariable('uuid'))
+        local observation=attempts.begin(db,api,session,domain,config.trunks[tostring(r.trunk_id)],origin,number,contact~=nil)
+        contact=attempts.contact(observation,contact)
         if contact then
             session:setVariable('call_direction','outbound')
             session:setVariable('provider_uuid',config.trunks[tostring(r.trunk_id)].gateway_uuid)
@@ -166,7 +174,7 @@ run_outbound=function(number,owner)
             if mode=='mobile' then timeout=math.min(timeout,math.max(0,(tonumber(session:getVariable('openweb_mobile_deadline')) or 0)-os.time())) end
             if timeout<=0 then session:hangup('NO_ANSWER');return end
             session:setVariable('call_timeout',tostring(timeout))
-            contact='{originate_timeout='..timeout..',progress_timeout='..timeout..'}'..contact:gsub('^%[','[leg_timeout='..timeout..',',1)
+            contact='{openweb_scope_origin='..origin..',openweb_scope_target='..origin..',originate_timeout='..timeout..',progress_timeout='..timeout..'}'..contact:gsub('^%[','[leg_timeout='..timeout..',',1)
             if config.users[origin] then record(config.users[origin],true) end
             session:setVariable('originate_disposition','')
             session:setVariable('last_bridge_proto_specific_hangup_cause','')
@@ -174,8 +182,11 @@ run_outbound=function(number,owner)
             session:setVariable('openweb_provider_answered','false')
             session:execute('bridge',contact)
             local cause=session:getVariable('originate_disposition')
-            if not session:ready() or cause=='SUCCESS' or session:getVariable('openweb_provider_answered')=='true' then return end
-            if not P.failover(cause,session:getVariable('last_bridge_proto_specific_hangup_cause'),session:getVariable('openweb_provider_answered'),session:getVariable('sip_invite_failure_status')) then
+            local answered=cause=='SUCCESS' or session:getVariable('openweb_provider_answered')=='true'
+            local retry=session:ready() and not answered and P.failover(cause,session:getVariable('last_bridge_proto_specific_hangup_cause'),session:getVariable('openweb_provider_answered'),session:getVariable('sip_invite_failure_status'))
+            attempts.finish(db,observation,cause,session:getVariable('last_bridge_proto_specific_hangup_cause'),session:getVariable('sip_invite_failure_status'),answered,session:ready(),retry)
+            if not session:ready() or answered then return end
+            if not retry then
                 session:hangup(cause or 'NORMAL_TEMPORARY_FAILURE');return
             end
         end
@@ -197,6 +208,7 @@ end
 run_user=function(number)
     local u=config.users[tostring(number)]
     if not u or not u.enabled then session:hangup('UNALLOCATED_NUMBER');return end
+    session:setVariable('openweb_scope_target',tostring(number))
     local room=hotel_room(number)
     if room and (room.do_not_disturb=='t' or room.do_not_disturb=='true') then voicemail(number,false);return end
     local special=P.object_destination(config,u,clock)
@@ -214,7 +226,7 @@ run_user=function(number)
     if not P.contact(contact) and not mobile then route(P.forward(profile,'NotRegistered',internal,open),number);return end
     session:setVariable('call_timeout',tostring(profile.timeout));session:setVariable('origination_callee_id_name',u.name)
     session:setVariable('origination_callee_id_number',tostring(number));record(u)
-    local bridge=P.contact(contact) and '[sip_h_X-OpenWeb-Push-ID='..session:getVariable('uuid')..',rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,leg_timeout='..profile.timeout..']user/'..u.auth_id..'@'..realm or nil
+    local bridge=P.contact(contact) and '[domain_uuid='..domain..',extension_uuid='..u.extension_uuid..',openweb_scope_origin='..tostring(authenticated_user and caller or '')..',openweb_scope_target='..u.number..',sip_h_X-OpenWeb-Push-ID='..session:getVariable('uuid')..',rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,leg_timeout='..profile.timeout..']user/'..u.auth_id..'@'..realm or nil
     if mobile then
         session:setVariable('ignore_early_media','true')
         bridge=bridge and bridge..','..mobile or mobile

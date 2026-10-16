@@ -1,0 +1,22 @@
+<?php
+if(PHP_SAPI!=='cli')exit(2);
+require dirname(__DIR__).'/resources/require.php';
+$checks=0;$ok=static function($yes,$why)use(&$checks){if(!$yes)throw new RuntimeException($why);$checks++;};
+$bad=static function($f,$why)use($ok){try{$f();}catch(InvalidArgumentException){$ok(true,$why);return;}$ok(false,$why);};
+$id=['number'=>'1000','auth_id'=>'Auth_115','password'=>'fictional-old.example.invalid-&<>!','sip_user'=>'1000'];$old='old.example.invalid';$new='new.example.invalid';
+$cfg="#!version:1.0.0.1\r\n# Preserve everything else\r\naccount.1.user_name = 1000@old.example.invalid\r\naccount.1.auth_name = Auth_115\r\naccount.1.password = ".$id['password']."\r\naccount.1.sip_server.1.address = old.example.invalid\r\naccount.1.sip_server.1.port = 5060\r\naccount.1.transport = 1\r\naccount.1.outbound_proxy.1.address = sip:old.example.invalid:5060;transport=tcp\r\naccount.2.sip_server.1.address = old.example.invalid\r\naccount.2.password = leave me exactly\r\n";
+$p=pbx_phone_domain_patch::patch($cfg,'yealink_w60b',1,$old,$new,$id);$expected=str_replace(['1000@'.$old,'address = '.$old."\r",'sip:'.$old.':5060'],['1000@'.$new,'address = '.$new."\r",'sip:'.$new.':5060'],$cfg);$expected=str_replace('account.2.sip_server.1.address = '.$new,'account.2.sip_server.1.address = '.$old,$expected);
+$ok($p['bytes']===$expected,'W60B changed unrelated bytes');$ok($p['sip_port']==='5060'&&$p['transport']==='tcp','W60B transport changed');$ok(count($p['changed_fields'])===3,'W60B field count');
+foreach([['password = '.$id['password'],'password = ********'],['auth_name = Auth_115','auth_name = foreign'],['user_name = 1000@','user_name = 1001@']]as[$a,$b])$bad(fn()=>pbx_phone_domain_patch::patch(str_replace($a,$b,$cfg),'yealink_w60b',1,$old,$new,$id),'Mismatched W60B credentials accepted');
+$bad(fn()=>pbx_phone_domain_patch::patch($cfg.'account.1.auth_name = Auth_115','yealink_w60b',1,$old,$new,$id),'Duplicate key accepted');
+$esc=htmlspecialchars($id['password'],ENT_XML1|ENT_QUOTES,'UTF-8');
+$xml='<?xml version="1.0"?>' . "\r\n" . '<sysConf><sip><line index="1"><PhoneNumber>1000@old.example.invalid</PhoneNumber><RegisterUser>Auth_115</RegisterUser><RegisterPswd>'.$esc.'</RegisterPswd><RegisterAddr>old.example.invalid</RegisterAddr><RegisterPort>5061</RegisterPort><Transport>3</Transport><ProxyAddr>old.example.invalid</ProxyAddr><LocalDomain>old.example.invalid</LocalDomain></line><line index="2"><RegisterAddr>old.example.invalid</RegisterAddr><RegisterPswd>keep me</RegisterPswd></line></sip><other>old.example.invalid</other></sysConf>';
+$p=pbx_phone_domain_patch::patch($xml,'fanvil_v62w',1,$old,$new,$id);$expected=str_replace(['1000@'.$old,'<RegisterAddr>'.$old.'</RegisterAddr>','<ProxyAddr>'.$old,'<LocalDomain>'.$old],['1000@'.$new,'<RegisterAddr>'.$new.'</RegisterAddr>','<ProxyAddr>'.$new,'<LocalDomain>'.$new],$xml);$expected=str_replace('<line index="2"><RegisterAddr>'.$new,'<line index="2"><RegisterAddr>'.$old,$expected);
+$ok($p['bytes']===$expected,'Fanvil changed unrelated bytes or XML escapes');$ok($p['sip_port']==='5061'&&$p['transport']==='tls','Fanvil transport changed');$ok(str_contains($p['bytes'],$esc),'Escaped SIP password changed');$ok(count($p['changed_fields'])===4,'Fanvil field count');
+$bad(fn()=>pbx_phone_domain_patch::patch(str_replace('<RegisterUser>Auth_115','<RegisterUser>other',$xml),'fanvil_v62w',1,$old,$new,$id),'Foreign Fanvil account accepted');
+$bad(fn()=>pbx_phone_domain_patch::patch(str_replace('</RegisterUser>','</RegisterUser><RegisterUser>Auth_115</RegisterUser>',$xml),'fanvil_v62w',1,$old,$new,$id),'Duplicate Fanvil account key');
+foreach([$xml."\0",'<!DOCTYPE a [<!ENTITY e SYSTEM "file:///etc/passwd">]>'.$xml,str_repeat('a',2097153)]as$invalid)$bad(fn()=>pbx_phone_domain_patch::patch($invalid,'fanvil_v62w',1,$old,$new,$id),'Unsafe export accepted');
+$bad(fn()=>pbx_phone_domain_patch::patch($cfg,'yealink_w60b',1,$old,$old,$id),'Same domain accepted');
+$bad(fn()=>pbx_phone_domain_patch::patch($cfg,'yealink_w60b',9,$old,$new,$id),'Unsupported account accepted');
+$bad(fn()=>pbx_phone_domain_patch::patch($xml,'fanvil_v62w',7,$old,$new,$id),'Unsupported line accepted');
+echo "PASS: $checks domain-only vendor configuration controls\n";

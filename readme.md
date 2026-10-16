@@ -1,5 +1,7 @@
 # OpenWeb PBX
 
+**1.0.15 candidate:** department staff roles and invitations, a guided phone handover, and recorded provider failover are implemented and undergoing complete-package qualification. The public release remains 1.0.14 until those checks finish. Physical Yealink W60B/Fanvil V62W checks await handset access. [Staff access](docs/department-staff.md) · [Phone handover](docs/desk-phone-handover.md) · [First calls](docs/core-calling.md).
+
 An open-source, multi-tenant PBX powered by FreeSWITCH, with a Windows 11 inspired administration desktop.
 
 ## Version 1.0.14 — simpler users and department routing

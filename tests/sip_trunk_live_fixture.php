@@ -177,6 +177,17 @@ if(($argv[1]??'')==='registration-status'){
     if(!is_uuid($domain)||!preg_match('/^carrier-check-[a-f0-9]{12}\.invalid$/D',$realm)||($query('select domain_name from v_domains where domain_uuid=?',[$domain])->fetchColumn()?:$realm)!==$realm)throw new RuntimeException('Fixture registration ownership mismatch.');
     echo json_encode(['registrations'=>$registrationCount($registrationIds($state))],JSON_THROW_ON_ERROR)."\n";exit;
 }
+if(($argv[1]??'')==='attempt-check'){
+    $state=json_decode(file_get_contents($path),true,512,JSON_THROW_ON_ERROR);$domain=$state['domain'];
+    if(!is_uuid($domain)||$query('select domain_name from v_domains where domain_uuid=?',[$domain])->fetchColumn()!==$state['realm'])throw new RuntimeException('Fixture ownership mismatch.');
+    $rows=$query('select call_uuid,attempt_no,trunk_id,state,sip_status,will_retry from v_pbx_provider_attempts where domain_uuid=? order by started_at,attempt_no',[$domain])->fetchAll(PDO::FETCH_ASSOC);$chains=[];foreach($rows as$r)$chains[$r['call_uuid']][]=$r;
+    $fallback=0;$busy=0;$direct=0;$firstFallback=null;foreach($chains as$chain){$states=array_column($chain,'state');if($states===['failed','answered']){if($chain[0]['sip_status']!=503||!$chain[0]['will_retry']||array_column($chain,'trunk_id')!==$state['trunks'])throw new RuntimeException('Incorrect native backup evidence.');$firstFallback??=$chain[0]['call_uuid'];$fallback++;}elseif($states===['failed']){if($chain[0]['sip_status']!=486||$chain[0]['will_retry'])throw new RuntimeException('Busy provider incorrectly retried.');$busy++;}elseif($states===['answered'])$direct++;else throw new RuntimeException('Unexpected or incomplete provider attempt chain.');}
+    if($fallback!==2||$busy!==1||$direct!==2)throw new RuntimeException('Missing ordinary/callback provider attempt evidence.');
+    $_SESSION=['authorized'=>true,'user_uuid'=>uuid(),'domain_uuid'=>$domain,'domain_name'=>$state['realm'],'user'=>['domain_uuid'=>$domain]];
+    $deadline=microtime(true)+5;do{$cdr=$query('select billsec from v_xml_cdr where domain_uuid=? and xml_cdr_uuid=?',[$domain,$firstFallback])->fetchColumn();if((int)$cdr>0)break;usleep(100000);}while(microtime(true)<$deadline);
+    (new pbx_core($db))->recordCheck(['trunk'=>$state['trunks'][0],'check_kind'=>'failover','call_uuid'=>$firstFallback,'confirmed'=>1]);
+    echo "PASS: five actual ordinary/callback attempt chains, exact backup order, busy stop and single answered providers.\n";exit;
+}
 if(($argv[1]??'')==='disable'){
     $state=json_decode(file_get_contents($path),true,512,JSON_THROW_ON_ERROR);
     $domain=$state['domain']??'';$realm=$state['realm']??'';

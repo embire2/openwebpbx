@@ -1,0 +1,3 @@
+<?php
+require_once dirname(__DIR__,2).'/resources/require.php';require_once PROJECT_ROOT.'/resources/check_auth.php';header('Cache-Control: no-store');header('Referrer-Policy: no-referrer');header('X-Content-Type-Options: nosniff');
+try{$a=new pbx_staff_access;if(!$a->owner()&&!$a->active())throw new RuntimeException;$admin=new pbx_admin(null,$a->owner()?null:$a);$f=$admin->mediaFile(is_string($_GET['id']??null)?$_GET['id']:'');header('Content-Type: audio/wav');header('Content-Length: '.filesize($f['file_path']));session_write_close();readfile($f['file_path']);}catch(Throwable){http_response_code(404);echo 'Audio unavailable.';}

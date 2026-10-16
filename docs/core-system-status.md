@@ -1,5 +1,17 @@
 # OpenWeb PBX core system status
 
+## 1.0.15 development
+
+| Work | Current status |
+|---|---|
+| Department staff | Six roles, invitations, scoped screens and server checks implemented; native HTTPS and call-control tests passed. |
+| Restore-to-phone | Guided preparation, exact credential proofs, encrypted domain-only export and phone checks implemented; 23 original identities registered in the software engine. Actual W60B/V62W checks await handset access. |
+| First calls / backup provider | Ordered ordinary/callback provider evidence, plain results, durable native CDR/history and same-call checklist implemented; isolated native provider tests passed. Real-carrier failure testing remains open. |
+| Delivery | Complete-package qualification is in progress. Public server/app remains 1.0.14; frozen Windows 1.0.13 and its supplied-host blocker are unchanged. |
+
+The broad roadmap remains 133 items: 21 accepted, 72 partial and 40 planned. These focused implementations do not establish every 3CX feature or physical-device compatibility.
+
+
 ## Users and departments — 1.0.14
 
 Automatic extensions, primary/additional department membership, call-handling office hours, stable outgoing restrictions and Android directory visibility are delivered. The app is **OpenWebPBX Free Phone**, version 1.0.14/code114. See the [workflow and limits](users-and-departments.md).
