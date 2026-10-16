@@ -28,13 +28,14 @@ $managerOwned=$false;$managerStarted=$null;$managerName=$null;$managerSid=$null;
 $retainedProcesses=[Collections.Generic.List[Diagnostics.Process]]::new()
 $script:qualificationFailedChild=$null
 $script:qualificationComparisonFailure=$null
+$script:qualificationFailedHash=$null
 $facts=[ordered]@{schema=1;mode=$Mode;run_id=$env:GITHUB_RUN_ID;source_commit=$env:GITHUB_SHA;state='running';scope='disposable Windows Server 2025, fictional PBX, laboratory trusted HTTPS';checks=@();gates=[ordered]@{canary_build='pending';fault_https_download='unqualified';fault_rollback='unqualified';normal_https_download='unqualified';newer_upgrade='unqualified';natural_updater_restart='unqualified';manager_reopen_rollback='unqualified';manager_reopen_success='unqualified';protected_data='unqualified';public_github_delivery='unqualified';owner_106_upgrade='unqualified';carrier='unqualified'};cleanup='pending'}
 function Check([bool]$Value,[string]$Message){if(!$Value){throw $Message}}
-function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null){
+function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null,$HashFailure=$null){
  # Project only known source callsites and fixed child identities. Messages,
  # process arguments, private streams and the paths in the trace stay private.
  $frames=[Collections.Generic.List[object]]::new();$seen=@{}
- $functions=@('Check','Hash','WriteJson','PrivateDirectory','SecureCanaryFaultContract','Api','SafeRelative','ExpandSafe','Artifact','CheckedProcess','NativeVersions','StopQualificationIis','PrepareCanary','Fixture','Python','InitializeQualificationBackupWorker','DatabaseSnapshot','FileSnapshot','TaskSnapshot','ManagerTaskValid','OwnedManagers','WaitManager','BeginManager','OriginalProcessProofSource','RetainQualificationProcess','AssertOriginalProcessState','ManagerReopened','EqualTaskSnapshots','Equal','NormalTaskPreservation','InstalledVersions','WaitInstall','DownloadProof','GetManagerOriginalExitProof','<ScriptBlock>')
+ $functions=@('Check','Hash','SnapshotHash','WriteJson','PrivateDirectory','SecureCanaryFaultContract','Api','SafeRelative','ExpandSafe','Artifact','CheckedProcess','NativeVersions','StopQualificationIis','PrepareCanary','Fixture','Python','InitializeQualificationBackupWorker','DatabaseSnapshot','FileSnapshot','TaskSnapshot','ManagerTaskValid','OwnedManagers','WaitManager','BeginManager','OriginalProcessProofSource','RetainQualificationProcess','AssertOriginalProcessState','ManagerReopened','EqualTaskSnapshots','Equal','NormalTaskPreservation','InstalledVersions','WaitInstall','DownloadProof','GetManagerOriginalExitProof','<ScriptBlock>')
  if($Trace -and $Trace.Length -le 16384){
   $lines=[regex]::Split($Trace,'\r?\n')
   for($i=0;$i -lt [Math]::Min($lines.Count,64) -and $frames.Count -lt 6;$i++){
@@ -59,9 +60,48 @@ function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null
    if($Comparison.label -ceq 'fault-files' -and $report.comparison_result -ceq 'different'){$capture=QualificationFileCaptureFields $Comparison.capture;if($capture){$safe.file_capture=$capture}}
   }
  }
+ if($frames.ToArray().function -ccontains 'Hash' -and $frames.ToArray().function -ccontains 'SnapshotHash' -and $frames.ToArray().function -ccontains 'FileSnapshot'){$hash=QualificationHashFailureFields $HashFailure;if($hash){$safe.hash_failure=$hash}}
  return $safe
 }
 function Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
+function QualificationSnapshotPaths {
+ # Mirror the existing comparison classifier's closed public paths only.
+ $paths=@{}
+ foreach($pair in @(@('installation','installation'),@('runtime','runtime'),@('updater-install','updater_install'),@('native-engine','native_engine'),@('local-codec','local_codec'),@('phone-tls','phone_tls_metadata'))){$paths['c:/programdata/openwebpbx/'+$pair[0]+'.json']=$pair[1]}
+ $paths+=@{'c:/openwebpbx'='program_root';'c:/openwebpbx/php/php.ini'='php_ini';'c:/openwebpbx/php/extras/ssl/openssl.cnf'='php_openssl';'c:/openwebpbx/php/extras/ssl/cacert.pem'='php_cacert';'c:/programdata/openwebpbx/mobile-notifications'='notification_store';'c:/programdata/openwebpbx/mobile-notifications/config.json'='notification_config';'c:/programdata/openwebpbx/mobile-notifications/config.json.lock'='notification_lock';'c:/programdata/fusionpbx'='fusionpbx_root';'c:/programdata/fusionpbx/config.conf'='fusionpbx_config';'c:/programdata/fusionpbx/openweb-template.key'='fusionpbx_template_key';'c:/programdata/openwebpbx/automatic-backups/worker.lock'='automatic_backups_worker_lock';'c:/programdata/openwebpbx/storage'='storage_root';'c:/programdata/openwebpbx/storage/openweb-music'='stock_music_root';'c:/programdata/openwebpbx/storage/openweb-music/readme.md'='stock_music_readme';'c:/programdata/openwebpbx/storage/openweb-music/manifest.json'='stock_music_manifest';'c:/program files/freeswitch/sounds'='stock_sounds_root';'c:/program files/freeswitch/sounds/openwebpbx'='stock_sounds_openwebpbx'}
+ foreach($name in 'phone-tls','public-access','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build'){$paths['c:/programdata/openwebpbx/'+$name]=$name.Replace('-','_')+'_root'}
+ foreach($rate in 8000,16000,32000,48000){$base='c:/programdata/openwebpbx/storage/openweb-music/'+$rate;$paths[$base]='stock_music_'+$rate+'_dir';$paths[$base+'/lofi-beat-loop-schmoop.wav']='stock_music_'+$rate+'_track'}
+ return $paths
+}
+function QualificationHashFailureFields($Record){
+ if($Record -isnot [Collections.IDictionary] -or $Record.Count -ne 7){return $null}
+ foreach($key in $Record.Keys){if($key -isnot [string] -or $key -cnotin @('stage','file_label','category','config_scope','exception_type','hresult','win32_code')){return $null}}
+ $sets=@{stage=@('unobserved','before_fault_full','before_fault_protected','after_fault_full','after_normal_protected');file_label=@('unknown')+@((QualificationSnapshotPaths).Values);category=@('web','server','desktop','tools','updater','config','notifications','media','native','other');config_scope=@('none','fusionpbx','phone_tls','public_access','automatic_backups','backup_restore','backup_control','backup_downloads','codec_compiler_cache','codec_build');exception_type=@('IOException','UnauthorizedAccessException','FileNotFoundException','DirectoryNotFoundException','PathTooLongException','NotSupportedException','ArgumentException','SecurityException','ItemNotFoundException','ProviderInvocationException','RuntimeException','Win32Exception','OtherError')}
+ $safe=@{}
+ foreach($name in $sets.Keys){if($Record[$name] -isnot [string] -or $Record[$name] -cnotin $sets[$name]){return $null};$safe[$name]=$Record[$name]}
+ if($Record.hresult -isnot [int] -or ($null -ne $Record.win32_code -and ($Record.win32_code -isnot [int] -or $Record.win32_code -lt 0 -or $Record.win32_code -gt 65535))){return $null}
+ $safe.hresult=$Record.hresult;$safe.win32_code=$Record.win32_code;return $safe
+}
+function QualificationSnapshotHashFailure([string]$Path,[string]$Stage,[Exception]$Exception){
+ $folded=if($Path -and $Path.Length -le 4096){$Path.Replace('\','/').ToLowerInvariant()}else{''}
+ $paths=QualificationSnapshotPaths;$label=if($paths.ContainsKey($folded)){$paths[$folded]}else{'unknown'};$category='other';$scope='none'
+ foreach($pair in @(@('c:/openwebpbx/web','web'),@('c:/openwebpbx/server','server'),@('c:/openwebpbx/desktop','desktop'),@('c:/openwebpbx/tools','tools'),@('c:/openwebpbx/updater','updater'),@('c:/programdata/fusionpbx','config'),@('c:/programdata/openwebpbx/mobile-notifications','notifications'),@('c:/programdata/openwebpbx/storage','media'),@('c:/program files/freeswitch/sounds/openwebpbx','media'),@('c:/program files/freeswitch','native'),@('c:/programdata/openwebpbx','config'),@('c:/openwebpbx','other'))){if($folded -ceq $pair[0] -or $folded.StartsWith($pair[0]+'/',[StringComparison]::Ordinal)){$category=$pair[1];break}}
+ foreach($pair in @(@('c:/programdata/fusionpbx','fusionpbx'),@('c:/programdata/openwebpbx/phone-tls','phone_tls'),@('c:/programdata/openwebpbx/public-access','public_access'),@('c:/programdata/openwebpbx/automatic-backups','automatic_backups'),@('c:/programdata/openwebpbx/backup-restore','backup_restore'),@('c:/programdata/openwebpbx/backup-control','backup_control'),@('c:/programdata/openwebpbx/backup-downloads','backup_downloads'),@('c:/programdata/openwebpbx/codec-compiler-cache','codec_compiler_cache'),@('c:/programdata/openwebpbx/codec-build','codec_build'))){if($folded -ceq $pair[0] -or $folded.StartsWith($pair[0]+'/',[StringComparison]::Ordinal)){$scope=$pair[1];break}}
+ $observedException=$Exception
+ for($depth=0;$depth -lt 7 -and $observedException.InnerException;$depth++){$observedException=$observedException.InnerException}
+ $type=$observedException.GetType().Name
+ if($type -cnotin @('IOException','UnauthorizedAccessException','FileNotFoundException','DirectoryNotFoundException','PathTooLongException','NotSupportedException','ArgumentException','SecurityException','ItemNotFoundException','ProviderInvocationException','RuntimeException','Win32Exception')){$type='OtherError'}
+ $hr=[int]$observedException.HResult;$code=$null
+ if($observedException -is [ComponentModel.Win32Exception] -and $observedException.NativeErrorCode -ge 0 -and $observedException.NativeErrorCode -le 65535){$code=[int]$observedException.NativeErrorCode}elseif(([int64]$hr -band 4294901760) -eq 2147942400){$code=[int]($hr -band 65535)}
+ return QualificationHashFailureFields @{stage=$Stage;file_label=$label;category=$category;config_scope=$scope;exception_type=$type;hresult=$hr;win32_code=$code}
+}
+function SnapshotHash([string]$Path,[string]$Stage){
+ try{return Hash $Path}catch{
+  # This call alone supplies context; global Hash uses never inherit snapshot state.
+  try{$script:qualificationFailedHash=QualificationSnapshotHashFailure $Path $Stage $_.Exception}catch{$script:qualificationFailedHash=$null}
+  throw
+ }
+}
 function WriteJson([string]$Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 32),[Text.UTF8Encoding]::new($false))}
 function PrivateDirectory([string]$Path){New-Item -ItemType Directory -Force $Path|Out-Null;& icacls.exe $Path /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F'|Out-Null;Check ($LASTEXITCODE -eq 0) 'Private qualification permissions failed.'}
 function SecureCanaryFaultContract([string]$Path,[string]$Directory){
@@ -242,14 +282,15 @@ function InitializeQualificationBackupWorker([string]$Root,[string]$StateRoot,[s
  foreach($field in 'exists','enabled','xml','acl','security'){Check ($after[$field] -ceq $definition[$field]) 'Backup warm-up changed the normal task definition or security.'}
 }
 function DatabaseSnapshot([string]$Label){$settings.snapshot_label=$Label;WriteJson $inputFile $settings;Fixture 'snapshot'|Out-Null;return Get-Content (Join-Path (Split-Path $inputFile -Parent) ($Label+'-database.json')) -Raw|ConvertFrom-Json -AsHashtable}
-function FileSnapshot([switch]$Protected){
+function FileSnapshot([switch]$Protected,[ValidateSet('unobserved','before_fault_full','before_fault_protected','after_fault_full','after_normal_protected')][string]$Stage='unobserved'){
+ $script:qualificationFailedHash=$null
  $directories=if($Protected){@($configuration,"$state\storage","$state\mobile-notifications","$state\phone-tls","$state\public-access","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build")}else{@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots",$configuration,"$engine\conf","$engine\scripts","$engine\mod","$engine\sounds","$state\storage","$state\mobile-notifications","$state\phone-tls","$state\public-access","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build")}
  $entries=@{}
  foreach($parent in $root,"$root\updater",$state,$engine){Check (!(Get-Item $parent).Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) 'A linked parent cannot be audited.';$entries[$parent]=@{directory=$true;acl=(Get-Acl $parent).Sddl}}
- foreach($directory in $directories){if(!(Test-Path -LiteralPath $directory)){continue};foreach($item in @(Get-Item -LiteralPath $directory -Force)+@(Get-ChildItem -LiteralPath $directory -Recurse -Force)){Check (!$item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) 'A linked fixture cannot be audited.';$record=@{directory=[bool]$item.PSIsContainer;acl=(Get-Acl -LiteralPath $item.FullName).Sddl};if(!$item.PSIsContainer){$record.sha256=Hash $item.FullName;$record.bytes=$item.Length};$entries[$item.FullName]=$record}}
+ foreach($directory in $directories){if(!(Test-Path -LiteralPath $directory)){continue};foreach($item in @(Get-Item -LiteralPath $directory -Force)+@(Get-ChildItem -LiteralPath $directory -Recurse -Force)){Check (!$item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) 'A linked fixture cannot be audited.';$record=@{directory=[bool]$item.PSIsContainer;acl=(Get-Acl -LiteralPath $item.FullName).Sddl};if(!$item.PSIsContainer){$record.sha256=SnapshotHash $item.FullName $Stage;$record.bytes=$item.Length};$entries[$item.FullName]=$record}}
  $paths=@("$state\runtime.json","$state\phone-tls.json","$state\native-engine.json","$state\local-codec.json","$root\php\php.ini","$root\php\extras\ssl\openssl.cnf","$root\php\extras\ssl\cacert.pem","$engine\libbcg729.dll")
  if(!$Protected){$paths+=@("$state\installation.json","$state\updater-install.json")}
- foreach($path in $paths){if(Test-Path -LiteralPath $path){$item=Get-Item -LiteralPath $path;Check (!$item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) 'A private audited file must be regular.';$entries[$path]=@{directory=$false;acl=(Get-Acl -LiteralPath $path).Sddl;sha256=(Hash $path);bytes=$item.Length}}}
+ foreach($path in $paths){if(Test-Path -LiteralPath $path){$item=Get-Item -LiteralPath $path;Check (!$item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) 'A private audited file must be regular.';$entries[$path]=@{directory=$false;acl=(Get-Acl -LiteralPath $path).Sddl;sha256=(SnapshotHash $path $Stage);bytes=$item.Length}}}
  return $entries
 }
 function TaskSnapshot {
@@ -644,7 +685,7 @@ if(!$?){exit 1}
   InitializeQualificationBackupWorker -Root $root -StateRoot $state -PackageRoot $package
   $facts.checks+='Actual unchanged installed SYSTEM backup task completed normally and initialized its regular worker lock before every acceptance baseline'
   $phase='fault14 full HTTPS download and rollback'
-  $beforeDb=DatabaseSnapshot 'before-fault';$beforeFiles=FileSnapshot;$beforeTasks=TaskSnapshot;$protected=FileSnapshot -Protected
+  $beforeDb=DatabaseSnapshot 'before-fault';$beforeFiles=FileSnapshot -Stage 'before_fault_full';$beforeTasks=TaskSnapshot;$protected=FileSnapshot -Protected -Stage 'before_fault_protected'
   $installationProtected=Get-Content "$state\installation.json" -Raw|ConvertFrom-Json -AsHashtable;$installationProtected.Remove('Version')|Out-Null
   $script:priorCommands=@((Fixture 'status').commands|ForEach-Object command_uuid);$requestStarted=[DateTime]::UtcNow;Python 'request';$failure=WaitInstall 'rolled_back' 'failed' $requestStarted
   DownloadProof 'fault' $verified.fault;Check ((InstalledVersions '1.0.13') -eq $initialPid) 'The original ordinary installed13 worker must remain running after rollback.'
@@ -656,7 +697,7 @@ if(!$?){exit 1}
   foreach($flag in 'normal_migration_completed','backup_and_mail_deferred','candidate_actual_assemblies','original_worker_parent','services_stopped','new_noncustomer_table','new_noncustomer_file','owned_task_hidden_changed','owned_task_read_acl_changed'){Check ($seen.$flag -is [bool] -and $seen.$flag -eq $true) 'The late signed fault did not prove every required actual mutation.'}
   foreach($flag in 'customer_rows_modified','registration_sent','carrier_calls'){Check ($seen.$flag -is [bool] -and $seen.$flag -eq $false) 'The fault witness exceeded its noncustomer scope.'}
   $settings.owned_update_commands=@($failure.command);WriteJson $inputFile $settings
-  Equal $beforeDb (DatabaseSnapshot 'after-fault') 'fault-database';Equal $beforeFiles (FileSnapshot) 'fault-files';EqualTaskSnapshots $beforeTasks (TaskSnapshot) 'fault-tasks'
+  Equal $beforeDb (DatabaseSnapshot 'after-fault') 'fault-database';Equal $beforeFiles (FileSnapshot -Stage 'after_fault_full') 'fault-files';EqualTaskSnapshots $beforeTasks (TaskSnapshot) 'fault-tasks'
   $failed=Get-Content "$state\updates\failed-install.json" -Raw|ConvertFrom-Json;Check ($failed.version -eq '1.0.14' -and $failed.asset_sha256 -eq $verified.fault.sha256) 'The worker did not record the exact failed signed package.'
   $facts.gates.fault_https_download='passed';$facts.gates.fault_rollback='passed';$facts.checks+='Actual installed13 SYSTEM worker full trusted HTTPS fault14 transfer, original key/URLs, late real14 witness and exact DB/roles/credentials/files/ACL/task rollback'
   $phase='higher-sequence normal14 full HTTPS download and natural restart'
@@ -667,7 +708,7 @@ if(!$?){exit 1}
   AssertOriginalProcessState $originalWorker $initialPid $true 'The previous worker must naturally exit after its installed restart task executes.'
   $upgradedManager=ManagerReopened '1.0.14' $heldRollbackManager $requestStarted;$facts.gates.manager_reopen_success='passed'
   $settings.owned_update_commands+=@($success.command);WriteJson $inputFile $settings
-  DownloadProof 'normal' $verified.normal;Equal $beforeDb (DatabaseSnapshot 'after-normal') 'normal-database';Equal $protected (FileSnapshot -Protected) 'normal-protected-files'
+  DownloadProof 'normal' $verified.normal;Equal $beforeDb (DatabaseSnapshot 'after-normal') 'normal-database';Equal $protected (FileSnapshot -Protected -Stage 'after_normal_protected') 'normal-protected-files'
   $afterProtected=Get-Content "$state\installation.json" -Raw|ConvertFrom-Json -AsHashtable;$afterProtected.Remove('Version')|Out-Null;Equal $installationProtected $afterProtected 'normal-installation-secrets'
   NormalTaskPreservation $beforeTasks (TaskSnapshot) $requestStarted;Check (!(Test-Path "$state\updates\failed-install.json")) 'Success must clear the exact failed-install marker.'
   $status=Get-Content "$state\updates\status.json" -Raw|ConvertFrom-Json;Check ($status.last_success_version -eq '1.0.14' -and $status.installed_version -eq '1.0.14') 'The naturally restarted real14 worker must retain last-success and current-version state.'
@@ -677,7 +718,7 @@ if(!$?){exit 1}
  }
 }catch{
  $facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$_.Exception.GetType().Name;$facts.source_basename=if($_.InvocationInfo.ScriptName){Split-Path -Leaf $_.InvocationInfo.ScriptName}else{'external_component'};$facts.source_line=[int]$_.InvocationInfo.ScriptLineNumber
- $facts.failure_observation=QualificationFailureObservation $_.ScriptStackTrace $script:qualificationFailedChild $script:qualificationComparisonFailure
+ $facts.failure_observation=QualificationFailureObservation $_.ScriptStackTrace $script:qualificationFailedChild $script:qualificationComparisonFailure $script:qualificationFailedHash
  Write-Error ('Disposable updater qualification failed in '+$phase+'. Private streams are not published.') -ErrorAction Continue
 }finally{
  Remove-Item Env:\GH_TOKEN,Env:\WINDOWS_UPDATER_SIGNED_PACKETS_B64 -ErrorAction SilentlyContinue
