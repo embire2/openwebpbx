@@ -29,6 +29,10 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
     private void Journal(string state, string? version = null) => UpdateJson.Write(paths.Journal, new WorkerJournal(command?.Id, command?.Action, version ?? candidate?.Version, state, DateTimeOffset.UtcNow, candidate?.Asset.Sha256));
     public async Task Initialize(CancellationToken ct)
     {
+        if (!await InitializeAttempt(ct)) throw new IOException("Another update is still completing.");
+    }
+    private async Task<bool> InitializeAttempt(CancellationToken ct)
+    {
         paths.Prepare();
         WorkerJournal? journal = File.Exists(paths.Journal) ? UpdateJson.Read<WorkerJournal>(paths.Journal) : null;
         if (File.Exists(paths.Status)) { try { lastSuccess = UpdateJson.Read<UpdateStatus>(paths.Status).LastSuccessVersion; } catch (Exception e) when (e is IOException or JsonException) { } }
@@ -39,7 +43,8 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
                 if (recovery != 75 && journal is { State: "installing", TargetVersion: not null, AssetSha256: not null }) UpdateJson.Write(paths.FailedInstall, new FailedInstall(journal.TargetVersion, journal.AssetSha256));
                 try { await Status(recovery == 75 ? "installing" : "recovery_required", recovery == 75 ? "Another update is still completing" : "An interrupted update needs administrator recovery. Check the private update log", paths.InstalledVersion(), ct); }
                 catch (Npgsql.NpgsqlException) { }
-                throw new IOException(recovery == 75 ? "Another update is still completing." : "An interrupted update needs recovery before continuing.");
+                if (recovery == 75) return false;
+                throw new IOException("An interrupted update needs recovery before continuing.");
             }
         }
         var installState = installer.JournalState();
@@ -52,6 +57,7 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
                 await repository.Finish(old, true, "The update completed successfully", ct);
             else await repository.Finish(old, false, installState == "rolled_back" ? "The previous version was restored after an interrupted update" : "Review the update recovery status before trying again", ct);
         }
+        return true;
     }
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -68,7 +74,16 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
         }, CancellationToken.None);
         try
         {
-            await Initialize(stoppingToken);
+            if (OneShot || CheckOnly) await Initialize(stoppingToken);
+            else
+            {
+                while (true)
+                {
+                    stoppingToken.ThrowIfCancellationRequested();
+                    if (await InitializeAttempt(stoppingToken)) break;
+                    await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                }
+            }
             do
             {
                 await Tick(stoppingToken);

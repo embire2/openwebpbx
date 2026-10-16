@@ -6,6 +6,13 @@ using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using OpenWebPbx.Updater;
 
+if (args.Contains("--startup-checks", StringComparer.Ordinal))
+{
+    var startupConnection = Environment.GetEnvironmentVariable("OPENWEB_TEST_DATABASE") ?? throw new InvalidOperationException("An independently owned PostgreSQL fixture is required.");
+    await WorkerStartupChecks.Run(startupConnection);
+    return;
+}
+
 var checks = 0;
 void Check(bool valid, string name) { if (!valid) throw new Exception(name); checks++; }
 void Reject(Action action, string name) { try { action(); } catch (Exception e) when (e is InvalidDataException or CryptographicException or FormatException or KeyNotFoundException or JsonException) { checks++; return; } throw new Exception(name); }
