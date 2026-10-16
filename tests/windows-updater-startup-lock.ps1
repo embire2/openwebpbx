@@ -246,4 +246,6 @@ if(!$?){exit 1}
  New-Item -ItemType Directory -Force $public|Out-Null;WriteJson (Join-Path $public 'qualification.json') $facts
 }
 if($facts.state -ceq 'failed'){exit 1}
+if($facts.state -cne 'observed' -or !$cleanup){exit 1}
 Write-Output 'Disposable startup-lock observation completed; release and owner qualification remain unavailable.'
+exit 0
