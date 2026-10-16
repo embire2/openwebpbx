@@ -1,0 +1,47 @@
+name: Windows isolated updater startup lock diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: windows-updater-startup-lock-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  diagnostic:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      DOTNET_NOLOGO: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+    steps:
+      - name: Preserve repository bytes
+        run: git config --global core.autocrlf false
+      - name: Check out diagnostic source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Observe only the owned disposable installed service
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          & tests/windows-updater-startup-lock.ps1 -DisposableHostedRunner
+          if(!$?){throw 'The disposable startup-lock diagnostic did not complete.'}
+      - name: Preserve only bounded credential-free observations
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openwebpbx-windows-startup-lock-facts-${{ github.run_id }}
+          path: ${{ runner.temp }}/openwebpbx-startup-lock-facts/qualification.json
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 6
