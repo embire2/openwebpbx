@@ -121,6 +121,10 @@ BEGIN
  IF existing_item IS NOT NULL THEN item:=existing_item; END IF;
  INSERT INTO v_menu_items(menu_item_uuid,menu_uuid,uuid,menu_item_title,menu_item_link,menu_item_category,menu_item_order,menu_item_icon)
  VALUES(item,m,item,'My PBX','/app/pbx_staff/','internal',1,'fa-solid fa-users') ON CONFLICT(menu_item_uuid) DO NOTHING;
+ INSERT INTO v_menu_languages(menu_language_uuid,menu_uuid,menu_item_uuid,menu_language,menu_item_title)
+ SELECT gen_random_uuid(),m,item,l.menu_language,'My PBX'
+ FROM (SELECT DISTINCT menu_language FROM v_menu_languages WHERE menu_uuid=m UNION SELECT 'en-us') l
+ WHERE NOT EXISTS(SELECT 1 FROM v_menu_languages existing WHERE existing.menu_uuid=m AND existing.menu_item_uuid=item AND existing.menu_language=l.menu_language);
  INSERT INTO v_menu_item_groups(menu_item_group_uuid,menu_uuid,menu_item_uuid,group_uuid,group_name)
  SELECT gen_random_uuid(),m,item,g,'openweb_staff' WHERE NOT EXISTS(SELECT 1 FROM v_menu_item_groups WHERE menu_item_uuid=item AND group_uuid=g);
 END $$;
