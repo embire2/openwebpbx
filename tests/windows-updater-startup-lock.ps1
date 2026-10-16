@@ -11,6 +11,7 @@ if($os.ProductType -eq 1 -or $os.Caption -notmatch 'Windows Server 2025' -or [En
 $source=Split-Path $PSScriptRoot -Parent;$root='C:\OpenWebPBX';$state=Join-Path $env:ProgramData 'OpenWebPBX';$configuration=Join-Path $env:ProgramData 'fusionpbx'
 $work=Join-Path $env:RUNNER_TEMP ('openwebpbx-startup-lock-'+[Guid]::NewGuid().ToString('N'));$public=Join-Path $env:RUNNER_TEMP 'openwebpbx-startup-lock-facts'
 $installed=$false;$heldLock=$null;$ownHosts=$false;$phase='verified baseline';$retainedProcesses=[Collections.Generic.List[Diagnostics.Process]]::new()
+$script:startupFailureRole=$null
 $facts=[ordered]@{schema=1;run_id=$env:GITHUB_RUN_ID;source_commit=$env:GITHUB_SHA;state='running';scope='disposable Windows Server 2025 installed SYSTEM updater startup contention';release_eligible=$false;owner_eligible=$false;base_suite_run_id='38826730298';base_source_commit='97825554dbfe0e01689a9bc796c57884b0623fe3';base_archive_sha256='33d9a52375f27736149898599f0dbf621748e94f4820bd230801ab86e13e958d';locked_start=$null;unlocked_restart=$null;cleanup='pending'}
 
 # Import exact accepted helpers only, never the qualifier's entrypoint.
@@ -27,6 +28,35 @@ $proofSource=Join-Path $PSScriptRoot 'windows-upgrade-acceptance.ps1'
 if((Hash $proofSource) -cne '3761b3c3e8b30d07d88cc5309de4a21c315512e2d73b2ef5ca4480942a2ffc30'){throw 'The reviewed original-process proof bytes differ.'}
 . (OriginalProcessProofSource $proofSource)
 function ErrorKind([Exception]$Exception){$name=$Exception.GetType().Name;if($name -cin @('RuntimeException','IOException','InvalidOperationException','UnauthorizedAccessException','Win32Exception','TimeoutException')){return $name};return 'OtherError'}
+function StartupFailureFields($Record,$Role){
+ if($Record -isnot [Management.Automation.ErrorRecord]){return $null}
+ $functions=@('Check','ServiceRecord','NoHolds','RetainStarted','ObserveStart','RetainQualificationProcess','GetManagerOriginalExitProof','<ScriptBlock>');$frames=[Collections.Generic.List[object]]::new()
+ $trace=$Record.ScriptStackTrace
+ if($trace -and $trace.Length -le 16384){foreach($line in @([regex]::Split($trace,'\r?\n')|Select-Object -First 64)){
+  if($frames.Count -ge 6){break}
+  $match=[regex]::Match($line.Trim(),'\Aat (?<function>[^,\r\n]{1,80}), (?:(?:[^\r\n]*[\\/])?(?<source>windows-updater-startup-lock\.ps1|windows-updater-qualification\.ps1)|(?<imported><No file>)): line (?<line>[0-9]{1,5})\z')
+  if(!$match.Success -or $match.Groups['function'].Value -cnotin $functions){continue}
+  $number=[int]$match.Groups['line'].Value;if($number -lt 1 -or $number -gt 10000){continue}
+  $frames.Add(@{function=$match.Groups['function'].Value;source_basename=if($match.Groups['imported'].Success){'imported_scriptblock'}else{$match.Groups['source'].Value};source_line=$number})
+ }}
+ $command=$Record.InvocationInfo.MyCommand.Name;if($command -cnotin @('Get-CimInstance','Invoke-CimMethod','Check','RetainStarted','RetainQualificationProcess','ObserveStart')){$command='other'}
+ $roleValue='unknown';$substage='unknown';$retainer=@($frames|Where-Object {$_.function -ceq 'RetainQualificationProcess' -and $_.source_basename -ceq 'imported_scriptblock'})
+ if($retainer.Count -and @($frames|Where-Object {$_.function -ceq 'RetainStarted'}).Count){
+  if($Role -is [string] -and $Role -cin @('worker','helper')){$roleValue=$Role}
+  if($retainer[0].source_line -eq 5){$substage=if($command -ceq 'Get-CimInstance'){'retained_process_lookup'}elseif($command -ceq 'Invoke-CimMethod'){'retained_owner_sid'}else{'retained_process_lookup_or_owner_sid'}}
+  elseif($retainer[0].source_line -eq 4){$substage='retained_handle_or_start_time'}
+  elseif($retainer[0].source_line -eq 7){$substage='retained_identity_assertion'}
+ }
+ $known=@{'System.IO.IOException'='IOException';'System.InvalidOperationException'='InvalidOperationException';'System.UnauthorizedAccessException'='UnauthorizedAccessException';'System.ComponentModel.Win32Exception'='Win32Exception';'System.TimeoutException'='TimeoutException';'System.Management.Automation.RuntimeException'='RuntimeException';'System.Management.Automation.MethodInvocationException'='MethodInvocationException';'System.Management.Automation.ParameterBindingException'='ParameterBindingException';'System.Management.Automation.ParameterBindingValidationException'='ParameterBindingValidationException';'System.Management.Automation.ParameterBindingArgumentTransformationException'='ParameterBindingArgumentTransformationException';'Microsoft.Management.Infrastructure.CimException'='CimException'}
+ $exceptions=[Collections.Generic.List[object]]::new();$exception=$Record.Exception
+ for($depth=0;$exception -and $depth -lt 6;$depth++){
+  $name=$exception.GetType().FullName;$type=if($known.ContainsKey($name)){$known[$name]}else{'OtherError'};$native=$null;$kind='none'
+  if($name -ceq 'Microsoft.Management.Infrastructure.CimException'){$value=[long]$exception.NativeErrorCode;if($value -ge 0 -and $value -le 65535){$native=[int]$value;$kind='cim'}}
+  elseif($exception -is [ComponentModel.Win32Exception] -and $exception.NativeErrorCode -ge 0 -and $exception.NativeErrorCode -le 65535){$native=[int]$exception.NativeErrorCode;$kind='win32'}
+  $exceptions.Add(@{type=$type;hresult=[int]$exception.HResult;native_code=$native;native_kind=$kind});$exception=$exception.InnerException
+ }
+ return @{schema=1;process_role=$roleValue;substage=$substage;command=$command;callsites=$frames.ToArray();exceptions=$exceptions.ToArray()}
+}
 function AcquireProbeLock {
  # Same existing 40-second/250-ms cleanup guard pattern; never stop services
  # before acquiring it, never delete/create the lock or interrupt its holder.
@@ -51,8 +81,12 @@ function NoHolds {
  Check (!$gate.Blocked -and !$gate.Calls -and !$gate.Jobs -and !$gate.Updates -and !$gate.Backups) 'The diagnostic refuses real recovery or activation holds.'
  Check (!(Test-Path -LiteralPath "$state\updates\install-journal.json")) 'A fresh diagnostic must not have an update transaction.'
 }
-function RetainStarted($Record,[DateTime]$Started,[string]$Path){
- return RetainQualificationProcess ([Diagnostics.Process]::GetProcessById([int]$Record.ProcessId)) ([int]$Record.ProcessId) $Path 'S-1-5-18' 0 $Started
+function RetainStarted($Record,[DateTime]$Started,[string]$Path,[ValidateSet('worker','helper')][string]$Role){
+ $script:startupFailureRole=$null
+ try{return RetainQualificationProcess ([Diagnostics.Process]::GetProcessById([int]$Record.ProcessId)) ([int]$Record.ProcessId) $Path 'S-1-5-18' 0 $Started}catch{
+  try{$script:startupFailureRole=$Role}catch{}
+  throw
+ }
 }
 function ObserveStart([bool]$Locked){
  # Both attempts use ordinary SCM startup with unchanged account/action/recovery
@@ -66,7 +100,7 @@ function ObserveStart([bool]$Locked){
   if($service.ProcessId -gt 0){
    $processId=[int]$service.ProcessId
    if(!$pids.Contains($processId)){
-    $record=Get-CimInstance Win32_Process -Filter ('ProcessId='+$processId);$held=RetainStarted $record $started "$root\updater\slots\1.0.13\OpenWebPbx.Updater.exe"
+    $record=Get-CimInstance Win32_Process -Filter ('ProcessId='+$processId);$held=RetainStarted $record $started "$root\updater\slots\1.0.13\OpenWebPbx.Updater.exe" 'worker'
     Check ($record.CommandLine -notmatch '--run-once|--check-once|--skip-recovery|--verify-package') 'The diagnostic requires the ordinary installed worker.'
     $pids.Add($processId)|Out-Null;if(!$worker){$worker=$held}
    }
@@ -76,7 +110,7 @@ function ObserveStart([bool]$Locked){
     if($children.Count){
      $record=$children[0];$helper="$root\tools\Upgrade-OpenWebPBX.ps1";$expected='\A(?:"(?:[^"\r\n]*\\)?powershell\.exe"|(?:[^"\s]*\\)?powershell\.exe) -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (?:"'+[regex]::Escape($helper)+'"|'+[regex]::Escape($helper)+') -Recover\z'
      Check ($record.CommandLine.Length -le 8192 -and $record.CommandLine -imatch $expected) 'The exact installed recovery child is required.'
-     $child=RetainStarted $record $started "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+     $child=RetainStarted $record $started "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" 'helper'
     }
    }
   }
@@ -140,6 +174,7 @@ if(!$?){exit 1}
  $facts.state='observed'
 }catch{
  $facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=ErrorKind $_.Exception;$facts.source_line=[int]$_.InvocationInfo.ScriptLineNumber
+ try{$observation=StartupFailureFields $_ $script:startupFailureRole;if($observation){$facts.failure_observation=$observation}}catch{}
  Write-Error 'The disposable startup-lock diagnostic failed; private messages and streams are not published.' -ErrorAction Continue
 }finally{
  Remove-Item Env:\GH_TOKEN -ErrorAction SilentlyContinue
