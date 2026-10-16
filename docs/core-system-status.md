@@ -1,16 +1,24 @@
 # OpenWeb PBX core system status
 
-## 1.0.15 development
+## 1.0.15 — staff, phone handover and first calls
 
-| Work | Current status |
+| Work | Status |
 |---|---|
-| Department staff | Six roles, invitations, scoped screens and server checks implemented; native HTTPS and call-control tests passed. |
-| Restore-to-phone | Guided preparation, exact credential proofs, encrypted domain-only export and phone checks implemented; 23 original identities registered in the software engine. Actual W60B/V62W checks await handset access. |
-| First calls / backup provider | Ordered ordinary/callback provider evidence, plain results, durable native CDR/history and same-call checklist implemented; isolated native provider tests passed. Real-carrier failure testing remains open. |
-| Delivery | Complete-package qualification is in progress. Public server/app remains 1.0.14; frozen Windows 1.0.13 and its supplied-host blocker are unchanged. |
+| Department staff | Six roles, private invitations, scoped My PBX screens and server authorization delivered; normal HTTPS, denied access, live controls and isolation tests passed. |
+| Restore-to-phone | Guided preparation, original-credential proofs, encrypted domain-only export and call-linked checks delivered. All 23 original identities registered with software phones. Actual W60B/V62W checks await handset access. |
+| First calls / backup provider | Ordered ordinary/callback provider results, durable CDR/history and same-call backup verification delivered. Isolated native-provider tests passed; real-carrier cutover remains open. |
+| Debian delivery | Complete fresh installation and installed 1.0.14 HTTPS upgrade/restart passed; 7,135 exact installed mappings on both. Intentional late-failure recovery preserved 150 tables/6,884 files exactly. |
+| Android | Version 1.0.15/code115; persistent signing identity and unchanged calling engine. Builds/tests passed; no new physical-device call claim. |
+| Windows / Play | Frozen Windows 1.0.13 and supplied-host blocker remain separate. Google Play verification/approval remains pending. |
 
-The broad roadmap remains 133 items: 21 accepted, 72 partial and 40 planned. These focused implementations do not establish every 3CX feature or physical-device compatibility.
+The broad roadmap remains 133 items: 21 accepted, 72 partial and 40 planned. See [qualification and limits](feature-coverage.md#department-staff-phone-handover-and-provider-evidence--1015).
 
+
+All seven complete public downloads match their local SHA-256, and the latest signed feed matches the release. The live `call.openweb.co.za` instance completed its normal installed 1.0.14 → 1.0.15 update and natural updater restart. All 7,135 installed mappings passed. Strict typed checks retained 24 users/mailboxes, 19 gateways, 138 dialplans/801 condition-action rows, 12 queues and 15 agents/tiers, all original credentials, database ownership/grants and private configuration. The existing provider and extension 1000 are registered, with zero active calls at verification. Update-policy rows are exact and the Android instance minimum remains 1.0.12; no new forced-update requirement was written.
+
+The homepage's 14 deployed static files match source. Desktop/390px/320px light/dark checks passed with no overflow or browser errors. GitHub README, operating guides and this roadmap record the release and its physical-device/carrier limits.
+
+The existing live restore was also compared with the original supplied backup: all 23 original extension/authentication/password identities match. Only their sealed identity proofs were added; no password, call route or provider enablement changed, and no physical test was recorded.
 
 ## Users and departments — 1.0.14
 

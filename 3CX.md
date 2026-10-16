@@ -1,10 +1,10 @@
 # OpenWeb PBX — 3CX feature roadmap
 
-## Department roles, phone handover and first calls — 1.0.15 candidate
+## Department roles, phone handover and first calls — 1.0.15
 
-The next version implements [staff roles and invitations](docs/department-staff.md), [per-phone migration](docs/desk-phone-handover.md#guided-handover-in-1015) and [same-call provider evidence](docs/core-calling.md#first-calls-and-provider-evidence-in-1015). Production and the public release remain 1.0.14 while complete-package qualification runs. Hardware access is unavailable; physical W60B/V62W checks remain awaiting access.
+Implemented [staff roles and invitations](docs/department-staff.md), [guided phone migration](docs/desk-phone-handover.md#guided-handover-in-1015) and [same-call provider results](docs/core-calling.md#first-calls-and-provider-evidence-in-1015). Complete final Debian installation, signed updater/recovery, software-phone calls, authorization and configuration-preservation checks passed. See [the detailed evidence and limits](docs/feature-coverage.md#department-staff-phone-handover-and-provider-evidence--1015).
 
-Source/native progress: six staff roles passed 177 normal HTTPS invitation/login/page boundaries and 24 live-control/phone-setup checks; a department administrator created an automatically numbered user through the browser. The original source backup passed 99 identity/configuration checks, and all 23 original extension/authentication/password tuples registered on a new owned SIP domain with software phones. Five native ordinary/callback provider chains passed, including actual CDR import and same-call backup-check recording. Initial failures exposed the missing fresh-install CDR worker and an overly strict duplicate-variable check; the corrected native run imported all five records with no retention/quarantine. Full package, automatic-worker, preservation/rollback and publication gates remain pending. The broader 133 roadmap IDs/21 accepted items are unchanged.
+**Remaining acceptance:** physical Yealink W60B/Fanvil V62W firmware/provisioning/audio and site-network checks await handset access. Real-carrier incoming/outgoing and approved failure cutover require the provider/phones. These are not marked passed. The broader 133 IDs/21 accepted/72 partial/40 planned are unchanged; these three implementations do not establish full 3CX parity.
 
 
 ## Users and department routing — 1.0.14
