@@ -1,5 +1,17 @@
 # OpenWeb PBX feature coverage
 
+## Voicemail 121 and GMT+2 talking clock — 2026-10-17
+
+Hosted Debian now provides own-mailbox **121** and Nathaniel clock **1026**. Access requires an authorised SIP account/owned realm, enabled native/restored extension mapping or active Android device, and the same tenant/mailbox. Missing/duplicate restored mappings, another mailbox and unauthenticated/provider CLI refuse. PINs are cleared and old writes forced to NULL; creation/import/export/UI/reset/tutorial/password choices are retired. New PBXs reserve 121/1026; existing hosted PBXs have global routes and *97 compatibility. [User guide](voicemail-and-clock.md).
+
+Passed 60 isolated PostgreSQL/helper controls, 55 parser/14 phone-plan cases, directory XML, 42 identity and 2,931 scheduler controls with independent repeats. Fifteen actual Debian and 28 portable Windows backup tests cover successful old-backup PIN retirement, custom-greeting preservation, legacy-write refusal and exact factory recovery after late failure. Future native fixtures reject any PIN prompt without credential DTMF while retaining SIP/message/forwarded-audio/cleanup gates. Portable observer/PowerShell results are not new Windows native acceptance.
+
+Registered local SIP calls passed121 with decoded audio, cross-mailbox refusal, restored alphanumeric login without an alias, distinct numeric auth 991002 opening canonical mailbox 991001, and missing-map denial with no mailbox speech. Two staged minute signals and one installed global signal were **18ms** after target. Decoded 1000 Hz beep energy was **0.99940434**; installed Nathaniel prefix matched its generated reference at **0.99998802** correlation. Three new offline phrases have independent **1.0.1** catalogue/audio bindings; the frozen full voice archive is unchanged.
+
+The shared-lock/idle-guard activation saved private full DB/file recovery evidence and paused calls 7.460 s without restarting services. An installed check exposed root's umask on four new code directories; corrected those, checked actual service-user access and repeated installed 121/1026 calls. The initial 3 s menu observer was short; the same audio predicate passed at 5 s. All **1,273 protected customer files** and eight customer table projections are exact except prescribed credential removal. Owner HTTPS login and four 1440/390px mailbox/extension PIN-field/help checks passed with no page errors or form save. Owned fixtures/calls/contacts/storage were removed; engine resumed/idle and six services active.
+
+Private facts: `/var/lib/openwebpbx/voicemail-clock-20261017/`. Immutable Debian/Android1.0.15 assets, Windows native qualification, full new-release signed upgrade and physical/carrier acceptance are unchanged. A separately tested requested-provider source correction is excluded from this hosted overlay.
+
 ## Call Me Back source qualification — 2026-10-17
 
 [Call Me Back](call-me-back.md) implements a separately enabled tenant incoming-number service, answered callback to the original CLI, SA-ID verification, revocable saved callers, normal outbound-route permissions and concurrent lifetime allowances with native ten-minute cutoffs. It is not deployed on customer DIDs or included in immutable public 1.0.15.

@@ -121,8 +121,8 @@
 						freeswitch.consoleLog("notice", "[voicemail] dtmf_digits: " .. string.sub(dtmf_digits, 0, 1) .. "\n");
 						if (dtmf_digits == "*") then
 							if (remote_access == "true") then
-								--check the voicemail password
-									check_password(voicemail_id, password_tries);
+								-- Only this authenticated extension can enter its own mailbox.
+									if not authorize_mailbox(voicemail_id) then return end
 								--send to the main menu
 									timeouts = 0;
 									main_menu();

@@ -602,7 +602,6 @@
 						sql = sql .. " cast(voicemail_local_after_email as text), ";
 						sql = sql .. " cast(voicemail_enabled as text), ";
 						sql = sql .. " cast(voicemail_attach_file as text), ";
-						sql = sql .. " voicemail_password, ";
 						sql = sql .. " voicemail_mail_to, ";
 						sql = sql .. " voicemail_enabled ";
 						sql = sql .. "FROM v_voicemails ";
@@ -621,7 +620,6 @@
 							vm_keep_local_after_email = row.voicemail_local_after_email;
 							vm_enabled = row.voicemail_enabled;
 							vm_attach_file = row.voicemail_attach_file;
-							vm_password = row.voicemail_password;
 							vm_mailto = row.voicemail_mail_to;
 						end);
 					end
@@ -673,7 +671,6 @@
 							xml:append([[								<param name="password" value="]] .. directory_attribute(password) .. [["/>]]);
 							xml:append([[								<param name="vm-enabled" value="]] ..  directory_attribute(vm_enabled) .. [["/>]]);
 							if (string.len(vm_mailto) > 0) then
-								xml:append([[								<param name="vm-password" value="]] ..  directory_attribute(vm_password)  .. [["/>]]);
 								xml:append([[								<param name="vm-email-all-messages" value="]] ..  directory_attribute(vm_enabled)  ..[["/>]]);
 								xml:append([[								<param name="vm-attach-file" value="]] ..  directory_attribute(vm_attach_file) .. [["/>]]);
 								xml:append([[								<param name="vm-keep-local-after-email" value="]] ..  directory_attribute(vm_keep_local_after_email) .. [["/>]]);

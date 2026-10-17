@@ -1,0 +1,5 @@
+<extension name="OpenWeb voicemail access" number="121" context="global" continue="false" app_uuid="fbda657e-32a6-4a40-a743-30cdaebeea45" global="true" order="79">
+    <condition field="destination_number" expression="^121$">
+        <action application="lua" data="app.lua pbx_services voicemail"/>
+    </condition>
+</extension>

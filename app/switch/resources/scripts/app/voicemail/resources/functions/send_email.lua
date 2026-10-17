@@ -57,7 +57,6 @@ function send_email(id, uuid)
 		end
 		dbh:query(sql, params, function(row)
 			db_voicemail_uuid = string.lower(row["voicemail_uuid"]);
-			--voicemail_password = row["voicemail_password"];
 			--greeting_id = row["greeting_id"];
 			voicemail_mail_to = row["voicemail_mail_to"];
 			voicemail_transcription_enabled = row["voicemail_transcription_enabled"];

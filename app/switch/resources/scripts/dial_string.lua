@@ -83,15 +83,13 @@ if ( session:ready() ) then
 			dial_string = string.gsub(dial_string, '{v_unique_id}', unique_id);
 		end
 
-	--authenticate the user
-		if (pin_number) then
-			min_digits = string.len(pin_number);
-			max_digits = string.len(pin_number)+1;
-		else
-			min_digits = 1;
-			max_digits = 12;
-		end
-		caller_pin_number = session:playAndGetDigits(min_digits, max_digits, max_tries, digit_timeout, "#", "phrase:voicemail_enter_pass:#", "", "\\d+");
+    -- An explicit service PIN remains separate from voicemail. Without one,
+    -- require the authenticated phone account; never compare empty credentials.
+    if pin_number and pin_number ~= "" then
+        caller_pin_number = session:playAndGetDigits(#pin_number,#pin_number+1,max_tries,digit_timeout,"#","phrase:voicemail_enter_pass:#","","\\d+");
+    else
+        pin_number = nil;
+    end
 
 	--get the dial_string, and extension_uuid
 		if (string.len(unique_id) > 0) then
@@ -125,29 +123,13 @@ if ( session:ready() ) then
 				--access denied
 				db_extension_uuid = "";
 			end
-		else
-			if (db_domain_uuid ~= nil) then
-				sql = "SELECT * FROM v_voicemails ";
-				sql = sql .. "WHERE domain_uuid = :domain_uuid ";
-				sql = sql .. "AND voicemail_id = :voicemail_id ";
-				local params = {domain_uuid = db_domain_uuid};
-				if (tonumber(db_extension) == nil) then
-					params.voicemail_id = db_number_alias;
-				else
-					params.voicemail_id = db_extension;
-				end
-				if (debug["sql"]) then
-					freeswitch.consoleLog("NOTICE", "[dial_string] SQL: ".. sql .. "; params: " .. json.encode(params) .. "\n");
-				end
-				dbh:query(sql, params, function(row)
-					voicemail_password = row.voicemail_password;
-				end);
-				if (voicemail_password ~= caller_pin_number) then
-					--access denied
-					db_extension_uuid = "";
-				end
-			end
-		end
+        else
+            local identity = require "resources.functions.mailbox_identity";
+            local owner = identity.principal(session, dbh);
+            if not owner or owner.domain_uuid ~= db_domain_uuid or owner.extension_uuid ~= db_extension_uuid then
+                db_extension_uuid = "";
+            end
+        end
 
 	--process the request
 		if (string.len(db_extension_uuid) > 0) then

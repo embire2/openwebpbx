@@ -878,6 +878,12 @@ def restore_database_security(settings, dump, workspace, factory_dump, administr
         path.unlink(missing_ok=True)
 
 
+def apply_voicemail_policy(settings):
+    # Migrate only a successful source import, never the target recovery dump.
+    policy = ordinary(WEB_VERSION.parent / 'app/voicemails/resources/voicemail_without_pins.sql')
+    query(settings, policy.read_text(encoding='utf-8'))
+
+
 def restore_database(settings, dump, workspace, *, factory_dump=None, administrator=None, recovery=False):
     if factory_dump is not None:
         return restore_database_security(settings, dump, workspace, factory_dump, administrator, recovery=recovery)
@@ -1178,6 +1184,7 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
                 # Older archive labels keep their original copy and also seed
                 # the current PHP/C# location with the identical VAPID bytes.
                 atomic_copy(extracted / 'mobile-push/file', notification_fallback, mode=0o600)
+            apply_voicemail_policy(settings)
             # Invalid source SIP contacts and XML caches must never survive a clean restore.
             cache = STATE / 'cache'
             if cache.is_dir() and not reparse(cache):

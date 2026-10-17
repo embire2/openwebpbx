@@ -32,7 +32,7 @@
 			
 		--play entire menu using phrases
 			if (session:ready()) then
-				dtmf_digits = session:playAndGetDigits(1, 1, max_tries, digit_timeout, "#", "phrase:voicemail_config_menu:1:2:3:6:0", "", "\\d+");
+				dtmf_digits = session:playAndGetDigits(1, 1, max_tries, digit_timeout, "#", "phrase:voicemail_config_menu:1:2:3:0", "", "\\d+");
 			end
 
 		--process the dtmf
@@ -48,9 +48,6 @@
 				elseif (dtmf_digits == "3") then
 					--To record your name 3
 					record_name("advanced");
-				elseif (dtmf_digits == "6") then
-					--To change your password press 6
-					change_password(voicemail_id, "advanced");
 				elseif (dtmf_digits == "0") then
 					--For the main menu press 0
 					timeouts = 0;

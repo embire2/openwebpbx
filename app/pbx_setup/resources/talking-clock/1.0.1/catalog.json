@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "version": "1.0.1",
+  "name": "Nathaniel UK talking clock",
+  "provider": "ElevenLabs",
+  "voice_id": "7S3KNdLDL7aRgBVRQb1z",
+  "voice_name": "Nathaniel - Deep, Rich and Mature",
+  "locale": "en-GB",
+  "model_id": "eleven_multilingual_v2",
+  "voice_settings": {
+    "stability": 0.65,
+    "similarity_boost": 0.8,
+    "style": 0,
+    "use_speaker_boost": true,
+    "speed": 1
+  },
+  "provider_output_format": "pcm_44100",
+  "stock_source_version": "1.0.53",
+  "stock_source_repository": "https://github.com/freeswitch/freeswitch-sounds/tree/0c9642c28de78728544f3ed988ec450cfddab9e6/en/us/callie",
+  "stock_original_sha256": {},
+  "scope": "Talking-clock fixed system phrases only",
+  "prompts": [
+    {
+      "id": "clock/welcome",
+      "text": "Welcome to the OpenWeb PBX talking clock. The time is South African Standard Time. Please wait for the next time signal.",
+      "source": "OpenWeb PBX original system script",
+      "targets": [
+        {
+          "path": "openwebpbx/talking-clock-1.0.1-welcome.wav",
+          "rate": 8000
+        }
+      ]
+    },
+    {
+      "id": "clock/signal",
+      "text": "When you hear the signal, it will be",
+      "source": "OpenWeb PBX original system script",
+      "targets": [
+        {
+          "path": "openwebpbx/talking-clock-1.0.1-signal.wav",
+          "rate": 8000
+        }
+      ]
+    },
+    {
+      "id": "clock/exactly",
+      "text": "exactly.",
+      "source": "OpenWeb PBX original system script",
+      "targets": [
+        {
+          "path": "openwebpbx/talking-clock-1.0.1-exactly.wav",
+          "rate": 8000
+        }
+      ]
+    }
+  ]
+}

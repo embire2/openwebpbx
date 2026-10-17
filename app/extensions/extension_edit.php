@@ -1910,6 +1910,7 @@ if (permission_exists('voicemail_edit') && is_dir(dirname(__DIR__, 2) . '/app/vo
 	}
 	echo "<br />\n";
 	echo $text['description-voicemail_enabled'] . "\n";
+	echo "<br>Dial <strong>121</strong> from this connected extension to check its voicemail. No PIN is required.\n";
 	echo "</td>\n";
 	echo "</tr>\n";
 

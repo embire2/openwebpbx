@@ -87,41 +87,12 @@
 
 	local settings = Settings.new(dbh, domain_name, domain_uuid);
 
---request id is true
-	if (request_id == "true") then
-		--unset extension uuid
-			extension_uuid = nil;
-
-		--get the extension
-			if not session:ready() then return end
-			local min_digits = 2;
-			local max_digits = 20;
-			extension = session:playAndGetDigits(min_digits, max_digits, max_tries, digit_timeout, "#", "phrase:voicemail_enter_id:#", "", "\\d+");
-			if empty(extension) then return end
-
-		--get the pin number
-			if not session:ready() then return end
-			min_digits = 3;
-			max_digits = 20;
-			local caller_pin_number = session:playAndGetDigits(min_digits, max_digits, max_tries, digit_timeout, "#", "phrase:voicemail_enter_pass:#", "", "\\d+");
-			if empty(caller_pin_number) then return end
-
-		--check to see if the pin number is correct
-			if not session:ready() then return end
-			local sql = "SELECT voicemail_password FROM v_voicemails ";
-			sql = sql .. "WHERE domain_uuid = :domain_uuid ";
-			sql = sql .. "AND voicemail_id = :extension ";
-			local params = {domain_uuid = domain_uuid, extension = extension};
-			if (debug["sql"]) then
-				log.noticef("SQL: %s; params: %s", sql, json.encode(params));
-			end
-			local voicemail_password = dbh:first_value(sql, params)
-			if (voicemail_password ~= caller_pin_number) then
-				--access denied
-				session:streamFile("phrase:voicemail_fail_auth:#");
-				return session:hangup("NORMAL_CLEARING");
-			end
-	end
+-- Only the authenticated extension may change its forwarding settings.
+    local identity = require "resources.functions.mailbox_identity";
+    local owner = identity.principal(session, dbh);
+    if not owner then dbh:release(); session:hangup("CALL_REJECTED"); return end
+    extension_uuid = owner.extension_uuid;
+    extension = owner.number;
 
 --determine whether to update the dial string
 	if not session:ready() then return end

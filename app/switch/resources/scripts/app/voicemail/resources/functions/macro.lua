@@ -34,9 +34,6 @@
 					table.insert(actions, {app="streamFile",data="phrase:voicemail_enter_id:#"});
 				end
 			 --Please enter your id followed by
-				if (name == "voicemail_password") then
-					table.insert(actions, {app="streamFile",data="phrase:voicemail_enter_pass:#"});
-				end
 			--the person at extension 101 is not available record your message at the tone press any key or stop talking to end the recording
 				if (name == "person_not_available_record_message") then
 					table.insert(actions, {app="streamFile",data="voicemail/vm-person.wav"});
@@ -147,12 +144,6 @@
 						table.insert(actions, {app="streamFile",data="voicemail/vm-record_name1.wav"});
 						table.insert(actions, {app="tone_stream",data="L=1;%(2000, 0, 640)"});
 					end
-				--To change your password press 6
-					if (name == "change_password") then
-						table.insert(actions, {app="streamFile",data="voicemail/vm-change_password.wav"});
-						table.insert(actions, {app="streamFile",data="voicemail/vm-press.wav"});
-						table.insert(actions, {app="streamFile",data="digits/6.wav"});
-					end
 				--For the main menu press 0
 					if (name == "main_menu") then
 						table.insert(actions, {app="streamFile",data="voicemail/vm-main_menu.wav"});
@@ -166,23 +157,10 @@
 					table.insert(actions, {app="streamFile",data="digits/star.wav"});
 				end
 			--Additional Macros
-				--Please enter your new password then press the # key #
-					if (name == "password_new") then
-						table.insert(actions, {app="streamFile",data="voicemail/vm-enter_new_pin.wav"});
-					end
 				--Has been changed to
-					if (name == "password_changed") then
-						table.insert(actions, {app="streamFile",data="voicemail/vm-has_been_changed_to.wav"});
-						table.insert(actions, {app="say.number.iterated",data=param});
-					end
 				--Login Incorrect
-					--if (name == "password_not_valid") then
-					--	table.insert(actions, {app="streamFile",data="voicemail/vm-password_not_valid.wav"});
 					--end
 				--Login Incorrect
-					if (name == "password_not_valid") then
-						table.insert(actions, {app="streamFile",data="voicemail/vm-fail_auth.wav"});
-					end
 				--Too many failed attempts
 					if (name == "too_many_failed_attempts") then
 						table.insert(actions, {app="streamFile",data="voicemail/vm-abort.wav"});
@@ -265,16 +243,6 @@
 					if (name == "goodbye") then
 						table.insert(actions, {app="streamFile",data="voicemail/vm-goodbye.wav"});
 					end
-				--Password is not secure
-					if (name == "password_not_secure") then
-						table.insert(actions, {app="streamFile",data="voicemail/vm-password_is_not_secure.wav"});
-					end
-				--Password is below minimum length
-					if (name == "password_below_minimum") then
-						table.insert(actions, {app="streamFile",data="voicemail/vm-pin_below_minimum_length.wav"});
-						table.insert(actions, {app="streamFile",data="voicemail/vm-minimum_pin_length_is.wav"});
-						table.insert(actions, {app="streamFile",data="digits/"..param..".wav"});
-					end
 			--Tutorial
 				--Tutorial intro
 					if (name == "tutorial_intro") then
@@ -289,13 +257,6 @@
 						table.insert(actions, {app="streamFile",data="digits/1.wav"});
 					end
 					
-				--Tutorial to change your password press 1
-					if (name == "tutorial_change_password") then
-						table.insert(actions, {app="streamFile",data="voicemail/vm-tutorial_change_pin.wav"});
-						table.insert(actions, {app="streamFile",data="voicemail/vm-change_password.wav"});
-						table.insert(actions, {app="streamFile",data="voicemail/vm-press.wav"});
-						table.insert(actions, {app="streamFile",data="digits/1.wav"});
-					end
 
 				--Tutorial to record your greeting press 1
 					if (name == "tutorial_record_greeting") then

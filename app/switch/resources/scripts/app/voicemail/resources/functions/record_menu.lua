@@ -165,7 +165,7 @@
 									advanced();
 								end
 								if (menu == "tutorial") then
-									tutorial("change_password")
+									tutorial("record_greeting")
 								end
 							end
 					elseif (dtmf_digits == "3") then
@@ -198,7 +198,7 @@
 								if (menu == "advanced") then
 									advanced();
 								elseif (menu == "tutorial") then
-									tutorial("change_password");
+									tutorial("record_greeting");
 								end
 							end
 							if (type == "message") then
@@ -273,7 +273,7 @@
 										advanced();
 									end
 									if (menu == "tutorial") then
-										tutorial("change_password");
+										tutorial("record_greeting");
 									end
 								end
 							end

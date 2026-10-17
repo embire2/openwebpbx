@@ -47,7 +47,6 @@
 --starting values
 	dtmf_digits = '';
 	timeouts = 0;
-	password_tries = 0;
 
 --connect to the database
 	Database = require "resources.functions.database";
@@ -149,6 +148,15 @@
 				domain_uuid = string.lower(domain_uuid);
 			end
 
+		-- Resolve management access from the verified SIP identity before loading a mailbox.
+			if voicemail_action == "check" then
+				local identity = require "resources.functions.mailbox_identity";
+				local owner = identity.mailbox(session, dbh, voicemail_id);
+				if not owner then session:hangup("CALL_REJECTED"); dbh:release(); return end
+				voicemail_id = owner.number;
+				session:setVariable("voicemail_id", owner.number);
+			end
+
 		--if voicemail_id is non numeric then get the number-alias
 			if (voicemail_id ~= nil) then
 				if (voicemail_id and tonumber(voicemail_id) == nil) then
@@ -218,20 +226,6 @@
 					vm_say_date_time = "before";
 				end
 
-				password_complexity = '';
-				if (settings['voicemail']['password_complexity'] ~= nil) then
-					if (settings['voicemail']['password_complexity']['boolean'] ~= nil) then
-						password_complexity = settings['voicemail']['password_complexity']['boolean'];
-					end
-				end
-
-				password_min_length = '';
-				if (settings['voicemail']['password_min_length'] ~= nil) then
-					if (settings['voicemail']['password_min_length']['numeric'] ~= nil) then
-						password_min_length = settings['voicemail']['password_min_length']['numeric'];
-					end
-				end
-
 				not_found_message = 'false';
 				if (settings['voicemail']['not_found_message'] ~= nil) then
 					if (settings['voicemail']['not_found_message']['boolean'] ~= nil) then
@@ -283,7 +277,6 @@
 					--get the information from the database
 						local sql = [[SELECT
 							voicemail_uuid, 
-							voicemail_password, 
 							greeting_id, 
 							voicemail_alternate_greet_id, 
 							voicemail_mail_to, 
@@ -302,7 +295,6 @@
 						end
 						dbh:query(sql, params, function(row)
 							voicemail_uuid = string.lower(row["voicemail_uuid"]);
-							voicemail_password = row["voicemail_password"];
 							greeting_id = row["greeting_id"];
 							voicemail_alternate_greet_id = row["voicemail_alternate_greet_id"];
 							voicemail_mail_to = row["voicemail_mail_to"];
@@ -348,8 +340,7 @@
 --voicemail functions
 	require "app.voicemail.resources.functions.on_dtmf";
 	require "app.voicemail.resources.functions.get_voicemail_id";
-	require "app.voicemail.resources.functions.check_password";
-	require "app.voicemail.resources.functions.change_password";
+	require "app.voicemail.resources.functions.authorize_mailbox";
 	require "app.voicemail.resources.functions.macro";
 	require "app.voicemail.resources.functions.play_greeting";
 	require "app.voicemail.resources.functions.record_message";
@@ -402,7 +393,6 @@
 				sql = sql .. " cast(voicemail_local_after_email as text), ";
 				sql = sql .. " cast(voicemail_local_after_forward as text), ";
 				sql = sql .. " cast(voicemail_attach_file as text), ";
-				sql = sql .. " voicemail_password, ";
 				sql = sql .. " voicemail_mail_to, ";
 				sql = sql .. " cast(voicemail_enabled as text) ";
 				sql = sql .. "FROM v_voicemails ";
@@ -439,24 +429,8 @@
 			--a per-user fault
 				session:execute("clear_digit_action", "all");
 
-			--check the voicemail password
-				if (voicemail_id) then
-					if (voicemail_authorized) then
-						if (voicemail_authorized == "true") then
-							if (voicemail_id == user_name or voicemail_id == sip_number_alias) then
-								--skip the password check
-							else
-								check_password(voicemail_id, password_tries);
-							end
-						else
-							check_password(voicemail_id, password_tries);
-						end
-					else
-						check_password(voicemail_id, password_tries);
-					end
-				else
-					check_password(voicemail_id, password_tries);
-				end
+			-- Authenticated own-extension access; no PIN or other-mailbox login.
+				if not authorize_mailbox(voicemail_id) then return end
 
 			--get the extension_uuid using the voicemail_id
 				if (voicemail_id ~= nil) then

@@ -71,7 +71,7 @@
 								dtmf_digits = session:playAndGetDigits(0, 1, 1, 200, "#", "phrase:tutorial_record_name:1", "", "\\d+");
 							end
 						end
-					--skip the name and go to password press 2
+					--skip the name and go to greeting press 2
 						if (session:ready()) then
 							if (string.len(dtmf_digits) == 0) then
 								dtmf_digits = session:playAndGetDigits(0, 1, 1, 3000, "#", "phrase:tutorial_skip:2", "", "\\d+");
@@ -84,57 +84,19 @@
 								record_name("tutorial");
 							elseif (dtmf_digits == "2") then
 								timeouts = 0;
-								tutorial("change_password");
+								tutorial("record_greeting");
 							else
 								if (session:ready()) then
 									timeouts = timeouts + 1;
 									if (timeouts < max_timeouts) then
 										tutorial("record_name");
 									else
-										tutorial("change_password");
-									end
-								end
-							end
-						end
-				end
-			--change password menu
-				if (menu == "change_password") then 
-					--clear the value
-						dtmf_digits = '';
-					--flush dtmf digits from the input buffer
-						session:flushDigits();
-					--to change your password press 1
-						if (session:ready()) then
-							if (string.len(dtmf_digits) == 0) then
-								dtmf_digits = session:playAndGetDigits(0, 1, 1, 200, "#", "phrase:tutorial_change_password:1", "", "\\d+");
-							end
-						end
-					--skip the password and go to greeting press 2
-						if (session:ready()) then
-							if (string.len(dtmf_digits) == 0) then
-								dtmf_digits = session:playAndGetDigits(0, 1, 1, 3000, "#", "phrase:tutorial_skip:2", "", "\\d+");
-							end
-						end
-					--process the dtmf
-						if (session:ready()) then
-							if (dtmf_digits == "1") then
-								timeouts = 0;
-								change_password(voicemail_id, "tutorial");
-							elseif (dtmf_digits == "2") then
-								timeouts = 0;
-								tutorial("record_greeting");
-							else
-								if (session:ready()) then
-									timeouts = timeouts + 1;
-									if (timeouts < max_timeouts) then
-										tutorial("change_password");
-									else
 										tutorial("record_greeting");
 									end
 								end
 							end
 						end
-				end				
+				end
 			--change greeting menu
 				if (menu == "record_greeting") then 
 					--clear the value

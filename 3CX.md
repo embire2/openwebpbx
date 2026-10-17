@@ -1,5 +1,9 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+## Voicemail 121 and talking clock 1026 — 2026-10-17
+
+The hosted PBX now opens the caller's own mailbox on **121 without a PIN**, using the registered account's tenant/extension identity, including restored distinct login names and Android devices. PIN creation/reset/import/export/UI and phone PIN menus are retired; old writes cannot restore credentials. Custom greetings/messages and SIP passwords are preserved. **1026** plays Nathaniel's repeating **GMT+2** clock with a minute signal. Actual software calls, restored identities/denials, decoded speech/beeps, live forms and preservation passed. [Instructions](docs/voicemail-and-clock.md) · [Verification](docs/feature-coverage.md#voicemail-121-and-gmt2-talking-clock--2026-10-17). This hosted/source patch leaves immutable 1.0.15 downloads and all 133 roadmap acceptance marks unchanged.
+
 ## Call Me Back — source qualified, release pending — 2026-10-17
 
 A separate [Call Me Back service](docs/call-me-back.md) now supports tenant-owned incoming numbers/accounts, callback to the original caller, South African ID authentication, saved/revocable caller numbers, per-user lifetime allowances and a ten-minute native limit. Ordinary outgoing permissions/provider routes apply to both legs; no customer DID has been taken over. The hosted Nathaniel voice activation below does not deploy the new callback runtime.

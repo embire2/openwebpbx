@@ -648,6 +648,13 @@ def restore_database(settings, dump, workspace):
     schema_sql.unlink(missing_ok=True)
 
 
+def apply_voicemail_policy(settings):
+    # Successful imports may come from a pre-policy backup. Do not apply this
+    # transform during exact factory/disaster recovery of the target itself.
+    policy = ordinary(WEB_VERSION.parent / 'app/voicemails/resources/voicemail_without_pins.sql')
+    query(settings, policy.read_text(encoding='utf-8'))
+
+
 def restore_targets(manifest):
     mapping = {}
     roots = ROOTS | MEDIA
@@ -854,6 +861,7 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
                 # Older archive labels keep their original copy and also seed
                 # the current PHP/C# location with the identical VAPID bytes.
                 atomic_copy(extracted / 'mobile-push/file', notification_fallback, mode=0o600)
+            apply_voicemail_policy(settings)
             # Invalid source SIP contacts and XML caches must never survive a clean restore.
             cache = Path('/var/cache/fusionpbx')
             if cache.is_dir() and not cache.is_symlink():

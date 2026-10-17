@@ -1,0 +1,5 @@
+<extension name="OpenWeb talking clock" number="1026" context="global" continue="false" app_uuid="054ac6db-7b11-40fd-8dbf-63c6b173b8cd" global="true" order="79">
+    <condition field="destination_number" expression="^1026$">
+        <action application="lua" data="app.lua pbx_services clock"/>
+    </condition>
+</extension>

@@ -76,6 +76,7 @@ class Backups(unittest.TestCase):
          CREATE TABLE v_pbx_restore(id uuid PRIMARY KEY);
          CREATE TABLE v_recordings(id uuid PRIMARY KEY);
          CREATE TABLE v_voicemail_messages(id uuid PRIMARY KEY);
+         CREATE TABLE v_voicemails(voicemail_uuid uuid PRIMARY KEY,voicemail_id text,voicemail_password text,greeting_id text);
          CREATE TABLE fixture_objects(kind text PRIMARY KEY,payload text NOT NULL);
          INSERT INTO v_users VALUES(gen_random_uuid(),'factory','true');
          INSERT INTO v_domains VALUES(gen_random_uuid(),'pbx.fixture.invalid');
@@ -88,6 +89,7 @@ class Backups(unittest.TestCase):
             b.query(settings, "CREATE TABLE v_pbx_update_commands(status text);")
         b.query(cls.source, "INSERT INTO fixture_objects VALUES('tenant','isolated tenant'),('template','encrypted fixture data'),('job','pending wakeup fixture'),('trunk','disabled fixture provider');")
         b.query(cls.source, 'INSERT INTO v_extensions VALUES(gen_random_uuid());')
+        b.query(cls.source, "INSERT INTO v_voicemails VALUES(gen_random_uuid(),'1000','123456','7');")
         cls.archive = cls.workspace / (str(uuid.uuid4()) + '.owpbx')
         cls.original_lock = b.UPGRADE_LOCK
         b.UPGRADE_LOCK = cls.workspace / 'upgrade.lock'
@@ -108,6 +110,13 @@ class Backups(unittest.TestCase):
         key = hashlib.sha256(self.key.read_bytes() + b'/openwebpbx/backups/v1').digest()
         encrypted = AESGCM(key).encrypt(nonce, text.encode(), b'openwebpbx-backup-settings-v1')
         return 'v1:' + base64.b64encode(nonce + encrypted[-16:] + encrypted[:-16]).decode()
+
+    @staticmethod
+    def install_voicemail_policy(version):
+        source = Path(__file__).resolve().parents[1] / 'app/voicemails/resources/voicemail_without_pins.sql'
+        target = version.parent / 'app/voicemails/resources/voicemail_without_pins.sql'
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
 
     def test_01_encrypted_archive_and_private_media(self):
         self.assertTrue(self.archive.read_bytes().startswith(b.MAGIC))
@@ -234,6 +243,7 @@ class Backups(unittest.TestCase):
             b.STORE = self.workspace / 'restore-lock-store'
             b.UNIT_ROOT = self.workspace / 'fixture-units';b.UNIT_ROOT.mkdir()
             b.WEB_VERSION = self.workspace / 'target-version';b.WEB_VERSION.write_text('1.0.9')
+            self.install_voicemail_policy(b.WEB_VERSION)
             b.running_services = lambda: []  # Never touch any host production service.
             dry = b.restore(self.archive, self.archive_password, self.target, dry_run=True)
             self.assertEqual(dry['version'], '1.0.9')
@@ -246,6 +256,9 @@ class Backups(unittest.TestCase):
             self.assertEqual((roots['fusionpbx-config'] / 'openweb-template.key').read_bytes(), self.key.read_bytes())
             self.assertEqual((roots['recordings'] / 'recording.wav').read_bytes(), (self.source_roots['recordings'] / 'recording.wav').read_bytes())
             self.assertEqual(b.query(self.target, "select payload from fixture_objects where kind='tenant'"), 'isolated tenant')
+            self.assertEqual(b.query(self.target, "select greeting_id from v_voicemails where voicemail_id='1000' and voicemail_password is null"), '7')
+            b.query(self.target, "update v_voicemails set voicemail_password='999999' where voicemail_id='1000'")
+            self.assertEqual(b.query(self.target, "select count(*) from v_voicemails where voicemail_password is not null"), '0')
             self.assertIn('Database="' + self.target_name + '"', json.loads(runtime.read_text())['ConnectionStrings']['Pbx'])
             with self.assertRaises(b.BackupError):
                 b.recover(self.target)  # A completed restore must not be silently undone.
@@ -388,6 +401,7 @@ class Backups(unittest.TestCase):
                     b.ROOTS=roots;b.MEDIA={label:target/label for label in self.original_media}
                     b.RESTORE=work/'restore';b.STORE=work/'store';b.UNIT_ROOT=work/'units';b.UNIT_ROOT.mkdir()
                     b.WEB_VERSION=work/'VERSION';b.WEB_VERSION.write_text('1.0.9');b.running_services=lambda:[]
+                    self.install_voicemail_policy(b.WEB_VERSION)
                     b.restore(archive,self.archive_password,self.target,confirm_database=self.target_name)
                     expected=(source_current/'config.json').read_bytes() if current_layout else legacy.read_bytes()
                     self.assertEqual(current.read_bytes(),expected)
