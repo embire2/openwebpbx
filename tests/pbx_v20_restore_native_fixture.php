@@ -272,16 +272,18 @@ $check('exact_supported_source_version',$plan['source_version']==='20.0.9.995');
 $check('one_owned_service',(int)$q('select count(*) from v_pbx_services where tenant_uuid=?',[$state['tenant']])->fetchColumn()===1);
 $check('all_original_trunks_off',(int)$q("select count(*) from v_gateways where domain_uuid=? and enabled='true'",[$state['domain']])->fetchColumn()===0);
 $check('all_imported_incoming_routes_off',(int)$q("select count(*) from v_destinations where domain_uuid=? and destination_enabled='true'",[$state['domain']])->fetchColumn()===0);
-$passwords=0;$pins=0;$identities=0;$profiles=0;
+$passwords=0;$pinFreeMailboxes=0;$identities=0;$profiles=0;
+$check('parsed_plan_has_no_retired_mailbox_credentials',pbx_voicemail_policy::withoutPins($plan)===$plan);
+$check('restored_policy_has_no_retired_mailbox_credentials',pbx_voicemail_policy::withoutPins($policy)===$policy);
 foreach($plan['users'] as $u){
     $row=$q('select extension,number_alias,password,effective_caller_id_number from v_extensions where domain_uuid=? and extension=?',[$state['domain'],$u['auth_id']])->fetch(PDO::FETCH_ASSOC);
     $passwords+=(bool)$row&&hash_equals($u['password'],$row['password']);
     $identities+=(bool)$row&&$row['extension']===$u['auth_id']&&$row['effective_caller_id_number']===$u['number']&&($policy['users'][$u['number']]['auth_id']??null)===$u['auth_id'];
-    $pin=$q('select voicemail_password from v_voicemails where domain_uuid=? and voicemail_id=?',[$state['domain'],$u['number']])->fetchColumn();$pins+=is_string($pin)&&hash_equals($u['voicemail_pin'],$pin);
+    $mailbox=$q('select voicemail_password from v_voicemails where domain_uuid=? and voicemail_id=?',[$state['domain'],$u['number']])->fetch(PDO::FETCH_ASSOC);$pinFreeMailboxes+=(bool)$mailbox&&$mailbox['voicemail_password']===null;
     // JSONB normalizes object-key ordering; compare profile values independently.
     $profiles+=($policy['users'][$u['number']]['profile']??null)===$plan['v20']['users'][$u['number']]['profile']&&($policy['users'][$u['number']]['profiles']??null)==$plan['v20']['users'][$u['number']]['profiles'];
 }
-$check('all_source_phone_passwords_preserved',$passwords===count($plan['users']));$check('all_source_voicemail_pins_preserved',$pins===count($plan['users']));$check('authentication_ids_and_extension_numbers_preserved',$identities===count($plan['users']));$check('all_statuses_and_forwarding_profiles_preserved',$profiles===count($plan['users']));
+$check('all_source_phone_passwords_preserved',$passwords===count($plan['users']));$check('all_restored_mailboxes_have_no_pin',$pinFreeMailboxes===count($plan['users']));$check('authentication_ids_and_extension_numbers_preserved',$identities===count($plan['users']));$check('all_statuses_and_forwarding_profiles_preserved',$profiles===count($plan['users']));
 if(!empty($state['candidate_phone_preservation'])){
     // Independently read original XML bytes rather than comparing two normalized copies.
     $zip=new ZipArchive();if($zip->open($archive,ZipArchive::RDONLY)!==true)throw new RuntimeException('Private source archive unavailable.');
@@ -296,19 +298,19 @@ if(!empty($state['candidate_phone_preservation'])){
     }finally{$zip->close();}
     if(count($xmls)!==1||!is_string($xmls[0])||preg_match('/<!\s*(?:DOCTYPE|ENTITY)/i',$xmls[0]))throw new RuntimeException('An unambiguous private source XML is required.');
     $doc=new DOMDocument();if(!$doc->loadXML($xmls[0],LIBXML_NONET))throw new RuntimeException('Original private source XML is invalid.');
-    $xpath=new DOMXPath($doc);$rawPasswords=0;$rawPins=0;$rawPhones=[];
+    $xpath=new DOMXPath($doc);$rawPasswords=0;$rawPinFreeMailboxes=0;$rawPhones=[];
     foreach($xpath->query('/PhoneSystem/Tenants/Tenant/DN/Extension') as $node){
         $raw=static function(string $field)use($xpath,$node):string{return $xpath->evaluate('string(./'.$field.')',$node);};
         $number=trim($raw('Number'));$row=$q('select password from v_extensions where domain_uuid=? and effective_caller_id_number=?',[$state['domain'],$number])->fetchColumn();
         $rawPasswords+=is_string($row)&&hash_equals($raw('AuthPassword'),$row);
-        $pin=$q('select voicemail_password from v_voicemails where domain_uuid=? and voicemail_id=?',[$state['domain'],$number])->fetchColumn();
-        $rawPins+=is_string($pin)&&hash_equals(trim($raw('VMPIN')),$pin);
+        $mailbox=$q('select voicemail_password from v_voicemails where domain_uuid=? and voicemail_id=?',[$state['domain'],$number])->fetch(PDO::FETCH_ASSOC);
+        $rawPinFreeMailboxes+=(bool)$mailbox&&$mailbox['voicemail_password']===null;
         foreach($xpath->query('./PhoneDevices/PhoneDevice',$node) as $phone){
             $rawPhones[]=['number'=>$number,'settings'=>$xpath->evaluate('string(./Settings)',$phone),'interface'=>trim($xpath->evaluate('string(./Interface)',$phone)),'provisioning_filename'=>trim($xpath->evaluate('string(./ProvisioningFilename)',$phone)),'provisioning_filename2'=>trim($xpath->evaluate('string(./ProvisioningFilename2)',$phone))];
         }
     }
     $check('raw_xml_password_bytes_match_all_native_users',$rawPasswords===count($plan['users']));
-    $check('raw_xml_mailbox_pins_match_all_native_users',$rawPins===count($plan['users']));
+    $check('raw_xml_users_all_have_pin_free_native_mailboxes',$rawPinFreeMailboxes===count($plan['users']));
     $key=file_get_contents(pbx_paths::key());$sealed=0;$settings=0;$lines=0;$templates=0;
     foreach($plan['v20']['phones'] as $index=>$phone){
         $stored=$policy['phones'][$index]??[];$cipher=$stored['source_ciphertext']??'';$decoded=base64_decode($cipher,true);
@@ -356,7 +358,7 @@ $draft=$q('select payload_ciphertext,completed_domain_uuid from v_pbx_setup_draf
 $foreign=uuid();$session($state,$state['home'],$state['home_realm']);$scope=new restore_qualification_scope($db);$check('owner_scope_without_cli_permission_shortcut',$scope->canDomain($state['domain'])&&!$scope->canDomain($foreign));
 $importReport=json_decode($q('select report from v_pbx_restore where domain_uuid=?',[$state['domain']])->fetchColumn(),true,512,JSON_THROW_ON_ERROR);
 $mediaCounts=array_intersect_key($importReport,array_flip(['recordings','voicemail_files','voicemail_messages','voicemail_greetings','prompts','call_history','contacts']));
-$report=['source_version'=>$plan['source_version'],'fixture_only'=>true,'test_state_credentials_encrypted'=>true,'archive_outside_web_root'=>true,'checks'=>$checks,'source_counts'=>threecx_v20::counts($plan),'restored_media_counts'=>$mediaCounts,'source_phone_passwords_verified'=>$passwords,'source_voicemail_pins_verified'=>$pins,'source_status_profiles_verified'=>$profiles,'actual_dual_identity_sip_registration_separate_required_gate'=>true,'all_passed'=>!in_array(false,$checks,true)];
+$report=['source_version'=>$plan['source_version'],'fixture_only'=>true,'test_state_credentials_encrypted'=>true,'archive_outside_web_root'=>true,'checks'=>$checks,'source_counts'=>threecx_v20::counts($plan),'restored_media_counts'=>$mediaCounts,'source_phone_passwords_verified'=>$passwords,'pin_free_mailboxes_verified'=>$pinFreeMailboxes,'source_status_profiles_verified'=>$profiles,'actual_dual_identity_sip_registration_separate_required_gate'=>true,'all_passed'=>!in_array(false,$checks,true)];
 file_put_contents($root.'/restore-evidence.json',json_encode($report,JSON_PRETTY_PRINT|JSON_THROW_ON_ERROR));chmod($root.'/restore-evidence.json',0600);
 echo json_encode($report,JSON_PRETTY_PRINT|JSON_THROW_ON_ERROR)."\n";
 if(!$report['all_passed'])exit(1);

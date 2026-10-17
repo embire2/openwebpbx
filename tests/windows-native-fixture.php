@@ -159,11 +159,11 @@ if($action==='job'){
 }
 if($action==='due'){$updated=$q("update v_pbx_jobs set due_at=now() where domain_uuid=? and kind='wakeup' and state='waiting'",[$domain])->rowCount();echo json_encode(['owned_wakeup_due'=>true,'owned_wakeup_updated_count'=>$updated],JSON_THROW_ON_ERROR),PHP_EOL;exit;}
 if($action==='voicemail-login'){
- $pin=$q('select voicemail_password from v_voicemails where domain_uuid=? and voicemail_id=? and voicemail_enabled=true',[$domain,'8103'])->fetchColumn();
- if(!is_string($pin)||!preg_match('/^[0-9]{2,20}$/D',$pin))throw new RuntimeException('Owned generated mailbox PIN unavailable.');
+ $mailbox=$q('select voicemail_password from v_voicemails where domain_uuid=? and voicemail_id=? and voicemail_enabled=true',[$domain,'8103'])->fetch(PDO::FETCH_ASSOC);
+ if(!$mailbox||$mailbox['voicemail_password']!==null)throw new RuntimeException('Owned PIN-free mailbox unavailable.');
  $configuration=config::load();$host=$configuration->get('switch.event_socket.host',null)??$configuration->get('event_socket.ip_address',null)??'127.0.0.1';
  if(!in_array($host,['127.0.0.1','localhost'],true))throw new RuntimeException('Only the disposable loopback event listener is permitted.');
- echo json_encode(['pin'=>$pin,'event_socket'=>['host'=>$host,'port'=>(int)($configuration->get('switch.event_socket.port',null)??$configuration->get('event_socket.port',null)??8021),'password'=>$configuration->get('switch.event_socket.password',null)??$configuration->get('event_socket.password',null)??'ClueCon']],JSON_THROW_ON_ERROR);exit;
+ echo json_encode(['mailbox_number'=>'8103','voicemail_dial'=>'121','pin_free'=>true,'event_socket'=>['host'=>$host,'port'=>(int)($configuration->get('switch.event_socket.port',null)??$configuration->get('event_socket.port',null)??8021),'password'=>$configuration->get('switch.event_socket.password',null)??$configuration->get('event_socket.password',null)??'ClueCon']],JSON_THROW_ON_ERROR);exit;
 }
 if($action==='api'){
  $command=$argv[3]??'';

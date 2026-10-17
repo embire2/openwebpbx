@@ -316,21 +316,24 @@ def mailbox_peer_snapshot(phone):
     return facts
 
 
-def mailbox_menu(f,playback,phone,call,pin,flags):
-    # A genuine fresh mailbox authenticates before offering its tutorial. Use
-    # the real skip key, keeping the existing 30s menu budget across that step.
+def mailbox_menu(f,playback,phone,call,flags):
+    # SIP authentication selects the caller's own mailbox through 121. A PIN
+    # prompt is a regression, never an invitation to supply a stored credential.
+    # Keep one 30s menu budget while skipping an optional first-login tutorial.
     deadline=time.monotonic()+30
     index,prompt=mailbox_prompt(f,playback,call,'mailbox_login_prompt',
-        ['vm-enter_pass.wav','vm-tutorial_yes_no.wav','vm-listen_new.wav'])
-    if prompt.endswith('vm-enter_pass.wav'):
-        for digit in pin+'#':phone.dtmf(call,digit)
-        flags['mailbox_pin_sent']=True;deadline=time.monotonic()+30
-        index,prompt=mailbox_prompt(f,playback,call,'mailbox_main_menu_prompt',
-            ['vm-tutorial_yes_no.wav','vm-listen_new.wav'],after=index,seconds=max(0,deadline-time.monotonic()))
+        ['vm-enter_pass.wav','vm-fail_auth.wav','vm-tutorial_yes_no.wav','vm-listen_new.wav'])
+    def require_menu_prompt():
+        assert prompt.endswith(('vm-tutorial_yes_no.wav','vm-listen_new.wav')),'Authenticated own mailbox requested a retired PIN or rejected the phone identity'
+    mailbox_step(f,'mailbox_login_prompt',require_menu_prompt)
     if prompt.endswith('vm-tutorial_yes_no.wav'):
         phone.dtmf(call,'2');flags['mailbox_tutorial_skip_sent']=True
-        index,_=mailbox_prompt(f,playback,call,'mailbox_tutorial_complete',
-            ['vm-listen_new.wav'],after=index,seconds=max(0,deadline-time.monotonic()))
+        index,prompt=mailbox_prompt(f,playback,call,'mailbox_tutorial_complete',
+            ['vm-enter_pass.wav','vm-fail_auth.wav','vm-listen_new.wav'],after=index,seconds=max(0,deadline-time.monotonic()))
+        def require_main_menu():
+            assert prompt.endswith('vm-listen_new.wav'),'Mailbox tutorial requested a retired PIN or rejected the phone identity'
+        mailbox_step(f,'mailbox_tutorial_complete',require_main_menu)
+    flags['mailbox_pin_free']=True
     return index
 
 
@@ -1147,23 +1150,26 @@ def native_calls(f):
             stage=getattr(f,'native_substage',None)
             if stage in {'voicemail_message_created','voicemail_recording_finalized','voicemail_mail_queued'} and not getattr(error,'native_failure',None):error.native_failure=native_exception_fields(error,stage)
             raise
-        # Retrieve that real recording through *97 and forward it with wire
+        # Retrieve that real recording through authenticated 121 and forward it with wire
         # RFC2833. Native playback events synchronize actual menu prompts;
         # they never inject digits or bypass the mailbox authentication.
         f.active_case='native_voicemail_wire_forwarding_binary_copy'
         f.native_substage='native_case'
-        mailbox_info=f.cli('voicemail-login');playback=NativePlayback(mailbox_info['event_socket'],realm)
+        mailbox_info=f.cli('voicemail-login')
+        assert mailbox_info['pin_free'] is True and mailbox_info['mailbox_number']=='8103' and mailbox_info['voicemail_dial']=='121'
+        assert not any(key in mailbox_info for key in ('pin','voicemail_pin','voicemail_password'))
+        playback=NativePlayback(mailbox_info['event_socket'],realm)
         mailbox=Phone(users[3],'tls');peers.append(mailbox)
-        retrieve=None;flags={'mailbox_pin_sent':False,'mailbox_tutorial_skip_sent':False,
+        retrieve=None;flags={'mailbox_pin_free':False,'mailbox_tutorial_skip_sent':False,
             'mailbox_forward_destination_sent':False,'mailbox_forward_no_intro_sent':False,
             'mailbox_register_started':False,'mailbox_register_completed':False,
             'mailbox_invite_started':False,'mailbox_invite_completed':False}
         try:
             registered=mailbox_signalling(f,'REGISTER',lambda:mailbox.register((bind,5061)),flags)
             assert registered['code']==200
-            retrieve=mailbox_signalling(f,'INVITE',lambda:mailbox.dial('*97',(bind,5061)),flags)
+            retrieve=mailbox_signalling(f,'INVITE',lambda:mailbox.dial('121',(bind,5061)),flags)
             assert retrieve['code']==200
-            index=mailbox_menu(f,playback,mailbox,retrieve,mailbox_info['pin'],flags)
+            index=mailbox_menu(f,playback,mailbox,retrieve,flags)
             mailbox.dtmf(retrieve,'1')
             index,_=mailbox_prompt(f,playback,retrieve,'mailbox_recording_playback',[file.name],after=index,seconds=45)
             time.sleep(3);original.decoded_tone_check(retrieve['media'],caller.tone_hz)
@@ -1178,6 +1184,8 @@ def native_calls(f):
             forwarded_file=Path(forwarded['message_path'])
             f.native_substage='mailbox_forwarded_binary_copy'
             assert forwarded_file.is_file() and forwarded_file.read_bytes()==file.read_bytes(),'Native forwarded WAV did not preserve exact source bytes'
+            prompts=playback.snapshot(retrieve['callid'],file.name)
+            assert not prompts['mailbox_prompt_password_seen'] and not prompts['mailbox_prompt_auth_failed_seen'],'Authenticated mailbox requested a PIN or rejected its owner'
             mailbox.hangup(retrieve)
             f.record('native_tls_mailbox_wire_forwarding_exact_binary_wav',wire_digits='RFC2833',source_and_forwarded_sha256=hashlib.sha256(file.read_bytes()).hexdigest(),drive_letter_path_verified=bool(re.match(r'^[A-Za-z]:[/\\]',str(file))),path_spaces_observed=' ' in str(file),bytes=forwarded_file.stat().st_size)
         except BaseException as error:

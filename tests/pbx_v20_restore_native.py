@@ -564,7 +564,7 @@ def main():
             rows.append({'case': 'source_not_registered_voicemail_generated_audio', 'passed': True,
                          'original_not_registered_destination_unchanged': True,
                          'new_native_voicemail_files': len(created), 'generated_caller_tone_ratio': ratio,
-                         'source_greeting_and_pin_unchanged': True, 'recording_outside_web_root': True,
+                         'source_greeting_unchanged': True, 'recording_outside_web_root': True,
                          'finalized_native_wav_header_verified': True,
                          'asynchronous_header_finalization_observed': waited_for_header})
         elif args.local_provider:

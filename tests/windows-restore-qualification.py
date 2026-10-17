@@ -228,15 +228,15 @@ def restore_schema_failure_fields(error):
 
 
 NATIVE_CASES = {'native-source': ('source_real_two_way_recorded_call', 'source_real_native_voicemail_deposit'),
-                'native-target': ('restored_original_credentials_two_way_decoded_native_audio', 'restored_original_native_voicemail_pin_rfc2833_retrieval')}
+                'native-target': ('restored_original_credentials_two_way_decoded_native_audio', 'restored_original_native_voicemail_121_pin_free_retrieval')}
 PEER_ERROR_TYPES = ('RuntimeError','AssertionError','ValueError','TypeError','KeyError','AttributeError','OSError','TimeoutError',
                     'ConnectionError','ConnectionResetError','ConnectionAbortedError','ConnectionRefusedError','BrokenPipeError',
                     'SSLError','SSLEOFError','SSLCertVerificationError','JSONDecodeError','UnicodeDecodeError','check_failed','external_error')
 PEER_ERROR_SOURCES = ('windows-restore-qualification.py','windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','socket.py','ssl.py','decoder.py','external_component')
 RESTORE_NATIVE_STAGES = ('registration','internal_invite','internal_ack','internal_media','internal_hangup','answered_recording',
-    'voicemail_isolation','voicemail_deposit','mailbox_invite','mailbox_login_prompt','mailbox_pin','mailbox_main_prompt',
+    'voicemail_isolation','voicemail_deposit','mailbox_invite','mailbox_login_prompt','mailbox_main_prompt',
     'mailbox_tutorial_complete','mailbox_recording_playback','mailbox_media','mailbox_hangup','peer_cleanup','peer_receiver')
-RESTORE_MAILBOX_FIELDS = ('mailbox_pin_sent','mailbox_tutorial_skip_sent','mailbox_prompt_password_seen',
+RESTORE_MAILBOX_FIELDS = ('mailbox_pin_free','mailbox_tutorial_skip_sent','mailbox_prompt_password_seen',
     'mailbox_prompt_tutorial_seen','mailbox_prompt_main_menu_seen','mailbox_prompt_auth_failed_seen',
     'mailbox_prompt_recording_seen','mailbox_observer_failed')
 
@@ -661,22 +661,27 @@ class Qualification:
                 message_name = Path(capsule['media']['voicemail']['relative']).name
                 native = load_module('restore_qualification_prompts', self.source / 'tests/windows-native-acceptance.py')
                 observer = native.NativePlayback(self.s['event_socket'], self.s['realm'])
-                flags={'mailbox_pin_sent':False,'mailbox_tutorial_skip_sent':False}
+                flags={'mailbox_pin_free':False,'mailbox_tutorial_skip_sent':False}
                 try:
                     stage='mailbox_invite'
-                    call = called.dial('*97', destination)
+                    call = called.dial('121', destination)
                     if call['code'] != 200: raise RuntimeError('Restored native mailbox retrieval was not answered.')
-                    # Reuse the qualified PIN -> optional first-login tutorial
-                    # -> main-menu flow, including its existing 30s PIN budget.
+                    # Authenticate using the original SIP identity, then verify
+                    # optional tutorial -> main menu without any PIN prompt.
                     stage='mailbox_main_prompt';self.native_substage=None
-                    index=native.mailbox_menu(self,observer,called,call,self.s['users'][1]['voicemail_pin'],flags)
+                    if any(key in self.s['users'][1] for key in ('voicemail_pin','voicemail_password','pin')):
+                        raise RuntimeError('Native fixture contains a retired mailbox credential.')
+                    index=native.mailbox_menu(self,observer,called,call,flags)
                     stage='mailbox_recording_playback'
                     called.dtmf(call, '1')
                     observer.prompt(call['callid'], [message_name], after=index)
                     stage='mailbox_media'
                     time.sleep(4); original.decoded_tone_check(call['media'], 440)
+                    prompts=observer.snapshot(call['callid'],message_name)
+                    if prompts.get('mailbox_prompt_password_seen') is not False or prompts.get('mailbox_prompt_auth_failed_seen') is not False:
+                        raise AssertionError('Authenticated restored mailbox requested a PIN or rejected its owner.')
                     stage='mailbox_hangup'
-                    called.hangup(call); call = None; self.record('restored_original_native_voicemail_pin_rfc2833_retrieval')
+                    called.hangup(call); call = None; self.record('restored_original_native_voicemail_121_pin_free_retrieval')
                 except BaseException as error:
                     if stage=='mailbox_main_prompt':
                         helper=getattr(error,'native_failure',None)

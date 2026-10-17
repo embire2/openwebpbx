@@ -11,8 +11,8 @@ local gateway1='00000000-0000-4000-a000-000000000001'
 local gateway2='00000000-0000-4000-a000-000000000002'
 local profile={timeout=10,queue_status='1',available={},away={}}
 local config={realm='fixture.example.invalid',timezone='UTC',users={
-    ['100']={number='100',auth_id='auth100',enabled=true,profile='Available',profiles={Available=profile},outbound_caller_id=''},
-    ['200']={number='200',auth_id='auth200',enabled=true,profile='Available',profiles={Available=profile}}},
+    ['100']={number='100',auth_id='auth100',extension_uuid='00000000-0000-4000-a000-000000000062',enabled=true,profile='Available',profiles={Available=profile},outbound_caller_id=''},
+    ['200']={number='200',auth_id='auth200',extension_uuid='00000000-0000-4000-a000-000000000063',enabled=true,profile='Available',profiles={Available=profile}}},
     trunks={one={gateway_uuid=gateway1,main_number='+27210000001',caller_id='',host='provider-one.example.invalid',port=5060,codecs={'PCMA'},headers={FromUserPart='$OutboundCallerId',FromHostPart='$GWHostPort',RemotePartyIDCallingPartyUserPart='$OutboundCallerId'},source_field='ToUserPart',allowed_ips={'192.0.2.10'}},
         two={gateway_uuid=gateway2,main_number='+27210000002',caller_id='',host='provider-two.example.invalid',port=5060,codecs={'PCMU'},headers={FromUserPart='$OutboundCallerId',FromHostPart='$GWHostPort'}}},
     departments={{number='sales',name='Sales',members={{number='100',primary=true}},hours={type='AllHours'},breaks={periods={}},holidays={}}},
@@ -161,14 +161,14 @@ check(f.bridges[2]:find('/+27123456789',1,true),'Backup provider receives rewrit
 for _, inherited in ipairs({'0','1','3600'}) do
     f=fixture();f.variables.call_timeout=inherited;f.variables.originate_timeout='1';f.variables.progress_timeout='1';run(f)
     check(#f.bridges==2 and f.bridge_timeouts[1]=='60' and f.bridge_timeouts[2]=='60'
-        and f.bridges[1]:find('{originate_timeout=60,progress_timeout=60}[leg_timeout=60,',1,true)
-        and f.bridges[2]:find('{originate_timeout=60,progress_timeout=60}[leg_timeout=60,',1,true),
+        and f.bridges[1]:find('{openweb_scope_origin=100,openweb_scope_target=100,originate_timeout=60,progress_timeout=60}[leg_timeout=60,',1,true)
+        and f.bridges[2]:find('{openweb_scope_origin=100,openweb_scope_target=100,originate_timeout=60,progress_timeout=60}[leg_timeout=60,',1,true),
         'Inherited user timeout '..inherited..' cannot shorten or remove the bounded provider window')
 end
 f=fixture();f.config.users['100'].profiles.Available.timeout=1;f.config.users['100'].profiles.Available.available.NoAnswer={internal_inactive=true,all={type='External',number='',external='0123456789'}}
 f.responses={{cause='NO_ANSWER',protocol='sip:408'},{cause='SUCCESS',protocol='sip:200'}};run(f,'user','100')
 check(#f.bridges==2 and f.bridge_timeouts[1]=='1' and f.bridges[1]:find('leg_timeout=1]user/',1,true)
-    and f.bridge_timeouts[2]=='60' and f.bridges[2]:find('{originate_timeout=60,progress_timeout=60}[leg_timeout=60,',1,true),
+    and f.bridge_timeouts[2]=='60' and f.bridges[2]:find('{openweb_scope_origin=100,openweb_scope_target=100,originate_timeout=60,progress_timeout=60}[leg_timeout=60,',1,true),
     'No-answer external forwarding keeps the user ring timeout and gives the provider an independent window')
 f=fixture();f.responses[1]={cause='USER_BUSY',protocol='sip:486'};run(f)
 check(#f.bridges==1 and f.hangup=='USER_BUSY','Busy stops provider fallback')
@@ -263,7 +263,7 @@ end
 f=mailbox_fixture();f.config.users['200'].voicemail_enabled=false;f.offline=true;run(f,'user','200')
 check(not f.voicemail and not f.answers and f.hangup=='NO_ANSWER','Disabled voicemail is not answered or recorded')
 f=fixture();f.config.users['100'].voicemail_enabled=true;run(f,'voicemail_login')
-check(f.voicemail and f.voicemail.action=='check' and f.voicemail.id=='100','Mailbox login retains native PIN/menu action')
+check(f.voicemail and f.voicemail.action=='check' and f.voicemail.id=='100','Mailbox login retains the native own-mailbox management action without a PIN')
 
 -- Run the actual native dispatcher, replacing database/audio/filesystem I/O.
 -- This catches a producer/consumer action mismatch rather than merely asserting
@@ -285,7 +285,8 @@ local function native_voicemail(call)
         if sql:find('INSERT INTO v_voicemail_messages',1,true) then
             assert(params.domain_uuid==call.domain and params.voicemail_uuid=='00000000-0000-4000-a000-000000000041','Wrong voicemail destination')
             result.inserts=result.inserts+1
-        elseif sql:find('voicemail_password',1,true) then
+        elseif sql:find('FROM v_voicemails',1,true) and sql:find('voicemail_enabled = true',1,true) then
+            assert(not sql:find('voicemail_password',1,true),'Native mailbox lookup still reads a retired PIN')
             assert(params.domain_uuid==call.domain and params.voicemail_id==call.id,'Wrong mailbox lookup')
             callback({voicemail_uuid='00000000-0000-4000-a000-000000000041',voicemail_mail_to='',voicemail_local_after_forward='true'})
         elseif sql:find('SELECT voicemail_id FROM',1,true) then callback({voicemail_id=call.id})

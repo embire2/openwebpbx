@@ -370,7 +370,7 @@ class RestoreMailboxObservationControls(unittest.TestCase):
             self.assertEqual(q.restore_mailbox_failure_fields({key:False},'native-target'),{key:False})
             for value in (None,0,1,'PRIVATE password/path',[],{},1.5):
                 self.assertEqual(q.restore_mailbox_failure_fields(record|{key:value},'native-target'),{})
-        for bad in (None,[],{},record|{'message':'PRIVATE'},record|{'mailbox_pin_sent':'true'}):
+        for bad in (None,[],{},record|{'message':'PRIVATE'},record|{'mailbox_pin_free':'true'}):
             self.assertEqual(q.restore_mailbox_failure_fields(bad,'native-target'),{})
         for action in ('native-source','cleanup','PRIVATE',None):
             self.assertEqual(q.restore_mailbox_failure_fields(record,action),{})
@@ -716,19 +716,24 @@ class RestoreMailboxFlowControls(unittest.TestCase):
     def run_target(self, mode='fresh', snapshot_error=False):
         native=q.load_module('restore_mailbox_helper_controls',HERE/'windows-native-acceptance.py')
         self.fixture.source=HERE.parent
-        self.fixture.s.update(event_socket={'host':'127.0.0.1','port':1,'password':'PRIVATE'},users=[{}, {'voicemail_pin':'12'}])
+        self.fixture.s.update(event_socket={'host':'127.0.0.1','port':1,'password':'PRIVATE'},users=[{}, {}])
+        if mode=='retired_credential':self.fixture.s['users'][1]['voicemail_pin']='PRIVATE retired mailbox credential'
         q.write_json(self.root/'source-capsule-private.json',{'payload':{'media':{'voicemail':{'relative':'voicemail/EXACT_SOURCE_MESSAGE.wav'}}}})
-        self.digits=[];self.prompts=[];self.seen=set();self.observer_closed=False
+        self.digits=[];self.dialled=[];self.prompts=[];self.seen=set();self.observer_closed=False
         sip,original,peers,destination=self.fixture.peers()
         original.decoded_tone_check=mock.Mock();self.tones=original.decoded_tone_check
         self.fixture.peers=lambda:(sip,original,peers,destination)
         for peer in peers:
             old=peer.dial
-            def dial(number,destination,old=old):return old(number,destination)|{'callid':'a'*24+'@localfixture'}
+            def dial(number,destination,old=old):
+                self.dialled.append(number)
+                return old(number,destination)|{'callid':'a'*24+'@localfixture'}
             peer.dial=dial;peer.dtmf=lambda call,digit:self.digits.append(digit)
-        paths=['vm-enter_pass.wav']+(['vm-tutorial_yes_no.wav'] if mode!='existing' else [])+['vm-listen_new.wav','EXACT_SOURCE_MESSAGE.wav']
-        if mode=='wrong_pin':paths=['vm-enter_pass.wav','vm-fail_auth.wav']
-        if mode=='missing_menu':paths=['vm-enter_pass.wav','vm-tutorial_yes_no.wav']
+        paths=(['vm-tutorial_yes_no.wav'] if mode!='existing' else [])+['vm-listen_new.wav','EXACT_SOURCE_MESSAGE.wav']
+        if mode=='unexpected_pin':paths=['vm-enter_pass.wav']
+        if mode=='unexpected_auth_failure':paths=['vm-fail_auth.wav']
+        if mode=='tutorial_pin':paths=['vm-tutorial_yes_no.wav','vm-enter_pass.wav']
+        if mode=='missing_menu':paths=['vm-tutorial_yes_no.wav']
         owner=self
         class Observer:
             def prompt(self,callid,suffixes,after=-1,seconds=30):
@@ -741,7 +746,7 @@ class RestoreMailboxFlowControls(unittest.TestCase):
                 raise AssertionError('PRIVATE prompt path/PIN must remain private')
             def snapshot(self,callid,recording):
                 if snapshot_error:raise PermissionError('PRIVATE observer collection')
-                return {'mailbox_prompt_password_seen':'vm-enter_pass.wav' in owner.seen,
+                return {'mailbox_prompt_password_seen':mode=='late_pin' or 'vm-enter_pass.wav' in owner.seen,
                         'mailbox_prompt_tutorial_seen':'vm-tutorial_yes_no.wav' in owner.seen,
                         'mailbox_prompt_main_menu_seen':'vm-listen_new.wav' in owner.seen,
                         'mailbox_prompt_auth_failed_seen':'vm-fail_auth.wav' in owner.seen,
@@ -758,14 +763,15 @@ class RestoreMailboxFlowControls(unittest.TestCase):
             with self.subTest(mode=mode):
                 self.fixture.facts={'checks':[],'gates':{}};self.peers[1].dialogs={}
                 self.run_target(mode)
-                self.assertEqual(self.digits,list('12#21' if mode=='fresh' else '12#1'));self.helper.assert_called_once()
+                self.assertEqual(self.digits,list('21' if mode=='fresh' else '1'));self.helper.assert_called_once()
+                self.assertEqual(self.dialled[-1],'121');self.assertNotIn('*97',self.dialled)
                 self.assertEqual(self.prompts[-1][0],['EXACT_SOURCE_MESSAGE.wav'])
                 self.assertEqual([call.args[1] for call in self.tones.call_args_list],[550,440,440])
                 self.assertEqual(self.fixture.facts['checks'],list(q.NATIVE_CASES['native-target']))
                 self.assertTrue(self.observer_closed);self.assertTrue(all(peer.closed for peer in self.peers))
 
     def test_real_helper_failure_keeps_precise_stage_observation_and_audio_only_progress(self):
-        for mode,stage in [('wrong_pin','mailbox_main_prompt'),('missing_menu','mailbox_tutorial_complete')]:
+        for mode,stage in [('unexpected_pin','mailbox_login_prompt'),('unexpected_auth_failure','mailbox_login_prompt'),('tutorial_pin','mailbox_tutorial_complete'),('missing_menu','mailbox_tutorial_complete')]:
             with self.subTest(mode=mode):
                 self.fixture.facts={'checks':[],'gates':{}};self.peers[1].dialogs={}
                 with self.assertRaises(AssertionError) as caught:self.run_target(mode)
@@ -773,17 +779,29 @@ class RestoreMailboxFlowControls(unittest.TestCase):
                 self.assertEqual(error.native_substage,stage)
                 self.assertEqual(error.completed_native_cases,[q.NATIVE_CASES['native-target'][0]])
                 fields=error.mailbox_observation;self.assertEqual(len(fields),8)
-                self.assertTrue(fields['mailbox_pin_sent']);self.assertEqual(fields['mailbox_tutorial_skip_sent'],mode=='missing_menu')
-                self.assertFalse(fields['mailbox_prompt_main_menu_seen']);self.assertEqual(fields['mailbox_prompt_auth_failed_seen'],mode=='wrong_pin')
+                self.assertFalse(fields['mailbox_pin_free']);self.assertEqual(fields['mailbox_tutorial_skip_sent'],mode in ('tutorial_pin','missing_menu'))
+                self.assertFalse(fields['mailbox_prompt_main_menu_seen']);self.assertEqual(fields['mailbox_prompt_auth_failed_seen'],mode=='unexpected_auth_failure')
+                self.assertEqual(self.digits,list('2') if mode in ('tutorial_pin','missing_menu') else [])
                 self.assertNotIn('PRIVATE',json.dumps(fields));self.assertNotIn('EXACT_SOURCE_MESSAGE.wav',self.seen)
                 self.assertTrue(self.observer_closed);self.assertTrue(all(peer.closed for peer in self.peers))
                 self.assertEqual([call.args[1] for call in self.tones.call_args_list],[550,440])
+
+    def test_retired_fixture_credentials_refuse_before_menu_and_late_pin_never_qualifies(self):
+        for mode,error_type,stage in [('retired_credential',RuntimeError,'mailbox_main_prompt'),('late_pin',AssertionError,'mailbox_media')]:
+            with self.subTest(mode=mode):
+                self.fixture.facts={'checks':[],'gates':{}};self.peers[1].dialogs={}
+                with self.assertRaises(error_type) as caught:self.run_target(mode)
+                self.assertEqual(caught.exception.native_substage,stage)
+                self.assertEqual(caught.exception.completed_native_cases,[q.NATIVE_CASES['native-target'][0]])
+                self.assertTrue(self.observer_closed);self.assertTrue(all(peer.closed for peer in self.peers))
+                if mode=='retired_credential':self.helper.assert_not_called();self.assertEqual(self.digits,[])
+                else:self.assertTrue(caught.exception.mailbox_observation['mailbox_prompt_password_seen'])
 
     def test_observation_failure_cannot_mask_original_and_main_json_is_closed(self):
         with self.assertRaises(AssertionError) as caught:self.run_target('missing_menu',snapshot_error=True)
         error=caught.exception
         self.assertEqual(error.native_substage,'mailbox_tutorial_complete')
-        self.assertEqual(error.mailbox_observation,{'mailbox_pin_sent':True,'mailbox_tutorial_skip_sent':True})
+        self.assertEqual(error.mailbox_observation,{'mailbox_pin_free':False,'mailbox_tutorial_skip_sent':True})
         final=ast.parse((HERE/'windows-restore-qualification.py').read_text()).body[-1]
         program=compile(ast.Module(body=[final],type_ignores=[]),'actual_restore_main','exec')
         def fail():raise error

@@ -210,9 +210,9 @@ function restore_fixture_main(array $argv): void {
             $native=$q('select extension_uuid,extension,password from v_extensions where domain_uuid=? and extension_uuid=?',[$domain,$u['extension_uuid']])->fetch(PDO::FETCH_ASSOC);
             if(!$native||$native['extension']!==$u['auth_id']||!is_string($native['password'])||$native['password']==='')throw new RuntimeException('Native and normal-setup phone credentials differ.');
             if(!restore_fixture_uuid($u['voicemail_uuid']??null))throw new RuntimeException('The original normal-setup mailbox identity is missing.');
-            $pin=$q('select voicemail_password from v_voicemails where domain_uuid=? and voicemail_uuid=?',[$domain,$u['voicemail_uuid']])->fetchColumn();
-            if($number==='8101'&&(!is_string($pin)||!preg_match('/^[0-9]{2,20}$/D',$pin)))throw new RuntimeException('The normal generated mailbox is missing.');
-            $users[]=['number'=>$number,'auth'=>$native['extension'],'password'=>$native['password'],'extension_uuid'=>$native['extension_uuid'],'voicemail_uuid'=>$u['voicemail_uuid'],'voicemail_pin'=>$pin===false?null:$pin,'tone_hz'=>$number==='8100'?440:550];
+            $mailbox=$q('select voicemail_password from v_voicemails where domain_uuid=? and voicemail_uuid=?',[$domain,$u['voicemail_uuid']])->fetch(PDO::FETCH_ASSOC);
+            if(!$mailbox||$mailbox['voicemail_password']!==null||pbx_voicemail_policy::withoutPins($u)!==$u)throw new RuntimeException('The normal PIN-free mailbox is missing or contains a retired credential.');
+            $users[]=['number'=>$number,'auth'=>$native['extension'],'password'=>$native['password'],'extension_uuid'=>$native['extension_uuid'],'voicemail_uuid'=>$u['voicemail_uuid'],'tone_hz'=>$number==='8100'?440:550];
         }
         return $users;
     };

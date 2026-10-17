@@ -136,7 +136,7 @@ Assert ($null -eq (SafeRestorePeerFailures (@($receiver)*3) -Receiver))
 foreach($kind in 'connection_reset_10054','other_winerror','unavailable'){$candidate=Clone $receiver;$candidate.winerror_kind=$kind;Assert ($null -ne (SafeRestorePeerFailures @($candidate) -Receiver))}
 foreach($kind in $null,$true,10054,@(),@{},'PRIVATE'){$candidate=Clone $receiver;$candidate.winerror_kind=$kind;Assert ($null -eq (SafeRestorePeerFailures @($candidate) -Receiver))}
 
-$mailboxGood=@{mailbox_pin_sent=$true;mailbox_tutorial_skip_sent=$true;mailbox_prompt_password_seen=$true;mailbox_prompt_tutorial_seen=$true;mailbox_prompt_main_menu_seen=$false;mailbox_prompt_auth_failed_seen=$false;mailbox_prompt_recording_seen=$false;mailbox_observer_failed=$false}
+$mailboxGood=@{mailbox_pin_free=$true;mailbox_tutorial_skip_sent=$true;mailbox_prompt_password_seen=$true;mailbox_prompt_tutorial_seen=$true;mailbox_prompt_main_menu_seen=$false;mailbox_prompt_auth_failed_seen=$false;mailbox_prompt_recording_seen=$false;mailbox_observer_failed=$false}
 Assert ((SafeRestoreMailboxFailure (Clone $mailboxGood) 'native-target').Count -eq 8)
 foreach($key in $mailboxGood.Keys){
  foreach($value in $true,$false){Assert ((SafeRestoreMailboxFailure @{$key=$value} 'native-target').$key -eq $value)}
@@ -339,7 +339,7 @@ try{
   }
  }
  foreach($action in 'native-source','native-target'){
-  $names=if($action -ceq 'native-source'){@('source_real_two_way_recorded_call','source_real_native_voicemail_deposit')}else{@('restored_original_credentials_two_way_decoded_native_audio','restored_original_native_voicemail_pin_rfc2833_retrieval')}
+  $names=if($action -ceq 'native-source'){@('source_real_two_way_recorded_call','source_real_native_voicemail_deposit')}else{@('restored_original_credentials_two_way_decoded_native_audio','restored_original_native_voicemail_121_pin_free_retrieval')}
   foreach($mode in 'valid','duplicate','oversize','wrong_action','private_case','private_peer'){
    $facts=@{gates=@{}};$script:childRecord=@{state='failed';error_type='AssertionError';source_basename='sip_trunk_live.py';source_line=249;peer_cleanup_failure=@((Clone $peerGood));peer_receiver_failure=@((Clone $receiver));native_substage='internal_ack';completed_native_cases=$names;message='PRIVATE'}
    switch($mode){
@@ -363,7 +363,7 @@ try{
   $action=if($mode -ceq 'wrong_action'){'native-source'}else{'native-target'}
   $observation=Clone $mailboxGood
   if($mode -ceq 'private'){$observation|Add-Member noteproperty message 'PRIVATE'}
-  if($mode -ceq 'integer'){$observation.mailbox_pin_sent=1}
+  if($mode -ceq 'integer'){$observation.mailbox_pin_free=1}
   if($mode -ceq 'empty'){$observation=@{}}
   $facts=@{gates=@{}};$script:childRecord=@{state='failed';error_type='AssertionError';source_basename='windows-native-acceptance.py';source_line=246;native_substage='mailbox_tutorial_complete';mailbox_observation=$observation;completed_native_cases=@('restored_original_credentials_two_way_decoded_native_audio');message='PRIVATE'}
   $caught=$null;try{NativeFixture $action}catch{$caught=$_}
