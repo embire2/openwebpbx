@@ -1,7 +1,46 @@
 {
-  "reviewed_on": "2026-10-16",
+  "reviewed_on": "2026-10-17",
   "repository": "embire2/openwebpbx",
   "releases": [
+    {
+      "version": "1.0.16",
+      "tag": "v1.0.16-android-preview",
+      "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.16-android-preview",
+      "published_at": "2026-10-17T19:25:00Z",
+      "prerelease": true,
+      "assets": [
+        {
+          "name": "openwebpbx-1.0.16-android-source.tar.gz",
+          "bytes": 364454199,
+          "sha256": "2298c6d02b47d006a290bf78ef3001d39ddcb39da55dcc85930ef3548fa5e9b0",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.16-android-preview/openwebpbx-1.0.16-android-source.tar.gz"
+        },
+        {
+          "name": "openwebpbx-1.0.16-android.apk",
+          "bytes": 58961162,
+          "sha256": "f5cca96e8e688cf897747ade6450abb31da97ee5b88aab272bdf322bcc31a785",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.16-android-preview/openwebpbx-1.0.16-android.apk"
+        },
+        {
+          "name": "openwebpbx-1.0.16-google-play.aab",
+          "bytes": 51190677,
+          "sha256": "2b07fd55cb714e508ff7f6dffbe091b53555cb199e4270530c098afc056e00d4",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.16-android-preview/openwebpbx-1.0.16-google-play.aab"
+        },
+        {
+          "name": "openwebpbx-1.0.16-google-play.zip",
+          "bytes": 51238880,
+          "sha256": "e68905948065aa2d530b6b794856dba383c4f3a1c3eba33f2e905930083cc36a",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.16-android-preview/openwebpbx-1.0.16-google-play.zip"
+        },
+        {
+          "name": "SHA256SUMS",
+          "bytes": 402,
+          "sha256": "3e70be03261cfe030095091ea78a6dd97630f98f47b209c2b8730c4c3332d889",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.16-android-preview/SHA256SUMS"
+        }
+      ]
+    },
     {
       "version": "1.0.15",
       "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.15",
@@ -643,13 +682,14 @@
       "name": "Android",
       "minimum_version": "9",
       "api_level": 28,
-      "version": "1.0.15",
-      "status": "signed native APK; Play submission prepared, not published; see device verification limits",
+      "version": "1.0.16",
+      "status": "separate signed native video preview; stable feed unchanged; physical cameras/networks and Play approval pending",
       "abis": [
         "arm64-v8a",
         "armeabi-v7a",
         "x86_64"
-      ]
+      ],
+      "stable_version": "1.0.15"
     }
   ]
 }

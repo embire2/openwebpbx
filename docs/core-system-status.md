@@ -13,6 +13,10 @@
 
 [Meet guide](meet.md) · [clock evidence](talking-clock-1.0.2.md). Current public full-server download remains **1.0.15**. The broader **133 goals / 21 accepted / 72 partial / 40 planned** counts are unchanged.
 
+Published [Android 1.0.16 preview](https://github.com/embire2/openwebpbx/releases/tag/v1.0.16-android-preview), with five complete downloads verified against the qualified files and source frozen at `7f60b339`. The stable full-server release/feed remains 1.0.15; Android minimum remains 1.0.12. The website now links the preview and Meet guide. Software calling/layouts passed; camera restart can cause a brief sound/picture pause. Physical-device and Play acceptance remain open.
+
+Owned test accounts, registrations and storage are removed. Independent final checks retained 26 original extensions/mailboxes, 1,273 protected media files, 4,888 voice assets and all original row projections. All six services are active, the provider is registered and calls are zero. Extension 1000 is currently not registered; no current customer-phone calling pass is inferred. [Detailed scope](feature-coverage.md#native-android-video-preview--1016).
+
 ## Call Me Back development — 2026-10-17
 
 | Work | Status |
