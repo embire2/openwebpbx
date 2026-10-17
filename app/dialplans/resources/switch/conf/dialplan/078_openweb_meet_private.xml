@@ -1,0 +1,5 @@
+<extension name="OpenWeb browser meeting" context="openweb-meet-only" global="true" order="1" continue="false" app_uuid="78c3e839-69bb-4e44-8932-edc4fbc92bf7">
+ <condition field="destination_number" expression="^.*$">
+  <action application="lua" data="app/pbx_services/meeting.lua"/>
+ </condition>
+</extension>

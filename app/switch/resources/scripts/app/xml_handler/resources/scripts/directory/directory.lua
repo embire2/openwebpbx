@@ -68,6 +68,10 @@
 	local event_calling_file = params:getHeader("Event-Calling-File")
 
 -- Native mobile devices have isolated, revocable credentials. The regular directory stays unchanged.
+	if action == 'sip_auth' and type(user) == 'string' and user:match('^owc%-[a-f0-9]+$') then
+		dofile(scripts_dir..'/app/xml_handler/resources/scripts/directory/meeting.lua');
+		return;
+	end
 	if action == 'sip_auth' and type(user) == 'string' and user:match('^owm%-[a-f0-9]+$') then
 		dofile(scripts_dir..'/app/xml_handler/resources/scripts/directory/mobile.lua');
 		return;
@@ -514,7 +518,10 @@
 										local destination = (DIAL_STRING_BASED_ON_USERID and sip_from_number or sip_from_user) .. "@" .. domain_name;
 									--set a default dial string
 										local realms=contact_realms.realms(dbh,domain_uuid,canonical_domain_name);
-                                        if #realms>1 and (dial_string == nil or dial_string:find('${sofia_contact(',1,true)) then
+                                        local media=dofile(scripts_dir..'/app/xml_handler/resources/scripts/directory/mobile_media.lua');
+                                        local app_contacts=media.accounts(dbh,domain_uuid,extension_uuid);
+                                        local current_contact=trim(api:execute('sofia_contact',row.extension..'@'..canonical_domain_name));
+                                        if (#realms>1 or media.present(current_contact,app_contacts)) and (dial_string == nil or dial_string:find('${sofia_contact(',1,true)) then
                                             local contacts={};local seen={};
                                             local source_identity;local source_rows=0;
                                             dbh:query([[select u.key as number,u.value->>'contact_user' as sip_user,
@@ -534,7 +541,7 @@
                                                     for leg in value:gmatch('[^,]+') do
                                                         if not seen[leg] then
                                                             local contact_user=leg:match('/sips?:([^@]+)@');
-                                                            local variables='sip_invite_domain='..owned_realm;
+                                                            local variables='sip_invite_domain='..owned_realm..media.suffix(app_contacts,contact_user,owned_realm,canonical_domain_name);
                                                             local mobile_contact=owned_realm==canonical_domain_name and contact_user and #contact_user==36 and contact_user:match('^owm%-[a-f0-9]+$');
                                                             if sip_identity and not mobile_contact then
                                                                 local to_user=sip_identity;

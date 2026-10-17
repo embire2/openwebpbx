@@ -11,7 +11,7 @@
   let calendarMonth = new Date();
   const savePreferences = () => { try { localStorage.setItem(data.preferenceKey, JSON.stringify(preferences)); } catch { /* Storage may be disabled. */ } };
   const announce = (text) => { $('#desktop-announcement').textContent = text; };
-  const pinnedPatterns = ['/app/pbx_setup/', 'view=users', 'view=voice', 'view=queues', 'view=receptionists', 'view=ring_groups', 'view=reports', 'view=recordings', '/app/tenant_services/', '/app/smtp_settings/', '/app/extensions/', '/app/devices/'];
+  const pinnedPatterns = ['/app/pbx_setup/', '/app/pbx_meet/', 'view=users', 'view=voice', 'view=queues', 'view=receptionists', 'view=ring_groups', 'view=reports', 'view=recordings', '/app/tenant_services/', '/app/smtp_settings/', '/app/devices/'];
   const pinned = pinnedPatterns.map((pattern) => apps.find((app) => app.url.includes(pattern))).filter(Boolean);
   if (!pinned.length) pinned.push(...apps.slice(0, 12));
   const findApp = (pattern) => apps.find((app) => app.url.includes(pattern));

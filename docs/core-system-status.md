@@ -1,5 +1,18 @@
 # OpenWeb PBX core system status
 
+## Hosted Meet and clock — 2026-10-17
+
+| Work | Status |
+|---|---|
+| Clock 1026 | Repaired and live: prompt Nathaniel speech, GMT+2 announcements and ticks every 15 seconds; independent clock pack 1.0.2. |
+| Meet administration | Schedules, private invitations, calendars, global queued email and tenant/staff boundaries implemented. |
+| Meet calling | Browser mixed video/two-way decoded sound and same-PBX registered-phone admission/audio/removal passed. |
+| Meet controls | Waiting room, mute/unmute, lock, remove, end, optional camera and screen sharing implemented and tested within the documented software scope. |
+| Android video | Native 1.0.16 preview implements colleague video, audio/video answer, upgrade consent, explicit camera controls and privacy on hold/lock/leave. Matching hosted media support is installed; physical cameras and Play acceptance remain open. |
+| Remaining acceptance | Physical cameras, network/browser diversity, TURN, measured capacity, recording/collaboration tools, new full Debian package/restore and Windows remain open. |
+
+[Meet guide](meet.md) · [clock evidence](talking-clock-1.0.2.md). Current public full-server download remains **1.0.15**. The broader **133 goals / 21 accepted / 72 partial / 40 planned** counts are unchanged.
+
 ## Call Me Back development — 2026-10-17
 
 | Work | Status |

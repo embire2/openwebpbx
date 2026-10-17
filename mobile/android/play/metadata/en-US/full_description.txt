@@ -5,6 +5,8 @@ OpenWebPBX Free Phone is a native Android calling app from a nonprofit, open-sou
 A PHONE FOR YOUR WORK
 • Scan your PBX connection code, or enter it manually.
 • Make and receive voice calls using your work extension.
+• Make native video calls to colleagues on a video-enabled PBX, with an audio-only answer option.
+• Choose when to share your camera; leaving the video screen or locking your phone stops sharing.
 • Find people in your company directory.
 • Open recent calls and call someone back.
 • Listen to voicemail and mark messages as read.
@@ -24,7 +26,7 @@ There is no OpenWeb app licence fee, advertising or advertising tracking. Source
 BEFORE YOU INSTALL
 You need an existing OpenWeb PBX extension, a compatible server and Android 9 or newer. Your administrator provides the connection QR code. This app does not connect to a 3CX server or use 3CX app credentials.
 
-Keep the phone connection notification running for incoming calls. Reopen the app after restarting or force-stopping it. Optional incoming wake-up uses encrypted alerts delivered through installed Google Play Services. Your administrator enables it; force-stop still requires reopening. Chat and video remain planned. Keep your normal phone available for emergency calls.
+Keep the phone connection notification running for incoming calls. Reopen the app after restarting or force-stopping it. Optional incoming wake-up uses encrypted alerts delivered through installed Google Play Services. Your administrator enables it; force-stop still requires reopening. Video requires a compatible PBX and camera permission; audio remains available without camera access. Chat remains planned. Keep your normal phone available for emergency calls.
 
 Help: https://openwebpbx.com/support.html
 Privacy: https://openwebpbx.com/privacy.html

@@ -17,6 +17,9 @@ class IncomingCallActivity:Activity(){
     private val main=Handler(Looper.getMainLooper())
     private val worker=Executors.newSingleThreadExecutor()
     private lateinit var label:TextView
+    private lateinit var videoButton:Button
+    private lateinit var audioButton:Button
+    private var visibleIncoming:Call?=null
     private var verifiedCall:String?=null
     private var accepting=false
     private var checking=false
@@ -31,7 +34,11 @@ class IncomingCallActivity:Activity(){
         openedAt=SystemClock.elapsedRealtime()
         val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER;setPadding(32,48,32,48);setBackgroundColor(0xff142e39.toInt())}
         label=TextView(this).apply{text="Incoming call";textSize=28f;setTextColor(0xffffffff.toInt());gravity=Gravity.CENTER};root.addView(label)
-        root.addView(Button(this).apply{text="Answer";minHeight=64;setOnClickListener{accepting=true;refresh()}})
+        audioButton=Button(this).apply{text="Answer";minHeight=64;setOnClickListener{accepting=true;refresh()}};root.addView(audioButton)
+        videoButton=Button(this).apply{text="Answer video";minHeight=64;visibility=View.GONE;setOnClickListener{
+            val incoming=visibleIncoming ?: return@setOnClickListener
+            startActivity(Intent(this@IncomingCallActivity,VideoCallActivity::class.java).putExtra("incoming_id",PhoneService.instance?.incomingId(incoming)));finish()
+        }};root.addView(videoButton)
         root.addView(Button(this).apply{text="Decline";minHeight=64;setOnClickListener{decline()}})
         setContentView(root)
         accepting=intent.getBooleanExtra("answer",false)
@@ -52,6 +59,9 @@ class IncomingCallActivity:Activity(){
             if(!declining && phone==null && verifiedCall!=null && PhoneStore(this).read()!=null){try{startForegroundService(Intent(this,PhoneService::class.java))}catch(_:Exception){label.text="Open the app to reconnect"}}
         }
         val incoming=if(request.isEmpty())phone?.incomingById(intent.getStringExtra("call_id") ?: "")else phone?.calls?.firstOrNull{it.remoteParams?.getCustomHeader("X-OpenWeb-Push-ID")==verifiedCall && it.state==Call.State.IncomingReceived}
+        visibleIncoming=incoming
+        audioButton.text=if(PhoneService.instance?.video?.offered(incoming)==true)"Answer audio" else "Answer"
+        videoButton.visibility=if(PhoneService.instance?.video?.offered(incoming)==true)View.VISIBLE else View.GONE
         if(request.isEmpty() && incoming==null){finish();return}
         if(accepting && incoming!=null){
             if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){startActivity(Intent(this,MainActivity::class.java));finish();return}

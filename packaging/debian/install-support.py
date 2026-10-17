@@ -13,7 +13,9 @@ import tempfile
 PACKAGE = Path(__file__).resolve().parent
 UPDATES = Path('/var/lib/openwebpbx/updates')
 BACKUPS = Path('/var/backups/openwebpbx')
-SUPPORT = {'openwebpbx-call-records.conf': Path('/etc/systemd/system/openwebpbx.service.d/call-records.conf'),
+SUPPORT = {'install-meet.py': Path('/opt/openwebpbx/tools/install-meet.py'),
+           'meet-nginx.conf': Path('/opt/openwebpbx/tools/meet-nginx.conf'),
+           'openwebpbx-call-records.conf': Path('/etc/systemd/system/openwebpbx.service.d/call-records.conf'),
            'openwebpbx-call-me-back.conf': Path('/etc/systemd/system/openwebpbx.service.d/call-me-back.conf'),
            'backups.py': Path('/opt/openwebpbx/tools/backups.py'),
            'install-backups.sh': Path('/opt/openwebpbx/tools/install-backups.sh'),
@@ -167,7 +169,9 @@ def install():
             upgrade = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(upgrade)
             upgrade.validate_backup(backup)
-            targets = list(SUPPORT.values()) + NOTIFICATION_FILES + [registrar.TARGET]
+            meet_spec=importlib.util.spec_from_file_location('candidate_meeting',PACKAGE/'install-meet.py')
+            meeting=importlib.util.module_from_spec(meet_spec);meet_spec.loader.exec_module(meeting)
+            targets = list(SUPPORT.values()) + NOTIFICATION_FILES + [registrar.TARGET] + meeting.targets()
             # Existing systemd enablement is preserved. A newly created link is
             # included as an absent target so older rollback code removes it.
             for link in TIMER_LINKS:
@@ -179,7 +183,7 @@ def install():
         raise ValueError('An existing registrar must be updated through the recoverable instance updater.')
     registrar.install(native_content)
     ensure_dependencies()
-    for name in ['install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py']:
+    for name in ['install-meet.py','meet-nginx.conf','install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py']:
         target = SUPPORT[name]
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
         with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.support-helper-', delete=False) as stream:

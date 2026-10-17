@@ -69,7 +69,7 @@ with tarfile.open(a.output, 'w:gz', compresslevel=6) as archive:
     # A tracked build/ directory in the SDK contains upstream CMake/Android
     # source, unlike the app's generated Gradle build directory.
     for file in sorted(sdk_files):add_source(archive,file,sdk,'openwebpbx-android/linphone-sdk-5.5.23')
-    for relative in ['VERSION','docs/android.md','docs/android-push.md','docs/android-availability.md','docs/google-play.md','docs/google-play-review.md','packaging/updates/PROTOCOL.md']:
+    for relative in ['VERSION','docs/android-video.md','docs/android.md','docs/android-push.md','docs/android-availability.md','docs/google-play.md','docs/google-play-review.md','packaging/updates/PROTOCOL.md']:
         archive.add(project.parents[1]/relative,arcname='openwebpbx-android/'+relative)
 sdk_clean()
 print(json.dumps({'archive':str(a.output),'bytes':a.output.stat().st_size,'sha256':hashlib.sha256(a.output.read_bytes()).hexdigest(),'dependency_sources':len(manifest),'tracked_sdk_files':len(sdk_files)}))

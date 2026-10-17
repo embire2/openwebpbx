@@ -1,0 +1,5 @@
+<extension name="OpenWeb meeting" context="global" global="true" order="78" continue="true" app_uuid="0f56aaac-01ba-46e6-944d-58eaa8712170">
+ <condition field="destination_number" expression="^98[0-9]{6}$">
+  <action application="lua" data="app/pbx_services/meeting.lua"/>
+ </condition>
+</extension>

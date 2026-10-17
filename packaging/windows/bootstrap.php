@@ -44,6 +44,9 @@ if($stage==='migrate'){
  }
  if(PHP_OS_FAMILY==='Linux')pbx_music::install($db);
  pbx_phone_auth::configure($db);$cache=new cache;$cache->delete(gethostname().':configuration:sofia.conf');$cache->delete('configuration:sofia.conf');
+ pbx_meet_install::apply($db);
+ pbx_meet_install::tls();
+ if(PHP_OS_FAMILY==='Linux'&&is_file(__DIR__.'/install-meet.py')){passthru('python3 '.escapeshellarg(__DIR__.'/install-meet.py'),$result);if($result!==0)throw new RuntimeException('The meeting web connection could not be installed.');}
  settings::clear_cache();
  echo "PBX schema is ready.\n";exit;
 }
@@ -63,6 +66,8 @@ if(!$user){
 }
 unset($input,$password);
 foreach(['tenant_services/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql','pbx_setup/resources/call_me_back.sql','pbx_mobile/resources/install.sql', 'pbx_updates/resources/install.sql','pbx_backups/resources/install.sql','voicemails/resources/voicemail_without_pins.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
+pbx_meet_install::apply($db);
+pbx_meet_install::tls();
 if(getenv('OPENWEB_RESTORE_SERVER')==='true'){settings::clear_cache();echo "Administrator ready. This replacement server is empty and ready for backup restore.\n";exit;}
 $_SESSION=['user_uuid'=>$user,'domain_uuid'=>$domain,'domain_name'=>pbx_paths::host(),'user'=>['domain_uuid'=>$domain]];
 $tenant=sql('select tenant_uuid from v_pbx_tenants where owner_user_uuid=?',[$user])->fetchColumn();

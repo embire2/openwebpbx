@@ -7,7 +7,8 @@ set -euo pipefail
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
 ./gradlew --no-daemon :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest :app:lintDirectRelease :app:lintPlayRelease :app:assembleDirectRelease :app:bundlePlayRelease :app:writeRuntimeInventory
-version="$(tr -d '\r\n' < "$project_dir/../../VERSION")"
+version="$(python3 -c 'import json; print(json.load(open("app/build/outputs/apk/direct/release/output-metadata.json"))["elements"][0]["versionName"])')"
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid Android version" >&2; exit 1; }
 output_dir="${OPENWEB_ANDROID_OUTPUT_DIR:-$project_dir/../../artifacts/android}"
 mkdir -p "$output_dir"
 cp app/build/outputs/apk/direct/release/app-direct-release.apk "$output_dir/openwebpbx-$version-android.apk"

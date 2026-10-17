@@ -62,6 +62,8 @@ class PhoneService: Service() {
     var muted = false; private set
     var speaker = false; private set
     var core: Core? = null; private set
+    lateinit var video:CallVideo;private set
+    private var foregroundTypes=ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private var account: JSONObject? = null
@@ -79,6 +81,7 @@ class PhoneService: Service() {
     override fun onBind(intent: Intent?) = null
     override fun onCreate() {
         super.onCreate(); instance = this
+        video=CallVideo(this)
         proximity = CallProximity(AndroidProximityPlatform(getSystemService(PowerManager::class.java)))
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel("connection", "Phone connection", NotificationManager.IMPORTANCE_LOW))
@@ -112,7 +115,9 @@ class PhoneService: Service() {
         }
         if (pem.isNotEmpty()) c.setRootCaData(pem.toString())
         c.mediaEncryption = MediaEncryption.SRTP; c.isMediaEncryptionMandatory = true
-        c.isVideoCaptureEnabled = false; c.isVideoDisplayEnabled = false
+        // Match the PBX suite across audio/video re-INVITEs; keep mandatory SRTP.
+        c.srtpCryptoSuites = "AES_CM_128_HMAC_SHA1_80"
+        video.configure(c)
         c.isEchoCancellationEnabled = true
         // The SDK owns ringing and audio focus together. A second app ringtone
         // would compete with its call audio focus when an incoming call answers.
@@ -147,11 +152,13 @@ class PhoneService: Service() {
                         if(sessions.isEmpty())lastNetworkLoss=0
                         sessions[current.nativePointer]=Session(current,incoming=state==Call.State.IncomingReceived)
                         current.addListener(callAudioListener)
+                        video.callCreated(current,state)
                         lastCallMessage=""
                     }
                     if(call==null || state==Call.State.OutgoingInit)select(current)
                 }
                 val row=sessions[current.nativePointer] ?: return
+                video.state(current,state)
                 if(state==Call.State.Paused){val next=afterPause;afterPause=null;next?.invoke()}
                 if(state==Call.State.StreamsRunning){row.answered=true;if(!conferenceOnHold)manuallyHeldCalls.remove(current.nativePointer);microphoneForeground();acquireCallLock();if(conferenceOnHold && current.nativePointer in heldConferenceCalls)current.pause()}
                 if(state==Call.State.End || state==Call.State.Error || state==Call.State.Released){
@@ -222,6 +229,7 @@ class PhoneService: Service() {
     }
     private fun cancelIncoming(id:String){getSystemService(NotificationManager::class.java).cancel("call:$id",11)}
     fun incomingById(id:String):Call?=sessions.values.firstOrNull{it.id==id && it.phone.state==Call.State.IncomingReceived}?.phone
+    fun incomingId(incoming:Call):String?=sessions[incoming.nativePointer]?.id
     private fun select(selected:Call?){call=selected;callLabel=selected?.remoteAddress?.username ?: "";muted=selected?.microphoneMuted ?: false;syncCallAudio()}
     private fun pauseThen(action:()->Unit){
         val active=call
@@ -233,11 +241,18 @@ class PhoneService: Service() {
         main.postDelayed({if(afterPause!=null){afterPause=null;lastCallMessage="Could not put your call on hold. Try again.";if(active.state==Call.State.Paused)active.resume();publish()}},4000)
     }
     private fun publish() { getSystemService(NotificationManager::class.java).notify(10, notification()); changed?.invoke() }
+    internal fun videoChanged(){syncCallAudio();publish()}
     private fun connectionForeground() {
+        foregroundTypes=ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
         if(Build.VERSION.SDK_INT >=29) startForeground(10, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE) else startForeground(10,notification())
     }
     private fun microphoneForeground() {
-        if(Build.VERSION.SDK_INT >=30) startForeground(10, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        foregroundTypes=ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or (foregroundTypes and ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
+        if(Build.VERSION.SDK_INT >=30) startForeground(10, notification(),foregroundTypes)
+    }
+    internal fun videoForeground(camera:Boolean){
+        foregroundTypes=if(camera)ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA else foregroundTypes and ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA.inv()
+        if(Build.VERSION.SDK_INT>=30)startForeground(10,notification(),foregroundTypes)
     }
     private fun acquireCallLock() {
         if (wakeLock == null) wakeLock = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "OpenWebPBX:call").apply { acquire(4 * 60 * 60 * 1000L) }
@@ -250,29 +265,35 @@ class PhoneService: Service() {
         speaker = output == AudioDevice.Type.Speaker
         proximity?.update(!conferenceOnHold && CallProximityPolicy.enabled(sessions[active?.nativePointer]?.answered==true, active?.state, output))
     }
-    fun dial(raw: String, second:Boolean=false) {
+    fun dial(raw: String, second:Boolean=false,withVideo:Boolean=false) {
         check(!UpdateManager.get(this).isInstalling) { "Finish or cancel the update before making a call" }
         check(call==null || second && calls.size==1 && conference==null && !conferenceOnHold) { "Finish one of your calls first" }
         val number = Enrollment.number(raw); val c = core ?: error("Phone is still connecting")
         check(c.defaultAccount?.state == RegistrationState.Ok) { "Wait until the phone is ready for calls" }
         lastDialled = number; lastCallMessage = ""
         microphoneForeground()
+        if(withVideo)check(call==null){"Video is available in a call with one person."}
         val domain = account!!.getJSONObject("sip").getString("domain")
-        val params = c.createCallParams(null)!!; params.isVideoEnabled = false; params.mediaEncryption = MediaEncryption.SRTP
+        val params = c.createCallParams(null)!!; params.isVideoEnabled = withVideo; params.isCameraEnabled=withVideo;if(withVideo)params.videoDirection=MediaDirection.SendRecv;params.mediaEncryption = MediaEncryption.SRTP
         val invite={
-            val result=c.inviteAddressWithParams(Factory.instance().createAddress("sip:$number@$domain")!!,params)
-            if(result==null){lastCallMessage="The second call could not start";call?.takeIf{it.state==Call.State.Paused}?.resume();publish()}
+            if(withVideo)video.prepareOutgoing()
+            try{
+                val result=c.inviteAddressWithParams(Factory.instance().createAddress("sip:$number@$domain")!!,params)
+                if(result==null){if(withVideo)video.outgoingFailed();lastCallMessage="The call could not start";call?.takeIf{it.state==Call.State.Paused}?.resume();publish()}
+            }catch(e:Exception){if(withVideo)video.outgoingFailed();throw e}
         }
         if(second)pauseThen(invite)else invite()
     }
-    fun answer(incoming:Call?=waitingCall){
+    fun answer(incoming:Call?=waitingCall,withVideo:Boolean=false){
         val c=core ?: return;val next=incoming ?: return
         check(next.state==Call.State.IncomingReceived){"That call is no longer ringing"}
+        if(withVideo)check(calls.size==1 && conference==null && !conferenceOnHold){"Answer with audio while another conversation is open."}
         microphoneForeground()
         val accept:()->Unit={
-            val params=c.createCallParams(next)!!;params.isVideoEnabled=false;params.mediaEncryption=MediaEncryption.SRTP
+            video.prepareAnswer(next,withVideo)
+            val params=c.createCallParams(next)!!;params.isVideoEnabled=withVideo;params.isCameraEnabled=withVideo;if(withVideo)params.videoDirection=MediaDirection.SendRecv;params.mediaEncryption=MediaEncryption.SRTP
             if(next.acceptWithParams(params)==0){select(next);sessions[next.nativePointer]?.let{cancelIncoming(it.id)}}
-            else{lastCallMessage="Could not answer. Your original call is still available.";call?.takeIf{it.state==Call.State.Paused}?.resume();publish()}
+            else{if(withVideo)video.stopCamera();lastCallMessage="Could not answer. Your original call is still available.";call?.takeIf{it.state==Call.State.Paused}?.resume();publish()}
         }
         if(call!=null && call?.nativePointer!=next.nativePointer)pauseThen(accept)else accept()
     }
@@ -299,6 +320,7 @@ class PhoneService: Service() {
     fun cancelConsultation(){val original=consultation ?: return;consultation=null;calls.filter{it.nativePointer!=original.nativePointer}.forEach{hangup(it)};select(original);if(original.state==Call.State.Paused)original.resume();publish()}
     fun merge(){
         val c=core ?: error("Phone unavailable");check(calls.size==2 && calls.all{sessions[it.nativePointer]?.answered==true}){"Both people must answer before merging"}
+        video.stopCamera()
         check(consultation==null){"Cancel the transfer before merging calls"}
         val params=c.createConferenceParams(null)!!;params.isAudioEnabled=true;params.isVideoEnabled=false;params.isLocalParticipantEnabled=true;params.isOneParticipantConferenceEnabled=true
         check(calls.all{it.state in listOf(Call.State.StreamsRunning,Call.State.Paused)}){"Wait for both calls to finish connecting"}
@@ -404,6 +426,7 @@ class PhoneService: Service() {
     }
     override fun onDestroy() {
         destroying = true; proximity?.close(); main.removeCallbacks(refreshAudioRoute)
+        video.close()
         sessions.values.forEach{it.phone.removeListener(callAudioListener);cancelIncoming(it.id)}
         networks.unregisterNetworkCallback(networkCallback);main.removeCallbacksAndMessages(null)
         core?.stop(); core = null; call = null; instance = null; changed?.invoke()

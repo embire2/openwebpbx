@@ -16,7 +16,7 @@ p.add_argument('--bundletool', required=True, type=Path)
 p.add_argument('--report', type=Path)
 a = p.parse_args()
 project = Path(__file__).resolve().parents[1]
-version = (project.parents[1] / 'VERSION').read_text().strip()
+version = re.search(r'versionName = .*\?: \"([^\"]+)\"', (project/'app/build.gradle.kts').read_text()).group(1)
 expected_cert = '449740f6858cb092a0f67d9d79d2505a8d6e7e4d4c1a52a8eaed9b895e48e69d'
 
 def command(*args):
@@ -37,19 +37,23 @@ assert application.get(ns+'debuggable', 'false') == 'false'
 assert application.get(ns+'allowBackup') == 'false'
 assert application.get(ns+'usesCleartextTraffic') == 'false'
 permissions = sorted(x.get(ns+'name') for x in root.findall('uses-permission'))
-for forbidden in ['REQUEST_INSTALL_PACKAGES', 'UPDATE_PACKAGES_WITHOUT_USER_ACTION', 'MANAGE_EXTERNAL_STORAGE', 'READ_SMS', 'READ_CALL_LOG', 'FOREGROUND_SERVICE_CAMERA', 'FOREGROUND_SERVICE_PHONE_CALL', 'FOREGROUND_SERVICE_DATA_SYNC']:
+for forbidden in ['REQUEST_INSTALL_PACKAGES', 'UPDATE_PACKAGES_WITHOUT_USER_ACTION', 'MANAGE_EXTERNAL_STORAGE', 'READ_SMS', 'READ_CALL_LOG', 'FOREGROUND_SERVICE_PHONE_CALL', 'FOREGROUND_SERVICE_DATA_SYNC']:
     assert 'android.permission.'+forbidden not in permissions, 'Unexpected permission: '+forbidden
 assert 'android.permission.USE_FULL_SCREEN_INTENT' in permissions, 'Missing incoming-call notification permission'
 activities = {x.get(ns+'name'): x for x in application.findall('activity')}
 incoming = activities['com.openweb.pbx.IncomingCallActivity']
 assert incoming.get(ns+'exported') == 'false'
+video = activities['com.openweb.pbx.VideoCallActivity']
+assert video.get(ns+'exported') == 'false'
+assert video.get(ns+'showWhenLocked', 'false') == 'false'
+assert 'android.permission.FOREGROUND_SERVICE_CAMERA' in permissions
 assert incoming.get(ns+'showWhenLocked') == 'true' and incoming.get(ns+'turnScreenOn') == 'true'
 services = {x.get(ns+'name'): x for x in application.findall('service')}
 phone = services['com.openweb.pbx.PhoneService']
 assert phone.get(ns+'exported') == 'false'
 # Bundletool emits compiled flag values, while source/XML tools may emit names.
 types = phone.get(ns+'foregroundServiceType')
-assert int(types,0) == 0x90 if types.startswith(('0x','0X')) or types.isdigit() else set(types.split('|')) == {'connectedDevice','microphone'}
+assert int(types,0) == 0xd0 if types.startswith(('0x','0X')) or types.isdigit() else set(types.split('|')) == {'connectedDevice','microphone','camera'}
 receivers = {x.get(ns+'name') for x in application.findall('receiver')}
 assert 'com.openweb.pbx.UpdateJob' not in services
 assert not receivers & {'com.openweb.pbx.UpdateStatusReceiver','com.openweb.pbx.UpdateReplacedReceiver'}

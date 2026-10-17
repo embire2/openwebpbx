@@ -247,7 +247,7 @@ class MainActivity: ComponentActivity() {
             val actions=layout(true)
             if(call.state==Call.State.IncomingReceived){
                 actions.addView(iconButton("Decline",R.drawable.ic_hangup,tone=Color.parseColor("#B3263E")){phone.hangup()},spaced(height=48))
-                actions.addView(iconButton("Answer",R.drawable.ic_call,tone=Color.parseColor("#16745B")){ensurePermissions();if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)phone.answer()},spaced(height=48))
+                actions.addView(iconButton(if(phone.video.offered(call))"Answer audio" else "Answer",R.drawable.ic_call,tone=Color.parseColor("#16745B")){ensurePermissions();if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)phone.answer()},spaced(height=48))
             }else{
                 actions.addView(iconButton(if(phone.muted)"Unmute" else "Mute",if(phone.muted)R.drawable.ic_mic_off else R.drawable.ic_mic,phone.muted){phone.mute()},spaced(height=48))
                 actions.addView(iconButton(if(phone.speaker)"Earpiece" else "Speaker",R.drawable.ic_speaker,phone.speaker){phone.speaker()},spaced(height=48))
@@ -260,7 +260,7 @@ class MainActivity: ComponentActivity() {
         val controls=layout(true)
         if(call.state==Call.State.IncomingReceived) {
             controls.addView(iconButton("Decline",R.drawable.ic_hangup,tone=Color.parseColor("#B3263E")){phone.hangup()},spaced(height=82))
-            controls.addView(iconButton("Answer",R.drawable.ic_call,tone=Color.parseColor("#16745B")){ensurePermissions();if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)phone.answer()},spaced(height=82))
+            controls.addView(iconButton(if(phone.video.offered(call))"Answer audio" else "Answer",R.drawable.ic_call,tone=Color.parseColor("#16745B")){ensurePermissions();if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)phone.answer()},spaced(height=82))
             callPanel.addView(controls)
         } else {
             controls.addView(iconButton(if(phone.muted)"Unmute" else "Mute",if(phone.muted)R.drawable.ic_mic_off else R.drawable.ic_mic,phone.muted){phone.mute()},spaced())
@@ -294,6 +294,11 @@ class MainActivity: ComponentActivity() {
         val row=layout(true)
         val joining=phone.conference!=null && !phone.conference!!.isIn
         row.addView(button(if(joining)"Join call audio" else if(phone.conference!=null || phone.conferenceOnHold)"Participants" else "Call options"){if(joining)phone.retryConferenceAudio()else callOptions(phone)},LinearLayout.LayoutParams(0,dp(48),1f))
+        if(phone.calls.size==1 && phone.conference==null){
+            val current=phone.call
+            val incoming=current?.state==Call.State.IncomingReceived
+            if(!incoming || phone.video.offered(current))row.addView(button(if(incoming)"Answer video" else if(phone.video.requestPending)"Video requested · View" else if(phone.video.enabled)"Open video" else "Video call"){openVideo(incoming=if(incoming)current else null)},LinearLayout.LayoutParams(0,dp(48),1f))
+        }
         if(phone.consultation!=null){
             row.addView(button("Transfer now"){phone.completeTransfer()},LinearLayout.LayoutParams(0,dp(48),1f))
             row.addView(button("Cancel"){phone.cancelConsultation()},LinearLayout.LayoutParams(0,dp(48),1f))
@@ -381,6 +386,7 @@ class MainActivity: ComponentActivity() {
         }
         val actions=keypadDock
         actions.addView(iconButton("Call",R.drawable.ic_call,tone=Color.parseColor("#16745B")){dial(number.text.toString())},spaced(3f,if(compact)48 else 72))
+        actions.addView(iconButton("Video",R.drawable.ic_video){startVideo(number.text.toString())},spaced(2f,if(compact)48 else 72))
         actions.addView(iconButton("Delete digit",R.drawable.ic_backspace){if(number.text.isNotEmpty())number.text.delete(number.text.length-1,number.text.length)},spaced(1.3f,if(compact)48 else 72))
         if(!compact)body.addView(text("During a call, use the keypad for menu choices.",13f,soft))
     }
@@ -404,6 +410,35 @@ class MainActivity: ComponentActivity() {
             PhoneService.instance?.dial(number) ?: error("Your phone is not connected yet. Open Settings and choose Check connection.")
         } catch(e:Exception){message(e.message ?: "The call could not start")}
     }
+    private fun openVideo(number:String?=null,incoming:Call?=null){
+        val phone=PhoneService.instance
+        fun show(){
+            val intent=Intent(this,VideoCallActivity::class.java)
+            if(number!=null)intent.putExtra("number",number).putExtra("start_video",true)
+            if(incoming!=null)intent.putExtra("incoming_id",phone?.incomingId(incoming))
+            startActivity(intent)
+        }
+        val current=phone?.call
+        if(number==null && incoming==null && current!=null && !phone.video.enabled && !phone.video.requestPending){
+            val peer=current.remoteAddress.username
+            async({api().json("directory")},{response->
+                val rows=response.getJSONArray("contacts")
+                if(phone.call?.nativePointer!=current.nativePointer)return@async
+                if((0 until rows.length()).any{rows.getJSONObject(it).optString("id")=="extension:$peer"})show()
+                else message("Video calls are available for colleagues listed in Contacts.")
+            })
+        }else show()
+    }
+    private fun startVideo(raw:String){
+        try{PhoneService.instance?.video?.requireServerVideo() ?: error("Open Settings and choose Check connection first.")}catch(e:Exception){message(e.message ?: "Video is not available yet.");return}
+        val number=try{Enrollment.number(raw)}catch(e:Exception){message("Enter a colleague's extension for a video call.");return}
+        if(number==store.read()?.optJSONObject("account")?.optString("extension")){message("Choose a colleague's extension for a video call.");return}
+        async({api().json("directory")},{response->
+            val contacts=response.getJSONArray("contacts")
+            if((0 until contacts.length()).any{val row=contacts.getJSONObject(it);row.optString("id")=="extension:$number" && row.optString("number")==number})openVideo(number)
+            else message("Video calls are available for colleagues listed in Contacts.")
+        })
+    }
     private fun item(title:String,subtitle:String,action:()->Unit) {
         val row=layout().apply { background=rounded(card); setPadding(dp(16),dp(12),dp(16),dp(12)); isClickable=true; isFocusable=true; contentDescription="$title, $subtitle"; setOnClickListener{action()} }
         row.addView(text(title,18f,ink,true)); row.addView(text(subtitle,14f,soft)); body.addView(row,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(10)})
@@ -414,7 +449,10 @@ class MainActivity: ComponentActivity() {
             val ordered=(0 until list.length()).map{list.getJSONObject(it)}.sortedWith(if(preferences.contactSort=="Extension")compareBy<JSONObject>{it.optString("number").toLongOrNull() ?: Long.MAX_VALUE}.thenBy{it.optString("number")}.thenBy{it.optString("name").lowercase(java.util.Locale.ROOT)}else compareBy<JSONObject>{it.optString("name").lowercase(java.util.Locale.ROOT)}.thenBy{it.optString("number")})
             val search=field("Search people or numbers"); body.addView(search); val container=layout(); body.addView(container)
             fun filter(value:String) { container.removeAllViews(); for(row in ordered) { val name=row.optString("name"); val number=row.optString("number"); if(!"$name $number".contains(value,true))continue
-                container.addView(button("$name\n$number${row.optString("status").takeIf{it.isNotBlank()}?.let{" · $it"} ?: ""}"){dial(number)}.apply{gravity=Gravity.START; minHeight=dp(64)})
+                val contactRow=layout(true)
+                contactRow.addView(button("$name\n$number${row.optString("status").takeIf{it.isNotBlank()}?.let{" · $it"} ?: ""}"){dial(number)}.apply{gravity=Gravity.START; minHeight=dp(64)},LinearLayout.LayoutParams(0,-2,1f))
+                if(row.optString("id")=="extension:$number")contactRow.addView(button("Video"){startVideo(number)}.apply{contentDescription="Video call $name"},LinearLayout.LayoutParams(dp(82),dp(64)))
+                container.addView(contactRow)
             } }
             search.addTextChangedListener(object:android.text.TextWatcher{override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int){}; override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){filter(s.toString())};override fun afterTextChanged(s:android.text.Editable?){} });filter("")
         }
@@ -630,7 +668,7 @@ class MainActivity: ComponentActivity() {
         dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.apply{text=view.action;isEnabled=view.actionEnabled}
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.visibility=if(updates.isInstalling)View.VISIBLE else View.GONE
     }
-    private val privacySummary = "Your organisation’s PBX receives your device name, connection details and call history. During calls it carries your microphone audio, including while the app is in the background. Your administrator controls recordings and retention. The camera is used only to scan your connection QR code. If your administrator enables incoming wake-up, Google Play Services delivers encrypted alerts and an optional Cloudflare relay forwards them. Call audio and phone passwords are not sent through that notification channel."
+    private val privacySummary = "Your organisation’s PBX receives your device name, connection details and call history. During calls it carries your microphone audio, including while the app is in the background. Your administrator controls recordings and retention. The camera scans your connection QR code and, only when you choose video, shares live pictures through your PBX with the other caller. Leaving the video screen or locking your phone stops the camera; audio can continue. If your administrator enables incoming wake-up, Google Play Services delivers encrypted alerts and an optional Cloudflare relay forwards them. Call audio and phone passwords are not sent through that notification channel."
     private fun privacy() {
         AlertDialog.Builder(this).setTitle("Privacy and support").setMessage("$privacySummary\n\nNo advertising or advertising tracking. Settings → Disconnect removes this phone’s connection and local account data. To request deletion of your PBX account or server records, contact your administrator or follow the data removal instructions.")
             .setPositiveButton("Privacy policy") { _,_ -> openPublicPage("privacy.html") }
@@ -649,7 +687,7 @@ class MainActivity: ComponentActivity() {
         async({api().json("bootstrap")},{ response ->
             store.update { saved ->
             response.optJSONObject("push")?.let{saved.put("push",it)}
-            response.optJSONArray("features")?.let{saved.put("features",it)}
+            saved.put("features",response.optJSONArray("features") ?: org.json.JSONArray())
             response.optJSONObject("account")?.let{saved.put("account",it)}
             response.optJSONObject("sip")?.let{fresh->val old=saved.getJSONObject("sip");for(key in fresh.keys())if(key!="password" || fresh.optString(key).isNotBlank())old.put(key,fresh.get(key))}
             };PushConnection.configure(this);updatePhone()

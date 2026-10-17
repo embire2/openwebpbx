@@ -101,6 +101,7 @@ for path in [a.certificate,a.certificate_key]:
  if not P(path).is_file():raise RuntimeError('Certificate file is unavailable')
  if any(c in str(path) for c in ['\n','\r',';','"']):raise RuntimeError('Invalid certificate path')
 nginx=P('nginx.conf').read_text().replace('@DOMAIN@',a.domain).replace('@CERT@',str(a.certificate)).replace('@KEY@',str(a.certificate_key))
+write('/etc/nginx/snippets/openweb-meet.conf',P('meet-nginx.conf').read_text(),0o644)
 write('/etc/nginx/sites-available/openwebpbx',nginx,0o644)
 P('/etc/nginx/sites-enabled/default').unlink(missing_ok=True)
 P('/etc/nginx/sites-enabled/openwebpbx').symlink_to('/etc/nginx/sites-available/openwebpbx')
@@ -123,7 +124,7 @@ if not a.local_certificate:
 # current trusted helper while a candidate is staged and verified.
 release=P('VERSION').read_text().strip()
 tools=P('/opt/openwebpbx/tools');tools.mkdir(parents=True,exist_ok=True,mode=0o755)
-for name in ['upgrade.py','verify_feed.py','release-public.pem','configure-sip-tls.py','configure-sip-tls.php','backups.py','install-backups.sh','install-support.py','install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py']:
+for name in ['upgrade.py','verify_feed.py','release-public.pem','configure-sip-tls.py','configure-sip-tls.php','backups.py','install-backups.sh','install-support.py','install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py','install-meet.py','meet-nginx.conf']:
  shutil.copy(name,tools/name);(tools/name).chmod(0o644)
 slot=P('/opt/openwebpbx/updater/slots')/release
 shutil.copytree('updater',slot)

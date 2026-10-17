@@ -28,7 +28,8 @@ local variables={domain_uuid=record.domain_uuid,domain_name=record.domain_name,u
     extension_uuid=record.extension_uuid,presence_id=record.extension..'@'..record.domain_name,effective_caller_id_name=record.name,effective_caller_id_number=record.number,
     outbound_caller_id_name=record.name,outbound_caller_id_number=record.number,toll_allow=record.toll_allow or '',
     ['sip-force-user']=record.extension,['sip-allow-multiple-registrations']='true',
-    rtp_secure_media='mandatory:AES_CM_128_HMAC_SHA1_80',rtp_secure_media_outbound='optional:AES_CM_128_HMAC_SHA1_80',
+    rtp_secure_media='mandatory',rtp_secure_media_inbound='mandatory',rtp_secure_media_outbound='mandatory',
+    rtp_secure_media_suites='AES_CM_128_HMAC_SHA1_80',
     openweb_mobile_device='true'}
 local xml={'<document type="freeswitch/xml"><section name="directory"><domain name="'..esc(record.domain_name)..'"><groups><group name="default"><users><user id="'..esc(record.sip_username)..'" number-alias="'..esc(record.extension)..'"><params><param name="a1-hash" value="'..esc(record.sip_a1_hash)..'"/><param name="mwi-account" value="'..esc(record.number..'@'..record.domain_name)..'"/></params><variables>'}
 for k,v in pairs(variables) do xml[#xml+1]='<variable name="'..esc(k)..'" value="'..esc(v)..'"/>' end
