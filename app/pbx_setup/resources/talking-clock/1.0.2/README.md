@@ -1,0 +1,9 @@
+# Nathaniel talking clock 1.0.2
+
+This independent clock addition replaces the long welcome/full-minute wait with a short “South African time” welcome and immediate time announcement. It announces the upcoming signal in 24-hour GMT+2 time, including hours, minutes and seconds, every 15 seconds. Quiet 440 Hz ticks fill the interval; the exact signal is a 200 ms 1000 Hz tone. Telephone/network delay still affects when a listener hears the signal.
+
+[The catalogue](catalog.json) records all seven new spoken scripts and the same authorized ElevenLabs Nathaniel British identity used by system voice 1.0.1. [The audio manifest](audio-manifest.json) binds the original scripts, provider masters, synthesis settings, processed mono 8 kHz PCM files and 26 frozen dependencies. A separate locally generated half-second timing tick is explicitly non-speech. No API credential or network access is needed for playback. The matching Nathaniel system pack 1.0.1 must already supply the frozen digit dependencies; installing this small addition alone does not replace the complete system voice archive.
+
+The seven scripts are OpenWeb PBX originals. Audio was generated through the project’s authorized ElevenLabs account; this does not assign ElevenLabs’ provider terms a different licence. Existing stock-digit transcript provenance remains in the frozen system-voice catalogue. Do not replace customer greetings, recordings, music or the complete frozen 1.0.1 pack with these additions.
+
+The native runtime needs the eight flat `talking-clock-1.0.2-*.wav` files, the 26 frozen dependencies and the matching `clock.lua`/`clock_prompts.lua` modules. Generic Debian/Windows script and flat-prompt packaging paths include these source inputs in a future build. Immutable public 1.0.15 packages have not been rebuilt or qualified by this component change.

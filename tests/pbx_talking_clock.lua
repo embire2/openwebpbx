@@ -1,37 +1,76 @@
 package.path='app/switch/resources/scripts/?.lua;'..package.path
 local M=require 'app.pbx_services.clock'
-local count=0
-local function check(v)assert(v);count=count+1 end
-local function parts(ms,h,m,p)local a,b,c=M.time_parts(ms);check(a==h and b==m and c==p)end
-parts(0,2,0,'a-m');parts(46800000+3420000,3,57,'p-m')
-parts(79200000,12,0,'a-m');parts(36000000,12,0,'p-m')
-for minute=0,1439 do
-    local h,m,p=M.time_parts(minute*60000)
-    check(h>=1 and h<=12 and m==minute%60 and (p=='a-m' or p=='p-m'))
-    check(M.next_minute(minute*60000+59999)==(minute+1)*60000)
-end
--- Execute the real scheduler using the actual sealed prompt durations.
 local durations=require 'app.pbx_services.clock_prompts'
-local open=io.open;io.open=function()return {close=function()end}end
-local function run(step)
-    local now=1792245412345;local alive=true;local tones={};local vars={};local said={}
-    local session={ready=function()return alive end,answer=function()end,
-      setVariable=function(_,k,v)vars[k]=v end,
-      hangup=function()alive=false end,
-      sleep=function(_,ms)now=now+ms end,
-      streamFile=function(_,path)
-        local key=path:sub(#'/sounds/'+1);check(durations[key]~=nil);said[#said+1]=key;now=now+durations[key]
-        if step and key:find('exactly',1,true) then now=now+step;step=nil end
-      end,
-      execute=function(_,app,data)
-        check(app=='playback' and data=='tone_stream://%(200,0,1000)')
-        check(now%60000==0);check(tonumber(vars.openweb_clock_target_ms)==now)
-        tones[#tones+1]=now;now=now+200;if #tones==2 then alive=false end
-      end}
-    M.run(session,{getTime=function()return tostring(now)end},'/sounds')
-    check(#tones==2 and tones[2]-tones[1]==60000)
-    check(said[1]:find('welcome',1,true)~=nil)
+local count=0
+local function check(value,message)assert(value,message);count=count+1 end
+-- Independent UTC calendar conversion checks all seconds and midnight rollover.
+for second=0,86399 do
+    local h,m,s=M.time_parts(second*1000)
+    local expected=os.date('!%H:%M:%S',second+7200)
+    check(string.format('%02d:%02d:%02d',h,m,s)==expected,'GMT+2 time/seconds mismatch')
 end
-run();run(2000) -- late speech skips its expired signal, then returns to a correct boundary
+local longest=0
+for second=0,86399,15 do
+    local target=second*1000
+    local paths,total,h,m,s=M.sentence(target,durations)
+    check(total+300<M.CADENCE_MS,'A spoken time cannot fit its cadence')
+    check(paths[1]=='openwebpbx/talking-clock-1.0.1-signal.wav'and paths[#paths]=='openwebpbx/talking-clock-1.0.1-exactly.wav','Exact-signal statement changed')
+    check(M.next_signal(target-1)==target,'Signal boundary changed')
+    longest=math.max(longest,total)
+end
+local open=io.open;io.open=function()return{close=function()end}end
+local function run(options)
+    options=options or{}
+    local now=options.start or 1792245412345;local started=now;local alive=true;local tones={};local vars={};local speech={};local ticks=0;local scheduled=false;local cause;local step=options.step;local jumped=false
+    local session={ready=function()return alive end,answer=function()check(not options.missing,'Missing files answered')end,
+        setVariable=function(_,key,value)vars[key]=value end,
+        hangup=function(_,value)cause=value;alive=false end,
+        streamFile=function(_,path)
+            local key=path:sub(#'/sounds/'+1);check(durations[key]~=nil,'Unsealed prompt played')
+            if key:find('tick.wav',1,true)then
+                ticks=ticks+1
+                if options.backward and not jumped then now=now-60000;jumped=true end
+            else speech[#speech+1]={path=key,at=now,target=vars.openweb_clock_announcement_target_ms}end
+            now=now+durations[key]
+            if step and key:find('exactly.wav',1,true)then now=now+step;step=nil end
+            if options.fail and key:find('signal.wav',1,true)then return 0 end
+            if options.early and#speech==1 then alive=false end
+            if options.expire and#speech==1 then now=started+1800001 end
+            return 1
+        end,
+        execute=function(_,app,data)
+            if app=='sched_hangup'then check(data=='+1800 NORMAL_CLEARING');scheduled=true;return end
+            check(app=='playback','Clock used a non-media wait')
+            if data:find('silence_stream://',1,true)==1 then
+                local delay=tonumber(data:match('(%d+)$'));check(delay>=1 and delay<durations['openwebpbx/talking-clock-1.0.2-tick.wav'],'Long silent playback gap');now=now+delay;return
+            end
+            check(data=='tone_stream://%(200,0,1000)','Unexpected exact time signal')
+            local target=tonumber(vars.openweb_clock_target_ms)
+            check(now==target,'Signal did not match its spoken time')
+            local h,m,s=M.time_parts(target)
+            check(tonumber(vars.openweb_clock_hour)==h and tonumber(vars.openweb_clock_minute)==m and tonumber(vars.openweb_clock_second)==s,'Spoken time metadata does not match signal')
+            tones[#tones+1]=target;now=now+200
+            if#tones==3 then alive=false end
+        end}
+    local api={getTime=function()return options.invalid and'invalid'or tostring(now)end}
+    M.run(session,api,'/sounds')
+    check(scheduled,'Native channel lifetime cap absent')
+    if options.fail or options.invalid then check(cause=='NORMAL_TEMPORARY_FAILURE','Media/time failure did not close safely');return end
+    if options.expire then check(cause=='NORMAL_CLEARING'and#tones==0,'Thirty-minute boundary extended a call');return end
+    if options.early then check(#speech==1 and#tones==0,'Caller hangup continued playback');return end
+    check(#tones==3,'Expected three completed announcements')
+    check(tones[2]-tones[1]==M.CADENCE_MS and tones[3]-tones[2]==M.CADENCE_MS,'Announcements did not keep fifteen-second cadence')
+    check(speech[1].path:find('welcome.wav',1,true)~=nil,'Short welcome absent')
+    check(speech[2].path:find('signal.wav',1,true)~=nil and speech[2].at==started+durations[speech[1].path],'First time statement waited after welcome')
+    check(speech[3].at-started<4000,'Caller waited too long to hear the hour')
+    check(ticks>0,'Wait intervals did not provide audible media')
+    check(vars.openweb_clock_version=='1.0.2','Runtime version absent')
+end
+for _,offset in ipairs({0,1,125,999,1345,7234,14999})do run({start=1792245405000+offset})end
+run({step=20000});run({backward=true});run({early=true});run({fail=true});run({invalid=true});run({expire=true})
+io.open=function()return nil end
+local answered=false;local failure
+M.run({answer=function()answered=true end,hangup=function(_,cause)failure=cause end},{},'/sounds')
+check(not answered and failure=='NORMAL_TEMPORARY_FAILURE','Missing asset did not refuse before answer')
 io.open=open
-print('PASS '..count..' GMT+2 clock rollover and scheduler controls')
+print('PASS '..count..' GMT+2 seconds, immediate speech, media-filled waits, native cap and failure controls; maximum sealed statement '..longest..'ms')

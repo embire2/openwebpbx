@@ -1,5 +1,6 @@
--- Sealed offline PCM durations, rounded up to the native 20ms playback frame.
+-- Offline PCM durations, rounded up to native20ms playback frames. Clock addon1.0.2.
 return {
+    ['en/us/callie/digits/8000/0.wav']=840,
     ['en/us/callie/digits/8000/1.wav']=620,
     ['en/us/callie/digits/8000/10.wav']=900,
     ['en/us/callie/digits/8000/11.wav']=840,
@@ -23,11 +24,14 @@ return {
     ['en/us/callie/digits/8000/7.wav']=800,
     ['en/us/callie/digits/8000/8.wav']=660,
     ['en/us/callie/digits/8000/9.wav']=800,
-    ['en/us/callie/time/8000/a-m.wav']=800,
-    ['en/us/callie/time/8000/oclock.wav']=840,
-    ['en/us/callie/time/8000/oh.wav']=660,
-    ['en/us/callie/time/8000/p-m.wav']=840,
     ['openwebpbx/talking-clock-1.0.1-exactly.wav']=940,
     ['openwebpbx/talking-clock-1.0.1-signal.wav']=2100,
-    ['openwebpbx/talking-clock-1.0.1-welcome.wav']=7480,
+    ['openwebpbx/talking-clock-1.0.2-and.wav']=760,
+    ['openwebpbx/talking-clock-1.0.2-hour.wav']=760,
+    ['openwebpbx/talking-clock-1.0.2-hours.wav']=800,
+    ['openwebpbx/talking-clock-1.0.2-minute.wav']=760,
+    ['openwebpbx/talking-clock-1.0.2-minutes.wav']=840,
+    ['openwebpbx/talking-clock-1.0.2-seconds.wav']=940,
+    ['openwebpbx/talking-clock-1.0.2-tick.wav']=500,
+    ['openwebpbx/talking-clock-1.0.2-welcome.wav']=1360,
 }
