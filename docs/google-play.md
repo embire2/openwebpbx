@@ -1,12 +1,25 @@
 # Publishing OpenWeb PBX on Google Play
 
-Version 1.0.11/code111 submission files are prepared with visible Call Hold / Resume Call, personal Settings and the minimum-version update policy. The current published baseline is the [1.0.11 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.11), source tag `15e1edcd1`. **The app has not been submitted or approved by Google Play.** The direct APK and Google Play bundle are separate builds; Google determines approval and required testing.
+The signed **1.0.15 / Android code 115** Play AAB is available on the [1.0.15 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.15). Use the Play AAB for submission; the direct APK and Play bundle are separate builds. Account registration/submission is in progress; Google Play approval is not confirmed.
+
+## Public URLs for Play Console
+
+| Field | Public URL |
+|---|---|
+| Privacy policy | https://openwebpbx.com/privacy |
+| Terms and conditions | https://openwebpbx.com/terms |
+| Account and data deletion | https://openwebpbx.com/delete |
+| App support | https://openwebpbx.com/support.html |
+
+The policy pages name **OpenWebPBX Free Phone** and **Open ISP cc**. Account/data deletion can be requested by email without reinstalling the app or signing in. The page identifies the requested records, verification steps, operator-controlled retention and the distinction between disconnecting a phone and deleting the PBX account. Existing `/privacy.html` and `/data-removal.html` links remain available for installed app versions. The existing support-email forwarder is configured; actual inbox delivery is not established by checking its configuration.
+
+[Google's deletion-resource guidance](https://support.google.com/googleplay/android-developer/answer/13327111?hl=en) permits a customer-service email as a request pathway. These pages do not establish approval, confirm receipt of a deletion email or automatically delete a customer's server. The responsible PBX operator must handle and confirm verified requests.
 
 ## What is prepared
 
 - Store title, descriptions and release notes: `mobile/android/play/metadata/en-US/`.
 - Icon and feature artwork: `mobile/android/play/metadata/en-US/images/`. Phone screenshots are captured from the actual app using fictional review data.
-- Public [privacy policy](https://openwebpbx.com/privacy.html), [support](https://openwebpbx.com/support.html) and [data removal](https://openwebpbx.com/data-removal.html) pages; in-app links and an explanation before connection.
+- Public [privacy policy](https://openwebpbx.com/privacy), [support](https://openwebpbx.com/support.html) and [data removal](https://openwebpbx.com/delete) pages; in-app links and an explanation before connection.
 - Play-specific build targeting Android 16 / API 36. APK installation permissions, package installer and direct updater receivers are excluded. Google Play handles store downloads, installation and reopening.
 - A separate review PBX with no outside calling or customer records. Permanent portal: `https://call.openweb.co.za/app/pbx_mobile/review.php`. Review credentials are private and belong only in Play Console’s **App access** section; see the [operator guide](google-play-review.md).
 - Foreground-service demonstration: [historical 1.0.7 app video](https://openwebpbx.com/android-review.html). It demonstrates the earlier basics and is omitted from the 1.0.11 packet; capture the new incoming-call controls on a real phone for the final Console declaration.

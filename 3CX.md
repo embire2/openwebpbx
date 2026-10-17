@@ -1,5 +1,9 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+## Operational follow-up — 2026-10-17
+
+The next Debian upgrade qualification must include an existing, enabled legacy `xml_cdr.service` alongside the hosted call-record worker. The live duplicate importer was disabled after its skipped-lock recursion filled syslog and the filesystem. Add migration/recovery handling and a legacy-service coexistence regression before claiming this scenario is covered by a release. This operational follow-up does not change the 133 stable roadmap IDs or acceptance marks.
+
 ## Department roles, phone handover and first calls — 1.0.15
 
 Implemented [staff roles and invitations](docs/department-staff.md), [guided phone migration](docs/desk-phone-handover.md#guided-handover-in-1015) and [same-call provider results](docs/core-calling.md#first-calls-and-provider-evidence-in-1015). Complete final Debian installation, signed updater/recovery, software-phone calls, authorization and configuration-preservation checks passed. See [the detailed evidence and limits](docs/feature-coverage.md#department-staff-phone-handover-and-provider-evidence--1015).

@@ -2,6 +2,8 @@
 
 **1.0.15:** department staff roles and private invitations, guided desk-phone moves with original credentials, and first-call/provider failover results. [Downloads](https://github.com/embire2/openwebpbx/releases/tag/v1.0.15) · [Install](docs/installing-1.0.15.md) · [Staff access](docs/department-staff.md) · [Phone handover](docs/desk-phone-handover.md) · [First calls](docs/core-calling.md). Fresh installation, signed upgrade/recovery, authorization and decoded software-phone calling passed. Physical Yealink W60B/Fanvil V62W tests await handset access; live-carrier cutover remains required. [Evidence and limits](docs/feature-coverage.md#department-staff-phone-handover-and-provider-evidence--1015).
 
+Google Play information: [Privacy](https://openwebpbx.com/privacy) · [Terms](https://openwebpbx.com/terms) · [Delete account and data](https://openwebpbx.com/delete).
+
 An open-source, multi-tenant PBX powered by FreeSWITCH, with a Windows 11 inspired administration desktop.
 
 ## Version 1.0.14 — simpler users and department routing

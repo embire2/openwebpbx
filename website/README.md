@@ -2,7 +2,7 @@
 
 Public destination: **https://openwebpbx.com/**. Deploy only the contents of `public/` to that domain's document root. The site is static HTML, CSS, JavaScript and SVG; it needs no Node build, database, external fonts or third-party scripts. The PBX application and private account data are separate.
 
-Current deployment: **[https://openwebpbx.com/](https://openwebpbx.com/)**, published to the existing cPanel document root on 2026-10-08 and refreshed to 1.0.10 on 2026-10-12. HTTP and `www` requests redirect to the HTTPS apex while preserving the path and query. No DNS or mail routing was changed.
+Current deployment: **[https://openwebpbx.com/](https://openwebpbx.com/)**, published to the existing cPanel document root on 2026-10-08 and refreshed to 1.0.15 on 2026-10-16, with Play policy pages updated on 2026-10-17. HTTP and `www` requests redirect to the HTTPS apex while preserving the path and query. No DNS or mail routing was changed.
 
 The project-domain `/tenantadmin`, `/tenantadmin/` and `/tenantadmin/index.php` entries redirect to the authenticated PBX portal at https://call.openweb.co.za/tenantadmin/. Query parameters are preserved. Account authentication and tenant data stay on the PBX instance.
 
@@ -94,3 +94,16 @@ All eight complete public GitHub downloads matched their local SHA-256 values. F
 ## Version 1.0.10 publication verification
 
 Published the fourteen-file static allowlist after all eight complete public downloads matched their reviewed SHA-256 values. Latest signed metadata is byte-identical to sequence 110. HTTP verification passed fourteen file hashes, 38 links, trusted TLS, canonical redirects and private-path denial. Actual-domain Chromium passed twelve feature dialogs, current Debian/Android links, historical Windows 1.0.7 link, Start/taskbar/window controls, persistent light/dark themes and 1440/390/320px layouts with zero errors or warnings. The clearly labelled historical 1.0.7 video still plays (78 seconds, HTTP range 206). DNS, mail and existing hosting rules were preserved. The HTTPS noindex preview was refreshed with the same fourteen allowlisted files. The native Windows calling client remains a plan; Google Play approval and physical handset qualification remain open.
+
+
+## Google Play policy URLs — 2026-10-17
+
+- Privacy: https://openwebpbx.com/privacy
+- Terms and conditions: https://openwebpbx.com/terms
+- Account/data deletion: https://openwebpbx.com/delete
+
+These return public HTML directly with trusted HTTPS. `/privacy.html` and `/data-removal.html` remain available to installed app versions; their canonical URLs use the clean paths. Trailing slashes redirect to the canonical path. The deletion page has a prominent email request link and copyable contact details, does not require installing the app or signing in, and distinguishes account/server-data deletion from disconnecting a device. App and publisher names are OpenWebPBX Free Phone and Open ISP cc. The existing contact-email forwarder is configured; inbox delivery has not been tested.
+
+Deployment updated seven static files and added four rules inside the existing managed `.htaccess` block. All other live hosting rules were preserved exactly; DNS and email configuration were unchanged. Private before/after and HTTPS evidence is in `/var/lib/openwebpbx/play-pages-20261017/`. No APK, AAB, release feed or PBX version changed for this website update. The existing native app's policy links still reach the updated pages.
+
+Live browser verification passed all three pages at 1440/390/320px in light/dark mode (18 layouts), with no overflow or page/console errors. App/publisher names, canonical tags, cross-links, the deletion email URI and request anchor passed. The email link was checked without sending a message. The mobile deletion page was visually reviewed, and the browser was closed.
