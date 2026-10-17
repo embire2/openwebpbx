@@ -211,7 +211,7 @@ def install():
         if digest(PACKAGE/'install-voices.py') != manifest['files'].get('install-voices.py'):
             raise ValueError('The voice installer differs from the reviewed release.')
         if migrating:
-            subprocess.run(['python3',str(PACKAGE/'install-voices.py')],check=True,cwd=PACKAGE,timeout=180)
+            subprocess.run(['python3',str(PACKAGE/'install-voices.py')],check=True,cwd=PACKAGE,timeout=600)
         # Fresh configure installs the overlay after copying stock engine/config
         # defaults and before the first service start; no recovery is needed.
 

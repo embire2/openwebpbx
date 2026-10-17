@@ -2,9 +2,9 @@
 
 The system voice pack has its own version, independent of the PBX and phone app.
 It uses ElevenLabs voice `7S3KNdLDL7aRgBVRQb1z`, **Nathaniel — Deep, Rich and Mature**,
-with the provider's British / `en-GB` voice labels. The owner's saved voice has
-the display alias “Nathaniel - WrightFamily Weather”; both names refer to the
-same voice ID. No cloned voice or voice-model weights are distributed.
+with the provider's British / `en-GB` voice labels. The fixed voice ID prevents
+a changed display name from silently selecting another narrator. No cloned
+voice or voice-model weights are distributed.
 
 `catalog.json` is the complete, reviewable script and destination inventory:
 

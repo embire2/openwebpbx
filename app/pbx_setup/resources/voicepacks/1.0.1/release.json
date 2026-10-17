@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "version": "1.0.1",
+  "status": "prepared-not-published",
+  "provider": "ElevenLabs",
+  "voice_id": "7S3KNdLDL7aRgBVRQb1z",
+  "voice_name": "Nathaniel - Deep, Rich and Mature",
+  "locale": "en-GB",
+  "model_id": "eleven_multilingual_v2",
+  "scripts": 1231,
+  "audio_files": 4888,
+  "unique_final_synthesis_bindings": 1207,
+  "asset": {
+    "name": "openwebpbx-voices-1.0.1.tar.gz",
+    "sha256": "d72a79e09998c2ff626395c897b2ab34210b55a294db3d989855b7cfc0f3d95d",
+    "bytes": 268392873
+  },
+  "pack_manifest_sha256": "232134ec4dcc6c8f5bee9f1ad3a909cd46609907fa06cc37236f0ec0f017a8e3",
+  "catalog_file_sha256": "e50e42acde041be7c77bca14ea2b06805a5edd1b7a1410e046e97e8382dc0731",
+  "catalog_binding_sha256": "f2490fea59aeb0bd7fda0a1ac12b63b37a073cddb400a8363cae8728d01e145c",
+  "installed_version_marker": "openwebpbx/voice-pack.json",
+  "production_activated": false,
+  "windows_installation_qualified": false,
+  "complete_signed_pbx_upgrade_qualified": false
+}
