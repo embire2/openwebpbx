@@ -8,6 +8,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from voicepack_test import fixture_pack
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -22,13 +23,19 @@ class PrivateBuildPackaging(unittest.TestCase):
             engine=work/'engine.tar.gz'
             with tarfile.open(engine,'w:gz'):pass
             output=work/'release'
+            voices=fixture_pack(work/'voices')
             subprocess.run([sys.executable,str(ROOT/'packaging/build-release.py'),'--target','debian',
-                '--server',str(work/'server'),'--updater',str(work/'updater'),'--engine',str(engine),'--output',str(output)],
+                '--server',str(work/'server'),'--updater',str(work/'updater'),'--engine',str(engine),
+                '--voices',str(voices),'--output',str(output)],
                 check=True,cwd=ROOT,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,umask=0o077)
             archive=next(output.glob('*.tar.gz'))
             with tarfile.open(archive) as packed:
                 prefix=archive.name.removesuffix('.tar.gz')
                 manifest=json.load(packed.extractfile(prefix+'/release-manifest.json'))
+                self.assertIn('voices/1.0.1/pack.json',manifest['files'])
+                self.assertIn('voice-tools/deployment.py',manifest['files'])
+                self.assertIn('install-voices.py',manifest['files'])
+                self.assertEqual(sum(name.startswith('voices/1.0.1/files/') for name in manifest['files']),4888)
                 for name,executable in [('server','OpenWebPbx.Server'),('updater','OpenWebPbx.Updater')]:
                     self.assertEqual(packed.getmember(prefix+'/'+name).mode,0o755)
                     self.assertEqual(packed.getmember(prefix+'/'+name+'/'+executable).mode,0o755)

@@ -53,7 +53,7 @@ write(cfg/'config.conf','\n'.join(f'{k} = {v}' for k,v in settings.items())+'\n'
 key=cfg/'openweb-template.key';key.write_bytes(secrets.token_bytes(32));key.chmod(0o640);os.chown(key,0,33)
 for path in ['/usr/share/freeswitch/scripts','/etc/freeswitch/languages','/var/cache/fusionpbx','/var/lib/freeswitch/db','/var/lib/freeswitch/storage/voicemail','/var/lib/freeswitch/recordings','/var/log/freeswitch','/var/run/freeswitch',str(private/'uploads')]:
  p=P(path);p.mkdir(parents=True,exist_ok=True);p.chmod(0o750);os.chown(p,33,33)
-env=os.environ|{'OPENWEB_SETUP_SECRETS':str(private/'setup-secrets.json')}
+env=os.environ|{'OPENWEB_SETUP_SECRETS':str(private/'setup-secrets.json'),'OPENWEB_FRESH_INSTALL':'1'}
 bootstrap=str(P('bootstrap.php').resolve())
 # Install the stricter tenant/account guard before the profile migration can
 # allow phones whose original SIP user differs from their authentication ID.
@@ -68,6 +68,20 @@ with open(private/'install.log','w') as log:
 shutil.copytree(root/'app/switch/resources/conf','/etc/freeswitch',dirs_exist_ok=True)
 shutil.copytree(root/'app/pbx_setup/resources/prompts','/usr/share/freeswitch/sounds/openwebpbx',dirs_exist_ok=True)
 shutil.copy(root/'app/pbx_setup/resources/prompts/openweb.xml','/etc/freeswitch/languages/en/ivr/openweb.xml')
+spec=importlib.util.spec_from_file_location('fresh_support',P('install-support.py').resolve())
+fresh_support=importlib.util.module_from_spec(spec);spec.loader.exec_module(fresh_support)
+fresh_support.ensure_call_me_back_storage()
+call_me_back_dropin=P('/etc/systemd/system/openwebpbx.service.d/call-me-back.conf')
+call_me_back_dropin.parent.mkdir(parents=True,exist_ok=True)
+shutil.copy('openwebpbx-call-me-back.conf',call_me_back_dropin)
+call_me_back_dropin.chmod(0o644)
+# A complete offline voice overlay is verified before the fresh engine starts.
+# The archive contains spoken files only, preserving music and customer media.
+voice_helper=P('install-voices.py')
+if voice_helper.is_file() and P('voices/1.0.1').is_dir():
+ spec=importlib.util.spec_from_file_location('fresh_voices',voice_helper.resolve())
+ voices=importlib.util.module_from_spec(spec);spec.loader.exec_module(voices)
+ voices.copy_files(voices.payload(P.cwd(),json.loads(P('release-manifest.json').read_text()),fresh=True))
 # The music/default migration ran before the clean native configuration was
 # copied. Regenerate its variable file from this instance's preserved settings.
 with open(private/'install.log','a') as log:

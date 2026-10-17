@@ -21,3 +21,12 @@ their own licenses and notices.
 Original OpenWeb PBX callback/wake-up prompt text and generation details are
 in web/app/pbx_setup/resources/prompts/README.md. No customer recordings or
 3CX application assets are included.
+
+Releases which include voices/1.0.1 contain the Nathaniel UK system voice
+overlay, generated through ElevenLabs on the owner's paid account. Its complete
+transcripts, four-rate coverage, versioned metadata and upstream attribution
+are in web/app/pbx_setup/resources/voicepacks/1.0.1/ and voices/1.0.1/.
+Stock text is adapted from FreeSWITCH Callie prompts (CC BY 3.0); the new
+performance and professional-wording changes are identified in the catalogue.
+The overlay preserves hold music, tones and customer media. No ElevenLabs
+voice model, API credential or customer recording is distributed.

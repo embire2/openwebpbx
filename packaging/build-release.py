@@ -30,6 +30,7 @@ parser.add_argument('--acme', type=pathlib.Path)
 parser.add_argument('--music', type=pathlib.Path)
 parser.add_argument('--codec-source', type=pathlib.Path)
 parser.add_argument('--registrar-source', type=pathlib.Path, help='Explicit matching MSI pthread source supplement; original 6214 codec inputs remain separate.')
+parser.add_argument('--voices', type=pathlib.Path, help='Complete, verified Nathaniel UK voice pack 1.0.1 directory (offline audio, no API key).')
 parser.add_argument('--output', type=pathlib.Path, default=root / 'artifacts')
 args = parser.parse_args()
 version = (root / 'VERSION').read_text().strip()
@@ -45,6 +46,15 @@ if args.target == 'windows' and (not args.desktop or not (args.desktop / 'OpenWe
     parser.error('Supply the complete Windows-built manager directory.')
 if args.target == 'debian' and (not args.engine or not args.engine.is_file()):
     parser.error('Supply the clean engine archive built from upstream source.')
+voice_catalog_path = root / 'app/pbx_setup/resources/voicepacks/1.0.1/catalog.json'
+if args.target == 'debian' and voice_catalog_path.is_file() and not args.voices:
+    parser.error('Supply --voices with the complete generated Nathaniel 1.0.1 pack; partial prompt releases are refused.')
+if args.voices:
+    voice_spec = importlib.util.spec_from_file_location('release_voicepack', root / 'packaging/voices/voicepack.py')
+    voice_module = importlib.util.module_from_spec(voice_spec)
+    voice_spec.loader.exec_module(voice_module)
+    voice_catalog = voice_module.load_catalog(voice_catalog_path)
+    voice_module.verify(voice_catalog,args.voices)
 if args.target != 'windows' and args.registrar_source:
     parser.error('Registrar dependency sources apply only to the Windows native build.')
 if args.target == 'windows':
@@ -155,6 +165,11 @@ with tempfile.TemporaryDirectory(prefix='openweb-release-') as temporary:
     copy_tracked_tree(root / 'docs', stage / 'docs')
     # A local codec recipe is source, never a prebuilt combined codec binary.
     copy_tracked_tree(root / 'packaging/codecs', stage / 'codecs')
+    if args.voices:
+        # The final signed release manifest seals every offline spoken WAV.
+        # API credentials and the private generation cache are never copied.
+        shutil.copytree(args.voices,stage/'voices'/voice_catalog['version'])
+        copy_tracked_tree(root/'packaging/voices',stage/'voice-tools')
     shutil.copy2(root / 'LICENSE', stage / 'LICENSE')
     shutil.copy2(root / '3CX.md', stage / '3CX.md')
     shutil.copy2(root / 'packaging/windows/bootstrap.php', stage / 'bootstrap.php')

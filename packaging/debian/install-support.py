@@ -14,6 +14,7 @@ PACKAGE = Path(__file__).resolve().parent
 UPDATES = Path('/var/lib/openwebpbx/updates')
 BACKUPS = Path('/var/backups/openwebpbx')
 SUPPORT = {'openwebpbx-call-records.conf': Path('/etc/systemd/system/openwebpbx.service.d/call-records.conf'),
+           'openwebpbx-call-me-back.conf': Path('/etc/systemd/system/openwebpbx.service.d/call-me-back.conf'),
            'backups.py': Path('/opt/openwebpbx/tools/backups.py'),
            'install-backups.sh': Path('/opt/openwebpbx/tools/install-backups.sh'),
            'install-support.py': Path('/opt/openwebpbx/tools/install-support.py'),
@@ -26,6 +27,23 @@ TIMER_LINKS = [Path('/etc/systemd/system/timers.target.wants/openwebpbx-backups.
                Path('/etc/systemd/system/openwebpbx-updater.service.wants/openwebpbx-backups.timer')]
 NOTIFICATION_FILES = [Path('/var/lib/openwebpbx/mobile-notifications/config.json'),
                       Path('/var/lib/openwebpbx/mobile-notifications/config.json.lock')]
+CALL_ME_BACK_ROOT = Path('/var/lib/freeswitch/storage/openwebpbx/call-me-back')
+
+
+def ensure_call_me_back_storage():
+    for parent in [CALL_ME_BACK_ROOT,*CALL_ME_BACK_ROOT.parents]:
+        if parent.is_symlink():
+            raise ValueError('The private callback storage cannot be linked.')
+    absent=[];parent=CALL_ME_BACK_ROOT
+    while not parent.exists():
+        absent.append(parent);parent=parent.parent
+    if not parent.is_dir():
+        raise ValueError('The private callback storage parent is not a directory.')
+    for directory in reversed(absent):
+        directory.mkdir(mode=0o750);os.chown(directory,33,33);sync_dir(directory.parent)
+    status=CALL_ME_BACK_ROOT.stat()
+    if not CALL_ME_BACK_ROOT.is_dir() or status.st_uid!=33 or status.st_mode & 0o007:
+        raise ValueError('The private callback storage needs its existing owner to review permissions.')
 
 
 def digest(path):
@@ -169,11 +187,13 @@ def install():
             stream.write((PACKAGE/name).read_bytes());stream.flush();os.fsync(stream.fileno())
             os.fchmod(stream.fileno(),0o644)
         os.replace(temporary,target);sync_dir(target.parent)
-    target=SUPPORT['openwebpbx-call-records.conf']
-    target.parent.mkdir(parents=True,exist_ok=True,mode=0o755)
-    with tempfile.NamedTemporaryFile(dir=target.parent,prefix='.call-records-',delete=False) as stream:
-        temporary=Path(stream.name);stream.write((PACKAGE/'openwebpbx-call-records.conf').read_bytes());stream.flush();os.fsync(stream.fileno());os.fchmod(stream.fileno(),0o644)
-    os.replace(temporary,target);sync_dir(target.parent)
+    ensure_call_me_back_storage()
+    for name in ['openwebpbx-call-records.conf','openwebpbx-call-me-back.conf']:
+        target=SUPPORT[name]
+        target.parent.mkdir(parents=True,exist_ok=True,mode=0o755)
+        with tempfile.NamedTemporaryFile(dir=target.parent,prefix='.call-service-',delete=False) as stream:
+            temporary=Path(stream.name);stream.write((PACKAGE/name).read_bytes());stream.flush();os.fsync(stream.fileno());os.fchmod(stream.fileno(),0o644)
+        os.replace(temporary,target);sync_dir(target.parent)
     subprocess.run(['systemctl','daemon-reload'],check=True)
     subprocess.run(['python3', str(PACKAGE / 'install-mobile-notifications.py')],
                    check=True, cwd=PACKAGE, timeout=60)
@@ -182,6 +202,18 @@ def install():
     # timer. On failure, the snapshot removes the never-started units and links.
     subprocess.run(['bash', str(PACKAGE / 'install-backups.sh')], check=True, cwd=PACKAGE,
                    env=os.environ | ({'OPENWEB_BACKUP_START': '0'} if migrating else {}), timeout=60)
+    # Older installed updaters do not know the newly bundled spoken targets.
+    # The candidate helper augments their verified recovery inventory before
+    # changing any voice, while the engine remains in the same stopped phase.
+    if (PACKAGE/'voices/1.0.1').is_dir():
+        if not migrating and os.environ.get('OPENWEB_FRESH_INSTALL') != '1':
+            raise ValueError('Use the recoverable instance updater for existing system voices.')
+        if digest(PACKAGE/'install-voices.py') != manifest['files'].get('install-voices.py'):
+            raise ValueError('The voice installer differs from the reviewed release.')
+        if migrating:
+            subprocess.run(['python3',str(PACKAGE/'install-voices.py')],check=True,cwd=PACKAGE,timeout=180)
+        # Fresh configure installs the overlay after copying stock engine/config
+        # defaults and before the first service start; no recovery is needed.
 
 
 if __name__ == '__main__':

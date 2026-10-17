@@ -93,12 +93,21 @@ def deployment_files(package, manifest):
     prompt = package / 'web/app/pbx_setup/resources/prompts/openweb.xml'
     if prompt.is_file():
         result[Path('/etc/freeswitch/languages/en/ivr/openweb.xml')] = prompt
+    voice_helper=package/'install-voices.py'
+    if voice_helper.is_file():
+        spec=importlib.util.spec_from_file_location('candidate_voices',voice_helper)
+        voices=importlib.util.module_from_spec(spec);spec.loader.exec_module(voices)
+        # Include stock originals and the version marker before make_backup().
+        # Existing strict file/mode/owner recovery covers every replaced voice.
+        result.update(voices.payload(package,manifest))
     for helper in ['configure-sip-tls.py', 'configure-sip-tls.php', 'upgrade.py', 'verify_feed.py', 'release-public.pem', 'backups.py', 'install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py']:
         if helper in manifest['files']:
             result[TOOLS / helper] = package / helper
     for service in ['openwebpbx-updater.service', 'openwebpbx-update-recovery.service', 'openwebpbx-backups.service', 'openwebpbx-backups.timer']:
         if service in manifest['files']:
             result[Path('/etc/systemd/system') / service] = package / service
+    if 'openwebpbx-call-me-back.conf' in manifest['files']:
+        result[Path('/etc/systemd/system/openwebpbx.service.d/call-me-back.conf')]=package/'openwebpbx-call-me-back.conf'
     return result
 
 
