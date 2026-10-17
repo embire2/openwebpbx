@@ -22,7 +22,7 @@ local ok=pcall(function()
         if t then db:query('select enabled,register from v_gateways where domain_uuid=:d and gateway_uuid=:id',{d=domain,id=t.gateway_uuid},function(row)native=row end) end
         if t and native and P.gateway_available(native,api:execute('sofia','status gateway '..t.gateway_uuid)) and P.outbound_leg(t,r,number,u,owner,domain,config.realm,native) then selected=tostring(r.trunk_id);break end
     end
-    if tostring(rule.routes[1].trunk_id)~=trunk or not selected then return end
+    if tostring(rule.routes[1].trunk_id)~=trunk or not selected or selected~=trunk then return end
     local vars='origination_uuid='..id..',domain_uuid='..domain..',domain_name='..config.realm..',originate_timeout=30,call_timeout=30,absolute_timeout=180,ignore_early_media=true,rtp_secure_media=optional:AES_CM_128_HMAC_SHA1_80,origination_caller_id_name=First Call Test,origination_caller_id_number='..owner
     -- One fresh registered contact avoids assigning the same UUID to several devices.
     call=freeswitch.Session('{'..vars..',presence_id='..u.auth_id..'@'..config.realm..'}'..live_contact)
