@@ -153,6 +153,7 @@ class WindowsBackups(unittest.TestCase):
           CREATE TABLE v_pbx_tenants(id uuid PRIMARY KEY);CREATE TABLE v_pbx_services(id uuid PRIMARY KEY);
           CREATE TABLE v_pbx_restore(id uuid PRIMARY KEY);CREATE TABLE v_recordings(id uuid PRIMARY KEY);
           CREATE TABLE v_voicemail_messages(id uuid PRIMARY KEY);
+          CREATE TABLE v_voicemails(voicemail_uuid uuid PRIMARY KEY,domain_uuid uuid,voicemail_id text,voicemail_password text,greeting_id integer);
           CREATE TABLE v_pbx_update_commands(status text);
           CREATE TABLE fixture_objects(kind text PRIMARY KEY,payload text);
           INSERT INTO v_users VALUES(gen_random_uuid(),'factory','true');
@@ -160,6 +161,11 @@ class WindowsBackups(unittest.TestCase):
         b.query(settings,(ROOT/'app/pbx_backups/resources/install.sql').read_text().split('DO $$')[0]+'COMMIT;')
         if source:
             b.query(settings,"INSERT INTO fixture_objects VALUES('tenant','owned fixture'),('private-phone','preserved credential'),('media-key','sealed data');INSERT INTO v_extensions VALUES(gen_random_uuid());")
+            b.query(settings,"INSERT INTO v_voicemails SELECT gen_random_uuid(),domain_uuid,'1000','123456',7 FROM v_domains;")
+        else:
+            # A pre-policy factory snapshot must recover exactly, including its
+            # obsolete PIN. Only a successful source import retires credentials.
+            b.query(settings,"INSERT INTO v_voicemails SELECT gen_random_uuid(),domain_uuid,'factory-mailbox','246810',81 FROM v_domains;")
 
     @classmethod
     def roots(cls, state):
@@ -225,6 +231,9 @@ class WindowsBackups(unittest.TestCase):
         self.patches.append(patch.object(b,'installation_layout',lambda:self.manifest['installation_layout']))
         for p in self.patches:p.start()
         b.WEB_VERSION.write_text('1.0.13\n')
+        policy = b.WEB_VERSION.parent/'app/voicemails/resources/voicemail_without_pins.sql'
+        policy.parent.mkdir(parents=True)
+        shutil.copyfile(ROOT/'app/voicemails/resources/voicemail_without_pins.sql',policy)
 
     def tearDown(self):
         for p in reversed(self.patches):p.stop()
@@ -296,6 +305,11 @@ class WindowsBackups(unittest.TestCase):
         body_sql="select encode(convert_to(prosrc,'UTF8'),'hex') from pg_proc where oid='public.fixture_body_bytes()'::regprocedure"
         self.assertTrue(b.query(self.target,body_sql)==b.query(self.source,body_sql))
         self.assertEqual(b.query(self.target,'select count(*) from fixture_objects'),'3')
+        self.assertEqual(b.query(self.target,"select greeting_id from v_voicemails where voicemail_id='1000' and voicemail_password is null"),'7')
+        self.assertEqual(b.query(self.source,"select voicemail_password from v_voicemails where voicemail_id='1000'"),'123456')
+        b.query(self.target,"update v_voicemails set voicemail_password='999999' where voicemail_id='1000'")
+        self.assertEqual(b.query(self.target,"select count(*) from v_voicemails where voicemail_password is not null"),'0')
+        self.assertEqual(b.query(self.target,"select greeting_id from v_voicemails where voicemail_id='1000'"),'7')
         self.assertEqual((self.target_roots['fusionpbx-config']/'openweb-template.key').read_bytes(),self.key)
         self.assertEqual(b.read_settings(self.target_roots['fusionpbx-config']/'config.conf')['database.0.password'],self.target_password)
         installation=json.loads((self.target_state/'installation.json').read_text())
@@ -317,6 +331,7 @@ class WindowsBackups(unittest.TestCase):
         self.assertEqual([op for op,_ in self.native_calls].count('start-web'),1)
 
     def test_07_restore_failure_recovers_database_files_and_acl_plan(self):
+        mailbox_before=b.query(self.target,'select jsonb_agg(to_jsonb(v) order by voicemail_uuid)::text from v_voicemails v')
         before={p:p.read_bytes() for p in self.target_state.rglob('*') if p.is_file()}
         original=b.atomic_copy;failed=False
         def once(source,target,**kwargs):
@@ -326,6 +341,8 @@ class WindowsBackups(unittest.TestCase):
         with patch.object(b,'atomic_copy',once):
             with self.assertRaisesRegex(b.BackupError,'Injected'):b.restore(self.archive,self.password,self.target,confirm_database=self.target_name)
         self.assertEqual(b.query(self.target,'select count(*) from fixture_objects'),'0')
+        self.assertEqual(b.query(self.target,'select jsonb_agg(to_jsonb(v) order by voicemail_uuid)::text from v_voicemails v'),mailbox_before)
+        self.assertEqual(b.query(self.target,"select count(*) from pg_trigger where tgrelid='v_voicemails'::regclass and tgname='openweb_voicemail_without_pin'"),'0')
         for path,data in before.items():self.assertEqual(path.read_bytes(),data)
         self.assertEqual(json.loads((b.RESTORE/'journal.json').read_text())['state'],'recovered')
         self.assertFalse(any(b.held(selection) for selection in b.HELD_UNITS))
@@ -616,6 +633,27 @@ class WindowsBackups(unittest.TestCase):
             with self.assertRaises(b.BackupError):b.restore(self.archive,self.password,self.target,confirm_database=self.target_name)
         self.assertFalse(any(operation=='hold' for operation,_ in self.native_calls))
         self.assertFalse((b.RESTORE/'journal.json').exists());self.assertTrue(self.database_security_state()==before)
+
+    def test_25_failure_after_voicemail_policy_recovers_exact_factory_mailbox_without_migrating_recovery(self):
+        before=self.database_security_state()
+        mailbox_before=b.query(self.target,'select jsonb_agg(to_jsonb(v) order by voicemail_uuid)::text from v_voicemails v')
+        original=b.query;policy_applied=[]
+        def fail_after_policy(settings,sql,**kwargs):
+            if sql.startswith('update v_pbx_backup_commands'):
+                policy_applied.append(original(settings,"select count(*) from v_voicemails where voicemail_password is null and greeting_id=7"))
+                self.assertEqual(policy_applied[-1],'1')
+                raise b.BackupError('Injected post-policy source import failure')
+            return original(settings,sql,**kwargs)
+        with patch.object(b,'query',side_effect=fail_after_policy):
+            with self.assertRaisesRegex(b.BackupError,'Injected post-policy'):
+                b.restore(self.archive,self.password,self.target,confirm_database=self.target_name)
+        self.assertEqual(policy_applied,['1'])
+        self.assertEqual(b.query(self.target,'select jsonb_agg(to_jsonb(v) order by voicemail_uuid)::text from v_voicemails v'),mailbox_before)
+        self.assertEqual(b.query(self.target,"select voicemail_password from v_voicemails where voicemail_id='factory-mailbox'"),'246810')
+        self.assertEqual(b.query(self.target,"select count(*) from pg_trigger where tgrelid='v_voicemails'::regclass and tgname='openweb_voicemail_without_pin'"),'0')
+        self.assertEqual(self.database_security_state(),before)
+        self.assertEqual(json.loads((b.RESTORE/'journal.json').read_text())['state'],'recovered')
+        self.assertFalse(any(b.held(selection) for selection in b.HELD_UNITS))
 
 
 if __name__=='__main__':
