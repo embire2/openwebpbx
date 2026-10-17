@@ -22,7 +22,7 @@ try{
  $reject(fn()=>$ops->hotelAction(['action'=>'add_room','number'=>'999','room_name'=>'Foreign']),'Foreign user rejected');
  $ops->hotelAction(['action'=>'check_in','number'=>'100','guest_name'=>'Test guest']);$ok($ops->rooms()[0]['occupied'],'Check-in');
  $ok(!$db->query('select 1 from v_voicemail_messages')->fetchColumn()&&!$db->query('select 1 from v_pbx_media')->fetchColumn(),'Prior guest voicemail indexes cleared');
- $v=$db->query('select voicemail_password,greeting_id from v_voicemails')->fetch(PDO::FETCH_ASSOC);$ok($v['voicemail_password']!=='123456'&&$v['greeting_id']===null,'Guest PIN rotated and greeting cleared');
+ $v=$db->query('select voicemail_password,greeting_id from v_voicemails')->fetch(PDO::FETCH_ASSOC);$ok($v['voicemail_password']===null&&$v['greeting_id']===null,'Guest PIN retired and hotel greeting cleared');
  $ok((new pbx_admin($db))->config()['users']['100']['greeting_id']==='','Active greeting selection reset');
  $reject(fn()=>$ops->hotelAction(['action'=>'check_in','number'=>'100','guest_name'=>'Other guest']),'No overwrite of checked-in guest');
  $ops->hotelAction(['action'=>'room_settings','number'=>'100','room_status'=>'inspected','do_not_disturb'=>'1']);$ok($ops->rooms()[0]['do_not_disturb'],'Do not disturb');

@@ -27,13 +27,13 @@ $frequencies = static function(array $rows, string $field): array {
 };
 $credentials = ['users_with_password'=>0, 'users_with_separate_authentication_id'=>0,
     'numeric_identity_collisions_across_users'=>0,
-    'users_with_voicemail_pin'=>0, 'disabled_users'=>0];
+    'users_without_voicemail_pin'=>0, 'disabled_users'=>0];
 foreach ($plan['users'] as $u) {
     $credentials['users_with_password'] += $u['password'] !== '';
     $credentials['users_with_separate_authentication_id'] += $u['auth_id'] !== $u['number'];
     $credentials['numeric_identity_collisions_across_users'] += $u['auth_id'] !== $u['number'] &&
         (bool)array_filter($plan['users'],static fn($other)=>$other['number']===$u['auth_id']);
-    $credentials['users_with_voicemail_pin'] += $u['voicemail_pin'] !== '';
+    $credentials['users_without_voicemail_pin'] += !array_key_exists('voicemail_pin',$u);
     $credentials['disabled_users'] += !$u['enabled'];
 }
 $profiles = []; $forwardTypes = []; $forwardingRules = 0;

@@ -43,7 +43,6 @@
 	$available_columns[] = 'domain_uuid';
 	$available_columns[] = 'voicemail_uuid';
 	$available_columns[] = 'voicemail_id';
-	$available_columns[] = 'voicemail_password';
 	$available_columns[] = 'greeting_id';
 	$available_columns[] = 'voicemail_alternate_greet_id';
 	$available_columns[] = 'voicemail_recording_instructions';

@@ -14,7 +14,7 @@ $xml='<PhoneSystem><header><version>20.0.9.995</version></header><Tenants><Tenan
 $document=new DOMDocument();$check($document->loadXML($xml,LIBXML_NONET),'Invented source fixture did not load.');$plan=threecx_v20::read($document->documentElement);
 $check($plan['users'][0]['password']===$password,'Source password bytes were changed.');
 $check($plan['users'][0]['auth_id']==='101'&&$plan['users'][1]['number']==='101'&&$plan['users'][1]['auth_id']==='login-101','Cross-user numeric identity pair was collapsed.');
-$check($plan['users'][0]['voicemail_pin']==='001234','Leading-zero mailbox PIN was changed.');
+$check(!array_key_exists('voicemail_pin',$plan['users'][0]),'Retired mailbox PIN was extracted.');
 $user=$plan['v20']['users'][100]+$plan['users'][0];$phone=pbx_phone_restore::plan($plan['v20']['phones'][0],$user,'new-tenant.example.test');
 $check($phone['line']['user_id']==='100'&&$phone['line']['auth_id']==='101'&&$phone['line']['password']===$password,'Phone mapping changed source credentials.');
 $check($phone['source_payload']['settings_xml']===$settings&&$phone['source_payload']['phone']['provisioning_filename2']==='source-private-filename','Original source XML/provisioning path was changed.');

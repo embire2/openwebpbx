@@ -52,7 +52,6 @@
 
 //set the defaults
 	$voicemail_id = '';
-	$voicemail_password = '';
 	$voicemail_alternate_greet_id = '';
 	$voicemail_description =  '';
 	$voicemail_destinations_assigned = '';
@@ -120,7 +119,6 @@
 		//set the variables from the HTTP values
 			$voicemail_id = $_POST["voicemail_id"];
 			$voicemail_id_previous = $_POST["voicemail_id_previous"];
-			$voicemail_password = $_POST["voicemail_password"];
 			$greeting_id = $_POST["greeting_id"];
 			$voicemail_options = $_POST["voicemail_options"];
 			$voicemail_alternate_greet_id = $_POST["voicemail_alternate_greet_id"];
@@ -167,8 +165,8 @@
 
 		//check for all required data
 			$msg = '';
+			if (pbx_service_codes::isReserved($voicemail_id)) { $msg .= '121 is reserved for voicemail and 1026 for the talking clock.<br>'; }
 			if (!is_numeric($voicemail_id)) { $msg .= $text['message-required']." ".$text['label-voicemail_id']."<br>\n"; }
-			if (trim($voicemail_password) == '') { $msg .= $text['message-required']." ".$text['label-voicemail_password']."<br>\n"; }
 			if (!empty($msg) && empty($_POST["persistformvar"])) {
 				require_once "resources/header.php";
 				require_once "resources/persist_form_var.php";
@@ -200,7 +198,7 @@
 					$array['voicemails'][0]['domain_uuid'] = $domain_uuid;
 					$array['voicemails'][0]['voicemail_uuid'] = $voicemail_uuid;
 					$array['voicemails'][0]['voicemail_id'] = $voicemail_id;
-					$array['voicemails'][0]['voicemail_password'] = $voicemail_password;
+					$array['voicemails'][0]['voicemail_password'] = null;
 					$array['voicemails'][0]['greeting_id'] = $greeting_id != '' ? $greeting_id : null;
 					$array['voicemails'][0]['voicemail_alternate_greet_id'] = $voicemail_alternate_greet_id != '' ? preg_replace('/[^0-9+]/', '', $voicemail_alternate_greet_id) : null;
 					$array['voicemails'][0]['voicemail_mail_to'] = $voicemail_mail_to;
@@ -370,7 +368,6 @@
 		$voicemail_uuid = $_GET["id"];
 		$sql = "select ";
 		$sql .= "voicemail_id, ";
-		$sql .= "voicemail_password, ";
 		$sql .= "greeting_id, ";
 		$sql .= "voicemail_alternate_greet_id, ";
 		$sql .= "voicemail_mail_to, ";
@@ -397,7 +394,6 @@
 		$row = $database->select($sql, $parameters, 'row');
 		if (!empty($row)) {
 			$voicemail_id = $row["voicemail_id"];
-			$voicemail_password = $row["voicemail_password"];
 			$greeting_id = $row["greeting_id"];
 			$voicemail_alternate_greet_id = $row["voicemail_alternate_greet_id"];
 			$voicemail_mail_to = $row["voicemail_mail_to"];
@@ -532,40 +528,6 @@
 	$document['title'] = $text['title-voicemail'];
 	require_once "resources/header.php";
 
-//password complexity
-	$password_complexity = $settings->get('voicemail', 'password_complexity', false);
-	if ($password_complexity) {
-		echo "<script>\n";
-		$req['length'] = $settings->get('voicemail', 'password_min_length', 20);
-		echo "	function check_password_strength(pwd) {\n";
-		echo "		var msg_errors = [];\n";
-		//length
-		if (is_numeric($req['length']) && $req['length'] != 0) {
-			echo "	var re = /.{".$req['length'].",}/;\n";
-			echo "	if (!re.test(pwd)) { msg_errors.push('".$req['length']."+ ".$text['label-digits']."'); }\n";
-		}
-		//numberic only
-		echo "		var re = /(?=.*[a-zA-Z\W])/;\n";
-		echo "		if (re.test(pwd)) { msg_errors.push('".$text['label-numberic_only']."'); }\n";
-		//repeating digits
-		echo "		var re = /(\d)\\1{2}/;\n";
-		echo "		if (re.test(pwd)) { msg_errors.push('".$text['label-password_repeating']."'); }\n";
-		//sequential digits
-		echo "		var re = /(012|123|345|456|567|678|789|987|876|765|654|543|432|321|210)/;\n";
-		echo "		if (re.test(pwd)) { msg_errors.push('".$text['label-password_sequential']."'); }\n";
-
-		echo "		if (msg_errors.length > 0) {\n";
-		echo "			var msg = '".$text['message-password_requirements'].": ' + msg_errors.join(', ');\n";
-		echo "			display_message(msg, 'negative', '6000');\n";
-		echo "			return false;\n";
-		echo "		}\n";
-		echo "		else {\n";
-		echo "			return true;\n";
-		echo "		}\n";
-		echo "	}\n";
-		echo "</script>\n";
-	}
-
 //set the location for the back button
 	if (permission_exists('voicemail_view')) {
 		$back_button_location = "voicemails.php".($query_string ? '?'.$query_string : '');
@@ -591,6 +553,7 @@
 		echo "</script>\n";
 	}
 
+	echo "<p>Dial <strong>121</strong> from your connected extension to check your own voicemail. No PIN is required.</p>\n";
 	echo "<form method='post' name='frm' id='frm'>\n";
 
 	echo "<div class='action_bar' id='action_bar'>\n";
@@ -600,7 +563,7 @@
 	if ($action == "update" && (permission_exists('voicemail_delete') || permission_exists('voicemail_option_delete'))) {
 		echo button::create(['type'=>'button','label'=>$text['button-delete'],'icon'=>$settings->get('theme', 'button_icon_delete'),'name'=>'btn_delete','style'=>'margin-left: 15px;','onclick'=>"modal_open('modal-delete','btn_delete');"]);
 	}
-	echo button::create(['type'=>'button','label'=>$text['button-save'],'icon'=>$settings->get('theme', 'button_icon_save'),'id'=>'btn_save','style'=>'margin-left: 15px;','onclick'=>($password_complexity ? "if (check_password_strength(document.getElementById('password').value)) { submit_form(); } else { this.blur(); return false; }" : 'submit_form();')]);
+	echo button::create(['type'=>'button','label'=>$text['button-save'],'icon'=>$settings->get('theme', 'button_icon_save'),'id'=>'btn_save','style'=>'margin-left: 15px;','onclick'=>'submit_form();']);
 	echo "	</div>\n";
 	echo "	<div style='clear: both;'></div>\n";
 	echo "</div>\n";
@@ -622,18 +585,6 @@
 	echo "	<input type='text' style='display: none;' disabled='disabled'>\n"; //help defeat browser auto-fill
 	echo "<br />\n";
 	echo $text['description-voicemail_id']."\n";
-	echo "</td>\n";
-	echo "</tr>\n";
-
-	echo "<tr>\n";
-	echo "<td class='vncellreq' valign='top' align='left' nowrap='nowrap'>\n";
-	echo "	".$text['label-voicemail_password']."\n";
-	echo "</td>\n";
-	echo "<td class='vtable' align='left'>\n";
-	echo "	<input type='password' style='display: none;' disabled='disabled'>\n"; //help defeat browser auto-fill
-	echo "	<input class='formfld' type='password' name='voicemail_password' id='password' autocomplete='new-password' onmouseover=\"this.type='text';\" onfocus=\"this.type='text';\" onmouseout=\"if (!$(this).is(':focus')) { this.type='password'; }\" onblur=\"this.type='password';\" autocomplete='off' maxlength='50' value=\"".escape($voicemail_password)."\">\n";
-	echo "<br />\n";
-	echo $text['description-voicemail_password']."\n";
 	echo "</td>\n";
 	echo "</tr>\n";
 

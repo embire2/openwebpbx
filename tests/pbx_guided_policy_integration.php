@@ -56,11 +56,11 @@ try {
     $mailboxes=$q('select * from v_voicemails where domain_uuid=:d order by voicemail_id',['d'=>$domain])->fetchAll(PDO::FETCH_ASSOC);
     foreach($accounts as $i=>$account){$number=$account['effective_caller_id_number'];$u=$c['users'][$number];
         $assert($u['extension_uuid']===$account['extension_uuid']&&$u['auth_id']===$account['extension']&&$u['contact_user']===$number,'Policy changed native phone identity');
-        $assert(hash_equals($reviewed['users'][$i]['password'],$account['password'])&&$mailboxes[$i]['voicemail_uuid']===$u['voicemail_uuid']&&$mailboxes[$i]['voicemail_password']===$reviewed['users'][$i]['voicemail_pin'],'Reviewed generated credentials/mailbox identity were lost');
+        $assert(hash_equals($reviewed['users'][$i]['password'],$account['password'])&&$mailboxes[$i]['voicemail_uuid']===$u['voicemail_uuid']&&$mailboxes[$i]['voicemail_password']===null&&!array_key_exists('voicemail_pin',$reviewed['users'][$i]),'Reviewed generated credentials/mailbox identity were lost');
         $xml=$q('select dialplan_xml from v_dialplans where domain_uuid=:d and dialplan_uuid=:id',['d'=>$domain,'id'=>$u['dialplan_uuid']])->fetchColumn();
         $assert(str_contains($xml,'app.lua pbx_setup user '.$number),'New user is not dispatched through the current native core');
         $assert($u['profiles']['Available']['available']['NoAnswer']['all']['number']===$number&&$u['profiles']['Away']['away']['Internal']['all']['type']==='VoiceMail','Default no-answer/away policy was lost');
-        $assert(!str_contains(json_encode($c,JSON_THROW_ON_ERROR),$account['password'])&&!str_contains(json_encode($c,JSON_THROW_ON_ERROR),$mailboxes[$i]['voicemail_password']),'Policy duplicated private credentials');
+        $assert(!str_contains(json_encode($c,JSON_THROW_ON_ERROR),$account['password'])&&!array_key_exists('voicemail_pin',$u)&&!array_key_exists('voicemail_password',$u),'Policy duplicated private credentials');
     }
     $trunk=$c['trunks']['wizard-trunk'];$gateway=$q('select * from v_gateways where domain_uuid=:d',['d'=>$domain])->fetch(PDO::FETCH_ASSOC);
     $assert($trunk['gateway_uuid']===$gateway['gateway_uuid']&&!$trunk['enabled']&&!$gateway['enabled']&&$trunk['allowed_ips']===[],'Setup enabled an unverified provider');
@@ -71,7 +71,7 @@ try {
     $route=$c['outbound_rules'][0];
     $assert($route['prefix']==='0'&&$route['routes'][0]['strip']===1&&$route['routes'][0]['prepend']==='+27','Reviewed outgoing rule changed');
     $assert((int)$q("select count(*) from v_dialplan_details where domain_uuid=:d and dialplan_detail_type='lua' and dialplan_detail_data='app.lua pbx_setup outbound all'",['d'=>$domain])->fetchColumn()===1,'Missing or duplicate dynamic outgoing dispatcher');
-    $assert((int)$q("select count(*) from v_dialplan_details where domain_uuid=:d and dialplan_detail_data='app.lua pbx_setup voicemail_login *97'",['d'=>$domain])->fetchColumn()===1,'Native mailbox login dispatcher missing');
+    $assert((int)$q("select count(*) from v_dialplan_details where domain_uuid=:d and dialplan_detail_data='app.lua pbx_services voicemail'",['d'=>$domain])->fetchColumn()===2,'Native own-mailbox121 and alias dispatchers missing');
     $before=$q('select * from v_pbx_restore where domain_uuid=:d',['d'=>$domain])->fetch(PDO::FETCH_ASSOC);
     $assert($setup->createSetup($draft['draft_id'])===$domain&&$q('select * from v_pbx_restore where domain_uuid=:d',['d'=>$domain])->fetch(PDO::FETCH_ASSOC)===$before,'Retry regenerated policy/identities');
     $admin->save('user','8100',['name'=>'Fictional renamed','email'=>'first@example.invalid','enabled'=>'1','voicemail_enabled'=>'1','profile'=>'Available','timeout'=>'7','no_answer'=>'VoiceMail:8101','busy'=>'VoiceMail:8100','not_registered'=>'VoiceMail:8100']);

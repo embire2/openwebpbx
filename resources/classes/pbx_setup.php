@@ -93,7 +93,7 @@ class pbx_setup {
             if (trim($this->inputText($user,'number')) === '' && trim($this->inputText($user,'name')) === '' && trim($this->inputText($user,'email')) === '') continue;
             $users[] = ['number'=>trim($this->inputText($user,'number')), 'name'=>$this->label($this->inputText($user,'name'), 80),
                 'email'=>strtolower(trim($this->inputText($user,'email'))), 'auth_id'=>trim($this->inputText($user,'number')),
-                'password'=>bin2hex(random_bytes(16)), 'voicemail_pin'=>(string)random_int(10000000,99999999), 'enabled'=>true];
+                'password'=>bin2hex(random_bytes(16)), 'enabled'=>true];
         }
         if (!$users) throw new InvalidArgumentException('Add at least one user.');
         $plan = ['source_format'=>'guided_setup', 'source_version'=>'', 'supported'=>true, 'users'=>$users, 'trunks'=>[], 'ring_groups'=>[], 'inbound_rules'=>[], 'outbound_rules'=>[], 'warnings'=>[], 'unsupported'=>[]];

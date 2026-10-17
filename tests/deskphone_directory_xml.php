@@ -13,6 +13,6 @@ try {
  foreach(['password','reverse-auth-pass'] as $field)if($xpath->query('//param[@name="'.$field.'"]')->item(0)?->getAttribute('value')!==$password)throw new RuntimeException('The PHP directory changed credential bytes.');
  if($xpath->query('//variable[@name="effective_caller_id_name"]')->item(0)?->getAttribute('value')!==$name)throw new RuntimeException('The PHP directory renamed the source caller.');
  if($xpath->query('//param[@name="dial-string"]')->item(0)?->getAttribute('value')!==$row['dial_string'])throw new RuntimeException('Reviewed native dial-string expansion changed.');
- if($xpath->query('//param[@name="vm-password"]')->item(0)?->getAttribute('value')!=='0012')throw new RuntimeException('Voicemail PIN changed.');
- echo "PASS: actual PHP directory XML parses and preserves password/reverse-password/name/PIN and native dial-string bytes.\n";
+ if($xpath->query('//param[@name="vm-password" or @name="vm-a1-hash"]')->length!==0)throw new RuntimeException('Directory published a retired voicemail credential.');
+ echo "PASS: actual PHP directory XML parses and preserves password/reverse-password/name with no voicemail PIN and native dial-string bytes.\n";
 } finally {foreach(glob($folder.'/xml.example.test/*')?:[] as $p)unlink($p);if(is_dir($folder.'/xml.example.test'))rmdir($folder.'/xml.example.test');foreach(glob($folder.'/*')?:[] as $p)unlink($p);rmdir($folder);}

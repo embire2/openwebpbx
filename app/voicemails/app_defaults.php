@@ -27,6 +27,9 @@
 //process this only one time
 if ($domains_processed == 1) {
 
+	// Retire old PINs during normal application upgrades as well as package bootstrap.
+	pbx_voicemail_policy::apply($database->db);
+
 	//use the installed Windows path when no database override is configured
 	$switch_configuration_dir = $settings->get('switch','conf');
 	if (empty($switch_configuration_dir)) {

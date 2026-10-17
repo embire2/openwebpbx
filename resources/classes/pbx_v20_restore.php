@@ -194,9 +194,9 @@ final class pbx_v20_restore {
         $condition??=['destination_number',$number===''?'^.+$':'^'.preg_quote($number,'~').'$'];
         if($binding){$c=$x->appendChild($d->createElement('condition'));$c->setAttribute('field',$binding[0]);$c->setAttribute('expression',$binding[1]);}
         $c=$x->appendChild($d->createElement('condition'));$c->setAttribute('field',$condition[0]);$c->setAttribute('expression',$condition[1]);
-        $actions=[['set','domain_uuid='.$this->domain],['set','domain_name='.$this->realm],['lua','app.lua pbx_setup '.$mode.' '.$key]];
+        $actions=[['set','domain_uuid='.$this->domain],['set','domain_name='.$this->realm],['lua',$mode==='voicemail_login'?'app.lua pbx_services voicemail':'app.lua pbx_setup '.$mode.' '.$key]];
         foreach($actions as [$a,$v]){$n=$c->appendChild($d->createElement('action'));$n->setAttribute('application',$a);$n->setAttribute('data',$v);}
-        $this->insert('v_dialplans',['dialplan_uuid'=>$id,'domain_uuid'=>$this->domain,'app_uuid'=>$app?:null,'dialplan_name'=>'OpenWeb '.$mode.' '.$number,'dialplan_number'=>$number,'dialplan_context'=>$context?:$this->realm,'dialplan_order'=>$order,'dialplan_continue'=>false,'dialplan_enabled'=>$enabled,'dialplan_xml'=>$d->saveXML($x),'dialplan_description'=>'Restored 3CX call handling. Edit in Admin.']);
+        $this->insert('v_dialplans',['dialplan_uuid'=>$id,'domain_uuid'=>$this->domain,'app_uuid'=>$app?:null,'dialplan_name'=>'OpenWeb '.$mode.' '.$number,'dialplan_number'=>$number,'dialplan_context'=>$context?:$this->realm,'dialplan_order'=>$mode==='voicemail_login'?20:$order,'dialplan_continue'=>false,'dialplan_enabled'=>$enabled,'dialplan_xml'=>$d->saveXML($x),'dialplan_description'=>'Restored 3CX call handling. Edit in Admin.']);
         $rows=$binding?[['condition',$binding[0],$binding[1]]]:[];$rows[]=['condition',$condition[0],$condition[1]];foreach($actions as [$a,$v])$rows[]=['action',$a,$v];
         foreach($rows as $i=>[$tag,$type,$data])$this->insert('v_dialplan_details',['dialplan_detail_uuid'=>uuid(),'domain_uuid'=>$this->domain,'dialplan_uuid'=>$id,'dialplan_detail_tag'=>$tag,'dialplan_detail_type'=>$type,'dialplan_detail_data'=>$data,'dialplan_detail_order'=>10+$i*10,'dialplan_detail_group'=>0,'dialplan_detail_enabled'=>true]);
         return $id;
@@ -205,7 +205,7 @@ final class pbx_v20_restore {
     public function apply(string $domain,string $realm,array $plan,?string $archive=null): array {
         self::validate($plan);if(!$this->db->inTransaction())throw new LogicException('A restore requires a transaction.');
         if(!is_uuid($domain)||!preg_match('/^[a-z0-9.-]+$/D',$realm))throw new InvalidArgumentException('Invalid PBX.');
-        $this->domain=$domain;$this->realm=$realm;$this->policy=$plan['v20'];$this->policy['realm']=$realm;
+        $this->domain=$domain;$this->realm=$realm;$this->policy=pbx_voicemail_policy::withoutPins($plan['v20']);$this->policy['realm']=$realm;
         if($archive)$this->extract($archive);
         foreach($plan['users'] as $u){$p=&$this->policy['users'][$u['number']];$account=$this->query('select extension_uuid,password from v_extensions where domain_uuid=:d and extension=:e',['d'=>$domain,'e'=>$u['auth_id']])->fetch(PDO::FETCH_ASSOC);if(!$account||!hash_equals($u['password'],(string)$account['password']))throw new RuntimeException('An original phone credential did not match the restored account. No PBX was created.');$native=$account['extension_uuid'];
             $p['auth_id']=$u['auth_id'];$p['extension_uuid']=$native;$p['name']=$u['name'];$p['email']=$u['email'];$p['enabled']=$u['enabled'];

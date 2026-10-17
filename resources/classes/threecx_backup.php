@@ -92,7 +92,6 @@ final class threecx_backup {
                 if ($kind === 'users') {
                     $safe['has_password'] = !empty($row['password']);
                     $safe['has_auth_id'] = !empty($row['auth_id']);
-                    $safe['has_voicemail_pin'] = !empty($row['voicemail_pin']);
                 }
                 if ($kind === 'trunks') {
                     $safe['has_username'] = !empty($row['username']);
@@ -276,8 +275,6 @@ final class threecx_backup {
         $email=$this->text($node,'EmailAddress');
         if ($email!=='' && !filter_var($email,FILTER_VALIDATE_EMAIL)) throw new InvalidArgumentException('A source user email address is invalid.');
         $password=$this->credential($this->text($node,'AuthPassword'),'extension_credentials',true);
-        $pin=$this->text($node,'VMPIN');
-        if ($pin!=='' && !preg_match('/^[0-9]{4,12}$/D',$pin)) { $pin='';$this->unsupported('voicemail_pin',1,'The voicemail PIN requires regeneration.'); }
         $auth=$this->credential($this->text($node,'AuthID',$number),'extension_credentials');
         if ($auth!=='' && !preg_match('/^[a-zA-Z0-9_.-]{2,64}$/D',$auth)) { $auth='';$this->unsupported('extension_authentication',1,'The SIP authentication identifier requires endpoint reprovisioning.'); }
         $name=trim($this->text($node,'FirstName').' '.$this->text($node,'LastName'));
@@ -285,10 +282,9 @@ final class threecx_backup {
             $name=$number;$this->unsupported('extension_display_name',1,'A display name cannot be represented by the native SIP directory; the extension number is used until its name is updated.');
         }
         $this->plan['users'][]=['number'=>$number,'name'=>$name?:$number,'email'=>$email,'auth_id'=>$auth?:$number,
-            'password'=>$password,'voicemail_pin'=>$pin,'enabled'=>$this->boolean($this->text($node,'Enabled'),true)];
+            'password'=>$password,'enabled'=>$this->boolean($this->text($node,'Enabled'),true)];
         $this->known($node,['Number','FirstName','LastName','EmailAddress','AuthID','AuthPassword','VMPIN','Enabled'],'extension_behavior');
         if (!$password) $this->plan['warnings'][]='Some user SIP passwords are unavailable. New unique SIP passwords will be generated and those phones must be reprovisioned.';
-        if (!$pin) $this->plan['warnings'][]='Some voicemail PINs are unavailable. New unique PINs will be generated.';
         if ($auth && $auth!==$number) $this->plan['warnings'][]='Some SIP authentication identifiers differ from visible extension numbers. Phones must use the imported identifier and the new PBX realm.';
     }
 

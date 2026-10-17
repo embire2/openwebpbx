@@ -10,7 +10,7 @@ try{
     foreach(['v_menu_items','v_menu_languages','v_domains','v_extensions','v_voicemails','v_gateways','v_ring_groups','v_ring_group_destinations','v_destinations','v_dialplans','v_dialplan_details','v_call_center_agents','v_call_center_queues','v_call_center_tiers','v_ivr_menus','v_ivr_menu_options','v_devices','v_device_lines','v_device_keys','v_contacts','v_contact_phones','v_recordings','v_voicemail_messages','v_voicemail_greetings'] as $table)$db->exec('create table '.$table.'(like public.'.$table.' including all)');
     $db->exec(file_get_contents(dirname(__DIR__).'/app/pbx_setup/resources/restore.sql'));
     $plan=threecx_backup::analyze($source);pbx_v20_restore::validate($plan);$safe=threecx_backup::preview($plan);
-    foreach($plan['users'] as $u){$assert(!str_contains(json_encode($safe),$u['password']),'A user password appeared in preview');$assert(!str_contains(json_encode($safe),$u['voicemail_pin']),'A voicemail PIN appeared in preview');}
+    foreach($plan['users'] as $u){$assert(!str_contains(json_encode($safe),$u['password']),'A user password appeared in preview');$assert(!array_key_exists('voicemail_pin',$u),'A retired voicemail PIN was extracted');}
     foreach($plan['v20']['scripts'] as $s)foreach($s['pin_map'] as $pin=>$n)$assert(!str_contains(json_encode($safe),(string)$pin),'A call-menu PIN appeared in preview');
     $domain=uuid();$realm='verify-'.bin2hex(random_bytes(6)).'.example.invalid';$db->beginTransaction();
     $stmt=$db->prepare('insert into v_domains(domain_uuid,domain_name,domain_enabled) values(?,?,true)');$stmt->execute([$domain,$realm]);

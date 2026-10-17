@@ -58,7 +58,6 @@ class extension {
 	public $number_alias;
 	public $password;
 	public $provisioning_list;
-	public $voicemail_password;
 	public $accountcode;
 	public $effective_caller_id_name;
 	public $effective_caller_id_number;
@@ -232,7 +231,7 @@ class extension {
 		if (is_array($array) && @sizeof($array) != 0) {
 			//include common array fields
 			$array['voicemails'][0]['voicemail_id']                = $this->voicemail_id;
-			$array['voicemails'][0]['voicemail_password']          = $this->voicemail_password;
+			$array['voicemails'][0]['voicemail_password']          = null;
 			$array['voicemails'][0]['voicemail_mail_to']           = $this->voicemail_mail_to;
 			$array['voicemails'][0]['voicemail_file']              = $this->voicemail_file;
 			$array['voicemails'][0]['voicemail_local_after_email'] = $this->voicemail_local_after_email;
@@ -300,8 +299,6 @@ class extension {
 					$call_timeout       = $row['call_timeout'];
 					$user_context       = $row['user_context'];
 					$password           = $row['password'];
-					$voicemail_password = $row['voicemail_password'];
-					//$voicemail_password = str_replace("#", "", $voicemail_password); //preserves leading zeros
 
 					//echo "enabled: ".$row['enabled'];
 					if ($row['enabled'] != "false") {
@@ -321,7 +318,6 @@ class extension {
 
 						//set the password hashes
 						$a1_hash    = md5($extension . ":" . $domain_name . ":" . $password);
-						$vm_a1_hash = md5($extension . ":" . $domain_name . ":" . $voicemail_password);
 
 						$xmlAttribute = static function ($value): string {
 							return str_replace(["\t", "\r", "\n"], ["&#9;", "&#13;", "&#10;"], htmlspecialchars((string)($value ?? ""), ENT_QUOTES | ENT_XML1, "UTF-8"));
@@ -343,8 +339,6 @@ class extension {
 						$xml .= "      <param name=\"reverse-auth-pass\" value=\"" . $xmlAttribute($row['password']) . "\"/>\n";
 
 						//voicemail settings
-						//$xml .= "      <param name=\"vm-a1-hash\" value=\"" . $vm_a1_hash. "\"/>\n";
-						$xml .= "      <param name=\"vm-password\" value=\"" . $xmlAttribute($voicemail_password) . "\"/>\n";
 						switch ($row['voicemail_enabled']) {
 							case "true":
 								$xml .= "      <param name=\"vm-enabled\" value=\"true\"/>\n";

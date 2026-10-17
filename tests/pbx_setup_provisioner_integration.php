@@ -72,13 +72,13 @@ try {
     $result = $provisioner->apply($domains['alpha'],'alpha.example.invalid',$plan);
     $assert($db->inTransaction(), 'Mapper committed its caller transaction');
     $assert($result['counts'] === ['users'=>2,'voicemails'=>2,'trunks'=>2,'ring_groups'=>1,'inbound_rules'=>2,'outbound_rules'=>1], 'Provisioned record counts differ');
-    $assert(count($result['warnings']) === 5, 'Generated credentials, alias reprovisioning or disabled carrier warnings are missing');
+    $assert(count($result['warnings']) === 4, 'Generated credentials, alias reprovisioning or disabled carrier warnings are missing');
     $assert(!str_contains(json_encode($result), 'Fixture-'), 'Returned metadata disclosed credentials');
     $extension = $query("select * from v_extensions where domain_uuid=:domain and number_alias='100'", ['domain'=>$domains['alpha']])->fetch(PDO::FETCH_ASSOC);
     $assert($extension['extension']==='alice100' && $extension['password']==='Fixture-SIP-password-100', 'SIP ID and password were not preserved');
     $assert($extension['user_context']==='alpha.example.invalid' && $extension['dial_domain']==='alpha.example.invalid', 'Extension context escaped its PBX domain');
     $voicemail = $query("select * from v_voicemails where domain_uuid=:domain and voicemail_id='100'", ['domain'=>$domains['alpha']])->fetch(PDO::FETCH_ASSOC);
-    $assert($voicemail['voicemail_password']==='001234' && $voicemail['voicemail_mail_to']==='alice@example.invalid', 'Voicemail PIN/email were not preserved');
+    $assert($voicemail['voicemail_password']===null && $voicemail['voicemail_mail_to']==='alice@example.invalid', 'Retired voicemail PIN was stored or email changed');
     $generated = $query("select password from v_extensions where domain_uuid=:domain and extension='101'", ['domain'=>$domains['alpha']])->fetchColumn();
     $assert(strlen($generated) >= 32 && $generated!==$extension['password'], 'Missing SIP password was not replaced with a unique secret');
     $assert(!(bool)$query('select bool_or(enabled) from v_gateways where domain_uuid=:domain', ['domain'=>$domains['alpha']])->fetchColumn(), 'An imported gateway was enabled');

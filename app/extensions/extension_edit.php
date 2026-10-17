@@ -99,7 +99,6 @@ $provision_line_sip_port					= $settings->get('provision', 'line_sip_port', null
 $provision_line_sip_transport				= $settings->get('provision', 'line_sip_transport', null);
 $provision_line_register_expires			= $settings->get('provision', 'line_register_expires', null);
 $theme_input_toggle_style					= $settings->get('theme', 'input_toggle_style', '');                    //set default to empty string
-$voicemail_password_length					= $settings->get('voicemail', 'password_length', 6);                   //set default to 6
 $voicemail_transcription_enabled_default	= $settings->get('voicemail', 'transcription_enabled_default', false); //set default to false
 $voicemail_enabled_default					= $settings->get('voicemail', 'enabled_default', true);
 $switch_voicemail							= $settings->get('switch', 'voicemail', '/var/lib/freeswitch/storage/voicemail') . "/default/$domain_name";
@@ -204,7 +203,6 @@ if (!empty($_POST)) {
 	$limit_destination = $_POST["limit_destination"];
 	//$device_uuid = $_POST["device_uuid"];
 	//$device_line = $_POST["device_line"];
-	$voicemail_password = $_POST["voicemail_password"];
 	$voicemail_enabled = $_POST["voicemail_enabled"];
 	$voicemail_mail_to = $_POST["voicemail_mail_to"];
 	$voicemail_transcription_enabled = $_POST["voicemail_transcription_enabled"];
@@ -448,6 +446,10 @@ if (!empty($_POST) && empty($_POST["persistformvar"])) {
 
 
 
+
+	if (pbx_service_codes::rangeContainsService(!empty($number_alias) ? $number_alias : $extension, $range ?? 1)) {
+		message::add('121 is reserved for voicemail and 1026 for the talking clock. Choose another extension.', 'negative');
+	}
 
 	//require passwords with the defined required attributes: length, number, lower case, upper case, and special characters
 	// if (permission_exists('extension_password') && !empty($password)) {
@@ -820,11 +822,6 @@ if (!empty($_POST) && empty($_POST["persistformvar"])) {
 
 			//add or update voicemail
 			if (is_dir(dirname(__DIR__, 2) . '/app/voicemails')) {
-				//set the voicemail password
-				if (empty($voicemail_password)) {
-					$voicemail_password = generate_password($voicemail_password_length, 1);
-				}
-
 				//add  the voicemail to the array
 				if ($voicemail_id !== NULL) {
 					//get the voicemail_uuid
@@ -854,7 +851,7 @@ if (!empty($_POST) && empty($_POST["persistformvar"])) {
 					$array["voicemails"][$i]["voicemail_uuid"] = $voicemail_uuid;
 					$array["voicemails"][$i]["voicemail_id"] = $voicemail_id;
 
-					$array["voicemails"][$i]["voicemail_password"] = $voicemail_password;
+					$array["voicemails"][$i]["voicemail_password"] = null;
 					//$array["voicemails"][$i]["greeting_id"] = $greeting_id;
 					//$array["voicemails"][$i]["voicemail_alternate_greet_id"] = $alternate_greet_id;
 					$array["voicemails"][$i]["voicemail_mail_to"] = $voicemail_mail_to;
@@ -1052,7 +1049,6 @@ if (!empty($_GET) && (empty($_POST["persistformvar"]) || $_POST["persistformvar"
 		$parameters['voicemail_id'] = is_numeric($number_alias) ? $number_alias : $extension;
 		$row = $database->select($sql, $parameters, 'row');
 		if (is_array($row) && @sizeof($row) != 0) {
-			$voicemail_password = str_replace("#", "", $row["voicemail_password"] ?? '');
 			$voicemail_mail_to = str_replace(" ", "", $row["voicemail_mail_to"] ?? '');
 			$voicemail_transcription_enabled = $row["voicemail_transcription_enabled"];
 			$voicemail_transcription_prompt_enabled = $row["voicemail_transcription_prompt_enabled"] ?? false;
@@ -1456,19 +1452,6 @@ if (permission_exists('extension_user_edit')) {
 	echo "	</tr>";
 }
 
-if (permission_exists('voicemail_edit') && is_dir(dirname(__DIR__, 2) . '/app/voicemails')) {
-	echo "<tr>\n";
-	echo "<td class='vncell' valign='top' align='left' nowrap='nowrap'>\n";
-	echo "    " . $text['label-voicemail_password'] . "\n";
-	echo "</td>\n";
-	echo "<td class='vtable' align='left'>\n";
-	echo "    <input type='password' style='display: none;' disabled='disabled'>\n"; //help defeat browser auto-fill
-	echo "    <input class='formfld' type='password' name='voicemail_password' id='voicemail_password' autocomplete='new-password' onmouseover=\"this.type='text';\" onfocus=\"this.type='text';\" onmouseout=\"if (!$(this).is(':focus')) { this.type='password'; }\" onblur=\"this.type='password';\" maxlength='255' value='" . escape($voicemail_password ?? '') . "'>\n";
-	echo "    <br />\n";
-	echo "    " . $text['description-voicemail_password'] . "\n";
-	echo "</td>\n";
-	echo "</tr>\n";
-}
 
 if (permission_exists('extension_accountcode')) {
 	echo "<tr>\n";

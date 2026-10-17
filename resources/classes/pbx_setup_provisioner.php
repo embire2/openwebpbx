@@ -46,6 +46,7 @@ class pbx_setup_provisioner {
     private function number(mixed $value, string $field, bool $did = false): string {
         $value = $this->text($value, $field, 32);
         if (!preg_match($did ? '/^\+?[0-9]{2,32}$/D' : '/^[0-9]{2,10}$/D', $value)) throw new InvalidArgumentException('Invalid '.$field.'.');
+        if (!$did) pbx_service_codes::assertAvailable($value);
         return $value;
     }
 
@@ -87,11 +88,14 @@ class pbx_setup_provisioner {
 
     /** Validate without writing, for the review screen. Unknown behavior is rejected. */
     public function validate(array $plan): array {
+        $plan=pbx_voicemail_policy::withoutPins($plan);
         $output = ['users'=>[], 'trunks'=>[], 'ring_groups'=>[], 'inbound_rules'=>[], 'outbound_rules'=>[]];
         $this->fields($plan, ['users','trunks','ring_groups','inbound_rules','outbound_rules','source_version','source_format','supported','warnings','unsupported','v20','media_counts'], 'configuration');
         $numbers = []; $identities = []; $trunkIds = []; $groupNumbers = []; $didNumbers = [];
         foreach ($this->records($plan, 'users', 1000) as $user) {
-            $this->fields($user, ['number','name','email','auth_id','password','voicemail_pin','enabled'], 'user');
+            // Discard retired fields from older cached/import plans without reading their values.
+            unset($user['voicemail_pin']);
+            $this->fields($user, ['number','name','email','auth_id','password','enabled'], 'user');
             $number = $this->number($user['number'] ?? '', 'extension number');
             if (isset($numbers[$number])) throw new InvalidArgumentException('Duplicate extension number '.$number.'.');
             $authId = isset($plan['v20']) ? $this->secret($user['auth_id'] ?? $number,'SIP authentication ID') : $this->text($user['auth_id'] ?? $number, 'SIP authentication ID', 64);
@@ -102,9 +106,7 @@ class pbx_setup_provisioner {
             if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) throw new InvalidArgumentException('Invalid user email.');
             $password = $this->secret($user['password'] ?? '', 'SIP password', true);
             if (isset($plan['v20']) && $password === '' && $this->flag($user['enabled'] ?? true, 'extension status')) throw new InvalidArgumentException('An enabled phone has no SIP password in this backup. Restore a backup containing its original password.');
-            $pin = $this->text($user['voicemail_pin'] ?? '', 'voicemail PIN', 12, false);
-            if ($pin !== '' && !preg_match('/^[0-9]{4,12}$/D', $pin)) throw new InvalidArgumentException('A voicemail PIN must contain 4 to 12 digits.');
-            $output['users'][] = ['number'=>$number, 'auth_id'=>$authId, 'name'=>$name, 'email'=>$email, 'password'=>$password, 'voicemail_pin'=>$pin, 'enabled'=>$this->flag($user['enabled'] ?? true, 'extension status')];
+            $output['users'][] = ['number'=>$number, 'auth_id'=>$authId, 'name'=>$name, 'email'=>$email, 'password'=>$password, 'enabled'=>$this->flag($user['enabled'] ?? true, 'extension status')];
             $numbers[$number] = true; $identities[strtolower($authId)] = $number;
         }
         foreach ($identities as $authId => $number) {
@@ -254,7 +256,7 @@ class pbx_setup_provisioner {
             if ($this->query('select 1 from '.$table.' where domain_uuid=:domain limit 1', ['domain'=>$domainUuid])->fetchColumn()) throw new RuntimeException('Setup and backup import require a new, empty PBX service. Existing records were left unchanged.');
         }
         $counts = ['users'=>0, 'voicemails'=>0, 'trunks'=>0, 'ring_groups'=>0, 'inbound_rules'=>0, 'outbound_rules'=>0];
-        $warnings = []; $generatedPasswords = 0; $generatedPins = 0; $aliasedUsers = 0;
+        $warnings = []; $generatedPasswords = 0; $aliasedUsers = 0;
         // The installed XML handler treats '@' contexts as exact-context only:
         // shared global extension and outbound behaviors cannot run at ingress.
         $ingressContext = 'ingress@'.$domainName;
@@ -265,13 +267,12 @@ class pbx_setup_provisioner {
         }
         foreach ($plan['users'] as $user) {
             $password = $user['password']; if ($password === '' && !$v20) { $password = bin2hex(random_bytes(20)); $generatedPasswords++; }
-            $pin = $user['voicemail_pin']; if ($pin === '' && !$v20) { $pin = (string)random_int(10000000,99999999); $generatedPins++; }
             $alias = $v20 || $user['auth_id'] === $user['number'] ? null : $user['number'];
             if ($alias !== null) $aliasedUsers++;
             $parts = explode(' ', $user['name'], 2);
             $extension = $this->uuid(); $mailbox = $this->uuid();
             $this->insert('v_extensions', ['extension_uuid'=>$extension, 'domain_uuid'=>$domainUuid, 'extension'=>$user['auth_id'], 'number_alias'=>$alias, 'password'=>$password, 'accountcode'=>$domainName, 'user_context'=>$domainName, 'dial_domain'=>$domainName, 'directory_first_name'=>$parts[0], 'directory_last_name'=>$parts[1] ?? '', 'effective_caller_id_name'=>$user['name'], 'effective_caller_id_number'=>$user['number'], 'directory_visible'=>true, 'directory_exten_visible'=>true, 'call_timeout'=>30, 'max_registrations'=>'1', 'limit_max'=>'5', 'limit_destination'=>'!USER_BUSY', 'extension_type'=>'default', 'enabled'=>$user['enabled'], 'description'=>'Created from reviewed PBX setup']);
-            $this->insert('v_voicemails', ['voicemail_uuid'=>$mailbox, 'domain_uuid'=>$domainUuid, 'voicemail_id'=>$user['number'], 'voicemail_password'=>$pin, 'voicemail_mail_to'=>$user['email'], 'voicemail_enabled'=>$user['enabled'], 'voicemail_tutorial'=>true, 'voicemail_file'=>'attach', 'voicemail_local_after_email'=>true, 'voicemail_description'=>$user['name']]);
+            $this->insert('v_voicemails', ['voicemail_uuid'=>$mailbox, 'domain_uuid'=>$domainUuid, 'voicemail_id'=>$user['number'], 'voicemail_password'=>null, 'voicemail_mail_to'=>$user['email'], 'voicemail_enabled'=>$user['enabled'], 'voicemail_tutorial'=>true, 'voicemail_file'=>'attach', 'voicemail_local_after_email'=>true, 'voicemail_description'=>$user['name']]);
             if ($guided) {
                 $dialplan = $this->dialplan($domainUuid, $domainName, 'OpenWeb user '.$user['number'], $user['number'], 80,
                     [['destination_number','^'.preg_quote($user['number'],'~').'$']], $this->coreActions($domainUuid,$domainName,'user',$user['number']), true, 'Manage this user in Admin.');
@@ -341,8 +342,12 @@ class pbx_setup_provisioner {
             $this->dialplan($domainUuid, $domainName, $rule['name'], '', 1000+$position*10, [['destination_number',$pattern]], [['set','hangup_after_bridge=true'], ['set','continue_on_fail=false'], ['bridge','sofia/gateway/'.$gateways[$rule['trunk_id']].'/'.$rule['prepend'].'$1']], true, 'Created from reviewed PBX setup. Source trunk '.$rule['trunk_id'].' is disabled pending verification.', '8c914ec3-9fc0-8ab5-4cda-6c9288bdc9a3');
             $counts['outbound_rules']++;
         }
+        foreach (['121'=>'voicemail','*97'=>'voicemail','1026'=>'clock'] as $code=>$service) {
+            $code=(string)$code;
+            $this->dialplan($domainUuid,$domainName,'OpenWeb '.$service,$code,20,[['destination_number','^'.preg_quote($code,'~').'$']],
+                [['set','domain_uuid='.$domainUuid],['set','domain_name='.$domainName],['lua','app.lua pbx_services '.$service]],true,'Authenticated phone service.');
+        }
         if ($guided) {
-            $this->dialplan($domainUuid,$domainName,'OpenWeb voicemail login','*97',80,[['destination_number','^\\*97$']],$this->coreActions($domainUuid,$domainName,'voicemail_login','*97'),true,'Manage voicemail in Admin.');
             $this->dialplan($domainUuid,$domainName,'OpenWeb outbound','',900,[['destination_number','^.+$']],$this->coreActions($domainUuid,$domainName,'outbound','all'),true,'Manage outgoing calling rules in Admin.','8c914ec3-9fc0-8ab5-4cda-6c9288bdc9a3');
             $counts['outbound_rules']=count($plan['outbound_rules']);
             $policy['users']=(object)$policy['users']; $policy['trunks']=(object)$policy['trunks'];
@@ -350,7 +355,6 @@ class pbx_setup_provisioner {
                 'report'=>json_encode(['origin'=>'guided_setup','counts'=>$counts,'notes'=>[]],JSON_THROW_ON_ERROR)]);
         }
         if ($generatedPasswords) $warnings[] = 'New SIP passwords were generated for '.$generatedPasswords.' user(s) whose backup did not contain a password. Reprovision those endpoints.';
-        if ($generatedPins) $warnings[] = 'New voicemail PINs were generated for '.$generatedPins.' user(s) whose backup did not contain a PIN.';
         if ($aliasedUsers) $warnings[] = 'Distinct SIP authentication IDs were preserved for '.$aliasedUsers.' user(s). Reprovision endpoints with the new PBX realm and use the authentication ID as both SIP user and authentication user.';
         if ($counts['trunks']) $warnings[] = 'All '.$counts['trunks'].' SIP trunk(s) are disabled until provider credentials, caller ID, emergency routing and ingress authentication are verified.';
         if ($counts['inbound_rules']) $warnings[] = 'All '.$counts['inbound_rules'].' incoming number rule(s) are disabled in a private ingress context that rejects unconfigured calls. Bind a verified provider before enabling inbound calls; no shared public DID routes were created.';

@@ -100,6 +100,7 @@
 							else {
 								$field_name = $row['name'];
 							}
+							if ($field_name === 'voicemail_password') { continue; }
 							$schema[$i]['fields'][] = $field_name;
 						}
 					}
@@ -275,6 +276,7 @@
 									$field_array = explode(".",$value);
 									$table_name = $field_array[0];
 									$field_name = $field_array[1] ?? null;
+									if (!pbx_voicemail_policy::importable($schema, $table_name, $field_name)) { continue; }
 									//echo "value: $value<br />\n";
 									//echo "table_name: $table_name<br />\n";
 									//echo "field_name: $field_name<br />\n";
@@ -320,6 +322,7 @@
 								if ($row_id === 1000) {
 
 									//save to the data
+										pbx_service_codes::assertRows($array ?? []);
 										$database->save($array);
 
 									//clear the array
@@ -337,7 +340,8 @@
 
 				//save to the data
 					if (!empty($array) && is_array($array)) {
-						$database->save($array);
+						pbx_service_codes::assertRows($array ?? []);
+										$database->save($array);
 						unset($array);
 					}
 

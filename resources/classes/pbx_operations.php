@@ -75,7 +75,7 @@ class pbx_operations {
         $this->query("delete from v_pbx_media where domain_uuid=:d and owner_number=:n and category='voicemails'",['d'=>$this->domain,'n'=>$number]);
         // Files remain in private storage for the operator's retention policy, but previous
         // guests' messages are removed from both the phone mailbox and the protected web index.
-        $this->query('update v_voicemails set greeting_id=null,voicemail_password=:pin,voicemail_tutorial=true where domain_uuid=:d and voicemail_uuid=:v',['pin'=>(string)random_int(100000,999999),'d'=>$this->domain,'v'=>$user['voicemail_uuid']]);
+        $this->query('update v_voicemails set greeting_id=null,voicemail_password=null,voicemail_tutorial=true where domain_uuid=:d and voicemail_uuid=:v',['d'=>$this->domain,'v'=>$user['voicemail_uuid']]);
         $config['users'][$number]['greeting_id']='';
         $this->query('update v_pbx_restore set config=cast(:c as jsonb) where domain_uuid=:d',['c'=>json_encode($config,JSON_THROW_ON_ERROR),'d'=>$this->domain]);
     }

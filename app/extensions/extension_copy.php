@@ -75,6 +75,13 @@
 	}
 	$query_string = http_build_query($url_params);
 
+// Fixed phone service numbers cannot become a copied visible extension.
+	if (pbx_service_codes::isReserved(!empty($number_alias_new) ? $number_alias_new : $extension_new)) {
+		message::add('121 is reserved for voicemail and 1026 for the talking clock. Choose another extension.', 'negative');
+		header("Location: extensions.php".($query_string ? '?'.$query_string : ''));
+		exit;
+	}
+
 // skip the copy if the domain extension already exists
 	$extension = new extension;
 	if ($extension->exists($_SESSION['domain_uuid'], $extension_new)) {
@@ -221,17 +228,11 @@
 			}
 			unset($sql, $parameters, $row);
 
-		//set the new voicemail password
-			if (empty($voicemail_password)) {
-				$voicemail_password = generate_password(9, 1);
-			}
-
 		//add voicemail via class
 			$ext = new extension;
 			$ext->domain_uuid = $domain_uuid;
 			$ext->extension = $extension_new;
 			$ext->number_alias = $number_alias_new;
-			$ext->voicemail_password = $voicemail_password;
 			$ext->voicemail_mail_to = $voicemail_mailto;
 			$ext->voicemail_file = $voicemail_file;
 			$ext->voicemail_local_after_email = $voicemail_local_after_email;
