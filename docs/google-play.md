@@ -13,6 +13,8 @@ The signed **1.0.15 / Android code 115** Play AAB is available on the [1.0.15 re
 
 The policy pages name **OpenWebPBX Free Phone** and **Open ISP cc**. Account/data deletion can be requested by email without reinstalling the app or signing in. The page identifies the requested records, verification steps, operator-controlled retention and the distinction between disconnecting a phone and deleting the PBX account. Existing `/privacy.html` and `/data-removal.html` links remain available for installed app versions. The existing support-email forwarder is configured; actual inbox delivery is not established by checking its configuration.
 
+The 17 October 2026 website update adds the owner-supplied company registration **2005/156968/23**, Information Officer **Leon Whitherall**, contact **hello@openwebpbx.com / +27 87 350 8601**, expanded GDPR/POPIA disclosures and optional-storage controls. [Privacy requests](https://openwebpbx.com/privacy-rights), [company details](https://openwebpbx.com/legal), [cookies](https://openwebpbx.com/cookies) and [PAIA access](https://openwebpbx.com/paia) are public. Verify the actual processing practices and complete the [outstanding organisation actions](website-privacy-compliance.md) before relying on these notices. This website change is not a new Android release or evidence of Google approval.
+
 [Google's deletion-resource guidance](https://support.google.com/googleplay/android-developer/answer/13327111?hl=en) permits a customer-service email as a request pathway. These pages do not establish approval, confirm receipt of a deletion email or automatically delete a customer's server. The responsible PBX operator must handle and confirm verified requests.
 
 ## What is prepared

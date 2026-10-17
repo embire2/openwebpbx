@@ -4,6 +4,8 @@
 
 Google Play information: [Privacy](https://openwebpbx.com/privacy) · [Terms](https://openwebpbx.com/terms) · [Delete account and data](https://openwebpbx.com/delete).
 
+Website privacy: [Cookie choices](https://openwebpbx.com/cookies) · [Privacy requests](https://openwebpbx.com/privacy-rights) · [Company](https://openwebpbx.com/legal) · [PAIA access](https://openwebpbx.com/paia). Optional appearance storage now requires consent and can be withdrawn from every page. [EU/POPIA implementation and outstanding actions](docs/website-privacy-compliance.md) records the verified scope, officer registration/representative requirements, provider arrangements and the organisation's PAIA manual draft; publication alone does not establish complete legal compliance.
+
 An open-source, multi-tenant PBX powered by FreeSWITCH, with a Windows 11 inspired administration desktop.
 
 ## Version 1.0.14 — simpler users and department routing

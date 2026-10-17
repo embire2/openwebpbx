@@ -1,5 +1,9 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+## Website privacy and organisation actions — 2026-10-17
+
+Published the company registration/Information Officer contacts, expanded GDPR/POPIA privacy notice, optional-storage consent/withdrawal, cookie policy, privacy-rights instructions, company disclosures, PAIA access guide and accessibility contact. The [privacy audit](docs/website-privacy-compliance.md), [operating procedure](docs/privacy-operations.md) and [organisation PAIA manual draft](docs/paia-manual-draft.md) record what remains: officer registration confirmation, a valid EU representative establishment/mandate where required, approved full-company records/manual, actual provider contracts/transfers/retention and operational request handling. These web changes do not certify full legal compliance or change product versions, the 133 feature IDs or their 21 accepted / 72 partial / 40 planned status.
+
 ## Operational follow-up — 2026-10-17
 
 The next Debian upgrade qualification must include an existing, enabled legacy `xml_cdr.service` alongside the hosted call-record worker. The live duplicate importer was disabled after its skipped-lock recursion filled syslog and the filesystem. Add migration/recovery handling and a legacy-service coexistence regression before claiming this scenario is covered by a release. This operational follow-up does not change the 133 stable roadmap IDs or acceptance marks.

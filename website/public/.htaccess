@@ -9,10 +9,11 @@ DirectoryIndex index.html
   RewriteCond %{HTTP_HOST} ^www\.openwebpbx\.com$ [NC]
   RewriteRule ^ https://openwebpbx.com%{REQUEST_URI} [R=301,L,NE]
   RewriteRule ^tenantadmin(?:/(?:index\.php)?)?$ https://call.openweb.co.za/tenantadmin/ [R=302,L,NE]
-  RewriteRule ^(terms|delete|privacy)/$ /$1 [R=301,L,NE]
+  RewriteRule ^(terms|delete|privacy|cookies|privacy-rights|legal|paia|accessibility)/$ /$1 [R=301,L,NE]
   RewriteRule ^terms$ terms.html [L]
   RewriteRule ^delete$ data-removal.html [L]
   RewriteRule ^privacy$ privacy.html [L]
+  RewriteRule ^(cookies|privacy-rights|legal|paia|accessibility)$ $1.html [L]
 </IfModule>
 
 <IfModule mod_headers.c>

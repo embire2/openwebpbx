@@ -134,12 +134,15 @@
     themeButton.setAttribute('title', dark ? 'Switch to light theme' : 'Switch to dark theme');
     themeButton.querySelector('use').setAttribute('href', dark ? '#i-sun' : '#i-moon');
     $('meta[name="theme-color"]').content = dark ? '#172e46' : '#dceafa';
-    if (remember) { try { localStorage.setItem('openweb-site-theme', theme); } catch {} }
+    if (remember) window.OpenWebPrivacy?.rememberTheme(theme);
   }
-  let savedTheme;
-  try { savedTheme = localStorage.getItem('openweb-site-theme'); } catch {}
+  const savedTheme = window.OpenWebPrivacy?.getTheme();
   const preferredTheme = window.matchMedia('(prefers-color-scheme: dark)');
   setTheme(['dark', 'light'].includes(savedTheme) ? savedTheme : preferredTheme.matches ? 'dark' : 'light');
+  window.addEventListener('openweb:privacychange', () => {
+    const saved = window.OpenWebPrivacy?.getTheme();
+    setTheme(saved || (preferredTheme.matches ? 'dark' : 'light'));
+  });
   themeButton.addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark', true));
   function updateClock() {
     const now = new Date();
