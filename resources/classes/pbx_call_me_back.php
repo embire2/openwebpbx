@@ -65,6 +65,21 @@ class pbx_call_me_back {
         return hash_hmac('sha256',$id,$tenantKey);
     }
 
+    /** Validate the fixed callback audio against the installed, versioned pack marker. */
+    public static function promptPackReady(string $root): bool {
+        $base=rtrim(str_replace('\\','/',$root),'/').'/openwebpbx';$marker=$base.'/voice-pack.json';
+        if(is_link($marker)||!is_file($marker)||filesize($marker)>4194304)return false;
+        try{$pack=json_decode((string)file_get_contents($marker),true,512,JSON_THROW_ON_ERROR);}catch(Throwable){return false;}
+        if(($pack['version']??'')!=='1.0.1'||($pack['voice_id']??'')!=='7S3KNdLDL7aRgBVRQb1z')return false;
+        foreach(['incoming-new','incoming-known','authenticated','enter-number','invalid-id','unavailable','invalid-number','quota-exhausted']as$name){
+            $relative='openwebpbx/voices/1.0.1/call-me-back/'.$name.'.wav';$file=rtrim($root,'/\\').'/'.$relative;
+            $hash=$pack['files'][$relative]['sha256']??'';
+            if(!is_string($hash)||!preg_match('/^[a-f0-9]{64}$/D',$hash)||is_link($file)||!is_file($file)||!hash_equals($hash,hash_file('sha256',$file)))return false;
+        }
+        return true;
+    }
+    protected function voicePackReady(): bool {return self::promptPackReady((string)config::load()->get('switch.sounds.dir'));}
+
     public function installed(): bool {
         $this->requireOwner();
         return (bool)$this->q("select to_regclass('v_pbx_cmb_services') is not null and to_regclass('v_pbx_cmb_accounts') is not null and to_regclass('v_pbx_cmb_bindings') is not null and to_regclass('v_pbx_cmb_requests') is not null and to_regclass('v_pbx_cmb_audit') is not null")->fetchColumn();
@@ -74,7 +89,7 @@ class pbx_call_me_back {
         $this->requireOwner();
         if(!$this->installed())return ['installed'=>false,'services'=>[],'accounts'=>[],'bindings'=>[],'recent_attempts'=>[]];
         return [
-            'installed'=>true,
+            'installed'=>true,'voice_pack_ready'=>$this->voicePackReady(),
             'services'=>$this->q('select service_uuid,name,incoming_rule_uuid,route_owner,enabled,prompt_version,prompt_state,max_requests_hour,retention_days,array_to_json(destination_prefixes)::text destination_prefixes from v_pbx_cmb_services where domain_uuid=:d order by name,service_uuid',['d'=>$this->domain])->fetchAll(PDO::FETCH_ASSOC),
             'accounts'=>$this->q('select a.account_uuid,a.service_uuid,a.name,a.id_last4,a.total_seconds,a.used_seconds,a.reserved_seconds,a.enabled,s.name service_name from v_pbx_cmb_accounts a join v_pbx_cmb_services s on s.service_uuid=a.service_uuid and s.domain_uuid=a.domain_uuid where a.domain_uuid=:d order by a.name,a.account_uuid',['d'=>$this->domain])->fetchAll(PDO::FETCH_ASSOC),
             'bindings'=>$this->q('select b.binding_uuid,b.account_uuid,b.phone_number,b.authenticated_at,b.revoked_at from v_pbx_cmb_bindings b join v_pbx_cmb_accounts a on a.account_uuid=b.account_uuid and a.domain_uuid=b.domain_uuid where b.domain_uuid=:d and b.revoked_at is null order by b.authenticated_at desc limit 300',['d'=>$this->domain])->fetchAll(PDO::FETCH_ASSOC),
@@ -128,7 +143,7 @@ class pbx_call_me_back {
         $ready=$old&&!$changed&&$old['prompt_state']==='ready'&&$old['prompt_version']==='1.0.1'&&preg_match('/^[a-f0-9]{64}$/D',(string)$old['prompt_sha256']);
         if($enabled){
             if(!$this->checked($in,'confirm_handover'))throw new InvalidArgumentException('Confirm that this incoming number should answer with Call Me Back.');
-            if(!$ready)throw new InvalidArgumentException('Save this service switched off first. Enable it when its Nathaniel voice prompts are ready.');
+            if(!$ready||!$this->voicePackReady())throw new InvalidArgumentException('Save this service switched off first. Enable it when its Nathaniel voice prompts are ready.');
             if(empty($incoming['enabled'])||empty($c['trunks'][$incoming['trunk_id']]['enabled']))throw new InvalidArgumentException('Connect the provider and enable this incoming number before turning on Call Me Back.');
         }
         $args=['d'=>$this->domain,'id'=>$id?:uuid(),'name'=>$name,'rule'=>$rule,'owner'=>$owner,'enabled'=>$enabled,'limit'=>(int)$limit,'retention'=>(int)$retention,'prefixes'=>json_encode(array_values($prefixes),JSON_THROW_ON_ERROR)];
@@ -195,6 +210,6 @@ class pbx_call_me_back {
         $this->q('update v_pbx_cmb_requests set caller_number=null,updated_at=now() where domain_uuid=:d and account_uuid=:id',['d'=>$this->domain,'id'=>$id]);
         $this->q("update v_pbx_cmb_accounts set name='Deleted account',id_hmac=null,id_last4=null,enabled=false,updated_at=now() where domain_uuid=:d and account_uuid=:id",['d'=>$this->domain,'id'=>$id]);
         $this->subject=$id;
-        return 'Account identity and saved callers deleted. Anonymous cumulative minute totals are retained to preserve the usage ledger.';
+        return 'Account identity and saved callers deleted. Cumulative minute totals and usage records are retained under the PBX retention policy.';
     }
 }

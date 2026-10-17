@@ -16,11 +16,14 @@ builder.Services.AddSingleton<ServiceStatus>();
 builder.Services.AddSingleton<SwitchClient>();
 builder.Services.AddHttpClient("push", c => c.Timeout = TimeSpan.FromSeconds(8)).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<AndroidPushSender>();
+builder.Services.AddHttpClient("voice", c => c.Timeout = TimeSpan.FromSeconds(90)).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 var connection = builder.Configuration.GetConnectionString("Pbx");
 if (!string.IsNullOrWhiteSpace(connection))
 {
     builder.Services.AddSingleton(NpgsqlDataSource.Create(connection));
     builder.Services.AddHostedService<JobWorker>();
+    builder.Services.AddHostedService<CallMeBackWorker>();
+    builder.Services.AddHostedService<CallMeBackPromptWorker>();
     builder.Services.AddHostedService<MobileStateWorker>();
     builder.Services.AddHostedService<QueueStateWorker>();
     builder.Services.AddHostedService<CallRecordWorker>();

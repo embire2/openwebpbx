@@ -458,6 +458,7 @@ local function run()
         session:setVariable('openweb_call_internal','false')
         session:setVariable('call_direction','inbound');internal=false
         session:setVariable('provider_uuid',trunk.gateway_uuid)
+        if loadfile(scripts_dir..'/app/pbx_setup/call_me_back_incoming.lua')().run(session,db,config,rule) then return end
         local destination=rule.office
         local open,_,holiday=P.office(config,rule.office_department or destination.number,clock)
         if rule.hours.type~='OfficeHours' then local d,t=clock(config.timezone);open=P.in_hours(rule.hours,d,t) end

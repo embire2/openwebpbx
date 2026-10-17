@@ -6,9 +6,10 @@ if(!$dsn){fwrite(STDERR,"Set OPENWEB_CMB_TEST_DSN to an owned disposable Postgre
 function uuid(): string {$h=bin2hex(random_bytes(16));return substr($h,0,8).'-'.substr($h,8,4).'-4'.substr($h,13,3).'-a'.substr($h,17,3).'-'.substr($h,20);}
 function is_uuid($v): bool {return is_string($v)&&(bool)preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/Di',$v);}
 function permission_exists(string $permission): bool {return !empty($_SESSION['permissions'][$permission]);}
+class config {public static function load(): self{return new self;}public function get(string $name): string{return '/nonexistent-cmb-test-sounds';}}
 class database {public static PDO $fixture;public static function new(): object{return(object)['db'=>self::$fixture];}}
 foreach(['pbx_tenants','pbx_setup','pbx_admin','pbx_staff_access','pbx_call_me_back']as$class)require dirname(__DIR__).'/resources/classes/'.$class.'.php';
-class cmb_test_admin extends pbx_call_me_back {protected function key(): string{return str_repeat('F',32);}}
+class cmb_test_admin extends pbx_call_me_back {protected function voicePackReady(): bool{return true;}protected function key(): string{return str_repeat('F',32);}}
 $db=new PDO($dsn,getenv('OPENWEB_CMB_TEST_USER')?:'postgres',getenv('OPENWEB_CMB_TEST_PASSWORD')?:null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);database::$fixture=$db;
 $schema='cmb_admin_'.bin2hex(random_bytes(6));$prior=$_SESSION??[];$checks=0;
 $q=static function(string $sql,array $args=[])use($db){$s=$db->prepare($sql);$s->execute($args);return$s;};

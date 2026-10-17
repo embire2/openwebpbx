@@ -6,9 +6,10 @@ package.loaded['resources.functions.config']=true
 local checks=0
 local function check(value,message)if not value then error(message)end;checks=checks+1 end
 for _,mode in ipairs({'first-timer-refused','second-timer-refused','db-query-refused','db-open-exception','db-query-exception','invalid-reservation','success'})do
- local hungup=false;local deleted=false;local timers={};local released=false
+ local hungup=false;local deleted=false;local timers={};local released=false;local opened=false
  argv={'11111111-1111-4111-a111-111111111111'}
  package.loaded['resources.functions.database']={new=function()
+  opened=true
   if mode=='db-open-exception'then error('Controlled private DB-open failure')end
   return{
    query=function(_,_,_,callback)
@@ -28,7 +29,7 @@ for _,mode in ipairs({'first-timer-refused','second-timer-refused','db-query-ref
   end
   error('Unexpected engine command in controlled answer hook')
  end}end}
- session={ready=function()return true end,getVariable=function()return'33333333-3333-4333-a333-333333333333'end,hangup=function()hungup=true end,execute=function()error('A hard limit must have an acknowledged installation result')end}
+ session={ready=function()return true end,getVariable=function(_,name)if name=='openweb_cmb_limit_seconds'then return'600'elseif name=='openweb_cmb_parent_uuid'then return'22222222-2222-4222-a222-222222222222'else return'33333333-3333-4333-a333-333333333333'end end,hangup=function()hungup=true end,execute=function()error('A hard limit must have an acknowledged installation result')end}
  assert(loadfile(scripts_dir..'/app/pbx_setup/call_me_back_answer.lua'))()
  if mode=='success'then
   check(not hungup,'The valid answer hook refused a permitted call.')
@@ -38,6 +39,6 @@ for _,mode in ipairs({'first-timer-refused','second-timer-refused','db-query-ref
   check(hungup,'An accounting or hard-limit failure left the destination connected.')
   check(not deleted,'An unsuccessful replacement removed the existing short safety timer.')
  end
- check(mode=='db-open-exception'or released,'The owned answer-hook database handle was not released.')
+ check(not opened or mode=='db-open-exception'or released,'The owned answer-hook database handle was not released.')
 end
 print(string.format('PASS: %d independent actual Lua answer-hook accounting, both-leg timer and fail-closed controls',checks))
