@@ -1,5 +1,17 @@
 # OpenWeb PBX feature coverage
 
+## Hosted Nathaniel default voicemail — 2026-10-17
+
+The generated **Nathaniel UK 1.0.1** pack was not yet active on production when extension 1000 played the previous American default. The unchanged default-greeting selection uses stock voicemail fragments and spoken extension digits. Installing the complete verified pack fixes those paths for every default mailbox, while the existing custom-greeting selection remains in place.
+
+At 13:41 UTC, the hosted Debian instance completed a guarded voice-only activation with the shared updater lock, original-file recovery snapshot/journal, stock-preimage checks and the reviewed atomic writers. All **4,888 audio hashes**, including **384 voicemail files**, and the selected-version marker match the frozen pack manifest. Calls were paused for 33.427 seconds and resumed; no engine/service restart or application/configuration/database changes were needed. The private snapshot remains available for recovery.
+
+Two actual local SIP calls received ACK and decoded RTP. The installed voicemail application for **extension 1000** played the new default; independently resampled waveform correlation was **0.99998350** against Nathaniel and **0.07421850** against the previous voice. A wholly owned custom recording played through the installed custom-greeting function and matched its original waveform at **0.99997721**. Tests ended before message recording. All owned calls and temporary storage were removed.
+
+Both activation and final post-test checks preserved all **1,272 files** in customer storage, recordings and stock music with exact contents, modes and ownership. Complete row-multiset proofs for `v_voicemails`, `v_voicemail_greetings`, `v_voicemail_messages`, `v_recordings`, `v_pbx_media` and `v_pbx_restore` remained exact. The engine was resumed/idle and all checked services active. Private evidence is retained under `/var/lib/openwebpbx/voice101-live-20261017/`; raw inventories and captured audio are not public assets.
+
+This qualifies this hosted activation and software-call audio only. Core/Android remain 1.0.15; the independent voice archive is not publicly released, and full signed PBX upgrade, Windows overlay and physical/carrier acceptance retain their separate gates. [Pack inventory](../app/pbx_setup/resources/voicepacks/1.0.1/README.md) and [deployment rules](../packaging/voices/README.md) describe the versioned assets and preservation boundary.
+
 ## Department staff, phone handover and provider evidence — 1.0.15
 
 Six scoped staff roles, private invitations/separate web passwords, a guarded My PBX workspace and server checks cover department users, calls, media, reports and phone setup. Guided phone preparation seals original-backup credential proofs, encrypts vendor exports and records actual per-phone checks. First Calls records provider attempts for ordinary calls and callbacks and verifies an eligible failed/unavailable primary followed by exactly one connected configured backup in the same call. A hosted worker imports durable native CDRs and personal history automatically.

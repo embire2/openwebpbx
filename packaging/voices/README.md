@@ -9,6 +9,16 @@ to the speech provider. The generator sends catalogue text only. The optional
 tenant greeting command sends only the administrator-approved tenant display
 name and the fixed greeting script.
 
+The hosted Debian PBX activated this complete pack on **17 October 2026**,
+including default voicemail and spoken extension numbers. Actual extension
+1000 default playback matched Nathaniel; custom playback and complete saved
+media/settings preservation passed. See [the verification record](../../docs/feature-coverage.md#hosted-nathaniel-default-voicemail--2026-10-17).
+This guarded voice-only operational transaction used its own private recovery
+snapshot/journal, the shared updater lock, idle-call checks, temporary call
+pause and the reviewed atomic writers. It does not qualify a complete signed
+PBX upgrade or publish a new core/Android/Windows release. Future general
+release installation must use the normal installer/updater flow below.
+
 Use an existing paid ElevenLabs account which supports 44.1 kHz PCM. Configure
 `ELEVENLABS_API_KEY` in a private environment or a mode-0600 ignored `.env` file.
 The API key must never appear in command arguments, Git, a release, screenshots
@@ -85,8 +95,8 @@ an administrator's custom replacement.
 
 Unrecognised stock replacements, unexpected directories, missing stock files
 and symbolic links refuse before normal activation. Customer media and music
-are outside the mapping. Existing deployments are never activated by an
-untracked standalone recursive copy. A failed update must use the ordinary
+are outside the mapping. Do not activate existing deployments with an
+untracked standalone recursive copy. A failed normal update must use the ordinary
 instance updater's private recovery snapshot. Do not apply this pack to an
 unknown stock sound version or manually replace a customer's custom prompt.
 

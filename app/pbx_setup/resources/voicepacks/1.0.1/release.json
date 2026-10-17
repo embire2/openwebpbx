@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "version": "1.0.1",
-  "status": "prepared-not-published",
+  "status": "hosted-active-not-published",
   "provider": "ElevenLabs",
   "voice_id": "7S3KNdLDL7aRgBVRQb1z",
   "voice_name": "Nathaniel - Deep, Rich and Mature",
@@ -19,7 +19,16 @@
   "catalog_file_sha256": "e50e42acde041be7c77bca14ea2b06805a5edd1b7a1410e046e97e8382dc0731",
   "catalog_binding_sha256": "f2490fea59aeb0bd7fda0a1ac12b63b37a073cddb400a8363cae8728d01e145c",
   "installed_version_marker": "openwebpbx/voice-pack.json",
-  "production_activated": false,
+  "production_activated": true,
+  "production_activation": {
+    "instance": "https://call.openweb.co.za/",
+    "date_utc": "2026-10-17T13:41:15Z",
+    "scope": "guarded-debian-voice-only",
+    "default_voicemail_audio_verified": true,
+    "custom_greetings_and_saved_media_preserved": true,
+    "core_and_android_version": "1.0.15",
+    "public_archive_published": false
+  },
   "windows_installation_qualified": false,
   "complete_signed_pbx_upgrade_qualified": false
 }

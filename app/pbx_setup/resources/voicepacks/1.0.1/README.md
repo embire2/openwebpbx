@@ -1,6 +1,12 @@
 # Nathaniel UK system voice — 1.0.1
 
 The system voice pack has its own version, independent of the PBX and phone app.
+It is active on the hosted Debian PBX as of **17 October 2026**, including
+default voicemail; user-recorded greetings remain unchanged. Actual extension
+1000 default audio and separate custom playback were verified. The generated
+archive is not yet a public download and existing frozen releases are unchanged.
+See [hosted verification](../../../../../docs/feature-coverage.md#hosted-nathaniel-default-voicemail--2026-10-17).
+
 It uses ElevenLabs voice `7S3KNdLDL7aRgBVRQb1z`, **Nathaniel — Deep, Rich and Mature**,
 with the provider's British / `en-GB` voice labels. The fixed voice ID prevents
 a changed display name from silently selecting another narrator. No cloned

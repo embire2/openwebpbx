@@ -1,5 +1,9 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+## Default voicemail voice — 2026-10-17
+
+The hosted instance now uses **Nathaniel UK system voice 1.0.1** for default voicemail greetings, extension digits and the other stock English prompts. Extension **1000** was tested through the actual call engine with decoded audio matching Nathaniel. User-recorded greetings and saved messages remain unchanged; a separate custom-greeting playback test and complete media/settings preservation checks passed. This is a hosted voice activation, with core/Android still **1.0.15** and immutable downloads unchanged. [Voice scope and verification](docs/feature-coverage.md#hosted-nathaniel-default-voicemail--2026-10-17). The 133 roadmap IDs and 21 accepted / 72 partial / 40 planned counts are unchanged.
+
 ## Website privacy and organisation actions — 2026-10-17
 
 Published the company registration/Information Officer contacts, expanded GDPR/POPIA privacy notice, optional-storage consent/withdrawal, cookie policy, privacy-rights instructions, company disclosures, PAIA access guide and accessibility contact. The [privacy audit](docs/website-privacy-compliance.md), [operating procedure](docs/privacy-operations.md) and [organisation PAIA manual draft](docs/paia-manual-draft.md) record what remains: officer registration confirmation, a valid EU representative establishment/mandate where required, approved full-company records/manual, actual provider contracts/transfers/retention and operational request handling. These web changes do not certify full legal compliance or change product versions, the 133 feature IDs or their 21 accepted / 72 partial / 40 planned status.
