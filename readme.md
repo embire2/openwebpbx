@@ -4,6 +4,8 @@
 
 The [hosted PBX](https://call.openweb.co.za/) now uses **Nathaniel UK voice 1.0.1**, including default voicemail greetings. Actual extension 1000 greeting audio and separate custom-recording playback passed; user greetings and saved media remain unchanged. This hosted voice update does not change the existing 1.0.15 downloads. [Verification](docs/feature-coverage.md#hosted-nathaniel-default-voicemail--2026-10-17) · [Voice pack](app/pbx_setup/resources/voicepacks/1.0.1/README.md).
 
+**In development:** [Call Me Back](docs/call-me-back.md) provides tenant incoming-number callbacks, South African ID verification, saved callers, per-user allowances and a ten-minute call limit. Isolated native calling/audio, concurrency and identity controls passed. New-version installation/upgrade/restore and real-carrier handover remain required; this feature is not enabled on customer numbers or included in the current 1.0.15 downloads.
+
 Google Play information: [Privacy](https://openwebpbx.com/privacy) · [Terms](https://openwebpbx.com/terms) · [Delete account and data](https://openwebpbx.com/delete).
 
 Website privacy: [Cookie choices](https://openwebpbx.com/cookies) · [Privacy requests](https://openwebpbx.com/privacy-rights) · [Company](https://openwebpbx.com/legal) · [PAIA access](https://openwebpbx.com/paia). Optional appearance storage now requires consent and can be withdrawn from every page. [EU/POPIA implementation and outstanding actions](docs/website-privacy-compliance.md) records the verified scope, officer registration/representative requirements, provider arrangements and the organisation's PAIA manual draft; publication alone does not establish complete legal compliance.

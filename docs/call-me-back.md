@@ -1,6 +1,6 @@
 # Call Me Back
 
-Status: implementation and isolated qualification in progress; this is not part of the frozen public 1.0.15 release. Existing incoming numbers are unchanged until their owner explicitly selects and enables a Call Me Back service. Real carrier testing and a release installation/upgrade are separate acceptance gates.
+Status: implemented with isolated Debian/native qualification completed; this is not part of the frozen public 1.0.15 release and is not enabled on hosted customer numbers. Existing incoming numbers are unchanged until their owner explicitly selects and enables a Call Me Back service. Real carrier testing and a release installation/upgrade are separate acceptance gates.
 
 ## Set up a service
 
@@ -36,9 +36,9 @@ The service does not ask a recognised caller to repeat their ID because their qu
 
 ## Minutes and safeguards
 
-The allowance is a lifetime total of connected destination talk time, counted in seconds and rounded up once per call. It does not count the identification announcement, destination ringing or the carrier's separate charges for two outside legs. Adding allowance increases the lifetime total; it does not reset prior usage. The editor refuses a total below already used plus reserved time.
+The allowance is a lifetime total of the destination’s answered call time, counted in seconds and rounded up once per call. It does not count the identification announcement, destination ringing or the carrier's separate charges for two outside legs. Adding allowance increases the lifetime total; it does not reset prior usage. The editor refuses a total below already used plus reserved time.
 
-A transaction reserves at most **600 seconds** before destination dialling. One account can have only one active authenticated call. A destination's actual answer starts independent native engine cutoffs for both legs before any database operation, so an accounting lock cannot extend the permitted call. Each conversation ends after ten minutes, or sooner when the account has fewer seconds left. Completion debits actual observed talk time once and returns the unused reservation.
+A transaction reserves at most **600 seconds** before destination dialling. One account can have only one active authenticated call. A destination's actual answer starts independent native engine cutoffs for both legs before any database operation, so an accounting lock cannot extend the permitted call. Each conversation ends after ten minutes, or sooner when the account has fewer seconds left. Completion debits the observed destination answer duration once and returns the unused reservation.
 
 Requests and usage survive a worker restart. A request is never silently redialled after an uncertain launch. Recovery checks both owned call UUIDs; an ambiguous engine response retains the reservation. If a crashed interpreter cannot prove the final duration, recovery charges the bounded reservation and records **interrupted_review_usage** for administrator review. This deliberately prevents a restart from granting free unmetered calls; the displayed total can require review after an interrupted call.
 
@@ -67,3 +67,20 @@ Completed callback requests and revoked bindings are retained for the service's 
 ## Qualification boundaries
 
 Tests use fictional tenants and loopback SIP providers in an isolated Debian network namespace. They do not establish real-carrier billing, caller-ID delivery, handset behaviour or public-network availability. See the private qualification facts referenced in development notes for the exact source/build and observed cases. Do not enable a customer DID until its tenant and number have been selected, its routes/greeting/accounts are ready, and its controlled carrier handover is authorised.
+
+
+### Recorded software qualification — 2026-10-17
+
+The frozen runtime at `9b48dd897` passed nine actual SIP/RFC2833/decoded-RTP cases with fictional tenants and two loopback providers: correct first-time ID with no allowance, incorrect ID, successful first-time authentication, saved-number reuse, a caller hanging up during the initial announcement, five seconds remaining with a three-second database lock at destination answer, three seconds remaining, exhausted saved authentication without another ID request, and the full 600-second limit.
+
+The full-limit call ended both legs **599.76 seconds** after the destination's SIP answer, charged **600 seconds once**, and released the reservation. The five-second locked-accounting case ended after **4.60 seconds** despite the three-second accounting lock. Decoded cross-leg tone identity was **0.9998** in both directions. Engine scheduling uses whole seconds, so measured durations can finish slightly before the nominal boundary; neither test exceeded its allowance.
+
+A subsequent one-condition correction limits timer cleanup to the invocation that actually claimed its request. Eight actual-Lua ownership controls and a separate native duplicate-delivery test qualify that correction. The duplicate invocation preserved exactly two live call legs and both native cutoffs; the original three-second call ended after **2.61 seconds**, charged three seconds once, and released its reservation. This does not relabel the earlier ten-minute test as a complete post-correction run.
+
+An independent review repeated **323** scoped SQL/Lua/C# controls across ownership/admin boundaries, concurrent tenant/service limits, reservations/settlement, HMAC matching, audio activation, authentication errors, recovery and pre-database timer order. These include actual PostgreSQL, source-executing Lua and an actual-worker harness with a controlled local event socket; they are distinct from the native timing/media cases. The callback dispatcher/prompt workers also passed fourteen focused .NET/PostgreSQL/HTTP protocol controls. A real ElevenLabs HTTPS request through the production prompt-worker source generated the fictional tenant greeting, which the final native duplicate test played. Thirty responsive admin layouts passed.
+
+The private qualification database was separate from the fixture's original database. All **157 original table multisets** remained exact. Cleanup verified zero owned calls, contacts and timers, removed the new database and restored ten sealed original configuration/runtime files. The owned container and isolated PostgreSQL cluster were stopped. Twelve actual engine log/runtime-database files contained neither full fictional test ID. This is scoped log evidence, not a proof that third-party carrier equipment never retains key presses.
+
+Private evidence is retained under `/var/lib/openwebpbx/cmb-work/` and `/var/lib/openwebpbx/cmb-runtime-review-20261017/`. The final source/build bindings, nine-case native results, duplicate test, actual-provider generation, preservation and restoration facts are recorded separately. Earlier incomplete fixture/observer runs remain retained with their original outcomes.
+
+Before public delivery, build a complete new-version Debian package with the verified voice pack, then qualify fresh installation, the installed signed updater, exact failure recovery, and encrypted backup/clean-server restore including the private key and greetings. Windows runtime/media/installer acceptance and controlled real-carrier/DID handover remain separate work. Do not overwrite the immutable 1.0.15 release or enable an unspecified customer number.

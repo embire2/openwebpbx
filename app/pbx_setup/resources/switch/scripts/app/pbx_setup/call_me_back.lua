@@ -131,7 +131,7 @@ if ended and destination_call then
   freeswitch.msleep(50)
  end
 end
-if ended then
+if request and ended then
  api:execute('sched_del','openweb-cmb-'..id)
  api:execute('sched_del','openweb-cmb-active-'..id)
 end

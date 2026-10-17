@@ -1,5 +1,17 @@
 # OpenWeb PBX core system status
 
+## Call Me Back development — 2026-10-17
+
+| Work | Status |
+|---|---|
+| Tenant administration | Services on explicitly selected existing incoming numbers; enrolled SA-ID accounts, minute allowance, saved-number revocation and identity deletion implemented. |
+| Calling and limits | Actual isolated SIP/DTMF/two-way media passed for first/repeat callbacks, wrong/zero allowance, early incoming hangup, partial quota, accounting delay and 600-second cap. Native duplicate delivery preserves the original caps and call. |
+| Identity and accounting | Tenant-derived HMAC with protected original key; no plaintext stored ID; domain-wide/concurrent account reservations, exact-once settlement and fail-closed ambiguous recovery tested. |
+| Voice | Independent fixed Nathaniel 1.0.1 assets plus separate bounded tenant-greeting worker; real HTTPS generation and native greeting playback passed. Hosted stock voice activation is separately recorded. |
+| Delivery | Source qualified; complete new-version signed Debian installation/upgrade/recovery/clean restore and Windows acceptance pending. No hosted customer DID enabled. |
+
+[Setup, exact flows, privacy and qualification](call-me-back.md). All 133 broader roadmap IDs and 21 accepted / 72 partial / 40 planned statuses remain unchanged. Current immutable public server/Android release remains 1.0.15.
+
 ## 1.0.15 — staff, phone handover and first calls
 
 | Work | Status |

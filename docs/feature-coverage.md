@@ -1,5 +1,13 @@
 # OpenWeb PBX feature coverage
 
+## Call Me Back source qualification — 2026-10-17
+
+[Call Me Back](call-me-back.md) implements a separately enabled tenant incoming-number service, answered callback to the original CLI, SA-ID verification, revocable saved callers, normal outbound-route permissions and concurrent lifetime allowances with native ten-minute cutoffs. It is not deployed on customer DIDs or included in immutable public 1.0.15.
+
+Frozen source 9b48dd897 passed nine actual isolated SIP/DTMF/media cases, including full 600-second/599.76s both-leg cutoff with 600 seconds charged exactly once, partial 3/5-second allowances, a three-second database delay at destination answer, first/repeat identities and refusal paths. A later request-claim cleanup guard was qualified separately by eight actual-Lua controls and an actual duplicate invocation preserving two call legs/two caps and the 3-second cutoff. Independent 323 SQL/Lua/C# controls, fourteen worker protocol controls and thirty admin layouts passed. Actual tenant-greeting generation used the real production worker/ElevenLabs HTTPS and played in the final native test. These are precise component qualifications; full signed installation/upgrade/backup restore, Windows and real-carrier acceptance remain open.
+
+Cleanup left zero owned calls/contacts/cutoff tasks, dropped only the new private qualification database, preserved all 157 original table multisets and restored ten sealed original config/runtime files. The test container and isolated PostgreSQL cluster are stopped. Private facts remain under `/var/lib/openwebpbx/cmb-work/` and `/var/lib/openwebpbx/cmb-runtime-review-20261017/`. The guide records conservative interrupted usage, key recovery and privacy retention/deletion boundaries. Wider roadmap acceptance marks are unchanged.
+
 ## Hosted Nathaniel default voicemail — 2026-10-17
 
 The generated **Nathaniel UK 1.0.1** pack was not yet active on production when extension 1000 played the previous American default. The unchanged default-greeting selection uses stock voicemail fragments and spoken extension digits. Installing the complete verified pack fixes those paths for every default mailbox, while the existing custom-greeting selection remains in place.

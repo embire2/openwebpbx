@@ -1,5 +1,13 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+## Call Me Back — source qualified, release pending — 2026-10-17
+
+A separate [Call Me Back service](docs/call-me-back.md) now supports tenant-owned incoming numbers/accounts, callback to the original caller, South African ID authentication, saved/revocable caller numbers, per-user lifetime allowances and a ten-minute native limit. Ordinary outgoing permissions/provider routes apply to both legs; no customer DID has been taken over. The hosted Nathaniel voice activation below does not deploy the new callback runtime.
+
+Nine isolated native cases passed, including actual DTMF, decoded two-way media, saved authentication, wrong/exhausted identities, early incoming hangup, accounting delay and the full 600-second cutoff. The frozen runtime ended the full case after 599.76s, charged 600 once and released the reservation. The later one-condition request-ownership guard separately passed an actual duplicate-call delivery/three-second cutoff. Independent 323 controls, fourteen focused worker controls and thirty admin layouts passed. Original fixture 157-table multisets/configuration remained exact after cleanup.
+
+Remaining delivery: complete new-version Debian package, fresh/signed upgrade/exact recovery, clean encrypted restore including private key/greetings, Windows acceptance, and an explicitly selected tenant/DID with controlled carrier calls. Current public core/Android remains 1.0.15. The existing 133 roadmap IDs and 21 accepted / 72 partial / 40 planned counts are unchanged; this feature does not close real-carrier queue callback or wider parity gates.
+
 ## Default voicemail voice — 2026-10-17
 
 The hosted instance now uses **Nathaniel UK system voice 1.0.1** for default voicemail greetings, extension digits and the other stock English prompts. Extension **1000** was tested through the actual call engine with decoded audio matching Nathaniel. User-recorded greetings and saved messages remain unchanged; a separate custom-greeting playback test and complete media/settings preservation checks passed. This is a hosted voice activation, with core/Android still **1.0.15** and immutable downloads unchanged. [Voice scope and verification](docs/feature-coverage.md#hosted-nathaniel-default-voicemail--2026-10-17). The 133 roadmap IDs and 21 accepted / 72 partial / 40 planned counts are unchanged.
