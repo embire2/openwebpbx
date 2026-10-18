@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 DIRECTORY = Path(__file__).resolve().parents[1] / 'packaging/debian'
 sys.path.insert(0, str(DIRECTORY))
@@ -86,6 +87,89 @@ class CertificateChecks(unittest.TestCase):
         selected = tls.chain_fingerprints(tls.chain_store(chain, roots))
         self.assertEqual(selected, tls.chain_fingerprints(cross_signed.read_bytes() + self.cert.read_bytes()))
         self.assertNotIn(tls.chain_fingerprints(self_signed.read_bytes())[0], selected)
+
+
+class ProfileRestartChecks(unittest.TestCase):
+    def exercise(self, replies, *, name='internal', busy_at=None, idle_delay=0):
+        self.elapsed = 0.0
+        self.events = []
+        responses = iter(replies)
+
+        def idle(settings):
+            self.events.append('idle')
+            self.elapsed += idle_delay
+            if busy_at == self.events.count('idle'):
+                raise RuntimeError('Calls became active')
+
+        def api(settings, command):
+            self.events.append(command)
+            return next(responses)
+
+        def sleep(seconds):
+            self.elapsed += seconds
+
+        with mock.patch.object(tls, 'check_idle', idle), \
+             mock.patch.object(tls, 'engine_api', api), \
+             mock.patch.object(tls.time, 'monotonic', lambda: self.elapsed), \
+             mock.patch.object(tls.time, 'sleep', sleep):
+            tls.restart_profile({}, name)
+
+    def test_native_success_after_idle_check(self):
+        for name in ['internal', 'internal-ipv6']:
+            with self.subTest(name=name):
+                self.exercise(['Reload XML [Success]\nrestarting: '+name], name=name)
+                self.assertEqual(self.events, ['idle', 'sofia profile '+name+' restart'])
+
+    def test_exact_native_cooldown_retries_with_fresh_idle_check(self):
+        for seconds in [1, 10]:
+            with self.subTest(seconds=seconds):
+                suffix = '' if seconds == 1 else 's'
+                self.exercise([f'Profile internal must be up for at least 10 seconds to stop/restart.\nPlease wait {seconds} second{suffix}\n',
+                               'Reload XML [Success]\nrestarting: internal'])
+                self.assertGreaterEqual(self.elapsed, seconds)
+                self.assertEqual(self.events, ['idle', 'sofia profile internal restart'] * 2)
+
+    def test_call_arriving_during_cooldown_prevents_second_restart(self):
+        with self.assertRaisesRegex(RuntimeError, 'Calls became active'):
+            self.exercise(['Profile internal must be up for at least 10 seconds to stop/restart.\nPlease wait 1 second'], busy_at=2)
+        self.assertEqual(self.events, ['idle', 'sofia profile internal restart', 'idle'])
+
+    def test_unknown_failure_or_wrong_profile_never_retried(self):
+        for response in ['+OK', '-ERR unavailable', 'Invalid Profile!', '',
+                         'Reload XML [Failure]\nrestarting: internal',
+                         'Reload XML [Success]\nrestarting: internal-ipv6',
+                         'Profile internal-ipv6 must be up for at least 10 seconds to stop/restart.\nPlease wait 1 second',
+                         'Profile internal must be up for at least 10 seconds to stop/restart.\nPlease wait 1 seconds',
+                         'Profile internal must be up for at least 10 seconds to stop/restart.\nPlease wait 0 seconds',
+                         'Profile internal must be up for at least 10 seconds to stop/restart.\nPlease wait 100 seconds']:
+            with self.subTest(response=response), self.assertRaises(RuntimeError):
+                self.exercise([response])
+            self.assertEqual(self.events, ['idle', 'sofia profile internal restart'])
+            self.assertEqual(self.elapsed, 0)
+
+    def test_repeated_cooldown_has_bounded_total_wait(self):
+        response = 'Profile internal must be up for at least 10 seconds to stop/restart.\nPlease wait 10 seconds'
+        with self.assertRaisesRegex(RuntimeError, 'cooldown did not finish'):
+            self.exercise([response] * 20)
+        self.assertLessEqual(self.elapsed, 20)
+        self.assertEqual(self.events.count('idle'), 2)
+
+    def test_repeated_short_cooldown_has_bounded_attempts(self):
+        response = 'Profile internal must be up for at least 10 seconds to stop/restart.\nPlease wait 1 second'
+        with self.assertRaisesRegex(RuntimeError, 'cooldown did not finish'):
+            self.exercise([response] * 20)
+        self.assertLessEqual(self.elapsed, 20)
+        self.assertEqual(self.events.count('idle'), 4)
+
+    def test_expired_idle_check_cannot_issue_restart(self):
+        with self.assertRaisesRegex(RuntimeError, 'cooldown did not finish'):
+            self.exercise([], idle_delay=21)
+        self.assertEqual(self.events, ['idle'])
+
+    def test_profile_name_is_restricted_before_engine_access(self):
+        with self.assertRaises(RuntimeError):
+            self.exercise([], name='internal restart')
+        self.assertEqual(self.events, [])
 
 
 if __name__ == '__main__':

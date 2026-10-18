@@ -79,6 +79,27 @@ def verify_listener(settings,profile,domain,fingerprint,expected_chain=None):
   return True
  except (OSError,ssl.SSLError,subprocess.TimeoutExpired,ValueError):return False
 
+def restart_profile(settings,name):
+ # Native Sofia refuses a restart during the first ten seconds without an
+ # -ERR prefix. Retry only that exact cooldown, never an unknown reply.
+ if name not in ('internal','internal-ipv6'):raise RuntimeError('The phone profile is not supported.')
+ deadline=time.monotonic()+20
+ cooldown=re.compile(r'Profile '+re.escape(name)+r' must be up for at least 10 seconds to stop/restart\.\nPlease wait (10|[1-9]) second(s?)')
+ for attempt in range(4):
+  if time.monotonic()>=deadline:break
+  check_idle(settings)
+  if time.monotonic()>=deadline:break
+  response=engine_api(settings,'sofia profile '+name+' restart').strip()
+  if time.monotonic()>=deadline:break
+  if response=='Reload XML [Success]\nrestarting: '+name:return
+  match=cooldown.fullmatch(response)
+  if not match or match.group(2)!=('' if match.group(1)=='1' else 's'):
+   raise RuntimeError('The phone profile could not restart; retry during an idle maintenance window.')
+  wait=int(match.group(1))+.1
+  if attempt==3 or time.monotonic()+wait>=deadline:break
+  time.sleep(wait)
+ raise RuntimeError('The phone profile restart cooldown did not finish; retry during an idle maintenance window.')
+
 def main():
  parser=argparse.ArgumentParser(description=__doc__)
  parser.add_argument('--domain');parser.add_argument('--fullchain',type=Path);parser.add_argument('--private-key',type=Path)
@@ -124,8 +145,7 @@ def main():
   if not all(verify_listener(settings,name,args.domain,fingerprint,expected_chain) for name in names):
    check_idle(settings)
    for name in names:
-    response=engine_api(settings,'sofia profile '+name+' restart')
-    if '-ERR' in response:raise RuntimeError('The phone profile could not restart; retry during an idle maintenance window.')
+    restart_profile(settings,name)
    for attempt in range(30):
     if all(verify_listener(settings,name,args.domain,fingerprint,expected_chain) for name in names):break
     time.sleep(1)
