@@ -615,7 +615,8 @@ def target_is_factory(settings):
         raise BackupError('Restore requires the replacement instance’s own local PostgreSQL database.')
     validate_database_layout(settings)
     tables = {'v_extensions': 0, 'v_pbx_tenants': 0, 'v_pbx_services': 0, 'v_pbx_restore': 0,
-              'v_recordings': 0, 'v_voicemail_messages': 0, 'v_users': 1, 'v_domains': 1}
+              'v_recordings': 0, 'v_voicemail_messages': 0, 'v_pbx_meetings': 0,
+              'v_pbx_meeting_members': 0, 'v_users': 1, 'v_domains': 1}
     for table, maximum in tables.items():
         exists = query(settings, 'select to_regclass(' + literal(table) + ') is not null')
         if exists == 't' and int(query(settings, 'select count(*) from ' + table)) > maximum:
@@ -674,7 +675,16 @@ def restore_meeting(settings):
     ordinary(conf/'tls/openweb-meet/wss.pem');ordinary(state/'meet-ca.pem')
     code=r"""require $argv[1].'/resources/classes/config.php';config::load($argv[2]);require $argv[1].'/resources/classes/auto_loader.php';new auto_loader();$db=database::new()->db;$db->setAttribute(PDO::ATTR_ERRMODE,PDO::ERRMODE_EXCEPTION);
 if((string)config::load()->get('switch.conf.dir')!==$argv[3])throw new RuntimeException('The restored engine configuration path needs review.');
-pbx_meet_install::tls($argv[3],$argv[4]);pbx_meet_install::rebind($db,null,$argv[3]);pbx_video::configure($db);"""
+pbx_meet_install::tls($argv[3],$argv[4]);
+$db->beginTransaction();try{
+ pbx_meet_install::rebind($db,null,$argv[3]);pbx_video::configure($db);
+ if($db->query("select to_regclass('v_pbx_meeting_members') is not null")->fetchColumn()){
+  $rows=$db->query("select member_uuid from v_pbx_meeting_members where state in ('waiting','admitted') or call_uuid is not null for update")->fetchAll(PDO::FETCH_COLUMN);
+  $q=$db->prepare("update v_pbx_meeting_members set state=case when state in ('waiting','admitted') then 'left' else state end,call_uuid=null,token_hash=?,sip_a1_hash=? where member_uuid=?");
+  foreach($rows as$id)$q->execute([hash('sha256',random_bytes(32)),bin2hex(random_bytes(16)),$id]);
+ }
+ $db->commit();
+}catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}"""
     run(['php','-r',code,str(WEB_VERSION.parent),str(ROOTS['fusionpbx-config']/'config.conf'),str(conf),str(state)],timeout=120)
     return True
 

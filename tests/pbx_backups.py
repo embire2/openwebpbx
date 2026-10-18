@@ -197,6 +197,18 @@ class Backups(unittest.TestCase):
                 b.target_is_factory(self.target)
         finally:
             b.query(self.target, 'delete from v_pbx_tenants;')
+        # A sole initial owner can use Meet before adding any phone/tenant.
+        # Missing legacy tables remain supported; empty new tables are factory.
+        for table in ('v_pbx_meetings','v_pbx_meeting_members'):
+            b.query(self.target,'create table '+table+'(id uuid primary key)')
+            try:
+                b.target_is_factory(self.target)
+                b.query(self.target,'insert into '+table+' values(gen_random_uuid())')
+                with self.assertRaisesRegex(b.BackupError,'fresh installation'):
+                    b.target_is_factory(self.target)
+            finally:
+                b.query(self.target,'drop table '+table)
+        b.target_is_factory(self.target)
 
     def test_08_worker_requests_and_retention(self):
         store = self.workspace / 'worker-store';downloads = self.workspace / 'worker-downloads'

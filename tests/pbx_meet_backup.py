@@ -6,6 +6,7 @@ openweb_meet_* database on a private /tmp/openweb-* Unix socket. No live
 service command is executed: only the Nginx command boundary is recorded.
 """
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -35,7 +36,7 @@ def snapshot():
 
 schema='openweb_meet_restore_'+secrets.token_hex(8)
 b.query(settings,'create schema '+schema)
-for table in ['v_domains','v_users','v_groups','v_sip_profiles','v_sip_profile_settings','v_conference_profiles','v_conference_profile_params','v_dialplans','v_dialplan_details','v_menus','v_menu_items','v_menu_languages','v_menu_item_groups']:
+for table in ['v_domains','v_users','v_groups','v_sip_profiles','v_sip_profile_settings','v_conference_profiles','v_conference_profile_params','v_dialplans','v_dialplan_details','v_menus','v_menu_items','v_menu_languages','v_menu_item_groups','v_pbx_meetings','v_pbx_meeting_members']:
  b.query(settings,'create table '+schema+'.'+table+'(like public.'+table+' including all)')
 old_options=os.environ.get('PGOPTIONS')
 os.environ['PGOPTIONS']='-c search_path='+schema+',public'
@@ -50,7 +51,29 @@ try:
   pem=engine/'tls/openweb-meet/wss.pem';ca=state/'meet-ca.pem';identity=(pem.read_bytes(),ca.read_bytes());custom=engine/'custom.wav';custom.write_bytes(b'customer recording remains exact')
   b.query(settings,"update v_sip_profile_settings set sip_profile_setting_value='192.0.2.8'where sip_profile_uuid='cfb1c835-c30c-409b-bff7-a893a7e84df1'and sip_profile_setting_name in('rtp-ip','ext-rtp-ip');update v_sip_profile_settings set sip_profile_setting_value='/source/conf/tls/openweb-meet'where sip_profile_uuid='cfb1c835-c30c-409b-bff7-a893a7e84df1'and sip_profile_setting_name='tls-cert-dir'")
   b.query(settings,"insert into v_sip_profiles(sip_profile_uuid,sip_profile_name,sip_profile_enabled)values(gen_random_uuid(),'internal',true);insert into v_sip_profile_settings(sip_profile_setting_uuid,sip_profile_uuid,sip_profile_setting_name,sip_profile_setting_value,sip_profile_setting_enabled)select gen_random_uuid(),sip_profile_uuid,'inbound-codec-prefs','G722,PCMU',true from v_sip_profiles where sip_profile_name='internal'")
+  # A scheduled backup may capture active room sessions. Restore must revoke
+  # only transient access while retaining room identity/invitation/history.
+  b.query(settings,"insert into v_domains(domain_uuid,domain_name,domain_enabled)values('9e086a9d-0590-4d9b-b176-ff324e5bc41a','meet-restore.invalid',true);insert into v_users(user_uuid,username)values('a6073c4b-ef43-4340-9a2f-b2a9865a6f55','owned-meet-restore');insert into v_pbx_meetings(meeting_uuid,domain_uuid,owner_uuid,subject,starts_at,ends_at,invite_hash,dial_number)values('fc2cd825-b13d-4563-a504-d97a3c46928f','9e086a9d-0590-4d9b-b176-ff324e5bc41a','a6073c4b-ef43-4340-9a2f-b2a9865a6f55','Preserve scheduled room',now(),now()+interval '4 hours',repeat('a',64),'98123456')")
+  for i,state_name in enumerate(['waiting','admitted','removed','left']):
+   b.query(settings,"insert into v_pbx_meeting_members(member_uuid,meeting_uuid,member_name,role,state,token_hash,sip_username,sip_a1_hash,call_uuid)values(gen_random_uuid(),'fc2cd825-b13d-4563-a504-d97a3c46928f','Historical name "+str(i)+"','guest','"+state_name+"',"+b.literal(hashlib.sha256((str(i+1)*64).encode()).hexdigest())+",'owc-owned-"+str(i)+"',repeat('b',32),"+("gen_random_uuid()"if i<3 else "null")+")")
+  room_before=b.query(settings,"select row_to_json(p)from v_pbx_meetings p where meeting_uuid='fc2cd825-b13d-4563-a504-d97a3c46928f'")
+  php('if((new pbx_meet($db))->status($argv[3])["state"]!=="waiting")exit(5);',cfg,'1'*64)
+  members_before=json.loads(b.query(settings,"select json_agg(m order by member_name)from v_pbx_meeting_members m"))
   check(b.restore_meeting(target)is True,'Actual production restore helper validates TLS and rebinds owned profile')
+  members_after=json.loads(b.query(settings,"select json_agg(m order by member_name)from v_pbx_meeting_members m"))
+  check(room_before==b.query(settings,"select row_to_json(p)from v_pbx_meetings p where meeting_uuid='fc2cd825-b13d-4563-a504-d97a3c46928f'"),'Restore preserves exact schedule/invitation/owner/room record')
+  check([m['state']for m in members_after]==['left','left','removed','left']and all(m['call_uuid']is None for m in members_after),'Restored active members leave and stale calls clear without erasing historical states')
+  for old_member,new_member in zip(members_before,members_after):
+   preserve=['member_uuid','meeting_uuid','member_name','role','sip_username','created_at','seen_at','muted']
+   check(all(old_member[k]==new_member[k]for k in preserve),'Member identity and nontransient history retained')
+   if old_member['state']in ['waiting','admitted']or old_member['call_uuid']is not None:
+    check(old_member['token_hash']!=new_member['token_hash']and old_member['sip_a1_hash']!=new_member['sip_a1_hash'],'Restored transient token and SIP credential hashes are revoked')
+   else:check(old_member==new_member,'Already inactive history without a stale call is byte-for-byte unchanged')
+  check(b.query(settings,"select count(*)from v_pbx_meeting_members where state in('waiting','admitted')")=='0','Old guest token/SIP predicates and stale capacity match zero restored sessions')
+  for token in ['1'*64,'2'*64,'3'*64,'4'*64]:
+   php('try{(new pbx_meet($db))->status($argv[3]);exit(5);}catch(DomainException){}',cfg,token)
+   check(True,'Actual token API rejects every previous guest credential')
+
   values=json.loads(b.query(settings,"select json_object_agg(sip_profile_setting_name,sip_profile_setting_value)from v_sip_profile_settings where sip_profile_uuid='cfb1c835-c30c-409b-bff7-a893a7e84df1'"))
   check(values['rtp-ip']==values['ext-rtp-ip']=='198.51.100.42','Both restored media addresses use replacement server IP')
   check(values['tls-cert-dir']==str(engine/'tls/openweb-meet'),'TLS directory uses actual target engine configuration path')
