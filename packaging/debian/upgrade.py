@@ -738,7 +738,10 @@ def main():
         recover(previous,boot=args.boot)
         if not args.recover:raise RuntimeError('An interrupted update was recovered. Check the previous update before trying again.')
     if args.recover:
-        finalize_completed(previous)
+        # Boot recovery precedes the PBX service. A committed transaction may
+        # not have reached its new worker yet; health-gated finalization belongs
+        # to that worker's non-boot initialization after services can start.
+        if not args.boot:finalize_completed(previous)
         if not previous or previous.get('state') in TERMINAL:set_maintenance(False)
         return
     if args.boot:parser.error('--boot is only valid with --recover.')

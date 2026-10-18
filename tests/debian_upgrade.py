@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
 import io
+import sys
 
 SOURCE = Path(__file__).resolve().parents[1] / 'packaging/debian/upgrade.py'
 spec = importlib.util.spec_from_file_location('openweb_upgrade', SOURCE)
@@ -148,6 +149,20 @@ class UpgradeChecks(unittest.TestCase):
         self.assertLess(commands.index(['systemctl','reload','nginx']),commands.index(['systemctl','stop','xml_cdr.service']))
         self.assertIn(['systemctl','disable','xml_cdr.service'],commands)
         self.assertEqual(saved[0][1],{'finalization':'completed'})
+
+    def test_completed_boot_recovery_defers_health_until_worker_can_start(self):
+        updates=self.root/'updates';updates.mkdir()
+        journal=updates/'journal.json';journal.write_text(json.dumps({'state':'completed','version':'1.0.16'}))
+        maintenance=updates/'maintenance';maintenance.write_text('{}')
+        original_path=Path
+        def isolated_path(value):
+            return self.root/'isolated.lock' if value=='/run/openwebpbx-upgrade.lock' else original_path(value)
+        before=os.umask(0o077)
+        try:
+            with patch.object(upgrade,'UPDATES',updates),patch.object(upgrade,'JOURNAL',journal),patch.object(upgrade,'MAINTENANCE',maintenance),patch.object(upgrade,'Path',side_effect=isolated_path),patch.object(upgrade.os,'geteuid',return_value=0),patch.object(sys,'argv',['upgrade.py','--recover','--boot']),patch.object(upgrade,'finalize_completed',side_effect=AssertionError('Boot cannot require pre-service health')):
+                upgrade.main()
+            self.assertFalse(maintenance.exists())
+        finally:os.umask(before)
 
 
 if __name__ == '__main__':
