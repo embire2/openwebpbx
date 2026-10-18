@@ -7,6 +7,20 @@ try{
  $db->exec('create schema '.$schema.';set search_path to '.$schema.',public');
  $tables=['v_domains','v_users','v_sip_profiles','v_sip_profile_settings','v_conference_profiles','v_conference_profile_params','v_dialplans','v_dialplan_details','v_menus','v_menu_items','v_menu_languages','v_groups','v_menu_item_groups'];
  foreach($tables as$t)$db->exec('create table '.$t.' (like public.'.$t.' including all)');
+ // Actual alphabetical --defaults order reaches Meet before sip_profiles.
+ // It must leave a completely fresh profile table empty for the stock seeder.
+ include dirname(__DIR__).'/app/pbx_meet/app_defaults.php';
+ $check((int)$db->query('select count(*)from v_sip_profiles')->fetchColumn()===0,'Fresh defaults defer Meet so stock profile seeding still sees zero rows');
+ $check((int)$db->query('select count(*)from v_dialplans')->fetchColumn()===0&&(int)$db->query('select count(*)from v_conference_profiles')->fetchColumn()===0,'Deferred defaults create no meeting routes or conference profiles');
+ $check(!file_exists(rtrim((string)config::load()->get('switch.conf.dir'),'/').'/tls/openweb-meet/wss.pem'),'Deferred defaults create no private meeting key');
+ $disabled=uuid();$db->prepare("insert into v_sip_profiles(sip_profile_uuid,sip_profile_name,sip_profile_enabled)values(?,'internal',false)")->execute([$disabled]);
+ include dirname(__DIR__).'/app/pbx_meet/app_defaults.php';
+ $check((int)$db->query('select count(*)from v_sip_profiles')->fetchColumn()===1,'A disabled internal profile does not authorize early Meet defaults');
+ $db->prepare('delete from v_sip_profiles where sip_profile_uuid=?')->execute([$disabled]);
+ $customOnly=uuid();$db->prepare("insert into v_sip_profiles(sip_profile_uuid,sip_profile_name,sip_profile_enabled)values(?,'customer-provider',true)")->execute([$customOnly]);
+ include dirname(__DIR__).'/app/pbx_meet/app_defaults.php';
+ $check((int)$db->query('select count(*)from v_sip_profiles')->fetchColumn()===1,'Custom-provider-only defaults defer without assuming a normal phone profile');
+ $db->prepare('delete from v_sip_profiles where sip_profile_uuid=?')->execute([$customOnly]);
  $menuId=uuid();$otherItem=uuid();$meetMenu='c6b624b2-a54f-4828-a706-13ddf6b6f891';
  $db->prepare("insert into v_menus(menu_uuid,menu_name,menu_language)values(?,'default','de-de')")->execute([$menuId]);
  $db->prepare("insert into v_menu_items(menu_item_uuid,menu_uuid,menu_item_title,menu_item_link)values(?,?,'Existing','/existing')")->execute([$otherItem,$menuId]);
@@ -14,7 +28,8 @@ try{
  foreach(['superadmin','tenant_admin','openweb_staff','user']as$group)$db->prepare('insert into v_groups(group_uuid,group_name)values(?,?)')->execute([uuid(),$group]);
  $profile=uuid();$db->prepare("insert into v_sip_profiles(sip_profile_uuid,sip_profile_name,sip_profile_enabled) values(?,'internal',true)")->execute([$profile]);
  foreach(['inbound-codec-prefs'=>'G722,PCMU,PCMA','outbound-codec-prefs'=>'$${global_codec_prefs}']as$name=>$value)$db->prepare('insert into v_sip_profile_settings(sip_profile_setting_uuid,sip_profile_uuid,sip_profile_setting_name,sip_profile_setting_value,sip_profile_setting_enabled) values(?,?,?,?,true)')->execute([uuid(),$profile,$name,$value]);
- pbx_meet_install::apply($db);
+ pbx_meet_install::apply($db); // Explicit later bootstrap after the stock internal profile exists.
+ $check($db->query("select count(*) from v_sip_profiles where sip_profile_name='internal'and sip_profile_uuid='$profile'")->fetchColumn()==1,'Later bootstrap preserves the seeded normal phone profile identity');
  $check($db->query("select count(*) from v_sip_profiles where sip_profile_name='openweb-meet'")->fetchColumn()==1,'Private meeting profile installed');
  $prefs=$db->query("select sip_profile_setting_value from v_sip_profile_settings where sip_profile_uuid='$profile' order by sip_profile_setting_name")->fetchAll(PDO::FETCH_COLUMN);
  $check($prefs===['G722,PCMU,PCMA,VP8','$${global_codec_prefs},VP8'],'Audio preferences preserved with VP8 appended');
