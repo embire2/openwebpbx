@@ -70,18 +70,21 @@ def stage(archive, archive_sha256, destination, catalog):
             shutil.rmtree(temp)
 
 
-def deployment_files(pack_root, catalog, sounds_root, *, previous_manifest=None, fresh=False):
+def deployment_files(pack_root, catalog, sounds_root, *, previous_manifest=None, fresh=False, required_stock_paths=None):
     """Return all source/destination mappings only after complete preflight.
 
     Existing custom replacements refuse rather than being overwritten. A prior
     voice manifest is accepted only after its enclosing installed release has
-    independently been authenticated by the updater. There is no wildcard copy.
+    independently been authenticated by the updater. An explicit required stock
+    set may come only from a separately pinned historical engine inventory; the
+    default requires every stock path. There is no wildcard copy.
     """
     pack_root, sounds_root = Path(pack_root), Path(sounds_root)
     pack = voicepack.verify(catalog,pack_root)
     if previous_manifest is not None and (previous_manifest.get('provider') != 'ElevenLabs'
             or previous_manifest.get('voice_id') != catalog['voice_id']):
         raise PackError('The previous voice identity is not compatible.')
+    required_stock_paths=None if required_stock_paths is None else frozenset(required_stock_paths)
     result = {}
     for name, metadata in pack['files'].items():
         target = voicepack.safe_file(sounds_root,name)
@@ -98,7 +101,7 @@ def deployment_files(pack_root, catalog, sounds_root, *, previous_manifest=None,
                     allowed.add(previous['sha256'])
             if file_digest(target) not in allowed:
                 raise PackError('An existing spoken prompt was customised. Preserve it and review before deploying this pack.')
-        elif name in catalog['stock_original_sha256'] and not fresh:
+        elif name in catalog['stock_original_sha256'] and not fresh and (required_stock_paths is None or name in required_stock_paths):
             raise PackError('The installed stock inventory is incomplete. Voice activation has not started.')
         result[target] = source
     # The selected version marker participates in the same backup/recovery map.

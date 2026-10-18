@@ -215,6 +215,80 @@ class Voices(unittest.TestCase):
     def test_installed_missing_stock_refuses(self):
         with self.assertRaises(d.PackError):d.deployment_files(self.pack,self.small,self.root/'sounds')
 
+    def sparse_package(self):
+        package=self.root/'package';base=package/'voices/1.0.1';base.parent.mkdir(parents=True);shutil.copytree(self.pack,base)
+        helper=package/'voice-tools';helper.mkdir()
+        for name in ['voicepack.py','deployment.py']:shutil.copyfile(ROOT/'packaging/voices'/name,helper/name)
+        name=next(t['path']for t in self.small['prompts'][0]['targets']if t['rate']==8000)
+        archive=package/'engine.tar.gz'
+        with tarfile.open(archive,'w:gz')as tar:
+            entry=tarfile.TarInfo('usr/share/freeswitch/sounds/'+name);data=(self.pack/'files'/name).read_bytes();entry.size=len(data);tar.addfile(entry,io.BytesIO(data))
+        manifest={'files':{p.relative_to(package).as_posix():d.file_digest(p)for p in package.rglob('*')if p.is_file()}}
+        sounds=self.root/'sparse-sounds';target=sounds/name;target.parent.mkdir(parents=True);shutil.copyfile(self.pack/'files'/name,target)
+        return package,manifest,sounds,name
+
+    def test_known_sparse_engine_allows_only_its_absent_stock_rates(self):
+        package,manifest,sounds,name=self.sparse_package()
+        with patch.object(i,'KNOWN_ENGINE_SHA256',manifest['files']['engine.tar.gz']):
+            self.assertEqual(i.required_stock_paths(package,manifest),frozenset([name]))
+            mappings=i.payload(package,manifest,sounds_root=sounds)
+            self.assertEqual(len(mappings),len(self.seal['files'])+1)
+            self.assertTrue(any('/16000/'in str(p)for p in mappings))
+            # Default remains strict, even with the same valid pack.
+            with self.assertRaises(d.PackError):d.deployment_files(self.pack,self.small,sounds)
+            (sounds/name).unlink()
+            with self.assertRaises((ValueError,RuntimeError)):i.payload(package,manifest,sounds_root=sounds)
+
+    def test_unknown_sparse_engine_and_manifest_mismatch_keep_refusal(self):
+        package,manifest,sounds,name=self.sparse_package()
+        self.assertIsNone(i.required_stock_paths(package,manifest))
+        with self.assertRaises((ValueError,RuntimeError)):i.payload(package,manifest,sounds_root=sounds)
+        altered=copy.deepcopy(manifest);altered['files']['engine.tar.gz']='0'*64
+        with patch.object(i,'KNOWN_ENGINE_SHA256',manifest['files']['engine.tar.gz']):
+            with self.assertRaises((ValueError,RuntimeError)):i.payload(package,altered,sounds_root=sounds)
+        # Fresh install behavior does not use a sparse historical exception.
+        self.assertEqual(len(i.payload(package,manifest,sounds_root=self.root/'fresh',fresh=True)),len(self.seal['files'])+1)
+
+    def test_sparse_exception_never_overwrites_existing_custom_prompt(self):
+        package,manifest,sounds,name=self.sparse_package()
+        optional=next(t['path']for t in self.small['prompts'][0]['targets']if t['rate']==16000)
+        target=sounds/optional;target.parent.mkdir(parents=True);target.write_bytes(b'private customer higher-rate replacement')
+        with patch.object(i,'KNOWN_ENGINE_SHA256',manifest['files']['engine.tar.gz']):
+            with self.assertRaises((ValueError,RuntimeError)):i.payload(package,manifest,sounds_root=sounds)
+        self.assertEqual(target.read_bytes(),b'private customer higher-rate replacement')
+
+    def test_sparse_engine_inventory_refuses_ambiguous_or_linked_members(self):
+        for kind in ['duplicate','link','traversal','empty']:
+            with self.subTest(kind=kind):
+                package=self.root/('invalid-'+kind);package.mkdir();archive=package/'engine.tar.gz'
+                with tarfile.open(archive,'w:gz')as tar:
+                    path='usr/share/freeswitch/sounds/en/8000/prompt.wav'
+                    if kind=='traversal':path='usr/share/freeswitch/sounds/../outside.wav'
+                    entry=tarfile.TarInfo(path)
+                    if kind=='link':entry.type=tarfile.SYMTYPE;entry.linkname='/outside';tar.addfile(entry)
+                    elif kind!='empty':
+                        entry.size=3;tar.addfile(entry,io.BytesIO(b'wav'))
+                        if kind=='duplicate':tar.addfile(entry,io.BytesIO(b'wav'))
+                sha=d.file_digest(archive)
+                with patch.object(i,'KNOWN_ENGINE_SHA256',sha):
+                    with self.assertRaises(ValueError):i.required_stock_paths(package,{'files':{'engine.tar.gz':sha}})
+
+    def test_sparse_snapshot_requires_captured_absence_and_preserves_required_hash_checks(self):
+        originals=self.small['stock_original_sha256'];required=next(t['path']for t in self.small['prompts'][0]['targets']if t['rate']==8000)
+        before={str(i.SOUNDS/name):{'exists':False}for name in originals}
+        before[str(i.SOUNDS/required)]={'exists':True,'sha256':originals[required]}
+        i.verify_original_snapshot(originals,self.seal['files'],before,{required})
+        with self.assertRaises(ValueError):i.verify_original_snapshot(originals,self.seal['files'],before)
+        wrong=copy.deepcopy(before);wrong[str(i.SOUNDS/required)]['exists']=False
+        with self.assertRaises(ValueError):i.verify_original_snapshot(originals,self.seal['files'],wrong,{required})
+        optional=next(name for name in originals if name!=required)
+        wrong=copy.deepcopy(before);wrong[str(i.SOUNDS/optional)]={'exists':True,'sha256':'0'*64}
+        with self.assertRaises(ValueError):i.verify_original_snapshot(originals,self.seal['files'],wrong,{required})
+        wrong=copy.deepcopy(before);del wrong[str(i.SOUNDS/optional)]
+        with self.assertRaises(ValueError):i.verify_original_snapshot(originals,self.seal['files'],wrong,{required})
+        wrong=copy.deepcopy(before);wrong[str(i.SOUNDS/optional)]={}
+        with self.assertRaises(ValueError):i.verify_original_snapshot(originals,self.seal['files'],wrong,{required})
+
     def test_installed_parent_link_refuses_without_writing(self):
         sounds=self.root/'sounds';sounds.mkdir();outside=self.root/'outside';outside.mkdir();(sounds/'en').symlink_to(outside)
         with self.assertRaises(d.PackError):d.deployment_files(self.pack,self.small,sounds,fresh=True)

@@ -4,17 +4,53 @@ import hashlib
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import tempfile
+import tarfile
 
 PACKAGE = Path(__file__).resolve().parent
 SOUNDS = Path('/usr/share/freeswitch/sounds')
+KNOWN_ENGINE_SHA256 = '321e0d3ce65399d614107968e2a3a7ff8e0650eefcee68900af000736bb5ea01'
 
 
 def digest(path):
     with Path(path).open('rb') as handle:
         return hashlib.file_digest(handle,'sha256').hexdigest()
+
+
+def required_stock_paths(package, manifest):
+    """Only the reviewed sparse engine may relax absent sample-rate paths."""
+    archive=Path(package)/'engine.tar.gz'
+    if not archive.exists() and not archive.is_symlink():return None
+    if archive.is_symlink() or any(p.is_symlink()for p in archive.parents) or not archive.is_file():
+        raise ValueError('The native voice inventory archive must be ordinary.')
+    sha=digest(archive)
+    if sha!=manifest['files'].get('engine.tar.gz'):
+        raise ValueError('The native voice inventory differs from the release manifest.')
+    if sha!=KNOWN_ENGINE_SHA256:return None # Unfamiliar engines retain strict stock checks.
+    prefix=('usr','share','freeswitch','sounds');names=set();seen=set()
+    with tarfile.open(archive,'r|gz')as source:
+        for entry in source:
+            path=PurePosixPath(entry.name)
+            if path.parts[:4]!=prefix:continue
+            if path.is_absolute() or '..'in path.parts or path.as_posix()!=entry.name or entry.name in seen:
+                raise ValueError('The reviewed engine sound inventory is ambiguous.')
+            seen.add(entry.name)
+            if entry.isdir():continue
+            if not entry.isfile():raise ValueError('The reviewed engine sound inventory is linked or nonordinary.')
+            if entry.name.endswith('.wav'):names.add(PurePosixPath(*path.parts[4:]).as_posix())
+    if not names:raise ValueError('The reviewed native engine contains no stock sound inventory.')
+    return frozenset(names)
+
+
+def verify_original_snapshot(originals,new,before,required_stock_paths=None):
+    for name,original_sha in originals.items():
+        row=before.get(str(SOUNDS/name))
+        if row is not None and row.get('exists') is False and required_stock_paths is not None and name not in required_stock_paths:
+            continue # Explicit absent state was captured before adding a missing historical rate.
+        if row is None or not row.get('exists') or row.get('sha256')not in {original_sha,new[name]['sha256']}:
+            raise ValueError('A pre-upgrade system prompt was customised or absent. Recover the original installation and review its voice choice.')
 
 
 def voice_module(package):
@@ -47,7 +83,8 @@ def payload(package, manifest, *, sounds_root=SOUNDS, fresh=False):
                 raise ValueError('The offline voice pack differs from the reviewed release.')
     module = voice_module(package)
     catalog = module.voicepack.load_catalog(base/'catalog.json')
-    return module.deployment_files(base,catalog,sounds_root,fresh=fresh)
+    required=None if fresh else required_stock_paths(package,manifest)
+    return module.deployment_files(base,catalog,sounds_root,fresh=fresh,required_stock_paths=required)
 
 
 def copy_files(mappings):
@@ -113,10 +150,7 @@ def main():
     originals = json.loads((PACKAGE/'voices/1.0.1/catalog.json').read_text())['stock_original_sha256']
     new = json.loads((PACKAGE/'voices/1.0.1/pack.json').read_text())['files']
     before = {row['path']:row for row in json.loads((backup/'files.json').read_text())}
-    for name, original_sha in originals.items():
-        row = before.get(str(SOUNDS/name))
-        if row is None or not row.get('exists') or row.get('sha256') not in {original_sha,new[name]['sha256']}:
-            raise ValueError('A pre-upgrade system prompt was customised or absent. Recover the original installation and review its voice choice.')
+    verify_original_snapshot(originals,new,before,required_stock_paths(PACKAGE,manifest))
     copy_files(mappings)
 
 
