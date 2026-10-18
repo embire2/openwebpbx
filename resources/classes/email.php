@@ -531,6 +531,7 @@ class email {
 				if (isset($smtp_options) && is_array($smtp_options)) {
 					$mail->SMTPOptions = $smtp_options;
 				}
+				outgoing_mail::applyRouting($mail, $smtp);
 
 				// One system identity applies to every tenant and queued message, including
 				// callers that supplied a different From or Reply-To address.

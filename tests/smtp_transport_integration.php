@@ -45,7 +45,7 @@ try {
     $settingsApp = new outgoing_mail($pdo);
     $throws(fn()=>$settingsApp->transport(), 'Unconfigured global mail allowed another transport');
     $assert(!$settingsApp->view()['is_configured'], 'Unconfigured global relay appeared ready in the editor');
-    $config = ['smtp_host'=>'127.0.0.1','smtp_port'=>(string)$port,'smtp_secure'=>'none','authentication'=>'ip',
+    $config = ['smtp_host'=>'127.0.0.1','smtp_port'=>(string)$port,'smtp_secure'=>'none','authentication'=>'ip','smtp_ipv4_only'=>'1',
         'smtp_from'=>'pbx@example.invalid','smtp_from_name'=>'SMTP Fixture','smtp_reply_to'=>'reply@example.invalid',
         'smtp_username'=>'ignored','smtp_password'=>'ignored'];
     $forbidden = new forbidden_mail_settings($pdo);
@@ -55,6 +55,10 @@ try {
     $throws(fn()=>$settingsApp->save($bad), 'Invalid SMTP port accepted');
     $bad = $config; $bad['smtp_host']='smtp://127.0.0.1';
     $throws(fn()=>$settingsApp->save($bad), 'SMTP URL accepted instead of a hostname');
+    $bad = $config; $bad['smtp_ipv4_only']='unknown';
+    $throws(fn()=>$settingsApp->save($bad), 'Invalid IPv4-only setting accepted');
+    $bad = $config; $bad['smtp_host']='[::1]';
+    $throws(fn()=>$settingsApp->save($bad), 'IPv6 literal accepted with IPv4-only selection');
     $bad = $config; $bad['smtp_ip_whitelisted']='unknown';
     $throws(fn()=>$settingsApp->save($bad), 'Invalid whitelist checkbox accepted');
     $bad = $config; $bad['smtp_ip_whitelisted']=['1'];
@@ -106,6 +110,7 @@ try {
     $assert($blocked->send() === false && $blocked->delivery_deferred, 'Incomplete global relay fell back to tenant SMTP');
     $settingsApp->save($config);
     $smtp = $settingsApp->transport();
+    $assert($smtp['ipv4_only'] === true && $settingsApp->view()['smtp_ipv4_only'] === 'true', 'Saved IPv4-only choice missing from transport or form');
     $assert($smtp['reply_to'] === 'reply@example.invalid', 'Saved global reply-to missing from the transport');
     $pdo->exec("update v_default_settings set default_setting_value='bad-address' where default_setting_category='email' and default_setting_subcategory='smtp_reply_to'");
     $assert($blocked->send() === false && $blocked->delivery_deferred, 'Invalid saved reply-to did not defer global mail');
@@ -142,8 +147,9 @@ try {
     $config['smtp_reply_to']='reply@example.invalid';
     $settingsApp->save($config);
     $assert($settingsApp->transport()['auth'] === true, 'Unchecked whitelist checkbox disabled authentication');
-    $legacy=$config; unset($legacy['smtp_reply_to']);
+    $legacy=$config; unset($legacy['smtp_reply_to'],$legacy['smtp_ipv4_only']);
     $settingsApp->save($legacy);
+    $assert($settingsApp->transport()['ipv4_only'] === true, 'Legacy save cleared the IPv4-only choice');
     $assert($settingsApp->transport()['reply_to'] === 'reply@example.invalid', 'Legacy save omitted and cleared the existing reply address');
     $config['authentication']='password'; $config['smtp_ip_whitelisted']='1';
     $settingsApp->save($config);

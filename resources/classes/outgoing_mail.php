@@ -9,7 +9,7 @@ class outgoing_mail {
         'smtp_global' => 'false', 'smtp_host' => '', 'smtp_port' => '587',
         'smtp_secure' => 'tls', 'smtp_auth' => 'true', 'smtp_username' => '',
         'smtp_password' => '', 'smtp_from' => '', 'smtp_from_name' => 'OpenWeb PBX', 'smtp_reply_to' => '',
-        'smtp_hostname' => '', 'smtp_validate_certificate' => 'true',
+        'smtp_hostname' => '', 'smtp_validate_certificate' => 'true', 'smtp_ipv4_only' => 'false',
     ];
 
     public function __construct(?PDO $db = null) {
@@ -69,11 +69,36 @@ class outgoing_mail {
         }
         $smtp['auth'] = $auth;
         $smtp['validate_certificate'] = true;
+        $smtp['ipv4_only'] = filter_var($values['smtp_ipv4_only'], FILTER_VALIDATE_BOOLEAN);
         if (!$smtp['auth']) {
             $smtp['username'] = '';
             $smtp['password'] = '';
         }
         return $smtp;
+    }
+
+    /** Resolve on each attempt; keep the saved hostname for strict TLS/SNI. */
+    public static function applyRouting($mail, array $smtp): void {
+        if (empty($smtp['ipv4_only'])) return;
+        $host = trim($smtp['host'], '[]');
+        if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+            throw new outgoing_mail_configuration_required('Use an IPv4 address or hostname when IPv4-only mail is selected.');
+        }
+        if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            $mail->Host = $host;
+            return;
+        }
+        $addresses = gethostbynamel($host);
+        if (!$addresses) throw new outgoing_mail_configuration_required('The saved mail server has no available IPv4 address.');
+        $addresses = array_values(array_unique(array_filter($addresses,
+            static fn($ip) => filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4))));
+        if (!$addresses) throw new outgoing_mail_configuration_required('The saved mail server has no available IPv4 address.');
+        $mail->Host = implode(';', array_slice($addresses, 0, 16));
+        $mail->SMTPOptions['ssl']['peer_name'] = $host;
+        $mail->SMTPOptions['ssl']['verify_peer'] = true;
+        $mail->SMTPOptions['ssl']['verify_peer_name'] = true;
+        $mail->SMTPOptions['ssl']['allow_self_signed'] = false;
+        $mail->SMTPOptions['ssl']['SNI_enabled'] = true;
     }
 
     public function save(array $input): void {
@@ -87,6 +112,12 @@ class outgoing_mail {
         }
         if (filter_var($literal, FILTER_VALIDATE_IP)) {
             $host = filter_var($literal, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) ? '['.$literal.']' : $literal;
+        }
+        $ipv4Only = array_key_exists('smtp_ipv4_only', $input)
+            ? filter_var($input['smtp_ipv4_only'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)
+            : filter_var($previous['smtp_ipv4_only'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        if ($ipv4Only === null || ($ipv4Only && filter_var($literal, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6))) {
+            throw new InvalidArgumentException('Choose IPv4-only mail with a hostname or IPv4 address.');
         }
         $port = filter_var($input['smtp_port'] ?? '', FILTER_VALIDATE_INT, ['options'=>['min_range'=>1,'max_range'=>65535]]);
         if (!$port) throw new InvalidArgumentException('Enter an SMTP port between 1 and 65535.');
@@ -128,6 +159,7 @@ class outgoing_mail {
             'smtp_secure'=>$secure, 'smtp_auth'=>$authentication === 'password' ? 'true' : 'false',
             'smtp_username'=>$username, 'smtp_password'=>$password, 'smtp_from'=>$from,
             'smtp_from_name'=>$name, 'smtp_reply_to'=>$replyTo, 'smtp_validate_certificate'=>'true',
+            'smtp_ipv4_only'=>$ipv4Only ? 'true' : 'false',
         ];
         $this->db->beginTransaction();
         try {
@@ -173,6 +205,7 @@ class outgoing_mail {
         $mail->SMTPAutoTLS = $smtp['secure'] !== 'none';
         $mail->Timeout = 10;
         $mail->SMTPDebug = 0;
+        self::applyRouting($mail, $smtp);
         try {
             if (!$mail->smtpConnect()) return false;
             $connection = $mail->getSMTPInstance();

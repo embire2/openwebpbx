@@ -53,7 +53,14 @@ class pbx_tenant_domains {
         if(($_GET['domain_change']??'')==='true'&&($_GET['domain_uuid']??'')!==$domain)throw new RuntimeException('This address belongs to a different PBX service.');
         if(!empty($_SESSION['authorized'])) {
             $q=$db->prepare("select u.user_uuid from v_users u join v_user_groups g on g.user_uuid=u.user_uuid and g.group_name='tenant_admin' join v_pbx_tenants t on t.tenant_uuid=(select tenant_uuid from v_pbx_tenant_domains where domain_uuid=?) where u.user_uuid=? and u.user_enabled='true' and t.enabled and (t.owner_user_uuid=u.user_uuid or u.domain_uuid=?) limit 1");$q->execute([$domain,$_SESSION['user_uuid']??'',$domain]);
-            if(!$q->fetchColumn())throw new RuntimeException('Use the installation address for platform administration. Tenant administration requires the assigned tenant account.');
+            $allowed=(bool)$q->fetchColumn();
+            if(!$allowed) {
+                // Department staff retain their existing capabilities; the alias
+                // itself never creates a grant or promotes them to tenant admin.
+                $q=$db->prepare("select u.user_uuid from v_users u join v_user_groups g on g.user_uuid=u.user_uuid and g.group_name='openweb_staff' where u.user_uuid=? and u.domain_uuid=? and u.user_enabled='true' limit 1");$q->execute([$_SESSION['user_uuid']??'',$domain]);
+                $allowed=(bool)$q->fetchColumn()&&(new pbx_staff_access($db,$domain))->active();
+            }
+            if(!$allowed)throw new RuntimeException('Use the installation address for platform administration. This tenant address requires an assigned administrator or active staff account.');
         }
         $q=$db->prepare('select domain_name from v_domains where domain_uuid=?');$q->execute([$domain]);$realm=$q->fetchColumn();
         $_SESSION['domain_uuid']=$domain;$_SESSION['domain_name']=$realm;$_SESSION['context']=$realm;

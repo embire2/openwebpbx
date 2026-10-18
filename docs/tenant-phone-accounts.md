@@ -26,7 +26,7 @@ Other phone connections for that extension are revoked for future access. An est
 
 When adding a user, enter their email address and, for manual sign-in, choose an app password. The welcome option queues the inline QR and setup attachment through the instance's global SMTP server. **Phone Provisioning** provides resend/reset and delivery status. Phone setup permissions are required for private invitations and app-password administration.
 
-Queued means waiting for the outgoing server. Accepted means the SMTP server accepted the message; it does not prove inbox delivery. Failed or expired invitations need attention or a new invitation. Tenants do not configure their own mail transport.
+Queued means waiting for the outgoing server. Accepted means the SMTP server accepted the message; it does not prove inbox delivery. Failed or expired invitations need attention or a new invitation. Tenants do not configure their own mail transport. If your relay whitelists only the instance IPv4 address, select **Use IPv4 only for outgoing mail** in global SMTP settings.
 
 ## Domain custody and installations
 

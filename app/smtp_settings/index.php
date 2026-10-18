@@ -37,7 +37,7 @@ $saved = $mailSettings->view();
 $values = $saved;
 $authentication = filter_var($saved['smtp_auth'], FILTER_VALIDATE_BOOLEAN) ? 'password' : 'ip';
 if ($error && ($_POST['action'] ?? '') === 'save') {
-    foreach (['smtp_host','smtp_port','smtp_secure','smtp_username','smtp_from','smtp_from_name','smtp_reply_to'] as $key) {
+    foreach (['smtp_host','smtp_port','smtp_secure','smtp_username','smtp_from','smtp_from_name','smtp_reply_to','smtp_ipv4_only'] as $key) {
         $values[$key] = $_POST[$key] ?? $values[$key];
     }
     if (array_key_exists('smtp_ip_whitelisted', $_POST)) {
@@ -76,6 +76,9 @@ require_once PROJECT_ROOT.'/resources/header.php';
             <label>Port<input type="number" name="smtp_port" value="<?= $escape($values['smtp_port']) ?>" min="1" max="65535" required></label>
             <label>Connection security<select name="smtp_secure"><?php foreach (['tls'=>'STARTTLS','ssl'=>'TLS / SSL','none'=>'None'] as $key=>$label): ?><option value="<?= $key ?>" <?= $values['smtp_secure'] === $key ? 'selected' : '' ?>><?= $label ?></option><?php endforeach; ?></select><small>Common ports: STARTTLS 587, TLS 465, relay 25.</small></label>
         </div>
+        <input type="hidden" name="smtp_ipv4_only" value="0">
+        <label class="mail-checkbox"><input type="checkbox" name="smtp_ipv4_only" value="1" <?= filter_var($values['smtp_ipv4_only'], FILTER_VALIDATE_BOOLEAN) ? 'checked' : '' ?>><span>Use IPv4 only for outgoing mail</span></label>
+        <p class="mail-hint">Choose this when your mail provider has allowed this server's IPv4 address. The server hostname and certificate are still checked securely.</p>
         <h2>Authentication</h2>
         <input type="hidden" name="smtp_ip_whitelisted" value="0">
         <label class="mail-checkbox"><input type="checkbox" name="smtp_ip_whitelisted" id="smtp-ip-whitelisted" value="1" <?= $authentication === 'ip' ? 'checked' : '' ?> aria-describedby="ip-authentication-hint"><span>My IP address is whitelisted</span></label>
