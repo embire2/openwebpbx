@@ -40,10 +40,14 @@ def site_content():
  if not path.exists():
   if os.environ.get('OPENWEB_FRESH_INSTALL')=='1':return path,None
   raise ValueError('Review the existing HTTPS website before adding tenant domains.')
- text=path.read_text();names=re.findall(r'(?m)^\s*server_name\s+([^;]+);',text)
- if len(names)!=2 or names[0]!=names[1]or not re.fullmatch(r'[a-z0-9.-]+',names[0])or not any(root in text for root in ['root /var/www/fusionpbx;','root /var/www/fusionpbx/public;']):raise ValueError('Review the existing HTTPS website before adding tenant domains.')
+ text=path.read_text();active='\n'.join(line.split('#',1)[0]for line in text.splitlines())
+ # The fresh template places listen and server_name on one line; the hosted
+ # template uses separate lines. Accept these exact directive boundaries.
+ pattern=r'(?m)^([ \t]*(?:listen[ \t]+(?:80|443[ \t]+ssl);[ \t]*)?server_name[ \t]+([^;\r\n]+);)'
+ names=[m[2]for m in re.finditer(pattern,active)]
+ if len(names)!=2 or names!=re.findall(r'\bserver_name\s+([^;]+);',active)or names[0]!=names[1]or not re.fullmatch(r'[a-z0-9.-]+',names[0])or not re.search(r'(?m)^[ \t]*root[ \t]+/var/www/fusionpbx(?:/public)?[ \t]*;',active):raise ValueError('Review the existing HTTPS website before adding tenant domains.')
  if text.count(INCLUDE)not in(0,2):raise ValueError('Review the tenant instance-proof includes.')
- if INCLUDE not in text:text=re.sub(r'(?m)^(\s*server_name\s+[^;]+;)',lambda m:m[1]+'\n '+INCLUDE,text)
+ if INCLUDE not in text:text=re.sub(pattern,lambda m:m[1]+'\n '+INCLUDE,text)
  return path,text
 
 def targets():

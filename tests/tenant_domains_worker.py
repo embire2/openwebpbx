@@ -96,6 +96,30 @@ class Worker(unittest.TestCase):
     return subprocess.CompletedProcess(args,0)
    with patch.object(i.subprocess,'run',side_effect=fail):self.assertRaises(subprocess.CalledProcessError,i.install)
    self.assertEqual(site.read_bytes(),old);site.write_text('foreign website');self.assertRaises(ValueError,i.install)
+ def test_actual_fresh_and_hosted_templates_directives_and_comment_refusals(self):
+  site=self.path/'site';fresh=(ROOT/'packaging/debian/nginx.conf').read_text().replace('@DOMAIN@','server.example.test')
+  hosted='server {\n listen 80;\n listen [::]:80;\n server_name server.example.test;\n}\nserver {\n listen [::]:443 ssl;\n listen 443 ssl;\n #listen 443 ssl http2;\n server_name server.example.test;\n root /var/www/fusionpbx/public;\n}\n'
+  with patch.multiple(i,SITE=site,HOSTED=self.path/'missing'):
+   for original in [fresh,hosted]:
+    site.write_text(original);_,result=i.site_content();self.assertEqual(result.count(i.INCLUDE),2);self.assertEqual(result.replace('\n '+i.INCLUDE,''),original);site.write_text(result);self.assertEqual(i.site_content()[1],result)
+   for bad in [fresh.replace('server_name server.example.test;','server_name foreign.example.test;',1),fresh.replace('server.example.test','*.example.test'),fresh+'server { server_name third.example.test; }',fresh.replace('root /var/www/fusionpbx;','# root /var/www/fusionpbx;'),fresh.replace('server_name server.example.test;','# server_name server.example.test;'),fresh.replace('listen 80; server_name','listen [::]:80; server_name'),fresh.replace('server_name server.example.test;','server_name server.example.test;\n '+i.INCLUDE,1)]:
+    site.write_text(bad);self.assertRaises(ValueError,i.site_content);self.assertEqual(site.read_text(),bad)
+ def test_actual_stock_template_install_stage_and_activate_with_real_nginx_validation(self):
+  package=self.path/'package';package.mkdir();site=self.path/'site';snippet=self.path/'proof.conf';meet=self.path/'meet.conf';meet.write_text('');units=self.path/'units';units.mkdir();tools=self.path/'tools';calls=[];real_run=subprocess.run
+  key=ec.generate_private_key(ec.SECP256R1());now=dt.datetime.now(dt.timezone.utc);subject=x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,'server.example.test')]);certificate=x509.CertificateBuilder().subject_name(subject).issuer_name(subject).public_key(key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-dt.timedelta(minutes=1)).not_valid_after(now+dt.timedelta(days=2)).sign(key,hashes.SHA256());certpath=self.path/'cert.pem';keypath=self.path/'key.pem';certpath.write_bytes(certificate.public_bytes(serialization.Encoding.PEM));keypath.write_bytes(key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
+  original=(ROOT/'packaging/debian/nginx.conf').read_text().replace('@DOMAIN@','server.example.test').replace('@CERT@',str(certpath)).replace('@KEY@',str(keypath)).replace('/etc/nginx/snippets/openweb-meet.conf',str(meet)).replace('include fastcgi_params;','include /etc/nginx/fastcgi_params;');site.write_text(original);conf=self.path/'nginx.conf';conf.write_text(f'pid {self.path}/nginx.pid;error_log {self.path}/error.log;events {{}}http {{include {site};}}')
+  import hashlib
+  names=[*i.PROGRAMS,'openwebpbx-tenant-domains.service','openwebpbx-tenant-domains.timer'];manifest={}
+  for name in names:data=(ROOT/'packaging/debian'/name).read_bytes();(package/name).write_bytes(data);manifest[name]=hashlib.sha256(data).hexdigest()
+  (package/'release-manifest.json').write_text(json.dumps({'files':manifest}))
+  def command(args,**kw):
+   calls.append(args)
+   if args==['nginx','-t']:return real_run(['nginx','-t','-c',str(conf)],check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=20)
+   return subprocess.CompletedProcess(args,0)
+  include='include '+str(snippet)+';'
+  with patch.multiple(i,PACKAGE=package,TOOLS=tools,STATE=self.path/'state',SITE=site,HOSTED=self.path/'missing',SNIPPET=snippet,INCLUDE=include,UNIT=units/'openwebpbx-tenant-domains.service',TIMER=units/'openwebpbx-tenant-domains.timer',LINKS=[]),patch.object(i.subprocess,'run',side_effect=command):
+   i.install();self.assertEqual(site.read_text().count(include),2);self.assertEqual(site.read_text().replace('\n '+include,''),original);self.assertFalse((self.path/'state').exists());self.assertNotIn(['systemctl','reload','nginx'],calls)
+   staged=site.read_bytes();i.install();self.assertEqual(site.read_bytes(),staged);i.install(True);self.assertEqual(site.read_bytes(),staged);self.assertTrue((self.path/'state/proofs/.well-known/openwebpbx-instance').is_dir());self.assertIn(['systemctl','reload','nginx'],calls);self.assertEqual(calls.count(['nginx','-t']),3)
  def test_actual_ipv4_ipv6_tls_and_exact_portal_redirects(self):
   names=['qa-worker-one.openwebpbx.com','qa-worker-two.openwebpbx.com'];key=ec.generate_private_key(ec.SECP256R1());now=dt.datetime.now(dt.timezone.utc);subject=x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,names[0])]);cert=x509.CertificateBuilder().subject_name(subject).issuer_name(subject).public_key(key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-dt.timedelta(minutes=1)).not_valid_after(now+dt.timedelta(days=2)).add_extension(x509.SubjectAlternativeName([x509.DNSName(n)for n in names]),False).sign(key,hashes.SHA256());certpath=self.path/'cert.pem';keypath=self.path/'key.pem';certpath.write_bytes(cert.public_bytes(serialization.Encoding.PEM));keypath.write_bytes(key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()));until,_=w.certificate_info(certpath,keypath,names);self.assertGreater(until,now);self.assertRaises(ValueError,w.certificate_info,certpath,keypath,['unknown.openwebpbx.com'])
   sockets=[]
