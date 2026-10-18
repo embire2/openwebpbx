@@ -54,7 +54,14 @@ def copy_files(mappings):
     for target, source in mappings.items():
         # Caller must finish complete preflight and recovery inventory before
         # entering this function. No network is used during activation.
-        target.parent.mkdir(parents=True,exist_ok=True)
+        missing=[]
+        directory=target.parent
+        while not directory.exists():
+            missing.append(directory)
+            directory=directory.parent
+        for directory in reversed(missing):
+            directory.mkdir(mode=0o755)
+            directory.chmod(0o755)
         for parent in [target,*target.parents]:
             if parent.is_symlink():
                 raise ValueError('A voice destination became linked during activation.')

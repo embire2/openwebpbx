@@ -68,5 +68,37 @@ try{
   $expected=$snapshot();$refused=false;try{pbx_meet_install::apply($db);}catch(RuntimeException){$refused=true;}
   $check($refused,'Contradictory route refused: '.$case);$check($db->inTransaction(),'Refusal preserves caller transaction: '.$case);$check($expected===$snapshot(),'Refusal changes no fixture configuration: '.$case);$db->rollBack();
  }
+ // A separate-server restore changes only the three owned address/path values.
+ $meet='cfb1c835-c30c-409b-bff7-a893a7e84df1';$custom=uuid();
+ $db->prepare("insert into v_sip_profiles(sip_profile_uuid,sip_profile_name,sip_profile_enabled)values(?,'custom-provider',true)")->execute([$custom]);
+ $db->prepare("insert into v_sip_profile_settings(sip_profile_setting_uuid,sip_profile_uuid,sip_profile_setting_name,sip_profile_setting_value,sip_profile_setting_enabled)values(?,?,'rtp-ip','192.0.2.9',true)")->execute([uuid(),$custom]);
+ $settings=static function()use($db){return$db->query('select *from v_sip_profile_settings order by sip_profile_setting_uuid')->fetchAll(PDO::FETCH_ASSOC);};
+ $before=$settings();$count=pbx_meet_install::rebind($db,'198.51.100.42','/srv/target-config');
+ $check($count===3,'Cross-IP restore rebinds both owned RTP addresses and owned TLS path');
+ $expected=['rtp-ip'=>'198.51.100.42','ext-rtp-ip'=>'198.51.100.42','tls-cert-dir'=>'/srv/target-config/tls/openweb-meet'];
+ foreach($before as&$r)if($r['sip_profile_uuid']===$meet&&isset($expected[$r['sip_profile_setting_name']]))$r['sip_profile_setting_value']=$expected[$r['sip_profile_setting_name']];unset($r);
+ $check($before===$settings(),'Rebind preserves every other setting field, UUID, profile and customer value');
+ $check(pbx_meet_install::rebind($db,'198.51.100.42','/srv/target-config')===0,'Repeated rebind is exactly idempotent');
+ foreach(['bad ip','host..invalid','bad/host',"host\n.invalid"]as$address){$before=$snapshot();$refused=false;try{pbx_meet_install::rebind($db,$address,'/srv/target-config');}catch(RuntimeException){$refused=true;}$check($refused&&$before===$snapshot(),'Invalid media address refuses without mutations');}
+ foreach(['duplicate','missing','disabled','profile_name','duplicate_profile','conference_name']as$case){
+  $db->beginTransaction();
+  if($case==='duplicate')$db->prepare("insert into v_sip_profile_settings(sip_profile_setting_uuid,sip_profile_uuid,sip_profile_setting_name,sip_profile_setting_value,sip_profile_setting_enabled)values(?,?,'tls-cert-dir','/duplicate',true)")->execute([uuid(),$meet]);
+  elseif($case==='missing')$db->prepare("delete from v_sip_profile_settings where sip_profile_uuid=? and sip_profile_setting_name='tls-cert-dir'")->execute([$meet]);
+  elseif($case==='disabled')$db->prepare("update v_sip_profile_settings set sip_profile_setting_enabled=false where sip_profile_uuid=? and sip_profile_setting_name='tls-cert-dir'")->execute([$meet]);
+  elseif($case==='profile_name')$db->prepare("update v_sip_profiles set sip_profile_name='customer-profile'where sip_profile_uuid=?")->execute([$meet]);
+  elseif($case==='duplicate_profile')$db->prepare("insert into v_sip_profiles(sip_profile_uuid,sip_profile_name,sip_profile_enabled)values(?,'openweb-meet',true)")->execute([uuid()]);
+  else$db->exec("update v_conference_profiles set profile_name='customer-conference'where conference_profile_uuid='b26410e0-b732-4c72-b9cf-cc045c395a57'");
+  $before=$snapshot();$refused=false;try{pbx_meet_install::rebind($db,'203.0.113.55','/different');}catch(RuntimeException){$refused=true;}
+  $check($refused&&$db->inTransaction(),'Contradictory rebind refuses, retains caller transaction: '.$case);
+  $check($before===$snapshot(),'Failed rebind leaves no partial settings writes: '.$case);
+  if(in_array($case,['profile_name','duplicate_profile','conference_name'],true)){$refused=false;try{pbx_meet_install::apply($db);}catch(RuntimeException){$refused=true;}$check($refused&&$before===$snapshot(),'Installer refuses conflicting private-profile identity before writes: '.$case);}
+  $db->rollBack();
+ }
+ // Empty preferences inherit native defaults; disabled/custom profiles remain exact.
+ foreach([null,'',' PCMU, VP8 ,PCMA','PCMU,PCMA,']as$value)$db->prepare("insert into v_sip_profile_settings(sip_profile_setting_uuid,sip_profile_uuid,sip_profile_setting_name,sip_profile_setting_value,sip_profile_setting_enabled)values(?,?,'inbound-codec-prefs',?,true)")->execute([uuid(),$profile,$value]);
+ $db->prepare("insert into v_sip_profile_settings(sip_profile_setting_uuid,sip_profile_uuid,sip_profile_setting_name,sip_profile_setting_value,sip_profile_setting_enabled)values(?,?,'outbound-codec-prefs','PCMU',true)")->execute([uuid(),$custom]);
+ $check(pbx_video::configure($db)===1,'VP8 appended once only to enabled explicit internal preferences');
+ $check(pbx_video::configure($db)===0,'Whitespace/case capability detection avoids duplicate VP8 and preserves inherited defaults');
+ $q=$db->prepare("select sip_profile_setting_value from v_sip_profile_settings where sip_profile_uuid=? and sip_profile_setting_name='outbound-codec-prefs'");$q->execute([$custom]);$check($q->fetchColumn()==='PCMU','Custom provider codec preferences are preserved');
  echo 'PASS '.$n." actual PostgreSQL install/import/identity/idempotence controls\n";
 }finally{if($db->inTransaction())$db->rollBack();$db->exec('set search_path to public;drop schema if exists '.$schema.' cascade');}

@@ -7,6 +7,9 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+from types import SimpleNamespace
+import io
 
 SOURCE = Path(__file__).resolve().parents[1] / 'packaging/debian/upgrade.py'
 spec = importlib.util.spec_from_file_location('openweb_upgrade', SOURCE)
@@ -99,6 +102,52 @@ class UpgradeChecks(unittest.TestCase):
             self.assertEqual(target.stat().st_mode & 0o777, 0o644)
         finally:
             os.umask(before)
+
+    def test_proxy_reload_validates_before_touching_active_runtime(self):
+        commands=[]
+        with patch.object(upgrade.subprocess,'run',return_value=SimpleNamespace(returncode=0)):
+            upgrade.reload_web_proxy(lambda command:commands.append(command))
+        self.assertEqual(commands,[['nginx','-t'],['systemctl','reload','nginx']])
+
+    def test_boot_recovery_leaves_inactive_proxy_for_normal_start(self):
+        commands=[]
+        with patch.object(upgrade.subprocess,'run',return_value=SimpleNamespace(returncode=3)):
+            upgrade.reload_web_proxy(lambda command:commands.append(command))
+        self.assertEqual(commands,[['nginx','-t']])
+
+    def test_invalid_proxy_never_reloads(self):
+        commands=[]
+        def fail(command):
+            commands.append(command)
+            raise RuntimeError('Invalid fixture configuration')
+        with self.assertRaises(RuntimeError):upgrade.reload_web_proxy(fail)
+        self.assertEqual(commands,[['nginx','-t']])
+
+    def test_uncommitted_or_finalized_update_cannot_retire_legacy_importer(self):
+        with patch.object(upgrade.subprocess,'run',side_effect=AssertionError('Unexpected service mutation')):
+            for state in ['migrating','validating','rolled_back','recovery_required']:
+                upgrade.finalize_completed({'state':state})
+            upgrade.finalize_completed({'state':'completed','finalization':'completed'})
+            upgrade.finalize_completed(None)
+
+    def test_committed_version_mismatch_refuses_before_service_mutation(self):
+        web=self.root/'web';web.mkdir(exist_ok=True);(web/'VERSION').write_text('1.0.16')
+        with patch.object(upgrade,'WEB',web),self.assertRaises(upgrade.RecoveryRequired):
+            upgrade.finalize_completed({'state':'completed','version':'1.0.15'})
+
+    def test_committed_upgrade_finalizes_only_after_healthy_version_and_backup(self):
+        web=self.root/'web';web.mkdir(exist_ok=True);(web/'VERSION').write_text('1.0.16')
+        backups=self.root/'backups';backups.mkdir();backup=backups/'upgrade-fixture';backup.mkdir()
+        journal={'state':'completed','version':'1.0.16','backup_path':str(backup)}
+        commands=[];saved=[];validated=[]
+        response=io.BytesIO(json.dumps({'state':'Running','version':'1.0.16'}).encode())
+        with patch.object(upgrade,'WEB',web),patch.object(upgrade,'BACKUPS',backups),patch.object(upgrade.urllib.request,'urlopen',return_value=response),patch.object(upgrade,'validate_backup',side_effect=lambda value:validated.append(value)),patch.object(upgrade.subprocess,'run',side_effect=lambda command,**kwargs:commands.append(command) or SimpleNamespace(returncode=0)),patch.object(upgrade.subprocess,'check_output',return_value='loaded\n'),patch.object(upgrade,'save_journal',side_effect=lambda *args,**kwargs:saved.append((args,kwargs))):
+            upgrade.finalize_completed(journal)
+        self.assertEqual(validated,[backup])
+        self.assertLess(commands.index(['nginx','-t']),commands.index(['systemctl','reload','nginx']))
+        self.assertLess(commands.index(['systemctl','reload','nginx']),commands.index(['systemctl','stop','xml_cdr.service']))
+        self.assertIn(['systemctl','disable','xml_cdr.service'],commands)
+        self.assertEqual(saved[0][1],{'finalization':'completed'})
 
 
 if __name__ == '__main__':

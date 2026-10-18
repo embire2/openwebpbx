@@ -451,7 +451,7 @@ def ensure_recovery_integration():
     stable.mkdir(parents=True,exist_ok=True,mode=0o755)
     atomic_copy(Path(__file__).resolve(),stable/'upgrade.py')
     unit=Path('/etc/systemd/system/openwebpbx-update-recovery.service')
-    unit.write_text('[Unit]\nDescription=Recover an interrupted OpenWeb PBX update\nAfter=network-online.target postgresql.service\nWants=network-online.target postgresql.service\nBefore=freeswitch.service php8.4-fpm.service openwebpbx.service openwebpbx-updater.service\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/usr/bin/python3 /opt/openwebpbx/recovery/upgrade.py --recover --boot\nTimeoutStartSec=1800\n\n[Install]\nWantedBy=multi-user.target\n')
+    unit.write_text('[Unit]\nDescription=Recover an interrupted OpenWeb PBX update\nAfter=network-online.target postgresql.service\nWants=network-online.target postgresql.service\nBefore=freeswitch.service php8.4-fpm.service openwebpbx.service openwebpbx-updater.service nginx.service\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/usr/bin/python3 /opt/openwebpbx/recovery/upgrade.py --recover --boot\nTimeoutStartSec=1800\n\n[Install]\nWantedBy=multi-user.target\n')
     unit.chmod(0o644)
     with unit.open('rb') as stream:os.fsync(stream.fileno())
     fsync_directory(unit.parent)
@@ -513,6 +513,7 @@ def clear_cache(settings):
 
 
 def start_and_health(version, settings, run):
+    reload_web_proxy(run)
     set_maintenance(False)
     run(['systemctl', 'daemon-reload'])
     run(['systemctl', 'start', 'freeswitch', 'php8.4-fpm', 'openwebpbx'])
@@ -526,6 +527,51 @@ def start_and_health(version, settings, run):
     for service in SERVICES: run(['systemctl','is-active','--quiet',service])
     probe='require "/var/www/fusionpbx/resources/require.php"; database::new()->db->query("select count(*) from v_domains")->fetchColumn();'
     run(['php','-r',probe],cwd=WEB)
+
+
+def reload_web_proxy(run):
+    # Configuration files and the running proxy must describe the same release,
+    # including after recovery. At boot an inactive nginx will read them later.
+    run(['nginx', '-t'])
+    active = subprocess.run(['systemctl', 'is-active', '--quiet', 'nginx'],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if active.returncode == 0:
+        run(['systemctl', 'reload', 'nginx'])
+
+
+def finalize_completed(journal):
+    """Finish an older updater's committed transaction on the new worker's start.
+
+    Old helpers cannot reload a restored nginx configuration on failure. The
+    candidate migration therefore validates the proxy without activating it.
+    This hook runs only after their durable commit and natural worker restart.
+    """
+    if not journal or journal.get('state') != 'completed' or journal.get('finalization') == 'completed':
+        return
+    version = (WEB / 'VERSION').read_text().strip()
+    if journal.get('version') != version:
+        raise RecoveryRequired('The committed update and installed version differ.')
+    with urllib.request.urlopen('http://127.0.0.1:8087/health', timeout=5) as response:
+        health = json.load(response)
+    if health.get('state') != 'Running' or health.get('version') != version:
+        raise RecoveryRequired('The committed background service is not ready.')
+    backup = Path(journal['backup_path'])
+    if backup.parent != BACKUPS or backup.is_symlink():
+        raise RecoveryRequired('The committed recovery location is invalid.')
+    validate_backup(backup)
+    with (backup / 'upgrade.log').open('a') as log:
+        def run(command, **kwargs):
+            subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT, **kwargs)
+        reload_web_proxy(run)
+        # The .NET worker exclusively imports call records. Retire the duplicate
+        # legacy importer only after commit, so an unsuccessful upgrade retains
+        # the original unit's exact running/enabled state.
+        loaded = subprocess.check_output(['systemctl', 'show', 'xml_cdr.service',
+                                          '--property=LoadState', '--value'], text=True).strip()
+        if loaded == 'loaded':
+            run(['systemctl', 'stop', 'xml_cdr.service'])
+            run(['systemctl', 'disable', 'xml_cdr.service'])
+        save_journal(journal, 'completed', finalization='completed')
 
 
 def recover(journal, *, boot=False):
@@ -556,7 +602,9 @@ def recover(journal, *, boot=False):
             clear_cache(settings)
             run(['systemctl','daemon-reload'])
             if not boot: start_and_health(journal['previous_version'],settings,run)
-            else: set_maintenance(False)
+            else:
+                reload_web_proxy(run)
+                set_maintenance(False)
             save_journal(journal,'rolled_back')
         except BaseException:
             set_maintenance(True)
@@ -690,6 +738,7 @@ def main():
         recover(previous,boot=args.boot)
         if not args.recover:raise RuntimeError('An interrupted update was recovered. Check the previous update before trying again.')
     if args.recover:
+        finalize_completed(previous)
         if not previous or previous.get('state') in TERMINAL:set_maintenance(False)
         return
     if args.boot:parser.error('--boot is only valid with --recover.')

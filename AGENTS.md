@@ -1,5 +1,11 @@
 # OpenWeb PBX workspace
 
+## Core 1.0.16 integration and mandatory Android rollout — in qualification, 2026-10-18
+
+- User explicitly requested the Android update be forced and recent clock/voicemail/Meet/video features integrated into core. This supersedes the previous minimum-1.0.12 hold for this rollout. The signed direct APK remains the exact qualified 1.0.16/code116 bytes (`f5cca96e…`) with its original app identity/certificate. Public stable feed and hosted floor stay unchanged until the full release passes qualification. Android consent and active-call deferral remain required; no silent-install or Google Play approval claim.
+- Complete Debian16 build includes offline Nathaniel1.0.1, clock1.0.2, PIN-free121, Meet/native-video support and disabled-by-default Call Me Back. New installer controls validate owned profiles and TLS pairs, rebind restored Meet addresses to the target and preserve custom recordings. Older-helper migration validates the web proxy without activation; the committed new worker activates it and retires the duplicate legacy CDR importer. Boot recovery now orders Nginx after recovery; future helper recovery rereads the restored proxy. New voice directories remain service-traversable under the private updater umask.
+- Qualification is ongoing in owned isolated Debian/Android fixtures. Do not promote an untested full package, change customer number/provider enablement, infer physical-phone/camera acceptance or modify Windows evidence. Existing133 roadmap IDs /21accepted /72partial /40planned remain unchanged. Private work: `/var/lib/openwebpbx/release116-work/`; preserve earlier immutable15/preview releases and original recovery archives.
+
 ## Meet / native video and clock repair — 2026-10-17 (delivered)
 
 - Clock1026 is repaired/live at `c7c9a8eee`: speech about3.46s after answer, 15-second GMT+2 signals, offline Nathaniel clock pack1.0.2 and ticks. Staged/installed decoded audio and independent speech checks passed. Frozen fullvoice1.0.1/customer audio remain unchanged. Evidence: `/var/lib/openwebpbx/clock1026-repair-20261017/`.

@@ -63,6 +63,16 @@ def fixture_pack(destination):
 
 
 class Voices(unittest.TestCase):
+    def test_installer_new_directories_allow_service_traversal_with_private_umask(self):
+        source=self.root/'source.wav';source.write_bytes(b'owned audio fixture')
+        target=self.root/'new/voice/8000/prompt.wav'
+        original=os.umask(0o077)
+        try:i.copy_files({target:source})
+        finally:os.umask(original)
+        for directory in [target.parent,target.parent.parent,target.parent.parent.parent]:
+            self.assertEqual(directory.stat().st_mode&0o777,0o755)
+        self.assertEqual(target.read_bytes(),source.read_bytes())
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(prefix='openweb-voice-tests-')
         self.root=Path(self.temp.name)

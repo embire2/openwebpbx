@@ -41,6 +41,7 @@ RESTORE = Path('/var/lib/openwebpbx/backup-restore')
 WEB_VERSION = Path('/var/www/fusionpbx/VERSION')
 UPGRADE_LOCK = Path('/run/openwebpbx-upgrade.lock')
 UNIT_ROOT = Path('/etc/systemd/system')
+CACHE = Path('/var/cache/fusionpbx')
 HELD_UNITS = {'calls': 'freeswitch.service', 'jobs': 'openwebpbx.service',
               'updates': 'openwebpbx-updater.service', 'backups': 'openwebpbx-backups.timer'}
 ROOTS = {
@@ -655,6 +656,40 @@ def apply_voicemail_policy(settings):
     query(settings, policy.read_text(encoding='utf-8'))
 
 
+def meeting_transport_files(manifest):
+    pair={'runtime-config/meet-ca.pem','freeswitch-config/tls/openweb-meet/wss.pem'}
+    present=pair.intersection(manifest['files'])
+    if present and present!=pair:
+        raise BackupError('The backup is missing part of its private meeting connection.')
+    return bool(present)
+
+
+def restore_meeting(settings):
+    # Older backups need no Meet schema transform. A source with a meeting
+    # profile must carry its complete private TLS identity; never rotate keys
+    # silently or revive the source machine's public media IP.
+    if query(settings,"select to_regclass('public.v_sip_profiles') is not null")!='t':return False
+    if query(settings,"select count(*) from v_sip_profiles where sip_profile_uuid='cfb1c835-c30c-409b-bff7-a893a7e84df1' or sip_profile_name='openweb-meet'")=='0':return False
+    conf=ROOTS['freeswitch-config'];state=ROOTS['runtime-config']
+    ordinary(conf/'tls/openweb-meet/wss.pem');ordinary(state/'meet-ca.pem')
+    code=r"""require $argv[1].'/resources/classes/config.php';config::load($argv[2]);require $argv[1].'/resources/classes/auto_loader.php';new auto_loader();$db=database::new()->db;$db->setAttribute(PDO::ATTR_ERRMODE,PDO::ERRMODE_EXCEPTION);
+if((string)config::load()->get('switch.conf.dir')!==$argv[3])throw new RuntimeException('The restored engine configuration path needs review.');
+pbx_meet_install::tls($argv[3],$argv[4]);pbx_meet_install::rebind($db,null,$argv[3]);pbx_video::configure($db);"""
+    run(['php','-r',code,str(WEB_VERSION.parent),str(ROOTS['fusionpbx-config']/'config.conf'),str(conf),str(state)],timeout=120)
+    return True
+
+
+def reload_meeting_proxy():
+    # Source CA files replace the clean target pin. Nginx must read that pin
+    # again before activation; exact factory recovery must reread its old pin.
+    helper=ordinary(Path(__file__).with_name('install-meet.py'))
+    spec=importlib.util.spec_from_file_location('backup_meeting_proxy',helper)
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    try:module.reload_proxy()
+    except (OSError,ValueError,subprocess.SubprocessError):
+        raise BackupError('The restored meeting web connection could not be loaded. Recovery is required.') from None
+
+
 def restore_targets(manifest):
     mapping = {}
     roots = ROOTS | MEDIA
@@ -720,6 +755,11 @@ def preserve_target_database(settings, config_file, runtime_file):
         if key.startswith('database.0.'):
             del config[key]
     config.update({key: value for key, value in settings.items() if key.startswith('database.0.')})
+    # Keep the replacement machine's media address; the public hostname still
+    # must match the source under the existing same-host restore guard.
+    config.pop('openweb.public_ip', None)
+    if 'openweb.public_ip' in settings:
+        config['openweb.public_ip'] = settings['openweb.public_ip']
     config_file.write_text('\n'.join(key + ' = ' + value for key, value in config.items()) + '\n')
     runtime = json.loads(ordinary(runtime_file).read_text())
     # Npgsql quoting follows its connection-string builder syntax, including semicolons in passwords.
@@ -802,6 +842,7 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
         if len((extracted / 'fusionpbx-config/openweb-template.key').read_bytes()) != 32:
             raise BackupError('The source private encryption key has an invalid size.')
         preserve_target_database(settings, extracted / 'fusionpbx-config/config.conf', extracted / 'runtime-config/runtime.json')
+        meeting_proxy = meeting_transport_files(manifest)
         mapping = restore_targets(manifest)
         notification_root = ROOTS.get('mobile-notifications')
         notification_fallback = None
@@ -841,7 +882,7 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
                 original[str(target)].update({'copy': str(index), 'mode': stat.S_IMODE(st.st_mode), 'uid': st.st_uid, 'gid': st.st_gid})
         journal = {'schema': 1, 'database': settings['database.0.name'], 'user': settings['database.0.username'],
                    'services': services, 'gates': plan_service_holds(), 'source_host': manifest['source_host'],
-                   'files': original, 'state': 'prepared'}
+                   'files': original, 'meeting_proxy': meeting_proxy, 'state': 'prepared'}
         atomic_json(RESTORE / 'journal.json', journal)
         try:
             install_service_holds(journal['gates'])
@@ -862,8 +903,11 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
                 # the current PHP/C# location with the identical VAPID bytes.
                 atomic_copy(extracted / 'mobile-push/file', notification_fallback, mode=0o600)
             apply_voicemail_policy(settings)
+            restore_meeting(settings)
+            if meeting_proxy:
+                reload_meeting_proxy()
             # Invalid source SIP contacts and XML caches must never survive a clean restore.
-            cache = Path('/var/cache/fusionpbx')
+            cache = CACHE
             if cache.is_dir() and not cache.is_symlink():
                 for child in cache.iterdir():
                     if child.is_dir() and not child.is_symlink():
@@ -923,6 +967,8 @@ def _recover(settings):
             os.chown(target, entry['uid'], entry['gid'])
         else:
             target.unlink(missing_ok=True)
+    if journal.get('meeting_proxy'):
+        reload_meeting_proxy()
     remove_service_holds(journal.get('gates', {}))
     for service in journal['services']:
         run(['systemctl', 'start', service], timeout=60)

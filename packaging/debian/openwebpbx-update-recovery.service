@@ -2,7 +2,7 @@
 Description=Recover an interrupted OpenWeb PBX update
 After=network-online.target postgresql.service
 Wants=network-online.target postgresql.service
-Before=freeswitch.service php8.4-fpm.service openwebpbx.service openwebpbx-updater.service
+Before=freeswitch.service php8.4-fpm.service openwebpbx.service openwebpbx-updater.service nginx.service
 
 [Service]
 Type=oneshot

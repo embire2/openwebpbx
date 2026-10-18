@@ -5,12 +5,13 @@ final class pbx_meet_install {
         if(PHP_SAPI!=='cli')throw new RuntimeException('Local installation required.');
         // Refuse contradictory identities before touching configuration.
         self::dialplans($db,false);
+        self::profiles($db);
         $db->exec(file_get_contents(dirname(__DIR__,2).'/app/pbx_meet/resources/install.sql'));
         pbx_video::configure($db);
         $q=static function($sql,$args=[])use($db){$s=$db->prepare($sql);$s->execute($args);return $s;};
         $id='cfb1c835-c30c-409b-bff7-a893a7e84df1';
         $q("insert into v_sip_profiles(sip_profile_uuid,sip_profile_name,sip_profile_enabled,sip_profile_description) values(?,'openweb-meet',true,'Private browser meeting transport') on conflict(sip_profile_uuid) do nothing",[$id]);
-        $settings=['sip-ip'=>'127.0.0.1','sip-port'=>'5078','ws-binding'=>'127.0.0.1:5079','wss-binding'=>'127.0.0.1:7444','tls-cert-dir'=>rtrim((string)config::load()->get('switch.conf.dir'),'/\\').'/tls/openweb-meet','rtp-ip'=>pbx_paths::address(),'ext-rtp-ip'=>pbx_paths::address(),
+        $settings=['sip-ip'=>'127.0.0.1','sip-port'=>'5078','ws-binding'=>'127.0.0.1:5079','wss-binding'=>'127.0.0.1:7444','tls-cert-dir'=>rtrim((string)config::load()->get('switch.conf.dir'),'/\\').'/tls/openweb-meet','rtp-ip'=>pbx_paths::address()?:pbx_paths::host(),'ext-rtp-ip'=>pbx_paths::address()?:pbx_paths::host(),
             'context'=>'openweb-meet-only','dialplan'=>'XML','auth-calls'=>'true','auth-all-packets'=>'false','challenge-realm'=>'auto_from',
             'inbound-codec-prefs'=>'PCMU,PCMA,VP8','outbound-codec-prefs'=>'PCMU,PCMA,VP8','inbound-codec-negotiation'=>'generous',
             'disable-transcoding'=>'false','manage-presence'=>'false','rtp-timeout-sec'=>'60','rtp-hold-timeout-sec'=>'300',
@@ -34,6 +35,42 @@ final class pbx_meet_install {
         }
         // Existing PBXs must see the additive meeting route without waiting for cache expiry.
         $cache=new cache;foreach($q('select domain_name from v_domains')->fetchAll(PDO::FETCH_COLUMN)as$domain)$cache->delete('dialplan:'.$domain);
+    }
+    /** Only these private, fixed identities belong to the meeting installer. */
+    private static function profiles(PDO $db): bool {
+        $exists=false;
+        foreach([
+            ['v_sip_profiles','sip_profile_uuid','sip_profile_name','cfb1c835-c30c-409b-bff7-a893a7e84df1'],
+            ['v_conference_profiles','conference_profile_uuid','profile_name','b26410e0-b732-4c72-b9cf-cc045c395a57']
+        ] as[$table,$key,$name,$id]){
+            $q=$db->prepare("select $key,$name from $table where $key=? or $name='openweb-meet'");$q->execute([$id]);$rows=$q->fetchAll(PDO::FETCH_ASSOC);
+            if(count($rows)>1||$rows&&($rows[0][$key]!==$id||$rows[0][$name]!=='openweb-meet'))throw new RuntimeException('The meeting profile identity needs administrator review.');
+            if($table==='v_sip_profiles')$exists=(bool)$rows;
+        }
+        return $exists;
+    }
+    /** A separate-server restore rebinds only the installer-owned media address. */
+    public static function rebind(PDO $db,?string $address=null,?string $conf=null): int {
+        if(PHP_SAPI!=='cli')throw new RuntimeException('Local installation required.');
+        $address??=pbx_paths::address();if($address==='')$address=pbx_paths::host();
+        if(!filter_var($address,FILTER_VALIDATE_IP)&&!filter_var($address,FILTER_VALIDATE_DOMAIN,FILTER_FLAG_HOSTNAME))throw new RuntimeException('The replacement server address is invalid.');
+        $conf??=(string)config::load()->get('switch.conf.dir');
+        if($conf===''||strpbrk($conf,"\r\n\0")!==false)throw new RuntimeException('The replacement call-engine path is invalid.');
+        if(!self::profiles($db))return 0; // Legacy backups without meetings retain their own schema/configuration.
+        $owned=!$db->inTransaction();if($owned)$db->beginTransaction();$changed=0;
+        try{
+            $id='cfb1c835-c30c-409b-bff7-a893a7e84df1';
+            $db->prepare('select sip_profile_uuid from v_sip_profiles where sip_profile_uuid=? for update')->execute([$id]);
+            $changes=[];
+            foreach(['rtp-ip'=>$address,'ext-rtp-ip'=>$address,'tls-cert-dir'=>rtrim($conf,'/\\').'/tls/openweb-meet']as$name=>$value){
+                $q=$db->prepare('select sip_profile_setting_uuid,sip_profile_setting_value,sip_profile_setting_enabled from v_sip_profile_settings where sip_profile_uuid=? and sip_profile_setting_name=? for update');$q->execute([$id,$name]);$rows=$q->fetchAll(PDO::FETCH_ASSOC);
+                if(count($rows)!==1||!in_array($rows[0]['sip_profile_setting_enabled'],['true',true,'t'],true))throw new RuntimeException('The meeting media-address settings need administrator review.');
+                if($rows[0]['sip_profile_setting_value']===$value)continue;
+                $changes[]=[$value,$rows[0]['sip_profile_setting_uuid']];
+            }
+            foreach($changes as$args){$q=$db->prepare('update v_sip_profile_settings set sip_profile_setting_value=? where sip_profile_setting_uuid=?');$q->execute($args);$changed+=$q->rowCount();}
+            if($owned)$db->commit();return $changed;
+        }catch(Throwable $e){if($owned&&$db->inTransaction())$db->rollBack();throw $e;}
     }
     /** Share application identity with the stock XML importer; never duplicate its rows. */
     private static function dialplans(PDO $db,bool $write): void {
@@ -68,9 +105,12 @@ final class pbx_meet_install {
         if(PHP_SAPI!=='cli')throw new RuntimeException('Local installation required.');
         $conf??=(string)config::load()->get('switch.conf.dir');$state??=PHP_OS_FAMILY==='Linux'?'/etc/openwebpbx':pbx_paths::state();
         $dir=rtrim($conf,'/\\').'/tls/openweb-meet';$pem=$dir.'/wss.pem';$ca=rtrim($state,'/\\').'/meet-ca.pem';
-        foreach([$dir,dirname($dir),$pem,$ca]as$path)if(is_link($path))throw new RuntimeException('Review the meeting certificate location.');
-        if(!is_dir($dir)&&!mkdir($dir,0750,true))throw new RuntimeException('Meeting certificate storage is unavailable.');
-        if(!is_dir(dirname($ca))&&!mkdir(dirname($ca),0750,true))throw new RuntimeException('Meeting trust storage is unavailable.');
+        foreach([$pem,$ca]as$path){
+            for($p=$path;;$p=dirname($p)){if(is_link($p))throw new RuntimeException('Review the meeting certificate location.');if($p===dirname($p))break;}
+            if(file_exists($path)&&!is_file($path))throw new RuntimeException('The meeting certificate location is not an ordinary file.');
+            for($p=dirname($path);!is_dir($p);$p=dirname($p))if(file_exists($p)||$p===dirname($p))throw new RuntimeException('The meeting certificate parent is unavailable.');
+        }
+        if(!is_file($pem)&&file_exists($ca))throw new RuntimeException('The meeting trust certificate has no matching private endpoint.');
         if(is_file($pem)){
             $bytes=file_get_contents($pem);$cert=openssl_x509_read($bytes);$key=openssl_pkey_get_private($bytes);$info=$cert?openssl_x509_parse($cert):false;
             if(!$key||!$cert||!openssl_x509_check_private_key($cert,$key)||($info['subject']['CN']??'')!=='openweb-meet.internal'||($info['validTo_time_t']??0)<time()+86400)throw new RuntimeException('The meeting certificate needs review before replacement.');
@@ -78,10 +118,18 @@ final class pbx_meet_install {
         }else{
             $key=openssl_pkey_new(['private_key_bits'=>2048,'private_key_type'=>OPENSSL_KEYTYPE_RSA]);$csr=openssl_csr_new(['commonName'=>'openweb-meet.internal'],$key,['digest_alg'=>'sha256']);$cert=openssl_csr_sign($csr,null,$key,3650,['digest_alg'=>'sha256']);
             if(!$cert||!openssl_pkey_export($key,$private)||!openssl_x509_export($cert,$certificate))throw new RuntimeException('The meeting certificate could not be created.');
-            $temp=$pem.'.'.bin2hex(random_bytes(6));file_put_contents($temp,$private.$certificate,LOCK_EX);chmod($temp,0640);if(PHP_OS_FAMILY==='Linux'){chown($temp,'www-data');chgrp($temp,'www-data');chown($dir,'www-data');chgrp($dir,'www-data');}if(!rename($temp,$pem))throw new RuntimeException('The meeting certificate could not be installed.');
         }
         if(is_file($ca)&&!hash_equals(file_get_contents($ca),$certificate))throw new RuntimeException('The meeting trust certificate differs from the private endpoint.');
-        if(!is_file($ca)){$temp=$ca.'.'.bin2hex(random_bytes(6));file_put_contents($temp,$certificate,LOCK_EX);chmod($temp,0644);if(!rename($temp,$ca))throw new RuntimeException('The meeting trust certificate could not be installed.');}
+        $created=[];$directories=[];
+        try{
+            foreach([dirname($pem),dirname($ca)]as$parent){$missing=[];for($p=$parent;!is_dir($p);$p=dirname($p))$missing[]=$p;foreach(array_reverse($missing)as$p){if(!mkdir($p,0750)||!chmod($p,0750))throw new RuntimeException('Meeting certificate storage is unavailable.');if(PHP_OS_FAMILY==='Linux'){chown($p,'www-data');chgrp($p,'www-data');}$directories[]=$p;}}
+            foreach([$pem=>[$private??null,0640],$ca=>[$certificate,0644]]as$path=>[$bytes,$mode]){
+                if(is_file($path))continue;
+                if($path===$pem)$bytes.=$certificate;
+                $temp=$path.'.'.bin2hex(random_bytes(6));
+                try{if(file_put_contents($temp,$bytes,LOCK_EX)!==strlen($bytes)||!chmod($temp,$mode))throw new RuntimeException('The meeting certificate could not be written.');if(PHP_OS_FAMILY==='Linux'){chown($temp,$path===$pem?'www-data':'root');chgrp($temp,$path===$pem?'www-data':'root');}if(!rename($temp,$path))throw new RuntimeException('The meeting certificate could not be installed.');$created[]=$path;}finally{if(is_file($temp))unlink($temp);}
+            }
+        }catch(Throwable $e){foreach(array_reverse($created)as$path)unlink($path);foreach(array_reverse($directories)as$path)rmdir($path);throw $e;}
         return ['certificate'=>$pem,'trust'=>$ca];
     }
 }

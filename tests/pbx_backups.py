@@ -49,8 +49,8 @@ class Backups(unittest.TestCase):
             postgres('CREATE DATABASE "' + name + '" OWNER "' + cls.role + '"')
         cls.source = {'database.0.type': 'pgsql', 'database.0.host': '127.0.0.1', 'database.0.port': os.environ.get('PGPORT', '5432'),
                       'database.0.username': cls.role, 'database.0.password': cls.password, 'database.0.name': cls.source_name,
-                      'openweb.public_host': 'pbx.fixture.invalid'}
-        cls.target = cls.source | {'database.0.name': cls.target_name}
+                      'openweb.public_host': 'pbx.fixture.invalid', 'openweb.public_ip': '192.0.2.10'}
+        cls.target = cls.source | {'database.0.name': cls.target_name, 'openweb.public_ip': '198.51.100.22'}
         cls.key = cls.workspace / 'source.key'
         cls.key.write_bytes(os.urandom(32))
         cls.key.chmod(0o600)
@@ -235,7 +235,7 @@ class Backups(unittest.TestCase):
         config.write_text('\n'.join(key + ' = ' + value for key, value in self.target.items()) + '\n')
         (roots['fusionpbx-config'] / 'openweb-template.key').write_bytes(os.urandom(32))
         runtime = roots['runtime-config'] / 'runtime.json';runtime.write_text(json.dumps({'ConnectionStrings': {'Pbx': 'target'}}))
-        old = {key: getattr(b, key) for key in ('ROOTS', 'MEDIA', 'RESTORE', 'WEB_VERSION', 'running_services', 'UNIT_ROOT', 'STORE')}
+        old = {key: getattr(b, key) for key in ('ROOTS', 'MEDIA', 'RESTORE', 'WEB_VERSION', 'running_services', 'UNIT_ROOT', 'STORE', 'CACHE')}
         try:
             b.ROOTS = {key: value for key, value in roots.items() if key not in self.original_media}
             b.MEDIA = {key: value for key, value in roots.items() if key in self.original_media}
@@ -245,6 +245,7 @@ class Backups(unittest.TestCase):
             b.WEB_VERSION = self.workspace / 'target-version';b.WEB_VERSION.write_text('1.0.9')
             self.install_voicemail_policy(b.WEB_VERSION)
             b.running_services = lambda: []  # Never touch any host production service.
+            b.CACHE = self.workspace / 'restore-fixture-cache'
             dry = b.restore(self.archive, self.archive_password, self.target, dry_run=True)
             self.assertEqual(dry['version'], '1.0.9')
             self.assertFalse((b.RESTORE / 'journal.json').exists())
@@ -253,6 +254,7 @@ class Backups(unittest.TestCase):
             b.restore(self.archive, self.archive_password, self.target, confirm_database=self.target_name)
             self.assertEqual(b.read_settings(config)['database.0.name'], self.target_name)
             self.assertEqual(b.read_settings(config)['database.0.password'], self.password)
+            self.assertEqual(b.read_settings(config)['openweb.public_ip'], '198.51.100.22')
             self.assertEqual((roots['fusionpbx-config'] / 'openweb-template.key').read_bytes(), self.key.read_bytes())
             self.assertEqual((roots['recordings'] / 'recording.wav').read_bytes(), (self.source_roots['recordings'] / 'recording.wav').read_bytes())
             self.assertEqual(b.query(self.target, "select payload from fixture_objects where kind='tenant'"), 'isolated tenant')
@@ -371,7 +373,7 @@ class Backups(unittest.TestCase):
         b.query(self.source,'update v_pbx_backup_settings set sftp_enabled=false')
 
     def test_14_notification_archive_restore_and_legacy_migration_recover(self):
-        old = {key:getattr(b,key) for key in ('ROOTS','MEDIA','RESTORE','WEB_VERSION','running_services','UNIT_ROOT','STORE')}
+        old = {key:getattr(b,key) for key in ('ROOTS','MEDIA','RESTORE','WEB_VERSION','running_services','UNIT_ROOT','STORE','CACHE')}
         try:
             for current_layout in (False, True):
                 with self.subTest(current_layout=current_layout):
@@ -400,7 +402,7 @@ class Backups(unittest.TestCase):
                     (roots['runtime-config']/'runtime.json').write_text('{}')
                     b.ROOTS=roots;b.MEDIA={label:target/label for label in self.original_media}
                     b.RESTORE=work/'restore';b.STORE=work/'store';b.UNIT_ROOT=work/'units';b.UNIT_ROOT.mkdir()
-                    b.WEB_VERSION=work/'VERSION';b.WEB_VERSION.write_text('1.0.9');b.running_services=lambda:[]
+                    b.WEB_VERSION=work/'VERSION';b.WEB_VERSION.write_text('1.0.9');b.running_services=lambda:[];b.CACHE=work/'cache'
                     self.install_voicemail_policy(b.WEB_VERSION)
                     b.restore(archive,self.archive_password,self.target,confirm_database=self.target_name)
                     expected=(source_current/'config.json').read_bytes() if current_layout else legacy.read_bytes()
@@ -427,6 +429,56 @@ class Backups(unittest.TestCase):
         with self.assertRaises(b.BackupError):b.notification_directory(destination)
         destination.unlink();destination.mkdir(mode=0o755)
         with self.assertRaises(b.BackupError):b.notification_directory(destination)
+
+    def test_16_meeting_trust_reload_and_exact_factory_recovery(self):
+        # Real encrypted archive/database/file recovery; the service boundary
+        # is recorded. Actual PHP/key rebind is checked by pbx_meet_backup.py.
+        old={key:getattr(b,key)for key in ('ROOTS','MEDIA','RESTORE','WEB_VERSION','running_services','UNIT_ROOT','STORE','CACHE','restore_meeting','reload_meeting_proxy')}
+        work=self.workspace/'meeting-restore';work.mkdir(mode=0o700)
+        try:
+            source_roots={}
+            for label,path in self.source_roots.items():
+                copy=work/'source'/label;shutil.copytree(path,copy);source_roots[label]=copy
+            source_ca=source_roots['runtime-config']/'meet-ca.pem';source_ca.write_bytes(b'source private CA fixture')
+            source_pem=source_roots['freeswitch-config']/'tls/openweb-meet/wss.pem';source_pem.parent.mkdir(parents=True);source_pem.write_bytes(b'source private key fixture')
+            archive=work/'meeting.owpbx';b.create_archive(self.source,archive,self.archive_password,roots=source_roots,version='1.0.9')
+            roots={label:work/'target'/label for label in self.source_roots}
+            for path in roots.values():path.mkdir(parents=True)
+            config=roots['fusionpbx-config']/'config.conf';config.write_text(''.join(k+' = '+v+'\n'for k,v in self.target.items()))
+            (roots['fusionpbx-config']/'openweb-template.key').write_bytes(os.urandom(32))
+            (roots['runtime-config']/'runtime.json').write_text('{}')
+            ca=roots['runtime-config']/'meet-ca.pem';ca.write_bytes(b'factory private CA fixture');ca.chmod(0o600)
+            pem=roots['freeswitch-config']/'tls/openweb-meet/wss.pem';pem.parent.mkdir(parents=True);pem.write_bytes(b'factory private key fixture');pem.chmod(0o600)
+            b.ROOTS={k:v for k,v in roots.items()if k not in self.original_media};b.MEDIA={k:v for k,v in roots.items()if k in self.original_media}
+            b.RESTORE=work/'journal';b.STORE=work/'store';b.UNIT_ROOT=work/'units';b.UNIT_ROOT.mkdir();b.running_services=lambda:[];b.CACHE=work/'cache'
+            b.WEB_VERSION=work/'VERSION';b.WEB_VERSION.write_text('1.0.9');self.install_voicemail_policy(b.WEB_VERSION)
+            observed=[];rebound=[]
+            b.restore_meeting=lambda settings:rebound.append((settings['database.0.name'],ca.read_bytes()))or True
+            b.reload_meeting_proxy=lambda:observed.append(ca.read_bytes())
+            b.restore(archive,self.archive_password,self.target,confirm_database=self.target_name)
+            self.assertEqual(rebound,[(self.target_name,b'source private CA fixture')]);self.assertEqual(observed,[b'source private CA fixture'])
+            self.assertEqual(pem.read_bytes(),b'source private key fixture')
+            journal=json.loads((b.RESTORE/'journal.json').read_text());self.assertTrue(journal['meeting_proxy']);journal['state']='restoring';b.atomic_json(b.RESTORE/'journal.json',journal)
+            b.recover(self.target)
+            self.assertEqual(observed,[b'source private CA fixture',b'factory private CA fixture'])
+            self.assertEqual(pem.read_bytes(),b'factory private key fixture');self.assertEqual(pem.stat().st_mode&0o777,0o600);self.assertEqual(ca.stat().st_mode&0o777,0o600)
+            self.assertEqual(len(rebound),1,'Exact factory recovery must never apply source address/schema policies')
+            self.assertEqual(b.query(self.target,'select count(*)from fixture_objects'),'0')
+            self.assertEqual(b.read_settings(config)['openweb.public_ip'],'198.51.100.22')
+            # Failure after copying a new CA must restore/reload the factory pin.
+            shutil.rmtree(b.RESTORE);observed.clear();rebound.clear()
+            def fail_first():
+                observed.append(ca.read_bytes())
+                if len(observed)==1:raise b.BackupError('Intentional isolated web reload failure')
+            b.reload_meeting_proxy=fail_first
+            with self.assertRaisesRegex(b.BackupError,'Intentional isolated'):
+                b.restore(archive,self.archive_password,self.target,confirm_database=self.target_name)
+            self.assertEqual(observed,[b'source private CA fixture',b'factory private CA fixture'])
+            self.assertEqual(pem.read_bytes(),b'factory private key fixture')
+            self.assertEqual(json.loads((b.RESTORE/'journal.json').read_text())['state'],'recovered')
+            self.assertEqual(b.query(self.target,'select count(*)from fixture_objects'),'0')
+        finally:
+            for key,value in old.items():setattr(b,key,value)
 
 
 if __name__ == '__main__':
