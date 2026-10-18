@@ -4,7 +4,7 @@ This build targets **Debian 13 amd64** and the **native Android app**. Historica
 
 Use the matching assets on the [1.0.16 release page](https://github.com/embire2/openwebpbx/releases/tag/v1.0.16) and verify the release status. Check each download against `SHA256SUMS` and extract the entire Debian archive into an empty folder. Current verification and release status are recorded in [feature coverage](feature-coverage.md).
 
-Version 1.0.16 adds department staff roles and invitations, a guided W60B/V62W phone handover and provider-attempt evidence for First Calls. Native CDR/history import now starts automatically. Read [staff access](department-staff.md), [phone handover](desk-phone-handover.md) and [first calls](core-calling.md). The matching Android release retains the native calling engine; this core work does not claim new physical-phone qualification.
+Version 1.0.16 integrates Meet audio/video conferences, Nathaniel UK default prompts, PIN-free own voicemail on **121**, the repaired GMT+2 clock on **1026**, optional Call Me Back and native Android video. It retains the department roles, phone-handover checks and provider evidence delivered in 1.0.15. Read [Meet](meet.md), [Android video](android-video.md), [staff access](department-staff.md), [phone handover](desk-phone-handover.md) and [first calls](core-calling.md). Physical phone/camera and carrier qualification remain separate.
 
 The separate Windows 1.0.13 candidate retains its frozen qualification and supplied-host blocker. This Debian/Android release does not qualify a new Windows package. Google Play publication, physical W60B/V62W checks and broader 3CX parity remain open.
 

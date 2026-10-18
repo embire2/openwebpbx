@@ -1,43 +1,60 @@
 {
-  "reviewed_on": "2026-10-17",
+  "reviewed_on": "2026-10-18",
   "repository": "embire2/openwebpbx",
   "releases": [
     {
       "version": "1.0.16",
-      "tag": "v1.0.16-android-preview",
-      "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.16-android-preview",
-      "published_at": "2026-10-17T19:25:00Z",
-      "prerelease": true,
+      "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.16",
+      "published_at": "2026-10-18T13:13:49Z",
+      "prerelease": false,
       "assets": [
+        {
+          "name": "update-manifest.json",
+          "bytes": 1816,
+          "sha256": "444e30c483a09f6fa4dd280419d33e7e929cf4262bc2ec14476d143d9bfbb92d",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.16/update-manifest.json"
+        },
+        {
+          "name": "SHA256SUMS",
+          "bytes": 700,
+          "sha256": "9960cd52f93ece675a2ced93353949457acd34f74bae47652cfd2983eee72c68",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.16/SHA256SUMS"
+        },
         {
           "name": "openwebpbx-1.0.16-android-source.tar.gz",
           "bytes": 364454199,
           "sha256": "2298c6d02b47d006a290bf78ef3001d39ddcb39da55dcc85930ef3548fa5e9b0",
-          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.16-android-preview/openwebpbx-1.0.16-android-source.tar.gz"
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.16/openwebpbx-1.0.16-android-source.tar.gz"
+        },
+        {
+          "name": "openwebpbx-1.0.16-engine-source.tar.gz",
+          "bytes": 37084675,
+          "sha256": "028f141fe221e76b7d32d84e82fee4e62707ff18429a45ee0c29226d7ab96b5e",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.16/openwebpbx-1.0.16-engine-source.tar.gz"
         },
         {
           "name": "openwebpbx-1.0.16-android.apk",
           "bytes": 58961162,
           "sha256": "f5cca96e8e688cf897747ade6450abb31da97ee5b88aab272bdf322bcc31a785",
-          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.16-android-preview/openwebpbx-1.0.16-android.apk"
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.16/openwebpbx-1.0.16-android.apk"
         },
         {
           "name": "openwebpbx-1.0.16-google-play.aab",
           "bytes": 51190677,
           "sha256": "2b07fd55cb714e508ff7f6dffbe091b53555cb199e4270530c098afc056e00d4",
-          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.16-android-preview/openwebpbx-1.0.16-google-play.aab"
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.16/openwebpbx-1.0.16-google-play.aab"
+        },
+        {
+          "name": "openwebpbx-1.0.16-debian13-amd64.tar.gz",
+          "bytes": 429727775,
+          "sha256": "1d9c6f4fa481dbeb0d09938e13481c78ac32fa1a2048e9eed57507e94113b2af",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.16/openwebpbx-1.0.16-debian13-amd64.tar.gz"
         },
         {
           "name": "openwebpbx-1.0.16-google-play.zip",
-          "bytes": 51238880,
-          "sha256": "e68905948065aa2d530b6b794856dba383c4f3a1c3eba33f2e905930083cc36a",
-          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.16-android-preview/openwebpbx-1.0.16-google-play.zip"
-        },
-        {
-          "name": "SHA256SUMS",
-          "bytes": 402,
-          "sha256": "3e70be03261cfe030095091ea78a6dd97630f98f47b209c2b8730c4c3332d889",
-          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.16-android-preview/SHA256SUMS"
+          "bytes": 51255893,
+          "sha256": "018d7e01c8fc2dd6756388f584783d79efccd3ceb7bc878b1bb4d5a110ec2972",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.16/openwebpbx-1.0.16-google-play.zip"
         }
       ]
     },
@@ -659,7 +676,7 @@
       "name": "Debian 13",
       "architecture": "amd64",
       "status": "tested",
-      "version": "1.0.15"
+      "version": "1.0.16"
     },
     {
       "name": "Windows Server 2025",
@@ -683,13 +700,12 @@
       "minimum_version": "9",
       "api_level": 28,
       "version": "1.0.16",
-      "status": "separate signed native video preview; stable feed unchanged; physical cameras/networks and Play approval pending",
+      "status": "signed native APK with optional video; Play submission prepared, not approved; physical-device/network limits remain",
       "abis": [
         "arm64-v8a",
         "armeabi-v7a",
         "x86_64"
-      ],
-      "stable_version": "1.0.15"
+      ]
     }
   ]
 }

@@ -1,6 +1,6 @@
 # Call Me Back
 
-Status: implemented with isolated Debian/native qualification completed; this is not part of the frozen public 1.0.15 release and is not enabled on hosted customer numbers. Existing incoming numbers are unchanged until their owner explicitly selects and enables a Call Me Back service. Real carrier testing and a release installation/upgrade are separate acceptance gates.
+Status: included in Debian 1.0.16, with earlier isolated native calling qualification and current full-package installation/update/restore checks. No hosted customer number is enabled automatically. Enable only an explicitly selected incoming number after its controlled carrier checks.
 
 ## Set up a service
 
@@ -62,7 +62,7 @@ A saved caller binding persists until the owner revokes it or disables/deletes t
 
 Completed callback requests and revoked bindings are retained for the service's selected period, initially **90 days**, adjustable between 7 and 3,650 days. Cumulative account usage remains for allowance enforcement. Mutation audit records contain action, actor UUID, subject UUID and timestamp, with no ID digits or caller number, and expire after 365 days.
 
-**Delete account identity** removes its name, verifier, last four digits, caller bindings and linked callback-request caller numbers. It retains cumulative totals and usage records under the PBX retention policy. These records can still correlate with ordinary PBX call records; they are not asserted to be anonymous. Standard PBX call records, recordings, exported reports and encrypted backup retention require the operator's separate privacy process. Existing encrypted database/configuration/media backups cover the callback tables, private authentication key and stored greetings; recovery onto a clean release containing this feature still requires release qualification.
+**Delete account identity** removes its name, verifier, last four digits, caller bindings and linked callback-request caller numbers. It retains cumulative totals and usage records under the PBX retention policy. These records can still correlate with ordinary PBX call records; they are not asserted to be anonymous. Standard PBX call records, recordings, exported reports and encrypted backup retention require the operator's separate privacy process. Existing encrypted database/configuration/media backups cover the callback tables, private authentication key and stored greetings; Debian 1.0.16 clean-server encrypted restore preserved the disabled service, its private authentication key and genuine named greeting exactly.
 
 ## Qualification boundaries
 
@@ -83,4 +83,4 @@ The private qualification database was separate from the fixture's original data
 
 Private evidence is retained under `/var/lib/openwebpbx/cmb-work/` and `/var/lib/openwebpbx/cmb-runtime-review-20261017/`. The final source/build bindings, nine-case native results, duplicate test, actual-provider generation, preservation and restoration facts are recorded separately. Earlier incomplete fixture/observer runs remain retained with their original outcomes.
 
-Before public delivery, build a complete new-version Debian package with the verified voice pack, then qualify fresh installation, the installed signed updater, exact failure recovery, and encrypted backup/clean-server restore including the private key and greetings. Windows runtime/media/installer acceptance and controlled real-carrier/DID handover remain separate work. Do not overwrite the immutable 1.0.15 release or enable an unspecified customer number.
+Debian 1.0.16 now includes the verified voice pack and completed fresh-install, installed-updater, recovery and separate clean-server encrypted restore checks. The restored disabled service, private authentication key and genuine named greeting were preserved; no customer number was enabled. The nine native callback cases above were not rerun as a new carrier test. Windows runtime/media/installer acceptance and controlled real-carrier/DID handover remain open. See [release qualification](release-1.0.16-qualification.md).

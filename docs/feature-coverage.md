@@ -1,5 +1,16 @@
 # OpenWeb PBX feature coverage
 
+[Detailed 1.0.16 qualification and remaining device checks](release-1.0.16-qualification.md).
+
+## Integrated core and mandatory Android release — 1.0.16 — 2026-10-18
+
+The complete Debian 13 server and **OpenWebPBX Free Phone 1.0.16 / code116** are now delivered together. Meet provides scheduled audio/video rooms, private invitations, waiting-room admission, registered-phone participation and host mute/lock/remove/end controls. The core includes Nathaniel UK defaults, PIN-free own voicemail on **121**, the repaired **GMT+2 clock 1026** and optional tenant Call Me Back administration/runtime. No customer incoming number is enabled for Call Me Back automatically.
+
+The hosted instance at **https://call.openweb.co.za/** runs **1.0.16** and requires Android 1.0.16 across current/future tenants and unassigned phones. Tenant preferences for subsequent releases are retained. The signed download is verified before replacement and active calls defer installation. Android can still require installation confirmation and tapping Open; Google Play is not published by this setting.
+
+[Downloads](https://github.com/embire2/openwebpbx/releases/tag/v1.0.16) · [Install/update](installing-1.0.16.md) · [Meet](meet.md) · [Video and device limits](android-video.md). Physical camera/handset acceptance, restrictive-network/TURN coverage, measured meeting capacity, Play approval and Windows remain open. Camera restart can briefly pause sound/picture. Keep **133 roadmap IDs / 21 accepted / 72 partial / 40 planned** unchanged.
+
+
 ## Hosted Meet qualification and clock repair — 2026-10-17
 
 Clock **1026** now begins Nathaniel speech about 3.46seconds after answer and gives the upcoming GMT+2 signal every 15seconds, including seconds and quiet ticks. Staged and installed global-route calls each produced three correct announcements; native scheduling was 18ms late and decoded beep timing was 54.89/41.786ms late. Speech component correlation was at least 0.99989, with no RTP gaps. Independent speech recognition checked seven scripts and six complete announcements. The clock's independent pack is **1.0.2**; the frozen full Nathaniel pack remains 1.0.1. Guarded activation paused calls 11.766seconds without a service restart; protected media and original configuration were exact. [Detailed clock evidence](talking-clock-1.0.2.md).

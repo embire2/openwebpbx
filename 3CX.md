@@ -1,5 +1,14 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+## Integrated core and mandatory Android release — 1.0.16 — 2026-10-18
+
+The complete Debian 13 server and **OpenWebPBX Free Phone 1.0.16 / code116** are now delivered together. Meet provides scheduled audio/video rooms, private invitations, waiting-room admission, registered-phone participation and host mute/lock/remove/end controls. The core includes Nathaniel UK defaults, PIN-free own voicemail on **121**, the repaired **GMT+2 clock 1026** and optional tenant Call Me Back administration/runtime. No customer incoming number is enabled for Call Me Back automatically.
+
+The hosted instance at **https://call.openweb.co.za/** runs **1.0.16** and requires Android 1.0.16 across current/future tenants and unassigned phones. Tenant preferences for subsequent releases are retained. The signed download is verified before replacement and active calls defer installation. Android can still require installation confirmation and tapping Open; Google Play is not published by this setting.
+
+[Downloads](https://github.com/embire2/openwebpbx/releases/tag/v1.0.16) · [Install/update](docs/installing-1.0.16.md) · [Meet](docs/meet.md) · [Video and device limits](docs/android-video.md). Physical camera/handset acceptance, restrictive-network/TURN coverage, measured meeting capacity, Play approval and Windows remain open. Camera restart can briefly pause sound/picture. Keep **133 roadmap IDs / 21 accepted / 72 partial / 40 planned** unchanged.
+
+
 ## Hosted Meet and clock correction — 2026-10-17
 
 The hosted **Meet** facility now provides schedules, private invitations/calendars/global queued email, a waiting room, same-PBX phone dial-in, mixed browser video and host admission/mute/removal/lock/end controls. Actual Chromium video and decoded two-way sound, registered software-phone participation/removal, a blocked guest while locked, room-credential refusal outside its room, ordinary 98-prefix calling, explicit camera controls and screen-track replacement passed. [Meet scope](docs/meet.md).
