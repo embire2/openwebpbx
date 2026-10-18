@@ -7,7 +7,7 @@ import org.linphone.core.LogCollectionState
 class PhoneApplication: Application() {
     override fun onCreate() {
         super.onCreate()
-        PushConnection.configure(this)
+        try{PushConnection.configure(this)}catch(_:Exception){/* MainActivity offers recovery without deleting encrypted accounts. */}
         Factory.instance().apply {
             enableLogCollection(LogCollectionState.Disabled)
             enableLogcatLogs(false)

@@ -97,7 +97,7 @@ if __name__ == "__main__":
                 "SMTP Fixture <reply@example.invalid>", "SMTP Fixture <pbx@example.invalid>", "SMTP Fixture <reply@example.invalid>"
             ], "Global reply-to or blank fallback did not override direct/queued caller identities"
             assert all(len(message.get_all("From")) == len(message.get_all("Reply-To")) == 1 for message in messages), "Mail contains duplicate identity headers"
-            assert fixture.envelopes == ["MAIL FROM:<pbx@example.invalid>"] * 3, "SMTP envelope sender did not use the global From address"
+            assert fixture.envelopes == ["MAIL FROM:<pbx@example.invalid>"] * 6, "SMTP connection checks and delivered messages did not use the global From address"
             print("PASS: SMTP wire capture confirmed zero AUTH in IP mode, successful password AUTH, enforced global From/envelope/Reply-To and blank fallback; all three messages stayed local")
         finally:
             fixture.shutdown()

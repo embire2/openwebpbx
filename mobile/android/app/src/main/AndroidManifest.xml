@@ -24,6 +24,11 @@
         <service android:name=".PhoneMessagingService" android:exported="false"><intent-filter><action android:name="org.unifiedpush.android.connector.PUSH_EVENT" /></intent-filter></service>
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop" android:windowSoftInputMode="adjustResize">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" android:mimeType="application/vnd.openwebpbx.config+json" />
+            </intent-filter>
         </activity>
         <activity android:name="com.journeyapps.barcodescanner.CaptureActivity" android:screenOrientation="fullSensor" tools:replace="android:screenOrientation" />
     </application>

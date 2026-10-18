@@ -71,10 +71,7 @@ class UpdateManager internal constructor(private val context:Context) {
     fun schedule() {
         context.getSystemService(JobScheduler::class.java).schedule(JobInfo.Builder(JOB,ComponentName(context,PlayUpdateJob::class.java)).setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY).setPeriodic(12*60*60*1000L).setPersisted(true).build())
     }
-    private fun identity():String {
-        val account=PhoneStore(context).read() ?: return ""
-        return UpdateRules.sha256((account.getString("server")+"\u0000"+account.getString("token")).toByteArray(Charsets.UTF_8))
-    }
+    private fun identity():String=ProfileUpdatePolicy.identity(PhoneStore(context).profiles())
     private fun policyTrusted()=PlayReleaseRules.policyFresh(policyChecked,System.currentTimeMillis(),policyAccount,identity())
     private fun freshCandidate():PlayRelease?=available?.takeIf{it.expires>System.currentTimeMillis() && PlayReleaseRules.newer(it,installed.versionName ?: "0.0.0",installed.longVersionCode)}
     private fun supported(release:PlayRelease)=PlayReleaseRules.supported(release,Build.VERSION.SDK_INT,serverVersion)
@@ -106,7 +103,7 @@ class UpdateManager internal constructor(private val context:Context) {
         when {
             available==null->set("store","Check Google Play for updates to this edition. A website release does not mean it is published in Google Play yet.")
             candidate==null->set("current","You have the latest published Google Play version listed by OpenWeb PBX.")
-            !supported(candidate)->set("unsupported",if(Build.VERSION.SDK_INT<candidate.minimumSdk)"The published update needs a newer Android version. Your current phone remains available." else "Your administrator needs to update the PBX before this phone update can be used.")
+            !supported(candidate)->set("unsupported",if(Build.VERSION.SDK_INT<candidate.minimumSdk)"The published update needs a newer Android version. Your current phone remains available." else if(serverVersion=="0.0.0")"An account’s server could not be checked. Reconnect it or remove that account in Settings, then try again." else "Your administrator needs to update the PBX before this phone update can be used.")
             else->set("available","Version ${candidate.version} is published in Google Play. Open its page to download and install the update.")
         }
     }
@@ -117,14 +114,8 @@ class UpdateManager internal constructor(private val context:Context) {
         worker.execute {
             try {
                 set("checking","Checking published Google Play updates…")
-                val account=PhoneStore(context).read();val accountId=identity()
-                var nextMode="notify";var nextServer:String?=null;var nextChecked=0L
-                if(account!=null)try {
-                    val policy=PhoneApi(account.getString("server"),account.getString("token")).json("updates")
-                    require(policy.getInt("schema")==1 && policy.getString("channel")=="stable" && policy.getString("feed_url")==UpdateRules.FEED)
-                    nextMode=UpdateRules.policyMode(policy.getString("mode"),policy.optString("tenant_mode").takeIf{it.isNotEmpty()},policy.optString("minimum_version").takeIf{it.isNotEmpty()},BuildConfig.VERSION_NAME)
-                    nextServer=policy.getString("server_version");UpdateRules.version(nextServer);nextChecked=System.currentTimeMillis()
-                }catch(e:ApiError){if(e.status!=404)throw e;nextServer="1.0.3"}
+                val profiles=PhoneStore(context).profiles();val policies=ProfileUpdatePolicy.load(profiles,cache={id,policy->PhoneStore(context).update(id){it.put("update_policy",policy)}},revoke={id->PhoneStore(context).update(id){it.put("needs_login",true)};PushConnection.unregister(context,id)});val accountId=policies.identity
+                val nextMode=policies.mode;val nextServer=policies.oldestServer;val nextChecked=if(policies.trusted)System.currentTimeMillis() else 0L
                 val envelope=readFeed();val feed=PlayReleaseManifest.parse(envelope,key)
                 if(stopped.get())return@execute
                 require(accountId==identity())

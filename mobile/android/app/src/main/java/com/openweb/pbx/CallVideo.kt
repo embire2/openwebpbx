@@ -71,7 +71,7 @@ class CallVideo(private val phone:PhoneService) {
         message=""
     }
     fun requireServerVideo(){
-        val features=PhoneStore(phone).read()?.optJSONArray("features")
+        val features=(phone.profileFor() ?: PhoneStore(phone).read())?.optJSONArray("features")
         check(features!=null && (0 until features.length()).any{features.optString(it)=="video_calls"}){"Your phone server has not enabled video calls yet. You can still make audio calls."}
     }
     fun prepareOutgoing(){requireServerVideo();startCamera();outgoingCamera=true}

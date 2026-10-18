@@ -11,7 +11,7 @@ if (($argv[1] ?? '') === '--queue-job') {
     }
     $database->db->exec('set search_path to '.$fixtureSchema.',public');
     $job=dirname(__DIR__).'/app/email_queue/resources/jobs/email_send.php';
-    $argv=[$job,'email_queue_uuid='.$queueId.'&hostname=localhost'];
+    $argv=[$job,'email_queue_uuid='.$queueId.'&hostname='.urlencode(gethostname())];
     include $job;
     exit;
 }

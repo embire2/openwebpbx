@@ -1,5 +1,7 @@
 # Publishing OpenWeb PBX on Google Play
 
+For current submission requirements and the candidate tenant/profile changes, use the [18 October 2026 audit](google-play-audit-1.0.17.md). The remaining Console, real-device and reviewer-access gates must be completed before submission.
+
 Android **1.0.16 / code116** accompanies the integrated [1.0.16 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.16). The APK and AAB retain the exact signed bytes qualified in the earlier video preview; their corresponding-source archive is bound to revision `7f60b339dc3153a1070e00a425638cdd7aa42095`. This updated submission packet contains current guidance. Its camera/video declarations and [video guide](android-video.md) record qualification, the known brief camera-restart interruption and remaining device checks. Use the Play AAB for submission; the direct APK and Play bundle are separate builds. A new camera foreground-service demonstration and real Play-track testing are required before submission. Google Play approval is not confirmed.
 
 The direct APK passed an actual required 1.0.15 → 1.0.16 update with active-call deferral and account/settings preservation. That result does not qualify Play delivery: Google controls the store edition, and a required store update needs signed metadata confirming a fully published production Play version. See [phone update qualification and recovery](android.md#required-1015--1016-update-qualification).

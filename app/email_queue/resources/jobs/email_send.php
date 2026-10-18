@@ -26,7 +26,7 @@
 	//print_r($_GET);
 
 //get the primary key
-	if (is_uuid($_GET['email_queue_uuid'])) {
+	if (is_uuid($_GET['email_queue_uuid'] ?? '')) {
 		$email_queue_uuid = $_GET['email_queue_uuid'];
 		$hostname = urldecode($_GET['hostname']);
 		$debug = $_GET['debug'] ?? null;
@@ -53,66 +53,12 @@ if (PHP_OS_FAMILY === 'Windows') {
         flock($windows_mail_lock, LOCK_UN); fclose($windows_mail_lock);
     });
 } else {
-//define the process id file
-	$pid_file = '/var/run/fusionpbx/email_send.'.$email_queue_uuid.'.pid';
-	//echo "pid_file: ".$pid_file."\n";
-
-//function to check if the process exists
-	function process_exists($file = '') {
-		//check if the file exists return false if not found
-		if (!file_exists($file)) {
-			return false;
-		}
-
-		//check to see if the process id is valid
-		$pid = file_get_contents($file);
-		if (filter_var($pid, FILTER_VALIDATE_INT) === false) {
-			return false;
-		}
-
-		//check if the process is running
-		exec('ps -p '.$pid, $output);
-		if (count($output) > 1) {
-			return true;
-		}
-		else {
-			return false;
-		}
-	}
-
-//check to see if the process exists
-	$pid_exists = process_exists($pid_file);
-
-//prevent the process running more than once
-	if ($pid_exists) {
-		echo "Cannot lock pid file {$pid_file}\n";
-		exit;
-	}
-
-//make sure the /var/run/fusionpbx directory exists
-	if (!file_exists('/var/run/fusionpbx')) {
-		$result = mkdir('/var/run/fusionpbx', 0777, true);
-		if (!$result) {
-			die('Failed to create /var/run/fusionpbx');
-		}
-	}
-
-//create the process id file if the process doesn't exist
-	if (!$pid_exists) {
-		//remove the old pid file
-		if (!empty($pid_file) && file_exists($pid_file)) {
-			unlink($pid_file);
-		}
-
-		//show the details to the user
-		//echo "The process id is ".getmypid()."\n";
-		//echo "pid_file: ".$pid_file."\n";
-
-		//save the pid file
-		file_put_contents($pid_file, getmypid());
-	}
-
+    // PostgreSQL ownership below replaces the racy and reusable POSIX PID file.
+    $pid_file = '';
 }
+
+// All OS workers share one dispatch owner, including direct/manual invocations.
+if (!pbx_mail_dispatch::claim($database->db, $email_queue_uuid)) exit;
 
 //sleep used for debugging
 	if (isset($sleep_seconds)) {
@@ -138,7 +84,9 @@ if (PHP_OS_FAMILY === 'Windows') {
 
 //get the email details to send
 	$sql = "select * from v_email_queue ";
-	$sql .= "where email_queue_uuid = :email_queue_uuid ";
+	$sql .= "where email_queue_uuid = :email_queue_uuid and hostname = :dispatch_hostname ";
+	$sql .= "and email_status in ('waiting','trying') ";
+	$parameters['dispatch_hostname'] = gethostname();
 	$parameters['email_queue_uuid'] = $email_queue_uuid;
 	$row = $database->select($sql, $parameters, 'row');
 	if (is_array($row)) {
@@ -156,6 +104,8 @@ if (PHP_OS_FAMILY === 'Windows') {
 		$email_action_after = $row["email_action_after"];
 	}
 	unset($parameters);
+	if (!is_array($row) || !$row) exit;
+	if (!pbx_mobile_welcome::beforeDelivery($database->db, $email_queue_uuid)) exit;
 
 //get the email queue settings
 	$settings = new settings(["database" => $database,"domain_uuid" => $domain_uuid]);
@@ -376,6 +326,9 @@ if (PHP_OS_FAMILY === 'Windows') {
 	$email_status = $email->send();
 	$email_error = $email->error;
 	$email_response = $email->response;
+	if (preg_match('/^[45][0-9]{2}$/D', $email->delivery_reply_code)) {
+		$email_response .= 'smtp_reply_code: '.$email->delivery_reply_code."\n";
+	}
 	// Only record the effective instance configuration used by this send attempt.
 	// Domain settings and SMTP credentials are deliberately absent from this metadata.
 	$email_settings = '';
@@ -508,8 +461,9 @@ if (PHP_OS_FAMILY === 'Windows') {
 	}
 	else {
 
-		$mailer_error = $email_error;
-		echo "Mailer Error: ".$mailer_error."\n\n";
+		echo "Mailer Error: The outgoing server did not accept this message";
+		if ($email->delivery_reply_code !== '') echo ' ('.$email->delivery_reply_code.')';
+		echo ".\n\n";
 
 		/*
 		//build insert array

@@ -1,4 +1,6 @@
-# Play Console declarations — OpenWebPBX Free Phone 1.0.16
+# Play Console declarations — OpenWebPBX Free Phone 1.0.17
+
+The 1.0.17 candidate additions are tracked in [the current requirements review](current-requirements.md): visible policy links, app-password login, one-use setup-file import, and separate simultaneous tenant profiles. Immutable 1.0.16 downloads are unchanged; this candidate still requires release qualification and Play review.
 
 Prepared from the application source and the final build’s permission inventory. These are submission inputs, not a claim that Google has accepted them. The owner must confirm their legal identity, contact details, target audience and actual server data practices. Update this document if the binary or service changes.
 
@@ -14,8 +16,8 @@ Prepared from the application source and the final build’s permission inventor
 | News / government / financial / health | No such features |
 | App access | Some functionality restricted: existing PBX extension required. Provide the isolated reviewer portal URL, username, password and call instructions privately. |
 | Account creation | No self-service account signup in this app. An organisation’s administrator creates the extension; scanning a code connects a device to that existing extension. |
-| Privacy policy | https://openwebpbx.com/privacy.html |
-| Data deletion resource | https://openwebpbx.com/data-removal.html |
+| Privacy policy | https://openwebpbx.com/privacy |
+| Data deletion resource | https://openwebpbx.com/delete |
 | Support | hello@openwebpbx.com; https://openwebpbx.com/support.html |
 
 For the IARC rating questionnaire, describe real-time voice and video communication with other users accurately. The app has no public feed, matchmaking, user discovery, chat, gambling or developer-supplied mature content. Do not preselect a rating or pretend voice communication is absent; the questionnaire determines the rating.
@@ -40,7 +42,7 @@ Company contacts and voicemail are downloaded from the PBX. The app never reads 
 
 Sharing answers depend on the actual PBX operator relationship and the user-initiated calling flow. Calls intentionally deliver audio, optional live video and numbers to the other party and telephone providers. The app explains transmission to the selected organisation before connection. Assess the service-provider and user-initiated-action exceptions using the [official data safety definitions](https://support.google.com/googleplay/android-developer/answer/10787469); do not automatically claim that every independently hosted PBX is our service provider. Where an exception cannot be established, declare the affected types as shared for app functionality. The final form must represent every supported configuration.
 
-Users can request deletion through the public resource and their PBX administrator. Disconnect removes the device connection and local data, not all server records. Organisations determine retention and may have legitimate reasons to keep some records; the deletion page requires those reasons and periods to be explained. Google allows a reachable support-email route for requests; see [account deletion guidance](https://support.google.com/googleplay/android-developer/answer/13327111).
+Users can request deletion through the public resource and their PBX administrator. Remove account normally revokes only that profile’s device connection and removes local data, not its server records or the other saved profiles. The separately confirmed offline fallback removes local data only and asks the administrator to revoke the device when available. Organisations determine retention and may have legitimate reasons to keep some records; the deletion page requires those reasons and periods to be explained. Google allows a reachable support-email route for requests; see [account deletion guidance](https://support.google.com/googleplay/android-developer/answer/13327111).
 
 ## Permissions and foreground services
 
@@ -58,7 +60,7 @@ The Play manifest must contain **no REQUEST_INSTALL_PACKAGES or UPDATE_PACKAGES_
 | Wake lock | Active-call audio and proximity screen protection |
 | Receive boot completed | Persisted scheduled update checks; does not claim to start the microphone on boot |
 
-The current service is not a Telecom `ConnectionService`; do not claim `FOREGROUND_SERVICE_PHONE_CALL` qualification or add `MANAGE_OWN_CALLS` merely to pass review. The [Android foreground-service type reference](https://developer.android.com/develop/background-work/services/fgs/service-types) documents the declared network, microphone and camera cases. The previous audio-only reviewed demonstration remains available at https://openwebpbx.com/android-review.html. It does not demonstrate the new 1.0.16 camera permission or video flow; an updated demonstration is required before submitting those features. It shows actual native screens at four frames per second using isolated demo data; it is not a physical-device audio or proximity qualification. Enrollment uses a fresh private portal code through the real API and permissions are granted before capture, so the video does not show a human scanning a QR code or the Android permission prompts. Capture those prompts during the real Play-track device test if requested by the Console/reviewer. Google requires descriptions, interruption impact and a video for the declared features: [foreground-service declarations](https://support.google.com/googleplay/android-developer/answer/13392821).
+The current service is not a Telecom `ConnectionService`; do not claim `FOREGROUND_SERVICE_PHONE_CALL` qualification or add `MANAGE_OWN_CALLS` merely to pass review. The [Android foreground-service type reference](https://developer.android.com/develop/background-work/services/fgs/service-types) documents the declared network, microphone and camera cases. The previous audio-only reviewed demonstration remains available at https://openwebpbx.com/android-review.html. It does not demonstrate the new 1.0.16 camera permission or video flow; an updated demonstration is required before submitting those features; follow [the current capture plan](demonstration-plan.md). It shows actual native screens at four frames per second using isolated demo data; it is not a physical-device audio or proximity qualification. Enrollment uses a fresh private portal code through the real API and permissions are granted before capture, so the video does not show a human scanning a QR code or the Android permission prompts. Capture those prompts during the real Play-track device test if requested by the Console/reviewer. Google requires descriptions, interruption impact and a video for the declared features: [foreground-service declarations](https://support.google.com/googleplay/android-developer/answer/13392821).
 
 ## Reviewer access
 

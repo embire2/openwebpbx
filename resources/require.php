@@ -103,6 +103,12 @@
 		session_start();
 	}
 
+// Bind only centrally leased, locally certificate-ready tenant aliases.
+	if (!defined('STDIN')) {
+		try { pbx_tenant_domains::guardRequest($database->db); }
+		catch (RuntimeException $error) { http_response_code(403); exit(htmlspecialchars($error->getMessage(), ENT_QUOTES, 'UTF-8')); }
+	}
+
 //get the domain_name and the domain_uuid
 	if (empty($_SESSION['domain_uuid'])) {
 		//get the domain from the url

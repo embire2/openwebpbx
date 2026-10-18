@@ -1,0 +1,10 @@
+# OpenWeb PBX managed tenant domains v1
+[Unit]
+Description=Retry pending OpenWeb PBX tenant hostnames and renew local certificates
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+RandomizedDelaySec=15s
+Persistent=true
+[Install]
+WantedBy=timers.target openwebpbx-updater.service

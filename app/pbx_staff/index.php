@@ -9,7 +9,7 @@ $labels=['people'=>'People','personal'=>'My Phone','hours'=>'Office Hours','queu
 $cap=['hours'=>'hours','queues'=>'routing','ring_groups'=>'routing','receptionists'=>'routing','voice'=>'providers','switchboard'=>'live','queue_reports'=>'reports','recordings'=>'recordings','staff'=>'staff'];
 if(!isset($labels[$tab])||(isset($cap[$tab])&&!$access->can($cap[$tab])&&!($tab==='hours'&&$access->can('override')))){http_response_code(403);exit('Your role does not allow this page.');}
 $canEdit=static function($type,$id,$c)use($access){try{$access->validateEdit($type,(string)$id,[],$c);return true;}catch(pbx_staff_denied){return false;}};
-$types=['people'=>'user','hours'=>'hours','queues'=>'queue','ring_groups'=>'ring_group','receptionists'=>'receptionist','voice'=>'trunk'];$error='';$notice='';$invitation=null;$credentials=null;
+$types=['people'=>'user','hours'=>'hours','queues'=>'queue','ring_groups'=>'ring_group','receptionists'=>'receptionist','voice'=>'trunk'];$error='';$notice=$_SESSION['pbx_staff_notice']??'';unset($_SESSION['pbx_staff_notice']);$invitation=null;$credentials=null;
 try{
  if($_SERVER['REQUEST_METHOD']==='POST'){
   if(!(new token)->validate('/app/pbx_staff/index.php')){http_response_code(403);throw new pbx_staff_denied('Refresh the page and try again.');}
@@ -20,8 +20,9 @@ try{
   elseif($action==='override'&&$tab==='hours'){$access->overrideHours($_POST);$notice='Office-hour status updated.';}
   elseif($action==='personal'&&$tab==='personal'&&!$owner){$admin->savePersonal($_POST);$notice='Your status was saved.';}
   elseif($action==='check_provider'&&$tab==='voice'){$providerCheck=$admin->checkTrunkProvider($key);$notice=$providerCheck['message']??'Provider check complete.';}
+  elseif($action==='welcome'&&$tab==='people'){(new pbx_mobile_welcome(database::new()->db))->queue($key);$notice='Welcome message queued. Inbox delivery is not yet confirmed.';}
   elseif($action==='credentials'&&$tab==='people'){$credentials=$admin->credentials($key);}
-  elseif($action==='save'&&isset($types[$tab])){$admin->save($types[$tab],$key,$_POST);header('Location: /app/pbx_staff/?view='.rawurlencode($tab));exit;}
+  elseif($action==='save'&&isset($types[$tab])){$admin->save($types[$tab],$key,$_POST);$_SESSION['pbx_staff_notice']=$admin->saveNotice();header('Location: /app/pbx_staff/?view='.rawurlencode($tab));exit;}
   elseif($action==='delete'&&isset($types[$tab])){if(empty($_POST['confirm_delete']))throw new InvalidArgumentException('Confirm deletion first.');if(!$owner&&$key===$access->ownNumber())throw new pbx_staff_denied('You cannot delete your own staff extension.');$admin->delete($types[$tab],$key);header('Location: /app/pbx_staff/?view='.rawurlencode($tab));exit;}
   else throw new pbx_staff_denied('This action is not available for your role.');
  }

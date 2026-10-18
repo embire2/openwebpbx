@@ -71,6 +71,8 @@ class UpdateManager internal constructor(private val context:Context,private val
     var changed:(()->Unit)?=null
     private var serverVersion="1.0.3"
     private var accountBound=false
+    private var policyIdentity=""
+    private fun currentPolicyTrusted()=policyTrusted && policyIdentity==ProfileUpdatePolicy.identity(PhoneStore(context).profiles())
     private var mode="notify"
     private var confirmation:Intent?=null
     var foregroundActivity:Activity?=null
@@ -87,9 +89,9 @@ class UpdateManager internal constructor(private val context:Context,private val
         if(state in listOf("available","downloading","verifying","ready","permission","confirmation","installing","error","unsupported","installed"))notifyUpdate()
         else if(state=="current")context.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION)
     }
-    fun supported(release:AndroidRelease)=Build.VERSION.SDK_INT>=release.minimumSdk && (!accountBound || UpdateRules.compare(serverVersion,release.minimumServer)>=0)
-    fun shouldGate(activeCall:Boolean,urgent:Boolean)=UpdateRules.gate(mode=="required" && policyTrusted,ready?.let{it.expires>System.currentTimeMillis()}==true,ready?.let{supported(it)}==true,checkSucceeded,activeCall,urgent) && !isInstalling
-    fun automaticInstallAllowed()=mode=="required" && ready?.let{it.expires>System.currentTimeMillis() && supported(it)}==true && checkSucceeded && policyTrusted && prefs.getString("attempted_hash",null)!=ready?.sha256 && context.packageManager.canRequestPackageInstalls()
+    fun supported(release:AndroidRelease)=Build.VERSION.SDK_INT>=release.minimumSdk && policyIdentity==ProfileUpdatePolicy.identity(PhoneStore(context).profiles()) && (!accountBound || UpdateRules.compare(serverVersion,release.minimumServer)>=0)
+    fun shouldGate(activeCall:Boolean,urgent:Boolean)=UpdateRules.gate(mode=="required" && currentPolicyTrusted(),ready?.let{it.expires>System.currentTimeMillis()}==true,ready?.let{supported(it)}==true,checkSucceeded,activeCall,urgent) && !isInstalling
+    fun automaticInstallAllowed()=mode=="required" && ready?.let{it.expires>System.currentTimeMillis() && supported(it)}==true && checkSucceeded && currentPolicyTrusted() && prefs.getString("attempted_hash",null)!=ready?.sha256 && context.packageManager.canRequestPackageInstalls()
     fun check(download:Boolean=false,finished:(()->Unit)?=null) {
         if(!busy.compareAndSet(false,true)){finished?.invoke();return}
         stopped.set(false)
@@ -98,14 +100,10 @@ class UpdateManager internal constructor(private val context:Context,private val
                 reconcile()
                 if(isInstalling)return@execute
                 set("checking","Checking for updates…")
-                val account=PhoneStore(context).read();accountBound=account!=null;policyTrusted=false;mode="notify";serverVersion="1.0.3"
-                if(account!=null) {
-                    try {
-                        val policy=PhoneApi(account.getString("server"),account.getString("token")).json("updates")
-                        require(policy.getInt("schema")==1 && policy.getString("channel")=="stable" && policy.getString("feed_url")==UpdateRules.FEED)
-                        mode=UpdateRules.policyMode(policy.getString("mode"),policy.optString("tenant_mode").takeIf{it.isNotEmpty()},policy.optString("minimum_version").takeIf{it.isNotEmpty()},BuildConfig.VERSION_NAME);serverVersion=policy.getString("server_version");UpdateRules.version(serverVersion);policyTrusted=true
-                    }catch(e:ApiError){if(e.status!=404)throw e} // 1.0.3 has no policy endpoint; it cannot meet newer server minimums.
-                }
+                val profiles=PhoneStore(context).profiles();accountBound=ProfileUpdatePolicy.active(profiles).isNotEmpty();policyTrusted=false;mode="notify";serverVersion="1.0.3"
+                val policies=ProfileUpdatePolicy.load(profiles,cache={id,policy->PhoneStore(context).update(id){it.put("update_policy",policy)}},revoke={id->PhoneStore(context).update(id){it.put("needs_login",true)};PushConnection.unregister(context,id)})
+                require(policies.identity==ProfileUpdatePolicy.identity(PhoneStore(context).profiles()))
+                accountBound=ProfileUpdatePolicy.active(profiles).isNotEmpty();mode=policies.mode;serverVersion=policies.oldestServer ?: "1.0.3";policyTrusted=policies.trusted;policyIdentity=policies.identity
                 val envelope=network.open(UpdateRules.FEED).use{String(readBounded(it,UpdateRules.MAX_ENVELOPE.toLong()),Charsets.UTF_8)}
                 val release=ReleaseManifest.parse(envelope,key)
                 UpdateRules.sequence(release.sequence,release.digest,prefs.getLong("highest_sequence",0),prefs.getString("highest_digest","") ?: "")
@@ -115,7 +113,7 @@ class UpdateManager internal constructor(private val context:Context,private val
                     ready=null;set("current","You have the latest available version.",null);return@execute
                 }
                 if(!supported(release)) {
-                    ready=null;set("unsupported",if(Build.VERSION.SDK_INT<release.minimumSdk)"This update needs a newer Android version. Your current phone remains available." else "Your administrator needs to update the PBX before this phone update can be installed.",release);return@execute
+                    ready=null;set("unsupported",if(Build.VERSION.SDK_INT<release.minimumSdk)"This update needs a newer Android version. Your current phone remains available." else if(serverVersion=="0.0.0")"An account’s server could not be checked. Reconnect it or remove that account in Settings, then try again." else "Your administrator needs to update the PBX before this phone update can be installed.",release);return@execute
                 }
                 if(ready?.sha256==release.sha256 && apk.isFile) { verifyApk(apk,release);ready=release;set("ready","Update ${release.version} is downloaded and verified.",release);notifyUpdate();return@execute }
                 ready=null;set("available","Update ${release.version} is available.",release)

@@ -145,6 +145,17 @@
 				exit;
 			}
 
+        // Authentication can resolve the owner in its workspace domain. Rebind the
+        // verified tenant address before settings, menus, redirects or business data.
+        try {
+            pbx_tenant_domains::guardRequest($database->db);
+            $domain_uuid = $_SESSION['domain_uuid'] ?? $domain_uuid;
+        } catch (Throwable $error) {
+            http_response_code(403);
+            header('Cache-Control: no-store');
+            exit('This tenant address does not permit this administrator account. Use the installation address or your own tenant address.');
+        }
+
 		//clear the menu
 			unset($_SESSION["menu"]);
 

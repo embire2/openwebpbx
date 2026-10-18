@@ -1,1 +1,1 @@
-OpenWebPBX Free Phone 1.0.14: new app name, with existing accounts and calling settings retained. The matching PBX adds automatic user extensions and department routing controls.
+OpenWebPBX Free Phone 1.0.17: keep multiple phone accounts connected, choose an outgoing account, sign in with a tenant address and app password, import one-use setup files, and change your app password. Terms, Privacy and deletion links are available before sign-in and in Settings.

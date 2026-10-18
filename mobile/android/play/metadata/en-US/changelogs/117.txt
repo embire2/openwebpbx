@@ -1,0 +1,1 @@
+Save multiple phone accounts and receive calls on each. Choose the account for outgoing calls. Sign in with your tenant name, extension and app password, or import a one-use setup file. Create or change your app password, edit account names and remove accounts with clear offline recovery. Terms, privacy and deletion links are available before sign-in and in Settings.

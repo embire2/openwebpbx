@@ -947,6 +947,8 @@ def notification_directory(directory, *, create=False):
 
 def acl_kind(target):
     target = Path(target)
+    if target == ROOTS['fusionpbx-config'] / 'tenant-domains-instance-key.pem':
+        return 'private'
     if STATE / 'restored-source' == target or STATE / 'restored-source' in target.parents:
         return 'private'
     if target == ROOTS['runtime-config'] / 'installation.json':

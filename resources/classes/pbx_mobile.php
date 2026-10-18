@@ -11,7 +11,7 @@ class pbx_mobile {
         if((int)$row>$limit)throw new OverflowException('Please wait a few minutes and try again.');
         if(random_int(1,100)===1){$this->q("delete from v_pbx_mobile_rate where window_start<now()-interval '1 day'");$this->q("delete from v_pbx_mobile_enrollments where expires_at<now()-interval '1 day'");}
     }
-    private function extension(string $domain,string $id): array {
+    protected function extension(string $domain,string $id): array {
         $this->id($domain);$this->id($id);
         $r=$this->q("select e.extension_uuid,e.extension,e.number_alias,e.effective_caller_id_name,d.domain_uuid,d.domain_name,r.config from v_extensions e join v_domains d using(domain_uuid) join v_pbx_restore r using(domain_uuid) where e.extension_uuid=:id and e.domain_uuid=:d and e.enabled='true' and d.domain_enabled='true' and not exists(select 1 from v_pbx_services s join v_pbx_tenants t using(tenant_uuid) where s.domain_uuid=d.domain_uuid and not t.enabled)",['id'=>$id,'d'=>$domain])->fetch(PDO::FETCH_ASSOC);
         if(!$r)throw new RuntimeException('This user is unavailable.');
@@ -33,24 +33,28 @@ class pbx_mobile {
     public function createCode(string $number): array {
         $e=$this->adminExtension($number);return $this->issueCode($e);
     }
-    private function issueCode(array $e): array {
-        $this->requireTls();$this->rate('create:'.($_SESSION['user_uuid']??''),20,600);
-        $url=pbx_paths::url();if(!preg_match('~^https://[a-z0-9.-]+(?::[0-9]{1,5})?$~iD',$url))throw new RuntimeException('Ask your instance administrator to finish HTTPS setup.');
-        $this->db->beginTransaction();try {
+    protected function issueCode(array $e,string $purpose='screen'): array {
+        if(!in_array($purpose,['screen','welcome','personal'],true))throw new InvalidArgumentException('Choose a setup method.');
+        $this->requireTls();$this->rate('create:'.$purpose.':'.($_SESSION['user_uuid']??$e['extension_uuid']),20,600);
+        $url=pbx_tenant_domains::url($this->db,$e['domain_uuid']);if(!preg_match('~^https://[a-z0-9.-]+(?::[0-9]{1,5})?$~iD',$url))throw new RuntimeException('Ask your instance administrator to finish HTTPS setup.');
+        $owned=!$this->db->inTransaction();if($owned)$this->db->beginTransaction();try {
             $this->q('select extension_uuid from v_extensions where extension_uuid=:id for update',['id'=>$e['extension_uuid']]);
+            if($purpose==='personal'&&(!isset($e['password_generation'])||(new pbx_mobile_password($this->db))->generation($e['domain_uuid'],$e['extension_uuid'])!==$e['password_generation']))throw new UnexpectedValueException('Sign in again.');
             if((int)$this->q('select count(*) from v_pbx_mobile_devices where extension_uuid=:id and revoked_at is null and expires_at>now()',['id'=>$e['extension_uuid']])->fetchColumn()>=10)throw new RuntimeException('Remove an unused phone before adding another.');
             $this->q('delete from v_pbx_mobile_enrollments where extension_uuid=:id and used_at is null',['id'=>$e['extension_uuid']]);
-            $code=bin2hex(random_bytes(32));$expiry=$this->q("insert into v_pbx_mobile_enrollments(enrollment_uuid,domain_uuid,extension_uuid,code_hash,created_by,expires_at) values(:id,:d,:e,:h,:u,now()+interval '10 minutes') returning expires_at",['id'=>uuid(),'d'=>$e['domain_uuid'],'e'=>$e['extension_uuid'],'h'=>hash('sha256',$code),'u'=>$_SESSION['user_uuid']])->fetchColumn();
-            $this->db->commit();return ['payload'=>json_encode(['type'=>'openwebpbx','version'=>1,'server'=>$url,'code'=>$code],JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR),'expires_at'=>$expiry];
-        }catch(Throwable $ex){if($this->db->inTransaction())$this->db->rollBack();throw $ex;}
+            $code=bin2hex(random_bytes(32));$id=uuid();$expiry=$this->q("insert into v_pbx_mobile_enrollments(enrollment_uuid,domain_uuid,extension_uuid,code_hash,created_by,expires_at,purpose) values(:id,:d,:e,:h,:u,now()+make_interval(secs=>:seconds),:purpose) returning expires_at",['id'=>$id,'d'=>$e['domain_uuid'],'e'=>$e['extension_uuid'],'h'=>hash('sha256',$code),'u'=>is_uuid($_SESSION['user_uuid']??'')?$_SESSION['user_uuid']:null,'seconds'=>$purpose==='welcome'?172800:600,'purpose'=>$purpose])->fetchColumn();
+            if($owned)$this->db->commit();return ['payload'=>json_encode(['type'=>'openwebpbx','version'=>1,'server'=>$url,'code'=>$code,'extension'=>$e['number']],JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR),'expires_at'=>$expiry,'enrollment_uuid'=>$id];
+        }catch(Throwable $ex){if($owned&&$this->db->inTransaction())$this->db->rollBack();throw $ex;}
     }
-    public function enroll(array $in,string $ip): array {
+    public function enroll(array $in,string $ip,?array $server=null): array {
         $this->rate('enroll:'.$ip,15,600);$this->requireTls();$code=$this->text($in['code']??'',64);$name=$this->text($in['device_name']??'Android phone',80);
         if(!preg_match('/^[a-f0-9]{64}$/D',$code)||($in['platform']??'android')!=='android'||$name==='')throw new InvalidArgumentException('The setup code is invalid or has expired.');
         $this->db->beginTransaction();try{
-            $r=$this->q('select * from v_pbx_mobile_enrollments where code_hash=:h and used_at is null and expires_at>now() for update',['h'=>hash('sha256',$code)])->fetch(PDO::FETCH_ASSOC);
+            $r=$this->q('select * from v_pbx_mobile_enrollments where code_hash=:h and used_at is null and expires_at>now()',['h'=>hash('sha256',$code)])->fetch(PDO::FETCH_ASSOC);
             if(!$r)throw new InvalidArgumentException('The setup code is invalid or has expired.');
-            $this->q('select extension_uuid from v_extensions where extension_uuid=:id for update',['id'=>$r['extension_uuid']]);$e=$this->extension($r['domain_uuid'],$r['extension_uuid']);
+            $this->q('select extension_uuid from v_extensions where extension_uuid=:id for update',['id'=>$r['extension_uuid']]);
+            $r=$this->q('select * from v_pbx_mobile_enrollments where enrollment_uuid=:id and code_hash=:h and used_at is null and expires_at>now() for update',['id'=>$r['enrollment_uuid'],'h'=>hash('sha256',$code)])->fetch(PDO::FETCH_ASSOC);
+            if(!$r)throw new InvalidArgumentException('The setup code is invalid or has expired.');$e=$this->extension($r['domain_uuid'],$r['extension_uuid']);if($server!==null)$this->assertHost($e,$server);
             if((int)$this->q('select count(*) from v_pbx_mobile_devices where extension_uuid=:id and revoked_at is null and expires_at>now()',['id'=>$e['extension_uuid']])->fetchColumn()>=10)throw new RuntimeException('Remove an unused phone before adding another.');
             $token=bin2hex(random_bytes(32));$password=bin2hex(random_bytes(32));$auth='owm-'.bin2hex(random_bytes(16));$id=uuid();
             $this->q("insert into v_pbx_mobile_devices(device_uuid,domain_uuid,extension_uuid,device_name,platform,token_hash,sip_username,sip_a1_hash,expires_at) values(:id,:d,:e,:name,'android',:token,:auth,:a1,now()+interval '180 days')",['id'=>$id,'d'=>$e['domain_uuid'],'e'=>$e['extension_uuid'],'name'=>$name,'token'=>hash('sha256',$token),'auth'=>$auth,'a1'=>md5($auth.':'.$e['domain_name'].':'.$password)]);
@@ -65,7 +69,69 @@ class pbx_mobile {
         try{$e=$this->extension($r['domain_uuid'],$r['extension_uuid']);}catch(RuntimeException){throw new UnexpectedValueException('This phone is no longer connected.');}
         $this->q("update v_pbx_mobile_devices set last_seen_at=now() where device_uuid=:id and (last_seen_at is null or last_seen_at<now()-interval '5 minutes')",['id'=>$r['device_uuid']]);return $e+$r;
     }
-    public function bootstrap(array $e): array {return ['account'=>['extension'=>$e['number'],'display_name'=>$e['user']['name']??$e['number']],'sip'=>['server'=>pbx_paths::host(),'domain'=>$e['domain_name'],'username'=>$e['sip_username'],'auth_username'=>$e['sip_username'],'port'=>5061,'transport'=>'tls','media_encryption'=>'srtp'],'device_id'=>$e['device_uuid'],'push'=>(new pbx_mobile_push($this->db))->client(),'features'=>array_merge(['directory','calls','voicemail','presence','queues','transfers','call_waiting'],pbx_video::ready()?['video_calls']:[])];}
+    public function bootstrap(array $e): array {$passwords=new pbx_mobile_password($this->db);$hasPassword=$passwords->present($e['domain_uuid'],$e['extension_uuid']);return ['account'=>['extension'=>$e['number'],'display_name'=>$e['user']['name']??$e['number'],'domain_uuid'=>$e['domain_uuid'],'extension_uuid'=>$e['extension_uuid'],'server'=>pbx_tenant_domains::url($this->db,$e['domain_uuid']),'app_password_set'=>$hasPassword,'can_initialize_app_password'=>!$hasPassword&&$this->initialPasswordAllowed($e)],'sip'=>['server'=>pbx_paths::host(),'domain'=>$e['domain_name'],'username'=>$e['sip_username'],'auth_username'=>$e['sip_username'],'port'=>5061,'transport'=>'tls','media_encryption'=>'srtp'],'device_id'=>$e['device_uuid'],'push'=>(new pbx_mobile_push($this->db))->client(),'features'=>array_merge(['directory','calls','voicemail','presence','queues','transfers','call_waiting','app_password'],pbx_video::ready()?['video_calls']:[])];}
+    /** A token stays scoped to its PBX alias. The canonical instance remains a legacy QR transport. */
+    public function assertHost(array $e,array $server): void {
+        $domain=pbx_tenant_domains::requestDomain($this->db,$server);
+        if($domain!==''){if($domain!==$e['domain_uuid'])throw new UnexpectedValueException('Connect this account to its own server address.');return;}
+        $canonical=parse_url(pbx_paths::url());$host=strtolower((string)($server['HTTP_HOST']??''));$name=strtolower($canonical['host']??'');$port=$canonical['port']??443;
+        if($host!==$name.($port===443?'':':'.$port)&&!($port===443&&$host===$name.':443'))throw new UnexpectedValueException('Connect this account to its own server address.');
+    }
+    public function passwordPrincipal(array $in,string $ip,array $server): array {
+        $number=is_string($in['extension']??null)?$in['extension']:'';
+        $this->rate('app-login-ip:'.$ip,20,600);$this->rate('app-login-account:'.pbx_tenant_domains::hostname((string)($server['HTTP_HOST']??'')).':'.$number,10,600);
+        $domain=pbx_tenant_domains::requestDomain($this->db,$server);
+        $r=(new pbx_mobile_password($this->db))->verify($domain,$number,$in['password']??null);
+        $e=$this->extension($r['domain_uuid'],$r['extension_uuid']);if($e['number']!==$number)throw new UnexpectedValueException('The extension or app password is incorrect.');
+        return $e+['password_generation'=>(int)$r['generation']];
+    }
+    public function login(array $in,string $ip,array $server): array {
+        $this->requireTls();$name=$this->text($in['device_name']??'Android phone',80);if($name===''||($in['platform']??'android')!=='android')throw new InvalidArgumentException('Check the phone details.');
+        $e=$this->passwordPrincipal($in,$ip,$server);
+        $this->db->beginTransaction();try{
+            $this->q('select extension_uuid from v_extensions where extension_uuid=:id for update',['id'=>$e['extension_uuid']]);
+            // Serialize password reset with device creation; a stale successful check cannot enroll.
+            (new pbx_mobile_password($this->db))->verify($e['domain_uuid'],$e['number'],$in['password']);
+            $e=$this->extension($e['domain_uuid'],$e['extension_uuid']);
+            if((int)$this->q('select count(*) from v_pbx_mobile_devices where extension_uuid=:id and revoked_at is null and expires_at>now()',['id'=>$e['extension_uuid']])->fetchColumn()>=10)throw new RuntimeException('Remove an unused phone before adding another.');
+            $token=bin2hex(random_bytes(32));$password=bin2hex(random_bytes(32));$auth='owm-'.bin2hex(random_bytes(16));$id=uuid();
+            $this->q("insert into v_pbx_mobile_devices(device_uuid,domain_uuid,extension_uuid,device_name,platform,token_hash,sip_username,sip_a1_hash,expires_at) values(:id,:d,:e,:name,'android',:token,:auth,:a1,now()+interval '180 days')",['id'=>$id,'d'=>$e['domain_uuid'],'e'=>$e['extension_uuid'],'name'=>$name,'token'=>hash('sha256',$token),'auth'=>$auth,'a1'=>md5($auth.':'.$e['domain_name'].':'.$password)]);
+            $this->db->commit();$this->clearDirectory($e);$result=$this->bootstrap($e+['sip_username'=>$auth,'device_uuid'=>$id]);$result['token']=$token;$result['sip']['password']=$password;return $result;
+        }catch(Throwable $ex){if($this->db->inTransaction())$this->db->rollBack();throw $ex;}
+    }
+    private function initialPasswordAllowed(array $e): bool {
+        if(!is_uuid($e['device_uuid']??''))return false;
+        return (bool)$this->q("select 1 from v_pbx_mobile_devices where device_uuid=:id and domain_uuid=:d and extension_uuid=:e and revoked_at is null and expires_at>now() and created_at>now()-interval '10 minutes'",['id'=>$e['device_uuid'],'d'=>$e['domain_uuid'],'e'=>$e['extension_uuid']])->fetchColumn();
+    }
+    public function changePassword(array $e,array $in): array {
+        $this->rate('app-password-change:'.$e['extension_uuid'],10,600);pbx_mobile_password::validate($in['new_password']??null);
+        $this->db->beginTransaction();try{
+            $this->q('select extension_uuid from v_extensions where extension_uuid=:id for update',['id'=>$e['extension_uuid']]);
+            $passwords=new pbx_mobile_password($this->db);if($passwords->present($e['domain_uuid'],$e['extension_uuid'])||!$this->initialPasswordAllowed($e))$passwords->verify($e['domain_uuid'],$e['number'],$in['current_password']??null);
+            $devices=$passwords->set($e['domain_uuid'],$e['extension_uuid'],$in['new_password'],null,$e['device_uuid']??null);
+            $generation=$passwords->generation($e['domain_uuid'],$e['extension_uuid']);$this->db->commit();
+        }catch(Throwable $ex){if($this->db->inTransaction())$this->db->rollBack();throw $ex;}
+        return ['ok'=>true,'other_devices_revoked'=>count($devices),'connection_cleanup_pending'=>!$this->revokeFutureConnections($devices),'password_generation'=>$generation];
+    }
+    /** Expire future device registrations without disconnecting any established call. */
+    public function revokeFutureConnections(array $devices): bool {
+        $ok=true;foreach($devices as$d)try{$this->id($d['device_uuid']);$e=$this->extension($d['domain_uuid'],$d['extension_uuid']);$this->clearDirectory($e);$cache=new cache;$cache->delete('directory:'.$d['sip_username'].'@'.$e['domain_name']);$reply=event_socket::api('lua app/pbx_setup/mobile_revoke.lua '.$d['device_uuid']);if(!is_string($reply)||!str_starts_with(trim($reply),'+OK'))$ok=false;}catch(Throwable){$ok=false;}return $ok;
+    }
+    public function portalAccount(string $domain,string $extension,int $generation): array {
+        if((new pbx_mobile_password($this->db))->generation($domain,$extension)!==$generation)throw new UnexpectedValueException('Sign in again.');
+        return $this->extension($domain,$extension)+['password_generation'=>$generation];
+    }
+    public function adminPassword(string $number,mixed $password): array {
+        $e=$this->adminExtension($number);$this->db->beginTransaction();try{$devices=(new pbx_mobile_password($this->db))->set($e['domain_uuid'],$e['extension_uuid'],$password,$_SESSION['user_uuid']??null);$this->db->commit();}catch(Throwable $ex){if($this->db->inTransaction())$this->db->rollBack();throw $ex;}
+        return ['revoked'=>count($devices),'connection_cleanup_pending'=>!$this->revokeFutureConnections($devices)];
+    }
+    public function personalCode(array $e): array {return $this->issueCode($this->extension($e['domain_uuid'],$e['extension_uuid'])+['password_generation'=>$e['password_generation']??null],'personal');}
+    public function welcomeCode(string $number): array {$e=$this->adminExtension($number);return $this->issueCode($e,'welcome')+['extension'=>$e];}
+    public static function qrPng(string $payload): string {
+        require_once PROJECT_ROOT.'/resources/qr_code/QRCode.php';$qr=new QRCode(0,0);$qr->addData($payload);$qr->make();$n=$qr->getModuleCount();if($n<1||$n>177)throw new RuntimeException('The setup image could not be created.');
+        $scale=5;$size=($n+8)*$scale;$raw='';for($y=0;$y<$size;$y++){$line='';for($x=0;$x<$size;$x++){$mx=intdiv($x,$scale)-4;$my=intdiv($y,$scale)-4;$line.=($mx>=0&&$my>=0&&$mx<$n&&$my<$n&&$qr->isDark($my,$mx))?"\0":"\xff";}$raw.="\0".$line;}
+        $chunk=static fn($type,$data)=>pack('N',strlen($data)).$type.$data.pack('N',crc32($type.$data));return "\x89PNG\r\n\x1a\n".$chunk('IHDR',pack('NNCCCCC',$size,$size,8,0,0,0,0)).$chunk('IDAT',gzcompress($raw,9)).$chunk('IEND','');
+    }
     public function devices(string $number): array {$e=$this->adminExtension($number);return $this->q('select device_uuid,device_name,created_at,last_seen_at,expires_at,revoked_at from v_pbx_mobile_devices where extension_uuid=:e order by created_at desc limit 30',['e'=>$e['extension_uuid']])->fetchAll(PDO::FETCH_ASSOC);}
     public function adminRevoke(string $number,string $id): void {$e=$this->adminExtension($number);$this->id($id);$d=$this->q('select device_uuid,sip_username,domain_uuid from v_pbx_mobile_devices where device_uuid=:id and extension_uuid=:e',['id'=>$id,'e'=>$e['extension_uuid']])->fetch(PDO::FETCH_ASSOC);if(!$d)throw new InvalidArgumentException('Phone unavailable.');$this->revoke($e+$d);}
     /** A review account can connect only its operator-assigned demo extension. */

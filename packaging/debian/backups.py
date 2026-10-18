@@ -43,7 +43,8 @@ UPGRADE_LOCK = Path('/run/openwebpbx-upgrade.lock')
 UNIT_ROOT = Path('/etc/systemd/system')
 CACHE = Path('/var/cache/fusionpbx')
 HELD_UNITS = {'calls': 'freeswitch.service', 'jobs': 'openwebpbx.service',
-              'updates': 'openwebpbx-updater.service', 'backups': 'openwebpbx-backups.timer'}
+              'updates': 'openwebpbx-updater.service', 'backups': 'openwebpbx-backups.timer',
+              'mail': 'email_queue.service'}
 ROOTS = {
     'fusionpbx-config': Path('/etc/fusionpbx'),
     'runtime-config': Path('/etc/openwebpbx'),
@@ -57,7 +58,7 @@ MEDIA = {
     'recordings': Path('/var/lib/freeswitch/recordings'),
     'custom-sounds': Path('/usr/share/freeswitch/sounds/openwebpbx'),
 }
-SERVICES = ('openwebpbx-backups.timer', 'openwebpbx-updater', 'openwebpbx', 'freeswitch', 'php8.4-fpm')
+SERVICES = ('email_queue.service', 'openwebpbx-backups.timer', 'openwebpbx-updater', 'openwebpbx', 'freeswitch', 'php8.4-fpm')
 
 
 class BackupError(RuntimeError):

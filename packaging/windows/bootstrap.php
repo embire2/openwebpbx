@@ -32,7 +32,7 @@ if($stage==='migrate'){
   $codecSettingsChanged=openweb_normalize_codec_module_settings($db);
   if($codecXmlChanged||$codecSettingsChanged)echo "Conflicting passthrough audio module disabled.\n";
  }
- foreach(['tenant_services/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql','pbx_setup/resources/call_me_back.sql','pbx_mobile/resources/install.sql', 'pbx_updates/resources/install.sql','pbx_backups/resources/install.sql','voicemails/resources/voicemail_without_pins.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
+ foreach(['tenant_services/resources/install.sql','pbx_tenant_domains/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql','pbx_setup/resources/call_me_back.sql','pbx_mobile/resources/install.sql', 'pbx_updates/resources/install.sql','pbx_backups/resources/install.sql','voicemails/resources/voicemail_without_pins.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
  if(PHP_OS_FAMILY==='Linux'&&is_file(__DIR__.'/install-support.py')){
   $command='python3 '.escapeshellarg(__DIR__.'/install-support.py');passthru($command,$result);
   if($result!==0)throw new RuntimeException('The instance backup worker could not be installed.');
@@ -65,7 +65,7 @@ if(!$user){
  }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
 }
 unset($input,$password);
-foreach(['tenant_services/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql','pbx_setup/resources/call_me_back.sql','pbx_mobile/resources/install.sql', 'pbx_updates/resources/install.sql','pbx_backups/resources/install.sql','voicemails/resources/voicemail_without_pins.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
+foreach(['tenant_services/resources/install.sql','pbx_tenant_domains/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql','pbx_setup/resources/call_me_back.sql','pbx_mobile/resources/install.sql', 'pbx_updates/resources/install.sql','pbx_backups/resources/install.sql','voicemails/resources/voicemail_without_pins.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
 pbx_meet_install::apply($db);
 pbx_meet_install::tls();
 if(getenv('OPENWEB_RESTORE_SERVER')==='true'){settings::clear_cache();echo "Administrator ready. This replacement server is empty and ready for backup restore.\n";exit;}

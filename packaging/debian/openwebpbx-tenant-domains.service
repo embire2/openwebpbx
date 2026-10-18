@@ -1,0 +1,14 @@
+# OpenWeb PBX managed tenant domains v1
+[Unit]
+Description=OpenWeb PBX tenant hostname and certificate worker
+After=network-online.target postgresql.service nginx.service
+ConditionPathExists=/etc/fusionpbx/config.conf
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/openwebpbx/tools/tenant-domains.py
+User=root
+Group=root
+UMask=0077
+TimeoutStartSec=10min
+PrivateTmp=true
+NoNewPrivileges=true

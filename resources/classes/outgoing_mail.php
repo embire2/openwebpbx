@@ -155,7 +155,7 @@ class outgoing_mail {
         settings::clear_cache();
     }
 
-    /** Check the saved SMTP connection/authentication without sending a message. */
+    /** Check TLS/authentication and sender permission, without RCPT or DATA. */
     public function checkConnection(): bool {
         if (!$this->canManage()) throw new RuntimeException('Outgoing mail administration permission is required.');
         $smtp = $this->transport();
@@ -174,7 +174,16 @@ class outgoing_mail {
         $mail->Timeout = 10;
         $mail->SMTPDebug = 0;
         try {
-            return $mail->smtpConnect();
+            if (!$mail->smtpConnect()) return false;
+            $connection = $mail->getSMTPInstance();
+            if (!$connection->mail($smtp['from'])) {
+                $error = $connection->getError();
+                $code = (string)($error['smtp_code'] ?? '');
+                $suffix = preg_match('/^[45][0-9]{2}$/D', $code) ? ' ('.$code.')' : '';
+                throw new RuntimeException('The outgoing server rejected the saved From address'.$suffix.'. Ask the mail provider to allow this server’s outgoing IP addresses and sender. No email was sent.');
+            }
+            $connection->reset();
+            return true;
         } finally {
             $mail->smtpClose();
         }

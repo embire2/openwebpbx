@@ -1,12 +1,22 @@
 # OpenWebPBX Free Phone for Android
 
-Source version **1.0.16 (code 116)** adds native video calls between colleagues, with explicit camera permission and an audio-only answer option. See [video calling](../../docs/android-video.md) for the controls, server capability and qualification limits. Publication is recorded separately; this source version does not imply a new public release.
+Source version **1.0.17 (code 117)** adds simultaneous saved phone accounts, tenant/app-password sign-in, one-use setup-file import, first-password creation and visible policy links. Existing native video keeps explicit camera permission and an audio-only answer option. See [video calling](../../docs/android-video.md) for the controls, server capability and qualification limits. Publication is recorded separately; this source version does not imply a new public release.
 
 A standalone native Android phone, built with Kotlin and the Linphone SIP/media engine. There is no embedded website or WebView. The app remains **OpenWebPBX Free Phone**, with the same package and signing identity for upgrades. It supports Android 9 and newer, and the universal APK includes ARMv7, ARM64 and x86-64.
 
 Install the signed APK from the project's GitHub release, then scan the connection QR in your PBX's **Users → Phone Provisioning**. The QR contains a short-lived one-time code, not your SIP password. Existing audio calls, hold, transfer, voicemail, personal settings and managed updates remain available.
 
 See [the Android guide](../../docs/android.md) for connection, calling, voicemail, testing and current limitations. This client is licensed under AGPL-3.0-or-later; original server licenses are unchanged. See [third-party notices](THIRD_PARTY_NOTICES.md).
+
+## Phone accounts
+
+For the new sign-in and password features, the PBX must run 1.0.17 or newer. Choose **Sign in with an app password**, enter your tenant address (for example, `company.openwebpbx.com`), extension and administrator-provided app password. This password is separate from the phone's SIP credentials. QR setup remains available. An administrator can also send a `.openwebpbx` file containing a one-use connection code: tap a correctly typed attachment or choose **Import a setup file**. The app shows the server before connecting and refuses files containing passwords.
+
+Use **Settings → Accounts** to add up to ten accounts, select the account for outgoing calls, edit its local name or remove it. Saved accounts receive calls concurrently; a call and its history always belong to the account that handled it. Account changes wait until calls and installation have finished. To change the tenant address or extension, add its connection as another account. A revoked connection offers password sign-in or a new QR code.
+
+**Change app password** requires the current password. A newly connected QR user without an app password can create one during the server's short setup window; otherwise ask the administrator to set or reset it. Passwords contain 12–128 Unicode characters and are not saved by the app. Changing the password preserves this device's connection and expires other devices' future access under the server's policy.
+
+Removing an account normally revokes its device connection first. If its server cannot be reached, a separate **Remove from this phone anyway** confirmation removes only local credentials; ask the administrator to revoke the still-listed device when the server is available. Other accounts stay connected. Removing a phone connection does not delete the PBX account or server records: use the visible **Delete account / request data deletion** link in onboarding or Settings for that request. Terms and Privacy links open the browser from both screens.
 
 ## Build
 
@@ -28,7 +38,7 @@ The native updater uses the pinned public release key in `app/src/main/assets/re
 
 `UpdateRulesTest` covers detached signatures, allowed origins, monotonic metadata, versions and required-update safety states. `UpdateWorkflowTest` is opt-in with `updateFixture=true`; it requires a disposable account, private signed future-version APK/envelope and a fixture peer. Keep those inputs outside source and release archives. It exercises real download verification, Android installation permission/confirmation/cancellation and account-preserving replacement. Adding `updatePublic=true` uses the normal production HTTPS feed/download transport instead of fixture bytes, while still requiring the fixture guard and disposable account. The internal transport interface permits private instrumentation to supply signed bytes without introducing any production test URL, private key or verification bypass.
 
-Private qualification can override the build version using `-PopenwebPrivateVersionCode=115 -PopenwebPrivateVersionName=1.0.15`. Such APKs and manifests are local fixtures only. The 1.0.16 release build uses the default 1.0.16/code116 values and the stable signing identity. The corresponding-source archive includes the root VERSION file, all recursively tracked SDK/submodule source (including upstream build directories), and the exact Maven runtime source JARs.
+Private qualification can override the build version using `-PopenwebPrivateVersionCode=115 -PopenwebPrivateVersionName=1.0.15`. Such APKs and manifests are local fixtures only. The 1.0.17 release build uses the default 1.0.17/code117 values and the stable signing identity. The corresponding-source archive includes the root VERSION file, all recursively tracked SDK/submodule source (including upstream build directories), and the exact Maven runtime source JARs.
 
 `CallAudioTest` uses `audioFixture=true` and a disposable `audio-setup.json` to verify Android communication audio mode, audio-focus hold/resume, background calling and incoming SRTP audio. An independent auto-answer peer must be registered as extension 1001 in that isolated PBX. Never point these checks at customer accounts.
 
@@ -66,6 +76,14 @@ Final scoped cleanup removed the disposable tenant/native accounts and contacts,
 stopped the owned Android/peer environment, removed its ADB authorization and
 four labelled firewall exceptions, and preserved customer/reviewer resources,
 original keys, unrelated processes and production services.
+
+## Multi-account qualification
+
+The 1.0.17 source passed 36 direct and 40 Play JVM tests and both debug lint checks with zero errors (83 direct / 73 Play warnings remain). Eighteen Android13 tests exercised real Keystore migration, concurrent encrypted-store changes, external policy links, native attachment confirmation, recovery without moving an existing bearer token to another origin, and per-account update-policy caching and failure handling. Four onboarding/policy-link layouts were reviewed at 315 dp in light and dark themes.
+
+Three guarded native workflows used two fictional tenants with the same extension numbers. They covered password sign-in, setup-file connection, simultaneous TLS registration, an incoming call on the unselected account, selected-account outgoing calls, hold/resume, separate history, first-password creation, wrong-current-password refusal, local naming, notification identity and normal removal. The final 1.0.17 workflow kept a real SRTP call connected during password change/restoration, refused account changes during that call, prevented an old transfer dialog from acting on a new tenant's call, and verified explicit offline removal while the other account remained ready. Independent software peers and Android recordings decoded the expected tones in both directions (maximum one-second ratios above 0.99978). This is software-device evidence; physical handsets, simultaneous carrier calls, Play-track delivery, locked-device push and physical camera/sensor behavior remain separate checks.
+
+`ProfileWorkflowTest` is opt-in: `profilesFixture=true`, `firstPasswordFixture=true` or `offlineProfileFixture=true` requires the corresponding private disposable fixture in the app's external-files directory and independently controlled peers. `ProfileStoreTest`, `ProfileUiTest` and `ProfileUpdatePolicyTest` isolate and restore the test device's encrypted account data. Never run these destructive test fixtures on an end user's phone. The signed public-release replacement check and artifact publication are recorded separately; a debug-source pass does not establish either.
 
 ## Isolated video qualification
 

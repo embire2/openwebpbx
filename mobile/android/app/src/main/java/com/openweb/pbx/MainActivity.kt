@@ -56,6 +56,10 @@ class MainActivity: ComponentActivity() {
     private var busy = false
     private var bootstrapped = false
     private var drawnAccount = false
+    private var drawnProfile:String?=null
+    private val requestProfile=ThreadLocal<String?>()
+    private var importedIntent=false
+    private var storageUnavailable=false
     private var playbackGeneration = 0
     private var dialledNumber = ""
     private var urgentUpdateBypass = false
@@ -72,8 +76,9 @@ class MainActivity: ComponentActivity() {
         runOnUiThread { refreshConnection() }
     }
     private fun refreshConnection() {
-        if(isFinishing || isDestroyed || !::store.isInitialized)return
-        if((store.read()!=null)!=drawnAccount) {
+        if(isFinishing || isDestroyed || !::store.isInitialized || storageUnavailable)return
+        if((store.read()!=null)!=drawnAccount || drawnProfile!=store.selectedId()) {
+            bootstrapped=false;stopPlayback()
             draw()
             if(drawnAccount) { ensurePermissions();bootstrap() }
         }
@@ -100,30 +105,49 @@ class MainActivity: ComponentActivity() {
         draw()
     }
     private val scanner = registerForActivityResult(ScanContract()) { result ->
-        if(result.contents != null) try {
-            val qr = JSONObject(result.contents)
-            require(qr.optString("type") == "openwebpbx" && qr.optInt("version") == 1) { "This is not an OpenWeb PBX connection code" }
-            val server = Enrollment.server(qr.getString("server")); val code = Enrollment.code(qr.getString("code"))
-            AlertDialog.Builder(this).setTitle("Connect your phone?").setMessage("Connect to ${URI(server).host}. Only scan codes provided by your PBX administrator.\n\n$privacySummary")
-                .setNegativeButton("Cancel",null).setPositiveButton("Connect") { _, _ -> enroll(server,code) }.show()
-        } catch(e: Exception) { message(e.message ?: "That QR code could not be read") }
+        result.contents?.let{confirmSetup(it)}
     }
+    private val setupFile=registerForActivityResult(ActivityResultContracts.OpenDocument()){uri->if(uri!=null)importSetup(uri)}
+    private fun confirmSetup(raw:String){
+        try {
+            requireProfileIdle()
+            val data=ProfileRules.setup(raw);val server=data.getString("server");val code=data.getString("code")
+            AlertDialog.Builder(this).setTitle("Add this phone account?").setMessage("Connect to ${URI(server).host}${data.optString("extension").takeIf{it.isNotBlank()}?.let{" · Extension $it"} ?: ""}. Only use setup details supplied by your administrator.\n\n$privacySummary")
+                .setNegativeButton("Cancel",null).setPositiveButton("Connect"){_,_->enroll(server,code)}.show()
+        }catch(e:Exception){message(e.message ?: "That setup file or QR code could not be read")}
+    }
+    private fun importSetup(uri:Uri){
+        try{
+            requireProfileIdle();require(uri.scheme=="content"){"Choose the setup file from your phone's file picker"}
+            // Email/document providers may fetch the attachment remotely. Keep
+            // their bounded read off the calling/UI thread; confirm again after it.
+            async({
+                val name=contentResolver.query(uri,arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),null,null,null)?.use{cursor->if(cursor.moveToFirst())cursor.getString(0) else null}
+                require(name?.endsWith(".openwebpbx",true)==true){"Choose a .openwebpbx setup file"}
+                val bytes=contentResolver.openInputStream(uri)?.use{input->val out=java.io.ByteArrayOutputStream();val buffer=ByteArray(2048);while(true){val n=input.read(buffer);if(n<0)break;require(out.size()+n<=ProfileRules.MAX_SETUP_BYTES){"That setup file is too large"};out.write(buffer,0,n)};out.toByteArray()} ?: error("Could not open that file")
+                String(bytes,Charsets.UTF_8)
+            },{confirmSetup(it)},markRevoked=false)
+        }catch(e:Exception){message(e.message ?: "Could not open that setup file")}
+    }
+    private fun importIntent(){if(intent.action==Intent.ACTION_VIEW && !importedIntent){importedIntent=true;intent.data?.let{importSetup(it)}}}
     override fun onCreate(savedInstanceState: Bundle?) {
         preferences=PhonePreferences(this)
-        setTheme(if(dark)android.R.style.Theme_Material_NoActionBar else R.style.AppTheme)
+        setTheme(if(dark)android.R.style.Theme_Material_NoActionBar else R.style.AppThemeLight)
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        store = PhoneStore(this); section = savedInstanceState?.getString("section") ?: preferences.startupPage
+        store = PhoneStore(this)
+        try{store.profiles()}catch(_:Exception){storageUnavailable=true;storageRecovery();return}
+        section = savedInstanceState?.getString("section") ?: preferences.startupPage
         settingsReturnSection=savedInstanceState?.getString("settings_return") ?: "Keypad"
         onBackPressedDispatcher.addCallback(this){if(section=="Settings"){section=settingsReturnSection;draw()}else{isEnabled=false;onBackPressedDispatcher.onBackPressed();isEnabled=true}}
         shownUpdatePrompts.addAll(savedInstanceState?.getStringArrayList("update_prompts") ?: emptyList())
         openUpdatesRequested=intent.getBooleanExtra("show_updates",false);intent.removeExtra("show_updates")
         draw();updates.schedule();updates.check()
-        if(store.read() != null) { ensurePermissions(); bootstrap() }
+        if(store.read() != null) { ensurePermissions(); bootstrap() };importIntent()
     }
-    override fun onResume() { super.onResume(); updates.foregroundActivity=this; updates.changed={runOnUiThread { if(store.read()!=null && !updates.isInstalling && PhoneService.instance==null && checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startPhone();updatePhone();updateUi() }}; PhoneService.changed = { runOnUiThread { updatePhone();updateUi() } }; if(section=="Settings")draw();updatePhone();updateUi(); if(store.read()!=null && !updates.isInstalling && checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startPhone() }
-    override fun onPause() { PhoneService.changed = null;updates.changed=null;updates.foregroundActivity=null; super.onPause() }
-    override fun onNewIntent(intent:Intent) { super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("show_updates",false)){openUpdatesRequested=true;intent.removeExtra("show_updates");updateUi()} }
+    override fun onResume() { super.onResume();if(storageUnavailable)return; updates.foregroundActivity=this; updates.changed={runOnUiThread { if(store.read()!=null && !updates.isInstalling && PhoneService.instance==null && checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startPhone();updatePhone();updateUi() }}; PhoneService.changed = { runOnUiThread { updatePhone();updateUi() } }; if(section=="Settings")draw();updatePhone();updateUi(); if(store.read()!=null && !updates.isInstalling && checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startPhone() }
+    override fun onPause() { if(storageUnavailable){super.onPause();return};PhoneService.changed = null;updates.changed=null;updates.foregroundActivity=null; super.onPause() }
+    override fun onNewIntent(intent:Intent) { super.onNewIntent(intent);setIntent(intent);if(storageUnavailable)return;importedIntent=false;importIntent();if(intent.getBooleanExtra("show_updates",false)){openUpdatesRequested=true;intent.removeExtra("show_updates");updateUi()} }
     override fun onSaveInstanceState(outState: Bundle) { outState.putString("section", section);outState.putString("settings_return",settingsReturnSection);outState.putStringArrayList("update_prompts",ArrayList(shownUpdatePrompts));super.onSaveInstanceState(outState) }
     override fun onDestroy() { availabilityDialog?.dismiss();updateDetails?.dismiss();stopPlayback(); worker.shutdown(); super.onDestroy() }
     private fun dp(value:Int) = (value * resources.displayMetrics.density).toInt()
@@ -165,28 +189,40 @@ class MainActivity: ComponentActivity() {
         val scroll=ScrollView(this).apply { isFillViewport=true }; body=layout(); scroll.addView(body)
         root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
         keypadDock=layout(true);root.addView(keypadDock)
-        drawnAccount=store.read()!=null
+        drawnAccount=store.read()!=null;drawnProfile=store.selectedId()
         if(!drawnAccount) { welcome(); return }
         val nav=layout(true)
         val navIcons=mapOf("Keypad" to R.drawable.ic_keypad,"Contacts" to R.drawable.ic_contacts,"Recents" to R.drawable.ic_recents,"Voicemail" to R.drawable.ic_voicemail)
         for(name in navIcons.keys) nav.addView(iconButton(name,navIcons.getValue(name),name==section){ section=name; stopPlayback(); draw() },spaced(height=if(compact)48 else 74))
         root.addView(nav)
         updateGated=updates.shouldGate(PhoneService.instance?.call!=null,urgentUpdateBypass);updatePhone()
-        if(updateGated) { updateGate();updateUi();return }
+        if(updateGated && section!="Settings") { updateGate();updateUi();return }
         when(section) { "Keypad" -> keypad(); "Contacts" -> contacts(); "Recents" -> recents(); "Voicemail" -> voicemail(); "Settings"->settingsPage() };updateUi()
+    }
+    private fun storageRecovery(){
+        root=layout().apply{setPadding(dp(20),dp(40),dp(20),dp(20));setBackgroundColor(paper)};body=layout();root.addView(ScrollView(this).apply{addView(body)});setContentView(root)
+        body.addView(text("Saved accounts could not be opened",26f,ink,true))
+        body.addView(text("Your encrypted account data has been kept. Try reopening the app. If your phone's security key is unavailable, reset the local accounts and sign in again. Server accounts and records are not deleted; your administrator can revoke old phone connections.",16f,soft))
+        body.addView(button("Try again"){recreate()})
+        body.addView(button("Reset local accounts"){AlertDialog.Builder(this).setTitle("Reset this phone's saved accounts?").setMessage("This removes local credentials only. You will need your app passwords or new setup codes to reconnect.").setNegativeButton("Cancel",null).setPositiveButton("Reset"){_,_->store.clear();recreate()}.show()})
+        policyLinks()
     }
     private fun welcome() {
         body.addView(text("Meet your new\nwork phone.",36f,ink,true))
         body.addView(text("Call your team, reach customers and listen to voicemail in one place.",18f,soft))
         body.addView(text("1. Open Users → Phone Provisioning in your PBX.\n2. Create your Android connection code.\n3. Scan the QR code below.",16f,soft))
         body.addView(button("Scan QR code") { scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Scan the QR code shown in your PBX").setBeepEnabled(false).setOrientationLocked(false)) })
+        body.addView(button("Sign in with an app password"){manualLogin()})
+        body.addView(button("Import a setup file"){requireProfileIdle();setupFile.launch(arrayOf("*/*"))})
         body.addView(button("Enter a connection code instead") { manualEnrollment() })
         body.addView(text(privacySummary,14f,soft))
+        policyLinks()
         body.addView(button("Privacy and support") { privacy() })
         body.addView(text("Android 9 or newer · Version ${BuildConfig.VERSION_NAME}\nCalls stay connected while the phone notification is running. Reopen the app after restarting your phone or stopping it.",13f,soft))
     }
     private fun field(hint:String,value:String="",type:Int=InputType.TYPE_CLASS_TEXT) = EditText(this).apply { this.hint=hint; setText(value); inputType=type; setTextColor(ink); setHintTextColor(soft); minHeight=dp(52); setSingleLine(); importantForAutofill=View.IMPORTANT_FOR_AUTOFILL_NO }
     private fun manualEnrollment() {
+        requireProfileIdle()
         val fields=layout().apply { setPadding(dp(20),0,dp(20),0) }
         val host=field("https://your-pbx.example.com",type=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
         val code=field("Connection code",type=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
@@ -196,18 +232,84 @@ class MainActivity: ComponentActivity() {
             try { val s=Enrollment.server(host.text.toString()); val c=Enrollment.code(code.text.toString()); dialog.dismiss(); enroll(s,c) } catch(e:Exception) { code.error=e.message }
         } }; dialog.show()
     }
-    private fun enroll(server:String, code:String) {
-        if(busy)return; busy=true; status.text="Connecting your phone…"
+    private fun requireProfileIdle(){
+        check(ProfileRules.canChange(PhoneService.instance?.calls?.size ?: 0,updates.isInstalling)){"Finish your calls or the app update before changing accounts"}
+    }
+    private fun enroll(server:String,code:String)=connectAccount(server,"enroll",JSONObject().put("code",code))
+    private fun connectAccount(server:String,action:String,body:JSONObject){
+        requireProfileIdle();if(busy)return;busy=true;status.text="Connecting your account…"
         async({
-            val response=PhoneApi(server).json("enroll",JSONObject().put("code",code).put("device_name","${Build.MANUFACTURER} ${Build.MODEL}").put("platform","android"))
-            require(response.getString("token").length>=32) { "The PBX returned an invalid phone connection" }
-            val sip=response.getJSONObject("sip")
-            require(sip.getString("transport").equals("tls",true) && sip.getString("media_encryption").equals("srtp",true)) { "Your PBX needs secure phone connections enabled" }
-            response.getJSONObject("account").getString("extension")
-            response.put("server",server)
-            // A one-use code must retain its validated credentials even if this Activity is replaced.
-            store.save(response);PushConnection.configure(this);response
-        }, { _ -> busy=false; draw(); ensurePermissions() }, { busy=false; status.text="Your work phone, wherever you are" })
+            val response=ProfileRules.connected(PhoneApi(server).json(action,body.put("device_name","${Build.MANUFACTURER} ${Build.MODEL}").put("platform","android")),server)
+            // Persist outside the Activity callback: rotation cannot consume and lose a one-use code.
+            try{
+                val duplicate=store.profiles().firstOrNull{ProfileRules.sameAccount(it,response)}
+                if(duplicate?.optBoolean("needs_login")==true){
+                    response.put("profile_id",duplicate.getString("profile_id"));response.put("profile_name",duplicate.optString("profile_name"));duplicate.optJSONArray("pending_calls")?.let{response.put("pending_calls",it)};store.save(response)
+                }else store.add(response,select=false)
+            }catch(e:Exception){try{PhoneApi(server,response.getString("token")).json("revoke",JSONObject())}catch(_:Exception){};throw e}
+            PushConnection.configure(this,response);response.getString("profile_id")
+        },{ id ->busy=false;if(PhoneService.instance?.calls?.isEmpty()!=false)store.select(id);bootstrapped=false;draw();ensurePermissions();bootstrap();updates.check()},{busy=false;updatePhone()},acceptProfileChange=true)
+    }
+    private fun manualLogin(profile:JSONObject?=null){
+        requireProfileIdle()
+        val fields=layout().apply{setPadding(dp(20),0,dp(20),0)}
+        // Canonical metadata is only an editable suggestion for a new password
+        // login. No saved bearer token is sent to this suggested origin.
+        val suggested=profile?.optJSONObject("account")?.optString("server")?.takeIf{it.isNotBlank()}?.let{try{Enrollment.server(it)}catch(_:Exception){null}}
+        val host=field("Tenant name or address",suggested ?: profile?.getString("server") ?: "",InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
+        val extension=field("Extension",profile?.getJSONObject("account")?.optString("extension") ?: "",InputType.TYPE_CLASS_NUMBER)
+        val password=field("App password",type=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        fields.addView(text("Enter your tenant name, extension and the app password set by your administrator. Your phone's SIP password is separate.",14f,soft));fields.addView(host);fields.addView(extension);fields.addView(password);fields.addView(text(privacySummary,13f,soft))
+        val dialog=AlertDialog.Builder(this).setTitle("Sign in to your phone").setView(ScrollView(this).apply{addView(fields)}).setNegativeButton("Cancel",null).setPositiveButton("Sign in",null).create()
+        dialog.setOnShowListener{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
+            try{requireProfileIdle();val server=Enrollment.tenant(host.text.toString());val number=extension.text.toString().trim();require(number.matches(Regex("[0-9]{1,16}"))){"Enter your extension"};require(password.text.isNotEmpty()){"Enter your app password"};val secret=password.text.toString();password.text.clear();dialog.dismiss();connectAccount(server,"login",JSONObject().put("extension",number).put("password",secret))}catch(e:Exception){password.error=e.message}
+        }};dialog.show()
+    }
+    private fun accounts(){
+        val saved=store.profiles();val contents=layout().apply{setPadding(dp(20),0,dp(20),0)}
+        contents.addView(text("All connected accounts can receive calls. Choose which account makes new calls and shows contacts and voicemail.",14f,soft))
+        val dialog=AlertDialog.Builder(this).setTitle("Phone accounts").setView(ScrollView(this).apply{addView(contents)}).setNegativeButton("Done",null).create()
+        for(profile in saved){val id=profile.getString("profile_id");contents.addView(button((if(id==store.selectedId())"✓ " else "")+ProfileRules.label(profile)){
+            requireProfileIdle();store.select(id);PhoneService.instance?.syncProfiles();dialog.dismiss();bootstrapped=false;section="Keypad";draw();bootstrap();updates.check()
+        });contents.addView(text(if(profile.optBoolean("needs_login"))"Sign in again to reconnect this account" else PhoneService.instance?.profileStatus(id) ?: "Connecting…",13f,soft));contents.addView(button("Edit ${ProfileRules.label(profile)}"){requireProfileIdle();dialog.dismiss();editProfile(id)})}
+        contents.addView(button("Add an account"){requireProfileIdle();dialog.dismiss();addAccount()});dialog.show()
+    }
+    private fun addAccount(){
+        requireProfileIdle();require(store.profiles().size<ProfileRules.MAX_PROFILES){"Remove an account before adding another"}
+        AlertDialog.Builder(this).setTitle("Add a phone account").setItems(arrayOf("Scan QR code","Sign in with an app password","Import a setup file","Enter a connection code")){_,index->
+            when(index){0->scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Scan your administrator's QR code").setBeepEnabled(false));1->manualLogin();2->setupFile.launch(arrayOf("*/*"));3->manualEnrollment()}
+        }.setNegativeButton("Cancel",null).show()
+    }
+    private fun editProfile(id:String){
+        requireProfileIdle();val profile=store.read(id) ?: return
+        val fields=layout().apply{setPadding(dp(20),0,dp(20),0)};val name=field("Account name",ProfileRules.label(profile))
+        fields.addView(name);fields.addView(text("${profile.getString("server")}\nExtension ${profile.getJSONObject("account").optString("extension")}",14f,soft))
+        fields.addView(text("The name is saved only on this phone. To use another tenant or extension, add its account.",13f,soft))
+        val dialog=AlertDialog.Builder(this).setTitle("Edit account").setView(fields).setNegativeButton("Cancel",null).setPositiveButton("Save",null).setNeutralButton("Remove",null).create()
+        if(profile.optBoolean("needs_login")){
+            fields.addView(button("Sign in again"){dialog.dismiss();manualLogin(profile)})
+            fields.addView(button("Use a new QR code"){requireProfileIdle();dialog.dismiss();scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Scan your administrator's QR code").setBeepEnabled(false))})
+            fields.addView(text("If your administrator gives you a different tenant address, connect it as a new account, then remove this old saved account.",13f,soft))
+        }
+        dialog.setOnShowListener{
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{try{requireProfileIdle();val value=name.text.toString().trim();require(value.length in 1..80 && value.none{it.isISOControl()}){"Use an account name between 1 and 80 characters"};store.update(id){it.put("profile_name",value)};dialog.dismiss();draw()}catch(e:Exception){name.error=e.message}}
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener{requireProfileIdle();dialog.dismiss();removeProfile(id)}
+        };dialog.show()
+    }
+    private fun changeAppPassword(){
+        requireProfileIdle();val id=store.selectedId() ?: return
+        val identity=store.read(id)?.getJSONObject("account") ?: return
+        val initialize=!identity.optBoolean("app_password_set",true) && identity.optBoolean("can_initialize_app_password")
+        if(!identity.optBoolean("app_password_set",true) && !initialize){message("Ask your administrator to set an app password, or connect with a new QR code before creating one.");return}
+        val fields=layout().apply{setPadding(dp(20),0,dp(20),0)}
+        val current=field("Current app password",type=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD);val next=field("New app password",type=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD);val repeated=field("Repeat new password",type=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        fields.addView(text("This phone stays connected. Other app sessions and unused setup codes for this account will be disconnected. Your SIP password does not change.",14f,soft));if(!initialize)fields.addView(current);fields.addView(next);fields.addView(repeated)
+        val dialog=AlertDialog.Builder(this).setTitle(if(initialize)"Create app password" else "Change app password").setView(ScrollView(this).apply{addView(fields)}).setNegativeButton("Cancel",null).setPositiveButton("Change password",null).create()
+        dialog.setOnShowListener{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{try{
+            requireProfileIdle();require(initialize || current.text.isNotEmpty()){"Enter your current app password"};require(ProfileRules.appPassword(next.text.toString())){"Use between 12 and 128 characters for your new password"};require(next.text.toString()==repeated.text.toString()){"The new passwords do not match"}
+            val body=JSONObject().put("current_password",current.text.toString()).put("new_password",next.text.toString());current.text.clear();next.text.clear();repeated.text.clear();dialog.dismiss()
+            async({api().json("change_password",body)},{store.update(id){it.getJSONObject("account").put("app_password_set",true).put("can_initialize_app_password",false)};message("App password saved. This phone is still connected.");draw()},scope=id,markRevoked=false)
+        }catch(e:Exception){repeated.error=e.message}}};dialog.show()
     }
     private fun ensurePermissions() {
         val needed=mutableListOf<String>()
@@ -219,10 +321,10 @@ class MainActivity: ComponentActivity() {
     private fun startPhone() { if(store.read()!=null && PhoneService.instance==null && !updates.isInstalling) startForegroundService(Intent(this,PhoneService::class.java)); updatePhone() }
     private fun updatePhone() {
         if(!::status.isInitialized || store.read()==null)return
-        val phone=PhoneService.instance; val account=store.read()?.optJSONObject("account")
-        val connection=phone?.status ?: if(updates.isInstalling)"Phone paused while Android updates" else "Open the phone to connect"
+        val phone=PhoneService.instance; val selected=store.read();val account=selected?.optJSONObject("account")
+        val connection=if(selected?.optBoolean("needs_login")==true)"Sign in again in Accounts" else phone?.status ?: if(updates.isInstalling)"Phone paused while Android updates" else "Open the phone to connect"
         val extension=account?.optString("extension","") ?: ""
-        status.text=if(compact)"$extension · $connection" else "${account?.optString("display_name","") ?: ""} · Your extension $extension\n$connection"
+        status.text=if(compact)"${selected?.let{ProfileRules.label(it)}} · $connection" else "${account?.optString("display_name","") ?: ""} · Your extension $extension\n$connection"
         status.contentDescription="${account?.optString("display_name","") ?: ""}, extension $extension, $connection"
         if(compact){status.maxLines=1;status.ellipsize=android.text.TextUtils.TruncateAt.END}
         callPanel.removeAllViews();callPanel.setPadding(0,0,0,0);callPanel.background=null
@@ -243,7 +345,7 @@ class MainActivity: ComponentActivity() {
         val state=if(phone.conferenceOnHold)"On hold" else if(phone.conferenceJoinFailed)"Three-way audio needs retry" else if(phone.conference!=null && !phone.conference!!.isIn)"Connecting three-way audio…" else if(phone.conference!=null)"Three-way call" else when(call.state) { Call.State.IncomingReceived -> "Incoming call"; Call.State.Paused -> "On hold"; Call.State.Pausing -> "Placing on hold…";Call.State.Resuming -> "Resuming…"; Call.State.StreamsRunning -> "Connected"; Call.State.OutgoingRinging -> "Ringing…";Call.State.OutgoingEarlyMedia -> "Connecting…"; else -> "Calling…" }
         if(compact){
             callPanel.setPadding(dp(6),dp(3),dp(6),dp(3))
-            callPanel.addView(text("$state · ${phone.callLabel}",15f,ink,true).apply{gravity=Gravity.CENTER;maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END;setPadding(0,dp(2),0,dp(2))})
+            callPanel.addView(text("${phone.profileLabel()} · $state · ${phone.callLabel}",15f,ink,true).apply{gravity=Gravity.CENTER;maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END;setPadding(0,dp(2),0,dp(2))})
             val actions=layout(true)
             if(call.state==Call.State.IncomingReceived){
                 actions.addView(iconButton("Decline",R.drawable.ic_hangup,tone=Color.parseColor("#B3263E")){phone.hangup()},spaced(height=48))
@@ -255,7 +357,7 @@ class MainActivity: ComponentActivity() {
             }
             callPanel.addView(actions);if(call.state!=Call.State.IncomingReceived)callHold(phone);callExtras(phone);return
         }
-        callPanel.addView(text(state,14f,soft).apply{gravity=Gravity.CENTER})
+        callPanel.addView(text("${phone.profileLabel()} · $state",14f,soft).apply{gravity=Gravity.CENTER})
         callPanel.addView(text(phone.callLabel,28f,ink,true).apply{gravity=Gravity.CENTER})
         val controls=layout(true)
         if(call.state==Call.State.IncomingReceived) {
@@ -327,17 +429,22 @@ class MainActivity: ComponentActivity() {
         }}.show()
     }
     private fun destinationDialog(title:String,transfer:Boolean,accept:(String,Boolean)->Unit){
+        val phone=PhoneService.instance;val original=phone?.call ?: run{message("That call has ended");return}
+        val callId=phone.incomingId(original);val profileId=phone.profileId(original) ?: return
+        fun sameCall()=PhoneService.instance?.call?.let{PhoneService.instance?.incomingId(it)==callId && PhoneService.instance?.profileId(it)==profileId}==true
         val rows=layout().apply{setPadding(dp(20),0,dp(20),0)};val number=field("Number or extension",type=InputType.TYPE_CLASS_PHONE)
         rows.addView(number)
         val talk=CheckBox(this).apply{text="Talk to the person first";setTextColor(ink);isChecked=true}
         if(transfer)rows.addView(talk)
         rows.addView(button("Choose from Contacts"){
-            async({api().json("directory")},{response->val contacts=response.getJSONArray("contacts")
-                AlertDialog.Builder(this).setTitle("Contacts").setItems(Array(contacts.length()){i->val row=contacts.getJSONObject(i);"${row.getString("name")} · ${row.getString("number")}"}){_,i->number.setText(contacts.getJSONObject(i).getString("number"))}.setNegativeButton("Cancel",null).show()
-            })
+            if(!sameCall())message("Choose this action again from the current call") else async({api().json("directory")},{response->
+                if(sameCall()){val contacts=response.getJSONArray("contacts")
+                    AlertDialog.Builder(this).setTitle("Contacts").setItems(Array(contacts.length()){i->val row=contacts.getJSONObject(i);"${row.getString("name")} · ${row.getString("number")}"}){_,i->if(sameCall())number.setText(contacts.getJSONObject(i).getString("number")) else message("That call has changed")}.setNegativeButton("Cancel",null).show()
+                }
+            },scope=profileId,acceptProfileChange=true)
         })
         val dialog=AlertDialog.Builder(this).setTitle(title).setView(rows).setNegativeButton("Cancel",null).setPositiveButton(if(transfer)"Continue" else "Call",null).create()
-        dialog.setOnShowListener{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{try{accept(Enrollment.number(number.text.toString()),transfer && talk.isChecked);dialog.dismiss()}catch(e:Exception){number.error=e.message}}};dialog.show()
+        dialog.setOnShowListener{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{try{check(sameCall()){"Choose this action again from the current call"};accept(Enrollment.number(number.text.toString()),transfer && talk.isChecked);dialog.dismiss()}catch(e:Exception){number.error=e.message}}};dialog.show()
     }
     private fun availability(){
         availabilityDialog?.dismiss()
@@ -368,6 +475,7 @@ class MainActivity: ComponentActivity() {
     private fun friendlyDate(value:String):String=try{val date=java.time.OffsetDateTime.parse(value.replace(" ","T")).toInstant();java.time.format.DateTimeFormatter.ofLocalizedDateTime(java.time.format.FormatStyle.MEDIUM,java.time.format.FormatStyle.SHORT).withZone(java.time.ZoneId.systemDefault()).format(date)}catch(_:Exception){value}
     private fun keypad() {
         if(!compact)body.addView(text("Keypad",22f,ink,true))
+        if(PhoneService.instance?.calls?.isEmpty()!=false)body.addView(button("Calling from ${store.read()?.let{ProfileRules.label(it)} ?: "your account"}"){accounts()})
         val number=field("Number or extension",dialledNumber,type=InputType.TYPE_CLASS_PHONE).apply { textSize=28f; gravity=Gravity.CENTER; contentDescription="Number or extension" }
         keypadNumber=number;number.visibility=if(compact && PhoneService.instance?.call!=null)View.GONE else View.VISIBLE
         number.addTextChangedListener(object:android.text.TextWatcher{override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int){};override fun afterTextChanged(s:android.text.Editable?){};override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){dialledNumber=s.toString()}})
@@ -390,11 +498,16 @@ class MainActivity: ComponentActivity() {
         actions.addView(iconButton("Delete digit",R.drawable.ic_backspace){if(number.text.isNotEmpty())number.text.delete(number.text.length-1,number.text.length)},spaced(1.3f,if(compact)48 else 72))
         if(!compact)body.addView(text("During a call, use the keypad for menu choices.",13f,soft))
     }
-    private fun api():PhoneApi { val a=store.read() ?: error("Connect your phone first"); return PhoneApi(a.getString("server"),a.getString("token")) }
-    private fun <T> async(work:()->T, success:(T)->Unit, failure:()->Unit={}) {
-        worker.execute { try { val result=work(); runOnUiThread { if(!isFinishing && !isDestroyed)success(result) } } catch(e:Exception) {
-            runOnUiThread { if(!isFinishing && !isDestroyed) { failure(); if(e is ApiError && e.status==401 && store.read()!=null){PushConnection.unregister(this);stopService(Intent(this,PhoneService::class.java));store.clear();draw()}; message(if(e is ApiError || e is IllegalArgumentException)e.message ?: "Please try again" else "Could not reach your PBX. Check your connection and try again.") } }
-        } }
+    private fun api():PhoneApi { val a=store.read(requestProfile.get()) ?: error("Connect your phone first"); return PhoneApi(a.getString("server"),a.getString("token")) }
+    private fun <T> async(work:()->T, success:(T)->Unit, failure:()->Unit={},scope:String?=store.selectedId(),acceptProfileChange:Boolean=false,markRevoked:Boolean=true) {
+        worker.execute{
+            requestProfile.set(scope)
+            try{val result=work();runOnUiThread{if(!isFinishing && !isDestroyed && (acceptProfileChange || scope==store.selectedId()))success(result)}}
+            catch(e:Exception){runOnUiThread{if(!isFinishing && !isDestroyed){
+                if(markRevoked && e is ApiError && e.status==401 && scope!=null && !acceptProfileChange){PushConnection.unregister(this,scope);store.update(scope){it.put("needs_login",true)};PhoneService.instance?.syncProfiles()}
+                if(acceptProfileChange || scope==store.selectedId()){failure();message(if(e is ApiError || e is IllegalArgumentException || e is IllegalStateException)e.message ?: "Please try again" else "Could not reach your PBX. Check your connection and try again.");if(e is ApiError && e.status==401)draw()}
+            }}}finally{requestProfile.remove()}
+        }
     }
     private fun fetch(action:String,key:String,render:(JSONArray)->Unit) {
         val generation=dataGeneration; val progress=text("Loading…",16f,soft); body.addView(progress)
@@ -494,6 +607,7 @@ class MainActivity: ComponentActivity() {
     private fun stopPlayback() { playbackGeneration++;player?.release();player=null;audioFile?.delete();audioFile=null }
     private fun settings() {
         if(store.read()==null)return
+        if(updateGated){urgentUpdateBypass=true;updates.cancelInstall()}
         settingsReturnSection=section.takeIf{it in PhonePreferenceRules.pages} ?: "Keypad";section="Settings";stopPlayback();draw()
     }
     private fun settingChoice(title:String,values:List<String>,current:String,save:(String)->Unit) {
@@ -519,6 +633,8 @@ class MainActivity: ComponentActivity() {
         val identity=account.getJSONObject("account")
         body.addView(text("Settings",28f,ink,true));body.addView(text("Make this phone your own",14f,soft))
         body.addView(text("Your phone",20f,ink,true))
+        item("Accounts", "${store.profiles().size} saved · Choose, add, edit or remove an account"){accounts()}
+        item(if(!identity.optBoolean("app_password_set",true))"Create app password" else "Change app password","Manage the selected account’s app password"){changeAppPassword()}
         body.addView(text("${identity.optString("display_name")} · Extension ${identity.optString("extension")}\n${account.getString("server")}\nVersion ${BuildConfig.VERSION_NAME}",14f,soft))
         item("Choose theme",preferences.theme){settingChoice("Choose theme",PhonePreferenceRules.themes,preferences.theme){preferences.theme=it}}
         item("Ringtone",preferences.ringtoneName()){pickRingtone()}
@@ -544,12 +660,13 @@ class MainActivity: ComponentActivity() {
         body.addView(text("Keep the connection notification running. Reopen OpenWebPBX Free Phone after restarting your phone or stopping the app. Incoming wake-up depends on your administrator’s setup.",14f,soft))
         body.addView(text("Updates and support",20f,ink,true))
         item("App updates","Check for updates · Your administrator manages update requirements"){updateDialog()}
+        policyLinks()
         item("Privacy and support","Privacy, help and deleting your account"){privacy()}
         item("Source and licenses","Open source under AGPL-3.0-or-later"){licenses()}
         item("Reset personal settings","Restore theme, ringtone and display choices; stay connected"){
             AlertDialog.Builder(this).setTitle("Reset personal settings?").setMessage("Your account, calls and administrator’s update rules remain saved.").setNegativeButton("Cancel",null).setPositiveButton("Reset"){_,_->preferences.reset();PhoneService.instance?.applyPersonalPreferences();recreate()}.show()
         }
-        body.addView(button("Disconnect this phone"){disconnect()}.apply{isEnabled=PhoneService.instance?.call==null})
+        body.addView(button("Remove this account"){disconnect()}.apply{isEnabled=PhoneService.instance?.call==null})
     }
     private fun connectionCheck() {
         async({api().json("bootstrap")},{
@@ -669,10 +786,15 @@ class MainActivity: ComponentActivity() {
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.visibility=if(updates.isInstalling)View.VISIBLE else View.GONE
     }
     private val privacySummary = "Your organisation’s PBX receives your device name, connection details and call history. During calls it carries your microphone audio, including while the app is in the background. Your administrator controls recordings and retention. The camera scans your connection QR code and, only when you choose video, shares live pictures through your PBX with the other caller. Leaving the video screen or locking your phone stops the camera; audio can continue. If your administrator enables incoming wake-up, Google Play Services delivers encrypted alerts and an optional Cloudflare relay forwards them. Call audio and phone passwords are not sent through that notification channel."
+    private fun policyLinks(){
+        body.addView(button("Terms of use"){openPublicPage("terms")})
+        body.addView(button("Privacy policy"){openPublicPage("privacy")})
+        body.addView(button("Delete account / request data deletion"){openPublicPage("delete")})
+    }
     private fun privacy() {
         AlertDialog.Builder(this).setTitle("Privacy and support").setMessage("$privacySummary\n\nNo advertising or advertising tracking. Settings → Disconnect removes this phone’s connection and local account data. To request deletion of your PBX account or server records, contact your administrator or follow the data removal instructions.")
-            .setPositiveButton("Privacy policy") { _,_ -> openPublicPage("privacy.html") }
-            .setNeutralButton("Remove my data") { _,_ -> openPublicPage("data-removal.html") }
+            .setPositiveButton("Privacy policy") { _,_ -> openPublicPage("privacy") }
+            .setNeutralButton("Remove my data") { _,_ -> openPublicPage("delete") }
             .setNegativeButton("Support") { _,_ -> openPublicPage("support.html") }.show()
     }
     private fun openPublicPage(page: String) {
@@ -684,13 +806,14 @@ class MainActivity: ComponentActivity() {
     }
     private fun bootstrap() {
         if(bootstrapped)return;bootstrapped=true
+        val profileId=store.selectedId() ?: return
         async({api().json("bootstrap")},{ response ->
-            store.update { saved ->
+            store.update(profileId) { saved ->
             response.optJSONObject("push")?.let{saved.put("push",it)}
             saved.put("features",response.optJSONArray("features") ?: org.json.JSONArray())
             response.optJSONObject("account")?.let{saved.put("account",it)}
             response.optJSONObject("sip")?.let{fresh->val old=saved.getJSONObject("sip");for(key in fresh.keys())if(key!="password" || fresh.optString(key).isNotBlank())old.put(key,fresh.get(key))}
-            };PushConnection.configure(this);updatePhone()
+            };store.read(profileId)?.let{PushConnection.configure(this,it)};updatePhone()
         })
     }
     private fun audioDevices() {
@@ -698,14 +821,38 @@ class MainActivity: ComponentActivity() {
         val devices=PhoneService.instance?.audioDevices() ?: emptyList()
         AlertDialog.Builder(this).setTitle("Audio device").setItems(devices.map{it.deviceName}.toTypedArray()){_,index->PhoneService.instance?.audioDevice(devices[index])}.setNegativeButton("Cancel",null).show()
     }
-    private fun disconnect() {
-        if(PhoneService.instance?.call!=null){message("Finish your call before disconnecting this phone");return}
-        AlertDialog.Builder(this).setTitle("Disconnect this phone?").setMessage("You will need a new QR code to reconnect.").setNegativeButton("Cancel",null).setPositiveButton("Disconnect"){_,_->
-            if(PhoneService.instance?.call!=null){message("Finish your call before disconnecting this phone");return@setPositiveButton}
-            async({
-                try { api().json("revoke",JSONObject()) }
-                catch(e:ApiError) { if(e.status!=401)throw e;JSONObject() }
-            },{PushConnection.unregister(this);stopService(Intent(this,PhoneService::class.java));store.clear();stopPlayback();draw()})
-        }.show()
+    private fun disconnect(){store.selectedId()?.let{removeProfile(it)}}
+    private fun removeProfile(id:String){
+        requireProfileIdle();val profile=store.read(id) ?: return
+        AlertDialog.Builder(this).setTitle("Remove this phone account?").setMessage("Remove ${ProfileRules.label(profile)} from this phone. Other saved accounts stay connected. This does not delete your PBX account or server records. You can sign in again or use a new setup code.")
+            .setNegativeButton("Cancel",null).setPositiveButton("Remove"){_,_->
+                try{
+                    requireProfileIdle();val phone=PhoneService.instance;phone?.beginProfileChange(id)
+                    async({
+                        try{
+                            try{PhoneApi(profile.getString("server"),profile.getString("token")).json("revoke",JSONObject())}catch(e:ApiError){if(e.status !in listOf(401,403))throw e}
+                            PushConnection.unregister(this,id);store.remove(id);true
+                        }catch(_:java.io.IOException){false
+                        }finally{android.os.Handler(android.os.Looper.getMainLooper()).post{phone?.endProfileChange(id)}}
+                    },{removed->
+                        if(removed)afterProfileRemoved() else offerLocalRemoval(id)
+                    },scope=id,acceptProfileChange=true)
+                }catch(e:Exception){message(e.message ?: "Could not remove this account")}
+            }.show()
+    }
+    private fun afterProfileRemoved(){
+        if(store.profiles().isEmpty() && PhoneService.instance?.calls?.isEmpty()!=false)stopService(Intent(this,PhoneService::class.java))
+        stopPlayback();bootstrapped=false;draw();updates.check()
+    }
+    private fun offerLocalRemoval(id:String){
+        val profile=store.read(id) ?: return
+        AlertDialog.Builder(this).setTitle("Could not reach this account's server")
+            .setMessage("Remove ${ProfileRules.label(profile)} only from this phone? Its saved connection and local call history will be deleted. Other accounts stay connected.\n\nYour PBX may still list this device. Ask your administrator to revoke it when the server is available. This does not delete your PBX account or server records.")
+            .setNegativeButton("Keep account",null).setPositiveButton("Remove from this phone anyway"){_,_->
+                try{
+                    requireProfileIdle();val phone=PhoneService.instance;phone?.beginProfileChange(id)
+                    async({try{PushConnection.unregister(this,id);store.remove(id)}finally{android.os.Handler(android.os.Looper.getMainLooper()).post{phone?.endProfileChange(id)}}},{afterProfileRemoved()},scope=id,acceptProfileChange=true)
+                }catch(e:Exception){message(e.message ?: "Could not remove this account")}
+            }.show()
     }
 }

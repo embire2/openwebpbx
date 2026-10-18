@@ -412,6 +412,7 @@ try {
  Run "$root\php\php.exe" @("$payload\configure-music.php","$payload\music","$root\web","$switch\conf\vars.xml")
  & "$payload\Install-Backups.ps1" -PackageRoot $payload -DeferRestart -UpgradeLockHeld
  & "$payload\Install-MailQueue.ps1" -PackageRoot $payload -DeferStart -MaintenanceLock $lock
+ & "$payload\Install-TenantDomains.ps1" -PackageRoot $payload -DeferStart -MaintenanceLock $lock
  Remove-Item "$private\cache\*" -Recurse -Force -ErrorAction SilentlyContinue
  $state.Version = $version
  WriteState "$private\installation.json" $state
@@ -422,6 +423,9 @@ try {
  SaveJournal 'completed'
  Enable-ScheduledTask -TaskName OpenWebPBX-Backups | Out-Null
  Enable-ScheduledTask -TaskName 'OpenWebPBX Outgoing Mail' | Out-Null
+ $originalSupport=Get-Content "$backup\support-state.json" -Raw|ConvertFrom-Json
+ $originalTenantTask=$originalSupport.Tasks.PSObject.Properties['OpenWebPBX-TenantDomains']
+ if(!$originalTenantTask -or !$originalTenantTask.Value.Exists -or $originalTenantTask.Value.Enabled){Enable-ScheduledTask -TaskName 'OpenWebPBX-TenantDomains'|Out-Null}
  if(Get-ScheduledTask -TaskName OpenWebPBX-Cleanup -ErrorAction SilentlyContinue){
   $support=Get-Content "$backup\support-state.json" -Raw|ConvertFrom-Json
   if($support.Tasks.'OpenWebPBX-Cleanup'.Enabled){Enable-ScheduledTask -TaskName OpenWebPBX-Cleanup|Out-Null}

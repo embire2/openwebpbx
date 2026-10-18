@@ -100,7 +100,7 @@ def deployment_files(package, manifest):
         # Include stock originals and the version marker before make_backup().
         # Existing strict file/mode/owner recovery covers every replaced voice.
         result.update(voices.payload(package,manifest))
-    for helper in ['configure-sip-tls.py', 'configure-sip-tls.php', 'upgrade.py', 'verify_feed.py', 'release-public.pem', 'backups.py', 'install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py','install-meet.py','meet-nginx.conf']:
+    for helper in ['configure-sip-tls.py', 'configure-sip-tls.php', 'upgrade.py', 'verify_feed.py', 'release-public.pem', 'backups.py', 'install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py','install-meet.py','meet-nginx.conf','install-mail.py','install-tenant-domains.py','tenant-domains.py','tenant-domains.php','tenant-domains-nginx.conf']:
         if helper in manifest['files']:
             result[TOOLS / helper] = package / helper
     for service in ['openwebpbx-updater.service', 'openwebpbx-update-recovery.service', 'openwebpbx-backups.service', 'openwebpbx-backups.timer']:
@@ -571,6 +571,12 @@ def finalize_completed(journal):
         if loaded == 'loaded':
             run(['systemctl', 'stop', 'xml_cdr.service'])
             run(['systemctl', 'disable', 'xml_cdr.service'])
+        mail_helper=TOOLS/'install-mail.py'
+        if mail_helper.is_file():
+            run(['python3',str(mail_helper),'--activate'],timeout=60)
+        domains_helper=TOOLS/'install-tenant-domains.py'
+        if domains_helper.is_file():
+            run(['python3',str(domains_helper),'--activate'],timeout=60)
         save_journal(journal, 'completed', finalization='completed')
 
 

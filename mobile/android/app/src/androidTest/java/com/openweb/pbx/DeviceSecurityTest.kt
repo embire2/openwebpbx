@@ -18,14 +18,16 @@ import org.junit.runner.RunWith
 class DeviceSecurityTest {
     @Test fun encryptedAccountRoundTripAndTamperRejection() {
         val context=InstrumentationRegistry.getInstrumentation().targetContext;val store=PhoneStore(context)
-        val old=store.read()
+        val prefs=context.getSharedPreferences("private_account",0);val old=prefs.getString("sealed",null)
+        store.clear()
         try {
-            val value=JSONObject().put("token","test-secret-not-for-publication").put("sip",JSONObject().put("password","generated-test-password"))
+            val value=JSONObject().put("server","https://fixture.example.invalid").put("account",JSONObject().put("extension","100")).put("token","test-secret-not-for-publication").put("sip",JSONObject().put("domain","fixture.example.invalid").put("password","generated-test-password"))
             store.save(value);assertEquals(value.toString(),store.read().toString())
-            val prefs=context.getSharedPreferences("private_account",0);val sealed=prefs.getString("sealed",null)!!
+            val sealed=prefs.getString("sealed",null)!!
             assertFalse(sealed.contains("test-secret"));assertFalse(sealed.contains("generated-test-password"))
-            prefs.edit().putString("sealed",sealed.dropLast(5)+"AAAAA").commit();assertNull(store.read())
-        }finally{if(old!=null)store.save(old)else store.clear()}
+            prefs.edit().putString("sealed",sealed.dropLast(5)+"AAAAA").commit();try{store.read();fail("Tampered ciphertext was accepted")}catch(_:Exception){}
+            assertNotNull(prefs.getString("sealed",null))
+        }finally{store.clear();if(old!=null)prefs.edit().putString("sealed",old).commit()}
     }
     @Test fun nativeQrDecoderReadsEnrollmentJson() {
         val json="{\"type\":\"openwebpbx\",\"version\":1,\"server\":\"https://pbx.example.com\",\"code\":\"example-code-1234567890\"}"

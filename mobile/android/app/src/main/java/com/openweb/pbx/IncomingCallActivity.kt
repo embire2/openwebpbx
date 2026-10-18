@@ -25,12 +25,14 @@ class IncomingCallActivity:Activity(){
     private var checking=false
     private var declining=false
     private var request=""
+    private var profileId:String?=null
     private var expiresAt=Long.MAX_VALUE
     private var openedAt=0L
     private val tick=object:Runnable{override fun run(){refresh();main.postDelayed(this,500)}}
     override fun onCreate(state:Bundle?){
         super.onCreate(state);setShowWhenLocked(true);setTurnScreenOn(true);window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         request=intent.getStringExtra("push_request") ?: ""
+        profileId=intent.getStringExtra("profile_id") ?: PhoneStore(this).profiles().singleOrNull()?.optString("profile_id")
         openedAt=SystemClock.elapsedRealtime()
         val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER;setPadding(32,48,32,48);setBackgroundColor(0xff142e39.toInt())}
         label=TextView(this).apply{text="Incoming call";textSize=28f;setTextColor(0xffffffff.toInt());gravity=Gravity.CENTER};root.addView(label)
@@ -50,22 +52,24 @@ class IncomingCallActivity:Activity(){
     private fun refresh(){
         val phone=PhoneService.instance
         if(request.isNotEmpty()){
-            if(System.currentTimeMillis()>=expiresAt || SystemClock.elapsedRealtime()-openedAt>60000){PushConnection.cancel(this,request);finish();return}
+            if(profileId==null || PhoneStore(this).read(profileId)==null){finish();return}
+            if(System.currentTimeMillis()>=expiresAt || SystemClock.elapsedRealtime()-openedAt>60000){PushConnection.cancel(this,request,profileId);finish();return}
             if(!checking){checking=true;worker.execute{
-                try{val a=PhoneStore(this).read() ?: error("Disconnected");val response=PhoneApi(a.getString("server"),a.getString("token"),5000).json("push_call",id=request)
-                    main.post{if(!isFinishing){if(!response.getBoolean("ringing")){PushConnection.cancel(this,request);finish()}else{verifiedCall=response.getString("call_id");expiresAt=try{java.time.OffsetDateTime.parse(response.getString("expires_at").replace(" ","T")).toInstant().toEpochMilli()}catch(_:Exception){System.currentTimeMillis()+60000};checking=false;if(declining)decline()}}}
-                }catch(e:Exception){main.post{if(!isFinishing){if(e is ApiError&&e.status in listOf(400,401,403,404,410,422)){PushConnection.cancel(this,request);finish()}else{label.text="Could not reach your phone server. Tap Answer to retry.";checking=false}}}}
+                try{val a=PhoneStore(this).read(profileId) ?: error("Disconnected");val response=PhoneApi(a.getString("server"),a.getString("token"),5000).json("push_call",id=request)
+                    main.post{if(!isFinishing){if(!response.getBoolean("ringing")){PushConnection.cancel(this,request,profileId);finish()}else{verifiedCall=response.getString("call_id");expiresAt=try{java.time.OffsetDateTime.parse(response.getString("expires_at").replace(" ","T")).toInstant().toEpochMilli()}catch(_:Exception){System.currentTimeMillis()+60000};checking=false;if(declining)decline()}}}
+                }catch(e:Exception){main.post{if(!isFinishing){if(e is ApiError&&e.status in listOf(400,401,403,404,410,422)){PushConnection.cancel(this,request,profileId);finish()}else{label.text="Could not reach your phone server. Tap Answer to retry.";checking=false}}}}
             }}
-            if(!declining && phone==null && verifiedCall!=null && PhoneStore(this).read()!=null){try{startForegroundService(Intent(this,PhoneService::class.java))}catch(_:Exception){label.text="Open the app to reconnect"}}
+            if(!declining && phone==null && verifiedCall!=null && PhoneStore(this).read(profileId)!=null){try{startForegroundService(Intent(this,PhoneService::class.java))}catch(_:Exception){label.text="Open the app to reconnect"}}
         }
-        val incoming=if(request.isEmpty())phone?.incomingById(intent.getStringExtra("call_id") ?: "")else phone?.calls?.firstOrNull{it.remoteParams?.getCustomHeader("X-OpenWeb-Push-ID")==verifiedCall && it.state==Call.State.IncomingReceived}
+        val incoming=if(request.isEmpty())phone?.incomingById(intent.getStringExtra("call_id") ?: "")else phone?.calls?.firstOrNull{phone?.profileId(it)==profileId && it.remoteParams?.getCustomHeader("X-OpenWeb-Push-ID")==verifiedCall && it.state==Call.State.IncomingReceived}
         visibleIncoming=incoming
+        if(incoming!=null && !accepting)label.text="${phone?.profileLabel(incoming)}\n${incoming.remoteAddress.displayName ?: incoming.remoteAddress.username ?: "Incoming call"}"
         audioButton.text=if(PhoneService.instance?.video?.offered(incoming)==true)"Answer audio" else "Answer"
         videoButton.visibility=if(PhoneService.instance?.video?.offered(incoming)==true)View.VISIBLE else View.GONE
         if(request.isEmpty() && incoming==null){finish();return}
         if(accepting && incoming!=null){
             if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){startActivity(Intent(this,MainActivity::class.java));finish();return}
-            try{phone?.answer(incoming);if(request.isNotEmpty())PushConnection.cancel(this,request);startActivity(Intent(this,MainActivity::class.java));finish()}catch(_:Exception){label.text="Could not answer. Try again.";accepting=false}
+            try{phone?.answer(incoming);if(request.isNotEmpty())PushConnection.cancel(this,request,profileId);startActivity(Intent(this,MainActivity::class.java));finish()}catch(_:Exception){label.text="Could not answer. Try again.";accepting=false}
         }else if(accepting)label.text="Connecting your call…"
     }
     private fun decline(){
@@ -73,10 +77,10 @@ class IncomingCallActivity:Activity(){
         if(request.isNotEmpty() && verifiedCall==null){refresh();return}
         val phone=PhoneService.instance
         if(request.isEmpty()){phone?.incomingById(intent.getStringExtra("call_id") ?: "")?.let{phone.hangup(it)};finish();return}
-        phone?.calls?.firstOrNull{it.remoteParams?.getCustomHeader("X-OpenWeb-Push-ID")==verifiedCall}?.let{phone.hangup(it)}
-        verifiedCall?.let{id->PhoneStore(this).update{it.put("declined_push_call",id).put("declined_push_until",System.currentTimeMillis()+60000)}}
-        PushConnection.cancel(this,request)
-        worker.execute{try{val a=PhoneStore(this).read() ?: return@execute;PhoneApi(a.getString("server"),a.getString("token")).json("push_dismiss",JSONObject().put("id",request))}catch(_:Exception){}}
+        phone?.calls?.firstOrNull{phone?.profileId(it)==profileId && it.remoteParams?.getCustomHeader("X-OpenWeb-Push-ID")==verifiedCall}?.let{phone.hangup(it)}
+        verifiedCall?.let{id->PhoneStore(this).update(profileId){it.put("declined_push_call",id).put("declined_push_until",System.currentTimeMillis()+60000)}}
+        PushConnection.cancel(this,request,profileId)
+        worker.execute{try{val a=PhoneStore(this).read(profileId) ?: return@execute;PhoneApi(a.getString("server"),a.getString("token")).json("push_dismiss",JSONObject().put("id",request))}catch(_:Exception){}}
         finish()
     }
 }

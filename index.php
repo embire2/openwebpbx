@@ -27,6 +27,11 @@
 //includes files
 	require_once __DIR__ . "/resources/require.php";
 
+// Centrally leased tenant addresses enter the isolated personal portal.
+	if (pbx_tenant_domains::requestDomain($database->db) !== '' && empty($_GET['path']) && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
+		header('Location: /app/pbx_mobile/user.php'); exit;
+	}
+
 //if logged in, redirect to login destination
 	if (isset($_SESSION["username"])) {
 		if (!empty($settings->get('login', 'destination'))) {

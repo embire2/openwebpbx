@@ -27,14 +27,14 @@ assert report['direct_installer_excluded'] and report['bundletool_validation']==
 assert report['target_sdk']>=36
 play=project/'play'
 files={}
-for relative in ['listing.json','declarations.md','closed-test-plan.md']:
+for relative in ['listing.json','declarations.md','closed-test-plan.md','current-requirements.md','demonstration-plan.md']:
     files['mobile/android/play/'+relative]=(play/relative).read_bytes()
 for path in sorted((play/'metadata').rglob('*')):
     if path.is_file():
         assert path.suffix in ('.txt','.png'), 'Unexpected listing file'
         files['mobile/android/play/'+path.relative_to(play).as_posix()]=path.read_bytes()
 screens=list((play/'metadata/en-US/images/phoneScreenshots').glob('*.png'))
-assert len(screens)>=2,'At least two actual phone screenshots must be prepared'
+assert 2<=len(screens)<=8,'Prepare between two and eight actual phone screenshots'
 for image in screens:
     data=image.read_bytes();assert data[:8]==b'\x89PNG\r\n\x1a\n'
     width,height=struct.unpack('>II',data[16:24]);assert min(width,height)>=320 and max(width,height)<=3840 and max(width,height)<=2*min(width,height)
@@ -47,7 +47,7 @@ files['VERIFICATION.json']=a.verification.read_bytes()
 if a.video:
     assert a.video.suffix == '.mp4' and a.video.stat().st_size < 100*1024*1024
     files['review-demonstration.mp4']=a.video.read_bytes()
-files['START-HERE.md']=f'''# OpenWeb PBX {version} — Google Play submission files\n\nThis packet is prepared for submission. Google has not approved or published the app. Native video still requires a current camera-permission/foreground-service demonstration and physical-device/Play-track checks; existing audio-only listing screenshots are historical. Read docs/android-video.md for the known camera-restart interruption and the unchanged APK/AAB corresponding-source provenance. Direct APK update qualification does not establish Google Play delivery.\n\n1. Create/verify the Google Play Console account that will own the app.\n2. Create the free app OpenWebPBX Free Phone, language English (United States), package com.openweb.pbx.\n3. Import the existing app-signing identity using Google’s encrypted PEPK process; see docs/google-play.md before accepting a newly generated signing key.\n4. Upload {a.bundle.name} to Internal testing.\n5. Copy listing text and images from mobile/android/play/metadata/en-US. Use the live privacy/support/data-removal URLs in listing.json.\n6. Complete the prepared declarations with the owner’s confirmed details. Put the separately supplied private reviewer login in App access; it is intentionally absent from this public packet.\n7. Test through Google Play, address its pre-launch report, complete any required closed test, then submit the reviewed production release.\n\nFull steps and links: docs/google-play.md. The app signing key, upload credentials, reviewer password and customer data are not included. This AAB is for Google Play; phone users install the APK release or the approved store app.\n\nSource and current release: https://github.com/embire2/openwebpbx/releases/tag/{release_tag}\n'''.encode()
+files['START-HERE.md']=f'''# OpenWeb PBX {version} — Google Play submission files\n\nThis packet is prepared for submission. Google has not approved or published the app. Native video still requires a current camera-permission/foreground-service demonstration and physical-device/Play-track checks; Current account screens accompany previously qualified calling screenshots; capture provenance is in mobile/android/play/demonstration-plan.md. Read docs/android-video.md for the known camera-restart interruption. Direct APK update qualification does not establish Google Play delivery.\n\n1. Create/verify the Google Play Console account that will own the app.\n2. Create the free app OpenWebPBX Free Phone, language English (United States), package com.openweb.pbx.\n3. Import the existing app-signing identity using Google’s encrypted PEPK process; see docs/google-play.md before accepting a newly generated signing key.\n4. Upload {a.bundle.name} to Internal testing.\n5. Copy listing text and images from mobile/android/play/metadata/en-US. Use the live privacy/support/data-removal URLs in listing.json.\n6. Complete the prepared declarations with the owner’s confirmed details. Put the separately supplied private reviewer login in App access; it is intentionally absent from this public packet.\n7. Test through Google Play, address its pre-launch report, complete any required closed test, then submit the reviewed production release.\n\nFull steps and links: docs/google-play.md. The app signing key, upload credentials, reviewer password and customer data are not included. This AAB is for Google Play; phone users install the APK release or the approved store app.\n\nSource and current release: https://github.com/embire2/openwebpbx/releases/tag/{release_tag}\n'''.encode()
 # Only explicitly listed public inputs are read. No private environment or reviewer file.
 files['SHA256SUMS']=''.join(sha(data)+'  '+name+'\n' for name,data in sorted(files.items())).encode()
 a.output.parent.mkdir(parents=True,exist_ok=True)

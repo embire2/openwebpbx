@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$mailSettings->checkConnection()) {
                 throw new RuntimeException('The SMTP connection or authentication failed. Check the server, port, security, and relay permissions.');
             }
-            $_SESSION['smtp_notice'] = 'SMTP connection succeeded. No email was sent. Your relay must also permit messages from this server.';
+            $_SESSION['smtp_notice'] = 'SMTP connection and From address accepted. No email was sent; recipient acceptance and inbox delivery are still untested.';
         } else {
             throw new InvalidArgumentException('Choose an action.');
         }
@@ -92,6 +92,6 @@ require_once PROJECT_ROOT.'/resources/header.php';
         </div>
         <div class="mail-actions"><p>Every outgoing email uses this server, From address, name, and reply address, including voicemail, fax, and system notifications.</p><button type="submit" class="mail-button primary">Save outgoing mail server</button></div>
     </form>
-    <section class="mail-card mail-check"><div><h2>Check the saved connection</h2><p>Verify the connection and authentication without sending an email.</p></div><form method="post"><?php $csrf(); ?><input type="hidden" name="action" value="check"><button type="submit" class="mail-button" <?= $active ? '' : 'disabled' ?>>Test SMTP connection</button></form></section>
+    <section class="mail-card mail-check"><div><h2>Check the saved connection</h2><p>Check the connection, authentication and From address without sending an email.</p></div><form method="post"><?php $csrf(); ?><input type="hidden" name="action" value="check"><button type="submit" class="mail-button" <?= $active ? '' : 'disabled' ?>>Test SMTP connection</button></form></section>
 </main>
 <?php require_once PROJECT_ROOT.'/resources/footer.php'; ?>

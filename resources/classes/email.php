@@ -65,6 +65,8 @@ class email {
 	public $date;
 	public $delivery_deferred = false;
 	public $delivery_settings = [];
+	/** Numeric SMTP refusal only; never persist the provider's raw response. */
+	public $delivery_reply_code = '';
 
 	/**
 	 * Set in the constructor. Must be a database object and cannot be null.
@@ -268,6 +270,7 @@ class email {
 		$this->response = '';
 		$this->delivery_deferred = false;
 		$this->delivery_settings = [];
+		$this->delivery_reply_code = '';
 
 		//set the send_method if not already set
 		if (!isset($this->method)) {
@@ -366,6 +369,7 @@ class email {
 					$array['email_queue_attachments'][$y]['email_attachment_name'] = $attachment['name'];
 					$array['email_queue_attachments'][$y]['email_attachment_path'] = $attachment['path'];
 					$array['email_queue_attachments'][$y]['email_attachment_base64'] = $attachment['base64'];
+					$array['email_queue_attachments'][$y]['email_attachment_cid'] = $attachment['cid'] ?? null;
 					$y++;
 				}
 			}
@@ -613,6 +617,7 @@ class email {
 
 				//send the email
 				if (!$mail_status) {
+					$this->rememberSmtpReply($mail);
 					if (isset($mail->ErrorInfo) && !empty($mail->ErrorInfo)) {
 						$this->error = $mail->ErrorInfo;
 					}
@@ -630,6 +635,7 @@ class email {
 				$this->error = $e->getMessage();
 				return false;
 			} catch (Exception $e) {
+				if (isset($mail)) $this->rememberSmtpReply($mail);
 				$this->error = isset($mail) && !empty($mail->ErrorInfo) ? $mail->ErrorInfo : 'Outgoing mail could not be sent.';
 				return false;
 			}
@@ -637,6 +643,11 @@ class email {
 		}
 	}
 
+	private function rememberSmtpReply($mail): void {
+		$error = $mail->getSMTPInstance()->getError();
+		$code = (string)($error['smtp_code'] ?? '');
+		$this->delivery_reply_code = preg_match('/^[45][0-9]{2}$/D', $code) ? $code : '';
+	}
 }
 
 

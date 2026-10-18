@@ -3,7 +3,10 @@ Bring your OpenWeb PBX extension to your Android phone.
 OpenWebPBX Free Phone is a native Android calling app from a nonprofit, open-source project. Connect to your organisation’s PBX by scanning the QR code supplied by your administrator, then call your team, reach customers and listen to voicemail.
 
 A PHONE FOR YOUR WORK
-• Scan your PBX connection code, or enter it manually.
+• Scan your PBX connection code, enter it manually or import a one-use setup file.
+• Sign in with your tenant name, extension and administrator-chosen app password.
+• Save multiple accounts, receive calls on each and choose the account for outgoing calls.
+• Create or change your app password and edit or remove saved accounts.
 • Make and receive voice calls using your work extension.
 • Make native video calls to colleagues on a video-enabled PBX, with an audio-only answer option.
 • Choose when to share your camera; leaving the video screen or locking your phone stops sharing.
@@ -24,10 +27,11 @@ FREE AND OPEN SOURCE
 There is no OpenWeb app licence fee, advertising or advertising tracking. Source code and licence notices are available in the app and at github.com/embire2/openwebpbx. Internet access and telephone-provider charges may still apply.
 
 BEFORE YOU INSTALL
-You need an existing OpenWeb PBX extension, a compatible server and Android 9 or newer. Your administrator provides the connection QR code. This app does not connect to a 3CX server or use 3CX app credentials.
+You need an existing OpenWeb PBX extension, a compatible server and Android 9 or newer. Your administrator provides a connection QR/setup file or your tenant address and app password. App-password login requires OpenWeb PBX 1.0.17 or newer. This app does not connect to a 3CX server or use 3CX app credentials.
 
 Keep the phone connection notification running for incoming calls. Reopen the app after restarting or force-stopping it. Optional incoming wake-up uses encrypted alerts delivered through installed Google Play Services. Your administrator enables it; force-stop still requires reopening. Video requires a compatible PBX and camera permission; audio remains available without camera access. Chat remains planned. Keep your normal phone available for emergency calls.
 
 Help: https://openwebpbx.com/support.html
-Privacy: https://openwebpbx.com/privacy.html
-Data removal: https://openwebpbx.com/data-removal.html
+Terms: https://openwebpbx.com/terms
+Privacy: https://openwebpbx.com/privacy
+Data removal: https://openwebpbx.com/delete

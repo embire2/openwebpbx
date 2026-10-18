@@ -22,7 +22,7 @@ class PhoneService: Service() {
     var callLabel = ""; private set
     var lastCallMessage = ""; private set
     var lastDialled = ""; private set
-    private data class Session(val phone:Call, val id:String=UUID.randomUUID().toString(), val started:String=Instant.now().toString(), val incoming:Boolean, var answered:Boolean=false, var endedLocally:Boolean=false)
+    private data class Session(val phone:Call, val id:String=UUID.randomUUID().toString(), val started:String=Instant.now().toString(), val incoming:Boolean, val profileId:String, var answered:Boolean=false, var endedLocally:Boolean=false)
     private val sessions=linkedMapOf<Long,Session>()
     val calls:List<Call> get()=sessions.values.map{it.phone}
     val waitingCall:Call? get()=calls.firstOrNull{it.state==Call.State.IncomingReceived}
@@ -66,7 +66,58 @@ class PhoneService: Service() {
     private var foregroundTypes=ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
-    private var account: JSONObject? = null
+    private val registeredProfiles=linkedMapOf<String,Account>()
+    private val profileData=linkedMapOf<String,JSONObject>()
+    private val profileStates=mutableMapOf<String,String>()
+    private var profilesPending=false
+    private val profileMutations=mutableSetOf<String>()
+    fun beginProfileChange(id:String){check(calls.isEmpty()){ "Finish your calls before changing accounts" };check(profileMutations.add(id)){"This account is already being changed"}}
+    fun endProfileChange(id:String){profileMutations.remove(id);syncProfiles()}
+    val selectedProfileId:String? get()=PhoneStore(this).selectedId()
+    fun profileStatus(id:String):String=profileStates[id] ?: "Connecting…"
+    fun profileId(target:Call?=call):String?=target?.let{sessions[it.nativePointer]?.profileId ?: identify(it)}
+    fun profileFor(target:Call?=call):JSONObject?=profileId(target)?.let{PhoneStore(this).read(it)}
+    fun profileLabel(target:Call?=call):String=profileFor(target)?.let{ProfileRules.label(it)} ?: ""
+    private val account:JSONObject? get()=PhoneStore(this).read()
+    private val profileChanges=android.content.SharedPreferences.OnSharedPreferenceChangeListener{_,_->main.post{syncProfiles()}}
+    private fun identify(target:Call):String? {
+        val key=target.params.account?.params?.idkey
+        if(key!=null && registeredProfiles.containsKey(key))return key
+        val local=target.toAddress ?: return null
+        return registeredProfiles.entries.filter{(_,a)->a.params.identityAddress?.let{it.username==local.username && it.domain.equals(local.domain,true)}==true}.singleOrNull()?.key
+    }
+    fun syncProfiles(){
+        if(destroying || core==null)return
+        // Store events can arrive during an incoming ring. Defer all account mutation
+        // until every conversation has ended; never restart the shared calling core.
+        if(calls.isNotEmpty()){profilesPending=true;return}
+        profilesPending=false
+        val store=PhoneStore(this);val saved=store.profiles().filter{!it.optBoolean("needs_login")};val c=core!!
+        for(id in registeredProfiles.keys.toList()){
+            val next=saved.firstOrNull{it.getString("profile_id")==id}
+            val previous=profileData[id]
+            if(next==null || next?.optJSONObject("sip").toString()!=previous?.optJSONObject("sip").toString()){
+                val a=registeredProfiles.remove(id)!!;val auth=a.findAuthInfo();c.removeAccount(a);if(auth!=null)c.removeAuthInfo(auth);profileData.remove(id);profileStates.remove(id)
+            }
+        }
+        for(data in saved){val id=data.getString("profile_id");if(!registeredProfiles.containsKey(id))addProfile(data);profileData[id]=data}
+        if(c.defaultAccount?.params?.idkey!=store.selectedId()){lastDialled="";lastCallMessage=""}
+        c.defaultAccount=registeredProfiles[store.selectedId()]
+        status=store.selectedId()?.let{profileStatus(it)} ?: "Disconnected"
+        publish()
+    }
+    private fun addProfile(data:JSONObject){
+        val c=core ?: return;val factory=Factory.instance();val sip=data.getJSONObject("sip");val id=data.getString("profile_id")
+        require(sip.getString("transport").equals("tls",true) && sip.getString("media_encryption").equals("srtp",true))
+        val domain=sip.getString("domain");val username=sip.getString("username");val auth=sip.optString("auth_username",username)
+        c.addAuthInfo(factory.createAuthInfo(username,auth,sip.getString("password"),null,domain,domain))
+        val params=c.createAccountParams();params.idkey=id
+        params.identityAddress=factory.createAddress("sip:$username@$domain")
+        val server=factory.createAddress("sip:${sip.getString("server")}:${sip.optInt("port",5061)};transport=tls")!!
+        params.serverAddress=server;params.setRoutesAddresses(arrayOf(server));params.isOutboundProxyEnabled=true
+        params.isRegisterEnabled=true;params.expires=300;params.isUnregisterAtStopEnabled=true
+        val a=c.createAccount(params);registeredProfiles[id]=a;profileData[id]=data;profileStates[id]="Connecting…";c.addAccount(a)
+    }
     private var wakeLock: PowerManager.WakeLock? = null
     private var proximity: CallProximity? = null
     private var destroying = false
@@ -76,7 +127,6 @@ class PhoneService: Service() {
             if (call?.nativePointer == current.nativePointer && !destroying) { syncCallAudio(); publish() }
         }
     }
-    private val api: PhoneApi? get() = account?.let { PhoneApi(it.getString("server"), it.getString("token")) }
 
     override fun onBind(intent: Intent?) = null
     override fun onCreate() {
@@ -88,6 +138,7 @@ class PhoneService: Service() {
         manager.createNotificationChannel(NotificationChannel("calls", "Incoming calls", NotificationManager.IMPORTANCE_HIGH).apply { lockscreenVisibility = Notification.VISIBILITY_PRIVATE })
         connectionForeground()
         networks.registerDefaultNetworkCallback(networkCallback)
+        getSharedPreferences("private_account",MODE_PRIVATE).registerOnSharedPreferenceChangeListener(profileChanges)
         try { connect() } catch (_: Exception) { status = "Could not connect. Reopen the app to try again."; publish() }
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -96,9 +147,7 @@ class PhoneService: Service() {
         return START_STICKY // Android may restart the user's ongoing phone connection; force-stop still requires reopening.
     }
     private fun connect() {
-        account = PhoneStore(this).read() ?: run { stopSelf(); return }
-        val sip = account!!.getJSONObject("sip")
-        require(sip.getString("transport").equals("tls", true) && sip.getString("media_encryption").equals("srtp", true))
+        if(PhoneStore(this).profiles().isEmpty()){stopSelf();return}
         val factory = Factory.instance()
         // In-memory configuration prevents the SIP password being persisted by liblinphone.
         val config = factory.createConfigFromString("[sip]\nstore_auth_info=0\n[storage]\nbackend=null\n")
@@ -134,7 +183,10 @@ class PhoneService: Service() {
                 core.ring=PhonePreferences(this@PhoneService).ringtoneUri()?.toString()
             }
             override fun onAccountRegistrationStateChanged(core: Core, a: Account, state: RegistrationState, message: String) {
-                status = when(state) { RegistrationState.Ok -> "Ready for calls"; RegistrationState.Progress -> "Connecting…"; RegistrationState.Failed -> "Connection unavailable — check your network"; else -> "Disconnected" }
+                val id=a.params.idkey ?: return
+                if(registeredProfiles[id]?.nativePointer!=a.nativePointer)return
+                profileStates[id] = when(state) { RegistrationState.Ok -> "Ready for calls"; RegistrationState.Progress -> "Connecting…"; RegistrationState.Failed -> "Connection unavailable — check your network"; else -> "Disconnected" }
+                status=selectedProfileId?.let{profileStatus(it)} ?: "Disconnected"
                 if(state==RegistrationState.Ok){main.removeCallbacks(reconnectTask);retrySeconds=2;flushPending()}
                 else if(state==RegistrationState.Failed && networkAvailable()){main.removeCallbacks(reconnectTask);main.postDelayed(reconnectTask,retrySeconds*1000L);retrySeconds=(retrySeconds*2).coerceAtMost(30)}
                 publish()
@@ -145,12 +197,14 @@ class PhoneService: Service() {
             }
             override fun onCallStateChanged(core: Core, current: Call, state: Call.State, message: String) {
                 if(state==Call.State.IncomingReceived || state==Call.State.OutgoingInit){
-                    val saved=PhoneStore(this@PhoneService).read()
-                    if(state==Call.State.IncomingReceived && saved!=null && saved.optLong("declined_push_until")>System.currentTimeMillis() && saved.optString("declined_push_call")==current.remoteParams?.getCustomHeader("X-OpenWeb-Push-ID")){current.decline(Reason.Declined);return}
+                    val owner=identify(current) ?: run{current.decline(Reason.NotAcceptable);return}
+                    val saved=PhoneStore(this@PhoneService).read(owner)
+                    if(saved==null || saved.optBoolean("needs_login") || owner in profileMutations){current.decline(Reason.Busy);return}
+                    if(state==Call.State.IncomingReceived && saved.optLong("declined_push_until")>System.currentTimeMillis() && saved.optString("declined_push_call")==current.remoteParams?.getCustomHeader("X-OpenWeb-Push-ID")){current.decline(Reason.Declined);return}
                     if(UpdateManager.get(this@PhoneService).isInstalling || (sessions.size>=2 && !sessions.containsKey(current.nativePointer))){current.decline(Reason.Busy);return}
                     if(!sessions.containsKey(current.nativePointer)){
                         if(sessions.isEmpty())lastNetworkLoss=0
-                        sessions[current.nativePointer]=Session(current,incoming=state==Call.State.IncomingReceived)
+                        sessions[current.nativePointer]=Session(current,incoming=state==Call.State.IncomingReceived,profileId=owner)
                         current.addListener(callAudioListener)
                         video.callCreated(current,state)
                         lastCallMessage=""
@@ -173,10 +227,10 @@ class PhoneService: Service() {
                         select(calls.firstOrNull())
                         call?.takeIf{it.state==Call.State.Paused && it.nativePointer !in manuallyHeldCalls && conference==null && !conferenceOnHold && !transferring}?.resume()
                     }
-                    if(calls.isEmpty()){afterPause=null;transferring=false;conference=null;conferenceOnHold=false;conferenceJoinFailed=false;heldConferenceCalls=emptySet();manuallyHeldCalls.clear();consultation=null;core.isMicEnabled=true;releaseCallLock();applyPersonalPreferences();connectionForeground()}
+                    if(calls.isEmpty()){afterPause=null;transferring=false;conference=null;conferenceOnHold=false;conferenceJoinFailed=false;heldConferenceCalls=emptySet();manuallyHeldCalls.clear();consultation=null;core.isMicEnabled=true;releaseCallLock();applyPersonalPreferences();connectionForeground();if(profilesPending)main.post{syncProfiles()}}
                     else if(conference?.participantCount==0){conference?.terminate();conference=null}
                 }
-                if(state==Call.State.IncomingReceived){val stored=PhoneStore(this@PhoneService).read();if(stored!=null && stored.optString("push_pending_call").isNotBlank() && stored.optString("push_pending_call")==current.remoteParams?.getCustomHeader("X-OpenWeb-Push-ID"))PushConnection.cancel(this@PhoneService,stored.optString("push_pending_id"));notifyIncoming(current)}
+                if(state==Call.State.IncomingReceived){val stored=PhoneStore(this@PhoneService).read(row.profileId);if(stored!=null && stored.optString("push_pending_call").isNotBlank() && stored.optString("push_pending_call")==current.remoteParams?.getCustomHeader("X-OpenWeb-Push-ID"))PushConnection.cancel(this@PhoneService,stored.optString("push_pending_id"),row.profileId);notifyIncoming(current)}
                 if(state==Call.State.StreamsRunning)cancelIncoming(row.id)
                 syncCallAudio();publish()
             }
@@ -194,20 +248,12 @@ class PhoneService: Service() {
         val transports = c.transports
         transports.udpPort = 0; transports.tcpPort = 0; transports.tlsPort = -1
         c.transports = transports
-        val domain = sip.getString("domain"); val username = sip.getString("username")
-        val auth = sip.optString("auth_username", username)
-        c.addAuthInfo(factory.createAuthInfo(username, auth, sip.getString("password"), null, domain, domain))
-        val params = c.createAccountParams()
-        params.identityAddress = factory.createAddress("sip:$username@$domain")
-        val server = factory.createAddress("sip:${sip.getString("server")}:${sip.optInt("port",5061)};transport=tls")!!
-        params.serverAddress = server; params.setRoutesAddresses(arrayOf(server)); params.isOutboundProxyEnabled = true
-        params.isRegisterEnabled = true; params.expires = 300
-        val a = c.createAccount(params); c.addAccount(a); c.defaultAccount = a
+        syncProfiles()
         flushPending()
     }
     private fun notification(): Notification = Notification.Builder(this, "connection")
         .setSmallIcon(com.openweb.pbx.R.drawable.ic_phone).setContentTitle(getString(R.string.app_name))
-        .setContentText(if (call != null) "Call in progress" else status)
+        .setContentText(if (call != null) "${profileLabel()} · Call in progress" else if(registeredProfiles.size>1)"${registeredProfiles.values.count{it.state==RegistrationState.Ok}} of ${registeredProfiles.size} accounts connected" else status)
         .setOngoing(true).setVisibility(Notification.VISIBILITY_PRIVATE)
         .setContentIntent(openIntent()).build()
     private fun openIntent(): PendingIntent = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -217,7 +263,7 @@ class PhoneService: Service() {
         val decline=PendingIntent.getService(this,id.hashCode(),Intent(this,PhoneService::class.java).setAction("decline").putExtra("call_id",id),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val person=Person.Builder().setName(incoming.remoteAddress.displayName ?: incoming.remoteAddress.username ?: "Incoming call").build()
         val note=Notification.Builder(this,"calls").setSmallIcon(R.drawable.ic_phone)
-            .setContentTitle(if(calls.size>1)"Call waiting" else "Incoming call").setContentText(person.name)
+            .setContentTitle(if(calls.size>1)"Call waiting · ${profileLabel(incoming)}" else "Incoming · ${profileLabel(incoming)}").setContentText(person.name)
             .setCategory(Notification.CATEGORY_CALL).setVisibility(Notification.VISIBILITY_PRIVATE).setOngoing(true)
             .setContentIntent(answer).setTimeoutAfter(60000)
         if(Build.VERSION.SDK_INT>=31)note.setStyle(Notification.CallStyle.forIncomingCall(person,decline,answer))
@@ -247,6 +293,7 @@ class PhoneService: Service() {
         if(Build.VERSION.SDK_INT >=29) startForeground(10, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE) else startForeground(10,notification())
     }
     private fun microphoneForeground() {
+        if(foregroundTypes and ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE!=0)return
         foregroundTypes=ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or (foregroundTypes and ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
         if(Build.VERSION.SDK_INT >=30) startForeground(10, notification(),foregroundTypes)
     }
@@ -269,12 +316,15 @@ class PhoneService: Service() {
         check(!UpdateManager.get(this).isInstalling) { "Finish or cancel the update before making a call" }
         check(call==null || second && calls.size==1 && conference==null && !conferenceOnHold) { "Finish one of your calls first" }
         val number = Enrollment.number(raw); val c = core ?: error("Phone is still connecting")
-        check(c.defaultAccount?.state == RegistrationState.Ok) { "Wait until the phone is ready for calls" }
+        val outgoingId=if(second)profileId() else selectedProfileId
+        check(outgoingId !in profileMutations){"Wait until this account has finished changing"}
+        val outgoing=registeredProfiles[outgoingId] ?: error("Choose a connected account")
+        check(outgoing.state == RegistrationState.Ok) { "Wait until the phone is ready for calls" }
         lastDialled = number; lastCallMessage = ""
         microphoneForeground()
         if(withVideo)check(call==null){"Video is available in a call with one person."}
-        val domain = account!!.getJSONObject("sip").getString("domain")
-        val params = c.createCallParams(null)!!; params.isVideoEnabled = withVideo; params.isCameraEnabled=withVideo;if(withVideo)params.videoDirection=MediaDirection.SendRecv;params.mediaEncryption = MediaEncryption.SRTP
+        val domain = profileData.getValue(outgoingId!!).getJSONObject("sip").getString("domain")
+        val params = c.createCallParams(null)!!;params.account=outgoing; params.isVideoEnabled = withVideo; params.isCameraEnabled=withVideo;if(withVideo)params.videoDirection=MediaDirection.SendRecv;params.mediaEncryption = MediaEncryption.SRTP
         val invite={
             if(withVideo)video.prepareOutgoing()
             try{
@@ -307,7 +357,7 @@ class PhoneService: Service() {
     fun blindTransfer(raw:String){
         val active=call ?: error("No current call")
         check(calls.size==1 && active.state in listOf(Call.State.StreamsRunning,Call.State.Paused)){"Wait for your call to connect"}
-        val address=Factory.instance().createAddress("sip:${Enrollment.number(raw)}@${account!!.getJSONObject("sip").getString("domain")}")!!
+        val address=Factory.instance().createAddress("sip:${Enrollment.number(raw)}@${profileFor(active)!!.getJSONObject("sip").getString("domain")}")!!
         check(active.transferTo(address)==0){"Could not start the transfer"};transferring=true;publish()
     }
     fun consult(raw:String){consultation=call ?: error("No current call");try{dial(raw,true)}catch(e:Exception){consultation=null;throw e}}
@@ -319,7 +369,7 @@ class PhoneService: Service() {
     }
     fun cancelConsultation(){val original=consultation ?: return;consultation=null;calls.filter{it.nativePointer!=original.nativePointer}.forEach{hangup(it)};select(original);if(original.state==Call.State.Paused)original.resume();publish()}
     fun merge(){
-        val c=core ?: error("Phone unavailable");check(calls.size==2 && calls.all{sessions[it.nativePointer]?.answered==true}){"Both people must answer before merging"}
+        val c=core ?: error("Phone unavailable");check(calls.map{profileId(it)}.distinct().size<=1){"Calls from different accounts cannot be merged"};check(calls.size==2 && calls.all{sessions[it.nativePointer]?.answered==true}){"Both people must answer before merging"}
         video.stopCamera()
         check(consultation==null){"Cancel the transfer before merging calls"}
         val params=c.createConferenceParams(null)!!;params.isAudioEnabled=true;params.isVideoEnabled=false;params.isLocalParticipantEnabled=true;params.isOneParticipantConferenceEnabled=true
@@ -397,7 +447,7 @@ class PhoneService: Service() {
     private fun recordCall(session:Session,duration: Int) {
         val callId=session.id;val callLabel=session.phone.remoteAddress.username ?: "";val incoming=session.incoming;val answered=session.answered;val startedAt=session.started
         val row = JSONObject().put("id",callId).put("number",callLabel.takeIf { it.matches(Regex("[+*#0-9]{1,32}")) } ?: "").put("direction", if(incoming && !answered) "missed" else if(incoming) "incoming" else "outgoing").put("started_at",startedAt).put("duration",duration).put("answered",answered)
-        val store = PhoneStore(this); store.update { saved ->
+        val store = PhoneStore(this); store.update(session.profileId) { saved ->
         val pending = saved.optJSONArray("pending_calls") ?: JSONArray(); pending.put(row)
         // Bound offline history while preserving the newest records.
         val bounded = JSONArray(); for(i in maxOf(0,pending.length()-200) until pending.length()) bounded.put(pending.get(i))
@@ -406,26 +456,25 @@ class PhoneService: Service() {
     }
     fun flushPending() {
         worker.execute {
-            try {
-                val store = PhoneStore(this); val pending = store.read()?.optJSONArray("pending_calls") ?: return@execute
-                val sent = mutableSetOf<String>()
+            val store=PhoneStore(this)
+            for(profile in store.profiles())try {
+                val id=profile.getString("profile_id");val pending=profile.optJSONArray("pending_calls") ?: continue
+                val api=PhoneApi(profile.getString("server"),profile.getString("token"));val sent=mutableSetOf<String>()
                 for(i in 0 until pending.length()) {
-                    val row = pending.getJSONObject(i)
-                    try { api?.json("call_log",row) ?: break; sent.add(row.getString("id")) }
-                    catch(e: ApiError) { if(e.status==400 || e.status==422)sent.add(row.getString("id")) else throw e }
+                    val row=pending.getJSONObject(i)
+                    try{api.json("call_log",row);sent.add(row.getString("id"))}
+                    catch(e:ApiError){if(e.status==400 || e.status==422)sent.add(row.getString("id")) else throw e}
                 }
-                main.post {
-                    store.update { saved ->
-                    val current = saved.optJSONArray("pending_calls") ?: JSONArray(); val remaining = JSONArray()
-                    for(i in 0 until current.length()) if(!sent.contains(current.getJSONObject(i).getString("id"))) remaining.put(current.get(i))
+                store.update(id){saved->
+                    val current=saved.optJSONArray("pending_calls") ?: JSONArray();val remaining=JSONArray()
+                    for(i in 0 until current.length())if(current.getJSONObject(i).getString("id") !in sent)remaining.put(current.get(i))
                     saved.put("pending_calls",remaining)
-                    }
                 }
-            } catch (_: Exception) { /* Retry next refresh; never log credentials or call data. */ }
+            }catch(_:Exception){/* Each profile retries independently; no credentials or call data in logs. */}
         }
     }
     override fun onDestroy() {
-        destroying = true; proximity?.close(); main.removeCallbacks(refreshAudioRoute)
+        destroying = true;getSharedPreferences("private_account",MODE_PRIVATE).unregisterOnSharedPreferenceChangeListener(profileChanges); proximity?.close(); main.removeCallbacks(refreshAudioRoute)
         video.close()
         sessions.values.forEach{it.phone.removeListener(callAudioListener);cancelIncoming(it.id)}
         networks.unregisterNetworkCallback(networkCallback);main.removeCallbacksAndMessages(null)

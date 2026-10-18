@@ -14,7 +14,7 @@ $check=function($ok,$message)use(&$count){if(!$ok)throw new RuntimeException($me
 $reject=function(callable $f,$message)use($check){try{$f();}catch(InvalidArgumentException|RuntimeException){$check(true,$message);return;}$check(false,$message);};
 try{
     $db->exec('create schema '.$schema);$db->exec('set search_path to '.$schema.',public');
-    foreach(['v_domains','v_users','v_extensions','v_voicemails','v_voicemail_messages','v_pbx_restore','v_pbx_services','v_pbx_tenants'] as $t)$db->exec('create table '.$t.' (like public.'.$t.' including all)');
+    foreach(['v_domains','v_users','v_extensions','v_voicemails','v_voicemail_messages','v_pbx_restore','v_pbx_services','v_pbx_tenants','v_email_queue'] as $t)$db->exec('create table '.$t.' (like public.'.$t.' including all)');
     $db->exec(file_get_contents(dirname(__DIR__).'/app/pbx_mobile/resources/install.sql'));
     $owner=uuid();$domains=[uuid(),uuid()];$extensions=[uuid(),uuid()];$mailboxes=[uuid(),uuid()];
     foreach($domains as $i=>$d){$realm=$d.'.invalid';$q('insert into v_domains(domain_uuid,domain_name,domain_enabled) values(?,?,true)',[$d,$realm]);$q("insert into v_extensions(extension_uuid,domain_uuid,extension,number_alias,enabled) values(?,?,'test-auth','100',true)",[$extensions[$i],$d]);$q("insert into v_voicemails(voicemail_uuid,domain_uuid,voicemail_id,voicemail_enabled) values(?,?,'100',true)",[$mailboxes[$i],$d]);

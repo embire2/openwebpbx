@@ -13,7 +13,14 @@ import tempfile
 PACKAGE = Path(__file__).resolve().parent
 UPDATES = Path('/var/lib/openwebpbx/updates')
 BACKUPS = Path('/var/backups/openwebpbx')
-SUPPORT = {'install-meet.py': Path('/opt/openwebpbx/tools/install-meet.py'),
+SUPPORT = {'tenant-domains.py': Path('/opt/openwebpbx/tools/tenant-domains.py'),
+           'tenant-domains.php': Path('/opt/openwebpbx/tools/tenant-domains.php'),
+           'tenant-domains-nginx.conf': Path('/opt/openwebpbx/tools/tenant-domains-nginx.conf'),
+           'install-tenant-domains.py': Path('/opt/openwebpbx/tools/install-tenant-domains.py'),
+           'openwebpbx-tenant-domains.service': Path('/etc/systemd/system/openwebpbx-tenant-domains.service'),
+           'openwebpbx-tenant-domains.timer': Path('/etc/systemd/system/openwebpbx-tenant-domains.timer'),
+           'install-mail.py': Path('/opt/openwebpbx/tools/install-mail.py'),
+           'install-meet.py': Path('/opt/openwebpbx/tools/install-meet.py'),
            'meet-nginx.conf': Path('/opt/openwebpbx/tools/meet-nginx.conf'),
            'openwebpbx-call-records.conf': Path('/etc/systemd/system/openwebpbx.service.d/call-records.conf'),
            'openwebpbx-call-me-back.conf': Path('/etc/systemd/system/openwebpbx.service.d/call-me-back.conf'),
@@ -130,6 +137,8 @@ def ensure_dependencies():
     result = subprocess.run(['python3', '-c', 'from cryptography.hazmat.primitives.ciphers.aead import AESGCM'],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     packages = ([] if result.returncode == 0 else ['python3-cryptography'])
+    if shutil.which('certbot') is None:
+        packages.append('certbot')
     if shutil.which('sox') is None:
         packages.append('sox')
     if shutil.which('sftp') is None or shutil.which('ssh-keygen') is None:
@@ -171,7 +180,11 @@ def install():
             upgrade.validate_backup(backup)
             meet_spec=importlib.util.spec_from_file_location('candidate_meeting',PACKAGE/'install-meet.py')
             meeting=importlib.util.module_from_spec(meet_spec);meet_spec.loader.exec_module(meeting)
-            targets = list(SUPPORT.values()) + NOTIFICATION_FILES + [registrar.TARGET] + meeting.targets()
+            mail_spec=importlib.util.spec_from_file_location('candidate_mail',PACKAGE/'install-mail.py')
+            mail=importlib.util.module_from_spec(mail_spec);mail_spec.loader.exec_module(mail)
+            domain_spec=importlib.util.spec_from_file_location('candidate_domains',PACKAGE/'install-tenant-domains.py')
+            domain_helper=importlib.util.module_from_spec(domain_spec);domain_spec.loader.exec_module(domain_helper)
+            targets = list(SUPPORT.values()) + NOTIFICATION_FILES + [registrar.TARGET] + meeting.targets() + mail.targets() + domain_helper.targets()
             # Existing systemd enablement is preserved. A newly created link is
             # included as an absent target so older rollback code removes it.
             for link in TIMER_LINKS:
@@ -183,7 +196,7 @@ def install():
         raise ValueError('An existing registrar must be updated through the recoverable instance updater.')
     registrar.install(native_content)
     ensure_dependencies()
-    for name in ['install-meet.py','meet-nginx.conf','install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py']:
+    for name in ['install-mail.py','install-meet.py','meet-nginx.conf','install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py']:
         target = SUPPORT[name]
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
         with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.support-helper-', delete=False) as stream:
@@ -206,6 +219,8 @@ def install():
     # timer. On failure, the snapshot removes the never-started units and links.
     subprocess.run(['bash', str(PACKAGE / 'install-backups.sh')], check=True, cwd=PACKAGE,
                    env=os.environ | ({'OPENWEB_BACKUP_START': '0'} if migrating else {}), timeout=60)
+    subprocess.run(['python3',str(PACKAGE/'install-mail.py')],check=True,cwd=PACKAGE,timeout=60)
+    subprocess.run(['python3',str(PACKAGE/'install-tenant-domains.py')],check=True,cwd=PACKAGE,timeout=60)
     # Older installed updaters do not know the newly bundled spoken targets.
     # The candidate helper augments their verified recovery inventory before
     # changing any voice, while the engine remains in the same stopped phase.

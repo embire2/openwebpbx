@@ -1,5 +1,7 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+Current candidate work (18 October 2026): tenant connection addresses, multiple Android profiles, manual app-password login/change and automatic QR/config welcome emails are being implemented. Public stable remains1.0.16. See [Play submission audit](docs/google-play-audit-1.0.17.md). No roadmap acceptance count changes are inferred from source edits.
+
 ## Integrated core and mandatory Android release — 1.0.16 — 2026-10-18
 
 The complete Debian 13 server and **OpenWebPBX Free Phone 1.0.16 / code116** are now delivered together. Meet provides scheduled audio/video rooms, private invitations, waiting-room admission, registered-phone participation and host mute/lock/remove/end controls. The core includes Nathaniel UK defaults, PIN-free own voicemail on **121**, the repaired **GMT+2 clock 1026** and optional tenant Call Me Back administration/runtime. No customer incoming number is enabled for Call Me Back automatically.

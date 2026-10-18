@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Fictional attachment provider exists only in the separate test APK. -->
+        <provider android:name="com.openweb.pbx.FixtureSetupProvider" android:authorities="com.openweb.pbx.test.setup-fixture" android:exported="true" />
+    </application>
+</manifest>

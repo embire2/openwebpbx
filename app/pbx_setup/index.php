@@ -38,12 +38,13 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
         elseif(($_POST['action']??'')==='start_call_test'){$_SESSION['pbx_setup_notice']=(new pbx_core)->startCallTest($_POST);header('Location: /app/pbx_setup/?view=first_calls&trunk='.rawurlencode((string)$_POST['trunk']));exit;}
         elseif(($_POST['action']??'')==='calling_rules'){(new pbx_core)->saveRules($_POST);$_SESSION['pbx_setup_notice']='Call rules saved.';header('Location: /app/pbx_setup/?view=routing');exit;}
         elseif(($_POST['action']??'')==='enable_parking'){$admin->enableCallFeatures();$_SESSION['pbx_setup_notice']='Shared parking enabled for this PBX.';header('Location: /app/pbx_setup/?view=switchboard');exit;}
+        elseif(($_POST['action']??'')==='welcome'&&$view==='users'){(new pbx_mobile_welcome(database::new()->db))->queue($key);$_SESSION['pbx_setup_notice']='Welcome message queued. The delivery status appears under Phone Provisioning.';header('Location: /app/pbx_setup/?view=users&edit='.rawurlencode($key));exit;}
         elseif(($_POST['action']??'')==='credentials')$credentials=$admin->credentials($key);
         elseif(($_POST['action']??'')==='phone_domain'){$name=(new pbx_sip_domains)->save($_POST);$_SESSION['pbx_setup_notice']='Phone domain saved: '.$name.'. Existing app accounts are preserved.';header('Location: /app/pbx_setup/?view=phones');exit;}
         elseif(($_POST['action']??'')==='disable_phone_domain'){(new pbx_sip_domains)->disable($_POST);$_SESSION['pbx_setup_notice']='Phone domain disabled.';header('Location: /app/pbx_setup/?view=phones');exit;}
         elseif(($_POST['action']??'')==='upload_audio'){$admin->uploadAudio($_FILES['prompt']??[]);$_SESSION['pbx_setup_notice']='Audio uploaded. Choose it as the prompt in a queue or digital receptionist.';header('Location: /app/pbx_setup/?view=handling');exit;}
         elseif(($_POST['action']??'')==='delete'&&isset($types[$view])){if(empty($_POST['confirm_delete']))throw new InvalidArgumentException('Confirm deletion.');$admin->delete($types[$view],$key);$_SESSION['pbx_setup_notice']='Deleted.';header('Location: /app/pbx_setup/?view='.rawurlencode($view));exit;}
-        elseif(($_POST['action']??'')==='save'&&isset($types[$view])){$admin->save($types[$view],$key,$_POST);$_SESSION['pbx_setup_notice']='Saved.';header('Location: /app/pbx_setup/?view='.rawurlencode($view));exit;}
+        elseif(($_POST['action']??'')==='save'&&isset($types[$view])){$admin->save($types[$view],$key,$_POST);$_SESSION['pbx_setup_notice']=$admin->saveNotice();header('Location: /app/pbx_setup/?view='.rawurlencode($view));exit;}
         else throw new InvalidArgumentException('Choose an action.');
     }catch(PDOException){$error='The change could not be saved. Check the details and try again.';}catch(Throwable $ex){$error=$ex->getMessage();}
 }
