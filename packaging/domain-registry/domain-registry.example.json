@@ -1,0 +1,8 @@
+{
+  "connectionString": "Host=127.0.0.1;Database=openweb_domain_registry;Username=openweb_domain_registry;Password=SET-PRIVATELY",
+  "cpanelEndpoint": "https://cpanel.example.invalid:2083/",
+  "cpanelUsername": "SET-PRIVATELY",
+  "cpanelToken": "SET-PRIVATELY",
+  "listenUrl": "http://127.0.0.1:5095",
+  "maximumLeasesPerInstance": 50
+}

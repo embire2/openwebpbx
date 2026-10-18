@@ -1,0 +1,20 @@
+[Unit]
+Description=OpenWeb PBX tenant domain custodian
+After=network-online.target postgresql.service
+Wants=network-online.target
+[Service]
+User=openweb-domain-registry
+Group=openweb-domain-registry
+WorkingDirectory=/opt/openwebpbx/domain-registry
+Environment=OPENWEB_DOMAIN_REGISTRY_CONFIG=/etc/openwebpbx-domain-registry/config.json
+ExecStart=/opt/openwebpbx/domain-registry/OpenWebPbx.DomainRegistry
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
+[Install]
+WantedBy=multi-user.target
