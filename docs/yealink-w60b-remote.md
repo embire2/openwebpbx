@@ -6,6 +6,8 @@ The hosted three-phone registration and server checks do not qualify every W60B 
 
 The hosted STUN endpoint was activated on **19 October2026** and verified from an external Windows server using both current and older Binding requests. The setting below is ready to use for this instance. Current source includes the optional Debian installer; immutable1.0.16 packages have not been replaced.
 
+The PBX now explicitly delivers audio through the server and generates audible ringback when a destination signals ringing. The three enabled providers' restored incoming rules are active. Provider announcements, saved office-hours routes and phone credentials remain in place. Software-call audio passed; physical handset checks below remain required. [Call progress and private diagnostics](call-diagnostics.md).
+
 ## Phone settings
 
 For the existing International Lighting accounts, preserve the restored extension, Register Name and password. Do not enter the Android app password as the desk-phone password. The current accounts register over UDP on port5060.

@@ -2,6 +2,7 @@
 /** Isolated PostgreSQL editor checks; private save methods avoid live reloads and SIP traffic. */
 if(PHP_SAPI!=='cli'){http_response_code(404);exit;}
 require dirname(__DIR__).'/resources/require.php';
+class TrunkHandoverFixtureAdmin extends pbx_admin {public array $changes=[];protected function changed(?string $trunk=null,?string $queue=null): void {$this->changes[]=$trunk;}}
 $db=$database->db;$db->setAttribute(PDO::ATTR_ERRMODE,PDO::ERRMODE_EXCEPTION);
 $schema='openweb_trunk_admin_test_'.bin2hex(random_bytes(6));$checks=0;
 $assert=static function(bool $ok,string $message)use(&$checks){if(!$ok)throw new RuntimeException($message);$checks++;};
@@ -76,6 +77,24 @@ try{
     $q('delete from v_pbx_restore where domain_uuid=:d',['d'=>$foreignDomain]);
     $assert($q('select gateway from v_gateways where gateway_uuid=:id',['id'=>$foreignGateway])->fetchColumn()==='Foreign fixture','Foreign gateway was changed');
     $db->commit();
+    $q('update v_pbx_restore set config=cast(:config as jsonb) where domain_uuid=:d',['config'=>json_encode($config),'d'=>$domain]);
+    // Reconfirming a connected provider must repair restored incoming routes
+    // without rewriting a single native provider field or another domain.
+    $handover=new TrunkHandoverFixtureAdmin($db);$_SESSION['permissions']['gateway_edit']=true;
+    $nativeBefore=$q('select * from v_gateways where gateway_uuid=:id',['id'=>$gateway])->fetch(PDO::FETCH_ASSOC);
+    $assert($handover->connectProvider('fixture',['confirm_handover'=>'1'])===1,'An existing connected provider must enable its saved incoming number');
+    $assert($handover->changes===[null],'Repairing incoming routes must not restart a working provider');
+    $after=$handover->config();$assert($after['inbound_rules'][0]['enabled']===true,'The incoming policy remains disabled after handover');
+    $assert($q('select * from v_gateways where gateway_uuid=:id',['id'=>$gateway])->fetch(PDO::FETCH_ASSOC)===$nativeBefore,'Reconfirming a provider rewrote its native credentials/settings');
+    $assert(filter_var($q('select destination_enabled from v_destinations where destination_uuid=:id',['id'=>$rule])->fetchColumn(),FILTER_VALIDATE_BOOLEAN),'The native destination remains off');
+    $assert($handover->connectProvider('fixture',['confirm_handover'=>'1'])===1&&$handover->config()===$after,'Connected-provider handover is not idempotent');
+    try{$handover->connectProvider('fixture',[]);throw new RuntimeException('Missing confirmation accepted');}catch(InvalidArgumentException){$assert(true,'Handover still requires an operator action');}
+    $off=$config;$off['trunks']['fixture']['enabled']=false;$q('update v_gateways set enabled=false where gateway_uuid=:id',['id'=>$gateway]);
+    $db->beginTransaction();$save->invokeArgs($admin,['fixture',$input,&$off]);$db->commit();
+    $assert($off['inbound_rules'][0]['enabled']===true&&filter_var($q('select destination_enabled from v_destinations where destination_uuid=:id',['id'=>$rule])->fetchColumn(),FILTER_VALIDATE_BOOLEAN),'Turning a provider on must activate its assigned incoming numbers');
+    $disabledInput=$input;$disabledInput['enabled']='';$db->beginTransaction();$save->invokeArgs($admin,['fixture',$disabledInput,&$off]);$db->commit();
+    $assert($off['inbound_rules'][0]['enabled']===false,'Turning a provider off must close its incoming routes');
+    // Keep the original independent readiness checks for a deliberately off DID.
     $q('update v_pbx_restore set config=cast(:config as jsonb) where domain_uuid=:d',['config'=>json_encode($config),'d'=>$domain]);
     $readiness=$admin->trunkReadiness(false);
     $assert(count($readiness['trunks'])===1&&$readiness['counts']['incoming_off']===1&&!$readiness['calls_verified'],'Readiness escaped the active PBX or claimed carrier verification');

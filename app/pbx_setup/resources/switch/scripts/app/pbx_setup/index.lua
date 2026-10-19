@@ -100,6 +100,10 @@ if type(auth)=='string' and auth~='' and (not auth_realm or P.realm_allowed(owne
     end
 end
 internal=authenticated_user and mode~='incoming'
+local audio=loadfile(scripts_dir..'/app/pbx_setup/call_audio.lua')()
+audio.apply(session,domain)
+local function trace(stage,fields)audio.trace(session,domain,stage,fields)end
+trace('route_enter',{Mode=mode,Target=key or '',Caller=authenticated_user and caller or ''})
 -- Server-derived scope markers; raw caller ID and SIP headers never grant staff access.
 session:setVariable('openweb_scope_origin',authenticated_user and tostring(caller) or '')
 session:setVariable('openweb_scope_target',tostring(key or ''))
@@ -181,6 +185,7 @@ run_outbound=function(number,owner)
     if not emergency and room and room.occupied~='t' and room.occupied~='true' then session:hangup('CALL_REJECTED');return end
     if not number:match('^%+?[%d*#]+$') then session:hangup('UNALLOCATED_NUMBER');return end
     local rule=emergency or P.outbound(config,number,origin)
+    trace('outgoing_rule',{Rule=rule and rule.rule_id or '',Target=number,Caller=origin})
     if not rule then session:hangup('CALL_REJECTED');return end
     for _,r in ipairs(rule.routes) do
         local contact=outbound_contact(number,r,origin)
@@ -188,6 +193,7 @@ run_outbound=function(number,owner)
         local observation=attempts.begin(db,api,session,domain,config.trunks[tostring(r.trunk_id)],origin,number,contact~=nil)
         contact=attempts.contact(observation,contact)
         if contact then
+            trace('provider_attempt',{Trunk=r.trunk_id,Target=number})
             session:setVariable('call_direction','outbound')
             session:setVariable('provider_uuid',config.trunks[tostring(r.trunk_id)].gateway_uuid)
             if emergency then session:setVariable('openweb_emergency_call','true') end
@@ -207,6 +213,7 @@ run_outbound=function(number,owner)
             session:setVariable('openweb_provider_answered','false')
             session:execute('bridge',contact)
             local cause=session:getVariable('originate_disposition')
+            trace('provider_result',{Trunk=r.trunk_id,Cause=cause or ''})
             local answered=cause=='SUCCESS' or session:getVariable('openweb_provider_answered')=='true'
             local retry=session:ready() and not answered and P.failover(cause,session:getVariable('last_bridge_proto_specific_hangup_cause'),session:getVariable('openweb_provider_answered'),session:getVariable('sip_invite_failure_status'))
             attempts.finish(db,observation,cause,session:getVariable('last_bridge_proto_specific_hangup_cause'),session:getVariable('sip_invite_failure_status'),answered,session:ready(),retry)
@@ -248,6 +255,7 @@ run_user=function(number)
     mobile_wake(db,api,P,session,domain,{u})
     local contact=registered(db,api,P,domain,u,realm)
     local mobile=mobile_contact.available(db,api,P,domain,config,u,profile) and mobile_contact.dial(domain,realm,u,profile.timeout,session:getVariable('uuid'),internal)
+    trace('phone_lookup',{Target=number,Registered=P.contact(contact) and 'true' or 'false',Mobile=mobile and 'true' or 'false',Timeout=profile.timeout})
     if not P.contact(contact) and not mobile then route(P.forward(profile,'NotRegistered',internal,open),number);return end
     session:setVariable('call_timeout',tostring(profile.timeout));session:setVariable('origination_callee_id_name',u.name)
     session:setVariable('origination_callee_id_number',tostring(number));record(u)
@@ -280,6 +288,7 @@ run_group=function(number)
             if not profile.disable_ring_groups then table.insert(contacts,user_contact(u,group.timeout)) end
         end
     end
+    trace('ring_group',{Target=number,Eligible=#contacts,Strategy=strategy})
     session:setVariable('ring_group_uuid',group.uuid)
     session:setVariable('call_timeout',tostring(group.timeout))
     session:setVariable('originate_timeout',tostring(group.timeout))
@@ -473,7 +482,8 @@ local function run()
         if not rule or not rule.enabled then session:hangup('CALL_REJECTED');return end
         local trunk=config.trunks[tostring(rule.trunk_id)]
         local ip=session:getVariable('sip_network_ip') or session:getVariable('network_addr') or ''
-        if not P.incoming(config,rule,trunk,function(variable) return session:getVariable(variable) end,ip) then session:hangup('CALL_REJECTED');return end
+        if not P.incoming(config,rule,trunk,function(variable) return session:getVariable(variable) end,ip) then trace('incoming_rejected',{Rule=key});session:hangup('CALL_REJECTED');return end
+        trace('incoming_accepted',{Rule=key,Trunk=rule.trunk_id})
         local enabled=false
         db:query('select enabled from v_gateways where domain_uuid=:domain and gateway_uuid=:id',{domain=domain,id=trunk.gateway_uuid},function(row) enabled=row.enabled=='true' or row.enabled=='t' end)
         if not enabled then session:hangup('CALL_REJECTED');return end
@@ -487,6 +497,7 @@ local function run()
         local open,_,holiday=P.office(config,rule.office_department or destination.number,clock)
         if rule.hours.type~='OfficeHours' then local d,t=clock(config.timezone);open=P.in_hours(rule.hours,d,t) end
         if holiday and rule.use_holiday then destination=rule.holiday elseif not open and rule.use_outside then destination=rule.outside end
+        trace('incoming_destination',{Target=destination.number or '',Mode=destination.type,Open=open,Holiday=holiday or false})
         route(destination)
     elseif mode=='script' then
         local s=P.find(config.scripts,key)

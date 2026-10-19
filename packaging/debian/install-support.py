@@ -21,6 +21,8 @@ SUPPORT = {'tenant-domains.py': Path('/opt/openwebpbx/tools/tenant-domains.py'),
            'openwebpbx-tenant-domains.timer': Path('/etc/systemd/system/openwebpbx-tenant-domains.timer'),
            'install-mail.py': Path('/opt/openwebpbx/tools/install-mail.py'),
            'install-stun.py': Path('/opt/openwebpbx/tools/install-stun.py'),
+           'call-diagnostics.py': Path('/opt/openwebpbx/tools/call-diagnostics.py'),
+           'openwebpbx-call-diagnostics.service': Path('/opt/openwebpbx/tools/openwebpbx-call-diagnostics.service'),
            'openwebpbx-stun.service': Path('/opt/openwebpbx/tools/openwebpbx-stun.service'),
            'openwebpbx-stun.conf': Path('/opt/openwebpbx/tools/openwebpbx-stun.conf'),
            'install-meet.py': Path('/opt/openwebpbx/tools/install-meet.py'),
@@ -199,7 +201,7 @@ def install():
         raise ValueError('An existing registrar must be updated through the recoverable instance updater.')
     registrar.install(native_content)
     ensure_dependencies()
-    for name in ['install-mail.py','install-stun.py','openwebpbx-stun.service','openwebpbx-stun.conf','install-meet.py','meet-nginx.conf','install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py']:
+    for name in ['install-mail.py','call-diagnostics.py','openwebpbx-call-diagnostics.service','install-stun.py','openwebpbx-stun.service','openwebpbx-stun.conf','install-meet.py','meet-nginx.conf','install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py']:
         target = SUPPORT[name]
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
         with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.support-helper-', delete=False) as stream:

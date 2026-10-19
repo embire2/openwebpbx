@@ -2,6 +2,12 @@
 
 [Detailed 1.0.16 qualification and remaining device checks](release-1.0.16-qualification.md).
 
+## Incoming routes, audible ringback and explicit PBX audio — 2026-10-19
+
+The previous native180 result proved signalling, not audible ringback. The owner's subsequent failure report remains valid. Current hosted/source code explicitly anchors new call legs at the PBX and generates audio on destination ringing. Final native owned-phone tests decoded ringback before rejection/answer, then two-way answered audio; genuine early media also passed through. Unanswered calls did not add recording rows. The owner's three enabled providers had disabled restored incoming rules; only those saved rules were enabled, retaining their destinations and hours. Connected-provider handover is now idempotent and avoids a gateway restart. A root-only, masked, allowlisted, size-bounded observer expires automatically and logs route/progress/media/failure details. [Full evidence and limits](call-diagnostics.md).
+
+Physical handset ringing, owner Android confirmation and answered customer carrier calls are not inferred. Public1.0.16 assets/minimum and all133 roadmap marks remain unchanged.
+
 ## Hosted phone status and after-hours internal calls — 2026-10-19
 
 The restored International Lighting office hours switched1050 to Out of office after17:00. Its restored closed-hours internal destination was voicemail, which is disabled for that user; the failed actual call ended with NO_ANSWER before a phone bridge. The owner approved direct internal calling outside office hours while preserving outside-number routing.

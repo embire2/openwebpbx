@@ -1,5 +1,7 @@
 # OpenWeb PBX
 
+Hosted calling update, 19 October: enabled providers' saved incoming routes are active, both call legs keep audio through the PBX, and decoded software-call tests now verify audible pre-answer ringback and answered two-way audio. Expiring, private call diagnostics are available. Physical-phone and owner Android/carrier checks remain open; public downloads stay 1.0.16. [Details](docs/call-diagnostics.md).
+
 **1.0.16 is available:** the complete Debian 13 core now includes Meet audio/video conferences, Nathaniel UK prompts, own voicemail on **121** without a PIN, and the repaired **GMT+2 clock 1026**. **OpenWebPBX Free Phone 1.0.16** adds optional native video between colleagues. [Downloads](https://github.com/embire2/openwebpbx/releases/tag/v1.0.16) · [Install/update](docs/installing-1.0.16.md) · [Meet](docs/meet.md) · [Android video](docs/android-video.md).
 
 The [hosted PBX](https://call.openweb.co.za/) requires Android **1.0.16/code116** for every tenant. Install over the existing app to retain its account. Downloads are signed and verified; active calls defer replacement. Android may require confirmation and tapping Open. Tenant preferences continue to apply to later releases. The previous preview and 1.0.15 downloads retain their original bytes.

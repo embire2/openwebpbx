@@ -1,0 +1,25 @@
+[Unit]
+Description=OpenWeb PBX private finite call and media diagnostics
+After=freeswitch.service
+ConditionPathExists=/etc/fusionpbx/call-diagnostics.json
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/openwebpbx/tools/call-diagnostics.py
+User=root
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+LogsDirectory=openwebpbx-call-diagnostics
+LogsDirectoryMode=0700
+ReadWritePaths=/var/log/openwebpbx-call-diagnostics
+RestrictAddressFamilies=AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+CapabilityBoundingSet=
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

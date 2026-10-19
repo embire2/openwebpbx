@@ -128,12 +128,17 @@ class pbx_admin {
             $c=$this->config(true);$trunk=$c['trunks'][$key]??null;if(!$trunk)throw new InvalidArgumentException('This trunk is not in your PBX.');
             $gateway=$this->query('select enabled from v_gateways where domain_uuid=:d and gateway_uuid=:id for update',['d'=>$this->domain,'id'=>$trunk['gateway_uuid']])->fetch(PDO::FETCH_ASSOC);
             if(!$gateway)throw new InvalidArgumentException('This trunk is not in your PBX.');
-            if(filter_var($gateway['enabled'],FILTER_VALIDATE_BOOLEAN))throw new InvalidArgumentException('This provider is already connected. Review its incoming numbers under DID Numbers.');
-            $this->saveTrunk($key,['name'=>$trunk['name'],'host'=>$trunk['host'],'enabled'=>'1'],$c);$count=0;
+            // A previously enabled provider can still have restored incoming
+            // numbers switched off. The confirmed handover repairs those
+            // routes without rewriting credentials or moving its registration.
+            $alreadyConnected=filter_var($gateway['enabled'],FILTER_VALIDATE_BOOLEAN);
+            if(!$alreadyConnected)$this->saveTrunk($key,['name'=>$trunk['name'],'host'=>$trunk['host'],'enabled'=>'1'],$c);
+            elseif(empty($trunk['enabled']))throw new InvalidArgumentException('The saved provider state needs review.');
+            $count=0;
             foreach($c['inbound_rules'] as $rule)if($rule['trunk_id']===$key){$this->saveIncoming($rule['rule_id'],['enabled'=>'1','use_outside'=>!empty($rule['use_outside'])?'1':''],$c);$count++;}
             $this->saveConfig($c);$this->db->commit();
         }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
-        $this->changed($trunk['gateway_uuid']);return $count;
+        $this->changed($alreadyConnected?null:$trunk['gateway_uuid']);return $count;
     }
     public function enableCallFeatures(): void {
         if($this->scope)throw new pbx_staff_denied('This action is managed by the PBX owner.');
@@ -257,8 +262,11 @@ class pbx_admin {
         foreach($fields as $field=>$value){$assignments[]=$field.'=:'.$field;$params[$field]=$value;}
         $this->query('update v_gateways set '.implode(',',$assignments).' where domain_uuid=:d and gateway_uuid=:id',$params);
         unset($t['username'],$t['password']);
-        // Refresh every number's source-field and source-address checks, including off lines.
-        foreach($c['inbound_rules'] as $rule)if($rule['trunk_id']===$key)$this->saveIncoming($rule['rule_id'],['enabled'=>$enabled&&!empty($rule['enabled'])?'1':'','use_outside'=>!empty($rule['use_outside'])?'1':''],$c);
+        // Turning a provider on also activates its saved incoming numbers.
+        // Ordinary edits retain individually disabled numbers; turning it off
+        // still closes every incoming route before a later confirmed handover.
+        $turningOn=$enabled&&!filter_var($native['enabled'],FILTER_VALIDATE_BOOLEAN);
+        foreach($c['inbound_rules'] as $rule)if($rule['trunk_id']===$key)$this->saveIncoming($rule['rule_id'],['enabled'=>$enabled&&($turningOn||!empty($rule['enabled']))?'1':'','use_outside'=>!empty($rule['use_outside'])?'1':''],$c);
         if(array_key_exists('department',$in))pbx_departments::assign($c,$key,$this->text($in,'department',40));
         return $key;
     }
