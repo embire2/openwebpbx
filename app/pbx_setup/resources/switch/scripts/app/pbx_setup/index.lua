@@ -42,6 +42,46 @@ local contact_realms=loadfile(scripts_dir..'/app/xml_handler/resources/scripts/d
 local owned_realms=contact_realms.realms(db,domain,realm)
 if not P.realm_config(config,owned_realms) then db:release();session:hangup('CALL_REJECTED');return end
 local mode,key=args[2],args[3]
+local internal
+local function record(u,external)
+    if not u or not u.enabled or not u.record_calls or session:getVariable('openweb_recording')=='true' then return end
+    local owner=tostring(u.number)
+    local pending=session:getVariable('openweb_recording_pending')
+    if pending and pending~='' and pending~=owner then return end
+    if u.record_external_only and internal and not external then return end
+    local id=session:getVariable('uuid')
+    if not id or not id:match('^[a-f0-9%-]+$') then return end
+    if not session:answered() then
+        -- record_session requires media and otherwise pre-answers the caller.
+        -- Keep this hook local to this leg, alongside any existing answer hooks.
+        -- The first recording owner also wins when the recipient records calls.
+        session:setVariable('openweb_recording_pending',owner)
+        session:setVariable('openweb_recording_internal',internal and 'true' or 'false')
+        session:setVariable('openweb_recording_external',external and 'true' or 'false')
+        session:setVariable('execute_on_answer_openweb_record','lua app.lua pbx_setup record_user')
+        return
+    end
+    local dir=storage_dir..'/openwebpbx/'..domain
+    session:setVariable('openweb_recording','true');session:setVariable('record_path',dir)
+    session:setVariable('record_name',id..'.wav');session:setVariable('record_stereo','true')
+    session:setVariable('openweb_recording_pending','')
+    local path=dir..'/'..id..'.wav'
+    session:execute('record_session',path)
+    db:query([[insert into v_pbx_media(media_uuid,domain_uuid,category,source_path,file_path,title,owner_number,created_at)
+        values(:id,:domain,'recordings',:source,:path,:title,:owner,now()) on conflict do nothing]],
+        {id=id,domain=domain,source='calls/'..id..'.wav',path=path,title='Call '..owner,owner=owner})
+end
+if mode=='record_user' then
+    -- Recording callbacks must not change the live call's routing scope, depth,
+    -- direction or bridge policy. Existing B-leg/queue callbacks also use this.
+    local pending=session:getVariable('openweb_recording_pending')
+    internal=session:getVariable(pending and pending~='' and 'openweb_recording_internal' or 'openweb_call_internal')=='true'
+    local u=config.users[tostring(key or pending)]
+    local ok=pcall(function()record(u,pending and pending~='' and session:getVariable('openweb_recording_external')=='true')end)
+    db:release()
+    if not ok then freeswitch.consoleLog('ERR','[OpenWeb PBX] Call recording failed for domain '..domain..'\n') end
+    return
+end
 local caller=session:getVariable('effective_caller_id_number') or session:getVariable('caller_id_number') or ''
 local auth=session:getVariable('sip_auth_username') or session:getVariable('user_name')
 local authenticated_user=false
@@ -59,12 +99,11 @@ if type(auth)=='string' and auth~='' and (not auth_realm or P.realm_allowed(owne
         if not authenticated_user then db:release();session:hangup('CALL_REJECTED');return end
     end
 end
-local internal=authenticated_user and mode~='incoming'
+internal=authenticated_user and mode~='incoming'
 -- Server-derived scope markers; raw caller ID and SIP headers never grant staff access.
 session:setVariable('openweb_scope_origin',authenticated_user and tostring(caller) or '')
 session:setVariable('openweb_scope_target',tostring(key or ''))
 session:setVariable('openweb_scope_service',tostring(key or ''))
-if mode=='record_user' then internal=session:getVariable('openweb_call_internal')=='true' end
 if authenticated_user and mode~='incoming' and mode~='record_user' then session:setVariable('call_direction','local') end
 local function clock(zone)
     local result=api:execute('strftime_tz',(zone or 'Africa/Johannesburg')..' %w_%H:%M_%Y-%m-%d')
@@ -95,20 +134,6 @@ local function voicemail(number,check)
     -- An unknown action answers the channel but returns without greeting/recording.
     session:setVariable('voicemail_action',check and 'check' or 'save')
     session:execute('lua','app.lua voicemail')
-end
-local function record(u,external)
-    if not u.record_calls or session:getVariable('openweb_recording')=='true' then return end
-    if u.record_external_only and internal and not external then return end
-    local id=session:getVariable('uuid')
-    if not id or not id:match('^[a-f0-9%-]+$') then return end
-    local dir=storage_dir..'/openwebpbx/'..domain
-    session:setVariable('openweb_recording','true');session:setVariable('record_path',dir)
-    session:setVariable('record_name',id..'.wav');session:setVariable('record_stereo','true')
-    local path=dir..'/'..id..'.wav'
-    session:execute('record_session',path)
-    db:query([[insert into v_pbx_media(media_uuid,domain_uuid,category,source_path,file_path,title,owner_number,created_at)
-        values(:id,:domain,'recordings',:source,:path,:title,:owner,now()) on conflict do nothing]],
-        {id=id,domain=domain,source='calls/'..id..'.wav',path=path,title='Call '..tostring(u.number),owner=tostring(u.number)})
 end
 local function outbound_contact(number,rule_route,owner)
     local t=config.trunks[tostring(rule_route.trunk_id)]
@@ -213,7 +238,7 @@ run_user=function(number)
     if room and (room.do_not_disturb=='t' or room.do_not_disturb=='true') then voicemail(number,false);return end
     local special=P.object_destination(config,u,clock)
     if special then route(special,number);return end
-    local profile=P.profile(config,number,clock)
+    local profile=P.profile(config,number,clock,internal==true and u.internal_after_hours==true)
     local open=P.office(config,number,clock)
     if next(profile.away or {}) then route(P.forward(profile,'NoAnswer',internal,open),number);return end
     if (profile.busy_detection or 'UsePBXStatus')=='UsePBXStatus' then
@@ -437,7 +462,6 @@ local function run()
         session:setVariable('presence_id',u.auth_id..'@'..realm)
         session:setVariable('ignore_early_media','true')
         run_outbound(u.mobile,tostring(u.number))
-    elseif mode=='record_user' then local u=config.users[tostring(key)];if u then record(u) end
     elseif mode=='parking' then
         if not config.parking_enabled or not tostring(key):match('^%d+$') or tonumber(key)<1 or tonumber(key)>20 or not (authenticated_user or session:getVariable('openweb_park_authorized')=='true') then session:hangup('CALL_REJECTED');return end
         session:setVariable('openweb_park_authorized','false');session:answer();session:execute('valet_park',realm..' '..key)

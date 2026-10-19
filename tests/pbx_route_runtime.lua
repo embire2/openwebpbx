@@ -30,10 +30,16 @@ end
 local function environment(f)
     local s={variables=f.variables,alive=true}
     function s:ready()return self.alive end
+    function s:answered()return f.answered==true end
     function s:getVariable(key)return self.variables[key]end
     function s:setVariable(key,value)self.variables[key]=value end
     function s:hangup(cause)f.hangup=cause;self.alive=false end
-    function s:answer()f.answers=(f.answers or 0)+1 end
+    function s:answer()
+        f.answers=(f.answers or 0)+1;f.answered=true
+        if self.variables.execute_on_answer_openweb_record=='lua app.lua pbx_setup record_user' then
+            assert(loadfile(base..'/app/pbx_setup/index.lua','t',f.env))({'pbx_setup','record_user'})
+        end
+    end
     function s:streamFile()end
     function s:playAndGetDigits(min,max,tries,timeout,terminators,prompt,bad,regex,var,digit_timeout)
         if prompt=='phrase:openweb_callback_intro' then
@@ -66,6 +72,7 @@ local function environment(f)
             self.variables.last_bridge_proto_specific_hangup_cause=response.protocol
             self.variables.sip_invite_failure_status=response.received or ''
             if response.answered then self.variables.openweb_provider_answered='true' end
+            if response.answered or response.cause=='SUCCESS' then self:answer() end
             if response.disconnect then self.alive=false end
         end
     end
@@ -86,7 +93,12 @@ local function environment(f)
         elseif sql:find('select 1 as ok from v_pbx_jobs',1,true) and sql:find('target_number=:target',1,true) then f.callback_lookup=params;if f.callback_existing then callback({ok=1}) end
         elseif sql:find('from v_gateways',1,true) then
             local native=f.gateways[params.id]
-            if native and native.domain==(params.domain or params.d) and callback then callback(native) end
+            if native and native.domain==(params.domain or params.d) and callback then
+                -- A real SELECT cannot provide omitted native gateway fields.
+                local columns=assert(sql:match('^select ([%w_,]+) from v_gateways'))
+                local row={};for field in columns:gmatch('[%w_]+') do row[field]=native[field] end
+                callback(row)
+            end
         elseif sql:find('insert into v_pbx_mobile_push_calls',1,true) then
             f.wake_targets=f.wake_targets or {};f.wake_targets[#f.wake_targets+1]=params.extension
             if f.push_configured then callback({request_uuid='fixture-wake'}) end
@@ -108,6 +120,8 @@ local function environment(f)
         elseif sql:find("state='calling'",1,true) and sql:find('select 1 as ok',1,true) then if callback then callback({ok=1}) end
         elseif sql:find('set state=:state',1,true) then f.job_state=params.state
         elseif sql:find('select config from v_pbx_restore',1,true) then callback({config='fixture-config'})
+        elseif sql:find('insert into v_pbx_media',1,true) then
+            f.recording_rows=f.recording_rows or {};f.recording_rows[#f.recording_rows+1]=params
         end
     end
     function db:release()f.released=true end
@@ -122,7 +136,7 @@ local function environment(f)
             return native and ('State\t'..native.state..'\nStatus\t'..(native.status or 'UP')..'\n') or '-ERR Gateway not found'
         elseif command=='sofia_contact' then return f.offline and 'error/user_not_registered' or 'sofia/internal/sip:fixture@127.0.0.1:15060'
         elseif command=='show' then return 'fixture-channels'
-        elseif command=='strftime_tz' then return '1_09:00_2026-10-05'
+        elseif command=='strftime_tz' then return f.clock or '1_09:00_2026-10-05'
         elseif command=='uuid_exists' then return f.source_gone and 'false' or 'true'
         elseif command=='uuid_getvar' then
             if data:match(' domain_uuid$') then return f.source_foreign and '00000000-0000-4000-a000-000000000099' or domain end
@@ -135,6 +149,7 @@ local function environment(f)
     end
     local fake_os=setmetatable({time=function()return f.now end},{__index=os})
     local env=setmetatable({os=fake_os,session=s,scripts_dir=base,storage_dir='/nonexistent-fixture-storage',argv={'00000000-0000-4000-a000-000000000030'}},{__index=_G})
+    f.env=env
     -- Nested helpers must share this isolated runtime environment as well.
     env.loadfile=function(path)if path:find('/directory/contact_realms.lua',1,true)then path='app/switch/resources/scripts/app/xml_handler/resources/scripts/directory/contact_realms.lua'end;return loadfile(path,'t',env)end
     env.dofile=function(path)return env.loadfile(path)()end
@@ -223,9 +238,17 @@ check(#f.bridges==2 and f.job_state=='completed' and f.bridges[2]:find('sip_cont
 f=fixture();f.variables.sip_network_ip='192.0.2.10';f.variables.sip_to_user='27210000001';f.variables.sip_gateway=gateway2;run(f,'incoming','incoming-one')
 check(#f.transfers==0 and f.hangup=='CALL_REJECTED','Native gateway binding cannot select another trunk incoming DID')
 f=fixture();f.config.users['100'].record_calls=true;f.config.users['100'].record_external_only=true;run(f)
-check(f.recordings==1,'Authenticated outside call records with external-only preference and no duplicate recording')
+check(f.recordings==1 and #f.recording_rows==1 and f.recording_rows[1].owner=='100','Authenticated outside call records with external-only preference and no duplicate recording')
 f=fixture();f.config.users['200'].record_calls=true;f.config.users['200'].record_external_only=true;run(f,'user','200')
 check(not f.recordings,'Internal call does not record a recipient with external-only preference')
+f=fixture();f.config.users['100'].record_calls=true;f.config.users['200'].record_calls=true
+f.responses={{cause='SUCCESS',protocol='sip:200'}};run(f,'user','200')
+check(f.recordings==1 and #f.recording_rows==1 and f.recording_rows[1].owner=='100'
+    and f.variables.openweb_scope_target=='200' and f.variables.openweb_route_depth=='1',
+    'Actual full routing script starts first-owner recording on answer without changing target scope or consuming routing depth')
+f=fixture();f.config.users['100'].record_calls=true;f.responses={{cause='NO_ANSWER',protocol='sip:408'}};run(f,'user','200')
+check(not f.recordings and not f.recording_rows,
+    'Actual full routing script leaves no recording or phantom media row after an unanswered call')
 f=fixture();f.responses[1]={cause='NORMAL_CLEARING',protocol='sip:503',answered=true};job(f)
 check(#f.bridges==1 and f.job_state=='completed','Answered callback completes without a later duplicate job retry')
 f=fixture();f.responses[1]={cause='NO_USER_RESPONSE',protocol='sip:480',received='480'};run(f)
@@ -337,6 +360,102 @@ f=fixture();first_test(f);check(not f.agent_dial,'First-call worker cannot execu
 f=fixture();f.audit_claim=true;first_test(f)
 check(f.agent_dial and f.agent_dial:find('absolute_timeout=180',1,true) and f.agent_dial:find('}sofia/',1,true) and f.audit_result=='finished','First-call worker bounds lifetime and calls one registered phone before ordinary outbound handling')
 f=fixture();f.audit_claim=true;f.gateways[gateway1].enabled='false';first_test(f);check(not f.agent_dial and f.audit_result=='failed','Changed provider selection prevents first-call worker ringing a phone')
+local function dynamic_provider()
+    local value=fixture();value.config.trunks.one.headers.ContactUser='$OutboundCallerId'
+    value.config.outbound_rules[1].routes={value.config.outbound_rules[1].routes[1]}
+    value.gateways[gateway1].register='true';value.gateways[gateway1].state='REGED'
+    value.gateways[gateway1].from_user='fixture-auth';value.gateways[gateway1].username='fixture-auth'
+    value.gateways[gateway1].outbound_proxy='edge.example.invalid:5060'
+    return value
+end
+f=dynamic_provider();explanation=plan(f)
+check(explanation.provider=='one' and explanation.routes[1].available and not explanation.error,
+    'Read-only plan accepts owned REGED dynamic-Contact provider with native routing fields')
+f=dynamic_provider();f.audit_claim=true;first_test(f)
+check(f.agent_dial and f.audit_result=='finished',
+    'Claimed first-call worker accepts the same dynamic-Contact provider as ordinary runtime')
+for _,from_user in ipairs({'fixture-from',''}) do
+    f=dynamic_provider();f.config.trunks.one.headers.FromUserPart='$AuthID';f.gateways[gateway1].from_user=from_user
+    check(plan(f).provider=='one','Dynamic-Contact plan retains native From identity or username fallback')
+    f.audit_claim=true;first_test(f)
+    check(f.agent_dial and f.audit_result=='finished','Dynamic-Contact worker retains native authenticated From identity')
+end
+for _,invalid in ipairs({'disabled','foreign','unregistered','down','missing_proxy','missing_profile','bad_transport','invalid_auth'}) do
+    local function broken()
+        local value=dynamic_provider();local native=value.gateways[gateway1]
+        if invalid=='disabled' then native.enabled='false'
+        elseif invalid=='foreign' then native.domain='00000000-0000-4000-a000-000000000099'
+        elseif invalid=='unregistered' then native.state='NOREG'
+        elseif invalid=='down' then native.status='DOWN'
+        elseif invalid=='missing_proxy' then native.proxy=nil
+        elseif invalid=='missing_profile' then native.profile=nil
+        elseif invalid=='bad_transport' then native.register_transport='invalid'
+        else value.config.trunks.one.headers.FromUserPart='$AuthID';native.from_user='';native.username='invalid auth' end
+        return value
+    end
+    f=broken();explanation=plan(f)
+    check(not explanation.provider and explanation.routes[1].available==false and explanation.error,
+        'Dynamic-Contact plan refuses '..invalid..' native provider')
+    f=broken();f.audit_claim=true;first_test(f)
+    check(not f.agent_dial and f.audit_result=='failed',
+        'Dynamic-Contact worker refuses '..invalid..' before ringing a phone')
+end
+f=dynamic_provider();f.audit_claim=true;f.config.users['100'].enabled=false;first_test(f)
+check(not f.agent_dial and f.audit_result=='failed','Dynamic-Contact worker retains enabled caller requirement')
+f=dynamic_provider();f.audit_claim=true;f.active=false;first_test(f)
+check(not f.agent_dial and f.audit_result=='failed','Dynamic-Contact worker retains active tenant requirement')
+local function after_hours(flag)
+    local value=fixture();value.clock='1_19:07_2026-10-19'
+    local target=value.config.users['200'];value.config.users['200']=nil;value.config.users['1050']=target
+    target.number='1050';target.auth_id='auth1050';target.auto_status='3';target.internal_after_hours=flag;target.voicemail_enabled=false
+    target.hours={hours={type='OfficeHours'},office='ProceedWithNoExceptions..',outside='ProceedWithNoExceptions..',holiday='ProceedWithNoExceptions..',['break']='ProceedWithNoExceptions..'}
+    target.profiles.Available.name='Available';target.profiles.Available.disable_ring_groups=false
+    for _,status in ipairs({'Away','Do Not Disturb','Out of office'}) do
+        target.profiles[status]={name=status,timeout=20,disable_ring_groups=true,available={},away={
+            Internal={outside_inactive=true,all={type='VoiceMail',number='1050'}},
+            External={outside_inactive=true,all={type='VoiceMail',number='1050'}}}}
+    end
+    local department=value.config.departments[1];department.members[#department.members+1]={number='1050',primary=true}
+    department.hours={type='SpecificHours',periods={{day=1,start='08:00',['end']='17:00'}}}
+    value.responses={{cause='SUCCESS',protocol='sip:200'}}
+    return value
+end
+for _,preference in ipairs({{}, {flag=false},{flag='true'},{flag=1}}) do
+    f=after_hours(preference.flag);run(f,'user','1050')
+    check(#f.bridges==0 and f.hangup=='NO_ANSWER','Default, false or nonboolean preference retains original1050 after-hours voicemail-disabled refusal')
+end
+f=after_hours(true);run(f,'user','1050')
+check(#f.bridges==1 and f.bridges[1]:find('user/auth1050@',1,true) and not f.voicemail,
+    'Authenticated direct internal call rings opted-in1050 after hours despite automatic status and disabled voicemail')
+for _,origin in ipairs({'raw_caller_id','provider_transfer','foreign_realm','disabled_auth_user'}) do
+    f=after_hours(true);f.variables.openweb_call_internal='true';f.variables['sip_h_X-OpenWeb-Internal']='true'
+    if origin=='raw_caller_id' then f.variables.sip_auth_username=nil;f.variables.caller_id_number='100'
+    elseif origin=='provider_transfer' then f.variables.openweb_provider_origin='true'
+    elseif origin=='foreign_realm' then f.variables.sip_auth_realm='foreign.example.invalid'
+    else f.config.users['100'].enabled=false end
+    run(f,'user','1050')
+    check(#f.bridges==0 and f.hangup=='NO_ANSWER','Untrusted '..origin..' cannot bypass external after-hours policy with caller/header hints')
+end
+for _,status in ipairs({'Away','Do Not Disturb'}) do
+    f=after_hours(true);f.config.users['1050'].profile=status;run(f,'user','1050')
+    check(#f.bridges==0 and f.hangup=='NO_ANSWER','Direct-internal opt-in preserves manual '..status..' forwarding')
+end
+f=after_hours(true);f.config.users['1050'].profile='Away';f.config.users['1050'].mobile_temporary={target='Away',previous='Available',expires=f.now+60};run(f,'user','1050')
+check(#f.bridges==0 and f.hangup=='NO_ANSWER','Direct-internal opt-in preserves an active temporary status')
+f=after_hours(true);f.config.users['1050'].profile='Away';f.config.users['1050'].mobile_temporary={target='Away',previous='Available',expires=f.now-1};run(f,'user','1050')
+check(#f.bridges==1 and f.bridges[1]:find('user/auth1050@',1,true),'Expired temporary status restores Available and then permits opted-in direct internal ringing')
+f=after_hours(true);f.config.users['1050'].hours.outside='Extension.100.';run(f,'user','1050')
+check(#f.bridges==0 and f.transfers[1] and f.transfers[1].number=='100','Explicit user office route still precedes the internal automatic-profile exception')
+f=after_hours(true);f.config.ring_groups={{number='400',uuid='fixture-group',strategy='RingAll',timeout=10,members={{number='1050'}},destination={type='VoiceMail',number='1050'}}};run(f,'group','400')
+check(#f.bridges==0 and f.hangup=='NO_ANSWER','Ring-group member selection keeps ordinary after-hours profile despite direct-internal opt-in')
+f=after_hours(true);f.config.departments[1].members[#f.config.departments[1].members+1]={number='300',primary=true};f.config.queues[1].hours={hours={type='OfficeHours'},outside='VoiceMail.1050.'};run(f,'queue','300')
+check(#f.bridges==0 and #f.waits==0 and f.hangup=='NO_ANSWER','Queue office route remains closed before any waiting or agent offer')
+local ordinary_outbound
+for _,flag in ipairs({false,true}) do
+    f=after_hours(flag);f.variables.sip_auth_username='auth1050';run(f)
+    check(#f.bridges==1 and f.bridges[1]:find('sofia/gateway/',1,true),'The opted-in users own outbound call still follows the ordinary gateway path')
+    if flag then check(f.bridges[1]==ordinary_outbound,'Preference changes no outbound leg or provider identity') else ordinary_outbound=f.bridges[1] end
+end
 local function agent(f)
     f.config.users['100'].extension_uuid='00000000-0000-4000-a000-000000000062'
     f.variables.openweb_agent_number='100';f.variables.openweb_queue_number='300';f.variables.loopback_leg=f.variables.loopback_leg or 'B'

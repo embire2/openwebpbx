@@ -2,6 +2,18 @@
 
 These controls are included in **1.0.14**. See the [release status](feature-coverage.md#users-and-departments--1014) for installation, publication and deployment results.
 
+## Phone status and internal calls after hours
+
+The hosted instance received these additions on **19 October 2026**, as a narrow patch on core **1.0.16**. They are also in current source; the complete 1.0.17 package is still under qualification.
+
+**Admin → Users** and the staff **People** page show **Online** when an enabled user has a current registered desk phone or app connection, and **Offline** otherwise. The table refreshes every five seconds while visible. **Status unavailable** means the check failed; it does not mean the phone is offline. The desktop's Connected Phones total counts users with at least one connected phone. Multiple devices belonging to one user count once.
+
+**Call Status** remains separate: a phone can be Online while its user's calls follow Out of office rules. Registration alone does not prove that someone can answer or hear a call.
+
+To let colleagues call a user after closing time, open **Users → user → Call Forwarding → Allow internal calls outside office hours**, then save. The option starts off for other users. It allows direct calls from authenticated extensions to registered desk phones and app connections without the automatic office-hours status switch. Outside calls, queues, ring groups, custom closed-hours destinations and manually selected Away, Out of office or Do Not Disturb keep their existing rules. External Ring My Mobile forwarding also retains its ordinary office-hours checks. Ring time and no-answer destinations remain as configured.
+
+For the hosted OpenWeb PBX, this option is enabled for **1000, 1049, 1050 and 1051**. Extension **1000** now has **OpenWeb** as its primary department, preserving its other memberships. The three International Lighting phones remain on `openweb.sip.openwebpbx.com` with their original restored credentials. See [the verification record](feature-coverage.md#hosted-phone-status-and-after-hours-internal-calls--2026-10-19).
+
 ## Add a user
 
 Open **Admin → Users → Add User**. An available extension is already filled in. Enter the person's name and save.

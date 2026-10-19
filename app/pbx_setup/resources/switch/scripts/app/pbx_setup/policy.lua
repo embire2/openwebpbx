@@ -151,12 +151,12 @@ function P.office(config, number, clock,ignore_holidays)
     local break_now=#(breaks.periods or {})>0 and P.in_hours(breaks,day,time)
     return P.in_hours(department.hours,day,time) and not break_now and (ignore_holidays or not holiday),break_now,holiday
 end
-function P.profile(config, number, clock)
+function P.profile(config, number, clock, skip_auto_office)
     local user=config.users[tostring(number)]
     local status=user.profile
     local temporary=user.mobile_temporary
     if temporary and status==temporary.target and tonumber(temporary.expires or 0)<=os.time() then status=temporary.previous end
-    if status~='Do Not Disturb' and not (temporary and user.profile==temporary.target and tonumber(temporary.expires or 0)>os.time()) and tonumber(user.auto_status or '0')%2==1 then
+    if skip_auto_office~=true and status~='Do Not Disturb' and not (temporary and user.profile==temporary.target and tonumber(temporary.expires or 0)>os.time()) and tonumber(user.auto_status or '0')%2==1 then
         local open,break_now=P.office(config,number,clock)
         if not open then status=break_now and 'Away' or 'Out of office' end
     end

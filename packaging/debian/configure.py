@@ -8,10 +8,12 @@ parser.add_argument('--address',default='')
 parser.add_argument('--email',required=True)
 parser.add_argument('--certificate');parser.add_argument('--certificate-key')
 parser.add_argument('--local-certificate',action='store_true')
+parser.add_argument('--stun',action='store_true',help='Explicitly install UDP3478 STUN binding only on --address (no TURN relay)')
 parser.add_argument('--secrets-file',help='Private JSON containing AdminPassword; otherwise prompt securely')
 a=parser.parse_args()
 if not re.fullmatch(r'[a-zA-Z0-9.-]+',a.domain) or not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+',a.email):parser.error('Enter a valid server name and email.')
 if not a.local_certificate and not(a.certificate and a.certificate_key):parser.error('Supply a certificate and key, or choose --local-certificate for testing.')
+if a.stun and not a.address:parser.error('--stun requires an explicit local --address.')
 if P('/etc/fusionpbx/config.conf').exists():parser.error('An existing PBX configuration is present.')
 password=json.loads(P(a.secrets_file).read_text())['AdminPassword'] if a.secrets_file else getpass.getpass('Administrator password: ')
 if len(password)<8:parser.error('Use a password with at least eight characters.')
@@ -124,7 +126,7 @@ if not a.local_certificate:
 # current trusted helper while a candidate is staged and verified.
 release=P('VERSION').read_text().strip()
 tools=P('/opt/openwebpbx/tools');tools.mkdir(parents=True,exist_ok=True,mode=0o755)
-for name in ['upgrade.py','verify_feed.py','release-public.pem','configure-sip-tls.py','configure-sip-tls.php','backups.py','install-backups.sh','install-support.py','install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py','install-meet.py','meet-nginx.conf','install-mail.py']:
+for name in ['upgrade.py','verify_feed.py','release-public.pem','configure-sip-tls.py','configure-sip-tls.php','backups.py','install-backups.sh','install-support.py','install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py','install-meet.py','meet-nginx.conf','install-mail.py','install-stun.py','openwebpbx-stun.service','openwebpbx-stun.conf']:
  shutil.copy(name,tools/name);(tools/name).chmod(0o644)
 slot=P('/opt/openwebpbx/updater/slots')/release
 shutil.copytree('updater',slot)
@@ -141,4 +143,5 @@ run(['systemctl','daemon-reload']);run(['systemctl','enable','--now','openwebpbx
 run(['bash','install-backups.sh'])
 run(['python3','install-tenant-domains.py','--activate'])
 run(['python3','install-mail.py','--activate'])
+if a.stun:run(['python3','install-stun.py','--install-package','--listen-ip',a.address,'--activate'])
 print('Admin is ready at https://'+a.domain)

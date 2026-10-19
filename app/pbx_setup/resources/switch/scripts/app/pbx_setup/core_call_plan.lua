@@ -24,7 +24,7 @@ else
         result.rule=rule.name
         for _,r in ipairs(rule.routes) do
             local t=config.trunks[tostring(r.trunk_id)];local native
-            if t and t.gateway_uuid then db:query('select enabled,register from v_gateways where domain_uuid=:d and gateway_uuid=:id',{d=domain,id=t.gateway_uuid},function(row)native=row end) end
+            if t and t.gateway_uuid then db:query('select enabled,register,from_domain,from_user,username,proxy,outbound_proxy,register_transport,profile from v_gateways where domain_uuid=:d and gateway_uuid=:id',{d=domain,id=t.gateway_uuid},function(row)native=row end) end
             local usable=t and native and P.gateway_available(native,api:execute('sofia','status gateway '..t.gateway_uuid)) and P.outbound_leg(t,r,number,u,caller,domain,config.realm,native)~=nil or false
             result.routes[#result.routes+1]={id=tostring(r.trunk_id),name=t and t.name or 'Missing Provider',number=P.rewrite(number,r),available=usable}
             if usable and not result.provider then result.provider=tostring(r.trunk_id) end

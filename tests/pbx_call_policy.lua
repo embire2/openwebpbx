@@ -19,6 +19,23 @@ check(not P.office(c,'100',function()return 1,'09:00','2026-12-25' end),'Holiday
 check(P.profile(c,'100',clock('09:00'))==c.users['100'].profiles.Available,'Automatic available status')
 check(P.profile(c,'100',clock('12:30'))==c.users['100'].profiles.Away,'Automatic break status')
 check(P.profile(c,'100',clock('20:00'))==c.users['100'].profiles['Out of office'],'Automatic closed status')
+local office_user=c.users['100']
+office_user.internal_after_hours=true
+check(P.profile(c,'100',clock('20:00'))==office_user.profiles['Out of office'],'User opt-in alone does not bypass office hours for other callers')
+for _,skip in ipairs({false,'true',1}) do check(P.profile(c,'100',clock('20:00'),skip)==office_user.profiles['Out of office'],'Only explicit boolean skip bypasses the automatic office switch') end
+check(P.profile(c,'100',clock('20:00'),true)==office_user.profiles.Available,'Explicit direct-internal skip keeps the selected available profile')
+check(P.profile(c,'100',clock('12:30'),true)==office_user.profiles.Available,'Explicit direct-internal skip also bypasses automatic break status')
+check(not P.office(c,'100',clock('20:00')),'Profile skip does not change department office hours')
+office_user.profile='Away';check(P.profile(c,'100',clock('20:00'),true)==office_user.profiles.Away,'Manual Away is preserved for internal calls')
+office_user.profiles['Do Not Disturb']={available={},away={}};office_user.profile='Do Not Disturb'
+check(P.profile(c,'100',clock('20:00'),true)==office_user.profiles['Do Not Disturb'],'Manual Do Not Disturb is preserved for internal calls')
+office_user.profile='Away';office_user.mobile_temporary={target='Away',previous='Available',expires=os.time()+60}
+check(P.profile(c,'100',clock('20:00'),true)==office_user.profiles.Away,'Active temporary Away is preserved')
+office_user.mobile_temporary.expires=os.time()-1
+check(P.profile(c,'100',clock('20:00'),true)==office_user.profiles.Available,'Expired temporary Away restores its previous profile before internal selection')
+check(P.profile(c,'100',clock('20:00'))==office_user.profiles['Out of office'],'Expired temporary status still applies office hours without direct-internal skip')
+office_user.profile='Available';office_user.mobile_temporary=nil
+check(P.outbound(c,'0111234567','100')==c.outbound_rules[1],'Internal after-hours preference leaves outbound department restrictions unchanged')
 check(P.forward(c.users['100'].profiles.Available,'NoAnswer',true,true).number=='101','Internal unanswered destination')
 check(P.forward(c.users['100'].profiles.Available,'NoAnswer',false,true).number=='102','External unanswered destination')
 check(P.forward(c.users['100'].profiles.Away,'NoAnswer',false,false).number=='105','Outside-hours away destination')

@@ -100,7 +100,7 @@ def deployment_files(package, manifest):
         # Include stock originals and the version marker before make_backup().
         # Existing strict file/mode/owner recovery covers every replaced voice.
         result.update(voices.payload(package,manifest))
-    for helper in ['configure-sip-tls.py', 'configure-sip-tls.php', 'upgrade.py', 'verify_feed.py', 'release-public.pem', 'backups.py', 'install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py','install-meet.py','meet-nginx.conf','install-mail.py','install-tenant-domains.py','tenant-domains.py','tenant-domains.php','tenant-domains-nginx.conf']:
+    for helper in ['configure-sip-tls.py', 'configure-sip-tls.php', 'upgrade.py', 'verify_feed.py', 'release-public.pem', 'backups.py', 'install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py','install-meet.py','meet-nginx.conf','install-mail.py','install-stun.py','openwebpbx-stun.service','openwebpbx-stun.conf','install-tenant-domains.py','tenant-domains.py','tenant-domains.php','tenant-domains-nginx.conf']:
         if helper in manifest['files']:
             result[TOOLS / helper] = package / helper
     for service in ['openwebpbx-updater.service', 'openwebpbx-update-recovery.service', 'openwebpbx-backups.service', 'openwebpbx-backups.timer']:

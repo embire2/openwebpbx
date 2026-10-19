@@ -18,9 +18,15 @@ function desktop_status($database): array {
     try {
         $status['online'] = str_contains((string)event_socket::api('status'), 'is ready');
         if (permission_exists('extension_view')) {
-            $registrations = json_decode((string)event_socket::api('show registrations as json'), true);
-            $status['registered'] = count(array_filter($registrations['rows'] ?? [], static fn($row) =>
-                ($row['realm'] ?? '') === $_SESSION['domain_name']));
+            try {
+                // Match Users/People exactly: owned realms, enabled identities,
+                // active app credentials and expiry, with the same staff scope.
+                $phones = (array)(new pbx_user_presence($database->db))->snapshot()['users'];
+                $unknown = array_filter($phones, static fn($phone) => !in_array($phone['state'] ?? '', ['online','offline'], true));
+                $status['registered'] = $unknown ? null : count(array_filter($phones, static fn($phone) => ($phone['state'] ?? '') === 'online'));
+            } catch (Throwable) {
+                $status['registered'] = null; // An unavailable lookup is not zero phones.
+            }
         }
         if (permission_exists('call_active_view')) {
             $calls = json_decode((string)event_socket::api('show channels as json'), true);
@@ -109,7 +115,7 @@ header('Cache-Control: no-store');
             <h1>Welcome back,<br><span><?= $escape($_SESSION['username']) ?>.</span></h1>
             <p class="workspace-domain"><?= $escape($workspaceLabel) ?></p>
             <div class="connection-status"><span class="status-dot"></span><span id="connection-label" aria-live="polite">Checking PBX connection</span></div>
-            <div class="workspace-metrics"><div><strong data-metric="extensions">—</strong><span>Users</span></div><div><strong data-metric="registered">—</strong><span>Connected Phones</span></div><div><strong data-metric="calls">—</strong><span>Active Calls</span></div></div>
+            <div class="workspace-metrics"><div><strong data-metric="extensions">—</strong><span>Users</span></div><div><strong data-metric="registered">—</strong><span title="Users with at least one connected phone">Connected Phones</span></div><div><strong data-metric="calls">—</strong><span>Active Calls</span></div></div>
             <button class="workspace-launch" data-toggle="start">Explore your applications <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
             <p class="workspace-tip">Your tools, one desktop.<br>Open an app to get started.</p>
         </aside>

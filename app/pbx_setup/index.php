@@ -94,7 +94,9 @@ elseif($key&&isset($types[$view])):
 <?php elseif($view==='call_me_back'): require __DIR__.'/call_me_back.php';
 elseif(in_array($view,['callbacks','hotel','wakeups'],true)): require __DIR__.'/operations.php';
 elseif($view==='users'):
-    $toolbar($newLink('users','Add User'));$rows=[];foreach($c['users'] as $n=>$u)$rows[]=[$editLink('users',$n,$u['name']),$e($n),$e($u['email']),$e($departmentName($department((string)$n)['name'])),$e($u['profile']),$u['enabled']?'Enabled':'Disabled'];$table(['Name','Extension','Email','Department','Status','Enabled'],$rows);
+    $phonePresence=(new pbx_user_presence)->snapshot();$phoneStates=(array)$phonePresence['users'];
+    echo '<link rel="stylesheet" href="/app/pbx_setup/user-status.css?v=1"><script src="/app/pbx_setup/user-status.js?v=1" defer></script><div data-phone-presence="'.$e($phonePresence['domain_uuid']).'">';
+    $toolbar($newLink('users','Add User'));$rows=[];foreach($c['users'] as $n=>$u)$rows[]=[$editLink('users',$n,$u['name']),$e($n),pbx_user_presence::badge((string)$n,$phoneStates[(string)$n]??[]),pbx_user_presence::callStatus((string)$n,$phoneStates[(string)$n]??[]),$e($u['email']),$e($departmentName($department((string)$n)['name'])),$u['enabled']?'Enabled':'Disabled'];$table(['Name','Extension','Phone','Call Status','Email','Department','Enabled'],$rows);echo '</div>';
 elseif($view==='voice'):
     $toolbar($newLink('provider_setup','Add SIP Trunk'));$rows=[];foreach($c['trunks'] as $n=>$t){$s=$readiness['trunks'][$n];$rows[]=[$editLink('voice',$n,$t['name']),$e($t['main_number']),$e($t['host']),$trunkStatus($s),'<span class="trunk-next">'.$e($s['next_step']).'</span>'];}$table(['SIP Trunk','Main Trunk Number','Server','Status','Next step'],$rows);
 ?> <a class="setup-button" href="?view=incoming">DID Numbers</a> <a class="setup-button primary" href="?view=first_calls">First Call Checklist</a>

@@ -19,7 +19,7 @@ local ok=pcall(function()
     local rule=P.outbound(config,number,owner);local selected
     if not rule then return end
     for _,r in ipairs(rule.routes) do local t=config.trunks[tostring(r.trunk_id)];local native
-        if t then db:query('select enabled,register from v_gateways where domain_uuid=:d and gateway_uuid=:id',{d=domain,id=t.gateway_uuid},function(row)native=row end) end
+        if t then db:query('select enabled,register,from_domain,from_user,username,proxy,outbound_proxy,register_transport,profile from v_gateways where domain_uuid=:d and gateway_uuid=:id',{d=domain,id=t.gateway_uuid},function(row)native=row end) end
         if t and native and P.gateway_available(native,api:execute('sofia','status gateway '..t.gateway_uuid)) and P.outbound_leg(t,r,number,u,owner,domain,config.realm,native) then selected=tostring(r.trunk_id);break end
     end
     if tostring(rule.routes[1].trunk_id)~=trunk or not selected or selected~=trunk then return end
