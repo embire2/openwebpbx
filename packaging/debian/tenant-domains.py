@@ -27,6 +27,7 @@ BROKER = 'https://domains.openwebpbx.com'
 SUFFIX = '.openwebpbx.com'
 MAX_NAMES = 50
 STATE_ROOT = Path('/var/lib/openwebpbx')
+ACME_ROOT = STATE_ROOT/'tenant-domains/acme'
 IS_WINDOWS = os.name=='nt'
 WINDOWS_ACL = None
 class Pending(RuntimeError):
@@ -149,7 +150,7 @@ def certificate_info(cert, key, names):
 def nginx(names, certificate=None, key=None):
     names=sorted(set(hostname(name,tenant=True)for name in names));chunks=['# OpenWeb PBX managed tenant domains v1\n']
     for name in names:
-        chunks.append('server { listen 80; listen [::]:80; server_name '+name+'; location ^~ /.well-known/acme-challenge/ { root /var/www/letsencrypt; try_files $uri =404; } location / { return 404; } }\n')
+        chunks.append('server { listen 80; listen [::]:80; server_name '+name+'; location ^~ /.well-known/acme-challenge/ { root '+str(ACME_ROOT)+'; try_files $uri =404; } location / { return 404; } }\n')
         if certificate:
             for path in [certificate,key]:
                 if not re.fullmatch(r'/etc/letsencrypt/live/openwebpbx-tenants-[0-9a-f]{12}/(?:fullchain|privkey)\.pem',str(path)):raise ValueError('Owned certificate path required.')
@@ -167,6 +168,27 @@ def install_nginx(content):
         else:atomic(target,old)
         raise
 
+def wait_https_certificate(names, digest):
+    # Reload returns before every old Nginx worker has stopped accepting clients.
+    deadline=time.monotonic()+10;context=ssl.create_default_context()
+    while time.monotonic()<deadline:
+        try:
+            for name in names:
+                remaining=deadline-time.monotonic()
+                if remaining<=0:raise TimeoutError('Certificate readiness deadline reached.')
+                with socket.create_connection(('127.0.0.1',443),timeout=min(1,remaining))as raw:
+                    remaining=deadline-time.monotonic()
+                    if remaining<=0:raise TimeoutError('Certificate readiness deadline reached.')
+                    raw.settimeout(min(1,remaining))
+                    with context.wrap_socket(raw,server_hostname=name)as stream:
+                        if hashlib.sha256(stream.getpeercert(binary_form=True)).hexdigest()!=digest:break
+            else:
+                if time.monotonic()<=deadline:return
+        except OSError:pass
+        remaining=deadline-time.monotonic()
+        if remaining>0:time.sleep(min(.2,remaining))
+    raise Pending('certificate_pending')
+
 def certify(names, key_hash, private, contact, b):
     names=sorted(set(names));assert 0<len(names)<=MAX_NAMES
     if IS_WINDOWS:
@@ -175,6 +197,8 @@ def certify(names, key_hash, private, contact, b):
     try:until,digest=certificate_info(cert,key,names);reuse=until>dt.datetime.now(dt.timezone.utc)+dt.timedelta(days=30)
     except (OSError,ValueError,x509.ExtensionNotFound):pass
     if not reuse:
+        # Own every challenge directory; an unrelated legacy webroot may be private.
+        for path in [ACME_ROOT,ACME_ROOT/'.well-known',ACME_ROOT/'.well-known/acme-challenge']:directory(path,public=True)
         # Keep existing HTTPS aliases while enabling only the new names' HTTP01.
         ready=[]
         try:
@@ -182,7 +206,7 @@ def certify(names, key_hash, private, contact, b):
         except (OSError,ValueError,x509.ExtensionNotFound):ready=[]
         install_nginx(nginx(ready,cert,key)+nginx(set(names)-set(ready)))
         if not isinstance(contact,str)or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',contact):raise Pending('local_configuration',3600)
-        command=['certbot','certonly','--webroot','--webroot-path','/var/www/letsencrypt','--cert-name',cert_name,'--renew-with-new-domains','--non-interactive','--agree-tos','--email',contact,'--preferred-challenges','http','--key-type','ecdsa','--domains',','.join(names)]
+        command=['certbot','certonly','--webroot','--webroot-path',str(ACME_ROOT),'--cert-name',cert_name,'--renew-with-new-domains','--non-interactive','--agree-tos','--email',contact,'--preferred-challenges','http','--key-type','ecdsa','--domains',','.join(names)]
         log=private/'acme-last.private.log'
         with log.open('wb')as stream:r=subprocess.run(command,stdout=stream,stderr=subprocess.STDOUT,timeout=220)
         if r.returncode:
@@ -190,10 +214,7 @@ def certify(names, key_hash, private, contact, b):
             raise Pending('rate_limited'if'rate limit'in raw.lower()else'certificate_pending',retry_after(match[1])if match else 3600)
         until,digest=certificate_info(cert,key,names)
     install_nginx(nginx(names,cert,key))
-    for name in names:
-        with socket.create_connection(('127.0.0.1',443),timeout=5)as raw:
-            with ssl.create_default_context().wrap_socket(raw,server_hostname=name)as stream:
-                if hashlib.sha256(stream.getpeercert(binary_form=True)).hexdigest()!=digest:raise Pending('certificate_pending')
+    wait_https_certificate(names,digest)
     return until.isoformat()
 
 def blocked(b):

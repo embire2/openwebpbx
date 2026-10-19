@@ -2,6 +2,8 @@
 
 Candidate implementation after 1.0.16. Deployment and final acceptance are recorded in AGENTS.md; this guide does not announce a published candidate.
 
+The hosted OpenWeb administration portal is now available at **https://openweb.openwebpbx.com/admin** using the existing administrator login. Other services receive their own managed address, shown in Tenant Services. The hosted1.0.16 compatibility patch uses the existing administration portal at the bare hostname too; existing Android accounts and QR codes keep their canonical server connection. The personal portal and manual/multiple-account app workflows below remain part of the full1.0.17 candidate.
+
 ## Connect a phone
 
 Your administrator supplies your company's `name.openwebpbx.com` address. Open **OpenWebPBX Free Phone**, choose manual sign-in, enter that name, your extension and your app password. The app uses HTTPS for sign-in and obtains its secure calling settings automatically.

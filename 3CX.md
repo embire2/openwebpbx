@@ -1,6 +1,6 @@
 # OpenWeb PBX — 3CX feature roadmap
 
-Current candidate work (18 October 2026): tenant connection addresses, multiple Android profiles, manual app-password login/change and automatic QR/config welcome emails are being implemented. Public stable remains1.0.16. See [Play submission audit](docs/google-play-audit-1.0.17.md). No roadmap acceptance count changes are inferred from source edits.
+Current candidate work (19 October 2026): multiple Android profiles, manual app-password login/change and automatic QR/config welcome emails are under final qualification. The hosted instance now provides centrally held tenant HTTPS addresses, including `https://openweb.openwebpbx.com/admin`, through a narrow1.0.16 patch. Existing phone identities and canonical Android QR connections are preserved. Public stable remains1.0.16; complete1.0.17 installation/upgrade/recovery/restore acceptance is pending after music, clock and certificate-readiness corrections. See [Play submission audit](docs/google-play-audit-1.0.17.md). Roadmap acceptance counts remain unchanged.
 
 ## Integrated core and mandatory Android release — 1.0.16 — 2026-10-18
 

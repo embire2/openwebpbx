@@ -1,17 +1,37 @@
 """Actual protocol/FS/TLS controls; all endpoints and certificates are owned fixtures."""
 from pathlib import Path
-import datetime as dt,importlib.util,json,os,socket,ssl,subprocess,tempfile,time,unittest
+import contextlib,datetime as dt,hashlib,importlib.util,json,os,socket,ssl,subprocess,tempfile,threading,time,unittest
 from unittest.mock import patch
 from types import SimpleNamespace
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes,serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.x509.oid import NameOID
+from cryptography.x509.oid import NameOID,ExtendedKeyUsageOID
 ROOT=Path(__file__).resolve().parents[1]
 def load(name,path):
  spec=importlib.util.spec_from_file_location(name,path);value=importlib.util.module_from_spec(spec);spec.loader.exec_module(value);return value
 w=load('tenant_worker',ROOT/'packaging/debian/tenant-domains.py')
 i=load('tenant_installer',ROOT/'packaging/debian/install-tenant-domains.py')
+@contextlib.contextmanager
+def readiness_tls(path,names,served):
+ now=dt.datetime.now(dt.timezone.utc);key=ec.generate_private_key(ec.SECP256R1());subject=x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,'Owned readiness CA')]);ca=x509.CertificateBuilder().subject_name(subject).issuer_name(subject).public_key(key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-dt.timedelta(minutes=1)).not_valid_after(now+dt.timedelta(days=2)).add_extension(x509.BasicConstraints(ca=True,path_length=None),True).add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()),False).add_extension(x509.KeyUsage(False,False,False,False,False,True,True,False,False),True).sign(key,hashes.SHA256());cafile=path/'readiness-ca.pem';cafile.write_bytes(ca.public_bytes(serialization.Encoding.PEM));contexts={};digests={}
+ for label in ['exact','old','wrong_host','foreign_ca']:
+  leafkey=ec.generate_private_key(ec.SECP256R1());leafnames=['other.openwebpbx.com']if label=='wrong_host'else names;issuer=x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,'Foreign CA')])if label=='foreign_ca'else subject
+  leaf=x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,leafnames[0])])).issuer_name(issuer).public_key(leafkey.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-dt.timedelta(minutes=1)).not_valid_after(now+dt.timedelta(days=1)).add_extension(x509.SubjectAlternativeName([x509.DNSName(name)for name in leafnames]),False).add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key()),False).add_extension(x509.SubjectKeyIdentifier.from_public_key(leafkey.public_key()),False).add_extension(x509.BasicConstraints(ca=False,path_length=None),True).add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]),False).sign(ec.generate_private_key(ec.SECP256R1())if label=='foreign_ca'else key,hashes.SHA256());certfile=path/(label+'.pem');keyfile=path/(label+'.key');certfile.write_bytes(leaf.public_bytes(serialization.Encoding.PEM));keyfile.write_bytes(leafkey.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()));server=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);server.load_cert_chain(certfile,keyfile);contexts[label]=server;digests[label]=hashlib.sha256(leaf.public_bytes(serialization.Encoding.DER)).hexdigest()
+ client=ssl.create_default_context(cafile=str(cafile));listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen();listener.settimeout(.05);port=listener.getsockname()[1];stop=threading.Event();seen=[]
+ def serve():
+  while not stop.is_set():
+   try:raw,_=listener.accept()
+   except socket.timeout:continue
+   except OSError:break
+   label=served[min(len(seen),len(served)-1)];seen.append(label)
+   with raw:
+    try:
+     with contexts[label].wrap_socket(raw,server_side=True):pass
+    except ssl.SSLError:pass
+ thread=threading.Thread(target=serve,daemon=True);thread.start()
+ try:yield client,port,digests,seen
+ finally:stop.set();listener.close();thread.join(timeout=2);assert not thread.is_alive()
 class Worker(unittest.TestCase):
  def setUp(self):self.tmp=tempfile.TemporaryDirectory(prefix='openweb-domain-worker-');self.path=Path(self.tmp.name)
  def tearDown(self):self.tmp.cleanup()
@@ -76,9 +96,89 @@ class Worker(unittest.TestCase):
  def test_certificate_san_batch_changes_and_rate_limit_have_no_retry_loop(self):
   private=self.path/'private';private.mkdir();names=['qa-two.openwebpbx.com','qa-one.openwebpbx.com'];calls=[]
   def issue(args,**kwargs):calls.append(args);kwargs['stdout'].write(b'fictional rate limit\nRetry-After: 7200\n');return subprocess.CompletedProcess(args,1)
-  with patch.object(w,'certificate_info',side_effect=FileNotFoundError()),patch.object(w,'install_nginx'),patch.object(w.subprocess,'run',side_effect=issue):
+  with patch.object(w,'ACME_ROOT',self.path/'acme'),patch.object(w,'certificate_info',side_effect=FileNotFoundError()),patch.object(w,'install_nginx'),patch.object(w.subprocess,'run',side_effect=issue):
    with self.assertRaises(w.Pending)as caught:w.certify(names,'a'*64,private,'operator@example.invalid',None)
   self.assertEqual((caught.exception.category,caught.exception.seconds),('rate_limited',7200));self.assertEqual(len(calls),1);self.assertIn('--renew-with-new-domains',calls[0]);self.assertNotIn('--force-renewal',calls[0]);self.assertEqual(calls[0][-2:],['--domains',','.join(sorted(names))])
+ def test_managed_acme_actual_service_uid_and_http_without_legacy_changes(self):
+  self.path.chmod(0o755);state=w.directory(self.path/'tenant-domains',True);acme=state/'acme';private=w.directory(state/'private');legacy=self.path/'legacy';legacy.mkdir(mode=0o700)
+  legacy_challenge=legacy/'.well-known/acme-challenge';legacy_challenge.mkdir(parents=True);token='owned-challenge';body=b'owned-http01-key-authorization';(legacy_challenge/token).write_bytes(body);before=(legacy.stat().st_mode,legacy.stat().st_uid,legacy.stat().st_gid)
+  names=['qa-acme.openwebpbx.com'];rendered=[];commands=[]
+  def issue(args,**kwargs):
+   commands.append(args);self.assertEqual(args[args.index('--webroot-path')+1],str(acme))
+   for path in [acme,acme/'.well-known',acme/'.well-known/acme-challenge']:
+    self.assertEqual((path.stat().st_mode&0o777,path.stat().st_uid,path.stat().st_gid),(0o750,0,33))
+   w.atomic(acme/'.well-known/acme-challenge'/token,body,True);return subprocess.CompletedProcess(args,1)
+  with patch.object(w,'ACME_ROOT',acme),patch.object(w,'certificate_info',side_effect=FileNotFoundError()),patch.object(w,'install_nginx',side_effect=rendered.append),patch.object(w.subprocess,'run',side_effect=issue):
+   self.assertRaises(w.Pending,w.certify,names,'a'*64,private,'operator@example.invalid',None)
+  self.assertEqual(len(commands),1);self.assertIn(('root '+str(acme)+';').encode(),rendered[0]);self.assertNotIn(str(legacy).encode(),rendered[0])
+  read=['/usr/bin/python3','-c','import os,pathlib,sys;assert os.getuid()==33;sys.stdout.buffer.write(pathlib.Path(sys.argv[1]).read_bytes())']
+  actual=subprocess.run([*read,str(acme/'.well-known/acme-challenge'/token)],user=33,group=33,extra_groups=[],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=5);self.assertEqual((actual.returncode,actual.stdout),(0,body))
+  denied=subprocess.run([*read,str(legacy_challenge/token)],user=33,group=33,extra_groups=[],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=5);self.assertNotEqual(denied.returncode,0)
+  ports=[]
+  for family,host in [(socket.AF_INET,'127.0.0.1'),(socket.AF_INET6,'::1')]:
+   with socket.socket(family)as listener:listener.bind((host,0));ports.append(listener.getsockname()[1])
+  content=rendered[0].decode().replace('listen 80; listen [::]:80;',f'listen 127.0.0.1:{ports[0]}; listen [::1]:{ports[1]};')
+  legacy_content=content.replace(names[0],'qa-legacy.openwebpbx.com').replace(str(acme),str(legacy));config=self.path/'nginx-acme.conf';config.write_text(f'user www-data; worker_processes 1; pid {self.path}/nginx-acme.pid; error_log {self.path}/nginx-acme.log; events {{}} http {{ access_log off; {content}{legacy_content} }}')
+  process=subprocess.Popen(['nginx','-c',str(config),'-g','daemon off;'],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+  try:
+   deadline=time.monotonic()+5
+   while True:
+    try:probe=socket.create_connection(('127.0.0.1',ports[0]),timeout=.1);probe.close();break
+    except OSError:
+     if time.monotonic()>deadline:raise AssertionError('Owned ACME Nginx did not start.')
+     time.sleep(.05)
+   children=Path(f'/proc/{process.pid}/task/{process.pid}/children').read_text().split();self.assertTrue(children);self.assertTrue(all(Path('/proc') .joinpath(pid).stat().st_uid==33 for pid in children))
+   for host,port in [('127.0.0.1',ports[0]),('::1',ports[1])]:
+    for name,status in [(names[0],b'200'),('qa-legacy.openwebpbx.com',b'404')]:
+     with socket.create_connection((host,port),timeout=3)as stream:
+      stream.sendall(f'GET /.well-known/acme-challenge/{token} HTTP/1.1\r\nHost: {name}\r\nConnection: close\r\n\r\n'.encode());response=b''
+      while chunk:=stream.recv(8192):response+=chunk
+     self.assertIn(status,response.split(b'\r\n',1)[0]);self.assertEqual(response.split(b'\r\n\r\n',1)[1],body)if status==b'200'else self.assertNotIn(body,response)
+  finally:process.terminate();process.wait(timeout=5);process.stderr.close()
+  self.assertEqual((legacy.stat().st_mode,legacy.stat().st_uid,legacy.stat().st_gid),before);self.assertEqual((legacy_challenge/token).read_bytes(),body)
+ def test_managed_acme_link_and_unprotected_parent_refuse_before_http_or_certbot(self):
+  private=self.path/'private';private.mkdir();outside=self.path/'outside';outside.mkdir();acme=self.path/'acme';acme.symlink_to(outside,target_is_directory=True)
+  for prepare in [lambda:None,lambda:(acme.unlink(),acme.mkdir(mode=0o777),acme.chmod(0o777))]:
+   prepare()
+   with patch.object(w,'ACME_ROOT',acme),patch.object(w,'certificate_info',side_effect=FileNotFoundError()),patch.object(w,'install_nginx')as http,patch.object(w.subprocess,'run')as certbot:
+    self.assertRaises(ValueError,w.certify,['qa-acme.openwebpbx.com'],'a'*64,private,'operator@example.invalid',None);http.assert_not_called();certbot.assert_not_called()
+  self.assertEqual(list(outside.iterdir()),[])
+ def test_readiness_actual_tls_delayed_old_certificate_then_exact_all_names(self):
+  names=['qa-ready-one.openwebpbx.com','qa-ready-two.openwebpbx.com'];connect=socket.create_connection;attempts=[]
+  with readiness_tls(self.path,names,['old','exact'])as(context,port,digests,seen):
+   self.assertTrue(context.check_hostname);self.assertEqual(context.verify_mode,ssl.CERT_REQUIRED)
+   def local(address,timeout):
+    self.assertEqual(address,('127.0.0.1',443));self.assertGreater(timeout,0);self.assertLessEqual(timeout,1);attempts.append(timeout);return connect(('127.0.0.1',port),timeout=timeout)
+   with patch.object(w.socket,'create_connection',side_effect=local),patch.object(w.ssl,'create_default_context',return_value=context):w.wait_https_certificate(names,digests['exact'])
+   self.assertEqual(seen,['old','exact','exact']);self.assertEqual(len(attempts),3)
+ def test_readiness_actual_tls_permanent_ca_hostname_and_digest_fail_at_deadline(self):
+  name='qa-ready.openwebpbx.com';connect=socket.create_connection
+  for label in ['foreign_ca','wrong_host','old']:
+   with self.subTest(label=label),readiness_tls(self.path,[name],[label])as(context,port,digests,seen):
+    clock=[0.0];sleeps=[]
+    def sleep(seconds):self.assertGreater(seconds,0);self.assertLessEqual(seconds,.2);sleeps.append(seconds);clock[0]=round(clock[0]+seconds,9)
+    def local(address,timeout):self.assertEqual(address,('127.0.0.1',443));self.assertGreater(timeout,0);self.assertLessEqual(timeout,min(1,10-clock[0]));return connect(('127.0.0.1',port),timeout=timeout)
+    with patch.object(w.time,'monotonic',side_effect=lambda:clock[0]),patch.object(w.time,'sleep',side_effect=sleep),patch.object(w.socket,'create_connection',side_effect=local),patch.object(w.ssl,'create_default_context',return_value=context):
+     with self.assertRaises(w.Pending)as caught:w.wait_https_certificate([name],digests['exact'])
+    self.assertEqual(caught.exception.category,'certificate_pending');self.assertEqual(clock[0],10);self.assertEqual(len(seen),len(sleeps));self.assertGreater(len(seen),1);self.assertTrue(context.check_hostname);self.assertEqual(context.verify_mode,ssl.CERT_REQUIRED)
+ def test_readiness_connect_and_handshake_share_overall_deadline(self):
+  clock=[0.0];timeouts=[];handshakes=[];sleeps=[]
+  class Raw:
+   def __enter__(self):return self
+   def __exit__(self,*args):pass
+   def settimeout(self,seconds):self.timeout=seconds;timeouts.append(seconds)
+  def connect(address,timeout):self.assertEqual(address,('127.0.0.1',443));self.assertGreater(timeout,0);self.assertLessEqual(timeout,min(1,10-clock[0]));clock[0]+=min(.75,timeout);return Raw()
+  def handshake(raw,server_hostname):self.assertEqual(server_hostname,'qa-ready.openwebpbx.com');self.assertLessEqual(raw.timeout,10-clock[0]);handshakes.append(raw.timeout);clock[0]+=raw.timeout;raise TimeoutError('owned handshake timeout')
+  def sleep(seconds):self.assertGreater(seconds,0);self.assertLessEqual(seconds,.2);sleeps.append(seconds);clock[0]=round(clock[0]+seconds,9)
+  with patch.object(w.time,'monotonic',side_effect=lambda:clock[0]),patch.object(w.time,'sleep',side_effect=sleep),patch.object(w.socket,'create_connection',side_effect=connect),patch.object(w.ssl,'create_default_context',return_value=SimpleNamespace(wrap_socket=handshake)):
+   with self.assertRaises(w.Pending)as caught:w.wait_https_certificate(['qa-ready.openwebpbx.com'],'a'*64)
+  self.assertEqual(caught.exception.category,'certificate_pending');self.assertEqual(clock[0],10);self.assertTrue(handshakes);self.assertEqual(timeouts,handshakes);self.assertTrue(sleeps)
+ def test_certify_reuse_reloads_before_exact_readiness_and_does_not_mark_success_on_failure(self):
+  names=['qa-ready.openwebpbx.com'];until=dt.datetime.now(dt.timezone.utc)+dt.timedelta(days=60);events=[]
+  def ready(actual,digest):self.assertEqual((actual,digest),(names,'a'*64));events.append('readiness');raise w.Pending('certificate_pending')
+  with patch.object(w,'certificate_info',return_value=(until,'a'*64)),patch.object(w,'install_nginx',side_effect=lambda content:events.append('reload')),patch.object(w,'wait_https_certificate',side_effect=ready),patch.object(w.subprocess,'run')as certbot:
+   self.assertRaises(w.Pending,w.certify,names,'a'*64,self.path,'operator@example.invalid',None);certbot.assert_not_called()
+  self.assertEqual(events,['reload','readiness'])
  def test_installer_real_file_idempotence_failure_and_foreign_refusal(self):
   package=self.path/'package';package.mkdir();tools=self.path/'tools';units=self.path/'units';units.mkdir();site=self.path/'site';site.write_text('server {\n server_name server.example.test;\n root /var/www/fusionpbx;\n}\nserver {\n server_name server.example.test;\n root /var/www/fusionpbx;\n}\n');snippet=self.path/'snippet'
   files=[*i.PROGRAMS,'openwebpbx-tenant-domains.service','openwebpbx-tenant-domains.timer'];manifest={}
