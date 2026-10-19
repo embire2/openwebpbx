@@ -77,11 +77,14 @@ function M.run(session,api,root)
             session:setVariable('openweb_clock_announcements',tostring(count))
             -- Speech starts now, including on the first cycle. Never wait silently
             -- for a minute boundary before telling the caller the upcoming time.
+            local previous=start
             for _,path in ipairs(paths)do if not play(path)then return end end
             while session:ready() and now()<target and now()<limit do
-                local remaining=target-now()
+                local current=now();local remaining=target-current
                 -- A backward wall-clock adjustment starts a fresh announcement.
-                if remaining>M.CADENCE_MS then break end
+                -- A valid first target can be more than one cadence ahead.
+                if current<previous then break end
+                previous=current
                 if remaining>=durations[base..'tick.wav'] then if not play(base..'tick.wav')then return end
                 else session:execute('playback','silence_stream://'..math.max(1,math.floor(remaining)))end
             end

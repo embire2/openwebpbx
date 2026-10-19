@@ -21,18 +21,22 @@ end
 local open=io.open;io.open=function()return{close=function()end}end
 local function run(options)
     options=options or{}
-    local now=options.start or 1792245412345;local started=now;local alive=true;local tones={};local vars={};local speech={};local ticks=0;local scheduled=false;local cause;local step=options.step;local jumped=false
+    local now=options.start or 1792245412345;local started=now;local alive=true;local tones={};local vars={};local speech={};local ticks=0;local scheduled=false;local cause;local step=options.step;local jumped=false;local statements={};local backward_target;local forward_target
     local session={ready=function()return alive end,answer=function()check(not options.missing,'Missing files answered')end,
-        setVariable=function(_,key,value)vars[key]=value end,
+        setVariable=function(_,key,value)
+            vars[key]=value
+            if key=='openweb_clock_announcements'then local target=tonumber(vars.openweb_clock_announcement_target_ms);statements[target]=(statements[target]or 0)+1 end
+        end,
         hangup=function(_,value)cause=value;alive=false end,
         streamFile=function(_,path)
             local key=path:sub(#'/sounds/'+1);check(durations[key]~=nil,'Unsealed prompt played')
             if key:find('tick.wav',1,true)then
                 ticks=ticks+1
-                if options.backward and not jumped then now=now-60000;jumped=true end
+                if options.backward and not jumped then backward_target=tonumber(vars.openweb_clock_announcement_target_ms);now=now-60000;jumped=true end
             else speech[#speech+1]={path=key,at=now,target=vars.openweb_clock_announcement_target_ms}end
             now=now+durations[key]
-            if step and key:find('exactly.wav',1,true)then now=now+step;step=nil end
+            if options.backward_speech and not jumped and key:find('exactly.wav',1,true)then backward_target=tonumber(vars.openweb_clock_announcement_target_ms);now=now-60000;jumped=true end
+            if step and key:find('exactly.wav',1,true)then forward_target=tonumber(vars.openweb_clock_announcement_target_ms);now=now+step;step=nil end
             if options.fail and key:find('signal.wav',1,true)then return 0 end
             if options.early and#speech==1 then alive=false end
             if options.expire and#speech==1 then now=started+1800001 end
@@ -65,9 +69,21 @@ local function run(options)
     check(speech[3].at-started<4000,'Caller waited too long to hear the hour')
     check(ticks>0,'Wait intervals did not provide audible media')
     check(vars.openweb_clock_version=='1.0.2','Runtime version absent')
+    if options.backward or options.backward_speech then check(jumped and tones[1]<backward_target,'A real backward step did not select a fresh earlier target')
+    elseif options.step then check(forward_target and tones[1]>forward_target,'A stale pre-forward-step signal was emitted')
+    else
+        local total=0;for _,n in pairs(statements)do check(n==1,'A monotonic first target was spoken more than once');total=total+n end
+        check(total==3,'Three valid signals must have exactly three spoken statements')
+    end
+    if options.first_target then check(tones[1]==options.first_target,'Boundary control selected a different first target')end
 end
 for _,offset in ipairs({0,1,125,999,1345,7234,14999})do run({start=1792245405000+offset})end
-run({step=20000});run({backward=true});run({early=true});run({fail=true});run({invalid=true});run({expire=true})
+-- Native fresh17 reproduction: the next-quarter sentence plus 300ms cannot
+-- fit, but the following target initially leaves a legitimate >15s wait.
+for _,case in ipairs({{5300,1792342215000},{5847,1792342230000},{6200,1792342230000}})do
+    run({start=1792342200000+case[1]-durations['openwebpbx/talking-clock-1.0.2-welcome.wav'],first_target=case[2]})
+end
+run({step=20000});run({backward=true});run({backward_speech=true});run({early=true});run({fail=true});run({invalid=true});run({expire=true})
 io.open=function()return nil end
 local answered=false;local failure
 M.run({answer=function()answered=true end,hangup=function(_,cause)failure=cause end},{},'/sounds')
