@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import time
 
 
 def digest(path):
@@ -29,7 +30,7 @@ def main():
         raise RuntimeError('The compatibility signing key differs.')
     subprocess.run(['openssl', 'dgst', '-sha256', '-verify', str(public), '-signature', str(folder / 'feed-compat-manifest.sig'), str(manifest)], check=True, stdout=subprocess.DEVNULL)
     contract = json.loads(manifest.read_text())
-    if contract['schema'] != 1 or contract['core_version'] != '1.0.16':
+    if contract['schema'] != 1 or contract['core_version'] != '1.0.16' or contract.get('updater_assembly_version') != '1.0.16.0':
         raise RuntimeError('Unsupported compatibility contract.')
     if Path('/var/www/fusionpbx/VERSION').read_text().strip() != '1.0.16':
         raise RuntimeError('This compatibility patch is only for the original Debian1.0.16 updater.')
@@ -60,7 +61,7 @@ def main():
             current = digest(target)
             if current == row['sha256']:
                 continue
-            if current != row['before_sha256']:
+            if current not in [row['before_sha256'], *row.get('additional_before_sha256', [])]:
                 raise RuntimeError('Installed files differ; custom or other-version installations require review.')
             pending.append((source, target, target.stat()))
         if not args.apply:
@@ -70,7 +71,9 @@ def main():
             print('The Debian update feed compatibility patch is already installed.')
             return
         service = 'openwebpbx-updater'
-        subprocess.run(['systemctl', 'is-active', '--quiet', service], check=True)
+        state = subprocess.check_output(['systemctl', 'show', '-p', 'ActiveState', '--value', service], text=True).strip()
+        if state not in ('active', 'activating'):
+            raise RuntimeError('The updater must be running or restarting before applying this repair.')
         recovery = Path('/var/lib/openwebpbx/updates/feed-compat118') / datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
         recovery.mkdir(parents=True, mode=0o700)
         shutil.copy2(manifest, recovery / manifest.name)
@@ -96,7 +99,16 @@ def main():
                 changed.append((target, stat))
             subprocess.run(['php', '-l', '/var/www/fusionpbx/resources/classes/pbx_updates.php'], check=True, stdout=subprocess.DEVNULL)
             subprocess.run(['systemctl', 'start', service], check=True)
-            subprocess.run(['systemctl', 'is-active', '--quiet', service], check=True)
+            pid = subprocess.check_output(['systemctl', 'show', '-p', 'MainPID', '--value', service], text=True).strip()
+            if not pid.isdigit() or int(pid) <= 0:
+                raise RuntimeError('The updated worker did not start.')
+            # Older assembly metadata makes the worker restart immediately after
+            # a completed server installation. Check sustained service life.
+            for _ in range(8):
+                time.sleep(1)
+                subprocess.run(['systemctl', 'is-active', '--quiet', service], check=True)
+                if subprocess.check_output(['systemctl', 'show', '-p', 'MainPID', '--value', service], text=True).strip() != pid:
+                    raise RuntimeError('The updated worker restarted during readiness checking.')
         except BaseException:
             subprocess.run(['systemctl', 'stop', service], check=False)
             for target, stat in reversed(changed):

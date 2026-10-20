@@ -1,7 +1,80 @@
 {
-  "reviewed_on": "2026-10-18",
+  "reviewed_on": "2026-10-20",
   "repository": "embire2/openwebpbx",
   "releases": [
+    {
+      "version": "1.0.18",
+      "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.18",
+      "published_at": "2026-10-20T17:25:02Z",
+      "prerelease": false,
+      "scope": "Android client and Debian16 feed compatibility; full server remains1.0.16",
+      "assets": [
+        {
+          "name": "openwebpbx-1.0.18-google-play.aab",
+          "bytes": 51222343,
+          "sha256": "cf8e92b01dd359e67af131c3dec45585803adc401e4906a4a0b6a101d385a8cd",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.18/openwebpbx-1.0.18-google-play.aab"
+        },
+        {
+          "name": "debian-update-manifest.json",
+          "bytes": 1816,
+          "sha256": "444e30c483a09f6fa4dd280419d33e7e929cf4262bc2ec14476d143d9bfbb92d",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.18/debian-update-manifest.json"
+        },
+        {
+          "name": "update-manifest.json",
+          "bytes": 1404,
+          "sha256": "7c43ac14cf765a7602ddcc8fa4b187fe19d61ba2b4197f96f6d5448a6ad87e54",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.18/update-manifest.json"
+        },
+        {
+          "name": "SHA256SUMS",
+          "bytes": 695,
+          "sha256": "2cc1ead4eb513a26e8fd89279ef4e7858ba9c4a002c25873a0bce001f0ed20a9",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.18/SHA256SUMS",
+          "superseded": true
+        },
+        {
+          "name": "openwebpbx-1.0.18-android-source.tar.gz",
+          "bytes": 364506159,
+          "sha256": "e30b2bdcc3e80ef057966472c8a206424702daf822f21885ff305d0d5c9d7f24",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.18/openwebpbx-1.0.18-android-source.tar.gz"
+        },
+        {
+          "name": "openwebpbx-1.0.18-debian16-feed-compat.tar.gz",
+          "bytes": 101561,
+          "sha256": "f9f09311acc1064a1b69f9881c5c589aca6e9815f5f289f78c41f57032b41e0f",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.18/openwebpbx-1.0.18-debian16-feed-compat.tar.gz",
+          "superseded": true
+        },
+        {
+          "name": "openwebpbx-1.0.18-google-play.zip",
+          "bytes": 51312605,
+          "sha256": "061e38e2581eadb57924bf1db2be4cb98f956f38f3ac78aae850fd60f3463654",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.18/openwebpbx-1.0.18-google-play.zip"
+        },
+        {
+          "name": "openwebpbx-1.0.18-android.apk",
+          "bytes": 59034782,
+          "sha256": "a37efbba8ea083699965392fc0ade1b14947a587c68ce781803a2dd81c2c68cc",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.18/openwebpbx-1.0.18-android.apk"
+        },
+        {
+          "name": "openwebpbx-1.0.18-debian16-feed-compat-r2.tar.gz",
+          "bytes": 102260,
+          "sha256": "12e8a0fff65444badbdf965d15022b88302c73a103b90d4051b5456804a651e8",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.18/openwebpbx-1.0.18-debian16-feed-compat-r2.tar.gz"
+        },
+        {
+          "name": "SHA256SUMS-r2",
+          "bytes": 698,
+          "sha256": "7c1bc715ff33c37edfa83dde8dc5d2bd84c7f61e80154bd354108c1f3e76d164",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.18/SHA256SUMS-r2"
+        }
+      ],
+      "recommended_debian_compatibility": "openwebpbx-1.0.18-debian16-feed-compat-r2.tar.gz",
+      "current_checksums": "SHA256SUMS-r2"
+    },
     {
       "version": "1.0.16",
       "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.16",
