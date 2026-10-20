@@ -4,8 +4,8 @@ import org.junit.Test
 class ProfilePolicyTest {
     @Test fun tenantShortcutUsesOnlyAnHttpsOrigin(){
         assertEquals("https://alpha.openwebpbx.com",Enrollment.tenant("alpha"))
-        assertEquals("https://alpha.example.org",Enrollment.tenant("alpha.example.org"))
-        assertEquals("https://alpha.example.org:8443",Enrollment.tenant("https://alpha.example.org:8443/"))
+        assertEquals("https://alpha.openwebpbx.com",Enrollment.tenant("alpha.openwebpbx.com"))
+        assertEquals("https://alpha.openwebpbx.com",Enrollment.tenant("https://alpha.openwebpbx.com:443/"))
         for(value in listOf("http://alpha.example.org","https://user:pass@alpha.example.org","alpha.example.org/other","../alpha","https://alpha.example.org?tenant=beta"))try{Enrollment.tenant(value);fail(value)}catch(_:IllegalArgumentException){}
     }
     @Test fun noProfileMutationWhileAnyConversationOrUpdateIsOpen(){

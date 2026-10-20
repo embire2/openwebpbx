@@ -19,7 +19,7 @@ object PushConnection {
     fun configure(context:Context,stored:JSONObject){
         val profileId=stored.getString("profile_id")
         val settings=stored.optJSONObject("push") ?: return
-        if(!settings.optBoolean("enabled") || stored.optBoolean("needs_login")){unregister(context,profileId);state(context,"not_configured",profileId);return}
+        if(!settings.optBoolean("enabled") || !TenantConnection.ready(stored)){unregister(context,profileId);state(context,"not_configured",profileId);return}
         try{
             // The embedded open-source distributor talks to the phone's installed
             // Play Services. No Google client SDK or Firebase project is bundled.
@@ -32,9 +32,10 @@ object PushConnection {
     fun unregister(context:Context,profileId:String?=null){try{PhoneStore(context).read(profileId)?.optString("device_id")?.takeIf{it.isNotEmpty()}?.let{UnifiedPush.unregister(context,it)}}catch(_:Exception){}}
     fun register(context:Context,endpoint:PushEndpoint,instance:String){worker.execute{try{
         val a=PhoneStore(context).byDevice(instance) ?: return@execute
+        if(!TenantConnection.ready(a))return@execute
         if(instance!=a.optString("device_id") || !a.optJSONObject("push")!!.optBoolean("enabled"))return@execute
         val keys=endpoint.pubKeySet ?: throw IllegalArgumentException("Missing notification keys")
-        PhoneApi(a.getString("server"),a.getString("token")).json("push_register",JSONObject().put("endpoint",endpoint.url).put("p256dh",keys.pubKey).put("auth",keys.auth).put("vapid_public_key",a.getJSONObject("push").getString("vapid_public_key")))
+        PhoneApi.profile(a).json("push_register",JSONObject().put("endpoint",endpoint.url).put("p256dh",keys.pubKey).put("auth",keys.auth).put("vapid_public_key",a.getJSONObject("push").getString("vapid_public_key")))
         state(context,"ready",a.getString("profile_id"))
     }catch(_:Exception){PhoneStore(context).byDevice(instance)?.let{state(context,"unavailable",it.getString("profile_id"))}}}}
     fun cancel(context:Context,id:String,profileId:String?=null){val manager=context.getSystemService(NotificationManager::class.java);manager.cancel("push:${profileId ?: PhoneStore(context).selectedId()}:$id",12);manager.cancel("push:$id",12)}
@@ -60,6 +61,7 @@ class PhoneMessagingService:PushService(){
     override fun onMessage(message:PushMessage,instance:String){
         if(!message.decrypted || message.content.size>4096)return
         val saved=PhoneStore(this).byDevice(instance) ?: return
+        if(!TenantConnection.ready(saved))return
         val profileId=saved.getString("profile_id")
         val data=try{JSONObject(message.content.toString(Charsets.UTF_8))}catch(_:Exception){return}
         val id=data.optString("request_id")
@@ -67,7 +69,7 @@ class PhoneMessagingService:PushService(){
         if(data.optString("event")=="ended"){PushConnection.cancel(this,id,profileId);return}
         if(data.optString("event")!="incoming")return
         try{
-            val current=PhoneApi(saved.getString("server"),saved.getString("token"),4000).json("push_call",id=id)
+            val current=PhoneApi.profile(saved,4000).json("push_call",id=id)
             if(!current.getBoolean("ringing"))return
             val callId=current.getString("call_id")
             if(PhoneService.instance?.calls?.any{PhoneService.instance?.profileId(it)==profileId && it.remoteParams?.getCustomHeader("X-OpenWeb-Push-ID")==callId}==true)return

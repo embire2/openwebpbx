@@ -13,7 +13,7 @@ public sealed class DownloadClient : IDisposable
         client.DefaultRequestHeaders.UserAgent.ParseAdd("OpenWebPBX-Updater/1");
     }
     public static bool Allowed(Uri uri) => uri.Scheme == "https" && uri.Port == 443 && uri.UserInfo.Length == 0 && uri.Fragment.Length == 0 && uri.AbsoluteUri.Length <= 16384 &&
-        ((uri.Host == "github.com" && (uri.AbsolutePath.StartsWith("/embire2/openwebpbx/releases/download/", StringComparison.Ordinal) || uri.AbsolutePath is "/embire2/openwebpbx/releases/latest/download/update-manifest.json" or "/embire2/openwebpbx/releases/latest/download/windows-update-manifest.json")) ||
+        ((uri.Host == "github.com" && (uri.AbsolutePath.StartsWith("/embire2/openwebpbx/releases/download/", StringComparison.Ordinal) || uri.AbsolutePath is "/embire2/openwebpbx/releases/latest/download/update-manifest.json" or "/embire2/openwebpbx/releases/latest/download/debian-update-manifest.json" or "/embire2/openwebpbx/releases/latest/download/windows-update-manifest.json")) ||
         uri.Host is "release-assets.githubusercontent.com" or "objects.githubusercontent.com");
     private async Task<HttpResponseMessage> Get(string url, long offset, CancellationToken ct)
     {

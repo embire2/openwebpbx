@@ -7,7 +7,7 @@ import org.json.JSONObject
 object ProfileUpdatePolicy {
     const val CACHE_LIFETIME=24*60*60*1000L
     data class Result(val mode:String,val oldestServer:String?,val trusted:Boolean,val identity:String,val unavailable:Int=0)
-    fun active(profiles:List<JSONObject>)=profiles.filter{!it.optBoolean("needs_login")}
+    fun active(profiles:List<JSONObject>)=profiles.filter{TenantConnection.ready(it)}
     private fun binding(profile:JSONObject)=UpdateRules.sha256((profile.getString("server")+"\u0000"+profile.getString("token")).toByteArray(Charsets.UTF_8))
     fun identity(profiles:List<JSONObject>):String = if(active(profiles).isEmpty())"" else UpdateRules.sha256(active(profiles).map{it.getString("profile_id")+"\u0000"+binding(it)}.sorted().joinToString("\u0001").toByteArray(Charsets.UTF_8))
     fun strongest(modes:List<String>):String {
@@ -19,7 +19,7 @@ object ProfileUpdatePolicy {
         UpdateRules.policyMode(policy.getString("mode"),policy.optString("tenant_mode").takeIf{it.isNotEmpty()},policy.optString("minimum_version").takeIf{it.isNotEmpty()},BuildConfig.VERSION_NAME)
         UpdateRules.version(policy.getString("server_version"))
     }
-    fun load(profiles:List<JSONObject>,cache:(String,JSONObject)->Unit={_,_->},revoke:(String)->Unit={},now:Long=System.currentTimeMillis(),fetch:(JSONObject)->JSONObject={PhoneApi(it.getString("server"),it.getString("token")).json("updates")}):Result {
+    fun load(profiles:List<JSONObject>,cache:(String,JSONObject)->Unit={_,_->},revoke:(String)->Unit={},now:Long=System.currentTimeMillis(),fetch:(JSONObject)->JSONObject={PhoneApi.profile(it).json("updates")}):Result {
         val modes=mutableListOf<String>();val versions=mutableListOf<String>();var trusted=false;var unavailable=0
         for(profile in active(profiles)) {
             val id=profile.getString("profile_id")

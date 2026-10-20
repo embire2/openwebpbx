@@ -1,4 +1,6 @@
-# OpenWeb PBX for Android — 1.0.16
+# OpenWeb PBX for Android — 1.0.18
+
+**Tenant addresses are now required.** Install1.0.18 over your existing app, open it and type your `https://company.openwebpbx.com` address when prompted. For OpenWeb, use **https://openweb.openwebpbx.com**. Each saved account needs this once. Credentials and personal settings are retained; other domains are refused. This is an Android connection change; SIP desk phones keep their existing settings. Read the [upgrade and server-readiness guide](android-tenant-addresses-1.0.18.md) before installing on a self-hosted server. The complete Debian release remains1.0.16.
 
 OpenWebPBX Free Phone is a standalone Android phone with native screens and its own calling engine. Version 1.0.16, code116, adds optional native video between colleagues and retains calling, transfers, voicemail, personal Settings and secure updates. Use the matching Debian 1.0.16 server for the integrated video, Meet, own-mailbox **121** and Nathaniel **1026** clock features. Android 9 or newer is required; the universal APK supports ARMv7, ARM64 and x86-64. Physical handset coverage and mobile-network qualification are still being established.
 
@@ -11,7 +13,7 @@ See [video calls and the known brief camera-restart interruption](android-video.
 3. Open the Android app, choose **Scan QR code** and point your camera at it. Confirm the server name before connecting.
 4. Allow the microphone and notifications so you can make calls and see incoming calls.
 
-A code expires after ten minutes and works once. It contains the HTTPS server address and a random enrollment code, never the SIP password. If the camera is unavailable, choose **Enter a connection code instead** and enter the server address and code shown by your administrator. The app accepts HTTPS origins with trusted certificates and refuses redirects during enrollment or authenticated API calls.
+A code expires after ten minutes and works once. It contains the HTTPS tenant address and a random enrollment code, never the SIP password. If the camera is unavailable, choose **Enter a connection code instead** and enter the tenant address and code shown by your administrator. The app accepts registered `*.openwebpbx.com` tenant origins with trusted certificates and refuses redirects during enrollment or authenticated API calls.
 
 Each phone receives its own revocable credentials, valid for 180 days. Create a new QR code when they expire. They are encrypted with an Android Keystore key and excluded from device backup. The SIP connection uses TLS, validates the server certificate and requires SRTP media encryption. The server certificate must match the public SIP hostname. Account and calling permissions remain scoped to the tenant and extension.
 

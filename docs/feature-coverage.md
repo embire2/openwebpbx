@@ -1,5 +1,15 @@
 # OpenWeb PBX feature coverage
 
+## Android tenant addresses and independent server feed — 1.0.18
+
+The Android-only1.0.18/code118 release requires every existing saved profile to enter its own registered HTTPS `*.openwebpbx.com` address. Unconfirmed profiles cannot use bearer tokens, native SIP registration or incoming push. Custodian lookup precedes token reuse; tenant API guards prevent cross-tenant enrollment and bearer access. New QR invitations require a ready tenant address. Hosted core remains16 with two minimal mobile API files, the exact alias API prohibition removed, a read-only registry lookup and the separate Debian updater-feed compatibility delta. Native desk-phone configuration is preserved.
+
+Passed36/40 direct/Play JVM cases, zero-error release lint (84/74 warnings),28 executed native account/store/policy/UI/security controls (one additional PBX-image QR case skipped for lack of its raster), and actual signed116→118 upgrade with mandatory entry, real trusted registry/alias HTTPS, no pending SDK accounts and exact token/device/SIP/personal preferences. TLS/SRTP calling between two owned review extensions decoded440Hz at the peer above0.8 energy and660Hz at Android0.99983264. No physical phone/customer/carrier call is inferred. Static Play checks passed target36, signing identity, excluded direct installer and26 aligned64-bit native libraries; actual16KB-kernel/Play/camera acceptance remains open.
+
+Backend qualification includes61 source PostgreSQL/HTTP controls,51 app-password/welcome regressions,51 exact minimal16 PostgreSQL/HTTP controls independently repeated by root, and92 actual registry PostgreSQL/signed-HTTP/DNS-adapter controls. The new read-only public lookup does not modify DNS or expose keys. The first registry activation refused because private build library modes were unreadable to its service user; exact rollback ran before normalizing deployment modes and repeating successfully. App test setup, SDK-thread, stale owned-call and WAV observer failures remain private and are described in the [upgrade record](android-tenant-addresses-1.0.18.md).
+
+The owner selected mandatory Android18. Generic Android metadata retains its old URL; Debian uses a dedicated filename with the exact original signed16 envelope. The narrowly rebuilt immutable16 updater passed61 updater checks independently of the candidate17 worker. Candidate feed split also passed18 actual PostgreSQL worker and71 PostgreSQL PHP controls. Three tampered compatibility packages refused before writing; hosted application and idempotent reapplication passed. Legacy unpatched Debian workers require this compatibility patch. There is no new full Debian/Windows18 package and the133/21/72/40 roadmap counts remain unchanged.
+
 [Detailed 1.0.16 qualification and remaining device checks](release-1.0.16-qualification.md).
 
 ## Incoming routes, audible ringback and explicit PBX audio — 2026-10-19

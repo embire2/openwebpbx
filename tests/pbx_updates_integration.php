@@ -31,9 +31,10 @@ try {
     $check($updates->canView()&&count($updates->tenants())===2,'Instance admin sees tenants');
     $check($updates->instancePolicy()['mode']==='notify','Server defaults to optional');
     $check(pbx_updates::serverFeedUrl('Windows')===pbx_updates::WINDOWS_FEED_URL,'Windows server selects the fixed independent feed');
-    $check(pbx_updates::serverFeedUrl('Linux')===pbx_updates::FEED_URL,'Debian server retains the fixed generic feed');
+    $check(pbx_updates::FEED_URL==='https://github.com/embire2/openwebpbx/releases/latest/download/update-manifest.json','Android retains its original fixed feed');
+    $check(pbx_updates::serverFeedUrl('Linux')===pbx_updates::DEBIAN_FEED_URL&&pbx_updates::DEBIAN_FEED_URL!==pbx_updates::FEED_URL,'Debian server selects its fixed independent feed');
     $check($updates->instancePolicy()['feed_url']===pbx_updates::serverFeedUrl(),'Instance policy exposes only the built-in server feed');
-    $updates->saveInstance(['mode'=>'automatic','maintenance_hour'=>'23','maintenance_duration'=>'3','feed_url'=>'https://example.invalid/feed']);
+    $updates->saveInstance(['mode'=>'automatic','maintenance_hour'=>'23','maintenance_duration'=>'3','feed_url'=>'https://example.invalid/feed','debian_feed_url'=>pbx_updates::FEED_URL]);
     $check($updates->instancePolicy()['mode']==='automatic'&&(int)$updates->instancePolicy()['maintenance_hour']===23,'Automatic server policy saved');
     $check($updates->instancePolicy()['feed_url']===pbx_updates::serverFeedUrl(),'Saved instance input cannot redirect release downloads');
     $deny(fn()=>$updates->saveInstance(['mode'=>'required','maintenance_hour'=>'2','maintenance_duration'=>'2']),'Mobile mode not allowed on shared server');

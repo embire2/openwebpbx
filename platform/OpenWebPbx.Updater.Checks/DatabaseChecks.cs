@@ -26,7 +26,7 @@ static class DatabaseChecks
   });
   try{
    await new NpgsqlCommand($"create schema {schema};set search_path to {schema},public;create table v_users(user_uuid uuid primary key)",db).ExecuteNonQueryAsync();
-   var sql=await File.ReadAllTextAsync("app/pbx_updates/resources/install.sql");sql=sql[..sql.IndexOf("DO $$",StringComparison.Ordinal)]+"COMMIT;";await new NpgsqlCommand(sql,db).ExecuteNonQueryAsync();
+   var sql=await File.ReadAllTextAsync("app/pbx_updates/resources/install.sql");sql=sql[..sql.IndexOf("DO $$\nDECLARE permission",StringComparison.Ordinal)]+"COMMIT;";await new NpgsqlCommand(sql,db).ExecuteNonQueryAsync();
    var builder=new NpgsqlConnectionStringBuilder(connection){SearchPath=schema+",public"};await using var data=NpgsqlDataSource.Create(builder.ConnectionString);var repository=new UpdateRepository(data);
    var race=Guid.NewGuid();await new NpgsqlCommand($"insert into v_pbx_update_commands(command_uuid,action) values('{race}','check')",db).ExecuteNonQueryAsync();
    var claims=await Task.WhenAll(repository.Claim(default),repository.Claim(default));Check(claims.Count(x=>x is not null)==1,"A command was claimed twice");await repository.Finish(claims.Single(x=>x is not null)!,true,"Checked",default);
@@ -42,10 +42,12 @@ static class DatabaseChecks
    var payload=JsonSerializer.SerializeToUtf8Bytes(new{schema=1,product="openwebpbx",channel="stable",sequence=104,version="1.0.4",published_at=DateTimeOffset.UtcNow.AddMinutes(-1),expires_at=DateTimeOffset.UtcNow.AddDays(1),assets=new[]{new{platform="debian13-amd64",name="openwebpbx-1.0.4-debian13-amd64.tar.gz",url="https://github.com/embire2/openwebpbx/releases/download/v1.0.4/openwebpbx-1.0.4-debian13-amd64.tar.gz",bytes=bytes.Length,sha256=Convert.ToHexStringLower(SHA256.HashData(bytes)),minimum_version="1.0.3"}}});
    var envelope=JsonSerializer.SerializeToUtf8Bytes(new{key_id="release-2026-a",payload=Convert.ToBase64String(payload),signature=Convert.ToBase64String(rsa.SignData(payload,HashAlgorithmName.SHA256,RSASignaturePadding.Pkcs1))});
    var downloadCount=0;
-   using var downloads=new DownloadClient(new Handler(request=>{var feed=request.RequestUri!.AbsolutePath.EndsWith("update-manifest.json");if(!feed)downloadCount++;return new(HttpStatusCode.OK){Content=new ByteArrayContent(feed?envelope:bytes)};}));
+   var feedRequests=new List<string>();
+   using var downloads=new DownloadClient(new Handler(request=>{var uri=request.RequestUri!;var feed=uri.AbsoluteUri==UpdaterPaths.DebianFeedUrl;if(feed)feedRequests.Add(uri.AbsoluteUri);else if(uri.AbsolutePath.EndsWith("update-manifest.json"))throw new InvalidDataException("Debian worker requested another platform's feed.");else downloadCount++;return new(HttpStatusCode.OK){Content=new ByteArrayContent(feed?envelope:bytes)};}));
    var worker=new Worker(repository,paths,verifier,downloads,new PlatformInstaller(paths),new SwitchClient(configuration),NullLogger<Worker>.Instance){OneShot=true,SkipRecovery=true};
    await worker.Initialize(default);await worker.Tick(default);
    Check(UpdateJson.Read<UpdateStatus>(paths.Status).State=="available"&&downloadCount==0&&!File.Exists(installedMarker),"Notify policy changed the application");
+   Check(feedRequests.Count==1&&feedRequests[0]==UpdaterPaths.DebianFeedUrl,"Database-backed worker did not request the fixed Debian feed");
    var request=Guid.NewGuid();await new NpgsqlCommand($"insert into v_pbx_update_commands(command_uuid,action) values('{request}','download')",db).ExecuteNonQueryAsync();await worker.Tick(default);
    Check(UpdateJson.Read<UpdateStatus>(paths.Status).State=="ready"&&downloadCount==1&&!File.Exists(installedMarker),"Download command installed application");
    request=Guid.NewGuid();await new NpgsqlCommand($"insert into v_pbx_update_commands(command_uuid,action) values('{request}','install')",db).ExecuteNonQueryAsync();active=true;await worker.Tick(default);

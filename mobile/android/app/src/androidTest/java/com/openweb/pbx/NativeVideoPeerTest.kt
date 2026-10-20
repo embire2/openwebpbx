@@ -45,7 +45,7 @@ class NativeVideoPeerTest {
         val saved=PhoneStore(context).read()!!
         check(saved.getJSONObject("sip").getString("domain").endsWith(".invalid"))
         val trace=PrivateVideoTrace(File(dir,"peer-transport.private.log"))
-        val bootstrap=PhoneApi(saved.getString("server"),saved.getString("token")).json("bootstrap")
+        val bootstrap=PhoneApi.profile(saved).json("bootstrap")
         PhoneStore(context).update{it.put("features",bootstrap.getJSONArray("features"))}
         instrumentation.startActivitySync(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         val deadline=System.currentTimeMillis()+90000

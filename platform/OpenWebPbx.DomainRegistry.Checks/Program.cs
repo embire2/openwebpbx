@@ -36,6 +36,19 @@ async Task<LeaseRequest> Request(ECDsa key,string host,Guid tenant,Guid domain,s
 async Task<(HttpResponseMessage Http,LeaseReply? Reply)> Send(LeaseRequest request,bool match=false){using var message=new HttpRequestMessage(HttpMethod.Post,"/v1/leases"){Content=JsonContent.Create(request)};if(match)message.Headers.TryAddWithoutValidation("If-Match","\""+request.Revision+"\"");var response=await client.SendAsync(message);return(response,response.IsSuccessStatusCode?await response.Content.ReadFromJsonAsync<LeaseReply>():null);}
 var tenantA=Guid.NewGuid();var domainA=Guid.NewGuid();var initial=await Request(keyA,"server-a.example.test",tenantA,domainA,"fictional-company");var a=await Send(initial);Check(a.Reply?.State=="dns_ready"&&a.Reply.Revision==1,"Actual signed HTTP lease and DNS write");Check(dns.Changes==1,"Exactly one DNS mutation");Check(dns.UnrelatedExact,"All unrelated DNS records exact");
 var replay=await Send(initial);Check(replay.Http.StatusCode==HttpStatusCode.Forbidden&&dns.Changes==1,"Consumed nonce replay cannot mutate");
+var lookup=await client.GetAsync("/v1/tenant-addresses/"+a.Reply!.Hostname);
+Check(lookup.IsSuccessStatusCode&&lookup.Headers.CacheControl?.NoStore==true,"Tenant origin lookup succeeds without caching");
+var address=(await lookup.Content.ReadFromJsonAsync<TenantAddressReply>())!;
+Check(address.Schema==1&&address.Hostname==a.Reply.Hostname&&address.ServerOrigin=="https://server-a.example.test"&&address.DomainUuid==domainA&&address.Revision==1,"Lookup binds exact hostname, original canonical origin, domain and revision");
+var lookupJson=JsonDocument.Parse(await lookup.Content.ReadAsStringAsync());
+Check(lookupJson.RootElement.EnumerateObject().Select(p=>p.Name).Order().SequenceEqual(new[]{"domainUuid","hostname","revision","schema","serverOrigin"}),"Public lookup discloses only the migration binding");
+foreach(var invalid in new[]{"unknown-company.openwebpbx.com","admin.openwebpbx.com","www.openwebpbx.com","company.openwebpbx.com.evil.test","nested.company.openwebpbx.com","UPPER.openwebpbx.com","openwebpbx.com"})
+ Check((await client.GetAsync("/v1/tenant-addresses/"+invalid)).StatusCode==HttpStatusCode.NotFound,"Unowned/non-tenant address cannot resolve "+invalid);
+var changesBeforeLookup=dns.Changes;
+await using(var pending=source.CreateCommand("update registry_leases set state='pending_dns' where domain_uuid=$1")){pending.Parameters.AddWithValue(domainA);await pending.ExecuteNonQueryAsync();}
+Check((await client.GetAsync("/v1/tenant-addresses/"+a.Reply.Hostname)).StatusCode==HttpStatusCode.NotFound,"Pending DNS never authorises token migration");
+await using(var ready=source.CreateCommand("update registry_leases set state='dns_ready' where domain_uuid=$1")){ready.Parameters.AddWithValue(domainA);await ready.ExecuteNonQueryAsync();}
+Check(dns.Changes==changesBeforeLookup,"Origin lookups do not mutate DNS");
 var lostReply=await Send(await Request(keyA,"server-a.example.test",tenantA,domainA,"fictional-company"));Check(lostReply.Reply?.Hostname==a.Reply!.Hostname&&lostReply.Reply.Revision==1&&dns.Changes==1,"Lost creation response retries original revision with fresh signed nonce without DNS mutation");
 var wrongTenantRetry=await Send(await Request(keyA,"server-a.example.test",Guid.NewGuid(),domainA,"fictional-company"));Check(wrongTenantRetry.Http.StatusCode==HttpStatusCode.Conflict&&dns.Changes==1,"Initial retry cannot change tenant ownership");
 var renewal=await Send(await Request(keyA,"server-a.example.test",tenantA,domainA,"renamed-company",1));Check(renewal.Reply?.Hostname==a.Reply!.Hostname&&dns.Changes==1,"Stable name and idempotent DNS renewal");
@@ -43,11 +56,14 @@ var duplicate=await Send(await Request(keyB,"server-a.example.test",Guid.NewGuid
 var domainB=Guid.NewGuid();var collision=await Send(await Request(keyB,"server-b.example.test",Guid.NewGuid(),domainB,"fictional-company"));Check(collision.Reply?.Hostname==Protocol.CollisionLabel("fictional-company",Protocol.KeyHash(Public(keyB)),domainB)+".openwebpbx.com","Stable global collision suffix");Check(dns.UnrelatedExact,"Only owned alias DNS changed");
 var reserved=await Send(await Request(keyA,"server-a.example.test",tenantA,Guid.NewGuid(),"admin"));Check(reserved.Reply?.Hostname!="admin.openwebpbx.com"&&reserved.Reply?.State=="dns_ready","Reserved name uses stable suffix");
 var disabled=await Send(await Request(keyA,"server-a.example.test",tenantA,domainA,"fictional-company",1,false));Check(disabled.Reply?.State=="disabled"&&disabled.Reply.Hostname==a.Reply!.Hostname,"Disabled lease retains original ownership/name");
+Check((await client.GetAsync("/v1/tenant-addresses/"+a.Reply!.Hostname)).StatusCode==HttpStatusCode.NotFound,"Disabled tenant cannot authorise a saved-token recipient");
 var restore=await Send(await Request(keyA,"server-a.example.test",tenantA,domainA,"fictional-company",1));Check(restore.Reply?.State=="dns_ready"&&restore.Reply.Hostname==a.Reply!.Hostname,"Recovered same key and hostname retains lease");
 var writes=dns.Changes;var unsigned=await Request(keyA,"server-a.example.test",tenantA,domainA,"fictional-company",1);var forged=await Send(unsigned with{TenantUuid=Guid.NewGuid()});Check(forged.Http.StatusCode==HttpStatusCode.Forbidden&&dns.Changes==writes,"Signature binds tenant/operation");
 var moveDenied=await Send(await Request(keyA,"server-c.example.test",tenantA,domainA,"fictional-company",1));Check(moveDenied.Http.StatusCode==HttpStatusCode.Conflict&&dns.Changes==writes,"Ordinary renewal cannot move host");
 var missingMatch=await Send(await Request(keyA,"server-c.example.test",tenantA,domainA,"fictional-company",1,true,true));Check(missingMatch.Http.StatusCode==HttpStatusCode.Conflict,"Explicit move requires If-Match");
 var move=await Send(await Request(keyA,"server-c.example.test",tenantA,domainA,"fictional-company",1,true,true),true);Check(move.Reply?.State=="dns_ready"&&move.Reply.Revision==2&&move.Reply.Hostname==a.Reply!.Hostname,"Explicit signed revision move updates only owned CNAME");
+var movedAddress=await client.GetFromJsonAsync<TenantAddressReply>("/v1/tenant-addresses/"+a.Reply!.Hostname);
+Check(movedAddress!.ServerOrigin=="https://server-c.example.test"&&movedAddress.Revision==2,"Moved lease never returns the stale canonical credential recipient");
 var old=await Send(await Request(keyA,"server-a.example.test",tenantA,domainA,"fictional-company",1));Check(old.Http.StatusCode==HttpStatusCode.Conflict,"Old restored/source instance cannot silently move DNS back");
 var stale=await Send(await Request(keyA,"server-c.example.test",tenantA,domainA,"fictional-company",1));Check(stale.Http.StatusCode==HttpStatusCode.Conflict,"Stale revision refused");
 var lateInitial=await Send(await Request(keyA,"server-c.example.test",tenantA,domainA,"fictional-company"));Check(lateInitial.Http.StatusCode==HttpStatusCode.Conflict,"Initial revision cannot adopt later moved revision");

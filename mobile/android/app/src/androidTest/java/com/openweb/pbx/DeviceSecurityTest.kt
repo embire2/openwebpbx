@@ -30,11 +30,11 @@ class DeviceSecurityTest {
         }finally{store.clear();if(old!=null)prefs.edit().putString("sealed",old).commit()}
     }
     @Test fun nativeQrDecoderReadsEnrollmentJson() {
-        val json="{\"type\":\"openwebpbx\",\"version\":1,\"server\":\"https://pbx.example.com\",\"code\":\"example-code-1234567890\"}"
+        val json="{\"type\":\"openwebpbx\",\"version\":1,\"server\":\"https://sample.openwebpbx.com\",\"code\":\"example-code-1234567890\"}"
         val matrix=MultiFormatWriter().encode(json,BarcodeFormat.QR_CODE,512,512)
         val pixels=IntArray(512*512){if(matrix[it%512,it/512])0xff000000.toInt()else 0xffffffff.toInt()}
         val result=MultiFormatReader().decode(BinaryBitmap(HybridBinarizer(RGBLuminanceSource(512,512,pixels))))
-        assertEquals(json,result.text);assertEquals("https://pbx.example.com",Enrollment.server(JSONObject(result.text).getString("server")))
+        assertEquals(json,result.text);assertEquals("https://sample.openwebpbx.com",Enrollment.server(JSONObject(result.text).getString("server")))
     }
     @Test fun decodesThePbxGeneratedQrImage() {
         val context=InstrumentationRegistry.getInstrumentation().targetContext

@@ -40,7 +40,8 @@ object ProfileRules {
         response.getJSONObject("account").getString("extension")
         // Do not move a bearer token to a response-supplied origin. The user approved
         // this HTTPS host; canonical server identifiers remain account metadata.
-        response.put("server",Enrollment.server(server));return response
+        response.remove("tenant_instance_origin");response.remove("tenant_domain_uuid")
+        return TenantConnection.confirm(response,server)
     }
     fun canChange(activeCalls:Int,installing:Boolean):Boolean=activeCalls==0 && !installing
 }

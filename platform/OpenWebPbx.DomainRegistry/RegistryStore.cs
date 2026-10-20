@@ -4,6 +4,24 @@ using System.Security.Cryptography;
 namespace OpenWebPbx.DomainRegistry;
 public sealed record ReservedLease(string Label, string? DnsHost, long Revision);
 public sealed class RegistryStore(NpgsqlDataSource data, RegistryOptions options) {
+    public async Task<TenantAddressReply> TenantAddress(string hostname, CancellationToken stop) {
+        const string suffix = "." + RegistryOptions.Zone;
+        if (hostname is null || !hostname.EndsWith(suffix, StringComparison.Ordinal)) throw new Refused("tenant_address_unavailable", 404);
+        var label = hostname[..^suffix.Length];
+        try { Protocol.Label(label); } catch (Refused) { throw new Refused("tenant_address_unavailable", 404); }
+        if (Protocol.IsReserved(label)) throw new Refused("tenant_address_unavailable", 404);
+        await using var command = data.CreateCommand("""
+            select lease.server_host,lease.domain_uuid,lease.revision
+            from registry_leases lease join registry_instances instance using(key_hash)
+            where lease.label=$1 and lease.enabled and lease.state='dns_ready'
+                and lease.dns_host=lease.server_host and instance.server_host=lease.server_host
+            """);
+        command.Parameters.AddWithValue(label);
+        await using var reader = await command.ExecuteReaderAsync(stop);
+        if (!await reader.ReadAsync(stop)) throw new Refused("tenant_address_unavailable", 404);
+        var host = Protocol.Host(reader.GetString(0));
+        return new(1, hostname, "https://" + host, reader.GetGuid(1), reader.GetInt64(2));
+    }
     public async Task Initialize(CancellationToken stop) {
         await using var command = data.CreateCommand("""
         create table if not exists registry_instances(key_hash text primary key,public_key text not null,server_host text not null unique,verified_at timestamptz not null);

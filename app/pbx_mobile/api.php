@@ -7,7 +7,7 @@ function mobile_reply(array $body,int $status=200): never {http_response_code($s
 try {
     if(($_SERVER['HTTPS']??'')!=='on'&&($_SERVER['HTTPS']??'')!=='1')mobile_reply(['error'=>'Use the secure server address.'],403);
     $action=$_GET['action']??'';$method=$_SERVER['REQUEST_METHOD']??'';
-    $get=['bootstrap','directory','calls','voicemail','voicemail_audio','updates','availability','push_call'];$post=['enroll','login','change_password','call_log','voicemail_read','voicemail_delete','revoke','set_status','queue_status','push_register','push_dismiss'];
+    $get=['capabilities','bootstrap','directory','calls','voicemail','voicemail_audio','updates','availability','push_call'];$post=['enroll','login','change_password','call_log','voicemail_read','voicemail_delete','revoke','set_status','queue_status','push_register','push_dismiss'];
     if(!is_string($action)||!in_array($action,array_merge($get,$post),true))mobile_reply(['error'=>'Action unavailable.'],404);
     if($method!==(in_array($action,$post,true)?'POST':'GET')){header('Allow: '.(in_array($action,$post,true)?'POST':'GET'));mobile_reply(['error'=>'Method unavailable.'],405);}
     if(isset($_SERVER['HTTP_ORIGIN']))mobile_reply(['error'=>'Use the OpenWeb PBX app.'],403);
@@ -18,6 +18,7 @@ try {
         $input=json_decode($raw,true,16,JSON_THROW_ON_ERROR);if(!is_array($input)||array_is_list($input)&&$input!==[])mobile_reply(['error'=>'Check the supplied details.'],400);
     }
     $mobile=new pbx_mobile;
+    if($action==='capabilities')mobile_reply($mobile->capabilities($_SERVER,(string)($_SERVER['REMOTE_ADDR']??'')));
     if($action==='enroll')mobile_reply($mobile->enroll($input,(string)($_SERVER['REMOTE_ADDR']??''),$_SERVER));
     if($action==='login')mobile_reply($mobile->login($input,(string)($_SERVER['REMOTE_ADDR']??''),$_SERVER));
     $auth=$_SERVER['HTTP_AUTHORIZATION']??'';if(!is_string($auth)||!preg_match('/^Bearer ([a-f0-9]{64})$/D',$auth,$match))mobile_reply(['error'=>'Connect your phone again.'],401);

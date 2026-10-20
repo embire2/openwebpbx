@@ -137,7 +137,7 @@ class ReviewAssetsTest {
                 device.findObject(By.desc("End call")).click()
                 await("Review incoming call did not end") { PhoneService.instance?.call == null }
             }
-            val api = PhoneApi(server, account.getString("token"))
+            val api = PhoneApi.profile(ProfileRules.connected(account,server))
             fun mailbox() = api.json("voicemail").getJSONArray("messages")
             val before = mailbox().let { rows -> (0 until rows.length()).map { rows.getJSONObject(it).getString("id") }.toSet() }
             File(output, "voicemail-ready.txt").writeText("ready") // Host may provide a synthetic microphone tone.

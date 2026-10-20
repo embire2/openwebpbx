@@ -92,7 +92,7 @@ class PhoneService: Service() {
         // until every conversation has ended; never restart the shared calling core.
         if(calls.isNotEmpty()){profilesPending=true;return}
         profilesPending=false
-        val store=PhoneStore(this);val saved=store.profiles().filter{!it.optBoolean("needs_login")};val c=core!!
+        val store=PhoneStore(this);val saved=store.profiles().filter{TenantConnection.ready(it)};val c=core!!
         for(id in registeredProfiles.keys.toList()){
             val next=saved.firstOrNull{it.getString("profile_id")==id}
             val previous=profileData[id]
@@ -147,7 +147,7 @@ class PhoneService: Service() {
         return START_STICKY // Android may restart the user's ongoing phone connection; force-stop still requires reopening.
     }
     private fun connect() {
-        if(PhoneStore(this).profiles().isEmpty()){stopSelf();return}
+        if(PhoneStore(this).profiles().none{TenantConnection.ready(it)}){stopSelf();return}
         val factory = Factory.instance()
         // In-memory configuration prevents the SIP password being persisted by liblinphone.
         val config = factory.createConfigFromString("[sip]\nstore_auth_info=0\n[storage]\nbackend=null\n")
@@ -199,7 +199,7 @@ class PhoneService: Service() {
                 if(state==Call.State.IncomingReceived || state==Call.State.OutgoingInit){
                     val owner=identify(current) ?: run{current.decline(Reason.NotAcceptable);return}
                     val saved=PhoneStore(this@PhoneService).read(owner)
-                    if(saved==null || saved.optBoolean("needs_login") || owner in profileMutations){current.decline(Reason.Busy);return}
+                    if(saved==null || !TenantConnection.ready(saved) || owner in profileMutations){current.decline(Reason.Busy);return}
                     if(state==Call.State.IncomingReceived && saved.optLong("declined_push_until")>System.currentTimeMillis() && saved.optString("declined_push_call")==current.remoteParams?.getCustomHeader("X-OpenWeb-Push-ID")){current.decline(Reason.Declined);return}
                     if(UpdateManager.get(this@PhoneService).isInstalling || (sessions.size>=2 && !sessions.containsKey(current.nativePointer))){current.decline(Reason.Busy);return}
                     if(!sessions.containsKey(current.nativePointer)){
@@ -459,7 +459,7 @@ class PhoneService: Service() {
             val store=PhoneStore(this)
             for(profile in store.profiles())try {
                 val id=profile.getString("profile_id");val pending=profile.optJSONArray("pending_calls") ?: continue
-                val api=PhoneApi(profile.getString("server"),profile.getString("token"));val sent=mutableSetOf<String>()
+                val api=PhoneApi.profile(profile);val sent=mutableSetOf<String>()
                 for(i in 0 until pending.length()) {
                     val row=pending.getJSONObject(i)
                     try{api.json("call_log",row);sent.add(row.getString("id"))}

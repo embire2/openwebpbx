@@ -39,6 +39,10 @@ public static class RegistryApplication {
             finally { context.RequestAborted = callerStop; }
         });
         app.UseRateLimiter(); app.MapGet("/health", () => new { service = "openwebpbx-domain-registry", protocol = 1 });
+        // Public ownership lookup contains no keys or credentials. Android uses
+        // this trusted origin before moving an existing bearer to a tenant URL.
+        app.MapGet("/v1/tenant-addresses/{hostname}", async (string hostname, RegistryStore store, CancellationToken stop) =>
+            await store.TenantAddress(hostname, stop));
         app.MapPost("/v1/challenges", async (ChallengeRequest request, RegistryStore store, CancellationToken stop) => await store.Challenge(Protocol.KeyHash(request.PublicKey), Protocol.Host(request.ServerHost), stop));
         app.MapPost("/v1/leases", async (LeaseRequest request, RegistryStore store, ISiteProof proof, IRegistryDns dns, HttpRequest http, CancellationToken stop) => {
             if (request.Move && http.Headers.IfMatch.ToString() != "\"" + request.Revision + "\"") throw new Refused("host_move_if_match_required", 409);

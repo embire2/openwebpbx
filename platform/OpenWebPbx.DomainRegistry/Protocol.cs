@@ -29,6 +29,7 @@ public sealed record ChallengeRequest(string PublicKey, string ServerHost);
 public sealed record LeaseRequest(string Challenge, string PublicKey, string ServerHost, Guid TenantUuid, Guid DomainUuid, string Label, bool Enabled, long Revision, bool Move, string Signature);
 public sealed record ChallengeReply(string Challenge, DateTimeOffset ExpiresAt);
 public sealed record LeaseReply(string Hostname, string ServerHost, string State, bool Enabled, long Revision);
+public sealed record TenantAddressReply(int Schema, string Hostname, string ServerOrigin, Guid DomainUuid, long Revision);
 public sealed class Refused(string category, int status = 400) : Exception(category) { public int Status { get; } = status; }
 public static partial class Protocol {
     [GeneratedRegex("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$")]

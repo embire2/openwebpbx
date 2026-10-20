@@ -1,5 +1,9 @@
 # OpenWeb PBX
 
+**Android1.0.18 requires your tenant address:** install over the existing app, then enter **https://openweb.openwebpbx.com** for OpenWeb, or your own registered `*.openwebpbx.com` address. Each saved account must confirm once; other account domains are refused. Credentials and personal settings are retained. SIP desk-phone settings remain unchanged. [Download1.0.18](https://github.com/embire2/openwebpbx/releases/tag/v1.0.18) · [Upgrade steps and evidence](docs/android-tenant-addresses-1.0.18.md).
+
+This is an Android-only release with a mandatory instance minimum of1.0.18 after public verification. The complete Debian server remains1.0.16 and Windows status is unchanged. Debian update workers now use an independent feed; existing original16 workers need the small compatibility patch in the Android release. The hosted worker is patched. A stock16 server also needs tenant-address/API support before its phones can use18. No complete17/18 server installer is claimed.
+
 Hosted calling update, 19 October: enabled providers' saved incoming routes are active, both call legs keep audio through the PBX, and decoded software-call tests now verify audible pre-answer ringback and answered two-way audio. Expiring, private call diagnostics are available. Physical-phone and owner Android/carrier checks remain open; public downloads stay 1.0.16. [Details](docs/call-diagnostics.md).
 
 **1.0.16 is available:** the complete Debian 13 core now includes Meet audio/video conferences, Nathaniel UK prompts, own voicemail on **121** without a PIN, and the repaired **GMT+2 clock 1026**. **OpenWebPBX Free Phone 1.0.16** adds optional native video between colleagues. [Downloads](https://github.com/embire2/openwebpbx/releases/tag/v1.0.16) · [Install/update](docs/installing-1.0.16.md) · [Meet](docs/meet.md) · [Android video](docs/android-video.md).

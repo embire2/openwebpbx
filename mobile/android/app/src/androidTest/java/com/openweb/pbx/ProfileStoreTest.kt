@@ -53,13 +53,13 @@ class ProfileStoreTest {
         assertEquals(sealed,context.getSharedPreferences("private_account",0).getString("sealed",null))
     }
     @Test fun setupParserRejectsPasswordsForeignShapesAndOversizedFiles(){
-        val valid=JSONObject().put("type","openwebpbx").put("version",1).put("server","https://alpha.example.invalid").put("extension","100").put("code","one-use-fixture-code-123456789")
+        val valid=JSONObject().put("type","openwebpbx").put("version",1).put("server","https://alpha.openwebpbx.com").put("extension","100").put("code","one-use-fixture-code-123456789")
         assertEquals("100",ProfileRules.setup(valid.toString()).getString("extension"))
         for(key in listOf("password","sip","token","extra")){val bad=JSONObject(valid.toString()).put(key,"no");try{ProfileRules.setup(bad.toString());fail(key)}catch(_:IllegalArgumentException){}}
         try{ProfileRules.setup("x".repeat(ProfileRules.MAX_SETUP_BYTES+1));fail()}catch(_:IllegalArgumentException){}
     }
     @Test fun updatePolicyIdentityIncludesEveryProfileAndIgnoresSelection()=isolated{store->
-        val a=store.add(account("alpha"));val one=ProfileUpdatePolicy.identity(store.profiles());val b=store.add(account("beta"));val both=ProfileUpdatePolicy.identity(store.profiles());assertNotEquals(one,both)
+        val a=store.add(TenantConnection.confirm(account("alpha"),"https://alpha.openwebpbx.com"));val one=ProfileUpdatePolicy.identity(store.profiles());val b=store.add(TenantConnection.confirm(account("beta"),"https://beta.openwebpbx.com"));val both=ProfileUpdatePolicy.identity(store.profiles());assertNotEquals(one,both)
         store.select(a);assertEquals(both,ProfileUpdatePolicy.identity(store.profiles()));store.select(b);assertEquals(both,ProfileUpdatePolicy.identity(store.profiles()))
         store.update(a){it.put("token","changed-alpha")};assertNotEquals(both,ProfileUpdatePolicy.identity(store.profiles()))
     }

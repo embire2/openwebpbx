@@ -1,6 +1,6 @@
 # OpenWebPBX Free Phone for Android
 
-Source version **1.0.17 (code 117)** adds simultaneous saved phone accounts, tenant/app-password sign-in, one-use setup-file import, first-password creation and visible policy links. Existing native video keeps explicit camera permission and an audio-only answer option. See [video calling](../../docs/android-video.md) for the controls, server capability and qualification limits. Publication is recorded separately; this source version does not imply a new public release.
+Version **1.0.18 (code118)** requires each saved account to confirm its registered `*.openwebpbx.com` tenant address before reconnecting. Other account domains are refused. The custodian registry and tenant API verify ownership before existing credentials are reused; SIP desk phones retain their settings. See [tenant addresses, upgrade steps and verification](../../docs/android-tenant-addresses-1.0.18.md). Multiple accounts, setup files and policy links are included; app-password login/change requires a server advertising that capability. Existing native video keeps explicit camera permission and an audio-only answer option. [Video calling](../../docs/android-video.md) records its separate device limits.
 
 A standalone native Android phone, built with Kotlin and the Linphone SIP/media engine. There is no embedded website or WebView. The app remains **OpenWebPBX Free Phone**, with the same package and signing identity for upgrades. It supports Android 9 and newer, and the universal APK includes ARMv7, ARM64 and x86-64.
 

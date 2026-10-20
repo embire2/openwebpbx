@@ -36,7 +36,7 @@ class pbx_mobile {
     protected function issueCode(array $e,string $purpose='screen'): array {
         if(!in_array($purpose,['screen','welcome','personal'],true))throw new InvalidArgumentException('Choose a setup method.');
         $this->requireTls();$this->rate('create:'.$purpose.':'.($_SESSION['user_uuid']??$e['extension_uuid']),20,600);
-        $url=pbx_tenant_domains::url($this->db,$e['domain_uuid']);if(!preg_match('~^https://[a-z0-9.-]+(?::[0-9]{1,5})?$~iD',$url))throw new RuntimeException('Ask your instance administrator to finish HTTPS setup.');
+        $url=$this->tenantUrl($e['domain_uuid']);
         $owned=!$this->db->inTransaction();if($owned)$this->db->beginTransaction();try {
             $this->q('select extension_uuid from v_extensions where extension_uuid=:id for update',['id'=>$e['extension_uuid']]);
             if($purpose==='personal'&&(!isset($e['password_generation'])||(new pbx_mobile_password($this->db))->generation($e['domain_uuid'],$e['extension_uuid'])!==$e['password_generation']))throw new UnexpectedValueException('Sign in again.');
@@ -69,7 +69,49 @@ class pbx_mobile {
         try{$e=$this->extension($r['domain_uuid'],$r['extension_uuid']);}catch(RuntimeException){throw new UnexpectedValueException('This phone is no longer connected.');}
         $this->q("update v_pbx_mobile_devices set last_seen_at=now() where device_uuid=:id and (last_seen_at is null or last_seen_at<now()-interval '5 minutes')",['id'=>$r['device_uuid']]);return $e+$r;
     }
-    public function bootstrap(array $e): array {$passwords=new pbx_mobile_password($this->db);$hasPassword=$passwords->present($e['domain_uuid'],$e['extension_uuid']);return ['account'=>['extension'=>$e['number'],'display_name'=>$e['user']['name']??$e['number'],'domain_uuid'=>$e['domain_uuid'],'extension_uuid'=>$e['extension_uuid'],'server'=>pbx_tenant_domains::url($this->db,$e['domain_uuid']),'app_password_set'=>$hasPassword,'can_initialize_app_password'=>!$hasPassword&&$this->initialPasswordAllowed($e)],'sip'=>['server'=>pbx_paths::host(),'domain'=>$e['domain_name'],'username'=>$e['sip_username'],'auth_username'=>$e['sip_username'],'port'=>5061,'transport'=>'tls','media_encryption'=>'srtp'],'device_id'=>$e['device_uuid'],'push'=>(new pbx_mobile_push($this->db))->client(),'features'=>array_merge(['directory','calls','voicemail','presence','queues','transfers','call_waiting','app_password'],pbx_video::ready()?['video_calls']:[])];}
+    /** A setup invitation must not silently fall back to an installation hostname. */
+    protected function tenantUrl(string $domain): string {
+        $url=pbx_tenant_domains::url($this->db,$domain);
+        $host=parse_url($url,PHP_URL_HOST);
+        if(!is_string($host)||$url!=='https://'.$host||!preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.openwebpbx\.com$/D',$host)||pbx_tenant_domains::requestDomain($this->db,['HTTP_HOST'=>$host])!==$domain)
+            throw new RuntimeException('Your tenant address is not ready. Ask your administrator to finish tenant HTTPS setup.');
+        return $url;
+    }
+    /** Alias identity is descriptive; it never changes SIP host, realm or credentials. */
+    protected function accountIdentity(array $e): array {
+        $tenants=$this->q('select tenant_uuid from v_pbx_services where domain_uuid=:d',['d'=>$e['domain_uuid']])->fetchAll(PDO::FETCH_COLUMN);
+        if(count($tenants)>1)throw new RuntimeException('This PBX service has conflicting tenant ownership.');
+        return ['extension'=>$e['number'],'display_name'=>$e['user']['name']??$e['number'],'tenant_uuid'=>$tenants[0]??null,'domain_uuid'=>$e['domain_uuid'],'extension_uuid'=>$e['extension_uuid'],'server'=>pbx_tenant_domains::url($this->db,$e['domain_uuid']),'canonical_origin'=>pbx_tenant_domains::instanceUrl()];
+    }
+    /** The narrow stable16 alias overlay can omit the optional app-password schema. */
+    public function appPasswordAvailable(): bool {
+        if(!class_exists('pbx_mobile_password')||!defined('PASSWORD_ARGON2ID'))return false;
+        $required=[
+            'v_pbx_mobile_accounts'=>['extension_uuid','domain_uuid','password_hash','generation','updated_at','updated_by'],
+            'v_pbx_mobile_enrollments'=>['purpose'],
+            'v_pbx_mobile_welcome'=>['domain_uuid','extension_uuid','email_queue_uuid'],
+            'v_email_queue'=>['email_queue_uuid','email_status','update_date'],
+        ];
+        foreach($required as$table=>$columns) {
+            $actual=$this->q('select attname from pg_attribute where attrelid=to_regclass(:t) and attnum>0 and not attisdropped',['t'=>$table])->fetchAll(PDO::FETCH_COLUMN);
+            if(array_diff($columns,$actual))return false;
+        }
+        return true;
+    }
+    /** Public setup metadata is available only through a ready, owned tenant alias. */
+    public function capabilities(array $server,string $ip): array {
+        $this->rate('phone-capabilities:'.$ip,60,60);
+        $domain=pbx_tenant_domains::requestDomain($this->db,$server);
+        if($domain==='')throw new OutOfBoundsException('This tenant address is unavailable.');
+        $tenants=$this->q('select tenant_uuid from v_pbx_services where domain_uuid=:d',['d'=>$domain])->fetchAll(PDO::FETCH_COLUMN);
+        if(count($tenants)!==1)throw new OutOfBoundsException('This tenant address is unavailable.');
+        return ['schema'=>1,'tenant_uuid'=>$tenants[0],'domain_uuid'=>$domain,'server'=>$this->tenantUrl($domain),'canonical_origin'=>pbx_tenant_domains::instanceUrl(),'app_password'=>$this->appPasswordAvailable()];
+    }
+    public function bootstrap(array $e): array {
+        $passwordsAvailable=$this->appPasswordAvailable();
+        $hasPassword=$passwordsAvailable&&(new pbx_mobile_password($this->db))->present($e['domain_uuid'],$e['extension_uuid']);
+        return ['account'=>$this->accountIdentity($e)+['app_password_set'=>$hasPassword,'can_initialize_app_password'=>$passwordsAvailable&&!$hasPassword&&$this->initialPasswordAllowed($e)],'sip'=>['server'=>pbx_paths::host(),'domain'=>$e['domain_name'],'username'=>$e['sip_username'],'auth_username'=>$e['sip_username'],'port'=>5061,'transport'=>'tls','media_encryption'=>'srtp'],'device_id'=>$e['device_uuid'],'push'=>(new pbx_mobile_push($this->db))->client(),'features'=>array_merge(['directory','calls','voicemail','presence','queues','transfers','call_waiting','tenant_origin'], $passwordsAvailable?['app_password']:[],pbx_video::ready()?['video_calls']:[])];
+    }
     /** A token stays scoped to its PBX alias. The canonical instance remains a legacy QR transport. */
     public function assertHost(array $e,array $server): void {
         $domain=pbx_tenant_domains::requestDomain($this->db,$server);
@@ -78,6 +120,7 @@ class pbx_mobile {
         if($host!==$name.($port===443?'':':'.$port)&&!($port===443&&$host===$name.':443'))throw new UnexpectedValueException('Connect this account to its own server address.');
     }
     public function passwordPrincipal(array $in,string $ip,array $server): array {
+        if(!$this->appPasswordAvailable())throw new OutOfBoundsException('App-password sign-in is not available on this PBX.');
         $number=is_string($in['extension']??null)?$in['extension']:'';
         $this->rate('app-login-ip:'.$ip,20,600);$this->rate('app-login-account:'.pbx_tenant_domains::hostname((string)($server['HTTP_HOST']??'')).':'.$number,10,600);
         $domain=pbx_tenant_domains::requestDomain($this->db,$server);
@@ -104,6 +147,7 @@ class pbx_mobile {
         return (bool)$this->q("select 1 from v_pbx_mobile_devices where device_uuid=:id and domain_uuid=:d and extension_uuid=:e and revoked_at is null and expires_at>now() and created_at>now()-interval '10 minutes'",['id'=>$e['device_uuid'],'d'=>$e['domain_uuid'],'e'=>$e['extension_uuid']])->fetchColumn();
     }
     public function changePassword(array $e,array $in): array {
+        if(!$this->appPasswordAvailable())throw new OutOfBoundsException('App-password changes are not available on this PBX.');
         $this->rate('app-password-change:'.$e['extension_uuid'],10,600);pbx_mobile_password::validate($in['new_password']??null);
         $this->db->beginTransaction();try{
             $this->q('select extension_uuid from v_extensions where extension_uuid=:id for update',['id'=>$e['extension_uuid']]);

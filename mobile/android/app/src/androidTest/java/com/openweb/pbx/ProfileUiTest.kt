@@ -33,11 +33,11 @@ class ProfileUiTest {
         val activity=launch()
         try{inst.runOnMainSync{val labels=views(activity.window.decorView).filterIsInstance<TextView>().map{it.text.toString()};for(expected in listOf("Scan QR code","Sign in with an app password","Import a setup file","Enter a connection code instead"))assertTrue(expected,expected in labels)};verifyLinks(activity)}finally{inst.runOnMainSync{activity.finish()}}
     }
-    @Test fun settingsKeepsDirectPolicyLinksWithMultipleSavedAccounts()=isolated{
+    @Test fun mandatoryTenantGateKeepsDirectPolicyLinksWithMultipleSavedAccounts()=isolated{
         val store=PhoneStore(context)
         for(name in listOf("Alpha","Beta"))store.add(JSONObject().put("server","https://${name.lowercase()}.example.invalid").put("device_id","device-$name").put("token","test-$name-"+"x".repeat(32)).put("profile_name",name).put("needs_login",true).put("account",JSONObject().put("extension","100").put("display_name","Test phone")).put("sip",JSONObject().put("domain","${name.lowercase()}.example.invalid")))
         val activity=launch()
-        try{click(activity,"Settings");verifyLinks(activity);inst.runOnMainSync{val labels=views(activity.window.decorView).filterIsInstance<TextView>().map{it.text.toString()};assertTrue("Accounts" in labels);assertTrue("Change app password" in labels);assertTrue("Remove this account" in labels)};assertEquals(2,store.profiles().size)}finally{inst.runOnMainSync{activity.finish()}}
+        try{verifyLinks(activity);inst.runOnMainSync{val labels=views(activity.window.decorView).filterIsInstance<TextView>().map{it.text.toString()};assertTrue("Accounts" in labels);assertTrue("Confirm tenant address" in labels);assertFalse("Change app password" in labels)};assertEquals(2,store.profiles().size)}finally{inst.runOnMainSync{activity.finish()}}
     }
     @Test fun matchingEmailAttachmentOpensNativeConfirmationWithoutConnecting()=isolated{
         val intent=Intent(Intent.ACTION_VIEW).setClass(context,MainActivity::class.java).setDataAndType(android.net.Uri.parse("content://com.openweb.pbx.test.setup-fixture/valid"),"application/vnd.openwebpbx.config+json").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
@@ -45,7 +45,7 @@ class ProfileUiTest {
         try{
             val device=androidx.test.uiautomator.UiDevice.getInstance(inst)
             assertTrue(device.wait(androidx.test.uiautomator.Until.hasObject(androidx.test.uiautomator.By.text("Add this phone account?")),3000))
-            assertTrue(device.hasObject(androidx.test.uiautomator.By.textContains("alpha.example.invalid")))
+            assertTrue(device.hasObject(androidx.test.uiautomator.By.textContains("alpha.openwebpbx.com")))
             assertTrue(PhoneStore(context).profiles().isEmpty())
             device.findObject(androidx.test.uiautomator.By.res("android:id/button2")).click()
             assertTrue(PhoneStore(context).profiles().isEmpty())
@@ -56,19 +56,16 @@ class ProfileUiTest {
         val activity=launch()
         try{inst.runOnMainSync{val labels=views(activity.window.decorView).filterIsInstance<TextView>().map{it.text.toString()};assertTrue("Saved accounts could not be opened" in labels);assertTrue("Reset local accounts" in labels)};verifyLinks(activity);assertEquals(bad,prefs.getString("sealed",null))}finally{inst.runOnMainSync{activity.finish()}}
     }
-    @Test fun reconnectSuggestsTenantOriginOnlyInEditablePasswordForm()=isolated{
+    @Test fun mandatoryEntryDoesNotUseResponseSuggestedOriginsOrForwardSavedTokens()=isolated{
         val store=PhoneStore(context);val original="original-secret-"+"x".repeat(32)
         val id=store.add(JSONObject().put("server","https://installation.example.invalid").put("device_id","owned-recovery-device").put("token",original).put("needs_login",true).put("account",JSONObject().put("extension","100").put("server","https://alpha.example.invalid")).put("sip",JSONObject().put("domain","alpha.example.invalid")))
         val activity=launch()
         try{
-            inst.runOnMainSync{MainActivity::class.java.getDeclaredMethod("editProfile",String::class.java).apply{isAccessible=true}.invoke(activity,id)}
             val device=androidx.test.uiautomator.UiDevice.getInstance(inst)
-            assertTrue(device.wait(androidx.test.uiautomator.Until.hasObject(androidx.test.uiautomator.By.text("Use a new QR code")),5000))
-            device.findObject(androidx.test.uiautomator.By.text("Sign in again")).click()
-            assertTrue(device.wait(androidx.test.uiautomator.Until.hasObject(androidx.test.uiautomator.By.text("Sign in to your phone")),5000))
-            val inputs=device.findObjects(androidx.test.uiautomator.By.clazz("android.widget.EditText"));assertEquals("https://alpha.example.invalid",inputs.first().text);assertTrue(inputs.first().isEnabled)
+            assertTrue(device.wait(androidx.test.uiautomator.Until.hasObject(androidx.test.uiautomator.By.text("Confirm tenant address")),5000))
+            // UIAutomator reports an empty field's hint as text on Android13.
+            inst.runOnMainSync{val input=views(activity.window.decorView).filterIsInstance<android.widget.EditText>().first();assertEquals("",input.text.toString());assertTrue(input.isEnabled)}
             assertEquals("https://installation.example.invalid",store.read(id)!!.getString("server"));assertEquals(original,store.read(id)!!.getString("token"))
-            device.findObject(androidx.test.uiautomator.By.res("android:id/button2")).click()
         }finally{inst.runOnMainSync{activity.finish()}}
     }
     @Test fun reviewLayoutsInBothThemes()=isolated{

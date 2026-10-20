@@ -50,12 +50,14 @@ class IncomingCallActivity:Activity(){
     override fun onPause(){main.removeCallbacks(tick);super.onPause()}
     override fun onDestroy(){worker.shutdown();super.onDestroy()}
     private fun refresh(){
+        val saved=profileId?.let{PhoneStore(this).read(it)}
+        if(saved!=null && !TenantConnection.ready(saved)){startActivity(Intent(this,MainActivity::class.java));finish();return}
         val phone=PhoneService.instance
         if(request.isNotEmpty()){
             if(profileId==null || PhoneStore(this).read(profileId)==null){finish();return}
             if(System.currentTimeMillis()>=expiresAt || SystemClock.elapsedRealtime()-openedAt>60000){PushConnection.cancel(this,request,profileId);finish();return}
             if(!checking){checking=true;worker.execute{
-                try{val a=PhoneStore(this).read(profileId) ?: error("Disconnected");val response=PhoneApi(a.getString("server"),a.getString("token"),5000).json("push_call",id=request)
+                try{val a=PhoneStore(this).read(profileId) ?: error("Disconnected");val response=PhoneApi.profile(a,5000).json("push_call",id=request)
                     main.post{if(!isFinishing){if(!response.getBoolean("ringing")){PushConnection.cancel(this,request,profileId);finish()}else{verifiedCall=response.getString("call_id");expiresAt=try{java.time.OffsetDateTime.parse(response.getString("expires_at").replace(" ","T")).toInstant().toEpochMilli()}catch(_:Exception){System.currentTimeMillis()+60000};checking=false;if(declining)decline()}}}
                 }catch(e:Exception){main.post{if(!isFinishing){if(e is ApiError&&e.status in listOf(400,401,403,404,410,422)){PushConnection.cancel(this,request,profileId);finish()}else{label.text="Could not reach your phone server. Tap Answer to retry.";checking=false}}}}
             }}
@@ -80,7 +82,7 @@ class IncomingCallActivity:Activity(){
         phone?.calls?.firstOrNull{phone?.profileId(it)==profileId && it.remoteParams?.getCustomHeader("X-OpenWeb-Push-ID")==verifiedCall}?.let{phone.hangup(it)}
         verifiedCall?.let{id->PhoneStore(this).update(profileId){it.put("declined_push_call",id).put("declined_push_until",System.currentTimeMillis()+60000)}}
         PushConnection.cancel(this,request,profileId)
-        worker.execute{try{val a=PhoneStore(this).read(profileId) ?: return@execute;PhoneApi(a.getString("server"),a.getString("token")).json("push_dismiss",JSONObject().put("id",request))}catch(_:Exception){}}
+        worker.execute{try{val a=PhoneStore(this).read(profileId) ?: return@execute;PhoneApi.profile(a).json("push_dismiss",JSONObject().put("id",request))}catch(_:Exception){}}
         finish()
     }
 }

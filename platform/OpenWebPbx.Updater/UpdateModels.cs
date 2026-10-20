@@ -62,12 +62,13 @@ public static partial class UpdateJson
 public sealed class UpdaterPaths
 {
     public const string GenericFeedUrl = "https://github.com/embire2/openwebpbx/releases/latest/download/update-manifest.json";
+    public const string DebianFeedUrl = "https://github.com/embire2/openwebpbx/releases/latest/download/debian-update-manifest.json";
     public const string WindowsFeedUrl = "https://github.com/embire2/openwebpbx/releases/latest/download/windows-update-manifest.json";
     public string FeedUrl => FeedUrlForPlatform(Platform);
     public static string FeedUrlForPlatform(string platform) => platform switch
     {
         "windows-x64" => WindowsFeedUrl,
-        "debian13-amd64" => GenericFeedUrl,
+        "debian13-amd64" => DebianFeedUrl,
         _ => throw new PlatformNotSupportedException("This updater has no release feed for that platform.")
     };
     public string Data { get; }

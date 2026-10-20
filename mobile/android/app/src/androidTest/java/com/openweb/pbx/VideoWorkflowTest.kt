@@ -195,7 +195,7 @@ class VideoWorkflowTest {
             val response=PhoneApi(enrollment.getString("server")).json("enroll",JSONObject().put("code",enrollment.getString("code")).put("device_name","Isolated video software test").put("platform","android"))
             response.put("server",enrollment.getString("server"));PhoneStore(context).save(response)
         }
-        val saved=PhoneStore(context).read()!!;val bootstrap=PhoneApi(saved.getString("server"),saved.getString("token")).json("bootstrap")
+        val saved=PhoneStore(context).read()!!;val bootstrap=PhoneApi.profile(saved).json("bootstrap")
         check(saved.getJSONObject("sip").getString("domain").endsWith(".invalid"))
         trace=PrivateVideoTrace(File(dir,"video-transport.private.log"))
         val sipIdentity=saved.getJSONObject("sip").getString("username")

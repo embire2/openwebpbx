@@ -2,7 +2,37 @@
 
 All clients pin `release-public.pem` under key ID `release-2026-a`.
 The release signing private key is outside source; it must never be packaged.
-Envelope at `https://github.com/embire2/openwebpbx/releases/latest/download/update-manifest.json`:
+All editions use the envelope format below, but select separate fixed feeds:
+
+| Client | Feed under `https://github.com/embire2/openwebpbx/releases/latest/download/` |
+| --- | --- |
+| Android direct APK and Google Play edition | `update-manifest.json` |
+| Debian 13 server | `debian-update-manifest.json` |
+| Windows server | `windows-update-manifest.json` |
+
+The original generic address remains Android's feed. Server configuration,
+policy rows and command requests cannot override these addresses. An unavailable
+server feed is an update-check failure; workers do not fall back to the Android
+feed. The download allowlist includes these exact latest-release filenames and
+the existing trusted GitHub release-asset destinations.
+
+Each server feed retains its own qualified signed envelope. Publishing a newer
+Android release does not qualify a newer Debian or Windows package. A release
+marked latest must carry all three feeds, even when the server envelopes remain
+unchanged. For the Debian feed transition, copy the accepted Debian envelope
+byte-for-byte and preserve its persisted sequence/digest trust state. Never
+reset trust, re-sign different metadata with the same sequence, or relabel an
+older package with the Android release version. Existing Debian workers still
+using the generic URL need the qualified feed-selection patch before Android
+and Debian releases diverge.
+
+For the Android 1.0.18 transition, Debian remains on its qualified 1.0.16
+envelope and package; there is no Debian 1.0.18 package. Legacy Debian workers
+need the separately provided manual compatibility patch to select the Debian
+feed. An Android-only generic envelope is not a server update: an unpatched
+worker refuses its missing Debian asset and leaves the running PBX intact.
+
+Envelope:
 
 ```json
 {"key_id":"release-2026-a","payload":"BASE64_UTF8_JSON","signature":"BASE64_RSA_SIGNATURE"}

@@ -7,7 +7,7 @@ import org.junit.runner.RunWith
 import java.io.IOException
 @RunWith(AndroidJUnit4::class)
 class ProfileUpdatePolicyTest {
-    private fun profile(id:String)=JSONObject().put("profile_id",id).put("server","https://$id.example.invalid").put("token","token-$id")
+    private fun profile(id:String)=TenantConnection.confirm(JSONObject().put("profile_id",id).put("token","token-$id"),"https://$id.openwebpbx.com")
     private fun policy(mode:String,server:String="1.0.16")=JSONObject().put("schema",1).put("channel","stable").put("feed_url",UpdateRules.FEED).put("mode",mode).put("server_version",server)
     @Test fun offlineTenantDoesNotDiscardAnotherRequiredRule(){
         val profiles=listOf(profile("a"),profile("b"));val result=ProfileUpdatePolicy.load(profiles,fetch={if(it.getString("profile_id")=="b")throw IOException() else policy("required")})

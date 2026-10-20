@@ -170,7 +170,7 @@ class UpdateWorkflowTest {
         // converts operational errors into a safe, credential-free user message.
         if(InstrumentationRegistry.getArguments().getString("updatePublic")!="true"){
             val account=PhoneStore(context).read()!!
-            val policy=PhoneApi(account.getString("server"),account.getString("token")).json("updates")
+            val policy=PhoneApi.profile(account).json("updates")
             assertEquals(1,policy.getInt("schema"));assertEquals(UpdateRules.FEED,policy.getString("feed_url"))
             ReleaseManifest.parse(File(fixture,"envelope.json").readText(),context.assets.open("release-public.pem").bufferedReader().use{it.readText()})
             assertTrue("Private candidate APK is readable",File(fixture,"candidate.apk").canRead())

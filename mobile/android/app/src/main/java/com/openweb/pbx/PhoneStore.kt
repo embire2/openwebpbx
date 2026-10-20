@@ -18,9 +18,14 @@ import javax.crypto.spec.GCMParameterSpec
 object Enrollment {
     fun server(value: String): String {
         val uri = URI(value.trim())
-        require(uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null && uri.query == null && uri.fragment == null && (uri.path.isNullOrEmpty() || uri.path == "/")) { "Enter your PBX's HTTPS address, for example https://call.example.com" }
-        require(uri.port == -1 || uri.port in 1..65535) { "Invalid server port" }
-        return "https://${uri.rawAuthority}"
+        val host=uri.host?.lowercase(java.util.Locale.ROOT).orEmpty()
+        require(uri.scheme.equals("https",true) && host.endsWith(".openwebpbx.com") &&
+            host.removeSuffix(".openwebpbx.com").matches(Regex("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")) &&
+            !host.startsWith("xn--") && uri.userInfo == null && uri.query == null && uri.fragment == null &&
+            (uri.path.isNullOrEmpty() || uri.path == "/") && uri.port in listOf(-1,443)) {
+            "Enter your tenant address, for example https://company.openwebpbx.com. Other domains are not supported."
+        }
+        return "https://$host"
     }
     fun tenant(value: String): String {
         val raw=value.trim()

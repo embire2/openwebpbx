@@ -34,7 +34,7 @@ class ActivityLifecycleTest {
     }
     @Test fun canceledAndRepeatedVoicemailDownloadsDoNotLeavePlayers() {
         assumeTrue(InstrumentationRegistry.getArguments().getString("lifecycleFixture")=="true")
-        val saved=PhoneStore(context).read()!!;val api=PhoneApi(saved.getString("server"),saved.getString("token"))
+        val saved=PhoneStore(context).read()!!;val api=PhoneApi.profile(saved)
         val messages=api.json("voicemail").getJSONArray("messages");assertTrue("Seed a disposable voicemail",messages.length()>0)
         val id=messages.getJSONObject(0).getString("id");val a=activity()
         val section=MainActivity::class.java.getDeclaredField("section").apply{isAccessible=true}
@@ -55,7 +55,7 @@ class ActivityLifecycleTest {
     @Test fun revokedPhoneCanDisconnectLocally() {
         assumeTrue(InstrumentationRegistry.getArguments().getString("logoutFixture")=="true")
         val store=PhoneStore(context);val revoked=store.read()!!
-        try { PhoneApi(revoked.getString("server"),revoked.getString("token")).json("bootstrap");fail("Fixture phone must already be revoked") }catch(e:ApiError){assertEquals(401,e.status)}
+        try { PhoneApi.profile(revoked).json("bootstrap");fail("Fixture phone must already be revoked") }catch(e:ApiError){assertEquals(401,e.status)}
         store.clear();val a=activity()
         // Preserve the active account screen, matching administrator revocation while that screen is already open.
         main{MainActivity::class.java.getDeclaredField("bootstrapped").apply{isAccessible=true}.setBoolean(a,true);store.save(revoked)}

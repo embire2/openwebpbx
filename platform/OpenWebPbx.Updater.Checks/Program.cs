@@ -61,17 +61,26 @@ try
  Check(!DownloadClient.Allowed(new Uri("https://github.com:444/embire2/openwebpbx/releases/download/test")),"alternate port accepted");
  Check(!DownloadClient.Allowed(new Uri("https://evil.example/")),"foreign host accepted");
  Check(UpdaterPaths.FeedUrlForPlatform("windows-x64")==UpdaterPaths.WindowsFeedUrl,"Windows server did not select its fixed feed");
- Check(UpdaterPaths.FeedUrlForPlatform("debian13-amd64")==UpdaterPaths.GenericFeedUrl,"Debian server lost its generic feed");
- Check(DownloadClient.Allowed(new Uri(UpdaterPaths.WindowsFeedUrl))&&DownloadClient.Allowed(new Uri(UpdaterPaths.GenericFeedUrl)),"fixed platform feed was rejected");
+ Check(UpdaterPaths.GenericFeedUrl=="https://github.com/embire2/openwebpbx/releases/latest/download/update-manifest.json","Android's original feed changed");
+ Check(UpdaterPaths.FeedUrlForPlatform("debian13-amd64")==UpdaterPaths.DebianFeedUrl && UpdaterPaths.DebianFeedUrl!=UpdaterPaths.GenericFeedUrl,"Debian server did not select its independent feed");
+ Check(DownloadClient.Allowed(new Uri(UpdaterPaths.WindowsFeedUrl))&&DownloadClient.Allowed(new Uri(UpdaterPaths.DebianFeedUrl))&&DownloadClient.Allowed(new Uri(UpdaterPaths.GenericFeedUrl)),"fixed platform feed was rejected");
  Check(!DownloadClient.Allowed(new Uri("https://github.com/embire2/openwebpbx/releases/latest/download/foreign-feed.json")),"arbitrary latest feed filename accepted");
+ foreach(var invalid in new[]{"https://github.com/another/repo/releases/latest/download/debian-update-manifest.json","https://github.com/embire2/openwebpbx/releases/latest/download/debian-update-manifest.json/extra","http://github.com/embire2/openwebpbx/releases/latest/download/debian-update-manifest.json","https://user@github.com/embire2/openwebpbx/releases/latest/download/debian-update-manifest.json"})
+  Check(!DownloadClient.Allowed(new Uri(invalid)),"unsafe Debian feed location accepted");
  var feedRequests=new List<string>();
  using(var downloader=new DownloadClient(new Handler(request=>{feedRequests.Add(request.RequestUri!.AbsoluteUri);return new(HttpStatusCode.OK){Content=new ByteArrayContent(envelope)};})))
  {
   Check((await downloader.Feed("windows-x64",default)).SequenceEqual(envelope)&&feedRequests[^1]==UpdaterPaths.WindowsFeedUrl,"Windows feed request was rerouted");
-  Check((await downloader.Feed("debian13-amd64",default)).SequenceEqual(envelope)&&feedRequests[^1]==UpdaterPaths.GenericFeedUrl,"Debian feed request was rerouted");
+  Check((await downloader.Feed("debian13-amd64",default)).SequenceEqual(envelope)&&feedRequests[^1]==UpdaterPaths.DebianFeedUrl,"Debian feed request was rerouted");
   try{await downloader.Feed("https://example.invalid/feed",default);throw new Exception("arbitrary feed URL accepted");}catch(PlatformNotSupportedException){Check(feedRequests.Count==2,"unsupported feed reached the network");}
  }
- var injected=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{["Updater:FeedUrl"]="https://example.invalid/feed"}).Build();
+ var unavailableFeedRequests=new List<string>();
+ using(var downloader=new DownloadClient(new Handler(request=>{unavailableFeedRequests.Add(request.RequestUri!.AbsoluteUri);return new(HttpStatusCode.NotFound);})))
+ {
+  try{await downloader.Feed("debian13-amd64",default);throw new Exception("missing Debian feed accepted");}
+  catch(HttpRequestException){Check(unavailableFeedRequests.SequenceEqual(new[]{UpdaterPaths.DebianFeedUrl}),"missing Debian feed fell back to another platform");}
+ }
+ var injected=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{["Updater:FeedUrl"]="https://example.invalid/feed",["Updater:DebianFeedUrl"]=UpdaterPaths.GenericFeedUrl}).Build();
  var fixedPaths=new UpdaterPaths(injected);
  Check(fixedPaths.FeedUrl==UpdaterPaths.FeedUrlForPlatform(fixedPaths.Platform),"configuration overrode the built-in feed");
  var path=Path.Combine(directory,"valid.zip");await File.WriteAllBytesAsync(path,archive);

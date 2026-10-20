@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tarfile
 import urllib.request
@@ -15,6 +16,8 @@ p.add_argument('--dependency-sources', type=Path, required=True)
 p.add_argument('--output', type=Path, required=True)
 a = p.parse_args()
 project = Path(__file__).resolve().parents[1]
+android_version = re.search(r'versionName = .*\?: "([^"]+)"', (project/'app/build.gradle.kts').read_text()).group(1)
+assert re.fullmatch(r'\d+\.\d+\.\d+', android_version)
 sdk = a.sdk_source.resolve()
 assert subprocess.check_output(['git','-C',str(sdk),'rev-parse','HEAD'], text=True).strip() == '348e8de32fb2ac56b7b0a7167968fc1ac707f7b2', 'Unexpected SDK revision'
 submodules = subprocess.check_output(['git','-C',str(sdk),'submodule','status','--recursive'],text=True)
@@ -69,7 +72,11 @@ with tarfile.open(a.output, 'w:gz', compresslevel=6) as archive:
     # A tracked build/ directory in the SDK contains upstream CMake/Android
     # source, unlike the app's generated Gradle build directory.
     for file in sorted(sdk_files):add_source(archive,file,sdk,'openwebpbx-android/linphone-sdk-5.5.23')
-    for relative in ['VERSION','docs/android-video.md','docs/android.md','docs/android-push.md','docs/android-availability.md','docs/google-play.md','docs/google-play-review.md','packaging/updates/PROTOCOL.md']:
+    # Android releases can advance independently of a complete server installer.
+    import io
+    marker=android_version.encode()+b'\n';info=tarfile.TarInfo('openwebpbx-android/VERSION');info.mode=0o644;info.size=len(marker);archive.addfile(info,io.BytesIO(marker))
+    archive.add(project.parents[1]/'VERSION',arcname='openwebpbx-android/CORE_SOURCE_VERSION')
+    for relative in ['docs/android-video.md','docs/android.md','docs/android-tenant-addresses-1.0.18.md','docs/android-push.md','docs/android-availability.md','docs/google-play.md','docs/google-play-review.md','packaging/updates/PROTOCOL.md']:
         archive.add(project.parents[1]/relative,arcname='openwebpbx-android/'+relative)
 sdk_clean()
 print(json.dumps({'archive':str(a.output),'bytes':a.output.stat().st_size,'sha256':hashlib.sha256(a.output.read_bytes()).hexdigest(),'dependency_sources':len(manifest),'tracked_sdk_files':len(sdk_files)}))

@@ -58,9 +58,9 @@ class ProfileWorkflowTest {
         assumeTrue(InstrumentationRegistry.getArguments().getString("offlineProfileFixture")=="true")
         val fixture=JSONObject(File(files,"profiles-fixture.json").readText());val tenants=fixture.getJSONObject("tenants");val a=tenants.getJSONObject("a");val b=tenants.getJSONObject("b")
         require(a.getString("host")=="qa-a-m117a8.openwebpbx.com" && b.getString("host")=="qa-b-m117a8.openwebpbx.com" && store.profiles().size==1)
-        val original=store.read()!!;val aid=original.getString("profile_id");val apiA=PhoneApi(original.getString("server"),original.getString("token"))
+        val original=store.read()!!;val aid=original.getString("profile_id");val apiA=PhoneApi.profile(original)
         val other=ProfileRules.connected(PhoneApi("https://"+b.getString("host")).json("login",JSONObject().put("extension","100").put("password",b.getJSONObject("users").getJSONObject("100").getString("app_password")).put("device_name","Owned offline-removal QA").put("platform","android")),"https://"+b.getString("host"))
-        val bid=store.add(other,false);val apiB=PhoneApi(other.getString("server"),other.getString("token"));val old=a.getJSONObject("users").getJSONObject("100").getString("app_password");val fresh="Owned-"+java.util.UUID.randomUUID();var changed=false
+        val bid=store.add(other,false);val apiB=PhoneApi.profile(other);val old=a.getJSONObject("users").getJSONObject("100").getString("app_password");val fresh="Owned-"+java.util.UUID.randomUUID();var changed=false
         val home=inst.startActivitySync(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity
         val tone=tone()
         try{
@@ -115,7 +115,7 @@ class ProfileWorkflowTest {
             invoke(home,"changeAppPassword");assertTrue(device.wait(Until.hasObject(By.text("Create app password")),5000));val pwd=dialogInputs();assertEquals("First setup must not require a nonexistent current password",2,pwd.size)
             val password="Owned-"+java.util.UUID.randomUUID();pwd[0].text=password;pwd[1].text=password;submit("Change password")
             await("Password initialization saved"){store.read(id)?.getJSONObject("account")?.optBoolean("app_password_set")==true}
-            val api=PhoneApi(saved.getString("server"),saved.getString("token"));val bootstrap=api.json("bootstrap");assertTrue(bootstrap.getJSONObject("account").getBoolean("app_password_set"));assertEquals(saved.getString("token"),store.read(id)!!.getString("token"));assertEquals(saved.getJSONObject("sip").toString(),store.read(id)!!.getJSONObject("sip").toString());assertFalse(store.read(id)!!.toString().contains(password))
+            val api=PhoneApi.profile(saved);val bootstrap=api.json("bootstrap");assertTrue(bootstrap.getJSONObject("account").getBoolean("app_password_set"));assertEquals(saved.getString("token"),store.read(id)!!.getString("token"));assertEquals(saved.getJSONObject("sip").toString(),store.read(id)!!.getJSONObject("sip").toString());assertFalse(store.read(id)!!.toString().contains(password))
             // Two identical request IDs remain separate by profile. This checks
             // native notification routing, not physical FCM/locked-device delivery.
             val request=java.util.UUID.randomUUID().toString();val manager=context.getSystemService(android.app.NotificationManager::class.java)
@@ -171,7 +171,7 @@ class ProfileWorkflowTest {
             main{phone.core!!.recordFile=File(files,"profile-a-outgoing.wav").path;phone.dial("101")}
             await("Selected tenant outgoing answered"){phone.call?.state==Call.State.StreamsRunning};main{assertEquals(aid,phone.profileId())};media(phone,"outgoing A")
             main{phone.hold()};await("Hold selected tenant"){phone.call?.state==Call.State.Paused};main{phone.hold()};await("Resume selected tenant"){phone.call?.state==Call.State.StreamsRunning};media(phone,"resumed A");main{phone.hangup()};await("Outgoing ended"){phone.calls.isEmpty()};phone.flushPending();Thread.sleep(2200)
-            val pa=store.read(aid)!!;val pb=store.read(bid)!!;val apiA=PhoneApi(pa.getString("server"),pa.getString("token"));val apiB=PhoneApi(pb.getString("server"),pb.getString("token"))
+            val pa=store.read(aid)!!;val pb=store.read(bid)!!;val apiA=PhoneApi.profile(pa);val apiB=PhoneApi.profile(pb)
             fun directions(api:PhoneApi)=api.json("calls").getJSONArray("calls").let{rows->(0 until rows.length()).map{rows.getJSONObject(it).getString("direction")}}
             assertTrue("A history contains its outgoing call",directions(apiA).contains("outgoing"));assertFalse("A history contains B incoming",directions(apiA).contains("incoming"));assertTrue("B history contains incoming",directions(apiB).contains("incoming"));assertFalse("B history contains A outgoing",directions(apiB).contains("outgoing"))
             phase("two_tenant_media_and_history_passed")
@@ -180,7 +180,7 @@ class ProfileWorkflowTest {
             assertFalse(store.read(aid)!!.optBoolean("needs_login"));assertEquals("100",apiA.json("bootstrap").getJSONObject("account").getString("extension"))
             invoke(home,"changeAppPassword");val pwd=dialogInputs();assertEquals(3,pwd.size);pwd[0].text=old;pwd[1].text=fresh;pwd[2].text=fresh;submit("Change password")
             Thread.sleep(2000);assertEquals(token,store.read(aid)!!.getString("token"));assertEquals(before,store.read(aid)!!.getJSONObject("sip").toString());assertEquals("100",apiA.json("bootstrap").getJSONObject("account").getString("extension"))
-            val spare=PhoneApi(pa.getString("server")).json("login",JSONObject().put("extension","100").put("password",fresh).put("device_name","Owned password verification").put("platform","android"));PhoneApi(pa.getString("server"),spare.getString("token")).json("revoke",JSONObject())
+            val spare=ProfileRules.connected(PhoneApi(pa.getString("server")).json("login",JSONObject().put("extension","100").put("password",fresh).put("device_name","Owned password verification").put("platform","android")),pa.getString("server"));PhoneApi.profile(spare).json("revoke",JSONObject())
             apiA.json("change_password",JSONObject().put("current_password",fresh).put("new_password",old))
             main{assertEquals(2,phone.core!!.accountList.count{it.state==RegistrationState.Ok});phone.beginProfileChange(bid)}
             apiB.json("revoke",JSONObject());PushConnection.unregister(context,bid);store.remove(bid);main{phone.endProfileChange(bid)}

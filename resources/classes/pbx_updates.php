@@ -2,8 +2,9 @@
 /** Release policy and authenticated requests. Privileged installation belongs to the updater service. */
 class pbx_updates {
     public const FEED_URL = 'https://github.com/embire2/openwebpbx/releases/latest/download/update-manifest.json';
+    public const DEBIAN_FEED_URL = 'https://github.com/embire2/openwebpbx/releases/latest/download/debian-update-manifest.json';
     public const WINDOWS_FEED_URL = 'https://github.com/embire2/openwebpbx/releases/latest/download/windows-update-manifest.json';
-    public static function serverFeedUrl(string $osFamily=PHP_OS_FAMILY): string { return $osFamily==='Windows'?self::WINDOWS_FEED_URL:self::FEED_URL; }
+    public static function serverFeedUrl(string $osFamily=PHP_OS_FAMILY): string { return $osFamily==='Windows'?self::WINDOWS_FEED_URL:self::DEBIAN_FEED_URL; }
     private PDO $db;
     public function __construct(?PDO $db = null) {
         $this->db = $db ?? database::new()->db;

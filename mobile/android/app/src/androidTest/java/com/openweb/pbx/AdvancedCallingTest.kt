@@ -114,7 +114,7 @@ class AdvancedCallingTest {
         Thread.sleep(3500);main{assertTrue(PhoneService.instance!!.call!!.audioStats!!.downloadBandwidth>0);assertTrue(PhoneService.instance!!.call!!.audioStats!!.uploadBandwidth>0)}
     }
     @Test fun availabilityAndQueues(){
-        connect();val a=PhoneStore(context).read()!!;val api=PhoneApi(a.getString("server"),a.getString("token"));val before=api.json("availability");val device=UiDevice.getInstance(instrument)
+        connect();val a=PhoneStore(context).read()!!;val api=PhoneApi.profile(a);val before=api.json("availability");val device=UiDevice.getInstance(instrument)
         try{
             val status=api.json("set_status",JSONObject().put("status","Do Not Disturb").put("minutes",15));assertEquals("Do Not Disturb",status.getString("status"));assertFalse(status.isNull("temporary_until"))
             val contacts=api.json("directory").getJSONArray("contacts");assertEquals("Do Not Disturb",(0 until contacts.length()).map{contacts.getJSONObject(it)}.single{it.getString("id")=="extension:1000"}.getString("status"))

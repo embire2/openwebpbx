@@ -8,7 +8,14 @@ import java.net.URL
 import javax.net.ssl.HttpsURLConnection
 
 class ApiError(val status: Int, message: String): Exception(message)
-class PhoneApi(private val server: String, private val token: String? = null, private val timeout:Int=12000) {
+class PhoneApi private constructor(private val server: String, private val token: String?, private val timeout:Int) {
+    constructor(server:String):this(Enrollment.server(server),null,12000)
+    companion object {
+        fun profile(profile:JSONObject,timeout:Int=12000):PhoneApi {
+            require(TenantConnection.ready(profile)){"Enter this account's tenant address to reconnect."}
+            return PhoneApi(Enrollment.server(profile.getString("server")),profile.getString("token"),timeout)
+        }
+    }
     private fun connection(action: String, id: String?, body: JSONObject?): HttpsURLConnection {
         require(action.matches(Regex("[a-z_]+")))
         val endpoint = Enrollment.server(server) + "/app/pbx_mobile/api.php?action=" + action + (id?.let { "&id=" + URLEncoder.encode(it, "UTF-8") } ?: "")

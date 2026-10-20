@@ -70,7 +70,7 @@ class PhoneWorkflowTest {
         await("TLS registration ready",120000) { run { val a=PhoneService.instance?.core?.defaultAccount; if(a?.state==org.linphone.core.RegistrationState.Failed)fail("Registration failed: ${a.errorInfo.reason}/${a.errorInfo.protocolCode}/${a.errorInfo.phrase}"); PhoneService.instance?.status=="Ready for calls" } }
         val phone=PhoneService.instance!!
         val saved=PhoneStore(context).read()!!
-        val api=PhoneApi(saved.getString("server"),saved.getString("token"))
+        val api=PhoneApi.profile(saved)
         assertTrue(api.json("directory").getJSONArray("contacts").length()>=2)
         assertNotNull(api.json("calls").getJSONArray("calls"))
         assertNotNull(api.json("voicemail").getJSONArray("messages"))
@@ -146,7 +146,7 @@ class PhoneWorkflowTest {
         await("second incoming call",90000){phone.call?.state==Call.State.IncomingReceived}
         onMain{phone.hangup()};await("declined call ended"){phone.call==null}
         Thread.sleep(3000)
-        val saved=PhoneStore(context).read()!!;val api=PhoneApi(saved.getString("server"),saved.getString("token"))
+        val saved=PhoneStore(context).read()!!;val api=PhoneApi.profile(saved)
         val calls=api.json("calls").getJSONArray("calls")
         val directions=(0 until calls.length()).map{calls.getJSONObject(it).getString("direction")}
         assertTrue(directions.contains("incoming"));assertTrue(directions.contains("missed"))
@@ -162,7 +162,7 @@ class PhoneWorkflowTest {
         onMain{phone.answer()};await("revocation call answered"){phone.call?.state==Call.State.StreamsRunning}
         File(context.getExternalFilesDir(null),"revocation-answered").writeText("answered")
         await("administrator ended revoked phone call",60000){phone.call==null}
-        try { PhoneApi(saved.getString("server"),saved.getString("token")).json("bootstrap");fail("Revoked API token accepted") } catch(e:ApiError){assertEquals(401,e.status)}
+        try { PhoneApi.profile(saved).json("bootstrap");fail("Revoked API token accepted") } catch(e:ApiError){assertEquals(401,e.status)}
         onMain{phone.core!!.refreshRegisters()}
         await("revoked phone registration rejected",30000){phone.core?.defaultAccount?.state==org.linphone.core.RegistrationState.Failed}
     }

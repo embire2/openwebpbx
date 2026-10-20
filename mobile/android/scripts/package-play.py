@@ -40,7 +40,7 @@ for image in screens:
     width,height=struct.unpack('>II',data[16:24]);assert min(width,height)>=320 and max(width,height)<=3840 and max(width,height)<=2*min(width,height)
 for name,maximum in [('title',30),('short_description',80),('full_description',4000)]:
     assert 0<len((play/'metadata/en-US'/f'{name}.txt').read_text().strip())<=maximum
-for relative in ['docs/google-play.md','docs/google-play-review.md','docs/android-video.md','docs/android.md']:
+for relative in ['docs/google-play.md','docs/google-play-review.md','docs/android-video.md','docs/android.md','docs/android-tenant-addresses-1.0.18.md']:
     files[relative]=(repo/relative).read_bytes()
 files[a.bundle.name]=a.bundle.read_bytes()
 files['VERIFICATION.json']=a.verification.read_bytes()
