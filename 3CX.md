@@ -1,5 +1,9 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+## Hosted ringing and trunk settings — 2026-10-21
+
+Ring Groups now keep audible ringing while offering member phones, including after an answered receptionist. The owner confirmed that the phones ring and the caller hears ringing. Ordinary hold music and configured no-answer routes are preserved. Voice & Chat also has owner-only [trunk Options](docs/trunk-options.md) for direction permissions, department use, shared call limits, transport, proxy and secure audio; existing trunks retain their policy until Options is saved. Complete Debian and Windows server **1.0.20** packages are still under qualification and are not published. Current public full Debian remains **1.0.16**, the admin patch is **1.0.19**, and Android remains mandatory **1.0.18**. Physical-device coverage, answered carrier audio and the wider roadmap remain separately open.
+
 **Admin update 1.0.19:** open **Voice & Chat → a SIP trunk → Incoming Calls** to see each number’s current first destination and change it to an Extension, Ring Group, Digital Receptionist or a prepared Call Me Back service. Closed-hours and holiday destinations remain separate; saves are audited and do not reconnect the provider. [Downloads](https://github.com/embire2/openwebpbx/releases/tag/v1.0.19) · [Using and installing the update](docs/incoming-routing-1.0.19.md). Complete Debian stays1.0.16; Android stays1.0.18/code118.
 
 This improves incoming-trunk administration without closing the wider migration/calling goals. Keep **133 IDs / 21 accepted / 72 partial / 40 planned** unchanged.

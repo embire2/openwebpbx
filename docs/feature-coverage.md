@@ -1,5 +1,9 @@
 # OpenWeb PBX feature coverage
 
+## Hosted ringing and trunk settings — 2026-10-21
+
+Ring Groups now keep audible ringing while offering member phones, including after an answered receptionist. The owner confirmed that the phones ring and the caller hears ringing. Ordinary hold music and configured no-answer routes are preserved. Voice & Chat also has owner-only [trunk Options](trunk-options.md) for direction permissions, department use, shared call limits, transport, proxy and secure audio; existing trunks retain their policy until Options is saved. Complete Debian and Windows server **1.0.20** packages are still under qualification and are not published. Current public full Debian remains **1.0.16**, the admin patch is **1.0.19**, and Android remains mandatory **1.0.18**. Physical-device coverage, answered carrier audio and the wider roadmap remain separately open.
+
 ## Incoming destinations on the trunk page — admin1.0.19
 
 The hosted admin now shows each incoming number’s first selected destination, open/closed/holiday routes and Call Me Back interception directly under Voice & Chat. Owner saves are tenant-scoped, transactional, audited and guarded against stale forms. A route change never reconnects the provider or enables a number. Prepared Call Me Back services reuse existing prompt/calling-user checks and require confirmation when switching on/off. Disabling an unavailable service does not require its calling user to remain enabled.
