@@ -14,15 +14,19 @@ these Debian archive bytes.
 
 | Debian 13 check | Observed result |
 | --- | --- |
-| Normal clean installation | Passed in 149.83 seconds; eight services active, all 12,139 installed mappings plus 59 engine metadata checks passed. |
+| Normal installation with empty PBX/application state | Passed in 149.83 seconds; eight services active, all 12,139 installed mappings plus 59 engine metadata checks passed. |
 | Empty restore-server installation | Passed in 223.751 seconds; the same installed-file and service checks passed. |
 | Tenant-address activation | Normal trusted owner HTTPS and the installed activation helper passed twice on each fresh target, including idempotence. |
 | Upgrade from real 1.0.16 with the published compatibility repair | Normal owner HTTPS installation completed, then the new 1.0.20 worker completed finalization and reported up to date. No manual activation patch was needed. |
 | Deliberately failed late upgrade | All three late-stage witnesses were reached. Recovery restored 164 complete table multisets, 13,044 regular files, 320 private files, 31 links and 1,376 directories, with no exclusions or extra directories. The original server resumed. |
-| Encrypted backup restored onto a distinct clean server | Passed verification and activation. All 167 tables and 361 private/media files matched the documented restore transforms. Wrong-password refusal and dry-run checks passed separately. |
+| Encrypted backup restored onto a distinct empty PBX/application installation | Passed verification and activation. All 167 tables and 361 private/media files matched the documented restore transforms. Wrong-password refusal and dry-run checks passed separately. |
 | Ordinary calls | Fresh, restored and upgraded systems passed actual engine calls with independently decoded audio in both directions and automatic call history. |
 | Voicemail and talking clock | Own-mailbox 121 played Nathaniel; three 1026 time signals passed on each final system. Maximum observed signal lateness was 15 milliseconds. |
 | Restored browser conference | Normal trusted sign-in, invitation, admission, mixed VP8 decoding, two-way audio, host mute/unmute and complete media shutdown passed. The intended WSS origin was checked. |
+
+The installation targets use reused Debian 13 operating systems. Their prior
+application, database, roles and media were archived and reset; these are empty
+application installations, not newly imaged operating systems.
 
 Normal upgrade preservation compares every original table and column. Of the
 164 original tables, 161 are entirely unchanged; the remaining three contain
@@ -39,8 +43,9 @@ normalization is checked explicitly. The target database identity and roles
 are preserved; public-schema ownership and ACLs are normalized by restore and
 are not claimed to remain catalog-identical. Saved non-default SIP trunk
 Options, the full native gateway, voicemail, stereo recordings and a disabled
-Call Me Back service with its key, authentication data and named greeting are
-included in the comparison.
+Call Me Back service with its exact key, HMAC challenge and named greeting are
+included in the comparison. Call Me Back accounts, bindings and requests were
+empty in this source fixture; nonempty accounts are not implied by that check.
 
 The historical isolated targets use their explicitly recorded, signed PHP
 8.4.27 package build. The current signed Debian security repository also
@@ -76,9 +81,10 @@ remain archived.
 The first final-candidate fault observer took its baseline before Check and
 Download, so it correctly rejected operational-row and generated-cache
 differences. The later correctly timed recovery comparison passes without
-exclusions. Two initial call observers used insufficient capture windows;
-longer captures passed the unchanged audio threshold, with no inferred product
-correction. Restored conference observers initially had no guest default
+exclusions. Two initial short-window fresh-call observations failed the strict
+audio threshold; a longer 23-second collection passed the unchanged threshold.
+An insufficient collection window is an inference, not a proven root cause or
+product correction. Restored conference observers initially had no guest default
 route and therefore no ICE candidates; an isolated guest-only route allowed
 the unchanged product to be tested. Those failed observations remain retained.
 
