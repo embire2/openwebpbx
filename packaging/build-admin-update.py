@@ -14,6 +14,8 @@ parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--hosted-index', type=Path, required=True, help='Sealed pre-update hosted16 index.php.')
 parser.add_argument('--signing-key', type=Path, required=True)
 args = parser.parse_args()
+if (root / 'ADMIN_VERSION').read_text().strip() != '1.0.19':
+    parser.error('Reproduce admin1.0.19 from its immutable v1.0.19 source checkout.')
 stage = args.output / 'openwebpbx-1.0.19-admin-update'
 stage.mkdir(parents=True, exist_ok=False)
 sha = lambda data: hashlib.sha256(data).hexdigest()

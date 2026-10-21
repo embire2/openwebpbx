@@ -10,6 +10,18 @@ Version 1.0.20 includes admin incoming-route controls, the mandatory Android18 t
 
 Windows publication requires its own current native build, complete package, upgrade/recovery and restore checks. Check the release notes for the exact platform status; a Debian pass does not qualify Windows. Google Play publication, physical W60B/V62W checks and broader 3CX parity remain open.
 
+## Windows Server installation
+
+Use the matching `openwebpbx-1.0.20-windows-x64.zip` only when its release notes identify it as qualified or explicitly as a preview. Windows Server 2025 x64 with Desktop Experience is the supported server target. Windows10/11 server installation remains unqualified; the native Windows calling client is a separate project.
+
+Extract the complete archive to a private directory. Start its WinUI manager as Administrator, choose **Setup**, enter the server hostname and administrator email/password, and select **Automatic public certificate**. The hostname must point at the server, with TCP80/443 and the documented SIP/audio ports reachable. The equivalent command in built-in **Windows PowerShell5.1 as Administrator** is:
+
+```powershell
+.\Install-OpenWebPBX.ps1 -DomainName 'pbx.example.com' -EnablePublicAccess -AdminEmail 'admin@example.com'
+```
+
+Setup installs the local PostgreSQL database, IIS/PHP, call engine, background service, updater, backup tooling and the server manager. No separate database server is needed. Calls/providers stay off until configured. Preserve existing installations and use the manager/updater's documented upgrade path; never run a fresh installer over an existing PBX. Check [Windows upgrade guidance](windows-upgrade.md), the platform's actual release notes and the feature-coverage limits before replacing a production system.
+
 ## New Debian server
 
 Use a clean Debian 13 computer. Point a hostname at its public IP address and supply a trusted HTTPS certificate for that hostname. Run from the extracted folder as root:
