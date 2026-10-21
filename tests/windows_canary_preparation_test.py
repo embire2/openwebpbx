@@ -168,6 +168,7 @@ class CanaryPreparation(unittest.TestCase):
             for name,data in self.files.items():archive.writestr(prefix+name,data)
         self.facts['artifacts']['candidate_sha256']=p.digest(self.base)
         self.facts['gates']['meeting_transport']='passed'
+        self.facts['gates']['meeting_browser']='passed'
         self.inputs['version']='1.0.21'
         self.inputs['source_inputs']=[{'path':name,'sha256':hashlib.sha256(data).hexdigest()}for name,data in sorted(self.sources.items())]
         self.inputs['overlays']=[]

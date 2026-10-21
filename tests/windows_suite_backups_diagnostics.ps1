@@ -71,7 +71,7 @@ $work=[IO.Path]::Combine([IO.Path]::GetTempPath(),'openweb-backup-routing-'+[Gui
 $backupStub=[IO.Path]::Combine($work,'backups.ps1');$backupReport=[IO.Path]::Combine($work,'backup-qualification/report.json')
 [IO.File]::WriteAllText($backupStub,"param(`$PackageRoot,`$AdminEmail,`$AdminPassword,[switch]`$DisposableFactory,`$SftpConfig)`n`$trace.Add('backups');if(!`$DisposableFactory){throw 'owned factory guard'};if(`$failure -eq 'backups'){throw 'owned backup failure'}")
 function Join-Path([string]$Path,[string]$ChildPath){if($ChildPath -ceq 'windows-backups.ps1'){return $backupStub};return [IO.Path]::Combine($Path,$ChildPath)}
-function NativeAcceptanceHook {$trace.Add('native');return [pscustomobject]@{state='passed'}}
+function NativeAcceptanceHook {$trace.Add('native');return [pscustomobject]@{state='passed';gates=[pscustomobject]@{meeting_browser='passed'}}}
 function Start-SuiteRecoveryPki {param($PackageRoot,$SourceRoot,$Work)$trace.Add('pki');if($failure -ceq 'pki'){throw 'owned PKI failure'};return @{owned=$true}}
 function AcceptanceHook {
  $trace.Add('upgrade');if($failure -ceq 'upgrade'){throw 'owned upgrade failure'}

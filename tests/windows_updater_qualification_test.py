@@ -70,6 +70,7 @@ class PacketChecks(unittest.TestCase):
 
     def test_explicit_20_to_21_retains_signatures_and_exact_asset_boundary(self):
         self.facts['gates']['meeting_transport']='passed'
+        self.facts['gates']['meeting_browser']='passed'
         self.provenance.update(base_version='1.0.20', target_version='1.0.21')
         for mode in ('fault','normal'):
             def newer(payload):

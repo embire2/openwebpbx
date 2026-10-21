@@ -44,7 +44,7 @@ $backupStub=[IO.Path]::Combine($work,'backups.ps1')
 function Join-Path([string]$Path,[string]$ChildPath){if($ChildPath -ceq 'windows-backups.ps1'){return $backupStub};return [IO.Path]::Combine($Path,$ChildPath)}
 function NativeAcceptanceHook {
  $trace.Add('native');if($failure -eq 'native'){throw 'owned native failure'}
- if($nativeContinuation){$facts.state='failed';return $null};return [pscustomobject]@{state='passed'}
+ if($nativeContinuation){$facts.state='failed';return $null};return [pscustomobject]@{state='passed';gates=[pscustomobject]@{meeting_browser=$(if($failure -eq 'meeting'){'unqualified'}else{'passed'})}}
 }
 function Start-SuiteRecoveryPki {param($PackageRoot,$SourceRoot,$Work)$trace.Add('pki');if($failure -eq 'pki'){throw 'owned PKI failure'};return @{owned=$true}}
 function AcceptanceHook {
@@ -78,6 +78,8 @@ try{
   Check ($lastPhase -ceq $(if($where -eq 'pki'){'independent trusted recovery fixture'}else{'upgrade acceptance hook'}))
   Check (!(($trace -join '|') -match 'native|sftp|backups'))
  }
+ ResetCase;$failure='meeting';RunCase $false
+ Check ($failed -and ($trace -join '|') -ceq 'native' -and $facts.gates.native_sip_audio -ceq 'unqualified')
  ResetCase;$failure='native';RunCase $false
  Check ($failed -and ($trace -join '|') -ceq 'native')
  ResetCase;$nativeContinuation=$true;RunCase $false

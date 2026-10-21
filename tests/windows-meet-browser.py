@@ -41,6 +41,14 @@ def run(fixture):
             result = subprocess.run(command, capture_output=True, text=True, timeout=240)
             (fixture.evidence / ('meeting-'+phase+'.private.log')).write_text(result.stdout+result.stderr, encoding='utf-8')
             if result.returncode:
+                stage='dependencies' if phase=='dependencies' else 'unknown'
+                if phase=='browser' and report.is_file():
+                    try:
+                        failed=json.loads(report.read_text(encoding='utf-8'))
+                        if failed.get('schema')==1 and failed.get('state')=='failed' and failed.get('phase') in {'browser_start','owner_page','create','host_join','guest_join','admission','decoded_media','mute','unmute','end'}:
+                            stage=failed['phase']
+                    except (ValueError,OSError):pass
+                fixture.active_case='native_windows_meeting_'+stage
                 raise RuntimeError('The actual Windows meeting '+phase+' qualification did not pass')
         facts = json.loads(report.read_text())
         if facts.get('schema') != 1 or facts.get('state') != 'passed' or len(facts.get('checks', [])) != 7:

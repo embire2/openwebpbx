@@ -8,6 +8,7 @@ if(!/^https:\/\/windowsqa\.example\.invalid(?::[0-9]+)?$/.test(settings.origin) 
 const evidence = path.dirname(process.argv[2]);
 const checks = [];
 let hostBrowser, guestBrowser, owner, host, guest, meetingCreated = false;
+let phase = 'browser_start';
 function requireFact(value, name) {if(!value) throw Error(name); checks.push(name);}
 async function snapshot(page, name) {fs.writeFileSync(path.join(evidence, `${name}.private.txt`), await page.locator('body').ariaSnapshot());}
 function syntheticMedia(frequency) {
@@ -69,34 +70,34 @@ async function proof(page) {
     const guestContext=await guestBrowser.newContext({ignoreHTTPSErrors:false});
     await hostContext.addInitScript(syntheticMedia,550);await guestContext.addInitScript(syntheticMedia,770);
     await hostContext.addCookies(settings.cookies);
-    owner=await hostContext.newPage();await owner.goto(settings.origin+'/app/pbx_meet/');await snapshot(owner,'owner-meet');
+    phase='owner_page';owner=await hostContext.newPage();await owner.goto(settings.origin+'/app/pbx_meet/');await snapshot(owner,'owner-meet');
     requireFact(await owner.getByRole('heading',{name:'Meet',exact:true}).isVisible(),'normal authenticated meeting page');
-    const create=owner.locator('form').filter({has:owner.locator('input[name="action"][value="create"]')});
+    phase='create';const create=owner.locator('form').filter({has:owner.locator('input[name="action"][value="create"]')});
     await create.locator('input[name="subject"]').fill(settings.subject);
     await create.getByRole('button',{name:'Create Meeting',exact:true}).click();await snapshot(owner,'created-meet');meetingCreated=true;
     const invitation=await owner.locator('#invitation').inputValue();
     requireFact(invitation.startsWith(settings.origin+'/app/pbx_meet/join.php#'),'normal UI invitation retains trusted authority');
-    const popup=hostContext.waitForEvent('page');await owner.getByRole('button',{name:'Start Now',exact:true}).click();host=await popup;await host.waitForLoadState('domcontentloaded');await snapshot(host,'host-ready');
+    phase='host_join';const popup=hostContext.waitForEvent('page');await owner.getByRole('button',{name:'Start Now',exact:true}).click();host=await popup;await host.waitForLoadState('domcontentloaded');await snapshot(host,'host-ready');
     const endpoint=await host.locator('#host-data').evaluate(node=>JSON.parse(node.textContent).websocket);
     requireFact(endpoint==='wss://'+new URL(settings.origin).host+'/meet-sip/','actual host account and browser policy retain HTTPS port');
     await host.getByRole('button',{name:'Join with Camera',exact:true}).click();
-    guest=await guestContext.newPage();await guest.goto(invitation);await snapshot(guest,'guest-ready');
+    phase='guest_join';guest=await guestContext.newPage();await guest.goto(invitation);await snapshot(guest,'guest-ready');
     await guest.locator('#name').fill('Fictional video guest');await guest.getByRole('button',{name:'Join with Camera',exact:true}).click();
-    await host.getByRole('button',{name:'Admit',exact:true}).waitFor({timeout:20000});await snapshot(host,'guest-waiting');await host.getByRole('button',{name:'Admit',exact:true}).click();
-    const hostProof=await proof(host),guestProof=await proof(guest);
+    phase='admission';await host.getByRole('button',{name:'Admit',exact:true}).waitFor({timeout:20000});await snapshot(host,'guest-waiting');await host.getByRole('button',{name:'Admit',exact:true}).click();
+    phase='decoded_media';const hostProof=await proof(host),guestProof=await proof(guest);
     requireFact(hostProof.codecs.every(value=>value==='video/VP8')&&guestProof.codecs.every(value=>value==='video/VP8'),'two real browsers decode mixed VP8 and independent two-way audio');
     const row=host.locator('#people > div').filter({hasText:'Fictional video guest'});
-    await row.getByRole('button',{name:'Mute',exact:true}).click();
+    phase='mute';await row.getByRole('button',{name:'Mute',exact:true}).click();
     await host.waitForFunction(async()=>{const p=await window.conferenceQA.proof();return p.connected&&p.power<0.000001;},null,{timeout:15000});
     requireFact(true,'host mute removes decoded guest audio');
-    await row.getByRole('button',{name:'Allow Microphone',exact:true}).click();await proof(host);
+    phase='unmute';await row.getByRole('button',{name:'Allow Microphone',exact:true}).click();await proof(host);
     requireFact(true,'host unmute restores independently decoded guest tone');
-    host.once('dialog',dialog=>dialog.accept());await host.getByRole('button',{name:'End Meeting for Everyone',exact:true}).click();
+    phase='end';host.once('dialog',dialog=>dialog.accept());await host.getByRole('button',{name:'End Meeting for Everyone',exact:true}).click();
     await host.waitForFunction(()=>window.conferenceQA.pcs.every(pc=>pc.connectionState==='closed'),null,{timeout:15000});
     await guest.waitForFunction(()=>window.conferenceQA.pcs.every(pc=>pc.connectionState==='closed'),null,{timeout:15000});
     requireFact(true,'host end closes both actual browser media connections');
     fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'passed',checks,host:hostProof,guest:guestProof,physical_camera:'unqualified',scope:'fictional Windows hosted runner'},null,2));
-  }catch(error){failure=error;fs.writeFileSync(path.join(evidence,'meeting-browser.private.error'),String(error.stack||error));}
+  }catch(error){failure=error;fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'failed',phase}));fs.writeFileSync(path.join(evidence,'meeting-browser.private.error'),String(error.stack||error));}
   finally{
     if(meetingCreated&&owner){try{await owner.goto(settings.origin+'/app/pbx_meet/');const card=owner.locator('article.meet-card').filter({hasText:settings.subject});if(await card.getByText('Cancel Meeting',{exact:true}).count()){await card.locator('summary').click();await card.locator('[name="confirm_cancel"]').check();await card.getByRole('button',{name:'End Meeting',exact:true}).click();}}catch(error){if(!failure)failure=error;}}
     await Promise.allSettled([hostBrowser?.close(),guestBrowser?.close()]);

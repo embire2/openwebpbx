@@ -24,7 +24,7 @@ $inputData.scope=$scope;$inputData.company_name='Fictional Windows '+$scope;$inp
 [IO.File]::WriteAllText($privateInput,($inputData|ConvertTo-Json -Depth 12),[Text.UTF8Encoding]::new($false))
 $envBefore=$env:OPENWEB_WINDOWS_NATIVE_TEST;$opensslBefore=$env:OPENSSL_CONF;$env:OPENWEB_WINDOWS_NATIVE_TEST='1';$env:OPENSSL_CONF="$root\php\extras\ssl\openssl.cnf"
 $script="$source\tests\windows-native-acceptance.py";$fixture="$source\tests\windows-native-fixture.php";$pkiProcess=$null;$pkiOutput=$null;$pkiErrors=$null;$leaf=$null;$rootCertificate=$null;$binding=$null;$originalBinding=$null;$baseline=$false;$nativePassed=$false;$cleanupPassed=$false;$phase='factory inventory';$errorType=$null
-$facts=[ordered]@{schema=1;state='running';platform='Windows Server 2025 x64';scope='fictional disposable hosted runner';checks=@();gates=[ordered]@{native_sip_audio='pending';smtp='pending';notification_store='pending';cleanup='pending';public_acme='unqualified';physical_devices='unqualified';carrier='unqualified';android_hardware='unqualified'}}
+$facts=[ordered]@{schema=1;state='running';platform='Windows Server 2025 x64';scope='fictional disposable hosted runner';checks=@();gates=[ordered]@{native_sip_audio='pending';meeting_browser='pending';smtp='pending';notification_store='pending';cleanup='pending';public_acme='unqualified';physical_devices='unqualified';carrier='unqualified';android_hardware='unqualified'}}
 function Php([string]$Action){$output=& "$root\php\php.exe" $fixture $Action $privateInput 2>>"$evidence\private-php-errors.log";if($LASTEXITCODE){throw 'Private native fixture operation failed.'};return ($output -join "`n")}
 function Python([string]$Phase){
  $beforeModules=$env:PSModulePath
@@ -35,7 +35,7 @@ function Python([string]$Phase){
 function CompletedMediaCases($Checks){
  # Publish only fixed completed case names; peer metrics and raw child data
  # remain in the administrator-private report.
- $allowed=@('native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav','native_tls_mailbox_wire_forwarding_exact_binary_wav','native_global_smtp_unconfigured_queue_preserves_attempts','native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment','native_global_smtp_password_auth_actual_loopback','native_global_smtp_trusted_tls_hostname_auth_actual_loopback')
+ $allowed=@('native_windows_meeting_browser_video_audio','native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav','native_tls_mailbox_wire_forwarding_exact_binary_wav','native_global_smtp_unconfigured_queue_preserves_attempts','native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment','native_global_smtp_password_auth_actual_loopback','native_global_smtp_trusted_tls_hostname_auth_actual_loopback')
  foreach($name in $allowed){
   foreach($check in @($Checks)){
    if($check.case -is [string] -and $check.case -ceq $name -and $check.passed -is [bool] -and $check.passed -eq $true){$name;break}
@@ -292,6 +292,9 @@ try{
  $native=Get-Content "$evidence\software-native-report.json" -Raw|ConvertFrom-Json
  if(($native.schema -isnot [int] -and $native.schema -isnot [long]) -or $native.schema -ne 1 -or $native.producer -isnot [string] -or $native.producer -cne 'windows-native-acceptance.py' -or $native.state -isnot [string] -or $native.state -cne 'passed' -or $native.checks -isnot [array] -or $native.checks.Count -gt 256){throw 'Actual software native matrix failed.'}
  $facts.checks=@($native.checks);$facts.gates.native_sip_audio='passed';$facts.gates.smtp='passed'
+ $meeting=@($native.checks|Where-Object {$_.case -ceq 'native_windows_meeting_browser_video_audio'})
+ if($meeting.Count -ne 1 -or $meeting[0].passed -isnot [bool] -or !$meeting[0].passed -or $meeting[0].checks -ne 7 -or $meeting[0].host_frames -lt 10 -or $meeting[0].guest_frames -lt 10 -or $meeting[0].host_tone_ratio -le .65 -or $meeting[0].guest_tone_ratio -le .65 -or $meeting[0].physical_camera -cne 'unqualified'){throw 'Actual browser meeting video and independent two-way audio must pass.'}
+ $facts.gates.meeting_browser='passed'
  # Execute the exact production reader's sharing/access pattern under LOCAL SERVICE.
  # No endpoint/device is enrolled, so this probe sends no notification.
  $config="$state\mobile-notifications\config.json";$probe="$work\read-notification.ps1";$probeResult="$work\read-notification-result.json"

@@ -241,7 +241,7 @@ try{
  $baseFacts=Get-Content (Join-Path $report.directory 'qualification.json') -Raw|ConvertFrom-Json
  Check ($baseFacts.schema -eq 1 -and $baseFacts.run_id -eq $BaseSuiteRunId -and $baseFacts.source_commit -eq $candidate.run.head_sha -and $baseFacts.state -in 'partial','passed') 'Exact qualified baseline facts are required.'
  foreach($gate in 'fresh','native_sip_audio','backups','direct_113_helper_reapply','direct_failure_rollback','restore_gate_startup'){Check ($baseFacts.gates.$gate -eq 'passed') 'Every essential real baseline gate must pass.'}
- if([version]$BaseVersion -ge [version]'1.0.20'){Check ($baseFacts.gates.meeting_transport -eq 'passed') 'The current Windows meeting transport must also be qualified.'}
+ if([version]$BaseVersion -ge [version]'1.0.20'){foreach($gate in 'meeting_transport','meeting_browser'){Check ($baseFacts.gates.$gate -eq 'passed') 'The current Windows meeting transport and actual browser media must also be qualified.'}}
  Check ($baseFacts.cleanup -eq 'owned services stopped, SFTP receiver/account removed, hostname removed, activation holds preserved') 'The qualified baseline must have completed its exact owned cleanup.'
  $base=Join-Path $candidate.directory ("openwebpbx-$BaseVersion-windows-x64.zip")
  Check ((Hash $base) -eq $baseFacts.candidate_artifact.sha256 -and $baseFacts.artifacts.candidate_sha256 -eq $baseFacts.candidate_artifact.sha256 -and $baseFacts.candidate_artifact.filename -eq ("openwebpbx-$BaseVersion-windows-x64.zip") -and $baseFacts.candidate_artifact.private_exclusions -eq 'passed' -and $baseFacts.candidate_artifact.verified_before_credentials -eq $true) 'The exact independently audited package and BOTH candidate evidence fields must match the qualification.'

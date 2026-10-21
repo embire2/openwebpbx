@@ -34,7 +34,7 @@ $domain='windowsqa.example.invalid';$installed=$false;$hostAdded=$false;$sftp=$n
 $recoveryPki=$null
 . (Join-Path $PSScriptRoot 'windows-suite-pki.ps1')
 . (Join-Path $PSScriptRoot 'windows-upgrade-lock-observer.ps1')
-$facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';backups='pending';native_sip_audio='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
+$facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';backups='pending';native_sip_audio='unqualified';meeting_transport='unqualified';meeting_browser='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
 if($UpgradeDiagnosticsOnly){$facts.mode='upgrade_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Post-native state is not reproduced.'}
 elseif($BackupsDiagnosticsOnly){$facts.mode='backup_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Native, upgrade and post-native state are not reproduced.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false}
 function PrivateDirectory([string]$Path){
@@ -805,7 +805,10 @@ try{
  # BEGIN qualification-gate-routing
  if(!$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly){
   $phase='native acceptance hook';$nativeStartTime=[DateTime]::UtcNow;$native=NativeAcceptanceHook (Join-Path $work 'native-acceptance.json') $nativeStartTime
-  if($native){$facts.gates.native_sip_audio='passed'}
+  if($native){
+   if($native.gates.meeting_browser -cne 'passed'){throw 'The actual Windows meeting browser media gate is required.'}
+   $facts.gates.native_sip_audio='passed';$facts.gates.meeting_browser='passed'
+  }
  }
  $phase='independent trusted recovery fixture';$recoveryPki=Start-SuiteRecoveryPki -PackageRoot $PackageRoot -SourceRoot $source -Work $work
  if(!$BackupsDiagnosticsOnly){
