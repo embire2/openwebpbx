@@ -111,6 +111,8 @@ the unchanged product to be tested. Those failed observations remain retained.
 These software tests do not establish physical camera operation, every desk
 phone model, all carrier routes, TURN traversal, capacity or Google Play
 approval. The owner's separate live outside test confirms that the affected
-ring-group phones ring and the caller hears ringing. It does not establish
-answered two-way audio. Roadmap totals remain 133 items: 21 accepted, 72
-partial and 40 planned.
+ring-group phones ring and the caller hears ringing. The owner subsequently
+answered an outside call and confirmed sound in both directions. This accepts
+that actual affected-group call; other handsets, sites and provider routes
+remain separate checks. Roadmap totals remain 133 items: 21 accepted, 72 partial
+and 40 planned.

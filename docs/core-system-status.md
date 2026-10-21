@@ -2,7 +2,7 @@
 
 ## Hosted ringing and trunk settings — 2026-10-21
 
-Ring Groups now keep audible ringing while offering member phones, including after an answered receptionist. The owner confirmed that the phones ring and the caller hears ringing. Ordinary hold music and configured no-answer routes are preserved. Voice & Chat also has owner-only [trunk Options](trunk-options.md) for direction permissions, department use, shared call limits, transport, proxy and secure audio; existing trunks retain their policy until Options is saved. Complete Debian and Windows server **1.0.20** packages are still under qualification and are not published. Current public full Debian remains **1.0.16**, the admin patch is **1.0.19**, and Android remains mandatory **1.0.18**. Physical-device coverage, answered carrier audio and the wider roadmap remain separately open.
+Ring Groups now keep audible ringing while offering member phones, including after an answered receptionist. The owner confirmed that the phones ring, the caller hears ringing and both people hear each other after answering. Ordinary hold music and configured no-answer routes are preserved. Voice & Chat also has owner-only [trunk Options](trunk-options.md) for direction permissions, department use, shared call limits, transport, proxy and secure audio; existing trunks retain their policy until Options is saved. Complete Debian and Windows server **1.0.20** packages are still under qualification and are not published. Current public full Debian remains **1.0.16**, the admin patch is **1.0.19**, and Android remains mandatory **1.0.18**. Other handset, carrier and site-network coverage and the wider roadmap remain separately open.
 
 ## Current admin update — 1.0.19 — 2026-10-21
 
