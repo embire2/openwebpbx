@@ -19,7 +19,10 @@ PREFIX = 'openwebpbx-1.0.16-debian13-amd64/voices/1.0.1/'
 def stage(archive, destination):
     archive, destination = Path(archive), Path(destination)
     with archive.open('rb') as stream:
-        if hashlib.file_digest(stream, 'sha256').hexdigest() != ARCHIVE_SHA256:
+        checksum = hashlib.sha256()
+        for block in iter(lambda: stream.read(1024*1024), b''):
+            checksum.update(block)
+        if checksum.hexdigest() != ARCHIVE_SHA256:
             raise ValueError('The immutable public voice source archive differs.')
     if destination.exists() or destination.is_symlink():
         raise ValueError('Choose a new voice output directory.')
