@@ -3,7 +3,7 @@ param([string]$SourceRoot=(Split-Path $PSScriptRoot -Parent))
 $ErrorActionPreference='Stop';$tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-suite.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'The actual suite must parse.'}
-foreach($name in 'SafeQueueFailureFields','SafeVoicemailFailureFields','SafeMailboxFailureFields','SafeHotelFailureFields','SafeSmtpFailureFields','SafeNativeCleanupFields','SafeFailureFields','SafeTenantDomainsReport'){
+foreach($name in 'SafeQueueFailureFields','SafeVoicemailFailureFields','SafeMailboxFailureFields','SafeHotelFailureFields','SafeSmtpFailureFields','SafeNativeCleanupFields','SafeFailureFields','SafeTenantDomainsProof','SafeTenantDomainsReport'){
  $nodes=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
  if($nodes.Count -ne 1){throw 'The actual report projector must be unique.'}
  Invoke-Expression $nodes[0].Extent.Text
@@ -29,4 +29,13 @@ foreach($field in 'schema','state','case','phase','exception_type','source_basen
 foreach($line in -1,0,100000,1.5,'123'){$record=Record;$record.source_line=$line;Check ($null -eq (SafeTenantDomainsReport $record))}
 foreach($value in 'true',1,@($true),$null){$record=Record;$record.cleanup_exact=$value;$safe=SafeTenantDomainsReport $record;Check (!$safe.ContainsKey('cleanup_exact'))}
 $record=Record;$record.cleanup_exact=$false;Check ((SafeTenantDomainsReport $record).cleanup_exact -is [bool] -and !(SafeTenantDomainsReport $record).cleanup_exact)
+$record=Record;$record|Add-Member legacy_acl_status 401;$record|Add-Member proof_response ([pscustomobject]@{status=200;plain_text=$true;exact_nonce_body=$true;nonce='PRIVATE_NEVER_PUBLISH'})
+$safe=SafeTenantDomainsReport $record
+Check ($safe.legacy_acl_status -eq 401 -and $safe.proof_response.status -eq 200 -and $safe.proof_response.plain_text -eq $true -and $safe.proof_response.exact_nonce_body -eq $true)
+Check (($safe|ConvertTo-Json -Depth 8) -cnotmatch 'PRIVATE_NEVER_PUBLISH|nonce"|password|hostname|message')
+foreach($bad in $null,$true,'401',99,600,401.5,@(401)){$record.legacy_acl_status=$bad;Check (!(SafeTenantDomainsProof $record).ContainsKey('legacy_acl_status'))}
+foreach($field in 'status','plain_text','exact_nonce_body'){
+ foreach($bad in $null,'true',@($true),200.5){$response=[pscustomobject]@{status=200;plain_text=$true;exact_nonce_body=$true};$response.$field=$bad;$record.proof_response=$response;Check (!(SafeTenantDomainsProof $record).ContainsKey('proof_response'))}
+}
+foreach($bad in $null,@(),@([pscustomobject]@{status=200;plain_text=$true;exact_nonce_body=$true}),'PRIVATE_NEVER_PUBLISH'){$record.proof_response=$bad;Check (!(SafeTenantDomainsProof $record).ContainsKey('proof_response'))}
 Write-Output ('PASS '+$checks+' actual tenant-domain diagnostic phase/type/privacy controls; no PBX invoked')

@@ -852,12 +852,24 @@ function WebReadinessHook {
   $facts.gates.web_readiness='passed';$facts.checks+=('Actual native Windows packaged readiness helper, scalar Boolean HTTP500/framing/SAN refusals, trusted TLS and installed IIS login: '+$safe.checks)
  }finally{$process.Dispose()}
 }
+function SafeTenantDomainsProof($Record){
+ $safe=@{}
+ if(($Record.legacy_acl_status -is [int] -or $Record.legacy_acl_status -is [long]) -and $Record.legacy_acl_status -ge 100 -and $Record.legacy_acl_status -le 599){$safe.legacy_acl_status=[int]$Record.legacy_acl_status}
+ $response=$Record.proof_response
+ if($response -is [pscustomobject] -or $response -is [Collections.IDictionary]){
+  if(($response.status -is [int] -or $response.status -is [long]) -and $response.status -ge 100 -and $response.status -le 599 -and $response.plain_text -is [bool] -and $response.exact_nonce_body -is [bool]){
+   $safe.proof_response=@{status=[int]$response.status;plain_text=$response.plain_text;exact_nonce_body=$response.exact_nonce_body}
+  }
+ }
+ return $safe
+}
 function SafeTenantDomainsReport($Record){
  $phases=@('initialization','packaged_task','worker_identity','proof_prepare','fixture_certificate','alias_certify','static_proof_https','alias_guard','foreign_binding','cleanup','complete')
  $types=@('RuntimeException','MethodInvocationException','ActionPreferenceStopException','ParameterBindingException','ParameterBindingValidationException','ItemNotFoundException','ProviderInvocationException','InvalidOperationException','IOException','FileNotFoundException','DirectoryNotFoundException','UnauthorizedAccessException','ArgumentException','FormatException','Win32Exception','COMException','WebException','Exception')
  if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.state -isnot [string] -or $Record.state -cne 'failed' -or $Record.case -isnot [string] -or $Record.case -cne 'native_windows_tenant_alias_worker_iis_https' -or $Record.phase -isnot [string] -or $Record.phase -cnotin $phases -or $Record.exception_type -isnot [string] -or $Record.exception_type -cnotin $types -or $Record.source_basename -isnot [string] -or $Record.source_basename -cnotin 'windows-tenant-domains-native.ps1','PublicAccess.Common.ps1','Tenant-Domains.ps1','external_component' -or ($Record.source_line -isnot [int] -and $Record.source_line -isnot [long]) -or $Record.source_line -lt 1 -or $Record.source_line -gt 99999){return $null}
  $safe=SafeFailureFields ([pscustomobject]@{active_case=('native_windows_tenant_'+$Record.phase);error_type=$Record.exception_type;source_basename=$Record.source_basename;source_line=[int]$Record.source_line})
  if($Record.cleanup_exact -is [bool]){$safe.cleanup_exact=$Record.cleanup_exact}
+ $proof=SafeTenantDomainsProof $Record;foreach($key in $proof.Keys){$safe[$key]=$proof[$key]}
  return $safe
 }
 function TenantDomainsHook {
@@ -877,6 +889,9 @@ function TenantDomainsHook {
   if($process.ExitCode){$facts.tenant_domains_failure=SafeTenantDomainsReport $report;throw 'The actual Windows tenant-domain controls failed.'}
   if(($report.schema -isnot [int] -and $report.schema -isnot [long]) -or $report.schema -ne 1 -or $report.state -cne 'passed' -or $report.case -cne 'native_windows_tenant_alias_worker_iis_https' -or ($report.checks -isnot [int] -and $report.checks -isnot [long]) -or $report.checks -lt 1 -or $report.checks -gt 1000 -or $report.actual_acme -cne 'unqualified'){throw 'The actual native tenant-domain evidence is incomplete.'}
   foreach($field in 'system_task','private_acl','static_proof_https','alias_https','foreign_binding_refused','cleanup_exact'){if($report.$field -isnot [bool] -or !$report.$field){throw 'The actual native tenant-domain behavior and exact cleanup must pass.'}}
+  $proof=SafeTenantDomainsProof $report
+  if($proof.legacy_acl_status -ne 401 -or $proof.proof_response.status -ne 200 -or !$proof.proof_response.plain_text -or !$proof.proof_response.exact_nonce_body){throw 'Actual legacy ACL refusal and corrected trusted static proof evidence are required.'}
+  $facts.tenant_domains_proof=$proof
   $facts.gates.tenant_domains='passed';$facts.checks+=('Actual Windows SYSTEM tenant worker, ACL, IIS alias/proof, strict fixture-CA HTTPS and owned recovery controls: '+$report.checks+'; public ACME unqualified')
  }finally{$process.Dispose()}
 }

@@ -1,21 +1,37 @@
 <?php
 /**
  * CLI-only checks of the real voicemail defaults filesystem migration.
- * Uses owned temporary XML files, a genuine private config singleton and SQLite.
- * No application bootstrap, installed configuration or engine is loaded.
+ * Uses owned temporary XML files, a genuine config singleton and isolated PostgreSQL schemas.
+ * No application bootstrap or engine is loaded. Native CI may read its own factory DB configuration; all SQL uses new owned schemas.
  * Usage: php tests/windows_voicemail_defaults.php [source-root]
  */
 if (PHP_SAPI !== 'cli') {
     exit(2);
 }
-if (!in_array('sqlite', PDO::getAvailableDrivers(), true)) {
-    throw new RuntimeException('The isolated test requires PDO SQLite.');
+if (!in_array('pgsql', PDO::getAvailableDrivers(), true)) {
+    throw new RuntimeException('The isolated test requires PDO PostgreSQL.');
 }
 $sourceRoot = realpath($argv[1] ?? dirname(__DIR__));
 if ($sourceRoot === false || !is_file($sourceRoot.'/app/voicemails/app_defaults.php')) {
     throw new RuntimeException('Supply the source tree containing voicemail app_defaults.php.');
 }
 require $sourceRoot.'/resources/classes/config.php';
+require $sourceRoot.'/resources/classes/pbx_voicemail_policy.php';
+$dsn = getenv('OPENWEB_VOICEMAIL_TEST_DSN');
+if ($dsn) {
+    $connection = new PDO($dsn, getenv('OPENWEB_VOICEMAIL_TEST_USER') ?: 'postgres', getenv('OPENWEB_VOICEMAIL_TEST_PASSWORD') ?: null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+} else {
+    if (PHP_OS_FAMILY !== 'Windows' || getenv('OPENWEB_WINDOWS_NATIVE_TEST') !== '1' || getenv('GITHUB_ACTIONS') !== 'true' || getenv('RUNNER_ENVIRONMENT') !== 'github-hosted' || getenv('GITHUB_REPOSITORY') !== 'embire2/openwebpbx') {
+        throw new RuntimeException('Supply an explicit disposable PostgreSQL test DSN.');
+    }
+    $installed = config::load(rtrim(getenv('ProgramData') ?: 'C:/ProgramData', '/\\').'/fusionpbx/config.conf');
+    $host = $installed->get('database.0.host'); $port = $installed->get('database.0.port'); $name = $installed->get('database.0.name');
+    if ($host !== '127.0.0.1' || !ctype_digit((string)$port) || !preg_match('/^[a-zA-Z0-9_]+$/D', (string)$name)) throw new RuntimeException('Only the disposable local factory database is allowed.');
+    $connection = new PDO('pgsql:host='.$host.';port='.$port.';dbname='.$name, $installed->get('database.0.username'), $installed->get('database.0.password'), [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    config::$config = null;
+}
+$schemas = [];
+
 
 final class VoicemailDefaultsFixtureSettings {
     public function __construct(public array $values) {}
@@ -26,18 +42,22 @@ final class VoicemailDefaultsFixtureSettings {
 
 final class VoicemailDefaultsFixtureDatabase {
     public PDO $pdo;
+    public PDO $db;
     public int $operations = 0;
-    public function __construct() {
-        $this->pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    public function __construct(PDO $connection, string $schema) {
+        $this->pdo = $this->db = $connection;
+        if (!preg_match('/^vm_defaults_[a-f0-9]{24}$/D', $schema)) throw new RuntimeException('Owned random schema required.');
+        $this->pdo->exec('SET search_path TO '.$schema);
+        if ($this->pdo->query('select current_schema()')->fetchColumn() !== $schema) throw new RuntimeException('Isolated schema is not active.');
         $this->pdo->exec('CREATE TABLE v_domains(domain_uuid TEXT, domain_name TEXT);
             CREATE TABLE v_voicemails(domain_uuid TEXT, voicemail_id TEXT, voicemail_enabled TEXT,
-                voicemail_recording_instructions INTEGER, voicemail_recording_options INTEGER, voicemail_file TEXT);
+                voicemail_recording_instructions BOOLEAN, voicemail_recording_options BOOLEAN, voicemail_file TEXT, voicemail_password TEXT NOT NULL DEFAULT \'retired\');
             CREATE TABLE v_default_settings(default_setting_category TEXT, default_setting_subcategory TEXT,
-                default_setting_name TEXT, default_setting_value TEXT, default_setting_enabled INTEGER);
+                default_setting_name TEXT, default_setting_value TEXT, default_setting_enabled BOOLEAN);
             INSERT INTO v_domains VALUES (\'owned-domain\', \'voicemail-fixture.invalid\');
-            INSERT INTO v_voicemails VALUES (\'owned-domain\', \'1001\', \'true\', NULL, NULL, NULL);
-            INSERT INTO v_voicemails VALUES (\'owned-domain\', \'1002\', \'false\', 0, 0, \'custom\');
-            INSERT INTO v_default_settings VALUES (\'switch\', \'phrases\', \'dir\', \'owned-old-path\', 1);');
+            INSERT INTO v_voicemails VALUES (\'owned-domain\', \'1001\', \'true\', NULL, NULL, NULL, \'legacy-pin\');
+            INSERT INTO v_voicemails VALUES (\'owned-domain\', \'1002\', \'false\', false, false, \'custom\', \'legacy-pin\');
+            INSERT INTO v_default_settings VALUES (\'switch\', \'phrases\', \'dir\', \'owned-old-path\', true);');
     }
     public function select(string $sql, mixed $parameters = null, string $type = 'all'): array {
         $this->operations++;
@@ -50,7 +70,9 @@ final class VoicemailDefaultsFixtureDatabase {
     public function snapshot(): array {
         $result = [];
         foreach (['v_domains', 'v_voicemails', 'v_default_settings'] as $table) {
-            $result[$table] = $this->pdo->query('SELECT * FROM '.$table.' ORDER BY rowid')->fetchAll(PDO::FETCH_ASSOC);
+            $result[$table] = $this->pdo->query('SELECT * FROM '.$table.' ORDER BY 1,2')->fetchAll(PDO::FETCH_ASSOC);
+            if ($table === 'v_voicemails') foreach ($result[$table] as &$row) unset($row['voicemail_password']);
+            unset($row);
         }
         return $result;
     }
@@ -92,9 +114,12 @@ $loadConfig = static function (string $name, ?string $conf) use ($root, $project
     config::$config = null;
     config::load($file);
 };
-$fixture = static function (string $name, ?string $conf, ?string $languages) use ($root): array {
-    $db = new VoicemailDefaultsFixtureDatabase();
-    $insert = $db->pdo->prepare('INSERT INTO v_default_settings VALUES (\'switch\', \'languages\', \'dir\', ?, 1)');
+$fixture = static function (string $name, ?string $conf, ?string $languages) use ($root, $connection, &$schemas): array {
+    $schema = 'vm_defaults_'.bin2hex(random_bytes(12));
+    $connection->exec('CREATE SCHEMA '.$schema);
+    $schemas[] = $schema;
+    $db = new VoicemailDefaultsFixtureDatabase($connection, $schema);
+    $insert = $db->pdo->prepare('INSERT INTO v_default_settings VALUES (\'switch\', \'languages\', \'dir\', ?, true)');
     $insert->execute([$languages]);
     $settings = new VoicemailDefaultsFixtureSettings([
         'switch.conf' => $conf, 'switch.languages' => $languages, 'switch.voicemail' => $root.'/'.$name.'/owned voicemail',
@@ -135,8 +160,9 @@ try {
     $check(is_dir($settings->get('switch', 'voicemail').'/default/voicemail-fixture.invalid/1001'), 'Enabled owned mailbox directory created');
     $check(!file_exists($settings->get('switch', 'voicemail').'/default/voicemail-fixture.invalid/1002'), 'Disabled owned mailbox directory not created');
     $rows = $db->pdo->query('SELECT * FROM v_voicemails ORDER BY voicemail_id')->fetchAll(PDO::FETCH_ASSOC);
-    $check($rows[0]['voicemail_recording_instructions'] === 1 && $rows[0]['voicemail_recording_options'] === 1 && $rows[0]['voicemail_file'] === 'attach', 'Actual nullable voicemail defaults migrated through SQL');
-    $check($rows[1]['voicemail_recording_instructions'] === 0 && $rows[1]['voicemail_recording_options'] === 0 && $rows[1]['voicemail_file'] === 'custom', 'Explicit voicemail values preserved');
+    $check($rows[0]['voicemail_recording_instructions'] === true && $rows[0]['voicemail_recording_options'] === true && $rows[0]['voicemail_file'] === 'attach', 'Actual nullable voicemail defaults migrated through SQL');
+    $check($rows[0]['voicemail_password'] === null && $rows[1]['voicemail_password'] === null, 'Actual PostgreSQL policy retires both mailbox PINs');
+    $check($rows[1]['voicemail_recording_instructions'] === false && $rows[1]['voicemail_recording_options'] === false && $rows[1]['voicemail_file'] === 'custom', 'Explicit voicemail values preserved');
     $check((int)$db->pdo->query("SELECT count(*) FROM v_default_settings WHERE default_setting_subcategory='phrases'")->fetchColumn() === 0, 'Actual obsolete phrases setting removed');
     $check($db->pdo->query("SELECT default_setting_value FROM v_default_settings WHERE default_setting_subcategory='languages'")->fetchColumn() === '/languages', 'Nonlegacy source languages value preserved');
 
@@ -197,7 +223,8 @@ try {
                 $rejected = $error->getMessage() === 'The Windows call-engine configuration directory is unavailable.';
             }
             $check($rejected, 'Missing or unusable Windows configured directory refuses migration');
-            $check($db->operations === 0 && $db->snapshot() === $before && !file_exists($settings->get('switch', 'voicemail')), 'Invalid Windows config refuses before filesystem or database mutations');
+            $check($db->operations === 0 && $db->snapshot() === $before && !file_exists($settings->get('switch', 'voicemail')), 'Invalid Windows config refuses before filesystem or ordinary defaults changes');
+            $check((int)$db->pdo->query('SELECT count(*) FROM v_voicemails WHERE voicemail_password IS NOT NULL')->fetchColumn() === 0, 'Real mandatory PostgreSQL PIN retirement precedes invalid path refusal');
         }
     } else {
         // Never run the empty-conf Linux branch: it targets installed /etc/freeswitch.
@@ -205,6 +232,13 @@ try {
     }
     echo 'PASS: '.$checks.' actual voicemail defaults XML, SQL and filesystem checks ('.PHP_OS_FAMILY.").\n";
 } finally {
+    if ($connection->inTransaction()) $connection->rollBack();
+    $connection->exec('SET search_path TO pg_catalog');
+    foreach ($schemas as $schema) {
+        $connection->exec('DROP SCHEMA '.$schema.' CASCADE');
+        $query = $connection->prepare('SELECT count(*) FROM pg_namespace WHERE nspname=?'); $query->execute([$schema]);
+        if ((int)$query->fetchColumn() !== 0) throw new RuntimeException('Owned fixture schema cleanup failed.');
+    }
     config::$config = null;
     set_include_path($originalIncludePath);
     $_SERVER = $originalServer;

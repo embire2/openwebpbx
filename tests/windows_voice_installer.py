@@ -86,6 +86,24 @@ class WindowsVoices(unittest.TestCase):
         self.assertEqual(first, {str(target): install.digest(target) for target, _, _ in plan})
         self.assertEqual(greeting.read_bytes(), before)
 
+    def test_isolated_installer_preserves_complete_candidate_inventory(self):
+        # -I ignores PYTHONDONTWRITEBYTECODE. Exercise genuine nested helper
+        # imports with the caller's exact isolated flags, including old negative.
+        shutil.copy2(ROOT/'packaging/windows/install-voices.py', self.package/'install-voices.py')
+        self.seal()
+        before = {str(p.relative_to(self.package)): p.read_bytes() for p in self.package.rglob('*') if p.is_file()}
+        environment = dict(os.environ, PYTHONDONTWRITEBYTECODE='1')
+        script = (ROOT/'packaging/windows/Install-Voices.ps1').read_text()
+        self.assertIn("$arguments=@('-I','-B',", script)
+        arguments = [sys.executable, '-I', '-B', str(self.package/'install-voices.py'), '--package', str(self.package), '--sounds', str(self.sounds), '--check']
+        subprocess.run(arguments, env=environment, check=True, capture_output=True)
+        self.assertEqual(before, {str(p.relative_to(self.package)): p.read_bytes() for p in self.package.rglob('*') if p.is_file()})
+        old = [item for item in arguments if item != '-B']
+        subprocess.run(old, env=environment, check=True, capture_output=True)
+        caches = list(self.package.rglob('*.pyc'))
+        self.assertEqual(len(caches), 2)
+        self.assertEqual({p.name.split('.')[0] for p in caches}, {'deployment', 'voicepack'})
+
     def test_custom_system_prompt_refuses_before_any_write(self):
         plan = install.payload(self.package, self.sounds)
         target = plan[0][0]

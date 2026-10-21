@@ -11,7 +11,7 @@ foreach($path in $PackageRoot,$engine,"$engine\sounds","$PackageRoot\backup-runt
  }
 }
 if(!$Check -and (Get-Service FreeSWITCH).Status -ne 'Stopped'){throw 'Stop the call engine inside the installation or upgrade transaction before replacing system voices.'}
-$arguments=@('-I',"$PackageRoot\install-voices.py",'--package',$PackageRoot,'--sounds',"$engine\sounds")
+$arguments=@('-I','-B',"$PackageRoot\install-voices.py",'--package',$PackageRoot,'--sounds',"$engine\sounds")
 if($Check){$arguments+='--check'}
 & "$PackageRoot\backup-runtime\python.exe" @arguments
 if($LASTEXITCODE){throw 'System voice activation refused. Existing custom prompts are preserved; review the private installation log.'}
