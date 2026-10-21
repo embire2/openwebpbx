@@ -4,7 +4,7 @@
 param(
  [string]$NativeRunId,[string]$EngineRunId,[string]$PackageRoot,[string]$ReplaySuiteRunId,
  [string]$ReplayCandidateArtifactId,[string]$ReplayCandidateSha256,
- [switch]$DisposableHostedRunner,[switch]$UpgradeDiagnosticsOnly,[switch]$BackupsDiagnosticsOnly,[switch]$ReplayTerminalProducers
+ [switch]$DisposableHostedRunner,[switch]$UpgradeDiagnosticsOnly,[switch]$BackupsDiagnosticsOnly,[switch]$ReplayTerminalProducers,[switch]$NativeDiagnosticsOnly
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 function SuiteMusicWorkflow([bool]$DiagnosticOnly,[bool]$BackupDiagnosticOnly=$false){
@@ -22,6 +22,11 @@ function AssertSuiteMode([bool]$DiagnosticOnly,[string]$WorkflowRef,[string]$Wor
  if(!$diagnosticRef -or $WorkflowSha -cnotmatch '^[a-f0-9]{40}$' -or $WorkflowSha -cne $SourceSha -or $ProvidedPackage){throw 'Diagnostic mode requires the exact diagnostic workflow/source and pinned build inputs.'}
 }
 AssertSuiteMode $UpgradeDiagnosticsOnly $env:GITHUB_WORKFLOW_REF $env:GITHUB_WORKFLOW_SHA $env:GITHUB_SHA $PackageRoot $BackupsDiagnosticsOnly
+function AssertNativeDiagnosticsMode([bool]$NativeOnly,[bool]$UpgradeOnly,[bool]$BackupOnly,[bool]$ProducerFallback,[string]$ProvidedPackage,[string]$WorkflowRef,[string]$WorkflowSha,[string]$SourceSha){
+ if(!$NativeOnly){return}
+ if($UpgradeOnly -or $BackupOnly -or $ProducerFallback -or $ProvidedPackage -or $WorkflowRef -cnotmatch '^embire2/openwebpbx/\.github/workflows/windows-suite\.yml@refs/(heads|tags)/[A-Za-z0-9._/-]+$' -or $WorkflowSha -cnotmatch '^[a-f0-9]{40}$' -or $WorkflowSha -cne $SourceSha){throw 'Native diagnostics require the exact main workflow/source and exclude other modes, custom packages and producer fallback.'}
+}
+AssertNativeDiagnosticsMode $NativeDiagnosticsOnly $UpgradeDiagnosticsOnly $BackupsDiagnosticsOnly $ReplayTerminalProducers $PackageRoot $env:GITHUB_WORKFLOW_REF $env:GITHUB_WORKFLOW_SHA $env:GITHUB_SHA
 function AssertSuiteReplayMode([string]$OriginalRunId,[string]$ProvidedPackage,[bool]$DiagnosticOnly,[bool]$BackupDiagnosticOnly,[bool]$TerminalProducers,[string]$ExpectedArtifactId,[string]$ExpectedZipSha256){
  if(!$OriginalRunId){if($TerminalProducers -or $ExpectedArtifactId -or $ExpectedZipSha256){throw 'Replay provenance requires an explicit original full-suite run.'};return}
  if($OriginalRunId -cnotmatch '^[1-9][0-9]{0,19}$' -or $ProvidedPackage -or $BackupDiagnosticOnly){throw 'Exact candidate replay requires a numeric original full-suite run and no other package or backup diagnostic mode.'}
@@ -47,6 +52,7 @@ $recoveryPki=$null
 $facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';web_readiness='unqualified';backups='pending';native_sip_audio='unqualified';tenant_domains='unqualified';meeting_transport='unqualified';meeting_browser='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
 if($UpgradeDiagnosticsOnly){$facts.mode='upgrade_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Post-native state is not reproduced.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false}
 elseif($BackupsDiagnosticsOnly){$facts.mode='backup_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Native, upgrade and post-native state are not reproduced.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false}
+elseif($NativeDiagnosticsOnly){$facts.mode='native_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Backups, upgrades and recovery are unqualified.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false;$facts.gates.backups='unqualified'}
 function PrivateDirectory([string]$Path){
  New-Item -ItemType Directory -Force -Path $Path|Out-Null
  & icacls.exe $Path /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F'|Out-Null
@@ -1072,6 +1078,7 @@ try{
    $facts.gates.native_sip_audio='passed';$facts.gates.meeting_browser='passed'
   }
  }
+ if(!$NativeDiagnosticsOnly){
  $phase='independent trusted recovery fixture';$recoveryPki=Start-SuiteRecoveryPki -PackageRoot $PackageRoot -SourceRoot $source -Work $work
  if(!$BackupsDiagnosticsOnly){
   $phase='upgrade acceptance hook';$upgrade=AcceptanceHook 'windows-upgrade-acceptance.ps1' (Join-Path $work 'upgrade-acceptance.json')
@@ -1088,8 +1095,9 @@ try{
   if($backup.state -ne 'passed' -or !$backup.fully_qualified){throw 'Actual backup/SFTP qualification is incomplete.'}
   $facts.gates.backups='passed';$facts.checks+=@($backup.checks)
  }
+ }
  $missing=@($facts.gates.GetEnumerator()|Where-Object {$_.Value -ne 'passed'}|ForEach-Object Key)
- $facts.state=if($facts.state -eq 'failed'){'failed'}elseif($UpgradeDiagnosticsOnly -or $BackupsDiagnosticsOnly){'partial'}elseif($missing.Count){'partial'}else{'passed'};$facts.unqualified=$missing
+ $facts.state=if($facts.state -eq 'failed'){'failed'}elseif($UpgradeDiagnosticsOnly -or $BackupsDiagnosticsOnly){'partial'}elseif($NativeDiagnosticsOnly){'partial'}elseif($missing.Count){'partial'}else{'passed'};$facts.unqualified=$missing
  # END qualification-gate-routing
 }catch{
  RememberSuiteFailure $_ $phase
