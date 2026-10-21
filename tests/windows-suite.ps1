@@ -740,7 +740,7 @@ function MeetingTransportHook {
   [IO.File]::WriteAllText((Join-Path $work 'meeting-transport.private.err'),$err)
   if($process.ExitCode){throw 'The actual Windows meeting transport controls failed.'}
   $report=$out|ConvertFrom-Json
-  if($report.schema -ne 1 -or !$report.installed -or $report.checks -lt 18){throw 'The installed meeting transport evidence is incomplete.'}
+  if($report.schema -ne 1 -or !$report.installed -or $report.checks -lt 41){throw 'The installed meeting transport evidence is incomplete.'}
   $facts.gates.meeting_transport='passed';$facts.checks+=('Actual strict Windows backend TLS and IIS SIP WebSocket controls: '+$report.checks)
  }finally{$process.Dispose()}
 }

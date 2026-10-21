@@ -79,11 +79,16 @@ try{
  $meetingPhase='strict_flags'
  $reg='HKLM:\SOFTWARE\Microsoft\IIS Extensions\Application Request Routing\Parameters';New-Item -Path $reg -Force|Out-Null;New-ItemProperty -Path $reg -Name SecureConnectionIgnoreFlags -Value 0 -PropertyType DWord -Force|Out-Null
  $meetingPhase='proxy'
+ $proxyState=Get-OpenWebMeetProxyXmlState
  $manager=[Microsoft.Web.Administration.ServerManager]::new()
  try{
   $site=$manager.Sites['OpenWebPBX'];if(!$site -or [IO.Path]::GetFullPath($site.Applications['/'].VirtualDirectories['/'].PhysicalPath).TrimEnd('\') -cne "$root\web"){throw 'The owned PBX IIS site is required.'}
   $proxy=$manager.GetApplicationHostConfiguration().GetSection('system.webServer/proxy');if([bool]$proxy['preserveHostHeader']){throw 'The IIS backend host policy changed during installation.'}
-  $ledger.ProxyBeforeXml=[string]$proxy.GetRawXml();$proxy['enabled']=$true;$ledger.ProxyAfterXml=[string]$proxy.GetRawXml();Write-OpenWebPrivateState -Path $ledgerPath -Value $ledger;$manager.CommitChanges()
+  $ledger.ProxyBeforeXml=$proxyState.Xml;$ledger.ProxyEnabledBeforePresent=$proxyState.EnabledPresent;$ledger.ProxyEnabledBefore=$proxyState.Enabled;$ledger.ProxyAfterXml=Get-OpenWebMeetEnabledProxyXml $proxyState
+  Write-OpenWebPrivateState -Path $ledgerPath -Value $ledger
+  if((Get-OpenWebMeetProxyXmlState).ConfigurationSha256 -cne $proxyState.ConfigurationSha256){throw 'The IIS configuration changed before enabling meetings.'}
+  $proxy['enabled']=$true;$manager.CommitChanges()
+  if((Get-OpenWebMeetProxyXmlState).Xml -cne $ledger.ProxyAfterXml){throw 'The IIS proxy section changed while enabling meetings.'}
   $pool=$manager.ApplicationPools['OpenWebPBX'];if($pool -and $pool.State -eq 'Started'){$null=$pool.Recycle()}
  }finally{$manager.Dispose()}
  $meetingPhase='web_config'

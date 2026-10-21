@@ -44,6 +44,61 @@ function Get-OpenWebMeetCertificate([string]$Path) {
  if($certificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName,$false) -cne 'openweb-meet.internal' -or $certificate.Subject -cne $certificate.Issuer -or $certificate.NotBefore.ToUniversalTime() -gt [DateTime]::UtcNow -or $certificate.NotAfter.ToUniversalTime() -le [DateTime]::UtcNow.AddDays(1) -or $certificate.HasPrivateKey){throw 'The private meeting certificate needs administrator review.'}
  return $certificate
 }
+function ConvertTo-OpenWebMeetProxyXml([Xml.XmlNode]$Node) {
+ if(!$Node){return ''}
+ $text=[IO.StringWriter]::new([Globalization.CultureInfo]::InvariantCulture)
+ $settings=[Xml.XmlWriterSettings]::new();$settings.OmitXmlDeclaration=$true;$settings.Indent=$false;$settings.NewLineHandling='None'
+ $writer=[Xml.XmlWriter]::Create($text,$settings)
+ function WriteNode([Xml.XmlNode]$Current,[int]$Depth){
+  if($Depth -gt 32 -or $Current.NamespaceURI){throw 'The local IIS proxy configuration has an unsupported shape.'}
+  $writer.WriteStartElement($Current.Name)
+  $attributes=[Collections.Generic.SortedDictionary[string,string]]::new([StringComparer]::Ordinal)
+  foreach($attribute in $Current.Attributes){if($attribute.NamespaceURI){throw 'The local IIS proxy configuration has an unsupported attribute.'};$attributes.Add($attribute.Name,$attribute.Value)}
+  foreach($attribute in $attributes.GetEnumerator()){$writer.WriteAttributeString($attribute.Key,$attribute.Value)}
+  foreach($child in $Current.ChildNodes){
+   if($child.NodeType -eq [Xml.XmlNodeType]::Element){WriteNode $child ($Depth+1)}
+   elseif($child.NodeType -in [Xml.XmlNodeType]::Text,[Xml.XmlNodeType]::CDATA){$writer.WriteString($child.Value)}
+   elseif($child.NodeType -notin [Xml.XmlNodeType]::Whitespace,[Xml.XmlNodeType]::SignificantWhitespace,[Xml.XmlNodeType]::Comment){throw 'The local IIS proxy configuration contains unsupported content.'}
+  }
+  $writer.WriteEndElement()
+ }
+ try{WriteNode $Node 0;$writer.Flush();return $text.ToString()}finally{$writer.Dispose();$text.Dispose()}
+}
+function Get-OpenWebMeetProxyXmlState([string]$Path) {
+ $defaultPath=[string]::IsNullOrEmpty($Path)
+ if($defaultPath){
+  $Path=Join-Path $env:windir 'System32\inetsrv\config\applicationHost.config'
+  $redirect=Join-Path $env:windir 'System32\inetsrv\config\redirection.config'
+  $null=Assert-OpenWebMeetOrdinary $redirect
+  if(Test-Path -LiteralPath $redirect){
+   $settings=[Xml.XmlReaderSettings]::new();$settings.DtdProcessing='Prohibit';$settings.XmlResolver=$null;$settings.MaxCharactersInDocument=1MB
+   $redirectReader=[Xml.XmlReader]::Create($redirect,$settings);$redirectXml=[xml]::new();$redirectXml.XmlResolver=$null
+   try{$redirectXml.Load($redirectReader)}finally{$redirectReader.Dispose()}
+   $redirection=$redirectXml.SelectSingleNode('/configuration/configurationRedirection')
+   if($redirection -and $redirection.HasAttribute('enabled') -and $redirection.GetAttribute('enabled') -cnotin 'false','0'){throw 'Shared IIS configuration requires administrator review before local meeting proxy changes.'}
+  }
+ }
+ $null=Assert-OpenWebMeetOrdinary $Path
+ $checksum=(Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+ $readerSettings=[Xml.XmlReaderSettings]::new();$readerSettings.DtdProcessing='Prohibit';$readerSettings.XmlResolver=$null;$readerSettings.MaxCharactersInDocument=32MB
+ $reader=[Xml.XmlReader]::Create($Path,$readerSettings);$xml=[xml]::new();$xml.XmlResolver=$null;$xml.PreserveWhitespace=$true
+ try{$xml.Load($reader)}finally{$reader.Dispose()}
+ if((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash -cne $checksum){throw 'The local IIS configuration changed during its meeting snapshot.'}
+ $nodes=@($xml.SelectNodes('/configuration/system.webServer/proxy'))
+ if($nodes.Count -gt 1){throw 'The local IIS proxy configuration is ambiguous.'}
+ $node=if($nodes.Count){$nodes[0]}else{$null};$present=$node -and $node.HasAttribute('enabled')
+ if($present -and $node.GetAttribute('enabled') -cnotin 'true','false'){throw 'The local IIS proxy enabled value is unsupported.'}
+ return @{Xml=(ConvertTo-OpenWebMeetProxyXml $node);EnabledPresent=[bool]$present;Enabled=([bool]$present -and $node.GetAttribute('enabled') -ceq 'true');ConfigurationSha256=$checksum}
+}
+function Get-OpenWebMeetEnabledProxyXml($State) {
+ $xml=[xml]::new();$xml.XmlResolver=$null
+ if($State.Xml){$xml.LoadXml([string]$State.Xml)}else{$xml.LoadXml('<proxy/>')}
+ $xml.DocumentElement.SetAttribute('enabled','true')
+ return ConvertTo-OpenWebMeetProxyXml $xml.DocumentElement
+}
+function Assert-OpenWebMeetProxyOwnership([string]$Current,[string]$Before,[string]$After) {
+ if($Current -cne $Before -and $Current -cne $After){throw 'IIS proxy configuration changed during recovery.'}
+}
 function Get-OpenWebMeetProxyState {
  Add-Type -Path "$env:windir\System32\inetsrv\Microsoft.Web.Administration.dll"
  if(!(Test-Path "$env:ProgramFiles\IIS\Application Request Routing\requestRouter.dll")){return @{Exists=$false;Enabled=$false;PreserveHostHeader=$false}}
@@ -59,6 +114,7 @@ function Save-OpenWebMeetSystem {
  $reg='HKLM:\SOFTWARE\Microsoft\IIS Extensions\Application Request Routing\Parameters'
  $value=Get-ItemProperty -LiteralPath $reg -Name SecureConnectionIgnoreFlags -ErrorAction SilentlyContinue
  $record=[ordered]@{Schema=1;Hosts=[Convert]::ToBase64String([IO.File]::ReadAllBytes($hosts));HostsSddl=(Get-Acl -LiteralPath $hosts).Sddl;Proxy=(Get-OpenWebMeetProxyState);IgnoreKeyExists=(Test-Path -LiteralPath $reg);IgnoreFlagsExists=($null -ne $value);IgnoreFlags=if($value){[int]$value.SecureConnectionIgnoreFlags}else{0};RootThumbprints=@(Get-ChildItem Cert:\LocalMachine\Root|ForEach-Object Thumbprint);WebSockets=[bool](Get-WindowsFeature Web-WebSockets).Installed;Rewrite=(Test-Path "$env:windir\System32\inetsrv\rewrite.dll");Arr=(Test-Path "$env:ProgramFiles\IIS\Application Request Routing\requestRouter.dll")}
+ $null=Get-OpenWebMeetProxyXmlState
  $record.PreviousMeetCertificate=$null
  $record.PreviousMeetLedger=$null
  $ledgerFile=Join-Path $StateRoot 'meet-proxy.json'
@@ -133,14 +189,22 @@ function Restore-OpenWebMeetSystem {
  else{Remove-ItemProperty -LiteralPath $reg -Name SecureConnectionIgnoreFlags -ErrorAction SilentlyContinue}
  $script:OpenWebMeetRecoveryPhase='recovery_proxy'
  if((Get-OpenWebMeetProxyState).Exists){
+  $current=Get-OpenWebMeetProxyXmlState
   $manager=[Microsoft.Web.Administration.ServerManager]::new()
   try{
    $section=$manager.GetApplicationHostConfiguration().GetSection('system.webServer/proxy')
-   $raw=[string]$section.GetRawXml()
-   if($ledger.PSObject.Properties['ProxyBeforeXml'] -and $raw -cne [string]$ledger.ProxyBeforeXml -and $raw -cne [string]$ledger.ProxyAfterXml){throw 'IIS proxy configuration changed during recovery.'}
+   if($ledger.PSObject.Properties['ProxyBeforeXml']){Assert-OpenWebMeetProxyOwnership $current.Xml ([string]$ledger.ProxyBeforeXml) ([string]$ledger.ProxyAfterXml)}
    if([bool]$section['preserveHostHeader'] -ne [bool]$before.Proxy.PreserveHostHeader){throw 'IIS proxy host policy changed during recovery.'}
-   if($before.Proxy.Exists){$section['enabled']=[bool]$before.Proxy.Enabled}else{$section.RevertToParent()}
-   $manager.CommitChanges()
+   if($ledger.PSObject.Properties['ProxyBeforeXml']){
+    if($current.Xml -cne [string]$ledger.ProxyBeforeXml){
+     if(!$ledger.ProxyBeforeXml){$section.RevertToParent()}
+     elseif($ledger.ProxyEnabledBeforePresent){$section['enabled']=[bool]$ledger.ProxyEnabledBefore}
+     else{$section.Attributes['enabled'].Delete()}
+     if((Get-OpenWebMeetProxyXmlState).ConfigurationSha256 -cne $current.ConfigurationSha256){throw 'The IIS configuration changed before scoped meeting recovery.'}
+     $manager.CommitChanges()
+     if((Get-OpenWebMeetProxyXmlState).Xml -cne [string]$ledger.ProxyBeforeXml){throw 'IIS proxy recovery did not preserve the original section.'}
+    }
+   }elseif([bool]$section['enabled'] -ne [bool]$before.Proxy.Enabled){throw 'IIS proxy enabled state changed before this transaction recorded ownership.'}
   }finally{$manager.Dispose()}
  }
  $script:OpenWebMeetRecoveryPhase='recovery_trust'
