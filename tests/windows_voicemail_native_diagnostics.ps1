@@ -18,11 +18,35 @@ function Run([string]$Exe,[string[]]$Arguments,[string]$Label){
   throw ('Owned diagnostic child failed: '+$Label)
  }
 }
-function PhpCase([string]$Mode,[string]$Php,[string]$Port){
+function StageFixedFixture([string]$Original,[string]$Destination){
+ if((Get-FileHash $Original -Algorithm SHA256).Hash.ToLowerInvariant() -cne '0c468f70d5836c4112ce850d168026317c7e6fa094eaa3d066da5097cfd87d45' -or (Test-Path -LiteralPath $Destination)){throw 'The exact preserved original fixture and a new destination are required.'}
+ $old=@'
+    $installed = config::load(rtrim(getenv('ProgramData') ?: 'C:/ProgramData', '/\\').'/fusionpbx/config.conf');
+    $host = $installed->get('database.0.host'); $port = $installed->get('database.0.port'); $name = $installed->get('database.0.name');
+    if ($host !== '127.0.0.1' || !ctype_digit((string)$port) || !preg_match('/^[a-zA-Z0-9_]+$/D', (string)$name)) throw new RuntimeException('Only the disposable local factory database is allowed.');
+    $connection = new PDO('pgsql:host='.$host.';port='.$port.';dbname='.$name, $installed->get('database.0.username'), $installed->get('database.0.password'), [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    config::$config = null;
+'@
+ $new=@'
+    // Match config::read() INI semantics without its immutable PROJECT_ROOT
+    // side effect; the real singleton below must first load our owned fixture.
+    $installed = parse_ini_file(rtrim(getenv('ProgramData') ?: 'C:/ProgramData', '/\\').'/fusionpbx/config.conf', false);
+    if (!is_array($installed)) throw new RuntimeException('The disposable factory database configuration is unavailable.');
+    $host = $installed['database.0.host'] ?? null; $port = $installed['database.0.port'] ?? null; $name = $installed['database.0.name'] ?? null;
+    $username = $installed['database.0.username'] ?? null; $password = $installed['database.0.password'] ?? null;
+    if ($host !== '127.0.0.1' || !ctype_digit((string)$port) || !preg_match('/^[a-zA-Z0-9_]+$/D', (string)$name) || !is_string($username) || !is_string($password)) throw new RuntimeException('Only the disposable local factory database is allowed.');
+    $connection = new PDO('pgsql:host='.$host.';port='.$port.';dbname='.$name, $username, $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+'@
+ $text=[IO.File]::ReadAllText($Original);$fixed=$text.Replace($old,$new)
+ [IO.File]::WriteAllText($Destination,$fixed,[Text.UTF8Encoding]::new($false))
+ if((Get-FileHash $Destination -Algorithm SHA256).Hash.ToLowerInvariant() -cne '8e08a91444c9ccba8bf730b8d568287bca592714990ab834b2159a66ffb839d1'){throw 'The staged INI-only correction differs from its peer-reviewed source.'}
+ return $Destination
+}
+function PhpCase([string]$Mode,[string]$Php,[string]$Port,[string]$Fixture){
  $safePath=Join-Path $work ($Mode+'.safe.json');$start=[Diagnostics.ProcessStartInfo]::new($Php);$start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
- foreach($arg in @((Join-Path $PSScriptRoot 'windows_voicemail_defaults.php'),$source,$safePath)){$start.ArgumentList.Add($arg)}
+ foreach($arg in @($Fixture,$source,$safePath)){$start.ArgumentList.Add($arg)}
  $start.Environment['OPENWEB_WINDOWS_NATIVE_TEST']='1';$start.Environment['OPENWEB_VOICEMAIL_TEST_USER']='postgres';$start.Environment.Remove('OPENWEB_VOICEMAIL_TEST_PASSWORD')|Out-Null
- if($Mode -ceq 'explicit_dsn'){$start.Environment['OPENWEB_VOICEMAIL_TEST_DSN']='pgsql:host=127.0.0.1;port='+$Port+';dbname=postgres'}else{$start.Environment.Remove('OPENWEB_VOICEMAIL_TEST_DSN')|Out-Null;$start.Environment['ProgramData']=Join-Path $work 'factory-programdata'}
+ if($Mode.EndsWith('explicit_dsn')){$start.Environment['OPENWEB_VOICEMAIL_TEST_DSN']='pgsql:host=127.0.0.1;port='+$Port+';dbname=postgres'}else{$start.Environment.Remove('OPENWEB_VOICEMAIL_TEST_DSN')|Out-Null;$start.Environment['ProgramData']=Join-Path $work 'factory-programdata'}
  $process=[Diagnostics.Process]::Start($start);$stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
  try{
   if(!$process.WaitForExit(60000)){try{$process.Kill($true)}catch{};throw 'The actual PHP fixture exceeded its bounded diagnostic time.'}
@@ -68,11 +92,21 @@ try{
  Run (Join-Path $pg 'pg_ctl.exe') @('-D',$data,'-l',(Join-Path $work 'postgres.private.log'),'-o',('-h 127.0.0.1 -p '+$port),'-w','start') 'start';$started=$true
  $configRoot=Join-Path $work 'factory-programdata\fusionpbx';New-Item -ItemType Directory -Path $configRoot|Out-Null
  [IO.File]::WriteAllText((Join-Path $configRoot 'config.conf'),("document.root = $source`ndatabase.0.type = pgsql`ndatabase.0.host = 127.0.0.1`ndatabase.0.port = $port`ndatabase.0.name = postgres`ndatabase.0.username = postgres`ndatabase.0.password = `n"),[Text.UTF8Encoding]::new($false))
- $facts.phase='actual_native_php';foreach($mode in 'explicit_dsn','factory_config'){$facts.cases+=PhpCase $mode (Join-Path $phpRoot 'php.exe') $port}
+ $facts.phase='actual_native_php';$originalFixture=Join-Path $work 'original-voicemail-defaults.php'
+ Invoke-WebRequest 'https://raw.githubusercontent.com/embire2/openwebpbx/3f8e25330b2bd3aefab076286b38b780c3980bd6/tests/windows_voicemail_defaults.php' -OutFile $originalFixture
+ $fixedFixture=StageFixedFixture $originalFixture (Join-Path $work 'fixed-voicemail-defaults.php')
+ $facts.fixture_bindings=@{original_source_commit='3f8e25330b2bd3aefab076286b38b780c3980bd6';original_sha256='0c468f70d5836c4112ce850d168026317c7e6fa094eaa3d066da5097cfd87d45';fixed_sha256='8e08a91444c9ccba8bf730b8d568287bca592714990ab834b2159a66ffb839d1';change='readonly_factory_INI_without_project_constants'}
+ foreach($mode in 'old_explicit_dsn','old_factory_config','fixed_explicit_dsn','fixed_factory_config'){$fixture=if($mode.StartsWith('old_')){$originalFixture}else{$fixedFixture};$facts.cases+=PhpCase $mode (Join-Path $phpRoot 'php.exe') $port $fixture}
+
  $facts.phase='database_isolation';$sql="select count(*) from pg_namespace where nspname like 'vm_defaults_%'; select count(*) from pg_tables where schemaname='public';"
  $counts=& (Join-Path $pg 'psql.exe') -h 127.0.0.1 -p $port -U postgres -d postgres -A -t -c $sql 2>>"$work\isolation.private.err"
  if($LASTEXITCODE -or @($counts).Count -ne 2 -or $counts[0] -cne '0' -or $counts[1] -cne '0'){throw 'The fixture did not preserve its owned isolated database.'}
- $facts.database_isolation=$true;$facts.state=if(@($facts.cases|Where-Object state -cne 'passed').Count){'failed'}else{'passed'}
+ $facts.database_isolation=$true
+ $oldFactory=@($facts.cases|Where-Object mode -ceq 'old_factory_config')
+ $positive=@($facts.cases|Where-Object {$_.mode -cin @('old_explicit_dsn','fixed_explicit_dsn','fixed_factory_config')})
+ $negative=$oldFactory.Count -eq 1 -and $oldFactory[0].state -ceq 'failed' -and $oldFactory[0].failure.error_type -ceq 'RuntimeException' -and $oldFactory[0].failure.checks_completed -eq 18
+ $facts.old_factory_constants_negative=[bool]$negative
+ $facts.state=if($negative -and $positive.Count -eq 3 -and @($positive|Where-Object state -cne 'passed').Count -eq 0){'passed'}else{'failed'}
 }catch{$facts.state='failed';$facts.error_type=$_.Exception.GetType().Name;$facts.source_line=[int]$_.InvocationInfo.ScriptLineNumber}
 finally{
  try{if($started){Run (Join-Path $pg 'pg_ctl.exe') @('-D',(Join-Path $work 'pg-data'),'-m','fast','-w','stop') 'stop';$started=$false};$facts.cleanup='owned private PostgreSQL stopped; no PBX, installed configuration or customer data modified'}catch{$facts.state='failed';$facts.cleanup='failed'}
