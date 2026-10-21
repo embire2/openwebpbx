@@ -73,10 +73,18 @@ frontend is broken. Fifteen real TLS/HTTP protocol cases passed on Linux
 PowerShell, including strict single-Boolean results and HTTP 500 refusal;
 these supplement native Windows qualification.
 
-A genuinely rebuilt Windows package is now under native qualification.
-Working conferences, independent restore, newer-version installation and
-recovery are not yet accepted for that new package. No Windows release
-follows from the source or protocol checks alone.
+The genuinely rebuilt package from that correction passed its actual native
+fresh installation, 29 trusted sign-in/readiness controls, and 49 conference
+transport controls. The transport checks reproduce the old locked override
+failure and verify the correction, strict backend TLS and actual IIS WebSocket
+connections. They do not establish decoded browser conference media.
+
+That run still failed the tenant static-proof and voicemail-default checks.
+A later helper reapplication correctly refused two unexpected Python bytecode
+files in the expanded candidate. Those failures are retained and the candidate
+is not publishable. Tenant-address repair, voicemail, decoded calls and browser
+conferences, independent restore, newer-version installation and recovery still
+need complete native acceptance of the final package.
 
 Windows 10 and 11 server installations, upgrades from historical Windows
 packages and the separate planned native Windows calling client are not
