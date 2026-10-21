@@ -6,6 +6,11 @@ class pbx_meet {
     protected function q(string $sql,array $args=[]): PDOStatement {$s=$this->db->prepare($sql);$s->execute($args);return $s;}
     protected function engine(string $command): string {return (string)event_socket::api($command);}
     protected function access(): pbx_staff_access {return new pbx_staff_access($this->db);}
+    private static function websocketUrl(string $origin): string {
+        $parts=parse_url($origin);
+        if($parts===false||($parts['scheme']??'')!=='https'||empty($parts['host'])||isset($parts['user'])||isset($parts['pass'])||isset($parts['query'])||isset($parts['fragment']))throw new RuntimeException('Configure a trusted HTTPS address before starting meetings.');
+        return 'wss://'.$parts['host'].(isset($parts['port'])&&$parts['port']!==443?':'.$parts['port']:'').'/meet-sip/';
+    }
     private function actor(): array {
         $a=$this->access();if(!$a->owner()&&!$a->active())throw new DomainException('Sign in with your PBX staff account.');
         $a->config();return [$a->domain,$a->actor,$a->owner()];
@@ -72,7 +77,7 @@ class pbx_meet {
         if($n>=($host?25:24))throw new DomainException('This meeting is full (25 people, including the host).');
         $state=$host||!$m['lobby_required']?'admitted':'waiting';
         $this->q('insert into v_pbx_meeting_members(member_uuid,meeting_uuid,member_name,role,state,token_hash,sip_username,sip_a1_hash) values(?,?,?,?,?,?,?,?)',[$id,$m['meeting_uuid'],$name,$host?'host':'guest',$state,hash('sha256',$token),$user,md5($user.':'.$m['domain_name'].':'.$password)]);
-        return ['member'=>$id,'token'=>$token,'username'=>$user,'password'=>$password,'domain'=>$m['domain_name'],'number'=>$m['dial_number'],'websocket'=>'wss://'.parse_url(pbx_paths::url(),PHP_URL_HOST).'/meet-sip/','video'=>(bool)$m['video_enabled'],'state'=>$state];
+        return ['member'=>$id,'token'=>$token,'username'=>$user,'password'=>$password,'domain'=>$m['domain_name'],'number'=>$m['dial_number'],'websocket'=>self::websocketUrl(pbx_paths::url()),'video'=>(bool)$m['video_enabled'],'state'=>$state];
     }
     public function host(string $id): array {
         // Read availability from the locked row. A cancellation committed while
