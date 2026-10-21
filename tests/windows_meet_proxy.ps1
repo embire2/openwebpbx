@@ -8,6 +8,7 @@ $checks=[Collections.Generic.List[string]]::new()
 function Check([bool]$Value,[string]$Name){if(!$Value){throw "Meeting transport control failed: $Name"};$checks.Add($Name)}
 function Refuses([scriptblock]$Action,[string]$Name){$failed=$false;try{& $Action|Out-Null}catch{$failed=$true};Check $failed $Name}
 $temporary=Join-Path $env:TEMP ('openweb-meet-controls-'+[Guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Path $temporary|Out-Null
+$phase='portable_controls'
 try{
  $before=[Text.Encoding]::GetEncoding(28591).GetBytes("# foreign comment $([char]0xe9)`r`n127.0.0.1 localhost`r`n")
  $plan=Get-OpenWebMeetHostsPlan $before
@@ -56,13 +57,15 @@ try{
  [IO.File]::WriteAllText($appHost,'<configuration><system.webServer><proxy enabled="unknown" /></system.webServer></configuration>')
  Refuses {Get-OpenWebMeetProxyXmlState $appHost} 'unsupported proxy enabled values refuse before changes'
  if($Installed){
+  $phase='installed_arguments'
   if($Hostname -cnotmatch '^[a-z0-9.-]+$' -or $Port -lt 1 -or $Port -gt 65535){throw 'Use a controlled qualification hostname and port.'}
+  $phase='installed_ledger'
   $state=Join-Path $env:ProgramData 'OpenWebPBX';$ledger=Get-Content (Join-Path $state 'meet-proxy.json') -Raw|ConvertFrom-Json
   $certificate=Get-OpenWebMeetCertificate (Join-Path $state 'meet-ca.pem')
   Check ($ledger.Schema -eq 1 -and $ledger.Complete -and $ledger.Thumbprint -ceq $certificate.Thumbprint) 'installed ownership ledger matches current certificate'
-  $proxy=Get-OpenWebMeetProxyState;$reg=Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\IIS Extensions\Application Request Routing\Parameters' -Name SecureConnectionIgnoreFlags
+  $phase='strict_proxy';$proxy=Get-OpenWebMeetProxyState;$reg=Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\IIS Extensions\Application Request Routing\Parameters' -Name SecureConnectionIgnoreFlags
   Check ($proxy.Enabled -and !$proxy.PreserveHostHeader -and $reg.SecureConnectionIgnoreFlags -eq 0) 'ARR uses strict backend identity validation'
-  $runtime=& 'C:\OpenWebPBX\php\php.exe' (Join-Path $PSScriptRoot 'windows_meet_runtime.php')
+  $phase='native_modules';$runtime=& 'C:\OpenWebPBX\php\php.exe' (Join-Path $PSScriptRoot 'windows_meet_runtime.php')
   if($LASTEXITCODE){throw 'The installed native meeting runtime is unavailable.'}
   $runtime=$runtime|ConvertFrom-Json
   Check ($runtime.conference_module -eq $true) 'actual native conference mixer module is loaded'
@@ -77,6 +80,7 @@ try{
    @{Name='explicit_false';Xml='<proxy enabled="false" timeout="00:01:30"><cache enabled="false" /></proxy>';Restore='false'},
    @{Name='explicit_true';Xml='<proxy enabled="true" timeout="00:01:30"><cache enabled="false" /></proxy>';Restore='true'}
   )){
+   $phase='mwa_'+$case.Name
    $fixture=Join-Path $temporary ('mwa-'+$case.Name+'.config')
    [IO.File]::WriteAllText($fixture,('<configuration><configSections><sectionGroup name="system.webServer"><section name="proxy" allowDefinition="AppHostOnly" overrideModeDefault="Deny" /></sectionGroup></configSections><system.webServer>'+$case.Xml+'</system.webServer></configuration>'))
    $original=Get-OpenWebMeetProxyXmlState $fixture
@@ -97,15 +101,19 @@ try{
    try{$tcp.Connect('127.0.0.1',7444);$ssl=[Net.Security.SslStream]::new($tcp.GetStream(),$false);$ssl.AuthenticateAsClient($Name);if(!$ssl.IsAuthenticated -or !$ssl.IsEncrypted){throw 'TLS did not authenticate.'}}
    finally{if($ssl){$ssl.Dispose()};$tcp.Dispose()}
   }
-  BackendTls 'openweb-meet.internal';Check $true 'private backend TLS validates through Windows trust'
+  $phase='backend_tls';BackendTls 'openweb-meet.internal';Check $true 'private backend TLS validates through Windows trust'
+  $phase='backend_wrong_host'
   Refuses {BackendTls 'different-meeting.example.invalid'} 'wrong private backend hostname is rejected'
-  $socket=[Net.WebSockets.ClientWebSocket]::new();$socket.Options.AddSubProtocol('sip');$cancel=[Threading.CancellationTokenSource]::new(15000)
+  $phase='frontend_wss';$socket=[Net.WebSockets.ClientWebSocket]::new();$socket.Options.AddSubProtocol('sip');$cancel=[Threading.CancellationTokenSource]::new(15000)
   try{
    $socket.ConnectAsync([Uri]("wss://${Hostname}:$Port/meet-sip/"),$cancel.Token).GetAwaiter().GetResult()
    Check ($socket.State -eq 'Open' -and $socket.SubProtocol -ceq 'sip') 'actual IIS encrypted SIP WebSocket upgrade succeeds'
   }finally{$socket.Abort();$socket.Dispose();$cancel.Dispose()}
-  $socket=[Net.WebSockets.ClientWebSocket]::new();$socket.Options.AddSubProtocol('sip');$cancel=[Threading.CancellationTokenSource]::new(10000)
+  $phase='frontend_query_refusal';$socket=[Net.WebSockets.ClientWebSocket]::new();$socket.Options.AddSubProtocol('sip');$cancel=[Threading.CancellationTokenSource]::new(10000)
   try{Refuses {$socket.ConnectAsync([Uri]("wss://${Hostname}:$Port/meet-sip/?foreign=1"),$cancel.Token).GetAwaiter().GetResult()} 'query-altered meeting WebSocket refuses'}finally{$socket.Abort();$socket.Dispose();$cancel.Dispose()}
  }
  [ordered]@{schema=1;checks=$checks.Count;passed=@($checks);installed=[bool]$Installed}|ConvertTo-Json -Depth 4
+}catch{
+ [ordered]@{schema=1;state='failed';installed=[bool]$Installed;control_phase=$phase;failure=(Get-OpenWebMeetFailure $_ 'unknown')}|ConvertTo-Json -Depth 8
+ exit 1
 }finally{Remove-Item -LiteralPath $temporary -Recurse -Force}

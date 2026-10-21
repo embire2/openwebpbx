@@ -283,4 +283,9 @@ foreach($field in 'meeting_failure','meeting_recovery_failure'){
   Check (!(SafeFailureFields $invalid).ContainsKey($field))
  }
 }
+$filterNodes=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'SafeMeetingTransportReport'},$true));Check ($filterNodes.Count -eq 1);Invoke-Expression $filterNodes[0].Extent.Text
+$transport=[pscustomobject]@{schema=1;state='failed';installed=$true;control_phase='frontend_wss';failure=[pscustomobject]$meeting;error='private-never-copy'}
+$safe=SafeMeetingTransportReport $transport;Check ($safe.active_case -ceq 'native_windows_meeting_frontend_wss' -and $safe.meeting_failure.phase -ceq 'proxy')
+Check (($safe|ConvertTo-Json -Depth 8) -notmatch 'private-never-copy|message|stack|target')
+foreach($pair in @(@('schema','1'),@('state','private-never-copy'),@('installed','true'),@('control_phase','private-never-copy'),@('control_phase','FRONTEND_WSS'),@('failure',[pscustomobject]@{phase='proxy'}))){$copy=$transport.PSObject.Copy();$copy.($pair[0])=$pair[1];Check ($null -eq (SafeMeetingTransportReport $copy))}
 Write-Output "PASS $checks actual caller native primary/cleanup/media/queue/voicemail/mailbox/hotel/payload/music/SMTP/meeting privacy allowlist checks; no PBX contacted"

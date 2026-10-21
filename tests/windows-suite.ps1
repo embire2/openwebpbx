@@ -727,6 +727,13 @@ function NativeAcceptanceHook([string]$Report,[DateTime]$StartedAt){
   $facts.native_continuation='independent gates only';return $null
  }
 }
+function SafeMeetingTransportReport($Record){
+ $phases=@('portable_controls','installed_arguments','installed_ledger','strict_proxy','native_modules','mwa_absent','mwa_absent_enabled','mwa_explicit_false','mwa_explicit_true','backend_tls','backend_wrong_host','frontend_wss','frontend_query_refusal')
+ if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.state -isnot [string] -or $Record.state -cne 'failed' -or $Record.installed -isnot [bool] -or !$Record.installed -or $Record.control_phase -isnot [string] -or $Record.control_phase -cnotin $phases){return $null}
+ $safe=SafeFailureFields ([pscustomobject]@{active_case=('native_windows_meeting_'+$Record.control_phase);meeting_failure=$Record.failure})
+ if(!$safe.ContainsKey('meeting_failure')){return $null}
+ return $safe
+}
 function MeetingTransportHook {
  $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'))
  $start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
@@ -738,7 +745,10 @@ function MeetingTransportHook {
   $out=$stdout.GetAwaiter().GetResult();$err=$stderr.GetAwaiter().GetResult()
   [IO.File]::WriteAllText((Join-Path $work 'meeting-transport.private.out'),$out)
   [IO.File]::WriteAllText((Join-Path $work 'meeting-transport.private.err'),$err)
-  if($process.ExitCode){throw 'The actual Windows meeting transport controls failed.'}
+  if($process.ExitCode){
+   try{$safe=SafeMeetingTransportReport ($out|ConvertFrom-Json);if($safe){$facts.meeting_transport_failure=$safe}}catch{}
+   throw 'The actual Windows meeting transport controls failed.'
+  }
   $report=$out|ConvertFrom-Json
   if($report.schema -ne 1 -or !$report.installed -or $report.checks -lt 41){throw 'The installed meeting transport evidence is incomplete.'}
   $facts.gates.meeting_transport='passed';$facts.checks+=('Actual strict Windows backend TLS and IIS SIP WebSocket controls: '+$report.checks)
