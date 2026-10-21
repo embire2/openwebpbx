@@ -14,6 +14,7 @@ $gateHelper=Join-Path $PSScriptRoot 'Restore-Gates.ps1'
 if(!(Test-Path $gateHelper)){$gateHelper=Join-Path $root 'tools\Restore-Gates.ps1'}
 if(Test-Path $gateHelper){. $gateHelper}else{throw 'The Windows restore safeguards are missing.'}
 . (Join-Path (Split-Path $gateHelper -Parent) 'Support-Recovery.ps1')
+. (Join-Path (Split-Path $gateHelper -Parent) 'Web-Readiness.ps1')
 $updates = Join-Path $private 'updates'
 $journalPath = Join-Path $updates 'install-journal.json'
 $extracted = $null
@@ -118,8 +119,7 @@ function CheckHealth([string]$ExpectedVersion) {
   try {
    $health = Invoke-RestMethod 'http://127.0.0.1:8087/health' -TimeoutSec 3
    if ($health.state -eq 'Running' -and $health.version -eq $ExpectedVersion) {
-    $login = Invoke-WebRequest ('https://' + $state.DomainName + ':' + $state.HttpsPort + '/login.php') -UseBasicParsing -TimeoutSec 5
-    if($login.StatusCode -eq 200){
+    if(Test-OpenWebTrustedLogin $state.DomainName $state.HttpsPort){
      if([version]$ExpectedVersion -lt [version]'1.0.13'){return}
      & "$root\php\php.exe" "$PSScriptRoot\check-call-engine.php" "$root\web"
      if($LASTEXITCODE -eq 0){return}

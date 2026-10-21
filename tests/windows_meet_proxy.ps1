@@ -26,9 +26,16 @@ try{
  Check ($rules[0].match.url -ceq '^meet-sip/$' -and $rules[0].action.url -ceq 'https://openweb-meet.internal:7444/' -and $rules[0].action.appendQueryString -ceq 'false') 'route has fixed private TLS target and no query'
  Check (@($rules[0].conditions.add).Count -eq 4) 'HTTPS GET WebSocket and empty-query guards are present'
  Check ($xml.configuration.'system.webServer'.handlers.add.name -ceq 'ForeignHandler') 'foreign IIS handlers are unchanged'
+ Check ($null -eq $xml.SelectSingleNode('/configuration/system.webServer/webSocket')) 'stock locked WebSocket policy is inherited without a child override'
  $sealed=[IO.File]::ReadAllBytes($config)
  Refuses {Set-OpenWebMeetWebConfig $config} 'existing meeting rule refuses ambiguous replacement'
  Check ([Convert]::ToBase64String([IO.File]::ReadAllBytes($config)) -ceq [Convert]::ToBase64String($sealed)) 'refused IIS configuration remains exact'
+ $explicit=Join-Path $temporary 'explicit-web.config';[IO.File]::WriteAllText($explicit,'<configuration><system.webServer><webSocket enabled="true" pingInterval="00:00:17" /></system.webServer></configuration>');Set-OpenWebMeetWebConfig $explicit
+ $explicitXml=[xml](Get-Content -LiteralPath $explicit -Raw)
+ Check ($explicitXml.configuration.'system.webServer'.webSocket.enabled -ceq 'true' -and $explicitXml.configuration.'system.webServer'.webSocket.pingInterval -ceq '00:00:17') 'explicit enabled WebSocket attributes are preserved'
+ [IO.File]::WriteAllText($explicit,'<configuration><system.webServer><webSocket enabled="false" /></system.webServer></configuration>');$explicitBefore=[IO.File]::ReadAllBytes($explicit)
+ Refuses {Set-OpenWebMeetWebConfig $explicit} 'explicit disabled WebSocket policy refuses'
+ Check ([Convert]::ToBase64String([IO.File]::ReadAllBytes($explicit)) -ceq [Convert]::ToBase64String($explicitBefore)) 'refused disabled WebSocket policy remains exact'
  $appHost=Join-Path $temporary 'applicationHost.config'
  [IO.File]::WriteAllText($appHost,'<configuration><system.webServer/></configuration>')
  $absent=Get-OpenWebMeetProxyXmlState $appHost;$enabled=Get-OpenWebMeetEnabledProxyXml $absent
@@ -65,6 +72,25 @@ try{
   Check ($ledger.Schema -eq 1 -and $ledger.Complete -and $ledger.Thumbprint -ceq $certificate.Thumbprint) 'installed ownership ledger matches current certificate'
   $phase='strict_proxy';$proxy=Get-OpenWebMeetProxyState;$reg=Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\IIS Extensions\Application Request Routing\Parameters' -Name SecureConnectionIgnoreFlags
   Check ($proxy.Enabled -and !$proxy.PreserveHostHeader -and $reg.SecureConnectionIgnoreFlags -eq 0) 'ARR uses strict backend identity validation'
+  $phase='websocket_inherited';Assert-OpenWebMeetWebSocket
+  Check $true 'effective owned-site WebSocket policy is enabled without changing parent delegation'
+  $globalApplicationHost=Join-Path $env:windir 'System32\inetsrv\config\applicationHost.config';$null=Assert-OpenWebMeetOrdinary $globalApplicationHost
+  $globalApplicationHostHash=(Get-FileHash -LiteralPath $globalApplicationHost -Algorithm SHA256).Hash
+  $websocketRoot=Join-Path $temporary 'websocket-site';New-Item -ItemType Directory -Path $websocketRoot|Out-Null
+  $websocketConfig=Join-Path $temporary 'websocket-applicationHost.config';$scoped=[xml]::new();$scoped.PreserveWhitespace=$true;$scoped.Load($globalApplicationHost)
+  $fixtureDirectory=$scoped.SelectSingleNode('/configuration/system.applicationHost/sites/site[@name="OpenWebPBX"]/application[@path="/"]/virtualDirectory[@path="/"]')
+  if(!$fixtureDirectory){throw 'The exact owned IIS site is required for the isolated policy control.'};$fixtureDirectory.SetAttribute('physicalPath',$websocketRoot);$scoped.Save($websocketConfig)
+  $websocketChild=Join-Path $websocketRoot 'web.config';[IO.File]::WriteAllText($websocketChild,'<configuration><system.webServer><webSocket enabled="true" /></system.webServer></configuration>')
+  $phase='websocket_locked_override';$lockedOverride=$false
+  try{
+   $manager=[Microsoft.Web.Administration.ServerManager]::new($websocketConfig)
+   try{$section=$manager.GetWebConfiguration('OpenWebPBX').GetSection('system.webServer/webSocket');$null=$section['enabled']}finally{$manager.Dispose()}
+  }catch{for($exception=$_.Exception;$exception;$exception=$exception.InnerException){if(([long]$exception.HResult -band 4294967295L) -eq 2147942433L){$lockedOverride=$true}}}
+  Check $lockedOverride 'actual native stock policy rejects the previous child override with 0x80070021'
+  [IO.File]::WriteAllText($websocketChild,'<configuration><system.webServer/></configuration>');Set-OpenWebMeetWebConfig $websocketChild
+  $phase='websocket_inherited';$manager=[Microsoft.Web.Administration.ServerManager]::new($websocketConfig)
+  try{$section=$manager.GetWebConfiguration('OpenWebPBX').GetSection('system.webServer/webSocket');Check ([bool]$section['enabled']) 'actual native fixed configuration inherits enabled WebSockets under unchanged locked policy'}finally{$manager.Dispose()}
+  Check ((Get-FileHash -LiteralPath $globalApplicationHost -Algorithm SHA256).Hash -ceq $globalApplicationHostHash) 'native old-negative and fixed-positive controls leave actual IIS configuration exact'
   $phase='native_modules';$runtime=& 'C:\OpenWebPBX\php\php.exe' (Join-Path $PSScriptRoot 'windows_meet_runtime.php')
   if($LASTEXITCODE){throw 'The installed native meeting runtime is unavailable.'}
   $runtime=$runtime|ConvertFrom-Json
@@ -106,7 +132,7 @@ try{
   Refuses {BackendTls 'different-meeting.example.invalid'} 'wrong private backend hostname is rejected'
   $phase='frontend_wss';$socket=[Net.WebSockets.ClientWebSocket]::new();$socket.Options.AddSubProtocol('sip');$cancel=[Threading.CancellationTokenSource]::new(15000)
   try{
-   $socket.ConnectAsync([Uri]("wss://${Hostname}:$Port/meet-sip/"),$cancel.Token).GetAwaiter().GetResult()
+   $null=$socket.ConnectAsync([Uri]("wss://${Hostname}:$Port/meet-sip/"),$cancel.Token).GetAwaiter().GetResult()
    Check ($socket.State -eq 'Open' -and $socket.SubProtocol -ceq 'sip') 'actual IIS encrypted SIP WebSocket upgrade succeeds'
   }finally{$socket.Abort();$socket.Dispose();$cancel.Dispose()}
   $phase='frontend_query_refusal';$socket=[Net.WebSockets.ClientWebSocket]::new();$socket.Options.AddSubProtocol('sip');$cancel=[Threading.CancellationTokenSource]::new(10000)

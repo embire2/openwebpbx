@@ -35,6 +35,7 @@ foreach($trusted in Get-ChildItem Cert:\LocalMachine\Root){
 if($old -and $old.Complete -and $old.Thumbprint -ceq $certificate.Thumbprint -and (Get-FileHash -LiteralPath $web -Algorithm SHA256).Hash -ceq $old.WebConfigHash){
  $proxy=Get-OpenWebMeetProxyState;$flags=Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\IIS Extensions\Application Request Routing\Parameters' -Name SecureConnectionIgnoreFlags
  if(!$proxy.Enabled -or $proxy.PreserveHostHeader -or $flags.SecureConnectionIgnoreFlags -ne 0 -or !(Test-Path ('Cert:\LocalMachine\Root\'+$certificate.Thumbprint)) -or (Get-OpenWebMeetHostsPlan ([IO.File]::ReadAllBytes((Join-Path $env:windir 'System32\drivers\etc\hosts')))).Changed){throw 'The installed meeting transport needs administrator review.'}
+ Assert-OpenWebMeetWebSocket
  Write-Host 'The private meeting WebSocket transport is already installed.';return
 }
 if($RebindRestoredTransport -and (!$old -or !$old.Complete -or (Get-FileHash -LiteralPath $web -Algorithm SHA256).Hash -cne $old.WebConfigHash)){throw 'Restore rebind requires the unchanged owned target meeting proxy.'}
@@ -94,6 +95,7 @@ try{
  $meetingPhase='web_config'
  if((Get-FileHash -LiteralPath $web -Algorithm SHA256).Hash -cne $webBeforeHash){throw 'The PBX IIS configuration changed during meeting installation.'}
  if(!$RebindRestoredTransport){[IO.File]::WriteAllBytes($web,$webAfter)}
+ Assert-OpenWebMeetWebSocket
  $meetingPhase='complete_ledger'
  $ledger.WebConfigHash=(Get-FileHash -LiteralPath $web -Algorithm SHA256).Hash;$ledger.Complete=$true;Write-OpenWebPrivateState -Path $ledgerPath -Value $ledger
  $meetingPhase='helper_copy'

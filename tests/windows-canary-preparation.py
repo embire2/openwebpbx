@@ -249,11 +249,15 @@ def qualified_facts(path: Path) -> dict:
     facts = document(path)
     if facts.get('schema') != 1 or facts.get('state') not in ('passed', 'partial'):
         raise ValueError('The exact base qualification is not eligible.')
+    for field in ('source_commit', 'product_source_commit'):
+        if (field == 'source_commit' or field in facts) and (
+                not isinstance(facts.get(field), str) or not re.fullmatch(r'[a-f0-9]{40}', facts[field])):
+            raise ValueError('Baseline product and qualification sources must be immutable commits.')
     if not isinstance(facts.get('gates'), dict) or any(
             facts['gates'].get(gate) != 'passed' for gate in ESSENTIAL_GATES):
         raise ValueError('Every essential original Windows gate must have passed.')
-    if tuple(map(int,BASE.split('.'))) >= (1,0,20) and any(facts['gates'].get(gate) != 'passed' for gate in ('tenant_domains','meeting_transport','meeting_browser')):
-        raise ValueError('The current Windows tenant addresses, meeting transport and actual browser media must also be qualified.')
+    if tuple(map(int,BASE.split('.'))) >= (1,0,20) and any(facts['gates'].get(gate) != 'passed' for gate in ('web_readiness','tenant_domains','meeting_transport','meeting_browser')):
+        raise ValueError('The current Windows trusted web readiness, tenant addresses, meeting transport and actual browser media must also be qualified.')
     if not isinstance(facts.get('artifacts'), dict):
         raise ValueError('The qualification archive identity is missing.')
     checksum = facts['artifacts'].get('candidate_sha256')
@@ -484,6 +488,7 @@ def prepare(base_archive: Path, base_facts: Path, native_root: Path, output_dir:
                 fault_result = result
         result = {'schema': 1, 'state': 'prepared_unsigned', 'private_laboratory_only': True,
                   'base_version': BASE, 'target_version': TARGET, 'source_commit': facts['source_commit'],
+                  'base_product_source_commit': facts.get('product_source_commit', facts['source_commit']),
                   'preparation_source_commit': preparation_source_commit,
                   'preparation_run_id': preparation_run_id,
                   'base_archive_sha256': base['sha256'],

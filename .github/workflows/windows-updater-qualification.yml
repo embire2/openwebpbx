@@ -90,7 +90,15 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: openwebpbx-windows-updater-canary-${{ github.run_id }}
-          path: ${{ runner.temp }}/openwebpbx-updater-canary/
+          # Retain the exact signed-input archives, manifests and build evidence.
+          # The expanded normal/fault trees duplicate every archive payload.
+          path: |
+            ${{ runner.temp }}/openwebpbx-updater-canary/normal/*.zip
+            ${{ runner.temp }}/openwebpbx-updater-canary/fault/*.zip
+            ${{ runner.temp }}/openwebpbx-updater-canary/normal/*/release-manifest.json
+            ${{ runner.temp }}/openwebpbx-updater-canary/fault/*/release-manifest.json
+            ${{ runner.temp }}/openwebpbx-updater-canary/provenance.json
+            ${{ runner.temp }}/openwebpbx-updater-canary/evidence/
           if-no-files-found: error
           retention-days: 7
           compression-level: 0

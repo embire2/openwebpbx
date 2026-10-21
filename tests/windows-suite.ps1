@@ -37,7 +37,7 @@ $recoveryPki=$null
 . (Join-Path $PSScriptRoot 'windows-suite-pki.ps1')
 . (Join-Path $PSScriptRoot 'windows-upgrade-lock-observer.ps1')
 . (Join-Path $PSScriptRoot 'windows-suite-independent.ps1')
-$facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';backups='pending';native_sip_audio='unqualified';tenant_domains='unqualified';meeting_transport='unqualified';meeting_browser='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
+$facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';web_readiness='unqualified';backups='pending';native_sip_audio='unqualified';tenant_domains='unqualified';meeting_transport='unqualified';meeting_browser='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
 if($UpgradeDiagnosticsOnly){$facts.mode='upgrade_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Post-native state is not reproduced.'}
 elseif($BackupsDiagnosticsOnly){$facts.mode='backup_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Native, upgrade and post-native state are not reproduced.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false}
 function PrivateDirectory([string]$Path){
@@ -818,11 +818,39 @@ function NativeAcceptanceHook([string]$Report,[DateTime]$StartedAt){
  }
 }
 function SafeMeetingTransportReport($Record){
- $phases=@('portable_controls','installed_arguments','installed_ledger','strict_proxy','native_modules','mwa_absent','mwa_absent_enabled','mwa_explicit_false','mwa_explicit_true','backend_tls','backend_wrong_host','frontend_wss','frontend_query_refusal')
+ $phases=@('portable_controls','installed_arguments','installed_ledger','strict_proxy','websocket_inherited','websocket_locked_override','native_modules','mwa_absent','mwa_absent_enabled','mwa_explicit_false','mwa_explicit_true','backend_tls','backend_wrong_host','frontend_wss','frontend_query_refusal')
  if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.state -isnot [string] -or $Record.state -cne 'failed' -or $Record.installed -isnot [bool] -or !$Record.installed -or $Record.control_phase -isnot [string] -or $Record.control_phase -cnotin $phases){return $null}
  $safe=SafeFailureFields ([pscustomobject]@{active_case=('native_windows_meeting_'+$Record.control_phase);meeting_failure=$Record.failure})
  if(!$safe.ContainsKey('meeting_failure')){return $null}
  return $safe
+}
+function SafeWebReadinessReport($Record){
+ $types=@('none','external_component','InvalidOperationException','RuntimeException','MethodInvocationException','IOException','UnauthorizedAccessException','FileNotFoundException','DirectoryNotFoundException','TimeoutException','AuthenticationException','CryptographicException','ArgumentException')
+ if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.case -isnot [string] -or $Record.case -cne 'native_windows_readiness_tls_boolean' -or $Record.state -isnot [string] -or $Record.state -cnotin 'passed','failed' -or ($Record.checks -isnot [int] -and $Record.checks -isnot [long]) -or $Record.checks -lt 0 -or $Record.checks -gt 100 -or $Record.cleanup_exact -isnot [bool] -or $Record.phase -isnot [string] -or $Record.phase -cnotin 'preflight','helper','certificate','fixture','installed_iis','cleanup','complete' -or $Record.error_type -isnot [string] -or $Record.error_type -cnotin $types -or ($Record.source_line -isnot [int] -and $Record.source_line -isnot [long]) -or $Record.source_line -lt 0 -or $Record.source_line -gt 99999){return $null}
+ $safe=[ordered]@{};foreach($name in 'schema','case','state','checks','cleanup_exact','phase','error_type','source_line'){$safe[$name]=$Record.$name}
+ foreach($name in 'manifest_helper_hash','scalar_boolean','trusted_tls','actual_iis'){if($Record.$name -isnot [bool]){return $null};$safe[$name]=$Record.$name}
+ return $safe
+}
+function WebReadinessHook {
+ $reportPath=Join-Path $work 'web-readiness-native.json'
+ $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'))
+ $start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+ $start.Environment['PSModulePath']=(Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell/Modules')
+ foreach($argument in @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'windows_web_readiness_native.ps1'),'-PackageRoot',$PackageRoot,'-ReportPath',$reportPath,'-DisposableHostedRunner')){$start.ArgumentList.Add($argument)}
+ $process=[Diagnostics.Process]::Start($start);$stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
+ try{
+  if(!$process.WaitForExit(240000)){$process.Kill($true);throw 'The isolated native readiness controls exceeded their deadline.'}
+  [IO.File]::WriteAllText((Join-Path $work 'web-readiness.private.out'),$stdout.GetAwaiter().GetResult())
+  [IO.File]::WriteAllText((Join-Path $work 'web-readiness.private.err'),$stderr.GetAwaiter().GetResult())
+  $reportFile=Get-Item -LiteralPath $reportPath
+  if($reportFile.Length -gt 16384 -or ($reportFile.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'The native readiness report is invalid.'}
+  $safe=SafeWebReadinessReport (Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json)
+  if(!$safe){throw 'The native readiness report fields are invalid.'}
+  $facts.web_readiness_report=$safe
+  if($process.ExitCode -or $safe.state -cne 'passed' -or $safe.phase -cne 'complete' -or $safe.checks -lt 29 -or $safe.error_type -cne 'none'){throw 'The native packaged web readiness controls failed.'}
+  foreach($field in 'manifest_helper_hash','scalar_boolean','trusted_tls','actual_iis','cleanup_exact'){if(!$safe[$field]){throw 'The packaged native readiness behavior and exact cleanup must pass.'}}
+  $facts.gates.web_readiness='passed';$facts.checks+=('Actual native Windows packaged readiness helper, scalar Boolean HTTP500/framing/SAN refusals, trusted TLS and installed IIS login: '+$safe.checks)
+ }finally{$process.Dispose()}
 }
 function SafeTenantDomainsReport($Record){
  $phases=@('initialization','packaged_task','worker_identity','proof_prepare','fixture_certificate','alias_certify','static_proof_https','alias_guard','foreign_binding','cleanup','complete')
@@ -868,7 +896,7 @@ function MeetingTransportHook {
    throw 'The actual Windows meeting transport controls failed.'
   }
   $report=$out|ConvertFrom-Json
-  if($report.schema -ne 1 -or !$report.installed -or $report.checks -lt 41){throw 'The installed meeting transport evidence is incomplete.'}
+  if($report.schema -ne 1 -or !$report.installed -or $report.checks -lt 49){throw 'The installed meeting transport evidence is incomplete.'}
   $facts.gates.meeting_transport='passed';$facts.checks+=('Actual strict Windows backend TLS and IIS SIP WebSocket controls: '+$report.checks)
  }finally{$process.Dispose()}
 }
@@ -941,6 +969,7 @@ try{
  & (Join-Path $PackageRoot 'Install-NativeEngine.ps1') -PackageRoot $PackageRoot -Check
  if(!$?){throw 'The installed native call-engine inventory differs.'}
  $facts.gates.fresh='passed';$facts.checks+=('Real restore-ready fresh installation/services/native engine hash preservation')
+ $phase='native web readiness qualification';WebReadinessHook
  $phase='native tenant-domain qualification';TenantDomainsAcceptanceHook ([DateTime]::UtcNow)
  $phase='meeting transport qualification';MeetingTransportHook
  $acceptanceFile=Join-Path $work 'acceptance-input.json';$ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)

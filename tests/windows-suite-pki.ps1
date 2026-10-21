@@ -16,7 +16,8 @@ function Set-SuiteFixtureBinding([byte[]]$Hash,[string]$Store,[switch]$Read) {
 function Start-SuiteRecoveryPki([string]$PackageRoot,[string]$SourceRoot,[string]$Work) {
  if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){throw 'Only the explicitly disposable suite may create this CA.'}
  $installation=Get-Content 'C:\ProgramData\OpenWebPBX\installation.json' -Raw|ConvertFrom-Json
- if(!$installation.Completed -or !$installation.RestoreServer -or $installation.DomainName -ne 'windowsqa.example.invalid' -or $installation.Version -ne '1.0.13'){throw 'The exact completed disposable replacement factory is required.'}
+ $expectedVersion=(Get-Content -LiteralPath (Join-Path $PackageRoot 'VERSION') -Raw).Trim()
+ if($expectedVersion -cnotmatch '^\d+\.\d+\.\d+$' -or !$installation.Completed -or !$installation.RestoreServer -or $installation.DomainName -cne 'windowsqa.example.invalid' -or $installation.Version -cne $expectedVersion){throw 'The exact completed disposable replacement factory is required.'}
  $directory=Join-Path $Work 'recovery-pki';PrivateDirectory $directory
  $inputFile=Join-Path $directory 'input.json';$evidence=Join-Path $directory 'evidence';PrivateDirectory $evidence
  [IO.File]::WriteAllText($inputFile,(@{scope=[Guid]::NewGuid().ToString('N').Substring(0,24);source_root=$SourceRoot;evidence_directory=$evidence}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))

@@ -72,6 +72,7 @@ class PacketChecks(unittest.TestCase):
         self.facts['gates']['meeting_transport']='passed'
         self.facts['gates']['meeting_browser']='passed'
         self.facts['gates']['tenant_domains']='passed'
+        self.facts['gates']['web_readiness']='passed'
         self.provenance.update(base_version='1.0.20', target_version='1.0.21')
         for mode in ('fault','normal'):
             def newer(payload):
@@ -83,6 +84,11 @@ class PacketChecks(unittest.TestCase):
         checked=fixture.verify_packets(self.packet,self.facts,self.provenance,self.archives,self.public,
             now=self.now,base_version='1.0.20',target_version='1.0.21')
         self.assertEqual(len(checked),2)
+        self.facts['gates']['web_readiness']='unqualified'
+        with self.assertRaises(ValueError):
+            fixture.verify_packets(self.packet,self.facts,self.provenance,self.archives,self.public,
+                now=self.now,base_version='1.0.20',target_version='1.0.21')
+        self.facts['gates']['web_readiness']='passed'
         self.facts['gates']['tenant_domains']='unqualified'
         with self.assertRaisesRegex(ValueError,'tenant addresses'):
             fixture.verify_packets(self.packet,self.facts,self.provenance,self.archives,self.public,

@@ -159,8 +159,20 @@ function Set-OpenWebMeetWebConfig([string]$Path) {
  $fragment.InnerXml='<rule name="OpenWebPBX Meet" stopProcessing="true"><match url="^meet-sip/$" ignoreCase="false"/><conditions logicalGrouping="MatchAll"><add input="{HTTPS}" pattern="^on$"/><add input="{REQUEST_METHOD}" pattern="^GET$"/><add input="{HTTP_UPGRADE}" pattern="^websocket$" ignoreCase="true"/><add input="{QUERY_STRING}" pattern="^$"/></conditions><action type="Rewrite" url="https://openweb-meet.internal:7444/" appendQueryString="false"/></rule>'
  $null=$rules.PrependChild($fragment)
  $socket=$server.SelectSingleNode('webSocket')
- if(!$socket){$node=$xml.CreateElement('webSocket');$node.SetAttribute('enabled','true');$null=$server.AppendChild($node)}elseif($socket.GetAttribute('enabled') -ne 'true'){throw 'The existing PBX WebSocket policy needs administrator review.'}
+ # The installed IIS WebSocket feature defaults to enabled. Its stock section
+ # is locked against child overrides, so inherit the existing parent policy.
+ if($socket -and $socket.GetAttribute('enabled') -ne 'true'){throw 'The existing PBX WebSocket policy needs administrator review.'}
  $xml.Save($Path)
+}
+function Assert-OpenWebMeetWebSocket {
+ Add-Type -Path "$env:windir\System32\inetsrv\Microsoft.Web.Administration.dll"
+ $manager=[Microsoft.Web.Administration.ServerManager]::new()
+ try{
+  $site=$manager.Sites['OpenWebPBX']
+  if(!$site -or [IO.Path]::GetFullPath($site.Applications['/'].VirtualDirectories['/'].PhysicalPath).TrimEnd('\') -ine 'C:\OpenWebPBX\web'){throw 'The owned PBX IIS site is required.'}
+  $socket=$manager.GetWebConfiguration('OpenWebPBX').GetSection('system.webServer/webSocket')
+  if(![bool]$socket['enabled']){throw 'The effective PBX WebSocket policy is disabled and needs administrator review.'}
+ }finally{$manager.Dispose()}
 }
 function Restore-OpenWebMeetSystem {
  param([string]$Snapshot,[string]$StateRoot,[string]$LedgerPath=(Join-Path $StateRoot 'meet-proxy.json'))

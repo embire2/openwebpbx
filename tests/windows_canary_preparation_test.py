@@ -130,6 +130,7 @@ class CanaryPreparation(unittest.TestCase):
         self.assertEqual(result['state'], 'prepared_unsigned')
         self.assertTrue(result['private_laboratory_only'])
         self.assertEqual(result['source_commit'], self.commit)
+        self.assertEqual(result['base_product_source_commit'], self.commit)
         self.assertEqual(result['base_archive_sha256'], p.digest(self.base))
         self.assertEqual(result['preparation_source_commit'], '2' * 40)
         self.assertEqual(result['preparation_run_id'], '12345')
@@ -156,6 +157,20 @@ class CanaryPreparation(unittest.TestCase):
         self.assertIn('canary-fault-witness-<nonce>.json', result['fault_contract']['witness'])
         self.assertIn('baseline_version', result['fault_contract']['required_fields'])
 
+    def test_replayed_product_source_is_retained_separately(self):
+        self.facts['product_source_commit'] = '3' * 40
+        self.refresh()
+        result = self.run_prepare()
+        self.assertEqual(result['source_commit'], self.commit)
+        self.assertEqual(result['base_product_source_commit'], '3' * 40)
+        self.assertEqual(result['native_provenance']['source_commit'], self.commit)
+
+    def test_mutable_product_source_is_refused(self):
+        for source in ('main', '', None, 3, 'A' * 40):
+            self.facts['product_source_commit'] = source
+            self.refresh()
+            self.reject()
+
     def test_explicit_20_to_21_provenance_and_guarded_fault_are_bound(self):
         p.configure_versions('1.0.20','1.0.21')
         self.addCleanup(p.configure_versions,'1.0.13','1.0.14')
@@ -170,6 +185,7 @@ class CanaryPreparation(unittest.TestCase):
         self.facts['gates']['meeting_transport']='passed'
         self.facts['gates']['meeting_browser']='passed'
         self.facts['gates']['tenant_domains']='passed'
+        self.facts['gates']['web_readiness']='passed'
         self.inputs['version']='1.0.21'
         self.inputs['source_inputs']=[{'path':name,'sha256':hashlib.sha256(data).hexdigest()}for name,data in sorted(self.sources.items())]
         self.inputs['overlays']=[]
@@ -188,6 +204,10 @@ class CanaryPreparation(unittest.TestCase):
         fault=(self.output/'fault'/p.NAME/'canary-fault.ps1').read_text()
         self.assertIn("baseline_version='1.0.20'",fault)
         self.assertIn("target_version='1.0.21'",fault)
+        self.facts['gates']['web_readiness']='unqualified';self.refresh()
+        with self.assertRaisesRegex(ValueError,'trusted web readiness'):
+            p.qualified_facts(self.facts_path)
+        self.facts['gates']['web_readiness']='passed'
         self.facts['gates']['tenant_domains']='unqualified';self.refresh()
         with self.assertRaisesRegex(ValueError,'tenant addresses'):
             p.qualified_facts(self.facts_path)

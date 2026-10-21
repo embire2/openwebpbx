@@ -50,12 +50,31 @@ $commands=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.
 if($commands.Count -ne 1){throw 'The actual PKI preparation command must be unique.'}
 $flags=@();foreach($element in $commands[0].CommandElements|Select-Object -Skip 1){if($element.Extent.Text -ceq '$script'){break};$flags+=$element.Extent.Text}
 [IO.File]::WriteAllText(($inputFile+'.flags.json'),(ConvertTo-Json -InputObject $flags),[Text.UTF8Encoding]::new($false))
+$guards=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.IfStatementAst] -and $node.Extent.Text.StartsWith('if($expectedVersion -cnotmatch ')},$true))
+if($guards.Count -ne 1){throw 'The actual immutable factory version guard must be unique.'}
+$guard=[ScriptBlock]::Create($guards[0].Extent.Text);$results=@()
+foreach($case in @(
+ @{package='1.0.13';installed='1.0.13';completed=$true;restore=$true;domain='windowsqa.example.invalid';accept=$true},
+ @{package='1.0.20';installed='1.0.20';completed=$true;restore=$true;domain='windowsqa.example.invalid';accept=$true},
+ @{package='1.0.20';installed='1.0.13';completed=$true;restore=$true;domain='windowsqa.example.invalid';accept=$false},
+ @{package='';installed='';completed=$true;restore=$true;domain='windowsqa.example.invalid';accept=$false},
+ @{package='1.0.20';installed='1.0.20';completed=$false;restore=$true;domain='windowsqa.example.invalid';accept=$false},
+ @{package='1.0.20';installed='1.0.20';completed=$true;restore=$false;domain='windowsqa.example.invalid';accept=$false},
+ @{package='1.0.20';installed='1.0.20';completed=$true;restore=$true;domain='foreign.example.invalid';accept=$false}
+)){
+ $expectedVersion=$case.package;$installation=@{Version=$case.installed;Completed=$case.completed;RestoreServer=$case.restore;DomainName=$case.domain};$accepted=$true
+ try{& $guard}catch{$accepted=$false}
+ if($accepted -ne $case.accept){throw 'The actual factory source/version/identity guard did not enforce its expected boundary.'};$results+=$accepted
+}
+[IO.File]::WriteAllText(($inputFile+'.guards.json'),(ConvertTo-Json -InputObject $results),[Text.UTF8Encoding]::new($false))
 ''')
     subprocess.run([args.powershell, '-NoProfile', '-NonInteractive', '-File', str(extractor),
                     '-SourceRoot', str(root), '-inputFile', str(input_path), '-evidence', str(evidence)],
                    check=True, capture_output=True)
     source_input = json.loads(input_path.read_text(encoding='utf-8-sig'))
     flags = json.loads(Path(str(input_path) + '.flags.json').read_text(encoding='utf-8-sig'))
+    guards = json.loads(Path(str(input_path) + '.guards.json').read_text(encoding='utf-8-sig'))
+    check(guards == [True, True, False, False, False, False, False])
     check(flags == ['-I', '-B'])
     check("@('-I','-B',$script,'--input',$inputFile,'--phase','pki-server')" in (root / 'tests/windows-suite-pki.ps1').read_text())
     check(re.fullmatch('[a-f0-9]{24}', source_input['scope']) is not None)

@@ -29,6 +29,7 @@ if (!(Test-Path "$PSScriptRoot\web\resources\require.php") -or !(Test-Path "$PSS
 & "$PSScriptRoot\Ensure-Runtime.ps1"
 if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw 'Install the required Microsoft runtime before continuing.' }
 . "$PSScriptRoot\Restore-Gates.ps1"
+. "$PSScriptRoot\Web-Readiness.ps1"
 Assert-OpenWebUpgradeAllowed -StateRoot $private
 if(Test-Path "$private\installation.json"){
  $existingInstallation=Get-Content "$private\installation.json" -Raw | ConvertFrom-Json
@@ -303,12 +304,14 @@ Start-Website OpenWebPBX
 $ready=$false
 for($attempt=0;$attempt -lt 30;$attempt++){
  try{
-  $ready=(Invoke-RestMethod 'http://127.0.0.1:8087/health' -TimeoutSec 3).state -eq 'Running'
+  $health=Invoke-RestMethod 'http://127.0.0.1:8087/health' -TimeoutSec 3
+  $ready=$health.state -ceq 'Running' -and $health.version -ceq $state.Version
   if($ready){& "$root\php\php.exe" "$PSScriptRoot\check-call-engine.php" "$root\web";$ready=$LASTEXITCODE -eq 0}
+  if($ready){$ready=Test-OpenWebTrustedLogin $DomainName $HttpsPort}
  }catch{$ready=$false}
  if($ready){break};Start-Sleep -Seconds 2
 }
-if(!$ready){throw 'The phone listener or background call service is not ready. Check the private server logs before continuing.'}
+if(!$ready){throw 'The phone listener, background call service or trusted web sign-in page is not ready. Check the private server logs before continuing.'}
 if(!$LocalCertificate -and !$EnablePublicAccess -and $DomainName -ne 'localhost') {
  try { & "$PSScriptRoot\Enable-PhoneTLS.ps1" -CertificateThumbprint $CertificateThumbprint -MaintenanceLock $installationLock }
  catch { Write-Warning 'The PBX is installed, but secure phone setup is incomplete. Use Enable-PhoneTLS.ps1 with an exportable trusted certificate before connecting Android phones.' }
