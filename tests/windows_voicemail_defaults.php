@@ -8,6 +8,25 @@
 if (PHP_SAPI !== 'cli') {
     exit(2);
 }
+// Optional diagnostic sidecar is closed data only; raw SQL/errors stay private.
+$diagnosticPath = $argv[2] ?? null;
+$checks = 0;
+set_exception_handler(static function (Throwable $error) use ($diagnosticPath, &$checks): void {
+    $source = basename(str_replace('\\', '/', $error->getFile()));
+    if (!in_array($source, ['windows_voicemail_defaults.php','app_defaults.php','config.php','pbx_voicemail_policy.php'], true)) $source = 'external_component';
+    $line = $error->getLine();
+    $trace = $error->getTrace();
+    if ($source === 'windows_voicemail_defaults.php' && isset($trace[0]['file'], $trace[0]['line']) && realpath($trace[0]['file']) === __FILE__) $line = $trace[0]['line'];
+    $class = get_class($error);
+    if (!in_array($class, ['RuntimeException','InvalidArgumentException','PDOException','TypeError','ValueError','Error','Exception'], true)) $class = 'Exception';
+    $safe = ['schema'=>1,'state'=>'failed','error_type'=>$class,'source_basename'=>$source,'source_line'=>max(1,min(99999,$line)),'checks_completed'=>max(0,min(128,$checks))];
+    if (is_string($diagnosticPath) && $diagnosticPath !== '' && !file_exists($diagnosticPath) && !is_link($diagnosticPath)) {
+        $handle = @fopen($diagnosticPath, 'xb');
+        if ($handle !== false) { fwrite($handle, json_encode($safe, JSON_THROW_ON_ERROR)); fclose($handle); }
+    }
+    fwrite(STDERR, 'Private voicemail-defaults fixture failed; review its closed diagnostic sidecar.'.PHP_EOL);
+    exit(1);
+});
 if (!in_array('pgsql', PDO::getAvailableDrivers(), true)) {
     throw new RuntimeException('The isolated test requires PDO PostgreSQL.');
 }

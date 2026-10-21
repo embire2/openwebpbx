@@ -1,0 +1,26 @@
+name: Windows isolated voicemail fixture diagnostic
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnostic:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Run actual isolated Windows PHP and PostgreSQL fixture
+        run: '& tests/windows_voicemail_native_diagnostics.ps1'
+      - name: Preserve credential-free bounded source and check diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: openwebpbx-windows-voicemail-diagnostic-${{ github.run_id }}
+          path: ${{ runner.temp }}/openweb-vm-diagnostic-public/qualification.json
+          if-no-files-found: error
+          retention-days: 7
