@@ -81,8 +81,13 @@ try{
   $path=Join-Path "$root\tools" $name;Check ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $manifest.files.$name) 'Installed helper matches the actual packaged release'
  }
  $task=Get-ScheduledTask -TaskName $taskName;$taskEnabled=[bool]$task.Settings.Enabled;$taskXml=Export-ScheduledTask -TaskName $taskName
- Check ($task.Description -ceq 'OpenWeb PBX owned tenant HTTPS lease worker' -and $task.Principal.UserId -in 'SYSTEM','S-1-5-18' -and $task.Principal.RunLevel -eq 'Highest') 'Actual task runs as privileged SYSTEM'
- Check (@($task.Actions).Count -eq 1 -and $task.Actions[0].Execute -ceq "$root\backup-runtime\python.exe" -and $task.Actions[0].Arguments -ceq '-I "C:\OpenWebPBX\tools\tenant-domains.py"' -and $task.Actions[0].WorkingDirectory -ceq "$root\tools") 'Actual task executes the installed isolated worker'
+ Check ($task.Description -ceq 'OpenWeb PBX owned tenant HTTPS lease worker') 'Actual task has its owned description'
+ Check ($task.Principal.UserId -in 'SYSTEM','S-1-5-18') 'Actual task runs as SYSTEM'
+ Check ($task.Principal.RunLevel -eq 'Highest') 'Actual task runs at the required privilege level'
+ Check (@($task.Actions).Count -eq 1) 'Actual task contains only one owned action'
+ Check ($task.Actions[0].Execute -ceq "$root\backup-runtime\python.exe") 'Actual task executes the installed isolated Python'
+ Check ($task.Actions[0].Arguments -ceq '-I "C:\OpenWebPBX\tools\tenant-domains.py"') 'Actual task uses the exact isolated worker arguments'
+ Check ($task.Actions[0].WorkingDirectory -ceq "$root\tools") 'Actual task uses the installed tools directory'
  $deadline=[DateTime]::UtcNow.AddSeconds(30);while((Get-ScheduledTask -TaskName $taskName).State -eq 'Running'){if([DateTime]::UtcNow -gt $deadline){throw 'A previous tenant worker did not finish.'};Start-Sleep -Milliseconds 200}
  $saved=SnapshotTree $tenantState;$keyBefore=SaveFile $key;$snapshotComplete=$true
  if(!(Test-Path -LiteralPath $holdRoot)){New-Item -ItemType Directory -Path $holdRoot|Out-Null;$holdRootCreated=$true}
