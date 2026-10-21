@@ -6,7 +6,7 @@ class pbx_meet {
     protected function q(string $sql,array $args=[]): PDOStatement {$s=$this->db->prepare($sql);$s->execute($args);return $s;}
     protected function engine(string $command): string {return (string)event_socket::api($command);}
     protected function access(): pbx_staff_access {return new pbx_staff_access($this->db);}
-    private static function websocketUrl(string $origin): string {
+    public static function websocketUrl(string $origin): string {
         $parts=parse_url($origin);
         if($parts===false||($parts['scheme']??'')!=='https'||empty($parts['host'])||isset($parts['user'])||isset($parts['pass'])||isset($parts['query'])||isset($parts['fragment']))throw new RuntimeException('Configure a trusted HTTPS address before starting meetings.');
         return 'wss://'.$parts['host'].(isset($parts['port'])&&$parts['port']!==443?':'.$parts['port']:'').'/meet-sip/';

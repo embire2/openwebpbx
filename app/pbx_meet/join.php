@@ -2,7 +2,8 @@
 require_once dirname(__DIR__,2).'/resources/require.php';
 header('Cache-Control: no-store');header('Referrer-Policy: no-referrer');header('X-Content-Type-Options: nosniff');
 header("Permissions-Policy: camera=(self), microphone=(self), display-capture=(self)");
-header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' wss://".parse_url(pbx_paths::url(),PHP_URL_HOST)."; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+$websocketOrigin=substr(pbx_meet::websocketUrl(pbx_paths::url()),0,-strlen('/meet-sip/'));
+header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' ".$websocketOrigin."; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
 $host=null;$handoff=$_GET['host']??'';if(is_string($handoff)&&preg_match('/^[a-f0-9]{32}$/D',$handoff)&&!empty($_SESSION['authorized'])&&isset($_SESSION['pbx_meet_handoffs'][$handoff])){$item=$_SESSION['pbx_meet_handoffs'][$handoff];unset($_SESSION['pbx_meet_handoffs'][$handoff]);if(($item['created']??0)>=time()-300)$host=$item['account'];}
 session_write_close();
 ?>
