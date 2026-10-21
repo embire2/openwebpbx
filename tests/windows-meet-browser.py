@@ -1,6 +1,7 @@
 """Run the actual meeting UI/media gate inside the existing owned Windows fixture."""
 import http.cookiejar
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -24,6 +25,29 @@ def owner_page_fields(record):
     if any(type(record[name]) is not bool for name in ['login_form', 'heading', 'same_origin', 'user_agent_matches']):
         return {}
     return {'meeting_owner_' + name: value for name, value in record.items()}
+
+
+def media_fields(record):
+    booleans = {'observed', 'connected', 'remote_audio_live', 'remote_video_live', 'local_audio_live', 'local_video_live', 'vp8_decoding', 'probe_error'}
+    integers = {'decoded_frames', 'encoded_frames', 'inbound_audio_packets', 'outbound_audio_packets', 'inbound_video_packets', 'outbound_video_packets', 'video_colors'}
+    enums = {'connection_state': {'new', 'connecting', 'connected', 'disconnected', 'failed', 'closed', 'unavailable'}, 'ice_state': {'new', 'checking', 'connected', 'completed', 'disconnected', 'failed', 'closed', 'unavailable'}, 'visibility': {'visible', 'hidden', 'prerender', 'unavailable'}, 'audio_context': {'running', 'suspended', 'closed', 'interrupted', 'unavailable'}, 'ui_state': {'connected', 'connecting', 'waiting', 'ended', 'rejected', 'connect_error', 'permission_error', 'device_error', 'unavailable', 'other'}}
+    if not isinstance(record, dict) or set(record) != {'host', 'guest'}:
+        return {}
+    safe = {}
+    for side in ('host', 'guest'):
+        peer = record[side]
+        if not isinstance(peer, dict) or set(peer) != booleans | integers | set(enums) | {'tone_ratio', 'power'}:
+            return {}
+        if any(type(peer[name]) is not bool for name in booleans):
+            return {}
+        if any(type(peer[name]) is not int or not 0 <= peer[name] <= (14400 if name == 'video_colors' else 2147483647) for name in integers):
+            return {}
+        if any(not isinstance(peer[name], str) or peer[name] not in allowed for name, allowed in enums.items()):
+            return {}
+        if any(type(peer[name]) not in (int, float) or not 0 <= peer[name] <= 1 or not math.isfinite(peer[name]) for name in ('tone_ratio', 'power')):
+            return {}
+        safe[side] = dict(peer)
+    return {'meeting_media': safe}
 
 
 def run(fixture):
@@ -61,16 +85,19 @@ def run(fixture):
             if result.returncode:
                 stage='dependencies' if phase=='dependencies' else 'unknown'
                 owner_fields={}
+                observed_media={}
                 if phase=='browser' and report.is_file():
                     try:
                         failed=json.loads(report.read_text(encoding='utf-8'))
                         if failed.get('schema')==1 and failed.get('state')=='failed' and failed.get('phase') in {'browser_start','owner_page','create','host_join','guest_join','admission','decoded_media','mute','unmute','end'}:
                             stage=failed['phase']
                             if stage=='owner_page':owner_fields=owner_page_fields(failed.get('owner_page'))
+                            if stage in {'decoded_media','mute','unmute','end'}:observed_media=media_fields(failed.get('meeting_media'))
                     except (ValueError,OSError):pass
                 fixture.active_case='native_windows_meeting_'+stage
                 error=RuntimeError('The actual Windows meeting '+phase+' qualification did not pass')
                 error.meeting_owner_failure=owner_fields
+                error.meeting_media_failure=observed_media
                 raise error
         facts = json.loads(report.read_text())
         if facts.get('schema') != 1 or facts.get('state') != 'passed' or len(facts.get('checks', [])) != 7:

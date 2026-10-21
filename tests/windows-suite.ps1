@@ -250,6 +250,28 @@ function SafeMeetingOwnerPageFields($Record){
  foreach($field in 'meeting_owner_login_form','meeting_owner_heading','meeting_owner_same_origin','meeting_owner_user_agent_matches'){$safe[$field]=$Record.$field}
  return $safe
 }
+function SafeMeetingMediaFields($Record){
+ $safe=@{}
+ if($Record.active_case -isnot [string] -or $Record.active_case -cnotin 'native_windows_meeting_decoded_media','native_windows_meeting_mute','native_windows_meeting_unmute','native_windows_meeting_end'){return $safe}
+ $media=$Record.meeting_media
+ $keys=if($media -is [Collections.IDictionary]){@($media.Keys)}elseif($media -is [pscustomobject]){@($media.PSObject.Properties|ForEach-Object Name)}else{return $safe}
+ if($keys.Count -ne 2 -or @($keys|Where-Object {$_ -cnotin 'host','guest'}).Count){return $safe}
+ $booleans=@('observed','connected','remote_audio_live','remote_video_live','local_audio_live','local_video_live','vp8_decoding','probe_error')
+ $integers=@('decoded_frames','encoded_frames','inbound_audio_packets','outbound_audio_packets','inbound_video_packets','outbound_video_packets','video_colors')
+ $enums=@{connection_state=@('new','connecting','connected','disconnected','failed','closed','unavailable');ice_state=@('new','checking','connected','completed','disconnected','failed','closed','unavailable');visibility=@('visible','hidden','prerender','unavailable');audio_context=@('running','suspended','closed','interrupted','unavailable');ui_state=@('connected','connecting','waiting','ended','rejected','connect_error','permission_error','device_error','unavailable','other')}
+ $fields=$booleans+$integers+@($enums.Keys)+@('tone_ratio','power');$peers=@{}
+ foreach($side in 'host','guest'){
+  $peer=$media.$side;$names=if($peer -is [Collections.IDictionary]){@($peer.Keys)}elseif($peer -is [pscustomobject]){@($peer.PSObject.Properties|ForEach-Object Name)}else{return @{}}
+  if($names.Count -ne $fields.Count -or @($names|Where-Object {$_ -cnotin $fields}).Count){return @{}}
+  $closed=@{}
+  foreach($field in $booleans){if($peer.$field -isnot [bool]){return @{}};$closed[$field]=$peer.$field}
+  foreach($field in $integers){$value=$peer.$field;$maximum=if($field -ceq 'video_colors'){14400}else{2147483647};if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt $maximum){return @{}};$closed[$field]=[int]$value}
+  foreach($field in $enums.Keys){$value=$peer.$field;if($value -isnot [string] -or $value -cnotin $enums[$field]){return @{}};$closed[$field]=$value}
+  foreach($field in 'tone_ratio','power'){$value=$peer.$field;if(($value -isnot [int] -and $value -isnot [long] -and $value -isnot [single] -and $value -isnot [double]) -or [double]::IsNaN([double]$value) -or [double]::IsInfinity([double]$value) -or $value -lt 0 -or $value -gt 1){return @{}};$closed[$field]=[double]$value}
+  $peers[$side]=$closed
+ }
+ return @{meeting_media=$peers}
+}
 function SafeSmtpFailureFields($Record){
  $safe=@{}
  if($Record.active_case -isnot [string] -or $Record.active_case -cne 'global_smtp_trusted_tls_hostname_auth'){return $safe}
@@ -358,6 +380,7 @@ function SafeFailureFields($Record){
  foreach($entry in (SafeHotelFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  foreach($entry in (SafeSmtpFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  foreach($entry in (SafeMeetingOwnerPageFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
+ foreach($entry in (SafeMeetingMediaFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  foreach($entry in (SafeNativeCleanupFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  return $safe
 }

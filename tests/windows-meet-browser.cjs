@@ -10,6 +10,23 @@ const checks = [];
 let hostBrowser, guestBrowser, owner, host, guest, meetingCreated = false;
 let phase = 'browser_start';
 let ownerPage;
+const mediaBooleans=['observed','connected','remote_audio_live','remote_video_live','local_audio_live','local_video_live','vp8_decoding','probe_error'];
+const mediaIntegers=['decoded_frames','encoded_frames','inbound_audio_packets','outbound_audio_packets','inbound_video_packets','outbound_video_packets','video_colors'];
+const mediaEnums={connection_state:['new','connecting','connected','disconnected','failed','closed','unavailable'],ice_state:['new','checking','connected','completed','disconnected','failed','closed','unavailable'],visibility:['visible','hidden','prerender','unavailable'],audio_context:['running','suspended','closed','interrupted','unavailable'],ui_state:['connected','connecting','waiting','ended','rejected','connect_error','permission_error','device_error','unavailable','other']};
+function closedMediaFields(record) {
+  const fields=[...mediaBooleans,...mediaIntegers,...Object.keys(mediaEnums),'tone_ratio','power'];
+  if(!record||typeof record!=='object'||Array.isArray(record)||Object.keys(record).length!==fields.length||fields.some(name=>!Object.hasOwn(record,name))) return null;
+  if(mediaBooleans.some(name=>typeof record[name]!=='boolean')||mediaIntegers.some(name=>!Number.isInteger(record[name])||record[name]<0||record[name]>(name==='video_colors'?14400:2147483647))||Object.entries(mediaEnums).some(([name,values])=>!values.includes(record[name]))||['tone_ratio','power'].some(name=>typeof record[name]!=='number'||!Number.isFinite(record[name])||record[name]<0||record[name]>1)) return null;
+  return Object.fromEntries(fields.map(name=>[name,record[name]]));
+}
+function unavailableMediaFields() {
+  return {...Object.fromEntries(mediaBooleans.map(name=>[name,false])),...Object.fromEntries(mediaIntegers.map(name=>[name,0])),...Object.fromEntries(Object.keys(mediaEnums).map(name=>[name,'unavailable'])),tone_ratio:0,power:0};
+}
+async function mediaFields(page) {
+  if(!page)return unavailableMediaFields();
+  let timer;
+  try{const value=await Promise.race([page.evaluate(()=>window.conferenceQA?.diagnostic?.()),new Promise(resolve=>{timer=setTimeout(()=>resolve(null),3000);})]);return closedMediaFields(value)||unavailableMediaFields();}catch{return unavailableMediaFields();}finally{clearTimeout(timer);}
+}
 function requireFact(value, name) {if(!value) throw Error(name); checks.push(name);}
 async function ownerPageFields(page, response) {
   const current = new URL(page.url());
@@ -66,6 +83,27 @@ function syntheticMedia(frequency) {
     if(remote.readyState>=2){const pen=canvas.getContext('2d');pen.drawImage(remote,0,0,160,90);const pixels=pen.getImageData(0,0,160,90).data,set=new Set();for(let i=0;i<pixels.length;i+=28)set.add(pixels.slice(i,i+3).join(','));colors=set.size;}
     return {connected:true,decoded_frames:decoded,encoded_frames:encoded,codecs,video_colors:colors,tone_ratio:total?band/total:0,power};
   };
+  qa.diagnostic = async () => {
+    const pc=qa.pcs.findLast(candidate=>candidate.connectionState==='connected')||qa.pcs.at(-1);
+    const live=tracks=>!!tracks?.some(track=>track.readyState==='live'&&track.enabled&&!track.muted);
+    const remote=document.getElementById('remote');
+    const result={observed:true,connected:pc?.connectionState==='connected',connection_state:pc?.connectionState||'unavailable',ice_state:pc?.iceConnectionState||'unavailable',visibility:document.visibilityState,audio_context:qa.audio?.state||'unavailable',decoded_frames:0,encoded_frames:0,inbound_audio_packets:0,outbound_audio_packets:0,inbound_video_packets:0,outbound_video_packets:0,video_colors:0,tone_ratio:0,power:0,remote_audio_live:live(remote?.srcObject?.getAudioTracks()),remote_video_live:live(remote?.srcObject?.getVideoTracks()),local_audio_live:live(pc?.getSenders().map(sender=>sender.track).filter(track=>track?.kind==='audio')),local_video_live:live(pc?.getSenders().map(sender=>sender.track).filter(track=>track?.kind==='video')),vp8_decoding:false,probe_error:false};
+    const text=document.getElementById('status')?.textContent;
+    const statuses={'Connected. Your microphone and camera are controlled by the buttons below.':'connected','Connecting to your meeting…':'connecting','You are in the waiting room. The host will admit you.':'waiting','Waiting for the host to start the meeting.':'waiting','You have left the meeting. You can close this tab.':'ended','Your meeting call ended. Reopen your invitation to join again.':'ended','Could not join the meeting. Ask the host to check that it is open.':'rejected','Could not connect to the meeting. Check your network and try again.':'connect_error','Microphone or camera permission was declined. Allow it in your browser, then try again.':'permission_error','That microphone or camera is unavailable. Choose audio or another device.':'device_error'};
+    result.ui_state=text===undefined?'unavailable':Object.hasOwn(statuses,text)?statuses[text]:'other';
+    if(pc)try{
+      const stats=await pc.getStats();const codecs=[];
+      for(const row of stats.values()){
+        if(row.type==='inbound-rtp'&&row.kind==='audio')result.inbound_audio_packets+=row.packetsReceived||0;
+        if(row.type==='outbound-rtp'&&row.kind==='audio')result.outbound_audio_packets+=row.packetsSent||0;
+        if(row.type==='inbound-rtp'&&row.kind==='video'){result.inbound_video_packets+=row.packetsReceived||0;result.decoded_frames+=row.framesDecoded||0;codecs.push(stats.get(row.codecId)?.mimeType);}
+        if(row.type==='outbound-rtp'&&row.kind==='video'){result.outbound_video_packets+=row.packetsSent||0;result.encoded_frames+=row.framesEncoded||0;}
+      }
+      result.vp8_decoding=codecs.length>0&&codecs.every(value=>value==='video/VP8');
+    }catch{result.probe_error=true;}
+    try{const proof=await qa.proof();if(proof.connected){result.video_colors=proof.video_colors;result.tone_ratio=proof.tone_ratio;result.power=proof.power;}}catch{result.probe_error=true;}
+    return result;
+  };
 }
 async function proof(page) {
   await page.waitForFunction(async()=>{const p=await window.conferenceQA?.proof();return p?.connected&&p.decoded_frames>=10&&p.video_colors>8&&p.tone_ratio>.65&&p.power>0.00001;},null,{timeout:45000});
@@ -107,7 +145,7 @@ async function proof(page) {
     await guest.waitForFunction(()=>window.conferenceQA.pcs.every(pc=>pc.connectionState==='closed'),null,{timeout:15000});
     requireFact(true,'host end closes both actual browser media connections');
     fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'passed',checks,host:hostProof,guest:guestProof,physical_camera:'unqualified',scope:'fictional Windows hosted runner'},null,2));
-  }catch(error){failure=error;fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'failed',phase,...(ownerPage?{owner_page:ownerPage}:{})}));fs.writeFileSync(path.join(evidence,'meeting-browser.private.error'),String(error.stack||error));}
+  }catch(error){failure=error;const media=['decoded_media','mute','unmute','end'].includes(phase)?{meeting_media:{host:await mediaFields(host),guest:await mediaFields(guest)}}:{};fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'failed',phase,...(ownerPage?{owner_page:ownerPage}:{}),...media}));fs.writeFileSync(path.join(evidence,'meeting-browser.private.error'),String(error.stack||error));}
   finally{
     if(meetingCreated&&owner){try{await owner.goto(settings.origin+'/app/pbx_meet/');const card=owner.locator('article.meet-card').filter({hasText:settings.subject});if(await card.getByText('Cancel Meeting',{exact:true}).count()){await card.locator('summary').click();await card.locator('[name="confirm_cancel"]').check();await card.getByRole('button',{name:'End Meeting',exact:true}).click();}}catch(error){if(!failure)failure=error;}}
     await Promise.allSettled([hostBrowser?.close(),guestBrowser?.close()]);
