@@ -37,6 +37,7 @@ concurrency:
 
 jobs:
   music:
+    if: ${{ inputs.replay_suite_run_id == '' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -77,6 +78,7 @@ jobs:
 
   suite:
     needs: music
+    if: ${{ always() && !cancelled() && (needs.music.result == 'success' || (needs.music.result == 'skipped' && inputs.replay_suite_run_id != '')) }}
     runs-on: windows-2025
     timeout-minutes: 120
     defaults:
