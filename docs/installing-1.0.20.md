@@ -45,6 +45,15 @@ For a replacement receiving an encrypted instance backup, add **`--restore-serve
 
 ## Existing Debian server
 
+If you are on **1.0.16 with its original updater**, first apply the signed [revision 2 feed-compatibility patch](https://github.com/embire2/openwebpbx/releases/download/v1.0.18/openwebpbx-1.0.18-debian16-feed-compat-r2.tar.gz) from the [1.0.18 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.18). The patch is 102,260 bytes, with SHA256 `12e8a0fff65444badbdf965d15022b88302c73a103b90d4051b5456804a651e8`. Extract it into a private folder, enter its directory, and run as root:
+
+```sh
+python3 split-android-feed.py
+python3 split-android-feed.py --apply
+```
+
+Preflight verifies the signature and exact supported files. Applying takes a recovery copy and restarts only the independent update worker; calling services and phone settings remain unchanged. The hosted instance already has this patch. The generic phone feed stays Android 1.0.18, while the patched server checks the separate Debian feed for 1.0.20. Older servers need the documented intermediate upgrade to 1.0.16 first. Do not use the fresh installer over an existing PBX.
+
 Open **Admin → System → Updates** and install the new version. The complete signed download is checked before maintenance; active calls defer installation. Migration installs the new backup helpers automatically, including when the previous installed updater does not know those files. A private recovery snapshot covers the application, database, configuration and newly installed helper files. See [updates](updates.md) for policies and recovery.
 
 Installed upgrades add only new default metadata; existing choices, permission denials and null voicemail preferences are preserved against the sealed previous source. Explicit manual defaults commands outside an active updater transaction keep their documented behavior.
