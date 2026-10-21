@@ -4,12 +4,22 @@ const path = require('node:path');
 if(process.platform !== 'win32' || process.env.OPENWEB_WINDOWS_NATIVE_TEST !== '1' || process.env.GITHUB_ACTIONS !== 'true' || process.env.RUNNER_ENVIRONMENT !== 'github-hosted' || process.env.GITHUB_REPOSITORY !== 'embire2/openwebpbx') throw Error('An explicitly disposable Windows runner is required.');
 const settings = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const {chromium} = require(path.join(settings.dependencies, 'node_modules', 'playwright-core'));
-if(!/^https:\/\/windowsqa\.example\.invalid(?::[0-9]+)?$/.test(settings.origin) || !Array.isArray(settings.cookies)) throw Error('The owned qualification HTTPS origin is required.');
+if(!/^https:\/\/windowsqa\.example\.invalid(?::[0-9]+)?$/.test(settings.origin) || !Array.isArray(settings.cookies) || typeof settings.userAgent !== 'string' || !settings.userAgent.length || settings.userAgent.length > 512 || /[\x00-\x1f\x7f]/.test(settings.userAgent)) throw Error('The owned qualification HTTPS origin is required.');
 const evidence = path.dirname(process.argv[2]);
 const checks = [];
 let hostBrowser, guestBrowser, owner, host, guest, meetingCreated = false;
 let phase = 'browser_start';
+let ownerPage;
 function requireFact(value, name) {if(!value) throw Error(name); checks.push(name);}
+async function ownerPageFields(page, response) {
+  const current = new URL(page.url());
+  const route = current.pathname === '/app/pbx_meet/' || current.pathname === '/app/pbx_meet/index.php' ? 'meet' : current.pathname === '/login.php' ? 'login' : current.pathname === '/logout.php' ? 'logout' : current.pathname === '/core/desktop/' ? 'desktop' : 'other';
+  return {http_status:response ? response.status() : 0, route,
+    login_form:await page.locator('input[name="password"]').count()>0,
+    heading:await page.getByRole('heading',{name:'Meet',exact:true}).isVisible(),
+    same_origin:current.origin===settings.origin,
+    user_agent_matches:await page.evaluate(expected=>navigator.userAgent===expected,settings.userAgent)};
+}
 async function snapshot(page, name) {fs.writeFileSync(path.join(evidence, `${name}.private.txt`), await page.locator('body').ariaSnapshot());}
 function syntheticMedia(frequency) {
   if(!navigator.mediaDevices) return;
@@ -66,12 +76,12 @@ async function proof(page) {
   try{
     const launch={channel:'msedge',headless:true,args:['--autoplay-policy=no-user-gesture-required','--disable-features=WebRtcHideLocalIpsWithMdns']};
     hostBrowser=await chromium.launch(launch);guestBrowser=await chromium.launch(launch);
-    const hostContext=await hostBrowser.newContext({ignoreHTTPSErrors:false});
+    const hostContext=await hostBrowser.newContext({ignoreHTTPSErrors:false,userAgent:settings.userAgent});
     const guestContext=await guestBrowser.newContext({ignoreHTTPSErrors:false});
     await hostContext.addInitScript(syntheticMedia,550);await guestContext.addInitScript(syntheticMedia,770);
     await hostContext.addCookies(settings.cookies);
-    phase='owner_page';owner=await hostContext.newPage();await owner.goto(settings.origin+'/app/pbx_meet/');await snapshot(owner,'owner-meet');
-    requireFact(await owner.getByRole('heading',{name:'Meet',exact:true}).isVisible(),'normal authenticated meeting page');
+    phase='owner_page';owner=await hostContext.newPage();const ownerResponse=await owner.goto(settings.origin+'/app/pbx_meet/');ownerPage=await ownerPageFields(owner,ownerResponse);await snapshot(owner,'owner-meet');
+    requireFact(ownerPage.http_status===200&&ownerPage.route==='meet'&&ownerPage.heading&&!ownerPage.login_form&&ownerPage.same_origin&&ownerPage.user_agent_matches,'normal authenticated meeting page');
     phase='create';const create=owner.locator('form').filter({has:owner.locator('input[name="action"][value="create"]')});
     await create.locator('input[name="subject"]').fill(settings.subject);
     await create.getByRole('button',{name:'Create Meeting',exact:true}).click();await snapshot(owner,'created-meet');meetingCreated=true;
@@ -97,7 +107,7 @@ async function proof(page) {
     await guest.waitForFunction(()=>window.conferenceQA.pcs.every(pc=>pc.connectionState==='closed'),null,{timeout:15000});
     requireFact(true,'host end closes both actual browser media connections');
     fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'passed',checks,host:hostProof,guest:guestProof,physical_camera:'unqualified',scope:'fictional Windows hosted runner'},null,2));
-  }catch(error){failure=error;fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'failed',phase}));fs.writeFileSync(path.join(evidence,'meeting-browser.private.error'),String(error.stack||error));}
+  }catch(error){failure=error;fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'failed',phase,...(ownerPage?{owner_page:ownerPage}:{})}));fs.writeFileSync(path.join(evidence,'meeting-browser.private.error'),String(error.stack||error));}
   finally{
     if(meetingCreated&&owner){try{await owner.goto(settings.origin+'/app/pbx_meet/');const card=owner.locator('article.meet-card').filter({hasText:settings.subject});if(await card.getByText('Cancel Meeting',{exact:true}).count()){await card.locator('summary').click();await card.locator('[name="confirm_cancel"]').check();await card.getByRole('button',{name:'End Meeting',exact:true}).click();}}catch(error){if(!failure)failure=error;}}
     await Promise.allSettled([hostBrowser?.close(),guestBrowser?.close()]);

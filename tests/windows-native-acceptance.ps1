@@ -91,6 +91,16 @@ function NativeCleanupFixtureFields([string]$InputFile){
  }catch{}
  return $safe
 }
+function MeetingOwnerPageFields($Record){
+ $safe=@{}
+ if($Record.active_case -isnot [string] -or $Record.active_case -cne 'native_windows_meeting_owner_page'){return $safe}
+ $status=$Record.meeting_owner_http_status;$route=$Record.meeting_owner_route
+ if(($status -isnot [int] -and $status -isnot [long]) -or $status -lt 0 -or $status -gt 599 -or $route -isnot [string] -or $route -cnotin 'meet','login','logout','desktop','other'){return $safe}
+ foreach($field in 'meeting_owner_login_form','meeting_owner_heading','meeting_owner_same_origin','meeting_owner_user_agent_matches'){if($Record.$field -isnot [bool]){return @{}}}
+ $safe.meeting_owner_http_status=[int]$status;$safe.meeting_owner_route=$route
+ foreach($field in 'meeting_owner_login_form','meeting_owner_heading','meeting_owner_same_origin','meeting_owner_user_agent_matches'){$safe[$field]=$Record.$field}
+ return $safe
+}
 function SmtpFailureFields($Record){
  $safe=@{}
  if($Record.active_case -isnot [string] -or $Record.active_case -cne 'global_smtp_trusted_tls_hostname_auth'){return $safe}
@@ -344,6 +354,7 @@ try {
     foreach($entry in (MailboxFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
     foreach($entry in (HotelFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
     foreach($entry in (SmtpFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
+    foreach($entry in (MeetingOwnerPageFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
     if($child.active_case -match '^(native_media_peer_(udp|tcp|tls)_registration_[0-2]|independent_g729_(offer_refused|answer_payload_mismatch))$'){
      if(($child.sip_response_code -is [int] -or $child.sip_response_code -is [long]) -and $child.sip_response_code -ge 200 -and $child.sip_response_code -le 699){$facts.sip_response_code=[int]$child.sip_response_code}
      if(($child.digest_challenge_count -is [int] -or $child.digest_challenge_count -is [long]) -and $child.digest_challenge_count -ge 0 -and $child.digest_challenge_count -le 3){$facts.digest_challenge_count=[int]$child.digest_challenge_count}

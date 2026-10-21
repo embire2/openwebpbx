@@ -240,6 +240,16 @@ function SafeComparisonFields($Record){
  }
  return $safe
 }
+function SafeMeetingOwnerPageFields($Record){
+ $safe=@{}
+ if($Record.active_case -isnot [string] -or $Record.active_case -cne 'native_windows_meeting_owner_page'){return $safe}
+ $status=$Record.meeting_owner_http_status;$route=$Record.meeting_owner_route
+ if(($status -isnot [int] -and $status -isnot [long]) -or $status -lt 0 -or $status -gt 599 -or $route -isnot [string] -or $route -cnotin 'meet','login','logout','desktop','other'){return $safe}
+ foreach($field in 'meeting_owner_login_form','meeting_owner_heading','meeting_owner_same_origin','meeting_owner_user_agent_matches'){if($Record.$field -isnot [bool]){return @{}}}
+ $safe.meeting_owner_http_status=[int]$status;$safe.meeting_owner_route=$route
+ foreach($field in 'meeting_owner_login_form','meeting_owner_heading','meeting_owner_same_origin','meeting_owner_user_agent_matches'){$safe[$field]=$Record.$field}
+ return $safe
+}
 function SafeSmtpFailureFields($Record){
  $safe=@{}
  if($Record.active_case -isnot [string] -or $Record.active_case -cne 'global_smtp_trusted_tls_hostname_auth'){return $safe}
@@ -347,6 +357,7 @@ function SafeFailureFields($Record){
  foreach($entry in (SafeMailboxFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  foreach($entry in (SafeHotelFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  foreach($entry in (SafeSmtpFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
+ foreach($entry in (SafeMeetingOwnerPageFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  foreach($entry in (SafeNativeCleanupFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  return $safe
 }

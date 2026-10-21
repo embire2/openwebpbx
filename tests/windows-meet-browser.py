@@ -8,6 +8,24 @@ import subprocess
 import urllib.request
 
 
+
+def session_user_agent(opener):
+    values = [value for name, value in opener.addheaders if name.casefold() == 'user-agent']
+    if len(values) != 1 or not isinstance(values[0], str) or not 1 <= len(values[0]) <= 512 or any(ord(char) < 32 or ord(char) == 127 for char in values[0]):
+        raise RuntimeError('The actual authenticated fixture user agent is unavailable')
+    return values[0]
+
+
+def owner_page_fields(record):
+    if not isinstance(record, dict) or set(record) != {'http_status', 'route', 'login_form', 'heading', 'same_origin', 'user_agent_matches'}:
+        return {}
+    if type(record['http_status']) is not int or not 0 <= record['http_status'] <= 599 or not isinstance(record['route'], str) or record['route'] not in {'meet', 'login', 'logout', 'desktop', 'other'}:
+        return {}
+    if any(type(record[name]) is not bool for name in ['login_form', 'heading', 'same_origin', 'user_agent_matches']):
+        return {}
+    return {'meeting_owner_' + name: value for name, value in record.items()}
+
+
 def run(fixture):
     if os.name != 'nt' or os.environ.get('OPENWEB_WINDOWS_NATIVE_TEST') != '1' or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted' or os.environ.get('GITHUB_REPOSITORY') != 'embire2/openwebpbx':
         raise RuntimeError('An explicitly disposable Windows native fixture is required')
@@ -34,7 +52,7 @@ def run(fixture):
         raise RuntimeError('The normal authenticated fixture session is unavailable')
     report = fixture.evidence / 'meeting-browser.safe.json'
     settings = fixture.evidence / 'meeting-browser.private.json'
-    settings.write_text(json.dumps(dict(origin=fixture.s['public_url'].rstrip('/'), cookies=cookies, subject='Owned Windows video '+fixture.s['scope'], dependencies=str(dependencies), report=str(report))), encoding='utf-8')
+    settings.write_text(json.dumps(dict(origin=fixture.s['public_url'].rstrip('/'), cookies=cookies, userAgent=session_user_agent(fixture.web.open), subject='Owned Windows video '+fixture.s['scope'], dependencies=str(dependencies), report=str(report))), encoding='utf-8')
     commands.append(('browser', [node, str(fixture.source / 'tests/windows-meet-browser.cjs'), str(settings)]))
     try:
         for phase, command in commands:
@@ -42,14 +60,18 @@ def run(fixture):
             (fixture.evidence / ('meeting-'+phase+'.private.log')).write_text(result.stdout+result.stderr, encoding='utf-8')
             if result.returncode:
                 stage='dependencies' if phase=='dependencies' else 'unknown'
+                owner_fields={}
                 if phase=='browser' and report.is_file():
                     try:
                         failed=json.loads(report.read_text(encoding='utf-8'))
                         if failed.get('schema')==1 and failed.get('state')=='failed' and failed.get('phase') in {'browser_start','owner_page','create','host_join','guest_join','admission','decoded_media','mute','unmute','end'}:
                             stage=failed['phase']
+                            if stage=='owner_page':owner_fields=owner_page_fields(failed.get('owner_page'))
                     except (ValueError,OSError):pass
                 fixture.active_case='native_windows_meeting_'+stage
-                raise RuntimeError('The actual Windows meeting '+phase+' qualification did not pass')
+                error=RuntimeError('The actual Windows meeting '+phase+' qualification did not pass')
+                error.meeting_owner_failure=owner_fields
+                raise error
         facts = json.loads(report.read_text())
         if facts.get('schema') != 1 or facts.get('state') != 'passed' or len(facts.get('checks', [])) != 7:
             raise RuntimeError('The Windows browser meeting media evidence is incomplete')

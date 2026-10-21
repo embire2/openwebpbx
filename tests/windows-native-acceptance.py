@@ -1377,6 +1377,7 @@ def main():
         if getattr(e,'mailbox_failure',None):failure.update(e.mailbox_failure)
         if getattr(e,'hotel_failure',None):failure.update(e.hotel_failure)
         if getattr(e,'smtp_failure',None):failure.update(e.smtp_failure)
+        if getattr(e,'meeting_owner_failure',None):failure.update(e.meeting_owner_failure)
         (f.evidence/'software-native-report.json').write_text(json.dumps(failure,indent=2))
         raise
 
