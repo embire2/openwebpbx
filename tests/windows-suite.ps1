@@ -3,6 +3,7 @@
 [CmdletBinding()]
 param(
  [string]$NativeRunId,[string]$EngineRunId,[string]$PackageRoot,[string]$ReplaySuiteRunId,
+ [string]$ReplayCandidateArtifactId,[string]$ReplayCandidateSha256,
  [switch]$DisposableHostedRunner,[switch]$UpgradeDiagnosticsOnly,[switch]$BackupsDiagnosticsOnly,[switch]$ReplayTerminalProducers
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
@@ -21,8 +22,14 @@ function AssertSuiteMode([bool]$DiagnosticOnly,[string]$WorkflowRef,[string]$Wor
  if(!$diagnosticRef -or $WorkflowSha -cnotmatch '^[a-f0-9]{40}$' -or $WorkflowSha -cne $SourceSha -or $ProvidedPackage){throw 'Diagnostic mode requires the exact diagnostic workflow/source and pinned build inputs.'}
 }
 AssertSuiteMode $UpgradeDiagnosticsOnly $env:GITHUB_WORKFLOW_REF $env:GITHUB_WORKFLOW_SHA $env:GITHUB_SHA $PackageRoot $BackupsDiagnosticsOnly
-if($ReplaySuiteRunId -and ($ReplaySuiteRunId -cnotmatch '^[1-9][0-9]{0,19}$' -or $PackageRoot -or $UpgradeDiagnosticsOnly -or $BackupsDiagnosticsOnly)){throw 'Exact candidate replay requires a numeric original full-suite run and no other package or diagnostic mode.'}
-if($ReplayTerminalProducers -and !$ReplaySuiteRunId){throw 'Terminal-producer provenance is available only for an explicit original candidate replay.'}
+function AssertSuiteReplayMode([string]$OriginalRunId,[string]$ProvidedPackage,[bool]$DiagnosticOnly,[bool]$BackupDiagnosticOnly,[bool]$TerminalProducers,[string]$ExpectedArtifactId,[string]$ExpectedZipSha256){
+ if(!$OriginalRunId){if($TerminalProducers -or $ExpectedArtifactId -or $ExpectedZipSha256){throw 'Replay provenance requires an explicit original full-suite run.'};return}
+ if($OriginalRunId -cnotmatch '^[1-9][0-9]{0,19}$' -or $ProvidedPackage -or $BackupDiagnosticOnly){throw 'Exact candidate replay requires a numeric original full-suite run and no other package or backup diagnostic mode.'}
+ if($DiagnosticOnly){
+  if($TerminalProducers -or $ExpectedArtifactId -cnotmatch '^[1-9][0-9]{0,19}$' -or $ExpectedZipSha256 -cnotmatch '^[a-f0-9]{64}$'){throw 'Upgrade diagnostic replay requires exact artifact and ZIP pins without producer fallback.'}
+ }elseif($ExpectedArtifactId -or $ExpectedZipSha256){throw 'Explicit diagnostic artifact pins cannot change normal qualification replay.'}
+}
+AssertSuiteReplayMode $ReplaySuiteRunId $PackageRoot $UpgradeDiagnosticsOnly $BackupsDiagnosticsOnly $ReplayTerminalProducers $ReplayCandidateArtifactId $ReplayCandidateSha256
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){
  throw 'Run only on the explicitly disposable Windows hosted runner of this repository.'
 }
@@ -38,7 +45,7 @@ $recoveryPki=$null
 . (Join-Path $PSScriptRoot 'windows-upgrade-lock-observer.ps1')
 . (Join-Path $PSScriptRoot 'windows-suite-independent.ps1')
 $facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';web_readiness='unqualified';backups='pending';native_sip_audio='unqualified';tenant_domains='unqualified';meeting_transport='unqualified';meeting_browser='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
-if($UpgradeDiagnosticsOnly){$facts.mode='upgrade_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Post-native state is not reproduced.'}
+if($UpgradeDiagnosticsOnly){$facts.mode='upgrade_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Post-native state is not reproduced.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false}
 elseif($BackupsDiagnosticsOnly){$facts.mode='backup_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Native, upgrade and post-native state are not reproduced.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false}
 function PrivateDirectory([string]$Path){
  New-Item -ItemType Directory -Force -Path $Path|Out-Null
@@ -558,7 +565,7 @@ function AssertReplaySourcePaths([string[]]$Paths){
   $null=SafeRelative $path
   if($path -cin 'tests/pbx_bcg729_codec.c','tests/pbx_windows_pthread.c'){throw 'Pinned native-engine recipe inputs changed; rebuild the candidate.'}
   $nonWindows=$path.StartsWith('packaging/debian/',[StringComparison]::Ordinal) -and $path -cnotin 'packaging/debian/tenant-domains.py','packaging/debian/tenant-domains.php'
-  if($path.StartsWith('tests/',[StringComparison]::Ordinal) -or $path.StartsWith('docs/',[StringComparison]::Ordinal) -or $nonWindows -or $path -cin 'AGENTS.md','README.md','readme.md','3CX.md','packaging/BUILDING.md','.github/workflows/windows-suite.yml'){continue}
+  if($path.StartsWith('tests/',[StringComparison]::Ordinal) -or $path.StartsWith('docs/',[StringComparison]::Ordinal) -or $nonWindows -or $path -cin 'AGENTS.md','README.md','readme.md','3CX.md','packaging/BUILDING.md','.github/workflows/windows-suite.yml','.github/workflows/windows-upgrade-diagnostics.yml','.github/workflows/windows-voicemail-diagnostics.yml'){continue}
   throw 'Windows runtime, native input or package source changed; rebuild the candidate instead of replaying it.'
  }
 }
@@ -572,12 +579,15 @@ function ReplayFacts($Record,$Run,[string]$Version,[string]$OriginalRunId){
  return $safe
 }
 function PrepareReplayCandidate {
- $candidate=Artifact $ReplaySuiteRunId 'replay_candidate';$original=Artifact $ReplaySuiteRunId 'replay_facts'
+ $candidate=Artifact $ReplaySuiteRunId 'replay_candidate'
+ if($ReplayCandidateArtifactId -and [string]$candidate.artifact.id -cne $ReplayCandidateArtifactId){throw 'The diagnostic candidate artifact ID differs from its explicit immutable pin.'}
+ $original=Artifact $ReplaySuiteRunId 'replay_facts'
  if($candidate.run.head_sha -cne $original.run.head_sha){throw 'The original candidate and facts source differ.'}
  $reportPath=Join-Path $original.directory 'qualification.json';$report=Get-Item -LiteralPath $reportPath
  if($report.Length -gt 1MB -or ($report.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Bounded original build facts are required.'}
  $record=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json;$version=(Get-Content (Join-Path $source 'VERSION') -Raw).Trim()
  $provenance=ReplayFacts $record $candidate.run $version $ReplaySuiteRunId
+ if($ReplayCandidateSha256 -and $provenance.candidate_sha256 -cne $ReplayCandidateSha256){throw 'The authenticated original candidate facts differ from the explicit diagnostic ZIP hash.'}
  $producerProof=$null
  if($candidate.producer_proof -or $original.producer_proof){
   if(!$candidate.producer_proof -or !$original.producer_proof -or $candidate.artifact.id -eq $original.artifact.id -or ($candidate.producer_proof|ConvertTo-Json -Depth 8 -Compress) -cne ($original.producer_proof|ConvertTo-Json -Depth 8 -Compress) -or $record.state -cne 'failed' -or $record.cleanup -isnot [string] -or $record.cleanup -cnotin 'owned services stopped, SFTP receiver/account removed, hostname removed, activation holds preserved','failed' -or $record.failed_phase -isnot [string] -or $record.failed_phase -cnotin 'fresh installation','native tenant-domain qualification','meeting transport qualification','native acceptance hook','independent trusted recovery fixture','upgrade acceptance hook','backup qualification'){throw 'Terminal-producer replay requires matching immutable jobs and complete final failed qualification facts.'}
@@ -594,6 +604,7 @@ function PrepareReplayCandidate {
  $roots=@(Get-ChildItem -LiteralPath $expanded -Directory);if($roots.Count -ne 1 -or $roots[0].Name -cne ('openwebpbx-'+$version+'-windows-x64')){throw 'The original candidate package root is ambiguous.'}
  $script:candidateArchive=$archive;$facts.artifacts=$provenance;$facts.product_source_commit=$candidate.run.head_sha
  $facts.replay=@{schema=1;original_run=$ReplaySuiteRunId;original_product_source=$candidate.run.head_sha;qualification_source=$env:GITHUB_SHA;original_facts_sha256=(Hash $reportPath);candidate_artifact_digest=$candidate.artifact.digest;facts_artifact_digest=$original.artifact.digest;exact_zip_sha256=$provenance.candidate_sha256;windows_runtime_source_identical=$true;runtime_overlays=$false}
+ if($UpgradeDiagnosticsOnly){$facts.replay.expected_candidate_artifact_id=$ReplayCandidateArtifactId;$facts.replay.expected_candidate_sha256=$ReplayCandidateSha256}
  if($producerProof){$facts.replay.producer_provenance=$producerProof;$facts.replay.candidate_artifact_id=$candidate.artifact.id;$facts.replay.facts_artifact_id=$original.artifact.id}
  return $roots[0].FullName
 }

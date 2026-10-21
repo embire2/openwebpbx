@@ -10,7 +10,7 @@ foreach($name in 'SafeRelative','AssertReplaySourcePaths','ReplayFacts','Artifac
 $checks=0
 function Check([bool]$Value){if(!$Value){throw 'The exact-candidate replay guard failed.'};$script:checks++}
 function Refuses([scriptblock]$Action){$failed=$false;try{& $Action|Out-Null}catch{$failed=$true};Check $failed}
-foreach($path in 'tests/windows_meet_proxy.ps1','tests/owned-qa.py','docs/installing-1.0.20.md','AGENTS.md','README.md','readme.md','3CX.md','packaging/BUILDING.md','.github/workflows/windows-suite.yml','packaging/debian/install-tenant-domains.py'){
+foreach($path in 'tests/windows_meet_proxy.ps1','tests/owned-qa.py','docs/installing-1.0.20.md','AGENTS.md','README.md','readme.md','3CX.md','packaging/BUILDING.md','.github/workflows/windows-suite.yml','.github/workflows/windows-upgrade-diagnostics.yml','.github/workflows/windows-voicemail-diagnostics.yml','packaging/debian/install-tenant-domains.py'){
  AssertReplaySourcePaths @($path);Check $true
 }
 AssertReplaySourcePaths @();Check $true
