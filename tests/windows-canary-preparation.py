@@ -192,7 +192,8 @@ def configure_versions(base: str, target: str) -> None:
         raise ValueError('The canary must be genuinely newer than its baseline.')
     BASE, TARGET = base, target
     NAME = f'openwebpbx-{TARGET}-windows-x64'
-    FAULT_PS = FAULT_PS_TEMPLATE.replace('1.0.13', BASE).replace('1.0.14', TARGET)
+    FAULT_PS = re.sub(r'1\.0\.(13|14)', lambda match: BASE if match[1] == '13' else TARGET,
+                      FAULT_PS_TEMPLATE)
 
 
 def digest(path: Path) -> str:
