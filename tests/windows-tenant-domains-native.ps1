@@ -163,7 +163,7 @@ try{
  }catch{$cleanupFailure=$_;[IO.File]::WriteAllText((Join-Path $work 'cleanup-failure.private.log'),$_.Exception.ToString())}
  if($lock){$lock.Dispose()}
  $facts.checks=$checks.Count;$facts.phase=$phase
- if(!$primaryFailure -and !$cleanupFailure){$facts.state='passed';$facts.phase='complete'}else{$facts.state='failed';$facts.phase=if($cleanupFailure){'cleanup'}else{$failurePhase};$failure=if($cleanupFailure){$cleanupFailure}else{$primaryFailure};$facts.source_line=[Math]::Max(1,[Math]::Min(99999,[int]$failure.InvocationInfo.ScriptLineNumber));$facts.exception_type=$failure.Exception.GetType().Name}
+ if(!$primaryFailure -and !$cleanupFailure){$facts.state='passed';$facts.phase='complete'}else{$facts.state='failed';$facts.phase=if($cleanupFailure){'cleanup'}else{$failurePhase};$failure=if($cleanupFailure){$cleanupFailure}else{$primaryFailure};$facts.source_line=[Math]::Max(1,[Math]::Min(99999,[int]$failure.InvocationInfo.ScriptLineNumber));$facts.exception_type=$failure.Exception.GetType().Name;$basename=if($failure.InvocationInfo.ScriptName){Split-Path -Leaf $failure.InvocationInfo.ScriptName}else{'external_component'};$facts.source_basename=if($basename -cin @('windows-tenant-domains-native.ps1','PublicAccess.Common.ps1','Tenant-Domains.ps1')){$basename}else{'external_component'}}
  [IO.File]::WriteAllText($ReportPath,($facts|ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
 }
 if($facts.state -ne 'passed'){throw 'The actual native tenant-domain gate failed; its bounded report and private recovery evidence were retained.'}
