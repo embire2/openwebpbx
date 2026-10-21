@@ -48,10 +48,26 @@ try{
  $facts.phase='microsoft_runtime';Run (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $source 'packaging/windows/Ensure-Runtime.ps1')) 'runtime'
  $facts.microsoft_runtime_uses_actual_installer=$true;$facts.phase='prerequisites'
  $data=Join-Path $work 'pg-data';$port=([Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0));$port.Start();$number=$port.LocalEndpoint.Port;$port.Stop();$port=[string]$number
+ # PostgreSQL restarts with its restricted setup-user token. Preserve the
+ # old Admin/SYSTEM-only failure, then grant the exact installing SID as the
+ # actual installer does; do not broaden any other path or principal.
+ $legacyData=Join-Path $work 'legacy-pg-data';$legacyRefused=$false
+ try{Run (Join-Path $pg 'initdb.exe') @('-D',$legacyData,'-A','trust','-U','postgres','--encoding=UTF8','--locale=C') 'initdb'}catch{$legacyRefused=$true}
+ if(!$legacyRefused -or $facts.child_exit -ne -1073741515){throw 'The original restricted setup-user ACL refusal was not reproduced.'}
+ $facts.prerequisite_acl_negative=@{exit_code=[int]$facts.child_exit;setup_sid_rule_present=$false}
+ foreach($key in 'child_label','child_exit','child_class'){$facts.Remove($key)}
+ $setupSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+ & icacls.exe $work /grant:r ('*'+$setupSid+':(OI)(CI)F')|Out-Null
+ if($LASTEXITCODE){throw 'The exact setup identity ACL could not be applied.'}
+ $acl=Get-Acl -LiteralPath $work
+ $matches=@($acl.Access|Where-Object {$_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -ceq $setupSid -and $_.AccessControlType -eq 'Allow' -and $_.FileSystemRights.HasFlag([Security.AccessControl.FileSystemRights]::FullControl)})
+ if(!$acl.AreAccessRulesProtected -or $acl.Access.Count -ne 3 -or $matches.Count -ne 1){throw 'The private setup-user ACL is not the exact intended three-principal policy.'}
  Run (Join-Path $pg 'initdb.exe') @('-D',$data,'-A','trust','-U','postgres','--encoding=UTF8','--locale=C') 'initdb'
+ $facts.prerequisite_acl_positive=@{setup_sid_rule_present=$true;initdb_exit=0}
+
  Run (Join-Path $pg 'pg_ctl.exe') @('-D',$data,'-l',(Join-Path $work 'postgres.private.log'),'-o',('-h 127.0.0.1 -p '+$port),'-w','start') 'start';$started=$true
  $configRoot=Join-Path $work 'factory-programdata\fusionpbx';New-Item -ItemType Directory -Path $configRoot|Out-Null
- [IO.File]::WriteAllText((Join-Path $configRoot 'config.conf'),("database.0.type = pgsql`ndatabase.0.host = 127.0.0.1`ndatabase.0.port = $port`ndatabase.0.name = postgres`ndatabase.0.username = postgres`ndatabase.0.password = `n"),[Text.UTF8Encoding]::new($false))
+ [IO.File]::WriteAllText((Join-Path $configRoot 'config.conf'),("document.root = $source`ndatabase.0.type = pgsql`ndatabase.0.host = 127.0.0.1`ndatabase.0.port = $port`ndatabase.0.name = postgres`ndatabase.0.username = postgres`ndatabase.0.password = `n"),[Text.UTF8Encoding]::new($false))
  $facts.phase='actual_native_php';foreach($mode in 'explicit_dsn','factory_config'){$facts.cases+=PhpCase $mode (Join-Path $phpRoot 'php.exe') $port}
  $facts.phase='database_isolation';$sql="select count(*) from pg_namespace where nspname like 'vm_defaults_%'; select count(*) from pg_tables where schemaname='public';"
  $counts=& (Join-Path $pg 'psql.exe') -h 127.0.0.1 -p $port -U postgres -d postgres -A -t -c $sql 2>>"$work\isolation.private.err"
