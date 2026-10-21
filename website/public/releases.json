@@ -5,7 +5,7 @@
     {
       "version": "1.0.19",
       "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.19",
-      "published_at": "2026-10-21T12:09:53.039013+00:00",
+      "published_at": "2026-10-21T12:11:57Z",
       "prerelease": false,
       "scope": "Admin incoming-routing update on Debian16; Android remains18; not a complete server installer",
       "assets": [
