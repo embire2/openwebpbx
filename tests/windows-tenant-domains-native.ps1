@@ -49,7 +49,7 @@ function RestoreTree([string]$Path,$Before){
 }
 function SameTree($A,$B){if($A.exists -ne $B.exists -or $A.files.Count -ne $B.files.Count -or $A.directories.Count -ne $B.directories.Count){return $false};foreach($k in $A.files.Keys){if(!$B.files.ContainsKey($k) -or $A.files[$k].bytes -cne $B.files[$k].bytes -or $A.files[$k].sddl -cne $B.files[$k].sddl){return $false}};foreach($k in $A.directories.Keys){if(!$B.directories.ContainsKey($k) -or $A.directories[$k] -cne $B.directories[$k]){return $false}};return $true}
 function Php([string]$Action){$raw=& "$root\php\php.exe" (Join-Path $PSScriptRoot 'windows-tenant-domains-native.php') $Action $fixtureInputPath 2>>"$work\php.private.log";if($LASTEXITCODE){throw 'The owned tenant-domain database fixture failed.'};return (($raw -join "`n")|ConvertFrom-Json)}
-function Python([string]$Action){$raw=& "$root\backup-runtime\python.exe" -I (Join-Path $PSScriptRoot 'windows-tenant-domains-native.py') $Action $fixtureInputPath 2>>"$work\python.private.log";if($LASTEXITCODE){throw 'The installed tenant-worker primitive failed.'};return (($raw -join "`n")|ConvertFrom-Json)}
+function Python([string]$Action){$raw=& "$root\backup-runtime\python.exe" -I -B (Join-Path $PSScriptRoot 'windows-tenant-domains-native.py') $Action $fixtureInputPath 2>>"$work\python.private.log";if($LASTEXITCODE){throw 'The installed tenant-worker primitive failed.'};return (($raw -join "`n")|ConvertFrom-Json)}
 function Operation([string]$Name,[string]$Thumb='',[string]$InputPath=''){
  $arguments=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',"$root\tools\Tenant-Domains.ps1",'-Operation',$Name)
  if($Thumb){$arguments+=@('-CertificateThumbprint',$Thumb)}
@@ -86,7 +86,7 @@ try{
  Check ($task.Principal.RunLevel -eq 'Highest') 'Actual task runs at the required privilege level'
  Check (@($task.Actions).Count -eq 1) 'Actual task contains only one owned action'
  Check ($task.Actions[0].Execute -ceq "$root\backup-runtime\python.exe") 'Actual task executes the installed isolated Python'
- Check ($task.Actions[0].Arguments -ceq '-I "C:\OpenWebPBX\tools\tenant-domains.py"') 'Actual task uses the exact isolated worker arguments'
+ Check ($task.Actions[0].Arguments -ceq '-I -B "C:\OpenWebPBX\tools\tenant-domains.py"') 'Actual task uses the exact isolated no-bytecode worker arguments'
  Check ($task.Actions[0].WorkingDirectory -ceq "$root\tools") 'Actual task uses the installed tools directory'
  $deadline=[DateTime]::UtcNow.AddSeconds(30);while((Get-ScheduledTask -TaskName $taskName).State -eq 'Running'){if([DateTime]::UtcNow -gt $deadline){throw 'A previous tenant worker did not finish.'};Start-Sleep -Milliseconds 200}
  $saved=SnapshotTree $tenantState;$keyBefore=SaveFile $key;$snapshotComplete=$true
@@ -96,7 +96,7 @@ try{
  $deadline=[DateTime]::UtcNow.AddSeconds(45)
  do{Start-Sleep -Milliseconds 250;$run=Get-ScheduledTaskInfo -TaskName $taskName;$running=(Get-ScheduledTask -TaskName $taskName).State -eq 'Running';if([DateTime]::UtcNow -gt $deadline){throw 'The actual SYSTEM task did not complete under maintenance hold.'}}while($running -or $run.LastRunTime -le $last)
  Check ($run.LastTaskResult -eq 0) 'Actual SYSTEM worker honors the maintenance hold without registry traffic';$facts.system_task=$true
- $heldOutput=& "$root\backup-runtime\python.exe" -I "$root\tools\tenant-domains.py" 2>>"$work\worker.private.log";if($LASTEXITCODE){throw 'The held installed worker failed.'};$heldResult=($heldOutput -join "`n")|ConvertFrom-Json;Check ($heldResult.state -ceq 'deferred' -and $heldResult.reason -ceq 'maintenance_or_restore_hold') 'Actual worker returns the closed maintenance result without contacting the registry'
+ $heldOutput=& "$root\backup-runtime\python.exe" -I -B "$root\tools\tenant-domains.py" 2>>"$work\worker.private.log";if($LASTEXITCODE){throw 'The held installed worker failed.'};$heldResult=($heldOutput -join "`n")|ConvertFrom-Json;Check ($heldResult.state -ceq 'deferred' -and $heldResult.reason -ceq 'maintenance_or_restore_hold') 'Actual worker returns the closed maintenance result without contacting the registry'
  Disable-ScheduledTask -TaskName $taskName|Out-Null
  $lock=[IO.File]::Open((Join-Path $state 'upgrade.lock'),'Open','ReadWrite','None')
  $appHost=Join-Path $env:windir 'System32\inetsrv\config\applicationHost.config';$iisBefore=SaveFile $appHost;$hosts=Join-Path $env:windir 'System32\drivers\etc\hosts';$hostsBefore=SaveFile $hosts;$rootsBefore=@(Get-ChildItem Cert:\LocalMachine\Root|ForEach-Object Thumbprint|Sort-Object);$myBefore=@(Get-ChildItem Cert:\LocalMachine\My|ForEach-Object Thumbprint|Sort-Object)
@@ -109,7 +109,7 @@ try{
  $proof=Python 'proofs';$phase='proof_prepare';$result=Operation 'Prepare';Check ($result.prepared -eq $true) 'Actual packaged Prepare installs the owned proof virtual directory'
  $manager=[Microsoft.Web.Administration.ServerManager]::new();try{$vdir=$manager.Sites['OpenWebPBX'].Applications['/'].VirtualDirectories['/.well-known/openwebpbx-instance'];Check ($vdir -and [IO.Path]::GetFullPath($vdir.PhysicalPath) -ceq (Join-Path $tenantState 'proofs\.well-known\openwebpbx-instance')) 'Actual IIS virtual directory targets owned public proof files'}finally{$manager.Dispose()}
  PrivateAcl (Join-Path $tenantState 'proofs\.well-known\openwebpbx-instance\web.config') $true
- $phase='fixture_certificate';$pki=Start-Process "$root\backup-runtime\python.exe" -ArgumentList @('-I',('"'+(Join-Path $PSScriptRoot 'windows-tenant-domains-native.py')+'"'),'pki',('"'+$fixtureInputPath+'"')) -PassThru -RedirectStandardOutput "$work\pki.private.log" -RedirectStandardError "$work\pki-errors.private.log"
+ $phase='fixture_certificate';$pki=Start-Process "$root\backup-runtime\python.exe" -ArgumentList @('-I','-B',('"'+(Join-Path $PSScriptRoot 'windows-tenant-domains-native.py')+'"'),'pki',('"'+$fixtureInputPath+'"')) -PassThru -RedirectStandardOutput "$work\pki.private.log" -RedirectStandardError "$work\pki-errors.private.log"
  $deadline=[DateTime]::UtcNow.AddSeconds(30);while(!(Test-Path "$work\pki.json")){if($pki.HasExited -or [DateTime]::UtcNow -gt $deadline){throw 'The private fixture certificate server did not start.'};Start-Sleep -Milliseconds 100}
  $pkiInfo=Get-Content "$work\pki.json" -Raw|ConvertFrom-Json
  $rootCert=Import-Certificate -FilePath "$work\root.cer" -CertStoreLocation Cert:\LocalMachine\Root

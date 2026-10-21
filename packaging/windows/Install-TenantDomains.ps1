@@ -17,8 +17,8 @@ try{
  }
  $name='OpenWebPBX-TenantDomains';$description='OpenWeb PBX owned tenant HTTPS lease worker'
  $existing=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
- if($existing -and ($existing.Description -ne $description -or $existing.Principal.UserId -notin 'SYSTEM','S-1-5-18' -or @($existing.Actions).Count -ne 1 -or $existing.Actions[0].Execute -ne "$root\backup-runtime\python.exe" -or $existing.Actions[0].Arguments -cne '-I "C:\OpenWebPBX\tools\tenant-domains.py"' -or $existing.Actions[0].WorkingDirectory -ne "$root\tools")){throw 'The tenant-domain task belongs to another configuration.'}
- $action=New-ScheduledTaskAction -Execute "$root\backup-runtime\python.exe" -Argument '-I "C:\OpenWebPBX\tools\tenant-domains.py"' -WorkingDirectory "$root\tools"
+ if($existing -and ($existing.Description -ne $description -or $existing.Principal.UserId -notin 'SYSTEM','S-1-5-18' -or @($existing.Actions).Count -ne 1 -or $existing.Actions[0].Execute -ne "$root\backup-runtime\python.exe" -or $existing.Actions[0].Arguments -cnotin @('-I "C:\OpenWebPBX\tools\tenant-domains.py"','-I -B "C:\OpenWebPBX\tools\tenant-domains.py"') -or $existing.Actions[0].WorkingDirectory -ne "$root\tools")){throw 'The tenant-domain task belongs to another configuration.'}
+ $action=New-ScheduledTaskAction -Execute "$root\backup-runtime\python.exe" -Argument '-I -B "C:\OpenWebPBX\tools\tenant-domains.py"' -WorkingDirectory "$root\tools"
  $triggers=@((New-ScheduledTaskTrigger -AtStartup),(New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) -RepetitionInterval ([TimeSpan]::FromMinutes(2))))
  $principal=New-ScheduledTaskPrincipal -UserId SYSTEM -LogonType ServiceAccount -RunLevel Highest
  $settings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::FromMinutes(10))
