@@ -7,7 +7,7 @@ function windows_native_fixture_failure_record(Throwable $error,string $inputFil
   if($root===false||$input===false||is_link($inputFile)||!is_file($inputFile)||basename($input)!=='input.json')return false;
   $root=strtolower(rtrim(str_replace('\\','/',$root),'/'));$directory=strtolower(str_replace('\\','/',dirname($input)));
   if(dirname($directory)!==$root||!preg_match('/^[a-f0-9]{24}$/D',basename($directory)))return false;
-  if(!in_array($action,['baseline','discover','cleanup','status','queue-state','job','due','voicemail-login','api','mail-seed'],true))return false;
+  if(!in_array($action,['baseline','discover','cleanup','status','queue-state','job','due','voicemail-login','api','mail-seed','meeting-path-state'],true))return false;
   if(!in_array($stage,['initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh'],true))$stage='initialization';
   $source=basename(str_replace('\\','/',$error->getFile()));
   if(!in_array($source,['windows-native-fixture.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php'],true))$source='external_component';
@@ -26,6 +26,19 @@ function windows_native_mail_response_class(?string $response): string {
  if(preg_match('/(?:could not|failed to) authenticate|authentication failed|535[ -]/i',$response))return 'authentication';
  if(preg_match('/could not connect|failed to connect|connection (?:refused|timed out)|connect\(\) failed|SMTP connect\(\) failed/i',$response))return 'connection';
  return 'other';
+}
+function windows_native_meeting_pg_state(PDO $db): array {
+ $names=['total','active','idle','idle_in_transaction','wait_lock','meeting_select','meeting_update','meeting_insert','meeting_other','meeting_wait_lock'];
+ $out=['observed'=>false,'read_only'=>false,'query_visible'=>false,'counts_capped'=>false,...array_fill_keys($names,0),'error_kind'=>'database'];
+ if($db->inTransaction())return $out;
+ try{
+  $db->exec('begin transaction read only');$db->exec("set local statement_timeout='2000ms'");
+  $row=$db->query("with own_database as (select state,wait_event_type,query,query ~* 'v_pbx_meeting(s|_members)' as meeting from pg_stat_activity where datname=current_database() and pid<>pg_backend_pid()) select count(*) as total,count(*) filter(where state='active') as active,count(*) filter(where state='idle') as idle,count(*) filter(where state like 'idle in transaction%') as idle_in_transaction,count(*) filter(where wait_event_type='Lock') as wait_lock,count(*) filter(where state='active' and meeting and query ~* '^\\s*select\\y') as meeting_select,count(*) filter(where state='active' and meeting and query ~* '^\\s*update\\y') as meeting_update,count(*) filter(where state='active' and meeting and query ~* '^\\s*insert\\y') as meeting_insert,count(*) filter(where state='active' and meeting and query !~* '^\\s*(select|update|insert)\\y') as meeting_other,count(*) filter(where meeting and wait_event_type='Lock') as meeting_wait_lock,count(*) filter(where query is null or query='<insufficient privilege>') as hidden_queries,current_setting('transaction_read_only') as read_only from own_database")->fetch(PDO::FETCH_ASSOC);
+  if(!is_array($row)||($row['read_only']??'')!=='on')throw new RuntimeException('Read-only observer unavailable.');
+  foreach([...$names,'hidden_queries'] as $name){$value=(string)($row[$name]??'');if(!preg_match('/^[0-9]{1,12}$/D',$value))throw new RuntimeException('Observer count unavailable.');if($name!=='hidden_queries'){$out['counts_capped']=$out['counts_capped']||(int)$value>512;$out[$name]=min(512,(int)$value);}}
+  $out['observed']=true;$out['read_only']=true;$out['query_visible']=(int)$row['hidden_queries']===0;$out['error_kind']='none';$db->rollBack();
+ }catch(Throwable $e){if($db->inTransaction())$db->rollBack();$out['error_kind']=$e instanceof PDOException&&(string)$e->getCode()==='57014'?'timeout':'database';}
+ return $out;
 }
 function windows_native_queue_table(string $text): array {
  if(strlen($text)>65536)return [];$lines=preg_split('/\r?\n/',trim($text));$keys=explode('|',array_shift($lines)??'');
@@ -120,6 +133,7 @@ $owned=$s['owned']??null;
 if(!$owned){if($action==='cleanup'){$restoreGlobals();foreach($q('select draft_uuid from v_pbx_setup_drafts where user_uuid=?',[$s['factory_admin']['user_uuid']])->fetchAll(PDO::FETCH_COLUMN) as $id)if(!in_array($id,$s['drafts_before'],true))$q('delete from v_pbx_setup_drafts where draft_uuid=?',[$id]);$factory();echo json_encode(['factory_empty'=>true,'owned_rows'=>0,'owned_contacts'=>0,'original_identity_preserved'=>true,'normal_login_bcrypt_rehash_proved'=>$s['normal_login_bcrypt_rehash_proved']??false,'original_factory_hash_restored'=>$s['original_factory_hash_restored']??false],JSON_THROW_ON_ERROR),PHP_EOL;exit;}throw new RuntimeException('Owned PBX is unavailable.');}
 $fixtureStage='realm_validation';$domain=$owned['domain_uuid'];$realm=$owned['domain_name'];if(!is_uuid($domain)||!preg_match('/^pbx-[a-f0-9]{12}\./D',$realm))throw new RuntimeException('Fixture ownership mismatch.');
 if($q('select domain_name from v_domains where domain_uuid=?',[$domain])->fetchColumn()!==$realm)throw new RuntimeException('Fixture realm mismatch.');
+if($action==='meeting-path-state'){echo json_encode(windows_native_meeting_pg_state($db),JSON_THROW_ON_ERROR),PHP_EOL;exit;}
 $fixtureStage='admin_permissions';$admin=$s['factory_admin'];unset($_SESSION['permissions']);$permissions=(new permissions($database,$admin['domain_uuid'],$admin['user_uuid']))->get_permissions();
 if(empty($permissions['pbx_tenant_manage'])||empty($permissions['pbx_service_create']))throw new RuntimeException('The genuine factory administrator is required.');
 $_SESSION=['authorized'=>true,'user_uuid'=>$admin['user_uuid'],'domain_uuid'=>$domain,'domain_name'=>$realm,'user'=>['domain_uuid'=>$admin['domain_uuid']],'permissions'=>$permissions];

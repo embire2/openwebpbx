@@ -76,6 +76,29 @@ def signaling_fields(record):
     return {'meeting_signaling': safe}
 
 
+def path_fields(record):
+    ws = dict(booleans={'observed','connected','sent','response_received','closed_exact','large_sent','large_response_received'}, integers={'status_code':699,'large_status_code':699,'elapsed_ms':6000}, enums={'phase':{'connect','send','receive','complete','unavailable'},'error_kind':{'none','timeout','tls','websocket','other','unavailable'}})
+    pg = dict(booleans={'observed','read_only','query_visible','counts_capped'}, integers={name:512 for name in ('total','active','idle','idle_in_transaction','wait_lock','meeting_select','meeting_update','meeting_insert','meeting_other','meeting_wait_lock')}, enums={'error_kind':{'none','timeout','database','unavailable'}})
+    http = dict(booleans={'observed','completed','ok'}, integers={'http_status':599,'elapsed_ms':5000}, enums={'member_state':{'waiting','admitted','left','removed','unavailable','other'},'error_kind':{'none','timeout','tls','http','invalid_json','other','unavailable'}})
+    specs={'backend':ws,'frontend':ws,'database':pg,'host_http':http,'guest_http':http}
+    if not isinstance(record,dict) or set(record)!={'before','after'}:
+        return {}
+    safe={}
+    for stage in ('before','after'):
+        row=record[stage]
+        if not isinstance(row,dict) or set(row)!=set(specs):
+            return {}
+        safe[stage]={}
+        for name,spec in specs.items():
+            value=row[name]
+            if not isinstance(value,dict) or set(value)!=spec['booleans']|set(spec['integers'])|set(spec['enums']):
+                return {}
+            if any(type(value[key]) is not bool for key in spec['booleans']) or any(type(value[key]) is not int or not 0<=value[key]<=maximum for key,maximum in spec['integers'].items()) or any(not isinstance(value[key],str) or value[key] not in allowed for key,allowed in spec['enums'].items()):
+                return {}
+            safe[stage][name]=dict(value)
+    return {'meeting_path':safe}
+
+
 def run(fixture):
     if os.name != 'nt' or os.environ.get('OPENWEB_WINDOWS_NATIVE_TEST') != '1' or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted' or os.environ.get('GITHUB_REPOSITORY') != 'embire2/openwebpbx':
         raise RuntimeError('An explicitly disposable Windows native fixture is required')
@@ -102,7 +125,8 @@ def run(fixture):
         raise RuntimeError('The normal authenticated fixture session is unavailable')
     report = fixture.evidence / 'meeting-browser.safe.json'
     settings = fixture.evidence / 'meeting-browser.private.json'
-    settings.write_text(json.dumps(dict(origin=fixture.s['public_url'].rstrip('/'), cookies=cookies, userAgent=session_user_agent(fixture.web.open), subject='Owned Windows video '+fixture.s['scope'], dependencies=str(dependencies), report=str(report))), encoding='utf-8')
+    path_probe=dict(powershell=str(Path(os.environ.get('SystemRoot','C:/Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe'),wssScript=str(fixture.source/'tests/windows-meet-wss-path.ps1'),php=str(fixture.php),fixtureScript=str(fixture.script),fixtureInput=str(fixture.path),caFile=str(fixture.evidence/'fixture-root.pem'))
+    settings.write_text(json.dumps(dict(origin=fixture.s['public_url'].rstrip('/'), cookies=cookies, userAgent=session_user_agent(fixture.web.open), subject='Owned Windows video '+fixture.s['scope'], dependencies=str(dependencies), report=str(report),pathProbe=path_probe)), encoding='utf-8')
     commands.append(('browser', [node, str(fixture.source / 'tests/windows-meet-browser.cjs'), str(settings)]))
     try:
         for phase, command in commands:
@@ -113,6 +137,7 @@ def run(fixture):
                 owner_fields={}
                 observed_media={}
                 observed_signaling={}
+                observed_path={}
                 if phase=='browser' and report.is_file():
                     try:
                         failed=json.loads(report.read_text(encoding='utf-8'))
@@ -121,12 +146,14 @@ def run(fixture):
                             if stage=='owner_page':owner_fields=owner_page_fields(failed.get('owner_page'))
                             if stage in {'decoded_media','mute','unmute','end'}:observed_media=media_fields(failed.get('meeting_media'))
                             if stage in {'host_join','guest_join','admission','decoded_media','mute','unmute','end'}:observed_signaling=signaling_fields(failed.get('meeting_signaling'))
+                            observed_path=path_fields(failed.get('meeting_path'))
                     except (ValueError,OSError):pass
                 fixture.active_case='native_windows_meeting_'+stage
                 error=RuntimeError('The actual Windows meeting '+phase+' qualification did not pass')
                 error.meeting_owner_failure=owner_fields
                 error.meeting_media_failure=observed_media
                 error.meeting_signaling_failure=observed_signaling
+                error.meeting_path_failure=observed_path
                 raise error
         facts = json.loads(report.read_text())
         if facts.get('schema') != 1 or facts.get('state') != 'passed' or len(facts.get('checks', [])) != 7:
