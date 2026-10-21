@@ -1,4 +1,5 @@
 # QA only. Importing this helper performs no server or filesystem operation.
+. (Join-Path $PSScriptRoot 'windows-suite-iis-diagnostics.ps1')
 function Get-SuiteIndependentFailureClass($Failure){
  $depth=0
  for($exception=$Failure.Exception;$exception -and $depth -lt 5;$exception=$exception.InnerException){
@@ -19,10 +20,14 @@ function Assert-SuiteIndependentOrdinary([string]$Path,[bool]$Directory){
 }
 function Get-SuiteIndependentHealth {
  if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){throw 'Disposable hosted independent health checks required.'}
- $result=[ordered]@{schema=1;local_service=$false;trusted_iis=$false;local_class='transport';iis_class='transport';iis_status=0}
+ $result=[ordered]@{schema=1;local_service=$false;local_version_matches=$false;trusted_iis=$false;local_class='transport';iis_class='transport';iis_status=0}
  try{
   $health=Invoke-RestMethod -Uri 'http://127.0.0.1:8087/health' -TimeoutSec 5 -MaximumRedirection 0
   if($health.state -is [string] -and $health.state -ceq 'Running'){$result.local_service=$true;$result.local_class='running'}else{$result.local_class='response'}
+  try{
+   $installationPath=Assert-SuiteIndependentOrdinary (Join-Path $env:ProgramData 'OpenWebPBX\installation.json') $false
+   if((Get-Item -LiteralPath $installationPath).Length -le 65536){$installation=Get-Content -LiteralPath $installationPath -Raw|ConvertFrom-Json;$result.local_version_matches=$health.version -is [string] -and $installation.Version -is [string] -and $health.version -cmatch '^\d+\.\d+\.\d+$' -and $health.version -ceq $installation.Version}
+  }catch{}
  }catch{$result.local_class=Get-SuiteIndependentFailureClass $_}
  $handler=$null;$client=$null;$response=$null;$stream=$null;$sessionRoot=$null;$sessionBefore=$null;$sessionIds=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
  try{
@@ -30,7 +35,7 @@ function Get-SuiteIndependentHealth {
   $sessionBefore=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
   foreach($item in Get-ChildItem -LiteralPath $sessionRoot -File -Force){[void]$sessionBefore.Add($item.Name)}
   $handler=[Net.Http.HttpClientHandler]::new();$handler.AllowAutoRedirect=$false;$handler.UseProxy=$false;$handler.UseCookies=$false
-  $client=[Net.Http.HttpClient]::new($handler);$client.Timeout=[TimeSpan]::FromSeconds(10)
+  $client=[Net.Http.HttpClient]::new($handler);$client.Timeout=[TimeSpan]::FromSeconds(10);$client.MaxResponseContentBufferSize=1MB;$observedAt=[DateTime]::UtcNow
   # Normal operating-system CA, hostname and revocation behavior is retained.
   # No validation callback or insecure transport option is installed.
   $response=$client.GetAsync('https://windowsqa.example.invalid:8443/login.php',[Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
@@ -38,14 +43,16 @@ function Get-SuiteIndependentHealth {
   if($response.Headers.Contains('Set-Cookie')){
    foreach($cookie in $response.Headers.GetValues('Set-Cookie')){foreach($match in [regex]::Matches($cookie,'(?:^|[,;]\s*)PHPSESSID=([a-zA-Z0-9,-]{16,128})(?:;|$)')){[void]$sessionIds.Add($match.Groups[1].Value)}}
   }
-  if($result.iis_status -ne 200){$result.iis_class='http_status'}else{
+  $body=''
+  try{
    $stream=$response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();$bytes=[IO.MemoryStream]::new();$buffer=New-Object byte[] 8192;$cancel=[Threading.CancellationTokenSource]::new(10000)
    try{
     while(($count=$stream.ReadAsync($buffer,0,$buffer.Length,$cancel.Token).GetAwaiter().GetResult()) -gt 0){if($bytes.Length+$count -gt 1MB){throw 'The health response exceeded its bound.'};$bytes.Write($buffer,0,$count)}
     $body=[Text.Encoding]::UTF8.GetString($bytes.ToArray())
    }finally{$cancel.Dispose();$bytes.Dispose()}
-   if($response.Content.Headers.ContentType.MediaType -ceq 'text/html' -and $body -match '<form\b' -and $body -match 'name=["'']username["'']' -and $body -match 'name=["'']password["'']'){$result.trusted_iis=$true;$result.iis_class='ready'}else{$result.iis_class='content'}
-  }
+  }catch{if($result.iis_status -eq 200){throw}}
+  if($result.iis_status -ne 200){$result.iis_class='http_status'}elseif($response.Content.Headers.ContentType.MediaType -ceq 'text/html' -and $body -match '<form\b' -and $body -match 'name=["'']username["'']' -and $body -match 'name=["'']password["'']'){$result.trusted_iis=$true;$result.iis_class='ready'}else{$result.iis_class='content'}
+  if($result.iis_status -ge 500){try{$result.iis_diagnostics=Get-SuiteIndependentIisDiagnostics $observedAt $body $work $client $sessionIds}catch{}}
  }catch{$result.iis_class=Get-SuiteIndependentFailureClass $_}
  finally{
   if($stream){$stream.Dispose()};if($response){$response.Dispose()};if($client){$client.Dispose()}elseif($handler){$handler.Dispose()}
@@ -78,6 +85,8 @@ function TenantDomainsAcceptanceHook([DateTime]$StartedAt){
    $web=Get-SuiteIndependentHealth
    if(($web.schema -isnot [int] -and $web.schema -isnot [long]) -or $web.schema -ne 1 -or $web.local_service -isnot [bool] -or $web.trusted_iis -isnot [bool] -or $web.local_class -isnot [string] -or $web.local_class -cnotin 'running','response','tls','timeout','transport' -or $web.iis_class -isnot [string] -or $web.iis_class -cnotin 'ready','tls','timeout','http_status','content','transport','cleanup_refused' -or ($web.iis_status -isnot [int] -and $web.iis_status -isnot [long]) -or ($web.iis_status -ne 0 -and ($web.iis_status -lt 100 -or $web.iis_status -gt 599))){throw 'The independent health record is invalid.'}
    foreach($name in 'local_service','trusted_iis','local_class','iis_class','iis_status'){$health[$name]=$web.$name}
+   if($web.local_version_matches -is [bool]){$health.local_version_matches=$web.local_version_matches}
+   if($null -ne $web.iis_diagnostics){$diagnostics=ConvertTo-SuiteIisDiagnostics $web.iis_diagnostics;if($null -ne $diagnostics){$health.iis_diagnostics=$diagnostics;if(!$diagnostics.probe.fixture_cleanup){$health.trusted_iis=$false;$health.iis_class='cleanup_refused'}}}
    $facts.tenant_domains_independent_health=$health
    if(!$health.engine_idle -or !$health.local_service -or !$health.trusted_iis -or $health.local_class -cne 'running' -or $health.iis_class -cne 'ready' -or $health.iis_status -ne 200){throw 'Independent idle service and trusted IIS health are not proved.'}
   }catch{$facts.tenant_domains_independent_health=$health;$facts.tenant_domains_continuation='aborted_health';throw $failure}
