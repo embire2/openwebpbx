@@ -1,10 +1,10 @@
 # Install OpenWeb PBX 1.0.20
 
-This complete server build targets **Debian 13 amd64**, with a separately qualified **Windows Server 2025 x64** package. The current Android client remains **1.0.18/code118**. Historical Windows server releases remain available; a native Windows calling app is planned separately. See the [Windows client plan](windows-client-plan.md).
+This complete server build targets **Debian 13 amd64**, with a separate **Windows Server 2025 x64** package that requires its own qualification. The current Android client remains **1.0.18/code118**. Historical Windows server releases remain available; a native Windows calling app is planned separately. See the [Windows client plan](windows-client-plan.md).
 
 Use the matching assets on the [1.0.20 release page](https://github.com/embire2/openwebpbx/releases/tag/v1.0.20) and verify the release status. Check each download against `SHA256SUMS` and extract the entire Debian archive into an empty folder. Current verification and release status are recorded in [feature coverage](feature-coverage.md).
 
-**Qualification is in progress; do not deploy or advertise this candidate as stable until its release is published.**
+**Install only a published package whose release notes record the completed qualification for your platform. Development archives are not stable releases.**
 
 Version 1.0.20 includes admin incoming-route controls, the mandatory Android18 tenant-address support, managed tenant addresses, manual extension/app-password sign-in, separate simultaneous phone profiles and inline-QR/setup-file welcome invitations. Read [tenant phone accounts](tenant-phone-accounts.md) and [the Play submission audit](google-play-audit-1.0.17.md). It retains Meet audio/video conferences, Nathaniel UK default prompts, PIN-free own voicemail on **121**, the repaired GMT+2 clock on **1026**, optional Call Me Back and native Android video. It retains the department roles, phone-handover checks and provider evidence delivered in 1.0.15. Read [Meet](meet.md), [Android video](android-video.md), [staff access](department-staff.md), [phone handover](desk-phone-handover.md) and [first calls](core-calling.md). Physical phone/camera and carrier qualification remain separate.
 
