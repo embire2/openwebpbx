@@ -14,7 +14,23 @@ $scope=[Guid]::NewGuid().ToString('N');$alias='qa-'+$scope+'.openwebpbx.com';$wo
 New-Item -ItemType Directory -Path $work -Force|Out-Null;Set-OpenWebPublicPrivateAcl $work
 $checks=[Collections.Generic.List[string]]::new();$phase='initialization';$lock=$null;$pki=$null;$rootCert=$null;$leaf=$null;$dbPrepared=$false;$holdOwned=$false;$holdRootCreated=$false;$foreign=$null;$firewall=$null;$saved=$null;$keyBefore=$null;$iisBefore=$null;$taskEnabled=$false;$taskXml=$null;$snapshotComplete=$false;$vdirSnapshotTaken=$false;$primaryFailure=$null;$cleanupFailure=$null;$failurePhase='initialization';$sessionIds=[Collections.Generic.List[string]]::new()
 $facts=[ordered]@{schema=1;state='running';case='native_windows_tenant_alias_worker_iis_https';checks=0;system_task=$false;private_acl=$false;static_proof_https=$false;alias_https=$false;foreign_binding_refused=$false;cleanup_exact=$false;actual_acme='unqualified';real_registry_dns_mutations=$false;phase='initialization'}
-function Check([bool]$Value,[string]$Name){if(!$Value){throw "Native tenant-domain control failed: $Name"};$checks.Add($Name)}
+function Check([bool]$Value,[string]$Name){
+ if(!$Value){
+  $failure=[InvalidOperationException]::new("Native tenant-domain control failed: $Name")
+  $caller=@(Get-PSCallStack)[1]
+  if($caller -and $caller.ScriptLineNumber -ge 1 -and $caller.ScriptLineNumber -le 99999){$failure.Data['OpenWebTenantCheckSourceLine']=[int]$caller.ScriptLineNumber}
+  throw $failure
+ }
+ $checks.Add($Name)
+}
+function CheckSourceLine($Failure){
+ $depth=0
+ for($exception=$Failure.Exception;$exception -and $depth -lt 4;$exception=$exception.InnerException){
+  $line=$exception.Data['OpenWebTenantCheckSourceLine'];$depth++
+  if(($line -is [int] -or $line -is [long]) -and $line -ge 1 -and $line -le 99999){return [int]$line}
+ }
+ return [Math]::Max(1,[Math]::Min(99999,[int]$Failure.InvocationInfo.ScriptLineNumber))
+}
 function Refuses([scriptblock]$Action,[string]$Name){$failed=$false;try{& $Action|Out-Null}catch{$failed=$true};Check $failed $Name}
 function SaveFile([string]$Path){if(!(Test-Path -LiteralPath $Path)){return @{exists=$false}};$null=Assert-OpenWebOrdinaryPath $Path;return @{exists=$true;bytes=[Convert]::ToBase64String([IO.File]::ReadAllBytes($Path));sddl=(Get-Acl -LiteralPath $Path).Sddl}}
 function RestoreFile([string]$Path,$Before){if($Before.exists){[IO.File]::WriteAllBytes($Path,[Convert]::FromBase64String($Before.bytes));$acl=[Security.AccessControl.FileSecurity]::new();$acl.SetSecurityDescriptorSddlForm($Before.sddl);Set-Acl -LiteralPath $Path -AclObject $acl}else{if(Test-Path -LiteralPath $Path){$null=Assert-OpenWebOrdinaryPath $Path;Remove-Item -LiteralPath $Path -Force}}}
@@ -163,7 +179,7 @@ try{
  }catch{$cleanupFailure=$_;[IO.File]::WriteAllText((Join-Path $work 'cleanup-failure.private.log'),$_.Exception.ToString())}
  if($lock){$lock.Dispose()}
  $facts.checks=$checks.Count;$facts.phase=$phase
- if(!$primaryFailure -and !$cleanupFailure){$facts.state='passed';$facts.phase='complete'}else{$facts.state='failed';$facts.phase=if($cleanupFailure){'cleanup'}else{$failurePhase};$failure=if($cleanupFailure){$cleanupFailure}else{$primaryFailure};$facts.source_line=[Math]::Max(1,[Math]::Min(99999,[int]$failure.InvocationInfo.ScriptLineNumber));$facts.exception_type=$failure.Exception.GetType().Name;$basename=if($failure.InvocationInfo.ScriptName){Split-Path -Leaf $failure.InvocationInfo.ScriptName}else{'external_component'};$facts.source_basename=if($basename -cin @('windows-tenant-domains-native.ps1','PublicAccess.Common.ps1','Tenant-Domains.ps1')){$basename}else{'external_component'}}
+ if(!$primaryFailure -and !$cleanupFailure){$facts.state='passed';$facts.phase='complete'}else{$facts.state='failed';$facts.phase=if($cleanupFailure){'cleanup'}else{$failurePhase};$failure=if($cleanupFailure){$cleanupFailure}else{$primaryFailure};$facts.source_line=CheckSourceLine $failure;$facts.exception_type=$failure.Exception.GetType().Name;$basename=if($failure.InvocationInfo.ScriptName){Split-Path -Leaf $failure.InvocationInfo.ScriptName}else{'external_component'};$facts.source_basename=if($basename -cin @('windows-tenant-domains-native.ps1','PublicAccess.Common.ps1','Tenant-Domains.ps1')){$basename}else{'external_component'}}
  [IO.File]::WriteAllText($ReportPath,($facts|ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
 }
 if($facts.state -ne 'passed'){throw 'The actual native tenant-domain gate failed; its bounded report and private recovery evidence were retained.'}
