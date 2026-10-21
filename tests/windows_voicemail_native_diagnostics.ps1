@@ -8,15 +8,38 @@ New-Item -ItemType Directory -Path $work,$output|Out-Null
 & icacls.exe $work /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F'|Out-Null
 if($LASTEXITCODE){throw 'Private diagnostic storage required.'}
 $facts=[ordered]@{schema=1;case='native_windows_voicemail_defaults_diagnostic';state='running';source_commit=$env:GITHUB_SHA;product_runtime_modified=$false;cases=@();cleanup='pending';phase='prerequisites'}
-$pg=$null;$started=$false
+$pg=$null;$data=$null;$started=$false
+function Checkpoint {
+ [IO.File]::WriteAllText((Join-Path $output 'qualification.json'),($facts|ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
+}
 function Run([string]$Exe,[string[]]$Arguments,[string]$Label){
- & $Exe @Arguments 1>>"$work\$Label.private.out" 2>>"$work\$Label.private.err"
- if($LASTEXITCODE){
-  $facts.child_label=if($Label -cin @('initdb','start','stop','runtime')){$Label}else{'unknown'};$facts.child_exit=[int]$LASTEXITCODE;$facts.child_class='other'
-  $errorText=[IO.File]::ReadAllText("$work\$Label.private.err")
-  foreach($entry in @(@('administrator','cannot be run as administrator|administrative permissions'),@('permissions','permission denied|access is denied'),@('binaries','same version|could not find.*postgres|could not find.*share|postgres.bki'),@('arguments','invalid option|unrecognized option|not recognized'),@('directory_exists','exists but is not empty'),@('locale','encoding|locale'))){if($errorText -match $entry[1]){$facts.child_class=$entry[0];break}}
-  throw ('Owned diagnostic child failed: '+$Label)
- }
+ $facts.active_child=if($Label -cin @('initdb','start','stop','runtime','extract')){$Label}else{'unknown'};Checkpoint
+ $start=[Diagnostics.ProcessStartInfo]::new((Get-Command $Exe -ErrorAction Stop).Source);$start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+ foreach($argument in $Arguments){$start.ArgumentList.Add($argument)}
+ $process=[Diagnostics.Process]::Start($start);$stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync();$code=$null
+ try{
+  $deadline=if($Label -ceq 'runtime'){180000}else{90000}
+  if(!$process.WaitForExit($deadline)){
+   try{$process.Kill($true);$null=$process.WaitForExit(5000)}catch{}
+   $facts.child_label=$facts.active_child;$facts.child_class='deadline';$facts.child_exit=$null;Checkpoint;throw 'The owned diagnostic child exceeded its closed deadline.'
+  }
+  $code=$process.ExitCode;$outReady=$stdout.Wait(5000);$errReady=$stderr.Wait(5000)
+  if(!$facts.child_streams){$facts.child_streams=@{}};$facts.child_streams[$Label]=@{direct_exit=[int]$code;stdout_closed=[bool]$outReady;stderr_closed=[bool]$errReady}
+  if($outReady){[IO.File]::AppendAllText("$work\$Label.private.out",$stdout.GetAwaiter().GetResult())}
+  if($errReady){[IO.File]::AppendAllText("$work\$Label.private.err",$stderr.GetAwaiter().GetResult())}
+  if($code){
+   $facts.child_label=$facts.active_child;$facts.child_exit=[int]$code;$facts.child_class='other'
+   $errorText=if($errReady){$stderr.GetAwaiter().GetResult()}else{''}
+   foreach($entry in @(@('administrator','cannot be run as administrator|administrative permissions'),@('permissions','permission denied|access is denied'),@('binaries','same version|could not find.*postgres|could not find.*share|postgres.bki'),@('arguments','invalid option|unrecognized option|not recognized'),@('directory_exists','exists but is not empty'),@('locale','encoding|locale'))){if($errorText -match $entry[1]){$facts.child_class=$entry[0];break}}
+   Checkpoint;throw ('Owned diagnostic child failed: '+$Label)
+  }
+  Checkpoint
+ }finally{$process.Dispose()}
+}
+function OwnedPostgres {
+ if(!$data -or !$pg){return @()}
+ $wanted=[IO.Path]::GetFullPath((Join-Path $pg 'postgres.exe'));$directory=[IO.Path]::GetFullPath($data).Replace('/','\')
+ return @(Get-CimInstance Win32_Process -Filter "Name='postgres.exe'"|Where-Object {$_.ExecutablePath -and [IO.Path]::GetFullPath($_.ExecutablePath) -ieq $wanted -and $_.CommandLine -and $_.CommandLine.Replace('/','\').Contains($directory)})
 }
 function StageFixedFixture([string]$Original,[string]$Destination){
  if((Get-FileHash $Original -Algorithm SHA256).Hash.ToLowerInvariant() -cne '0c468f70d5836c4112ce850d168026317c7e6fa094eaa3d066da5097cfd87d45' -or (Test-Path -LiteralPath $Destination)){throw 'The exact preserved original fixture and a new destination are required.'}
@@ -109,7 +132,17 @@ try{
  $facts.state=if($negative -and $positive.Count -eq 3 -and @($positive|Where-Object state -cne 'passed').Count -eq 0){'passed'}else{'failed'}
 }catch{$facts.state='failed';$facts.error_type=$_.Exception.GetType().Name;$facts.source_line=[int]$_.InvocationInfo.ScriptLineNumber}
 finally{
- try{if($started){Run (Join-Path $pg 'pg_ctl.exe') @('-D',(Join-Path $work 'pg-data'),'-m','fast','-w','stop') 'stop';$started=$false};$facts.cleanup='owned private PostgreSQL stopped; no PBX, installed configuration or customer data modified'}catch{$facts.state='failed';$facts.cleanup='failed'}
+ try{
+  $pidFile=if($data){Join-Path $data 'postmaster.pid'}else{$null};$owned=@(OwnedPostgres)
+  if($started -or $owned.Count -or ($pidFile -and (Test-Path -LiteralPath $pidFile))){
+   if(!$data -or [IO.Path]::GetFullPath($data) -cne [IO.Path]::GetFullPath((Join-Path $work 'pg-data'))){throw 'Only the exact owned data directory may be stopped.'}
+   if($pidFile -and (Test-Path -LiteralPath $pidFile)){$item=Get-Item -LiteralPath $pidFile;if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Linked database PID refused.'};$lines=[IO.File]::ReadAllLines($pidFile);if($lines.Count -lt 2 -or [IO.Path]::GetFullPath($lines[1]) -ine [IO.Path]::GetFullPath($data)){throw 'Foreign database PID identity refused.'}}
+   try{Run (Join-Path $pg 'pg_ctl.exe') @('-D',$data,'-m','fast','-w','stop') 'stop'}catch{if(@(OwnedPostgres).Count){throw}}
+   $started=$false
+  }
+  if(@(OwnedPostgres).Count){throw 'An owned private PostgreSQL process is still running.'}
+  $facts.cleanup='owned private PostgreSQL stopped; no PBX, installed configuration or customer data modified'
+ }catch{$facts.state='failed';$facts.cleanup='failed'}
  [IO.File]::WriteAllText((Join-Path $output 'qualification.json'),($facts|ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
 }
 if($facts.state -cne 'passed'){throw 'Native voicemail fixture diagnostic failed; only closed facts are exported.'}
