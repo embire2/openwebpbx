@@ -43,11 +43,14 @@ if ($dsn) {
     if (PHP_OS_FAMILY !== 'Windows' || getenv('OPENWEB_WINDOWS_NATIVE_TEST') !== '1' || getenv('GITHUB_ACTIONS') !== 'true' || getenv('RUNNER_ENVIRONMENT') !== 'github-hosted' || getenv('GITHUB_REPOSITORY') !== 'embire2/openwebpbx') {
         throw new RuntimeException('Supply an explicit disposable PostgreSQL test DSN.');
     }
-    $installed = config::load(rtrim(getenv('ProgramData') ?: 'C:/ProgramData', '/\\').'/fusionpbx/config.conf');
-    $host = $installed->get('database.0.host'); $port = $installed->get('database.0.port'); $name = $installed->get('database.0.name');
-    if ($host !== '127.0.0.1' || !ctype_digit((string)$port) || !preg_match('/^[a-zA-Z0-9_]+$/D', (string)$name)) throw new RuntimeException('Only the disposable local factory database is allowed.');
-    $connection = new PDO('pgsql:host='.$host.';port='.$port.';dbname='.$name, $installed->get('database.0.username'), $installed->get('database.0.password'), [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-    config::$config = null;
+    // Match config::read() INI semantics without its immutable PROJECT_ROOT
+    // side effect; the real singleton below must first load our owned fixture.
+    $installed = parse_ini_file(rtrim(getenv('ProgramData') ?: 'C:/ProgramData', '/\\').'/fusionpbx/config.conf', false);
+    if (!is_array($installed)) throw new RuntimeException('The disposable factory database configuration is unavailable.');
+    $host = $installed['database.0.host'] ?? null; $port = $installed['database.0.port'] ?? null; $name = $installed['database.0.name'] ?? null;
+    $username = $installed['database.0.username'] ?? null; $password = $installed['database.0.password'] ?? null;
+    if ($host !== '127.0.0.1' || !ctype_digit((string)$port) || !preg_match('/^[a-zA-Z0-9_]+$/D', (string)$name) || !is_string($username) || !is_string($password)) throw new RuntimeException('Only the disposable local factory database is allowed.');
+    $connection = new PDO('pgsql:host='.$host.';port='.$port.';dbname='.$name, $username, $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 }
 $schemas = [];
 
