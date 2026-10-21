@@ -19,7 +19,9 @@ CRITICAL_TABLES = (
 LIMIT = 100000
 FILE_FIELDS = ('acl', 'sha256', 'bytes', 'directory', 'added', 'removed', 'shape', 'other')
 FILE_CATEGORIES = ('web', 'server', 'desktop', 'tools', 'updater', 'config',
-                   'notifications', 'media', 'native', 'other')
+                   'notifications', 'media', 'native', 'backup_runtime', 'acme_runtime', 'other')
+ADDED_KINDS = ('python_bytecode', 'dll', 'pyd', 'other_file',
+               'python_cache_directory', 'other_directory', 'shape')
 # Classification only: these public fixed paths never affect equality.
 KNOWN_FILE_PATHS = {
     'c:/programdata/openwebpbx/' + name + '.json': label
@@ -88,7 +90,9 @@ def file_category(path):
     prefixes = (
         ('c:/openwebpbx/web', 'web'), ('c:/openwebpbx/server', 'server'),
         ('c:/openwebpbx/desktop', 'desktop'), ('c:/openwebpbx/tools', 'tools'),
-        ('c:/openwebpbx/updater', 'updater'), ('c:/programdata/fusionpbx', 'config'),
+        ('c:/openwebpbx/updater', 'updater'),
+        ('c:/openwebpbx/backup-runtime', 'backup_runtime'), ('c:/openwebpbx/acme', 'acme_runtime'),
+        ('c:/programdata/fusionpbx', 'config'),
         ('c:/programdata/openwebpbx/mobile-notifications', 'notifications'),
         ('c:/programdata/openwebpbx/storage', 'media'),
         ('c:/program files/freeswitch/sounds/openwebpbx', 'media'),
@@ -110,7 +114,7 @@ def file_difference(before, after, changed):
                for side in (before, after) for name, entry in side.items()):
         return {}
     fields, categories = Counter(), Counter()
-    category_fields, known_fields, scope_fields = {}, {}, {}
+    category_fields, known_fields, scope_fields, added_kinds = {}, {}, {}, {}
     unknown = 0
     for name in changed:
         category = file_category(name) or 'other'
@@ -120,6 +124,18 @@ def file_difference(before, after, changed):
         unknown += label is None
         if name not in before:
             entry_fields = {'added'}
+            entry = after[name]
+            kind = 'shape'
+            if isinstance(entry, dict) and type(entry.get('directory')) is bool:
+                folded = name.replace('\\', '/').casefold() if isinstance(name, str) else ''
+                if entry['directory']:
+                    kind = ('python_cache_directory' if folded.endswith('/__pycache__')
+                            else 'other_directory')
+                else:
+                    kind = ('python_bytecode' if folded.endswith(('.pyc', '.pyo'))
+                            else 'dll' if folded.endswith('.dll')
+                            else 'pyd' if folded.endswith('.pyd') else 'other_file')
+            added_kinds.setdefault(category, Counter())[kind] += 1
         elif name not in after:
             entry_fields = {'removed'}
         else:
@@ -152,6 +168,7 @@ def file_difference(before, after, changed):
         'comparison_known_file_field_counts': {label: {field: min(known_fields[label][field], LIMIT) for field in FILE_FIELDS if known_fields[label][field]} for label in KNOWN_FILE_LABELS if label in known_fields},
         'comparison_unknown_file_entry_count': min(unknown, LIMIT),
         'comparison_config_scope_field_counts': {scope: {field: min(scope_fields[scope][field], LIMIT) for field in FILE_FIELDS if scope_fields[scope][field]} for scope in CONFIG_SCOPES.values() if scope in scope_fields},
+        'comparison_file_category_added_kind_counts': {category: {kind: min(added_kinds[category][kind], LIMIT) for kind in ADDED_KINDS if added_kinds[category][kind]} for category in FILE_CATEGORIES if category in added_kinds},
     }
 
 

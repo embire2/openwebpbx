@@ -199,6 +199,8 @@ def query(settings,sql,*,json_result=False):
         'notifications': r'C:\ProgramData\OpenWebPBX\mobile-notifications\PRIVATE_MORE.json',
         'media': r'C:\ProgramData\OpenWebPBX\storage\PRIVATE_USER\PRIVATE_MORE.wav',
         'native': r'C:\Program Files\FreeSWITCH\conf\PRIVATE_MORE.xml',
+        'backup_runtime': r'C:\OpenWebPBX\backup-runtime\PRIVATE_MORE.pyc',
+        'acme_runtime': r'C:\OpenWebPBX\acme\PRIVATE_MORE.dll',
         'other': r'C:\PRIVATE_ROOT\PRIVATE_USER\PRIVATE_MORE',
     }
     for category, private_path in categories.items():
@@ -284,7 +286,7 @@ foreach($record in (Get-Content -LiteralPath $RecordsPath -Raw|ConvertFrom-Json)
     foreach($bad in 'true',1,$null){$copy=$record.PSObject.Copy();$copy.$field=$bad;AssertControl ($null -eq (ComparisonFields $copy))}
    }
    foreach($bad in '1',$true,-1,100001,1.5,[double]::NaN,[double]::PositiveInfinity){$copy=$record.PSObject.Copy();$copy.comparison_changed_file_entry_count=$bad;AssertControl ($null -eq (ComparisonFields $copy))}
-   foreach($field in 'comparison_files_observed','comparison_changed_file_entry_count','comparison_file_counts_capped','comparison_file_field_counts','comparison_file_category_counts','comparison_file_category_field_counts','comparison_known_file_field_counts','comparison_unknown_file_entry_count','comparison_config_scope_field_counts'){
+   foreach($field in 'comparison_files_observed','comparison_changed_file_entry_count','comparison_file_counts_capped','comparison_file_field_counts','comparison_file_category_counts','comparison_file_category_field_counts','comparison_known_file_field_counts','comparison_unknown_file_entry_count','comparison_config_scope_field_counts','comparison_file_category_added_kind_counts'){
     $copy=$record.PSObject.Copy();$copy.PSObject.Properties.Remove($field);AssertControl ($null -eq (ComparisonFields $copy))
    }
    foreach($field in 'comparison_file_field_counts','comparison_file_category_counts'){
@@ -294,10 +296,11 @@ foreach($record in (Get-Content -LiteralPath $RecordsPath -Raw|ConvertFrom-Json)
     foreach($key in 'PRIVATE_PATH','O:SYG:BAD','C:/PRIVATE_ROOT','ACL','other PRIVATE_VALUE'){$copy=$record.PSObject.Copy();$copy.$field=[pscustomobject]@{};$copy.$field|Add-Member -NotePropertyName $key -NotePropertyValue 1;AssertControl ($null -eq (ComparisonFields $copy))}
    }
    foreach($bad in '1',$true,-1,100001,1.5,[double]::NaN,[double]::PositiveInfinity){$copy=$record.PSObject.Copy();$copy.comparison_unknown_file_entry_count=$bad;AssertControl ($null -eq (ComparisonFields $copy))}
-   foreach($field in 'comparison_file_category_field_counts','comparison_known_file_field_counts','comparison_config_scope_field_counts'){
-    $validKey=switch($field){'comparison_file_category_field_counts'{'config'};'comparison_known_file_field_counts'{'runtime'};default{'automatic_backups'}}
+   foreach($field in 'comparison_file_category_field_counts','comparison_known_file_field_counts','comparison_config_scope_field_counts','comparison_file_category_added_kind_counts'){
+    $validKey=switch($field){'comparison_file_category_field_counts'{'config'};'comparison_known_file_field_counts'{'runtime'};'comparison_config_scope_field_counts'{'automatic_backups'};default{'backup_runtime'}}
+    $validColumn=if($field -ceq 'comparison_file_category_added_kind_counts'){'python_bytecode'}else{'acl'}
     foreach($bad in 'PRIVATE_SDDL',@('acl'),$true,42,$null){$copy=$record.PSObject.Copy();$copy.$field=$bad;AssertControl ($null -eq (ComparisonFields $copy))}
-    foreach($bad in '1',$true,-1,100001,1.5,[double]::NaN,[double]::PositiveInfinity){$copy=$record.PSObject.Copy();$copy.$field=[pscustomobject]@{};$copy.$field|Add-Member -NotePropertyName $validKey -NotePropertyValue ([pscustomobject]@{acl=$bad});AssertControl ($null -eq (ComparisonFields $copy))}
+    foreach($bad in '1',$true,-1,100001,1.5,[double]::NaN,[double]::PositiveInfinity){$copy=$record.PSObject.Copy();$copy.$field=[pscustomobject]@{};$copy.$field|Add-Member -NotePropertyName $validKey -NotePropertyValue ([pscustomobject]@{$validColumn=$bad});AssertControl ($null -eq (ComparisonFields $copy))}
     foreach($key in 'PRIVATE_PATH','C:/PRIVATE_ROOT','ACL','other PRIVATE_VALUE'){$copy=$record.PSObject.Copy();$copy.$field=[pscustomobject]@{};$copy.$field|Add-Member -NotePropertyName $key -NotePropertyValue ([pscustomobject]@{acl=1});AssertControl ($null -eq (ComparisonFields $copy))}
     $copy=$record.PSObject.Copy();$copy.$field=[pscustomobject]@{};$copy.$field|Add-Member -NotePropertyName $validKey -NotePropertyValue ([pscustomobject]@{PRIVATE_FIELD=1});AssertControl ($null -eq (ComparisonFields $copy))
    }
@@ -332,11 +335,14 @@ foreach($mode in 'Standard','Legacy'){
  $fileAfter=$fileBefore|ConvertTo-Json -Depth 10|ConvertFrom-Json -AsHashtable
  $fileAfter['C:\ProgramData\OpenWebPBX\runtime.json'].acl='PRIVATE_CHANGED'
  $fileAfter['C:\ProgramData\OpenWebPBX\automatic-backups\PRIVATE_LOCK']=@{acl='PRIVATE_ACL';sha256='PRIVATE_HASH';bytes=0;directory=$false}
+ $fileAfter['C:\OpenWebPBX\backup-runtime\Lib\PRIVATE_USER\__pycache__']=@{acl='PRIVATE_ACL';directory=$true}
+ $fileAfter['C:\OpenWebPBX\backup-runtime\Lib\PRIVATE_USER\__pycache__\PRIVATE_SOURCE.cpython-314.pyc']=@{acl='PRIVATE_ACL';sha256='PRIVATE_HASH';bytes=0;directory=$false}
  $refused=$false;try{Equal $fileBefore $fileAfter 'The real rollback changed file bytes, original/new-file inventory or owner/DACL.'}catch{$refused=$true}
  AssertControl ($refused -and $comparisonFailure.comparison_result -ceq 'different' -and $comparisonFailure.comparison_stage -ceq 'compare' -and $comparisonFailure.command_exit -eq 1)
- AssertControl ($comparisonFailure.comparison_changed_file_entry_count -eq 2 -and $comparisonFailure.comparison_unknown_file_entry_count -eq 1)
+ AssertControl ($comparisonFailure.comparison_changed_file_entry_count -eq 4 -and $comparisonFailure.comparison_unknown_file_entry_count -eq 3)
  AssertControl ($comparisonFailure.comparison_file_category_field_counts.config.acl -eq 1 -and $comparisonFailure.comparison_file_category_field_counts.config.added -eq 1)
  AssertControl ($comparisonFailure.comparison_known_file_field_counts.runtime.acl -eq 1 -and $comparisonFailure.comparison_config_scope_field_counts.automatic_backups.added -eq 1)
+ AssertControl ($comparisonFailure.comparison_file_category_added_kind_counts.backup_runtime.python_bytecode -eq 1 -and $comparisonFailure.comparison_file_category_added_kind_counts.backup_runtime.python_cache_directory -eq 1 -and $comparisonFailure.comparison_file_category_added_kind_counts.config.other_file -eq 1)
  AssertControl (($comparisonFailure|ConvertTo-Json -Depth 10) -notmatch 'PRIVATE_|S-1-5-21')
  $projected=SafeComparisonFields ([pscustomobject]$comparisonFailure)
  AssertControl ($projected.comparison_known_file_field_counts.runtime.acl -eq 1 -and $projected.comparison_config_scope_field_counts.automatic_backups.added -eq 1)

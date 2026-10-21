@@ -35,6 +35,32 @@ class DiagnosticChecks(unittest.TestCase):
             self.assertNotIn(SENSITIVE, result.stdout)
             return json.loads(result.stdout)
 
+    def test_runtime_added_kinds_are_closed_exact_and_keep_inequality(self):
+        base = {'C:/ProgramData/OpenWebPBX/runtime.json': entry()}
+        additions = {
+            'C:/OpenWebPBX/backup-runtime/Lib/' + SENSITIVE + '/__pycache__': {'acl': SENSITIVE, 'directory': True},
+            'C:/OpenWebPBX/backup-runtime/Lib/' + SENSITIVE + '/__pycache__/private.cpython-314.pyc': entry(),
+            'C:/OpenWebPBX/backup-runtime/Lib/' + SENSITIVE + '/second.pyo': entry(),
+            'C:/OpenWebPBX/backup-runtime/private.dll': entry(),
+            'C:/OpenWebPBX/backup-runtime/private.pyd': entry(),
+            'C:/OpenWebPBX/backup-runtime/private.txt': entry(),
+            'C:/OpenWebPBX/backup-runtime/directory': {'acl': SENSITIVE, 'directory': True},
+            'C:/OpenWebPBX/backup-runtime/invalid.pyc': 'private-shape',
+            'C:/OpenWebPBX/acme/private.dll': entry(),
+        }
+        result = self.run_comparator(base, base | additions)
+        self.assertEqual(result['comparison_changed_file_entry_count'], 9)
+        self.assertEqual(result['comparison_file_category_counts'], {'backup_runtime': 8, 'acme_runtime': 1})
+        self.assertEqual(result['comparison_file_category_added_kind_counts'], {
+            'backup_runtime': {'python_bytecode': 2, 'dll': 1, 'pyd': 1, 'other_file': 1,
+                               'python_cache_directory': 1, 'other_directory': 1, 'shape': 1},
+            'acme_runtime': {'dll': 1}})
+        for near in ('C:/OpenWebPBX/backup-runtime-foreign/private.pyc', 'C:/OpenWebPBX/acme-foreign/private.dll'):
+            result = self.run_comparator(base, base | {near: entry()})
+            self.assertEqual(result['comparison_file_category_counts'], {'other': 1})
+        changed = copy.deepcopy(base); changed[next(iter(base))]['acl'] = 'changed'
+        self.assertEqual(self.run_comparator(base, changed)['comparison_file_category_added_kind_counts'], {})
+
     def test_equal_keeps_original_minimal_report(self):
         value = {'C:/ProgramData/OpenWebPBX/installation.json': entry()}
         row = self.run_comparator(value, copy.deepcopy(value))
