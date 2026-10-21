@@ -2,7 +2,7 @@
 #Requires -Version 7.4
 [CmdletBinding()]
 param(
- [string]$NativeRunId,[string]$EngineRunId,[string]$PackageRoot,
+ [string]$NativeRunId,[string]$EngineRunId,[string]$PackageRoot,[string]$ReplaySuiteRunId,
  [switch]$DisposableHostedRunner,[switch]$UpgradeDiagnosticsOnly,[switch]$BackupsDiagnosticsOnly
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
@@ -21,6 +21,7 @@ function AssertSuiteMode([bool]$DiagnosticOnly,[string]$WorkflowRef,[string]$Wor
  if(!$diagnosticRef -or $WorkflowSha -cnotmatch '^[a-f0-9]{40}$' -or $WorkflowSha -cne $SourceSha -or $ProvidedPackage){throw 'Diagnostic mode requires the exact diagnostic workflow/source and pinned build inputs.'}
 }
 AssertSuiteMode $UpgradeDiagnosticsOnly $env:GITHUB_WORKFLOW_REF $env:GITHUB_WORKFLOW_SHA $env:GITHUB_SHA $PackageRoot $BackupsDiagnosticsOnly
+if($ReplaySuiteRunId -and ($ReplaySuiteRunId -cnotmatch '^[1-9][0-9]{0,19}$' -or $PackageRoot -or $UpgradeDiagnosticsOnly -or $BackupsDiagnosticsOnly)){throw 'Exact candidate replay requires a numeric original full-suite run and no other package or diagnostic mode.'}
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){
  throw 'Run only on the explicitly disposable Windows hosted runner of this repository.'
 }
@@ -413,14 +414,18 @@ function ExpandSafe([string]$Archive,[string]$Destination){
 }
 function Artifact([string]$RunId,[string]$Kind){
  if($RunId -notmatch '^[0-9]+$'){throw 'Artifact run IDs must be numeric.'}
+ if($Kind -cnotin 'native','engine','music','replay_candidate','replay_facts'){throw 'An exact reviewed artifact type is required.'}
+ $replay=$Kind -cin 'replay_candidate','replay_facts'
  $run=Api ('actions/runs/'+$RunId)
- $workflow=if($Kind -eq 'music'){SuiteMusicWorkflow $UpgradeDiagnosticsOnly $BackupsDiagnosticsOnly}else{'.github/workflows/windows-'+$Kind+'.yml'}
+ $workflow=if($replay){'.github/workflows/windows-suite.yml'}elseif($Kind -eq 'music'){SuiteMusicWorkflow $UpgradeDiagnosticsOnly $BackupsDiagnosticsOnly}else{'.github/workflows/windows-'+$Kind+'.yml'}
  if($run.repository.full_name -ne 'embire2/openwebpbx' -or $run.head_repository.full_name -ne 'embire2/openwebpbx' -or $run.event -ne 'workflow_dispatch' -or $run.path -ne $workflow -or $run.head_sha -notmatch '^[a-f0-9]{40}$'){throw 'The input run does not belong to the expected repository workflow.'}
  if($Kind -eq 'music'){if($RunId -ne $env:GITHUB_RUN_ID -or $run.head_sha -ne $env:GITHUB_SHA){throw 'Music must come from this exact suite source.'}}
+ elseif($replay){if($run.status -cne 'completed' -or $run.conclusion -cnotin 'success','failure'){throw 'Replay requires the exact completed original full-suite workflow.'}}
  elseif($run.status -ne 'completed' -or $run.conclusion -ne 'success'){throw 'A source build did not complete successfully.'}
- $prefix=if($Kind -eq 'music'){'openwebpbx-windows-suite-music-'}else{'openwebpbx-windows-'+$Kind+'-'}
+ $prefix=if($replay){'openwebpbx-windows-suite-'+$Kind.Substring(7)+'-'}elseif($Kind -eq 'music'){'openwebpbx-windows-suite-music-'}else{'openwebpbx-windows-'+$Kind+'-'}
  $artifacts=@((Api ('actions/runs/'+$RunId+'/artifacts?per_page=100')).artifacts|Where-Object {$_.name.StartsWith($prefix) -and $_.name.EndsWith('-'+$RunId) -and !$_.expired})
  if($artifacts.Count -ne 1 -or $artifacts[0].digest -notmatch '^sha256:[a-f0-9]{64}$' -or $artifacts[0].size_in_bytes -gt 8GB){throw 'One bounded hash-verified artifact is required.'}
+ if($replay -and $artifacts[0].name -cne ($prefix+$RunId)){throw 'Replay requires the exact original artifact name.'}
  $artifact=$artifacts[0];$archive=Join-Path $work ($Kind+'.zip')
  # Authorization is sent only to api.github.com. Follow its one-minute signed
  # HTTPS storage URL with a separate client that has no repository token.
@@ -478,6 +483,44 @@ function PreparePackage {
  $expanded=Join-Path $work 'expanded';PrivateDirectory $expanded;ExpandSafe $archives[0].FullName $expanded
  $roots=@(Get-ChildItem $expanded -Directory);if($roots.Count -ne 1){throw 'The candidate package has an ambiguous root.'}
  $facts.artifacts=@{native_run=$NativeRunId;native_digest=$native.artifact.digest;engine_run=$EngineRunId;engine_digest=$engine.artifact.digest;music_digest=$music.artifact.digest;candidate_sha256=(Hash $archives[0].FullName)}
+ return $roots[0].FullName
+}
+function AssertReplaySourcePaths([string[]]$Paths){
+ foreach($path in $Paths){
+  $null=SafeRelative $path
+  if($path -cin 'tests/pbx_bcg729_codec.c','tests/pbx_windows_pthread.c'){throw 'Pinned native-engine recipe inputs changed; rebuild the candidate.'}
+  $nonWindows=$path.StartsWith('packaging/debian/',[StringComparison]::Ordinal) -and $path -cnotin 'packaging/debian/tenant-domains.py','packaging/debian/tenant-domains.php'
+  if($path.StartsWith('tests/',[StringComparison]::Ordinal) -or $path.StartsWith('docs/',[StringComparison]::Ordinal) -or $nonWindows -or $path -cin 'AGENTS.md','README.md','readme.md','3CX.md','packaging/BUILDING.md','.github/workflows/windows-suite.yml'){continue}
+  throw 'Windows runtime, native input or package source changed; rebuild the candidate instead of replaying it.'
+ }
+}
+function ReplayFacts($Record,$Run,[string]$Version,[string]$OriginalRunId){
+ if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.run_id -isnot [string] -or $Record.run_id -cne $OriginalRunId -or $Record.source_commit -isnot [string] -or $Record.source_commit -cne $Run.head_sha -or $Record.state -isnot [string] -or $Record.state -cnotin 'failed','partial','passed' -or @($Record.PSObject.Properties.Name|Where-Object {$_ -cin 'replay','product_source_commit'}).Count){throw 'Replay requires exact original build facts without a replay chain.'}
+ $export=$Record.candidate_artifact;$artifact=$Record.artifacts
+ if($export.filename -isnot [string] -or $export.filename -cne ('openwebpbx-'+$Version+'-windows-x64.zip') -or $export.sha256 -isnot [string] -or $export.sha256 -cnotmatch '^[a-f0-9]{64}$' -or $artifact.candidate_sha256 -isnot [string] -or $export.sha256 -cne $artifact.candidate_sha256 -or $export.verified_before_credentials -isnot [bool] -or !$export.verified_before_credentials -or $export.private_exclusions -isnot [string] -or $export.private_exclusions -cne 'passed'){throw 'Both original candidate hashes and the pre-credential export must agree.'}
+ $safe=@{candidate_sha256=$export.sha256}
+ foreach($name in 'native_run','engine_run'){if($artifact.$name -isnot [string] -or $artifact.$name -cnotmatch '^[1-9][0-9]{0,19}$'){throw 'The original native build identity is incomplete.'};$safe[$name]=$artifact.$name}
+ foreach($name in 'native_digest','engine_digest','music_digest'){if($artifact.$name -isnot [string] -or $artifact.$name -cnotmatch '^sha256:[a-f0-9]{64}$'){throw 'The original build artifact identity is incomplete.'};$safe[$name]=$artifact.$name}
+ return $safe
+}
+function PrepareReplayCandidate {
+ $candidate=Artifact $ReplaySuiteRunId 'replay_candidate';$original=Artifact $ReplaySuiteRunId 'replay_facts'
+ if($candidate.run.head_sha -cne $original.run.head_sha){throw 'The original candidate and facts source differ.'}
+ $reportPath=Join-Path $original.directory 'qualification.json';$report=Get-Item -LiteralPath $reportPath
+ if($report.Length -gt 1MB -or ($report.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Bounded original build facts are required.'}
+ $record=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json;$version=(Get-Content (Join-Path $source 'VERSION') -Raw).Trim()
+ $provenance=ReplayFacts $record $candidate.run $version $ReplaySuiteRunId
+ & git -C $source fetch --quiet --no-tags --depth=1 https://github.com/embire2/openwebpbx.git $candidate.run.head_sha
+ if($LASTEXITCODE){throw 'The immutable original product source is unavailable.'}
+ $changed=@(& git -C $source diff --name-only --no-renames $candidate.run.head_sha $env:GITHUB_SHA --)
+ if($LASTEXITCODE){throw 'The original and current source trees could not be compared.'};AssertReplaySourcePaths $changed
+ $filename=$record.candidate_artifact.filename;$archive=Join-Path $candidate.directory $filename
+ if((Hash $archive) -cne $provenance.candidate_sha256 -or [IO.File]::ReadAllText((Join-Path $candidate.directory 'SHA256SUMS')) -cne ($provenance.candidate_sha256+'  '+$filename+"`n")){throw 'The untouched original candidate ZIP and checksum differ.'}
+ CheckedPython @((Join-Path $PSScriptRoot 'windows_candidate_archive.py'),'--archive',$archive,'--version',$version,'--sha256',$provenance.candidate_sha256)
+ $expanded=Join-Path $work 'replayed-candidate';PrivateDirectory $expanded;ExpandSafe $archive $expanded
+ $roots=@(Get-ChildItem -LiteralPath $expanded -Directory);if($roots.Count -ne 1 -or $roots[0].Name -cne ('openwebpbx-'+$version+'-windows-x64')){throw 'The original candidate package root is ambiguous.'}
+ $script:candidateArchive=$archive;$facts.artifacts=$provenance;$facts.product_source_commit=$candidate.run.head_sha
+ $facts.replay=@{schema=1;original_run=$ReplaySuiteRunId;original_product_source=$candidate.run.head_sha;qualification_source=$env:GITHUB_SHA;original_facts_sha256=(Hash $reportPath);candidate_artifact_digest=$candidate.artifact.digest;facts_artifact_digest=$original.artifact.digest;exact_zip_sha256=$provenance.candidate_sha256;windows_runtime_source_identical=$true;runtime_overlays=$false}
  return $roots[0].FullName
 }
 function ExportOriginalCandidate($Release){
@@ -800,7 +843,7 @@ try{
  PrivateDirectory $work;PublishFacts
  if((Test-Path "$configuration\config.conf") -or (Test-Path "$state\installation.json") -or (Get-Service OpenWebPBX -ErrorAction SilentlyContinue)){throw 'The ephemeral machine already contains a PBX; it is not an empty suite target.'}
  CheckedPython @((Join-Path $source 'tests/windows_voice_installer.py'))
- if(!$PackageRoot){$PackageRoot=PreparePackage}
+ if($ReplaySuiteRunId){$PackageRoot=PrepareReplayCandidate}elseif(!$PackageRoot){$PackageRoot=PreparePackage}
  Remove-Item Env:\GH_TOKEN -ErrorAction SilentlyContinue
  $PackageRoot=[IO.Path]::GetFullPath($PackageRoot);$release=Get-Content (Join-Path $PackageRoot 'release-manifest.json') -Raw|ConvertFrom-Json
  if($release.version -ne (Get-Content (Join-Path $source 'VERSION') -Raw).Trim()){throw 'The candidate package release differs from source.'}

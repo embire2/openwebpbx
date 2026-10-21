@@ -11,6 +11,11 @@ on:
         description: Successful pinned Windows engine build run from this repository
         required: true
         type: string
+      replay_suite_run_id:
+        description: Optional original full-suite run; reuses its untouched ZIP only when Windows runtime sources are identical
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -84,12 +89,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NATIVE_RUN_ID: ${{ inputs.native_run_id }}
           ENGINE_RUN_ID: ${{ inputs.engine_run_id }}
+          REPLAY_SUITE_RUN_ID: ${{ inputs.replay_suite_run_id }}
         run: |
           $ErrorActionPreference='Stop'
           if($env:NATIVE_RUN_ID -notmatch '^[0-9]+$' -or $env:ENGINE_RUN_ID -notmatch '^[0-9]+$'){throw 'Both inputs must be numeric run IDs.'}
+          if($env:REPLAY_SUITE_RUN_ID -and $env:REPLAY_SUITE_RUN_ID -cnotmatch '^[1-9][0-9]{0,19}$'){throw 'The optional replay run must be numeric.'}
           & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_task_security.ps1
           if($LASTEXITCODE){throw 'Native task security controls failed before server qualification.'}
-          & tests/windows-suite.ps1 -NativeRunId $env:NATIVE_RUN_ID -EngineRunId $env:ENGINE_RUN_ID -DisposableHostedRunner
+          & tests/windows-suite.ps1 -NativeRunId $env:NATIVE_RUN_ID -EngineRunId $env:ENGINE_RUN_ID -ReplaySuiteRunId $env:REPLAY_SUITE_RUN_ID -DisposableHostedRunner
           if(!$?){throw 'Windows qualification did not finish.'}
       - name: Store only credential-free acceptance facts
         if: always()
