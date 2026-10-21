@@ -16,6 +16,11 @@ on:
         required: false
         default: ''
         type: string
+      replay_terminal_producers:
+        description: Explicitly accept exact completed producer jobs when the original run-level status is stale; never qualifies the original PBX
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -90,13 +95,16 @@ jobs:
           NATIVE_RUN_ID: ${{ inputs.native_run_id }}
           ENGINE_RUN_ID: ${{ inputs.engine_run_id }}
           REPLAY_SUITE_RUN_ID: ${{ inputs.replay_suite_run_id }}
+          REPLAY_TERMINAL_PRODUCERS: ${{ inputs.replay_terminal_producers }}
         run: |
           $ErrorActionPreference='Stop'
           if($env:NATIVE_RUN_ID -notmatch '^[0-9]+$' -or $env:ENGINE_RUN_ID -notmatch '^[0-9]+$'){throw 'Both inputs must be numeric run IDs.'}
           if($env:REPLAY_SUITE_RUN_ID -and $env:REPLAY_SUITE_RUN_ID -cnotmatch '^[1-9][0-9]{0,19}$'){throw 'The optional replay run must be numeric.'}
           & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_task_security.ps1
           if($LASTEXITCODE){throw 'Native task security controls failed before server qualification.'}
-          & tests/windows-suite.ps1 -NativeRunId $env:NATIVE_RUN_ID -EngineRunId $env:ENGINE_RUN_ID -ReplaySuiteRunId $env:REPLAY_SUITE_RUN_ID -DisposableHostedRunner
+          $producerOptions=@{}
+          if($env:REPLAY_TERMINAL_PRODUCERS -ceq 'true'){$producerOptions.ReplayTerminalProducers=$true}
+          & tests/windows-suite.ps1 -NativeRunId $env:NATIVE_RUN_ID -EngineRunId $env:ENGINE_RUN_ID -ReplaySuiteRunId $env:REPLAY_SUITE_RUN_ID @producerOptions -DisposableHostedRunner
           if(!$?){throw 'Windows qualification did not finish.'}
       - name: Store only credential-free acceptance facts
         if: always()

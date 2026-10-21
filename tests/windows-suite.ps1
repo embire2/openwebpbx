@@ -3,7 +3,7 @@
 [CmdletBinding()]
 param(
  [string]$NativeRunId,[string]$EngineRunId,[string]$PackageRoot,[string]$ReplaySuiteRunId,
- [switch]$DisposableHostedRunner,[switch]$UpgradeDiagnosticsOnly,[switch]$BackupsDiagnosticsOnly
+ [switch]$DisposableHostedRunner,[switch]$UpgradeDiagnosticsOnly,[switch]$BackupsDiagnosticsOnly,[switch]$ReplayTerminalProducers
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 function SuiteMusicWorkflow([bool]$DiagnosticOnly,[bool]$BackupDiagnosticOnly=$false){
@@ -22,6 +22,7 @@ function AssertSuiteMode([bool]$DiagnosticOnly,[string]$WorkflowRef,[string]$Wor
 }
 AssertSuiteMode $UpgradeDiagnosticsOnly $env:GITHUB_WORKFLOW_REF $env:GITHUB_WORKFLOW_SHA $env:GITHUB_SHA $PackageRoot $BackupsDiagnosticsOnly
 if($ReplaySuiteRunId -and ($ReplaySuiteRunId -cnotmatch '^[1-9][0-9]{0,19}$' -or $PackageRoot -or $UpgradeDiagnosticsOnly -or $BackupsDiagnosticsOnly)){throw 'Exact candidate replay requires a numeric original full-suite run and no other package or diagnostic mode.'}
+if($ReplayTerminalProducers -and !$ReplaySuiteRunId){throw 'Terminal-producer provenance is available only for an explicit original candidate replay.'}
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){
  throw 'Run only on the explicitly disposable Windows hosted runner of this repository.'
 }
@@ -35,6 +36,7 @@ $domain='windowsqa.example.invalid';$installed=$false;$hostAdded=$false;$sftp=$n
 $recoveryPki=$null
 . (Join-Path $PSScriptRoot 'windows-suite-pki.ps1')
 . (Join-Path $PSScriptRoot 'windows-upgrade-lock-observer.ps1')
+. (Join-Path $PSScriptRoot 'windows-suite-independent.ps1')
 $facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';backups='pending';native_sip_audio='unqualified';tenant_domains='unqualified';meeting_transport='unqualified';meeting_browser='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
 if($UpgradeDiagnosticsOnly){$facts.mode='upgrade_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Post-native state is not reproduced.'}
 elseif($BackupsDiagnosticsOnly){$facts.mode='backup_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Native, upgrade and post-native state are not reproduced.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false}
@@ -412,6 +414,32 @@ function ExpandSafe([string]$Archive,[string]$Destination){
   }
  }finally{$zip.Dispose()}
 }
+function TerminalReplayProducers($Run,$Jobs,[string]$RunId){
+ foreach($field in 'status','event','path','head_sha'){if($Run.$field -isnot [string]){throw 'The original producer run fields must be scalar.'}}
+ foreach($repository in @($Run.repository,$Run.head_repository)){if($repository.full_name -isnot [string] -or ($repository.id -isnot [int] -and $repository.id -isnot [long])){throw 'Exact typed repository identities are required.'}}
+ if(($Run.run_attempt -isnot [int] -and $Run.run_attempt -isnot [long]) -or $Run.run_attempt -ne 1 -or ($Run.id -isnot [int] -and $Run.id -isnot [long]) -or [string]$Run.id -cne $RunId -or $Run.status -cne 'in_progress' -or $null -ne $Run.conclusion -or $Run.repository.full_name -cne 'embire2/openwebpbx' -or $Run.head_repository.full_name -cne 'embire2/openwebpbx' -or $Run.repository.id -ne 1406074259 -or $Run.head_repository.id -ne 1406074259 -or $Run.event -cne 'workflow_dispatch' -or $Run.path -cne '.github/workflows/windows-suite.yml' -or $Run.head_sha -isnot [string] -or $Run.head_sha -cnotmatch '^[a-f0-9]{40}$'){throw 'Only the exact original attempt with honestly pending run-level metadata may use terminal-producer provenance.'}
+ if(($Jobs.total_count -isnot [int] -and $Jobs.total_count -isnot [long]) -or $Jobs.total_count -ne 2 -or $Jobs.jobs -isnot [array] -or $Jobs.jobs.Count -ne 2){throw 'Exactly the two declared original producer jobs must be terminal.'}
+ $ids=@();$seen=@{}
+ foreach($job in $Jobs.jobs){
+  foreach($field in 'status','head_sha','conclusion'){if($job.$field -isnot [string]){throw 'The original producer job fields must be scalar.'}}
+  if($job.name -isnot [string] -or $job.name -cnotin 'music','suite' -or $seen.ContainsKey($job.name) -or $job.status -cne 'completed' -or $job.head_sha -cne $Run.head_sha -or ($job.run_attempt -isnot [int] -and $job.run_attempt -isnot [long]) -or $job.run_attempt -ne 1 -or ($job.run_id -isnot [int] -and $job.run_id -isnot [long]) -or [string]$job.run_id -cne $RunId -or ($job.id -isnot [int] -and $job.id -isnot [long]) -or $job.id -lt 1){throw 'The original declared job identity, source, attempt or terminal state is invalid.'}
+  $seen[$job.name]=$true;$ids+=[ordered]@{name=$job.name;id=$job.id}
+  $label=if($job.name -ceq 'music'){'ubuntu-22.04'}else{'windows-2025'};$conclusion=if($job.name -ceq 'music'){'success'}else{'failure'}
+  if($job.conclusion -cne $conclusion -or $job.labels -isnot [array] -or $job.labels.Count -ne 1 -or $job.labels[0] -cne $label -or $job.steps -isnot [array] -or $job.steps.Count -lt 4 -or $job.steps.Count -gt 24){throw 'The exact original hosted producer and its final failed/successful outcome are required.'}
+  $required=if($job.name -ceq 'music'){@('Stage the immutable public Nathaniel system prompts','Store only canonical prepared audio and build provenance')}else{@('Store only credential-free acceptance facts','Preserve only the original verified candidate package and checksum')}
+  foreach($name in $required){$steps=@($job.steps|Where-Object {$_.name -ceq $name});if($steps.Count -ne 1 -or $steps[0].status -cne 'completed' -or $steps[0].conclusion -cne 'success'){throw 'Every immutable original producer export must have completed successfully.'}}
+  $failed=0
+  foreach($step in $job.steps){if($step.name -isnot [string] -or $step.status -isnot [string] -or $step.conclusion -isnot [string] -or $step.status -cne 'completed' -or $step.conclusion -cnotin 'success','failure'){throw 'Pending, cancelled, skipped or incomplete original producer steps refuse.'};if($step.conclusion -ceq 'failure'){if($job.name -cne 'suite' -or $step.name -cne 'Verify build inputs and qualify the isolated server'){throw 'Only the declared original PBX qualification failure is allowed.'};$failed++}}
+  if($failed -ne $(if($job.name -ceq 'suite'){1}else{0})){throw 'The original producer job failures do not match its final qualification facts.'}
+ }
+ if($ids[0].id -eq $ids[1].id){throw 'Distinct immutable producer job identities are required.'}
+ return [ordered]@{schema=1;readiness='terminal_producer_jobs';original_run_status='in_progress';original_run_conclusion='unreported';attempt=1;jobs=@($ids|Sort-Object name)}
+}
+function AssertTerminalReplayArtifact($Artifact,$Run){
+ $binding=$Artifact.workflow_run
+ foreach($value in @($Artifact.id,$Artifact.size_in_bytes,$binding.id,$binding.repository_id,$binding.head_repository_id)){if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt 1){throw 'Typed immutable V4 artifact and producer identities are required.'}}
+ if($Artifact.size_in_bytes -gt 8GB -or $Artifact.expired -isnot [bool] -or $Artifact.expired -or $Artifact.digest -isnot [string] -or $Artifact.digest -cnotmatch '^sha256:[a-f0-9]{64}$' -or $binding.id -ne $Run.id -or $binding.head_sha -isnot [string] -or $binding.head_sha -cne $Run.head_sha -or $binding.repository_id -ne 1406074259 -or $binding.head_repository_id -ne 1406074259){throw 'The immutable original V4 artifact does not belong to the exact declared producer source.'}
+}
 function Artifact([string]$RunId,[string]$Kind){
  if($RunId -notmatch '^[0-9]+$'){throw 'Artifact run IDs must be numeric.'}
  if($Kind -cnotin 'native','engine','music','replay_candidate','replay_facts'){throw 'An exact reviewed artifact type is required.'}
@@ -419,7 +447,10 @@ function Artifact([string]$RunId,[string]$Kind){
  $run=Api ('actions/runs/'+$RunId)
  $workflow=if($replay){'.github/workflows/windows-suite.yml'}elseif($Kind -eq 'music'){SuiteMusicWorkflow $UpgradeDiagnosticsOnly $BackupsDiagnosticsOnly}else{'.github/workflows/windows-'+$Kind+'.yml'}
  if($run.repository.full_name -ne 'embire2/openwebpbx' -or $run.head_repository.full_name -ne 'embire2/openwebpbx' -or $run.event -ne 'workflow_dispatch' -or $run.path -ne $workflow -or $run.head_sha -notmatch '^[a-f0-9]{40}$'){throw 'The input run does not belong to the expected repository workflow.'}
- if($replay){
+ $producerProof=$null
+ if($replay -and $ReplayTerminalProducers -and $run.status -cne 'completed'){
+  $producerProof=TerminalReplayProducers $run (Api ('actions/runs/'+$RunId+'/jobs?per_page=100')) $RunId
+ }elseif($replay){
   # GitHub may publish both completed jobs/artifacts before its run-level
   # terminal state. Wait boundedly; never infer completion from an artifact.
   $originalHead=$run.head_sha;$deadline=[DateTime]::UtcNow.AddMinutes(10)
@@ -429,12 +460,13 @@ function Artifact([string]$RunId,[string]$Kind){
   }
  }
  if($Kind -eq 'music'){if($RunId -ne $env:GITHUB_RUN_ID -or $run.head_sha -ne $env:GITHUB_SHA){throw 'Music must come from this exact suite source.'}}
- elseif($replay){if($run.status -cne 'completed' -or $run.conclusion -cnotin 'success','failure'){throw 'Replay requires the exact completed original full-suite workflow.'}}
+ elseif($replay){if(!$producerProof -and ($run.status -cne 'completed' -or $run.conclusion -cnotin 'success','failure')){throw 'Replay requires the exact completed original full-suite workflow or explicit terminal-producer provenance.'}}
  elseif($run.status -ne 'completed' -or $run.conclusion -ne 'success'){throw 'A source build did not complete successfully.'}
  $prefix=if($replay){'openwebpbx-windows-suite-'+$Kind.Substring(7)+'-'}elseif($Kind -eq 'music'){'openwebpbx-windows-suite-music-'}else{'openwebpbx-windows-'+$Kind+'-'}
  $artifacts=@((Api ('actions/runs/'+$RunId+'/artifacts?per_page=100')).artifacts|Where-Object {$_.name.StartsWith($prefix) -and $_.name.EndsWith('-'+$RunId) -and !$_.expired})
  if($artifacts.Count -ne 1 -or $artifacts[0].digest -notmatch '^sha256:[a-f0-9]{64}$' -or $artifacts[0].size_in_bytes -gt 8GB){throw 'One bounded hash-verified artifact is required.'}
  if($replay -and $artifacts[0].name -cne ($prefix+$RunId)){throw 'Replay requires the exact original artifact name.'}
+ if($producerProof){AssertTerminalReplayArtifact $artifacts[0] $run}
  $artifact=$artifacts[0];$archive=Join-Path $work ($Kind+'.zip')
  # Authorization is sent only to api.github.com. Follow its one-minute signed
  # HTTPS storage URL with a separate client that has no repository token.
@@ -446,7 +478,7 @@ function Artifact([string]$RunId,[string]$Kind){
  Invoke-WebRequest -Uri $location -MaximumRedirection 0 -OutFile $archive
  if((Get-Item $archive).Length -ne $artifact.size_in_bytes -or (Hash $archive) -ne $artifact.digest.Substring(7)){throw 'The GitHub artifact archive digest differs.'}
  $destination=Join-Path $work $Kind;PrivateDirectory $destination;ExpandSafe $archive $destination
- return @{directory=$destination;run=$run;artifact=$artifact}
+ return @{directory=$destination;run=$run;artifact=$artifact;producer_proof=$producerProof}
 }
 function VerifyInventory([string]$Directory,$Files){
  $count=0;$seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -519,6 +551,11 @@ function PrepareReplayCandidate {
  if($report.Length -gt 1MB -or ($report.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Bounded original build facts are required.'}
  $record=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json;$version=(Get-Content (Join-Path $source 'VERSION') -Raw).Trim()
  $provenance=ReplayFacts $record $candidate.run $version $ReplaySuiteRunId
+ $producerProof=$null
+ if($candidate.producer_proof -or $original.producer_proof){
+  if(!$candidate.producer_proof -or !$original.producer_proof -or $candidate.artifact.id -eq $original.artifact.id -or ($candidate.producer_proof|ConvertTo-Json -Depth 8 -Compress) -cne ($original.producer_proof|ConvertTo-Json -Depth 8 -Compress) -or $record.state -cne 'failed' -or $record.cleanup -isnot [string] -or $record.cleanup -cnotin 'owned services stopped, SFTP receiver/account removed, hostname removed, activation holds preserved','failed' -or $record.failed_phase -isnot [string] -or $record.failed_phase -cnotin 'fresh installation','native tenant-domain qualification','meeting transport qualification','native acceptance hook','independent trusted recovery fixture','upgrade acceptance hook','backup qualification'){throw 'Terminal-producer replay requires matching immutable jobs and complete final failed qualification facts.'}
+  $producerProof=$candidate.producer_proof;$producerProof.original_instance_cleanup=$record.cleanup
+ }
  & git -C $source fetch --quiet --no-tags --depth=1 https://github.com/embire2/openwebpbx.git $candidate.run.head_sha
  if($LASTEXITCODE){throw 'The immutable original product source is unavailable.'}
  $changed=@(& git -C $source diff --name-only --no-renames $candidate.run.head_sha $env:GITHUB_SHA --)
@@ -530,6 +567,7 @@ function PrepareReplayCandidate {
  $roots=@(Get-ChildItem -LiteralPath $expanded -Directory);if($roots.Count -ne 1 -or $roots[0].Name -cne ('openwebpbx-'+$version+'-windows-x64')){throw 'The original candidate package root is ambiguous.'}
  $script:candidateArchive=$archive;$facts.artifacts=$provenance;$facts.product_source_commit=$candidate.run.head_sha
  $facts.replay=@{schema=1;original_run=$ReplaySuiteRunId;original_product_source=$candidate.run.head_sha;qualification_source=$env:GITHUB_SHA;original_facts_sha256=(Hash $reportPath);candidate_artifact_digest=$candidate.artifact.digest;facts_artifact_digest=$original.artifact.digest;exact_zip_sha256=$provenance.candidate_sha256;windows_runtime_source_identical=$true;runtime_overlays=$false}
+ if($producerProof){$facts.replay.producer_provenance=$producerProof;$facts.replay.candidate_artifact_id=$candidate.artifact.id;$facts.replay.facts_artifact_id=$original.artifact.id}
  return $roots[0].FullName
 }
 function ExportOriginalCandidate($Release){
@@ -903,7 +941,7 @@ try{
  & (Join-Path $PackageRoot 'Install-NativeEngine.ps1') -PackageRoot $PackageRoot -Check
  if(!$?){throw 'The installed native call-engine inventory differs.'}
  $facts.gates.fresh='passed';$facts.checks+=('Real restore-ready fresh installation/services/native engine hash preservation')
- $phase='native tenant-domain qualification';TenantDomainsHook
+ $phase='native tenant-domain qualification';TenantDomainsAcceptanceHook ([DateTime]::UtcNow)
  $phase='meeting transport qualification';MeetingTransportHook
  $acceptanceFile=Join-Path $work 'acceptance-input.json';$ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
  try{$plain=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)}finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
