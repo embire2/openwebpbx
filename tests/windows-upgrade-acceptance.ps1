@@ -111,7 +111,7 @@ function ComparisonFields($Record){
  foreach($field in 'comparison_values_observed','comparison_counts_capped','comparison_columns_observed','comparison_column_counts_capped'){
   if($Record.$field -isnot [bool]){return $null};$safe[$field]=$Record.$field
  }
- $fileFields=@('comparison_files_observed','comparison_changed_file_entry_count','comparison_file_counts_capped','comparison_file_field_counts','comparison_file_category_counts')
+ $fileFields=@('comparison_files_observed','comparison_changed_file_entry_count','comparison_file_counts_capped','comparison_file_field_counts','comparison_file_category_counts','comparison_file_category_field_counts','comparison_known_file_field_counts','comparison_unknown_file_entry_count','comparison_config_scope_field_counts')
  $names=if($Record -is [Collections.IDictionary]){@($Record.Keys)}else{@($Record.PSObject.Properties.Name)}
  $present=@($fileFields|Where-Object {$names -ccontains $_})
  if($present.Count){
@@ -122,9 +122,36 @@ function ComparisonFields($Record){
   $maps=@{comparison_file_field_counts=@('acl','sha256','bytes','directory','added','removed','shape','other');comparison_file_category_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','other')}
   foreach($field in $maps.Keys){
    $map=$Record.$field
-   if($map -is [Collections.IDictionary]){$keys=@($map.Keys)}elseif($map -is [pscustomobject]){$keys=@($map.PSObject.Properties.Name)}else{return $null}
+   if($map -is [Collections.IDictionary]){$keys=@($map.Keys)}elseif($map -is [pscustomobject]){$keys=@($map.PSObject.Properties|ForEach-Object {$_.Name})}else{return $null}
    if($keys.Count -gt $maps[$field].Count){return $null};$copy=@{}
    foreach($key in $keys){$value=$map.$key;if($key -isnot [string] -or $key -cnotin $maps[$field] -or ($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 100000){return $null};$copy[$key]=[int]$value}
+   $safe[$field]=$copy
+  }
+  # The exact Python producer emits all four nested diagnostics together.
+  # Validate every fixed label/count; classification never changes equality.
+  $count=$Record.comparison_unknown_file_entry_count
+  if(($count -isnot [int] -and $count -isnot [long]) -or $count -lt 0 -or $count -gt 100000){return $null}
+  $safe.comparison_unknown_file_entry_count=[int]$count
+  $labels=@('installation','runtime','updater_install','native_engine','local_codec','phone_tls_metadata','storage_root','stock_music_root','stock_music_readme','stock_music_manifest','stock_sounds_root','stock_sounds_openwebpbx')
+  $labels+=@('fusionpbx_root','fusionpbx_config','fusionpbx_template_key','automatic_backups_worker_lock','phone_tls_root','public_access_root','automatic_backups_root','backup_restore_root','backup_control_root','backup_downloads_root','codec_compiler_cache_root','codec_build_root')
+  $labels+=@('program_root','php_ini','php_openssl','php_cacert','notification_store','notification_config','notification_lock')
+  foreach($rate in 8000,16000,32000,48000){$labels+=@(('stock_music_'+$rate+'_dir'),('stock_music_'+$rate+'_track'))}
+  $nested=@{comparison_file_category_field_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','other');comparison_known_file_field_counts=$labels;comparison_config_scope_field_counts=@('fusionpbx','phone_tls','public_access','automatic_backups','backup_restore','backup_control','backup_downloads','codec_compiler_cache','codec_build')}
+  foreach($field in $nested.Keys){
+   $map=$Record.$field
+   if($map -is [Collections.IDictionary]){$keys=@($map.Keys)}elseif($map -is [pscustomobject]){$keys=@($map.PSObject.Properties|ForEach-Object {$_.Name})}else{return $null}
+   if($keys.Count -gt $nested[$field].Count){return $null};$copy=@{}
+   foreach($key in $keys){
+    if($key -isnot [string] -or $key -cnotin $nested[$field]){return $null};$row=$map.$key
+    if($row -is [Collections.IDictionary]){$columns=@($row.Keys)}elseif($row -is [pscustomobject]){$columns=@($row.PSObject.Properties|ForEach-Object {$_.Name})}else{return $null}
+    if($columns.Count -gt 8){return $null};$values=@{}
+    foreach($column in $columns){
+     $value=$row.$column
+     if($column -isnot [string] -or $column -cnotin @('acl','sha256','bytes','directory','added','removed','shape','other') -or ($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 100000){return $null}
+     $values[$column]=[int]$value
+    }
+    $copy[$key]=$values
+   }
    $safe[$field]=$copy
   }
  }

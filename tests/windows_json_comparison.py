@@ -259,6 +259,7 @@ AssertControl (${function:ComparisonFields}.ToString() -ceq ${function:SafeCompa
 foreach($record in (Get-Content -LiteralPath $RecordsPath -Raw|ConvertFrom-Json)){
  $filtered=ComparisonFields $record
  AssertControl ($null -ne $filtered -and $filtered.comparison_result -ceq $record.comparison_result)
+ AssertControl (@($record.PSObject.Properties).Count -eq ($filtered.Count+2))
  $report=[ordered]@{active_case='direct_reapply_database_preserved';source_basename='windows-upgrade-acceptance.ps1';source_line=291;command_basename='windows-compare-json.py';command_exit=@{equal=0;different=1;error=2}[$record.comparison_result]}
  foreach($entry in $filtered.GetEnumerator()){$report[$entry.Key]=$entry.Value}
  $safe=SafeFailureFields ([pscustomobject]$report)
@@ -283,7 +284,7 @@ foreach($record in (Get-Content -LiteralPath $RecordsPath -Raw|ConvertFrom-Json)
     foreach($bad in 'true',1,$null){$copy=$record.PSObject.Copy();$copy.$field=$bad;AssertControl ($null -eq (ComparisonFields $copy))}
    }
    foreach($bad in '1',$true,-1,100001,1.5,[double]::NaN,[double]::PositiveInfinity){$copy=$record.PSObject.Copy();$copy.comparison_changed_file_entry_count=$bad;AssertControl ($null -eq (ComparisonFields $copy))}
-   foreach($field in 'comparison_files_observed','comparison_changed_file_entry_count','comparison_file_counts_capped','comparison_file_field_counts','comparison_file_category_counts'){
+   foreach($field in 'comparison_files_observed','comparison_changed_file_entry_count','comparison_file_counts_capped','comparison_file_field_counts','comparison_file_category_counts','comparison_file_category_field_counts','comparison_known_file_field_counts','comparison_unknown_file_entry_count','comparison_config_scope_field_counts'){
     $copy=$record.PSObject.Copy();$copy.PSObject.Properties.Remove($field);AssertControl ($null -eq (ComparisonFields $copy))
    }
    foreach($field in 'comparison_file_field_counts','comparison_file_category_counts'){
@@ -291,6 +292,14 @@ foreach($record in (Get-Content -LiteralPath $RecordsPath -Raw|ConvertFrom-Json)
     foreach($bad in 'PRIVATE_SDDL',@('acl'),$true,42,$null){$copy=$record.PSObject.Copy();$copy.$field=$bad;AssertControl ($null -eq (ComparisonFields $copy))}
     foreach($bad in '1',$true,-1,100001,1.5,[double]::NaN,[double]::PositiveInfinity){$copy=$record.PSObject.Copy();$copy.$field=[pscustomobject]@{};$copy.$field|Add-Member -NotePropertyName $validKey -NotePropertyValue $bad;AssertControl ($null -eq (ComparisonFields $copy))}
     foreach($key in 'PRIVATE_PATH','O:SYG:BAD','C:/PRIVATE_ROOT','ACL','other PRIVATE_VALUE'){$copy=$record.PSObject.Copy();$copy.$field=[pscustomobject]@{};$copy.$field|Add-Member -NotePropertyName $key -NotePropertyValue 1;AssertControl ($null -eq (ComparisonFields $copy))}
+   }
+   foreach($bad in '1',$true,-1,100001,1.5,[double]::NaN,[double]::PositiveInfinity){$copy=$record.PSObject.Copy();$copy.comparison_unknown_file_entry_count=$bad;AssertControl ($null -eq (ComparisonFields $copy))}
+   foreach($field in 'comparison_file_category_field_counts','comparison_known_file_field_counts','comparison_config_scope_field_counts'){
+    $validKey=switch($field){'comparison_file_category_field_counts'{'config'};'comparison_known_file_field_counts'{'runtime'};default{'automatic_backups'}}
+    foreach($bad in 'PRIVATE_SDDL',@('acl'),$true,42,$null){$copy=$record.PSObject.Copy();$copy.$field=$bad;AssertControl ($null -eq (ComparisonFields $copy))}
+    foreach($bad in '1',$true,-1,100001,1.5,[double]::NaN,[double]::PositiveInfinity){$copy=$record.PSObject.Copy();$copy.$field=[pscustomobject]@{};$copy.$field|Add-Member -NotePropertyName $validKey -NotePropertyValue ([pscustomobject]@{acl=$bad});AssertControl ($null -eq (ComparisonFields $copy))}
+    foreach($key in 'PRIVATE_PATH','C:/PRIVATE_ROOT','ACL','other PRIVATE_VALUE'){$copy=$record.PSObject.Copy();$copy.$field=[pscustomobject]@{};$copy.$field|Add-Member -NotePropertyName $key -NotePropertyValue ([pscustomobject]@{acl=1});AssertControl ($null -eq (ComparisonFields $copy))}
+    $copy=$record.PSObject.Copy();$copy.$field=[pscustomobject]@{};$copy.$field|Add-Member -NotePropertyName $validKey -NotePropertyValue ([pscustomobject]@{PRIVATE_FIELD=1});AssertControl ($null -eq (ComparisonFields $copy))
    }
   }
  }
@@ -314,6 +323,24 @@ foreach($mode in 'Standard','Legacy'){
  AssertControl ($report.comparison_result -ceq 'different' -and $report.command_basename -ceq 'windows-compare-json.py' -and (($report|ConvertTo-Json -Depth 10) -notmatch 'PRIVATE_'))
  Check $true 'An expected strict refusal was accepted.'
  AssertControl ($null -eq $comparisonFailure)
+ # Exact file inequality used to become unavailable: the actual Python child
+ # emitted four closed diagnostics missing from the direct/Suite validators.
+ $fileBefore=@{'C:\ProgramData\OpenWebPBX\runtime.json'=@{acl='PRIVATE_ACL';sha256='PRIVATE_HASH';bytes=10;directory=$false}}
+ $fileSame=$fileBefore|ConvertTo-Json -Depth 10|ConvertFrom-Json -AsHashtable
+ $emitted=@(Equal $fileBefore $fileSame 'The real rollback changed file bytes, original/new-file inventory or owner/DACL.')
+ AssertControl ($emitted.Count -eq 0 -and $null -eq $comparisonFailure)
+ $fileAfter=$fileBefore|ConvertTo-Json -Depth 10|ConvertFrom-Json -AsHashtable
+ $fileAfter['C:\ProgramData\OpenWebPBX\runtime.json'].acl='PRIVATE_CHANGED'
+ $fileAfter['C:\ProgramData\OpenWebPBX\automatic-backups\PRIVATE_LOCK']=@{acl='PRIVATE_ACL';sha256='PRIVATE_HASH';bytes=0;directory=$false}
+ $refused=$false;try{Equal $fileBefore $fileAfter 'The real rollback changed file bytes, original/new-file inventory or owner/DACL.'}catch{$refused=$true}
+ AssertControl ($refused -and $comparisonFailure.comparison_result -ceq 'different' -and $comparisonFailure.comparison_stage -ceq 'compare' -and $comparisonFailure.command_exit -eq 1)
+ AssertControl ($comparisonFailure.comparison_changed_file_entry_count -eq 2 -and $comparisonFailure.comparison_unknown_file_entry_count -eq 1)
+ AssertControl ($comparisonFailure.comparison_file_category_field_counts.config.acl -eq 1 -and $comparisonFailure.comparison_file_category_field_counts.config.added -eq 1)
+ AssertControl ($comparisonFailure.comparison_known_file_field_counts.runtime.acl -eq 1 -and $comparisonFailure.comparison_config_scope_field_counts.automatic_backups.added -eq 1)
+ AssertControl (($comparisonFailure|ConvertTo-Json -Depth 10) -notmatch 'PRIVATE_|S-1-5-21')
+ $projected=SafeComparisonFields ([pscustomobject]$comparisonFailure)
+ AssertControl ($projected.comparison_known_file_field_counts.runtime.acl -eq 1 -and $projected.comparison_config_scope_field_counts.automatic_backups.added -eq 1)
+ Check $true 'Expected file refusal retained exact evidence.'
  try{Check $false 'The helper did not automatically reopen a responsive installed desktop in its original owner/session.'}catch{}
  $report=@{active_case=$checkFailure.active_case};Invoke-Expression $project[0].Extent.Text
  AssertControl ($report.active_case -ceq 'manager_reopened' -and !$report.ContainsKey('comparison_result'))
