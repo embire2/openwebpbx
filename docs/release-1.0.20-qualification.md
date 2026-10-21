@@ -81,10 +81,23 @@ connections. They do not establish decoded browser conference media.
 
 That run still failed the tenant static-proof and voicemail-default checks.
 A later helper reapplication correctly refused two unexpected Python bytecode
-files in the expanded candidate. Those failures are retained and the candidate
-is not publishable. Tenant-address repair, voicemail, decoded calls and browser
-conferences, independent restore, newer-version installation and recovery still
-need complete native acceptance of the final package.
+files in the expanded candidate. Those failures are retained.
+
+The next rebuilt candidate, from `d97df9e8`, passed its fresh installation,
+the same 29 readiness and 49 conference transport controls, and 75 native
+tenant-worker, ACL, IIS alias and trusted-HTTPS controls. The proof-file test
+reproduced HTTP 401 with the old ACL, then returned HTTP 200 with the exact
+nonce after the packaged public-file ACL was applied. Private-key access was
+not widened. Explicit Python `-B` also prevents the earlier bytecode additions;
+the 19,122-file candidate inventory stayed unchanged.
+
+The complete run still failed its Windows voicemail-default fixture and a
+later rollback comparison. Smaller native Windows diagnostics are in progress;
+these failures are not being counted as passes. The candidate remains
+unpublished. Voicemail, decoded calls and browser conferences, independent
+restore, newer-version installation and recovery still need complete native
+acceptance of the final package. Public ACME issuance is separate from the
+trusted fixture-certificate checks and remains unqualified.
 
 Windows 10 and 11 server installations, upgrades from historical Windows
 packages and the separate planned native Windows calling client are not
