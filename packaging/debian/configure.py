@@ -39,6 +39,7 @@ write(private/'setup-secrets.json',json.dumps({'AdminEmail':a.email,'AdminPasswo
 run(['tar','-xzf','engine.tar.gz','-C','/']);run(['ldconfig'])
 service_root=P('/opt/openwebpbx');service_root.mkdir(parents=True,exist_ok=True);service_root.chmod(0o755)
 shutil.copytree('web',root,dirs_exist_ok=True)
+root.chmod(0o755)
 shutil.copytree('server','/opt/openwebpbx/service',dirs_exist_ok=True)
 P('/opt/openwebpbx/service').chmod(0o755)
 for path in [*root.rglob('*'),*P('/opt/openwebpbx/service').rglob('*')]:
