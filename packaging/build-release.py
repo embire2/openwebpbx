@@ -47,7 +47,7 @@ if args.target == 'windows' and (not args.desktop or not (args.desktop / 'OpenWe
 if args.target == 'debian' and (not args.engine or not args.engine.is_file()):
     parser.error('Supply the clean engine archive built from upstream source.')
 voice_catalog_path = root / 'app/pbx_setup/resources/voicepacks/1.0.1/catalog.json'
-if args.target == 'debian' and voice_catalog_path.is_file() and not args.voices:
+if voice_catalog_path.is_file() and not args.voices:
     parser.error('Supply --voices with the complete generated Nathaniel 1.0.1 pack; partial prompt releases are refused.')
 if args.voices:
     voice_spec = importlib.util.spec_from_file_location('release_voicepack', root / 'packaging/voices/voicepack.py')

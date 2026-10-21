@@ -1,7 +1,7 @@
 <?php
 /** Incoming destinations on the trunk page. No gateway, phone or DID enablement writes. */
 class pbx_trunk_routes {
-    public const VERSION='1.0.19';
+    public const VERSION='1.0.20';
     private PDO $db;
     private string $domain;
     private string $actor;
