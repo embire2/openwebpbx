@@ -712,6 +712,23 @@ function NativeAcceptanceHook([string]$Report,[DateTime]$StartedAt){
   $facts.native_continuation='independent gates only';return $null
  }
 }
+function MeetingTransportHook {
+ $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'))
+ $start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+ $start.Environment['PSModulePath']=(Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell/Modules')
+ foreach($argument in @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'windows_meet_proxy.ps1'),'-Installed','-Hostname',$domain,'-Port','8443')){$start.ArgumentList.Add($argument)}
+ $process=[Diagnostics.Process]::Start($start);$stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
+ try{
+  if(!$process.WaitForExit(120000)){throw 'The installed meeting transport controls did not finish.'}
+  $out=$stdout.GetAwaiter().GetResult();$err=$stderr.GetAwaiter().GetResult()
+  [IO.File]::WriteAllText((Join-Path $work 'meeting-transport.private.out'),$out)
+  [IO.File]::WriteAllText((Join-Path $work 'meeting-transport.private.err'),$err)
+  if($process.ExitCode){throw 'The actual Windows meeting transport controls failed.'}
+  $report=$out|ConvertFrom-Json
+  if($report.schema -ne 1 -or !$report.installed -or $report.checks -lt 18){throw 'The installed meeting transport evidence is incomplete.'}
+  $facts.gates.meeting_transport='passed';$facts.checks+=('Actual strict Windows backend TLS and IIS SIP WebSocket controls: '+$report.checks)
+ }finally{$process.Dispose()}
+}
 function AcceptanceHook([string]$Name,[string]$Report){
  $script=Join-Path $PSScriptRoot $Name
  if(!(Test-Path -LiteralPath $script -PathType Leaf)){return $null}
@@ -780,6 +797,7 @@ try{
  & (Join-Path $PackageRoot 'Install-NativeEngine.ps1') -PackageRoot $PackageRoot -Check
  if(!$?){throw 'The installed native call-engine inventory differs.'}
  $facts.gates.fresh='passed';$facts.checks+=('Real restore-ready fresh installation/services/native engine hash preservation')
+ $phase='meeting transport qualification';MeetingTransportHook
  $acceptanceFile=Join-Path $work 'acceptance-input.json';$ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
  try{$plain=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)}finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
  $acceptance=@{schema=1;run_id=$env:GITHUB_RUN_ID;restore_server=$true;admin_email=$admin;admin_password=$plain;public_url=('https://'+$domain+':8443');package_root=$PackageRoot;source_root=$source;private_state_root=$state;python='C:/OpenWebPBX/backup-runtime/python.exe';evidence_directory=(Join-Path $work 'native-private-evidence')}
