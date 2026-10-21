@@ -53,7 +53,7 @@ LOCAL_DATABASE = ('5433', 'fusionpbx', 'fusionpbx')
 SSH_BIN = Path(os.environ.get('SystemRoot', 'C:/Windows')) / 'System32/OpenSSH'
 HELD_UNITS = {'calls': 'FreeSWITCH', 'jobs': 'OpenWebPBX',
               'updates': 'OpenWebPBXUpdater', 'backups': 'OpenWebPBX-Backups'}
-RUNTIME_FILES = {'runtime.json', 'installation.json', 'phone-tls.json'}
+RUNTIME_FILES = {'runtime.json', 'installation.json', 'phone-tls.json', 'meet-ca.pem'}
 ROOTS = {
     'fusionpbx-config': CONFIG_ROOT,
     'runtime-config': STATE,
@@ -466,6 +466,7 @@ def create_archive(settings, destination, password, *, include_media=True, roots
         dump = work / 'database.dump'
         snapshot_database(settings, dump)
         files = file_inventory(roots)
+        meeting_transport_files({'files': files})
         files['database.dump'] = {'source': dump, 'size': dump.stat().st_size, 'mtime_ns': dump.stat().st_mtime_ns,
                                   'mode': 0o600, 'sha256': checksum(dump)}
         manifest = {'schema': 1, 'platform': PLATFORM, 'version': version,
@@ -884,6 +885,53 @@ def apply_voicemail_policy(settings):
     query(settings, policy.read_text(encoding='utf-8'))
 
 
+def meeting_transport_files(manifest):
+    pair = {'runtime-config/meet-ca.pem', 'freeswitch-config/tls/openweb-meet/wss.pem'}
+    present = pair.intersection(manifest['files'])
+    if present and present != pair:
+        raise BackupError('The backup is missing part of its private meeting connection.')
+    return bool(present)
+
+
+def restore_meeting(settings):
+    # Preserve the source identity, schedules and history while binding media
+    # to this machine. Live guest sessions belong to the previous server.
+    if query(settings, "select to_regclass('public.v_sip_profiles') is not null") != 't':
+        return False
+    if query(settings, "select count(*) from v_sip_profiles where sip_profile_uuid='cfb1c835-c30c-409b-bff7-a893a7e84df1' or sip_profile_name='openweb-meet'") == '0':
+        return False
+    conf = ROOTS['freeswitch-config']
+    state = ROOTS['runtime-config']
+    ordinary(conf / 'tls/openweb-meet/wss.pem')
+    ordinary(state / 'meet-ca.pem')
+    code = r"""require $argv[1].'/resources/classes/config.php';config::load($argv[2]);require $argv[1].'/resources/classes/auto_loader.php';new auto_loader();$db=database::new()->db;$db->setAttribute(PDO::ATTR_ERRMODE,PDO::ERRMODE_EXCEPTION);
+if(str_replace('\\','/',(string)config::load()->get('switch.conf.dir'))!==str_replace('\\','/',$argv[3]))throw new RuntimeException('The restored engine configuration path needs review.');
+pbx_meet_install::tls($argv[3],$argv[4]);
+$db->beginTransaction();try{
+ pbx_meet_install::rebind($db,null,$argv[3]);pbx_video::configure($db);
+ if($db->query("select to_regclass('v_pbx_meeting_members') is not null")->fetchColumn()){
+  $rows=$db->query("select member_uuid from v_pbx_meeting_members where state in ('waiting','admitted') or call_uuid is not null for update")->fetchAll(PDO::FETCH_COLUMN);
+  $q=$db->prepare("update v_pbx_meeting_members set state=case when state in ('waiting','admitted') then 'left' else state end,call_uuid=null,token_hash=?,sip_a1_hash=? where member_uuid=?");
+  foreach($rows as$id)$q->execute([hash('sha256',random_bytes(32)),bin2hex(random_bytes(16)),$id]);
+ }
+ $db->commit();
+}catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}"""
+    php = str(APP / 'php/php.exe') if os.name == 'nt' else 'php'
+    run([php, '-r', code, str(WEB_VERSION.parent), str(ROOTS['fusionpbx-config'] / 'config.conf'), str(conf), str(state)], timeout=120)
+    return True
+
+
+def reload_meeting_proxy():
+    # The machine-bound IIS ownership ledger is deliberately not portable.
+    # Rebind its owned trust after source import, or after factory recovery.
+    helper = ordinary(APP / 'tools/Install-Meet.ps1')
+    executable = str(Path(os.environ.get('SystemRoot', 'C:/Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe')
+    run([executable, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+         '-File', str(helper), '-PackageRoot', str(helper.parent),
+         '-RebindRestoredTransport', '-MaintenanceLockHeld'],
+        env=native_powershell_environment(), timeout=180)
+
+
 def restore_database(settings, dump, workspace, *, factory_dump=None, administrator=None, recovery=False):
     if factory_dump is not None:
         return restore_database_security(settings, dump, workspace, factory_dump, administrator, recovery=recovery)
@@ -1093,6 +1141,7 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
             raise BackupError('The backup is missing configuration or encryption keys needed for a full restore.')
         if len((extracted / 'fusionpbx-config/openweb-template.key').read_bytes()) != 32:
             raise BackupError('The source private encryption key has an invalid size.')
+        meeting_proxy = meeting_transport_files(manifest)
         preserve_target_database(settings, extracted / 'fusionpbx-config/config.conf', extracted / 'runtime-config/runtime.json')
         original_installation = json.loads(ordinary(STATE / 'installation.json').read_text(encoding='utf-8-sig'))
         source_installation_file = extracted / 'runtime-config/installation.json'
@@ -1167,7 +1216,7 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
         journal = {'schema': 1, 'database': settings['database.0.name'], 'user': settings['database.0.username'],
                    'services': services, 'gates': gates, 'source_host': manifest['source_host'],
                    'factory_dump_sha256': checksum(RESTORE / 'factory.dump'), 'factory_security_version': 1, 'files': original,
-                   'directories': directories, 'state': 'prepared'}
+                   'directories': directories, 'meeting_proxy': meeting_proxy, 'state': 'prepared'}
         atomic_json(RESTORE / 'journal.json', journal)
         try:
             install_service_holds(journal['gates'])
@@ -1187,6 +1236,9 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
                 # the current PHP/C# location with the identical VAPID bytes.
                 atomic_copy(extracted / 'mobile-push/file', notification_fallback, mode=0o600)
             apply_voicemail_policy(settings)
+            restore_meeting(settings)
+            if meeting_proxy:
+                reload_meeting_proxy()
             # Invalid source SIP contacts and XML caches must never survive a clean restore.
             cache = STATE / 'cache'
             if cache.is_dir() and not reparse(cache):
@@ -1303,6 +1355,8 @@ def _recover(settings):
                 directory.rmdir()
             except OSError:
                 raise BackupError('A newly created restore directory is not empty. Preserve unrelated contents and complete recovery after administrator review.') from None
+    if journal.get('meeting_proxy'):
+        reload_meeting_proxy()
     journal['state'] = 'recovered'
     atomic_json(journal_file, journal)
     remove_service_holds(journal.get('gates', {}))

@@ -3,7 +3,9 @@
 
 OPENWEB_MEET_TEST_CONFIG points to an unquoted config.conf for an owned
 openweb_meet_* database on a private /tmp/openweb-* Unix socket. No live
-service command is executed: only the Nginx command boundary is recorded.
+service command is executed: only the proxy command boundary is recorded.
+Use --windows to exercise the Windows backup implementation on this fixture;
+native IIS, certificate-store and ACL checks run separately on Windows.
 """
 import importlib.util
 import hashlib
@@ -14,13 +16,16 @@ import shutil
 import subprocess
 import tempfile
 import secrets
+import sys
 from unittest.mock import patch
 
 root=Path(__file__).resolve().parents[1]
-spec=importlib.util.spec_from_file_location('meet_backup',root/'packaging/debian/backups.py')
+windows = '--windows' in sys.argv[1:]
+spec=importlib.util.spec_from_file_location('meet_backup',root/('packaging/windows/backups.py' if windows else 'packaging/debian/backups.py'))
 b=importlib.util.module_from_spec(spec);spec.loader.exec_module(b)
 config=Path(os.environ['OPENWEB_MEET_TEST_CONFIG']);settings=b.read_settings(config)
-assert settings['database.0.host'].startswith('/tmp/openweb-') and settings['database.0.name'].startswith('openweb_meet_'),'Explicit owned private fixture required'
+owned_host = settings['database.0.host'].startswith('/tmp/openweb-') or (windows and settings['database.0.host']=='127.0.0.1' and str(config).startswith('/tmp/openweb-') and int(settings['database.0.port'])>1024)
+assert owned_host and settings['database.0.name'].startswith('openweb_meet_'),'Explicit owned private fixture required'
 n=0
 def check(value,message):
  global n
@@ -97,11 +102,25 @@ try:
   for name in ['runtime-config/meet-ca.pem','freeswitch-config/tls/openweb-meet/wss.pem']:
    try:b.meeting_transport_files({'files':{name:{}}});raise AssertionError('Partial TLS identity accepted')
    except b.BackupError:check(True,'Partial private identity refuses before restore mutations')
-  # Import the real sibling helper; mock only its OS service command boundary.
+  # Record only the OS service boundary; all preceding TLS/database work ran.
   commands=[]
-  def command(args,**kwargs):commands.append(args);return subprocess.CompletedProcess(args,0)
-  with patch.object(subprocess,'run',side_effect=command):b.reload_meeting_proxy()
-  check(commands==[['nginx','-t'],['systemctl','is-active','--quiet','nginx'],['systemctl','reload','nginx']],'Restore uses actual Nginx validation/reload hook to read changed trust pin')
+  environments=[]
+  def command(args,**kwargs):
+   commands.append(args);environments.append(kwargs.get('env'));return subprocess.CompletedProcess(args,0,stdout=b'',stderr=b'')
+  if windows:
+   app=work/'application';tools=app/'tools';tools.mkdir(parents=True);shutil.copyfile(root/'packaging/windows/Install-Meet.ps1',tools/'Install-Meet.ps1');b.APP=app
+   with patch.object(subprocess,'run',side_effect=command):b.reload_meeting_proxy()
+   check(len(commands)==1 and commands[0][-6:]==['-File',str(tools/'Install-Meet.ps1'),'-PackageRoot',str(tools),'-RebindRestoredTransport','-MaintenanceLockHeld'],'Restore requires guarded native meeting rebind')
+   check(environments[0]['PSModulePath']==b.native_powershell_environment()['PSModulePath'],'Native proxy refresh isolates Windows PowerShell module roots')
+   (state/'meet-proxy.json').write_text('{"machine-bound":"must stay local"}')
+   inventory=b.file_inventory({'runtime-config':state})
+   check('runtime-config/meet-ca.pem' in inventory and 'runtime-config/meet-proxy.json' not in inventory,'Portable CA is included and machine-bound ownership ledger excluded')
+   check(str(b.safe_member('runtime-config/meet-ca.pem'))=='runtime-config/meet-ca.pem','Archive validator accepts the portable meeting trust pin')
+   try:b.safe_member('runtime-config/meet-proxy.json');raise AssertionError('Machine ledger accepted')
+   except b.BackupError:check(True,'Archive validator refuses machine ownership ledger')
+  else:
+   with patch.object(subprocess,'run',side_effect=command):b.reload_meeting_proxy()
+   check(commands==[['nginx','-t'],['systemctl','is-active','--quiet','nginx'],['systemctl','reload','nginx']],'Restore uses actual Nginx validation/reload hook to read changed trust pin')
 finally:
  if old_options is None:os.environ.pop('PGOPTIONS',None)
  else:os.environ['PGOPTIONS']=old_options
