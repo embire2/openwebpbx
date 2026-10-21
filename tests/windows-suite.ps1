@@ -419,6 +419,15 @@ function Artifact([string]$RunId,[string]$Kind){
  $run=Api ('actions/runs/'+$RunId)
  $workflow=if($replay){'.github/workflows/windows-suite.yml'}elseif($Kind -eq 'music'){SuiteMusicWorkflow $UpgradeDiagnosticsOnly $BackupsDiagnosticsOnly}else{'.github/workflows/windows-'+$Kind+'.yml'}
  if($run.repository.full_name -ne 'embire2/openwebpbx' -or $run.head_repository.full_name -ne 'embire2/openwebpbx' -or $run.event -ne 'workflow_dispatch' -or $run.path -ne $workflow -or $run.head_sha -notmatch '^[a-f0-9]{40}$'){throw 'The input run does not belong to the expected repository workflow.'}
+ if($replay){
+  # GitHub may publish both completed jobs/artifacts before its run-level
+  # terminal state. Wait boundedly; never infer completion from an artifact.
+  $originalHead=$run.head_sha;$deadline=[DateTime]::UtcNow.AddMinutes(10)
+  while($run.status -cin 'queued','in_progress','waiting','pending','requested' -and [DateTime]::UtcNow -lt $deadline){
+   Start-Sleep -Seconds 10;$run=Api ('actions/runs/'+$RunId)
+   if($run.repository.full_name -cne 'embire2/openwebpbx' -or $run.head_repository.full_name -cne 'embire2/openwebpbx' -or $run.event -cne 'workflow_dispatch' -or $run.path -cne $workflow -or $run.head_sha -cne $originalHead){throw 'The original replay run identity changed during metadata wait.'}
+  }
+ }
  if($Kind -eq 'music'){if($RunId -ne $env:GITHUB_RUN_ID -or $run.head_sha -ne $env:GITHUB_SHA){throw 'Music must come from this exact suite source.'}}
  elseif($replay){if($run.status -cne 'completed' -or $run.conclusion -cnotin 'success','failure'){throw 'Replay requires the exact completed original full-suite workflow.'}}
  elseif($run.status -ne 'completed' -or $run.conclusion -ne 'success'){throw 'A source build did not complete successfully.'}
