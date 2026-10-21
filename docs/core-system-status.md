@@ -1,5 +1,9 @@
 # OpenWeb PBX core system status
 
+## Current admin update — 1.0.19 — 2026-10-21
+
+Voice & Chat now shows and edits incoming destinations on each trunk: Extensions, Ring Groups, Digital Receptionists and prepared Call Me Back services, with separate office-hours/holiday routing. Complete Debian remains1.0.16 and Android remains1.0.18/code118 (mandatory on the hosted instance). The signed admin package preserves providers, calls and phone credentials; see the [installation, scope and verification](incoming-routing-1.0.19.md). Full-server candidate17 and Windows acceptance remain pending. Roadmap133/21/72/40 stays unchanged.
+
 ## Integrated core and mandatory Android release — 1.0.16 — 2026-10-18
 
 The complete Debian 13 server and **OpenWebPBX Free Phone 1.0.16 / code116** are now delivered together. Meet provides scheduled audio/video rooms, private invitations, waiting-room admission, registered-phone participation and host mute/lock/remove/end controls. The core includes Nathaniel UK defaults, PIN-free own voicemail on **121**, the repaired **GMT+2 clock 1026** and optional tenant Call Me Back administration/runtime. No customer incoming number is enabled for Call Me Back automatically.

@@ -122,6 +122,22 @@ class pbx_call_me_back {
         }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
     }
 
+    /** Used by the trunk editor inside its already-locked routing transaction. */
+    public function routeIncoming(array $c,string $rule,?string $selected,bool $confirmed): void {
+        $this->requireOwner();
+        if(!$this->db->inTransaction())throw new LogicException('Lock incoming routing before changing Call Me Back.');
+        $saved=$this->q('select *,array_to_json(destination_prefixes)::text prefixes from v_pbx_cmb_services where domain_uuid=:d and incoming_rule_uuid=:rule for update',['d'=>$this->domain,'rule'=>$rule])->fetch(PDO::FETCH_ASSOC);
+        if($selected!==null&&(!$saved||$selected!==$saved['service_uuid']))throw new InvalidArgumentException('Set up Call Me Back for this incoming number first.');
+        if(!$saved||($selected===null&&!$saved['enabled']))return;
+        $enabling=$selected!==null;
+        if($enabling===(bool)$saved['enabled'])return;
+        if(!$confirmed)throw new InvalidArgumentException('Confirm the change to Call Me Back for this number.');
+        $input=['service_uuid'=>$saved['service_uuid'],'service_name'=>$saved['name'],'incoming_rule_uuid'=>$rule,'route_owner'=>$saved['route_owner'],'max_requests_hour'=>$saved['max_requests_hour'],'retention_days'=>$saved['retention_days'],'destination_prefixes'=>implode(',',json_decode($saved['prefixes'],true,512,JSON_THROW_ON_ERROR)),'confirm_handover'=>'1'];
+        if($enabling){$input['enabled']='1';$this->saveService($input,$c);}
+        else $this->q('update v_pbx_cmb_services set enabled=false,updated_at=now() where domain_uuid=:d and service_uuid=:id',['d'=>$this->domain,'id'=>$saved['service_uuid']]);
+        $this->q('insert into v_pbx_cmb_audit(domain_uuid,actor_uuid,action,subject_uuid) values(:d,:actor,:action,:id)',['d'=>$this->domain,'actor'=>$this->actor,'action'=>$enabling?'trunk_route_enable':'trunk_route_disable','id'=>$saved['service_uuid']]);
+    }
+
     private function saveService(array $in,array $c): string {
         $id=$this->id($in,'service_uuid',true);$name=$this->text($in,'service_name',100);
         if($name==='')throw new InvalidArgumentException('Enter the company name callers should hear.');

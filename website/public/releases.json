@@ -1,7 +1,46 @@
 {
-  "reviewed_on": "2026-10-20",
+  "reviewed_on": "2026-10-21",
   "repository": "embire2/openwebpbx",
   "releases": [
+    {
+      "version": "1.0.19",
+      "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.19",
+      "published_at": "2026-10-21T12:09:53.039013+00:00",
+      "prerelease": false,
+      "scope": "Admin incoming-routing update on Debian16; Android remains18; not a complete server installer",
+      "assets": [
+        {
+          "name": "openwebpbx-1.0.19-admin-update.tar.gz",
+          "bytes": 62830,
+          "sha256": "706c8c92dd84c3abac1819b451fdb77bdbe4bf486f6e2f9ef32269de0804d5bd",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.19/openwebpbx-1.0.19-admin-update.tar.gz"
+        },
+        {
+          "name": "openwebpbx-1.0.19-admin-source.tar.gz",
+          "bytes": 37969,
+          "sha256": "547d2fa15368c7f90444a03463268f200fe4fea7b0698cdc547dc40f18bf1a34",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.19/openwebpbx-1.0.19-admin-source.tar.gz"
+        },
+        {
+          "name": "update-manifest.json",
+          "bytes": 1404,
+          "sha256": "7c43ac14cf765a7602ddcc8fa4b187fe19d61ba2b4197f96f6d5448a6ad87e54",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.19/update-manifest.json"
+        },
+        {
+          "name": "debian-update-manifest.json",
+          "bytes": 1816,
+          "sha256": "444e30c483a09f6fa4dd280419d33e7e929cf4262bc2ec14476d143d9bfbb92d",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.19/debian-update-manifest.json"
+        },
+        {
+          "name": "SHA256SUMS",
+          "bytes": 389,
+          "sha256": "e7de035a6205753e6f1b2c5e073b01634101b86849de7fdcc2e5f29c59a8e1be",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.19/SHA256SUMS"
+        }
+      ]
+    },
     {
       "version": "1.0.18",
       "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.18",
@@ -772,13 +811,19 @@
       "name": "Android",
       "minimum_version": "9",
       "api_level": 28,
-      "version": "1.0.16",
-      "status": "signed native APK with optional video; Play submission prepared, not approved; physical-device/network limits remain",
+      "version": "1.0.18",
+      "status": "signed native APK; mandatory tenant-address confirmation; Play submission prepared, not approved; device/network limits remain",
       "abis": [
         "arm64-v8a",
         "armeabi-v7a",
         "x86_64"
       ]
     }
-  ]
+  ],
+  "admin_update": {
+    "version": "1.0.19",
+    "base_core": "1.0.16",
+    "platform": "Debian13",
+    "package": "https://github.com/embire2/openwebpbx/releases/download/v1.0.19/openwebpbx-1.0.19-admin-update.tar.gz"
+  }
 }
