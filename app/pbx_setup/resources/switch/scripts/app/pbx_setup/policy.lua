@@ -1,5 +1,16 @@
 -- Pure call decisions, shared by the call runtime and deterministic restore checks.
 local P = {}
+local trunk_options
+local function provider_leg(trunk,contact,domain,config,origin)
+    if trunk.options==nil then return contact end
+    if not trunk_options then
+        local source=debug.getinfo(1,'S').source:match('^@(.*/)')
+        local loaded,module=pcall(dofile,(source or '')..'trunk_options.lua')
+        if not loaded or type(module)~='table' then return nil end
+        trunk_options=module
+    end
+    return trunk_options.leg(domain,trunk,contact,config,origin)
+end
 -- Keep the source strategy separate from the native queue strategy. A random
 -- start uses the native ordered hunt with a cursor belonging to this caller.
 function P.ring_strategy(value)
@@ -324,7 +335,7 @@ local function sip_user(value)
     if type(value)~='string' or #value==0 or #value>128 or not value:match('^[A-Za-z0-9_.+@*!%-]+$') then return nil end
     return value:gsub('@','%%40')
 end
-function P.outbound_leg(trunk,route,number,user,original,domain,realm,native)
+function P.outbound_leg(trunk,route,number,user,original,domain,realm,native,config)
     local target=P.rewrite(number,route)
     if not target or not uuid(trunk.gateway_uuid) or not uuid(domain) or type(realm)~='string'
       or not realm:match('^[A-Za-z0-9_.%-]+$') then return nil end
@@ -384,9 +395,9 @@ function P.outbound_leg(trunk,route,number,user,original,domain,realm,native)
         from_user=sip_user(from_user);if not from_user then return nil end
         vars[#vars+1]='sip_invite_from_uri=sip:'..from_user..'@'..(host~='' and host or proxy)
         vars[#vars+1]='sip_invite_to_uri=sip:'..target..'@'..proxy
-        return '['..table.concat(vars,',')..']sofia/'..profile..'/'..target..'@'..proxy..';transport='..transport,cid
+        return provider_leg(trunk,'['..table.concat(vars,',')..']sofia/'..profile..'/'..target..'@'..proxy..';transport='..transport,domain,config,original),cid
     end
-    return '['..table.concat(vars,',')..']sofia/gateway/'..trunk.gateway_uuid..'/'..target,cid
+    return provider_leg(trunk,'['..table.concat(vars,',')..']sofia/gateway/'..trunk.gateway_uuid..'/'..target,domain,config,original),cid
 end
 function P.incoming_number(trunk,get)
     local field=trunk.source_field or ''

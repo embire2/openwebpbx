@@ -51,7 +51,7 @@ local function gateway_contact(number,agent,route)
     query('select enabled,register,from_domain,from_user,username,proxy,outbound_proxy,register_transport,profile from v_gateways where domain_uuid=:domain and gateway_uuid=:id',
         {domain=job.domain_uuid,id=trunk.gateway_uuid},function(row) native=row end)
     if not native or not P.gateway_available(native,api:execute('sofia','status gateway '..trunk.gateway_uuid)) then return nil end
-    return P.outbound_leg(trunk,route,number,config.users[tostring(agent)],tostring(agent),job.domain_uuid,config.realm,native)
+    return P.outbound_leg(trunk,route,number,config.users[tostring(agent)],tostring(agent),job.domain_uuid,config.realm,native,config)
 end
 local function outbound(number,agent,q)
     if internal_target() then

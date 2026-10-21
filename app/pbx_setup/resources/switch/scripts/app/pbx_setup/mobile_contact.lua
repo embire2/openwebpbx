@@ -17,7 +17,7 @@ function M.available(db,api,P,domain,config,user,profile)
             db:query('select enabled,register,from_domain,from_user,username,proxy,outbound_proxy,register_transport,profile from v_gateways where gateway_uuid=:id and domain_uuid=:domain',
               {id=trunk.gateway_uuid,domain=domain},function(row)native=row end)
             if native and P.gateway_available(native,api:execute('sofia','status gateway '..trunk.gateway_uuid))
-              and P.outbound_leg(trunk,route,user.mobile,user,tostring(user.number),domain,config.realm,native) then return true end
+              and P.outbound_leg(trunk,route,user.mobile,user,tostring(user.number),domain,config.realm,native,config) then return true end
         end
     end
     return false

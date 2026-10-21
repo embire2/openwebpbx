@@ -24,7 +24,7 @@ local function contact(number,route,owner)
  local native
  query('select enabled,register,from_domain,from_user,username,proxy,outbound_proxy,register_transport,profile from v_gateways where domain_uuid=:d and gateway_uuid=:id',{d=request.domain_uuid,id=trunk.gateway_uuid},function(row)native=row end)
  if not native or not P.gateway_available(native,api:execute('sofia','status gateway '..trunk.gateway_uuid)) then return end
- return P.outbound_leg(trunk,route,number,owner,tostring(service.route_owner),request.domain_uuid,config.realm,native)
+ return P.outbound_leg(trunk,route,number,owner,tostring(service.route_owner),request.domain_uuid,config.realm,native,config)
 end
 local function allowed(number)
  local rule,owner=C.number(config,service,number,P)
