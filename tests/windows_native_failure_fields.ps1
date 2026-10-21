@@ -270,4 +270,17 @@ foreach($filter in 'SmtpFailureFields','SafeSmtpFailureFields','SafeFailureField
  foreach($bad in 'global_smtp_password_auth','GLOBAL_SMTP_TRUSTED_TLS_HOSTNAME_AUTH','private-never-copy',$null){$copy=$smtp.PSObject.Copy();$copy.active_case=$bad;Check (@((& $filter $copy).Keys|Where-Object {$_ -like 'smtp_*'}).Count -eq 0)}
  $roundtrip=$smtp|ConvertTo-Json|ConvertFrom-Json;Check ((& $filter $roundtrip).smtp_tick_processed -eq 1)
 }
-Write-Output "PASS $checks actual caller native primary/cleanup/media/queue/voicemail/mailbox/hotel/payload/music/SMTP privacy allowlist checks; no PBX contacted"
+. (Join-Path (Split-Path $PSScriptRoot -Parent) 'packaging/windows/Meet-Proxy.ps1')
+try{throw [InvalidOperationException]::new('private-never-copy',[IO.IOException]::new('private-never-copy'))}catch{$meeting=Get-OpenWebMeetFailure $_ 'proxy' 1603}
+Check ($meeting.phase -ceq 'proxy' -and $meeting.command_exit -eq 1603 -and $meeting.exception_types.Count -eq 2)
+Check (($meeting|ConvertTo-Json -Depth 8) -notmatch 'private-never-copy|message|stack|target')
+foreach($field in 'meeting_failure','meeting_recovery_failure'){
+ $copy=[pscustomobject]@{};$copy|Add-Member -NotePropertyName $field -NotePropertyValue ([pscustomobject]$meeting)
+ $safe=SafeFailureFields $copy;Check ($safe.$field.phase -ceq 'proxy' -and $safe.$field.command_exit -eq 1603)
+ Check (($safe|ConvertTo-Json -Depth 8) -notmatch 'private-never-copy|message|stack|target')
+ foreach($bad in @(@('phase','PRIVATE_SECRET'),@('source_basename','private-file.ps1'),@('source_line','12'),@('source_line',100000),@('exception_types',@('private-secret')),@('hresults',@('private-secret')))){
+  $detail=([pscustomobject]$meeting).PSObject.Copy();$detail.($bad[0])=$bad[1];$invalid=[pscustomobject]@{};$invalid|Add-Member -NotePropertyName $field -NotePropertyValue $detail
+  Check (!(SafeFailureFields $invalid).ContainsKey($field))
+ }
+}
+Write-Output "PASS $checks actual caller native primary/cleanup/media/queue/voicemail/mailbox/hotel/payload/music/SMTP/meeting privacy allowlist checks; no PBX contacted"

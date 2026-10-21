@@ -218,6 +218,21 @@ function SafeSmtpFailureFields($Record){
 
 function SafeFailureFields($Record){
  $safe=@{}
+ foreach($field in 'meeting_failure','meeting_recovery_failure'){
+  $detail=$Record.$field
+  if(!$detail){continue}
+  $phases=@('websockets','rewrite_download','rewrite_signature','rewrite_identity','rewrite_install','arr_download','arr_signature','arr_identity','arr_install','trust','hosts','strict_flags','proxy','web_config','complete_ledger','helper_copy','previous_trust','recovery_web_config','recovery_hosts','recovery_flags','recovery_proxy','recovery_trust','recovery_previous_trust','recovery_packages','recovery_websockets','recovery_registry','recovery_ledger','unknown')
+  $types=@('RuntimeException','MethodInvocationException','ActionPreferenceStopException','ParameterBindingException','ParameterBindingValidationException','ItemNotFoundException','ProviderInvocationException','InvalidOperationException','IOException','FileNotFoundException','DirectoryNotFoundException','UnauthorizedAccessException','ArgumentException','FormatException','Win32Exception','COMException','WebException','Exception','external_error')
+  if($detail.phase -isnot [string] -or $detail.phase -cnotin $phases -or $detail.source_basename -isnot [string] -or $detail.source_basename -cnotin 'Install-Meet.ps1','Meet-Proxy.ps1','Write-PrivateState.ps1','external_component' -or ($detail.source_line -isnot [int] -and $detail.source_line -isnot [long]) -or $detail.source_line -lt 1 -or $detail.source_line -gt 99999){continue}
+  if($detail.exception_types -isnot [Array] -or $detail.hresults -isnot [Array] -or $detail.exception_types.Count -lt 1 -or $detail.exception_types.Count -gt 4 -or $detail.hresults.Count -ne $detail.exception_types.Count){continue}
+  $valid=$true
+  foreach($value in $detail.exception_types){if($value -isnot [string] -or $value -cnotin $types){$valid=$false}}
+  foreach($value in $detail.hresults){if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt [int]::MinValue -or $value -gt [int]::MaxValue){$valid=$false}}
+  if(!$valid){continue}
+  $copy=@{phase=$detail.phase;source_basename=$detail.source_basename;source_line=[int]$detail.source_line;exception_types=@($detail.exception_types);hresults=@($detail.hresults)}
+  if(($detail.command_exit -is [int] -or $detail.command_exit -is [long]) -and $detail.command_exit -ge [int]::MinValue -and $detail.command_exit -le [int]::MaxValue){$copy.command_exit=[int]$detail.command_exit}
+  $safe[$field]=$copy
+ }
  if($Record.active_case -is [string] -and $Record.active_case -ceq 'manager_original_closed'){
   foreach($key in 'manager_original_handle_pinned','manager_original_identity_verified','manager_original_exit_observed','manager_original_has_exited'){if($Record.$key -is [bool]){$safe[$key]=$Record.$key}}
   if($Record.manager_original_process_class -is [string] -and $Record.manager_original_process_class -cin 'live_original','exited_original','unavailable'){$safe.manager_original_process_class=$Record.manager_original_process_class}
@@ -775,6 +790,7 @@ try{
  foreach($field in 'command_basename','command_exit','caller_basename','caller_line'){
   if($_.Exception.Data.Contains($field)){$safe[$field]=$_.Exception.Data[$field]}
  }
+ foreach($field in 'meeting_failure','meeting_recovery_failure'){if($_.Exception.Data.Contains($field)){$safe[$field]=$_.Exception.Data[$field]}}
  [IO.File]::WriteAllText($record.error_path,($safe|ConvertTo-Json),[Text.UTF8Encoding]::new($false));exit 1
 }
 '@

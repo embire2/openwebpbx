@@ -1,5 +1,19 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Administrator-only IIS meeting transport. Importing this file changes nothing.
+function Get-OpenWebMeetFailure {
+ param($Failure,[string]$Phase,[Nullable[int]]$CommandExit)
+ $phases=@('websockets','rewrite_download','rewrite_signature','rewrite_identity','rewrite_install','arr_download','arr_signature','arr_identity','arr_install','trust','hosts','strict_flags','proxy','web_config','complete_ledger','helper_copy','previous_trust','recovery_web_config','recovery_hosts','recovery_flags','recovery_proxy','recovery_trust','recovery_previous_trust','recovery_packages','recovery_websockets','recovery_registry','recovery_ledger','unknown')
+ $sources=@('Install-Meet.ps1','Meet-Proxy.ps1','Write-PrivateState.ps1')
+ $types=@('RuntimeException','MethodInvocationException','ActionPreferenceStopException','ParameterBindingException','ParameterBindingValidationException','ItemNotFoundException','ProviderInvocationException','InvalidOperationException','IOException','FileNotFoundException','DirectoryNotFoundException','UnauthorizedAccessException','ArgumentException','FormatException','Win32Exception','COMException','WebException','Exception')
+ $name=if($Failure.InvocationInfo.ScriptName){Split-Path -Leaf $Failure.InvocationInfo.ScriptName}else{'external_component'}
+ $record=@{phase=if($Phase -cin $phases){$Phase}else{'unknown'};source_basename=if($name -cin $sources){$name}else{'external_component'};source_line=[Math]::Max(1,[Math]::Min(99999,[int]$Failure.InvocationInfo.ScriptLineNumber));exception_types=@();hresults=@()}
+ for($exception=$Failure.Exception;$exception -and $record.exception_types.Count -lt 4;$exception=$exception.InnerException){
+  $type=$exception.GetType().Name;$record.exception_types+=if($type -cin $types){$type}else{'external_error'}
+  $record.hresults+=[int]$exception.HResult
+ }
+ if($null -ne $CommandExit){$record.command_exit=[int]$CommandExit}
+ return $record
+}
 function Assert-OpenWebMeetOrdinary([string]$Path) {
  $full=[IO.Path]::GetFullPath($Path)
  for($p=$full;$p;$p=[IO.Path]::GetDirectoryName($p)){
@@ -99,6 +113,7 @@ function Restore-OpenWebMeetSystem {
  if(!(Test-Path -LiteralPath $LedgerPath)){return}
  $ledger=Get-Content -LiteralPath $LedgerPath -Raw|ConvertFrom-Json
  if($ledger.Schema -ne 1 -or $ledger.Thumbprint -cnotmatch '^[A-F0-9]{40}$'){throw 'The owned meeting transport ledger is invalid.'}
+ $script:OpenWebMeetRecoveryPhase='recovery_hosts'
  $hosts=Join-Path $env:windir 'System32\drivers\etc\hosts';$null=Assert-OpenWebMeetOrdinary $hosts
  $bytes=[IO.File]::ReadAllBytes($hosts);$text=[Text.Encoding]::GetEncoding(28591).GetString($bytes)
  $original=[Convert]::FromBase64String($before.Hosts);$oldPlan=Get-OpenWebMeetHostsPlan $original
@@ -110,11 +125,13 @@ function Restore-OpenWebMeetSystem {
    [IO.File]::WriteAllBytes($hosts,[Text.Encoding]::GetEncoding(28591).GetBytes($candidate))
   }elseif([Convert]::ToBase64String($bytes) -cne $before.Hosts){throw 'The owned meeting hosts entry changed during recovery.'}
  }
+ $script:OpenWebMeetRecoveryPhase='recovery_flags'
  $reg='HKLM:\SOFTWARE\Microsoft\IIS Extensions\Application Request Routing\Parameters'
  $current=Get-ItemProperty -LiteralPath $reg -Name SecureConnectionIgnoreFlags -ErrorAction SilentlyContinue
  if($current -and [int]$current.SecureConnectionIgnoreFlags -ne 0){throw 'IIS backend certificate policy changed during meeting recovery.'}
  if($before.IgnoreFlagsExists){New-ItemProperty -Path $reg -Name SecureConnectionIgnoreFlags -Value ([int]$before.IgnoreFlags) -PropertyType DWord -Force|Out-Null}
  else{Remove-ItemProperty -LiteralPath $reg -Name SecureConnectionIgnoreFlags -ErrorAction SilentlyContinue}
+ $script:OpenWebMeetRecoveryPhase='recovery_proxy'
  if((Get-OpenWebMeetProxyState).Exists){
   $manager=[Microsoft.Web.Administration.ServerManager]::new()
   try{
@@ -126,10 +143,12 @@ function Restore-OpenWebMeetSystem {
    $manager.CommitChanges()
   }finally{$manager.Dispose()}
  }
+ $script:OpenWebMeetRecoveryPhase='recovery_trust'
  if($ledger.Thumbprint -notin @($before.RootThumbprints)){
   $path='Cert:\LocalMachine\Root\'+$ledger.Thumbprint
   if(Test-Path -LiteralPath $path){$cert=Get-Item -LiteralPath $path;if([Convert]::ToBase64String($cert.RawData) -cne $ledger.Certificate){throw 'The owned meeting trust certificate changed during recovery.'};Remove-Item -LiteralPath $path -Force}
  }
+ $script:OpenWebMeetRecoveryPhase='recovery_previous_trust'
  if($before.PreviousMeetCertificate){
   $previous=[Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String([string]$before.PreviousMeetCertificate))
   if($previous.Thumbprint -notin @($before.RootThumbprints) -or $previous.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName,$false) -cne 'openweb-meet.internal' -or $previous.Subject -cne $previous.Issuer){throw 'The previous meeting trust identity is invalid.'}
@@ -137,6 +156,7 @@ function Restore-OpenWebMeetSystem {
  }
  # Only packages introduced by this transaction may be uninstalled. Existing
  # IIS extension installations and their other configuration remain untouched.
+ $script:OpenWebMeetRecoveryPhase='recovery_packages'
  foreach($product in @($ledger.Products)|Sort-Object Order -Descending){
   $wasInstalled=if($product.Kind -eq 'Arr'){[bool]$before.Arr}else{[bool]$before.Rewrite}
   if(!$wasInstalled -and $product.Introduced){
@@ -145,6 +165,8 @@ function Restore-OpenWebMeetSystem {
    if($process.ExitCode -notin 0,1605){throw 'The newly introduced meeting prerequisite needs administrator recovery.'}
   }
  }
+ $script:OpenWebMeetRecoveryPhase='recovery_websockets'
  if(!$before.WebSockets -and (Get-WindowsFeature Web-WebSockets).Installed){$result=Uninstall-WindowsFeature Web-WebSockets;if(!$result.Success -or $result.RestartNeeded -eq 'Yes'){throw 'Windows requires administrator recovery for its newly introduced WebSocket feature.'}}
+ $script:OpenWebMeetRecoveryPhase='recovery_registry'
  if(!$before.IgnoreKeyExists -and (Test-Path -LiteralPath $reg)){$key=Get-Item -LiteralPath $reg;if($key.ValueCount -eq 0 -and $key.SubKeyCount -eq 0){Remove-Item -LiteralPath $reg}}
 }
