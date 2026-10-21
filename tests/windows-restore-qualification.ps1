@@ -9,6 +9,7 @@ No owner machine, public release, signer, carrier or actual OS reboot is used.
 param(
  [Parameter(Mandatory)][ValidateSet('Source','Target')][string]$Role,
  [Parameter(Mandatory)][ValidatePattern('^[1-9][0-9]{0,19}$')][string]$BaseSuiteRunId,
+ [ValidatePattern('^\d+\.\d+\.\d+$')][string]$BaseVersion='1.0.13',
  [switch]$DisposableHostedRunner
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
@@ -241,11 +242,11 @@ try{
  Check ($baseFacts.schema -eq 1 -and $baseFacts.run_id -eq $BaseSuiteRunId -and $baseFacts.source_commit -eq $candidate.run.head_sha -and $baseFacts.state -in 'partial','passed') 'Exact qualified baseline facts are required.'
  foreach($gate in 'fresh','native_sip_audio','backups','direct_113_helper_reapply','direct_failure_rollback','restore_gate_startup'){Check ($baseFacts.gates.$gate -eq 'passed') 'Every essential real baseline gate must pass.'}
  Check ($baseFacts.cleanup -eq 'owned services stopped, SFTP receiver/account removed, hostname removed, activation holds preserved') 'The qualified baseline must have completed its exact owned cleanup.'
- $base=Join-Path $candidate.directory 'openwebpbx-1.0.13-windows-x64.zip'
- Check ((Hash $base) -eq $baseFacts.candidate_artifact.sha256 -and $baseFacts.artifacts.candidate_sha256 -eq $baseFacts.candidate_artifact.sha256 -and $baseFacts.candidate_artifact.filename -eq 'openwebpbx-1.0.13-windows-x64.zip' -and $baseFacts.candidate_artifact.private_exclusions -eq 'passed' -and $baseFacts.candidate_artifact.verified_before_credentials -eq $true) 'The exact independently audited package and BOTH candidate evidence fields must match the qualification.'
- CheckedProcess 'python.exe' @((Join-Path $PSScriptRoot 'windows_candidate_archive.py'),'--archive',$base,'--version','1.0.13','--sha256',$baseFacts.candidate_artifact.sha256) 'verify-qualified-package'
+ $base=Join-Path $candidate.directory ("openwebpbx-$BaseVersion-windows-x64.zip")
+ Check ((Hash $base) -eq $baseFacts.candidate_artifact.sha256 -and $baseFacts.artifacts.candidate_sha256 -eq $baseFacts.candidate_artifact.sha256 -and $baseFacts.candidate_artifact.filename -eq ("openwebpbx-$BaseVersion-windows-x64.zip") -and $baseFacts.candidate_artifact.private_exclusions -eq 'passed' -and $baseFacts.candidate_artifact.verified_before_credentials -eq $true) 'The exact independently audited package and BOTH candidate evidence fields must match the qualification.'
+ CheckedProcess 'python.exe' @((Join-Path $PSScriptRoot 'windows_candidate_archive.py'),'--archive',$base,'--version',$BaseVersion,'--sha256',$baseFacts.candidate_artifact.sha256) 'verify-qualified-package'
  $expanded=Join-Path $work 'package';PrivateDirectory $expanded;ExpandSafe $base $expanded
- $packages=@(Get-ChildItem $expanded -Directory);Check ($packages.Count -eq 1) 'One exact release package root is required.';$package=$packages[0].FullName;$python=Join-Path $package 'backup-runtime/python.exe';NativeVersions $package '1.0.13'|Out-Null
+ $packages=@(Get-ChildItem $expanded -Directory);Check ($packages.Count -eq 1) 'One exact release package root is required.';$package=$packages[0].FullName;$python=Join-Path $package 'backup-runtime/python.exe';NativeVersions $package $BaseVersion|Out-Null
  if($Role -eq 'Target'){SourceTransfer}
  $binding=$env:GITHUB_RUN_ID+'/'+$env:GITHUB_SHA
  $scope=[Convert]::ToHexString((Derived ('scope/'+$binding))).ToLowerInvariant().Substring(0,24)

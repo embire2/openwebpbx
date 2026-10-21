@@ -70,11 +70,16 @@ def date(value):
     return result.astimezone(timezone.utc)
 
 
-def verify_packets(packet, base_facts, provenance, archives, public_key, *, now=None):
+def verify_packets(packet, base_facts, provenance, archives, public_key, *, now=None,
+                   base_version='1.0.13', target_version='1.0.14'):
     """Independent review checks; installed C# verifier still verifies both feeds."""
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import padding, rsa
     now = now or datetime.now(timezone.utc)
+    if not isinstance(base_version, str) or not isinstance(target_version, str) or not re.fullmatch(r'\d+\.\d+\.\d+', base_version) or not re.fullmatch(r'\d+\.\d+\.\d+', target_version) or tuple(map(int,target_version.split('.'))) <= tuple(map(int,base_version.split('.'))):
+        raise ValueError('Exact baseline and genuinely newer canary versions are required.')
+    if provenance.get('base_version', base_version) != base_version or provenance.get('target_version', target_version) != target_version:
+        raise ValueError('Canary provenance versions differ from the explicit run.')
     if packet.get('schema') != 1 or packet.get('repository') != 'embire2/openwebpbx':
         raise ValueError('A root-reviewed private packet contract is required.')
     for field in ('base_suite_run_id', 'canary_run_id'):
@@ -105,8 +110,8 @@ def verify_packets(packet, base_facts, provenance, archives, public_key, *, now=
         signature = base64.b64decode(envelope['signature'], validate=True)
         key.verify(signature, payload_bytes, padding.PKCS1v15(), hashes.SHA256())
         payload = json.loads(payload_bytes, object_pairs_hook=no_duplicates)
-        if (payload.get('schema'), payload.get('product'), payload.get('channel'), payload.get('version')) != (1, 'openwebpbx', 'stable', '1.0.14'):
-            raise ValueError('A genuine 1.0.14 Windows canary is required.')
+        if (payload.get('schema'), payload.get('product'), payload.get('channel'), payload.get('version')) != (1, 'openwebpbx', 'stable', target_version):
+            raise ValueError('A genuine matching newer Windows canary is required.')
         sequence = payload.get('sequence')
         if type(sequence) is not int or not previous < sequence <= 2147483647:
             raise ValueError('Fault then normal private feed sequences must advance.')
@@ -119,9 +124,9 @@ def verify_packets(packet, base_facts, provenance, archives, public_key, *, now=
             raise ValueError('The laboratory envelope must contain only Windows x64.')
         asset = assets[0]
         path = Path(archives[mode])
-        expected = {'platform': 'windows-x64', 'name': 'openwebpbx-1.0.14-windows-x64.zip',
-                    'url': 'https://github.com' + ASSET_PATH}
-        if any(asset.get(k) != value for k, value in expected.items()) or asset.get('minimum_version') != '1.0.13':
+        expected = {'platform': 'windows-x64', 'name': f'openwebpbx-{target_version}-windows-x64.zip',
+                    'url': f'https://github.com/embire2/openwebpbx/releases/download/v{target_version}/openwebpbx-{target_version}-windows-x64.zip'}
+        if any(asset.get(k) != value for k, value in expected.items()) or asset.get('minimum_version') != base_version:
             raise ValueError('The production asset URL/version validators must remain intact.')
         if (type(asset.get('bytes')) is not int or not 0 < asset['bytes'] <= 4 * 1024**3 or asset['bytes'] != path.stat().st_size
                 or not re.fullmatch(r'[a-f0-9]{64}', record['archive_sha256']) or asset.get('sha256') != record['archive_sha256']
@@ -249,12 +254,16 @@ def prepare_pki(settings, work):
 def make_server(settings, work, port=443):
     lock = threading.Lock()
     requests = []
+    target_version=settings.get('target_version','1.0.14')
+    if not isinstance(target_version,str) or not re.fullmatch(r'\d+\.\d+\.\d+',target_version):
+        raise ValueError('An exact numeric canary transport version is required.')
+    asset_path=f'/embire2/openwebpbx/releases/download/v{target_version}/openwebpbx-{target_version}-windows-x64.zip'
 
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
         def log_message(self, *_): pass
         def do_GET(self):
-            if not ipaddress.ip_address(self.client_address[0]).is_loopback or self.headers.get('Host') != 'github.com' or self.path not in (FEED_PATH, ASSET_PATH):
+            if not ipaddress.ip_address(self.client_address[0]).is_loopback or self.headers.get('Host') != 'github.com' or self.path not in (FEED_PATH, asset_path):
                 self.send_error(403); return
             if self.headers.get('User-Agent') != 'OpenWebPBX-Updater/1' or self.headers.get('Range'):
                 # Empty caches must produce a complete non-resumed request.
@@ -325,7 +334,8 @@ def main():
         provenance = read_json(settings['provenance_file'], 32 * 1024**2)
         if digest(settings['provenance_file']) != packet.get('canary_provenance_sha256'):
             raise RuntimeError('Root-reviewed canary provenance bytes differ.')
-        packets = verify_packets(packet, read_json(settings['base_facts']), provenance, settings['archives'], settings['public_key'])
+        packets = verify_packets(packet, read_json(settings['base_facts']), provenance, settings['archives'], settings['public_key'],
+                                 base_version=settings.get('base_version','1.0.13'),target_version=settings.get('target_version','1.0.14'))
         write_json(work / 'verified-packets.json', packets)
     elif args.action == 'request':
         Web(settings).install()

@@ -54,6 +54,16 @@ try{
  Verify (!$result.paths.automatic_backups_worker_lock.before_present -and $result.paths.automatic_backups_worker_lock.after_present -and $result.paths.automatic_backups_worker_lock.support_capture -ceq 'absent')
  Verify ($result.paths.automatic_backups_root.support_capture -ceq 'present' -and $result.paths.installation.support_capture -ceq 'present')
  Verify ($result.paths.fusionpbx_config.support_capture -ceq 'unobserved' -and $result.paths.runtime.support_capture -ceq 'unobserved')
+ # The same sealed comparator binds explicitly to a20→21 run. Old13/14
+ # metadata must refuse under that selected version pair.
+ $BaseVersion='1.0.20';$CanaryVersion='1.0.21'
+ Verify ((Capture).state -ceq 'unavailable')
+ $script:journal.version=$CanaryVersion;$script:journal.previous_version=$BaseVersion
+ WriteFixture (Join-Path $state 'updates/install-journal.json') $script:journal
+ WriteFixture (Join-Path $backup 'complete.json') @{version=$BaseVersion;integrity_sha256=(Get-FileHash (Join-Path $backup 'backup-manifest.json')).Hash.ToLowerInvariant()}
+ Verify ((Capture).state -ceq 'verified')
+ Remove-Variable BaseVersion,CanaryVersion
+ SealFixture
  $script:record.Acls[$worker]=$private;Reseal;$present=Capture
  Verify ($present.paths.automatic_backups_worker_lock.support_capture -ceq 'present')
  $script:record.Directories['automatic-backups'].Exists=$false;$script:record.Acls.Clear();Reseal;$absent=Capture

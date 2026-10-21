@@ -156,6 +156,38 @@ class CanaryPreparation(unittest.TestCase):
         self.assertIn('canary-fault-witness-<nonce>.json', result['fault_contract']['witness'])
         self.assertIn('baseline_version', result['fault_contract']['required_fields'])
 
+    def test_explicit_20_to_21_provenance_and_guarded_fault_are_bound(self):
+        p.configure_versions('1.0.20','1.0.21')
+        self.addCleanup(p.configure_versions,'1.0.13','1.0.14')
+        self.sources={name:data.replace(b'1.0.13',b'1.0.20') for name,data in self.sources.items()}
+        self.files={name:data.replace(b'1.0.13',b'1.0.20') for name,data in self.files.items()}
+        with zipfile.ZipFile(self.base,'w') as archive:
+            prefix='openwebpbx-1.0.20-windows-x64/'
+            archive.writestr(prefix+'release-manifest.json',json.dumps({'version':'1.0.20','files':{
+                name:hashlib.sha256(data).hexdigest() for name,data in self.files.items()}}))
+            for name,data in self.files.items():archive.writestr(prefix+name,data)
+        self.facts['artifacts']['candidate_sha256']=p.digest(self.base)
+        self.inputs['version']='1.0.21'
+        self.inputs['source_inputs']=[{'path':name,'sha256':hashlib.sha256(data).hexdigest()}for name,data in sorted(self.sources.items())]
+        self.inputs['overlays']=[]
+        for name in sorted(p.OVERLAYS):
+            data=self.sources[name].replace(b'1.0.20',b'1.0.21')
+            self.native_file('overlays/'+name,data)
+            self.inputs['overlays'].append({'path':name,'original_sha256':hashlib.sha256(self.sources[name]).hexdigest(),'sha256':hashlib.sha256(data).hexdigest()})
+        self.verification['version']='1.0.21'
+        for row in self.verification['assemblies']:row['assembly_version']='1.0.21.0'
+        self.refresh()
+        result=self.run_prepare()
+        self.assertEqual((result['base_version'],result['target_version']),('1.0.20','1.0.21'))
+        for mode in ('normal','fault'):
+            archive=self.output/mode/(p.NAME+'.zip')
+            self.assertEqual(p.candidate.verify(archive,'1.0.21')['sha256'],result[mode]['sha256'])
+        fault=(self.output/'fault'/p.NAME/'canary-fault.ps1').read_text()
+        self.assertIn("baseline_version='1.0.20'",fault)
+        self.assertIn("target_version='1.0.21'",fault)
+        self.assertNotIn('1.0.13',fault)
+        self.assertNotIn('1.0.14',fault)
+
     def test_empty_or_missing_essential_gates_are_never_qualification(self):
         for gate in p.ESSENTIAL_GATES:
             for value in ('pending', 'unqualified', False, None):

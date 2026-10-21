@@ -68,6 +68,25 @@ class PacketChecks(unittest.TestCase):
         self.assertEqual([checked[mode]['sequence'] for mode in ('fault', 'normal')], [114, 115])
         self.assertNotEqual(checked['fault']['sha256'], checked['normal']['sha256'])
 
+    def test_explicit_20_to_21_retains_signatures_and_exact_asset_boundary(self):
+        self.provenance.update(base_version='1.0.20', target_version='1.0.21')
+        for mode in ('fault','normal'):
+            def newer(payload):
+                payload['version']='1.0.21'
+                payload['assets'][0].update(name='openwebpbx-1.0.21-windows-x64.zip',
+                    url='https://github.com/embire2/openwebpbx/releases/download/v1.0.21/openwebpbx-1.0.21-windows-x64.zip',
+                    minimum_version='1.0.20')
+            self.edit(mode,newer)
+        checked=fixture.verify_packets(self.packet,self.facts,self.provenance,self.archives,self.public,
+            now=self.now,base_version='1.0.20',target_version='1.0.21')
+        self.assertEqual(len(checked),2)
+        with self.assertRaises(ValueError):
+            self.verify()
+        self.provenance['target_version']='1.0.22'
+        with self.assertRaises(ValueError):
+            fixture.verify_packets(self.packet,self.facts,self.provenance,self.archives,self.public,
+                now=self.now,base_version='1.0.20',target_version='1.0.21')
+
     def test_tampered_signature_is_rejected(self):
         self.packet['normal']['envelope']['signature'] = self.packet['fault']['envelope']['signature']
         with self.assertRaises(Exception): self.verify()

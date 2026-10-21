@@ -180,6 +180,21 @@ echo '{"new_noncustomer_table":true,"customer_rows_modified":false}'.PHP_EOL;
 '''
 
 
+FAULT_PS_TEMPLATE = FAULT_PS
+
+
+def configure_versions(base: str, target: str) -> None:
+    """Bind a run to one exact numeric baseline and genuinely newer canary."""
+    global BASE, TARGET, NAME, FAULT_PS
+    if not isinstance(base, str) or not isinstance(target, str) or not re.fullmatch(r'\d+\.\d+\.\d+', base) or not re.fullmatch(r'\d+\.\d+\.\d+', target):
+        raise ValueError('Exact numeric qualification versions are required.')
+    if tuple(map(int, target.split('.'))) <= tuple(map(int, base.split('.'))):
+        raise ValueError('The canary must be genuinely newer than its baseline.')
+    BASE, TARGET = base, target
+    NAME = f'openwebpbx-{TARGET}-windows-x64'
+    FAULT_PS = FAULT_PS_TEMPLATE.replace('1.0.13', BASE).replace('1.0.14', TARGET)
+
+
 def digest(path: Path) -> str:
     with path.open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
@@ -331,7 +346,8 @@ def verify_native(root: Path, facts: dict, repository: Path) -> tuple[dict, dict
     version_props = ET.fromstring(original_props).findall('./PropertyGroup/Version')
     if len(version_props) != 1 or version_props[0].text != BASE:
         raise ValueError('Original assembly version evidence is ambiguous.')
-    expected_props, replacements = re.subn(rb'(<Version>)1\.0\.13(</Version>)', rb'\g<1>1.0.14\g<2>', original_props)
+    expected_props, replacements = re.subn(rb'(<Version>)'+re.escape(BASE.encode())+rb'(</Version>)',
+                                         lambda match: match[1]+TARGET.encode()+match[2], original_props)
     if replacements != 1 or (root / 'overlays/platform/Directory.Build.props').read_bytes() != expected_props:
         raise ValueError('The assembly overlay changes more than its single version label.')
     if verification.get('version') != TARGET or not isinstance(verification.get('assemblies'), list):
@@ -510,9 +526,12 @@ def main() -> None:
     parser.add_argument('--base-facts', type=Path, required=True)
     parser.add_argument('--native-root', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
+    parser.add_argument('--base-version', default='1.0.13')
+    parser.add_argument('--target-version', default='1.0.14')
     args = parser.parse_args()
     if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('GITHUB_REPOSITORY') != 'embire2/openwebpbx' or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted':
         parser.error('Run preparation only in the explicitly owned disposable GitHub workflow.')
+    configure_versions(args.base_version, args.target_version)
     prepare(args.base_archive, args.base_facts, args.native_root, args.output_dir)
     print('Private unsigned14 canaries prepared from exact qualified13 bytes and Windows build evidence. No installation or publication was performed.')
 

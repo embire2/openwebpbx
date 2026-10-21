@@ -12,9 +12,12 @@ param(
  [Parameter(Mandatory)][ValidateSet('PrepareCanary','QualifySigned')][string]$Mode,
  [Parameter(Mandatory)][ValidatePattern('^[0-9]+$')][string]$BaseSuiteRunId,
  [ValidatePattern('^[0-9]+$')][string]$CanaryRunId,
+ [ValidatePattern('^\d+\.\d+\.\d+$')][string]$BaseVersion='1.0.13',
+ [ValidatePattern('^\d+\.\d+\.\d+$')][string]$CanaryVersion='1.0.14',
  [switch]$DisposableHostedRunner
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
+if([version]$CanaryVersion -le [version]$BaseVersion){throw 'The canary must be a genuinely newer numeric version.'}
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){throw 'Only the explicitly disposable owned GitHub-hosted Windows runner is authorized.'}
 $os=Get-CimInstance Win32_OperatingSystem
 if($os.ProductType -eq 1 -or $os.Caption -notmatch 'Windows Server 2025' -or [Environment]::OSVersion.Version.Build -lt 26100){throw 'A disposable Windows Server 2025 x64 runner is required.'}
@@ -184,16 +187,18 @@ function StopQualificationIis($Site,$Pool){
  }
 }
 function PrepareCanary($Base,$BaseFacts){
- $phaseBefore=$script:phase;$script:phase='isolated real 1.0.14 build'
+ if(!(Get-Variable BaseVersion -ErrorAction SilentlyContinue)){$BaseVersion='1.0.13'}
+ if(!(Get-Variable CanaryVersion -ErrorAction SilentlyContinue)){$CanaryVersion='1.0.14'}
+ $phaseBefore=$script:phase;$script:phase=('isolated real '+$CanaryVersion+' build')
  $overlay=Join-Path $work 'source-overlay';$native=Join-Path $work 'native14';PrivateDirectory $native
  CheckedProcess 'git.exe' @('fetch','--no-tags','origin',$BaseFacts.source_commit) 'fetch-immutable-source'
  CheckedProcess 'git.exe' @('worktree','add','--detach',$overlay,$BaseFacts.source_commit) 'source-worktree'
- $version=(Get-Content (Join-Path $overlay 'VERSION') -Raw).Trim();Check ($version -eq '1.0.13') 'The canary must derive from the actual qualified 1.0.13 source.'
+ $version=(Get-Content (Join-Path $overlay 'VERSION') -Raw).Trim();Check ($version -eq $BaseVersion) ('The canary must derive from the actual qualified '+$BaseVersion+' source.')
  $files=@(& git.exe -C $overlay ls-files -- platform packaging/updates/release-public.pem VERSION);Check ($LASTEXITCODE -eq 0 -and $files.Count -gt 40) 'The complete native source inventory is required.'
  $inputs=@($files|ForEach-Object {@{path=$_;sha256=(Hash (Join-Path $overlay $_))}});$overlays=@()
  foreach($relative in 'VERSION','platform/Directory.Build.props'){
   $path=Join-Path $overlay $relative;$old=Hash $path;$text=[IO.File]::ReadAllText($path)
-  if($relative -eq 'VERSION'){Check ([regex]::Matches($text,'1\.0\.13').Count -eq 1) 'The original release version label is ambiguous.';$text=$text.Replace('1.0.13','1.0.14')}else{Check ([regex]::Matches($text,'<Version>1\.0\.13</Version>').Count -eq 1) 'The source version overlay is ambiguous.';$text=$text.Replace('<Version>1.0.13</Version>','<Version>1.0.14</Version>')}
+  if($relative -eq 'VERSION'){Check ([regex]::Matches($text,[regex]::Escape($BaseVersion)).Count -eq 1) 'The original release version label is ambiguous.';$text=$text.Replace($BaseVersion,$CanaryVersion)}else{Check ([regex]::Matches($text,('<Version>'+[regex]::Escape($BaseVersion)+'</Version>')).Count -eq 1) 'The source version overlay is ambiguous.';$text=$text.Replace(('<Version>'+$BaseVersion+'</Version>'),('<Version>'+$CanaryVersion+'</Version>'))}
   [IO.File]::WriteAllText($path,$text,[Text.UTF8Encoding]::new($false));$overlays+=@{path=$relative;original_sha256=$old;sha256=(Hash $path)}
   $record=Join-Path $native ('overlays/'+$relative);New-Item -ItemType Directory -Force (Split-Path $record -Parent)|Out-Null;Copy-Item -LiteralPath $path -Destination $record
  }
@@ -202,18 +207,18 @@ function PrepareCanary($Base,$BaseFacts){
  foreach($component in 'server','updater'){$project=if($component -eq 'server'){'OpenWebPbx.Server'}else{'OpenWebPbx.Updater'};CheckedProcess 'dotnet.exe' @('publish',('platform/'+$project),'-c','Release','-r','win-x64','--self-contained','true','-o',(Join-Path $native $component)) ($component+'-14-build') $overlay}
  CheckedProcess 'dotnet.exe' @('build','platform/OpenWebPbx.Desktop','-c','Release','-p:Platform=x64','-o',(Join-Path $native 'desktop')) 'desktop-14-build' $overlay
  foreach($project in 'OpenWebPbx.Checks','OpenWebPbx.Updater.Checks'){CheckedProcess 'dotnet.exe' @('run','--project',('platform/'+$project),'-c','Release') ($project+'-checks') $overlay}
- $versions=NativeVersions $native '1.0.14'
+ $versions=NativeVersions $native $CanaryVersion
  $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $native 'desktop/OpenWebPbx.Desktop.exe'));$start.UseShellExecute=$false;$start.WorkingDirectory=Join-Path $native 'desktop';$manager=[Diagnostics.Process]::Start($start)
- try{$deadline=[DateTime]::UtcNow.AddSeconds(45);do{Start-Sleep -Milliseconds 500;$manager.Refresh();Check (!$manager.HasExited) 'The real canary manager exited before its startup gate.'}while($manager.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $deadline);Check ($manager.MainWindowHandle -ne 0 -and $manager.Responding -and $manager.MainWindowTitle -eq 'OpenWeb PBX 1.0.14') 'The responsive real 1.0.14 manager window is required.';$launch=@{process_alive=$true;responsive=$true;window_title=$manager.MainWindowTitle;window_verified=$true;session_id=$manager.SessionId}}finally{if(!$manager.HasExited){$manager.CloseMainWindow()|Out-Null;if(!$manager.WaitForExit(10000)){$manager.Kill()}};$manager.Dispose()}
+ try{$deadline=[DateTime]::UtcNow.AddSeconds(45);do{Start-Sleep -Milliseconds 500;$manager.Refresh();Check (!$manager.HasExited) 'The real canary manager exited before its startup gate.'}while($manager.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $deadline);Check ($manager.MainWindowHandle -ne 0 -and $manager.Responding -and $manager.MainWindowTitle -eq ('OpenWeb PBX '+$CanaryVersion)) ('The responsive real '+$CanaryVersion+' manager window is required.');$launch=@{process_alive=$true;responsive=$true;window_title=$manager.MainWindowTitle;window_verified=$true;session_id=$manager.SessionId}}finally{if(!$manager.HasExited){$manager.CloseMainWindow()|Out-Null;if(!$manager.WaitForExit(10000)){$manager.Kill()}};$manager.Dispose()}
  foreach($input in $inputs){$expected=if($input.path -in 'VERSION','platform/Directory.Build.props'){($overlays|Where-Object path -eq $input.path).sha256}else{$input.sha256};Check ((Hash (Join-Path $overlay $input.path)) -eq $expected) 'The native build modified an unapproved source input.'}
  $modified=@(& git.exe -C $overlay diff --name-only HEAD);Check (@(Compare-Object ($modified|Sort-Object) @('VERSION','platform/Directory.Build.props')).Count -eq 0) 'Only the two recorded version overlays may change tracked source.'
- WriteJson (Join-Path $native 'source-inputs.json') @{version='1.0.14';source_commit=$BaseFacts.source_commit;source_inputs=$inputs;overlays=$overlays;sdk='10.0.401';preparation_source_commit=$env:GITHUB_SHA;preparation_run_id=$env:GITHUB_RUN_ID;runner_image=$env:ImageVersion}
- WriteJson (Join-Path $native 'verification.json') @{version='1.0.14';assemblies=$versions;manager_startup=$launch;protocol_checks='passed';updater_checks='passed'}
+ WriteJson (Join-Path $native 'source-inputs.json') @{version=$CanaryVersion;source_commit=$BaseFacts.source_commit;source_inputs=$inputs;overlays=$overlays;sdk='10.0.401';preparation_source_commit=$env:GITHUB_SHA;preparation_run_id=$env:GITHUB_RUN_ID;runner_image=$env:ImageVersion}
+ WriteJson (Join-Path $native 'verification.json') @{version=$CanaryVersion;assemblies=$versions;manager_startup=$launch;protocol_checks='passed';updater_checks='passed'}
  $lines=@(Get-ChildItem -LiteralPath $native -File -Recurse|Sort-Object FullName|ForEach-Object {('{0}  {1}' -f (Hash $_.FullName),[IO.Path]::GetRelativePath($native,$_.FullName).Replace('\','/'))})
  [IO.File]::WriteAllLines((Join-Path $native 'SHA256SUMS'),$lines,[Text.UTF8Encoding]::new($false))
  Check (!(Test-Path -LiteralPath $output)) 'An old canary export must not be reused.'
- CheckedProcess 'python.exe' @((Join-Path $PSScriptRoot 'windows-canary-preparation.py'),'--base-archive',$Base,'--base-facts',(Join-Path $work 'baseline-facts.json'),'--native-root',$native,'--output-dir',$output) 'prepare-audited-canary'
- $facts.gates.canary_build='passed';$facts.checks+='Genuine 1.0.14 server/manager/updater builds, responsive manager, exactly two source overlays, complete normal/fault manifest and source/hash evidence';$facts.state='prepared';$script:phase=$phaseBefore
+ CheckedProcess 'python.exe' @((Join-Path $PSScriptRoot 'windows-canary-preparation.py'),'--base-archive',$Base,'--base-facts',(Join-Path $work 'baseline-facts.json'),'--native-root',$native,'--output-dir',$output,'--base-version',$BaseVersion,'--target-version',$CanaryVersion) 'prepare-audited-canary'
+ $facts.gates.canary_build='passed';$facts.checks+=('Genuine '+$CanaryVersion+' server/manager/updater builds, responsive manager, exactly two source overlays, complete normal/fault manifest and source/hash evidence');$facts.state='prepared';$script:phase=$phaseBefore
 }
 function Fixture([string]$Action){
  $script:qualificationFailedChild=$null
@@ -322,11 +327,12 @@ function WaitManager([string]$Version,[int]$PreviousPid=0,[DateTime]$NotBefore=[
  throw 'The genuine installed manager did not automatically show its responsive versioned window in the original user/session.'
 }
 function BeginManager {
+ if(!(Get-Variable BaseVersion -ErrorAction SilentlyContinue)){$BaseVersion='1.0.13'}
  $script:managerSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;$script:managerSession=[Diagnostics.Process]::GetCurrentProcess().SessionId;$script:managerName='OpenWebPBX-Manager-'+$managerSid
  Check ($managerSession -gt 0 -and [Environment]::UserInteractive) 'Interactive manager reopen remains unqualified when the disposable runner has no real user session.'
  Check (@(Get-CimInstance Win32_Process -Filter "Name='OpenWebPbx.Desktop.exe'").Count -eq 0 -and !(Get-ScheduledTask -TaskName $managerName -ErrorAction SilentlyContinue)) 'Never reuse or close a foreign/pre-existing manager or task.'
  $script:managerOwned=$true;$script:managerStarted=[DateTime]::UtcNow;$start=[Diagnostics.ProcessStartInfo]::new("$root\desktop\OpenWebPbx.Desktop.exe");$start.UseShellExecute=$false;$start.WorkingDirectory="$root\desktop";$start.Environment['PSModulePath']=(Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell/Modules');$process=[Diagnostics.Process]::Start($start);$process.Dispose()
- return WaitManager '1.0.13'
+ return WaitManager $BaseVersion
 }
 function OriginalProcessProofSource([string]$Path){
  # Import only the independently Windows-qualified proof function, never the
@@ -470,6 +476,8 @@ function QualificationFileCaptureFields($Record){
  return @{state=$Record.state;paths=$paths}
 }
 function QualificationFileCapture($Before,$After,[string]$StateRoot,[string]$ConfigurationRoot){
+ if(!(Get-Variable BaseVersion -ErrorAction SilentlyContinue)){$BaseVersion='1.0.13'}
+ if(!(Get-Variable CanaryVersion -ErrorAction SilentlyContinue)){$CanaryVersion='1.0.14'}
  # Failure-only, read-only observation of a sealed, quiesced support inventory.
  # An online configuration copy is not claimed as a quiesced support capture.
  $unavailable=@{state='unavailable';paths=@{}}
@@ -496,11 +504,11 @@ function QualificationFileCapture($Before,$After,[string]$StateRoot,[string]$Con
   }
   if($Before -isnot [Collections.IDictionary] -or $After -isnot [Collections.IDictionary]){throw 'Capture observation unavailable.'}
   $journalPath=Join-Path $StateRoot 'updates/install-journal.json';$journal=ReadCapture $journalPath 65536;$j=$journal.value
-  if(($j.schema -isnot [int] -and $j.schema -isnot [long]) -or $j.schema -ne 1 -or $j.state -cne 'rolled_back' -or $j.version -cne '1.0.14' -or $j.previous_version -cne '1.0.13' -or $j.operator_rollback -isnot [bool] -or $j.operator_rollback -or $j.backup_path -isnot [string]){throw 'Capture observation unavailable.'}
+  if(($j.schema -isnot [int] -and $j.schema -isnot [long]) -or $j.schema -ne 1 -or $j.state -cne 'rolled_back' -or $j.version -cne $CanaryVersion -or $j.previous_version -cne $BaseVersion -or $j.operator_rollback -isnot [bool] -or $j.operator_rollback -or $j.backup_path -isnot [string]){throw 'Capture observation unavailable.'}
   $backup=[IO.Path]::GetFullPath($j.backup_path);$name=[IO.Path]::GetFileName($backup)
   if($name -cnotmatch '^[0-9]{8}-[0-9]{6}-[a-f0-9]{8}$' -or !$backup.Equals([IO.Path]::GetFullPath((Join-Path (Join-Path $StateRoot 'backups') $name)),[StringComparison]::OrdinalIgnoreCase)){throw 'Capture observation unavailable.'}
   $complete=ReadCapture (Join-Path $backup 'complete.json') 65536;$manifest=ReadCapture (Join-Path $backup 'backup-manifest.json') 8388608
-  if($complete.value.version -cne '1.0.13' -or $complete.value.integrity_sha256 -isnot [string] -or $complete.value.integrity_sha256 -cnotmatch '^[a-f0-9]{64}$' -or (CaptureHash $manifest.bytes) -cne $complete.value.integrity_sha256 -or ($manifest.value.schema -isnot [int] -and $manifest.value.schema -isnot [long]) -or $manifest.value.schema -ne 1 -or $manifest.value.files -isnot [Collections.IDictionary]){throw 'Capture observation unavailable.'}
+  if($complete.value.version -cne $BaseVersion -or $complete.value.integrity_sha256 -isnot [string] -or $complete.value.integrity_sha256 -cnotmatch '^[a-f0-9]{64}$' -or (CaptureHash $manifest.bytes) -cne $complete.value.integrity_sha256 -or ($manifest.value.schema -isnot [int] -and $manifest.value.schema -isnot [long]) -or $manifest.value.schema -ne 1 -or $manifest.value.files -isnot [Collections.IDictionary]){throw 'Capture observation unavailable.'}
   $support=ReadCapture (Join-Path $backup 'support-state.json') 16777216
   if($manifest.value.files['support-state.json'] -isnot [string] -or $manifest.value.files['support-state.json'] -cnotmatch '^[a-f0-9]{64}$' -or (CaptureHash $support.bytes) -cne $manifest.value.files['support-state.json'] -or ($support.value.schema -isnot [int] -and $support.value.schema -isnot [long]) -or $support.value.schema -ne 1){throw 'Capture observation unavailable.'}
   $record=$support.value
@@ -603,24 +611,24 @@ try{
  $baseReport=Artifact $BaseSuiteRunId ('openwebpbx-windows-suite-facts-'+$BaseSuiteRunId) '.github/workflows/windows-suite.yml'
  $baseFacts=Get-Content (Join-Path $baseReport.directory 'qualification.json') -Raw|ConvertFrom-Json
  Check ($baseFacts.schema -eq 1 -and $baseFacts.source_commit -eq $baseCandidate.run.head_sha -and $baseFacts.run_id -eq $BaseSuiteRunId -and $baseFacts.state -in 'partial','passed') 'The exact qualified baseline facts are required.'
- foreach($gate in 'fresh','native_sip_audio','backups','direct_113_helper_reapply','direct_failure_rollback','restore_gate_startup'){Check ($baseFacts.gates.$gate -eq 'passed') 'All essential real 1.0.13 baseline gates must pass before preparation or updater qualification.'}
- $base=Join-Path $baseCandidate.directory 'openwebpbx-1.0.13-windows-x64.zip';Check ((Hash $base) -eq $baseFacts.candidate_artifact.sha256 -and $baseFacts.candidate_artifact.private_exclusions -eq 'passed') 'The unchanged audited candidate checksum must match qualification facts.'
- CheckedProcess 'python.exe' @((Join-Path $PSScriptRoot 'windows_candidate_archive.py'),'--archive',$base,'--version','1.0.13','--sha256',$baseFacts.candidate_artifact.sha256) 'verify-qualified-base'
+ foreach($gate in 'fresh','native_sip_audio','backups','direct_113_helper_reapply','direct_failure_rollback','restore_gate_startup'){Check ($baseFacts.gates.$gate -eq 'passed') ('All essential real '+$BaseVersion+' baseline gates must pass before preparation or updater qualification.')}
+ $base=Join-Path $baseCandidate.directory ('openwebpbx-'+$BaseVersion+'-windows-x64.zip');Check ((Hash $base) -eq $baseFacts.candidate_artifact.sha256 -and $baseFacts.candidate_artifact.private_exclusions -eq 'passed') 'The unchanged audited candidate checksum must match qualification facts.'
+ CheckedProcess 'python.exe' @((Join-Path $PSScriptRoot 'windows_candidate_archive.py'),'--archive',$base,'--version',$BaseVersion,'--sha256',$baseFacts.candidate_artifact.sha256) 'verify-qualified-base'
  WriteJson (Join-Path $work 'baseline-facts.json') $baseFacts
  $facts.base_suite_run_id=$BaseSuiteRunId;$facts.base_source_commit=$baseFacts.source_commit;$facts.base_archive_sha256=Hash $base
  if($Mode -eq 'PrepareCanary'){PrepareCanary $base $baseFacts}
  else{
   $phase='root-reviewed signed canary inputs'
   $canary=Artifact $CanaryRunId ('openwebpbx-windows-updater-canary-'+$CanaryRunId) '.github/workflows/windows-updater-qualification.yml'
-  $provenance=Join-Path $canary.directory 'provenance.json';$archives=@{fault=(Join-Path $canary.directory 'fault/openwebpbx-1.0.14-windows-x64.zip');normal=(Join-Path $canary.directory 'normal/openwebpbx-1.0.14-windows-x64.zip')}
+  $provenance=Join-Path $canary.directory 'provenance.json';$archives=@{fault=(Join-Path $canary.directory ('fault/openwebpbx-'+$CanaryVersion+'-windows-x64.zip'));normal=(Join-Path $canary.directory ('normal/openwebpbx-'+$CanaryVersion+'-windows-x64.zip'))}
   $packetPath=Join-Path $work 'root-reviewed-packets.json';$packetBytes=[Convert]::FromBase64String($env:WINDOWS_UPDATER_SIGNED_PACKETS_B64);Check ($packetBytes.Length -le 65536) 'Root-reviewed private envelope packet exceeds its bound.';[IO.File]::WriteAllBytes($packetPath,$packetBytes);Remove-Item Env:\WINDOWS_UPDATER_SIGNED_PACKETS_B64
   $packet=Get-Content $packetPath -Raw|ConvertFrom-Json;Check ($packet.canary_run_id -eq $CanaryRunId -and $packet.base_suite_run_id -eq $BaseSuiteRunId -and $packet.canary_preparation_source_commit -eq $canary.run.head_sha -and $packet.canary_provenance_sha256 -eq (Hash $provenance)) 'Root-reviewed exact canary build/run/provenance identities differ.'
-  foreach($modeName in 'fault','normal'){CheckedProcess 'python.exe' @((Join-Path $PSScriptRoot 'windows_candidate_archive.py'),'--archive',$archives[$modeName],'--version','1.0.14','--sha256',$packet.$modeName.archive_sha256) ('verify-'+$modeName)}
+  foreach($modeName in 'fault','normal'){CheckedProcess 'python.exe' @((Join-Path $PSScriptRoot 'windows_candidate_archive.py'),'--archive',$archives[$modeName],'--version',$CanaryVersion,'--sha256',$packet.$modeName.archive_sha256) ('verify-'+$modeName)}
   Check (!(Test-Path $root) -and !(Test-Path "$state\installation.json") -and !(Test-Path "$configuration\config.conf") -and !(Get-Service FreeSWITCH -ErrorAction SilentlyContinue)) 'A completely separate empty runner is required; never reuse an owner or installed factory.'
-  $packageDirectory=Join-Path $work 'baseline-package';PrivateDirectory $packageDirectory;ExpandSafe $base $packageDirectory;$package=Join-Path $packageDirectory 'openwebpbx-1.0.13-windows-x64';NativeVersions $package '1.0.13'|Out-Null
+  $packageDirectory=Join-Path $work 'baseline-package';PrivateDirectory $packageDirectory;ExpandSafe $base $packageDirectory;$package=Join-Path $packageDirectory ('openwebpbx-'+$BaseVersion+'-windows-x64');NativeVersions $package $BaseVersion|Out-Null
   . (Join-Path $package 'Support-Recovery.ps1')
   $scope=[Guid]::NewGuid().ToString('N').Substring(0,24);$qa=Join-Path $state ('updater-qualification/'+$scope);PrivateDirectory $qa;$inputFile=Join-Path $qa 'input.json';$admin='updater-'+$scope+'@example.invalid';$secret='A9!'+(RandomSecret)
-  $settings=@{schema=1;scope=$scope;run_id=$env:GITHUB_RUN_ID;admin_email=$admin;admin_password=$secret;company_name=('Fictional updater '+$scope);service_name=('Fictional updater PBX '+$scope);packet_file=$packetPath;provenance_file=$provenance;base_facts=(Join-Path $work 'baseline-facts.json');archives=$archives;public_key=(Join-Path $package 'release-public.pem');web_ca=(Join-Path $state 'local-test.cer')};WriteJson $inputFile $settings
+  $settings=@{schema=1;scope=$scope;run_id=$env:GITHUB_RUN_ID;admin_email=$admin;admin_password=$secret;company_name=('Fictional updater '+$scope);service_name=('Fictional updater PBX '+$scope);packet_file=$packetPath;provenance_file=$provenance;base_facts=(Join-Path $work 'baseline-facts.json');archives=$archives;public_key=(Join-Path $package 'release-public.pem');web_ca=(Join-Path $state 'local-test.cer');base_version=$BaseVersion;target_version=$CanaryVersion};WriteJson $inputFile $settings
   $env:OPENWEB_WINDOWS_UPDATER_TEST='1'
   # Verify signatures independently before installation. The later worker still
   # verifies them with its unchanged embedded original signing key.
@@ -629,7 +637,7 @@ try{
   $hosts=Join-Path $env:SystemRoot 'System32/drivers/etc/hosts';$hostOriginal=[IO.File]::ReadAllBytes($hosts);$hostAcl=(Get-Acl $hosts).Sddl;$marker='# OpenWebPBX disposable updater '+$scope
   Check ([IO.File]::ReadAllText($hosts) -notmatch '(?im)^\s*[^#\r\n]+\s(?:github\.com|windowsqa\.example\.invalid)(?:\s|$)') 'The fixture refuses existing hostname overrides.'
   [IO.File]::AppendAllText($hosts,"`r`n127.0.0.1 windowsqa.example.invalid $marker`r`n",[Text.UTF8Encoding]::new($false));$ownHosts=$true
-  $phase='actual fresh qualified 1.0.13 installation'
+  $phase=('actual fresh qualified '+$BaseVersion+' installation')
   $launch=Join-Path $work 'install-baseline.ps1';$installInput=Join-Path $work 'install-input.json';WriteJson $installInput @{package=$package;admin=$admin;password=$secret}
   [IO.File]::WriteAllText($launch,@'
 param([string]$InputPath)
@@ -638,7 +646,7 @@ $ErrorActionPreference='Stop';$r=Get-Content -LiteralPath $InputPath -Raw|Conver
 if(!$?){exit 1}
 '@,[Text.UTF8Encoding]::new($false))
   $installed=$true;CheckedProcess "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$launch,'-InputPath',$installInput) 'actual-fresh13';Remove-Item $installInput -Force
-  InstalledVersions '1.0.13'|Out-Null
+  InstalledVersions $BaseVersion|Out-Null
   # Python/OpenSSL needs the actual installed self-signed public certificate in
   # PEM form; it never bypasses certificate/hostname validation.
   $phase='installed13 HTTPS certificate preparation'
@@ -669,10 +677,10 @@ if(!$?){exit 1}
   # snapshots. No test restarts/kills the updater during either transaction.
   $phase='initial installed13 worker startup';Stop-Service OpenWebPBXUpdater;(Get-Service OpenWebPBXUpdater).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(45));Start-Service OpenWebPBXUpdater
   . (OriginalProcessProofSource (Join-Path $PSScriptRoot 'windows-upgrade-acceptance.ps1'))
-  Start-Sleep -Seconds 2;[int]$initialPid=InstalledVersions '1.0.13'
-  $phase='initial installed13 worker identity';$originalWorker=RetainQualificationProcess ([Diagnostics.Process]::GetProcessById($initialPid)) $initialPid "$root\updater\slots\1.0.13\OpenWebPbx.Updater.exe" 'S-1-5-18' 0 ([DateTime]::MinValue)
+  Start-Sleep -Seconds 2;[int]$initialPid=InstalledVersions $BaseVersion
+  $phase='initial installed13 worker identity';$originalWorker=RetainQualificationProcess ([Diagnostics.Process]::GetProcessById($initialPid)) $initialPid "$root\updater\slots\${BaseVersion}\OpenWebPbx.Updater.exe" 'S-1-5-18' 0 ([DateTime]::MinValue)
   $phase='owned SYSTEM canary fault contract';$contractDirectory=Join-Path $state 'qualification113';PrivateDirectory $contractDirectory
-  $contract=@{schema=1;authorized=$true;disposable=$true;fault_authorized=$true;disposable_hosted_runner=$true;github_actions=$true;runner_environment='github-hosted';nonce=$scope;run_id=$env:GITHUB_RUN_ID;repository='embire2/openwebpbx';expected_computer=$env:COMPUTERNAME;expected_domain='windowsqa.example.invalid';original_version='1.0.13';baseline_version='1.0.13';target_version='1.0.14'}
+  $contract=@{schema=1;authorized=$true;disposable=$true;fault_authorized=$true;disposable_hosted_runner=$true;github_actions=$true;runner_environment='github-hosted';nonce=$scope;run_id=$env:GITHUB_RUN_ID;repository='embire2/openwebpbx';expected_computer=$env:COMPUTERNAME;expected_domain='windowsqa.example.invalid';original_version=$BaseVersion;baseline_version=$BaseVersion;target_version=$CanaryVersion}
   WriteJson (Join-Path $contractDirectory 'canary-fault-contract.json') $contract;WriteJson (Join-Path $contractDirectory 'canary-host-sentinel.json') $contract
   foreach($file in 'canary-fault-contract.json','canary-host-sentinel.json'){SecureCanaryFaultContract (Join-Path $contractDirectory $file) $contractDirectory}
   $phase='original13 interactive manager startup';$originalManager=BeginManager
@@ -688,30 +696,30 @@ if(!$?){exit 1}
   $beforeDb=DatabaseSnapshot 'before-fault';$beforeFiles=FileSnapshot -Stage 'before_fault_full';$beforeTasks=TaskSnapshot;$protected=FileSnapshot -Protected -Stage 'before_fault_protected'
   $installationProtected=Get-Content "$state\installation.json" -Raw|ConvertFrom-Json -AsHashtable;$installationProtected.Remove('Version')|Out-Null
   $script:priorCommands=@((Fixture 'status').commands|ForEach-Object command_uuid);$requestStarted=[DateTime]::UtcNow;Python 'request';$failure=WaitInstall 'rolled_back' 'failed' $requestStarted
-  DownloadProof 'fault' $verified.fault;Check ((InstalledVersions '1.0.13') -eq $initialPid) 'The original ordinary installed13 worker must remain running after rollback.'
+  DownloadProof 'fault' $verified.fault;Check ((InstalledVersions $BaseVersion) -eq $initialPid) 'The original ordinary installed13 worker must remain running after rollback.'
   AssertOriginalProcessState $originalWorker $initialPid $false 'The original ordinary installed13 worker must remain running after rollback.'
-  $rollbackManager=ManagerReopened '1.0.13' $heldOriginalManager $requestStarted;$facts.gates.manager_reopen_rollback='passed'
+  $rollbackManager=ManagerReopened $BaseVersion $heldOriginalManager $requestStarted;$facts.gates.manager_reopen_rollback='passed'
   $heldRollbackManager=RetainQualificationProcess $rollbackManager ([int]$rollbackManager.Id) "$root\desktop\OpenWebPbx.Desktop.exe" $managerSid $managerSession $requestStarted
-  $witness=Join-Path $contractDirectory ('canary-fault-witness-'+$scope+'.json');Check (Test-Path $witness) 'The signed fault must prove genuine post-deployment 1.0.14 code and normal migration/task setup before failing.'
-  $seen=Get-Content $witness -Raw|ConvertFrom-Json;Check ($seen.nonce -eq $scope -and $seen.run_id -eq $env:GITHUB_RUN_ID -and $seen.state -eq 'post_deploy_fault' -and $seen.baseline_version -eq '1.0.13' -and $seen.target_version -eq '1.0.14') 'The late signed fault witness is incomplete.'
+  $witness=Join-Path $contractDirectory ('canary-fault-witness-'+$scope+'.json');Check (Test-Path $witness) ('The signed fault must prove genuine post-deployment '+$CanaryVersion+' code and normal migration/task setup before failing.')
+  $seen=Get-Content $witness -Raw|ConvertFrom-Json;Check ($seen.nonce -eq $scope -and $seen.run_id -eq $env:GITHUB_RUN_ID -and $seen.state -eq 'post_deploy_fault' -and $seen.baseline_version -eq $BaseVersion -and $seen.target_version -eq $CanaryVersion) 'The late signed fault witness is incomplete.'
   foreach($flag in 'normal_migration_completed','backup_and_mail_deferred','candidate_actual_assemblies','original_worker_parent','services_stopped','new_noncustomer_table','new_noncustomer_file','owned_task_hidden_changed','owned_task_read_acl_changed'){Check ($seen.$flag -is [bool] -and $seen.$flag -eq $true) 'The late signed fault did not prove every required actual mutation.'}
   foreach($flag in 'customer_rows_modified','registration_sent','carrier_calls'){Check ($seen.$flag -is [bool] -and $seen.$flag -eq $false) 'The fault witness exceeded its noncustomer scope.'}
   $settings.owned_update_commands=@($failure.command);WriteJson $inputFile $settings
   Equal $beforeDb (DatabaseSnapshot 'after-fault') 'fault-database';Equal $beforeFiles (FileSnapshot -Stage 'after_fault_full') 'fault-files';EqualTaskSnapshots $beforeTasks (TaskSnapshot) 'fault-tasks'
-  $failed=Get-Content "$state\updates\failed-install.json" -Raw|ConvertFrom-Json;Check ($failed.version -eq '1.0.14' -and $failed.asset_sha256 -eq $verified.fault.sha256) 'The worker did not record the exact failed signed package.'
+  $failed=Get-Content "$state\updates\failed-install.json" -Raw|ConvertFrom-Json;Check ($failed.version -eq $CanaryVersion -and $failed.asset_sha256 -eq $verified.fault.sha256) 'The worker did not record the exact failed signed package.'
   $facts.gates.fault_https_download='passed';$facts.gates.fault_rollback='passed';$facts.checks+='Actual installed13 SYSTEM worker full trusted HTTPS fault14 transfer, original key/URLs, late real14 witness and exact DB/roles/credentials/files/ACL/task rollback'
   $phase='higher-sequence normal14 full HTTPS download and natural restart'
   WriteJson (Join-Path $qa 'mode.json') @{mode='normal'};$script:priorCommands=@((Fixture 'status').commands|ForEach-Object command_uuid);$requestStarted=[DateTime]::UtcNow;Python 'request';$success=WaitInstall 'completed' 'completed' $requestStarted
   $restartDeadline=[DateTime]::UtcNow.AddSeconds(120);$newPid=0
-  do{try{$newPid=InstalledVersions '1.0.14'}catch{};if($newPid -and $newPid -ne $initialPid){break};Start-Sleep -Milliseconds 500}while([DateTime]::UtcNow -lt $restartDeadline)
+  do{try{$newPid=InstalledVersions $CanaryVersion}catch{};if($newPid -and $newPid -ne $initialPid){break};Start-Sleep -Milliseconds 500}while([DateTime]::UtcNow -lt $restartDeadline)
   Check ($newPid -gt 0 -and $newPid -ne $initialPid) 'The installed restart task must naturally select and run genuine updater14 without a manual service restart.'
   AssertOriginalProcessState $originalWorker $initialPid $true 'The previous worker must naturally exit after its installed restart task executes.'
-  $upgradedManager=ManagerReopened '1.0.14' $heldRollbackManager $requestStarted;$facts.gates.manager_reopen_success='passed'
+  $upgradedManager=ManagerReopened $CanaryVersion $heldRollbackManager $requestStarted;$facts.gates.manager_reopen_success='passed'
   $settings.owned_update_commands+=@($success.command);WriteJson $inputFile $settings
   DownloadProof 'normal' $verified.normal;Equal $beforeDb (DatabaseSnapshot 'after-normal') 'normal-database';Equal $protected (FileSnapshot -Protected -Stage 'after_normal_protected') 'normal-protected-files'
   $afterProtected=Get-Content "$state\installation.json" -Raw|ConvertFrom-Json -AsHashtable;$afterProtected.Remove('Version')|Out-Null;Equal $installationProtected $afterProtected 'normal-installation-secrets'
   NormalTaskPreservation $beforeTasks (TaskSnapshot) $requestStarted;Check (!(Test-Path "$state\updates\failed-install.json")) 'Success must clear the exact failed-install marker.'
-  $status=Get-Content "$state\updates\status.json" -Raw|ConvertFrom-Json;Check ($status.last_success_version -eq '1.0.14' -and $status.installed_version -eq '1.0.14') 'The naturally restarted real14 worker must retain last-success and current-version state.'
+  $status=Get-Content "$state\updates\status.json" -Raw|ConvertFrom-Json;Check ($status.last_success_version -eq $CanaryVersion -and $status.installed_version -eq $CanaryVersion) 'The naturally restarted real14 worker must retain last-success and current-version state.'
   Check ((Fixture 'status').channels -eq 0) 'The standalone updater must not create a native call.'
   $facts.gates.canary_build='passed';$facts.gates.normal_https_download='passed';$facts.gates.newer_upgrade='passed';$facts.gates.natural_updater_restart='passed';$facts.gates.protected_data='passed';$facts.checks+='Same installed13 worker higher-sequence full HTTPS normal14 transfer, genuine14 service/desktop/updater, completed command and natural SCM slot/PID restart; protected fictional data/private configuration/media/task security preserved'
   $facts.private_sequences=@($verified.fault.sequence,$verified.normal.sequence);$facts.canary_run_id=$CanaryRunId;$facts.fault_archive_sha256=$verified.fault.sha256;$facts.normal_archive_sha256=$verified.normal.sha256;$facts.state='passed'

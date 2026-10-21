@@ -4,8 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       base_suite_run_id:
-        description: Exact successful Windows13 suite with every essential native, backup and rollback gate
+        description: Exact successful Windows suite with every essential native, backup and rollback gate
         required: true
+        type: string
+      base_version:
+        description: Exact qualified package version
+        required: true
+        default: '1.0.20'
         type: string
 
 permissions:
@@ -36,11 +41,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BASE_SUITE_RUN_ID: ${{ inputs.base_suite_run_id }}
+          BASE_VERSION: ${{ inputs.base_version }}
           # Temporary independent TEST passphrase only; no customer/signer input.
           WINDOWS_RESTORE_FIXTURE_PASSPHRASE: ${{ secrets.WINDOWS_RESTORE_FIXTURE_PASSPHRASE }}
           PYTHONDONTWRITEBYTECODE: '1'
         run: |
-          & tests/windows-restore-qualification.ps1 -Role Source -BaseSuiteRunId $env:BASE_SUITE_RUN_ID -DisposableHostedRunner
+          & tests/windows-restore-qualification.ps1 -Role Source -BaseSuiteRunId $env:BASE_SUITE_RUN_ID -BaseVersion $env:BASE_VERSION -DisposableHostedRunner
           if(!$?){throw 'The independent fictional backup source did not pass.'}
       - name: Transfer only authenticated redacted HMAC facts and original fictional ciphertext
         if: success()
@@ -82,10 +88,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BASE_SUITE_RUN_ID: ${{ inputs.base_suite_run_id }}
+          BASE_VERSION: ${{ inputs.base_version }}
           WINDOWS_RESTORE_FIXTURE_PASSPHRASE: ${{ secrets.WINDOWS_RESTORE_FIXTURE_PASSPHRASE }}
           PYTHONDONTWRITEBYTECODE: '1'
         run: |
-          & tests/windows-restore-qualification.ps1 -Role Target -BaseSuiteRunId $env:BASE_SUITE_RUN_ID -DisposableHostedRunner
+          & tests/windows-restore-qualification.ps1 -Role Target -BaseSuiteRunId $env:BASE_SUITE_RUN_ID -BaseVersion $env:BASE_VERSION -DisposableHostedRunner
           if(!$?){throw 'The independent replacement-server restore did not pass.'}
       - name: Preserve only safe replacement qualification facts
         if: always()

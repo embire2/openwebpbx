@@ -4,19 +4,30 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Prepare unsigned real14 canaries, or qualify already root-reviewed signed packets
+        description: Prepare unsigned newer canaries, or qualify already root-reviewed signed packets
         required: true
         type: choice
         options:
           - prepare-canary
           - qualify-signed
       base_suite_run_id:
-        description: Exact successful qualified Windows13 full-suite run
+        description: Exact successful qualified Windows full-suite run
         required: true
         type: string
       canary_run_id:
         description: Exact successful prepare-canary run (required only for qualify-signed)
         required: false
+        type: string
+
+      base_version:
+        description: Exact qualified baseline version
+        required: true
+        default: '1.0.20'
+        type: string
+      canary_version:
+        description: Exact genuinely newer private canary version
+        required: true
+        default: '1.0.21'
         type: string
 
 permissions:
@@ -58,6 +69,8 @@ jobs:
           QUALIFICATION_MODE: ${{ inputs.mode }}
           BASE_SUITE_RUN_ID: ${{ inputs.base_suite_run_id }}
           CANARY_RUN_ID: ${{ inputs.canary_run_id }}
+          BASE_VERSION: ${{ inputs.base_version }}
+          CANARY_VERSION: ${{ inputs.canary_version }}
           # Root signs offline and temporarily supplies ONLY envelopes/reviewed
           # run IDs/hashes. No signer, key, customer backup or owner input enters CI.
           WINDOWS_UPDATER_SIGNED_PACKETS_B64: ${{ inputs.mode == 'qualify-signed' && secrets.WINDOWS_UPDATER_SIGNED_PACKETS_B64 || '' }}
@@ -66,10 +79,10 @@ jobs:
           if($env:BASE_SUITE_RUN_ID -notmatch '^[0-9]+$'){throw 'The qualified base run must be numeric.'}
           if($env:QUALIFICATION_MODE -eq 'prepare-canary'){
             if($env:CANARY_RUN_ID){throw 'Preparation cannot consume a signed canary run.'}
-            & tests/windows-updater-qualification.ps1 -Mode PrepareCanary -BaseSuiteRunId $env:BASE_SUITE_RUN_ID -DisposableHostedRunner
+            & tests/windows-updater-qualification.ps1 -Mode PrepareCanary -BaseSuiteRunId $env:BASE_SUITE_RUN_ID -BaseVersion $env:BASE_VERSION -CanaryVersion $env:CANARY_VERSION -DisposableHostedRunner
           }elseif($env:QUALIFICATION_MODE -eq 'qualify-signed'){
             if($env:CANARY_RUN_ID -notmatch '^[0-9]+$' -or !$env:WINDOWS_UPDATER_SIGNED_PACKETS_B64){throw 'Root-reviewed private envelopes and exact canary run are required.'}
-            & tests/windows-updater-qualification.ps1 -Mode QualifySigned -BaseSuiteRunId $env:BASE_SUITE_RUN_ID -CanaryRunId $env:CANARY_RUN_ID -DisposableHostedRunner
+            & tests/windows-updater-qualification.ps1 -Mode QualifySigned -BaseSuiteRunId $env:BASE_SUITE_RUN_ID -CanaryRunId $env:CANARY_RUN_ID -BaseVersion $env:BASE_VERSION -CanaryVersion $env:CANARY_VERSION -DisposableHostedRunner
           }else{throw 'An explicit supported stage is required.'}
           if(!$?){throw 'The selected updater qualification stage did not finish.'}
       - name: Preserve only unsigned canary packages and source/hash evidence
