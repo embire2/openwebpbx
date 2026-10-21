@@ -67,6 +67,28 @@ class DiagnosticChecks(unittest.TestCase):
         self.assertEqual(set(row), {'schema', 'producer', 'comparison_result', 'comparison_stage'})
         self.assertEqual(row['comparison_result'], 'equal')
 
+    def test_removed_control_request_kinds_are_closed_and_do_not_ignore_loss(self):
+        root='C:/ProgramData/OpenWebPBX/backup-control/'
+        keep={'C:/ProgramData/OpenWebPBX/runtime.json':entry()}
+        removed={root+'tmpabc_1234.json':entry(),root+'tmpabc_1234.json-child':entry(),
+                 root+'nested/tmpabc_1234.json':entry(),root+'tmpabc_123.json':entry(),
+                 root+'tmpabc_12345.json':entry(),root+'tmpabc_1234.json/child':entry(),
+                 root+'tmpfolder.json':{'acl':SENSITIVE,'directory':True},
+                 root+'tmp_shape.json':SENSITIVE,
+                 'C:/ProgramData/OpenWebPBX/phone-tls/tmpabc_1234.json':entry()}
+        result=self.run_comparator(keep|removed,keep)
+        self.assertEqual(result['comparison_result'],'different')
+        self.assertEqual(result['comparison_changed_file_entry_count'],len(removed))
+        self.assertEqual(result['comparison_config_scope_removed_kind_counts'],{
+            'phone_tls':{'other_file':1},'backup_control':{'temporary_control_request_json':1,'other_file':5,'directory':1,'shape':1}})
+        self.assertEqual(result['comparison_file_category_added_kind_counts'],{})
+        for path in (root+'tmpabc_1234.json',root.upper().replace('/','\\')+'TMPABC_1234.JSON'):
+            self.assertEqual(self.run_comparator(keep|{path:entry()},keep)['comparison_config_scope_removed_kind_counts'],{'backup_control':{'temporary_control_request_json':1}})
+        for path in ('C:/ProgramData/OpenWebPBX/backup-control-foreign/tmpabc_1234.json','C:/foreign/backup-control/tmpabc_1234.json'):
+            self.assertEqual(self.run_comparator(keep|{path:entry()},keep)['comparison_config_scope_removed_kind_counts'],{})
+        changed=copy.deepcopy(keep);changed[next(iter(keep))]['bytes']=11
+        self.assertEqual(self.run_comparator(keep,changed)['comparison_config_scope_removed_kind_counts'],{})
+
     def test_same_marginals_different_cross_tabs(self):
         tracks = [f'C:/ProgramData/OpenWebPBX/storage/openweb-music/{rate}/lofi-beat-loop-schmoop.wav'
                   for rate in (8000, 16000, 32000, 48000)]

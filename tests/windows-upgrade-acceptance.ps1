@@ -111,7 +111,7 @@ function ComparisonFields($Record){
  foreach($field in 'comparison_values_observed','comparison_counts_capped','comparison_columns_observed','comparison_column_counts_capped'){
   if($Record.$field -isnot [bool]){return $null};$safe[$field]=$Record.$field
  }
- $fileFields=@('comparison_files_observed','comparison_changed_file_entry_count','comparison_file_counts_capped','comparison_file_field_counts','comparison_file_category_counts','comparison_file_category_field_counts','comparison_known_file_field_counts','comparison_unknown_file_entry_count','comparison_config_scope_field_counts','comparison_file_category_added_kind_counts')
+ $fileFields=@('comparison_files_observed','comparison_changed_file_entry_count','comparison_file_counts_capped','comparison_file_field_counts','comparison_file_category_counts','comparison_file_category_field_counts','comparison_known_file_field_counts','comparison_unknown_file_entry_count','comparison_config_scope_field_counts','comparison_file_category_added_kind_counts','comparison_config_scope_removed_kind_counts')
  $names=if($Record -is [Collections.IDictionary]){@($Record.Keys)}else{@($Record.PSObject.Properties.Name)}
  $present=@($fileFields|Where-Object {$names -ccontains $_})
  if($present.Count){
@@ -136,7 +136,7 @@ function ComparisonFields($Record){
   $labels+=@('fusionpbx_root','fusionpbx_config','fusionpbx_template_key','automatic_backups_worker_lock','phone_tls_root','public_access_root','automatic_backups_root','backup_restore_root','backup_control_root','backup_downloads_root','codec_compiler_cache_root','codec_build_root')
   $labels+=@('program_root','php_ini','php_openssl','php_cacert','notification_store','notification_config','notification_lock')
   foreach($rate in 8000,16000,32000,48000){$labels+=@(('stock_music_'+$rate+'_dir'),('stock_music_'+$rate+'_track'))}
-  $nested=@{comparison_file_category_field_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','backup_runtime','acme_runtime','other');comparison_known_file_field_counts=$labels;comparison_config_scope_field_counts=@('fusionpbx','phone_tls','public_access','automatic_backups','backup_restore','backup_control','backup_downloads','codec_compiler_cache','codec_build');comparison_file_category_added_kind_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','backup_runtime','acme_runtime','other')}
+  $nested=@{comparison_file_category_field_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','backup_runtime','acme_runtime','other');comparison_known_file_field_counts=$labels;comparison_config_scope_field_counts=@('fusionpbx','phone_tls','public_access','automatic_backups','backup_restore','backup_control','backup_downloads','codec_compiler_cache','codec_build');comparison_file_category_added_kind_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','backup_runtime','acme_runtime','other');comparison_config_scope_removed_kind_counts=@('fusionpbx','phone_tls','public_access','automatic_backups','backup_restore','backup_control','backup_downloads','codec_compiler_cache','codec_build')}
   foreach($field in $nested.Keys){
    $map=$Record.$field
    if($map -is [Collections.IDictionary]){$keys=@($map.Keys)}elseif($map -is [pscustomobject]){$keys=@($map.PSObject.Properties|ForEach-Object {$_.Name})}else{return $null}
@@ -144,7 +144,7 @@ function ComparisonFields($Record){
    foreach($key in $keys){
     if($key -isnot [string] -or $key -cnotin $nested[$field]){return $null};$row=$map.$key
     if($row -is [Collections.IDictionary]){$columns=@($row.Keys)}elseif($row -is [pscustomobject]){$columns=@($row.PSObject.Properties|ForEach-Object {$_.Name})}else{return $null}
-    $allowedColumns=if($field -ceq 'comparison_file_category_added_kind_counts'){@('python_bytecode','dll','pyd','other_file','python_cache_directory','other_directory','shape')}else{@('acl','sha256','bytes','directory','added','removed','shape','other')}
+    $allowedColumns=if($field -ceq 'comparison_file_category_added_kind_counts'){@('python_bytecode','dll','pyd','other_file','python_cache_directory','other_directory','shape')}elseif($field -ceq 'comparison_config_scope_removed_kind_counts'){@('temporary_control_request_json','other_file','directory','shape')}else{@('acl','sha256','bytes','directory','added','removed','shape','other')}
     if($columns.Count -gt $allowedColumns.Count){return $null};$values=@{}
     foreach($column in $columns){
      $value=$row.$column
@@ -387,12 +387,15 @@ function DatabaseSnapshot([string]$Name){
  $script:databaseSidecars+=,@{snapshot=$snapshot;path=$file+'.columns-private.json'}
  return $snapshot
 }
-function FilesSnapshot {
+function FilesSnapshot([switch]$BackupControlOnly) {
  $directories=@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots",$configuration,"$switch\conf","$switch\scripts","$switch\mod","$switch\sounds","$state\storage","$state\mobile-notifications","$state\phone-tls","$state\public-access","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build")
+ $parents=@($root,"$root\updater",$state,$switch)
+ $fixed=@("$state\installation.json","$state\runtime.json","$state\phone-tls.json","$state\native-engine.json","$state\local-codec.json","$state\updater-install.json","$root\php\php.ini","$root\php\extras\ssl\openssl.cnf","$root\php\extras\ssl\cacert.pem")
+ if($BackupControlOnly){$directories=@("$state\backup-control");$parents=@();$fixed=@()}
  $files=@{}
  # Parent DACLs determine inherited access and need independent recovery even
  # when every child file hash matches. Keep volatile siblings outside the scan.
- foreach($parent in $root,"$root\updater",$state,$switch){
+ foreach($parent in $parents){
   if(Test-Path -LiteralPath $parent){
    $item=Get-Item -LiteralPath $parent -Force
    Check ($item.PSIsContainer -and !($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) 'A snapshot parent directory is unavailable or linked.'
@@ -406,7 +409,7 @@ function FilesSnapshot {
    if(!$item.PSIsContainer){$entry.sha256=Hash $item.FullName;$entry.bytes=$item.Length};$files[$item.FullName]=$entry
   }
  }}
- foreach($path in @("$state\installation.json","$state\runtime.json","$state\phone-tls.json","$state\native-engine.json","$state\local-codec.json","$state\updater-install.json","$root\php\php.ini","$root\php\extras\ssl\openssl.cnf","$root\php\extras\ssl\cacert.pem")){
+ foreach($path in $fixed){
   if(Test-Path -LiteralPath $path){$files[$path]=@{acl=(Get-Acl -LiteralPath $path).Sddl;directory=$false;sha256=(Hash $path);bytes=(Get-Item $path).Length}}
  }
  return $files
@@ -681,6 +684,14 @@ try{
  $phase='actual direct post-deploy rollback';$payload=FaultPayload
  $files=FilesSnapshot;$tasks=TaskSnapshot;$database=DatabaseSnapshot 'before-failure'
  WriteJson (Join-Path $work 'before-files.json') $files;WriteJson (Join-Path $work 'before-tasks.json') $tasks
+ # Observe the original control baseline again before injecting any fault.
+ # Temporary request disappearance is still a strict refusal, never excluded
+ # from the full rollback inventory or silently used as a replacement baseline.
+ $controlBaseline=@{};$controlRoot="$state\backup-control"
+ foreach($name in $files.Keys){if($name.Equals($controlRoot,[StringComparison]::OrdinalIgnoreCase) -or $name.StartsWith($controlRoot+'\',[StringComparison]::OrdinalIgnoreCase)){$controlBaseline[$name]=$files[$name]}}
+ $phase='pre-fault backup control stability'
+ Equal $controlBaseline (FilesSnapshot -BackupControlOnly) 'Backup control changed before any injected rollback fault; retain the original baseline.'
+ $phase='actual direct post-deploy rollback'
  $oldManager=CurrentManagerPid;$managerInvocation=[DateTime]::UtcNow
  $result=InvokeHelper (Join-Path $payload 'Upgrade-OpenWebPBX.ps1') @() 'forced-direct';Check ($result -ne 0 -and (Journal).state -eq 'rolled_back') 'The post-deploy fault did not finish its actual automatic rollback.'
  AssertManagerReopened $oldManager $managerInvocation 'manager_reopen_rollback'

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Compare private qualification snapshots exactly; emit only closed diagnostics."""
 import json
+import re
 import sys
 from collections import Counter
 
@@ -22,6 +23,7 @@ FILE_CATEGORIES = ('web', 'server', 'desktop', 'tools', 'updater', 'config',
                    'notifications', 'media', 'native', 'backup_runtime', 'acme_runtime', 'other')
 ADDED_KINDS = ('python_bytecode', 'dll', 'pyd', 'other_file',
                'python_cache_directory', 'other_directory', 'shape')
+REMOVED_KINDS = ('temporary_control_request_json', 'other_file', 'directory', 'shape')
 # Classification only: these public fixed paths never affect equality.
 KNOWN_FILE_PATHS = {
     'c:/programdata/openwebpbx/' + name + '.json': label
@@ -114,7 +116,7 @@ def file_difference(before, after, changed):
                for side in (before, after) for name, entry in side.items()):
         return {}
     fields, categories = Counter(), Counter()
-    category_fields, known_fields, scope_fields, added_kinds = {}, {}, {}, {}
+    category_fields, known_fields, scope_fields, added_kinds, removed_kinds = {}, {}, {}, {}, {}
     unknown = 0
     for name in changed:
         category = file_category(name) or 'other'
@@ -156,6 +158,17 @@ def file_difference(before, after, changed):
             for prefix, scope in CONFIG_SCOPES.items():
                 if folded == prefix or folded.startswith(prefix + '/'):
                     scope_fields.setdefault(scope, Counter()).update(entry_fields)
+                    if name in before and name not in after:
+                        entry = before[name]
+                        kind = 'shape'
+                        if isinstance(entry, dict) and type(entry.get('directory')) is bool:
+                            kind = 'directory' if entry['directory'] else 'other_file'
+                            # A matching temporary filename is a discriminator,
+                            # not proof of ownership/lifetime or an exemption.
+                            if (not entry['directory'] and scope == 'backup_control'
+                                    and re.fullmatch(r'tmp[a-z0-9_]{8}\.json', folded[len(prefix) + 1:])):
+                                kind = 'temporary_control_request_json'
+                        removed_kinds.setdefault(scope, Counter())[kind] += 1
                     break
     return {
         'comparison_files_observed': True,
@@ -169,6 +182,7 @@ def file_difference(before, after, changed):
         'comparison_unknown_file_entry_count': min(unknown, LIMIT),
         'comparison_config_scope_field_counts': {scope: {field: min(scope_fields[scope][field], LIMIT) for field in FILE_FIELDS if scope_fields[scope][field]} for scope in CONFIG_SCOPES.values() if scope in scope_fields},
         'comparison_file_category_added_kind_counts': {category: {kind: min(added_kinds[category][kind], LIMIT) for kind in ADDED_KINDS if added_kinds[category][kind]} for category in FILE_CATEGORIES if category in added_kinds},
+        'comparison_config_scope_removed_kind_counts': {scope: {kind: min(removed_kinds[scope][kind], LIMIT) for kind in REMOVED_KINDS if removed_kinds[scope][kind]} for scope in CONFIG_SCOPES.values() if scope in removed_kinds},
     }
 
 
