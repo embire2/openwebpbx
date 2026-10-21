@@ -34,7 +34,7 @@ $domain='windowsqa.example.invalid';$installed=$false;$hostAdded=$false;$sftp=$n
 $recoveryPki=$null
 . (Join-Path $PSScriptRoot 'windows-suite-pki.ps1')
 . (Join-Path $PSScriptRoot 'windows-upgrade-lock-observer.ps1')
-$facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';backups='pending';native_sip_audio='unqualified';meeting_transport='unqualified';meeting_browser='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
+$facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';backups='pending';native_sip_audio='unqualified';tenant_domains='unqualified';meeting_transport='unqualified';meeting_browser='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
 if($UpgradeDiagnosticsOnly){$facts.mode='upgrade_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Post-native state is not reproduced.'}
 elseif($BackupsDiagnosticsOnly){$facts.mode='backup_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Native, upgrade and post-native state are not reproduced.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false}
 function PrivateDirectory([string]$Path){
@@ -734,6 +734,26 @@ function SafeMeetingTransportReport($Record){
  if(!$safe.ContainsKey('meeting_failure')){return $null}
  return $safe
 }
+function TenantDomainsHook {
+ $reportPath=Join-Path $work 'tenant-domains-native.json'
+ $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'))
+ $start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+ $start.Environment['PSModulePath']=(Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell/Modules')
+ foreach($argument in @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'windows-tenant-domains-native.ps1'),'-PackageRoot',$PackageRoot,'-ReportPath',$reportPath,'-DisposableHostedRunner')){$start.ArgumentList.Add($argument)}
+ $process=[Diagnostics.Process]::Start($start);$stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
+ try{
+  if(!$process.WaitForExit(300000)){throw 'The installed native tenant-domain controls did not finish.'}
+  [IO.File]::WriteAllText((Join-Path $work 'tenant-domains.private.out'),$stdout.GetAwaiter().GetResult())
+  [IO.File]::WriteAllText((Join-Path $work 'tenant-domains.private.err'),$stderr.GetAwaiter().GetResult())
+  $reportFile=Get-Item -LiteralPath $reportPath
+  if($reportFile.Length -gt 65536 -or ($reportFile.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'The native tenant-domain report is invalid.'}
+  $report=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json
+  if($process.ExitCode){$facts.tenant_domains_failure=SafeFailureFields $report;throw 'The actual Windows tenant-domain controls failed.'}
+  if(($report.schema -isnot [int] -and $report.schema -isnot [long]) -or $report.schema -ne 1 -or $report.state -cne 'passed' -or $report.case -cne 'native_windows_tenant_alias_worker_iis_https' -or ($report.checks -isnot [int] -and $report.checks -isnot [long]) -or $report.checks -lt 1 -or $report.checks -gt 1000 -or $report.actual_acme -cne 'unqualified'){throw 'The actual native tenant-domain evidence is incomplete.'}
+  foreach($field in 'system_task','private_acl','static_proof_https','alias_https','foreign_binding_refused','cleanup_exact'){if($report.$field -isnot [bool] -or !$report.$field){throw 'The actual native tenant-domain behavior and exact cleanup must pass.'}}
+  $facts.gates.tenant_domains='passed';$facts.checks+=('Actual Windows SYSTEM tenant worker, ACL, IIS alias/proof, strict fixture-CA HTTPS and owned recovery controls: '+$report.checks+'; public ACME unqualified')
+ }finally{$process.Dispose()}
+}
 function MeetingTransportHook {
  $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'))
  $start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
@@ -823,6 +843,7 @@ try{
  & (Join-Path $PackageRoot 'Install-NativeEngine.ps1') -PackageRoot $PackageRoot -Check
  if(!$?){throw 'The installed native call-engine inventory differs.'}
  $facts.gates.fresh='passed';$facts.checks+=('Real restore-ready fresh installation/services/native engine hash preservation')
+ $phase='native tenant-domain qualification';TenantDomainsHook
  $phase='meeting transport qualification';MeetingTransportHook
  $acceptanceFile=Join-Path $work 'acceptance-input.json';$ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
  try{$plain=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)}finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}

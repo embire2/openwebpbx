@@ -169,6 +169,7 @@ class CanaryPreparation(unittest.TestCase):
         self.facts['artifacts']['candidate_sha256']=p.digest(self.base)
         self.facts['gates']['meeting_transport']='passed'
         self.facts['gates']['meeting_browser']='passed'
+        self.facts['gates']['tenant_domains']='passed'
         self.inputs['version']='1.0.21'
         self.inputs['source_inputs']=[{'path':name,'sha256':hashlib.sha256(data).hexdigest()}for name,data in sorted(self.sources.items())]
         self.inputs['overlays']=[]
@@ -187,6 +188,9 @@ class CanaryPreparation(unittest.TestCase):
         fault=(self.output/'fault'/p.NAME/'canary-fault.ps1').read_text()
         self.assertIn("baseline_version='1.0.20'",fault)
         self.assertIn("target_version='1.0.21'",fault)
+        self.facts['gates']['tenant_domains']='unqualified';self.refresh()
+        with self.assertRaisesRegex(ValueError,'tenant addresses'):
+            p.qualified_facts(self.facts_path)
         self.assertNotIn('1.0.13',fault)
         self.assertNotIn('1.0.14',fault)
 

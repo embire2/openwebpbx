@@ -252,8 +252,8 @@ def qualified_facts(path: Path) -> dict:
     if not isinstance(facts.get('gates'), dict) or any(
             facts['gates'].get(gate) != 'passed' for gate in ESSENTIAL_GATES):
         raise ValueError('Every essential original Windows gate must have passed.')
-    if tuple(map(int,BASE.split('.'))) >= (1,0,20) and any(facts['gates'].get(gate) != 'passed' for gate in ('meeting_transport','meeting_browser')):
-        raise ValueError('The current Windows meeting transport and actual browser media must also be qualified.')
+    if tuple(map(int,BASE.split('.'))) >= (1,0,20) and any(facts['gates'].get(gate) != 'passed' for gate in ('tenant_domains','meeting_transport','meeting_browser')):
+        raise ValueError('The current Windows tenant addresses, meeting transport and actual browser media must also be qualified.')
     if not isinstance(facts.get('artifacts'), dict):
         raise ValueError('The qualification archive identity is missing.')
     checksum = facts['artifacts'].get('candidate_sha256')

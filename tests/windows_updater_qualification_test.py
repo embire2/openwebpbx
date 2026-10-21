@@ -71,6 +71,7 @@ class PacketChecks(unittest.TestCase):
     def test_explicit_20_to_21_retains_signatures_and_exact_asset_boundary(self):
         self.facts['gates']['meeting_transport']='passed'
         self.facts['gates']['meeting_browser']='passed'
+        self.facts['gates']['tenant_domains']='passed'
         self.provenance.update(base_version='1.0.20', target_version='1.0.21')
         for mode in ('fault','normal'):
             def newer(payload):
@@ -82,6 +83,11 @@ class PacketChecks(unittest.TestCase):
         checked=fixture.verify_packets(self.packet,self.facts,self.provenance,self.archives,self.public,
             now=self.now,base_version='1.0.20',target_version='1.0.21')
         self.assertEqual(len(checked),2)
+        self.facts['gates']['tenant_domains']='unqualified'
+        with self.assertRaisesRegex(ValueError,'tenant addresses'):
+            fixture.verify_packets(self.packet,self.facts,self.provenance,self.archives,self.public,
+                now=self.now,base_version='1.0.20',target_version='1.0.21')
+        self.facts['gates']['tenant_domains']='passed'
         with self.assertRaises(ValueError):
             self.verify()
         self.provenance['target_version']='1.0.22'
