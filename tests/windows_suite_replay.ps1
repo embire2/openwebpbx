@@ -3,7 +3,7 @@ param([string]$SourceRoot=(Split-Path $PSScriptRoot -Parent))
 $ErrorActionPreference='Stop';$tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-suite.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'The actual suite must parse.'}
-foreach($name in 'SafeRelative','AssertReplaySourcePaths','ReplayFacts'){
+foreach($name in 'SafeRelative','AssertReplaySourcePaths','ReplayFacts','Artifact'){
  $nodes=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
  if($nodes.Count -ne 1){throw 'Actual replay guards must be unique.'};Invoke-Expression $nodes[0].Extent.Text
 }
@@ -50,6 +50,28 @@ Check ($text.Contains('$facts.product_source_commit=$candidate.run.head_sha') -a
 Check ($text.Contains("'--archive',`$archive,'--version',`$version,'--sha256',`$provenance.candidate_sha256"))
 $workflow=[IO.File]::ReadAllText((Join-Path $SourceRoot '.github/workflows/windows-suite.yml'))
 Check ($workflow.Contains('REPLAY_SUITE_RUN_ID: ${{ inputs.replay_suite_run_id }}') -and $workflow.Contains('-ReplaySuiteRunId $env:REPLAY_SUITE_RUN_ID'))
+function OriginalRun([string]$State='completed',[string]$Conclusion='failure'){
+ [pscustomobject]@{repository=[pscustomobject]@{full_name='embire2/openwebpbx'};head_repository=[pscustomobject]@{full_name='embire2/openwebpbx'};event='workflow_dispatch';path='.github/workflows/windows-suite.yml';head_sha=('a'*40);status=$State;conclusion=$Conclusion}
+}
+function Start-Sleep([int]$Seconds){Check ($Seconds -eq 10);$script:waits++}
+function Api([string]$Endpoint){
+ $script:apiCalls++
+ if($Endpoint.EndsWith('/artifacts?per_page=100')){$script:artifactQueries++;return [pscustomobject]@{artifacts=@()}}
+ $index=[Math]::Min($script:apiCalls-1,$script:runs.Count-1);return $script:runs[$index]
+}
+$script:runs=@((OriginalRun 'in_progress' ''),(OriginalRun));$script:waits=0;$script:apiCalls=0;$script:artifactQueries=0
+# Empty owned artifact inventory deliberately stops after the terminal guard,
+# before any file/network download. The real queued-to-completed wait executes.
+Refuses {Artifact '12345' 'replay_candidate'}
+Check ($waits -eq 1 -and $apiCalls -eq 3 -and $artifactQueries -eq 1)
+$changed=OriginalRun;$changed.head_sha='f'*40;$script:runs=@((OriginalRun 'in_progress' ''),$changed);$script:waits=0;$script:apiCalls=0;$script:artifactQueries=0
+Refuses {Artifact '12345' 'replay_candidate'};Check ($waits -eq 1 -and $apiCalls -eq 2 -and $artifactQueries -eq 0)
+$script:runs=@((OriginalRun 'completed' 'cancelled'));$script:waits=0;$script:apiCalls=0;$script:artifactQueries=0
+Refuses {Artifact '12345' 'replay_candidate'};Check ($waits -eq 0 -and $apiCalls -eq 1 -and $artifactQueries -eq 0)
+$foreign=OriginalRun 'in_progress' '';$foreign.repository.full_name='foreign/project';$script:runs=@($foreign);$script:waits=0;$script:apiCalls=0;$script:artifactQueries=0
+Refuses {Artifact '12345' 'replay_candidate'};Check ($waits -eq 0 -and $artifactQueries -eq 0)
+$build=OriginalRun 'in_progress' '';$build.path='.github/workflows/windows-native.yml';$script:runs=@($build);$script:waits=0;$script:apiCalls=0;$script:artifactQueries=0
+Refuses {Artifact '12345' 'native'};Check ($waits -eq 0 -and $artifactQueries -eq 0)
 $ownedRepo=Join-Path ([IO.Path]::GetTempPath()) ('openweb-replay-git-'+[Guid]::NewGuid().ToString('N'))
 try{
  [void][IO.Directory]::CreateDirectory($ownedRepo);[void][IO.Directory]::CreateDirectory((Join-Path $ownedRepo 'packaging/windows'))
