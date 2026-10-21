@@ -28,10 +28,11 @@ function AssertNativeDiagnosticsMode([bool]$NativeOnly,[bool]$UpgradeOnly,[bool]
 }
 AssertNativeDiagnosticsMode $NativeDiagnosticsOnly $UpgradeDiagnosticsOnly $BackupsDiagnosticsOnly $ReplayTerminalProducers $PackageRoot $env:GITHUB_WORKFLOW_REF $env:GITHUB_WORKFLOW_SHA $env:GITHUB_SHA
 function AssertSuiteReplayMode([string]$OriginalRunId,[string]$ProvidedPackage,[bool]$DiagnosticOnly,[bool]$BackupDiagnosticOnly,[bool]$TerminalProducers,[string]$ExpectedArtifactId,[string]$ExpectedZipSha256){
+ if($DiagnosticOnly -and $BackupDiagnosticOnly){throw 'Diagnostic modes are mutually exclusive.'}
  if(!$OriginalRunId){if($TerminalProducers -or $ExpectedArtifactId -or $ExpectedZipSha256){throw 'Replay provenance requires an explicit original full-suite run.'};return}
- if($OriginalRunId -cnotmatch '^[1-9][0-9]{0,19}$' -or $ProvidedPackage -or $BackupDiagnosticOnly){throw 'Exact candidate replay requires a numeric original full-suite run and no other package or backup diagnostic mode.'}
- if($DiagnosticOnly){
-  if($TerminalProducers -or $ExpectedArtifactId -cnotmatch '^[1-9][0-9]{0,19}$' -or $ExpectedZipSha256 -cnotmatch '^[a-f0-9]{64}$'){throw 'Upgrade diagnostic replay requires exact artifact and ZIP pins without producer fallback.'}
+ if($OriginalRunId -cnotmatch '^[1-9][0-9]{0,19}$' -or $ProvidedPackage){throw 'Exact candidate replay requires a numeric original full-suite run and no other package.'}
+ if($DiagnosticOnly -or $BackupDiagnosticOnly){
+  if($TerminalProducers -or $ExpectedArtifactId -cnotmatch '^[1-9][0-9]{0,19}$' -or $ExpectedZipSha256 -cnotmatch '^[a-f0-9]{64}$'){throw 'Diagnostic replay requires exact artifact and ZIP pins without producer fallback.'}
  }elseif($ExpectedArtifactId -or $ExpectedZipSha256){throw 'Explicit diagnostic artifact pins cannot change normal qualification replay.'}
 }
 AssertSuiteReplayMode $ReplaySuiteRunId $PackageRoot $UpgradeDiagnosticsOnly $BackupsDiagnosticsOnly $ReplayTerminalProducers $ReplayCandidateArtifactId $ReplayCandidateSha256
@@ -630,7 +631,7 @@ function AssertReplaySourcePaths([string[]]$Paths){
   $null=SafeRelative $path
   if($path -cin 'tests/pbx_bcg729_codec.c','tests/pbx_windows_pthread.c'){throw 'Pinned native-engine recipe inputs changed; rebuild the candidate.'}
   $nonWindows=$path.StartsWith('packaging/debian/',[StringComparison]::Ordinal) -and $path -cnotin 'packaging/debian/tenant-domains.py','packaging/debian/tenant-domains.php'
-  if($path.StartsWith('tests/',[StringComparison]::Ordinal) -or $path.StartsWith('docs/',[StringComparison]::Ordinal) -or $nonWindows -or $path -cin 'AGENTS.md','README.md','readme.md','3CX.md','packaging/BUILDING.md','.github/workflows/windows-suite.yml','.github/workflows/windows-upgrade-diagnostics.yml','.github/workflows/windows-voicemail-diagnostics.yml'){continue}
+  if($path.StartsWith('tests/',[StringComparison]::Ordinal) -or $path.StartsWith('docs/',[StringComparison]::Ordinal) -or $nonWindows -or $path -cin 'AGENTS.md','README.md','readme.md','3CX.md','packaging/BUILDING.md','.github/workflows/windows-suite.yml','.github/workflows/windows-upgrade-diagnostics.yml','.github/workflows/windows-backups-diagnostics.yml','.github/workflows/windows-voicemail-diagnostics.yml'){continue}
   throw 'Windows runtime, native input or package source changed; rebuild the candidate instead of replaying it.'
  }
 }
@@ -669,7 +670,7 @@ function PrepareReplayCandidate {
  $roots=@(Get-ChildItem -LiteralPath $expanded -Directory);if($roots.Count -ne 1 -or $roots[0].Name -cne ('openwebpbx-'+$version+'-windows-x64')){throw 'The original candidate package root is ambiguous.'}
  $script:candidateArchive=$archive;$facts.artifacts=$provenance;$facts.product_source_commit=$candidate.run.head_sha
  $facts.replay=@{schema=1;original_run=$ReplaySuiteRunId;original_product_source=$candidate.run.head_sha;qualification_source=$env:GITHUB_SHA;original_facts_sha256=(Hash $reportPath);candidate_artifact_digest=$candidate.artifact.digest;facts_artifact_digest=$original.artifact.digest;exact_zip_sha256=$provenance.candidate_sha256;windows_runtime_source_identical=$true;runtime_overlays=$false}
- if($UpgradeDiagnosticsOnly){$facts.replay.expected_candidate_artifact_id=$ReplayCandidateArtifactId;$facts.replay.expected_candidate_sha256=$ReplayCandidateSha256}
+ if($UpgradeDiagnosticsOnly -or $BackupsDiagnosticsOnly){$facts.replay.expected_candidate_artifact_id=$ReplayCandidateArtifactId;$facts.replay.expected_candidate_sha256=$ReplayCandidateSha256}
  if($producerProof){$facts.replay.producer_provenance=$producerProof;$facts.replay.candidate_artifact_id=$candidate.artifact.id;$facts.replay.facts_artifact_id=$original.artifact.id}
  return $roots[0].FullName
 }

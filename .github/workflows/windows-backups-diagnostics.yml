@@ -12,6 +12,21 @@ on:
         description: Successful pinned Windows engine build run from this repository
         required: true
         type: string
+      replay_suite_run_id:
+        description: Optional completed original full-suite run; requires exact candidate pins
+        required: false
+        default: ''
+        type: string
+      replay_candidate_artifact_id:
+        description: Exact immutable candidate artifact ID for diagnostic replay only
+        required: false
+        default: ''
+        type: string
+      replay_candidate_sha256:
+        description: Exact original inner ZIP SHA256 from authenticated build facts
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -23,6 +38,7 @@ concurrency:
 
 jobs:
   music:
+    if: ${{ inputs.replay_suite_run_id == '' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -63,6 +79,7 @@ jobs:
 
   suite:
     needs: music
+    if: ${{ always() && !cancelled() && (needs.music.result == 'success' || (needs.music.result == 'skipped' && inputs.replay_suite_run_id != '')) }}
     runs-on: windows-2025
     timeout-minutes: 120
     defaults:
@@ -85,10 +102,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NATIVE_RUN_ID: ${{ inputs.native_run_id }}
           ENGINE_RUN_ID: ${{ inputs.engine_run_id }}
+          REPLAY_SUITE_RUN_ID: ${{ inputs.replay_suite_run_id }}
+          REPLAY_CANDIDATE_ARTIFACT_ID: ${{ inputs.replay_candidate_artifact_id }}
+          REPLAY_CANDIDATE_SHA256: ${{ inputs.replay_candidate_sha256 }}
         run: |
           $ErrorActionPreference='Stop'
           if($env:NATIVE_RUN_ID -notmatch '^[0-9]+$' -or $env:ENGINE_RUN_ID -notmatch '^[0-9]+$'){throw 'Both inputs must be numeric run IDs.'}
-          & tests/windows-suite.ps1 -NativeRunId $env:NATIVE_RUN_ID -EngineRunId $env:ENGINE_RUN_ID -DisposableHostedRunner -BackupsDiagnosticsOnly
+          if($env:REPLAY_SUITE_RUN_ID -and $env:REPLAY_SUITE_RUN_ID -cnotmatch '^[1-9][0-9]{0,19}$'){throw 'The optional replay run must be numeric.'}
+          & tests/windows-suite.ps1 -NativeRunId $env:NATIVE_RUN_ID -EngineRunId $env:ENGINE_RUN_ID -ReplaySuiteRunId $env:REPLAY_SUITE_RUN_ID -ReplayCandidateArtifactId $env:REPLAY_CANDIDATE_ARTIFACT_ID -ReplayCandidateSha256 $env:REPLAY_CANDIDATE_SHA256 -DisposableHostedRunner -BackupsDiagnosticsOnly
           if(!$?){throw 'Diagnostic backup acceptance did not finish; this workflow never qualifies the full suite.'}
       - name: Store only credential-free acceptance facts
         if: always()
