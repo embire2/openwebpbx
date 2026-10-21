@@ -76,7 +76,7 @@ Do not put these directories under the web root or grant tenants filesystem acce
 
 Do this on a **separate fresh installation**, not the running customer PBX.
 
-1. Install the same OpenWeb PBX release as the backup, with the original public server name and a valid certificate. Use the built-in local PostgreSQL instance. Do not move DNS or activate the replacement’s carrier trunks yet.
+1. Install the same OpenWeb PBX release as the backup, with the original public server name and a valid certificate. For Debian1.0.20 and later, add **`--restore-server`** to `./install.sh`; this prepares an empty instance instead of creating sample extensions/tenants. Use the built-in local PostgreSQL instance. Do not move DNS or activate the replacement’s carrier trunks yet. Earlier releases support the same empty-restore bootstrap through `OPENWEB_RESTORE_SERVER=true ./install.sh ...`; use the matching release’s instructions.
 2. Copy the encrypted backup to a root-only folder on the replacement. Compare its encrypted SHA-256 with the saved download value.
 3. Verify the entire copy. The tool prompts privately for the original password:
 

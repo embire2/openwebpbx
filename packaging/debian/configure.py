@@ -8,6 +8,7 @@ parser.add_argument('--address',default='')
 parser.add_argument('--email',required=True)
 parser.add_argument('--certificate');parser.add_argument('--certificate-key')
 parser.add_argument('--local-certificate',action='store_true')
+parser.add_argument('--restore-server',action='store_true',help='Prepare an empty PBX for restoring an encrypted instance backup')
 parser.add_argument('--stun',action='store_true',help='Explicitly install UDP3478 STUN binding only on --address (no TURN relay)')
 parser.add_argument('--secrets-file',help='Private JSON containing AdminPassword; otherwise prompt securely')
 a=parser.parse_args()
@@ -56,6 +57,7 @@ key=cfg/'openweb-template.key';key.write_bytes(secrets.token_bytes(32));key.chmo
 for path in ['/usr/share/freeswitch/scripts','/etc/freeswitch/languages','/var/cache/fusionpbx','/var/lib/freeswitch/db','/var/lib/freeswitch/storage/voicemail','/var/lib/freeswitch/recordings','/var/log/freeswitch','/var/run/freeswitch',str(private/'uploads')]:
  p=P(path);p.mkdir(parents=True,exist_ok=True);p.chmod(0o750);os.chown(p,33,33)
 env=os.environ|{'OPENWEB_SETUP_SECRETS':str(private/'setup-secrets.json'),'OPENWEB_FRESH_INSTALL':'1'}
+if a.restore_server:env['OPENWEB_RESTORE_SERVER']='true'
 bootstrap=str(P('bootstrap.php').resolve())
 # Install the stricter tenant/account guard before the profile migration can
 # allow phones whose original SIP user differs from their authentication ID.

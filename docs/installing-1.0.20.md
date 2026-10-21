@@ -41,6 +41,8 @@ The tenant-address worker proves control of the trusted public HTTPS hostname, r
 
 Open your server's HTTPS address and sign in. Setup creates Main PBX with **100 Reception** and **101 Office**. No provider is enabled automatically. Private configuration lives in `/etc/fusionpbx` and `/etc/openwebpbx`, media in `/var/lib/freeswitch`, and application source in `/var/www/fusionpbx`. The installer configures the shared PHP/background-service notification store at `/var/lib/openwebpbx/mobile-notifications/config.json`, inside a web-account-owned mode-700 directory with mode-600 configuration and lock files. The root-owned parent retains its existing permissions and is not writable by the web account. No manual credential file is needed. Notification configuration and lock files are created when wake-up settings are first saved.
 
+For a replacement receiving an encrypted instance backup, add **`--restore-server`** to the install command. Setup then creates an administrator and empty restore target, without sample extensions or tenants. Use the original server hostname and the same release as the backup; follow [backup/restore](backups.md) before activating calls.
+
 ## Existing Debian server
 
 Open **Admin → System → Updates** and install the new version. The complete signed download is checked before maintenance; active calls defer installation. Migration installs the new backup helpers automatically, including when the previous installed updater does not know those files. A private recovery snapshot covers the application, database, configuration and newly installed helper files. See [updates](updates.md) for policies and recovery.
