@@ -29,6 +29,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
         if(($_POST['action']??'')==='call_me_back'){$_SESSION['pbx_setup_notice']=(new pbx_call_me_back)->action($_POST);header('Location: /app/pbx_setup/?view=call_me_back');exit;}
         elseif(($_POST['action']??'')==='job_action'){$operations->jobAction((string)($_POST['job']??''),(string)($_POST['job_action']??''));$_SESSION['pbx_setup_notice']='Call request updated.';header('Location: /app/pbx_setup/?view='.($view==='wakeups'?'wakeups':'callbacks'));exit;}
         elseif(($_POST['action']??'')==='hotel_action'){$hotel=$_POST;$hotel['action']=$_POST['hotel_action']??'';$operations->hotelAction($hotel);$_SESSION['pbx_setup_notice']='Hotel settings updated.';header('Location: /app/pbx_setup/?view=hotel');exit;}
+        elseif(($_POST['action']??'')==='save_trunk_options'&&$view==='voice'){$_SESSION['pbx_setup_notice']=(new pbx_trunk_options)->save($key,$_POST);header('Location: /app/pbx_setup/?view=voice&edit='.rawurlencode($key).'#trunk-options');exit;}
         elseif(($_POST['action']??'')==='save_trunk_incoming'&&$view==='voice'){(new pbx_trunk_routes)->save($key,$_POST);$_SESSION['pbx_setup_notice']='Incoming route saved. New calls use the selected destination.';header('Location: /app/pbx_setup/?view=voice&edit='.rawurlencode($key).'#incoming-calls');exit;}
         elseif(($_POST['action']??'')==='check_provider'&&$view==='voice')$providerCheck=$admin->checkTrunkProvider($key);
         elseif(($_POST['action']??'')==='add_provider'){$created=$admin->addProvider($_POST);$_SESSION['pbx_setup_notice']='Provider, main number and outside-call rule saved. The connection is off until you enable it.';header('Location: /app/pbx_setup/?view=first_calls&trunk='.rawurlencode($created['trunk']));exit;}
@@ -90,6 +91,7 @@ elseif($key&&isset($types[$view])):
     <form method="post" class="setup-form admin-form-tabs"><?php $csrf(); ?><input type="hidden" name="action" value="save">
     <?php require __DIR__.'/edit.php'; ?>
     <div class="setup-actions"><button class="setup-button primary" type="submit">Save</button><a class="setup-button" href="?view=<?= $e($view) ?>">Cancel</a></div></form>
+    <?php if($view==='voice'&&$key!=='new')require __DIR__.'/trunk-options.php'; ?>
     <?php if($credentials): ?><div class="setup-message admin-credentials"><strong>Phone Provisioning</strong><dl class="setup-review"><?php foreach(['server'=>'Server','extension'=>'Extension / SIP User','account'=>'Authentication ID','password'=>'Authentication Password','domain'=>'Domain'] as $f=>$label): ?><div><dt><?= $label ?></dt><dd><?= $e($credentials[$f]) ?></dd></div><?php endforeach; ?></dl></div><?php endif; ?>
     <?php endif; ?>
     <?php if($row!==null&&$key!=='new'&&in_array($view,['users','queues','ring_groups','receptionists','outbound'],true)): ?><details><summary>Delete</summary><form method="post" class="setup-form"><?php $csrf(); ?><input type="hidden" name="action" value="delete"><?php $check('confirm_delete','Delete this item permanently'); ?><button type="submit" class="setup-button danger">Delete</button></form></details><?php endif; ?>
