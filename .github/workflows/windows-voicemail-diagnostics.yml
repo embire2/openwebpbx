@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Isolated diagnostic only; neither mode qualifies a server release
+        description: Isolated diagnostic only; no mode qualifies a server release
         type: choice
-        options: [voicemail, runtime-imports]
+        options: [voicemail, runtime-imports, browser-offer]
         default: voicemail
 permissions:
   contents: read
@@ -24,13 +24,25 @@ jobs:
         with:
           persist-credentials: false
       - name: Run actual isolated Windows PHP and PostgreSQL fixture
-        if: inputs.mode != 'runtime-imports'
+        if: inputs.mode == 'voicemail'
         run: '& tests/windows_voicemail_native_diagnostics.ps1'
       - name: Observe exact packaged Python import effects
         if: inputs.mode == 'runtime-imports'
         env:
           GH_TOKEN: ${{ github.token }}
         run: '& tests/windows_runtime_import_diagnostics.ps1 -DisposableHostedRunner'
+      - name: Observe exact local browser offer without PBX services
+        if: inputs.mode == 'browser-offer'
+        run: |
+          $ErrorActionPreference='Stop'
+          $dependencies=Join-Path $env:RUNNER_TEMP 'openweb-local-offer-dependencies'
+          New-Item -ItemType Directory -Path $dependencies -ErrorAction Stop | Out-Null
+          Copy-Item tests/windows-meet-browser/package.json,tests/windows-meet-browser/package-lock.json -Destination $dependencies
+          & npm.cmd ci --prefix $dependencies --ignore-scripts --no-audit --fund=false --fetch-timeout=30000 --fetch-retries=2
+          if($LASTEXITCODE -ne 0){throw 'Pinned local-offer browser dependencies failed'}
+          $report=Join-Path $env:RUNNER_TEMP 'openweb-vm-diagnostic-public/qualification.json'
+          & node.exe tests/windows_local_offer_diagnostics.cjs $report $dependencies
+          if($LASTEXITCODE -ne 0){throw 'Isolated native browser offer failed; no PBX release is qualified'}
       - name: Preserve credential-free bounded source and check diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
