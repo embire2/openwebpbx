@@ -10,6 +10,10 @@ Version 1.0.20 includes admin incoming-route controls, the mandatory Android18 t
 
 Windows publication requires its own current native build, complete package, upgrade/recovery and restore checks. Check the release notes for the exact platform status; a Debian pass does not qualify Windows. Google Play publication, physical W60B/V62W checks and broader 3CX parity remain open.
 
+## PHP security update
+
+Apply the current PHP security updates before deployment. On 21 October 2026, PHP released 8.4.27 to fix two critical web-request vulnerabilities; see the [official advisory](https://www.php.net/archive/2026.php#2026-10-21-5). The Windows installer pins the fixed 8.4.27 runtime and its SHA256. Fresh Debian setup obtains PHP from its configured package repositories. Existing Debian installations must apply the vendor's PHP security updates too, including PHP-FPM and CLI, and verify that their installed build includes both fixes. The complete server archive does not bundle Debian PHP packages.
+
 ## Windows Server installation
 
 Use the matching `openwebpbx-1.0.20-windows-x64.zip` only when its release notes identify it as qualified or explicitly as a preview. Windows Server 2025 x64 with Desktop Experience is the supported server target. Windows10/11 server installation remains unqualified; the native Windows calling client is a separate project.

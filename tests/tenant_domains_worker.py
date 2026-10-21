@@ -204,6 +204,42 @@ class Worker(unittest.TestCase):
     site.write_text(original);_,result=i.site_content();self.assertEqual(result.count(i.INCLUDE),2);self.assertEqual(result.replace('\n '+i.INCLUDE,''),original);site.write_text(result);self.assertEqual(i.site_content()[1],result)
    for bad in [fresh.replace('server_name server.example.test;','server_name foreign.example.test;',1),fresh.replace('server.example.test','*.example.test'),fresh+'server { server_name third.example.test; }',fresh.replace('root /var/www/fusionpbx;','# root /var/www/fusionpbx;'),fresh.replace('server_name server.example.test;','# server_name server.example.test;'),fresh.replace('listen 80; server_name','listen [::]:80; server_name'),fresh.replace('server_name server.example.test;','server_name server.example.test;\n '+i.INCLUDE,1)]:
     site.write_text(bad);self.assertRaises(ValueError,i.site_content);self.assertEqual(site.read_text(),bad)
+ def test_installed_activation_without_package_inputs_and_closed_refusals(self):
+  package=self.path/'package';package.mkdir();tools=self.path/'tools';units=self.path/'units';units.mkdir();site=self.path/'site';site.write_text('server {\n server_name server.example.test;\n root /var/www/fusionpbx;\n}\nserver {\n server_name server.example.test;\n root /var/www/fusionpbx;\n}\n');snippet=self.path/'proof.conf';calls=[]
+  names=[*i.PROGRAMS,'openwebpbx-tenant-domains.service','openwebpbx-tenant-domains.timer'];manifest={}
+  for name in names:data=(ROOT/'packaging/debian'/name).read_bytes();(package/name).write_bytes(data);manifest[name]=hashlib.sha256(data).hexdigest()
+  (package/'release-manifest.json').write_text(json.dumps({'files':manifest}))
+  def command(args,**kw):calls.append(args);return subprocess.CompletedProcess(args,0)
+  with patch.multiple(i,PACKAGE=package,TOOLS=tools,STATE=self.path/'state',SITE=site,HOSTED=self.path/'missing',SNIPPET=snippet,UNIT=units/'openwebpbx-tenant-domains.service',TIMER=units/'openwebpbx-tenant-domains.timer',LINKS=[]),patch.object(i.subprocess,'run',side_effect=command):
+   i.install();self.assertFalse((self.path/'state').exists());self.assertFalse((tools/'release-manifest.json').exists());self.assertFalse((tools/i.UNIT.name).exists());self.assertFalse((tools/i.TIMER.name).exists())
+   protected=[site,snippet,i.UNIT,i.TIMER,*[tools/name for name in i.PROGRAMS]];before={p:p.read_bytes()for p in protected}
+   with patch.object(i,'PACKAGE',tools):
+    calls.clear();self.assertRaises(ValueError,i.install);self.assertEqual(calls,[]);self.assertFalse((self.path/'state').exists())
+    for path in [tools/i.PROGRAMS[0],i.UNIT,snippet,site]:
+     mode=path.stat().st_mode&0o777;path.chmod(0o666);calls.clear()
+     try:self.assertRaises(ValueError,i.install,True);self.assertFalse((self.path/'state').exists());self.assertEqual(calls,[])
+     finally:path.chmod(mode)
+    for path in [i.UNIT,snippet,site]:
+     original=path.read_bytes();path.write_bytes(b'foreign configuration');calls.clear()
+     try:self.assertRaises(ValueError,i.install,True);self.assertEqual(calls,[]);self.assertFalse((self.path/'state').exists())
+     finally:path.write_bytes(original)
+    for path,old,new in [(i.UNIT,b'ExecStart=/usr/bin/python3',b'ExecStart=/usr/bin/false'),(i.TIMER,b'OnUnitActiveSec=2min',b'OnUnitActiveSec=3min')]:
+     original=path.read_bytes();self.assertIn(old,original);path.write_bytes(original.replace(old,new));calls.clear()
+     try:self.assertRaises(ValueError,i.install,True);self.assertEqual(calls,[]);self.assertFalse((self.path/'state').exists())
+     finally:path.write_bytes(original)
+    helper=tools/i.PROGRAMS[0];original=helper.read_bytes();mode=helper.stat().st_mode&0o777;external=self.path/'external-helper';external.write_bytes(original);helper.unlink();helper.symlink_to(external);calls.clear()
+    try:self.assertRaises(ValueError,i.install,True);self.assertEqual(calls,[]);self.assertFalse((self.path/'state').exists())
+    finally:helper.unlink();helper.write_bytes(original);helper.chmod(mode)
+    os.chown(helper,33,33);calls.clear()
+    try:self.assertRaises(ValueError,i.install,True);self.assertEqual(calls,[]);self.assertFalse((self.path/'state').exists())
+    finally:os.chown(helper,0,0)
+    calls.clear();i.install(True);self.assertTrue((self.path/'state/proofs/.well-known/openwebpbx-instance').is_dir());self.assertIn(['systemctl','start',i.TIMER.name],calls);self.assertFalse(any(c[:2]==['systemctl','enable']for c in calls));self.assertEqual({p:p.read_bytes()for p in protected},before)
+    calls.clear()
+    def disabled(args,**kw):calls.append(args);return subprocess.CompletedProcess(args,1 if args[:2]==['systemctl','is-enabled']else 0)
+    with patch.object(i.subprocess,'run',side_effect=disabled):i.install(True)
+    self.assertFalse(any(c[:2]==['systemctl','start']for c in calls));self.assertEqual({p:p.read_bytes()for p in protected},before)
+   # A missing manifest in an arbitrary directory never selects installed mode.
+   (package/'release-manifest.json').unlink();calls.clear();self.assertRaises(FileNotFoundError,i.install,True);self.assertEqual(calls,[])
  def test_actual_stock_template_install_stage_and_activate_with_real_nginx_validation(self):
   package=self.path/'package';package.mkdir();site=self.path/'site';snippet=self.path/'proof.conf';meet=self.path/'meet.conf';meet.write_text('');units=self.path/'units';units.mkdir();tools=self.path/'tools';calls=[];real_run=subprocess.run
   key=ec.generate_private_key(ec.SECP256R1());now=dt.datetime.now(dt.timezone.utc);subject=x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,'server.example.test')]);certificate=x509.CertificateBuilder().subject_name(subject).issuer_name(subject).public_key(key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-dt.timedelta(minutes=1)).not_valid_after(now+dt.timedelta(days=2)).sign(key,hashes.SHA256());certpath=self.path/'cert.pem';keypath=self.path/'key.pem';certpath.write_bytes(certificate.public_bytes(serialization.Encoding.PEM));keypath.write_bytes(key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
@@ -220,6 +256,11 @@ class Worker(unittest.TestCase):
   with patch.multiple(i,PACKAGE=package,TOOLS=tools,STATE=self.path/'state',SITE=site,HOSTED=self.path/'missing',SNIPPET=snippet,INCLUDE=include,UNIT=units/'openwebpbx-tenant-domains.service',TIMER=units/'openwebpbx-tenant-domains.timer',LINKS=[]),patch.object(i.subprocess,'run',side_effect=command):
    i.install();self.assertEqual(site.read_text().count(include),2);self.assertEqual(site.read_text().replace('\n '+include,''),original);self.assertFalse((self.path/'state').exists());self.assertNotIn(['systemctl','reload','nginx'],calls)
    staged=site.read_bytes();i.install();self.assertEqual(site.read_bytes(),staged);i.install(True);self.assertEqual(site.read_bytes(),staged);self.assertTrue((self.path/'state/proofs/.well-known/openwebpbx-instance').is_dir());self.assertIn(['systemctl','reload','nginx'],calls);self.assertEqual(calls.count(['nginx','-t']),3)
+   # Execute the installed activation path with real nginx parsing and no
+   # package manifest/templates in TOOLS, as on a natural updater restart.
+   installed={p:p.read_bytes()for p in [site,snippet,*[tools/name for name in i.PROGRAMS],i.UNIT,i.TIMER]}
+   with patch.object(i,'PACKAGE',tools):i.install(True)
+   self.assertEqual({p:p.read_bytes()for p in installed},installed);self.assertEqual(calls.count(['nginx','-t']),4)
  def test_actual_ipv4_ipv6_tls_and_exact_portal_redirects(self):
   names=['qa-worker-one.openwebpbx.com','qa-worker-two.openwebpbx.com'];key=ec.generate_private_key(ec.SECP256R1());now=dt.datetime.now(dt.timezone.utc);subject=x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,names[0])]);cert=x509.CertificateBuilder().subject_name(subject).issuer_name(subject).public_key(key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-dt.timedelta(minutes=1)).not_valid_after(now+dt.timedelta(days=2)).add_extension(x509.SubjectAlternativeName([x509.DNSName(n)for n in names]),False).sign(key,hashes.SHA256());certpath=self.path/'cert.pem';keypath=self.path/'key.pem';certpath.write_bytes(cert.public_bytes(serialization.Encoding.PEM));keypath.write_bytes(key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()));until,_=w.certificate_info(certpath,keypath,names);self.assertGreater(until,now);self.assertRaises(ValueError,w.certificate_info,certpath,keypath,['unknown.openwebpbx.com'])
   sockets=[]
