@@ -22,6 +22,7 @@ if not session or not session:ready() then return end
 local Database=require 'resources.functions.database'
 local json=require 'resources.functions.lunajson'
 local P=loadfile(scripts_dir..'/app/pbx_setup/policy.lua')()
+local T=loadfile(scripts_dir..'/app/pbx_setup/trunk_options.lua')()
 local attempts=loadfile(scripts_dir..'/app/pbx_setup/provider_attempts.lua')()
 local registered=loadfile(scripts_dir..'/app/pbx_setup/registered.lua')()
 local Q=loadfile(scripts_dir..'/app/pbx_setup/core_queue.lua')()
@@ -146,7 +147,7 @@ local function outbound_contact(number,rule_route,owner)
     local native
     db:query('select enabled,register,from_domain,from_user,username,proxy,outbound_proxy,register_transport,profile from v_gateways where gateway_uuid=:id and domain_uuid=:domain',{id=t.gateway_uuid,domain=domain},function(row) native=row end)
     if not native or not P.gateway_available(native,api:execute('sofia','status gateway '..t.gateway_uuid)) then return nil end
-    return P.outbound_leg(t,rule_route,number,config.users[tostring(owner or caller)],caller,domain,realm,native)
+    return P.outbound_leg(t,rule_route,number,config.users[tostring(owner or caller)],caller,domain,realm,native,config)
 end
 local mobile_wake=loadfile(scripts_dir..'/app/pbx_setup/mobile_wake.lua')()
 local function user_contact(u,timeout,queue)
@@ -490,6 +491,7 @@ local function run()
         db:query('select enabled from v_gateways where domain_uuid=:domain and gateway_uuid=:id',{domain=domain,id=trunk.gateway_uuid},function(row) enabled=row.enabled=='true' or row.enabled=='t' end)
         if not enabled then session:hangup('CALL_REJECTED');return end
         if P.blocked(config,caller) then session:hangup('CALL_REJECTED');return end
+        if not T.accept(session,domain,trunk) then return end
         session:setVariable('openweb_provider_origin','true')
         session:setVariable('openweb_call_internal','false')
         session:setVariable('call_direction','inbound');internal=false
