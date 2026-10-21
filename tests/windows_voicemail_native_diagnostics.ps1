@@ -45,6 +45,16 @@ try{
  $pgZip=Join-Path $work 'postgresql.zip';Invoke-WebRequest 'https://get.enterprisedb.com/postgresql/postgresql-18.6-5-windows-x64-binaries.zip' -OutFile $pgZip
  if((Get-FileHash $pgZip -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'e2246ba91d22345bc3d017586c09ede52d9df180b1eeb480f050445f1cad84e2'){throw 'Pinned official PostgreSQL bytes differ.'}
  Run tar.exe @('-xf',$pgZip,'-C',$work) 'extract';$pg=Join-Path $work 'pgsql\bin'
+ # The real full installer obtains these exact VC runtimes from its pinned
+ # engine MSI before invoking PostgreSQL. Extract the same DLLs privately for
+ # this smaller diagnostic; create no engine installation or system service.
+ $msi=Join-Path $work 'engine.msi';Invoke-WebRequest 'https://github.com/signalwire/freeswitch/releases/download/v1.11.3/FreeSWITCH-1.11.3-Release-x64.msi' -OutFile $msi
+ if((Get-FileHash $msi -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d'){throw 'Pinned dependency MSI bytes differ.'}
+ $runtime=Join-Path $work 'vc-runtime';Run '7z.exe' @('e',$msi,'msvcp140*.dll_amd64.*','vcruntime140*.dll_amd64.*','concrt140*.dll_amd64.*',('-o'+$runtime),'-y') 'extract'
+ foreach($file in Get-ChildItem -LiteralPath $runtime -File){$name=$file.Name -replace '_amd64\..*$','';if($name -cnotmatch '^(?:msvcp140(?:_[a-z0-9]+)?|vcruntime140(?:_1)?|concrt140)\.dll$'){throw 'Unexpected pinned private VC dependency.'};Move-Item -LiteralPath $file.FullName -Destination (Join-Path $runtime $name)}
+ if(!(Test-Path (Join-Path $runtime 'vcruntime140.dll')) -or !(Test-Path (Join-Path $runtime 'msvcp140.dll'))){throw 'Pinned private VC dependency is incomplete.'}
+ $env:PATH=$runtime+';'+$pg+';'+$env:PATH
+ $facts.pinned_private_vc_runtime=$true
  $data=Join-Path $work 'pg-data';$port=([Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0));$port.Start();$number=$port.LocalEndpoint.Port;$port.Stop();$port=[string]$number
  Run (Join-Path $pg 'initdb.exe') @('-D',$data,'-A','trust','-U','postgres','--encoding=UTF8','--locale=C') 'initdb'
  Run (Join-Path $pg 'pg_ctl.exe') @('-D',$data,'-l',(Join-Path $work 'postgres.private.log'),'-o',('-h 127.0.0.1 -p '+$port),'-w','start') 'start';$started=$true
