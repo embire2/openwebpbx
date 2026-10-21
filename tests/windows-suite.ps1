@@ -775,6 +775,26 @@ function BackupFailureReport([string]$Path,[datetime]$StartedAt){
    $php=$tls.php_failure
    if($php.error_type -is [string] -and $php.error_type -cin @('RuntimeException','InvalidArgumentException','PDOException','TypeError','Error','ValueError','Exception') -and $php.source_basename -is [string] -and $php.source_basename -cin @('phone-tls.php','phone-tls-chain.php','pbx_phone_auth.php','pbx_sip_domain.php','event_socket.php','config.php','database.php','external_component') -and (& $integer $php.source_line 1 100000) -and $php.stage -is [string] -and $php.stage -cin @('idle','bind','resume','ready','apply','rollback','initialization')){$safe.tls_preparation.php_failure=@{error_type=$php.error_type;source_basename=$php.source_basename;source_line=[int]$php.source_line;stage=$php.stage}}
   }
+  $lock=$failure.lock_observation
+  $isRecord={param($Value) return ($null -ne $Value -and ($Value -is [Collections.IDictionary] -or $Value -is [pscustomobject]) -and $Value -isnot [Array])}
+  if((& $isRecord $lock) -and (& $integer $lock.schema 1 1) -and $lock.observation -is [string] -and $lock.observation -ceq 'after_original_busy_error'){
+   $projected=@{schema=1;observation='after_original_busy_error'};$valid=$true
+   foreach($key in 'upgrade','worker'){
+    $entry=$lock.$key
+    if((& $isRecord $entry) -and $entry.state -is [string] -and $entry.state -cin @('available','busy','missing','access_denied','not_ordinary','other') -and $entry.stream_closed -is [bool]){$projected[$key]=@{state=$entry.state;stream_closed=$entry.stream_closed}}else{$valid=$false}
+   }
+   if($valid){
+    $native=$lock.native
+    if(& $isRecord $native){
+     $part=@{};$nativeValid=$true
+     foreach($key in 'observed','health_observed','local_running','version_matches','iis_login_ready','known_recover_holder'){if($native.$key -is [bool]){$part[$key]=$native.$key}else{$nativeValid=$false}}
+     foreach($key in 'holder_count','verified_holder_count'){if(& $integer $native.$key 0 32){$part[$key]=[int]$native.$key}else{$nativeValid=$false}}
+     if($native.updater_state -is [string] -and $native.updater_state -cin @('unknown','Stopped','Running','Start Pending','Stop Pending','Paused','Continue Pending','Pause Pending')){$part.updater_state=$native.updater_state}else{$nativeValid=$false}
+     if($nativeValid -and $part.verified_holder_count -le $part.holder_count){$projected.native=$part}
+    }
+    $safe.lock_observation=$projected
+   }
+  }
   $command=$failure.failed_command
   if((& $integer $command.schema 1 1) -and $command.report_status -is [string] -and $command.report_status -cin @('read','refused','unavailable')){
    $safe.failed_command=@{schema=1;report_status=$command.report_status}

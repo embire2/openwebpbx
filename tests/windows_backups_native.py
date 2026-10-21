@@ -43,6 +43,7 @@ LAST_WORKER_OBSERVATION=None
 LAST_LOCAL_QUERY_OBSERVATION=None
 LAST_RECOVERY_OBSERVATION=None
 LAST_TLS_PREPARATION=None
+LAST_LOCK_OBSERVATION=None
 
 
 def failed_command_fields(settings,identifier,command):
@@ -96,6 +97,7 @@ def backup_exception_fields(error,phase,checks):
         try:fields['recovery_observation']=LAST_RECOVERY_OBSERVATION.safe_report()
         except BaseException:pass
     if LAST_TLS_PREPARATION is not None:fields['tls_preparation']=LAST_TLS_PREPARATION
+    if globals().get('LAST_LOCK_OBSERVATION') is not None:fields['lock_observation']=LAST_LOCK_OBSERVATION
     return fields
 
 
@@ -369,6 +371,11 @@ def main(path):
         b.atomic_json(report,facts)
         print('Native Windows backup core qualification passed. '+('SFTP passed.' if facts['fully_qualified'] else 'Native SFTP remains unqualified.'))
     except BaseException as error:
+        try:
+            lock_spec=importlib.util.spec_from_file_location('backup_lock_observer',Path(__file__).with_name('windows-backup-lock-observer.py'))
+            lock_observer=importlib.util.module_from_spec(lock_spec);lock_spec.loader.exec_module(lock_observer)
+            globals()['LAST_LOCK_OBSERVATION']=lock_observer.observe(b,private,error)
+        except BaseException:pass
         facts['state']='failed';facts['failed_phase']=phase;facts['failure']=backup_exception_fields(error,phase,facts['checks']);b.atomic_json(report,facts)
         print('Native Windows backup qualification failed in '+phase+'. Private evidence retained; no passing result claimed.',file=sys.stderr)
         return 1
