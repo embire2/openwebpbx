@@ -59,12 +59,24 @@ The native build and responsive WinUI manager window passed. Static checks of
 the current candidate cover its immutable source, bundled native programs,
 corresponding engine source and Nathaniel audio.
 
-The unchanged candidate completes fresh installation but its normal IIS
-sign-in page returns HTTP 500. The native acceptance run correctly stops
-there. This is an open product blocker: working conferences, independent
-restore, newer-version installation and recovery are not yet accepted for
-this Windows package. A trusted local web-readiness guard is being developed
-so an installer cannot report success while the sign-in page is broken.
+The superseded candidate at `2310f466` completed its initial installer but its
+normal IIS sign-in page returned HTTP 500. Precise native configuration reads
+identified the generated child WebSocket override being rejected with
+`0x80070021`, before PHP executed. This agrees with Microsoft's documented
+[IIS configuration-lock behavior](https://learn.microsoft.com/en-us/troubleshoot/developer/webapps/iis/site-behavior-performance/http-error-500-19-webpage).
+The old candidate is not publishable.
+
+Correction `9e5cb02a` omits the unnecessary override and checks the effective
+owned-site WebSocket setting. It preserves IIS's existing parent policy. A
+trusted local sign-in check also prevents installer success while the web
+frontend is broken. Fifteen real TLS/HTTP protocol cases passed on Linux
+PowerShell, including strict single-Boolean results and HTTP 500 refusal;
+these supplement native Windows qualification.
+
+A genuinely rebuilt Windows package is now under native qualification.
+Working conferences, independent restore, newer-version installation and
+recovery are not yet accepted for that new package. No Windows release
+follows from the source or protocol checks alone.
 
 Windows 10 and 11 server installations, upgrades from historical Windows
 packages and the separate planned native Windows calling client are not
