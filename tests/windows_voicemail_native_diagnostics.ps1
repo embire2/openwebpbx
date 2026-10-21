@@ -51,7 +51,7 @@ try{
  $msi=Join-Path $work 'engine.msi';Invoke-WebRequest 'https://github.com/signalwire/freeswitch/releases/download/v1.11.3/FreeSWITCH-1.11.3-Release-x64.msi' -OutFile $msi
  if((Get-FileHash $msi -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d'){throw 'Pinned dependency MSI bytes differ.'}
  $runtime=Join-Path $work 'vc-runtime';Run '7z.exe' @('e',$msi,'msvcp140*.dll_amd64.*','vcruntime140*.dll_amd64.*','concrt140*.dll_amd64.*',('-o'+$runtime),'-y') 'extract'
- foreach($file in Get-ChildItem -LiteralPath $runtime -File){$name=$file.Name -replace '_amd64\..*$','';if($name -cnotmatch '^(?:msvcp140(?:_[a-z0-9]+)?|vcruntime140(?:_1)?|concrt140)\.dll$'){throw 'Unexpected pinned private VC dependency.'};Move-Item -LiteralPath $file.FullName -Destination (Join-Path $runtime $name)}
+ foreach($file in Get-ChildItem -LiteralPath $runtime -File){$name=$file.Name -replace '_amd64\..*$','';if($name -cnotin @('concrt140.dll','msvcp140.dll','msvcp140_1.dll','msvcp140_2.dll','msvcp140_atomic_wait.dll','msvcp140_codecvt_ids.dll','vcruntime140.dll','vcruntime140_1.dll','vcruntime140_threads.dll')){throw 'Unexpected pinned private VC dependency.'};Move-Item -LiteralPath $file.FullName -Destination (Join-Path $runtime $name)}
  if(!(Test-Path (Join-Path $runtime 'vcruntime140.dll')) -or !(Test-Path (Join-Path $runtime 'msvcp140.dll'))){throw 'Pinned private VC dependency is incomplete.'}
  $env:PATH=$runtime+';'+$pg+';'+$env:PATH
  $facts.pinned_private_vc_runtime=$true
