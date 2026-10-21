@@ -62,7 +62,7 @@ The complete `win-x64` output directory is required; the executable alone is ins
 
 Both installer archives include a clean `web/` source tree, `server/` and `updater/` self-contained binaries, `bootstrap.php`, installation scripts and license notices. The Windows archive also includes `desktop/`. Include only tracked application source and explicitly reviewed new files. Exclude `.git`, `.env`, browser profiles, test accounts, customer ZIPs, media, machine configuration, build logs and validation artifacts.
 
-Windows downloads the official FreeSWITCH 1.11.3 MSI, PHP 8.4.26 NTS and PostgreSQL 18.6 binaries. Pinned SHA-256 values are checked before extraction or installation. These downloads require an internet connection.
+Windows downloads the official FreeSWITCH 1.11.3 MSI, PHP 8.4.27 NTS and PostgreSQL 18.6 binaries. Pinned SHA-256 values are checked before extraction or installation. These downloads require an internet connection.
 
 Debian includes an `engine.tar.gz` compiled on Debian 13 amd64. It contains FreeSWITCH 1.11.3, its Sofia-SIP and SpanDSP shared libraries, stock English 8 kHz prompts and music. Debian libraries are installed with APT using `engine-dependencies.txt`. The corresponding upstream source snapshots, licenses and build configuration accompany the release as `openwebpbx-1.0.12-engine-source.tar.gz`. This source archive retains the pinned engine snapshots and the reviewed registrar patch and includes the tracked `platform/` and `packaging/` source, `VERSION`, and original license. Its SHA-256 manifest identifies every source file; it contains no installed PBX configuration. The binary `engine.tar.gz` is a separate build input and must not be substituted for this source archive.
 

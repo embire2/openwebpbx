@@ -98,7 +98,7 @@ if (!(Test-Path "$private\installation.json")) {
 Write-Host 'Installing the Windows web server and PBX components...'
 $feature=Install-WindowsFeature Web-Server,Web-CGI,Web-Mgmt-Tools
 if (!$feature.Success -or $feature.RestartNeeded -eq 'Yes') { throw 'Windows needs a restart to finish installing its web server. Restart and run this installer again.' }
-Download 'https://downloads.php.net/~windows/releases/php-8.4.26-nts-Win32-vs17-x64.zip' "$root\packages\php.zip" 'da68394f9193b7f6b89d0c76861a4034ae10efee7fd55a7255d8118c2acf70d7'
+Download 'https://downloads.php.net/~windows/releases/php-8.4.27-nts-Win32-vs17-x64.zip' "$root\packages\php.zip" '93bd8a815a52156606fb906d0573437908c61f96e2cc52c03a51e36a41bf5236'
 Download 'https://get.enterprisedb.com/postgresql/postgresql-18.6-5-windows-x64-binaries.zip' "$root\packages\postgresql.zip" 'e2246ba91d22345bc3d017586c09ede52d9df180b1eeb480f050445f1cad84e2'
 Download 'https://github.com/signalwire/freeswitch/releases/download/v1.11.3/FreeSWITCH-1.11.3-Release-x64.msi' "$root\packages\freeswitch.msi" 'f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d'
 if (!(Test-Path "$root\php\php.exe")) {New-Item -ItemType Directory -Force "$root\php"|Out-Null;Run tar.exe @('-xf',"$root\packages\php.zip",'-C',"$root\php")}

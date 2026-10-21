@@ -734,6 +734,14 @@ function SafeMeetingTransportReport($Record){
  if(!$safe.ContainsKey('meeting_failure')){return $null}
  return $safe
 }
+function SafeTenantDomainsReport($Record){
+ $phases=@('initialization','packaged_task','worker_identity','proof_prepare','fixture_certificate','alias_certify','static_proof_https','alias_guard','foreign_binding','cleanup','complete')
+ $types=@('RuntimeException','MethodInvocationException','ActionPreferenceStopException','ParameterBindingException','ParameterBindingValidationException','ItemNotFoundException','ProviderInvocationException','InvalidOperationException','IOException','FileNotFoundException','DirectoryNotFoundException','UnauthorizedAccessException','ArgumentException','FormatException','Win32Exception','COMException','WebException','Exception')
+ if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.state -isnot [string] -or $Record.state -cne 'failed' -or $Record.case -isnot [string] -or $Record.case -cne 'native_windows_tenant_alias_worker_iis_https' -or $Record.phase -isnot [string] -or $Record.phase -cnotin $phases -or $Record.exception_type -isnot [string] -or $Record.exception_type -cnotin $types -or $Record.source_basename -isnot [string] -or $Record.source_basename -cnotin 'windows-tenant-domains-native.ps1','PublicAccess.Common.ps1','Tenant-Domains.ps1','external_component' -or ($Record.source_line -isnot [int] -and $Record.source_line -isnot [long]) -or $Record.source_line -lt 1 -or $Record.source_line -gt 99999){return $null}
+ $safe=SafeFailureFields ([pscustomobject]@{active_case=('native_windows_tenant_'+$Record.phase);error_type=$Record.exception_type;source_basename=$Record.source_basename;source_line=[int]$Record.source_line})
+ if($Record.cleanup_exact -is [bool]){$safe.cleanup_exact=$Record.cleanup_exact}
+ return $safe
+}
 function TenantDomainsHook {
  $reportPath=Join-Path $work 'tenant-domains-native.json'
  $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'))
@@ -748,7 +756,7 @@ function TenantDomainsHook {
   $reportFile=Get-Item -LiteralPath $reportPath
   if($reportFile.Length -gt 65536 -or ($reportFile.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'The native tenant-domain report is invalid.'}
   $report=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json
-  if($process.ExitCode){$facts.tenant_domains_failure=SafeFailureFields $report;throw 'The actual Windows tenant-domain controls failed.'}
+  if($process.ExitCode){$facts.tenant_domains_failure=SafeTenantDomainsReport $report;throw 'The actual Windows tenant-domain controls failed.'}
   if(($report.schema -isnot [int] -and $report.schema -isnot [long]) -or $report.schema -ne 1 -or $report.state -cne 'passed' -or $report.case -cne 'native_windows_tenant_alias_worker_iis_https' -or ($report.checks -isnot [int] -and $report.checks -isnot [long]) -or $report.checks -lt 1 -or $report.checks -gt 1000 -or $report.actual_acme -cne 'unqualified'){throw 'The actual native tenant-domain evidence is incomplete.'}
   foreach($field in 'system_task','private_acl','static_proof_https','alias_https','foreign_binding_refused','cleanup_exact'){if($report.$field -isnot [bool] -or !$report.$field){throw 'The actual native tenant-domain behavior and exact cleanup must pass.'}}
   $facts.gates.tenant_domains='passed';$facts.checks+=('Actual Windows SYSTEM tenant worker, ACL, IIS alias/proof, strict fixture-CA HTTPS and owned recovery controls: '+$report.checks+'; public ACME unqualified')
