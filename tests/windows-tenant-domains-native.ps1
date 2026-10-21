@@ -113,10 +113,10 @@ try{
  $facts.static_proof_https=$true
  $settings|Add-Member -NotePropertyName not_after -NotePropertyValue $certified.not_after -Force;[IO.File]::WriteAllText($fixtureInputPath,($settings|ConvertTo-Json -Depth 16),[Text.UTF8Encoding]::new($false))
  $null=Python 'ready';PrivateAcl (Join-Path $tenantState 'ready.json') $true;$bound=Php 'ready';Check ($bound.bound -eq $true) 'Actual lease record and transport marker bind only the fictional tenant'
- $phase='alias_guard';$response=Https $alias '/admin';Check ($response -match '^HTTP/1\.[01] 302 ' -and $response -match '(?im)^Location:\s*/tenantadmin/') 'Actual trusted tenant alias enters the PHP admin route'
+ $phase='alias_guard';$response=Https $alias '/admin/';Check ($response -match '^HTTP/1\.[01] 302 ' -and $response -match '(?im)^Location:\s*/tenantadmin/') 'Actual trusted tenant alias enters the PHP admin route'
  $checked=Php 'verify';Check ($checked.checks -eq 8 -and $checked.owner_and_revision_refusals) 'Actual PHP custody rejects stale and foreign ownership and preserves SIP realm'
- $null=Php 'pending';$response=Https $alias '/admin';Check ($response -match '^HTTP/1\.[01] 403 ') 'Actual HTTPS refuses a pending tenant transport';$null=Php 'ready'
- Refuses {Https ('foreign-'+$alias) '/admin'} 'Actual TLS refuses an unlisted tenant hostname'
+ $null=Php 'pending';$response=Https $alias '/admin/';Check ($response -match '^HTTP/1\.[01] 403 ') 'Actual HTTPS refuses a pending tenant transport';$null=Php 'ready'
+ Refuses {Https ('foreign-'+$alias) '/admin/'} 'Actual TLS refuses an unlisted tenant hostname'
  $facts.alias_https=$true
  $phase='foreign_binding';$foreign='OpenWebPBX-QA-Foreign-'+$scope;$foreignRoot=Join-Path $work 'foreign-web';New-Item -ItemType Directory -Path $foreignRoot|Out-Null
  $manager=[Microsoft.Web.Administration.ServerManager]::new();try{$site=$manager.Sites.Add($foreign,'http',('*:8097:'+$alias),$foreignRoot);$site.ServerAutoStart=$false;$manager.CommitChanges()}finally{$manager.Dispose()}
