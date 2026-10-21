@@ -411,6 +411,7 @@ try {
  Copy-Item "$root\web\app\pbx_setup\resources\prompts\*.wav" "$switch\sounds\openwebpbx" -Force
  Copy-Item "$root\web\app\pbx_setup\resources\prompts\openweb.xml" "$switch\conf\languages\en\ivr\openweb.xml" -Force
  & "$payload\Install-Voices.ps1" -PackageRoot $payload
+ & "$payload\Install-Meet.ps1" -PackageRoot $payload -MaintenanceLock $lock
  Run "$root\php\php.exe" @("$payload\configure-music.php","$payload\music","$root\web","$switch\conf\vars.xml")
  & "$payload\Install-Backups.ps1" -PackageRoot $payload -DeferRestart -UpgradeLockHeld
  & "$payload\Install-MailQueue.ps1" -PackageRoot $payload -DeferStart -MaintenanceLock $lock
