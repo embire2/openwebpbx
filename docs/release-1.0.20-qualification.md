@@ -92,8 +92,18 @@ not widened. Explicit Python `-B` also prevents the earlier bytecode additions;
 the 19,122-file candidate inventory stayed unchanged.
 
 The complete run still failed its Windows voicemail-default fixture and a
-later rollback comparison. Smaller native Windows diagnostics are in progress;
-these failures are not being counted as passes. The candidate remains
+later rollback comparison. A separate isolated Windows run reproduced the
+fixture's configuration-loading failure after 18 checks. Reading the factory
+INI without pinning the application's project-root constants allowed the
+corrected fixture to complete its 45 Windows filesystem and PostgreSQL checks
+in both connection modes. The same run proved the temporary test folder needs
+the named installer account's access, which the product installer already
+grants. It also identified background database output pipes holding the test
+wrapper open. These corrections affect QA only; the original failures remain
+retained and complete installer acceptance is still pending.
+
+The rollback comparison is being replayed with corrected closed diagnostics
+and unchanged exact-equality checks. The candidate remains
 unpublished. Voicemail, decoded calls and browser conferences, independent
 restore, newer-version installation and recovery still need complete native
 acceptance of the final package. Public ACME issuance is separate from the
