@@ -14,6 +14,14 @@ assert(vars.instant_ringback=='false' and vars.ringback:find('400,450',1,true))
 assert(vars.export_vars=='existing' and vars.rtp_secure_media=='mandatory')
 assert(events[1]['OpenWeb-Stage']=='media_policy' and events[1].UniqueID==nil)
 vars.ringback='existing-custom-ringback';M.apply(session,'owned-domain');assert(vars.ringback=='existing-custom-ringback')
+vars.transfer_ringback='local_stream://openweb';vars.ignore_early_media='false';vars.hold_music='customer-hold-music'
+local previous=M.begin_group(session)
+assert(vars.ringback:find('400,450',1,true) and vars.transfer_ringback==vars.ringback)
+assert(vars.ignore_early_media=='true' and vars.bridge_early_media=='false' and vars.instant_ringback=='false')
+assert(vars.hold_music=='customer-hold-music' and vars.rtp_secure_media=='mandatory')
+M.end_group(session,previous)
+assert(vars.ringback=='existing-custom-ringback' and vars.transfer_ringback=='local_stream://openweb')
+assert(vars.ignore_early_media=='false' and vars.bridge_early_media==nil)
 freeswitch.Event=function()error('Observer unavailable')end
 M.trace(session,'owned-domain','provider_result',{Cause='NO_ANSWER'}) -- tracing cannot fail a call
 print('PASS: anchored media, inherited leg policy, existing encryption/export/ringback and observer failure controls')

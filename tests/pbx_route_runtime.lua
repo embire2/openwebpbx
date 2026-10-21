@@ -66,6 +66,8 @@ local function environment(f)
             f.bridge_timeouts[#f.bridges]=self.variables.call_timeout
             f.bridge_ignore_early_media=f.bridge_ignore_early_media or {}
             f.bridge_ignore_early_media[#f.bridges]=self.variables.ignore_early_media
+            f.bridge_audio=f.bridge_audio or {}
+            f.bridge_audio[#f.bridges]={ringback=self.variables.ringback,transfer_ringback=self.variables.transfer_ringback,hold_music=self.variables.hold_music}
             local response=f.responses[#f.bridges] or {cause='NO_ANSWER',protocol='sip:408'}
             f.now=f.now+(response.delay or 0)
             self.variables.originate_disposition=response.cause
@@ -485,6 +487,15 @@ check(#f.bridges==2 and f.bridges[1]:find('user/auth100@',1,true) and f.bridges[
 check(f.bridge_timeouts[1]=='7' and f.bridge_timeouts[2]=='7' and #f.transfers==0,'Ordered ring group keeps each bounded ring window and stops after answer')
 f=fixture();f.config.ring_groups={{number='400',uuid='fixture-group',strategy='RingAll',timeout=9,members={{number='100'},{number='200'}},destination={type='Extension',number='200'}}};f.variables.call_timeout='1';f.responses={{cause='SUCCESS'}};run(f,'group','400')
 check(#f.bridges==1 and f.bridges[1]:find('user/auth100@',1,true) and f.bridges[1]:find(',[',1,true) and f.bridges[1]:find('user/auth200@',1,true) and f.bridge_timeouts[1]=='9','Simultaneous ring group shares one bounded attempt despite inherited timeout')
+for _,already_answered in ipairs({false,true}) do
+    f=fixture();f.answered=already_answered;f.variables.ringback='local_stream://old-ringback';f.variables.transfer_ringback='local_stream://openweb';f.variables.hold_music='custom-hold-music';f.variables.ignore_early_media='false'
+    f.config.ring_groups={{number='400',uuid='fixture-group',strategy='RingAll',timeout=9,members={{number='100'},{number='200'}},destination={type='Queue',number='300'}}}
+    f.responses={{cause='NO_ANSWER'}};f.capacity_full=true;run(f,'group','400')
+    local audio=f.bridge_audio[1]
+    check(audio.ringback:find('400,450',1,true) and audio.transfer_ringback==audio.ringback,'Direct and already answered ring-group offers replace inherited music with ringing')
+    check(f.bridge_ignore_early_media[1]=='true' and audio.hold_music=='custom-hold-music','A member cannot replace group ringing with early-media music; held-call music remains unchanged')
+    check(f.variables.ringback=='local_stream://old-ringback' and f.variables.transfer_ringback=='local_stream://openweb' and f.variables.ignore_early_media=='false','No-answer destination receives the original media policy after a group offer')
+end
 f=fixture();f.channels={rows={{uuid='busy-leg',presence_id='auth200@'..config.realm}}};f.config.users['200'].profiles.Available.available.Busy={internal_inactive=true,all={type='Extension',number='100'}};run(f,'user','200')
 check(#f.bridges==0 and f.transfers[1].number=='100','PBX busy detection forwards before originating a second call')
 f=fixture();f.channels={rows={{uuid='busy-leg',presence_id='auth200@'..config.realm}}};f.config.users['200'].profiles.Available.busy_detection='UsePhoneStatus';f.responses={{cause='SUCCESS'}};run(f,'user','200')

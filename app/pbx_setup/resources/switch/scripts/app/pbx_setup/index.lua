@@ -294,6 +294,7 @@ run_group=function(number)
     session:setVariable('originate_timeout',tostring(group.timeout))
     session:setVariable('progress_timeout',tostring(group.timeout))
     session:setVariable('originate_disposition','')
+    local ringing=audio.begin_group(session)
     local answered=false
     if strategy=='sequence' then
         for _,contact in ipairs(contacts) do
@@ -306,6 +307,7 @@ run_group=function(number)
         answered=session:getVariable('originate_disposition')=='SUCCESS'
     end
     if session:ready() then
+        audio.end_group(session,ringing)
         if answered then session:hangup('NORMAL_CLEARING') else route(group.destination,number) end
     end
 end
