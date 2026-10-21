@@ -2,8 +2,8 @@
 #Requires -Version 7.4
 <#
 SPDX-License-Identifier: AGPL-3.0-or-later.
-Two independent, opt-in disposable stages. Prepare builds real 1.0.14 assemblies
-from an immutable 1.0.13 source plus two recorded version overlays. Qualify uses
+Two independent, opt-in disposable stages. Prepare builds real newer assemblies
+from the qualified immutable baseline plus two recorded version overlays. Qualify uses
 only root-signed envelopes supplied privately; no signing key is accepted.
 No owner-machine, public-release/feed or carrier qualification is performed.
 #>

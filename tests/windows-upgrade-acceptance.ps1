@@ -649,7 +649,7 @@ try{
  AssertManagerReopened $oldManager $managerInvocation 'manager_reopen_success'
  StopUpdater;Equal $before (DatabaseSnapshot 'after-reapply') 'Direct reapply changed preserved database/security/routing data.'
  foreach($path in $protected.Keys){Check ((Hash $path) -eq $protected[$path].hash -and (Get-Acl $path).Sddl -eq $protected[$path].acl) 'Direct reapply changed protected credentials, keys, TLS or notification bytes/ACLs.'}
- $report.gates.direct_113_helper_reapply='passed';$report.checks+='Actual identical installed-1.0.13 helper native preflight and same-version reapply; protected PBX/PG roles/database/keys/notifications/TLS preserved'
+ $report.gates.direct_113_helper_reapply='passed';$report.checks+=('Actual identical installed-'+$installed.Version+' helper native preflight and same-version reapply; protected PBX/PG roles/database/keys/notifications/TLS preserved')
  $phase='actual direct post-deploy rollback';$payload=FaultPayload
  $files=FilesSnapshot;$tasks=TaskSnapshot;$database=DatabaseSnapshot 'before-failure'
  WriteJson (Join-Path $work 'before-files.json') $files;WriteJson (Join-Path $work 'before-tasks.json') $tasks
