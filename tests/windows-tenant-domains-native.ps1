@@ -58,9 +58,9 @@ function Operation([string]$Name,[string]$Thumb='',[string]$InputPath=''){
  if($LASTEXITCODE){throw 'The packaged tenant-domain operation refused.'};return (($raw -join "`n")|ConvertFrom-Json)
 }
 function PrivateAcl([string]$Path,[bool]$Public){
- $acl=Get-Acl -LiteralPath $Path;$allowed=@('S-1-5-18','S-1-5-32-544');if($Public){$allowed+='S-1-5-32-568'}
+ $acl=Get-Acl -LiteralPath $Path;$allowed=@('S-1-5-18','S-1-5-32-544');if($Public){$allowed+=@('S-1-5-32-568','S-1-5-17')}
  Check ($acl.AreAccessRulesProtected -and $acl.Access.Count -eq $allowed.Count -and $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ceq 'S-1-5-32-544') 'Actual protected ACL has only expected principals'
- foreach($rule in $acl.Access){$sid=$rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value;Check ($sid -in $allowed -and $rule.AccessControlType -eq 'Allow') 'Actual ACL principal and access type';if($sid -eq 'S-1-5-32-568'){Check (([int]$rule.FileSystemRights -band [int][Security.AccessControl.FileSystemRights]::Write) -eq 0) 'IIS can read but cannot write public proof state'}}
+ foreach($rule in $acl.Access){$sid=$rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value;Check ($sid -in $allowed -and $rule.AccessControlType -eq 'Allow') 'Actual ACL principal and access type';if($sid -in 'S-1-5-32-568','S-1-5-17'){Check (([int]$rule.FileSystemRights -band [int][Security.AccessControl.FileSystemRights]::Write) -eq 0) 'IIS can read but cannot write public proof state'}}
 }
 function Https([string]$HostName,[string]$Path,[string]$Method='GET'){
  $client=[Net.Sockets.TcpClient]::new();$stream=$null
@@ -127,7 +127,26 @@ try{
  $binding=Get-OpenWebPublicBindingState $alias;Check ($binding.present -and $binding.information -ceq ('*:443:'+$alias) -and [BitConverter]::ToString($binding.hash).Replace('-','') -ceq $leaf.Thumbprint -and $binding.store -ceq 'My' -and [int]$binding.flags -eq 1) 'Actual owned alias has the exact SNI certificate binding'
  $null=Operation 'Certify';$repeat=Get-OpenWebPublicBindingState $alias;Check ($repeat.present -and $repeat.information -ceq $binding.information -and [BitConverter]::ToString($repeat.hash).Replace('-','') -ceq $leaf.Thumbprint) 'Repeated Certify preserves one exact owned alias binding'
  Test-OpenWebPublicHttps $alias $leaf.Thumbprint;Check $true 'Actual strict helper verifies the alias certificate over IIS'
- $phase='static_proof_https';$response=Https $alias ('/.well-known/openwebpbx-instance/'+$proof.nonce)
+ $phase='static_proof_https'
+ # Recreate only the original nonce-file ACL, without changing IIS identity or
+ # any parent policy. A real denied anonymous read must precede the fix.
+ $noncePath=Join-Path $tenantState ('proofs\.well-known\openwebpbx-instance\'+$proof.nonce)
+ $null=Assert-OpenWebOrdinaryPath $noncePath
+ $manager=[Microsoft.Web.Administration.ServerManager]::new()
+ try{$anonymous=$manager.GetApplicationHostConfiguration().GetSection('system.webServer/security/authentication/anonymousAuthentication','OpenWebPBX/.well-known/openwebpbx-instance');Check ([bool]$anonymous['enabled'] -and [string]$anonymous['userName'] -ceq 'IUSR') 'Fresh proof URL uses the actual default IUSR anonymous identity'}finally{$manager.Dispose()}
+ try{
+  $legacy=Get-Acl -LiteralPath $noncePath
+  foreach($rule in @($legacy.Access|Where-Object {$_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -ceq 'S-1-5-17'})){$null=$legacy.RemoveAccessRuleSpecific($rule)}
+  Set-Acl -LiteralPath $noncePath -AclObject $legacy
+  $denied=Https $alias ('/.well-known/openwebpbx-instance/'+$proof.nonce)
+  $status=[regex]::Match($denied,'^HTTP/1\.[01] ([1-5][0-9]{2}) ')
+  if($status.Success){$facts.legacy_acl_status=[int]$status.Groups[1].Value}
+  Check ($status.Success -and $facts.legacy_acl_status -eq 401 -and !$denied.Contains($proof.body)) 'Actual legacy public ACL denies the anonymous nonce read'
+ }finally{$null=Operation 'FilePublic' '' $noncePath}
+ PrivateAcl $noncePath $true
+ $response=Https $alias ('/.well-known/openwebpbx-instance/'+$proof.nonce)
+ $status=[regex]::Match($response,'^HTTP/1\.[01] ([1-5][0-9]{2}) ')
+ if($status.Success){$facts.proof_response=@{status=[int]$status.Groups[1].Value;plain_text=[bool]($response -match '(?im)^Content-Type:\s*text/plain');exact_nonce_body=[bool]$response.Contains($proof.body)}}
  Check ($response -match '^HTTP/1\.[01] 200 ' -and $response -match '(?im)^Content-Type:\s*text/plain' -and $response.Contains($proof.body)) 'Actual alias HTTPS serves the precise worker nonce as static text'
  $literal='<?php echo "THIS_MUST_NOT_EXECUTE"; ?>';$response=Https $alias ('/.well-known/openwebpbx-instance/'+$proof.nonce+'-static');Check ($response -match '^HTTP/1\.[01] 200 ' -and $response.Contains($literal)) 'Extensionless PHP-shaped proof content is never executed'
  $response=Https $alias ('/.well-known/openwebpbx-instance/'+$proof.nonce) 'POST';Check ($response -match '^HTTP/1\.[01] (?:403|404|405) ') 'Proof mapping refuses a write-style HTTP method'

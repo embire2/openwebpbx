@@ -22,11 +22,15 @@ function Set-OpenWebTenantAcl([string]$Path,[bool]$Directory,[bool]$Public){
  $acl.SetAccessRuleProtection($true,$false);$acl.SetOwner([Security.Principal.SecurityIdentifier]'S-1-5-32-544')
  $inherit=if($Directory){[Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'}else{[Security.AccessControl.InheritanceFlags]::None}
  foreach($sid in 'S-1-5-18','S-1-5-32-544'){$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]$sid,'FullControl',$inherit,'None','Allow'))}
- if($Public){$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]'S-1-5-32-568','ReadAndExecute',$inherit,'None','Allow'))}
+ # IIS reads configuration as the application pool, but serves anonymous
+ # static nonce files as IUSR by default. Both may read only public state;
+ # private keys/certificate inputs retain the two privileged principals.
+ if($Public){foreach($sid in 'S-1-5-32-568','S-1-5-17'){$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]$sid,'ReadAndExecute',$inherit,'None','Allow'))}}
  Set-Acl -LiteralPath $Path -AclObject $acl
  $actual=Get-Acl -LiteralPath $Path
  if(!$actual.AreAccessRulesProtected -or $actual.Owner -ne $acl.Owner -or $actual.Access.Count -ne $acl.Access.Count){throw 'Private tenant-domain ACL verification failed.'}
- foreach($rule in $actual.Access){$sid=$rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value;if($rule.AccessControlType -ne 'Allow' -or $sid -notin @('S-1-5-18','S-1-5-32-544',$(if($Public){'S-1-5-32-568'}))){throw 'Unexpected tenant-domain ACL.'}}
+ $allowed=@('S-1-5-18','S-1-5-32-544');if($Public){$allowed+=@('S-1-5-32-568','S-1-5-17')}
+ foreach($rule in $actual.Access){$sid=$rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value;if($rule.AccessControlType -ne 'Allow' -or $sid -notin $allowed){throw 'Unexpected tenant-domain ACL.'}}
 }
 function Read-OpenWebTenantInput([string]$Path){
  $null=Get-OpenWebTenantAclTarget $Path $false

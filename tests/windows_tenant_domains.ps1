@@ -12,6 +12,23 @@ function LoadFunctions([string]$Path,[string[]]$Names){
 }
 LoadFunctions (Join-Path $SourceRoot 'packaging/windows/PublicAccess.Common.ps1') @('Assert-OpenWebPublicEmail','Assert-OpenWebOrdinaryPath')
 LoadFunctions (Join-Path $SourceRoot 'packaging/windows/Tenant-Domains.ps1') @('Assert-OpenWebTenantName','Get-OpenWebTenantAclTarget','Set-OpenWebTenantAcl','Read-OpenWebTenantInput')
+# Exercise the actual verification allow-list without invoking Windows ACLs.
+# A comma plus $(if(...){two outputs}) creates a nested array, so membership
+# must be proved for each real SID on every platform before native execution.
+$aclAst=(Get-Item function:Set-OpenWebTenantAcl).ScriptBlock.Ast
+$baseAllowed=@($aclAst.FindAll({param($node)$node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left -is [Management.Automation.Language.VariableExpressionAst] -and $node.Left.VariablePath.UserPath -ceq 'allowed' -and $node.Operator -eq 'Equals'},$true))
+$publicAllowed=@($aclAst.FindAll({param($node)$node -is [Management.Automation.Language.IfStatementAst] -and $null -ne $node.Find({param($child)$child -is [Management.Automation.Language.AssignmentStatementAst] -and $child.Left -is [Management.Automation.Language.VariableExpressionAst] -and $child.Left.VariablePath.UserPath -ceq 'allowed' -and $child.Operator -eq 'PlusEquals'},$true)},$true))
+$membership=@($aclAst.FindAll({param($node)$node -is [Management.Automation.Language.BinaryExpressionAst] -and $node.Operator -eq 'Inotin' -and $node.Right -is [Management.Automation.Language.VariableExpressionAst] -and $node.Right.VariablePath.UserPath -ceq 'allowed'},$true))
+Check ($baseAllowed.Count -eq 1 -and $publicAllowed.Count -eq 1 -and $membership.Count -eq 1) 'Actual unique ACL verification statements required'
+$makeAllowed=[scriptblock]::Create(('param([bool]$Public)' + "`n" + $baseAllowed[0].Extent.Text + "`n" + $publicAllowed[0].Extent.Text + "`n" + 'return ,$allowed'))
+$refusedSid=[scriptblock]::Create(('param($sid,$allowed)' + "`n" + $membership[0].Extent.Text))
+$publicPrincipals=& $makeAllowed $true;$privatePrincipals=& $makeAllowed $false
+Check ($publicPrincipals.Count -eq 4 -and @($publicPrincipals|Where-Object {$_ -isnot [string]}).Count -eq 0) 'Public ACL verification uses four flat SID strings'
+Check ($privatePrincipals.Count -eq 2 -and @($privatePrincipals|Where-Object {$_ -isnot [string]}).Count -eq 0) 'Private ACL verification retains two flat privileged SIDs'
+foreach($sid in 'S-1-5-18','S-1-5-32-544','S-1-5-32-568','S-1-5-17'){Check (!(& $refusedSid $sid $publicPrincipals)) 'Actual public membership expression accepts each intended principal'}
+foreach($sid in 'S-1-5-18','S-1-5-32-544'){Check (!(& $refusedSid $sid $privatePrincipals)) 'Actual private membership expression accepts each privileged principal'}
+foreach($sid in 'S-1-5-32-568','S-1-5-17'){Check (& $refusedSid $sid $privatePrincipals) 'Actual private membership expression refuses both web principals'}
+Check ((& $refusedSid 'S-1-1-0' $publicPrincipals) -and (& $refusedSid 'S-1-1-0' $privatePrincipals)) 'Actual verification refuses an unintended principal'
 foreach($name in 'abc.openwebpbx.com','company-123.openwebpbx.com'){Check ((Assert-OpenWebTenantName $name) -ceq $name) 'Exact leased name'}
 foreach($name in 'domains.openwebpbx.com.evil.invalid','a.openwebpbx.com','abc.def.openwebpbx.com','Abc.openwebpbx.com','*.openwebpbx.com','abc.openwebpbx.com:443',"abc.openwebpbx.com`n",'abc.openwebpbx.com/path'){Refuses {Assert-OpenWebTenantName $name} 'Non-lease hostname refused'}
 $fixture=Join-Path ([IO.Path]::GetTempPath()) ('openweb-tenant-acl-'+[Guid]::NewGuid().ToString('N'));$oldProgramData=$env:ProgramData
@@ -35,7 +52,7 @@ try{
   foreach($rule in $acl.Access){Check ($rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -in 'S-1-5-18','S-1-5-32-544') 'No web-user key access'}
   Refuses {Set-OpenWebTenantAcl $key $false $true} 'Private key cannot become web-readable'
   Set-OpenWebTenantAcl $private $true $false;$marker=Join-Path $state 'ready.json';[IO.File]::WriteAllText($marker,'{}');Set-OpenWebTenantAcl $marker $false $true
-  $rules=(Get-Acl -LiteralPath $marker).Access;Check ($rules.Count -eq 3) 'Public ready marker has bounded IIS read rule';Check (@($rules|Where-Object {$_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq 'S-1-5-32-568' -and ([int]$_.FileSystemRights -band [int][Security.AccessControl.FileSystemRights]::Write) -ne 0}).Count -eq 0) 'IIS cannot write ready marker'
+  $rules=(Get-Acl -LiteralPath $marker).Access;Check ($rules.Count -eq 4) 'Public ready marker has bounded IIS and IUSR read rules';Check (@($rules|Where-Object {$_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -in 'S-1-5-32-568','S-1-5-17' -and ([int]$_.FileSystemRights -band [int][Security.AccessControl.FileSystemRights]::Write) -ne 0}).Count -eq 0) 'IIS cannot write ready marker'
   $outside=Join-Path $fixture 'outside';[IO.File]::WriteAllText($outside,'original');$outsideAcl=(Get-Acl -LiteralPath $outside).Sddl;Refuses {Set-OpenWebTenantAcl $outside $false $false} 'Outside target refused';Check ((Get-Acl -LiteralPath $outside).Sddl -ceq $outsideAcl) 'Outside security exact';Check ((Get-Acl -LiteralPath $fixture).Sddl -ceq $before) 'Containing security exact';Check ([IO.File]::ReadAllText($key) -ceq 'fictional-private-key') 'Key bytes exact'
  }else{Write-Output 'Windows actual ACL/IIS/ACME execution not qualified on this platform.'}
 }finally{
