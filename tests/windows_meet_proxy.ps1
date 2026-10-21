@@ -40,6 +40,7 @@ try{
   $runtime=$runtime|ConvertFrom-Json
   Check ($runtime.conference_module -eq $true) 'actual native conference mixer module is loaded'
   Check ($runtime.vp8_video_codec -eq $true) 'actual native VP8 video codec is available'
+  Check ($runtime.hash_module -eq $true) 'actual native atomic shared call limiter module is loaded'
   function BackendTls([string]$Name){
    $tcp=[Net.Sockets.TcpClient]::new();$ssl=$null
    try{$tcp.Connect('127.0.0.1',7444);$ssl=[Net.Security.SslStream]::new($tcp.GetStream(),$false);$ssl.AuthenticateAsClient($Name);if(!$ssl.IsAuthenticated -or !$ssl.IsEncrypted){throw 'TLS did not authenticate.'}}
