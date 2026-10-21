@@ -71,6 +71,12 @@ try{
    $expected=$manifest.files.('backup-runtime/'+$relative)
    if($expected -isnot [string] -or $expected -cnotmatch '^[a-f0-9]{64}$' -or (Hash $target) -cne $expected){throw 'A runtime member differs from the exact original manifest.'};$count++
   }
+  $workerEntry=$zip.GetEntry($root+'tenant-domains.py');if(!$workerEntry -or $workerEntry.Length -gt 1MB){throw 'The immutable tenant worker source is unavailable.'}
+  $workerPath=Join-Path $work 'frozen-tenant-worker.py';[IO.Compression.ZipFileExtensions]::ExtractToFile($workerEntry,$workerPath,$false)
+  if((Hash $workerPath) -cne $manifest.files.'tenant-domains.py'){throw 'The immutable tenant worker source differs from its manifest.'}
+  $workerSource=[IO.File]::ReadAllText($workerPath)
+  foreach($line in 'from cryptography import x509','from cryptography.hazmat.primitives import hashes, serialization','from cryptography.hazmat.primitives.asymmetric import ec'){if(!$workerSource.Contains($line)){throw 'The frozen worker crypto import contract differs.'}}
+  $report.frozen_tenant_worker_sha256=Hash $workerPath
  }finally{$zip.Dispose()}
  if($count -ne 199){throw 'The original runtime member inventory is incomplete.'}
  $report.runtime_files_verified=$count
@@ -78,6 +84,7 @@ try{
  $phase='actual imports';SaveReport
  $warm='import sys; from cryptography.hazmat.primitives.ciphers.aead import AESGCM; assert sys.version_info[:2] == (3,13); print(int(sys.dont_write_bytecode))'
  $full='import sys; from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes; from cryptography.hazmat.primitives.ciphers.aead import AESGCM; print(int(sys.dont_write_bytecode))'
+ $tenant='import sys; from cryptography import x509; from cryptography.hazmat.primitives import hashes, serialization; from cryptography.hazmat.primitives.asymmetric import ec; print(int(sys.dont_write_bytecode))'
  $report.cases=[ordered]@{}
  foreach($mode in 'isolated','isolated_no_bytecode'){
   $copy=Join-Path $work $mode;Copy-Item -LiteralPath $runtime -Destination $copy -Recurse
@@ -86,8 +93,10 @@ try{
   $warmed=RuntimeSnapshot $copy
   if((InvokePython $copy ($arguments+@('-c',$full))).Trim() -cne $flag){throw 'The broad import bytecode policy differs.'}
   $fullSnapshot=RuntimeSnapshot $copy
-  $report.cases[$mode]=[ordered]@{aesgcm_import_added=(AddedKinds $before $warmed);broader_backup_import_added=(AddedKinds $warmed $fullSnapshot);all_imports_added=(AddedKinds $before $fullSnapshot);actual_dont_write_bytecode=($flag -ceq '1')}
-  if($mode -ceq 'isolated_no_bytecode' -and ($fullSnapshot.files.Count -ne $before.files.Count -or $fullSnapshot.directories.Count -ne $before.directories.Count)){throw 'Explicit no-bytecode imports changed the pristine runtime inventory.'}
+  if((InvokePython $copy ($arguments+@('-c',$tenant))).Trim() -cne $flag){throw 'The frozen tenant import bytecode policy differs.'}
+  $tenantSnapshot=RuntimeSnapshot $copy
+  $report.cases[$mode]=[ordered]@{aesgcm_import_added=(AddedKinds $before $warmed);broader_backup_import_added=(AddedKinds $warmed $fullSnapshot);tenant_worker_crypto_import_added=(AddedKinds $fullSnapshot $tenantSnapshot);all_imports_added=(AddedKinds $before $tenantSnapshot);actual_dont_write_bytecode=($flag -ceq '1')}
+  if($mode -ceq 'isolated_no_bytecode' -and ($tenantSnapshot.files.Count -ne $before.files.Count -or $tenantSnapshot.directories.Count -ne $before.directories.Count)){throw 'Explicit no-bytecode imports changed the pristine runtime inventory.'}
  }
  $report.state='passed';$phase='complete'
 }catch{
