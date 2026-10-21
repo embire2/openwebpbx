@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import math
+import os
 from pathlib import Path
 import shutil
 import struct
@@ -124,8 +125,10 @@ class WindowsVoices(unittest.TestCase):
         if sys.platform == 'win32':
             def security():
                 code="(Get-Acl -LiteralPath '"+str(target).replace("'","''")+"').Sddl"
+                native_environment={key:value for key,value in os.environ.items() if key.casefold()!='psmodulepath'}
+                native_environment['PSModulePath']=str(Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/Modules')+';'+str(Path(os.environ['ProgramFiles'])/'WindowsPowerShell/Modules')
                 return subprocess.check_output(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command',
-                    code], text=True).strip()
+                    code], text=True, env=native_environment).strip()
         else:
             target.chmod(0o640)
             def security():
