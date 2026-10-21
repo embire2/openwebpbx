@@ -455,7 +455,7 @@ function PreparePackage {
  $acmeArchive=Join-Path $work 'simple-acme.zip';Invoke-WebRequest 'https://github.com/simple-acme/simple-acme/releases/download/v2.4.1/simple-acme.v2.4.1.2444.win-x64.trimmed.zip' -OutFile $acmeArchive
  $acme=Join-Path $work 'acme';CheckedPython @((Join-Path $source 'packaging/windows/build-acme-runtime.py'),'--archive',$acmeArchive,'--output',$acme)
  $output=Join-Path $work 'package'
- $packageArguments=@((Join-Path $source 'packaging/build-release.py'),'--target','windows','--server',(Join-Path $native.directory 'server'),'--updater',(Join-Path $native.directory 'updater'),'--desktop',(Join-Path $native.directory 'desktop'),'--engine',(Join-Path $engine.directory 'engine'),'--backup-runtime',$backup,'--acme',$acme,'--music',$music.directory,'--codec-source',(Join-Path $codec 'source'),'--output',$output)
+ $packageArguments=@((Join-Path $source 'packaging/build-release.py'),'--target','windows','--server',(Join-Path $native.directory 'server'),'--updater',(Join-Path $native.directory 'updater'),'--desktop',(Join-Path $native.directory 'desktop'),'--engine',(Join-Path $engine.directory 'engine'),'--backup-runtime',$backup,'--acme',$acme,'--music',(Join-Path $music.directory 'music'),'--voices',(Join-Path $music.directory 'voices/1.0.1'),'--codec-source',(Join-Path $codec 'source'),'--output',$output)
  if($nativeManifest.msi_pthread_experiment){$packageArguments+=@('--registrar-source',(Join-Path $codec 'registrar-source'))}
  CheckedPython $packageArguments
  $archives=@(Get-ChildItem $output -Filter '*.zip' -File);if($archives.Count -ne 1){throw 'One candidate package is required.'}
@@ -729,6 +729,7 @@ function AcceptanceHook([string]$Name,[string]$Report){
 try{
  PrivateDirectory $work;PublishFacts
  if((Test-Path "$configuration\config.conf") -or (Test-Path "$state\installation.json") -or (Get-Service OpenWebPBX -ErrorAction SilentlyContinue)){throw 'The ephemeral machine already contains a PBX; it is not an empty suite target.'}
+ CheckedPython @((Join-Path $source 'tests/windows_voice_installer.py'))
  if(!$PackageRoot){$PackageRoot=PreparePackage}
  Remove-Item Env:\GH_TOKEN -ErrorAction SilentlyContinue
  $PackageRoot=[IO.Path]::GetFullPath($PackageRoot);$release=Get-Content (Join-Path $PackageRoot 'release-manifest.json') -Raw|ConvertFrom-Json

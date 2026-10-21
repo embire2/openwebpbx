@@ -341,6 +341,7 @@ try {
  }
  & "$payload\Install-NativeEngine.ps1" -PackageRoot $payload -Check
  & "$payload\Install-LocalCodec.ps1" -PackageRoot $payload -Check
+ & "$payload\Install-Voices.ps1" -PackageRoot $payload -Check
  CheckIdle
  if ($Check) { Write-Host "OpenWeb PBX $version update files and installed call engine passed preflight."; return }
  if($Automatic){CheckWindow}
@@ -409,6 +410,7 @@ try {
  CopyTree "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_setup" "$switch\scripts\app\pbx_setup"
  Copy-Item "$root\web\app\pbx_setup\resources\prompts\*.wav" "$switch\sounds\openwebpbx" -Force
  Copy-Item "$root\web\app\pbx_setup\resources\prompts\openweb.xml" "$switch\conf\languages\en\ivr\openweb.xml" -Force
+ & "$payload\Install-Voices.ps1" -PackageRoot $payload
  Run "$root\php\php.exe" @("$payload\configure-music.php","$payload\music","$root\web","$switch\conf\vars.xml")
  & "$payload\Install-Backups.ps1" -PackageRoot $payload -DeferRestart -UpgradeLockHeld
  & "$payload\Install-MailQueue.ps1" -PackageRoot $payload -DeferStart -MaintenanceLock $lock

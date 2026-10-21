@@ -249,6 +249,7 @@ New-Item -ItemType Directory -Force "$switch\scripts\app\pbx_setup","$switch\sou
 Copy-Item "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_setup\*" "$switch\scripts\app\pbx_setup" -Force
 Copy-Item "$root\web\app\pbx_setup\resources\prompts\*.wav" "$switch\sounds\openwebpbx" -Force
 Copy-Item "$root\web\app\pbx_setup\resources\prompts\openweb.xml" "$switch\conf\languages\en\ivr\openweb.xml" -Force
+& "$PSScriptRoot\Install-Voices.ps1" -PackageRoot $PSScriptRoot
 [xml]$modules=Get-Content "$switch\conf\autoload_configs\modules.conf.xml"
 if(!$modules.configuration.modules.load.Where({$_.module -eq 'mod_pgsql'})){$pg=$modules.CreateElement('load');$pg.SetAttribute('module','mod_pgsql');$modules.configuration.modules.PrependChild($pg)|Out-Null;$modules.Save("$switch\conf\autoload_configs\modules.conf.xml")}
 WriteUtf8 "$switch\conf\autoload_configs\event_socket.conf.xml" ('<configuration name="event_socket.conf"><settings><param name="listen-ip" value="127.0.0.1"/><param name="listen-port" value="8021"/><param name="password" value="'+$state.SwitchPassword+'"/></settings></configuration>')
