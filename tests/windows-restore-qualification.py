@@ -229,6 +229,29 @@ def restore_schema_failure_fields(error):
 
 NATIVE_CASES = {'native-source': ('source_real_two_way_recorded_call', 'source_real_native_voicemail_deposit'),
                 'native-target': ('restored_original_credentials_two_way_decoded_native_audio', 'restored_original_native_voicemail_121_pin_free_retrieval')}
+CLOCK_PHASES = frozenset(('preflight','bindings','observer','invite','signals','analyze','cleanup'))
+
+
+def restored_clock_summary(record):
+    """Only actual completed source-bound clock evidence may become a gate."""
+    booleans = ('sourcebindings_verified','GMT_plus_2_full_time_verified','original_phone_media_restored',
+                'owned_clock_call_ended','scoped_observer_stopped','software_phone_only',
+                'no_carrier_calls_or_database_configuration_writes')
+    metrics = {'minimum_component_correlation': (.62,1), 'maximum_native_signal_lateness_ms': (0,250),
+               'maximum_decoded_beep_target_error_ms': (0,350)}
+    if (not isinstance(record,dict) or set(record) != set(booleans) | set(metrics) | {'frozen_Nathaniel_assets','complete_announcements'}
+            or any(record.get(field) is not True for field in booleans)
+            or type(record.get('frozen_Nathaniel_assets')) is not int or record['frozen_Nathaniel_assets'] != 34
+            or type(record.get('complete_announcements')) is not int or record['complete_announcements'] != 3):
+        raise ValueError('Complete owned restored Windows clock evidence is required.')
+    for name,(low,high) in metrics.items():
+        value=record[name]
+        if (type(value) not in (int,float) or not math.isfinite(value) or value < low or value > high
+                or name != 'minimum_component_correlation' and value == high):
+            raise ValueError('Restored Windows clock audio or time proof is outside its acceptance bound.')
+    return dict(record)
+
+
 PEER_ERROR_TYPES = ('RuntimeError','AssertionError','ValueError','TypeError','KeyError','AttributeError','OSError','TimeoutError',
                     'ConnectionError','ConnectionResetError','ConnectionAbortedError','ConnectionRefusedError','BrokenPipeError',
                     'SSLError','SSLEOFError','SSLCertVerificationError','JSONDecodeError','UnicodeDecodeError','check_failed','external_error')
@@ -736,6 +759,35 @@ class Qualification:
                     primary.completed_native_cases=completed_native_cases(self.facts,primary.native_action)
                 if unexpected:raise primary
 
+    def clock_target(self):
+        if (self.s.get('role') != 'target' or self.facts.get('gates',{}).get('restored_original_native_voicemail_121_pin_free_retrieval') != 'passed'
+                or 'restored_original_native_clock_1026_Nathaniel_GMT2_audio' in self.facts.get('checks',[])):
+            raise RuntimeError('Clock qualification requires the completed original-account restore proof on the distinct target.')
+        adapter=load_module('restored_windows_clock',self.source/'tests/windows_clock_native.py')
+        _,original,peers,destination=self.peers();primary=None
+        try:
+            for peer in peers:
+                if peer.register(destination)['code'] != 200:
+                    raise RuntimeError('The restored original clock peer did not authenticate.')
+                write_json(self.work/'clock-registration-cleanup-private.json',
+                           {'realm':self.s['realm'],'ids':[cid for item in peers for cid in item.registration_call_ids]})
+            state={name:self.s[name] for name in ('realm','domain','event_socket')};state['sip_destination']=destination
+            proof=adapter.qualify_clock(peers[0],original,state,self.source,
+                Path('C:/Program Files/FreeSWITCH/sounds'),Path('C:/Program Files/FreeSWITCH/scripts'),
+                self.work/'clock-target-native')
+            self.facts['clock_native']=restored_clock_summary(proof)
+            self.record('restored_original_native_clock_1026_Nathaniel_GMT2_audio')
+        except BaseException as error:
+            primary=error
+            raise
+        finally:
+            try:self.clean_peers(peers,destination)
+            except Exception as cleanup:
+                if primary is None:
+                    cleanup.clock_phase='cleanup'
+                    raise
+                primary.peer_cleanup_failure=restore_peer_failure_fields(getattr(cleanup,'peer_cleanup_failure',[]))
+
     def media(self):
         def finalized():
             status = self.php('status')
@@ -1070,11 +1122,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input', type=Path, required=True)
     parser.add_argument('--action', choices=('setup', 'native-source', 'export-source', 'late-restore', 'restore',
-        'activate-calls', 'native-target', 'job', 'activate-updates', 'activate-backups', 'activate-updates-backups', 'target-backup', 'cleanup'), required=True)
+        'activate-calls', 'native-target', 'clock-target', 'job', 'activate-updates', 'activate-backups', 'activate-updates-backups', 'target-backup', 'cleanup'), required=True)
     args = parser.parse_args(); qualification = Qualification(args.input)
     actions = {'setup': qualification.setup, 'native-source': qualification.native, 'export-source': qualification.export_source,
         'late-restore': qualification.late_restore, 'restore': qualification.restore,
         'activate-calls': lambda: qualification.activate('calls'), 'native-target': lambda: qualification.native(True),
+        'clock-target': qualification.clock_target,
         'job': qualification.job, 'activate-updates': lambda: qualification.activate('updates'),
         'activate-backups': lambda: qualification.activate('backups'), 'activate-updates-backups': qualification.activate_updates_backups,
         'target-backup': lambda: qualification.backup_request(True),
@@ -1100,6 +1153,7 @@ if __name__ == '__main__':
         observation = restore_cli_failure_fields(getattr(error, 'cli_failure', None))
         if observation: facts['cli_failure'] = observation
         facts.update(restore_schema_failure_fields(error))
+        if getattr(error,'clock_phase',None) in CLOCK_PHASES:facts['clock_phase']=error.clock_phase
         peer_failures=restore_peer_failure_fields(getattr(error,'peer_cleanup_failure',None))
         if peer_failures:facts['peer_cleanup_failure']=peer_failures
         receivers=restore_peer_failure_fields(getattr(error,'peer_receiver_failure',None),receiver=True)

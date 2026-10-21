@@ -70,6 +70,20 @@ function SafeRestorePeerFailures($Records,[switch]$Receiver){
  }
  return ,$out
 }
+function SafeRestoredClockSummary($Record){
+ if($null -eq $Record -or ($Record -isnot [pscustomobject] -and $Record -isnot [Collections.IDictionary])){return $null}
+ $safe=[ordered]@{}
+ foreach($field in 'sourcebindings_verified','GMT_plus_2_full_time_verified','original_phone_media_restored','owned_clock_call_ended','scoped_observer_stopped','software_phone_only','no_carrier_calls_or_database_configuration_writes'){
+  if($Record.$field -isnot [bool] -or !$Record.$field){return $null};$safe[$field]=$true
+ }
+ foreach($pair in @(@('frozen_Nathaniel_assets',34),@('complete_announcements',3))){$value=$Record.($pair[0]);if(($value -isnot [int] -and $value -isnot [long]) -or $value -ne $pair[1]){return $null};$safe[$pair[0]]=$value}
+ foreach($pair in @(@('minimum_component_correlation',.62,1.0),@('maximum_native_signal_lateness_ms',0,250.0),@('maximum_decoded_beep_target_error_ms',0,350.0))){
+  $name=$pair[0];$value=$Record.$name
+  if(($value -isnot [int] -and $value -isnot [long] -and $value -isnot [double]) -or [double]::IsNaN([double]$value) -or [double]::IsInfinity([double]$value) -or $value -lt $pair[1] -or $value -gt $pair[2] -or ($name -cne 'minimum_component_correlation' -and $value -eq $pair[2])){return $null}
+  $safe[$name]=$value
+ }
+ return $safe
+}
 function SafeRestoreSchemaFailure($Record,[string]$Action){
  if($Record.error_type -isnot [string] -or $Record.error_type -cne 'ValueError' -or $Record.source_basename -isnot [string] -or $Record.source_basename -cne 'windows-restore-qualification.py'){return $null}
  $labels=if($Action -ceq 'late-restore'){@('target-wrongpass','target-recovered')}elseif($Action -ceq 'restore'){@('target-restored')}else{@()}
@@ -154,6 +168,10 @@ function NativeFixture([string]$Action){
   $safe=$null
   $privateOutput=Join-Path $work ('restore-'+$Action+'.out')
   if(Test-Path $privateOutput){try{$safe=Get-Content $privateOutput -Raw|ConvertFrom-Json;if($safe.state -eq 'failed' -and $safe.error_type -match '^[A-Za-z0-9_.]{1,120}$' -and $safe.source_basename -match '^[A-Za-z0-9_.-]{1,120}$' -and ($safe.source_line -is [long] -or $safe.source_line -is [int]) -and $safe.source_line -ge 0 -and $safe.source_line -lt 1000000){$facts.native_failure=@{error_type=$safe.error_type;source_basename=$safe.source_basename;source_line=$safe.source_line;active_case=$Action};$schemaFailure=SafeRestoreSchemaFailure $safe $Action;if($schemaFailure){$facts.native_failure.comparison_label=$schemaFailure.comparison_label;$facts.native_failure.schema_groups_differ=$schemaFailure.schema_groups_differ};if($Action -ceq 'cleanup'){$observation=SafeRestoreFixtureFailure $safe.fixture_failure;if($observation){$facts.native_failure.fixture_failure=$observation}};if($Action -ceq 'late-restore' -and $safe.error_type -ceq 'ValueError' -and $safe.source_basename -ceq 'windows-restore-qualification.py' -and $safe.failure_kind -is [string] -and $safe.failure_kind -ceq 'non_distinct_installation_identity' -and $safe.identity_field -is [string] -and $safe.identity_field -cin @('hardware_uuid_hmac','hostname_hmac','certificate_sha256','template_key_sha256')){$facts.native_failure.failure_kind=$safe.failure_kind;$facts.native_failure.identity_field=$safe.identity_field};if($Action -cin @('native-source','native-target')){$peerFailures=SafeRestorePeerFailures $safe.peer_cleanup_failure;if($peerFailures){$facts.native_failure.peer_cleanup_failure=$peerFailures};$receivers=SafeRestorePeerFailures $safe.peer_receiver_failure -Receiver;if($receivers){$facts.native_failure.peer_receiver_failure=$receivers};if($safe.native_substage -is [string] -and $safe.native_substage -cin @('registration','internal_invite','internal_ack','internal_media','internal_hangup','answered_recording','voicemail_isolation','voicemail_deposit','mailbox_invite','mailbox_login_prompt','mailbox_main_prompt','mailbox_recording_playback','mailbox_media','mailbox_hangup','peer_cleanup','peer_receiver')){$facts.native_failure.native_substage=$safe.native_substage};$allowed=if($Action -ceq 'native-source'){@('source_real_two_way_recorded_call','source_real_native_voicemail_deposit')}else{@('restored_original_credentials_two_way_decoded_native_audio','restored_original_native_voicemail_121_pin_free_retrieval')};if($safe.completed_native_cases -is [array] -and $safe.completed_native_cases.Count -le 2 -and @($safe.completed_native_cases|Select-Object -Unique).Count -eq $safe.completed_native_cases.Count -and @($safe.completed_native_cases|Where-Object {$_ -isnot [string] -or $_ -cnotin $allowed}).Count -eq 0){$cases=@($allowed|Where-Object {$_ -cin $safe.completed_native_cases});$facts.native_failure.completed_native_cases=$cases;foreach($name in $cases){$facts.gates[$name]='passed'}}}}}catch{}}
+  if($Action -ceq 'clock-target' -and $facts.native_failure){try{
+   if($safe.clock_phase -is [string] -and $safe.clock_phase -cin @('preflight','bindings','observer','invite','signals','analyze','cleanup')){$facts.native_failure.clock_phase=$safe.clock_phase}
+   $peerFailures=SafeRestorePeerFailures $safe.peer_cleanup_failure;if($peerFailures){$facts.native_failure.peer_cleanup_failure=$peerFailures}
+  }catch{}}
   if($Action -ceq 'native-target' -and $facts.native_failure){try{
    if($safe.native_substage -is [string] -and $safe.native_substage -ceq 'mailbox_tutorial_complete'){$facts.native_failure.native_substage=$safe.native_substage}
    $mailbox=SafeRestoreMailboxFailure $safe.mailbox_observation $Action
@@ -300,7 +318,9 @@ $r=Get-Content -LiteralPath $InputFile -Raw|ConvertFrom-Json
   $currentBinding=Set-SuiteFixtureBinding -Read
   Check ([Convert]::ToHexString($currentBinding.hash) -eq $pki.leaf.Thumbprint -and $currentBinding.store -eq 'My') 'Restore changed the replacement machine actual IIS certificate binding.'
   HeldServiceRestart
-  EnableTargetTls -Prepared;NativeFixture 'activate-calls';NativeFixture 'native-target';NativeFixture 'job'
+  EnableTargetTls -Prepared;NativeFixture 'activate-calls';NativeFixture 'native-target'
+  if([version]$BaseVersion -ge [version]'1.0.20'){NativeFixture 'clock-target'}
+  NativeFixture 'job'
   NativeFixture 'activate-updates-backups';NativeFixture 'target-backup';AssertBackupTask
   $phase='postactivation original task states'
   foreach($name in $originalTaskStates.Keys){Check ([bool](Get-ScheduledTask -TaskName $name).Settings.Enabled -eq $originalTaskStates[$name]) 'Explicit activation failed to preserve an original cleanup/mail/certificate task enabled state.'}
@@ -317,6 +337,11 @@ $r=Get-Content -LiteralPath $InputFile -Raw|ConvertFrom-Json
  NativeFixture 'cleanup'
  $nativeFacts=Get-Content (Join-Path (Split-Path $inputFile -Parent) 'facts.json') -Raw|ConvertFrom-Json
  foreach($property in $nativeFacts.gates.PSObject.Properties){$facts.gates[$property.Name]=$property.Value}
+ if($Role -eq 'Target' -and [version]$BaseVersion -ge [version]'1.0.20'){
+  $clock=SafeRestoredClockSummary $nativeFacts.clock_native
+  Check ($null -ne $clock -and $facts.gates.restored_original_native_clock_1026_Nathaniel_GMT2_audio -ceq 'passed') 'Actual restored Windows clock speech, GMT+2 signals and exact owned cleanup must pass.'
+  $facts.clock_native=$clock
+ }
  $facts.state='passed'
 }catch{
  $facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$_.Exception.GetType().Name
