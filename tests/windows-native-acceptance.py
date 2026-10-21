@@ -1355,7 +1355,9 @@ def main():
     if a.phase=='prepare-pki':prepare_pki(f);return
     if a.phase=='pki-server':serve_pki(f);return
     try:
-        f.web=Web(f.s['public_url'],f.evidence/'fixture-root.pem');normal_setup(f,f.web);native_calls(f);smtp_and_queued_voicemail(f);f.web.request('/logout.php')
+        f.web=Web(f.s['public_url'],f.evidence/'fixture-root.pem');normal_setup(f,f.web)
+        load_module('windows_meeting_browser',f.source/'tests/windows-meet-browser.py').run(f)
+        native_calls(f);smtp_and_queued_voicemail(f);f.web.request('/logout.php')
         (f.evidence/'software-native-report.json').write_text(json.dumps({'schema':1,'producer':'windows-native-acceptance.py','state':'passed','checks':f.checks,'carrier':'unqualified','physical_devices':'unqualified','android_hardware':'unqualified','public_acme':'unqualified','scope':'fictional-hosted-runner'},indent=2))
     except BaseException as e:
         import traceback

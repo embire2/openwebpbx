@@ -35,6 +35,11 @@ try{
   Check ($ledger.Schema -eq 1 -and $ledger.Complete -and $ledger.Thumbprint -ceq $certificate.Thumbprint) 'installed ownership ledger matches current certificate'
   $proxy=Get-OpenWebMeetProxyState;$reg=Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\IIS Extensions\Application Request Routing\Parameters' -Name SecureConnectionIgnoreFlags
   Check ($proxy.Enabled -and !$proxy.PreserveHostHeader -and $reg.SecureConnectionIgnoreFlags -eq 0) 'ARR uses strict backend identity validation'
+  $runtime=& 'C:\OpenWebPBX\php\php.exe' (Join-Path $PSScriptRoot 'windows_meet_runtime.php')
+  if($LASTEXITCODE){throw 'The installed native meeting runtime is unavailable.'}
+  $runtime=$runtime|ConvertFrom-Json
+  Check ($runtime.conference_module -eq $true) 'actual native conference mixer module is loaded'
+  Check ($runtime.vp8_video_codec -eq $true) 'actual native VP8 video codec is available'
   function BackendTls([string]$Name){
    $tcp=[Net.Sockets.TcpClient]::new();$ssl=$null
    try{$tcp.Connect('127.0.0.1',7444);$ssl=[Net.Security.SslStream]::new($tcp.GetStream(),$false);$ssl.AuthenticateAsClient($Name);if(!$ssl.IsAuthenticated -or !$ssl.IsEncrypted){throw 'TLS did not authenticate.'}}
