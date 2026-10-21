@@ -1,5 +1,10 @@
 # OpenWeb PBX workspace
 
+## Repository independence and product-first README — 2026-10-21
+
+- Owner requests a separate agent to remove GitHub fork status and improve discoverability, while rewriting README around product benefits, safe screenshots, exact downloadable platforms and installation. Agent `repo_independence_readme` owns README/About/topics and a concrete Support request; root continues server20 acceptance/publication. Preserve licences, copyright, upstream attribution and full history. Do not delete/recreate/rename/transfer the repository or rewrite history.
+- Current authenticated GitHub reports one child fork, so documented self-service fork detachment is ineligible. No detachment or Support submission is claimed. Any Support operation must preserve repositoryID1406074259, path, all tags/releases/assetIDs/download/update URLs, settings and child forks; active native qualification pins that numeric ID. The old private release20 README template is explicitly blocked/superseded: merge final release facts into the new product-first README, never replace it with the old changelog template. Product source d97/DebianI and Android18 remain frozen.
+
 ## Ring-group ringing repair — hosted narrow patch — 2026-10-21
 
 - Owner now explicitly confirms the live outside test: phones ring, the caller hears ringing, then both people hear each other after answering. This accepts ringing and answered two-way audio for this actual affected-group outside call; other handset/site/provider coverage is not inferred. The finite observer was stopped and its original expired private configuration restored byte-exact; logs remain private, boot-disabled.
