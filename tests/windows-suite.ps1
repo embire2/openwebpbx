@@ -278,6 +278,29 @@ function SafeMeetingMediaFields($Record){
  }
  return @{meeting_media=$peers}
 }
+function SafeMeetingSignalingFields($Record){
+ $safe=@{}
+ if($Record.active_case -isnot [string] -or $Record.active_case -cnotin 'native_windows_meeting_host_join','native_windows_meeting_guest_join','native_windows_meeting_admission','native_windows_meeting_decoded_media','native_windows_meeting_mute','native_windows_meeting_unmute','native_windows_meeting_end'){return $safe}
+ $media=$Record.meeting_signaling
+ $keys=if($media -is [Collections.IDictionary]){@($media.Keys)}elseif($media -is [pscustomobject]){@($media.PSObject.Properties|ForEach-Object Name)}else{return $safe}
+ if($keys.Count -ne 2 -or @($keys|Where-Object {$_ -cnotin 'host','guest'}).Count){return $safe}
+ $booleans=@('observed','endpoint_match','counts_capped','local_description','remote_description','admit_ok')
+ $counts=@('ws_observed','ws_closed','ws_errors','sent_register','sent_invite','admit_requests','admit_responses','status_requests','status_responses','http_failures','api_json_failures')
+ $http=@('admit_http_status','status_http_status')
+ $enums=@{signaling_state=@('stable','have-local-offer','have-remote-offer','have-local-pranswer','have-remote-pranswer','closed','unavailable');ice_gathering_state=@('new','gathering','complete','unavailable');member_state=@('waiting','admitted','left','removed','unavailable','other')}
+ $arrays=@('register_codes','invite_codes');$fields=$booleans+$counts+$http+@($enums.Keys)+$arrays;$peers=@{}
+ foreach($side in 'host','guest'){
+  $peer=$media.$side;$names=if($peer -is [Collections.IDictionary]){@($peer.Keys)}elseif($peer -is [pscustomobject]){@($peer.PSObject.Properties|ForEach-Object Name)}else{return @{}}
+  if($names.Count -ne $fields.Count -or @($names|Where-Object {$_ -cnotin $fields}).Count){return @{}}
+  $closed=@{}
+  foreach($field in $booleans){if($peer.$field -isnot [bool]){return @{}};$closed[$field]=$peer.$field}
+  foreach($field in ($counts+$http)){$value=$peer.$field;$maximum=if($field -cin $http){599}else{512};if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt $maximum){return @{}};$closed[$field]=[int]$value}
+  foreach($field in $enums.Keys){$value=$peer.$field;if($value -isnot [string] -or $value -cnotin $enums[$field]){return @{}};$closed[$field]=$value}
+  foreach($field in $arrays){$values=$peer.$field;if($values -isnot [Array] -or $values.Count -gt 16){return @{}};foreach($value in $values){if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt 100 -or $value -gt 699){return @{}}};$closed[$field]=@($values|ForEach-Object {[int]$_})}
+  $peers[$side]=$closed
+ }
+ return @{meeting_signaling=$peers}
+}
 function SafeSmtpFailureFields($Record){
  $safe=@{}
  if($Record.active_case -isnot [string] -or $Record.active_case -cne 'global_smtp_trusted_tls_hostname_auth'){return $safe}
@@ -387,6 +410,7 @@ function SafeFailureFields($Record){
  foreach($entry in (SafeSmtpFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  foreach($entry in (SafeMeetingOwnerPageFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  foreach($entry in (SafeMeetingMediaFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
+ foreach($entry in (SafeMeetingSignalingFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  foreach($entry in (SafeNativeCleanupFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  return $safe
 }

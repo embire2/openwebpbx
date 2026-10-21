@@ -1,6 +1,7 @@
 // Actual product UI, IIS/WSS, DTLS/SRTP and decoded browser media on an owned runner.
 const fs = require('node:fs');
 const path = require('node:path');
+const signaling = require('./windows-meet-signaling.cjs');
 if(process.platform !== 'win32' || process.env.OPENWEB_WINDOWS_NATIVE_TEST !== '1' || process.env.GITHUB_ACTIONS !== 'true' || process.env.RUNNER_ENVIRONMENT !== 'github-hosted' || process.env.GITHUB_REPOSITORY !== 'embire2/openwebpbx') throw Error('An explicitly disposable Windows runner is required.');
 const settings = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const {chromium} = require(path.join(settings.dependencies, 'node_modules', 'playwright-core'));
@@ -10,6 +11,7 @@ const checks = [];
 let hostBrowser, guestBrowser, owner, host, guest, meetingCreated = false;
 let phase = 'browser_start';
 let ownerPage;
+let hostSignaling, guestSignaling;
 const mediaBooleans=['observed','connected','remote_audio_live','remote_video_live','local_audio_live','local_video_live','vp8_decoding','probe_error'];
 const mediaIntegers=['decoded_frames','encoded_frames','inbound_audio_packets','outbound_audio_packets','inbound_video_packets','outbound_video_packets','video_colors'];
 const mediaEnums={connection_state:['new','connecting','connected','disconnected','failed','closed','unavailable'],ice_state:['new','checking','connected','completed','disconnected','failed','closed','unavailable'],visibility:['visible','hidden','prerender','unavailable'],audio_context:['running','suspended','closed','interrupted','unavailable'],ui_state:['connected','connecting','waiting','ended','rejected','connect_error','permission_error','device_error','unavailable','other']};
@@ -125,11 +127,11 @@ async function proof(page) {
     await create.getByRole('button',{name:'Create Meeting',exact:true}).click();await snapshot(owner,'created-meet');meetingCreated=true;
     const invitation=await owner.locator('#invitation').inputValue();
     requireFact(invitation.startsWith(settings.origin+'/app/pbx_meet/join.php#'),'normal UI invitation retains trusted authority');
-    phase='host_join';const popup=hostContext.waitForEvent('page');await owner.getByRole('button',{name:'Start Now',exact:true}).click();host=await popup;await host.waitForLoadState('domcontentloaded');await snapshot(host,'host-ready');
+    phase='host_join';const popup=hostContext.waitForEvent('page');await owner.getByRole('button',{name:'Start Now',exact:true}).click();host=await popup;hostSignaling=signaling.watch(host,settings.origin);await host.waitForLoadState('domcontentloaded');await snapshot(host,'host-ready');
     const endpoint=await host.locator('#host-data').evaluate(node=>JSON.parse(node.textContent).websocket);
     requireFact(endpoint==='wss://'+new URL(settings.origin).host+'/meet-sip/','actual host account and browser policy retain HTTPS port');
     await host.getByRole('button',{name:'Join with Camera',exact:true}).click();
-    phase='guest_join';guest=await guestContext.newPage();await guest.goto(invitation);await snapshot(guest,'guest-ready');
+    phase='guest_join';guest=await guestContext.newPage();guestSignaling=signaling.watch(guest,settings.origin);await guest.goto(invitation);await snapshot(guest,'guest-ready');
     await guest.locator('#name').fill('Fictional video guest');await guest.getByRole('button',{name:'Join with Camera',exact:true}).click();
     phase='admission';await host.getByRole('button',{name:'Admit',exact:true}).waitFor({timeout:20000});await snapshot(host,'guest-waiting');await host.getByRole('button',{name:'Admit',exact:true}).click();
     phase='decoded_media';const hostProof=await proof(host),guestProof=await proof(guest);
@@ -145,7 +147,7 @@ async function proof(page) {
     await guest.waitForFunction(()=>window.conferenceQA.pcs.every(pc=>pc.connectionState==='closed'),null,{timeout:15000});
     requireFact(true,'host end closes both actual browser media connections');
     fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'passed',checks,host:hostProof,guest:guestProof,physical_camera:'unqualified',scope:'fictional Windows hosted runner'},null,2));
-  }catch(error){failure=error;const media=['decoded_media','mute','unmute','end'].includes(phase)?{meeting_media:{host:await mediaFields(host),guest:await mediaFields(guest)}}:{};fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'failed',phase,...(ownerPage?{owner_page:ownerPage}:{}),...media}));fs.writeFileSync(path.join(evidence,'meeting-browser.private.error'),String(error.stack||error));}
+  }catch(error){failure=error;const media=['decoded_media','mute','unmute','end'].includes(phase)?{meeting_media:{host:await mediaFields(host),guest:await mediaFields(guest)}}:{};const signals=['host_join','guest_join','admission','decoded_media','mute','unmute','end'].includes(phase)?{meeting_signaling:{host:await signaling.collect(host,hostSignaling),guest:await signaling.collect(guest,guestSignaling)}}:{};fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'failed',phase,...(ownerPage?{owner_page:ownerPage}:{}),...media,...signals}));fs.writeFileSync(path.join(evidence,'meeting-browser.private.error'),String(error.stack||error));}
   finally{
     if(meetingCreated&&owner){try{await owner.goto(settings.origin+'/app/pbx_meet/');const card=owner.locator('article.meet-card').filter({hasText:settings.subject});if(await card.getByText('Cancel Meeting',{exact:true}).count()){await card.locator('summary').click();await card.locator('[name="confirm_cancel"]').check();await card.getByRole('button',{name:'End Meeting',exact:true}).click();}}catch(error){if(!failure)failure=error;}}
     await Promise.allSettled([hostBrowser?.close(),guestBrowser?.close()]);

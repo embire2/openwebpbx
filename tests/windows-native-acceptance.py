@@ -1379,6 +1379,7 @@ def main():
         if getattr(e,'smtp_failure',None):failure.update(e.smtp_failure)
         if getattr(e,'meeting_owner_failure',None):failure.update(e.meeting_owner_failure)
         if getattr(e,'meeting_media_failure',None):failure.update(e.meeting_media_failure)
+        if getattr(e,'meeting_signaling_failure',None):failure.update(e.meeting_signaling_failure)
         (f.evidence/'software-native-report.json').write_text(json.dumps(failure,indent=2))
         raise
 
