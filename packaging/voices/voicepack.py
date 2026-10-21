@@ -60,7 +60,7 @@ def relative(name):
 
 
 def load_catalog(path):
-    c = json.loads(Path(path).read_text())
+    c = json.loads(Path(path).read_text(encoding='utf-8'))
     if c.get('schema') != 1 or not re.fullmatch(r'\d+\.\d+\.\d+', c.get('version', '')):
         raise PackError('Invalid catalogue version.')
     if c.get('provider') != 'ElevenLabs' or c.get('locale') != 'en-GB':
@@ -135,7 +135,7 @@ def api_key(env_file):
         p = Path(env_file)
         if p.is_symlink() or p.stat().st_mode & 0o077:
             raise PackError('The API-key file must be private and must not be a link.')
-        for line in p.read_text().splitlines():
+        for line in p.read_text(encoding='utf-8').splitlines():
             if line.startswith('ELEVENLABS_API_KEY='):
                 key = line.split('=', 1)[1].strip().strip('"\'')
     if not key or any(x.isspace() for x in key):
@@ -260,7 +260,7 @@ def generate(c, output, cache, key, workers):
         ident = digest(canonical(binding))
         master, meta = cache/(ident+'.wav'), cache/(ident+'.json')
         if master.exists() and meta.exists():
-            metadata = json.loads(meta.read_text()); data = master.read_bytes()
+            metadata = json.loads(meta.read_text(encoding='utf-8')); data = master.read_bytes()
             if metadata.get('binding_sha256') != ident or metadata.get('master_sha256') != digest(data):
                 raise PackError('The existing generation cache is inconsistent.')
             audio_info(data, 44100)
@@ -304,7 +304,7 @@ def verify(c, root):
     for p in [root, *root.parents]:
         if p.is_symlink():
             raise PackError('A pack root cannot be a symbolic link.')
-    pack = json.loads((root/'pack.json').read_text())
+    pack = json.loads((root/'pack.json').read_text(encoding='utf-8'))
     for key in ['version','voice_id','provider','locale','model_id']:
         if pack.get(key) != c.get(key):
             raise PackError('Voice pack identity does not match its catalogue.')
@@ -330,7 +330,7 @@ def verify(c, root):
         binding.update(text=prompt.get('spoken_text',prompt['text']),seed=101)
         if recorded.get('synthesis_binding_sha256') != digest(canonical(binding)) or not HASH.fullmatch(recorded.get('provider_master_sha256','')):
             raise PackError('The audio generation identity does not match the script and voice.')
-    if json.loads((root/'catalog.json').read_text()) != c:
+    if json.loads((root/'catalog.json').read_text(encoding='utf-8')) != c:
         raise PackError('The embedded voice catalogue has changed.')
     if digest((root/'LICENSE-FreeSWITCH.txt').read_bytes()) != pack.get('license_sha256'):
         raise PackError('The original component licence has changed.')

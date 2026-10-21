@@ -32,7 +32,7 @@ def ordinary(path):
 
 def payload(package, sounds):
     package, sounds = Path(package), Path(sounds)
-    manifest = json.loads(ordinary(package/'release-manifest.json').read_text())
+    manifest = json.loads(ordinary(package/'release-manifest.json').read_text(encoding='utf-8'))
     files = manifest['files']
     required = ['voice-tools/voicepack.py', 'voice-tools/deployment.py',
                 'voices/1.0.1/catalog.json', 'voices/1.0.1/pack.json',

@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import wave
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -145,6 +146,20 @@ class WindowsVoices(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'immutable public'):
             stage.stage(archive, self.root/'output')
         self.assertFalse((self.root/'output').exists())
+
+    def test_catalogue_and_pack_verify_with_windows_cp1252_default(self):
+        # Simulate the actual Windows text default while retaining real files,
+        # parsing, canonical hashing and audio verification. No default is
+        # changed for an explicitly encoded read.
+        read_text=Path.read_text
+        def windows_default(path,*args,**kwargs):
+            if not args:kwargs.setdefault('encoding','cp1252')
+            return read_text(path,*args,**kwargs)
+        expected=voices.load_catalog(voices.DEFAULT_CATALOG)
+        with patch.object(Path,'read_text',autospec=True,side_effect=windows_default):
+            actual=voices.load_catalog(voices.DEFAULT_CATALOG)
+            self.assertEqual(voices.digest(voices.canonical(actual)),voices.digest(voices.canonical(expected)))
+            self.assertGreater(len(install.payload(self.package,self.sounds)),1)
 
 
 if __name__ == '__main__':
