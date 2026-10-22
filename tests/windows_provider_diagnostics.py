@@ -10,6 +10,18 @@ def local_provider_address(peer, profile, local):
     assert peer in (*local, '127.0.0.1')
     return peer
 
+
+def require_ingress_scope(value, stage):
+    assert stage in ('outbound', 'incoming') and isinstance(value, dict)
+    assert set(value) == {'schema', 'stage', 'policy_and_tuples_preserved', 'peer_source_trusted', 'ordinary_phone_source_trusted'}
+    assert type(value['schema']) is int and value['schema'] == 1 and value['stage'] == stage
+    for name in ('policy_and_tuples_preserved', 'peer_source_trusted', 'ordinary_phone_source_trusted'):
+        assert type(value[name]) is bool
+    assert value['policy_and_tuples_preserved'] is True
+    assert value['peer_source_trusted'] is (stage == 'incoming')
+    if stage == 'outbound':
+        assert value['ordinary_phone_source_trusted'] is False
+
 ATTEMPT_CAUSES = ('none', 'other', 'PROVIDER_UNAVAILABLE', 'SUCCESS', 'NORMAL_CLEARING',
     'NORMAL_TEMPORARY_FAILURE', 'INCOMPATIBLE_DESTINATION', 'SERVICE_UNAVAILABLE',
     'DESTINATION_OUT_OF_ORDER', 'INVALID_GATEWAY', 'GATEWAY_DOWN', 'CHAN_NOT_IMPLEMENTED',
@@ -134,4 +146,7 @@ def attach(error, facts, call):
     code = call.get('code') if isinstance(call, dict) else None
     if type(code) is int and 100 <= code <= 699:
         closed['provider_caller_response_code'] = code
+    challenges = call.get('digest_challenge_count') if isinstance(call, dict) else None
+    if type(challenges) is int and 0 <= challenges <= 3:
+        closed['provider_caller_digest_challenge_count'] = challenges
     error.provider_failure = closed

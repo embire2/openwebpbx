@@ -7,10 +7,10 @@ function windows_native_fixture_failure_record(Throwable $error,string $inputFil
   if($root===false||$input===false||is_link($inputFile)||!is_file($inputFile)||basename($input)!=='input.json')return false;
   $root=strtolower(rtrim(str_replace('\\','/',$root),'/'));$directory=strtolower(str_replace('\\','/',dirname($input)));
   if(dirname($directory)!==$root||!preg_match('/^[a-f0-9]{24}$/D',basename($directory)))return false;
-  if(!in_array($action,['baseline','discover','cleanup','status','queue-state','job','due','voicemail-login','api','mail-seed','meeting-path-state','services-info','providers-create','cmb-setup','cmb-status','cmb-reset','cmb-quota'],true))return false;
+  if(!in_array($action,['baseline','discover','cleanup','status','queue-state','job','due','voicemail-login','api','mail-seed','meeting-path-state','services-info','providers-create','providers-ingress','cmb-setup','cmb-status','cmb-reset','cmb-quota'],true))return false;
   if(!in_array($stage,['initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh'],true))$stage='initialization';
   $source=basename(str_replace('\\','/',$error->getFile()));
-  if(!in_array($source,['windows-native-fixture.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php'],true))$source='external_component';
+  if(!in_array($source,['windows-native-fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php'],true))$source='external_component';
   $type=basename(str_replace('\\','/',get_class($error)));if(!preg_match('/^[A-Za-z0-9_]{1,80}$/D',$type))$type='Throwable';
   $line=$error->getLine();if($line<1||$line>100000)$line=1;
   $bytes=json_encode(['schema'=>1,'error_type'=>$type,'source_basename'=>$source,'source_line'=>$line,'action'=>$action,'stage'=>$stage],JSON_THROW_ON_ERROR);
@@ -184,7 +184,7 @@ if($action==='providers-create'){
  $s['original_phone_tuples']=$q('select extension_uuid,extension,password from v_extensions where domain_uuid=? order by extension_uuid',[$domain])->fetchAll(PDO::FETCH_ASSOC);$s['providers']=[];$save();
  $peerHost=windows_native_provider_profile_address();
  foreach($ports as $index=>$port){
-  $input=['name'=>'Fictional native provider '.($index+1),'host'=>$peerHost,'port'=>$port,'transport'=>'udp','authentication'=>'ip','allowed_ips'=>$peerHost,'main_number'=>'99910000'.($index+1),'caller_id_in_from'=>'1','sip_cid_type'=>'rpid','codecs'=>'PCMU,PCMA','source_field'=>'ToUserPart','enabled'=>'1'];
+  $input=['name'=>'Fictional native provider '.($index+1),'host'=>$peerHost,'port'=>$port,'transport'=>'udp','authentication'=>'ip','allowed_ips'=>windows_native_provider_ingress_address('outbound',$peerHost),'main_number'=>'99910000'.($index+1),'caller_id_in_from'=>'1','sip_cid_type'=>'rpid','codecs'=>'PCMU,PCMA','source_field'=>'ToUserPart','enabled'=>'1'];
   $key=$pbx->save('trunk','new',$input);$current=$pbx->config();$s['providers'][]=['trunk'=>$key,'gateway'=>$current['trunks'][$key]['gateway_uuid'],'host'=>$peerHost,'port'=>(int)$port];$save();
  }
  $routes=[];foreach($s['providers'] as $provider)$routes[]=['trunk_id'=>$provider['trunk'],'strip'=>'2','prepend'=>'55'];
@@ -195,6 +195,27 @@ if($action==='providers-create'){
  foreach($s['providers'] as $index=>$provider){$gateway=$q('select proxy,register,enabled,profile from v_gateways where domain_uuid=? and gateway_uuid=?',[$domain,$provider['gateway']])->fetch(PDO::FETCH_ASSOC);$route=$rule['routes'][$index];
   if(!$gateway||!in_array($gateway['register'],['false',false,'f','0',0],true)||!in_array($gateway['enabled'],['true',true,'t','1',1],true)||$gateway['proxy']!==$peerHost.':'.$provider['port']||$gateway['profile']!=='external'||$route['trunk_id']!==$provider['trunk']||(int)$route['strip']!==2||$route['prepend']!=='55')throw new RuntimeException('The actual native provider or number rewrite differs from the owned fixture.');}
  $save();echo json_encode(['created'=>true,'number_rewrite_verified'=>true,'local_nonregistering_providers'=>2],JSON_THROW_ON_ERROR);exit;
+}
+if($action==='providers-ingress'){
+ $stage=$argv[3]??'';$peerHost=windows_native_provider_profile_address();$address=windows_native_provider_ingress_address($stage,$peerHost);
+ $before=$pbx->config();$identity=windows_native_provider_policy_identity($before,$s['providers']??[]);
+ $nativeBefore=$q('select row_to_json(t)::text from v_gateways t where domain_uuid=? order by gateway_uuid',[$domain])->fetchAll(PDO::FETCH_COLUMN);
+ $phonesBefore=$q('select extension_uuid,extension,password from v_extensions where domain_uuid=? order by extension_uuid',[$domain])->fetchAll(PDO::FETCH_ASSOC);
+ foreach($s['providers'] as $provider){$t=$before['trunks'][$provider['trunk']];
+  if(($provider['host']??null)!==$peerHost||$t['host']!==$peerHost||!in_array($t['allowed_ips'],[[windows_native_provider_ingress_address('outbound',$peerHost)],[$peerHost]],true)||($t['allowed_ips_source']??null)!=='manual')throw new RuntimeException('Only the two exact fictional ingress overrides may change.');
+  $row=$q('select proxy,register,enabled,profile from v_gateways where domain_uuid=? and gateway_uuid=?',[$domain,$provider['gateway']])->fetch(PDO::FETCH_ASSOC);
+  if(!$row||$row['proxy']!==$peerHost.':'.$provider['port']||!in_array($row['register'],['false',false,'f','0',0],true)||!in_array($row['enabled'],['true',true,'t','1',1],true)||$row['profile']!=='external')throw new RuntimeException('The owned nonregistering provider binding changed.');
+ }
+ foreach($s['providers'] as $provider){$t=$before['trunks'][$provider['trunk']];$pbx->save('trunk',$provider['trunk'],['name'=>$t['name'],'host'=>$t['host'],'port'=>(string)$t['port'],'transport'=>$t['transport'],'authentication'=>'ip','allowed_ips'=>$address,'enabled'=>'1']);}
+ $after=$pbx->config();
+ if(windows_native_provider_policy_identity($after,$s['providers'])!==$identity||$nativeBefore!==$q('select row_to_json(t)::text from v_gateways t where domain_uuid=? order by gateway_uuid',[$domain])->fetchAll(PDO::FETCH_COLUMN)||$phonesBefore!==$q('select extension_uuid,extension,password from v_extensions where domain_uuid=? order by extension_uuid',[$domain])->fetchAll(PDO::FETCH_ASSOC))throw new RuntimeException('The fictional ingress transition changed policy, native provider or phone credentials.');
+ foreach($s['providers'] as $provider)if($after['trunks'][$provider['trunk']]['allowed_ips']!==[$address])throw new RuntimeException('The exact fictional ingress override did not apply.');
+ $nativeApi=static fn(string $command)=>(string)event_socket::api($command);
+ $peerTrusted=windows_native_provider_acl($nativeApi,$peerHost);
+ $internal=windows_native_provider_profile_ipv4((string)event_socket::api('sofia status profile internal'));
+ $phoneTrusted=windows_native_provider_acl($nativeApi,$internal);
+ if($peerTrusted!==($stage==='incoming')||$phoneTrusted!==($stage==='incoming'&&$internal===$peerHost))throw new RuntimeException('The actual provider ACL does not match this isolated ingress stage.');
+ $s['provider_ingress_stage']=$stage;$save();echo json_encode(['schema'=>1,'stage'=>$stage,'policy_and_tuples_preserved'=>true,'peer_source_trusted'=>$peerTrusted,'ordinary_phone_source_trusted'=>$phoneTrusted],JSON_THROW_ON_ERROR);exit;
 }
 if($action==='provider-observations'){
  $number=$argv[3]??'';

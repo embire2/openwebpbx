@@ -22,4 +22,18 @@ for _,ip in ipairs({'10.20.30.41','fd00::45','10.20.30.42.attacker'}) do assert(
 fields.sip_gateway='foreign-gateway';assert(not P.incoming({},rule,trunk,get,'10.20.30.42'));checks=checks+1
 fields.sip_gateway='fictional-gateway';fields.sip_to_user='+27119999999';assert(not P.incoming({},rule,trunk,get,'10.20.30.42'));checks=checks+1
 rule.enabled=false;fields.sip_to_user='+27110000000';assert(not P.incoming({},rule,trunk,get,'10.20.30.42'));checks=checks+1
+-- The native Windows software phones and fictional carrier share one NIC.
+-- Render the actual source ACL for both isolated stages: the old shared-IP
+-- fixture trusts ordinary phones too; the staged incoming override does not.
+local peer='10.11.12.13'
+for _,stage in ipairs({'outbound','incoming','outbound'}) do
+ output={}
+ local address=stage=='incoming' and peer or '198.51.100.254'
+ function env.dbh:query(sql,callback)callback({provider_ip=address})end
+ assert(load(body,'actual-staged-provider-acl','t',env))()
+ assert(#output==1 and output[1]:find('cidr="'..address..'/32"',1,true));checks=checks+1
+ assert((output[1]:find('cidr="'..peer..'/32"',1,true)~=nil)==(stage=='incoming'));checks=checks+1
+ trunk.allowed_ips={address};rule.enabled=true;fields.sip_gateway='fictional-gateway';fields.sip_to_user='+27110000000'
+ assert(P.incoming({},rule,trunk,get,peer)==(stage=='incoming'));checks=checks+1
+end
 print('PASS '..checks..' actual native ACL renderer and incoming provider/DID/tenant-binding controls')

@@ -176,7 +176,7 @@ function SafeNativeCleanupFields($Record){
  }
  if($Record.native_cleanup_stage -ceq 'restore_factory' -and $Record.native_cleanup_fixture_action -is [string] -and $Record.native_cleanup_fixture_action -ceq 'cleanup'){
   $stage=$Record.native_cleanup_fixture_stage;$source=$Record.native_cleanup_fixture_source_basename;$row=$Record.native_cleanup_fixture_source_line;$errorType=$Record.native_cleanup_fixture_error_type
-  if($stage -is [string] -and $stage -cin 'initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh' -and $source -is [string] -and $source -cin 'windows-native-fixture.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component' -and ($row -is [int] -or $row -is [long]) -and $row -gt 0 -and $row -le 100000 -and $errorType -is [string] -and $errorType -cmatch '^[A-Za-z0-9_]{1,80}$'){
+  if($stage -is [string] -and $stage -cin 'initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh' -and $source -is [string] -and $source -cin 'windows-native-fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component' -and ($row -is [int] -or $row -is [long]) -and $row -gt 0 -and $row -le 100000 -and $errorType -is [string] -and $errorType -cmatch '^[A-Za-z0-9_]{1,80}$'){
    foreach($field in 'action','stage','source_basename','source_line','error_type'){$safe['native_cleanup_fixture_'+$field]=$Record.('native_cleanup_fixture_'+$field)}
   }
  }
@@ -373,6 +373,7 @@ function SafeFailureFields($Record){
  }
  if($Record.active_case -is [string] -and $Record.active_case -cmatch '^native_provider_10[0-3]$'){
  $value=$Record.provider_caller_response_code;if(($value -is [int] -or $value -is [long]) -and $value -ge 100 -and $value -le 699){$safe.provider_caller_response_code=$value}
+ $value=$Record.provider_caller_digest_challenge_count;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 3){$safe.provider_caller_digest_challenge_count=$value}
  foreach($phase in 'before','after'){
   $prefix='provider_'+$phase+'_plan_'
   foreach($key in 'observed','registered','rule_matches','primary_available','backup_available'){if($Record.($prefix+$key) -is [bool]){$safe[$prefix+$key]=$Record.($prefix+$key)}}

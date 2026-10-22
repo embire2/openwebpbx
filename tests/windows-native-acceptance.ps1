@@ -73,6 +73,11 @@ function AssertExtendedNativeCases($Checks){
   }
   if($name -like 'native_provider_*'){
    if($row.no_carrier_traffic -isnot [bool] -or !$row.no_carrier_traffic){throw 'Only fictional local provider proof is allowed.'}
+   if($name -ceq 'native_provider_incoming_owned_did_decoded_rtp'){
+    foreach($field in 'ingress_override_scoped','ordinary_phone_digest_before','ordinary_phone_digest_after','provider_acl_expected_during_incoming','provider_acl_restored','provider_policy_and_tuples_preserved'){if($row.$field -isnot [bool] -or !$row.$field){throw 'The fictional shared-source ingress scope did not preserve ordinary phone authentication.'}}
+   }else{
+    if($row.ordinary_phone_digest_required -isnot [bool] -or !$row.ordinary_phone_digest_required -or ($row.digest_challenge_count -isnot [int] -and $row.digest_challenge_count -isnot [long]) -or $row.digest_challenge_count -lt 1 -or $row.digest_challenge_count -gt 2){throw 'The ordinary phone provider test must actually authenticate.'}
+   }
    if($name -cin 'native_provider_outbound_decoded_rtp','native_provider_503_failover_once_decoded_rtp','native_provider_603_failover_once_decoded_rtp','native_provider_incoming_owned_did_decoded_rtp'){
     if($row.caller_decoded_ratio -lt .8){throw 'The fictional provider caller audio did not decode.'}
     if($name -ceq 'native_provider_incoming_owned_did_decoded_rtp'){if($row.extension_decoded_ratio -lt .8){throw 'The fictional incoming extension audio did not decode.'}}
@@ -136,7 +141,7 @@ function NativeCleanupFixtureFields([string]$InputFile){
   $file=Get-Item -LiteralPath ($InputFile+'.cleanup.failure.json') -ErrorAction Stop
   if($file.PSIsContainer -or $file.Length -gt 2048 -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)){return $safe}
   $row=Get-Content -LiteralPath $file.FullName -Raw|ConvertFrom-Json
-  $sources=@('windows-native-fixture.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component')
+  $sources=@('windows-native-fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component')
   if(($row.schema -isnot [int] -and $row.schema -isnot [long]) -or $row.schema -ne 1 -or $row.action -isnot [string] -or $row.action -cne 'cleanup' -or $row.stage -isnot [string] -or $row.stage -cnotin 'initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh' -or $row.source_basename -isnot [string] -or $row.source_basename -cnotin $sources -or ($row.source_line -isnot [int] -and $row.source_line -isnot [long]) -or $row.source_line -le 0 -or $row.source_line -gt 100000 -or $row.error_type -isnot [string] -or $row.error_type -cnotmatch '^[A-Za-z0-9_]{1,80}$'){return $safe}
   foreach($key in 'action','stage','source_basename','source_line','error_type'){$safe['native_cleanup_fixture_'+$key]=$row.$key}
  }catch{}
@@ -256,6 +261,7 @@ function ProviderFailureFields($Record){
  $safe=@{}
  if($Record.active_case -isnot [string] -or $Record.active_case -cnotmatch '^native_provider_10[0-3]$'){return $safe}
  $value=$Record.provider_caller_response_code;if(($value -is [int] -or $value -is [long]) -and $value -ge 100 -and $value -le 699){$safe.provider_caller_response_code=$value}
+ $value=$Record.provider_caller_digest_challenge_count;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 3){$safe.provider_caller_digest_challenge_count=$value}
  foreach($phase in 'before','after'){
   $prefix='provider_'+$phase+'_plan_'
   foreach($key in 'observed','registered','rule_matches','primary_available','backup_available'){if($Record.($prefix+$key) -is [bool]){$safe[$prefix+$key]=$Record.($prefix+$key)}}
@@ -520,7 +526,7 @@ try {
  if(Test-Path -LiteralPath $childReport){
   try{
    $child=Get-Content -LiteralPath $childReport -Raw|ConvertFrom-Json
-   if($child.state -eq 'failed' -and $child.source_basename -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_clock_native.py','pbx_talking_clock_native.py','windows-native-fixture.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component' -and [int]$child.source_line -gt 0 -and [int]$child.source_line -le 100000 -and $child.active_case -match '^[a-z0-9_]{1,120}$' -and $child.error_type -match '^[A-Za-z0-9_]{1,80}$'){
+   if($child.state -eq 'failed' -and $child.source_basename -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_clock_native.py','pbx_talking_clock_native.py','windows-native-fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component' -and [int]$child.source_line -gt 0 -and [int]$child.source_line -le 100000 -and $child.active_case -match '^[a-z0-9_]{1,120}$' -and $child.error_type -match '^[A-Za-z0-9_]{1,80}$'){
     $facts.source_basename=$child.source_basename;$facts.source_line=[int]$child.source_line;$facts.active_case=$child.active_case;$facts.error_type=$child.error_type
     $completed=@(CompletedMediaCases $child.checks);if($completed.Count){$facts.completed_media_cases=$completed}
     foreach($entry in (MediaFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}

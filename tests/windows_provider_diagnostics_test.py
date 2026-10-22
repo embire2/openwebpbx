@@ -12,6 +12,19 @@ spec.loader.exec_module(projection)
 
 
 class Projections(unittest.TestCase):
+    def test_ingress_stage_requires_exact_typed_scope(self):
+        for stage in ('outbound', 'incoming'):
+            good={'schema':1,'stage':stage,'policy_and_tuples_preserved':True,
+                  'peer_source_trusted':stage=='incoming','ordinary_phone_source_trusted':stage=='incoming'}
+            projection.require_ingress_scope(good,stage)
+            for field,bad in [('schema',True),('stage','foreign'),('policy_and_tuples_preserved',False),
+                              ('peer_source_trusted',stage!='incoming'),('ordinary_phone_source_trusted','false')]:
+                value=dict(good);value[field]=bad
+                with self.assertRaises(AssertionError):projection.require_ingress_scope(value,stage)
+            value=dict(good);value['foreign']='PRIVATE'
+            with self.assertRaises(AssertionError):projection.require_ingress_scope(value,stage)
+        good['stage']='outbound';good['peer_source_trusted']=False
+        with self.assertRaises(AssertionError):projection.require_ingress_scope(good,'outbound')
     def test_exact_local_profile_peer_scope(self):
         for address in ('10.11.12.13','192.168.1.9','198.51.100.9','127.0.0.1'):
             self.assertEqual(projection.local_provider_address(address,address,[address]),address)
@@ -112,6 +125,12 @@ class Projections(unittest.TestCase):
         e = AssertionError()
         projection.attach(e, {}, {'code': 488})
         self.assertEqual(e.provider_failure, {'provider_caller_response_code': 488})
+        for value in (0,1,2,3):
+            projection.attach(e,{}, {'digest_challenge_count':value})
+            self.assertEqual(e.provider_failure,{'provider_caller_digest_challenge_count':value})
+        for value in (True,'1',-1,4,None):
+            projection.attach(e,{}, {'digest_challenge_count':value})
+            self.assertNotIn('provider_caller_digest_challenge_count',e.provider_failure)
 
 
 if __name__ == '__main__':

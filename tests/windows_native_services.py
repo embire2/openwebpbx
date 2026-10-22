@@ -12,6 +12,8 @@ def qualify(f, caller, extension, destination, Provider, original, sip, Playback
     playback = None
     primary = None
     cleanup_errors = []
+    ingress_changed = False
+    incoming_proof = None
     try:
         for index in range(2):
             providers.append(Provider(index))
@@ -20,6 +22,8 @@ def qualify(f, caller, extension, destination, Provider, original, sip, Playback
         f.refresh()
         realm = f.s['realm']
         inbound_destination = tuple(f.cli('services-info')['external_sip'])
+        scope = f.cli('providers-ingress', 'outbound')
+        provider_diagnostics.require_ingress_scope(scope, 'outbound')
 
         def decoded(left, right, left_frequency, right_frequency, seconds=3):
             left['decoded_pcm'].clear(); right['decoded_pcm'].clear()
@@ -41,6 +45,8 @@ def qualify(f, caller, extension, destination, Provider, original, sip, Playback
             call = None
             try:
                 call = caller.dial(number, destination)
+                challenges = call.get('digest_challenge_count')
+                assert type(challenges) is int and 1 <= challenges <= 2, 'The ordinary phone must retain its actual SIP digest challenge'
                 wire = '55' + number[2:]
                 if winner is not None:
                     assert call['code'] == 200, 'The fictional provider call did not answer'
@@ -68,13 +74,20 @@ def qualify(f, caller, extension, destination, Provider, original, sip, Playback
                          '503_failover_once_decoded_rtp' if winner == 1 else
                          'outbound_decoded_rtp' if winner == 0 else 'busy_no_failover'),
                          primary_distinct_calls=1, backup_distinct_calls=1 if winner == 1 else 0,
-                         caller_decoded_ratio=down, provider_decoded_ratio=up, no_carrier_traffic=True)
+                         caller_decoded_ratio=down, provider_decoded_ratio=up, no_carrier_traffic=True,
+                         ordinary_phone_digest_required=True, digest_challenge_count=challenges)
             except BaseException as error:
                 facts.update(provider_diagnostics.snapshot(f, providers, before, 'after'))
                 provider_diagnostics.attach(error, facts, call)
                 raise
 
         f.active_case = 'native_provider_incoming_decoded_rtp'
+        # The fictional carrier shares this runner's NIC with the phones. Only
+        # this incoming/CMB interval trusts that exact local source; no ordinary
+        # phone originates an INVITE until the override has been restored.
+        ingress_changed = True
+        scope = f.cli('providers-ingress', 'incoming')
+        provider_diagnostics.require_ingress_scope(scope, 'incoming')
         before = set(extension.dialogs)
         incoming = providers[0].call('sip:999100001@' + realm, inbound_destination,
                                     user='+27820000009', realm=realm, to_uri='sip:999100001@' + realm)
@@ -87,7 +100,11 @@ def qualify(f, caller, extension, destination, Provider, original, sip, Playback
             if not incoming['media'].get('ended'):
                 providers[0].hangup(incoming)
         f.record('native_provider_incoming_owned_did_decoded_rtp',caller_decoded_ratio=down,
-                 extension_decoded_ratio=up,no_carrier_traffic=True)
+                 extension_decoded_ratio=up,no_carrier_traffic=True, ingress_override_scoped=True,
+                 ordinary_phone_digest_before=True, ordinary_phone_digest_after=False,
+                 provider_acl_expected_during_incoming=True, provider_acl_restored=False,
+                 provider_policy_and_tuples_preserved=True)
+        incoming_proof = f.checks[-1]
 
         f.active_case = 'native_cmb_hmac_quota_setup'
         setup = f.cli('cmb-setup'); f.refresh()
@@ -189,6 +206,21 @@ def qualify(f, caller, extension, destination, Provider, original, sip, Playback
         assert final['request']['last_result'] == 'quota_exhausted'
         assert int(final['account']['reserved_seconds']) == 0 and find_dialog(cmb['destination'], before) is None
         assert not any(row['number'] == cmb['destination'] for item, offset in zip(providers, before_invites) for row in item.invites[offset:]), 'An exhausted allowance attempted a destination call'
+        scope = f.cli('providers-ingress', 'outbound')
+        provider_diagnostics.require_ingress_scope(scope, 'outbound')
+        ingress_changed = False
+        f.active_case = 'native_provider_ordinary_phone_after_ingress'
+        before = set(extension.dialogs)
+        ordinary = caller.dial('8101', destination)
+        try:
+            assert ordinary['code'] == 200 and type(ordinary.get('digest_challenge_count')) is int and 1 <= ordinary['digest_challenge_count'] <= 2, 'The restored ordinary phone must still authenticate and ring'
+            remote = f.wait(lambda: next((value for key, value in extension.dialogs.items() if key not in before and value.get('acked')), None))
+            decoded(ordinary['media'], remote, extension.tone_hz, caller.tone_hz)
+        finally:
+            if not ordinary['media'].get('ended'):
+                caller.hangup(ordinary)
+        incoming_proof['ordinary_phone_digest_after'] = True
+        incoming_proof['provider_acl_restored'] = True
         f.record('native_cmb_exhausted_quota_no_destination', identity_hmac_unchanged=True,
                  no_destination_bridge=True, reservation_released=True,no_carrier_traffic=True)
         assert all(peer.register_requests == 0 for peer in providers), 'A fictional IP provider attempted registration'
@@ -196,6 +228,11 @@ def qualify(f, caller, extension, destination, Provider, original, sip, Playback
         primary = error
         raise
     finally:
+        if ingress_changed:
+            try:
+                scope = f.cli('providers-ingress', 'outbound')
+                provider_diagnostics.require_ingress_scope(scope, 'outbound')
+            except BaseException as error: cleanup_errors.append(error)
         if playback is not None:
             try:
                 if hasattr(playback, 'thread'):
