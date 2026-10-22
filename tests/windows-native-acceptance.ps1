@@ -24,7 +24,7 @@ $inputData.scope=$scope;$inputData.company_name='Fictional Windows '+$scope;$inp
 [IO.File]::WriteAllText($privateInput,($inputData|ConvertTo-Json -Depth 12),[Text.UTF8Encoding]::new($false))
 $envBefore=$env:OPENWEB_WINDOWS_NATIVE_TEST;$opensslBefore=$env:OPENSSL_CONF;$env:OPENWEB_WINDOWS_NATIVE_TEST='1';$env:OPENSSL_CONF="$root\php\extras\ssl\openssl.cnf"
 $script="$source\tests\windows-native-acceptance.py";$fixture="$source\tests\windows-native-fixture.php";$pkiProcess=$null;$pkiOutput=$null;$pkiErrors=$null;$leaf=$null;$rootCertificate=$null;$binding=$null;$originalBinding=$null;$baseline=$false;$nativePassed=$false;$cleanupPassed=$false;$phase='factory inventory';$errorType=$null
-$facts=[ordered]@{schema=1;state='running';platform='Windows Server 2025 x64';scope='fictional disposable hosted runner';checks=@();gates=[ordered]@{native_sip_audio='pending';meeting_browser='pending';smtp='pending';notification_store='pending';cleanup='pending';public_acme='unqualified';physical_devices='unqualified';carrier='unqualified';android_hardware='unqualified'}}
+$facts=[ordered]@{schema=1;state='running';platform='Windows Server 2025 x64';scope='fictional disposable hosted runner';checks=@();gates=[ordered]@{native_sip_audio='pending';meeting_browser='pending';native_clock='pending';native_providers='pending';native_call_me_back='pending';smtp='pending';notification_store='pending';cleanup='pending';public_acme='unqualified';physical_devices='unqualified';carrier='unqualified';android_hardware='unqualified'}}
 function Php([string]$Action){$output=& "$root\php\php.exe" $fixture $Action $privateInput 2>>"$evidence\private-php-errors.log";if($LASTEXITCODE){throw 'Private native fixture operation failed.'};return ($output -join "`n")}
 function Python([string]$Phase){
  $beforeModules=$env:PSModulePath
@@ -35,10 +35,50 @@ function Python([string]$Phase){
 function CompletedMediaCases($Checks){
  # Publish only fixed completed case names; peer metrics and raw child data
  # remain in the administrator-private report.
- $allowed=@('native_windows_meeting_browser_video_audio','native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav','native_tls_mailbox_wire_forwarding_exact_binary_wav','native_global_smtp_unconfigured_queue_preserves_attempts','native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment','native_global_smtp_password_auth_actual_loopback','native_global_smtp_trusted_tls_hostname_auth_actual_loopback')
+ $allowed=@('native_windows_meeting_browser_video_audio','native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav','native_tls_mailbox_wire_forwarding_exact_binary_wav','native_global_smtp_unconfigured_queue_preserves_attempts','native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment','native_global_smtp_password_auth_actual_loopback','native_global_smtp_trusted_tls_hostname_auth_actual_loopback','native_clock1026_gmt2_three_decoded_announcements','native_provider_outbound_decoded_rtp','native_provider_503_failover_once_decoded_rtp','native_provider_busy_no_failover','native_provider_declined_no_failover','native_provider_incoming_owned_did_decoded_rtp','native_cmb_sa_id_first_auth_decoded_bridge','native_cmb_saved_caller_decoded_bridge','native_cmb_short_quota_native_cutoff_exact_usage','native_cmb_exhausted_quota_no_destination')
  foreach($name in $allowed){
   foreach($check in @($Checks)){
    if($check.case -is [string] -and $check.case -ceq $name -and $check.passed -is [bool] -and $check.passed -eq $true){$name;break}
+  }
+ }
+}
+function AssertExtendedNativeCases($Checks){
+ $names=@('native_clock1026_gmt2_three_decoded_announcements','native_provider_outbound_decoded_rtp','native_provider_503_failover_once_decoded_rtp','native_provider_busy_no_failover','native_provider_declined_no_failover','native_provider_incoming_owned_did_decoded_rtp','native_cmb_sa_id_first_auth_decoded_bridge','native_cmb_saved_caller_decoded_bridge','native_cmb_short_quota_native_cutoff_exact_usage','native_cmb_exhausted_quota_no_destination')
+ foreach($name in $names){
+  $rows=@($Checks|Where-Object {$_.case -is [string] -and $_.case -ceq $name})
+  if($rows.Count -ne 1 -or $rows[0].passed -isnot [bool] -or !$rows[0].passed){throw 'Every extended native clock/provider/Call Me Back case must complete exactly once.'}
+  $row=$rows[0]
+  $integerFields=@()
+  if($name -ceq 'native_clock1026_gmt2_three_decoded_announcements'){$integerFields=@('frozen_Nathaniel_assets','complete_announcements')}
+  elseif($name -like 'native_cmb_*' -and $name -cne 'native_cmb_exhausted_quota_no_destination'){$integerFields=@('charged_seconds','native_reserved_limit_seconds')}
+  foreach($field in $integerFields){
+   $value=$row.$field;if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 100000){throw 'Extended native integer evidence is invalid.'}
+  }
+  foreach($field in 'minimum_component_correlation','maximum_native_signal_lateness_ms','maximum_decoded_beep_target_error_ms','caller_decoded_ratio','provider_decoded_ratio','extension_decoded_ratio','destination_decoded_ratio','observed_short_cutoff_seconds'){
+   if($null -eq $row.$field){continue};$value=$row.$field
+   if(($value -isnot [double] -and $value -isnot [single] -and $value -isnot [int] -and $value -isnot [long]) -or [double]::IsNaN($value) -or [double]::IsInfinity($value) -or $value -lt 0 -or $value -gt 100000){throw 'Extended native measured evidence is invalid.'}
+  }
+  if($name -ceq 'native_clock1026_gmt2_three_decoded_announcements'){
+   foreach($flag in 'sourcebindings_verified','GMT_plus_2_full_time_verified','original_phone_media_restored','owned_clock_call_ended','scoped_observer_stopped','software_phone_only','no_carrier_calls_or_database_configuration_writes'){if($row.$flag -isnot [bool] -or !$row.$flag){throw 'The decoded native clock proof is incomplete.'}}
+   foreach($field in 'minimum_component_correlation','maximum_native_signal_lateness_ms','maximum_decoded_beep_target_error_ms'){if($null -eq $row.$field){throw 'The decoded native clock timing is missing.'}}
+   if($row.frozen_Nathaniel_assets -ne 34 -or $row.complete_announcements -lt 3 -or $row.minimum_component_correlation -lt .62 -or $row.maximum_native_signal_lateness_ms -ge 250 -or $row.maximum_decoded_beep_target_error_ms -ge 250){throw 'The unchanged native clock speech/signal thresholds did not pass.'}
+  }
+  if($name -like 'native_provider_*'){
+   if($row.no_carrier_traffic -isnot [bool] -or !$row.no_carrier_traffic){throw 'Only fictional local provider proof is allowed.'}
+   if($name -cin 'native_provider_outbound_decoded_rtp','native_provider_503_failover_once_decoded_rtp','native_provider_incoming_owned_did_decoded_rtp'){
+    if($row.caller_decoded_ratio -lt .8){throw 'The fictional provider caller audio did not decode.'}
+    if($name -ceq 'native_provider_incoming_owned_did_decoded_rtp'){if($row.extension_decoded_ratio -lt .8){throw 'The fictional incoming extension audio did not decode.'}}
+    elseif($row.provider_decoded_ratio -lt .8){throw 'The fictional outgoing provider audio did not decode.'}
+   }
+   if($name -cne 'native_provider_incoming_owned_did_decoded_rtp' -and ($row.primary_distinct_calls -ne 1 -or $row.backup_distinct_calls -ne $(if($name -ceq 'native_provider_503_failover_once_decoded_rtp'){1}else{0}))){throw 'Provider failover or refusal duplicated a call.'}
+  }
+  if($name -like 'native_cmb_*'){
+   foreach($flag in 'identity_hmac_unchanged','reservation_released','no_carrier_traffic'){if($row.$flag -isnot [bool] -or !$row.$flag){throw 'Native Call Me Back ownership/settlement proof is incomplete.'}}
+   if($name -ceq 'native_cmb_exhausted_quota_no_destination' -and ($row.no_destination_bridge -isnot [bool] -or !$row.no_destination_bridge)){throw 'An exhausted allowance produced a destination call.'}
+   if($name -cne 'native_cmb_exhausted_quota_no_destination'){
+    foreach($flag in 'persistent_binding_verified','no_plaintext_identity_in_facts','total_allowance_unchanged','ten_minute_policy_ceiling_verified'){if($row.$flag -isnot [bool] -or !$row.$flag){throw 'Native Call Me Back allowance/HMAC proof is incomplete.'}}
+    if($row.actual_600_second_call -isnot [bool] -or $row.actual_600_second_call -or $row.charged_seconds -le 0 -or $row.charged_seconds -gt $row.native_reserved_limit_seconds -or $row.native_reserved_limit_seconds -gt 600 -or $row.caller_decoded_ratio -lt .8 -or $row.destination_decoded_ratio -lt .8){throw 'Native Call Me Back decoded bridge/limit proof is invalid.'}
+   }
   }
  }
 }
@@ -372,6 +412,8 @@ try{
  $phase='normal HTTPS and native calling';Python 'acceptance'
  $native=Get-Content "$evidence\software-native-report.json" -Raw|ConvertFrom-Json
  if(($native.schema -isnot [int] -and $native.schema -isnot [long]) -or $native.schema -ne 1 -or $native.producer -isnot [string] -or $native.producer -cne 'windows-native-acceptance.py' -or $native.state -isnot [string] -or $native.state -cne 'passed' -or $native.checks -isnot [array] -or $native.checks.Count -gt 256){throw 'Actual software native matrix failed.'}
+ AssertExtendedNativeCases $native.checks
+ $facts.gates.native_clock='passed';$facts.gates.native_providers='passed';$facts.gates.native_call_me_back='passed'
  $facts.checks=@($native.checks);$facts.gates.native_sip_audio='passed';$facts.gates.smtp='passed'
  $meeting=@($native.checks|Where-Object {$_.case -ceq 'native_windows_meeting_browser_video_audio'})
  if($meeting.Count -ne 1 -or $meeting[0].passed -isnot [bool] -or !$meeting[0].passed -or $meeting[0].checks -ne 9 -or $meeting[0].wss_roundtrips -ne 16 -or $meeting[0].host_frames -lt 10 -or $meeting[0].guest_frames -lt 10 -or $meeting[0].host_tone_ratio -le .65 -or $meeting[0].guest_tone_ratio -le .65 -or $meeting[0].physical_camera -cne 'unqualified'){throw 'Actual fragmented SIP round trips, browser meeting video and independent two-way audio must pass.'}

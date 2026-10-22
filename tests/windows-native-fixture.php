@@ -7,7 +7,7 @@ function windows_native_fixture_failure_record(Throwable $error,string $inputFil
   if($root===false||$input===false||is_link($inputFile)||!is_file($inputFile)||basename($input)!=='input.json')return false;
   $root=strtolower(rtrim(str_replace('\\','/',$root),'/'));$directory=strtolower(str_replace('\\','/',dirname($input)));
   if(dirname($directory)!==$root||!preg_match('/^[a-f0-9]{24}$/D',basename($directory)))return false;
-  if(!in_array($action,['baseline','discover','cleanup','status','queue-state','job','due','voicemail-login','api','mail-seed','meeting-path-state'],true))return false;
+  if(!in_array($action,['baseline','discover','cleanup','status','queue-state','job','due','voicemail-login','api','mail-seed','meeting-path-state','services-info','providers-create','cmb-setup','cmb-status','cmb-reset','cmb-quota'],true))return false;
   if(!in_array($stage,['initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh'],true))$stage='initialization';
   $source=basename(str_replace('\\','/',$error->getFile()));
   if(!in_array($source,['windows-native-fixture.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php'],true))$source='external_component';
@@ -162,6 +162,64 @@ if($action==='status'){
  foreach($mail as &$row){$row['response_class']=windows_native_mail_response_class($row['email_response']);unset($row['email_response']);}unset($row);
  echo json_encode(['bind'=>$m[1],'config'=>$c,'extension_codec_preferences'=>$codecPreferences,'registration_limits'=>$q('select max_registrations from v_extensions where domain_uuid=? order by extension',[$domain])->fetchAll(PDO::FETCH_COLUMN),'jobs'=>$q('select job_uuid,kind,queue_number,target_number,internal_target,request_key,state,attempts,max_attempts,last_result,call_uuid,due_at<=now() as due,expires_at<=now() as expired,lease_until<now() as lease_expired,lease_until is not null as has_lease from v_pbx_jobs where domain_uuid=? order by created_at',[$domain])->fetchAll(PDO::FETCH_ASSOC),'voicemail'=>$messages,'mail'=>$mail],JSON_THROW_ON_ERROR);exit;
 }
+if($action==='services-info'){
+ $configuration=config::load();$host=$configuration->get('switch.event_socket.host',null)??'127.0.0.1';
+ if(!in_array($host,['127.0.0.1','localhost'],true))throw new RuntimeException('A loopback-only event listener is required.');
+ $external=(string)event_socket::api('sofia status profile external');
+ if(!preg_match('/^\s*SIP-IP\s+([0-9.]+)\s*$/m',$external,$externalAddress)||!filter_var($externalAddress[1],FILTER_VALIDATE_IP,FILTER_FLAG_IPV4))throw new RuntimeException('The native external SIP interface is unavailable.');
+ $externalPort=$q("select x.sip_profile_setting_value from v_sip_profile_settings x join v_sip_profiles p using(sip_profile_uuid) where p.sip_profile_name='external' and p.sip_profile_enabled=true and x.sip_profile_setting_name='sip-port' and x.sip_profile_setting_enabled=true limit 1")->fetchColumn();
+ if(!ctype_digit((string)$externalPort)||(int)$externalPort<1024||(int)$externalPort>65535)throw new RuntimeException('The native external SIP port is unavailable.');
+ echo json_encode(['external_sip'=>[$externalAddress[1],(int)$externalPort],'event_socket'=>['host'=>$host,'port'=>(int)$configuration->get('switch.event_socket.port',8021),'password'=>$configuration->get('switch.event_socket.password')],'sounds'=>(string)$configuration->get('switch.sounds.dir'),'scripts'=>(string)$configuration->get('switch.scripts.dir')],JSON_THROW_ON_ERROR);exit;
+}
+if($action==='providers-create'){
+ if(isset($s['providers'])||count($c['trunks']))throw new RuntimeException('Use the empty owned provider fixture once.');
+ $ports=array_slice($argv,3);if(count($ports)!==2||count(array_unique($ports))!==2)throw new RuntimeException('Two distinct local provider ports are required.');
+ foreach($ports as $port)if(!ctype_digit($port)||(int)$port<1024||(int)$port>65535)throw new RuntimeException('Invalid local provider port.');
+ $s['original_phone_tuples']=$q('select extension_uuid,extension,password from v_extensions where domain_uuid=? order by extension_uuid',[$domain])->fetchAll(PDO::FETCH_ASSOC);$s['providers']=[];$save();
+ foreach($ports as $index=>$port){
+  $input=['name'=>'Fictional native provider '.($index+1),'host'=>'127.0.0.1','port'=>$port,'transport'=>'udp','authentication'=>'ip','allowed_ips'=>'127.0.0.1','main_number'=>'99910000'.($index+1),'caller_id_in_from'=>'1','sip_cid_type'=>'rpid','codecs'=>'PCMU,PCMA','source_field'=>'ToUserPart','enabled'=>'1'];
+  $key=$pbx->save('trunk','new',$input);$current=$pbx->config();$s['providers'][]=['trunk'=>$key,'gateway'=>$current['trunks'][$key]['gateway_uuid'],'port'=>(int)$port];$save();
+ }
+ $routes=[];foreach($s['providers'] as $provider)$routes[]=['trunk_id'=>$provider['trunk'],'strip'=>'2','prepend'=>'55'];
+ $s['provider_rule']=$pbx->save('outbound','new',['name'=>'Fictional native failover only','prefix'=>'99','lengths'=>'5','routes'=>$routes]);
+ $s['provider_incoming']=$pbx->save('incoming','new',['trunk_id'=>$s['providers'][0]['trunk'],'number'=>'999100001','office'=>'Extension:8101','enabled'=>'1']);
+ $actual=$pbx->config();$rule=null;foreach($actual['outbound_rules'] as $candidate)if($candidate['rule_id']===$s['provider_rule'])$rule=$candidate;
+ if(!$rule||$rule['prefix']!=='99'||$rule['lengths']!=='5'||count($rule['routes'])!==2)throw new RuntimeException('The fictional provider rule does not retain its prefix and length.');
+ foreach($s['providers'] as $index=>$provider){$gateway=$q('select proxy,register,enabled,profile from v_gateways where domain_uuid=? and gateway_uuid=?',[$domain,$provider['gateway']])->fetch(PDO::FETCH_ASSOC);$route=$rule['routes'][$index];
+  if(!$gateway||!in_array($gateway['register'],['false',false,'f','0',0],true)||!in_array($gateway['enabled'],['true',true,'t','1',1],true)||$gateway['proxy']!=='127.0.0.1:'.$provider['port']||$gateway['profile']!=='external'||$route['trunk_id']!==$provider['trunk']||(int)$route['strip']!==2||$route['prepend']!=='55')throw new RuntimeException('The actual native provider or number rewrite differs from the owned fixture.');}
+ $save();echo json_encode(['created'=>true,'number_rewrite_verified'=>true,'local_nonregistering_providers'=>2],JSON_THROW_ON_ERROR);exit;
+}
+if($action==='cmb-setup'){
+ if(isset($s['cmb'])||count($s['providers']??[])!==2)throw new RuntimeException('The owned local providers are required.');
+ foreach($s['providers'] as $provider){$row=$q('select proxy,register from v_gateways where domain_uuid=? and gateway_uuid=?',[$domain,$provider['gateway']])->fetch(PDO::FETCH_ASSOC);if(!$row||!in_array($row['register'],['false',false,'f','0',0],true)||$row['proxy']!=='127.0.0.1:'.$provider['port'])throw new RuntimeException('Only exact fictional nonregistering providers may be used.');}
+ $pbx->save('outbound','new',['name'=>'Fictional callback destination','prefix'=>'0820000002','lengths'=>'10','routes'=>[['trunk_id'=>$s['providers'][1]['trunk'],'strip'=>'0','prepend'=>'']]]);
+ $pbx->save('outbound','new',['name'=>'Fictional callback caller','prefix'=>'0','lengths'=>'10','routes'=>[['trunk_id'=>$s['providers'][0]['trunk'],'strip'=>'0','prepend'=>'']]]);
+ $service=uuid();$identity='8001015009087';$s['cmb']=['service'=>$service,'identity'=>$identity,'caller'=>'+27820000001','destination'=>'0820000002'];
+ $s['cmb_parent_existed']=is_dir(pbx_paths::storage().'/openwebpbx/call-me-back');$save();$dir=pbx_paths::storage().'/openwebpbx/call-me-back/'.$service;
+ if(file_exists($dir))throw new RuntimeException('The owned prompt fixture already exists.');
+ if(!mkdir($dir,0750,true))throw new RuntimeException('The owned prompt directory could not be created.');
+ $sounds=(string)config::load()->get('switch.sounds.dir');if(!pbx_call_me_back::promptPackReady($sounds))throw new RuntimeException('The frozen Nathaniel callback pack is required.');
+ // A frozen generic Nathaniel prompt stands in only for this fictional tenant's
+ // generated-name greeting; no external voice service or real identity is used.
+ if(!copy($sounds.'/openwebpbx/voices/1.0.1/call-me-back/enter-number.wav',$dir.'/greeting.wav'))throw new RuntimeException('The owned greeting could not be staged.');
+ $q("insert into v_pbx_cmb_services(service_uuid,domain_uuid,name,incoming_rule_uuid,route_owner,prompt_state,prompt_sha256,enabled) values(?,?,'Fictional native callback',?,'8100','ready',?,true)",[$service,$domain,$s['provider_incoming'],hash_file('sha256',$dir.'/greeting.wav')]);
+ (new pbx_call_me_back($db))->action(['cmb_action'=>'save_account','service_uuid'=>$service,'account_uuid'=>'','account_name'=>'Fictional native account','south_african_id'=>$identity,'total_minutes'=>'60','enabled'=>'1']);
+ $row=$q('select account_uuid,id_hmac,id_last4,total_seconds,used_seconds,reserved_seconds from v_pbx_cmb_accounts where domain_uuid=? and service_uuid=?',[$domain,$service])->fetch(PDO::FETCH_ASSOC);
+ $fixtureKey=file_get_contents(pbx_paths::key());if(strlen($fixtureKey)!==32)throw new RuntimeException('The installed identity key has an unexpected length.');
+ $tenantKey=hash_hmac('sha256',"openweb-call-me-back-id/v1\0".$domain,$fixtureKey,true);$expectedHmac=hash_hmac('sha256',$identity,$tenantKey);unset($fixtureKey,$tenantKey);
+ if(!$row||!hash_equals($expectedHmac,$row['id_hmac'])||$row['id_hmac']===$identity||(int)$row['total_seconds']!==3600||(int)$row['used_seconds']!==0||(int)$row['reserved_seconds']!==0)throw new RuntimeException('The owned allowance/HMAC fixture differs.');
+ $s['cmb']['account']=$row['account_uuid'];$s['cmb']['original_hmac']=$row['id_hmac'];$save();echo json_encode(['created'=>true,'identity_hmac_verified'=>true,'configured_total_seconds'=>3600,'no_plaintext_identity_in_database'=>true],JSON_THROW_ON_ERROR);exit;
+}
+if(in_array($action,['cmb-status','cmb-reset','cmb-quota'],true)){
+ $cmb=$s['cmb']??null;if(!$cmb||!is_uuid($cmb['account'])||!is_uuid($cmb['service']))throw new RuntimeException('The owned callback fixture is required.');
+ if($action==='cmb-reset'){$q("update v_pbx_cmb_requests set created_at=now()-interval '2 minutes' where domain_uuid=? and service_uuid=? and state in ('completed','failed','cancelled')",[$domain,$cmb['service']]);echo '{"reset":true}';exit;}
+ if($action==='cmb-quota'){$value=$argv[3]??'';if(!ctype_digit($value)||(int)$value>3600)throw new RuntimeException('Use a bounded fictional quota.');$row=$q('update v_pbx_cmb_accounts set total_seconds=used_seconds+? where domain_uuid=? and account_uuid=? and reserved_seconds=0 returning account_uuid',[(int)$value,$domain,$cmb['account']])->fetchColumn();if($row!==$cmb['account'])throw new RuntimeException('The owned quota remains reserved.');echo '{"updated":true}';exit;}
+ $account=$q('select total_seconds,used_seconds,reserved_seconds,id_hmac from v_pbx_cmb_accounts where domain_uuid=? and account_uuid=? and service_uuid=?',[$domain,$cmb['account'],$cmb['service']])->fetch(PDO::FETCH_ASSOC);
+ if(!$account||!hash_equals($cmb['original_hmac'],$account['id_hmac']))throw new RuntimeException('The owned identity verifier changed.');unset($account['id_hmac']);
+ $request=$q('select request_uuid,state,reserved_seconds,used_seconds,last_result,connected_at is not null as answered,call_uuid,bridge_uuid from v_pbx_cmb_requests where domain_uuid=? and service_uuid=? order by created_at desc limit 1',[$domain,$cmb['service']])->fetch(PDO::FETCH_ASSOC);
+ $bindings=(int)$q('select count(*) from v_pbx_cmb_bindings where domain_uuid=? and service_uuid=? and account_uuid=? and revoked_at is null',[$domain,$cmb['service'],$cmb['account']])->fetchColumn();
+ echo json_encode(['account'=>$account,'request'=>$request?:null,'bindings'=>$bindings,'identity_hmac_unchanged'=>true],JSON_THROW_ON_ERROR);exit;
+}
 if($action==='queue-state'){
  $ownedAgent=static fn(string $id):bool=>(bool)$q('select 1 from v_call_center_agents where domain_uuid=? and call_center_agent_uuid=?',[$domain,$id])->fetchColumn();
  echo json_encode(windows_native_queue_snapshot($c,$s['users'],$ownedAgent,static fn(string $command):string=>(string)event_socket::api($command),(string)($argv[3]??'')),JSON_THROW_ON_ERROR),PHP_EOL;exit;
@@ -194,9 +252,12 @@ if($action==='cleanup'){
  foreach($q('select call_center_agent_uuid from v_call_center_agents where domain_uuid=?',[$domain])->fetchAll(PDO::FETCH_COLUMN) as $id)if(is_uuid($id)){foreach($c['queues'] as $queue)event_socket::api('callcenter_config tier del '.$queue['number'].'@'.$realm.' '.$id);event_socket::api('callcenter_config agent del '.$id);}
  foreach($c['queues'] as $queue)event_socket::api('callcenter_config queue unload '.$queue['number'].'@'.$realm);
  foreach($s['users']??[] as $u)event_socket::api('sofia profile internal flush_inbound_reg '.$u['auth'].'@'.$realm);
+ foreach($s['providers']??[] as $provider)if(is_uuid($provider['gateway']))event_socket::api('sofia profile external killgw '.$provider['gateway']);
+ if(isset($s['original_phone_tuples'])&&$q('select extension_uuid,extension,password from v_extensions where domain_uuid=? order by extension_uuid',[$domain])->fetchAll(PDO::FETCH_ASSOC)!==$s['original_phone_tuples'])throw new RuntimeException('Fictional provider/callback tests changed phone credentials.');
  $files=$q('select file_path from v_pbx_media where domain_uuid=?',[$domain])->fetchAll(PDO::FETCH_COLUMN);
 
  foreach($files as $file)if(is_file($file)&&(pbx_paths::contains(pbx_paths::media().'/'.$domain,$file)||pbx_paths::contains(pbx_paths::voicemail(),$file))&&!is_link($file))unlink($file);
+ foreach(['v_pbx_cmb_requests','v_pbx_cmb_bindings','v_pbx_cmb_accounts','v_pbx_cmb_services','v_pbx_cmb_audit'] as $table)$q('delete from '.$table.' where domain_uuid=?',[$domain]);
  $db->beginTransaction();
  $tables=$q("select distinct c.table_name from information_schema.columns c join information_schema.tables t using(table_schema,table_name) where c.table_schema='public' and c.column_name='domain_uuid' and c.table_name like 'v_%' and t.table_type='BASE TABLE'")->fetchAll(PDO::FETCH_COLUMN);
  foreach([$domain,$owned['home_domain_uuid']] as $d)foreach($tables as $t)if($t!=='v_domains'&&preg_match('/^v_[a-z0-9_]+$/D',$t))$q('delete from '.$t.' where domain_uuid=?',[$d]);
@@ -211,6 +272,8 @@ if($action==='cleanup'){
   if(!is_dir($path))return;if(is_link($path))throw new RuntimeException('Owned storage must be ordinary.');
   foreach(new DirectoryIterator($path) as $file){if($file->isDot())continue;if($file->isLink())throw new RuntimeException('Owned storage link refused.');if($file->isDir())$removeDirectory($file->getPathname());else unlink($file->getPathname());}rmdir($path);
  };
+ if(isset($s['cmb']['service'])&&is_uuid($s['cmb']['service']))$removeDirectory(pbx_paths::storage().'/openwebpbx/call-me-back/'.$s['cmb']['service']);
+ if(isset($s['cmb_parent_existed'])&&!$s['cmb_parent_existed']){$parent=pbx_paths::storage().'/openwebpbx/call-me-back';if(is_dir($parent)&&count(array_diff(scandir($parent),['.','..']))===0)rmdir($parent);}
  $removeDirectory(pbx_paths::media().'/'.$domain);$removeDirectory(pbx_paths::voicemail().'/default/'.$realm);
  $factory();if($identity()!==$s['baseline'])throw new RuntimeException('Factory administrator or domain identity changed.');
  foreach($tables as $t)if(preg_match('/^v_[a-z0-9_]+$/D',$t))foreach([$domain,$owned['home_domain_uuid']] as $d)if((int)$q('select count(*) from '.$t.' where domain_uuid=?',[$d])->fetchColumn())throw new RuntimeException('Owned rows remain.');

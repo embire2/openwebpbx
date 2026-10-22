@@ -118,6 +118,7 @@ function Undo-OpenWebStunTransaction([string]$Directory,[string]$StateRoot,[stri
  $rule=Get-OpenWebStunRule @($j.addresses) $Exe
  if($j.rule_before.exists -and !$rule.exists){throw 'The previous STUN firewall rule is missing; automatic recovery refused.'}
  if($j.rule_before.exists){foreach($name in 'profile','edge'){if($j.rule_before.$name -cne $rule.$name){throw 'The STUN firewall policy changed; automatic recovery refused.'}}}
+ elseif($rule.exists -and ($rule.profile -cne 'Any' -or $rule.edge -cne 'Block')){throw 'The newly created STUN firewall policy changed; automatic recovery refused.'}
  if(Test-Path -LiteralPath $path){$null=Assert-OpenWebOrdinaryPath $path;$hash=Get-OpenWebStunHash ([IO.File]::ReadAllBytes($path));if($hash -cne $j.desired_sha256 -and (!$j.config_before_exists -or $hash -cne $j.config_before_sha256)){throw 'The STUN configuration changed outside this transaction; it was preserved.'};$sddl=(Get-Acl -LiteralPath $path).Sddl;if($sddl -cne $j.desired_sddl -and (!$j.config_before_exists -or $sddl -cne $j.config_before_sddl)){throw 'The STUN file permissions changed outside this transaction; they were preserved.'}}
  $j.state='recovering';Write-OpenWebPublicJson (Join-Path $Directory 'journal.json') $j
  if($j.config_before_exists){Set-OpenWebStunFile $path ([IO.File]::ReadAllBytes((Join-Path $Directory 'previous.bin'))) $j.config_before_sddl $Directory}

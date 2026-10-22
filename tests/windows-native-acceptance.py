@@ -14,7 +14,7 @@ from pathlib import Path
 
 WINPS=str(Path(os.environ.get('SystemRoot','C:/Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe')
 FIXTURE_PHP_SOURCES={'windows-native-fixture.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component'}
-FIXTURE_ACTIONS={'baseline','discover','cleanup','status','queue-state','job','due','voicemail-login','api','mail-seed','meeting-path-state'}
+FIXTURE_ACTIONS={'baseline','discover','cleanup','status','queue-state','job','due','voicemail-login','api','mail-seed','meeting-path-state','services-info','providers-create','cmb-setup','cmb-status','cmb-reset','cmb-quota'}
 FIXTURE_STAGES={'initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh'}
 NATIVE_SUBSTAGES={'native_case','g729_regular_unregister','g729_alternate_register','g729_invite','g729_answer_validation',
     'g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister',
@@ -1033,6 +1033,12 @@ def native_calls(f):
                 failure=RuntimeError('The independent media peer registration failed')
                 failure.sip_failure={'sip_response_code':int(result['code']),'digest_challenge_count':int(result.get('digest_challenge_count',0))}
                 raise failure
+        f.active_case='native_clock1026_decoded_three_announcements'
+        services=f.cli('services-info')
+        clock=load_module('windows_clock_adapter',f.source/'tests/windows_clock_native.py')
+        proof=clock.qualify_clock(caller,original,{'domain':f.s['domain'],'realm':realm,'sip_destination':destination,'event_socket':services['event_socket']},f.source,services['sounds'],services['scripts'],f.evidence/'clock1026-native')
+        assert proof['complete_announcements']>=3 and proof['GMT_plus_2_full_time_verified'] and proof['owned_clock_call_ended']
+        f.record('native_clock1026_gmt2_three_decoded_announcements',**proof)
         f.record('native_tls_signalling_two_way_decoded_rtp',**call_check('8101'))
         f.active_case='independent_g729_pcmu_transcoding'
         (f.evidence/'g729-profile.private.txt').write_text(f.cli('api','sofia status profile internal',json_result=False))
@@ -1062,6 +1068,17 @@ def native_calls(f):
             native_cleanup(sys.exc_info()[1],getattr(f,'native_substage','g729_media'),[
                 ('g729_alternate_unregister',alternate_unregister),('g729_peer_close',g729.close),
                 ('g729_codec_close',codec.search.close),('g729_regular_reregister',regular_reregister)])
+        class Provider(Phone):
+            def __init__(self,index):
+                self.transport='udp';self.registration_packets=[];self.receiver_failure=None;self.sent_codes=[]
+                original.SourcePhone.__init__(self,{'number':'fictional-provider','auth':'fictional-provider','password':'','tone_hz':1109+index*199,'local_provider':True,'first_provider':index==0},realm,'127.0.0.1')
+            def response(self,code,headers,body=''):
+                if headers.get('cseq','').endswith(' INVITE'):
+                    self.sent_codes.append((headers.get('call-id',''),code))
+                    assert len(self.sent_codes)<=128,'The fictional provider response ledger exceeded its bound'
+                return super().response(code,headers,body)
+        services=load_module('windows_native_services',f.source/'tests/windows_native_services.py')
+        services.qualify(f,caller,a,destination,Provider,original,sip,NativePlayback)
         f.record('native_simultaneous_ring_group',**call_check('8180'))
         f.record('native_hunting_ring_group',**call_check('8181'))
         f.record('native_queue_agent_first',**call_check('8190'))
