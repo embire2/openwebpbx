@@ -19,6 +19,10 @@ function Assert-OpenWebHealthAcl($Acl,[string]$Current,[string]$Full,$Privileged
  $owner=if($Acl.Owner -match '^S-1-'){$Acl.Owner}else{([Security.Principal.NTAccount]$Acl.Owner).Translate([Security.Principal.SecurityIdentifier]).Value}
  if(!$Privileged.Contains($owner)){throw 'Health helper ownership needs review.'}
  $write=[int][Security.AccessControl.FileSystemRights]::Delete -bor [int][Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor [int][Security.AccessControl.FileSystemRights]::ChangePermissions -bor [int][Security.AccessControl.FileSystemRights]::TakeOwnership
+ # A volume root cannot itself be deleted or renamed. Stock Windows grants
+ # Authenticated Users Modify there, which includes this ineffective DELETE
+ # bit but not DELETE_CHILD. Keep checking delete-child and ownership rights.
+ if($Current -cmatch '^[A-Za-z]:\\$'){$write=$write -band (-bnot [int][Security.AccessControl.FileSystemRights]::Delete)}
  $program='C:\OpenWebPBX';$state=Join-Path $env:ProgramData 'OpenWebPBX'
  if($Current.Equals($Full,[StringComparison]::OrdinalIgnoreCase) -or $Current.Equals($program,[StringComparison]::OrdinalIgnoreCase) -or $Current.StartsWith($program+'\',[StringComparison]::OrdinalIgnoreCase) -or $Current.Equals($state,[StringComparison]::OrdinalIgnoreCase) -or $Current.StartsWith($state+'\',[StringComparison]::OrdinalIgnoreCase)){$write=$write -bor [int][Security.AccessControl.FileSystemRights]::Write}
  foreach($rule in $Acl.Access){

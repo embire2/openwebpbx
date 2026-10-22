@@ -41,6 +41,7 @@ try{
  Refuses {Assert-OpenWebHealthAcl (TestAcl $admin $plain FullControl) $full $full $allowed} 'Former/non-admin writer accepted.'
  $null=$allowed.Remove($setup);Refuses {Assert-OpenWebHealthAcl (TestAcl $admin $setup FullControl) $full $full $allowed} 'Revoked setup administrator writer accepted.'
  Assert-OpenWebHealthAcl (TestAcl $admin $plain Write) 'C:\' $full $allowed;Check $true 'Unrelated sibling creation on volume root refused.'
+ Assert-OpenWebHealthAcl (TestAcl $admin $plain Modify) 'C:\' $full $allowed;Check $true 'Ineffective volume-root DELETE bit refused stock ACL.'
  Refuses {Assert-OpenWebHealthAcl (TestAcl $admin $plain DeleteSubdirectoriesAndFiles) 'C:\' $full $allowed} 'Unprivileged volume delete-child accepted.'
  Assert-OpenWebHealthAcl (TestAcl $admin $plain FullControl InheritOnly) 'C:\OpenWebPBX\tools' $full $allowed;Check $true 'Inherit-only ACE applied to current node.'
  @{checks=$script:checks;actual_powershell_ast_and_body=$true;native_task_scheduler=$false;no_host_tasks_changed=$true}|ConvertTo-Json -Compress
