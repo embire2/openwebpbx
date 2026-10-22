@@ -31,6 +31,7 @@ with tempfile.TemporaryDirectory(prefix='openweb-upgrade-probe-') as temporary:
 from pathlib import Path
 STATE = Path(__file__).parent
 class BackupError(Exception): pass
+class BackupBusy(BackupError): pass
 def read_settings():
  if os.environ.get('PROBE_FAIL') == 'settings': raise PermissionError('PRIVATE_TOKEN_DO_NOT_PUBLISH')
  return {'database.0.name':'owned_fixture', 'database.0.password':'PRIVATE_TOKEN_DO_NOT_PUBLISH'}
@@ -38,6 +39,7 @@ calls = 0
 def query(settings, sql, *, json_result=False):
  global calls
  calls += 1
+ if os.environ.get('PROBE_FAIL') == 'busy': raise BackupBusy('PRIVATE_LOCK_PATH_DO_NOT_PUBLISH')
  if os.environ.get('PROBE_FAIL') == str(calls): raise BackupError('PRIVATE_SQL_PASSWORD_DO_NOT_PUBLISH')
  if calls == 5: return [{'name':'owned_fixture'}]
  return []
@@ -60,7 +62,8 @@ def query(settings, sql, *, json_result=False):
     failure = work / 'probe-failure.json'
     stages = ['database_identity', 'database_roles', 'database_memberships', 'database_schema',
               'database_tables', 'database_columns', 'database_values']
-    for fail, stage, kind in [('settings', 'probe_settings', 'PermissionError')] + [
+    for fail, stage, kind in [('settings', 'probe_settings', 'PermissionError'),
+                              ('busy', 'database_identity', 'BackupBusy')] + [
             (str(index), stage, 'BackupError') for index, stage in enumerate(stages, 1)]:
         result = subprocess.run([sys.executable, '-I', str(probe), 'database', str(output)],
                                 env=os.environ | {'PROBE_FAIL': fail}, capture_output=True)
@@ -93,7 +96,7 @@ param([string]$SourceRoot,[string]$Work,[string]$PythonPath)
 $ErrorActionPreference='Stop';$tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-upgrade-acceptance.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'The actual hook must parse.'}
-foreach($name in 'ProbeFailure','Python','Check','HelperFailure','HelperLauncher'){
+foreach($name in 'ProbeFailure','Python','Check','HelperFailure','HelperLauncher','Record-OpenWebUpgradeCleanupFailure'){
  $nodes=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name},$true))
  if($nodes.Count -ne 1){throw 'Actual probe functions must be unique.'};Invoke-Expression $nodes[0].Extent.Text
 }
@@ -109,8 +112,47 @@ $good=[pscustomobject]@{schema=[long]1;active_case='database_roles';error_type='
 $safe=ProbeFailure $good
 AssertControl ($safe.Count -eq 4 -and $safe.active_case -ceq 'database_roles' -and $safe.source_line -eq 291)
 AssertControl (!(($safe|ConvertTo-Json) -match 'PRIVATE_'))
+$good.error_type='BackupBusy';$good.active_case='restore_holds'
+AssertControl ((ProbeFailure $good).error_type -ceq 'BackupBusy')
+$good.error_type='BackupError';$good.active_case='database_roles'
 foreach($mutation in @(@('schema','1'),@('schema',$true),@('schema',2),@('active_case','database_roles_PRIVATE_TOKEN'),@('active_case','DATABASE_ROLES'),@('active_case',$true),@('error_type','PRIVATE_TOKEN'),@('error_type','RuntimeError PRIVATE_TOKEN'),@('source_basename','private-secret.py'),@('source_basename','C:/private/backups.py'),@('source_line','291'),@('source_line',$true),@('source_line',0),@('source_line',100000))){
  $copy=$good.PSObject.Copy();$copy.($mutation[0])=$mutation[1];AssertControl ($null -eq (ProbeFailure $copy))
+}
+# The actual catch observes an unavailable hold lock without unlocking or
+# retrying it. Unrelated probe failures do not invoke the observer.
+$observations=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.IfStatementAst] -and $node.Extent.Text.StartsWith("if(`$checkFailure.active_case -ceq 'direct_reapply_preflight' -or")},$true))
+AssertControl ($observations.Count -eq 1)
+$observerCalls=0
+function Get-OpenWebUpgradeLockObservation {$script:observerCalls++;return @{lock_observer_schema=1;private='PRIVATE_TOKEN_DO_NOT_PUBLISH'}}
+function SafeOpenWebUpgradeLockFields {param($Record) return @{lock_observer_schema=$Record.lock_observer_schema;lock_probe_result='lock_violation'}}
+foreach($case in 'restore_holds','database_roles'){
+ $report=[ordered]@{};$checkFailure=@{};$probeFailure=@{active_case=$case};$state='OWNED';$updaterGeneration=$null
+ Invoke-Expression $observations[0].Extent.Text
+ AssertControl ($observerCalls -eq 1)
+ if($case -ceq 'restore_holds'){AssertControl ($report.lock_probe_result -ceq 'lock_violation' -and !(($report|ConvertTo-Json).Contains('PRIVATE')))}else{AssertControl ($report.Count -eq 0)}
+}
+# A later cleanup failure keeps the original source/error/phase, while closed
+# secondary phase names survive the actual suite projection without messages.
+foreach($primary in $false,$true){
+ $report=[ordered]@{state='running'}
+ if($primary){$report.state='failed';$report.failed_phase='restore gate native startup';$report.error_type='BackupBusy';$report.source_basename='backups.py';$report.source_line=275}
+ foreach($phase in 'restore hold cleanup','owned health observer cleanup','restore hold cleanup'){Record-OpenWebUpgradeCleanupFailure $phase}
+ AssertControl ($report.state -ceq 'failed' -and $report.cleanup_failure_phases.Count -eq 2)
+ AssertControl ($report.failed_phase -ceq $(if($primary){'restore gate native startup'}else{'restore hold cleanup'}))
+ if($primary){AssertControl ($report.error_type -ceq 'BackupBusy' -and $report.source_basename -ceq 'backups.py' -and $report.source_line -eq 275)}
+}
+$saved=$report|ConvertTo-Json -Depth 8 -Compress
+try{Record-OpenWebUpgradeCleanupFailure 'PRIVATE_TOKEN_DO_NOT_PUBLISH';throw 'Unknown cleanup phase returned.'}catch{AssertControl ($_.Exception.Message -ceq 'Unknown qualification cleanup phase.')}
+AssertControl (($report|ConvertTo-Json -Depth 8 -Compress) -ceq $saved)
+$suite=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-suite.ps1'),[ref]$tokens,[ref]$errors);AssertControl ($errors.Count -eq 0)
+$cleanupProjection=@($suite.FindAll({param($node)$node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Extent.Text.StartsWith('$cleanupPhases=@(')},$true))
+$cleanupIf=@($suite.FindAll({param($node)$node -is [Management.Automation.Language.IfStatementAst] -and $node.Extent.Text.StartsWith('if($cleanupPhases.Count)')},$true))
+AssertControl ($cleanupProjection.Count -eq 1 -and $cleanupIf.Count -eq 1)
+foreach($value in @(@('restore hold cleanup','PRIVATE_TOKEN_DO_NOT_PUBLISH','restore hold cleanup',$true,@{message='PRIVATE_TOKEN_DO_NOT_PUBLISH'}),@(),@('owned health observer cleanup'))){
+ $Record=[pscustomobject]@{cleanup_failure_phases=$value};$safe=@{}
+ Invoke-Expression $cleanupProjection[0].Extent.Text;Invoke-Expression $cleanupIf[0].Extent.Text
+ AssertControl (!(($safe|ConvertTo-Json -Depth 8).Contains('PRIVATE')))
+ if($value.Count){AssertControl ($safe.cleanup_failure_phases.Count -eq 1)}else{AssertControl ($safe.Count -eq 0)}
 }
 $python=$PythonPath;$probe=Join-Path $Work 'private-probe.py';$target=Join-Path $Work 'snapshot.json';$work=$Work
 $env:PROBE_FAIL='';$script:probeFailure=$null;$script:probeExit=$null

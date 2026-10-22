@@ -25,6 +25,13 @@ $report=[ordered]@{schema=1;state='running';checks=@();gates=[ordered]@{direct_1
 $databaseSidecars=@();$healthOriginal=$null
 function Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
 function WriteJson([string]$Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 10),[Text.UTF8Encoding]::new($false))}
+function Record-OpenWebUpgradeCleanupFailure([string]$Phase){
+ if($Phase -cnotin 'owned manager cleanup','restore hold cleanup','owned fixture cleanup','owned health observer cleanup'){throw 'Unknown qualification cleanup phase.'}
+ if(!$report.failed_phase){$report.failed_phase=$Phase}
+ $report.state='failed'
+ if(!$report.cleanup_failure_phases){$report.cleanup_failure_phases=@()}
+ if($Phase -cnotin $report.cleanup_failure_phases){$report.cleanup_failure_phases+=,$Phase}
+}
 function PayloadInventory([string]$Directory,[string]$PrivatePath){
  # Observe, never repair, the exact extraction before its strict product check.
  # Relative paths remain inside the admin-only evidence directory.
@@ -171,7 +178,7 @@ function MusicFailure([string]$Text){
 }
 function ProbeFailure($Record){
  $stages=@('probe_import','probe_settings','database_installation','database_identity','database_roles','database_memberships','database_schema','database_tables','database_columns','database_values','database_save','restore_holds','restore_release','pending_create','pending_check','pending_remove')
- $types=@('BackupError','JSONDecodeError','KeyError','FileNotFoundError','PermissionError','ImportError','ModuleNotFoundError','RuntimeError','ValueError','TypeError','OSError','TimeoutError','AssertionError','UnicodeDecodeError','ExternalFailure')
+ $types=@('BackupError','BackupBusy','JSONDecodeError','KeyError','FileNotFoundError','PermissionError','ImportError','ModuleNotFoundError','RuntimeError','ValueError','TypeError','OSError','TimeoutError','AssertionError','UnicodeDecodeError','ExternalFailure')
  if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.active_case -isnot [string] -or $Record.active_case -cnotin $stages -or $Record.error_type -isnot [string] -or $Record.error_type -cnotin $types -or $Record.source_basename -isnot [string] -or $Record.source_basename -cnotin 'private-probe.py','backups.py' -or ($Record.source_line -isnot [int] -and $Record.source_line -isnot [long]) -or $Record.source_line -lt 1 -or $Record.source_line -ge 100000){return $null}
  return @{active_case=$Record.active_case;error_type=$Record.error_type;source_basename=$Record.source_basename;source_line=[int]$Record.source_line}
 }
@@ -306,7 +313,7 @@ from pathlib import Path
 if os.name!='nt' or os.environ.get('GITHUB_ACTIONS')!='true':raise SystemExit(2)
 action=sys.argv[1];path=Path(sys.argv[2]);stage='probe_import'
 def failure(kind,value,tb):
- allowed_types={'BackupError','JSONDecodeError','KeyError','FileNotFoundError','PermissionError','ImportError','ModuleNotFoundError','RuntimeError','ValueError','TypeError','OSError','TimeoutError','AssertionError','UnicodeDecodeError'}
+ allowed_types={'BackupError','BackupBusy','JSONDecodeError','KeyError','FileNotFoundError','PermissionError','ImportError','ModuleNotFoundError','RuntimeError','ValueError','TypeError','OSError','TimeoutError','AssertionError','UnicodeDecodeError'}
  frames=[frame for frame in traceback.extract_tb(tb) if Path(frame.filename).name in {'private-probe.py','backups.py'}]
  frame=frames[-1] if frames else None
  safe={'schema':1,'active_case':stage,'error_type':kind.__name__ if kind.__name__ in allowed_types else 'ExternalFailure','source_basename':Path(frame.filename).name if frame else 'private-probe.py','source_line':frame.lineno if frame else 1}
@@ -740,7 +747,7 @@ try{
   foreach($field in 'recovery_observations_schema','recovery_observations_only','recovery_preexisting_error_count','recovery_journal_state','recovery_error_observations'){if($helperFailure.ContainsKey($field)){$report[$field]=$helperFailure[$field]}}
  }
  if($checkFailure.active_case -ceq 'direct_reapply_preflight' -and $payloadInventory){foreach($entry in $payloadInventory.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
- if($checkFailure.active_case -ceq 'direct_reapply_preflight'){
+ if($checkFailure.active_case -ceq 'direct_reapply_preflight' -or $probeFailure.active_case -ceq 'restore_holds'){
   try{$observation=SafeOpenWebUpgradeLockFields (Get-OpenWebUpgradeLockObservation $state $work $updaterGeneration);foreach($entry in $observation.GetEnumerator()){$report[$entry.Key]=$entry.Value}}catch{}
  }
  if($checkFailure.active_case -ceq 'direct_reapply_complete' -and $musicFailure){foreach($entry in $musicFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
@@ -748,14 +755,14 @@ try{
  if($comparisonFailure -and $checkFailure){foreach($entry in $comparisonFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
  Write-Error ('Windows upgrade acceptance failed in '+$phase+'. Private recovery evidence retained.') -ErrorAction Continue
 }finally{
- try{ClearManager}catch{$report.state='failed';$report.failed_phase='owned manager cleanup'}finally{foreach($heldProcess in $managerHeldHandles){$heldProcess.Dispose()}}
- if($gatePlan){try{StopUpdater;Python @($probe,'release',$gatePlan)}catch{$report.state='failed';$report.failed_phase='restore hold cleanup'}}
+ try{ClearManager}catch{Record-OpenWebUpgradeCleanupFailure 'owned manager cleanup'}finally{foreach($heldProcess in $managerHeldHandles){$heldProcess.Dispose()}}
+ if($gatePlan){try{StopUpdater;Python @($probe,'release',$gatePlan)}catch{Record-OpenWebUpgradeCleanupFailure 'restore hold cleanup'}}
  if($fixture -and (Test-Path $fixture)){
-  try{Push-Location "$root\web";try{& "$root\php\php.exe" (Join-Path $PSScriptRoot 'windows-backups-fixture.php') clear $fixture;Check ($LASTEXITCODE -eq 0) 'Owned upgrade PBX cleanup failed.'}finally{Pop-Location}}catch{$report.state='failed';$report.failed_phase='owned fixture cleanup'}
+  try{Push-Location "$root\web";try{& "$root\php\php.exe" (Join-Path $PSScriptRoot 'windows-backups-fixture.php') clear $fixture;Check ($LASTEXITCODE -eq 0) 'Owned upgrade PBX cleanup failed.'}finally{Pop-Location}}catch{Record-OpenWebUpgradeCleanupFailure 'owned fixture cleanup'}
   Remove-Item -LiteralPath $fixture -Force -ErrorAction SilentlyContinue
  }
  if($null -eq $prior){Remove-Item Env:\OPENWEB_WINDOWS_BACKUP_TEST -ErrorAction SilentlyContinue}else{$env:OPENWEB_WINDOWS_BACKUP_TEST=$prior}
- try{Resume-OpenWebQualificationHealth $healthOriginal}catch{$report.state='failed';$report.failed_phase='owned health observer cleanup'}
+ try{Resume-OpenWebQualificationHealth $healthOriginal}catch{Record-OpenWebUpgradeCleanupFailure 'owned health observer cleanup'}
  if($report.state -eq 'passed' -and (Get-Service OpenWebPBXUpdater).Status -ne 'Running'){Start-Service OpenWebPBXUpdater}
  WriteJson $ReportPath $report
 }

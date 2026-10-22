@@ -405,6 +405,8 @@ function SafeFailureFields($Record){
   if($Record.manager_original_process_class -is [string] -and $Record.manager_original_process_class -cin 'live_original','exited_original','unavailable'){$safe.manager_original_process_class=$Record.manager_original_process_class}
  }
  if(($Record.lock_observer_schema -is [int] -or $Record.lock_observer_schema -is [long]) -and $Record.lock_observer_schema -eq 1){$lockFields=SafeOpenWebUpgradeLockFields $Record;foreach($entry in $lockFields.GetEnumerator()){$safe[$entry.Key]=$entry.Value}}
+ $cleanupPhases=@(foreach($phase in @($Record.cleanup_failure_phases)){if($phase -is [string] -and $phase -cin 'owned manager cleanup','restore hold cleanup','owned fixture cleanup','owned health observer cleanup'){$phase}})
+ if($cleanupPhases.Count){$safe.cleanup_failure_phases=@($cleanupPhases|Select-Object -Unique)}
  foreach($field in 'failed_phase','error_type','source_basename','active_case','command_basename','caller_basename'){
   $value=$Record.$field
   $pattern=if($field -in 'source_basename','command_basename','caller_basename'){'^[A-Za-z0-9_.-]+$'}else{'^[A-Za-z0-9_.+ /()-]+$'}
