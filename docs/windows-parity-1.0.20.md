@@ -13,11 +13,11 @@ native Windows server.
 
 | Area | Current work | Required acceptance |
 |---|---|---|
-| Phone Health & Recovery | Native components passed16 Defender and62 SYSTEM checks; durable-intent policy passed96 isolated PostgreSQL controls. The latest complete run passed installed observer/restart checks, then failed the new actual ESL→Defender→SQL worker test. Its underlying error is being diagnosed. | Complete event-to-block-to-recovery flow, negative permissions, unchanged firewall policy, restart and restore checks. |
+| Phone Health & Recovery | Native components passed16 Defender and62 SYSTEM checks; durable-intent policy passed96 isolated PostgreSQL controls. Complete source `568b3ab5f` passed installed observer/restart checks, then failed the actual ESL→Defender→SQL worker gate. An explicit-subclass subscription correction separately passes **26** actual Windows PHP loopback/child controls, including an old-source negative. | Rebuild the complete package and pass actual event-to-block-to-recovery, negative permissions, unchanged firewall policy, restart and restore. Loopback/component checks alone do not qualify this flow. |
 | Remote phones | Native .NET STUN Binding worker and setup are implemented. The current package passed33 installed Windows checks, including actual service/Defender activation, decoded modern/legacy Binding and recovery.146 separate NTFS/interruption controls use service/firewall doubles. Existing PBX-anchored audio and restored sign-in identities remain. | External test-machine Binding and phone/client acceptance; Windows IPv6 remains separate. STUN is not TURN. |
 | Conferences | Corrected native engine passes all16 ordinary/fragmented small/8KiB frontend/backend OPTIONS exchanges. Browser admission reaches the engine, but SIP488 still prevents media negotiation. | Resolve negotiation, then decoded browser/phone audio and VP8, host actions and exact cleanup. |
 | Backups and restore | Scheduled-job choices are preserved. Restored pending phone-unblock requests are refused before background work resumes; other recovery history is retained. | Complete encrypted backup, same-machine failure recovery, distinct clean-server restore, media/key preservation and explicit activation. |
-| Updates | New protected tools and health task are included in installation and recovery inventory. The legacy transition accepts current signed releases rather than only1.0.13. | Current complete-package fresh setup, same-version repair, late-failure recovery and a signed newer-version upgrade with natural restart. |
+| Updates | New protected tools and health task are included in installation and recovery inventory. The legacy transition accepts current signed releases rather than only 1.0.13. **11** native guard controls distinguish actual Windows contention from permission/path failures; the tenant worker defers only on the typed busy result. | Rebuilt complete-package fresh setup, same-version repair, late-failure recovery and a signed newer-version upgrade with natural restart. |
 | Public access | Existing trusted IIS, secure-phone and managed tenant-address implementations remain. | Actual public certificate issuance/renewal and external tenant/Android connections on the test machine. |
 | Existing calling suite | Users, departments, groups, queues, voicemail121, recording, hotel services and mail have native fixtures. Mandatory clock1026, Call Me Back and simulated provider-failover cases are implemented in the current test suite; earlier failures have prevented their execution. | Repeat the complete native suite against the combined current-source package, including decoded media and protected-data checks. |
 
@@ -38,6 +38,27 @@ backup-recovery failure while rebinding the meeting proxy. An isolated Windows
 control reproduces tenant lock contention; the cause of the earlier run's
 specific task result remains unproven. All failures remain part of the work
 record rather than being marked complete.
+
+The corrected tenant worker passes19 source/OS-lock controls and five actual
+Windows SYSTEM/Scheduler cases against the final typed guard: hold/busy
+deferrals return success, an actual ACL denial remains a failure and releasing
+the lock permits normal work. No registry, certificate or SQL action is taken
+while deferring. An intermediate fixture polling timeout is retained; its
+instrumented repeat passed, with exact final source/runtime hashes and no
+remaining owned task/process. Complete package tenant acceptance remains open.
+
+The unchanged `568b3ab5f` diagnostic replay now retains closed PHP
+phase/class/basename/line/SQLSTATE and Scheduler result observations. Continuing
+to independent diagnostics requires exact timed public table/catalogue/namespace,
+firewall, engine, identity and task preservation, an empty response spool,
+stopped owned children and a resumed SYSTEM observer. The failed gate and
+release/owner-update ineligibility remain recorded.
+
+The explicit custom-event subscription and typed maintenance-contention repairs
+change product bytes. They require a newly built final Windows archive and
+complete acceptance; neither the old `568b3ab5f` ZIP nor a diagnostic replay becomes a
+release through these source changes. Read the [Phone Health evidence](phone-health.md#windows-server-follow-up)
+for the scope of the separate **26 / 16 / 62 / 96** and native guard **11** controls.
 
 Publishing Windows must retain the exact currently published Android18 and
 Debian16 signed feeds. Their public bytes and signatures have been independently
