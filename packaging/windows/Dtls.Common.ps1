@@ -74,7 +74,13 @@ function Undo-OpenWebDtls([string]$Directory,[string]$Certificate){
  if(Test-Path -LiteralPath $Certificate){$hash=Get-OpenWebDtlsHash $Certificate;$sddl=(Get-Acl -LiteralPath $Certificate).Sddl;if($hash -cne $j.desired_sha256 -and (!$j.before_exists -or $hash -cne $j.before_sha256)){throw 'A foreign DTLS certificate was preserved.'};if($sddl -cne $j.desired_sddl -and (!$j.before_exists -or $sddl -cne $j.before_sddl)){throw 'Foreign DTLS certificate permissions were preserved.'}}
  elseif($j.before_exists){throw 'The original DTLS certificate disappeared outside this transaction.'}
  $j.state='recovering';Write-OpenWebDtlsJournal (Join-Path $Directory 'journal.json') $j
- if($j.before_exists){Set-OpenWebDtlsCertificate $Certificate ([IO.File]::ReadAllBytes((Join-Path $Directory 'before.pem'))) $j.before_sddl}else{if(Test-Path -LiteralPath $Certificate){Remove-Item -LiteralPath $Certificate -Force}}
+ if($j.before_exists){
+  Set-OpenWebDtlsCertificate $Certificate ([IO.File]::ReadAllBytes((Join-Path $Directory 'before.pem'))) $j.before_sddl
+  if((Get-OpenWebDtlsHash $Certificate) -cne $j.before_sha256 -or (Get-Acl -LiteralPath $Certificate).Sddl -cne $j.before_sddl){throw 'The original DTLS identity did not recover exactly.'}
+ }else{
+  if(Test-Path -LiteralPath $Certificate){Remove-Item -LiteralPath $Certificate -Force -ErrorAction Stop}
+  if(Test-Path -LiteralPath $Certificate){throw 'The original absence of a DTLS identity did not recover exactly.'}
+ }
  $j.state='recovered';Write-OpenWebDtlsJournal (Join-Path $Directory 'journal.json') $j
 }
 function Assert-OpenWebDtlsStaging([string]$Directory){

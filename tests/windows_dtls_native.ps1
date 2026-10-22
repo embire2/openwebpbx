@@ -1,6 +1,6 @@
 # Native NTFS/OpenSSL controls in an isolated administrator-owned temporary tree.
 # The service identity adapter is explicit; no real service is started or stopped.
-param([Parameter(Mandatory)][string]$SourceRoot,[string]$PhpRoot='C:\OpenWebPBX',[string]$ReportPath)
+param([Parameter(Mandatory)][string]$SourceRoot,[string]$PhpRoot='C:\OpenWebPBX',[string]$ReportPath,[string]$LegacyCommon)
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 if($env:OS -cne 'Windows_NT'){throw 'Native Windows is required.'}
 $package=Join-Path $SourceRoot 'packaging\windows'
@@ -47,6 +47,20 @@ try{
  Assert-OpenWebDtlsPrivate $certificate;$checks++
  $transaction=LastTransaction;$journal=Read-OpenWebDtlsJournal $transaction $certificate;Check ($journal.state -ceq 'committed' -and !$journal.before_exists)
  Install;Check ((Get-OpenWebDtlsHash $certificate) -ceq $firstHash -and (Get-Acl -LiteralPath $certificate).Sddl -ceq $firstAcl -and @(Get-ChildItem (Join-Path $state 'dtls-setup') -Directory).Count -eq 1)
+ function Remove-Item {
+  param([string]$LiteralPath,[switch]$Force,[switch]$Recurse,[string]$ErrorAction)
+  if($LiteralPath -ceq $certificate){return}
+  Microsoft.PowerShell.Management\Remove-Item @PSBoundParameters
+ }
+ if($LegacyCommon){
+  $legacyAst=[Management.Automation.Language.Parser]::ParseFile($LegacyCommon,[ref]$tokens,[ref]$errors);if($errors.Count){throw 'The exact old DTLS helper must parse.'}
+  $legacy=@($legacyAst.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Undo-OpenWebDtls'},$true));if($legacy.Count -ne 1){throw 'The exact old recovery function is required.'}
+  Invoke-Expression ($legacy[0].Extent.Text.Replace('function Undo-OpenWebDtls(','function Undo-LegacyOpenWebDtls('));Undo-LegacyOpenWebDtls $transaction $certificate
+  Check ((Test-Path -LiteralPath $certificate) -and (Read-OpenWebDtlsJournal $transaction $certificate).state -ceq 'recovered')
+ }
+ Refuse {Undo-OpenWebDtls $transaction $certificate}
+ Check ((Test-Path -LiteralPath $certificate) -and (Read-OpenWebDtlsJournal $transaction $certificate).state -ceq 'recovering')
+ Remove-Item Function:\Remove-Item
  Undo-OpenWebDtls $transaction $certificate;Check (!(Test-Path -LiteralPath $certificate))
  # A valid customer certificate, including its existing permissions, is untouched.
  Copy-Item (Join-Path $fixture 'valid.pem') $certificate
