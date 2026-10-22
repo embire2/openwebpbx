@@ -57,6 +57,20 @@ try{
  $text=$ast.Extent.Text;$suspend=$text.IndexOf('Suspend-HealthQualificationUpdater ([ref]$updaterOriginal)');$baseline=$text.IndexOf("`$publicBefore=Php");$compare=$text.IndexOf('if($publicAfter.state');$resume=$text.IndexOf('Resume-HealthQualificationUpdater $updaterOriginal')
  Check ($suspend -ge 0 -and $baseline -gt $suspend -and $compare -gt $baseline -and $resume -gt $compare)
  Check ($text.Contains("`$publicAfter.public_preservation_sha256 -cne `$publicBefore.public_preservation_sha256"))
+ # Execute the actual restoration/failure-attestation block. A service or
+ # observer restart refusal must invalidate exact recovery, even after the
+ # complete database comparison succeeded on a failed worker.
+ $restoration=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.TryStatementAst] -and $n.CatchClauses.Count -eq 1 -and $n.Body.Extent.Text.Contains('Resume-HealthQualificationUpdater $updaterOriginal') -and $n.CatchClauses[0].Body.Extent.Text.Contains('$workerRecoveryVerified=$false')},$true))
+ Check ($restoration.Count -eq 1)
+ function Resume-HealthQualificationUpdater {if($script:restoreFails){throw 'Controlled updater restoration refusal'}}
+ function Enable-ScheduledTask {if($script:observerFails){throw 'Controlled observer restoration refusal'}}
+ function Start-ScheduledTask {}
+ foreach($failure in 'updater','observer','none'){
+  $script:restoreFails=$failure -ceq 'updater';$script:observerFails=$failure -ceq 'observer';$workerRecoveryVerified=$true;$workerRecoveryFailure=$null;$workerProcessExited=$true;$updaterOriginal=@{};$maintenance=[IO.MemoryStream]::new();$threw=$false
+  try{Invoke-Expression $restoration[0].Extent.Text}catch{$threw=$true}
+  Check (!$maintenance.CanRead)
+  if($failure -ceq 'none'){Check (!$threw -and $workerRecoveryVerified -and !$workerRecoveryFailure)}else{Check ($threw -and !$workerRecoveryVerified -and $workerRecoveryFailure -is [Management.Automation.ErrorRecord])}
+ }
  $repository=Get-Content -LiteralPath (Join-Path $SourceRoot 'platform/OpenWebPbx.Updater/UpdateRepository.cs') -Raw
  Check ($repository.Contains('update v_pbx_update_status set updated_at=now() where singleton=1'))
 }finally{Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue}

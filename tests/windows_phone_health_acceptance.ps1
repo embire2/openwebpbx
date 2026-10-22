@@ -173,11 +173,13 @@ try{
    }
   }catch{$workerRecoveryVerified=$false;$workerRecoveryFailure=$_;if(!$workerPrimaryFailure){throw}}
   finally{
-   try{Resume-HealthQualificationUpdater $updaterOriginal}
-   finally{
-    $maintenance.Dispose()
-    if($workerProcessExited){Enable-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop|Out-Null;Start-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop}
-   }
+   try{
+    try{Resume-HealthQualificationUpdater $updaterOriginal}
+    finally{
+     $maintenance.Dispose()
+     if($workerProcessExited){Enable-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop|Out-Null;Start-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop}
+    }
+   }catch{$workerRecoveryVerified=$false;$workerRecoveryFailure=$_;throw}
   }
   if($workerRecoveryVerified){
    $resumed=$null;$deadline=[DateTime]::UtcNow.AddSeconds(90)
