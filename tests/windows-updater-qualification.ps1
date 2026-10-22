@@ -17,6 +17,7 @@ param(
  [switch]$DisposableHostedRunner
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
+. (Join-Path $PSScriptRoot 'windows-upgrade-health-quiescence.ps1')
 if([version]$CanaryVersion -le [version]$BaseVersion){throw 'The canary must be a genuinely newer numeric version.'}
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){throw 'Only the explicitly disposable owned GitHub-hosted Windows runner is authorized.'}
 $os=Get-CimInstance Win32_OperatingSystem
@@ -28,6 +29,7 @@ $work=Join-Path $env:RUNNER_TEMP ('openwebpbx-updater-'+[Guid]::NewGuid().ToStri
 $public=Join-Path $env:RUNNER_TEMP 'openwebpbx-updater-facts';$output=Join-Path $env:RUNNER_TEMP 'openwebpbx-updater-canary'
 $phase='verified baseline artifacts';$installed=$false;$transport=$null;$transportRoot=$null;$ownHosts=$false;$serviceEnvironment=$null;$inputFile=$null;$settings=$null;$scope=$null;$fixtureCreated=$false
 $managerOwned=$false;$managerStarted=$null;$managerName=$null;$managerSid=$null;$managerSession=0
+$qualificationHealthOriginal=$null;$PackageRoot=$null
 $retainedProcesses=[Collections.Generic.List[Diagnostics.Process]]::new()
 $script:qualificationFailedChild=$null
 $script:qualificationComparisonFailure=$null
@@ -289,13 +291,35 @@ function InitializeQualificationBackupWorker([string]$Root,[string]$StateRoot,[s
 function DatabaseSnapshot([string]$Label){$settings.snapshot_label=$Label;WriteJson $inputFile $settings;Fixture 'snapshot'|Out-Null;return Get-Content (Join-Path (Split-Path $inputFile -Parent) ($Label+'-database.json')) -Raw|ConvertFrom-Json -AsHashtable}
 function FileSnapshot([switch]$Protected,[ValidateSet('unobserved','before_fault_full','before_fault_protected','after_fault_full','after_normal_protected')][string]$Stage='unobserved'){
  $script:qualificationFailedHash=$null
- $directories=if($Protected){@($configuration,"$state\storage","$state\mobile-notifications","$state\phone-tls","$state\public-access","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build")}else{@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots",$configuration,"$engine\conf","$engine\scripts","$engine\mod","$engine\sounds","$state\storage","$state\mobile-notifications","$state\phone-tls","$state\public-access","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build")}
+ # The canary is the exact baseline payload with only native version overlays.
+ # Its PHP vendor files therefore remain exact on success as well as rollback.
+ $directories=@("$root\php",$configuration,"$state\storage","$state\mobile-notifications","$state\mail","$state\phone-tls","$state\public-access","$state\meet-proxy","$state\tenant-domains","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build","$state\phone-health-runtime","$state\stun-setup","$state\dtls-setup")
+ if(!$Protected){$directories+=@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots","$engine\conf","$engine\scripts","$engine\mod","$engine\sounds")}
  $entries=@{}
- foreach($parent in $root,"$root\updater",$state,$engine){Check (!(Get-Item $parent).Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) 'A linked parent cannot be audited.';$entries[$parent]=@{directory=$true;acl=(Get-Acl $parent).Sddl}}
- foreach($directory in $directories){if(!(Test-Path -LiteralPath $directory)){continue};foreach($item in @(Get-Item -LiteralPath $directory -Force)+@(Get-ChildItem -LiteralPath $directory -Recurse -Force)){Check (!$item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) 'A linked fixture cannot be audited.';$record=@{directory=[bool]$item.PSIsContainer;acl=(Get-Acl -LiteralPath $item.FullName).Sddl};if(!$item.PSIsContainer){$record.sha256=SnapshotHash $item.FullName $Stage;$record.bytes=$item.Length};$entries[$item.FullName]=$record}}
- $paths=@("$state\runtime.json","$state\phone-tls.json","$state\native-engine.json","$state\local-codec.json","$root\php\php.ini","$root\php\extras\ssl\openssl.cnf","$root\php\extras\ssl\cacert.pem","$engine\libbcg729.dll")
+ foreach($parent in $root,"$root\updater",$state,$engine,"$engine\cert"){
+  if(!(Test-Path -LiteralPath $parent)){Check ($parent -ceq "$engine\cert") 'A snapshot parent directory is missing.';continue}
+  $item=Get-Item -LiteralPath $parent -Force
+  Check ($item.PSIsContainer -and !($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) 'A snapshot parent must remain an ordinary directory.'
+  $entries[$parent]=@{directory=$true;acl=(Get-Acl -LiteralPath $parent).Sddl}
+ }
+ foreach($directory in $directories){
+  if(!(Test-Path -LiteralPath $directory)){continue}
+  $folder=Get-Item -LiteralPath $directory -Force
+  Check ($folder.PSIsContainer -and !($folder.Attributes -band [IO.FileAttributes]::ReparsePoint)) 'A snapshot tree must remain an ordinary directory.'
+  foreach($item in @($folder)+@(Get-ChildItem -LiteralPath $directory -Recurse -Force)){
+   Check (!($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) 'A linked fixture cannot be audited.'
+   $record=@{directory=[bool]$item.PSIsContainer;acl=(Get-Acl -LiteralPath $item.FullName).Sddl}
+   if(!$item.PSIsContainer){$record.sha256=SnapshotHash $item.FullName $Stage;$record.bytes=$item.Length}
+   $entries[$item.FullName]=$record
+  }
+ }
+ $paths=@("$state\runtime.json","$state\phone-tls.json","$state\phone-health-instance.json","$state\stun.json","$state\native-engine.json","$state\local-codec.json","$state\meet-ca.pem","$state\meet-proxy.json","$engine\cert\dtls-srtp.pem","$engine\libbcg729.dll")
  if(!$Protected){$paths+=@("$state\installation.json","$state\updater-install.json")}
- foreach($path in $paths){if(Test-Path -LiteralPath $path){$item=Get-Item -LiteralPath $path;Check (!$item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) 'A private audited file must be regular.';$entries[$path]=@{directory=$false;acl=(Get-Acl -LiteralPath $path).Sddl;sha256=(SnapshotHash $path $Stage);bytes=$item.Length}}}
+ foreach($path in $paths){if(Test-Path -LiteralPath $path){
+  $item=Get-Item -LiteralPath $path -Force
+  Check (!$item.PSIsContainer -and !($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) 'A private audited file must remain ordinary.'
+  $entries[$path]=@{directory=$false;acl=(Get-Acl -LiteralPath $path).Sddl;sha256=(SnapshotHash $path $Stage);bytes=$item.Length}
+ }}
  return $entries
 }
 function TaskSnapshot {
@@ -303,7 +327,7 @@ function TaskSnapshot {
  # The owned interactive manager re-registers its task when each new window
  # loads. Its exact user/action/security contract is checked separately; static
  # service tasks must preserve their complete XML/COM/file security inventory.
- $names=@('OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate')
+ $names=@('OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate')
  foreach($name in $names){
   $task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue;if(!$task){$result[$name]=@{exists=$false};continue};$xml=[xml](Export-ScheduledTask -TaskName $name);$xml.PreserveWhitespace=$false
   $result[$name]=@{exists=$true;enabled=[bool]$task.Settings.Enabled;xml=$xml.OuterXml;acl=(Get-Acl -LiteralPath (Join-Path $env:SystemRoot ('System32/Tasks/'+$name))).Sddl;security=$scheduler.GetFolder('\').GetTask($name).GetSecurityDescriptor(7)}
@@ -563,7 +587,7 @@ function NormalTaskPreservation($Before,$After,[DateTime]$Started){
     # Re-registration records the actual current operator/date. These two
     # descriptive fields may change; executable/principal/settings/security may not.
     foreach($node in @($xml.SelectNodes('/t:Task/t:RegistrationInfo/t:Date|/t:Task/t:RegistrationInfo/t:Author',$namespaces))){$node.ParentNode.RemoveChild($node)|Out-Null}
-    if($name -in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail'){
+    if($name -in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains'){
      $nodes=@($xml.SelectNodes('/t:Task/t:Triggers/t:TimeTrigger/t:StartBoundary',$namespaces));Check ($nodes.Count -eq 1) 'The owned repeating task must retain one bounded schedule.'
      if([object]::ReferenceEquals($pair.source,$After)){$time=[DateTime]::Parse($nodes[0].InnerText).ToUniversalTime();Check ($time -ge $Started.ToUniversalTime().AddSeconds(-5) -and $time -le [DateTime]::UtcNow.AddMinutes(2)) 'The renewed owned schedule must be created during this real normal update.'}
      $nodes[0].InnerText='QUALIFIED_ONCE_TRIGGER_TIME'
@@ -631,6 +655,7 @@ try{
   foreach($modeName in 'fault','normal'){CheckedProcess 'python.exe' @((Join-Path $PSScriptRoot 'windows_candidate_archive.py'),'--archive',$archives[$modeName],'--version',$CanaryVersion,'--sha256',$packet.$modeName.archive_sha256) ('verify-'+$modeName)}
   Check (!(Test-Path $root) -and !(Test-Path "$state\installation.json") -and !(Test-Path "$configuration\config.conf") -and !(Get-Service FreeSWITCH -ErrorAction SilentlyContinue)) 'A completely separate empty runner is required; never reuse an owner or installed factory.'
   $packageDirectory=Join-Path $work 'baseline-package';PrivateDirectory $packageDirectory;ExpandSafe $base $packageDirectory;$package=Join-Path $packageDirectory ('openwebpbx-'+$BaseVersion+'-windows-x64');NativeVersions $package $BaseVersion|Out-Null
+  $PackageRoot=$package
   . (Join-Path $package 'Support-Recovery.ps1')
   $scope=[Guid]::NewGuid().ToString('N').Substring(0,24);$qa=Join-Path $state ('updater-qualification/'+$scope);PrivateDirectory $qa;$inputFile=Join-Path $qa 'input.json';$admin='updater-'+$scope+'@example.invalid';$secret='A9!'+(RandomSecret)
   $settings=@{schema=1;scope=$scope;run_id=$env:GITHUB_RUN_ID;admin_email=$admin;admin_password=$secret;company_name=('Fictional updater '+$scope);service_name=('Fictional updater PBX '+$scope);packet_file=$packetPath;provenance_file=$provenance;base_facts=(Join-Path $work 'baseline-facts.json');archives=$archives;public_key=(Join-Path $package 'release-public.pem');web_ca=(Join-Path $state 'local-test.cer');base_version=$BaseVersion;target_version=$CanaryVersion};WriteJson $inputFile $settings
@@ -694,6 +719,9 @@ if(!$?){exit 1}
   foreach($modeName in 'fault','normal'){$cache="$state\updates\downloads\$($verified[$modeName].sha256).archive";Check (!(Test-Path $cache) -and !(Test-Path ($cache+'.partial'))) 'The test refuses preseeded or partial canary archives.'}
   if(Test-Path "$state\updates\trust.json"){$prior=Get-Content "$state\updates\trust.json" -Raw|ConvertFrom-Json;Check ($prior.sequence -le $verified.fault.sequence) 'The private fault sequence must not lower existing trust.'}
   Check ((Fixture 'status').channels -eq 0) 'The actual call engine must be idle.'
+  $phase='exact owned Health observer quiescence before all preservation baselines'
+  Suspend-OpenWebQualificationHealth ([ref]$qualificationHealthOriginal)
+  $facts.checks+='Exact owned Health task/helper identity and zero native children/runtime files before complete DB/file/task preservation baselines; enabled choice retained privately'
   $phase='ordinary SYSTEM backup worker baseline initialization'
   InitializeQualificationBackupWorker -Root $root -StateRoot $state -PackageRoot $package
   $facts.checks+='Actual unchanged installed SYSTEM backup task completed normally and initialized its regular worker lock before every acceptance baseline'
@@ -742,7 +770,12 @@ if(!$?){exit 1}
    try{
     # Keep the guard through shutdown; a later scheduled tick may not begin a
     # transaction between the ownership check and removal of this fixture.
-    foreach($name in 'OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX Outgoing Mail','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate'){if(Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue){Disable-ScheduledTask -TaskName $name|Out-Null}}
+    # Restore the pre-baseline choice only after every strict comparison. The
+    # held lock prevents a resumed observer changing the preserved fixture.
+    # Disposable shutdown then stops that exact worker and refuses any orphan.
+    Resume-OpenWebQualificationHealth $qualificationHealthOriginal
+    $cleanupHealth=$null;Suspend-OpenWebQualificationHealth ([ref]$cleanupHealth)
+    foreach($name in 'OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate'){if(Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue){Disable-ScheduledTask -TaskName $name|Out-Null}}
     if(Get-Service OpenWebPBXUpdater -ErrorAction SilentlyContinue){Stop-Service OpenWebPBXUpdater -Force}
     if($managerOwned){foreach($process in @(OwnedManagers)){Stop-Process -Id $process.Id -Force};if(Get-ScheduledTask -TaskName $managerName -ErrorAction SilentlyContinue){Check (ManagerTaskValid) 'Cleanup refused a modified task outside the exact owned interactive contract.';Stop-ScheduledTask -TaskName $managerName;Unregister-ScheduledTask -TaskName $managerName -Confirm:$false};$managerOwned=$false}
     if($fixtureCreated){Fixture 'cleanup'|Out-Null}
