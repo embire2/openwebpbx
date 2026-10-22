@@ -10,6 +10,15 @@ class event_socket {
     public static function create():void{}
     public static function command($c):mixed{self::$commands[]=$c;return self::$reply;}
 }
+// The policy fixture deliberately supplies signalling doubles on both OSes;
+// the separate native gate proves the installed bounded ESL client/task.
+if(PHP_OS_FAMILY==='Windows'){
+ class pbx_paths {public static function state():string{$path=getenv('OPENWEB_HEALTH_TEST_STATE');if(!is_string($path)||$path==='')throw new RuntimeException('A private Windows fixture identity is required.');return $path;}}
+ class pbx_windows_health_stream {
+  public static function api(string $c):string{return event_socket::api($c);}
+  public static function recovery(string $b,string $r):bool{$reply=event_socket::command("sendevent CUSTOM\nEvent-Subclass: event_guard:phone_health_unblock\nOpenWeb-Phone-Health-Block: ".$b."\nOpenWeb-Phone-Health-Recovery: ".$r);if(is_array($reply)){if(count($reply)>8||($reply['Content-Type']??null)!=='command/reply')return false;$reply=$reply['Reply-Text']??null;}return is_string($reply)&&strlen($reply)<=1024&&preg_match('/^\+OK(?:\s|$)/D',trim($reply))===1;}
+ }
+}
 foreach(['pbx_setup','pbx_tenants','pbx_departments','pbx_staff_access','pbx_schedule','pbx_mobile_state','pbx_trunk_readiness','pbx_phone_health','pbx_phone_health_recovery']as$c)require dirname(__DIR__).'/resources/classes/'.$c.'.php';
 require dirname(__DIR__).'/app/event_guard/resources/interfaces/event_guard_interface.php';
 class health_firewall_fixture implements event_guard_interface {
@@ -21,7 +30,7 @@ class health_firewall_fixture implements event_guard_interface {
     public function block_delete_exact(string $a,string $f):bool{$this->deletes++;unset($this->rules[$f.'|'.$a]);return true;}
 }
 $race=($argv[1]??'')==='--race';$dsn=$argv[$race?2:1]??null;if(!is_string($dsn))throw new RuntimeException('Supply the isolated PostgreSQL DSN.');
-$db=new PDO($dsn,'postgres',null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+$fixturePassword=getenv('OPENWEB_HEALTH_TEST_PASSWORD');$db=new PDO($dsn,'postgres',is_string($fixturePassword)?$fixturePassword:null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
 if($race){$schema=$argv[3];if(!preg_match('/^health_[a-f0-9]{12}$/D',$schema))exit(2);$db->exec('set search_path to '.$schema);$_SESSION=json_decode(file_get_contents($argv[4]),true,8,JSON_THROW_ON_ERROR);try{(new pbx_phone_health($db))->recover($argv[5],$argv[6],true);echo 'accepted';}catch(RuntimeException){echo 'refused';}exit;}
 $schema='health_'.bin2hex(random_bytes(6));$checks=0;$tmp=[];
 $q=static function(string $s,array $a=[])use($db){$x=$db->prepare($s);$x->execute($a);return$x;};
@@ -87,6 +96,40 @@ try{
  for($i=0;$i<2;$i++){$pipes=[];$p=proc_open([PHP_BINARY,__FILE__,'--race',$dsn,$schema,$sessionFile,$raceBlock,$b['revision']],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes);fclose($pipes[0]);$children[]=[$p,$pipes];}
  $answers=[];foreach($children as[$p,$pipes]){$answers[]=stream_get_contents($pipes[1]);$err=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($p);$ok($exit===0&&$err==='','Concurrent recovery process failed');}sort($answers);$ok($answers===['accepted','refused']&&(int)$q('select count(*) from v_pbx_phone_health_recoveries where block_uuid=?',[$raceBlock])->fetchColumn()===1,'Concurrent recovery duplicated action');
  $request=$q('select * from v_pbx_phone_health_recoveries where block_uuid=?',[$raceBlock])->fetch(PDO::FETCH_ASSOC);$fw->unknown=true;$pending=pbx_phone_health_recovery::handle($db,$fw,gethostname(),$raceBlock,$request['recovery_uuid']);$ok($pending['status']==='pending'&&$q('select log_status from v_event_guard_logs where event_guard_log_uuid=?',[$raceBlock])->fetchColumn()==='blocked','Unknown firewall state falsely acknowledged');
+ if(in_array('--windows-guard-controls',$argv,true)){
+  require dirname(__DIR__).'/resources/functions.php';
+  $unavailable=pbx_phone_health::monitor($db,$empty,false);$view=$health->snapshot();$ok(!$unavailable['available']&&!$view['available']&&count(array_filter($view['issues'],fn($i)=>$i['code']==='security:unavailable'))===1,'Windows security service failure hidden from administrator');
+  $again=pbx_phone_health::monitor($db,$empty,false);$ok($again['new']===0,'Windows security service failure repeated incident');
+  pbx_phone_health::monitor($db,$empty,true);$ok((int)$q("select count(*) from v_pbx_phone_health_issues where issue_key='security:unavailable' and resolved_at is null")->fetchColumn()===0,'Recovered Windows security service left incident open');
+  require dirname(__DIR__).'/resources/classes/pbx_windows_event_guard.php';
+  class windows_health_guard_fixture extends pbx_windows_event_guard {
+   public string $raw='{"row_count":0}';
+   protected function registrations():string{return $this->raw;}
+   protected function instanceId():string{return str_repeat('a',64);}
+  }
+  $db->exec('create table v_access_control_nodes(node_cidr text,node_type text);create table v_user_logs(remote_address text,result text,timestamp timestamptz);alter table v_event_guard_logs add column user_agent text');
+  $fw->unknown=false;$guard=new windows_health_guard_fixture($db,$fw);$event=['Event-Subclass'=>'sofia::register_failure','network-ip'=>'198.51.100.50','to-user'=>'fictional-auth','to-host'=>$realm,'user-agent'=>'Fictional Phone'];
+  $logs=(int)$q('select count(*) from v_event_guard_logs')->fetchColumn();
+  foreach([['Event-Subclass'=>'event_guard:unblock'],['Event-Subclass'=>'unrelated'],array_replace($event,['network-ip'=>'bad;command']),array_replace($event,['network-ip'=>'2001:db8::1']),array_replace($event,['network-ip'=>'127.0.0.1']),array_replace($event,['to-host'=>"invalid\nhost"])]as$bad)$ok($guard->consume($bad)['status']==='ignored','Windows guard accepted malformed/legacy event');
+  $ok((int)$q('select count(*) from v_event_guard_logs')->fetchColumn()===$logs,'Ignored events wrote ledger');
+  $ok($guard->consume($event)['status']==='blocked','Windows failure detection did not create block');$ok((int)$q('select count(*) from v_event_guard_logs')->fetchColumn()===$logs+1&&isset($fw->rules['sip-auth-fail|198.51.100.50']),'Windows native block missing matching ledger');
+  $ok($guard->consume($event)['status']==='blocked'&&(int)$q('select count(*) from v_event_guard_logs')->fetchColumn()===$logs+1,'Repeated failure duplicated Windows ledger');
+  $q("insert into v_access_control_nodes values('198.51.100.51/32','allow')");$ok($guard->consume(array_replace($event,['network-ip'=>'198.51.100.51']))['status']==='allowed'&&!isset($fw->rules['sip-auth-fail|198.51.100.51']),'Explicitly allowed source blocked');
+  $q("insert into v_user_logs values('198.51.100.52','success',now())");$ok($guard->consume(array_replace($event,['network-ip'=>'198.51.100.52']))['status']==='allowed','Verified administrator source blocked');
+  $guard->raw=json_encode(['row_count'=>1,'rows'=>[$reg('auth-1000',$realm,'198.51.100.53')]]);$ok($guard->consume(array_replace($event,['network-ip'=>'198.51.100.53']))['status']==='allowed','Current registered office blocked');
+  $guard->raw='malformed';$beforeRules=$fw->rules;$no(fn()=>$guard->consume(array_replace($event,['network-ip'=>'198.51.100.54'])),'Unknown native registrations accepted for blocking');$ok($beforeRules===$fw->rules,'Unknown native state changed rules');$guard->raw='{"row_count":0}';
+  $ok($guard->consume(array_replace($event,['Event-Subclass'=>'sofia::pre_register']))['status']==='ignored','Normal domain registration treated as direct-IP attempt');
+  $ok($guard->consume(array_replace($event,['Event-Subclass'=>'sofia::pre_register','to-host'=>'192.0.2.10','network-ip'=>'198.51.100.55']))['status']==='blocked'&&isset($fw->rules['sip-auth-ip|198.51.100.55']),'Direct-IP attempt not protected');
+  $recoveryEvent=['Event-Subclass'=>'event_guard:phone_health_unblock','OpenWeb-Phone-Health-Block'=>$raceBlock,'OpenWeb-Phone-Health-Recovery'=>$request['recovery_uuid']];
+  $q('update v_pbx_phone_health_recoveries set instance_id=null where recovery_uuid=?',[$request['recovery_uuid']]);
+  $initialDeletes=$fw->deletes;$ok($guard->consume($recoveryEvent)['reason']==='different_installation'&&$fw->deletes===$initialDeletes,'Restored Debian/null-instance request replayed');
+  $q('update v_pbx_phone_health_recoveries set instance_id=? where recovery_uuid=?',[str_repeat('b',64),$request['recovery_uuid']]);$ok($guard->consume($recoveryEvent)['reason']==='different_installation'&&$fw->deletes===$initialDeletes,'Other Windows installation request replayed');
+  $q('update v_pbx_phone_health_recoveries set instance_id=? where recovery_uuid=?',[str_repeat('a',64),$request['recovery_uuid']]);unset($fw->rules['sip-auth-fail|'.$source]);$ok($guard->consume($recoveryEvent)['reason']==='native_block_not_confirmed'&&$fw->deletes===$initialDeletes,'Absent native block acknowledged restored ledger');
+  $fw->rules['sip-auth-fail|'.$source]=true;
+  $q("update v_users set user_enabled='false' where user_uuid=?",[$owner]);$ok($guard->consume($recoveryEvent)['status']==='refused'&&$fw->deletes===$initialDeletes,'Windows recovery ignored revoked actor');$q("update v_users set user_enabled='true' where user_uuid=?",[$owner]);
+  $q("update v_pbx_phone_health_recoveries set status='pending' where recovery_uuid=?",[$request['recovery_uuid']]);$ok($guard->consume($recoveryEvent)['status']==='acknowledged'&&$fw->deletes===$initialDeletes+1,'Windows exact fresh recovery did not use shared authorised handler');
+  $ok($guard->consume($recoveryEvent)['status']==='refused'&&$fw->deletes===$initialDeletes+1,'Acknowledged Windows request replayed');
+ }
  if(in_array('--native-worker',$argv,true)){
   if(posix_geteuid()!==0||readlink('/proc/self/ns/net')===readlink('/proc/1/ns/net'))throw new RuntimeException('Native worker proof requires unshare -n.');
   require dirname(__DIR__).'/resources/classes/pbx_phone_health_firewall.php';
@@ -108,5 +151,5 @@ try{
  }
  $ok($nativeBefore===$q('select * from v_extensions order by extension_uuid')->fetchAll(PDO::FETCH_ASSOC),'Phone credentials/configuration changed');$current=$q('select config from v_pbx_restore where domain_uuid=?',[$d])->fetchColumn();$ok($current===$stableConfig,'Health changed calling configuration');
  $_SESSION['user_uuid']=$otherOwner;$no(fn()=>$health->snapshot(),'Reused object accepted changed actor');$_SESSION=$ownerSession;$q("update v_pbx_tenants set enabled=false where tenant_uuid=?",[$tenant]);$no(fn()=>$health->snapshot(),'Disabled tenant accessed phone health');
- echo json_encode(['checks'=>$checks,'actual_isolated_postgresql'=>true,'two_process_recovery_race'=>true,'actual_native_worker'=>in_array('--native-worker',$argv,true),'no_customer_calls_or_host_firewall_changes'=>true],JSON_PRETTY_PRINT).PHP_EOL;
+ echo json_encode(['checks'=>$checks,'actual_isolated_postgresql'=>true,'two_process_recovery_race'=>true,'actual_native_worker'=>in_array('--native-worker',$argv,true),'windows_guard_policy'=>in_array('--windows-guard-controls',$argv,true),'no_customer_calls_or_host_firewall_changes'=>true],JSON_PRETTY_PRINT).PHP_EOL;
 }finally{if($db->inTransaction())$db->rollBack();$db->exec('set search_path to public');$db->exec('drop schema if exists '.$schema.' cascade');foreach($tmp as$p)@unlink($p);}

@@ -1,8 +1,14 @@
 <?php
 /** Execute the actual bootstrap statements on isolated PostgreSQL, never a full install. */
 if (PHP_SAPI !== 'cli' || PHP_OS_FAMILY !== 'Linux') exit(2);
-require dirname(__DIR__).'/resources/require.php';
-$db = database::new()->db;
+$isolatedDsn=$argv[1]??getenv('OPENWEB_HEALTH_TEST_DSN');
+if(is_string($isolatedDsn)&&$isolatedDsn!==''){
+    require dirname(__DIR__).'/resources/functions.php';
+    $db=new PDO($isolatedDsn,'postgres',null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+}else{
+    require dirname(__DIR__).'/resources/require.php';
+    $db = database::new()->db;
+}
 $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $source = file_get_contents(dirname(__DIR__).'/packaging/windows/bootstrap.php');
 $tokens = token_get_all($source, TOKEN_PARSE);
@@ -10,10 +16,11 @@ $hooks = [];
 foreach ($tokens as $index => $token) {
     if (!is_array($token) || $token[0] !== T_CONSTANT_ENCAPSED_STRING
         || !str_contains($token[1], '/app/pbx_setup/resources/phone_health.sql')) continue;
-    // Extract the actual complete enclosing if statement, not a copy of its SQL.
+    // Both supported operating systems now run this actual complete additive
+    // statement. Extract its PDO expression rather than a copied SQL string.
     $start = $index;
-    while ($start > 0 && (!is_array($tokens[$start]) || $tokens[$start][0] !== T_IF)) $start--;
-    if (!is_array($tokens[$start]) || $tokens[$start][0] !== T_IF) throw new RuntimeException('Missing bootstrap condition.');
+    while ($start > 0 && (!is_array($tokens[$start]) || $tokens[$start][0] !== T_VARIABLE || $tokens[$start][1] !== '$db')) $start--;
+    if (!is_array($tokens[$start]) || $tokens[$start][0] !== T_VARIABLE || $tokens[$start][1] !== '$db') throw new RuntimeException('Missing bootstrap PDO expression.');
     $statement = ''; $depth = 0; $done = false;
     for ($end = $start; $end < count($tokens); $end++) {
         $text = is_array($tokens[$end]) ? $tokens[$end][1] : $tokens[$end];

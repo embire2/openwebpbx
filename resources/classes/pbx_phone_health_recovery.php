@@ -7,13 +7,14 @@ class pbx_phone_health_recovery {
         $db->beginTransaction();try{
             $db->exec("set local lock_timeout='3s';set local statement_timeout='8s'");
             $q('select pg_advisory_xact_lock(hashtext(?))',['openweb-phone-health:'.$hostname]);
-            $r=$q('select recovery_uuid,domain_uuid,actor_uuid,block_uuid,host(source_address) source_address,status,created_at from v_pbx_phone_health_recoveries where recovery_uuid=? and block_uuid=? for update',[$recovery,$block])->fetch(PDO::FETCH_ASSOC);
+            $r=$q('select recovery_uuid,domain_uuid,actor_uuid,block_uuid,host(source_address) source_address,status,created_at,instance_id from v_pbx_phone_health_recoveries where recovery_uuid=? and block_uuid=? for update',[$recovery,$block])->fetch(PDO::FETCH_ASSOC);
             if(!$r||$r['status']!=='pending'){$db->rollBack();return ['status'=>'ignored'];}
             // The existing service consumes events serially. Row locks protect against parallel
             // web edits and a second worker; only this exact, still-blocked log may be changed.
             $log=$q('select event_guard_log_uuid,hostname,filter,ip_address,log_status from v_event_guard_logs where event_guard_log_uuid=? for update',[$block])->fetch(PDO::FETCH_ASSOC);
             $refusal=null;
             if(!$log||$log['hostname']!==$hostname||$log['filter']!=='sip-auth-fail'||$log['log_status']!=='blocked'||!filter_var($log['ip_address'],FILTER_VALIDATE_IP)||inet_pton($log['ip_address'])!==inet_pton($r['source_address']))$refusal='block_changed';
+            elseif(PHP_OS_FAMILY==='Windows'&&(!is_string($r['instance_id'])||!hash_equals(pbx_phone_health::instanceId(),$r['instance_id'])))$refusal='different_installation';
             elseif(strtotime($r['created_at'])<=time()-pbx_phone_health::COOLDOWN_SECONDS)$refusal='request_expired';
             else $refusal=pbx_phone_health::recoveryRefusal($db,$r,$log);
             if($refusal!==null){
@@ -34,6 +35,7 @@ class pbx_phone_health_recovery {
             $state=$firewall->block_state_exact($log['ip_address'],'sip-auth-fail');
             if($state==='unknown'){$db->rollBack();return ['status'=>'pending','reason'=>'exact_firewall_check_unavailable'];}
             if($state==='absent'){
+                if(PHP_OS_FAMILY==='Windows'){$db->rollBack();return ['status'=>'pending','reason'=>'native_block_not_confirmed'];}
                 // A stale database block is safe to reconcile only after the exact filter
                 // reports absence. No other firewall filter or address is modified.
                 $removed=true;

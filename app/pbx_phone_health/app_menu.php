@@ -1,5 +1,5 @@
 <?php
-if(PHP_OS_FAMILY!=='Linux')return;
+if(!in_array(PHP_OS_FAMILY,['Linux','Windows'],true))return;
 $y=0;
 $apps[$x]['menu'][$y]['title']['en-us']='Phone Health';
 $apps[$x]['menu'][$y]['title']['en-gb']='Phone Health';

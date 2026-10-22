@@ -17,8 +17,9 @@ class pbx_phone_health {
         $this->domain=(string)($_SESSION['domain_uuid']??'');
         $this->actor=(string)($_SESSION['user_uuid']??'');
     }
-    protected function engine(string $command): string {return (string)event_socket::api($command);}
+    protected function engine(string $command): string {return PHP_OS_FAMILY==='Windows'?pbx_windows_health_stream::api($command):(string)event_socket::api($command);}
     protected function dispatch(string $block,string $recovery): bool {
+        if(PHP_OS_FAMILY==='Windows')return pbx_windows_health_stream::recovery($block,$recovery);
         $cmd="sendevent CUSTOM\nEvent-Name: CUSTOM\nEvent-Subclass: event_guard:phone_health_unblock\nOpenWeb-Phone-Health-Block: ".$block."\nOpenWeb-Phone-Health-Recovery: ".$recovery."\n";
         event_socket::create();$reply=event_socket::command($cmd);
         if(is_array($reply)){
@@ -31,6 +32,14 @@ class pbx_phone_health {
     private static function on(mixed $v): bool {return filter_var($v,FILTER_VALIDATE_BOOLEAN);}
     private static function realm(mixed $v): bool {return is_string($v)&&strlen($v)<=253&&preg_match('/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/D',$v)===1&&!str_contains($v,'..');}
     private static function label(mixed $v,string $fallback): string {return is_string($v)&&mb_strlen($v)<=120&&!preg_match('/[\x00-\x1f\x7f]/',$v)?$v:$fallback;}
+    /** Per-installation Windows identity is intentionally outside server backups. */
+    public static function instanceId(): ?string {
+        if(PHP_OS_FAMILY!=='Windows')return null;
+        $file=pbx_paths::state().'/phone-health-instance.json';
+        if(!is_file($file)||is_link($file)||filesize($file)>256)throw new RuntimeException('The Windows Phone Health installation needs review.');
+        $r=json_decode(file_get_contents($file),true,4,JSON_THROW_ON_ERROR);
+        if(!is_array($r)||array_keys($r)!==['schema','instance_id']||$r['schema']!==1||!is_string($r['instance_id'])||!preg_match('/^[a-f0-9]{64}$/D',$r['instance_id']))throw new RuntimeException('The Windows Phone Health installation needs review.');return $r['instance_id'];
+    }
     public static function installed(PDO $db): bool {
         return (bool)$db->query("select to_regclass('v_pbx_phone_health_contacts') is not null and to_regclass('v_pbx_phone_health_recoveries') is not null and to_regclass('v_pbx_phone_health_issues') is not null and to_regclass('v_pbx_phone_health_settings') is not null and to_regclass('v_pbx_phone_health_state') is not null")->fetchColumn();
     }
@@ -132,7 +141,7 @@ class pbx_phone_health {
             $verified=array_filter($history,fn($h)=>$h['domain_uuid']===$this->domain&&isset($directory['extensions'][$h['extension_uuid']]));
             $restriction='';
             if(!$this->owner&&!$this->trusted)$restriction='Only the PBX owner can request an office recovery.';
-            elseif(!filter_var($source,FILTER_VALIDATE_IP,FILTER_FLAG_IPV4))$restriction='IPv6 office recovery needs an instance-administrator review. Automatic recovery currently supports the Debian IPv4 security filter.';
+            elseif(!filter_var($source,FILTER_VALIDATE_IP,FILTER_FLAG_IPV4))$restriction='IPv6 office recovery needs an instance-administrator review. Automatic recovery currently supports the managed IPv4 security filter.';
             elseif(!$verified)$restriction='No recent successful desk-phone connection proves that this office address belongs to your PBX. Ask the instance administrator to review it.';
             elseif($foreign)$restriction='This address is shared with another PBX. An instance administrator must review the affected offices.';
             elseif($r['log_status']!=='blocked'||$this->q("select 1 from v_pbx_phone_health_recoveries where block_uuid=? and status='pending'",[$r['event_guard_log_uuid']])->fetchColumn())$restriction='Recovery is waiting for the security service to confirm it.';
@@ -184,6 +193,7 @@ class pbx_phone_health {
         $visiblePhones=array_column($phones,null,'number');$visibleProviders=array_column($providers,null,'id');
         foreach($persisted as$key=>$p){
             if(isset($candidates[$key]))continue;
+            if($key==='security:unavailable'&&$p['kind']==='status_unavailable'){$issues[]=['issue_uuid'=>$p['issue_uuid'],'code'=>$key,'title'=>'Phone security observer unavailable','message'=>$p['summary'],'tone'=>$p['severity'],'first_seen'=>$p['first_seen'],'last_seen'=>$p['last_seen']];continue;}
             $extra=json_decode($p['extra'],true,32,JSON_THROW_ON_ERROR);$keep=false;
             if($p['kind']==='provider_failed')$keep=isset($visibleProviders[$extra['provider_id']??''])&&($rows===null||in_array($key,$unknown,true));
             elseif(in_array($p['kind'],['phone_offline','phone_unavailable'],true))$keep=$rows===null&&isset($visiblePhones[$extra['number']??'']);
@@ -230,7 +240,7 @@ class pbx_phone_health {
             $chosen=null;foreach($this->blocks($c,self::directory($this->db))as$b)if($b['block_uuid']===$blockUuid)$chosen=$b;
             if(!$chosen||!hash_equals($chosen['revision'],$revision))throw new RuntimeException('This office block changed. Refresh before requesting recovery.');
             if(!$chosen['can_recover'])throw new RuntimeException($chosen['restriction']);
-            $this->q("insert into v_pbx_phone_health_recoveries(recovery_uuid,domain_uuid,actor_uuid,block_uuid,source_address,status) values(?,?,?,?,?::inet,'pending')",[$recovery,$this->domain,$this->actor,$blockUuid,$chosen['source_address']]);
+            $this->q("insert into v_pbx_phone_health_recoveries(recovery_uuid,domain_uuid,actor_uuid,block_uuid,source_address,status,instance_id) values(?,?,?,?,?::inet,'pending',?)",[$recovery,$this->domain,$this->actor,$blockUuid,$chosen['source_address'],self::instanceId()]);
             // Keep the legacy ledger blocked. Legacy unblock events must never consume this request.
             $this->scope->audit('phone_health_recovery',$blockUuid,'pending');$this->db->commit();
         }catch(Throwable$e){if($this->db->inTransaction())$this->db->rollBack();throw$e;}
@@ -262,19 +272,20 @@ class pbx_phone_health {
         return null;
     }
     /** Local service scan. Unknown engine state never resolves existing phone incidents. */
-    public static function monitor(PDO $db,?string $registrationsJson): array {
+    public static function monitor(PDO $db,?string $registrationsJson,bool $securityAvailable=true): array {
         if(PHP_SAPI!=='cli')throw new RuntimeException('Phone monitoring is a local service operation.');
         if(!self::installed($db))throw new RuntimeException('Phone Health is not installed.');
         $rows=null;$contacts=0;
         if($registrationsJson!==null)try{$rows=self::registrations($registrationsJson);$contacts=self::collect($db,$registrationsJson)['observed_contacts'];}catch(Throwable){$rows=null;}
-        $directory=self::directory($db);$stats=['observed_contacts'=>$contacts,'checked_domains'=>0,'open'=>0,'new'=>0,'resolved'=>0,'queued'=>0,'available'=>$rows!==null];
+        $directory=self::directory($db);$stats=['observed_contacts'=>$contacts,'checked_domains'=>0,'open'=>0,'new'=>0,'resolved'=>0,'queued'=>0,'available'=>$rows!==null&&$securityAvailable];
         foreach($directory['domains']as$d=>$entry){
             $self=new self($db);$self->trusted=true;$self->owner=true;$self->domain=$d;$c=$entry['config'];
             $built=$self->build($c,$rows,$directory);$current=$built['_candidates'];$unknown=$built['_unknown_keys'];
             if($rows===null)$current['monitor:unavailable']=['kind'=>'status_unavailable','severity'=>'danger','summary'=>'Live phone status is unavailable. Existing incidents remain open.','extra'=>[]];
+            if(!$securityAvailable)$current['security:unavailable']=['kind'=>'status_unavailable','severity'=>'danger','summary'=>'The managed phone security observer or Windows Defender Firewall is unavailable. Existing security rules are retained; automatic office recovery is not ready.','extra'=>[]];
             $db->beginTransaction();try{
                 $self->q('select pg_advisory_xact_lock(hashtext(?))',['openweb-phone-health-scan:'.$d]);
-                $self->q('insert into v_pbx_phone_health_state(domain_uuid,checked_at,available,detail) values(?,now(),?::boolean,?) on conflict(domain_uuid) do update set checked_at=excluded.checked_at,available=excluded.available,detail=excluded.detail',[$d,$rows===null?'false':'true',$rows===null?'Phone status unavailable':'Checked']);
+                $self->q('insert into v_pbx_phone_health_state(domain_uuid,checked_at,available,detail) values(?,now(),?::boolean,?) on conflict(domain_uuid) do update set checked_at=excluded.checked_at,available=excluded.available,detail=excluded.detail',[$d,$rows===null||!$securityAvailable?'false':'true',$rows===null?'Phone status unavailable':(!$securityAvailable?'Phone security observer unavailable':'Checked')]);
                 $existing=[];foreach($self->q('select * from v_pbx_phone_health_issues where domain_uuid=? for update',[$d])->fetchAll(PDO::FETCH_ASSOC)as$issue)$existing[$issue['issue_key']]=$issue;
                 foreach($current as$key=>$v){
                     // Malformed/unavailable engine status is not evidence that an enabled phone failed.

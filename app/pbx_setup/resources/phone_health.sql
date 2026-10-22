@@ -12,8 +12,10 @@ CREATE TABLE IF NOT EXISTS v_pbx_phone_health_recoveries (
  recovery_uuid uuid PRIMARY KEY, domain_uuid uuid NOT NULL REFERENCES v_domains(domain_uuid) ON DELETE CASCADE,
  actor_uuid uuid NOT NULL, block_uuid uuid NOT NULL, source_address inet NOT NULL,
  status text NOT NULL CHECK(status IN ('pending','acknowledged','refused','dispatch_failed')),
- created_at timestamptz NOT NULL DEFAULT now(), acknowledged_at timestamptz
+ created_at timestamptz NOT NULL DEFAULT now(), acknowledged_at timestamptz,
+ instance_id text
 );
+ALTER TABLE v_pbx_phone_health_recoveries ADD COLUMN IF NOT EXISTS instance_id text;
 CREATE INDEX IF NOT EXISTS openweb_phone_health_recovery_source ON v_pbx_phone_health_recoveries(source_address,created_at);
 CREATE TABLE IF NOT EXISTS v_pbx_phone_health_issues (
  issue_uuid uuid NOT NULL UNIQUE, domain_uuid uuid NOT NULL REFERENCES v_domains(domain_uuid) ON DELETE CASCADE,

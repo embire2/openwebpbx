@@ -1,7 +1,7 @@
 <?php
 require_once dirname(__DIR__,2).'/resources/require.php';
 require_once PROJECT_ROOT.'/resources/check_auth.php';
-if(PHP_OS_FAMILY!=='Linux'){http_response_code(501);exit('Phone Health is available on Debian. Windows Server support is planned.');}
+if(!in_array(PHP_OS_FAMILY,['Linux','Windows'],true)){http_response_code(501);exit('Phone Health requires a supported OpenWeb PBX server.');}
 header('Cache-Control: no-store');header('Referrer-Policy: no-referrer');
 try {pbx_admin::openPreferred();$health=new pbx_phone_health;$health->alertSettings();}
 catch(Throwable){http_response_code(403);exit('Administrator access required.');}

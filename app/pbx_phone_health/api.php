@@ -2,7 +2,7 @@
 /** Session-owned PBX only. Recovery always requires a fresh token and explicit confirmation. */
 require_once dirname(__DIR__,2).'/resources/require.php';
 require_once PROJECT_ROOT.'/resources/check_auth.php';
-if(PHP_OS_FAMILY!=='Linux'){http_response_code(501);header('Content-Type: application/json');header('Cache-Control: no-store');echo json_encode(['error'=>'Phone Health is available on Debian. Windows Server support is planned.']);exit;}
+if(!in_array(PHP_OS_FAMILY,['Linux','Windows'],true)){http_response_code(501);header('Content-Type: application/json');header('Cache-Control: no-store');echo json_encode(['error'=>'Phone Health requires a supported OpenWeb PBX server.']);exit;}
 header('Content-Type: application/json');header('Cache-Control: no-store');header('Referrer-Policy: no-referrer');header('X-Content-Type-Options: nosniff');
 $method=$_SERVER['REQUEST_METHOD']??'GET';
 if(!in_array($method,['GET','POST'],true)){http_response_code(405);header('Allow: GET, POST');echo json_encode(['error'=>'Use GET or POST.']);exit;}
