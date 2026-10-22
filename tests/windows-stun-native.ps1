@@ -12,7 +12,7 @@ $installed=Read-OpenWebPublicJson (Join-Path $state 'installation.json');if(!$in
 $manifest=Get-Content (Join-Path $PackageRoot 'release-manifest.json') -Raw|ConvertFrom-Json
 if((Get-FileHash $helper).Hash.ToLowerInvariant() -cne $manifest.files.'Enable-Stun.ps1'){throw 'The installed STUN helper differs from the complete candidate.'}
 $work=Join-Path $state ('stun-native-qualification\'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Path $work -Force|Out-Null;Set-OpenWebPublicPrivateAcl $work
-$facts=[ordered]@{schema=1;state='running';case='native_windows_stun_setup_udp_recovery';checks=0;actual_native=$true;modern_binding=$false;legacy_binding=$false;turn_refused=$false;idempotent=$false;late_rule_failure_recovered=$false;cleanup_exact=$false;call_engine_preserved=$false;stun_default_restored=$false;external_firewall_reachability='unqualified';phase='preflight'}
+$facts=[ordered]@{schema=1;state='running';case='native_windows_stun_setup_udp_recovery';checks=0;actual_native=$true;modern_binding=$false;legacy_binding=$false;turn_refused=$false;idempotent=$false;late_rule_failure_recovered=$false;cleanup_exact=$false;call_engine_preserved=$false;stun_default_restored=$false;firewall_policy_exact=$false;external_firewall_reachability='unqualified';phase='preflight'}
 $script:checks=0;$lock=$null;$started=$false;$beforeService=$null;$beforeEngine=$null;$known=[Collections.Generic.List[string]]::new();$phase='preflight';$primary=$null
 function Check([bool]$Value){if(!$Value){throw ('Native STUN assertion failed at '+(Get-PSCallStack)[1].ScriptLineNumber)};$script:checks++}
 function WaitDefaultStun {
@@ -35,6 +35,14 @@ function Probe([byte[]]$Request,[bool]$Modern){
  if($Modern){Check (((([int]$reply[38] -shl 8) -bor $reply[39]) -bxor 0x2112) -eq $port);$bytes=New-Object byte[] 4;for($i=0;$i -lt 4;$i++){$bytes[$i]=$reply[40+$i] -bxor $Request[4+$i]};Check ([Net.IPAddress]::new($bytes).ToString() -ceq $address)}
  }finally{$client.Dispose()}
 }
+function FirewallPolicy {
+ $result=[ordered]@{}
+ foreach($command in 'Get-NetFirewallRule','Get-NetFirewallAddressFilter','Get-NetFirewallPortFilter','Get-NetFirewallApplicationFilter','Get-NetFirewallServiceFilter','Get-NetFirewallInterfaceFilter','Get-NetFirewallInterfaceTypeFilter','Get-NetFirewallSecurityFilter','Get-NetFirewallProfile'){
+  $rows=@(& $command -PolicyStore PersistentStore -ErrorAction Stop|ForEach-Object {$item=[ordered]@{};foreach($property in $_.CimInstanceProperties|Sort-Object Name){$item[$property.Name]=$property.Value};[pscustomobject]$item}|Sort-Object InstanceID,Name)
+  $result[$command]=$rows
+ }
+ return ($result|ConvertTo-Json -Depth 16 -Compress)
+}
 function RestoreTransactions {
  foreach($directory in @(Get-ChildItem -LiteralPath $base -Directory -ErrorAction SilentlyContinue)){
   if($directory.Name -cnotmatch '^[a-f0-9]{32}$'){throw 'A foreign STUN recovery directory appeared.'}
@@ -49,7 +57,7 @@ try{
  $beforeService=Get-OpenWebStunService $exe;$beforeEngine=Get-CimInstance Win32_Service -Filter "Name='FreeSWITCH'";Check ($beforeService.state -ceq 'Running' -and $beforeEngine.State -ceq 'Running')
  $address=@(Get-NetIPAddress -AddressFamily IPv4|Where-Object {$_.AddressState -eq 'Preferred' -and $_.IPAddress -notmatch '^(127\.|169\.254\.|0\.)'}|Select-Object -ExpandProperty IPAddress|Sort-Object)[0];Check (![string]::IsNullOrEmpty($address))
  Check (!(Get-OpenWebStunRule @($address) $exe).exists)
- $profilesBefore=@(Get-NetFirewallProfile|Sort-Object Name|Select-Object Name,Enabled|ConvertTo-Json -Compress)
+ $policyBefore=FirewallPolicy
  $rulesBefore=@(Get-NetFirewallRule -PolicyStore ActiveStore -ErrorAction Stop|Sort-Object Name|Select-Object Name,Description,Group,Enabled,Direction,Action,Profile|ConvertTo-Json -Depth 4 -Compress)
  $lock=[IO.File]::Open((Join-Path $state 'upgrade.lock'),'OpenOrCreate','ReadWrite','None');$started=$true
  $phase='activation';InvokeHelper;Check ((Invoke-RestMethod 'http://127.0.0.1:8087/health' -TimeoutSec 3).stun -ceq 'Running')
@@ -79,7 +87,7 @@ finally{
    WaitDefaultStun;$facts.stun_default_restored=$true
    $afterService=Get-OpenWebStunService $exe;Assert-OpenWebStunServiceIdentity $beforeService $afterService;Check ($afterService.state -ceq 'Running')
    $afterEngine=Get-CimInstance Win32_Service -Filter "Name='FreeSWITCH'";Check ($afterEngine.State -ceq 'Running' -and $afterEngine.ProcessId -eq $beforeEngine.ProcessId);$facts.call_engine_preserved=$true
-   Check ((@(Get-NetFirewallProfile|Sort-Object Name|Select-Object Name,Enabled|ConvertTo-Json -Compress) -join '') -ceq ($profilesBefore -join ''))
+   Check ((FirewallPolicy) -ceq $policyBefore);$facts.firewall_policy_exact=$true
    Check ((@(Get-NetFirewallRule -PolicyStore ActiveStore -ErrorAction Stop|Sort-Object Name|Select-Object Name,Description,Group,Enabled,Direction,Action,Profile|ConvertTo-Json -Depth 4 -Compress) -join '') -ceq ($rulesBefore -join ''))
    foreach($name in $known){$dir=Join-Path $base $name;Check ((Read-OpenWebStunJournal $dir $exe).state -ceq 'recovered');Copy-Item -LiteralPath $dir -Destination (Join-Path $work $name) -Recurse;foreach($entry in Get-ChildItem -LiteralPath $dir -Recurse -Force){$null=Assert-OpenWebOrdinaryPath $entry.FullName $entry.PSIsContainer};Remove-Item -LiteralPath $dir -Recurse -Force}
    Check (@(Get-ChildItem -LiteralPath $base -Force).Count -eq 0);Remove-Item -LiteralPath $base;Check (!(Test-Path $base));$facts.cleanup_exact=$true

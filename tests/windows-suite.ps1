@@ -1094,12 +1094,12 @@ function StunHook {
   }finally{$process.Dispose()}
   $report=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json
   if(!$report -or $report.schema -ne 1 -or $report.state -cne 'passed' -or $report.case -cne 'native_windows_stun_setup_udp_recovery' -or ($report.checks -isnot [int] -and $report.checks -isnot [long]) -or $report.checks -lt 20 -or $report.checks -gt 1000 -or $report.external_firewall_reachability -cne 'unqualified'){throw 'The native STUN setup evidence is incomplete.'}
-  foreach($name in 'actual_native','modern_binding','legacy_binding','turn_refused','idempotent','late_rule_failure_recovered','cleanup_exact','call_engine_preserved','stun_default_restored'){if($report.$name -isnot [bool] -or !$report.$name){throw 'Real Windows STUN, UDP, recovery and exact cleanup must pass.'}}
+  foreach($name in 'actual_native','modern_binding','legacy_binding','turn_refused','idempotent','late_rule_failure_recovered','cleanup_exact','call_engine_preserved','stun_default_restored','firewall_policy_exact'){if($report.$name -isnot [bool] -or !$report.$name){throw 'Real Windows STUN, UDP, recovery and exact cleanup must pass.'}}
   $facts.gates.stun='passed';$facts.checks+=('Actual Windows STUN native service/firewall, modern/legacy decoded UDP, TURN refusal, idempotence and late-failure recovery: '+$report.checks)
  }catch{
   if(Test-Path -LiteralPath $reportPath){
    try{$r=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json;$safe=@{}
-    foreach($name in 'actual_native','modern_binding','legacy_binding','turn_refused','idempotent','late_rule_failure_recovered','cleanup_exact','call_engine_preserved','stun_default_restored'){if($r.$name -is [bool]){$safe[$name]=$r.$name}}
+    foreach($name in 'actual_native','modern_binding','legacy_binding','turn_refused','idempotent','late_rule_failure_recovered','cleanup_exact','call_engine_preserved','stun_default_restored','firewall_policy_exact'){if($r.$name -is [bool]){$safe[$name]=$r.$name}}
     foreach($name in 'checks','source_line','cleanup_source_line'){$v=$r.$name;if(($v -is [int] -or $v -is [long]) -and $v -ge 0 -and $v -lt 100000){$safe[$name]=$v}}
     if($r.phase -is [string] -and $r.phase -cin 'preflight','activation','modern_udp','legacy_udp','turn_refusal','idempotence','rollback','late_rule_failure'){$safe.phase=$r.phase};$facts.stun_failure=$safe
    }catch{}
