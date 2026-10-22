@@ -7,9 +7,9 @@ function Parse([string]$Path){$tokens=$null;$errors=$null;$value=[Management.Aut
 $wrapper=Parse (Join-Path $SourceRoot 'tests/windows-upgrade-recovery-qualification.ps1');$suite=Parse (Join-Path $SourceRoot 'tests/windows-suite.ps1')
 foreach($pair in @(@($wrapper,'Read-UpgradeRecoveryQualificationOutput'),@($suite,'Read-UpgradeRecoveryQualificationReport'))){$functions=@($pair[0].FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $pair[1]},$true));Check ($functions.Count -eq 1);Invoke-Expression $functions[0].Extent.Text}
 $integration='PASS 64 actual upgrade journal, active-runtime preservation, seal/publication/finalization order and conservative unknown-shape controls'
-$native='PASS 141 actual native private recovery bundle/config/ACL/lock/tamper, original choice, complete dependency and before/after handoff interruption controls; actual configured .NET boot=True; updater version=1.0.20'
+$native='PASS 202 actual native private recovery bundle/config/ACL/lock/tamper, original choice, complete dependency and before/after handoff interruption controls; actual configured .NET boot=True; updater version=1.0.20'
 Check ((Read-UpgradeRecoveryQualificationOutput @($integration) $true 'integration' '') -eq 64)
-Check ((Read-UpgradeRecoveryQualificationOutput @($native) $true 'native' '1.0.20') -eq 141)
+Check ((Read-UpgradeRecoveryQualificationOutput @($native) $true 'native' '1.0.20') -eq 202)
 foreach($pair in @(@('integration',$integration),@('native',$native))){
  $kind=$pair[0];$output=$pair[1]
  Refuses {Read-UpgradeRecoveryQualificationOutput @($output) $false $kind '1.0.20'}
@@ -18,7 +18,7 @@ foreach($pair in @(@('integration',$integration),@('native',$native))){
 }
 foreach($boot in 'False','true','1',''){$bad=$native.Replace('boot=True',('boot='+$boot));Refuses {Read-UpgradeRecoveryQualificationOutput @($bad) $true 'native' '1.0.20'}}
 foreach($version in '1.0.6','1.0.20.0','1.0.21','PRIVATE',''){$bad=$native.Replace('version=1.0.20',('version='+$version));Refuses {Read-UpgradeRecoveryQualificationOutput @($bad) $true 'native' '1.0.20'}}
-function Report {return [pscustomobject]@{schema=1;producer='windows-upgrade-recovery-qualification.ps1';state='passed';actual_native_windows=$true;actual_configured_updater_boot=$true;integration_checks=64;native_checks=141;updater_version='1.0.20';updater_scope='candidate_component';installed_server_changed=$false;private='PRIVATE'}}
+function Report {return [pscustomobject]@{schema=1;producer='windows-upgrade-recovery-qualification.ps1';state='passed';actual_native_windows=$true;actual_configured_updater_boot=$true;integration_checks=64;native_checks=202;updater_version='1.0.20';updater_scope='candidate_component';installed_server_changed=$false;private='PRIVATE'}}
 $safe=Read-UpgradeRecoveryQualificationReport (Report) '1.0.20';Check ($safe.Count -eq 8 -and $safe.actual_configured_updater_boot -and $safe.updater_scope -ceq 'candidate_component' -and !$safe.installed_server_changed);Check (($safe|ConvertTo-Json -Compress) -cnotmatch 'PRIVATE|producer|schema')
 foreach($field in 'producer','state','updater_version','updater_scope'){
  foreach($bad in $null,@((Report).$field),@{},1,$true,'PRIVATE'){$row=Report;$row.$field=$bad;Refuses {Read-UpgradeRecoveryQualificationReport $row '1.0.20'}}
@@ -28,7 +28,7 @@ foreach($field in 'actual_native_windows','actual_configured_updater_boot','inst
  foreach($bad in $null,'true',1,@($true),@{}){$row=Report;$row.$field=$bad;Refuses {Read-UpgradeRecoveryQualificationReport $row '1.0.20'}}
  $row=Report;$row.$field=if($field -ceq 'installed_server_changed'){$true}else{$false};Refuses {Read-UpgradeRecoveryQualificationReport $row '1.0.20'}
 }
-foreach($pair in @(@('integration_checks',64),@('native_checks',141))){foreach($bad in $null,'141',$true,1.5,@(141),@{},0,($pair[1]-1),100001){$row=Report;$row.($pair[0])=$bad;Refuses {Read-UpgradeRecoveryQualificationReport $row '1.0.20'}}}
+foreach($pair in @(@('integration_checks',64),@('native_checks',202))){foreach($bad in $null,'202',$true,1.5,@(202),@{},0,($pair[1]-1),100001){$row=Report;$row.($pair[0])=$bad;Refuses {Read-UpgradeRecoveryQualificationReport $row '1.0.20'}}}
 foreach($bad in $null,@(),@((Report),(Report)),'PRIVATE'){Refuses {Read-UpgradeRecoveryQualificationReport $bad '1.0.20'}}
 Refuses {Read-UpgradeRecoveryQualificationReport (Report) '1.0.21'}
 Refuses {Read-UpgradeRecoveryQualificationReport (Report) 'PRIVATE'}

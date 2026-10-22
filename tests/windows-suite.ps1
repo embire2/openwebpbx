@@ -1202,7 +1202,7 @@ function Read-UpgradeRecoveryQualificationReport($Record,[string]$ExpectedVersio
  foreach($entry in @(@('producer','windows-upgrade-recovery-qualification.ps1'),@('state','passed'),@('updater_version',$ExpectedVersion),@('updater_scope','candidate_component'))){if($Record.($entry[0]) -isnot [string] -or $Record.($entry[0]) -cne $entry[1]){throw 'The native recovery proof has an invalid scope or version.'}}
  foreach($field in 'actual_native_windows','actual_configured_updater_boot'){if($Record.$field -isnot [bool] -or !$Record.$field){throw 'The actual native recovery proof is incomplete.'}}
  if($Record.installed_server_changed -isnot [bool] -or $Record.installed_server_changed){throw 'The native recovery proof changed the installed server.'}
- foreach($limit in @(@('integration_checks',64),@('native_checks',141))){$value=$Record.($limit[0]);if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt $limit[1] -or $value -gt 100000){throw 'The native recovery proof count is incomplete.'}}
+ foreach($limit in @(@('integration_checks',64),@('native_checks',202))){$value=$Record.($limit[0]);if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt $limit[1] -or $value -gt 100000){throw 'The native recovery proof count is incomplete.'}}
  return @{state='passed';actual_native_windows=$true;actual_configured_updater_boot=$true;updater_scope='candidate_component';updater_version=$Record.updater_version;integration_checks=$Record.integration_checks;native_checks=$Record.native_checks;installed_server_changed=$false}
 }
 function UpgradeRecoveryQualificationHook {

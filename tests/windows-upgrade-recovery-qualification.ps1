@@ -12,7 +12,7 @@ function Read-UpgradeRecoveryQualificationOutput([object[]]$Output,[bool]$Succee
  if($Kind -cne 'native' -or $ExpectedVersion -cnotmatch '^\d+\.\d+\.\d+$'){throw 'An exact recovery component and candidate version are required.'}
  if($Output[0] -cnotmatch '^PASS ([1-9][0-9]{0,5}) actual native private recovery bundle/config/ACL/lock/tamper, original choice, complete dependency and before/after handoff interruption controls; actual configured \.NET boot=True; updater version=(\d+\.\d+\.\d+)$'){throw 'The actual native recovery controls are incomplete.'}
  $count=[int]$Matches[1];$version=$Matches[2]
- if($count -lt 141 -or $count -gt 100000 -or $version -cne $ExpectedVersion){throw 'The exact candidate recovery matrix is incomplete.'};return $count
+ if($count -lt 202 -or $count -gt 100000 -or $version -cne $ExpectedVersion){throw 'The exact candidate recovery matrix is incomplete.'};return $count
 }
 $stage='integration';$work=Split-Path $ReportPath
 try{
