@@ -22,6 +22,13 @@ import xml.etree.ElementTree as ET
 
 TOOLS={'psql','pg_dump','pg_restore','ssh-keygen','sftp','powershell','unknown'}
 PHASES={'before_upload','upload','after_upload'}
+WORKFLOW_REFS={
+    'embire2/openwebpbx/.github/workflows/windows-suite.yml@refs/heads/customization',
+    'embire2/openwebpbx/.github/workflows/windows-backups-diagnostics.yml@refs/heads/customization',
+    # Root-approved immutable568 replay only. Foreign branches remain refused;
+    # this QA permission does not make its diagnostic facts release eligible.
+    'embire2/openwebpbx/.github/workflows/windows-suite.yml@refs/heads/windows120-568-diagnostics-20261022',
+}
 CLASSES={'database_invalid_encoding','database_client_encoding','database_permission','database_connection',
     'database_syntax','ssh_private_key_permissions','ssh_private_key_format','ssh_private_key_unreadable',
     'ssh_host_key','ssh_authentication','ssh_connection','ssh_remote_path','unknown'}
@@ -440,7 +447,7 @@ def validated_config(path):
     if (type(config.get('schema')) is not int or config['schema']!=1 or config.get('disposable_hosted_runner') is not True or
         config.get('hostname')!=socket.gethostname() or not re.fullmatch('[0-9]+',str(config.get('run_id',''))) or
         not re.fullmatch('[a-f0-9]{40}',str(config.get('source_commit',''))) or config.get('repository')!='embire2/openwebpbx' or
-        not re.fullmatch(r'embire2/openwebpbx/\.github/workflows/windows-(?:suite|backups-diagnostics)\.yml@refs/heads/customization',str(config.get('workflow_ref',''))) or
+        type(config.get('workflow_ref')) is not str or config['workflow_ref'] not in WORKFLOW_REFS or
         not re.fullmatch('[a-f0-9]{64}',str(config.get('source_sha256',''))) or not re.fullmatch('[a-f0-9]{64}',str(config.get('launcher_sha256','')))):
         raise RuntimeError('Disposable worker observation binding refused.')
     if hashlib.sha256(ordinary(Path(__file__)).read_bytes()).hexdigest()!=config['launcher_sha256']:
