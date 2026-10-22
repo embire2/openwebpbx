@@ -163,6 +163,18 @@ System32. Root independently verifies all1,110 hash-listed members and71 native
 source inputs. That exact new native build is the next combined package input;
 a manager window alone does not qualify PBX calling or migration.
 
+Normal run39864760800 at85dfe6525 combines the new manager, revised Health
+preservation checks,202 native recovery-entry controls and corrected local
+fictional-provider endpoints. It remains ineligible for owner migration or
+publication: a subsequent16-control native reproduction proves a later boot
+window in updater service selection. A running new updater can survive the
+recovery mirror even when robocopy reports accepted exit3. After stopping that
+owned fixture process, the same mirror restores the exact old inventory.
+Service selection must move after the durable commit, completed transactions
+must finish selection safely after a restart, and recovery must verify its
+actual result. The corrected runtime requires a rebuilt full archive; individual
+passing gates from85 remain useful evidence only.
+
 Publishing Windows must retain the exact currently published Android18 and
 Debian16 signed feeds. Their public bytes and signatures have been independently
 verified; no new Windows release or public feed has been published during this
