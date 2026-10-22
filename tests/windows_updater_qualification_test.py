@@ -69,10 +69,9 @@ class PacketChecks(unittest.TestCase):
         self.assertNotEqual(checked['fault']['sha256'], checked['normal']['sha256'])
 
     def test_explicit_20_to_21_retains_signatures_and_exact_asset_boundary(self):
-        self.facts['gates']['meeting_transport']='passed'
-        self.facts['gates']['meeting_browser']='passed'
-        self.facts['gates']['tenant_domains']='passed'
-        self.facts['gates']['web_readiness']='passed'
+        modern=('web_readiness','tenant_domains','meeting_transport','meeting_browser',
+                'phone_health','stun','native_clock','native_providers','native_call_me_back')
+        self.facts['gates'].update({gate:'passed' for gate in modern})
         self.provenance.update(base_version='1.0.20', target_version='1.0.21')
         for mode in ('fault','normal'):
             def newer(payload):
@@ -84,16 +83,22 @@ class PacketChecks(unittest.TestCase):
         checked=fixture.verify_packets(self.packet,self.facts,self.provenance,self.archives,self.public,
             now=self.now,base_version='1.0.20',target_version='1.0.21')
         self.assertEqual(len(checked),2)
-        self.facts['gates']['web_readiness']='unqualified'
-        with self.assertRaises(ValueError):
-            fixture.verify_packets(self.packet,self.facts,self.provenance,self.archives,self.public,
-                now=self.now,base_version='1.0.20',target_version='1.0.21')
-        self.facts['gates']['web_readiness']='passed'
-        self.facts['gates']['tenant_domains']='unqualified'
-        with self.assertRaisesRegex(ValueError,'tenant addresses'):
-            fixture.verify_packets(self.packet,self.facts,self.provenance,self.archives,self.public,
-                now=self.now,base_version='1.0.20',target_version='1.0.21')
-        self.facts['gates']['tenant_domains']='passed'
+        # Exercise the actual cryptographic packet verifier. No truthy, partial,
+        # omitted or differently cased status may qualify any current gate.
+        for gate in modern:
+            for bad in (None, True, False, 0, 1, [], {}, 'Passed', 'passed ', 'partial', 'running', 'unqualified'):
+                with self.subTest(gate=gate,status=bad):
+                    self.facts['gates'][gate]=bad
+                    with self.assertRaisesRegex(ValueError,'tenant addresses'):
+                        fixture.verify_packets(self.packet,self.facts,self.provenance,self.archives,self.public,
+                            now=self.now,base_version='1.0.20',target_version='1.0.21')
+            del self.facts['gates'][gate]
+            with self.subTest(gate=gate,status='missing'), self.assertRaises(ValueError):
+                fixture.verify_packets(self.packet,self.facts,self.provenance,self.archives,self.public,
+                    now=self.now,base_version='1.0.20',target_version='1.0.21')
+            self.facts['gates'][gate]='passed'
+        self.assertEqual(len(fixture.verify_packets(self.packet,self.facts,self.provenance,self.archives,self.public,
+            now=self.now,base_version='1.0.20',target_version='1.0.21')),2)
         with self.assertRaises(ValueError):
             self.verify()
         self.provenance['target_version']='1.0.22'

@@ -89,8 +89,8 @@ def verify_packets(packet, base_facts, provenance, archives, public_key, *, now=
         raise ValueError('The reviewed baseline identity differs.')
     if any(base_facts.get('gates', {}).get(gate) != 'passed' for gate in ESSENTIAL_GATES) or base_facts.get('state') not in ('passed', 'partial'):
         raise ValueError('The real 1.0.13 baseline has not passed its required gates.')
-    if tuple(map(int,base_version.split('.'))) >= (1,0,20) and any(base_facts.get('gates',{}).get(gate) != 'passed' for gate in ('web_readiness','tenant_domains','meeting_transport','meeting_browser')):
-        raise ValueError('The current Windows tenant addresses, meeting transport and actual browser media must also be qualified.')
+    if tuple(map(int,base_version.split('.'))) >= (1,0,20) and any(base_facts.get('gates',{}).get(gate) != 'passed' for gate in ('web_readiness','tenant_domains','meeting_transport','meeting_browser','phone_health','stun','native_clock','native_providers','native_call_me_back')):
+        raise ValueError('The current Windows tenant addresses, web, meeting, phone health, STUN, clock, provider and callback gates must all be qualified.')
     if provenance.get('source_commit') != base_facts['source_commit'] or provenance.get('base_archive_sha256') != packet.get('base_archive_sha256'):
         raise ValueError('Reviewed canary provenance differs from the baseline.')
     key = serialization.load_pem_public_key(Path(public_key).read_bytes())
