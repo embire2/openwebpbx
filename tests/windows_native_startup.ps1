@@ -9,9 +9,10 @@ $ast=[Management.Automation.Language.Parser]::ParseFile($source,[ref]$tokens,[re
 if($errors.Count){throw 'Suite source does not parse.'}
 $function=$ast.Find({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'NativeStartupFailure'},$true)
 if(!$function){throw 'Native startup observer missing.'}
+foreach($name in 'SafeNativeMeetingRuntimeFields','NativeMeetingLogCategories'){$helper=$ast.Find({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name},$true);if(!$helper){throw 'Native media helper missing.'};Invoke-Expression $helper.Extent.Text}
 Invoke-Expression $function.Extent.Text
 $failureFunction=$ast.Find({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'SafeFailureFields'},$true)
-if(!$failureFunction){throw 'Caller failure filter missing.'};Invoke-Expression $failureFunction.Extent.Text
+if(!$failureFunction){throw 'Caller failure filter missing.'};foreach($name in 'SafeQueueFailureFields','SafeVoicemailFailureFields','SafeMailboxFailureFields','SafeHotelFailureFields','SafeSmtpFailureFields','SafeMeetingOwnerPageFields','SafeMeetingMediaFields','SafeMeetingSignalingFields','SafeMeetingPathFields','SafeNativeCleanupFields'){$helper=$ast.Find({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name},$true);if(!$helper){throw 'Failure projection dependency missing.'};Invoke-Expression $helper.Extent.Text};Invoke-Expression $failureFunction.Extent.Text
 $private=Join-Path ([IO.Path]::GetTempPath()) ('openweb-startup-test-'+[Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $private|Out-Null
 $state=$private;$started=[DateTime]::UtcNow

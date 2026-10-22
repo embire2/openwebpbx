@@ -285,7 +285,7 @@ function SafeMeetingSignalingFields($Record){
  $media=$Record.meeting_signaling
  $keys=if($media -is [Collections.IDictionary]){@($media.Keys)}elseif($media -is [pscustomobject]){@($media.PSObject.Properties|ForEach-Object Name)}else{return $safe}
  if($keys.Count -ne 2 -or @($keys|Where-Object {$_ -cnotin 'host','guest'}).Count){return $safe}
- $booleans=@('observed','endpoint_match','counts_capped','local_description','remote_description','admit_ok')
+ $booleans=@('observed','endpoint_match','counts_capped','local_description','remote_description','admit_ok','offer_observed','offer_audio_secure','offer_video_secure','offer_pcmu','offer_pcma','offer_opus','offer_vp8','offer_sha256_fingerprint','offer_ice_ufrag','offer_ice_pwd','offer_rtcp_mux','offer_bundle','offer_connection')
  $counts=@('ws_observed','ws_closed','ws_errors','sent_register','sent_invite','admit_requests','admit_responses','status_requests','status_responses','http_failures','api_json_failures')
  $http=@('admit_http_status','status_http_status')
  $enums=@{signaling_state=@('stable','have-local-offer','have-remote-offer','have-local-pranswer','have-remote-pranswer','closed','unavailable');ice_gathering_state=@('new','gathering','complete','unavailable');member_state=@('waiting','admitted','left','removed','unavailable','other')}
@@ -442,6 +442,47 @@ function SafeFailureFields($Record){
  foreach($entry in (SafeNativeCleanupFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  return $safe
 }
+function SafeNativeMeetingRuntimeFields($Record){
+ if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1){return @{}}
+ $specs=@{modules=@('sofia','conference','hash','vpx','opus');codecs=@('query_valid','pcmu','pcma','vp8','opus');profile=@('query_valid','loopback_signalling','pcmu','pcma','vp8');dtls_certificate=@('observed','ordinary_file','certificate_parsed','private_key_parsed','key_matches','current_validity','rsa_at_least_4096','sha256_fingerprint')}
+ $top=@('schema','read_only','observed','certificate_directory_owned')+@($specs.Keys)
+ $keys=if($Record -is [Collections.IDictionary]){@($Record.Keys)}elseif($Record -is [pscustomobject]){@($Record.PSObject.Properties|ForEach-Object Name)}else{return @{}}
+ if($keys.Count -ne $top.Count -or @($keys|Where-Object {$_ -cnotin $top}).Count){return @{}}
+ $safe=@{schema=1}
+ foreach($field in 'read_only','observed','certificate_directory_owned'){if($Record.$field -isnot [bool]){return @{}};$safe[$field]=$Record.$field}
+ if(!$safe.read_only){return @{}}
+ foreach($section in $specs.Keys){
+  $value=$Record.$section;$keys=if($value -is [Collections.IDictionary]){@($value.Keys)}elseif($value -is [pscustomobject]){@($value.PSObject.Properties|ForEach-Object Name)}else{return @{}}
+  if($keys.Count -ne $specs[$section].Count -or @($keys|Where-Object {$_ -cnotin $specs[$section]}).Count){return @{}}
+  $safe[$section]=@{};foreach($field in $specs[$section]){if($value.$field -isnot [bool]){return @{}};$safe[$section][$field]=$value.$field}
+ }
+ return $safe
+}
+function NativeMeetingLogCategories([string]$Text,[DateTime]$StartedAt){
+ # Only timestamped lines from this isolated runner's attempt are classified.
+ # This is time-window evidence, not caller-specific or decoded-media proof.
+ $patterns=@{
+  codec_negotiation='CODEC NEGOTIATION ERROR|No audio codec available|NO CODECS|NO_CODEC|NO MATCHING CODEC'
+  missing_sdp_connection='Cannot find a c= line in the sdp'
+  crypto_required='Crypto not negotiated but required'
+  fingerprint_file='FP (BIO|FILE|READ) ERR!'
+  dtls_certificate='DTLS cert err|DTLS key err|DTLS check key failed|DTLS check chain cert failed|Certificate generation failed'
+  dtls_handshake='DTLS packet (decode|encode|write) err|DTLS packet not written to socket|Fingerprint Verification Failed|No peer certificate presented|DTLS state from [A-Z_]+ to (FAIL|INVALID)'
+  incompatible_destination='INCOMPATIBLE_DESTINATION'
+  rtp_activation='(AUDIO|VIDEO) RTP REPORTS ERROR|Error initializing SRTP|Error allocating SRTP|Error! RE-Activating[^\r\n]*Secure RTP (SEND|RECV)'
+ }
+ $row=@{scope='isolated_runner_time_window';timestamped_lines=0}
+ foreach($name in $patterns.Keys){$row[$name]=$false}
+ $begin=$StartedAt.ToLocalTime().AddSeconds(-1);$end=[DateTime]::Now.AddSeconds(1)
+ foreach($line in ($Text -split "`n")){
+  if($line -notmatch '(?:^|\s)(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:\.[0-9]+)?\s'){continue}
+  $when=[DateTime]::MinValue
+  if(![DateTime]::TryParseExact($Matches[1],'yyyy-MM-dd HH:mm:ss',[Globalization.CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::None,[ref]$when) -or $when -lt $begin -or $when -gt $end){continue}
+  if($row.timestamped_lines -lt 65536){$row.timestamped_lines++}
+  foreach($name in $patterns.Keys){if($line -match $patterns[$name]){$row[$name]=$true}}
+ }
+ return $row
+}
 function NativeStartupFailure([DateTime]$StartedAt,[string]$PrivateDirectory){
  # This observer runs only in the caller's disposable fresh/native failure
  # window. It never starts/stops services, pauses calls, or changes profiles.
@@ -488,6 +529,7 @@ function NativeStartupFailure([DateTime]$StartedAt,[string]$PrivateDirectory){
     $text=[Text.Encoding]::UTF8.GetString($bytes,0,$read);$result.log_observed=$true
     $patterns=@{sofia_load_error='(?im)(error loading|failed to load|module load[^\r\n]*fail)[^\r\n]*mod_sofia';lua_error='(?im)(Lua[^\r\n]*(error|fail)|LuaScriptError)';database_error='(?im)(database|SQL|pgsql)[^\r\n]*(error|fail)';xml_error='(?im)(XML[^\r\n]*(error|fail|invalid)|error[^\r\n]*XML)';sip_profile_error='(?im)(error creating SIP UA|SIP profile[^\r\n]*(fail|error))';tls_error='(?im)((TLS|SSL)[^\r\n]*(fail|error)|error loading[^\r\n]*cert)'}
     foreach($key in $patterns.Keys){$result.log_categories[$key]=[bool]($text -match $patterns[$key])}
+    $result.meeting_log_window=NativeMeetingLogCategories -Text $text -StartedAt $StartedAt
    }
   }
  }catch{}
@@ -516,6 +558,23 @@ function NativeStartupFailure([DateTime]$StartedAt,[string]$PrivateDirectory){
    $reply=SendNativeStartupCommand 'api show channels as json';$channels=$reply.body|ConvertFrom-Json
    if($channels.row_count -is [int] -or $channels.row_count -is [long]){$result.native_queries.channels_known=$true;$result.native_queries.channels_count=[long]$channels.row_count}
    $reply=SendNativeStartupCommand 'api sofia status profile internal';$result.native_queries.internal_profile_available=[bool]($reply.body -match '(?m)^SIP-IP\s+[^\s]+\s*$')
+   # Separate bounded read-only helper checks actual modules/codecs and the
+   # core DTLS certificate. Its raw output/error never leaves private work.
+   $result.meeting_media_observer='attempted'
+   $start=[Diagnostics.ProcessStartInfo]::new('C:/OpenWebPBX/php/php.exe')
+   $start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+   $start.Arguments='-f "'+(Join-Path $PSScriptRoot 'windows_meet_native_diagnostics.php')+'" -- --read-only'
+   $process=[Diagnostics.Process]::new();$process.StartInfo=$start
+   try{
+    [void]$process.Start();$output=$process.StandardOutput.ReadToEndAsync();$errors=$process.StandardError.ReadToEndAsync()
+    if(!$process.WaitForExit(15000)){$result.meeting_media_observer='timeout';try{$process.Kill();[void]$process.WaitForExit(2000)}catch{};throw 'Read-only media observer exceeded its deadline.'}
+    if(!$output.Wait(2000) -or !$errors.Wait(2000)){throw 'Read-only media observer pipes did not close.'}
+    [IO.File]::WriteAllText((Join-Path $PrivateDirectory 'native-meeting-runtime.stdout.private'),$output.Result,[Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $PrivateDirectory 'native-meeting-runtime.stderr.private'),$errors.Result,[Text.UTF8Encoding]::new($false))
+    $result.meeting_media_observer=if($process.ExitCode -eq 0){'invalid_output'}else{'process_failed'}
+    if($process.ExitCode -eq 0 -and $output.Result.Length -le 16384){$closed=SafeNativeMeetingRuntimeFields ($output.Result|ConvertFrom-Json);if($closed.Count){$result.meeting_media_runtime=$closed;$result.meeting_media_observer='observed'}}
+   }finally{$process.Dispose()}
+
   }catch{}finally{if($stream){$stream.Dispose()};if($client){$client.Dispose()}}
  }
  return $result

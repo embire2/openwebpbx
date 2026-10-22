@@ -23,13 +23,13 @@ $work=Join-Path ([IO.Path]::GetTempPath()) ('openweb-native-routing-'+[Guid]::Ne
 $backupStub=Join-Path $work 'backups.ps1';[IO.File]::WriteAllText($backupStub,"param(`$PackageRoot,`$AdminEmail,`$AdminPassword,[switch]`$DisposableFactory,`$SftpConfig)`n`$trace.Add('backups')")
 [IO.File]::WriteAllText((Join-Path $work 'backup-qualification/report.json'),'{"state":"passed","fully_qualified":true,"checks":[]}')
 function Join-Path([string]$Path,[string]$ChildPath){if($ChildPath -ceq 'windows-backups.ps1'){return $backupStub};return [IO.Path]::Combine($Path,$ChildPath)}
-function NativeAcceptanceHook {$trace.Add('native');if($nativeFailure){$facts.state='failed';return $null};return [pscustomobject]@{gates=[pscustomobject]@{meeting_browser='passed'}}}
+function NativeAcceptanceHook {$trace.Add('native');if($nativeFailure){$facts.state='failed';return $null};return [pscustomobject]@{gates=[pscustomobject]@{meeting_browser='passed';native_clock='passed';native_providers='passed';native_call_me_back='passed'}}}
 function Start-SuiteRecoveryPki {param($PackageRoot,$SourceRoot,$Work)$trace.Add('pki');return @{owned=$true}}
 function AcceptanceHook {$trace.Add('upgrade');return [pscustomobject]@{gates=@{direct_113_helper_reapply='passed';direct_failure_rollback='passed';restore_gate_startup='passed'}}}
 function LoopbackSftp {$trace.Add('sftp');return 'owned'}
 function ResetCase {
  $script:trace=[Collections.Generic.List[string]]::new();$script:nativeFailure=$false
- $script:facts=[ordered]@{state='running';checks=@();gates=[ordered]@{fresh='passed';native_sip_audio='unqualified';meeting_browser='unqualified';backups='pending';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';outside_acme='unqualified'}}
+ $script:facts=[ordered]@{state='running';checks=@();gates=[ordered]@{fresh='passed';native_sip_audio='unqualified';meeting_browser='unqualified';native_clock='unqualified';native_providers='unqualified';native_call_me_back='unqualified';backups='pending';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';outside_acme='unqualified'}}
 }
 function RunCase([bool]$NativeOnly){
  $NativeDiagnosticsOnly=$NativeOnly;$UpgradeDiagnosticsOnly=$false;$BackupsDiagnosticsOnly=$false;$PackageRoot='owned';$source=$SourceRoot;$state=$work;$admin='fictional';$password='fictional'
@@ -41,6 +41,7 @@ try{
  Check ($facts.state -ceq 'partial' -and $facts.mode -ceq 'native_diagnostics_only')
  Check ($facts.release_eligible -is [bool] -and !$facts.release_eligible -and $facts.owner_transaction_eligible -is [bool] -and !$facts.owner_transaction_eligible)
  Check ($facts.gates.native_sip_audio -ceq 'passed' -and $facts.gates.meeting_browser -ceq 'passed')
+ foreach($name in 'native_clock','native_providers','native_call_me_back'){Check ($facts.gates[$name] -ceq 'passed')}
  foreach($name in 'backups','direct_113_helper_reapply','direct_failure_rollback','restore_gate_startup'){Check ($facts.gates[$name] -ceq 'unqualified')}
  Check ($facts.unqualified -ccontains 'backups' -and $facts.unqualified -ccontains 'direct_failure_rollback')
  ResetCase;$nativeFailure=$true;RunCase $true

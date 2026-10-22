@@ -30,7 +30,7 @@ $suiteBytes=[Text.Encoding]::UTF8.GetBytes($definitions.SafeMeetingSignalingFiel
 Check ([Convert]::ToBase64String($nativeBytes) -ceq [Convert]::ToBase64String($suiteBytes))
 foreach($name in 'MeetingSignalingFields','SafeMeetingSignalingFields'){Invoke-Expression $definitions[$name]}
 
-$booleanFields=@('observed','endpoint_match','counts_capped','local_description','remote_description','admit_ok')
+$booleanFields=@('observed','endpoint_match','counts_capped','local_description','remote_description','admit_ok','offer_observed','offer_audio_secure','offer_video_secure','offer_pcmu','offer_pcma','offer_opus','offer_vp8','offer_sha256_fingerprint','offer_ice_ufrag','offer_ice_pwd','offer_rtcp_mux','offer_bundle','offer_connection')
 $integerLimits=[ordered]@{
  ws_observed=512;ws_closed=512;ws_errors=512;sent_register=512;sent_invite=512;admit_requests=512
  admit_responses=512;status_requests=512;status_responses=512;http_failures=512;api_json_failures=512
@@ -44,7 +44,7 @@ $enumFields=[ordered]@{
 $arrayFields=@('register_codes','invite_codes')
 $peerFields=$booleanFields+@($integerLimits.Keys)+@($enumFields.Keys)+$arrayFields
 $expectedPeerKeys=($peerFields|Sort-Object)-join '|'
-Check ($peerFields.Count -eq 24)
+Check ($peerFields.Count -eq 37)
 function New-Map([string]$Kind,[Collections.IDictionary]$Values){
  $copy=if($Kind -ceq 'ordered'){[ordered]@{}}else{@{}}
  foreach($key in $Values.Keys){$copy[$key]=$Values[$key]}
@@ -58,6 +58,7 @@ function New-Peer([string]$Kind,[bool]$Guest){
   signaling_state='stable';ice_gathering_state='complete';member_state='admitted'
   register_codes=@(100,200);invite_codes=@(180,200)
  }
+ foreach($key in $booleanFields){if(!$values.ContainsKey($key)){$values[$key]=!$Guest}}
  $index=1
  foreach($key in $integerLimits.Keys){$values[$key]=$index;$index++}
  if($Guest){
@@ -94,7 +95,7 @@ function Check-Valid([string]$Name,$Record){
  Check ($safe.meeting_signaling -is [Collections.IDictionary] -and $safe.meeting_signaling.Count -eq 2 -and (($safe.meeting_signaling.Keys|Sort-Object)-join '|') -ceq 'guest|host')
  foreach($peer in 'host','guest'){
   $actual=$safe.meeting_signaling.$peer;$expected=$Record.meeting_signaling.$peer
-  Check ($actual -is [Collections.IDictionary] -and $actual.Count -eq 24 -and (($actual.Keys|Sort-Object)-join '|') -ceq $expectedPeerKeys)
+  Check ($actual -is [Collections.IDictionary] -and $actual.Count -eq 37 -and (($actual.Keys|Sort-Object)-join '|') -ceq $expectedPeerKeys)
   foreach($field in $booleanFields){Check ($actual[$field] -is [bool] -and $actual[$field] -eq $expected.$field)}
   foreach($field in $integerLimits.Keys){Check (($actual[$field] -is [int] -or $actual[$field] -is [long]) -and $actual[$field] -eq $expected.$field)}
   foreach($field in $enumFields.Keys){Check ($actual[$field] -is [string] -and $actual[$field] -ceq $expected.$field)}

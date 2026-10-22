@@ -1,5 +1,5 @@
 // Closed, QA-only browser signaling observations. Never retain SIP headers/SDP/URLs.
-const booleans=['observed','endpoint_match','counts_capped','local_description','remote_description','admit_ok'];
+const booleans=['observed','endpoint_match','counts_capped','local_description','remote_description','admit_ok','offer_observed','offer_audio_secure','offer_video_secure','offer_pcmu','offer_pcma','offer_opus','offer_vp8','offer_sha256_fingerprint','offer_ice_ufrag','offer_ice_pwd','offer_rtcp_mux','offer_bundle','offer_connection'];
 const counts=['ws_observed','ws_closed','ws_errors','sent_register','sent_invite','admit_requests','admit_responses','status_requests','status_responses','http_failures','api_json_failures'];
 const http=['admit_http_status','status_http_status'];
 const enums={signaling_state:['stable','have-local-offer','have-remote-offer','have-local-pranswer','have-remote-pranswer','closed','unavailable'],ice_gathering_state:['new','gathering','complete','unavailable'],member_state:['waiting','admitted','left','removed','unavailable','other']};
@@ -48,8 +48,30 @@ async function collect(page,record){
  const row=validate(record)||defaults();if(!page)return row;
  let timer;
  try{
-  const pc=await Promise.race([page.evaluate(()=>{const pcs=window.conferenceQA?.pcs||[],pc=pcs.findLast(candidate=>candidate.connectionState==='connected')||pcs.at(-1);return {signaling_state:pc?.signalingState||'unavailable',ice_gathering_state:pc?.iceGatheringState||'unavailable',local_description:!!pc?.localDescription,remote_description:!!pc?.remoteDescription};}),new Promise(resolve=>{timer=setTimeout(()=>resolve(null),3000);})]);
-  if(pc&&enums.signaling_state.includes(pc.signaling_state)&&enums.ice_gathering_state.includes(pc.ice_gathering_state)&&typeof pc.local_description==='boolean'&&typeof pc.remote_description==='boolean')Object.assign(row,{signaling_state:pc.signaling_state,ice_gathering_state:pc.ice_gathering_state,local_description:pc.local_description,remote_description:pc.remote_description});
+  const pc=await Promise.race([page.evaluate(()=>{
+   const pcs=window.conferenceQA?.pcs||[],pc=pcs.findLast(candidate=>candidate.connectionState==='connected')||pcs.at(-1);
+   // Only this finite classification leaves the page. SDP, ICE credentials,
+   // certificate fingerprints and candidate addresses are never returned.
+   const raw=pc?.localDescription?.sdp,sdp=typeof raw==='string'&&raw.length<=65536?raw:'';
+   const flags={
+    offer_observed:sdp.length>0,
+    offer_audio_secure:/(?:^|\r?\n)m=audio [1-9][0-9]* UDP\/TLS\/RTP\/SAVPF /.test(sdp),
+    offer_video_secure:/(?:^|\r?\n)m=video [1-9][0-9]* UDP\/TLS\/RTP\/SAVPF /.test(sdp),
+    offer_pcmu:/(?:^|\r?\n)a=rtpmap:[0-9]+ PCMU\/8000(?:\r?\n|$)/i.test(sdp),
+    offer_pcma:/(?:^|\r?\n)a=rtpmap:[0-9]+ PCMA\/8000(?:\r?\n|$)/i.test(sdp),
+    offer_opus:/(?:^|\r?\n)a=rtpmap:[0-9]+ opus\/48000(?:\/2)?(?:\r?\n|$)/i.test(sdp),
+    offer_vp8:/(?:^|\r?\n)a=rtpmap:[0-9]+ VP8\/90000(?:\r?\n|$)/i.test(sdp),
+    offer_sha256_fingerprint:/(?:^|\r?\n)a=fingerprint:sha-256 (?:[A-Fa-f0-9]{2}:){31}[A-Fa-f0-9]{2}(?:\r?\n|$)/.test(sdp),
+    offer_ice_ufrag:/(?:^|\r?\n)a=ice-ufrag:[^\r\n]+(?:\r?\n|$)/.test(sdp),
+    offer_ice_pwd:/(?:^|\r?\n)a=ice-pwd:[^\r\n]+(?:\r?\n|$)/.test(sdp),
+    offer_rtcp_mux:/(?:^|\r?\n)a=rtcp-mux(?:\r?\n|$)/.test(sdp),
+    offer_bundle:/(?:^|\r?\n)a=group:BUNDLE [^\r\n]+(?:\r?\n|$)/.test(sdp),
+    offer_connection:/(?:^|\r?\n)c=IN IP[46] [^\r\n]+(?:\r?\n|$)/.test(sdp)
+   };
+   return {signaling_state:pc?.signalingState||'unavailable',ice_gathering_state:pc?.iceGatheringState||'unavailable',local_description:!!pc?.localDescription,remote_description:!!pc?.remoteDescription,...flags};
+  }),new Promise(resolve=>{timer=setTimeout(()=>resolve(null),3000);})]);
+  const offerNames=booleans.filter(name=>name.startsWith('offer_'));
+  if(pc&&enums.signaling_state.includes(pc.signaling_state)&&enums.ice_gathering_state.includes(pc.ice_gathering_state)&&typeof pc.local_description==='boolean'&&typeof pc.remote_description==='boolean'&&offerNames.every(name=>typeof pc[name]==='boolean'))Object.assign(row,Object.fromEntries(['signaling_state','ice_gathering_state','local_description','remote_description',...offerNames].map(name=>[name,pc[name]])));
  }catch{ /* A failed probe leaves explicit unavailable state, never raw errors. */ }finally{clearTimeout(timer);}
  return validate(row)||defaults();
 }

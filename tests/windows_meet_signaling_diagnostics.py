@@ -17,7 +17,8 @@ PRIVATE = 'PRIVATE_cookie_SDP_password_URI'
 
 
 def peer():
-    return dict(observed=True, endpoint_match=True, counts_capped=False,
+    return dict(offer_observed=True, offer_audio_secure=False, offer_video_secure=False, offer_pcmu=False, offer_pcma=False, offer_opus=False, offer_vp8=False, offer_sha256_fingerprint=False, offer_ice_ufrag=False, offer_ice_pwd=False, offer_rtcp_mux=False, offer_bundle=False, offer_connection=False,
+                observed=True, endpoint_match=True, counts_capped=False,
                 local_description=True, remote_description=False, admit_ok=True,
                 ws_observed=1, ws_closed=0, ws_errors=0, sent_register=0, sent_invite=2,
                 admit_requests=1, admit_responses=1, status_requests=1, status_responses=1,
@@ -30,7 +31,7 @@ class SignalingDiagnosticControls(unittest.TestCase):
     def test_python_closed_shape_types_codes_and_privacy(self):
         valid = {'host': peer(), 'guest': peer() | {'member_state': 'waiting'}}
         self.assertEqual(module.signaling_fields(valid), {'meeting_signaling': valid})
-        self.assertEqual(len(peer()), 24)
+        self.assertEqual(len(peer()), 37)
         for side in ('host', 'guest'):
             for name, value in valid[side].items():
                 missing = copy.deepcopy(valid); del missing[side][name]
@@ -87,7 +88,7 @@ function response(req,status,data){return {request:()=>req,status:()=>status,jso
  const failed=await observer.collect(page,row);
  const started=Date.now();const stalled=await observer.collect({evaluate:()=>new Promise(()=>{})},row);
  if(Date.now()-started<2800||Date.now()-started>6000)throw Error('bounded PC observation');
- for(const item of [good,capped,failed,stalled]){if(!observer.validate(item)||Object.keys(item).length!==24)throw Error('closed shape');}
+ for(const item of [good,capped,failed,stalled]){if(!observer.validate(item)||Object.keys(item).length!==37)throw Error('closed shape');}
  console.log(JSON.stringify({good,capped,failed,stalled}));
 })().catch(()=>process.exit(1));
 '''
@@ -106,6 +107,29 @@ function response(req,status,data){return {request:()=>req,status:()=>status,jso
         self.assertEqual(data['stalled']['invite_codes'], [401, 200])
         self.assertEqual(data['capped']['register_codes'], list(range(184, 200)))
         for row in data.values():
+            self.assertEqual(module.signaling_fields({'host': row, 'guest': row}), {'meeting_signaling': {'host': row, 'guest': row}})
+
+
+    @unittest.skipUnless(shutil.which('node'), 'Node required for actual offer classifier')
+    def test_actual_page_offer_classifier_positive_negative_and_privacy(self):
+        script = r'''const vm=require('node:vm'),observer=require(process.argv[1]);
+const secret='PRIVATE_cookie_SDP_password_URI';
+const sdp=['v=0','c=IN IP4 192.0.2.55','a=group:BUNDLE 0 1',
+'a=fingerprint:sha-256 '+Array(32).fill('AB').join(':'),'a=ice-ufrag:'+secret,'a=ice-pwd:'+secret,
+'m=audio 9 UDP/TLS/RTP/SAVPF 0 8 111','a=rtpmap:0 PCMU/8000','a=rtpmap:8 PCMA/8000','a=rtpmap:111 opus/48000/2',
+'a=rtcp-mux','m=video 9 UDP/TLS/RTP/SAVPF 96','a=rtpmap:96 VP8/90000'].join('\r\n')+'\r\n';
+async function classify(value){const pc={localDescription:{sdp:value},signalingState:'stable',iceGatheringState:'complete'};
+return observer.collect({evaluate:fn=>Promise.resolve(vm.runInNewContext('('+fn.toString()+')()',{window:{conferenceQA:{pcs:[pc]}}}))},observer.defaults(true));}
+(async()=>{const good=await classify(sdp);for(const key of Object.keys(good).filter(k=>k.startsWith('offer_')))if(!good[key])throw Error('positive '+key);
+const missing=await classify(sdp.replace('PCMU/8000','G729/8000').replace('PCMA/8000','G722/8000').replace('VP8/90000','H264/90000').replace('sha-256','sha-1').replace('m=audio 9','m=audio 0').replace('m=video 9','m=video 0'));
+for(const key of ['offer_pcmu','offer_pcma','offer_vp8','offer_sha256_fingerprint','offer_audio_secure','offer_video_secure'])if(missing[key])throw Error('negative '+key);
+for(const value of [null,{},'x'.repeat(65537),'']){const invalid=await classify(value);for(const key of Object.keys(invalid).filter(k=>k.startsWith('offer_')))if(invalid[key])throw Error('invalid '+key);}
+const output=JSON.stringify({good,missing});if(output.includes(secret)||output.includes('192.0.2.55')||output.includes('AB:AB:AB'))throw Error('privacy');console.log(output);
+})().catch(()=>process.exit(1));'''
+        child = subprocess.run([shutil.which('node'), '-e', script, str(ROOT/'tests/windows-meet-signaling.cjs')], capture_output=True, text=True, timeout=10)
+        self.assertEqual(child.returncode, 0, child.stderr)
+        self.assertNotIn(PRIVATE, child.stdout)
+        for row in json.loads(child.stdout).values():
             self.assertEqual(module.signaling_fields({'host': row, 'guest': row}), {'meeting_signaling': {'host': row, 'guest': row}})
 
 

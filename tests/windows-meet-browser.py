@@ -51,7 +51,7 @@ def media_fields(record):
 
 
 def signaling_fields(record):
-    booleans = {'observed', 'endpoint_match', 'counts_capped', 'local_description', 'remote_description', 'admit_ok'}
+    booleans = {'observed', 'endpoint_match', 'counts_capped', 'local_description', 'remote_description', 'admit_ok', 'offer_observed', 'offer_audio_secure', 'offer_video_secure', 'offer_pcmu', 'offer_pcma', 'offer_opus', 'offer_vp8', 'offer_sha256_fingerprint', 'offer_ice_ufrag', 'offer_ice_pwd', 'offer_rtcp_mux', 'offer_bundle', 'offer_connection'}
     counts = {'ws_observed', 'ws_closed', 'ws_errors', 'sent_register', 'sent_invite', 'admit_requests', 'admit_responses', 'status_requests', 'status_responses', 'http_failures', 'api_json_failures'}
     http = {'admit_http_status', 'status_http_status'}
     enums = {'signaling_state': {'stable', 'have-local-offer', 'have-remote-offer', 'have-local-pranswer', 'have-remote-pranswer', 'closed', 'unavailable'}, 'ice_gathering_state': {'new', 'gathering', 'complete', 'unavailable'}, 'member_state': {'waiting', 'admitted', 'left', 'removed', 'unavailable', 'other'}}
