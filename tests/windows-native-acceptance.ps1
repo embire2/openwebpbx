@@ -447,7 +447,7 @@ $originalFiles=@{ 'fusion-config.conf'=(Join-Path $env:ProgramData 'fusionpbx\co
 $originalPresent=@{};$originalAcl=@{};$parentAcl=(Get-Acl -LiteralPath $state).Sddl
 $notificationTask='OpenWebPBX Native Notification Read '+$scope
 try{
- $result=Php 'baseline'|ConvertFrom-Json;if(!$result.factory_empty){throw 'Native qualification requires an empty factory.'};$baseline=$true
+ $result=Php 'baseline'|ConvertFrom-Json;if($result.factory_empty -isnot [bool] -or !$result.factory_empty){throw 'Native qualification requires an empty factory.'};$baseline=$true;$facts.native_factory_empty_before_fixture=$true
  foreach($name in $paths){$path=$originalFiles[$name];$present=Test-Path -LiteralPath $path;$originalPresent[$name]=$present;if($present){$originalAcl[$name]=(Get-Acl -LiteralPath $path).Sddl;Copy-Item -LiteralPath $path -Destination (Join-Path $saved $name) -Recurse}}
  $phase='actual Windows RTP socket reset and recovery'
  & $python -I (Join-Path $source 'tests/windows_rtp_socket.py') 1>>"$evidence\private-python.log" 2>>"$evidence\private-python-errors.log"

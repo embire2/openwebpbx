@@ -26,6 +26,11 @@ on:
         required: false
         default: false
         type: boolean
+      skip_phone_health_for_native_diagnostics:
+        description: Explicit fresh-factory calling diagnostics only; skip Health qualification from the outset; never release eligible
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -104,6 +109,7 @@ jobs:
           REPLAY_SUITE_RUN_ID: ${{ inputs.replay_suite_run_id }}
           REPLAY_TERMINAL_PRODUCERS: ${{ inputs.replay_terminal_producers }}
           NATIVE_DIAGNOSTICS_ONLY: ${{ inputs.native_diagnostics_only }}
+          SKIP_PHONE_HEALTH_FOR_NATIVE_DIAGNOSTICS: ${{ inputs.skip_phone_health_for_native_diagnostics }}
         run: |
           $ErrorActionPreference='Stop'
           if($env:NATIVE_RUN_ID -notmatch '^[0-9]+$' -or $env:ENGINE_RUN_ID -notmatch '^[0-9]+$'){throw 'Both inputs must be numeric run IDs.'}
@@ -112,6 +118,7 @@ jobs:
           if($LASTEXITCODE){throw 'Native task security controls failed before server qualification.'}
           $producerOptions=@{}
           if($env:NATIVE_DIAGNOSTICS_ONLY -ceq 'true'){$producerOptions.NativeDiagnosticsOnly=$true}
+          if($env:SKIP_PHONE_HEALTH_FOR_NATIVE_DIAGNOSTICS -ceq 'true'){$producerOptions.SkipPhoneHealthForNativeDiagnostics=$true}
           if($env:REPLAY_TERMINAL_PRODUCERS -ceq 'true'){$producerOptions.ReplayTerminalProducers=$true}
           & tests/windows-suite.ps1 -NativeRunId $env:NATIVE_RUN_ID -EngineRunId $env:ENGINE_RUN_ID -ReplaySuiteRunId $env:REPLAY_SUITE_RUN_ID @producerOptions -DisposableHostedRunner
           if(!$?){throw 'Windows qualification did not finish.'}

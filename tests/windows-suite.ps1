@@ -4,7 +4,7 @@
 param(
  [string]$NativeRunId,[string]$EngineRunId,[string]$PackageRoot,[string]$ReplaySuiteRunId,
  [string]$ReplayCandidateArtifactId,[string]$ReplayCandidateSha256,
- [switch]$DisposableHostedRunner,[switch]$UpgradeDiagnosticsOnly,[switch]$BackupsDiagnosticsOnly,[switch]$ReplayTerminalProducers,[switch]$NativeDiagnosticsOnly
+ [switch]$DisposableHostedRunner,[switch]$UpgradeDiagnosticsOnly,[switch]$BackupsDiagnosticsOnly,[switch]$ReplayTerminalProducers,[switch]$NativeDiagnosticsOnly,[switch]$SkipPhoneHealthForNativeDiagnostics
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 function SuiteMusicWorkflow([bool]$DiagnosticOnly,[bool]$BackupDiagnosticOnly=$false){
@@ -27,6 +27,11 @@ function AssertNativeDiagnosticsMode([bool]$NativeOnly,[bool]$UpgradeOnly,[bool]
  if($UpgradeOnly -or $BackupOnly -or $ProducerFallback -or $ProvidedPackage -or $WorkflowRef -cnotmatch '^embire2/openwebpbx/\.github/workflows/windows-suite\.yml@refs/(heads|tags)/[A-Za-z0-9._/-]+$' -or $WorkflowSha -cnotmatch '^[a-f0-9]{40}$' -or $WorkflowSha -cne $SourceSha){throw 'Native diagnostics require the exact main workflow/source and exclude other modes, custom packages and producer fallback.'}
 }
 AssertNativeDiagnosticsMode $NativeDiagnosticsOnly $UpgradeDiagnosticsOnly $BackupsDiagnosticsOnly $ReplayTerminalProducers $PackageRoot $env:GITHUB_WORKFLOW_REF $env:GITHUB_WORKFLOW_SHA $env:GITHUB_SHA
+function AssertFactoryNativeDiagnosticsMode([bool]$SkipHealth,[bool]$NativeOnly,[string]$OriginalRun,[string]$ProvidedPackage){
+ if($SkipHealth -and (!$NativeOnly -or $OriginalRun -or $ProvidedPackage)){throw 'Skipping phone health is restricted to explicit native diagnostics of a freshly built, newly installed package.'}
+}
+AssertFactoryNativeDiagnosticsMode $SkipPhoneHealthForNativeDiagnostics $NativeDiagnosticsOnly $ReplaySuiteRunId $PackageRoot
+$factoryDiagnosticsSourceValidated=[bool]$SkipPhoneHealthForNativeDiagnostics
 function AssertSuiteReplayMode([string]$OriginalRunId,[string]$ProvidedPackage,[bool]$DiagnosticOnly,[bool]$BackupDiagnosticOnly,[bool]$TerminalProducers,[string]$ExpectedArtifactId,[string]$ExpectedZipSha256){
  if($DiagnosticOnly -and $BackupDiagnosticOnly){throw 'Diagnostic modes are mutually exclusive.'}
  if(!$OriginalRunId){if($TerminalProducers -or $ExpectedArtifactId -or $ExpectedZipSha256){throw 'Replay provenance requires an explicit original full-suite run.'};return}
@@ -54,6 +59,7 @@ $facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env
 if($UpgradeDiagnosticsOnly){$facts.mode='upgrade_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Post-native state is not reproduced.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false}
 elseif($BackupsDiagnosticsOnly){$facts.mode='backup_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Native, upgrade and post-native state are not reproduced.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false}
 elseif($NativeDiagnosticsOnly){$facts.mode='native_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Backups, upgrades and recovery are unqualified.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false;$facts.gates.backups='unqualified'}
+if($SkipPhoneHealthForNativeDiagnostics){$facts.mode='native_factory_diagnostics_only';$facts.qualification_scope='Fresh isolated native calling diagnostics only. Phone Health qualification is skipped from the outset. Backups, upgrades, recovery, owner transactions and public release are unqualified.';$facts.native_factory_phone_health_skipped=$false;$facts.native_factory_fresh_package=$false}
 function PrivateDirectory([string]$Path){
  New-Item -ItemType Directory -Force -Path $Path|Out-Null
  & icacls.exe $Path /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F'|Out-Null
@@ -349,6 +355,7 @@ function SafeSmtpFailureFields($Record){
 
 function SafeFailureFields($Record){
  $safe=@{}
+ if($Record.native_factory_empty_before_fixture -is [bool]){$safe.native_factory_empty_before_fixture=$Record.native_factory_empty_before_fixture}
  foreach($field in 'meeting_failure','meeting_recovery_failure'){
   $detail=$Record.$field
   if(!$detail){continue}
@@ -1289,6 +1296,12 @@ function PhoneHealthHook {
   throw
  }
 }
+function InvokeSuitePhoneHealthQualification([bool]$SkipHealth){
+ if(!$SkipHealth){PhoneHealthAcceptanceHook ([DateTime]::UtcNow);return}
+ if(!$factoryDiagnosticsSourceValidated -or !$NativeDiagnosticsOnly -or $ReplaySuiteRunId -or $facts.gates.fresh -cne 'passed' -or $facts.gates.web_readiness -cne 'passed' -or $facts.phone_health_failure -or (Test-Path -LiteralPath (Join-Path $work 'phone-health-native.json'))){throw 'Fresh native diagnostics cannot continue from a prior or failed phone health fixture.'}
+ $facts.gates.phone_health='unqualified';$facts.native_factory_phone_health_skipped=$true;$facts.native_factory_fresh_package=$true
+ $facts.release_eligible=$false;$facts.owner_transaction_eligible=$false
+}
 try{
  PrivateDirectory $work;PublishFacts
  if((Test-Path "$configuration\config.conf") -or (Test-Path "$state\installation.json") -or (Get-Service OpenWebPBX -ErrorAction SilentlyContinue)){throw 'The ephemeral machine already contains a PBX; it is not an empty suite target.'}
@@ -1297,6 +1310,8 @@ try{
  if(!$?){throw 'Modern native baseline evidence controls failed.'}
  & (Join-Path $source 'tests/windows_native_services_controls.ps1') -SourceRoot $source *> (Join-Path $work 'native-services-validator.private.log')
  if(!$?){throw 'Extended native qualification evidence controls failed.'}
+ & (Join-Path $source 'tests/windows_native_factory_diagnostics.ps1') -SourceRoot $source *> (Join-Path $work 'native-factory-guards.private.log')
+ if(!$?){throw 'Explicit native factory diagnostic controls failed.'}
  CheckedPython @((Join-Path $source 'tests/windows_provider_diagnostics_test.py'))
  & (Join-Path $source 'tests/windows_provider_failure_fields.ps1') -SourceRoot $source *> (Join-Path $work 'provider-projection.private.log')
  if(!$?){throw 'Native provider failure projection controls failed.'}
@@ -1364,7 +1379,7 @@ try{
  $phase='native PHP runtime qualification';PhpRuntimeQualificationHook
  $phase='native web readiness qualification';WebReadinessHook
  $phase='native DTLS qualification';DtlsQualificationHook
- if(!$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly){$phase='native STUN qualification';StunHook;$phase='native phone health qualification';PhoneHealthAcceptanceHook ([DateTime]::UtcNow)}
+ if(!$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly){$phase='native STUN qualification';StunHook;$phase='native phone health qualification';InvokeSuitePhoneHealthQualification $SkipPhoneHealthForNativeDiagnostics}
  $phase='native tenant-domain qualification';TenantDomainsAcceptanceHook ([DateTime]::UtcNow)
  $phase='meeting transport qualification';MeetingTransportHook
  $acceptanceFile=Join-Path $work 'acceptance-input.json';$ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
@@ -1375,6 +1390,7 @@ try{
  if(!$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly){
   $phase='native acceptance hook';$nativeStartTime=[DateTime]::UtcNow;$native=NativeAcceptanceHook (Join-Path $work 'native-acceptance.json') $nativeStartTime
   if($native){
+   if($SkipPhoneHealthForNativeDiagnostics){if($native.native_factory_empty_before_fixture -isnot [bool] -or !$native.native_factory_empty_before_fixture){throw 'The native calling fixture did not prove its empty factory baseline.'};$facts.native_factory_empty_before_fixture=$true}
    if($native.gates.meeting_browser -cne 'passed'){throw 'The actual Windows meeting browser media gate is required.'}
    foreach($gate in 'native_clock','native_providers','native_call_me_back'){if($native.gates.$gate -cne 'passed'){throw 'The actual native clock, local providers and Call Me Back gates are required.'};$facts.gates.$gate='passed'}
    $facts.gates.native_sip_audio='passed';$facts.gates.meeting_browser='passed'
