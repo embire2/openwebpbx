@@ -374,7 +374,7 @@ try{
  if(($native.schema -isnot [int] -and $native.schema -isnot [long]) -or $native.schema -ne 1 -or $native.producer -isnot [string] -or $native.producer -cne 'windows-native-acceptance.py' -or $native.state -isnot [string] -or $native.state -cne 'passed' -or $native.checks -isnot [array] -or $native.checks.Count -gt 256){throw 'Actual software native matrix failed.'}
  $facts.checks=@($native.checks);$facts.gates.native_sip_audio='passed';$facts.gates.smtp='passed'
  $meeting=@($native.checks|Where-Object {$_.case -ceq 'native_windows_meeting_browser_video_audio'})
- if($meeting.Count -ne 1 -or $meeting[0].passed -isnot [bool] -or !$meeting[0].passed -or $meeting[0].checks -ne 7 -or $meeting[0].host_frames -lt 10 -or $meeting[0].guest_frames -lt 10 -or $meeting[0].host_tone_ratio -le .65 -or $meeting[0].guest_tone_ratio -le .65 -or $meeting[0].physical_camera -cne 'unqualified'){throw 'Actual browser meeting video and independent two-way audio must pass.'}
+ if($meeting.Count -ne 1 -or $meeting[0].passed -isnot [bool] -or !$meeting[0].passed -or $meeting[0].checks -ne 9 -or $meeting[0].wss_roundtrips -ne 16 -or $meeting[0].host_frames -lt 10 -or $meeting[0].guest_frames -lt 10 -or $meeting[0].host_tone_ratio -le .65 -or $meeting[0].guest_tone_ratio -le .65 -or $meeting[0].physical_camera -cne 'unqualified'){throw 'Actual fragmented SIP round trips, browser meeting video and independent two-way audio must pass.'}
  $facts.gates.meeting_browser='passed'
  # Execute the exact production reader's sharing/access pattern under LOCAL SERVICE.
  # No endpoint/device is enrolled, so this probe sends no notification.

@@ -99,6 +99,25 @@ const page=new EventEmitter(),secret=d.capture(page,'https://fixture.invalid');p
                     bad=json.loads(result.stdout);bad[stage][kind][field]=None;self.assertEqual(module.path_fields(bad),{})
         self.assertNotIn('b'*64,result.stdout)
 
+    def test_actual_round_trip_gate_rejects_handshake_only_small_only_and_lost_fragments(self):
+        script=r"""const assert=require('assert/strict'),d=require(process.argv[1]);
+const row=d.defaults();assert.equal(d.roundTrips(row),false);
+for(const name of ['backend','frontend','fragmented_backend','fragmented_frontend'])row[name]={observed:true,connected:true,sent:true,response_received:true,large_sent:true,large_response_received:true,closed_exact:true,status_code:200,large_status_code:200,phase:'complete',error_kind:'none',elapsed_ms:100};
+assert.equal(d.roundTrips(row),true);
+for(const name of ['backend','frontend','fragmented_backend','fragmented_frontend'])for(const [field,value] of [['observed',false],['connected',false],['sent',false],['response_received',false],['large_sent',false],['large_response_received',false],['closed_exact',false],['status_code',101],['large_status_code',0],['phase','receive'],['error_kind','timeout']]){const bad=structuredClone(row);bad[name][field]=value;assert.equal(d.roundTrips(bad),false);}
+process.stdout.write(JSON.stringify({before:row,after:structuredClone(row)}));"""
+        result=subprocess.run(['node','-e',script,str(ROOT/'tests/windows-meet-path-diagnostics.cjs')],check=True,capture_output=True,text=True,timeout=5)
+        spec=importlib.util.spec_from_file_location('windows_meet_round_trip_gate',ROOT/'tests/windows-meet-browser.py');module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        paths=json.loads(result.stdout)
+        self.assertTrue(module.completed_paths(paths))
+        for stage in ('before','after'):
+            for name in ('backend','frontend','fragmented_backend','fragmented_frontend'):
+                for field,value in [('observed',False),('connected',False),('sent',False),('response_received',False),('large_sent',False),('large_response_received',False),('closed_exact',False),('status_code',101),('large_status_code',0),('phase','receive'),('error_kind','timeout')]:
+                    changed=json.loads(result.stdout);changed[stage][name][field]=value
+                    self.assertFalse(module.completed_paths(changed),(stage,name,field))
+        self.assertFalse(module.completed_paths(None))
+        self.assertFalse(module.completed_paths({'before':paths['before']}))
+
 
 class PostgreSQLObserver(unittest.TestCase):
     def test_actual_read_only_activity_and_lock_projection(self):

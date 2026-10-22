@@ -99,6 +99,18 @@ def path_fields(record):
     return {'meeting_path':safe}
 
 
+def completed_paths(record):
+    paths = path_fields(record)
+    if not paths:
+        return False
+    for stage in paths['meeting_path'].values():
+        for name in ['backend', 'frontend', 'fragmented_backend', 'fragmented_frontend']:
+            peer = stage[name]
+            if not all(peer[field] for field in ['observed', 'connected', 'sent', 'response_received', 'large_sent', 'large_response_received', 'closed_exact']) or peer['status_code'] != 200 or peer['large_status_code'] != 200 or peer['phase'] != 'complete' or peer['error_kind'] != 'none':
+                return False
+    return True
+
+
 def run(fixture):
     if os.name != 'nt' or os.environ.get('OPENWEB_WINDOWS_NATIVE_TEST') != '1' or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted' or os.environ.get('GITHUB_REPOSITORY') != 'embire2/openwebpbx':
         raise RuntimeError('An explicitly disposable Windows native fixture is required')
@@ -156,12 +168,14 @@ def run(fixture):
                 error.meeting_path_failure=observed_path
                 raise error
         facts = json.loads(report.read_text())
-        if facts.get('schema') != 1 or facts.get('state') != 'passed' or len(facts.get('checks', [])) != 7:
+        if facts.get('schema') != 1 or facts.get('state') != 'passed' or len(facts.get('checks', [])) != 9:
             raise RuntimeError('The Windows browser meeting media evidence is incomplete')
+        if not completed_paths(facts.get('meeting_path')):
+            raise RuntimeError('Both native Windows SIP paths must preserve complete fragmented messages')
         for side in ['host', 'guest']:
             proof = facts[side]
             if proof['decoded_frames'] < 10 or proof['video_colors'] <= 8 or proof['tone_ratio'] <= .65 or proof['power'] <= .00001 or set(proof['codecs']) != {'video/VP8'}:
                 raise RuntimeError('The actual Windows browser did not decode the independent meeting media')
-        fixture.record('native_windows_meeting_browser_video_audio', checks=len(facts['checks']), host_frames=facts['host']['decoded_frames'], guest_frames=facts['guest']['decoded_frames'], host_tone_ratio=facts['host']['tone_ratio'], guest_tone_ratio=facts['guest']['tone_ratio'], physical_camera='unqualified')
+        fixture.record('native_windows_meeting_browser_video_audio', checks=len(facts['checks']), wss_roundtrips=16, host_frames=facts['host']['decoded_frames'], guest_frames=facts['guest']['decoded_frames'], host_tone_ratio=facts['host']['tone_ratio'], guest_tone_ratio=facts['guest']['tone_ratio'], physical_camera='unqualified')
     finally:
         settings.unlink(missing_ok=True)
