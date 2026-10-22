@@ -73,6 +73,7 @@ jobs:
           Invoke-NativeBuild 'updater-build' @('publish', 'platform/OpenWebPbx.Updater', '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-o', "$env:NATIVE_OUTPUT/updater")
           Invoke-NativeBuild 'protocol-checks' @('run', '--project', 'platform/OpenWebPbx.Checks', '-c', 'Release')
           Invoke-NativeBuild 'updater-checks' @('run', '--project', 'platform/OpenWebPbx.Updater.Checks', '-c', 'Release')
+          Invoke-NativeBuild 'stun-protocol-checks' @('run', '--project', 'tests/stun-worker/StunChecks.csproj', '-c', 'Release')
       - name: Verify native versions and manager startup
         run: |
           $ErrorActionPreference = 'Stop'
