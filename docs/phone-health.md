@@ -1,6 +1,6 @@
 # Phone Health & Recovery
 
-**Status — 22 October 2026:** live on hosted Debian through a focused patch, with source implementation and component tests. Windows Server support is planned next. The public full Debian server remains 1.0.16, the focused downloadable administration update is 1.0.19 and Android is 1.0.18. This feature is not a new complete downloadable release. See the [current roadmap](../3CX.md) and [server qualification record](release-1.0.20-qualification.md).
+**Status — 22 October 2026:** live on hosted Debian through a focused patch. Native Windows Server implementation and native component checks are complete; full Windows package acceptance is in progress. The public full Debian server remains 1.0.16, the focused downloadable administration update is 1.0.19 and Android is 1.0.18. These additions are not a new complete downloadable release. See the [current roadmap](../3CX.md) and [server qualification record](release-1.0.20-qualification.md).
 
 Phone Health & Recovery brings phone connections, provider problems and verified office security blocks together so an administrator can understand an outage and choose a safe next step. It addresses a common failure: a phone first tries the wrong sign-in details or address, its office is blocked, and the corrected settings cannot reach the PBX.
 
@@ -37,7 +37,7 @@ Verified office history starts when the monitor is installed. It records authent
 
 Controlled recovery removes a specific verified block. It does not turn off the firewall, create a permanent whitelist, replace passwords, enable a provider or change call routes. If the same problem returns, fix the underlying sign-in or network problem before trying again.
 
-Recovery currently supports the Debian **IPv4 iptables phone-sign-in filter** only. IPv6 addresses, custom firewall adapters, ambiguous or additional security rules and unverifiable firewall state require instance-administrator review. The page does not bypass those restrictions. The security service processes a separate targeted request and rechecks its ownership and exact rule before it changes the original block.
+The hosted Debian service supports its **IPv4 iptables phone-sign-in filter**. The Windows candidate supports its owned **Windows Defender Firewall IPv4 phone-sign-in rules**. IPv6 addresses, custom firewall adapters, ambiguous or additional overlapping security rules and unverifiable firewall state require instance-administrator review. The page does not bypass those restrictions. The security service processes a separate targeted request and rechecks its ownership and exact rule before it changes the original block.
 
 ## Alerts and privacy
 
@@ -61,15 +61,22 @@ Registration and office-block recovery do not qualify physical handset audio, ev
 
 ## Windows Server follow-up
 
-The Debian implementation does not establish Windows compatibility. Complete these items before advertising this feature on Windows Server:
+The candidate uses one protected **OpenWebPBX-PhoneHealth** SYSTEM task. Its security-event connection stays open continuously; health scans run every 30 seconds. The shared PHP implementation provides the same phone/provider explanations, tenant and department permissions, persistent incidents, optional deduplicated global mail and recovery history. Loss of the security observer or Defender Firewall is itself a visible incident.
 
-- [ ] Native, protected phone/provider collection with clear unavailable and stale states.
-- [ ] A Windows security-block adapter with verified office/source ownership, exact rule selection, stale-state refusal and audited recovery.
-- [ ] Persistent incidents and deduplicated administrator alerts through the global mail queue, including visible failures and recovery notices.
-- [ ] Installer/service/task handling, private-file permissions, maintenance holds, same-version repair, upgrade recovery and encrypted restore.
-- [ ] Trusted IIS checks for owner, staff, department and tenant boundaries, including denied recovery.
-- [ ] Native failure/recovery tests proving unrelated firewall rules, active calls, phone credentials and customer media remain intact; full Windows release checks remain separate.
-- [ ] Complete the existing full Windows release gates, including decoded conference media, independent encrypted backup/restore and signed upgrade/recovery, before publication.
+The native adapter creates separately owned TCP and UDP rules for the PBX's actual running phone listener ports. It does not assume every installation uses port 5060. RDP, SSH, other administrator ports, RTP media and unrelated firewall rules are preserved. Correctly registered sources and saved allowed networks are checked before creating an authentication-failure block. Recovery verifies rule identifiers, ownership, address, action and listener scope, and refuses changed, shared, additional or ambiguous restrictions. It never disables a firewall profile or adds a permanent whitelist.
+
+Helpers and their response spool are protected against IIS or ordinary users replacing executable code or acknowledgment data. A private installation identity binds requests to this Windows installation; copying an old database cannot authorize a new server's recovery. Upgrade and restore holds prevent database and firewall actions. Same-install upgrade recovery preserves the installation identity and explicit disabled-task choices; restored pending recovery requests need separate invalidation before activation.
+
+Actual Windows Server 2025 component qualification passed **16 native Defender Firewall controls**, including exact recovery with every original projected rule/filter/profile preserved, and **62 native SYSTEM controls**. The latter includes restricted ACL checks, 49 actual PHP filesystem/TCP/subprocess checks, a real bounded child termination, .NET-to-PHP lock interoperability and all four restore holds. Original PBX services remained stopped with unchanged process identifiers; no customer phone was called. Initial missing-rule, port-overlap, module-path and volume-root ACL refusals were retained and corrected before these passing repeats.
+
+Portable checks additionally pass **83 actual isolated PostgreSQL policy controls**, **68 firewall-adapter controls** with cmdlet doubles and **41 PowerShell task/ACL controls**. Policy signalling doubles do not establish native phone registration or audio. The complete Windows suite has a separate required installed-feature gate for the real SYSTEM observer, native engine collection, PostgreSQL boundaries, runtime, Defender rules and cleanup.
+
+- [x] Implement native collection, the Windows security adapter, shared incident/mail behavior and guarded installer/task integration.
+- [x] Qualify native Defender operations, SYSTEM identity/ACLs, process bounds and maintenance/restore holds in an isolated component workspace.
+- [ ] Pass the rebuilt complete package's installed continuous-task, restart and observer checks.
+- [ ] Pass trusted IIS owner/staff/department/tenant acceptance, including denied recovery.
+- [ ] Pass same-version repair, exact upgrade recovery and encrypted clean/same-machine restore with pending-request invalidation.
+- [ ] Complete the wider Windows gates, including decoded conference media, independent encrypted backup/restore and signed upgrade/recovery, before publication.
 
 Broader system health remains part of **REPORT-06** in [3CX.md](../3CX.md): service failures, storage, backup/certificate failures, protected exports and remote logging are not completed by a phone-registration page. Roadmap totals remain **133 goals: 21 accepted, 72 partial and 40 planned**.
 
