@@ -13,7 +13,9 @@ final class pbx_windows_health_stream {
         if(($this->readPacket(3)['Content-Type']??null)!=='auth/request')throw new RuntimeException('The local event service is unavailable.');
         $this->send('auth '.$password);if(($this->readPacket(3)['Reply-Text']??null)!=='+OK accepted')throw new RuntimeException('The local event service is unavailable.');
         if(!$subscribe)return;
-        $this->send('event json CUSTOM');$this->reply();
+        // CUSTOM alone does not subscribe to the subclass producers. Filters
+        // narrow subscribed events; they cannot create those subscriptions.
+        $this->send('event json CUSTOM sofia::register_failure sofia::pre_register event_guard:phone_health_unblock');$this->reply();
         foreach(['sofia::register_failure','sofia::pre_register','event_guard:phone_health_unblock']as$event){$this->send('filter Event-Subclass '.$event);$this->reply();}
     }
     public static function api(string $command):string {
