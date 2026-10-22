@@ -1120,6 +1120,30 @@ function TenantDomainsHook {
   $facts.gates.tenant_domains='passed';$facts.checks+=('Actual Windows SYSTEM tenant worker, ACL, IIS alias/proof, strict fixture-CA HTTPS and owned recovery controls: '+$report.checks+'; public ACME unqualified')
  }finally{$process.Dispose()}
 }
+function DtlsQualificationHook {
+ if(!(Test-Path -LiteralPath (Join-Path $PackageRoot 'Install-Dtls.ps1'))){
+  if($ReplaySuiteRunId){$facts.dtls_qualification='unqualified_historical_candidate';return}
+  throw 'The current complete candidate is missing its private DTLS provisioner.'
+ }
+ $reportPath=Join-Path $work 'dtls-qualification.json'
+ $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'))
+ $start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+ foreach($argument in @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'windows_dtls_qualification.ps1'),'-SourceRoot',$source,'-PackageRoot',$PackageRoot,'-ReportPath',$reportPath)){$start.ArgumentList.Add($argument)}
+ $process=[Diagnostics.Process]::Start($start);$stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
+ try{
+  if(!$process.WaitForExit(180000)){throw 'The native DTLS preparation checks did not finish.'}
+  [IO.File]::WriteAllText((Join-Path $work 'dtls-qualification.private.out'),$stdout.GetAwaiter().GetResult());[IO.File]::WriteAllText((Join-Path $work 'dtls-qualification.private.err'),$stderr.GetAwaiter().GetResult())
+  $file=Get-Item -LiteralPath $reportPath;if($file.Length -gt 4096 -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Native DTLS evidence is invalid.'};$report=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json
+  if($process.ExitCode){
+   if($report.schema -eq 1 -and $report.state -ceq 'failed' -and $report.stage -cin 'transactions','installed' -and ($report.source_line -is [int] -or $report.source_line -is [long]) -and $report.source_line -gt 0 -and $report.source_line -lt 99999){$facts.dtls_failure=@{stage=$report.stage;source_basename='windows_dtls_qualification.ps1';source_line=$report.source_line}}
+   throw 'The actual private DTLS certificate qualification failed.'
+  }
+  if($report.schema -ne 1 -or $report.producer -cne 'windows_dtls_qualification.ps1' -or $report.state -cne 'passed'){throw 'Native DTLS evidence is incomplete.'}
+  foreach($field in 'actual_native_windows','private_certificate_valid','installed_engine_untouched','native_ntfs_transactions','transaction_service_adapter_double'){if($report.$field -isnot [bool] -or !$report.$field){throw 'The actual native DTLS proof is invalid.'}}
+  foreach($limit in @(@('transaction_checks',50),@('crypto_checks',12),@('installed_checks',12))){$value=$report.($limit[0]);if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt $limit[1] -or $value -gt 10000){throw 'The native DTLS proof count is invalid.'}}
+  $facts.dtls_qualification=@{state='passed';transaction_checks=$report.transaction_checks;crypto_checks=$report.crypto_checks;installed_checks=$report.installed_checks;transaction_service_adapter_double=$true;actual_native_windows=$true}
+ }finally{$process.Dispose()}
+}
 function MeetingTransportHook {
  $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'))
  $start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
@@ -1137,6 +1161,7 @@ function MeetingTransportHook {
   }
   $report=$out|ConvertFrom-Json
   if($report.schema -ne 1 -or !$report.installed -or $report.checks -lt 49){throw 'The installed meeting transport evidence is incomplete.'}
+  DtlsQualificationHook
   $facts.gates.meeting_transport='passed';$facts.checks+=('Actual strict Windows backend TLS and IIS SIP WebSocket controls: '+$report.checks)
  }finally{$process.Dispose()}
 }
