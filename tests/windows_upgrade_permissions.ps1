@@ -111,7 +111,8 @@ try{
  if($native){& icacls.exe $outer /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F'|Out-Null;AssertControl ($LASTEXITCODE -eq 0)}
  $php=Join-Path $root 'php/php.ini';$track=Join-Path $state 'storage/openweb-music/16000/lofi-beat-loop-schmoop.wav'
  $notification=Join-Path $state 'mobile-notifications/config.json';$recording=Join-Path $state 'storage/recordings/owned.wav'
- foreach($path in $php,$track,$notification,$recording,(Join-Path $root 'php/extras/ssl/openssl.cnf'),(Join-Path $root 'php/extras/ssl/cacert.pem'),(Join-Path $state 'native-engine.json'),(Join-Path $state 'local-codec.json'),(Join-Path $state 'meet-ca.pem'),(Join-Path $state 'meet-proxy.json'),(Join-Path $state 'phone-health-instance.json'),(Join-Path $state 'stun.json'),(Join-Path $engine 'libbcg729.dll')){NewText $path}
+ $dtlsCertificate=Join-Path $engine 'cert/dtls-srtp.pem';$dtlsCustom=Join-Path $engine 'cert/custom.pem'
+ foreach($path in $php,$track,$notification,$recording,(Join-Path $root 'php/extras/ssl/openssl.cnf'),(Join-Path $root 'php/extras/ssl/cacert.pem'),(Join-Path $state 'native-engine.json'),(Join-Path $state 'local-codec.json'),(Join-Path $state 'meet-ca.pem'),(Join-Path $state 'meet-proxy.json'),(Join-Path $state 'phone-health-instance.json'),(Join-Path $state 'stun.json'),$dtlsCertificate,$dtlsCustom,(Join-Path $state 'dtls-setup/original/journal.json'),(Join-Path $engine 'libbcg729.dll')){NewText $path}
  # Reproduce a legacy inherited writable program tree; capture only after the
  # exact product hardening statement, never from the rollback snapshot.
  if($native){& icacls.exe (Join-Path $outer 'legacy') /grant '*S-1-5-11:(OI)(CI)M'|Out-Null;AssertControl ($LASTEXITCODE -eq 0)}
@@ -128,11 +129,22 @@ try{
  $scope=Get-OpenWebUpgradePermissionScope -Root $root -StateRoot $state -EngineRoot $engine
  $expectedFiles=@($php,(Join-Path $root 'php/extras/ssl/openssl.cnf'),(Join-Path $root 'php/extras/ssl/cacert.pem'),(Join-Path $state 'native-engine.json'),(Join-Path $state 'local-codec.json'),(Join-Path $state 'meet-ca.pem'),(Join-Path $state 'meet-proxy.json'),(Join-Path $state 'phone-health-instance.json'),(Join-Path $state 'stun.json'),(Join-Path $engine 'libbcg729.dll'))
  AssertControl ($scope.Files.Count -eq 10 -and !(Compare-Object ($scope.Files|Sort-Object) ($expectedFiles|Sort-Object)))
- $expectedDirectories=@('mobile-notifications','mail','meet-proxy','stun-setup','phone-health-runtime','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','storage/openweb-music'|ForEach-Object {Join-Path $state $_})
- AssertControl ($scope.Directories.Count -eq 12 -and !(Compare-Object ($scope.Directories|Sort-Object) ($expectedDirectories|Sort-Object)))
+ $expectedDirectories=@('mobile-notifications','mail','meet-proxy','stun-setup','dtls-setup','phone-health-runtime','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','storage/openweb-music'|ForEach-Object {Join-Path $state $_})
+ AssertControl ($scope.Directories.Count -eq 13 -and !(Compare-Object ($scope.Directories|Sort-Object) ($expectedDirectories|Sort-Object)))
  foreach($name in 'installation.json','runtime.json','updater-install.json','updater-original-startup.json'){
   AssertControl (!(($scope.Files -join '|').Contains($name)))
  }
+ AssertControl (@($permissions|Where-Object {$_.Path -ceq $dtlsCertificate -or $_.Path -ceq $dtlsCustom}).Count -eq 0)
+ $dtlsCustomAcl=CurrentAcl $dtlsCustom;$dtlsCustomBytes=[IO.File]::ReadAllText($dtlsCustom)
+ # The actual repair owns the key ACL; generic successful replay must never
+ # restore the broad pre-repair descriptor over this protected new key.
+ [IO.File]::WriteAllText($dtlsCertificate,'NEW-OWNED-DTLS-KEY',[Text.UTF8Encoding]::new($false))
+ if($native){
+  . (Join-Path $SourceRoot 'packaging/windows/File-Security.ps1')
+  $repairAcl=[Security.AccessControl.FileSecurity]::new();$repairAcl.SetSecurityDescriptorSddlForm('O:BAG:BAD:P(A;;FA;;;BA)(A;;FA;;;SY)')
+  Set-Acl -LiteralPath $dtlsCertificate -AclObject $repairAcl
+ }else{$script:fakeAcls[$dtlsCertificate]=$hardenedSddl}
+ $dtlsRepairedAcl=CurrentAcl $dtlsCertificate
  $recordingAcl=CurrentAcl $recording;$recordingBytes=[Convert]::ToBase64String([IO.File]::ReadAllBytes($recording))
  foreach($path in $php,$track,$notification){
   [IO.File]::WriteAllText($path,'UPDATED-CONTENT',[Text.UTF8Encoding]::new($false));AlterAcl $path
@@ -161,6 +173,8 @@ try{
  $newDirectory=Join-Path $state 'mail';$null=[IO.Directory]::CreateDirectory($newDirectory);$newDirectoryAcl=CurrentAcl $newDirectory;$newPrivate=Join-Path $newDirectory 'new.lock';NewText $newPrivate 'NEW-PRIVATE';$newPrivateAcl=CurrentAcl $newPrivate
  Restore-OpenWebUpgradePermissions -Permissions $permissions -Root $root -StateRoot $state -EngineRoot $engine
  foreach($permission in $permissions){AssertControl ((CurrentAcl $permission.Path) -ceq $permission.Sddl)}
+ AssertControl ((CurrentAcl $dtlsCertificate) -ceq $dtlsRepairedAcl -and [IO.File]::ReadAllText($dtlsCertificate) -ceq 'NEW-OWNED-DTLS-KEY')
+ AssertControl ((CurrentAcl $dtlsCustom) -ceq $dtlsCustomAcl -and [IO.File]::ReadAllText($dtlsCustom) -ceq $dtlsCustomBytes)
  foreach($path in $php,$track,$notification){AssertControl ([IO.File]::ReadAllText($path) -ceq 'UPDATED-CONTENT')}
  AssertControl ((CurrentAcl $php) -ceq $postHardening -and (CurrentAcl $php) -cne $preHardening)
  if($native){AssertControl (!(HasAuthenticatedUsersWrite (CurrentAcl $php)))}
@@ -183,7 +197,7 @@ try{
   @{Path=$php;Directory=$false;Sddl=('x'*131073)},@{Path=$php;Directory=$false;Sddl=('x'+[char]0)},
   @{Path=$php;Directory=$false;Sddl='not-sddl'},@{Path=$php;Directory=$false;Sddl='O:BAD:(A;;FA;;;BA)'},
   @{Path=$php;Directory=$false;Sddl='G:BAD:(A;;FA;;;BA)'},@{Path=$php;Directory=$false;Sddl='O:BAG:BA'},
-  @{Path=$recording;Directory=$false;Sddl=$original.Sddl},@{Path=$root;Directory=$true;Sddl=$original.Sddl},
+  @{Path=$recording;Directory=$false;Sddl=$original.Sddl},@{Path=$dtlsCertificate;Directory=$false;Sddl=$original.Sddl},@{Path=$root;Directory=$true;Sddl=$original.Sddl},
   @{Path=(Join-Path $state 'mobile-notifications-extra/file');Directory=$false;Sddl=$original.Sddl},
   @{Path='relative';Directory=$false;Sddl=$original.Sddl},@{Path=$php;Directory=$true;Sddl=$original.Sddl},
   @{Path=(Join-Path $state 'mobile-notifications/missing');Directory=$false;Sddl=$original.Sddl},

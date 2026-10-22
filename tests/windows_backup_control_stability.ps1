@@ -30,9 +30,9 @@ try{
  foreach($name in 'directories','parents','fixed'){
   $declaration=@($assignments|Where-Object {$_.Left.Extent.Text -ceq ('$'+$name)});Assert ($declaration.Count -eq 1);Invoke-Expression $declaration[0].Extent.Text
  }
- $expectedDirectories=@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots",$configuration,"$switch\conf","$switch\scripts","$switch\mod","$switch\sounds","$state\storage","$state\mobile-notifications","$state\phone-tls","$state\public-access","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build","$state\phone-health-runtime","$state\stun-setup")
+ $expectedDirectories=@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots",$configuration,"$switch\conf","$switch\scripts","$switch\mod","$switch\sounds","$state\storage","$state\mobile-notifications","$state\phone-tls","$state\public-access","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build","$state\phone-health-runtime","$state\stun-setup","$state\dtls-setup")
  $expectedParents=@($root,"$root\updater",$state,$switch)
- $expectedFixed=@("$state\installation.json","$state\runtime.json","$state\phone-tls.json","$state\phone-health-instance.json","$state\stun.json","$state\native-engine.json","$state\local-codec.json","$state\updater-install.json","$root\php\php.ini","$root\php\extras\ssl\openssl.cnf","$root\php\extras\ssl\cacert.pem")
+ $expectedFixed=@("$state\installation.json","$state\runtime.json","$state\phone-tls.json","$state\phone-health-instance.json","$state\stun.json","$switch\cert\dtls-srtp.pem","$state\native-engine.json","$state\local-codec.json","$state\updater-install.json","$root\php\php.ini","$root\php\extras\ssl\openssl.cnf","$root\php\extras\ssl\cacert.pem")
  Assert (($directories -join '|') -ceq ($expectedDirectories -join '|'))
  Assert (($parents -join '|') -ceq ($expectedParents -join '|'))
  Assert (($fixed -join '|') -ceq ($expectedFixed -join '|'))

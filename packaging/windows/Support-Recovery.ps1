@@ -73,9 +73,12 @@ function Get-OpenWebUpgradePermissionScope {
  param([string]$Root,[string]$StateRoot,[string]$EngineRoot)
  # Existing private/support objects only. Program directories, tasks and mutable
  # installation/updater metadata deliberately keep their upgrade contracts.
+ # DTLS owns successful certificate ACLs: valid/custom keys stay exact and
+ # repaired keys stay protected. Failure recovery below captures the old key
+ # bytes, descriptor and absence independently of this successful replay.
  @{
   Files=@((Join-Path $Root 'php\php.ini'),(Join-Path $Root 'php\extras\ssl\openssl.cnf'),(Join-Path $Root 'php\extras\ssl\cacert.pem'),(Join-Path $StateRoot 'native-engine.json'),(Join-Path $StateRoot 'local-codec.json'),(Join-Path $StateRoot 'meet-ca.pem'),(Join-Path $StateRoot 'meet-proxy.json'),(Join-Path $StateRoot 'phone-health-instance.json'),(Join-Path $StateRoot 'stun.json'),(Join-Path $EngineRoot 'libbcg729.dll'))
-  Directories=@('mobile-notifications','mail','meet-proxy','stun-setup','phone-health-runtime','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','storage\openweb-music'|ForEach-Object {Join-Path $StateRoot $_})
+  Directories=@('mobile-notifications','mail','meet-proxy','stun-setup','dtls-setup','phone-health-runtime','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','storage\openweb-music'|ForEach-Object {Join-Path $StateRoot $_})
  }
 }
 function Get-OpenWebUpgradePermissions {
@@ -146,7 +149,7 @@ function Save-OpenWebSupport {
  $filter="system.webServer/fastCgi/application[@fullPath='$fastcgi']/environmentVariables/environmentVariable[@name='OPENSSL_CONF']"
  $environment=Get-WebConfiguration -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter $filter
  $record.PhpEnvironment=@{Exists=[bool]$environment;Value=if($environment){[string]$environment.value}else{''};ProcessValue=$env:OPENSSL_CONF}
- $files=@("$Root\php\php.ini","$Root\php\extras\ssl\openssl.cnf","$Root\php\extras\ssl\cacert.pem","$StateRoot\native-engine.json","$StateRoot\local-codec.json","$StateRoot\meet-ca.pem","$StateRoot\meet-proxy.json","$StateRoot\updater-original-startup.json","$StateRoot\updater-install.json","$StateRoot\installation.json","$StateRoot\phone-health-instance.json","$StateRoot\stun.json","$EngineRoot\libbcg729.dll")
+ $files=@("$Root\php\php.ini","$Root\php\extras\ssl\openssl.cnf","$Root\php\extras\ssl\cacert.pem","$StateRoot\native-engine.json","$StateRoot\local-codec.json","$StateRoot\meet-ca.pem","$StateRoot\meet-proxy.json","$StateRoot\updater-original-startup.json","$StateRoot\updater-install.json","$StateRoot\installation.json","$StateRoot\phone-health-instance.json","$StateRoot\stun.json","$EngineRoot\cert\dtls-srtp.pem","$EngineRoot\libbcg729.dll")
  if(Test-Path (Join-Path $PackageRoot 'Meet-Proxy.ps1')){
   Copy-Item -LiteralPath (Join-Path $PackageRoot 'Meet-Proxy.ps1') -Destination (Join-Path $Backup 'meeting-recovery.ps1')
   Copy-Item -LiteralPath (Join-Path $PackageRoot 'Write-PrivateState.ps1') -Destination (Join-Path $Backup 'Write-PrivateState.ps1')
@@ -163,7 +166,7 @@ function Save-OpenWebSupport {
   if($exists){New-Item -ItemType Directory -Force "$Backup\support-files" | Out-Null;Copy-Item -LiteralPath $path -Destination (Join-Path $Backup $copy);$record.Acls[$path]=(Get-Acl -LiteralPath $path).Sddl}
  }
  $directories=@{
-  'backup-runtime'="$Root\backup-runtime";'acme-runtime'="$Root\acme";'mobile-notifications'="$StateRoot\mobile-notifications";'mail-state'="$StateRoot\mail";'meet-proxy'="$StateRoot\meet-proxy";'tenant-domains'="$StateRoot\tenant-domains";'stun-setup'="$StateRoot\stun-setup";'phone-health-runtime'="$StateRoot\phone-health-runtime";'updater-slots'="$Root\updater\slots"
+  'backup-runtime'="$Root\backup-runtime";'acme-runtime'="$Root\acme";'mobile-notifications'="$StateRoot\mobile-notifications";'mail-state'="$StateRoot\mail";'meet-proxy'="$StateRoot\meet-proxy";'tenant-domains'="$StateRoot\tenant-domains";'stun-setup'="$StateRoot\stun-setup";'dtls-setup'="$StateRoot\dtls-setup";'phone-health-runtime'="$StateRoot\phone-health-runtime";'updater-slots'="$Root\updater\slots"
   'automatic-backups'="$StateRoot\automatic-backups";'backup-restore'="$StateRoot\backup-restore";'backup-control'="$StateRoot\backup-control";'backup-downloads'="$StateRoot\backup-downloads"
   'codec-compiler-cache'="$StateRoot\codec-compiler-cache";'codec-build'="$StateRoot\codec-build";'openweb-music'="$StateRoot\storage\openweb-music"
  }
@@ -178,7 +181,7 @@ function Save-OpenWebSupport {
   if($exists){CopyTree $path (Join-Path $Backup $name)}
  }
  $record.Acls[$Root]=(Get-Acl -LiteralPath $Root).Sddl
- foreach($path in @("$Root\web","$Root\server","$Root\desktop","$Root\tools","$EngineRoot\mod","$EngineRoot\sounds","$EngineRoot\conf","$StateRoot\mobile-notifications","$StateRoot\mail","$StateRoot\meet-proxy","$StateRoot\tenant-domains","$StateRoot\stun-setup","$StateRoot\phone-health-runtime","$Root\backup-runtime","$Root\acme","$Root\updater","$StateRoot\automatic-backups","$StateRoot\backup-restore","$StateRoot\backup-control","$StateRoot\backup-downloads","$StateRoot\codec-compiler-cache","$StateRoot\codec-build","$StateRoot\storage\openweb-music")){
+ foreach($path in @("$Root\web","$Root\server","$Root\desktop","$Root\tools","$EngineRoot\mod","$EngineRoot\sounds","$EngineRoot\conf","$StateRoot\mobile-notifications","$StateRoot\mail","$StateRoot\meet-proxy","$StateRoot\tenant-domains","$StateRoot\stun-setup","$StateRoot\dtls-setup","$StateRoot\phone-health-runtime","$Root\backup-runtime","$Root\acme","$Root\updater","$StateRoot\automatic-backups","$StateRoot\backup-restore","$StateRoot\backup-control","$StateRoot\backup-downloads","$StateRoot\codec-compiler-cache","$StateRoot\codec-build","$StateRoot\storage\openweb-music")){
   if(Test-Path -LiteralPath $path -PathType Container){
    $record.Acls[$path]=(Get-Acl -LiteralPath $path).Sddl
    foreach($item in Get-ChildItem -LiteralPath $path -Force -Recurse){
@@ -212,7 +215,7 @@ function Restore-OpenWebSupport {
   . (Join-Path $Backup 'meeting-recovery.ps1')
   Restore-OpenWebMeetSystem -Snapshot (Join-Path $Backup 'meeting-system.json') -StateRoot $StateRoot
  }
- $allowed=@($Root,"$StateRoot\native-engine.json","$StateRoot\local-codec.json","$StateRoot\meet-ca.pem","$StateRoot\meet-proxy.json","$StateRoot\updater-original-startup.json","$StateRoot\updater-install.json","$StateRoot\installation.json","$StateRoot\phone-health-instance.json","$StateRoot\stun.json","$StateRoot\mobile-notifications","$StateRoot\mail","$StateRoot\meet-proxy","$StateRoot\tenant-domains","$StateRoot\stun-setup","$StateRoot\phone-health-runtime","$StateRoot\automatic-backups","$StateRoot\backup-restore","$StateRoot\backup-control","$StateRoot\backup-downloads","$StateRoot\codec-compiler-cache","$StateRoot\codec-build","$StateRoot\storage\openweb-music","$EngineRoot")
+ $allowed=@($Root,"$StateRoot\native-engine.json","$StateRoot\local-codec.json","$StateRoot\meet-ca.pem","$StateRoot\meet-proxy.json","$StateRoot\updater-original-startup.json","$StateRoot\updater-install.json","$StateRoot\installation.json","$StateRoot\phone-health-instance.json","$StateRoot\stun.json","$StateRoot\mobile-notifications","$StateRoot\mail","$StateRoot\meet-proxy","$StateRoot\tenant-domains","$StateRoot\stun-setup","$StateRoot\dtls-setup","$StateRoot\phone-health-runtime","$StateRoot\automatic-backups","$StateRoot\backup-restore","$StateRoot\backup-control","$StateRoot\backup-downloads","$StateRoot\codec-compiler-cache","$StateRoot\codec-build","$StateRoot\storage\openweb-music","$EngineRoot")
  function Check-SupportPath([string]$Path){
   $full=[IO.Path]::GetFullPath($Path);$valid=$false
   foreach($base in $allowed){if($full.Equals($base,[StringComparison]::OrdinalIgnoreCase) -or $full.StartsWith($base.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)){$valid=$true;break}}
@@ -230,7 +233,7 @@ function Restore-OpenWebSupport {
   }else{Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue}
  }
  foreach($entry in $record.Directories.PSObject.Properties){
-  if($entry.Name -notin 'backup-runtime','acme-runtime','mobile-notifications','mail-state','meet-proxy','tenant-domains','stun-setup','phone-health-runtime','updater-slots','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','openweb-music'){throw 'The support recovery folder inventory is invalid.'}
+  if($entry.Name -notin 'backup-runtime','acme-runtime','mobile-notifications','mail-state','meet-proxy','tenant-domains','stun-setup','dtls-setup','phone-health-runtime','updater-slots','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','openweb-music'){throw 'The support recovery folder inventory is invalid.'}
   $target=Check-SupportPath $entry.Value.Path
   if($entry.Value.Exists){CopyTree (Join-Path $Backup $entry.Name) $target -Mirror}
   else{Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue}

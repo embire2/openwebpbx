@@ -74,6 +74,8 @@ jobs:
           if($LASTEXITCODE){throw 'The exact program-root policy controls failed.'}
           & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_upgrade_permissions.ps1
           if($LASTEXITCODE){throw 'The native successful-upgrade permission controls failed.'}
+          & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_dtls_support_recovery.ps1
+          if($LASTEXITCODE){throw 'The native DTLS identity and state recovery controls failed.'}
       - name: Observe PHP file security across exact hardening and replay stages
         run: |
           $ErrorActionPreference='Stop'
