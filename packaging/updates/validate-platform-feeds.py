@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify a Windows-only release and the unchanged generic feed before publication."""
+"""Verify a Windows release while preserving the published Android/Debian feeds."""
 import argparse
 import hashlib
 import json
@@ -10,17 +10,33 @@ import zipfile
 from verify_feed import MAX_ENVELOPE, no_duplicate_keys, verify
 
 
-def validate(generic, reference, windows, public_key, package, *, generic_version, windows_version, now=None):
+def validate(generic, reference, windows, public_key, package, *, generic_version, windows_version,
+             debian=None, debian_reference=None, debian_version=None, now=None):
     if generic != reference:
         raise ValueError('The generic feed differs from the immutable published reference.')
     shared, shared_digest = verify(generic, public_key, now=now)
     separate, separate_digest = verify(windows, public_key, now=now)
-    if shared['version'] != generic_version or {a['platform'] for a in shared['assets']} != {'debian13-amd64', 'android-universal'}:
-        raise ValueError('The generic feed must retain the published Debian and Android release.')
+    shared_platforms = {a['platform'] for a in shared['assets']}
+    if shared['version'] != generic_version or shared_platforms not in ({'debian13-amd64', 'android-universal'}, {'android-universal'}):
+        raise ValueError('The generic feed must retain the published Android release.')
+    debian_inputs = (debian is not None, debian_reference is not None, debian_version is not None)
+    if any(debian_inputs) and not all(debian_inputs):
+        raise ValueError('Supply the Debian feed, immutable reference and expected version together.')
+    linux = None
+    linux_digest = None
+    if all(debian_inputs):
+        if debian != debian_reference:
+            raise ValueError('The Debian feed differs from the immutable published reference.')
+        linux, linux_digest = verify(debian, public_key, now=now)
+        if linux['version'] != debian_version or {a['platform'] for a in linux['assets']} not in (
+                {'debian13-amd64'}, {'debian13-amd64', 'android-universal'}):
+            raise ValueError('The Debian feed must retain the published Debian release.')
+    elif shared_platforms != {'debian13-amd64', 'android-universal'}:
+        raise ValueError('The separate published Debian feed and reference are required.')
     if separate['version'] != windows_version or len(separate['assets']) != 1 or separate['assets'][0]['platform'] != 'windows-x64':
         raise ValueError('The Windows feed must contain only the expected Windows server release.')
-    if separate['sequence'] <= shared['sequence']:
-        raise ValueError('The Windows release sequence must advance past the retained generic feed.')
+    if separate['sequence'] <= max(shared['sequence'], linux['sequence'] if linux else 0):
+        raise ValueError('The Windows release sequence must advance past the retained platform feeds.')
     asset = separate['assets'][0]
     if package.name != asset['name'] or package.stat().st_size != asset['bytes']:
         raise ValueError('The Windows package name or size differs from its signed feed.')
@@ -69,15 +85,22 @@ def validate(generic, reference, windows, public_key, package, *, generic_versio
                     raise ValueError('The Windows package member failed manifest verification.')
         if archive.read(members['VERSION']).decode('utf-8').strip() != windows_version:
             raise ValueError('The Windows package VERSION differs from signed metadata.')
-    return {'generic_version': shared['version'], 'generic_sequence': shared['sequence'], 'generic_payload_sha256': shared_digest,
+    result = {'generic_version': shared['version'], 'generic_sequence': shared['sequence'], 'generic_payload_sha256': shared_digest,
             'generic_reference_byte_identical': True, 'windows_version': separate['version'], 'windows_sequence': separate['sequence'],
             'windows_payload_sha256': separate_digest, 'windows_package_sha256': package_hash, 'windows_manifest_files': len(manifest['files'])}
+    if linux is not None:
+        result.update(debian_version=linux['version'], debian_sequence=linux['sequence'], debian_payload_sha256=linux_digest,
+                      debian_reference_byte_identical=True)
+    return result
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--generic', type=Path, required=True)
     parser.add_argument('--generic-reference', type=Path, required=True)
+    parser.add_argument('--debian', type=Path)
+    parser.add_argument('--debian-reference', type=Path)
+    parser.add_argument('--debian-version')
     parser.add_argument('--windows', type=Path, required=True)
     parser.add_argument('--windows-package', type=Path, required=True)
     parser.add_argument('--generic-version', required=True)
@@ -86,12 +109,19 @@ def main():
     args = parser.parse_args()
     if args.generic.name != 'update-manifest.json' or args.windows.name != 'windows-update-manifest.json':
         parser.error('Use the fixed generic and Windows feed filenames.')
-    for path in (args.generic, args.generic_reference, args.windows):
+    if any((args.debian, args.debian_reference, args.debian_version)) and not all((args.debian, args.debian_reference, args.debian_version)):
+        parser.error('Supply --debian, --debian-reference and --debian-version together.')
+    if args.debian and args.debian.name != 'debian-update-manifest.json':
+        parser.error('Use the fixed Debian feed filename.')
+    for path in filter(None, (args.generic, args.generic_reference, args.debian, args.debian_reference, args.windows)):
         if not path.is_file() or path.stat().st_size > MAX_ENVELOPE:
             parser.error('Feed files must be ordinary bounded envelopes.')
     try:
         result = validate(args.generic.read_bytes(), args.generic_reference.read_bytes(), args.windows.read_bytes(), args.public_key,
-                          args.windows_package, generic_version=args.generic_version, windows_version=args.windows_version)
+                          args.windows_package, generic_version=args.generic_version, windows_version=args.windows_version,
+                          debian=args.debian.read_bytes() if args.debian else None,
+                          debian_reference=args.debian_reference.read_bytes() if args.debian_reference else None,
+                          debian_version=args.debian_version)
     except (ValueError, KeyError, OSError, zipfile.BadZipFile, UnicodeError) as error:
         parser.error(str(error))
     print(json.dumps(result, sort_keys=True))

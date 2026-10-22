@@ -80,6 +80,23 @@ class PlatformFeedChecks(unittest.TestCase):
         self.payload['assets'][0].update(bytes=self.package.stat().st_size, sha256=hashlib.sha256(self.package.read_bytes()).hexdigest())
         return self.signed(self.payload)
 
+    def independent_feeds(self):
+        android, _ = verify(self.reference, self.public)
+        debian = json.loads(json.dumps(android))
+        android['assets'] = [a for a in android['assets'] if a['platform'] == 'android-universal']
+        debian.update(version='1.0.11', sequence=111)
+        debian['assets'] = [a for a in debian['assets'] if a['platform'] == 'debian13-amd64']
+        for asset in debian['assets']:
+            asset['name'] = asset['name'].replace('1.0.12', '1.0.11')
+            asset['url'] = asset['url'].replace('1.0.12', '1.0.11')
+        return self.signed(android), self.signed(debian)
+
+    def validate_independent(self, android, debian_envelope, **options):
+        args = dict(generic_version='1.0.12', windows_version='1.0.13', debian=debian_envelope,
+                    debian_reference=debian_envelope, debian_version='1.0.11')
+        args.update(options)
+        return validator.validate(android, android, self.windows.read_bytes(), self.public, self.package, **args)
+
     def test_real_split_signer_and_full_manifest(self):
         result = self.validate()
         self.assertTrue(result['generic_reference_byte_identical'])
@@ -91,6 +108,73 @@ class PlatformFeedChecks(unittest.TestCase):
         for platform in ('debian13-amd64', 'android-universal'):
             self.assertIn('/v1.0.12/', select_asset(generic, platform, '1.0.11', '1.0.12')['url'])
         self.assertEqual(select_asset(self.payload, 'windows-x64', '1.0.7', '1.0.13')['name'], self.package.name)
+
+    def test_current_three_feeds_preserve_independent_releases(self):
+        android, debian = self.independent_feeds()
+        result = self.validate_independent(android, debian)
+        self.assertTrue(result['generic_reference_byte_identical'])
+        self.assertTrue(result['debian_reference_byte_identical'])
+        self.assertEqual((result['generic_version'], result['debian_version'], result['windows_version']),
+                         ('1.0.12', '1.0.11', '1.0.13'))
+        linux, _ = verify(debian, self.public)
+        self.assertIn('/v1.0.11/', select_asset(linux, 'debian13-amd64', '1.0.10')['url'])
+        with self.assertRaisesRegex(ValueError, 'no package'):
+            select_asset(verify(android, self.public)[0], 'debian13-amd64', '1.0.10')
+
+    def test_android_only_feed_cannot_hide_missing_debian_discovery(self):
+        android, debian = self.independent_feeds()
+        with self.assertRaisesRegex(ValueError, 'Debian feed and reference'):
+            validator.validate(android, android, self.windows.read_bytes(), self.public, self.package,
+                               generic_version='1.0.12', windows_version='1.0.13')
+        for missing in ('debian', 'debian_reference', 'debian_version'):
+            with self.subTest(missing=missing), self.assertRaisesRegex(ValueError, 'together'):
+                self.validate_independent(android, debian, **{missing: None})
+
+    def test_separate_debian_reference_and_version_cannot_change(self):
+        android, debian = self.independent_feeds()
+        altered, _ = verify(debian, self.public)
+        altered['sequence'] = 112
+        with self.assertRaisesRegex(ValueError, 'immutable'):
+            self.validate_independent(android, debian, debian=self.signed(altered))
+        with self.assertRaisesRegex(ValueError, 'published Debian'):
+            self.validate_independent(android, debian, debian_version='1.0.12')
+
+    def test_separate_debian_platform_and_signature_are_required(self):
+        android, debian = self.independent_feeds()
+        with self.assertRaisesRegex(ValueError, 'published Debian'):
+            self.validate_independent(android, android, debian_version='1.0.12')
+        invalid = debian.replace(b'release-2026-a', b'release-2026-b')
+        with self.assertRaisesRegex(ValueError, 'not trusted'):
+            self.validate_independent(android, invalid)
+
+    def test_windows_sequence_advances_past_both_platforms(self):
+        android, debian = self.independent_feeds()
+        newer, _ = verify(debian, self.public)
+        newer['sequence'] = 114
+        with self.assertRaisesRegex(ValueError, 'advance'):
+            self.validate_independent(android, self.signed(newer))
+
+    def test_cli_accepts_three_immutable_feeds_and_refuses_partial_inputs(self):
+        android, debian = self.independent_feeds()
+        with tempfile.TemporaryDirectory(dir=self.root) as directory:
+            directory = Path(directory)
+            generic = directory / 'update-manifest.json'
+            linux = directory / 'debian-update-manifest.json'
+            generic.write_bytes(android)
+            linux.write_bytes(debian)
+            command = [sys.executable, str(ROOT / 'packaging/updates/validate-platform-feeds.py'),
+                       '--generic', str(generic), '--generic-reference', str(generic),
+                       '--windows', str(self.windows), '--windows-package', str(self.package),
+                       '--public-key', str(self.public), '--generic-version', '1.0.12', '--windows-version', '1.0.13']
+            full = command + ['--debian', str(linux), '--debian-reference', str(linux), '--debian-version', '1.0.11']
+            result = subprocess.run(full, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertTrue(json.loads(result.stdout)['debian_reference_byte_identical'])
+            result = subprocess.run(command + ['--debian', str(linux)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(b'together', result.stderr)
+            self.assertEqual(generic.read_bytes(), android)
+            self.assertEqual(linux.read_bytes(), debian)
 
     def test_windows_only_signer_refuses_generic_filename_without_overwriting(self):
         result = self.sign('1.0.13', '113', self.generic, ['--windows-only', '--windows', str(self.package)])

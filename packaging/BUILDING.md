@@ -1,12 +1,12 @@
 # Building OpenWeb PBX
 
-## Windows Server 1.0.13 candidate
+## Windows Server 1.0.20 candidate
 
-The current checkout prepares Windows 1.0.13. Debian and Android remain on immutable 1.0.12 at `061f83c81`; use that revision for their matching builds. A successful compile is separate from server installation and calling qualification.
+The current checkout prepares native Windows Server 1.0.20. Qualification is in progress; the published Windows release remains 1.0.7. Public full Debian remains 1.0.16, with the separate 1.0.19 administration patch, and Android remains 1.0.18. Use each immutable release revision for its matching build. See the [current Windows acceptance record](../docs/windows-parity-1.0.20.md).
 
-The manual `windows-native.yml` workflow uses .NET SDK 10.0.401 and Visual Studio 2026 on Windows Server 2025. It publishes the complete service, updater and WinUI output, immutable source hashes, assembly versions and an actual responsive top-level-window check. Current matching C# outputs are from run `38592924897`.
+The manual `windows-native.yml` workflow uses .NET SDK 10.0.401 and Visual Studio 2026 on Windows Server 2025. It publishes the complete service, updater and WinUI output, immutable source hashes, assembly versions and an actual responsive top-level-window check. Select a successful build whose complete input inventory matches the candidate; a successful compile does not qualify installation or calling.
 
-The `windows-engine.yml` workflow builds only the registrar from pinned FreeSWITCH/Sofia source and the original-identity patch. It reads the pinned MSI without executing its installer, derives DATA-aware imports, and checks the portable local codec's real callbacks and 1,000 APR memory-ownership cycles. Run `38594513765` passed; independent validation covered all 6,214 public source inputs, including 94 legitimate hidden files. Combined codec DLLs are excluded from uploads and release packages.
+The `windows-engine.yml` workflow builds the registrar from pinned FreeSWITCH/Sofia source, including the original-identity and fragmented-WebSocket corrections. It reads the pinned MSI without executing its installer, derives DATA-aware imports, and checks the portable local codec's real callbacks and 1,000 APR memory-ownership cycles. Retain the complete source manifests, including legitimate hidden files. Combined codec DLLs are excluded from uploads and release packages.
 
 Prepare the isolated Python backup runtime with `packaging/windows/build-backup-runtime.py`, the verified simple-acme bundle with `build-acme-runtime.py`, and the four-rate music bundle with `build-hold-music.py`. Retain their exact manifests, upstream sources and licences. Then package matching reviewed inputs:
 
@@ -16,12 +16,28 @@ python3 packaging/build-release.py --target windows \
   --desktop /private/native/desktop --engine /private/engine/engine \
   --codec-source /private/engine/codec-source/source \
   --backup-runtime /private/backup-runtime --acme /private/acme \
-  --music /private/music --output artifacts/release-1.0.13
+  --music /private/music --voices /private/voices/1.0.1 \
+  --output artifacts/release-1.0.20
 ```
 
-Only tracked source and exact verified runtime inventories are copied. At installation, the local codec recipe downloads its pinned compiler, builds and proves the converter privately, and installs it while the engine is stopped. The installer never distributes a combined converter binary. Native ZIP integrity does not qualify SIP/media, global mail, real service permissions, encrypted clean-server restore or rollback; the disposable `windows-suite.yml` workflow exercises those separately.
+Only tracked source and exact verified runtime inventories are copied. At installation, the local codec recipe downloads its pinned compiler, builds and proves the converter privately, and installs it while the engine is stopped. The installer never distributes a combined converter binary. Native ZIP integrity does not qualify SIP/media, global mail, phone health, STUN, real service permissions, encrypted clean-server restore or rollback; the disposable `windows-suite.yml` workflow exercises those separately. Its final package must include all reviewed runtime corrections; a previous archive does not qualify later changes.
 
-Sign the final Windows archive with `packaging/updates/sign-feed.py --windows-only --windows <archive> --version 1.0.13 --sequence 113 --private-key <private-key> --output <windows-update-manifest.json>`. The private signing key stays outside the repository and hosted runners. Preserve the exact signed generic 1.0.12 envelope for Debian/Android clients in the Windows release, and verify both feeds with the matching validator. Publication and complete public downloads remain required before updating the homepage catalogue. See [Windows candidate installation](../docs/installing-1.0.13.md).
+After complete qualification, sign the exact Windows archive with `packaging/updates/sign-feed.py --windows-only --windows <archive> --version 1.0.20 --sequence <unused-sequence> --private-key <private-key> --output <windows-update-manifest.json>`. The private signing key stays outside the repository and hosted runners. Use a sequence above every preserved platform feed. Keep both published `update-manifest.json` (Android) and `debian-update-manifest.json` byte-for-byte in the new release. Validate all three before publication:
+
+```sh
+python3 packaging/updates/validate-platform-feeds.py \
+  --generic /private/publication/update-manifest.json \
+  --generic-reference /private/published/android-envelope.json \
+  --generic-version 1.0.18 \
+  --debian /private/publication/debian-update-manifest.json \
+  --debian-reference /private/published/debian-envelope.json \
+  --debian-version 1.0.16 \
+  --windows /private/publication/windows-update-manifest.json \
+  --windows-package /private/publication/openwebpbx-1.0.20-windows-x64.zip \
+  --windows-version 1.0.20
+```
+
+Preserve the original envelopes and download provenance privately; do not recreate or re-sign them. Complete public downloads must match before updating the homepage catalogue. See [candidate installation](../docs/installing-1.0.20.md), [Windows upgrades](../docs/windows-upgrade.md) and [the update protocol](updates/PROTOCOL.md). The historical 1.0.13 candidate's results remain in their own record.
 
 ## Historical 1.0.12 source build
 
