@@ -57,14 +57,16 @@ def receive_frame(stream):
 
 def receive_message(stream):
     first, body = receive_frame(stream)
+    frames = [(first & 15, bool(first & 128), len(body), time.monotonic())]
     if first & 15 != 1:
         raise ValueError("Expected fictional text OPTIONS")
     while not first & 128:
         first, part = receive_frame(stream)
+        frames.append((first & 15, bool(first & 128), len(part), time.monotonic()))
         if first & 15 != 0 or len(body) + len(part) > 16384:
             raise ValueError("Invalid fictional continuation")
         body += part
-    return body
+    return body, frames
 
 
 def frame(body, opcode=1, final=True):
@@ -80,6 +82,7 @@ class Fixture:
     def __init__(self, directory, mode):
         self.mode = mode
         self.requests = []
+        self.fragments = []
         self.finished = False
         self.failed = False
         self.listener = socket.socket()
@@ -88,7 +91,7 @@ class Fixture:
         self.listener.settimeout(6)
         self.port = self.listener.getsockname()[1]
         self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        certificate = "wrong.pem" if mode == "wrong_san" else "server.pem"
+        certificate = "wrong.pem" if mode in ("wrong_san", "fragmented_send_wrong_san") else "server.pem"
         self.context.load_cert_chain(directory / certificate, directory / "server.key")
         self.thread = threading.Thread(target=self.run, daemon=False)
         self.thread.start()
@@ -111,15 +114,23 @@ class Fixture:
                 accept = base64.b64encode(hashlib.sha1(headers[b"Sec-WebSocket-Key"].strip() + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest())
                 stream.sendall(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Protocol: sip\r\nSec-WebSocket-Accept: " + accept + b"\r\n\r\n")
                 for index in range(2):
-                    message = receive_message(stream)
+                    message, frames = receive_message(stream)
                     self.requests.append(message)
+                    self.fragments.append(frames)
+                    if index == 1 and self.mode.startswith("fragmented_send"):
+                        check(len(frames) == 2)
+                        check(frames[0][:3] == (1, False, 4096))
+                        check(frames[1][:3] == (0, True, 4096))
+                        check(0.08 <= frames[1][3] - frames[0][3] < 4.5)
+                    else:
+                        check(len(frames) == 1 and frames[0][:2] == (1, True))
                     check(message.startswith(b"OPTIONS sip:openweb-meet.internal SIP/2.0\r\n"))
                     check(b"Authorization:" not in message and b"INVITE" not in message and b"REGISTER" not in message)
                     check(message.endswith(b"Content-Length: 0\r\n\r\n"))
                     check(len(message) == 8192 if index else len(message) < 2048)
                     call_id = re.search(rb"\r\nCall-ID: ([^\r\n]+)\r\n", message).group(1)
                     response = b"SIP/2.0 200 Fictional\r\nCall-ID: " + call_id + b"\r\nCSeq: 1 OPTIONS\r\nContent-Length: 0\r\n\r\n"
-                    if self.mode == "stall" or (self.mode == "large_stall" and index == 1):
+                    if self.mode in ("stall", "fragmented_send_first_stall") or (self.mode in ("large_stall", "fragmented_send_large_stall") and index == 1):
                         while stream.recv(1024):
                             pass
                         return
@@ -133,7 +144,7 @@ class Fixture:
                         bad = response.replace(call_id, b"PRIVATE_FIXTURE_WRONG_ID")
                         stream.sendall(frame(bad) * 4)
                         return
-                    if self.mode == "fragmented":
+                    if self.mode in ("fragmented", "fragmented_send_response"):
                         midpoint = len(response) // 2
                         stream.sendall(frame(response[:midpoint], final=False) + frame(response[midpoint:], opcode=0))
                     else:
@@ -169,46 +180,47 @@ def main():
             openssl(directory, "x509", "-req", "-in", "server.csr", "-CA", "ca.pem", "-CAkey", "ca.key", "-CAcreateserial", "-days", "1", "-sha256", "-extfile", "extensions", "-out", name + ".pem")
         openssl(directory, "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256", "-days", "1", "-subj", "/CN=OtherOwnedWssFixtureRoot", "-addext", "basicConstraints=critical,CA:TRUE", "-keyout", "other.key", "-out", "other.pem")
         bootstrap = directory / "probe.ps1"
-        bootstrap.write_text(r'''param([string]$Source,[string]$Target)
+        bootstrap.write_text(r'''param([string]$Source,[string]$Target,[string]$ProbeMethodName='ProbeUri')
 $ErrorActionPreference='Stop';$tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Fixture source did not parse.'}
 $nodes=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.StringConstantExpressionAst] -and $node.Value.Contains('public static class OpenWebMeetWssPathProbe')},$true))
 if($nodes.Count -ne 1){throw 'One actual fixture core is required.'};Add-Type -TypeDefinition $nodes[0].Value
 $projector=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-MeetWssPathFields'},$true));Invoke-Expression $projector[0].Extent.Text
-$method=[OpenWebMeetWssPathProbe].GetMethod('ProbeUri',[Reflection.BindingFlags]'NonPublic,Static')
+$method=[OpenWebMeetWssPathProbe].GetMethod($ProbeMethodName,[Reflection.BindingFlags]'NonPublic,Static')
 $result=$method.Invoke($null,@([Uri]$Target));$safe=Get-MeetWssPathFields $result
 if(!$safe){throw 'Fixture result did not have the closed schema.'};$safe|ConvertTo-Json -Depth 4 -Compress
 ''')
         fields = {"observed", "connected", "sent", "response_received", "large_sent", "large_response_received", "status_code", "large_status_code", "phase", "error_kind", "closed_exact", "elapsed_ms"}
-        for mode in ("valid", "fragmented", "http_refusal", "wrong_san", "untrusted_ca", "oversize", "binary", "wrong_correlation", "stall", "large_stall"):
+        for mode in ("valid", "fragmented", "http_refusal", "wrong_san", "untrusted_ca", "oversize", "binary", "wrong_correlation", "stall", "large_stall", "fragmented_send", "fragmented_send_response", "fragmented_send_wrong_san", "fragmented_send_first_stall", "fragmented_send_large_stall"):
             fixture = Fixture(directory, mode)
             environment = os.environ.copy()
             environment["SSL_CERT_FILE"] = str(directory / ("other.pem" if mode == "untrusted_ca" else "ca.pem"))
             environment["SSL_CERT_DIR"] = str(directory / "empty-roots")
             started = time.monotonic()
             try:
-                process = subprocess.run([arguments.pwsh, "-NoLogo", "-NoProfile", "-File", str(bootstrap), "-Source", str(source), "-Target", f"wss://localhost:{fixture.port}/"], env=environment, capture_output=True, text=True, timeout=12)
+                method = "ProbeFragmentedUri" if mode.startswith("fragmented_send") else "ProbeUri"
+                process = subprocess.run([arguments.pwsh, "-NoLogo", "-NoProfile", "-File", str(bootstrap), "-Source", str(source), "-Target", f"wss://localhost:{fixture.port}/", "-ProbeMethodName", method], env=environment, capture_output=True, text=True, timeout=12)
                 check(process.returncode == 0)
                 report = json.loads(process.stdout)
                 check(set(report) == fields)
                 check(report["observed"] is True and report["closed_exact"] is True)
                 check(0 <= report["elapsed_ms"] <= 5500 and time.monotonic() - started < 12)
                 check("PRIVATE_FIXTURE" not in process.stdout and "localhost" not in process.stdout and "Call-ID" not in process.stdout)
-                if mode in ("valid", "fragmented"):
+                if mode in ("valid", "fragmented", "fragmented_send", "fragmented_send_response"):
                     check(report["connected"] and report["sent"] and report["response_received"] and report["large_sent"] and report["large_response_received"])
                     check(report["status_code"] == report["large_status_code"] == 200 and report["phase"] == "complete" and report["error_kind"] == "none")
                     check(len(fixture.requests) == 2)
-                elif mode in ("wrong_san", "untrusted_ca"):
+                elif mode in ("wrong_san", "untrusted_ca", "fragmented_send_wrong_san"):
                     check(not report["connected"] and not report["sent"] and report["error_kind"] == "tls" and report["phase"] == "connect")
                 elif mode == "http_refusal":
                     check(not report["connected"] and not report["sent"] and report["error_kind"] == "websocket")
-                elif mode == "large_stall":
+                elif mode in ("large_stall", "fragmented_send_large_stall"):
                     check(report["response_received"] and report["status_code"] == 200 and report["large_sent"] and not report["large_response_received"])
                     check(report["error_kind"] == "timeout" and report["phase"] == "receive" and report["elapsed_ms"] >= 4000)
                 else:
                     check(report["connected"] and report["sent"] and not report["response_received"] and not report["large_sent"])
-                    check(report["phase"] == "receive" and report["error_kind"] == ("timeout" if mode == "stall" else "websocket"))
+                    check(report["phase"] == "receive" and report["error_kind"] == ("timeout" if mode in ("stall", "fragmented_send_first_stall") else "websocket"))
                 check(0 <= report["status_code"] <= 699 and 0 <= report["large_status_code"] <= 699)
             finally:
                 fixture.close()

@@ -14,6 +14,15 @@ $code=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.Stri
 Add-Type -TypeDefinition $code[0].Value
 Check ($source -cnotmatch 'RemoteCertificateValidationCallback|ServerCertificateValidationCallback|SkipCertificateCheck|Import-Certificate|New-SelfSignedCertificate|CommitChanges|Start-Process|Start-Job|Start-ThreadJob|Set-Acl|icacls')
 foreach($fence in 'CancelAfter(4500)','4500-(int)clock.ElapsedMilliseconds','5000-(int)clock.ElapsedMilliseconds','socket.Abort()','socket.Dispose()','cancel.Dispose()','pending.IsCompleted','new byte[8192]','body.Length+result.Count>16384','socket.Options.Proxy=null','socket.Options.UseDefaultCredentials=false','FileMode]::CreateNew','Assert-MeetWssPathPrivate $parent',"state='observed'",'WebSocketMessageType.Text,true') {Check ($source.Contains($fence))}
+foreach($fence in 'ProbeCore(target,false)','ProbeCore(target,true)','new ArraySegment<byte>(request,0,4096),WebSocketMessageType.Text,false','Task.Delay(100,cancel.Token)','new ArraySegment<byte>(request,4096,4096),WebSocketMessageType.Text,true') {Check ($source.Contains($fence))}
+$facts=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ceq '$facts'},$true));Check ($facts.Count -eq 1)
+$fake=@{observed=$true};$backend=$fake;$frontend=$fake;$fragmentedBackend=$fake;$fragmentedFrontend=$fake
+Invoke-Expression $facts[0].Extent.Text
+Check (($facts.Keys -join '|') -ceq 'schema|state|backend|frontend|fragmented_backend|fragmented_frontend' -and $facts.schema -eq 1 -and $facts.state -ceq 'observed')
+foreach($name in 'backend','frontend','fragmented_backend','fragmented_frontend'){Check ([object]::ReferenceEquals($facts[$name],$fake))}
+$public=@([OpenWebMeetWssPathProbe].GetMethods([Reflection.BindingFlags]'Public,Static,DeclaredOnly'))
+Check ($public.Count -eq 2 -and (($public.Name|Sort-Object)-join '|') -ceq 'Probe|ProbeFragmented')
+foreach($method in $public){Check ($method.GetParameters().Count -eq 1 -and $method.GetParameters()[0].ParameterType -eq [bool])}
 $environment=@{GITHUB_ACTIONS='true';RUNNER_ENVIRONMENT='github-hosted';RUNNER_OS='Windows';GITHUB_REPOSITORY='embire2/openwebpbx';GITHUB_EVENT_NAME='workflow_dispatch'}
 $os=@{ProductType=3;Caption='Microsoft Windows Server 2025 Datacenter'}
 Check (@(Assert-MeetWssPathRunner $true $environment 'Desktop' 5 26100 $true $os).Count -eq 0)
