@@ -123,6 +123,7 @@ try{
   $ok($guard->consume(array_replace($event,['Event-Subclass'=>'sofia::pre_register','to-host'=>'192.0.2.10','network-ip'=>'198.51.100.55']))['status']==='blocked'&&isset($fw->rules['sip-auth-ip|198.51.100.55']),'Direct-IP attempt not protected');
   // A native rule exists before its acknowledgement can commit. Both process
   // interruption and an actual deferred PostgreSQL commit failure retain intent.
+  $confirmedBefore=$health->snapshot()['summary']['blocked_offices'];
   $fault=array_replace($event,['network-ip'=>'198.51.100.56','to-user'=>'auth-1000']);$guard->failAfterAdd=true;
   $no(fn()=>$guard->consume($fault),'Post-native-add termination was not injected');$guard->failAfterAdd=false;
   $faultRow=$q("select event_guard_log_uuid,log_status from v_event_guard_logs where ip_address='198.51.100.56'")->fetch(PDO::FETCH_ASSOC);
@@ -130,7 +131,7 @@ try{
   $observerDb=new PDO($dsn,'postgres',is_string($fixturePassword)?$fixturePassword:null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);$observerDb->exec('set search_path to '.$schema);
   $ok($observerDb->query("select log_status from v_event_guard_logs where ip_address='198.51.100.56'")->fetchColumn()==='windows_intent','Intent was not durable to an independent connection');$observerDb=null;
   $fw->unknown=true;$ok(!$guard->reconcile()&&$q('select log_status from v_event_guard_logs where event_guard_log_uuid=?',[$faultRow['event_guard_log_uuid']])->fetchColumn()==='windows_intent','Unknown native state falsely confirmed the block');
-  $pendingView=$blockView($faultRow['event_guard_log_uuid']);$ok(!$pendingView['can_recover']&&str_contains($pendingView['reason'],'not yet confirmed'),'Unconfirmed native result was hidden or recoverable');
+  $pendingView=$blockView($faultRow['event_guard_log_uuid']);$ok(!$pendingView['can_recover']&&str_contains($pendingView['reason'],'not yet confirmed')&&$health->snapshot()['summary']['blocked_offices']===$confirmedBefore,'Unconfirmed native result was hidden or recoverable');
   $fw->unknown=false;$ok($guard->reconcile()&&$q('select log_status from v_event_guard_logs where event_guard_log_uuid=?',[$faultRow['event_guard_log_uuid']])->fetchColumn()==='blocked','Exact present rule did not reconcile its durable intent');
   $guard->failAfterAdd=true;$absentFault=array_replace($event,['network-ip'=>'198.51.100.57']);$no(fn()=>$guard->consume($absentFault),'Second native termination was not injected');$guard->failAfterAdd=false;unset($fw->rules['sip-auth-fail|198.51.100.57']);$beforeRules=$fw->rules;
   $ok($guard->reconcile()&&$beforeRules===$fw->rules&&$q("select log_status from v_event_guard_logs where ip_address='198.51.100.57'")->fetchColumn()==='windows_incomplete','Absent or restored intent recreated a native block without a fresh failure');
