@@ -10,6 +10,7 @@ $priorRestore=$null
 if($PreviousSupport){. $PreviousSupport;$priorRestore=${function:Restore-OpenWebSupport}}
 . (Join-Path $SourceRoot 'packaging/windows/Support-Recovery.ps1')
 . (Join-Path $SourceRoot 'packaging/windows/File-Security.ps1')
+. (Join-Path $SourceRoot 'packaging/windows/Dtls.Common.ps1')
 function Get-WindowsCapability {param([switch]$Online,[string]$Name) @{State='Installed'}}
 function Get-WebConfiguration {param([string]$PSPath,[string]$Filter) return $null}
 function Remove-WebConfigurationProperty {param([string]$PSPath,[string]$Filter,[string]$Name,[hashtable]$AtElement,[object]$ErrorAction)}
@@ -48,6 +49,10 @@ try{
   $record=Get-Content -LiteralPath (Join-Path $backup 'support-state.json') -Raw|ConvertFrom-Json
   AssertControl ([bool]$record.Files.$certificate.Exists -eq $certificateExisted)
   AssertControl ([bool]$record.Directories.'dtls-setup'.Exists -eq $stateExisted)
+  AssertControl ($record.DtlsCertificateDirectory.Exists -eq $true -and $record.DtlsCertificateDirectory.Path -ceq (Split-Path $certificate -Parent))
+  AssertControl ([string]$record.Acls.($record.DtlsCertificateDirectory.Path) -ceq $parentBefore)
+  & icacls.exe (Split-Path $certificate -Parent) /grant '*S-1-5-19:R'|Out-Null;AssertControl ($LASTEXITCODE -eq 0)
+  AssertControl ((Acl (Split-Path $certificate -Parent)) -cne $parentBefore)
   if($certificateExisted){AssertControl ([string]$record.Acls.$certificate -ceq (Acl $certificate))}
   TextFile $certificate 'NEW-PROTECTED-OWNED-KEY';FixtureAcl $certificate 'O:BAG:BAD:PAI(A;;FA;;;BA)(A;;FA;;;SY)'
   TextFile (Join-Path $dtlsState 'new/journal.json') 'NEW-COMMITTED-JOURNAL'
@@ -88,7 +93,97 @@ try{
   AssertControl (!(Test-Path -LiteralPath $certificate) -and !(Test-Path -LiteralPath $dtlsState))
   AssertControl ((TreeCheckpoint $custom) -ceq $customBefore)
  }}
+ # A missing MSI cert parent is a separate presence contract. Use the actual
+ # private journal writer/reader and exact native directory creator to make
+ # the ownership proof; unrelated engine files are never copied or deleted.
+ function ParentFixture([string]$Parent,[string]$PrivateState,[bool]$CrashIntent=$false){
+  $certificate=Join-Path $Parent 'dtls-srtp.pem';$setup=Join-Path $PrivateState 'dtls-setup';New-OpenWebDtlsPrivate $setup
+  $id=[Guid]::NewGuid().ToString('N');$transaction=Join-Path $setup $id;New-OpenWebDtlsPrivate $transaction
+  $bytes=[Text.UTF8Encoding]::new($false).GetBytes('OWNED-DESIRED-DTLS-KEY');Write-OpenWebDtlsNew (Join-Path $transaction 'desired.pem') $bytes
+  $fileSddl=(New-OpenWebDtlsAcl -ServiceSid 'S-1-5-18').GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::All)
+  $parentSddl=(New-OpenWebDtlsAcl -Directory -ServiceSid 'S-1-5-18').GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::All)
+  $journal=[ordered]@{schema=1;kind='openwebpbx-dtls';transaction=$id;computer=[Environment]::MachineName;certificate=$certificate;state='applying';service=@{sid='S-1-5-18';account='LocalSystem';path='fictional';start_mode='Manual'};before_exists=$false;before_sha256=$null;before_sddl=$null;desired_sha256=(Get-OpenWebDtlsHash (Join-Path $transaction 'desired.pem'));desired_sddl=$fileSddl;parent_path=$Parent;parent_before_exists=$false;parent_before_sddl=$null;parent_desired_sddl=$parentSddl;parent_create_intent=$true;parent_created=$false}
+  Write-OpenWebDtlsJournal (Join-Path $transaction 'journal.json') $journal
+  New-OpenWebDtlsCertificateDirectory $Parent $parentSddl
+  if(!$CrashIntent){Set-OpenWebDtlsCertificate $certificate $bytes $fileSddl;$journal.parent_created=$true;$journal.state='committed';Write-OpenWebDtlsJournal (Join-Path $transaction 'journal.json') $journal}
+  return @{journal=$journal;directory=$transaction;parent_sddl=$parentSddl;certificate=$certificate}
+ }
+ function HoldDirectory([string]$Path){
+  if(-not ('OpenWebDtlsSupport.HeldDirectory' -as [type])){Add-Type -TypeDefinition @'
+using System; using System.ComponentModel; using System.Runtime.InteropServices; using Microsoft.Win32.SafeHandles;
+namespace OpenWebDtlsSupport { public static class HeldDirectory {
+ [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern SafeFileHandle CreateFileW(string path,uint access,uint share,IntPtr attributes,uint disposition,uint flags,IntPtr template);
+ public static SafeFileHandle Open(string path) {var handle=CreateFileW(path,1,3,IntPtr.Zero,3,0x02200000,IntPtr.Zero);if(handle.IsInvalid){int error=Marshal.GetLastWin32Error();handle.Dispose();throw new Win32Exception(error);}return handle;}
+}}
+'@};return [OpenWebDtlsSupport.HeldDirectory]::Open($Path)
+ }
+ foreach($mode in 'committed','crash_intent','held_parent','foreign_child','changed_acl','missing_proof','baseline_proof','duplicate_proof'){
+  $case=Join-Path $outer ('parent-'+$mode);$root=Join-Path $case 'program';$state=Join-Path $case 'state';$engine=Join-Path $case 'engine';$backup=Join-Path $case 'snapshot';$package=Join-Path $case 'package'
+  foreach($path in $root,$state,$engine,$backup){$null=[IO.Directory]::CreateDirectory($path)}
+  TextFile (Join-Path $package 'engine/native-manifest.json') '{"files":{}}';$parent=Join-Path $engine 'cert';$custom=Join-Path $engine 'unrelated-custom.pem';TextFile $custom 'UNRELATED-ENGINE-KEY';$customBefore=TreeCheckpoint $custom
+  Save-OpenWebSupport -Backup $backup -PackageRoot $package -Root $root -StateRoot $state -EngineRoot $engine
+  $record=Get-Content -LiteralPath (Join-Path $backup 'support-state.json') -Raw|ConvertFrom-Json;AssertControl ($record.DtlsCertificateDirectory.Exists -eq $false)
+  $fixture=ParentFixture $parent $state ($mode -ceq 'crash_intent');$certificate=$fixture.certificate;$journalFile=Join-Path $fixture.directory 'journal.json';$held=$null
+  switch($mode){
+   'held_parent'{$held=HoldDirectory $parent}
+   'foreign_child'{TextFile (Join-Path $parent 'foreign.pem') 'UNRELATED-CERTIFICATE'}
+   'changed_acl'{& icacls.exe $parent /grant '*S-1-5-19:R'|Out-Null;AssertControl ($LASTEXITCODE -eq 0)}
+   'missing_proof'{Remove-Item -LiteralPath $journalFile -Force}
+   'baseline_proof'{$baseline=Join-Path (Join-Path $backup 'dtls-setup') $fixture.journal.transaction;$null=[IO.Directory]::CreateDirectory($baseline);Copy-Item -LiteralPath $journalFile -Destination (Join-Path $baseline 'journal.json')}
+   'duplicate_proof'{$otherId=[Guid]::NewGuid().ToString('N');$other=Join-Path (Join-Path $state 'dtls-setup') $otherId;New-OpenWebDtlsPrivate $other;Write-OpenWebDtlsNew (Join-Path $other 'desired.pem') ([IO.File]::ReadAllBytes((Join-Path $fixture.directory 'desired.pem')));$duplicate=@{};foreach($key in $fixture.journal.Keys){$duplicate[$key]=$fixture.journal[$key]};$duplicate.transaction=$otherId;Write-OpenWebDtlsJournal (Join-Path $other 'journal.json') $duplicate}
+  }
+  $beforeWrites=$script:taskWrites;$beforeCert=TreeCheckpoint $certificate;$beforeJournal=if(Test-Path -LiteralPath $journalFile){[IO.File]::ReadAllText($journalFile)}else{''}
+  $parentFailure=$null;$refused=$false;try{Restore-OpenWebSupport -Backup $backup -Root $root -StateRoot $state -EngineRoot $engine}catch{$refused=$true;$parentFailure=$_}
+  $normal=$mode -in 'committed','crash_intent'
+  if($refused -eq $normal){if($null -ne $parentFailure){throw ('Unexpected owned parent recovery '+$mode+': '+$parentFailure.Exception.Message+' '+$parentFailure.ScriptStackTrace)}else{throw ('Expected native parent refusal was not observed for '+$mode)}}
+  AssertControl ($refused -ne $normal)
+  AssertControl ((TreeCheckpoint $custom) -ceq $customBefore)
+  if($normal){AssertControl (!(Test-Path -LiteralPath $parent) -and !(Test-Path -LiteralPath (Join-Path $state 'dtls-setup')));AssertControl ($script:taskWrites -eq $beforeWrites+6)}
+  else{
+   AssertControl ((Test-Path -LiteralPath $parent) -and $script:taskWrites -eq $beforeWrites)
+   if($mode -ceq 'held_parent'){
+    AssertControl (!(Test-Path -LiteralPath $certificate) -and (Test-Path -LiteralPath $journalFile));$held.Dispose();$held=$null
+    Restore-OpenWebSupport -Backup $backup -Root $root -StateRoot $state -EngineRoot $engine
+    AssertControl (!(Test-Path -LiteralPath $parent) -and !(Test-Path -LiteralPath (Join-Path $state 'dtls-setup')))
+   }else{
+    AssertControl ((TreeCheckpoint $certificate) -ceq $beforeCert)
+    if($beforeJournal){AssertControl ([IO.File]::ReadAllText($journalFile) -ceq $beforeJournal)}
+    if($mode -ceq 'foreign_child'){AssertControl ([IO.File]::ReadAllText((Join-Path $parent 'foreign.pem')) -ceq 'UNRELATED-CERTIFICATE')}
+   }
+  }
+  if($held){$held.Dispose()}
+ }
+ foreach($replacement in 'missing','file','junction','ancestor_junction'){
+  $case=Join-Path $outer ('existing-parent-'+$replacement);$root=Join-Path $case 'program';$state=Join-Path $case 'state';$engine=Join-Path $case 'engine';$backup=Join-Path $case 'snapshot';$package=Join-Path $case 'package'
+  foreach($path in $root,$state,$engine,$backup){$null=[IO.Directory]::CreateDirectory($path)};TextFile (Join-Path $package 'engine/native-manifest.json') '{"files":{}}'
+  $parent=Join-Path $engine 'cert';TextFile (Join-Path $parent 'dtls-srtp.pem') 'ORIGINAL-KEY';TextFile (Join-Path $parent 'custom.pem') 'ORIGINAL-CUSTOM-KEY'
+  Save-OpenWebSupport -Backup $backup -PackageRoot $package -Root $root -StateRoot $state -EngineRoot $engine
+  $foreign=Join-Path $case 'unrelated';$null=[IO.Directory]::CreateDirectory($foreign);$link=$null
+  if($replacement -ceq 'ancestor_junction'){
+   Move-Item -LiteralPath $engine -Destination (Join-Path $case 'original-engine');TextFile (Join-Path $foreign 'cert/dtls-srtp.pem') 'UNRELATED-KEY';$link=$engine;$null=New-Item -ItemType Junction -Path $link -Target $foreign
+  }else{
+   Move-Item -LiteralPath $parent -Destination (Join-Path $case 'original-cert')
+   if($replacement -ceq 'file'){TextFile $parent 'UNRELATED-PARENT-FILE'}
+   if($replacement -ceq 'junction'){TextFile (Join-Path $foreign 'dtls-srtp.pem') 'UNRELATED-KEY';$link=$parent;$null=New-Item -ItemType Junction -Path $link -Target $foreign}
+  }
+  $foreignBefore=TreeCheckpoint $foreign;$writesBefore=$script:taskWrites;$refused=$false
+  try{
+   try{Restore-OpenWebSupport -Backup $backup -Root $root -StateRoot $state -EngineRoot $engine}catch{$refused=$true}
+   AssertControl ($refused -and $script:taskWrites -eq $writesBefore)
+   AssertControl ((TreeCheckpoint $foreign) -ceq $foreignBefore)
+   if($replacement -ceq 'missing'){AssertControl (!(Test-Path -LiteralPath $parent))}
+   if($replacement -ceq 'file'){AssertControl ([IO.File]::ReadAllText($parent) -ceq 'UNRELATED-PARENT-FILE')}
+  }finally{if($link -and (Test-Path -LiteralPath $link)){[IO.Directory]::Delete($link,$false)}}
+ }
+ if($null -ne $priorRestore){
+  $case=Join-Path $outer 'old-missing-parent';$root=Join-Path $case 'program';$state=Join-Path $case 'state';$engine=Join-Path $case 'engine';$backup=Join-Path $case 'snapshot';$package=Join-Path $case 'package'
+  foreach($path in $root,$state,$engine,$backup){$null=[IO.Directory]::CreateDirectory($path)};TextFile (Join-Path $package 'engine/native-manifest.json') '{"files":{}}';$parent=Join-Path $engine 'cert'
+  Save-OpenWebSupport -Backup $backup -PackageRoot $package -Root $root -StateRoot $state -EngineRoot $engine;$fixture=ParentFixture $parent $state
+  & $priorRestore -Backup $backup -Root $root -StateRoot $state -EngineRoot $engine
+  AssertControl ((Test-Path -LiteralPath $parent) -and !(Test-Path -LiteralPath $fixture.certificate) -and !(Test-Path -LiteralPath (Join-Path $state 'dtls-setup')))
+ }
 }finally{
+ if((Get-Variable -Name held -ErrorAction SilentlyContinue) -and $null -ne $held){$held.Dispose();$held=$null}
  if($null -eq $envBefore){Remove-Item Env:\OPENSSL_CONF -ErrorAction SilentlyContinue}else{$env:OPENSSL_CONF=$envBefore}
  if(Test-Path -LiteralPath $outer){Remove-Item -LiteralPath $outer -Recurse -Force}
 }

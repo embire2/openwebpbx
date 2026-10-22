@@ -145,6 +145,14 @@ function Restore-OpenWebUpgradePermissions {
 function Save-OpenWebSupport {
  param([string]$Backup,[string]$PackageRoot,[string]$Root,[string]$StateRoot,[string]$EngineRoot,[IO.FileStream]$MaintenanceLock)
  $record=[ordered]@{schema=1;Files=@{};Directories=@{};Acls=@{};Tasks=@{};OpenSshClient=(Get-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0).State.ToString()}
+ $certificateDirectory=[IO.Path]::GetFullPath((Join-Path $EngineRoot 'cert'))
+ $directoryExists=Test-Path -LiteralPath $certificateDirectory
+ if($directoryExists){
+  $item=Get-Item -LiteralPath $certificateDirectory -Force -ErrorAction Stop
+  if(!$item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'The call-engine certificate parent is not an ordinary directory.'}
+  $record.Acls[$certificateDirectory]=(Get-Acl -LiteralPath $certificateDirectory -ErrorAction Stop).Sddl
+ }
+ $record.DtlsCertificateDirectory=@{Path=$certificateDirectory;Exists=[bool]$directoryExists}
  $fastcgi="$Root\php\php-cgi.exe"
  $filter="system.webServer/fastCgi/application[@fullPath='$fastcgi']/environmentVariables/environmentVariable[@name='OPENSSL_CONF']"
  $environment=Get-WebConfiguration -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter $filter
@@ -222,6 +230,49 @@ function Restore-OpenWebSupport {
   if(!$valid){throw 'A support recovery path is outside the owned installation.'}
   return $full
  }
+ $certificateDirectory=$null;$removeCertificateDirectory=$false
+ if($record.PSObject.Properties.Name -ccontains 'DtlsCertificateDirectory'){
+  $parentRecord=$record.DtlsCertificateDirectory
+  $expectedParent=[IO.Path]::GetFullPath((Join-Path $EngineRoot 'cert'))
+  if($null -eq $parentRecord -or $parentRecord.Path -isnot [string] -or $parentRecord.Exists -isnot [bool] -or !$parentRecord.Path.Equals($expectedParent,[StringComparison]::OrdinalIgnoreCase)){throw 'The original DTLS parent inventory is invalid.'}
+  $certificateDirectory=$expectedParent
+  if($parentRecord.Exists){
+   $originalAcl=@($record.Acls.PSObject.Properties|Where-Object {$_.Name.Equals($expectedParent,[StringComparison]::OrdinalIgnoreCase)})
+   if($originalAcl.Count -ne 1 -or $originalAcl[0].Value -isnot [string] -or !$originalAcl[0].Value){throw 'The complete original DTLS parent descriptor is required.'}
+   $currentParent=Get-Item -LiteralPath $certificateDirectory -Force -ErrorAction Stop
+   if(!$currentParent.PSIsContainer){throw 'The original DTLS parent changed type; it was preserved.'}
+   $ancestor=$currentParent
+   while($null -ne $ancestor){
+    if($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'The original DTLS parent or an ancestor became a link; it was preserved.'}
+    $next=[IO.Path]::GetDirectoryName($ancestor.FullName)
+    if(!$next -or $next -eq $ancestor.FullName){break};$ancestor=Get-Item -LiteralPath $next -Force -ErrorAction Stop
+   }
+  }elseif(Test-Path -LiteralPath $certificateDirectory){
+   # Validate ownership before deleting any key or restoring the private setup
+   # tree. An interrupted empty-parent removal retains this journal for retry.
+   . (Join-Path $PSScriptRoot 'Dtls.Common.ps1')
+   Assert-OpenWebDtlsOrdinary $certificateDirectory
+   $item=Get-Item -LiteralPath $certificateDirectory -Force -ErrorAction Stop
+   if(!$item.PSIsContainer){throw 'The new DTLS parent changed type; it was preserved.'}
+   $certificate=Join-Path $certificateDirectory 'dtls-srtp.pem';$setup=Join-Path $StateRoot 'dtls-setup'
+   Assert-OpenWebDtlsPrivate $setup
+   $proofs=@(foreach($transaction in Get-ChildItem -LiteralPath $setup -Force -ErrorAction Stop){
+    if(!$transaction.PSIsContainer -or $transaction.Name -cnotmatch '^[a-f0-9]{32}$'){continue}
+    if(Test-Path -LiteralPath (Join-Path (Join-Path $Backup 'dtls-setup') $transaction.Name)){continue}
+    $j=Read-OpenWebDtlsJournal $transaction.FullName $certificate
+    if($j.parent_before_exists -isnot [bool] -or $j.parent_before_exists -or $j.parent_create_intent -isnot [bool] -or !$j.parent_create_intent -or $j.parent_created -isnot [bool] -or $j.parent_path -isnot [string] -or !$j.parent_path.Equals($certificateDirectory,[StringComparison]::OrdinalIgnoreCase) -or $j.parent_desired_sddl -isnot [string] -or !$j.parent_desired_sddl -or $j.before_exists -ne $false -or $j.state -cnotin 'prepared','applying','committed' -or ($j.state -ceq 'committed' -and !$j.parent_created)){throw 'The current DTLS parent ownership journal requires review.'}
+    if((Get-Acl -LiteralPath $certificateDirectory -ErrorAction Stop).Sddl -cne $j.parent_desired_sddl){throw 'The new DTLS parent permissions changed; it was preserved.'}
+    $children=@(Get-ChildItem -LiteralPath $certificateDirectory -Force -ErrorAction Stop)
+    if($children.Count -gt 1){throw 'Unrelated call-engine certificate entries were preserved.'}
+    foreach($child in $children){
+     if($child.PSIsContainer -or ($child.Attributes -band [IO.FileAttributes]::ReparsePoint) -or !$child.FullName.Equals($certificate,[StringComparison]::OrdinalIgnoreCase) -or (Get-OpenWebDtlsHash $child.FullName) -cne $j.desired_sha256 -or (Get-Acl -LiteralPath $child.FullName -ErrorAction Stop).Sddl -cne $j.desired_sddl){throw 'An unrelated call-engine certificate entry was preserved.'}
+    }
+    $j
+   })
+   if($proofs.Count -ne 1){throw 'Exactly one new machine-bound DTLS parent ownership proof is required.'}
+   $removeCertificateDirectory=$true
+  }
+ }
  if(Test-Path "$Backup\switch-mod"){CopyTree "$Backup\switch-mod" "$EngineRoot\mod" -Mirror}
  if(Test-Path "$Backup\switch-sounds"){CopyTree "$Backup\switch-sounds" "$EngineRoot\sounds" -Mirror}
  foreach($entry in $record.Files.PSObject.Properties){
@@ -236,6 +287,12 @@ function Restore-OpenWebSupport {
     if(Test-Path -LiteralPath $target){throw 'The original DTLS certificate absence did not restore; private recovery remains required.'}
    }else{Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue}
   }
+ }
+ if($removeCertificateDirectory){
+  # Never recurse here: unrelated or newly arriving files must cause refusal.
+  if(@(Get-ChildItem -LiteralPath $certificateDirectory -Force -ErrorAction Stop).Count){throw 'The new DTLS parent is not empty; it was preserved.'}
+  [IO.Directory]::Delete($certificateDirectory,$false)
+  if(Test-Path -LiteralPath $certificateDirectory){throw 'The original DTLS parent absence did not restore.'}
  }
  foreach($entry in $record.Directories.PSObject.Properties){
   if($entry.Name -notin 'backup-runtime','acme-runtime','mobile-notifications','mail-state','meet-proxy','tenant-domains','stun-setup','dtls-setup','phone-health-runtime','updater-slots','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','openweb-music'){throw 'The support recovery folder inventory is invalid.'}
