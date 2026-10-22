@@ -18,6 +18,7 @@ import socket
 import subprocess
 import sys
 import uuid
+import xml.etree.ElementTree as ET
 
 TOOLS={'psql','pg_dump','pg_restore','ssh-keygen','sftp','powershell','unknown'}
 PHASES={'before_upload','upload','after_upload'}
@@ -28,7 +29,7 @@ ERRORS={'BackupError','TimeoutExpired','OSError','FileNotFoundError','Permission
 RECOVERY_ERRORS=ERRORS|{'AssertionError','RuntimeError','NameError','TypeError','AttributeError','ValueError','KeyError','IndexError','JSONDecodeError'}
 OPERATIONS={'secure','plan','hold','hold-selection','start-web','recover-startup','resume-factory','activate','acl-read','acl-restore','none','unknown'}
 RECOVERY_CLASSES=CLASSES|{'shell_command_not_found','shell_permission','shell_parameter_binding','shell_path','shell_invalid_operation',
-    'control_path_boundary','control_permission_class','control_startup_snapshot','control_stop_timeout','control_start_timeout','control_request','control_acl_snapshot'}
+    'control_path_boundary','control_permission_class','control_startup_snapshot','control_stop_timeout','control_start_timeout','control_request','control_acl_snapshot','meet_restore_journal','meet_restore_holds','meet_restore_services','meet_restore_site','meet_restore_lock','meet_endpoint','meet_transport','meet_target_proxy','meet_ledger'}
 ACL_CATEGORIES={'config','template_key','runtime','installation','phone_tls_metadata','phone_tls_material','public_access_source',
     'notifications','legacy_push','freeswitch_config','voicemail','recordings','other_owned'}
 ACL_BOOLEANS={'before_null','after_null','raw_binary_equal','ace_sequence_equal','ace_set_equal','ace_multiset_equal',
@@ -227,10 +228,29 @@ def recovery_error(error):
     return {'error_type':type(error).__name__ if type(error).__name__ in RECOVERY_ERRORS else 'unknown','source_frames':frames[-8:]}
 
 
+def powershell_error_text(raw):
+    """Decode bounded native CLIXML internally; never project its raw text."""
+    if not isinstance(raw,bytes) or len(raw)>262144:return ''
+    text=raw.decode('utf-8-sig',errors='replace')
+    if not text.lstrip().startswith('#< CLIXML') and not text.lstrip().startswith('#<CLIXML'):return text
+    xml=text.split('\n',1)[1] if '\n' in text else ''
+    if re.search(r'<!\s*(?:DOCTYPE|ENTITY)\b',xml,re.I):return ''
+    try:
+        root=ET.fromstring(xml)
+        nodes=list(root.iter())
+        if len(nodes)>4096:return ''
+        values=[]
+        for node in nodes:
+            if node.tag=='{http://schemas.microsoft.com/powershell/2004/04}S' and node.attrib.get('S')=='Error' and node.text:
+                values.append(re.sub(r'_x([0-9A-Fa-f]{4})_',lambda match:chr(int(match[1],16)),node.text))
+        return '\n'.join(values)
+    except (ET.ParseError,ValueError,RecursionError):return ''
+
+
 def recovery_stderr(tool,raw):
     category=closed_stderr(tool,raw)
     if category!='unknown' or tool!='powershell' or not isinstance(raw,bytes) or len(raw)>262144:return category
-    text=raw.decode('utf-8',errors='replace')
+    text=powershell_error_text(raw)
     messages={
         'A backup path is outside the owned private locations.':'control_path_boundary',
         'Backup paths must not contain links or junctions.':'control_path_boundary',
@@ -244,7 +264,17 @@ def recovery_stderr(tool,raw):
         'The PBX application pool did not stop.':'control_stop_timeout',
         'The PBX application pool did not start.':'control_start_timeout',
         'A backup control request is invalid.':'control_request',
-        'A factory private-data permission snapshot is invalid.':'control_acl_snapshot'}
+        'A factory private-data permission snapshot is invalid.':'control_acl_snapshot',
+        'The protected restore transaction must be running.':'meet_restore_journal',
+        'Restore must hold calling and background work before rebinding meetings.':'meet_restore_holds',
+        'Restore must stop calling before rebinding meetings.':'meet_restore_services',
+        'Restore must stop the PBX website before rebinding meetings.':'meet_restore_site',
+        'The parent restore must retain its exclusive maintenance lock.':'meet_restore_lock',
+        'The private meeting certificate and endpoint did not validate.':'meet_endpoint',
+        'The installed meeting transport needs administrator review.':'meet_transport',
+        'Restore rebind requires the unchanged owned target meeting proxy.':'meet_target_proxy',
+        'The installed meeting ownership ledger needs review.':'meet_ledger',
+        'An interrupted meeting installation needs recovery from its retained private snapshot before continuing.':'meet_ledger'}
     matched={category for message,category in messages.items()
              if re.search(r'(?m)^\s*(?:\+?\s*FullyQualifiedErrorId\s*:\s*)?'+re.escape(message)+r'\s*$',text)}
     if len(matched)==1:return matched.pop()
@@ -262,12 +292,13 @@ def recovery_stderr(tool,raw):
 def recovery_position(tool,raw):
     if tool!='powershell' or not isinstance(raw,bytes) or len(raw)>262144:return {}
     positions=set()
-    for line in raw.decode('utf-8',errors='replace').splitlines():
+    for line in powershell_error_text(raw).splitlines():
         if len(line)>2048:continue
-        match=re.fullmatch(r'\s*At [^\r\n]*[\\/]Backup-Control\.ps1:([1-9][0-9]{0,4}) char:[1-9][0-9]{0,5}\s*',line)
-        if match and 1<=int(match[1])<=20000:positions.add(int(match[1]))
+        match=re.fullmatch(r'\s*At [^\r\n]*[\\/](Backup-Control\.ps1|Install-Meet\.ps1|Meet-Proxy\.ps1|Write-PrivateState\.ps1):([1-9][0-9]{0,4}) char:[1-9][0-9]{0,5}\s*',line)
+        if match and 1<=int(match[2])<=20000:positions.add((match[1],int(match[2])))
     if len(positions)!=1:return {}
-    return {'native_source_basename':'Backup-Control.ps1','native_source_line':positions.pop()}
+    name,line=positions.pop()
+    return {'native_source_basename':name,'native_source_line':line}
 
 
 class RecoveryObservation(WorkerObservation):

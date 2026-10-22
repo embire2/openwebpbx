@@ -247,6 +247,16 @@ Save $record;$safe=BackupFailureReport $path ([datetime]::MinValue)
 Check ($safe.recovery_observation.journal_state -ceq 'recovery_required' -and $safe.recovery_observation.injection_reached -ceq $false -and $safe.recovery_observation.recover_called -ceq $true -and $safe.recovery_observation.wrappers_restored -ceq $true)
 Check ($safe.recovery_observation.original_error.error_type -ceq 'BackupError' -and $safe.recovery_observation.original_error.source_frames[0].source_basename -ceq 'backups.py')
 Check ($safe.recovery_observation.events[0].operation -ceq 'acl-restore' -and $safe.recovery_observation.events[0].native_source_basename -ceq 'Backup-Control.ps1' -and $safe.recovery_observation.events[0].native_source_line -eq 145)
+foreach($name in 'Install-Meet.ps1','Meet-Proxy.ps1','Write-PrivateState.ps1'){
+ foreach($category in 'meet_restore_journal','meet_restore_holds','meet_restore_services','meet_restore_site','meet_restore_lock','meet_endpoint','meet_transport','meet_target_proxy','meet_ledger'){
+  $event=$record.failure.recovery_observation.events[0];$event.native_source_basename=$name;$event.native_source_line=17;$event.failure_class=$category
+  Save $record;$entry=(BackupFailureReport $path ([datetime]::MinValue)).recovery_observation.events[0]
+  Check ($entry.native_source_basename -ceq $name -and $entry.native_source_line -eq 17 -and $entry.failure_class -ceq $category -and !(($entry|ConvertTo-Json -Depth 8).Contains($marker)))
+ }
+}
+foreach($name in 'Foreign.ps1','install-meet.ps1',$marker){$record.failure.recovery_observation.events[0].native_source_basename=$name;Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).recovery_observation.events[0].ContainsKey('native_source_basename'))}
+$record.failure.recovery_observation.events[0].native_source_basename='Backup-Control.ps1';$record.failure.recovery_observation.events[0].native_source_line=145;$record.failure.recovery_observation.events[0].failure_class='control_acl_snapshot'
+Save $record;$safe=BackupFailureReport $path ([datetime]::MinValue)
 Check (!(($safe|ConvertTo-Json -Depth 12).Contains($marker)))
 foreach($key in 'journal_state','injection_reached','recover_called','wrappers_restored'){$original=$record.failure.recovery_observation[$key];$record.failure.recovery_observation[$key]=@($original,$marker);Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).recovery_observation.ContainsKey($key));$record.failure.recovery_observation[$key]=$original}
 foreach($key in 'operation','tool','failure_class','native_source_basename'){$original=$record.failure.recovery_observation.events[0][$key];$record.failure.recovery_observation.events[0][$key]=@($original,$marker);Save $record;Check (!(BackupFailureReport $path ([datetime]::MinValue)).recovery_observation.events[0].ContainsKey($key));$record.failure.recovery_observation.events[0][$key]=$original}

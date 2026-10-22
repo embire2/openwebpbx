@@ -340,6 +340,46 @@ class RecoveryControls(unittest.TestCase):
             'The PBX application pool did not stop.','The PBX application pool did not start.','A backup control request is invalid.','A factory private-data permission snapshot is invalid.']
         product=(ROOT/'packaging/windows/Backup-Control.ps1').read_text()
         for message in messages:self.assertIn("throw '"+message+"'",product)
+
+    def test_meet_rebind_plain_and_clixml_errors_are_closed_and_private(self):
+        from xml.sax.saxutils import escape
+        cases={
+            'The protected restore transaction must be running.':'meet_restore_journal',
+            'Restore must hold calling and background work before rebinding meetings.':'meet_restore_holds',
+            'Restore must stop calling before rebinding meetings.':'meet_restore_services',
+            'Restore must stop the PBX website before rebinding meetings.':'meet_restore_site',
+            'The parent restore must retain its exclusive maintenance lock.':'meet_restore_lock',
+            'The private meeting certificate and endpoint did not validate.':'meet_endpoint',
+            'The installed meeting transport needs administrator review.':'meet_transport',
+            'Restore rebind requires the unchanged owned target meeting proxy.':'meet_target_proxy',
+            'The installed meeting ownership ledger needs review.':'meet_ledger',
+            'An interrupted meeting installation needs recovery from its retained private snapshot before continuing.':'meet_ledger'}
+        product=(ROOT/'packaging/windows/Install-Meet.ps1').read_text()
+        for message,category in cases.items():
+            self.assertIn("throw '"+message+"'",product)
+            private='At C:\\'+MARKER+'\\Install-Meet.ps1:17 char:5\n    + FullyQualifiedErrorId : '+message+'\n'
+            encoded=private.replace('\n','_x000D__x000A_')
+            xml=('#< CLIXML\n<Objs xmlns="http://schemas.microsoft.com/powershell/2004/04">'
+                 '<S S="Error">'+escape(encoded)+'</S></Objs>').encode()
+            for raw in (private.encode(),xml):
+                with self.subTest(category=category,xml=raw.startswith(b'#')):
+                    fields=self.observer.recovery_position('powershell',raw)
+                    self.assertEqual(fields,{'native_source_basename':'Install-Meet.ps1','native_source_line':17})
+                    self.assertEqual(self.observer.recovery_stderr('powershell',raw),category)
+                    self.assertNotIn(MARKER,json.dumps(fields))
+                    self.assertEqual(self.observer.recovery_position('psql',raw),{})
+        for name in ('Meet-Proxy.ps1','Write-PrivateState.ps1'):
+            self.assertEqual(self.observer.recovery_position('powershell',('At C:\\'+MARKER+'\\'+name+':20 char:1').encode()),
+                {'native_source_basename':name,'native_source_line':20})
+        # XML entity declarations, unrelated stream tags, malformed XML,
+        # ambiguous positions and near-match messages reveal no raw content.
+        declaration=b'#< CLIXML\n<!DOCTYPE Objs [<!ENTITY x "PRIVATE">]><Objs><S>&x;</S></Objs>'
+        self.assertEqual(self.observer.powershell_error_text(declaration),'')
+        for raw in (b'#< CLIXML\n<not-valid',b'#<CLIXML\n<Objs><S S="Information">PRIVATE</S></Objs>',b'x'*262145):
+            self.assertEqual(self.observer.recovery_position('powershell',raw),{})
+            self.assertEqual(self.observer.recovery_stderr('powershell',raw),'unknown')
+        self.assertEqual(self.observer.recovery_position('powershell',b'At C:\\Install-Meet.ps1:1 char:1\nAt C:\\Meet-Proxy.ps1:2 char:2'),{})
+        self.assertEqual(self.observer.recovery_stderr('powershell',b'private The parent restore must retain its exclusive maintenance lock. private'),'unknown')
     def test_journal_state_is_observed_and_never_inferred_from_injection(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);module=self.module(root);observation=self.observer.RecoveryObservation(module,root/'report.json',lambda:False)
