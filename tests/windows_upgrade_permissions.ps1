@@ -51,7 +51,7 @@ $replay=$upgrade.IndexOf('Restore-OpenWebUpgradePermissions -Permissions $upgrad
 $start=$upgrade.IndexOf('StartPbx; ResumeEngine; $stopped = $false; CheckHealth $version')
 AssertControl ($capture -gt $hardening[0].Extent.EndOffset -and $capture -lt $firstWriter)
 AssertControl ($replay -gt $upgrade.IndexOf("SaveJournal 'validating'") -and $replay -lt $start)
-foreach($writer in 'configure-notifications.ps1','Install-NativeEngine.ps1','Install-LocalCodec.ps1','Configure-PHP.ps1','configure-music.php','Install-Backups.ps1','Install-MailQueue.ps1'){
+foreach($writer in 'configure-notifications.ps1','Install-NativeEngine.ps1','Install-LocalCodec.ps1','Configure-PHP.ps1','configure-music.php','Install-Backups.ps1','Install-MailQueue.ps1','Install-TenantDomains.ps1','Install-PhoneHealth.ps1'){
  $position=$upgrade.LastIndexOf('"$payload\'+$writer+'"')
  AssertControl ($position -gt $capture -and $position -lt $replay)
 }
@@ -111,7 +111,7 @@ try{
  if($native){& icacls.exe $outer /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F'|Out-Null;AssertControl ($LASTEXITCODE -eq 0)}
  $php=Join-Path $root 'php/php.ini';$track=Join-Path $state 'storage/openweb-music/16000/lofi-beat-loop-schmoop.wav'
  $notification=Join-Path $state 'mobile-notifications/config.json';$recording=Join-Path $state 'storage/recordings/owned.wav'
- foreach($path in $php,$track,$notification,$recording,(Join-Path $root 'php/extras/ssl/openssl.cnf'),(Join-Path $root 'php/extras/ssl/cacert.pem'),(Join-Path $state 'native-engine.json'),(Join-Path $state 'local-codec.json'),(Join-Path $engine 'libbcg729.dll')){NewText $path}
+ foreach($path in $php,$track,$notification,$recording,(Join-Path $root 'php/extras/ssl/openssl.cnf'),(Join-Path $root 'php/extras/ssl/cacert.pem'),(Join-Path $state 'native-engine.json'),(Join-Path $state 'local-codec.json'),(Join-Path $state 'meet-ca.pem'),(Join-Path $state 'meet-proxy.json'),(Join-Path $state 'phone-health-instance.json'),(Join-Path $state 'stun.json'),(Join-Path $engine 'libbcg729.dll')){NewText $path}
  # Reproduce a legacy inherited writable program tree; capture only after the
  # exact product hardening statement, never from the rollback snapshot.
  if($native){& icacls.exe (Join-Path $outer 'legacy') /grant '*S-1-5-11:(OI)(CI)M'|Out-Null;AssertControl ($LASTEXITCODE -eq 0)}
@@ -126,7 +126,10 @@ try{
  AssertControl (@($permissions|Where-Object {$_.Path -ceq $php -and $_.Sddl -ceq $postHardening}).Count -eq 1)
  AssertControl (@($permissions|Where-Object {$_.Path -ceq $recording -or $_.Path -ceq $root}).Count -eq 0)
  $scope=Get-OpenWebUpgradePermissionScope -Root $root -StateRoot $state -EngineRoot $engine
- AssertControl ($scope.Files.Count -eq 6 -and $scope.Directories.Count -eq 9)
+ $expectedFiles=@($php,(Join-Path $root 'php/extras/ssl/openssl.cnf'),(Join-Path $root 'php/extras/ssl/cacert.pem'),(Join-Path $state 'native-engine.json'),(Join-Path $state 'local-codec.json'),(Join-Path $state 'meet-ca.pem'),(Join-Path $state 'meet-proxy.json'),(Join-Path $state 'phone-health-instance.json'),(Join-Path $state 'stun.json'),(Join-Path $engine 'libbcg729.dll'))
+ AssertControl ($scope.Files.Count -eq 10 -and !(Compare-Object ($scope.Files|Sort-Object) ($expectedFiles|Sort-Object)))
+ $expectedDirectories=@('mobile-notifications','mail','meet-proxy','stun-setup','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','storage/openweb-music'|ForEach-Object {Join-Path $state $_})
+ AssertControl ($scope.Directories.Count -eq 11 -and !(Compare-Object ($scope.Directories|Sort-Object) ($expectedDirectories|Sort-Object)))
  foreach($name in 'installation.json','runtime.json','updater-install.json','updater-original-startup.json'){
   AssertControl (!(($scope.Files -join '|').Contains($name)))
  }

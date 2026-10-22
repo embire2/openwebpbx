@@ -74,8 +74,8 @@ function Get-OpenWebUpgradePermissionScope {
  # Existing private/support objects only. Program directories, tasks and mutable
  # installation/updater metadata deliberately keep their upgrade contracts.
  @{
-  Files=@((Join-Path $Root 'php\php.ini'),(Join-Path $Root 'php\extras\ssl\openssl.cnf'),(Join-Path $Root 'php\extras\ssl\cacert.pem'),(Join-Path $StateRoot 'native-engine.json'),(Join-Path $StateRoot 'local-codec.json'),(Join-Path $StateRoot 'meet-ca.pem'),(Join-Path $StateRoot 'meet-proxy.json'),(Join-Path $EngineRoot 'libbcg729.dll'))
-  Directories=@('mobile-notifications','mail','meet-proxy','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','storage\openweb-music'|ForEach-Object {Join-Path $StateRoot $_})
+  Files=@((Join-Path $Root 'php\php.ini'),(Join-Path $Root 'php\extras\ssl\openssl.cnf'),(Join-Path $Root 'php\extras\ssl\cacert.pem'),(Join-Path $StateRoot 'native-engine.json'),(Join-Path $StateRoot 'local-codec.json'),(Join-Path $StateRoot 'meet-ca.pem'),(Join-Path $StateRoot 'meet-proxy.json'),(Join-Path $StateRoot 'phone-health-instance.json'),(Join-Path $StateRoot 'stun.json'),(Join-Path $EngineRoot 'libbcg729.dll'))
+  Directories=@('mobile-notifications','mail','meet-proxy','stun-setup','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','storage\openweb-music'|ForEach-Object {Join-Path $StateRoot $_})
  }
 }
 function Get-OpenWebUpgradePermissions {
@@ -140,13 +140,13 @@ function Restore-OpenWebUpgradePermissions {
  }
 }
 function Save-OpenWebSupport {
- param([string]$Backup,[string]$PackageRoot,[string]$Root,[string]$StateRoot,[string]$EngineRoot)
+ param([string]$Backup,[string]$PackageRoot,[string]$Root,[string]$StateRoot,[string]$EngineRoot,[IO.FileStream]$MaintenanceLock)
  $record=[ordered]@{schema=1;Files=@{};Directories=@{};Acls=@{};Tasks=@{};OpenSshClient=(Get-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0).State.ToString()}
  $fastcgi="$Root\php\php-cgi.exe"
  $filter="system.webServer/fastCgi/application[@fullPath='$fastcgi']/environmentVariables/environmentVariable[@name='OPENSSL_CONF']"
  $environment=Get-WebConfiguration -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter $filter
  $record.PhpEnvironment=@{Exists=[bool]$environment;Value=if($environment){[string]$environment.value}else{''};ProcessValue=$env:OPENSSL_CONF}
- $files=@("$Root\php\php.ini","$Root\php\extras\ssl\openssl.cnf","$Root\php\extras\ssl\cacert.pem","$StateRoot\native-engine.json","$StateRoot\local-codec.json","$StateRoot\meet-ca.pem","$StateRoot\meet-proxy.json","$StateRoot\updater-original-startup.json","$StateRoot\updater-install.json","$StateRoot\installation.json","$EngineRoot\libbcg729.dll")
+ $files=@("$Root\php\php.ini","$Root\php\extras\ssl\openssl.cnf","$Root\php\extras\ssl\cacert.pem","$StateRoot\native-engine.json","$StateRoot\local-codec.json","$StateRoot\meet-ca.pem","$StateRoot\meet-proxy.json","$StateRoot\updater-original-startup.json","$StateRoot\updater-install.json","$StateRoot\installation.json","$StateRoot\phone-health-instance.json","$StateRoot\stun.json","$EngineRoot\libbcg729.dll")
  if(Test-Path (Join-Path $PackageRoot 'Meet-Proxy.ps1')){
   Copy-Item -LiteralPath (Join-Path $PackageRoot 'Meet-Proxy.ps1') -Destination (Join-Path $Backup 'meeting-recovery.ps1')
   Copy-Item -LiteralPath (Join-Path $PackageRoot 'Write-PrivateState.ps1') -Destination (Join-Path $Backup 'Write-PrivateState.ps1')
@@ -163,7 +163,7 @@ function Save-OpenWebSupport {
   if($exists){New-Item -ItemType Directory -Force "$Backup\support-files" | Out-Null;Copy-Item -LiteralPath $path -Destination (Join-Path $Backup $copy);$record.Acls[$path]=(Get-Acl -LiteralPath $path).Sddl}
  }
  $directories=@{
-  'backup-runtime'="$Root\backup-runtime";'acme-runtime'="$Root\acme";'mobile-notifications'="$StateRoot\mobile-notifications";'mail-state'="$StateRoot\mail";'meet-proxy'="$StateRoot\meet-proxy";'tenant-domains'="$StateRoot\tenant-domains";'updater-slots'="$Root\updater\slots"
+  'backup-runtime'="$Root\backup-runtime";'acme-runtime'="$Root\acme";'mobile-notifications'="$StateRoot\mobile-notifications";'mail-state'="$StateRoot\mail";'meet-proxy'="$StateRoot\meet-proxy";'tenant-domains'="$StateRoot\tenant-domains";'stun-setup'="$StateRoot\stun-setup";'updater-slots'="$Root\updater\slots"
   'automatic-backups'="$StateRoot\automatic-backups";'backup-restore'="$StateRoot\backup-restore";'backup-control'="$StateRoot\backup-control";'backup-downloads'="$StateRoot\backup-downloads"
   'codec-compiler-cache'="$StateRoot\codec-compiler-cache";'codec-build'="$StateRoot\codec-build";'openweb-music'="$StateRoot\storage\openweb-music"
  }
@@ -178,7 +178,7 @@ function Save-OpenWebSupport {
   if($exists){CopyTree $path (Join-Path $Backup $name)}
  }
  $record.Acls[$Root]=(Get-Acl -LiteralPath $Root).Sddl
- foreach($path in @("$Root\web","$Root\server","$Root\desktop","$Root\tools","$EngineRoot\mod","$EngineRoot\sounds","$EngineRoot\conf","$StateRoot\mobile-notifications","$StateRoot\mail","$StateRoot\meet-proxy","$StateRoot\tenant-domains","$Root\backup-runtime","$Root\acme","$Root\updater","$StateRoot\automatic-backups","$StateRoot\backup-restore","$StateRoot\backup-control","$StateRoot\backup-downloads","$StateRoot\codec-compiler-cache","$StateRoot\codec-build","$StateRoot\storage\openweb-music")){
+ foreach($path in @("$Root\web","$Root\server","$Root\desktop","$Root\tools","$EngineRoot\mod","$EngineRoot\sounds","$EngineRoot\conf","$StateRoot\mobile-notifications","$StateRoot\mail","$StateRoot\meet-proxy","$StateRoot\tenant-domains","$StateRoot\stun-setup","$Root\backup-runtime","$Root\acme","$Root\updater","$StateRoot\automatic-backups","$StateRoot\backup-restore","$StateRoot\backup-control","$StateRoot\backup-downloads","$StateRoot\codec-compiler-cache","$StateRoot\codec-build","$StateRoot\storage\openweb-music")){
   if(Test-Path -LiteralPath $path -PathType Container){
    $record.Acls[$path]=(Get-Acl -LiteralPath $path).Sddl
    foreach($item in Get-ChildItem -LiteralPath $path -Force -Recurse){
@@ -187,7 +187,7 @@ function Save-OpenWebSupport {
    }
   }
  }
- foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){
+ foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){
   $task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
   $record.Tasks[$name]=@{Exists=[bool]$task;Enabled=if($task){[bool]$task.Settings.Enabled}else{$false}}
   if($task){
@@ -195,7 +195,10 @@ function Save-OpenWebSupport {
    $record.Tasks[$name].Security=$scheduler.GetFolder('\').GetTask($name).GetSecurityDescriptor(7)
    $record.Tasks[$name].FileAcl=(Get-Acl -LiteralPath (Join-Path $env:SystemRoot ('System32\Tasks\'+$name))).Sddl
    Export-ScheduledTask -TaskName $name | Set-Content "$Backup\$name.xml" -Encoding UTF8
-   if($name -in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-Cleanup'){Disable-ScheduledTask -TaskName $name | Out-Null}
+   if($name -eq 'OpenWebPBX-PhoneHealth'){
+    . (Join-Path $PackageRoot 'PhoneHealth-Security.ps1')
+    Stop-OpenWebHealthTask -MaintenanceLock $MaintenanceLock -Disable
+   }elseif($name -in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-Cleanup'){Disable-ScheduledTask -TaskName $name | Out-Null}
   }
  }
  WriteState "$Backup\support-state.json" $record
@@ -209,7 +212,7 @@ function Restore-OpenWebSupport {
   . (Join-Path $Backup 'meeting-recovery.ps1')
   Restore-OpenWebMeetSystem -Snapshot (Join-Path $Backup 'meeting-system.json') -StateRoot $StateRoot
  }
- $allowed=@($Root,"$StateRoot\native-engine.json","$StateRoot\local-codec.json","$StateRoot\meet-ca.pem","$StateRoot\meet-proxy.json","$StateRoot\updater-original-startup.json","$StateRoot\updater-install.json","$StateRoot\installation.json","$StateRoot\mobile-notifications","$StateRoot\mail","$StateRoot\meet-proxy","$StateRoot\tenant-domains","$StateRoot\automatic-backups","$StateRoot\backup-restore","$StateRoot\backup-control","$StateRoot\backup-downloads","$StateRoot\codec-compiler-cache","$StateRoot\codec-build","$StateRoot\storage\openweb-music","$EngineRoot")
+ $allowed=@($Root,"$StateRoot\native-engine.json","$StateRoot\local-codec.json","$StateRoot\meet-ca.pem","$StateRoot\meet-proxy.json","$StateRoot\updater-original-startup.json","$StateRoot\updater-install.json","$StateRoot\installation.json","$StateRoot\phone-health-instance.json","$StateRoot\stun.json","$StateRoot\mobile-notifications","$StateRoot\mail","$StateRoot\meet-proxy","$StateRoot\tenant-domains","$StateRoot\stun-setup","$StateRoot\automatic-backups","$StateRoot\backup-restore","$StateRoot\backup-control","$StateRoot\backup-downloads","$StateRoot\codec-compiler-cache","$StateRoot\codec-build","$StateRoot\storage\openweb-music","$EngineRoot")
  function Check-SupportPath([string]$Path){
   $full=[IO.Path]::GetFullPath($Path);$valid=$false
   foreach($base in $allowed){if($full.Equals($base,[StringComparison]::OrdinalIgnoreCase) -or $full.StartsWith($base.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)){$valid=$true;break}}
@@ -227,7 +230,7 @@ function Restore-OpenWebSupport {
   }else{Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue}
  }
  foreach($entry in $record.Directories.PSObject.Properties){
-  if($entry.Name -notin 'backup-runtime','acme-runtime','mobile-notifications','mail-state','meet-proxy','tenant-domains','updater-slots','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','openweb-music'){throw 'The support recovery folder inventory is invalid.'}
+  if($entry.Name -notin 'backup-runtime','acme-runtime','mobile-notifications','mail-state','meet-proxy','tenant-domains','stun-setup','updater-slots','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','openweb-music'){throw 'The support recovery folder inventory is invalid.'}
   $target=Check-SupportPath $entry.Value.Path
   if($entry.Value.Exists){CopyTree (Join-Path $Backup $entry.Name) $target -Mirror}
   else{Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue}
@@ -247,7 +250,7 @@ function Restore-OpenWebSupport {
   Set-OpenWebFileSddl -LiteralPath $permission.Path -Sddl $permission.Sddl
  }
  foreach($entry in $record.Tasks.PSObject.Properties){
-  if($entry.Name -notin 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){throw 'The support recovery task inventory is invalid.'}
+  if($entry.Name -notin 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){throw 'The support recovery task inventory is invalid.'}
   if($entry.Value.Exists){
    Register-ScheduledTask -TaskName $entry.Name -Xml (Get-Content "$Backup\$($entry.Name).xml" -Raw) -Force | Out-Null
    if($entry.Value.Enabled){Enable-ScheduledTask -TaskName $entry.Name | Out-Null}else{Disable-ScheduledTask -TaskName $entry.Name | Out-Null}

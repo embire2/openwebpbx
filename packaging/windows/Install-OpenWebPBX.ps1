@@ -297,6 +297,7 @@ Run sc.exe @('failure','OpenWebPBX','reset=','86400','actions=','restart/60000/r
 & "$PSScriptRoot\Install-Backups.ps1" -PackageRoot $PSScriptRoot -DeferRestart -UpgradeLockHeld
 & "$PSScriptRoot\Install-MailQueue.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
 & "$PSScriptRoot\Install-TenantDomains.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
+& "$PSScriptRoot\Install-PhoneHealth.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
 Start-Service FreeSWITCH
 Start-Service OpenWebPBX
 if ((Get-WebAppPoolState OpenWebPBX).Value -ne 'Started') { Start-WebAppPool OpenWebPBX }
@@ -344,5 +345,7 @@ Write-Host 'Sign in to Admin, then open Main PBX. Trunks start disabled. Configu
 Enable-ScheduledTask -TaskName OpenWebPBX-Backups | Out-Null
 Enable-ScheduledTask -TaskName 'OpenWebPBX Outgoing Mail' | Out-Null
 Enable-ScheduledTask -TaskName 'OpenWebPBX-TenantDomains' | Out-Null
+Enable-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' | Out-Null
+Start-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth'
 Start-Service OpenWebPBXUpdater
 if($EnablePublicAccess){& "$PSScriptRoot\Enable-PublicAccess.ps1" -DomainName $DomainName -Email $AdminEmail -PublicAddress $PublicAddress}

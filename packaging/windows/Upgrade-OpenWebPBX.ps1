@@ -373,7 +373,7 @@ try {
  # database snapshot. The second copy transfers only the changed files.
  CopyTree "$private\storage" "$backup\storage" -Mirror
  CopyTree "$switch\conf" "$backup\switch-conf" -Mirror
- Save-OpenWebSupport -Backup $backup -PackageRoot $payload -Root $root -StateRoot $private -EngineRoot $switch
+ Save-OpenWebSupport -Backup $backup -PackageRoot $payload -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock
  Run "$root\pgsql\bin\pg_dump.exe" @('-h','127.0.0.1','-p','5433','-U','postgres','-d','fusionpbx','-w','-Fc',"--file=$backup\database.dump")
  SealBackup $backup
  $backupReady = $true
@@ -416,6 +416,7 @@ try {
  & "$payload\Install-Backups.ps1" -PackageRoot $payload -DeferRestart -UpgradeLockHeld
  & "$payload\Install-MailQueue.ps1" -PackageRoot $payload -DeferStart -MaintenanceLock $lock
  & "$payload\Install-TenantDomains.ps1" -PackageRoot $payload -DeferStart -MaintenanceLock $lock
+ & "$payload\Install-PhoneHealth.ps1" -PackageRoot $payload -DeferStart -MaintenanceLock $lock
  Remove-Item "$private\cache\*" -Recurse -Force -ErrorAction SilentlyContinue
  $state.Version = $version
  WriteState "$private\installation.json" $state
@@ -425,11 +426,12 @@ try {
  if(Test-Path "$payload\updater\OpenWebPbx.Updater.exe"){& "$payload\Install-Updater.ps1" -PackageRoot $payload -DeferRestart}
  SaveJournal 'completed'
  $originalSupport=Get-Content "$backup\support-state.json" -Raw|ConvertFrom-Json
- foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains'){
+ foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth'){
   $originalTask=$originalSupport.Tasks.PSObject.Properties[$name]
   if($originalTask -and ($originalTask.Value.Exists -isnot [bool] -or $originalTask.Value.Enabled -isnot [bool])){throw 'The original background-task enabled choice is invalid.'}
   if(!$originalTask -or !$originalTask.Value.Exists -or $originalTask.Value.Enabled){Enable-ScheduledTask -TaskName $name|Out-Null}
   else{Disable-ScheduledTask -TaskName $name|Out-Null}
+  if($name -eq 'OpenWebPBX-PhoneHealth' -and (!$originalTask -or !$originalTask.Value.Exists -or $originalTask.Value.Enabled)){Start-ScheduledTask -TaskName $name}
  }
  if(Get-ScheduledTask -TaskName OpenWebPBX-Cleanup -ErrorAction SilentlyContinue){
   $support=Get-Content "$backup\support-state.json" -Raw|ConvertFrom-Json

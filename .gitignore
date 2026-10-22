@@ -32,3 +32,5 @@ app/yealink/resources/firmware/*
 
 /packaging/**/__pycache__/
 /tests/__pycache__/
+/tests/stun-worker/bin/
+/tests/stun-worker/obj/

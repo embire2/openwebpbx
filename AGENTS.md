@@ -1,5 +1,13 @@
 # OpenWeb PBX workspace
 
+
+## Native Windows parity — in progress — 2026-10-22
+
+- Owner authorises native Windows Server work and unrestricted controlled tests on the supplied test machine. RDP and source-restricted SSH are working; the SSH host key was independently matched against the RDP result. Credentials, temporary keys and preservation receipts remain private. The actual machine is Windows Server2025, with original1.0.6/local-only configuration and PBX services stopped. Preserve original configuration, database, media, tasks and ACLs before migration; no customer carrier calls are implied.
+- Three parallel workstreams cover Windows Phone Health/security, engine/conference transport and encrypted backup/upgrade recovery. A delayed4KiB/100ms/4KiB WebSocket failure is proven on the old backend independently of IIS; the corrected engine passed compilation, parser and registration checks, but current decoded conference media remains pending. Scheduled-task disabled choices and restored pending health-request refusal have meaningful source/isolated PostgreSQL tests; full current-package native acceptance remains separate.
+- Root added the Windows-only .NET STUN Binding worker, with explicit installed-address binding, legacy/modern transactions, optional fingerprint validation, bounded traffic and isolated auxiliary failures. Real IPv4/IPv6 loopback protocol checks pass; Windows/external/setup-recovery acceptance remains pending. It is Binding only, with no TURN relay. Source commit5413fee5e is not a public release.
+- Follow [the current parity record](docs/windows-parity-1.0.20.md). Do not publish from earlier sealed Debian20-I or old Windowsd91 archives: the combined Health/STUN/engine source needs its own complete native build, package, fresh/reapply/failure recovery, distinct restore and signed newer-version acceptance. Preserve the product-first README and exact public feeds until a release is qualified. Roadmap133/21/72/40 remains unchanged; untrackedring1.png remains user material.
+
 ## Phone Health & Recovery — hosted Debian delivery — 2026-10-22
 
 - Owner requested Debian Phone Health & Recovery, a Windows Server follow-up list and the product-first README. **Admin → Phone Health** is live at `/app/pbx_phone_health/`, with 15-second visible-page refresh, a managed 30-second observer, current phone/provider states, verified office-block explanations, persistent incidents and recent recovery outcomes. Never infer ringing or audio from registration. Never-provisioned users remain visibly offline without outage emails; previously observed desk phones have a 90-second disappearance grace. Office history starts with actual successful observations and uses a 30-day proof window.
