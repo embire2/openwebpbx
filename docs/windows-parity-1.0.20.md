@@ -112,8 +112,13 @@ release, upgrade or backup.
 The combined sourcee031bb10b build39851801900 exported its archive but failed
 fresh installation: the new DTLS pre-start helper required a certificate folder
 that the stock Windows engine has not created yet. Isolated tests had used an
-existing folder. The first-install path and exact parent-directory recovery are
-being corrected; no new fresh-install or conference pass is claimed. Subsequent
+existing folder. The guarded first-install correction now passes63 actual
+Windows transaction controls and12 real crypto controls. Parent-directory
+recovery passes135 actual Windows controls, including missing/replaced/link
+refusals before key writes, preservation of custom keys and retry after a held
+directory prevents removal. Independent review found no further blocker in
+those committed changes. No new complete fresh-install or conference pass is
+claimed. Subsequent
 recovery fixes also require a rebuilt package: held newly created DTLS objects
 must refuse recovery, and the helper must prove restored bytes/permissions or
 absence before marking its journal recovered.
