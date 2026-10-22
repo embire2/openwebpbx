@@ -5,9 +5,17 @@ param([Parameter(Mandatory)][string]$PackageRoot,[Parameter(Mandatory)][string]$
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx' -or [Environment]::OSVersion.Version.Build -lt 26100){throw 'The explicit disposable Windows Server factory is required.'}
 $state=Join-Path $env:ProgramData 'OpenWebPBX';$root='C:\OpenWebPBX';$work=Join-Path $state ('health-qualification\'+[Guid]::NewGuid().ToString('N'));$taskName='OpenWebPBX-HealthComponent-'+[Guid]::NewGuid().ToString('N');$created=$false
-$report=[ordered]@{schema=1;producer='windows_phone_health_acceptance.ps1';state='running';actual_native_windows=$true;gates=[ordered]@{installed_task='pending';installed_system_observer='pending';installed_collector='pending';postgresql_policy='pending';runtime='pending';firewall='pending';cleanup='pending'};policy_signalling_doubles=$true;physical_phone_audio=$false}
+$report=[ordered]@{schema=1;producer='windows_phone_health_acceptance.ps1';state='running';actual_native_windows=$true;gates=[ordered]@{installed_task='pending';installed_system_observer='pending';installed_collector='pending';installed_continuous_observer='pending';installed_restart='pending';postgresql_policy='pending';runtime='pending';firewall='pending';cleanup='pending'};policy_signalling_doubles=$true;physical_phone_audio=$false}
 function PrivateDirectory([string]$Path){New-Item -ItemType Directory -Force -Path $Path|Out-Null;$acl=[Security.AccessControl.DirectorySecurity]::new();$acl.SetAccessRuleProtection($true,$false);$acl.SetOwner([Security.Principal.SecurityIdentifier]'S-1-5-32-544');foreach($sid in 'S-1-5-18','S-1-5-32-544'){$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]$sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow'))};Set-Acl -LiteralPath $Path -AclObject $acl}
 function Php([string]$File,[string[]]$Arguments){$output=& "$root\php\php.exe" $File @Arguments 2>> (Join-Path $work 'php.private.err');if($LASTEXITCODE){throw 'The native health PHP check failed.'};return (($output -join "`n")|ConvertFrom-Json)}
+function HealthProcess {
+ $processes=@(Get-CimInstance Win32_Process -Filter "Name='php.exe'" -ErrorAction Stop|Where-Object {$_.ExecutablePath -ieq 'C:\OpenWebPBX\php\php.exe' -and $_.CommandLine -match 'phone-health\.php"?\s+service\b'})
+ if($processes.Count -ne 1){return $null}
+ $connections=@(Get-NetTCPConnection -OwningProcess $processes[0].ProcessId -RemoteAddress '127.0.0.1' -RemotePort 5433 -State Established -ErrorAction SilentlyContinue)
+ $rows=@((Php (Join-Path $PSScriptRoot 'windows_phone_health_installed.php') @('heartbeat')).workers)
+ foreach($row in $rows){if(@($connections|Where-Object {$_.LocalPort -eq [int]$row.client_port}).Count){return @{pid=[int]$processes[0].ProcessId;database_pid=[int]$row.pid;changed=[double]$row.changed}}}
+ return $null
+}
 try{
  $installation=Get-Content -LiteralPath (Join-Path $state 'installation.json') -Raw|ConvertFrom-Json
  if(!$installation.Completed -or !$installation.RestoreServer){throw 'A completed empty restore factory is required.'}
@@ -43,6 +51,15 @@ try{
  $result=Get-Content -LiteralPath $systemResult -Raw|ConvertFrom-Json
  if($result.state -ne 'passed' -or $result.actual_system -ne $true -or $result.actual_installed_observer -ne $true){throw 'The native SYSTEM health observer did not pass.'};$report.gates.installed_system_observer='passed'
  $native=Php (Join-Path $PSScriptRoot 'windows_phone_health_installed.php') @();if($native.state -ne 'passed' -or $native.actual_installed_collector -ne $true){throw 'The installed native collector failed.'};$report.gates.installed_collector='passed'
+ $first=$null;$deadline=[DateTime]::UtcNow.AddSeconds(90);while(!$first){$first=HealthProcess;if(!$first){if([DateTime]::UtcNow -ge $deadline){throw 'The persistent health worker has no native PostgreSQL scan evidence.'};Start-Sleep -Milliseconds 500}}
+ $second=$null;$deadline=[DateTime]::UtcNow.AddSeconds(75)
+ while(!$second){Start-Sleep -Seconds 1;$candidate=HealthProcess;if($candidate){if($candidate.pid -ne $first.pid -or $candidate.database_pid -ne $first.database_pid){throw 'The persistent observer restarted instead of completing its next scan.'};if($candidate.changed -gt $first.changed){$second=$candidate}};if([DateTime]::UtcNow -ge $deadline){throw 'The installed persistent observer did not complete another scan.'}};$report.gates.installed_continuous_observer='passed'
+ $maintenance=$null;$deadline=[DateTime]::UtcNow.AddSeconds(30)
+ while(!$maintenance){try{$maintenance=[IO.File]::Open((Join-Path $state 'upgrade.lock'),'OpenOrCreate','ReadWrite','None')}catch [IO.IOException]{if([DateTime]::UtcNow -ge $deadline){throw 'The observer restart could not acquire the maintenance lock.'};Start-Sleep -Milliseconds 250}}
+ try{Stop-OpenWebHealthTask -MaintenanceLock $maintenance -Disable;if((Get-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\').Settings.Enabled -or (Get-Process -Id $first.pid -ErrorAction SilentlyContinue)){throw 'The owned observer did not stop cleanly.'};if(@(Get-ChildItem -LiteralPath (Join-Path $state 'phone-health-runtime') -Force).Count){throw 'Stopping the observer left private response files.'}}
+ finally{$maintenance.Dispose();Enable-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop|Out-Null;Start-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop}
+ $restarted=$null;$deadline=[DateTime]::UtcNow.AddSeconds(90);while(!$restarted){$restarted=HealthProcess;if(!$restarted){if([DateTime]::UtcNow -ge $deadline){throw 'The installed observer did not restart and scan.'};Start-Sleep -Milliseconds 500}}
+ if($restarted.pid -eq $first.pid){throw 'The observer restart retained its old resident process.'};$report.gates.installed_restart='passed'
  $oldPassword=$env:OPENWEB_HEALTH_TEST_PASSWORD;$oldState=$env:OPENWEB_HEALTH_TEST_STATE;$oldSpool=$env:OPENWEB_HEALTH_TEST_SPOOL
  try{
   $env:OPENWEB_HEALTH_TEST_PASSWORD=$installation.PostgresPassword;$env:OPENWEB_HEALTH_TEST_STATE=Join-Path $work 'identity';$env:OPENWEB_HEALTH_TEST_SPOOL=Join-Path $work 'spool'

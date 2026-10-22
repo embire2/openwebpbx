@@ -3,6 +3,10 @@
 if(PHP_SAPI!=='cli'||PHP_OS_FAMILY!=='Windows')exit(2);
 require 'C:/OpenWebPBX/web/resources/require.php';
 $db=database::new()->db;
+if(($argv[1]??'')==='heartbeat'){
+ $q=$db->query("select pid,extract(epoch from state_change)::double precision changed,client_port from pg_stat_activity where datname=current_database() and usename=current_user and state='idle' and query like 'select recovery_uuid,block_uuid from v_pbx_phone_health_recoveries %'");
+ $rows=$q->fetchAll(PDO::FETCH_ASSOC);echo json_encode(['state'=>'observed','workers'=>$rows],JSON_THROW_ON_ERROR),PHP_EOL;exit;
+}
 if((int)$db->query('select count(*) from v_pbx_restore')->fetchColumn()!==0||(int)$db->query('select count(*) from v_pbx_phone_health_contacts')->fetchColumn()!==0)throw new RuntimeException('An empty disposable factory is required.');
 if(!pbx_phone_health::installed($db)||!preg_match('/^[a-f0-9]{64}$/D',pbx_phone_health::instanceId()??''))throw new RuntimeException('The native health installation is unavailable.');
 $raw=pbx_windows_health_stream::api('show registrations as json');$rows=pbx_phone_health::registrations($raw);
