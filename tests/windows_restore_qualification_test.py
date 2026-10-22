@@ -43,6 +43,22 @@ class RestoreCliObservationControls(unittest.TestCase):
         self.stack.enter_context(mock.patch.object(self.b, 'RESTORE', self.root))
         self.stack.enter_context(mock.patch.object(self.b, 'UPGRADE_LOCK', self.root/'upgrade.lock'))
         self.stack.enter_context(mock.patch.object(self.b, 'held', return_value=True))
+        # This portable CLI test adapts only the native syscall seam. Actual
+        # Windows sharing/ACL/CRT behavior is exercised by windows_backup_guard.
+        @contextlib.contextmanager
+        def native_guard(path):
+            with path.open('a+b') as stream:
+                try:
+                    self.b.lock_file(stream)
+                except BlockingIOError:
+                    raise self.b.BackupBusy('Another backup, restore or release update is running. Retry after it finishes.') from None
+                except OSError:
+                    raise self.b.BackupError('The operation lock needs administrator review.') from None
+                try:
+                    yield
+                finally:
+                    self.b.unlock_file(stream)
+        self.stack.enter_context(mock.patch.object(self.b, 'windows_exclusive_guard', side_effect=native_guard))
 
     def failure(self, *, password=None, expect_failure=False):
         original_args, original_prompt = sys.argv, self.b.getpass.getpass
@@ -54,15 +70,21 @@ class RestoreCliObservationControls(unittest.TestCase):
         return caught.exception, fields
 
     def test_actual_main_parser_exit_retains_actual_exclusive_guard_error_and_frames(self):
-        with mock.patch.object(self.b, 'lock_file', side_effect=OSError('PRIVATE native sharing detail')), mock.patch.object(self.b, 'control') as control:
+        with mock.patch.object(self.b, 'lock_file', side_effect=BlockingIOError('PRIVATE native sharing detail')), mock.patch.object(self.b, 'control') as control:
             error, fields = self.failure()
-        self.assertEqual(fields['exit_code'], 1); self.assertEqual(fields['error_type'], 'BackupError')
+        self.assertEqual(fields['exit_code'], 1); self.assertEqual(fields['error_type'], 'BackupBusy')
         self.assertEqual(fields['category'], 'operation_busy')
         self.assertEqual([f['function'] for f in fields['source_frames']], ['main','activate','exclusive_guard'])
         self.assertTrue(all(f['source_basename']=='backups.py' and 0<f['source_line']<1000000 for f in fields['source_frames']))
         self.assertIn('Another backup, restore or release update is running.', (self.root/'cli-activate.private.err').read_text())
         control.assert_not_called(); self.assertFalse(self.fixture.facts)
         self.assertFalse(hasattr(error, 'private_sql'))
+
+    def test_generic_native_lock_failure_requires_review_instead_of_busy(self):
+        with mock.patch.object(self.b, 'lock_file', side_effect=PermissionError('PRIVATE access denied')):
+            _, fields = self.failure()
+        self.assertEqual(fields['error_type'], 'BackupError')
+        self.assertEqual(fields['category'], 'operation_lock_review')
 
     def test_expected_code_one_then_new_error_cannot_reuse_prior_observation(self):
         with mock.patch.object(self.b, 'lock_file', side_effect=OSError('PRIVATE')):
@@ -341,7 +363,7 @@ class RestoreCombinedActivationControls(unittest.TestCase):
             with self.subTest(mode=mode):
                 self.prepare_activation()
                 if mode=='missing_hold':(self.root/'hold-backups').unlink()
-                else:self.b.lock_file.side_effect=OSError('PRIVATE native lock')
+                else:self.b.lock_file.side_effect=BlockingIOError('PRIVATE native lock')
                 with self.assertRaises(RuntimeError) as caught:self.fixture.activate_updates_backups()
                 fields=q.restore_cli_failure_fields(caught.exception.cli_failure)
                 self.assertEqual(fields['category'],'activation_service_missing' if mode=='missing_hold' else 'operation_busy')

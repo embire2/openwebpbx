@@ -25,7 +25,7 @@ PHASES={'before_upload','upload','after_upload'}
 CLASSES={'database_invalid_encoding','database_client_encoding','database_permission','database_connection',
     'database_syntax','ssh_private_key_permissions','ssh_private_key_format','ssh_private_key_unreadable',
     'ssh_host_key','ssh_authentication','ssh_connection','ssh_remote_path','unknown'}
-ERRORS={'BackupError','TimeoutExpired','OSError','FileNotFoundError','PermissionError','UnicodeDecodeError','unknown'}
+ERRORS={'BackupError','BackupBusy','TimeoutExpired','OSError','FileNotFoundError','PermissionError','UnicodeDecodeError','unknown'}
 RECOVERY_ERRORS=ERRORS|{'AssertionError','RuntimeError','NameError','TypeError','AttributeError','ValueError','KeyError','IndexError','JSONDecodeError'}
 OPERATIONS={'secure','plan','hold','hold-selection','start-web','recover-startup','resume-factory','activate','acl-read','acl-restore','none','unknown'}
 RECOVERY_CLASSES=CLASSES|{'shell_command_not_found','shell_permission','shell_parameter_binding','shell_path','shell_invalid_operation',

@@ -77,6 +77,10 @@ class BackupError(RuntimeError):
     """Only these messages may be shown to an administrator."""
 
 
+class BackupBusy(BackupError):
+    """A native sharing or byte-range lock is currently held elsewhere."""
+
+
 def reparse(path):
     try:
         info = Path(path).lstat()
@@ -231,22 +235,92 @@ def sync_directory(path):
 
 
 @contextlib.contextmanager
+def windows_exclusive_guard(path, *, existing_only=False):
+    # The CRT maps both sharing conflicts and ACL failures to errno 13. Keep
+    # their native Windows results distinct so scheduled work defers only for
+    # real contention, while invalid paths and permissions still require review.
+    import ctypes
+    from ctypes import wintypes
+
+    class Overlapped(ctypes.Structure):
+        _fields_ = [('Internal', ctypes.c_size_t), ('InternalHigh', ctypes.c_size_t),
+                    ('Offset', wintypes.DWORD), ('OffsetHigh', wintypes.DWORD),
+                    ('hEvent', wintypes.HANDLE)]
+
+    class FileInformation(ctypes.Structure):
+        _fields_ = [('attributes', wintypes.DWORD), ('creation', wintypes.FILETIME),
+                    ('access', wintypes.FILETIME), ('write', wintypes.FILETIME),
+                    ('volume', wintypes.DWORD), ('size_high', wintypes.DWORD),
+                    ('size_low', wintypes.DWORD), ('links', wintypes.DWORD),
+                    ('index_high', wintypes.DWORD), ('index_low', wintypes.DWORD)]
+
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    create = kernel.CreateFileW
+    create.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+                       wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE)
+    create.restype = wintypes.HANDLE
+    information = kernel.GetFileInformationByHandle
+    information.argtypes = (wintypes.HANDLE, ctypes.POINTER(FileInformation))
+    information.restype = wintypes.BOOL
+    acquire = kernel.LockFileEx
+    acquire.argtypes = (wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+                        wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(Overlapped))
+    acquire.restype = wintypes.BOOL
+    release = kernel.CloseHandle
+    release.argtypes = (wintypes.HANDLE,)
+    release.restype = wintypes.BOOL
+
+    def refuse(code):
+        if code in (32, 33):  # ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION only.
+            raise BackupBusy('Another backup, restore or release update is running. Retry after it finishes.') from None
+        raise BackupError('The operation lock needs administrator review.') from None
+
+    # Share reads/writes so a second Python process reaches LockFileEx. Its
+    # exclusive byte lock also interoperates with the previous CRT lock; an
+    # existing/new .NET FileShare.None handle instead produces native error 32.
+    # Refusing DELETE sharing prevents the held node from being replaced.
+    handle = create(str(path), 0xC0000000, 3, None, 3 if existing_only else 4, 0x00200080, None)
+    if handle == ctypes.c_void_p(-1).value:
+        refuse(ctypes.get_last_error())
+    try:
+        info = FileInformation()
+        if not information(handle, ctypes.byref(info)):
+            refuse(ctypes.get_last_error())
+        if info.attributes & (0x10 | 0x400) or info.links != 1:
+            raise BackupError('The operation lock needs administrator review.')
+        overlap = Overlapped()
+        if not acquire(handle, 3, 0, 1, 0, ctypes.byref(overlap)):
+            refuse(ctypes.get_last_error())
+        yield
+    finally:
+        # Closing this exact handle releases its lock, including when the body
+        # raises. No exception from the guarded operation is relabelled Busy.
+        release(handle)
+
+
+@contextlib.contextmanager
 def exclusive_guard(path):
     path = Path(path)
-    if reparse(path):
+    if any(reparse(item) for item in (path, *path.parents)):
         raise BackupError('The operation lock needs administrator review.')
+    if os.name == 'nt':
+        with windows_exclusive_guard(path):
+            yield
+        return
     try:
         lock = path.open('a+b')
     except OSError:
-        raise BackupError('Another backup, restore or release update is running. Retry after it finishes.') from None
+        raise BackupError('The operation lock needs administrator review.') from None
     with lock:
         lock_path_mode = path.stat().st_mode & 0o777
         if lock_path_mode & 0o022:
             path.chmod(0o600)
         try:
             lock_file(lock)
+        except BlockingIOError:
+            raise BackupBusy('Another backup, restore or release update is running. Retry after it finishes.') from None
         except OSError:
-            raise BackupError('Another backup, restore or release update is running. Retry after it finishes.') from None
+            raise BackupError('The operation lock needs administrator review.') from None
         try:
             yield
         finally:

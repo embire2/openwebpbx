@@ -162,9 +162,9 @@ def restore_query_failure_fields(error):
     return {'query_caller_line': caller} if database_query and type(caller) is int and 0 < caller < 1000000 else {}
 
 
-CLI_ERROR_TYPES = ('BackupError', 'PermissionError', 'FileNotFoundError', 'OSError', 'ValueError',
+CLI_ERROR_TYPES = ('BackupError', 'BackupBusy', 'PermissionError', 'FileNotFoundError', 'OSError', 'ValueError',
                    'TypeError', 'RuntimeError', 'JSONDecodeError', 'other', 'unavailable')
-CLI_FUNCTIONS = ('main', 'activate', 'exclusive_guard', 'control', 'run', 'read_settings', 'ordinary',
+CLI_FUNCTIONS = ('main', 'activate', 'exclusive_guard', 'windows_exclusive_guard', 'control', 'run', 'read_settings', 'ordinary',
                  'reparse', 'atomic_json', 'held', 'lock_file', 'unlock_file')
 CLI_ERROR_CATEGORIES = {
     'Another backup, restore or release update is running. Retry after it finishes.': 'operation_busy',
@@ -200,7 +200,7 @@ def observe_restore_cli_failure(code, exit_error, installed_source):
     cause = exit_error.__context__ if isinstance(exit_error, SystemExit) else None
     kind = type(cause).__name__ if cause is not None else 'unavailable'
     category = 'unclassified'; frames = []
-    if kind == 'BackupError' and len(cause.args) == 1 and type(cause.args[0]) is str and len(cause.args[0]) <= 512:
+    if kind in ('BackupError', 'BackupBusy') and len(cause.args) == 1 and type(cause.args[0]) is str and len(cause.args[0]) <= 512:
         category = CLI_ERROR_CATEGORIES.get(cause.args[0], 'unclassified')
     expected = os.path.normcase(os.path.abspath(installed_source))
     trace = cause.__traceback__ if isinstance(cause, BaseException) else None

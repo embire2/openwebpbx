@@ -34,7 +34,7 @@ b=importlib.util.module_from_spec(spec);spec.loader.exec_module(b)
 
 BACKUP_PHASES={'factory guard','HTTPS and CSRF','source notification identity','source trusted TLS','owned PBX',
     'actual SYSTEM backup','retention','native SFTP','factory reset','native restore recovery','native successful restore','activation'}
-BACKUP_ERROR_TYPES={'AssertionError','RuntimeError','BackupError','ModuleNotFoundError','ImportError','NameError','TypeError',
+BACKUP_ERROR_TYPES={'AssertionError','RuntimeError','BackupError','BackupBusy','ModuleNotFoundError','ImportError','NameError','TypeError',
     'AttributeError','FileNotFoundError','PermissionError','OSError','ValueError','KeyError','IndexError','JSONDecodeError',
     'TimeoutExpired','CalledProcessError','SSLError','SSLCertVerificationError','URLError','HTTPError','UnicodeDecodeError','EOFError'}
 LAST_HTTP={'target':'unknown','method':'unknown','status':None}

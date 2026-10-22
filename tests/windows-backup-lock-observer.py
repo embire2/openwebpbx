@@ -21,6 +21,17 @@ def probe_existing_lock(module, path):
         if module.reparse(path):
             return {'state': 'not_ordinary', 'stream_closed': True}
         module.ordinary(path)
+        if os.name == 'nt' and hasattr(module, 'windows_exclusive_guard'):
+            try:
+                # OPEN_EXISTING cannot recreate a removed lock. The product's
+                # native result distinguishes sharing from access failures.
+                with module.windows_exclusive_guard(path, existing_only=True):
+                    record['state'] = 'available'
+            except module.BackupBusy:
+                record['state'] = 'busy'
+            except module.BackupError:
+                record['state'] = 'other'
+            return record
         stream = path.open('r+b')  # Never create, truncate, write or chmod.
         stage = 'lock'
         module.lock_file(stream)
@@ -62,7 +73,7 @@ def native_fields(value):
 
 def observe(module, private, error):
     # A failed gate and its exact original exception remain authoritative.
-    if type(error) is not module.BackupError or str(error) != BUSY:
+    if type(error) not in (module.BackupError, getattr(module, 'BackupBusy', module.BackupError)) or str(error) != BUSY:
         return None
     if os.name != 'nt' or os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted' or os.environ.get('GITHUB_REPOSITORY') != 'embire2/openwebpbx':
         return None

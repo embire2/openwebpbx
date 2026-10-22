@@ -809,7 +809,7 @@ function BackupFailureReport([string]$Path,[datetime]$StartedAt){
   $integer={param($Value,$Minimum,$Maximum) return (($Value -is [int] -or $Value -is [int64]) -and $Value -ge $Minimum -and $Value -le $Maximum)}
   if($record.state -isnot [string] -or $record.state -cne 'failed' -or !(& $integer $failure.schema 1 1)){$safe.report_status='invalid';return $safe}
   $phases=@('factory guard','HTTPS and CSRF','source notification identity','source trusted TLS','owned PBX','actual SYSTEM backup','retention','native SFTP','factory reset','native restore recovery','native successful restore','activation','unknown')
-  $types=@('AssertionError','RuntimeError','BackupError','ModuleNotFoundError','ImportError','NameError','TypeError','AttributeError','FileNotFoundError','PermissionError','OSError','ValueError','KeyError','IndexError','JSONDecodeError','TimeoutExpired','CalledProcessError','SSLError','SSLCertVerificationError','URLError','HTTPError','UnicodeDecodeError','EOFError','unknown')
+  $types=@('AssertionError','RuntimeError','BackupError','BackupBusy','ModuleNotFoundError','ImportError','NameError','TypeError','AttributeError','FileNotFoundError','PermissionError','OSError','ValueError','KeyError','IndexError','JSONDecodeError','TimeoutExpired','CalledProcessError','SSLError','SSLCertVerificationError','URLError','HTTPError','UnicodeDecodeError','EOFError','unknown')
   $safe.failed_phase=if($failure.failed_phase -is [string] -and $failure.failed_phase -cin $phases){$failure.failed_phase}else{'unknown'}
   $safe.error_type=if($failure.error_type -is [string] -and $failure.error_type -cin $types){$failure.error_type}else{'unknown'}
   $safe.source_frames=@();$frames=@($failure.source_frames)
