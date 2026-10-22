@@ -1,6 +1,69 @@
 """Closed, read-only facts about the two owned fictional Windows providers."""
 import re
 
+ATTEMPT_CAUSES = ('none', 'other', 'PROVIDER_UNAVAILABLE', 'SUCCESS', 'NORMAL_CLEARING',
+    'NORMAL_TEMPORARY_FAILURE', 'INCOMPATIBLE_DESTINATION', 'SERVICE_UNAVAILABLE',
+    'DESTINATION_OUT_OF_ORDER', 'INVALID_GATEWAY', 'GATEWAY_DOWN', 'CHAN_NOT_IMPLEMENTED',
+    'MANDATORY_IE_MISSING', 'INVALID_IE_CONTENTS', 'NO_ROUTE_DESTINATION', 'CALL_REJECTED',
+    'ORIGINATOR_CANCEL', 'NO_USER_RESPONSE', 'NO_ANSWER', 'NORMAL_CIRCUIT_CONGESTION',
+    'USER_BUSY', 'LOSE_RACE', 'ALLOTTED_TIMEOUT', 'RECOVERY_ON_TIMER_EXPIRE',
+    'WRONG_CALL_STATE', 'UNALLOCATED_NUMBER', 'NETWORK_OUT_OF_ORDER', 'SWITCH_CONGESTION',
+    'RESOURCE_UNAVAILABLE', 'CRASH', 'UNKNOWN')
+
+
+def closed_observations(value, phase):
+    assert phase in ('before', 'after')
+    safe = {}
+    if not isinstance(value, dict) or type(value.get('schema')) is not int or value['schema'] != 1:
+        return safe
+    rows = value.get('attempts')
+    if isinstance(rows, list) and len(rows) == 2:
+        for peer, row in zip(('primary', 'backup'), rows):
+            if not isinstance(row, dict):
+                continue
+            prefix = 'provider_' + phase + '_' + peer + '_attempt_'
+            for key in ('observed', 'counts_capped', 'will_retry'):
+                if type(row.get(key)) is bool:
+                    safe[prefix + key] = row[key]
+            count = row.get('count')
+            if type(count) is int and 0 <= count <= 16:
+                safe[prefix + 'count'] = count
+            code = row.get('sip_status')
+            if type(code) is int and (code == 0 or 100 <= code <= 699):
+                safe[prefix + 'sip_status'] = code
+            for key, choices in (('state', ('absent', 'calling', 'skipped', 'answered', 'failed', 'cancelled', 'unknown')),
+                                 ('cause', ATTEMPT_CAUSES)):
+                if isinstance(row.get(key), str) and row[key] in choices:
+                    safe[prefix + key] = row[key]
+    plan = value.get('plan')
+    if isinstance(plan, dict):
+        prefix = 'provider_' + phase + '_plan_'
+        for key in ('observed', 'registered', 'rule_matches', 'primary_available', 'backup_available'):
+            if type(plan.get(key)) is bool:
+                safe[prefix + key] = plan[key]
+        for key, low, high in (('routes_count', 0, 16), ('selected_index', -1, 1)):
+            if type(plan.get(key)) is int and low <= plan[key] <= high:
+                safe[prefix + key] = plan[key]
+        if plan.get('error') in ('none', 'other', 'no_rule', 'providers_unavailable', 'phone_unavailable'):
+            safe[prefix + 'error'] = plan['error']
+    runtime = value.get('runtime')
+    if isinstance(runtime, list) and len(runtime) == 2:
+        for peer, row in zip(('primary', 'backup'), runtime):
+            if not isinstance(row, dict):
+                continue
+            prefix = 'provider_' + phase + '_' + peer + '_policy_'
+            for key in ('available', 'rewrite_valid', 'leg_valid', 'options_present',
+                        'options_schema_one', 'policy_source_forwardslash', 'options_module_readable'):
+                if type(row.get(key)) is bool:
+                    safe[prefix + key] = row[key]
+            for key in ('enabled_kind', 'register_kind', 'options_kind'):
+                if row.get(key) in ('nil', 'boolean', 'string', 'number', 'table', 'function', 'userdata', 'thread'):
+                    safe[prefix + key] = row[key]
+            for key in ('enabled_value', 'register_value'):
+                if row.get(key) in ('true', 'false', 't', 'f', '1', '0', 'other'):
+                    safe[prefix + key] = row[key]
+    return safe
+
 
 def gateway_state(text):
     """Never return hostnames, UUIDs, credentials, raw responses or SIP headers."""
@@ -16,6 +79,12 @@ def gateway_state(text):
 def snapshot(f, providers, offsets, phase):
     assert phase in ('before', 'after') and len(providers) == len(offsets) == 2
     facts = {}
+    number = re.fullmatch(r'native_provider_(10[0-3])', getattr(f, 'active_case', ''))
+    if number:
+        try:
+            facts.update(closed_observations(f.cli('provider-observations', '99' + number[1]), phase))
+        except Exception:
+            facts['provider_' + phase + '_plan_observed'] = False
     for index, (peer, offset) in enumerate(zip(providers, offsets)):
         prefix = 'provider_' + phase + '_' + ('primary' if index == 0 else 'backup') + '_'
         facts[prefix + 'gateway_observed'] = False

@@ -189,6 +189,26 @@ if($action==='providers-create'){
   if(!$gateway||!in_array($gateway['register'],['false',false,'f','0',0],true)||!in_array($gateway['enabled'],['true',true,'t','1',1],true)||$gateway['proxy']!=='127.0.0.1:'.$provider['port']||$gateway['profile']!=='external'||$route['trunk_id']!==$provider['trunk']||(int)$route['strip']!==2||$route['prepend']!=='55')throw new RuntimeException('The actual native provider or number rewrite differs from the owned fixture.');}
  $save();echo json_encode(['created'=>true,'number_rewrite_verified'=>true,'local_nonregistering_providers'=>2],JSON_THROW_ON_ERROR);exit;
 }
+if($action==='provider-observations'){
+ $number=$argv[3]??'';
+ if(!in_array($number,['99100','99101','99102','99103'],true)||count($s['providers']??[])!==2)throw new RuntimeException('Only the fixed fictional provider cases may be observed.');
+ require_once __DIR__.'/windows_provider_observations.php';$attempts=[];
+ foreach($s['providers'] as $provider){
+  $gateway=$q('select proxy,register from v_gateways where domain_uuid=? and gateway_uuid=?',[$domain,$provider['gateway']])->fetch(PDO::FETCH_ASSOC);
+  if(!$gateway||!in_array($gateway['register'],['false',false,'f','0',0],true)||$gateway['proxy']!=='127.0.0.1:'.$provider['port'])throw new RuntimeException('The fictional observation provider changed.');
+  $rows=$q('select state,cause,sip_status,will_retry from v_pbx_provider_attempts where domain_uuid=? and provider_uuid=? and dialled_number=? and owner_number=? order by started_at,attempt_no limit 17',[$domain,$provider['gateway'],$number,'8100'])->fetchAll(PDO::FETCH_ASSOC);
+  $attempts[]=windows_provider_attempts($rows);
+ }
+ $actualRule=null;foreach($c['outbound_rules'] as $row)if($row['rule_id']===$s['provider_rule'])$actualRule=$row;
+ if(!$actualRule)throw new RuntimeException('The owned provider rule is unavailable.');
+ $raw=event_socket::api('lua app/pbx_setup/core_call_plan.lua '.$domain.' 8100 '.$number);if(strlen($raw)>65536)throw new RuntimeException('The owned runtime plan exceeds its bound.');$plan=json_decode($raw,true,32,JSON_THROW_ON_ERROR);
+ if(!is_array($plan))throw new RuntimeException('The actual runtime plan did not return a JSON object.');
+ $runtime=[];
+ try{$probe=__DIR__.'/windows_provider_runtime.lua';if(!is_file($probe)||is_link($probe))throw new RuntimeException('The read-only native policy observer is unavailable.');
+  $rawRuntime=event_socket::api('lua "'.str_replace('\\','/',$probe).'" '.$domain.' '.$number);if(strlen($rawRuntime)>8192)throw new RuntimeException('The native provider observation exceeds its bound.');$runtime=json_decode($rawRuntime,true,32,JSON_THROW_ON_ERROR);
+ }catch(Throwable $ignored){} // Preserve actual SQL/plan evidence and original call failure.
+ echo json_encode(['schema'=>1,'attempts'=>$attempts,'plan'=>windows_provider_plan($plan,$s['providers'],$actualRule['name']),'runtime'=>$runtime],JSON_THROW_ON_ERROR);exit;
+}
 if($action==='cmb-setup'){
  if(isset($s['cmb'])||count($s['providers']??[])!==2)throw new RuntimeException('The owned local providers are required.');
  foreach($s['providers'] as $provider){$row=$q('select proxy,register from v_gateways where domain_uuid=? and gateway_uuid=?',[$domain,$provider['gateway']])->fetch(PDO::FETCH_ASSOC);if(!$row||!in_array($row['register'],['false',false,'f','0',0],true)||$row['proxy']!=='127.0.0.1:'.$provider['port'])throw new RuntimeException('Only exact fictional nonregistering providers may be used.');}
