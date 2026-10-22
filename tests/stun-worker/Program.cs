@@ -5,6 +5,8 @@ using System.Net.Sockets;
 using OpenWebPbx.Server;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 if (OperatingSystem.IsWindows() && File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "OpenWebPBX", "stun.json")))
     throw new InvalidOperationException("Run these component checks on a clean test workspace before enabling installed STUN.");
@@ -94,5 +96,12 @@ using(var worker=new StunWorker(new ConfigurationBuilder().Build(),disabled,Null
 {
     await worker.StartAsync(default);await (worker.ExecuteTask??Task.CompletedTask);
     Check(disabled.State=="Disabled","Existing configurations keep STUN disabled");
+}
+using(var container=new ServiceCollection().AddLogging().AddSingleton<IConfiguration>(new ConfigurationBuilder().Build())
+    .AddSingleton<StunStatus>().AddHostedService<StunWorker>().BuildServiceProvider())
+{
+    var worker=container.GetServices<IHostedService>().Single();await worker.StartAsync(default);
+    await worker.StopAsync(default);
+    Check(container.GetRequiredService<StunStatus>().State=="Disabled","Actual dependency injection constructs native worker/status");
 }
 Console.WriteLine($"PASS: {checks} STUN protocol, malformed-input and real IPv4/IPv6 UDP checks.");

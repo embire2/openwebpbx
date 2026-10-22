@@ -65,5 +65,10 @@ try {
  if($pending.hostname -ne $DomainName) { throw 'The certificate client did not return the requested hostname.' }
  $null=Set-OpenWebPublicConfiguration $context.Configuration $DomainName $PublicAddress
  & $callback -Root $context.Root -StateRoot $context.StateRoot -MaintenanceLock $lock
+ # Public DNS may name the router rather than a local NIC. Bind only actual
+ # installed IPv4 interfaces; the router forwards UDP3478 to this instance.
+ $stunAddresses=@(Get-NetIPAddress -AddressFamily IPv4 -AddressState Preferred|Where-Object {$_.IPAddress -notmatch '^(127\.|169\.254\.)'}|Select-Object -ExpandProperty IPAddress|Sort-Object -Unique)
+ if($PublicAddress -in $stunAddresses){$stunAddresses=@($PublicAddress)}
+ & (Join-Path $context.Root 'tools\Enable-Stun.ps1') -ListenAddress $stunAddresses -MaintenanceLock $lock
  Write-Host 'Public web access is configured. The certificate status reports whether secure phones are ready or waiting for existing calls to finish.'
 } finally { $lock.Dispose() }

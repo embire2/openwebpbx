@@ -50,7 +50,7 @@ $recoveryPki=$null
 . (Join-Path $PSScriptRoot 'windows-suite-pki.ps1')
 . (Join-Path $PSScriptRoot 'windows-upgrade-lock-observer.ps1')
 . (Join-Path $PSScriptRoot 'windows-suite-independent.ps1')
-$facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';web_readiness='unqualified';backups='pending';native_sip_audio='unqualified';tenant_domains='unqualified';meeting_transport='unqualified';meeting_browser='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
+$facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';web_readiness='unqualified';backups='pending';native_sip_audio='unqualified';tenant_domains='unqualified';stun='unqualified';phone_health='unqualified';meeting_transport='unqualified';meeting_browser='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
 if($UpgradeDiagnosticsOnly){$facts.mode='upgrade_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Post-native state is not reproduced.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false}
 elseif($BackupsDiagnosticsOnly){$facts.mode='backup_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Native, upgrade and post-native state are not reproduced.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false}
 elseif($NativeDiagnosticsOnly){$facts.mode='native_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Backups, upgrades and recovery are unqualified.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false;$facts.gates.backups='unqualified'}
@@ -1080,10 +1080,53 @@ function AcceptanceHook([string]$Name,[string]$Report){
  if($record.state -ne 'passed'){throw 'An optional native acceptance hook did not pass.'}
  return $record
 }
+function StunHook {
+ $reportPath=Join-Path $work 'stun-native.json'
+ try{
+  $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'));$start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+  $start.Environment['PSModulePath']=(Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell/Modules')
+  foreach($argument in @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'windows-stun-native.ps1'),'-PackageRoot',$PackageRoot,'-ReportPath',$reportPath,'-DisposableHostedRunner')){$start.ArgumentList.Add($argument)}
+  $process=[Diagnostics.Process]::Start($start);$stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
+  try{
+   if(!$process.WaitForExit(300000)){throw 'The owned native STUN setup is still running; inspect its durable recovery journal.'}
+   [IO.File]::WriteAllText((Join-Path $work 'stun-native.private.out'),$stdout.GetAwaiter().GetResult());[IO.File]::WriteAllText((Join-Path $work 'stun-native.private.err'),$stderr.GetAwaiter().GetResult())
+   if(!(Test-Path -LiteralPath $reportPath) -or $process.ExitCode){throw 'The actual native STUN setup controls failed.'}
+  }finally{$process.Dispose()}
+  $report=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json
+  if(!$report -or $report.schema -ne 1 -or $report.state -cne 'passed' -or $report.case -cne 'native_windows_stun_setup_udp_recovery' -or ($report.checks -isnot [int] -and $report.checks -isnot [long]) -or $report.checks -lt 20 -or $report.checks -gt 1000 -or $report.external_firewall_reachability -cne 'unqualified'){throw 'The native STUN setup evidence is incomplete.'}
+  foreach($name in 'actual_native','modern_binding','legacy_binding','turn_refused','idempotent','late_rule_failure_recovered','cleanup_exact','call_engine_preserved','stun_default_restored'){if($report.$name -isnot [bool] -or !$report.$name){throw 'Real Windows STUN, UDP, recovery and exact cleanup must pass.'}}
+  $facts.gates.stun='passed';$facts.checks+=('Actual Windows STUN native service/firewall, modern/legacy decoded UDP, TURN refusal, idempotence and late-failure recovery: '+$report.checks)
+ }catch{
+  if(Test-Path -LiteralPath $reportPath){
+   try{$r=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json;$safe=@{}
+    foreach($name in 'actual_native','modern_binding','legacy_binding','turn_refused','idempotent','late_rule_failure_recovered','cleanup_exact','call_engine_preserved','stun_default_restored'){if($r.$name -is [bool]){$safe[$name]=$r.$name}}
+    foreach($name in 'checks','source_line','cleanup_source_line'){$v=$r.$name;if(($v -is [int] -or $v -is [long]) -and $v -ge 0 -and $v -lt 100000){$safe[$name]=$v}}
+    if($r.phase -is [string] -and $r.phase -cin 'preflight','activation','modern_udp','legacy_udp','turn_refusal','idempotence','rollback','late_rule_failure'){$safe.phase=$r.phase};$facts.stun_failure=$safe
+   }catch{}
+  }
+  throw
+ }
+}
+function PhoneHealthHook {
+ $reportPath=Join-Path $work 'phone-health-native.json'
+ & (Join-Path $PSScriptRoot 'windows_phone_health_acceptance.ps1') -PackageRoot $PackageRoot -ReportPath $reportPath -DisposableHostedRunner
+ if(!(Test-Path -LiteralPath $reportPath)){throw 'The installed native phone health evidence is absent.'}
+ $report=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json
+ if($report.schema -ne 1 -or $report.producer -cne 'windows_phone_health_acceptance.ps1' -or $report.state -cne 'passed' -or $report.actual_native_windows -isnot [bool] -or !$report.actual_native_windows -or $report.policy_signalling_doubles -isnot [bool] -or !$report.policy_signalling_doubles -or $report.physical_phone_audio -isnot [bool] -or $report.physical_phone_audio){throw 'The Windows phone health scope or actual native evidence is invalid.'}
+ foreach($name in 'installed_task','installed_system_observer','installed_continuous_observer','installed_restart','installed_collector','postgresql_policy','runtime','firewall','cleanup'){if($report.gates.$name -cne 'passed'){throw 'The installed native phone health gates must all pass.'}}
+ foreach($limit in @(@('postgresql_checks',83),@('runtime_checks',49),@('firewall_checks',16))){$v=$report.($limit[0]);if(($v -isnot [int] -and $v -isnot [long]) -or $v -lt $limit[1] -or $v -gt 100000){throw 'The native phone health check counts are invalid.'}}
+ $facts.gates.phone_health='passed';$facts.checks+=('Actual Windows installed SYSTEM phone health task/continuous observer/restart/collector, PostgreSQL '+$report.postgresql_checks+', runtime '+$report.runtime_checks+', Defender '+$report.firewall_checks+' and scoped cleanup; policy signalling uses doubles, physical audio unqualified')
+}
 try{
  PrivateDirectory $work;PublishFacts
  if((Test-Path "$configuration\config.conf") -or (Test-Path "$state\installation.json") -or (Get-Service OpenWebPBX -ErrorAction SilentlyContinue)){throw 'The ephemeral machine already contains a PBX; it is not an empty suite target.'}
  CheckedPython @((Join-Path $source 'tests/windows_voice_installer.py'))
+ & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_legacy_transition.ps1') *> (Join-Path $work 'legacy-source.private.log')
+ if($LASTEXITCODE){throw 'The exact legacy upgrade boundary controls failed.'}
+ & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_upgrade_health_quiescence.ps1') *> (Join-Path $work 'health-quiescence.private.log')
+ if($LASTEXITCODE){throw 'The exact health upgrade quiescence controls failed.'}
+ & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_stun_setup_transaction.ps1') -SourceRoot $source -OutputDirectory (Join-Path $work 'stun-transaction-controls') *> (Join-Path $work 'stun-transactions.private.log')
+ if($LASTEXITCODE){throw 'The native Windows STUN transaction boundary controls failed.'}
  if($ReplaySuiteRunId){$PackageRoot=PrepareReplayCandidate}elseif(!$PackageRoot){$PackageRoot=PreparePackage}
  Remove-Item Env:\GH_TOKEN -ErrorAction SilentlyContinue
  $PackageRoot=[IO.Path]::GetFullPath($PackageRoot);$release=Get-Content (Join-Path $PackageRoot 'release-manifest.json') -Raw|ConvertFrom-Json
@@ -1136,6 +1179,7 @@ try{
  if(!$?){throw 'The installed native call-engine inventory differs.'}
  $facts.gates.fresh='passed';$facts.checks+=('Real restore-ready fresh installation/services/native engine hash preservation')
  $phase='native web readiness qualification';WebReadinessHook
+ if(!$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly){$phase='native STUN qualification';StunHook;$phase='native phone health qualification';PhoneHealthHook}
  $phase='native tenant-domain qualification';TenantDomainsAcceptanceHook ([DateTime]::UtcNow)
  $phase='meeting transport qualification';MeetingTransportHook
  $acceptanceFile=Join-Path $work 'acceptance-input.json';$ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
