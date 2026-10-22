@@ -1078,7 +1078,8 @@ def native_calls(f):
                     assert len(self.sent_codes)<=128,'The fictional provider response ledger exceeded its bound'
                 return super().response(code,headers,body)
         services=load_module('windows_native_services',f.source/'tests/windows_native_services.py')
-        services.qualify(f,caller,a,destination,Provider,original,sip,NativePlayback)
+        provider_diagnostics=load_module('windows_provider_diagnostics',f.source/'tests/windows_provider_diagnostics.py')
+        services.qualify(f,caller,a,destination,Provider,original,sip,NativePlayback,provider_diagnostics)
         f.record('native_simultaneous_ring_group',**call_check('8180'))
         f.record('native_hunting_ring_group',**call_check('8181'))
         f.record('native_queue_agent_first',**call_check('8190'))
@@ -1389,6 +1390,7 @@ def main():
         failure={'schema':1,'producer':'windows-native-acceptance.py','state':'failed','checks':f.checks,'error_type':type(e).__name__,'error':str(e),'source_basename':basename,'source_line':location.lineno,'active_case':f.active_case}
         if getattr(e,'fixture_failure',None):failure.update(e.fixture_failure)
         if getattr(e,'sip_failure',None):failure.update(e.sip_failure)
+        if getattr(e,'provider_failure',None):failure.update(e.provider_failure)
         if getattr(e,'audio_failure',None):failure.update(e.audio_failure)
         if getattr(e,'native_failure',None):failure.update(e.native_failure)
         if getattr(e,'media_failure',None):failure.update(e.media_failure)

@@ -240,6 +240,20 @@ function MediaFailureFields($Record){
  if(($Record.media_packets -is [int] -or $Record.media_packets -is [long]) -and $Record.media_packets -ge 0 -and $Record.media_packets -le 1000000){$safe.media_packets=$Record.media_packets}
  return $safe
 }
+function ProviderFailureFields($Record){
+ $safe=@{}
+ if($Record.active_case -isnot [string] -or $Record.active_case -cnotmatch '^native_provider_10[0-3]$'){return $safe}
+ $value=$Record.provider_caller_response_code;if(($value -is [int] -or $value -is [long]) -and $value -ge 100 -and $value -le 699){$safe.provider_caller_response_code=$value}
+ foreach($phase in 'before','after'){foreach($peer in 'primary','backup'){
+  $prefix='provider_'+$phase+'_'+$peer+'_'
+  foreach($suffix in 'gateway_observed','counts_capped','offer_parsed','offer_pcmu','offer_pcma','receiver_failed','receiver_alive'){if($Record.($prefix+$suffix) -is [bool]){$safe[$prefix+$suffix]=$Record.($prefix+$suffix)}}
+  foreach($suffix in 'invites','distinct_calls'){$value=$Record.($prefix+$suffix);if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 64){$safe[$prefix+$suffix]=$value}}
+  $value=$Record.($prefix+'last_response_code');if(($value -is [int] -or $value -is [long]) -and ($value -eq 0 -or ($value -ge 100 -and $value -le 699))){$safe[$prefix+'last_response_code']=$value}
+  $value=$Record.($prefix+'gateway_status');if($value -is [string] -and $value -cin 'unknown','UP','DOWN'){$safe[$prefix+'gateway_status']=$value}
+  $value=$Record.($prefix+'gateway_state');if($value -is [string] -and $value -cin 'unknown','NOREG','REGED','UNREGED','TRYING','REGISTER','UNREGISTER','FAIL_WAIT','FAILED','EXPIRED'){$safe[$prefix+'gateway_state']=$value}
+ }}
+ return $safe
+}
 function QueueFailureFields($Record){
  $safe=@{}
  if($Record.active_case -isnot [string] -or $Record.active_case -cnotin 'queue_agent_delivery','queue_pause_logout_wire_callback'){return $safe}
@@ -466,6 +480,7 @@ try {
     $facts.source_basename=$child.source_basename;$facts.source_line=[int]$child.source_line;$facts.active_case=$child.active_case;$facts.error_type=$child.error_type
     $completed=@(CompletedMediaCases $child.checks);if($completed.Count){$facts.completed_media_cases=$completed}
     foreach($entry in (MediaFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
+    foreach($entry in (ProviderFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
     foreach($entry in (QueueFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
     foreach($entry in (VoicemailFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
     foreach($entry in (MailboxFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}

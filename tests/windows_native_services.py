@@ -7,7 +7,7 @@ import re
 import time
 
 
-def qualify(f, caller, extension, destination, Provider, original, sip, Playback):
+def qualify(f, caller, extension, destination, Provider, original, sip, Playback, provider_diagnostics):
     providers = []
     playback = None
     primary = None
@@ -37,34 +37,41 @@ def qualify(f, caller, extension, destination, Provider, original, sip, Playback
             f.active_case = 'native_provider_' + number[-3:]
             before = [len(peer.invites) for peer in providers]
             dialogs = [set(peer.dialogs) for peer in providers]
-            call = caller.dial(number, destination)
-            wire = '55' + number[2:]
-            if winner is not None:
-                assert call['code'] == 200, 'The fictional provider call did not answer'
-                try:
-                    remote = f.wait(lambda: next((value for key, value in providers[winner].dialogs.items()
-                        if key not in dialogs[winner] and value.get('acked')), None))
-                    down, up = decoded(call['media'], remote, providers[winner].tone_hz, caller.tone_hz)
-                    assert remote['pt'] == 8 and call['media']['pt'] == 0
-                finally:
-                    if not call['media'].get('ended'):
-                        caller.hangup(call)
-            else:
-                assert call['code'] >= 300, 'The refused provider call unexpectedly answered'
-                down = up = None
-            time.sleep(.3)
-            seen = [[row for row in peer.invites[start:] if row['number'] == wire]
-                    for peer, start in zip(providers, before)]
-            assert len({row['callid'] for row in seen[0]}) == 1, 'Primary call was missing or duplicated'
-            assert len({row['callid'] for row in seen[1]}) == (1 if winner == 1 else 0), 'Unexpected backup or duplicate call'
-            if refused is not None:
-                assert any(code == refused for _, code in providers[0].sent_codes[-8:]), 'The controlled refusal was not sent'
-            elif winner == 1:
-                assert any(code == 503 for _, code in providers[0].sent_codes[-8:]), 'The controlled 503 was not sent'
-            f.record('native_provider_' + ('503_failover_once_decoded_rtp' if winner == 1 else
-                     'outbound_decoded_rtp' if winner == 0 else 'busy_no_failover' if refused == 486 else 'declined_no_failover'),
-                     primary_distinct_calls=1, backup_distinct_calls=1 if winner == 1 else 0,
-                     caller_decoded_ratio=down, provider_decoded_ratio=up, no_carrier_traffic=True)
+            facts = provider_diagnostics.snapshot(f, providers, before, 'before')
+            call = None
+            try:
+                call = caller.dial(number, destination)
+                wire = '55' + number[2:]
+                if winner is not None:
+                    assert call['code'] == 200, 'The fictional provider call did not answer'
+                    try:
+                        remote = f.wait(lambda: next((value for key, value in providers[winner].dialogs.items()
+                            if key not in dialogs[winner] and value.get('acked')), None))
+                        down, up = decoded(call['media'], remote, providers[winner].tone_hz, caller.tone_hz)
+                        assert remote['pt'] == 8 and call['media']['pt'] == 0
+                    finally:
+                        if not call['media'].get('ended'):
+                            caller.hangup(call)
+                else:
+                    assert call['code'] >= 300, 'The refused provider call unexpectedly answered'
+                    down = up = None
+                time.sleep(.3)
+                seen = [[row for row in peer.invites[start:] if row['number'] == wire]
+                        for peer, start in zip(providers, before)]
+                assert len({row['callid'] for row in seen[0]}) == 1, 'Primary call was missing or duplicated'
+                assert len({row['callid'] for row in seen[1]}) == (1 if winner == 1 else 0), 'Unexpected backup or duplicate call'
+                if refused is not None:
+                    assert any(code == refused for _, code in providers[0].sent_codes[-8:]), 'The controlled refusal was not sent'
+                elif winner == 1:
+                    assert any(code == 503 for _, code in providers[0].sent_codes[-8:]), 'The controlled 503 was not sent'
+                f.record('native_provider_' + ('503_failover_once_decoded_rtp' if winner == 1 else
+                         'outbound_decoded_rtp' if winner == 0 else 'busy_no_failover' if refused == 486 else 'declined_no_failover'),
+                         primary_distinct_calls=1, backup_distinct_calls=1 if winner == 1 else 0,
+                         caller_decoded_ratio=down, provider_decoded_ratio=up, no_carrier_traffic=True)
+            except BaseException as error:
+                facts.update(provider_diagnostics.snapshot(f, providers, before, 'after'))
+                provider_diagnostics.attach(error, facts, call)
+                raise
 
         f.active_case = 'native_provider_incoming_decoded_rtp'
         before = set(extension.dialogs)

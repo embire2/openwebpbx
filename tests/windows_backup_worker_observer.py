@@ -181,7 +181,7 @@ class Controls(unittest.TestCase):
             fake=types.SimpleNamespace(STATE=private.parent,reparse=lambda path:Path(path).is_symlink(),secure_acl=lambda path:None,
                 atomic_json=lambda path,value:Path(path).write_text(json.dumps(value),encoding='utf-8'))
             environment=os.environ|{'GITHUB_ACTIONS':'true','OPENWEB_WINDOWS_BACKUP_TEST':'1','GITHUB_RUN_ID':'12345','GITHUB_SHA':'a'*40,
-                'GITHUB_REPOSITORY':'embire2/openwebpbx','GITHUB_WORKFLOW_REF':'embire2/openwebpbx/.github/workflows/windows-backups-diagnostics.yml@refs/heads/customization','ProgramData':str(root/'ProgramData')}
+                'GITHUB_REPOSITORY':'embire2/openwebpbx','GITHUB_WORKFLOW_REF':'embire2/openwebpbx/.github/workflows/windows-suite.yml@refs/heads/windows120-568-diagnostics-20261022','ProgramData':str(root/'ProgramData')}
             fake_os=types.SimpleNamespace(name='nt',environ=environment)
             previous=Path.cwd()
             try:
@@ -212,9 +212,15 @@ class Controls(unittest.TestCase):
                 'source_sha256':'b'*64,'launcher_sha256':hashlib.sha256(SOURCE.read_bytes()).hexdigest()}
             with patch.dict(os.environ,{'ProgramData':str(root)}):
                 path.write_text(json.dumps(valid));self.assertEqual(self.observer.validated_config(path),valid)
+                approved='embire2/openwebpbx/.github/workflows/windows-suite.yml@refs/heads/windows120-568-diagnostics-20261022'
+                path.write_text(json.dumps(valid|{'workflow_ref':approved}))
+                self.assertEqual(self.observer.validated_config(path),valid|{'workflow_ref':approved})
                 for change in ({'schema':True},{'disposable_hosted_runner':False},{'hostname':MARKER},{'run_id':MARKER},{'source_commit':'a'*39},
                     {'repository':MARKER},{'workflow_ref':'embire2/openwebpbx/.github/workflows/windows-suite.yml@refs/heads/main'},
                     {'workflow_ref':'embire2/openwebpbx/.github/workflows/windows-suite.yml@refs/heads/foreign'},
+                    {'workflow_ref':approved+'-foreign'}, {'workflow_ref':approved.replace('windows-suite.yml','windows-backups-diagnostics.yml')},
+                    {'workflow_ref':approved.replace('embire2/','foreign/')}, {'workflow_ref':approved.replace('refs/heads/','refs/tags/')},
+                    {'workflow_ref':approved.replace('windows120-568','windows120-569')}, {'workflow_ref':[approved]},
                     {'source_sha256':MARKER},{'launcher_sha256':'0'*64}):
                     path.write_text(json.dumps(valid|change))
                     with self.assertRaises(RuntimeError):self.observer.validated_config(path)

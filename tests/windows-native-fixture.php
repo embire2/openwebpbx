@@ -240,6 +240,10 @@ if($action==='voicemail-login'){
 if($action==='api'){
  $command=$argv[3]??'';
  $allowed=in_array($command,['status','show channels as json','show codecs as json','sofia status profile internal','fsctl pause_check'],true);
+ foreach($s['providers']??[] as $provider)if(is_uuid($provider['gateway']??'')&&$command==='sofia status gateway '.$provider['gateway']){
+  $row=$q('select proxy,register from v_gateways where domain_uuid=? and gateway_uuid=?',[$domain,$provider['gateway']])->fetch(PDO::FETCH_ASSOC);
+  if($row&&in_array($row['register'],['false',false,'f','0',0],true)&&$row['proxy']==='127.0.0.1:'.$provider['port'])$allowed=true;
+ }
  foreach($s['users'] as $u)foreach(['sofia_contact ','user_data '] as $prefix)if($command===$prefix.$u['auth'].'@'.$realm||$command===$prefix.$u['auth'].'@'.$realm.' param password')$allowed=true;
  if(!$allowed)throw new RuntimeException('Only owned read-only native queries are allowed.');echo event_socket::api($command);exit;
 }

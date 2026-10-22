@@ -359,6 +359,17 @@ function SafeFailureFields($Record){
   if(($detail.command_exit -is [int] -or $detail.command_exit -is [long]) -and $detail.command_exit -ge [int]::MinValue -and $detail.command_exit -le [int]::MaxValue){$copy.command_exit=[int]$detail.command_exit}
   $safe[$field]=$copy
  }
+ if($Record.active_case -is [string] -and $Record.active_case -cmatch '^native_provider_10[0-3]$'){
+ $value=$Record.provider_caller_response_code;if(($value -is [int] -or $value -is [long]) -and $value -ge 100 -and $value -le 699){$safe.provider_caller_response_code=$value}
+ foreach($phase in 'before','after'){foreach($peer in 'primary','backup'){
+  $prefix='provider_'+$phase+'_'+$peer+'_'
+  foreach($suffix in 'gateway_observed','counts_capped','offer_parsed','offer_pcmu','offer_pcma','receiver_failed','receiver_alive'){if($Record.($prefix+$suffix) -is [bool]){$safe[$prefix+$suffix]=$Record.($prefix+$suffix)}}
+  foreach($suffix in 'invites','distinct_calls'){$value=$Record.($prefix+$suffix);if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 64){$safe[$prefix+$suffix]=$value}}
+  $value=$Record.($prefix+'last_response_code');if(($value -is [int] -or $value -is [long]) -and ($value -eq 0 -or ($value -ge 100 -and $value -le 699))){$safe[$prefix+'last_response_code']=$value}
+  $value=$Record.($prefix+'gateway_status');if($value -is [string] -and $value -cin 'unknown','UP','DOWN'){$safe[$prefix+'gateway_status']=$value}
+  $value=$Record.($prefix+'gateway_state');if($value -is [string] -and $value -cin 'unknown','NOREG','REGED','UNREGED','TRYING','REGISTER','UNREGISTER','FAIL_WAIT','FAILED','EXPIRED'){$safe[$prefix+'gateway_state']=$value}
+ }}
+ }
  if($Record.active_case -is [string] -and $Record.active_case -ceq 'manager_original_closed'){
   foreach($key in 'manager_original_handle_pinned','manager_original_identity_verified','manager_original_exit_observed','manager_original_has_exited'){if($Record.$key -is [bool]){$safe[$key]=$Record.$key}}
   if($Record.manager_original_process_class -is [string] -and $Record.manager_original_process_class -cin 'live_original','exited_original','unavailable'){$safe.manager_original_process_class=$Record.manager_original_process_class}
@@ -1210,6 +1221,9 @@ try{
  if(!$?){throw 'Modern native baseline evidence controls failed.'}
  & (Join-Path $source 'tests/windows_native_services_controls.ps1') -SourceRoot $source *> (Join-Path $work 'native-services-validator.private.log')
  if(!$?){throw 'Extended native qualification evidence controls failed.'}
+ CheckedPython @((Join-Path $source 'tests/windows_provider_diagnostics_test.py'))
+ & (Join-Path $source 'tests/windows_provider_failure_fields.ps1') -SourceRoot $source *> (Join-Path $work 'provider-projection.private.log')
+ if(!$?){throw 'Native provider failure projection controls failed.'}
  & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_legacy_transition.ps1') *> (Join-Path $work 'legacy-source.private.log')
  if($LASTEXITCODE){throw 'The exact legacy upgrade boundary controls failed.'}
  & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_upgrade_health_quiescence.ps1') *> (Join-Path $work 'health-quiescence.private.log')
