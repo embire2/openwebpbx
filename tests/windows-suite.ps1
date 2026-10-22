@@ -1197,6 +1197,30 @@ function PhpRuntimeQualificationHook {
   $facts.php_runtime_qualification=@{state='passed';actual_native=$true;checks=$report.checks;vendor_files=$report.vendor_files;installed_server_changed=$false;version=$report.new_version}
  }finally{$process.Dispose()}
 }
+function Read-UpgradeRecoveryQualificationReport($Record,[string]$ExpectedVersion) {
+ if(($Record -isnot [pscustomobject] -and $Record -isnot [Collections.IDictionary]) -or ($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $ExpectedVersion -cnotmatch '^\d+\.\d+\.\d+$'){throw 'The native recovery proof schema or candidate version is invalid.'}
+ foreach($entry in @(@('producer','windows-upgrade-recovery-qualification.ps1'),@('state','passed'),@('updater_version',$ExpectedVersion),@('updater_scope','candidate_component'))){if($Record.($entry[0]) -isnot [string] -or $Record.($entry[0]) -cne $entry[1]){throw 'The native recovery proof has an invalid scope or version.'}}
+ foreach($field in 'actual_native_windows','actual_configured_updater_boot'){if($Record.$field -isnot [bool] -or !$Record.$field){throw 'The actual native recovery proof is incomplete.'}}
+ if($Record.installed_server_changed -isnot [bool] -or $Record.installed_server_changed){throw 'The native recovery proof changed the installed server.'}
+ foreach($limit in @(@('integration_checks',64),@('native_checks',141))){$value=$Record.($limit[0]);if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt $limit[1] -or $value -gt 100000){throw 'The native recovery proof count is incomplete.'}}
+ return @{state='passed';actual_native_windows=$true;actual_configured_updater_boot=$true;updater_scope='candidate_component';updater_version=$Record.updater_version;integration_checks=$Record.integration_checks;native_checks=$Record.native_checks;installed_server_changed=$false}
+}
+function UpgradeRecoveryQualificationHook {
+ if($ReplaySuiteRunId){$facts.upgrade_recovery_qualification='unqualified_historical_candidate';return}
+ $reportPath=Join-Path $work 'upgrade-recovery-qualification.json'
+ $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'))
+ $start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+ $start.Environment['PSModulePath']=(Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell/Modules')
+ foreach($argument in @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'windows-upgrade-recovery-qualification.ps1'),'-SourceRoot',$source,'-PackageRoot',$PackageRoot,'-ReportPath',$reportPath)){$start.ArgumentList.Add($argument)}
+ $process=[Diagnostics.Process]::Start($start);$stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
+ try{
+  if(!$process.WaitForExit(600000)){$process.Kill($true);$null=$process.WaitForExit(10000);throw 'The private native recovery controls did not finish.'}
+  [IO.File]::WriteAllText((Join-Path $work 'upgrade-recovery-qualification.private.out'),$stdout.GetAwaiter().GetResult());[IO.File]::WriteAllText((Join-Path $work 'upgrade-recovery-qualification.private.err'),$stderr.GetAwaiter().GetResult())
+  if($process.ExitCode -ne 0 -or !(Test-Path -LiteralPath $reportPath -PathType Leaf)){throw 'The private native recovery controls failed.'}
+  $report=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json
+  $facts.upgrade_recovery_qualification=Read-UpgradeRecoveryQualificationReport $report (Get-Content -LiteralPath (Join-Path $PackageRoot 'VERSION') -Raw).Trim()
+ }finally{$process.Dispose()}
+}
 function MeetingTransportHook {
  $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'))
  $start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
@@ -1389,6 +1413,7 @@ try{
  if(!$?){throw 'The installed native call-engine inventory differs.'}
  $facts.gates.fresh='passed';$facts.checks+=('Real restore-ready fresh installation/services/native engine hash preservation')
  $phase='native PHP runtime qualification';PhpRuntimeQualificationHook
+ $phase='native upgrade recovery qualification';UpgradeRecoveryQualificationHook
  $phase='native web readiness qualification';WebReadinessHook
  $phase='native DTLS qualification';DtlsQualificationHook
  if(!$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly){$phase='native STUN qualification';StunHook;$phase='native phone health qualification';InvokeSuitePhoneHealthQualification $SkipPhoneHealthForNativeDiagnostics}
