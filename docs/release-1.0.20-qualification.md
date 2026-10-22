@@ -5,6 +5,13 @@ The complete server 1.0.20 release is not public, and the hosted instance has
 not received the complete server upgrade. Android remains 1.0.18, including its
 existing mandatory minimum.
 
+**Current work on 22 October:** native Windows parity is being qualified with
+the new Phone Health and STUN implementations and corrected WebSocket engine.
+See [the current Windows record](windows-parity-1.0.20.md). The Debian archive
+described below is historical: it predates Phone Health and must not be
+published or installed over the newer hosted patch. A Debian release containing
+that feature needs a rebuilt package and new installation/update/restore checks.
+
 The Debian candidate is built from immutable source
 `01eafb5d4056d7c6ad60c21847a0ff5efee8620d`. Its archive is 428,715,394 bytes,
 SHA256 `92c1f381292c02e30f2b1cbe0658e7283d42ac3dc883a72322f6177350dd5686`.
@@ -55,9 +62,28 @@ to be identical.
 ## Windows Server
 
 Windows Server 2025 x64 with Desktop Experience remains under qualification.
-The native build and responsive WinUI manager window passed. Static checks of
-the current candidate cover its immutable source, bundled native programs,
-corresponding engine source and Nathaniel audio.
+Native build39825672102 passed, including a responsive WinUI manager; its
+71 platform inputs and original artifact were independently verified. Corrected
+engine build39823852979 passed its native parser, registration and codec
+controls. Neither result alone qualifies the complete server.
+
+Actual component checks on the owner's test machine passed16 Defender and62
+SYSTEM controls, plus isolated Task Scheduler child termination. Later durable
+protection intent/reconciliation and visible unconfirmed-state changes passed96
+isolated PostgreSQL controls with firewall doubles. STUN setup passed146 native
+NTFS/ACL/interruption controls with service/firewall doubles. The complete
+installed observer, actual event-to-firewall recovery and native STUN activation
+remain mandatory package gates. Clock1026, Call Me Back and provider-failover
+coverage is being added to the Windows call fixture.
+
+The original1.0.6 test installation remains untouched while its full file/ACL
+archive is prepared. Its logical database, globals/configuration, IIS, encrypted
+certificate, service/task and firewall metadata have external verified copies.
+Actual migration, public certificate issuance, outside Android/tenant access,
+independent clean-server restore and signed newer-version recovery remain open.
+Public releases and all retained platform feeds are unchanged.
+
+### Earlier Windows candidate checks
 
 The superseded candidate at `2310f466` completed its initial installer but its
 normal IIS sign-in page returned HTTP 500. Precise native configuration reads
