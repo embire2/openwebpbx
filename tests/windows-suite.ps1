@@ -400,6 +400,10 @@ function SafeFailureFields($Record){
  }
  if(($Record.source_line -is [int] -or $Record.source_line -is [long]) -and $Record.source_line -gt 0 -and $Record.source_line -lt 100000){$safe.source_line=[int]$Record.source_line}
  if(($Record.caller_line -is [int] -or $Record.caller_line -is [long]) -and $Record.caller_line -gt 0 -and $Record.caller_line -lt 100000){$safe.caller_line=[int]$Record.caller_line}
+ if($Record.active_case -is [string] -and $Record.active_case -cmatch '^phone_tls_[a-z_]+$'){
+  if($Record.phone_tls_inner_error_type -is [string] -and $Record.phone_tls_inner_error_type -cin 'IOException','UnauthorizedAccessException','CryptographicException','Win32Exception','ArgumentException','InvalidOperationException','AuthenticationException','SocketException','TimeoutException','ObjectDisposedException','FileNotFoundException','DirectoryNotFoundException','SecurityException','NotSupportedException','Exception','other'){$safe.phone_tls_inner_error_type=$Record.phone_tls_inner_error_type}
+  foreach($field in 'phone_tls_inner_hresult','phone_tls_inner_depth'){$value=$Record.$field;$maximum=if($field -ceq 'phone_tls_inner_depth'){8}else{4294967295L};if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le $maximum){$safe[$field]=$value}}
+ }
  if(($Record.command_exit -is [int] -or $Record.command_exit -is [long]) -and $Record.command_exit -ge [int]::MinValue -and $Record.command_exit -le [int]::MaxValue){$safe.command_exit=[int]$Record.command_exit}
  $recoveryCommands=@('php.exe','icacls.exe','pg_dump.exe','pg_restore.exe','psql.exe','robocopy.exe','powershell.exe','python.exe','OpenWebPbx.Updater.exe','OpenWebPbx.Server.exe')
  if(($Record.recovery_observations_schema -is [int] -or $Record.recovery_observations_schema -is [long]) -and $Record.recovery_observations_schema -eq 1 -and $Record.recovery_observations_only -is [bool] -and $Record.recovery_observations_only){
@@ -1242,6 +1246,8 @@ try{
  CheckedPython @((Join-Path $source 'tests/windows_provider_diagnostics_test.py'))
  & (Join-Path $source 'tests/windows_provider_failure_fields.ps1') -SourceRoot $source *> (Join-Path $work 'provider-projection.private.log')
  if(!$?){throw 'Native provider failure projection controls failed.'}
+ & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_phone_tls_failure_fields.ps1') -SourceRoot $source *> (Join-Path $work 'phone-tls-projection.private.log')
+ if($LASTEXITCODE){throw 'The actual phone TLS failure launcher controls failed.'}
  & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_legacy_transition.ps1') *> (Join-Path $work 'legacy-source.private.log')
  if($LASTEXITCODE){throw 'The exact legacy upgrade boundary controls failed.'}
  & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_upgrade_health_quiescence.ps1') *> (Join-Path $work 'health-quiescence.private.log')

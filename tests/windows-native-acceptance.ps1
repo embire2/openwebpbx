@@ -374,6 +374,15 @@ catch{
  $basename=Split-Path -Leaf $_.InvocationInfo.ScriptName
  if($basename -notin 'Enable-PhoneTLS.ps1','Write-PrivateState.ps1','Restore-Gates.ps1'){$basename='external_component'}
  $safe=@{error_type=$_.Exception.GetType().Name;source_basename=$basename;source_line=[int]$_.InvocationInfo.ScriptLineNumber;active_case='phone_tls_helper'}
+ # InvocationInfo can point at this generated launcher when a nested .NET
+ # call fails. Keep only fixed exception types, numeric HRESULT and owned
+ # source frames; exception messages/paths/certificate data remain private.
+ $inner=$_.Exception;$depth=0
+ while($inner.InnerException -and $depth -lt 8){$inner=$inner.InnerException;$depth++}
+ $types=@('IOException','UnauthorizedAccessException','CryptographicException','Win32Exception','ArgumentException','InvalidOperationException','AuthenticationException','SocketException','TimeoutException','ObjectDisposedException','FileNotFoundException','DirectoryNotFoundException','SecurityException','NotSupportedException','Exception')
+ $safe.phone_tls_inner_error_type=if($inner.GetType().Name -cin $types){$inner.GetType().Name}else{'other'}
+ $safe.phone_tls_inner_hresult=([long]$inner.HResult -band 4294967295L)
+ $safe.phone_tls_inner_depth=$depth
  $labels=@{
   'Windows could not verify the phone certificate chain.'='phone_tls_chain_validation'
   'Choose a current, exportable certificate issued by a trusted certificate authority.'='phone_tls_certificate_properties'
@@ -389,7 +398,9 @@ catch{
  }
  # Fixed helper locations are useful; arguments and exception text stay private.
  $frames=[regex]::Matches($_.ScriptStackTrace,'([^\\/\r\n]+\.ps1): line ([0-9]+)')
- if($frames.Count -gt 1){$safe.caller_basename=$frames[1].Groups[1].Value;$safe.caller_line=[int]$frames[1].Groups[2].Value}
+ $owned=@($frames|Where-Object {$_.Groups[1].Value -cin 'Enable-PhoneTLS.ps1','Write-PrivateState.ps1','Restore-Gates.ps1'})
+ if($owned.Count -and $safe.source_basename -ceq 'external_component'){$safe.source_basename=$owned[0].Groups[1].Value;$safe.source_line=[int]$owned[0].Groups[2].Value}
+ if($owned.Count -gt 1){$safe.caller_basename=$owned[1].Groups[1].Value;$safe.caller_line=[int]$owned[1].Groups[2].Value}
  [IO.File]::WriteAllText($record.failure,($safe|ConvertTo-Json),[Text.UTF8Encoding]::new($false));exit 1
 }
 '@
@@ -488,6 +499,8 @@ try {
  $nativeFailure=$_.Exception.Data['NativeChildFailure']
  if($nativeFailure -and $nativeFailure.source_basename -in 'Enable-PhoneTLS.ps1','Write-PrivateState.ps1','Restore-Gates.ps1','phone-tls.php','phone-tls-chain.php','pbx_phone_auth.php','pbx_sip_domain.php','event_socket.php','config.php','database.php','external_component' -and [int]$nativeFailure.source_line -gt 0 -and [int]$nativeFailure.source_line -le 100000 -and $nativeFailure.active_case -match '^phone_tls_[a-z_]+$' -and $nativeFailure.error_type -match '^[A-Za-z0-9_]{1,80}$'){
   $facts.source_basename=$nativeFailure.source_basename;$facts.source_line=[int]$nativeFailure.source_line;$facts.active_case=$nativeFailure.active_case;$facts.error_type=$nativeFailure.error_type
+  if($nativeFailure.phone_tls_inner_error_type -is [string] -and $nativeFailure.phone_tls_inner_error_type -cin 'IOException','UnauthorizedAccessException','CryptographicException','Win32Exception','ArgumentException','InvalidOperationException','AuthenticationException','SocketException','TimeoutException','ObjectDisposedException','FileNotFoundException','DirectoryNotFoundException','SecurityException','NotSupportedException','Exception','other'){$facts.phone_tls_inner_error_type=$nativeFailure.phone_tls_inner_error_type}
+  foreach($field in 'phone_tls_inner_hresult','phone_tls_inner_depth'){$value=$nativeFailure.$field;$maximum=if($field -ceq 'phone_tls_inner_depth'){8}else{4294967295L};if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le $maximum){$facts[$field]=$value}}
   if($nativeFailure.caller_basename -in 'Enable-PhoneTLS.ps1','Write-PrivateState.ps1','Restore-Gates.ps1' -and [int]$nativeFailure.caller_line -gt 0){$facts.caller_basename=$nativeFailure.caller_basename;$facts.caller_line=[int]$nativeFailure.caller_line}
  }
  $childReport=Join-Path $evidence 'software-native-report.json'
