@@ -25,7 +25,41 @@ function HealthProcess {
  foreach($row in $rows){if(@($connections|Where-Object {$_.LocalPort -eq [int]$row.client_port}).Count){return @{pid=[int]$processes[0].ProcessId;database_pid=[int]$row.pid;changed=[double]$row.changed}}}
  return $null
 }
+function HealthPreservationDifference($Before,$After) {
+ $out=[ordered]@{schema=1;snapshot_valid=$false;namespace_changed=$false;inventory_changed=$false;table_count_changed=$false;global_digest_changed=$false;shape_changed_count=0;data_changed_count=0;object_count_before=0;object_count_after=0;changed_objects=@()}
+ foreach($snapshot in $Before,$After){
+  if($null -eq $snapshot -or $snapshot.state -cne 'observed' -or $snapshot.complete_public_rows -isnot [bool] -or !$snapshot.complete_public_rows -or $snapshot.complete_namespace_inventory -isnot [bool] -or !$snapshot.complete_namespace_inventory -or $snapshot.public_preservation_sha256 -isnot [string] -or $snapshot.public_preservation_sha256 -cnotmatch '^[a-f0-9]{64}$' -or $snapshot.namespace_sha256 -isnot [string] -or $snapshot.namespace_sha256 -cnotmatch '^[a-f0-9]{64}$' -or ($snapshot.tables -isnot [int] -and $snapshot.tables -isnot [long]) -or $snapshot.tables -lt 0 -or $snapshot.tables -gt 10000 -or $null -eq $snapshot.objects -or $snapshot.objects -is [array]){return $out}
+ }
+ $maps=@()
+ foreach($snapshot in $Before,$After){
+  $map=@{};$properties=@($snapshot.objects.PSObject.Properties)
+  if($properties.Count -gt 10000){return $out}
+  foreach($property in $properties){
+   $value=$property.Value
+   if($property.Name.Length -gt 256 -or $null -eq $value -or $value.kind -isnot [string] -or $value.kind -cnotin 'r','p','S','v','m' -or ($value.rows -isnot [int] -and $value.rows -isnot [long]) -or $value.rows -lt 0 -or $value.rows -gt 100000 -or $value.shape_sha256 -isnot [string] -or $value.shape_sha256 -cnotmatch '^[a-f0-9]{64}$' -or $value.data_sha256 -isnot [string] -or $value.data_sha256 -cnotmatch '^[a-f0-9]{64}$'){return $out}
+   $map[$property.Name]=$value
+  };$maps+=,$map
+ }
+ $out.snapshot_valid=$true;$out.namespace_changed=$Before.namespace_sha256 -cne $After.namespace_sha256;$out.table_count_changed=$Before.tables -ne $After.tables;$out.global_digest_changed=$Before.public_preservation_sha256 -cne $After.public_preservation_sha256
+ $out.object_count_before=$maps[0].Count;$out.object_count_after=$maps[1].Count
+ $names=@(@($maps[0].Keys)+@($maps[1].Keys)|Sort-Object -Unique)
+ foreach($name in $names){
+  $left=$maps[0][$name];$right=$maps[1][$name]
+  if(!$left -or !$right){$out.inventory_changed=$true;continue}
+  $shape=$left.kind -cne $right.kind -or $left.shape_sha256 -cne $right.shape_sha256;$data=$left.data_sha256 -cne $right.data_sha256 -or $left.rows -ne $right.rows
+  if($shape){$out.shape_changed_count++};if($data){$out.data_changed_count++}
+  # Public product object names only; never rows, schema names, owners, ACLs,
+  # identity values, source addresses or raw query/error text.
+  if(($shape -or $data) -and $name -cmatch '^v_[a-z0-9_]{1,90}$' -and $out.changed_objects.Count -lt 12){$out.changed_objects+=@{name=[string]$name;shape_changed=[bool]$shape;data_changed=[bool]$data;row_count_changed=[bool]($left.rows -ne $right.rows)}}
+ }
+ return $out
+}
 try{
+ & (Join-Path $PSScriptRoot 'windows_health_preservation_diagnostics.ps1') -SourceRoot (Split-Path $PSScriptRoot -Parent)
+ if(!$?){throw 'The closed complete-preservation diagnostics controls did not pass.'}
+ & (Join-Path $PSScriptRoot 'windows_health_updater_quiescence.ps1') -SourceRoot (Split-Path $PSScriptRoot -Parent)
+ if(!$?){throw 'The updater quiescence controls did not pass.'}
+ . (Join-Path $PSScriptRoot 'windows-health-updater-quiescence.ps1')
  $installation=Get-Content -LiteralPath (Join-Path $state 'installation.json') -Raw|ConvertFrom-Json
  if(!$installation.Completed -or !$installation.RestoreServer){throw 'A completed empty restore factory is required.'}
  PrivateDirectory $work;PrivateDirectory (Join-Path $work 'spool');PrivateDirectory (Join-Path $work 'identity')
@@ -75,9 +109,12 @@ try{
  # stopped under the shared lock so it cannot consume the synthetic event.
  $maintenance=$null;$deadline=[DateTime]::UtcNow.AddSeconds(30)
  while(!$maintenance){try{$maintenance=[IO.File]::Open((Join-Path $state 'upgrade.lock'),'OpenOrCreate','ReadWrite','None')}catch [IO.IOException]{if([DateTime]::UtcNow -ge $deadline){throw 'The native worker gate could not acquire the maintenance lock.'};Start-Sleep -Milliseconds 250}}
- $publicBefore=$null;$workerPhp=Join-Path $PSScriptRoot 'windows_phone_health_worker.php';$workerProcessExited=$false
+ $publicBefore=$null;$workerPhp=Join-Path $PSScriptRoot 'windows_phone_health_worker.php';$workerProcessExited=$false;$updaterOriginal=$null
  try{
   Stop-OpenWebHealthTask -MaintenanceLock $maintenance -Disable
+  # The independent updater heartbeat writes outside this lock. Quiesce only
+  # its exact candidate-bound service before the complete, unfiltered baseline.
+  Suspend-HealthQualificationUpdater ([ref]$updaterOriginal)
   $policyBefore=NativeHealthPolicy;$engineBefore=Get-CimInstance Win32_Service -Filter "Name='FreeSWITCH'" -ErrorAction Stop
   $publicBefore=Php (Join-Path $PSScriptRoot 'windows_phone_health_installed.php') @('preservation')
   if($publicBefore.state -cne 'observed' -or $publicBefore.public_preservation_sha256 -cnotmatch '^[a-f0-9]{64}$' -or $publicBefore.complete_public_rows -ne $true -or $publicBefore.complete_namespace_inventory -ne $true){throw 'The complete pre-worker factory inventory is unavailable.'}
@@ -130,14 +167,17 @@ try{
     $engineAfter=Get-CimInstance Win32_Service -Filter "Name='FreeSWITCH'" -ErrorAction Stop
     if($engineAfter.ProcessId -ne $engineBefore.ProcessId -or $engineAfter.State -ne $engineBefore.State){throw 'Native worker recovery changed the call engine.'}
     $publicAfter=Php (Join-Path $PSScriptRoot 'windows_phone_health_installed.php') @('preservation')
-    if($publicAfter.state -cne 'observed' -or $publicAfter.public_preservation_sha256 -cne $publicBefore.public_preservation_sha256 -or $publicAfter.tables -ne $publicBefore.tables -or $publicAfter.complete_public_rows -ne $true -or $publicAfter.complete_namespace_inventory -ne $true){throw 'Native worker recovery changed the complete public factory state.'}
+    if($publicAfter.state -cne 'observed' -or $publicAfter.public_preservation_sha256 -cne $publicBefore.public_preservation_sha256 -or $publicAfter.tables -ne $publicBefore.tables -or $publicAfter.complete_public_rows -ne $true -or $publicAfter.complete_namespace_inventory -ne $true){$report.native_worker_preservation_failure=HealthPreservationDifference $publicBefore $publicAfter;throw 'Native worker recovery changed the complete public factory state.'}
     if((Get-FileHash -LiteralPath (Join-Path $state 'phone-health-instance.json') -Algorithm SHA256).Hash -cne $identityBefore -or (Get-Acl -LiteralPath (Join-Path $state 'phone-health-instance.json')).Sddl -cne $identityAclBefore -or (Export-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\') -cne $taskBefore){throw 'Native worker recovery changed its protected identity or task.'}
     $workerRecoveryVerified=$true
    }
   }catch{$workerRecoveryVerified=$false;$workerRecoveryFailure=$_;if(!$workerPrimaryFailure){throw}}
   finally{
-   $maintenance.Dispose()
-   if($workerProcessExited){Enable-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop|Out-Null;Start-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop}
+   try{Resume-HealthQualificationUpdater $updaterOriginal}
+   finally{
+    $maintenance.Dispose()
+    if($workerProcessExited){Enable-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop|Out-Null;Start-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop}
+   }
   }
   if($workerRecoveryVerified){
    $resumed=$null;$deadline=[DateTime]::UtcNow.AddSeconds(90)

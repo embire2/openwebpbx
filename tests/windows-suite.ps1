@@ -1265,6 +1265,18 @@ function SafePhoneHealthFailure($Record){
  if($Record.diagnostic_recovery_exact -is [bool]){$safe.diagnostic_recovery_exact=$Record.diagnostic_recovery_exact}
  $recovery=$Record.diagnostic_recovery_failure
  if(($recovery -is [pscustomobject] -or $recovery -is [Collections.IDictionary]) -and $recovery.error_type -is [string] -and $recovery.error_type -cin 'RuntimeException','MethodInvocationException','ActionPreferenceStopException','ParameterBindingException','ItemNotFoundException','UnauthorizedAccessException','ArgumentException','FormatException','Win32Exception','Exception' -and ($recovery.source_line -is [int] -or $recovery.source_line -is [long]) -and $recovery.source_line -ge 1 -and $recovery.source_line -le 99999){$safe.diagnostic_recovery_failure=@{error_type=$recovery.error_type;source_line=$recovery.source_line}}
+ $preservation=$Record.native_worker_preservation_failure
+ if(($preservation -is [pscustomobject] -or $preservation -is [Collections.IDictionary]) -and ($preservation.schema -is [int] -or $preservation.schema -is [long]) -and $preservation.schema -eq 1){
+  $valid=$true;$projected=@{schema=1}
+  foreach($name in 'snapshot_valid','namespace_changed','inventory_changed','table_count_changed','global_digest_changed'){if($preservation.$name -isnot [bool]){$valid=$false;break};$projected[$name]=$preservation.$name}
+  foreach($name in 'shape_changed_count','data_changed_count','object_count_before','object_count_after'){$value=$preservation.$name;if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 10000){$valid=$false;break};$projected[$name]=$value}
+  if($preservation.changed_objects -isnot [array] -or $preservation.changed_objects.Count -gt 12){$valid=$false}
+  $objects=@();if($valid){foreach($object in $preservation.changed_objects){
+   if(($object -isnot [pscustomobject] -and $object -isnot [Collections.IDictionary]) -or $object.name -isnot [string] -or $object.name -cnotmatch '^v_[a-z0-9_]{1,90}$' -or $object.shape_changed -isnot [bool] -or $object.data_changed -isnot [bool] -or $object.row_count_changed -isnot [bool]){$valid=$false;break}
+   $objects+=@{name=$object.name;shape_changed=$object.shape_changed;data_changed=$object.data_changed;row_count_changed=$object.row_count_changed}
+  }}
+  if($valid){$projected.changed_objects=@($objects);$safe.native_worker_preservation_failure=$projected}
+ }
  $launcher=$Record.native_worker_launcher_failure
  if(($launcher -is [pscustomobject] -or $launcher -is [Collections.IDictionary]) -and $launcher.error_type -is [string] -and $launcher.error_type -cin 'RuntimeException','MethodInvocationException','ActionPreferenceStopException','ParameterBindingException','ItemNotFoundException','UnauthorizedAccessException','ArgumentException','FormatException','Win32Exception','Exception' -and ($launcher.source_line -is [int] -or $launcher.source_line -is [long]) -and $launcher.source_line -ge 1 -and $launcher.source_line -le 99999){$safe.native_worker_launcher_failure=@{error_type=$launcher.error_type;source_line=$launcher.source_line}}
  $preflight=$Record.native_worker_firewall_preflight
