@@ -114,6 +114,8 @@ def bundle(source, manifest_hash, export_helper, core_hash, apr_hash, output,
     manifest = json.loads(manifest_file.read_text())
     if manifest.get('schema') != 1 or manifest.get('upstream_commit') != 'ef32e205295e29f034f1453ad245ba5efb07b94a' or manifest.get('codec_source_sha256') != 'c2731d5cf1ea076c4d0c274cb7ed85e66a06c1e401ee0e8c065c3bf90eeb8ecc' or manifest.get('links'):
         raise ValueError('The pinned prepared source inventory is required.')
+    if manifest.get('websocket_patch_sha256') != '7d2a3147d67537f47f57a316044fe4b61f47e060df33fa1f4b16c917958b120b' or manifest.get('websocket_sources') != {'ws.c': '7e7d6a14f5426b6a18054107a4f3353cfb1569838ec88625beaa2b1d42296d55', 'ws.h': '98898e83103f7f7f499c58a2d702c5cd8f5dd35291827c6aa4881bb6289791bb'}:
+        raise ValueError('The reviewed SIP WebSocket fragment source patch is required.')
     if output.exists() or export_helper.is_symlink() or not export_helper.is_file():
         raise ValueError('Use a new public-source output and an ordinary canonical export helper.')
     destination = output / 'source'

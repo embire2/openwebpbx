@@ -51,6 +51,10 @@ $revision='ef32e205295e29f034f1453ad245ba5efb07b94a'
 $patchHash='1191411f00efb2ca763a41721207923ffc92f8777aa2ebfa23b342a5e801c26f'
 $regHash='8cee43d5f88b7e1cd158f125b2780409b0c52c7cbac37fd3039a2a8981ddc317'
 if($source.schema -ne 1 -or $source.upstream_commit -ne $revision -or $source.patch_sha256 -ne $patchHash -or $source.source_reg_sha256 -ne $regHash -or $source.sofia_commit -ne 'ad36ac8f755308e8b87f98a505e83d4e408e5cc3' -or $source.codec_module_commit -ne '4203247dee4719545005ec7ab9ea536fc83df1d8' -or $source.bcg729_debian_version -ne '1.1.1-3+deb13u1'){throw 'The build source pins differ from the reviewed recipe.'}
+$websocketPatch='7d2a3147d67537f47f57a316044fe4b61f47e060df33fa1f4b16c917958b120b'
+$websocketSources=@{'ws.c'='7e7d6a14f5426b6a18054107a4f3353cfb1569838ec88625beaa2b1d42296d55';'ws.h'='98898e83103f7f7f499c58a2d702c5cd8f5dd35291827c6aa4881bb6289791bb'}
+if($source.websocket_patch_sha256 -cne $websocketPatch -or @($source.websocket_sources.PSObject.Properties).Count -ne 2){throw 'The reviewed fragmented SIP WebSocket sources are required.'}
+foreach($name in $websocketSources.Keys){if($source.websocket_sources.$name -cne $websocketSources[$name]){throw 'The SIP WebSocket source pin differs from the reviewed recipe.'};CheckHash (SafeChild $SourceRoot ('freeswitch/libs/sofia-sip/libsofia-sip-ua/tport/'+$name)) $websocketSources[$name]}
 foreach($entry in $source.files.PSObject.Properties){CheckHash (SafeChild $SourceRoot $entry.Name) $entry.Value}
 if($dependencies.schema -ne 1 -or $dependencies.core_sha256 -ne $ExpectedCoreSha256 -or !$dependencies.files){throw 'A reviewed dependency lock for this exact engine core is required.'}
 foreach($entry in $dependencies.files.PSObject.Properties){CheckHash (SafeChild $SourceRoot $entry.Name) $entry.Value}
@@ -193,7 +197,7 @@ foreach($name in @('mod/mod_sofia.dll')){
   }
  }
 }
-$manifest=@{schema=1;upstream_commit=$revision;patch_sha256=$patchHash;source_reg_sha256=$regHash;core_version='1.11.3';core_sha256=$ExpectedCoreSha256;source_msi_sha256='f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d';files=$hashes;runtime_dependencies=$runtimeDependencies;source_manifest_sha256=$SourceManifestSha256;dependency_lock_sha256=$DependencyLockSha256;module_project_sha256=(Hash $moduleProject);toolset=$PlatformToolset;windows_sdk=$WindowsSdkVersion;build_tool_sha256=$toolHashes;native_runtime_qualified=$false;codec_not_in_release=$true}
+$manifest=@{schema=1;upstream_commit=$revision;patch_sha256=$patchHash;source_reg_sha256=$regHash;websocket_patch_sha256=$websocketPatch;websocket_sources=$websocketSources;core_version='1.11.3';core_sha256=$ExpectedCoreSha256;source_msi_sha256='f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d';files=$hashes;runtime_dependencies=$runtimeDependencies;source_manifest_sha256=$SourceManifestSha256;dependency_lock_sha256=$DependencyLockSha256;module_project_sha256=(Hash $moduleProject);toolset=$PlatformToolset;windows_sdk=$WindowsSdkVersion;build_tool_sha256=$toolHashes;native_runtime_qualified=$false;codec_not_in_release=$true}
 if($UseMsiPthread){
  if(!$runtimeDependencies.ContainsKey('pthread.dll') -or $runtimeDependencies['pthread.dll'] -ne '2d9d70378f13dcc06eed72005e74a12c6f7ba085e5fd31f97be49b7ef87cfdad'){throw 'The experimental registrar did not import the exact MSI pthread runtime.'}
  $manifest.msi_pthread_experiment=@{inputs=$dependencies.msi_pthread;standalone_thread_probe='passed';thread_probe_source_sha256=(Hash $probeSource);private_pdb_sha256=(Hash (Join-Path $moduleOutput 'mod_sofia.pdb'));native_startup='pending';production_installation='not performed'}

@@ -8,6 +8,10 @@ if($manifest.schema -ne 1 -or $manifest.core_version -ne '1.11.3' -or
  $manifest.upstream_commit -ne 'ef32e205295e29f034f1453ad245ba5efb07b94a' -or
  $manifest.patch_sha256 -ne '1191411f00efb2ca763a41721207923ffc92f8777aa2ebfa23b342a5e801c26f' -or
  $manifest.source_reg_sha256 -ne '8cee43d5f88b7e1cd158f125b2780409b0c52c7cbac37fd3039a2a8981ddc317' -or
+ $manifest.websocket_patch_sha256 -cne '7d2a3147d67537f47f57a316044fe4b61f47e060df33fa1f4b16c917958b120b' -or
+ @($manifest.websocket_sources.PSObject.Properties).Count -ne 2 -or
+ $manifest.websocket_sources.'ws.c' -cne '7e7d6a14f5426b6a18054107a4f3353cfb1569838ec88625beaa2b1d42296d55' -or
+ $manifest.websocket_sources.'ws.h' -cne '98898e83103f7f7f499c58a2d702c5cd8f5dd35291827c6aa4881bb6289791bb' -or
  $manifest.source_msi_sha256 -ne 'f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d'){
  throw 'The release does not contain the verified Windows call-engine build.'
 }

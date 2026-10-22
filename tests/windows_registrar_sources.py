@@ -35,7 +35,7 @@ def main():
     original = args.native_build / 'codec-source/source'
     inventory = json.loads((original / 'source-manifest.json').read_text())
     lock = args.native_build / 'source/dependency-lock.json'
-    assert len(inventory['files']) == 6214
+    assert len(inventory['files']) == 6215
     assert sha(original / 'source-manifest.json') == native['source_manifest_sha256']
     assert sha(lock) == native['dependency_lock_sha256']
     count = 0
@@ -48,7 +48,7 @@ def main():
         result = bundler.bundle(source, native['source_manifest_sha256'], ROOT / 'packaging/freeswitch/core-exports.py',
                                 native['core_sha256'], 'bb3adfa1b6b7e3f699b037a0429fca49482e5a9e829ad1f01cc31d447a74a56d', public,
                                 lock, native['dependency_lock_sha256'], args.pthread_source_archive, args.pthread_definition)
-        assert result['source_files'] == 6214 and result['registrar_dependency_source_files'] == 16
+        assert result['source_files'] == 6215 and result['registrar_dependency_source_files'] == 16
         assert sha(public / 'source/source-manifest.json') == native['source_manifest_sha256']
         count += 1
         supplement = public / 'registrar-source'
@@ -90,9 +90,9 @@ def main():
         default = work / 'default'
         result = bundler.bundle(original, native['source_manifest_sha256'], ROOT / 'packaging/freeswitch/core-exports.py',
                                 native['core_sha256'], 'bb3adfa1b6b7e3f699b037a0429fca49482e5a9e829ad1f01cc31d447a74a56d', default)
-        assert result['source_files'] == 6214 and not (default / 'registrar-source').exists()
+        assert result['source_files'] == 6215 and not (default / 'registrar-source').exists()
         count += 1
-    print(json.dumps({'state': 'passed', 'checks': count, 'base_source_files': 6214,
+    print(json.dumps({'state': 'passed', 'checks': count, 'base_source_files': 6215,
                       'supplement_source_files': 16, 'supplement_inventory_files': 17,
                       'windows_runtime_qualification': 'separate actual native gate'}, sort_keys=True))
 
