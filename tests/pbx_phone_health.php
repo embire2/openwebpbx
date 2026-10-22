@@ -103,7 +103,8 @@ try{
   pbx_phone_health::monitor($db,$empty,true);$ok((int)$q("select count(*) from v_pbx_phone_health_issues where issue_key='security:unavailable' and resolved_at is null")->fetchColumn()===0,'Recovered Windows security service left incident open');
   require dirname(__DIR__).'/resources/classes/pbx_windows_event_guard.php';
   class windows_health_guard_fixture extends pbx_windows_event_guard {
-   public string $raw='{"row_count":0}';
+   public string $raw='{"row_count":0}';public bool $failAfterAdd=false;
+   protected function afterNativeAdd():void{if($this->failAfterAdd)throw new RuntimeException('Deliberate termination after native rule creation.');}
    protected function registrations():string{return $this->raw;}
    protected function instanceId():string{return str_repeat('a',64);}
   }
@@ -120,6 +121,25 @@ try{
   $guard->raw='malformed';$beforeRules=$fw->rules;$no(fn()=>$guard->consume(array_replace($event,['network-ip'=>'198.51.100.54'])),'Unknown native registrations accepted for blocking');$ok($beforeRules===$fw->rules,'Unknown native state changed rules');$guard->raw='{"row_count":0}';
   $ok($guard->consume(array_replace($event,['Event-Subclass'=>'sofia::pre_register']))['status']==='ignored','Normal domain registration treated as direct-IP attempt');
   $ok($guard->consume(array_replace($event,['Event-Subclass'=>'sofia::pre_register','to-host'=>'192.0.2.10','network-ip'=>'198.51.100.55']))['status']==='blocked'&&isset($fw->rules['sip-auth-ip|198.51.100.55']),'Direct-IP attempt not protected');
+  // A native rule exists before its acknowledgement can commit. Both process
+  // interruption and an actual deferred PostgreSQL commit failure retain intent.
+  $fault=array_replace($event,['network-ip'=>'198.51.100.56','to-user'=>'auth-1000']);$guard->failAfterAdd=true;
+  $no(fn()=>$guard->consume($fault),'Post-native-add termination was not injected');$guard->failAfterAdd=false;
+  $faultRow=$q("select event_guard_log_uuid,log_status from v_event_guard_logs where ip_address='198.51.100.56'")->fetch(PDO::FETCH_ASSOC);
+  $ok(!$db->inTransaction()&&$faultRow['log_status']==='windows_intent'&&isset($fw->rules['sip-auth-fail|198.51.100.56']),'Native mutation lost its committed intent');
+  $observerDb=new PDO($dsn,'postgres',is_string($fixturePassword)?$fixturePassword:null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);$observerDb->exec('set search_path to '.$schema);
+  $ok($observerDb->query("select log_status from v_event_guard_logs where ip_address='198.51.100.56'")->fetchColumn()==='windows_intent','Intent was not durable to an independent connection');$observerDb=null;
+  $fw->unknown=true;$ok(!$guard->reconcile()&&$q('select log_status from v_event_guard_logs where event_guard_log_uuid=?',[$faultRow['event_guard_log_uuid']])->fetchColumn()==='windows_intent','Unknown native state falsely confirmed the block');
+  $pendingView=$blockView($faultRow['event_guard_log_uuid']);$ok(!$pendingView['can_recover']&&str_contains($pendingView['reason'],'not yet confirmed'),'Unconfirmed native result was hidden or recoverable');
+  $fw->unknown=false;$ok($guard->reconcile()&&$q('select log_status from v_event_guard_logs where event_guard_log_uuid=?',[$faultRow['event_guard_log_uuid']])->fetchColumn()==='blocked','Exact present rule did not reconcile its durable intent');
+  $guard->failAfterAdd=true;$absentFault=array_replace($event,['network-ip'=>'198.51.100.57']);$no(fn()=>$guard->consume($absentFault),'Second native termination was not injected');$guard->failAfterAdd=false;unset($fw->rules['sip-auth-fail|198.51.100.57']);$beforeRules=$fw->rules;
+  $ok($guard->reconcile()&&$beforeRules===$fw->rules&&$q("select log_status from v_event_guard_logs where ip_address='198.51.100.57'")->fetchColumn()==='windows_incomplete','Absent or restored intent recreated a native block without a fresh failure');
+  $db->exec("create function deny_health_commit() returns trigger language plpgsql as \$\$begin if NEW.ip_address='198.51.100.58' and NEW.log_status='blocked' then raise exception 'Deliberate deferred ledger commit failure'; end if; return NEW;end\$\$;create constraint trigger health_commit_failure after update on v_event_guard_logs deferrable initially deferred for each row execute function deny_health_commit()");
+  $no(fn()=>$guard->consume(array_replace($event,['network-ip'=>'198.51.100.58'])),'Deferred acknowledgement commit did not fail');
+  $ok(isset($fw->rules['sip-auth-fail|198.51.100.58'])&&$q("select log_status from v_event_guard_logs where ip_address='198.51.100.58'")->fetchColumn()==='windows_intent','SQL commit failure orphaned a native block');
+  $db->exec('drop trigger health_commit_failure on v_event_guard_logs;drop function deny_health_commit()');$ok($guard->reconcile()&&$q("select log_status from v_event_guard_logs where ip_address='198.51.100.58'")->fetchColumn()==='blocked','Commit-failed block was not reconciled');
+  $db->exec("create function deny_health_intent() returns trigger language plpgsql as \$\$begin if NEW.ip_address='198.51.100.59' then raise exception 'Deliberate intent failure'; end if; return NEW;end\$\$;create trigger health_intent_failure before insert on v_event_guard_logs for each row execute function deny_health_intent()");
+  $beforeRules=$fw->rules;$no(fn()=>$guard->consume(array_replace($event,['network-ip'=>'198.51.100.59'])),'Intent insert did not fail');$ok($beforeRules===$fw->rules,'A failed durable intent still mutated the firewall');$db->exec('drop trigger health_intent_failure on v_event_guard_logs;drop function deny_health_intent()');
   $recoveryEvent=['Event-Subclass'=>'event_guard:phone_health_unblock','OpenWeb-Phone-Health-Block'=>$raceBlock,'OpenWeb-Phone-Health-Recovery'=>$request['recovery_uuid']];
   $q('update v_pbx_phone_health_recoveries set instance_id=null where recovery_uuid=?',[$request['recovery_uuid']]);
   $initialDeletes=$fw->deletes;$ok($guard->consume($recoveryEvent)['reason']==='different_installation'&&$fw->deletes===$initialDeletes,'Restored Debian/null-instance request replayed');

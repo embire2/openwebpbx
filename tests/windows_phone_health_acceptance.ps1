@@ -5,9 +5,16 @@ param([Parameter(Mandatory)][string]$PackageRoot,[Parameter(Mandatory)][string]$
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx' -or [Environment]::OSVersion.Version.Build -lt 26100){throw 'The explicit disposable Windows Server factory is required.'}
 $state=Join-Path $env:ProgramData 'OpenWebPBX';$root='C:\OpenWebPBX';$work=Join-Path $state ('health-qualification\'+[Guid]::NewGuid().ToString('N'));$taskName='OpenWebPBX-HealthComponent-'+[Guid]::NewGuid().ToString('N');$created=$false
-$report=[ordered]@{schema=1;producer='windows_phone_health_acceptance.ps1';state='running';actual_native_windows=$true;gates=[ordered]@{installed_task='pending';installed_system_observer='pending';installed_collector='pending';installed_continuous_observer='pending';installed_restart='pending';postgresql_policy='pending';runtime='pending';firewall='pending';cleanup='pending'};policy_signalling_doubles=$true;physical_phone_audio=$false}
+$report=[ordered]@{schema=1;producer='windows_phone_health_acceptance.ps1';state='running';actual_native_windows=$true;gates=[ordered]@{installed_task='pending';installed_system_observer='pending';installed_collector='pending';installed_continuous_observer='pending';installed_restart='pending';native_worker='pending';postgresql_policy='pending';runtime='pending';firewall='pending';cleanup='pending'};policy_signalling_doubles=$true;physical_phone_audio=$false}
 function PrivateDirectory([string]$Path){New-Item -ItemType Directory -Force -Path $Path|Out-Null;$acl=[Security.AccessControl.DirectorySecurity]::new();$acl.SetAccessRuleProtection($true,$false);$acl.SetOwner([Security.Principal.SecurityIdentifier]'S-1-5-32-544');foreach($sid in 'S-1-5-18','S-1-5-32-544'){$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]$sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow'))};Set-Acl -LiteralPath $Path -AclObject $acl}
 function Php([string]$File,[string[]]$Arguments){$output=& "$root\php\php.exe" $File @Arguments 2>> (Join-Path $work 'php.private.err');if($LASTEXITCODE){throw 'The native health PHP check failed.'};return (($output -join "`n")|ConvertFrom-Json)}
+function NativeHealthPolicy {
+ $result=[ordered]@{}
+ foreach($command in 'Get-NetFirewallRule','Get-NetFirewallAddressFilter','Get-NetFirewallPortFilter','Get-NetFirewallApplicationFilter','Get-NetFirewallServiceFilter','Get-NetFirewallInterfaceFilter','Get-NetFirewallInterfaceTypeFilter','Get-NetFirewallSecurityFilter','Get-NetFirewallProfile'){
+  $rows=@(& $command -PolicyStore PersistentStore -ErrorAction Stop|ForEach-Object {$item=[ordered]@{};foreach($property in $_.CimInstanceProperties|Sort-Object Name){$item[$property.Name]=$property.Value};[pscustomobject]$item}|Sort-Object InstanceID,Name)
+  $result[$command]=$rows
+ };return ($result|ConvertTo-Json -Depth 16 -Compress)
+}
 function HealthProcess {
  $processes=@(Get-CimInstance Win32_Process -Filter "Name='php.exe'" -ErrorAction Stop|Where-Object {$_.ExecutablePath -ieq 'C:\OpenWebPBX\php\php.exe' -and $_.CommandLine -match 'phone-health\.php"?\s+service\b'})
  if($processes.Count -ne 1){return $null}
@@ -60,11 +67,43 @@ try{
  finally{$maintenance.Dispose();Enable-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop|Out-Null;Start-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop}
  $restarted=$null;$deadline=[DateTime]::UtcNow.AddSeconds(90);while(!$restarted){$restarted=HealthProcess;if(!$restarted){if([DateTime]::UtcNow -ge $deadline){throw 'The installed observer did not restart and scan.'};Start-Sleep -Milliseconds 500}}
  if($restarted.pid -eq $first.pid){throw 'The observer restart retained its old resident process.'};$report.gates.installed_restart='passed'
+ # Actual ESL event -> real installed Defender adapter -> durable SQL ->
+ # exact authorised removal, in a disposable schema. The normal observer is
+ # stopped under the shared lock so it cannot consume the synthetic event.
+ $maintenance=$null;$deadline=[DateTime]::UtcNow.AddSeconds(30)
+ while(!$maintenance){try{$maintenance=[IO.File]::Open((Join-Path $state 'upgrade.lock'),'OpenOrCreate','ReadWrite','None')}catch [IO.IOException]{if([DateTime]::UtcNow -ge $deadline){throw 'The native worker gate could not acquire the maintenance lock.'};Start-Sleep -Milliseconds 250}}
+ try{
+  Stop-OpenWebHealthTask -MaintenanceLock $maintenance -Disable
+  $policyBefore=NativeHealthPolicy;$engineBefore=Get-CimInstance Win32_Service -Filter "Name='FreeSWITCH'" -ErrorAction Stop
+  $deadline=[DateTime]::UtcNow.AddSeconds(30);while((Get-ScheduledTask -TaskName $taskName -TaskPath '\').State -eq 'Running'){if([DateTime]::UtcNow -ge $deadline){throw 'The first owned SYSTEM fixture is still running.'};Start-Sleep -Milliseconds 250}
+  $workerResult=Join-Path $work 'native-worker-result.json';$workerPhp=Join-Path $PSScriptRoot 'windows_phone_health_worker.php'
+  $worker=@'
+$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
+[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
+try{
+ . 'C:\OpenWebPBX\tools\PhoneHealth-Security.ps1';Assert-OpenWebHealthSystem
+ $env:GITHUB_ACTIONS='true';$env:RUNNER_ENVIRONMENT='github-hosted';$env:GITHUB_REPOSITORY='embire2/openwebpbx'
+ $output=& 'C:\OpenWebPBX\php\php.exe' '__PHP__' --native-windows-worker 2> '__ERROR__'
+ if(!$? -or $LASTEXITCODE){throw 'The actual native health worker failed.'}
+ $parsed=($output -join "`n")|ConvertFrom-Json
+ [IO.File]::WriteAllText('__RESULT__',($parsed|ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+}catch{[IO.File]::WriteAllText('__RESULT__',(@{state='failed';error_type=$_.Exception.GetType().Name;source_line=$_.InvocationInfo.ScriptLineNumber}|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false));exit 1}
+'@
+  [IO.File]::WriteAllText($systemFile,$worker.Replace('__PHP__',$workerPhp).Replace('__ERROR__',(Join-Path $work 'native-worker.private.err')).Replace('__RESULT__',$workerResult),[Text.UTF8Encoding]::new($false))
+  Start-ScheduledTask -TaskName $taskName -TaskPath '\'
+  $deadline=[DateTime]::UtcNow.AddMinutes(4);while(!(Test-Path -LiteralPath $workerResult)){if([DateTime]::UtcNow -ge $deadline){throw 'The actual native health worker timed out.'};Start-Sleep -Milliseconds 250}
+  $workerReport=Get-Content -LiteralPath $workerResult -Raw|ConvertFrom-Json
+  foreach($field in 'actual_native_windows_worker','actual_esl_event','actual_defender_adapter','actual_postgresql','synthetic_office_history','post_native_fault_reconciled','revoked_role_refused','authorised_recovery_acknowledged'){if($workerReport.$field -ne $true){throw 'The native worker result is incomplete.'}}
+  if($workerReport.state -ne 'passed' -or $workerReport.physical_phone_audio -ne $false -or $workerReport.checks -lt 13){throw 'The native worker did not pass.'}
+  if((NativeHealthPolicy) -cne $policyBefore){throw 'The native worker changed original firewall policy.'}
+  $engineAfter=Get-CimInstance Win32_Service -Filter "Name='FreeSWITCH'" -ErrorAction Stop;if($engineAfter.ProcessId -ne $engineBefore.ProcessId -or $engineAfter.State -ne $engineBefore.State){throw 'The native worker changed the call engine.'}
+  $report.gates.native_worker='passed';$report.native_worker_checks=[int]$workerReport.checks;$report.native_worker_firewall_policy_exact=$true
+ }finally{$maintenance.Dispose();Enable-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop|Out-Null;Start-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop}
  $oldPassword=$env:OPENWEB_HEALTH_TEST_PASSWORD;$oldState=$env:OPENWEB_HEALTH_TEST_STATE;$oldSpool=$env:OPENWEB_HEALTH_TEST_SPOOL
  try{
   $env:OPENWEB_HEALTH_TEST_PASSWORD=$installation.PostgresPassword;$env:OPENWEB_HEALTH_TEST_STATE=Join-Path $work 'identity';$env:OPENWEB_HEALTH_TEST_SPOOL=Join-Path $work 'spool'
   $policy=Php (Join-Path $PSScriptRoot 'pbx_phone_health.php') @('pgsql:host=127.0.0.1;port=5433;dbname=fusionpbx','--windows-guard-controls')
-  if($policy.checks -lt 83 -or $policy.actual_isolated_postgresql -ne $true -or $policy.windows_guard_policy -ne $true -or $policy.no_customer_calls_or_host_firewall_changes -ne $true){throw 'The native PostgreSQL health policy failed.'};$report.gates.postgresql_policy='passed';$report.postgresql_checks=[int]$policy.checks
+  if($policy.checks -lt 96 -or $policy.actual_isolated_postgresql -ne $true -or $policy.windows_guard_policy -ne $true -or $policy.no_customer_calls_or_host_firewall_changes -ne $true){throw 'The native PostgreSQL health policy failed.'};$report.gates.postgresql_policy='passed';$report.postgresql_checks=[int]$policy.checks
   $runtime=Php (Join-Path $PSScriptRoot 'windows_phone_health_runtime.php') @();if($runtime.checks -lt 49 -or $runtime.actual_windows_native -ne $true -or $runtime.actual_files_and_locks -ne $true -or $runtime.actual_loopback_tcp_frames -ne $true){throw 'The native health runtime failed.'};$report.gates.runtime='passed';$report.runtime_checks=[int]$runtime.checks
  }finally{foreach($item in @(@('OPENWEB_HEALTH_TEST_PASSWORD',$oldPassword),@('OPENWEB_HEALTH_TEST_STATE',$oldState),@('OPENWEB_HEALTH_TEST_SPOOL',$oldSpool))){if($null -eq $item[1]){Remove-Item -LiteralPath ('Env:\'+$item[0]) -ErrorAction SilentlyContinue}else{Set-Item -LiteralPath ('Env:\'+$item[0]) -Value $item[1]}}}
  $firewallOutput=& (Join-Path $PSScriptRoot 'windows_phone_health_native.ps1') -Helpers (Join-Path $root 'tools');$firewall=($firewallOutput -join "`n")|ConvertFrom-Json

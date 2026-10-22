@@ -127,7 +127,7 @@ class pbx_phone_health {
         $realms=$directory['domains'][$this->domain]['realms']??[];
         if($this->q("select to_regclass('v_pbx_tenant_domains')")->fetchColumn())foreach($this->q("select hostname from v_pbx_tenant_domains where domain_uuid=? and state='ready' and desired_enabled",[$this->domain])->fetchAll(PDO::FETCH_COLUMN)as$h)if(self::realm($h))$realms[]=$h;
         $claimed=[];foreach($c['users']as$n=>$u)if(isset($u['auth_id'])&&is_string($u['auth_id']))foreach($realms as$realm)$claimed[$u['auth_id'].'@'.$realm]=(string)$n;
-        $rows=$this->q("select event_guard_log_uuid,hostname,log_date,filter,ip_address,extension,log_status from v_event_guard_logs where hostname=? and log_status in ('blocked','pending') order by log_date desc limit 2001",[gethostname()])->fetchAll(PDO::FETCH_ASSOC);
+        $rows=$this->q("select event_guard_log_uuid,hostname,log_date,filter,ip_address,extension,log_status from v_event_guard_logs where hostname=? and log_status in ('blocked','pending','windows_intent') order by log_date desc limit 2001",[gethostname()])->fetchAll(PDO::FETCH_ASSOC);
         $out=[];
         foreach($rows as$r){
             if($r['filter']!=='sip-auth-fail'||!filter_var($r['ip_address'],FILTER_VALIDATE_IP))continue;
@@ -144,14 +144,15 @@ class pbx_phone_health {
             elseif(!filter_var($source,FILTER_VALIDATE_IP,FILTER_FLAG_IPV4))$restriction='IPv6 office recovery needs an instance-administrator review. Automatic recovery currently supports the managed IPv4 security filter.';
             elseif(!$verified)$restriction='No recent successful desk-phone connection proves that this office address belongs to your PBX. Ask the instance administrator to review it.';
             elseif($foreign)$restriction='This address is shared with another PBX. An instance administrator must review the affected offices.';
+            elseif($r['log_status']==='windows_intent')$restriction='A phone security update for this office is unconfirmed. The security service must verify its exact state before recovery.';
             elseif($r['log_status']!=='blocked'||$this->q("select 1 from v_pbx_phone_health_recoveries where block_uuid=? and status='pending'",[$r['event_guard_log_uuid']])->fetchColumn())$restriction='Recovery is waiting for the security service to confirm it.';
             elseif(count($rows)>2000)$restriction='The security history needs an instance-administrator review.';
-            elseif($this->q("select 1 from v_event_guard_logs where hostname=? and ip_address=? and log_status in ('blocked','pending') and event_guard_log_uuid<>?",[gethostname(),$source,$r['event_guard_log_uuid']])->fetchColumn())$restriction='Another security block also affects this address. An instance administrator must review it.';
+            elseif($this->q("select 1 from v_event_guard_logs where hostname=? and ip_address=? and log_status in ('blocked','pending','windows_intent') and event_guard_log_uuid<>?",[gethostname(),$source,$r['event_guard_log_uuid']])->fetchColumn())$restriction='Another security block also affects this address. An instance administrator must review it.';
             elseif($this->q("select 1 from v_pbx_phone_health_recoveries where source_address=?::inet and created_at>now()-interval '15 minutes'",[$source])->fetchColumn())$restriction='A recovery was already requested recently. Wait 15 minutes before trying again.';
             $departments=[];foreach(array_keys($affected)as$n)foreach(pbx_departments::memberships($c,(string)$n)as$d)$departments[$d]=true;
             if($restriction===''&&count($departments)>1&&!$this->trusted&&!permission_exists('pbx_tenant_manage')&&!permission_exists('domain_all'))$restriction='This office address is shared across departments. Ask the instance administrator to review recovery.';
             ksort($affected);$revision=hash('sha256',json_encode([$r,$affected,$foreign],JSON_THROW_ON_ERROR));
-            $out[]=['block_uuid'=>$r['event_guard_log_uuid'],'source_address'=>($this->owner||$this->trusted)?$source:null,'affected_numbers'=>$visible,'blocked_at'=>$r['log_date'],'reason'=>'Repeated sign-in failures caused the security service to block this office address.','can_recover'=>$restriction==='','revision'=>$revision,'restriction'=>$restriction,'status'=>$r['log_status']];
+            $out[]=['block_uuid'=>$r['event_guard_log_uuid'],'source_address'=>($this->owner||$this->trusted)?$source:null,'affected_numbers'=>$visible,'blocked_at'=>$r['log_date'],'reason'=>$r['log_status']==='windows_intent'?'The security service saved a phone protection update, but its exact firewall result is not yet confirmed.':'Repeated sign-in failures caused the security service to block this office address.','can_recover'=>$restriction==='','revision'=>$revision,'restriction'=>$restriction,'status'=>$r['log_status']];
         }
         return $out;
     }
@@ -173,7 +174,7 @@ class pbx_phone_health {
             if($state==='offline'&&isset($last[$id],$missing[$id])&&strtotime($missing[$id])<=time()-90)$candidates['phone:'.$n]=['kind'=>'phone_offline','severity'=>'warning','summary'=>'Extension '.$n.' is offline.','extra'=>['number'=>$n,'reason'=>isset($blocked[$n])?'office_blocked':'not_registered']];
             elseif($state==='unavailable')$candidates['identity:'.$n]=['kind'=>'phone_unavailable','severity'=>'warning','summary'=>'Extension '.$n.' needs a phone-status review.','extra'=>['number'=>$n]];
         }
-        foreach($blocks as$b)$candidates['block:'.$b['block_uuid']]=['kind'=>'office_blocked','severity'=>'danger','summary'=>'A security block affects '.count($b['affected_numbers']).' phone account'.(count($b['affected_numbers'])===1?'':'s').'.','extra'=>['block_uuid'=>$b['block_uuid'],'numbers'=>$b['affected_numbers']]];
+        foreach($blocks as$b)$candidates['block:'.$b['block_uuid']]=['kind'=>'office_blocked','severity'=>'danger','summary'=>($b['status']==='windows_intent'?'An unconfirmed phone security update affects ':'A security block affects ').count($b['affected_numbers']).' phone account'.(count($b['affected_numbers'])===1?'':'s').'.','extra'=>['block_uuid'=>$b['block_uuid'],'numbers'=>$b['affected_numbers']]];
         $providers=[];$gateways=[];
         foreach($this->q("select gateway_uuid,enabled,register,coalesce(nullif(auth_username,''),username,'')<>'' has_username,coalesce(password,'')<>'' has_password from v_gateways where domain_uuid=?",[$this->domain])->fetchAll(PDO::FETCH_ASSOC)as$g)$gateways[$g['gateway_uuid']]=$g;
         $engineChecks=0;$engineDeadline=microtime(true)+3.0;
@@ -268,7 +269,7 @@ class pbx_phone_health {
         if(!$owned)return 'no_verified_office';
         $departments=[];foreach($owned as$e)foreach(pbx_departments::memberships($c,$e['number'])as$d)$departments[$d]=true;
         if(count($departments)>1&&!$platform)return 'shared_departments';
-        if($q("select 1 from v_event_guard_logs where hostname=? and ip_address=? and log_status in ('blocked','pending') and event_guard_log_uuid<>?",[$log['hostname'],$log['ip_address'],$log['event_guard_log_uuid']])->fetchColumn())return 'another_security_block';
+        if($q("select 1 from v_event_guard_logs where hostname=? and ip_address=? and log_status in ('blocked','pending','windows_intent') and event_guard_log_uuid<>?",[$log['hostname'],$log['ip_address'],$log['event_guard_log_uuid']])->fetchColumn())return 'another_security_block';
         return null;
     }
     /** Local service scan. Unknown engine state never resolves existing phone incidents. */

@@ -56,17 +56,33 @@ function Assert-OpenWebHealthTask($Task){
  $execute="$env:windir\System32\WindowsPowerShell\v1.0\powershell.exe";$arguments='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\OpenWebPBX\tools\Phone-Health.ps1"'
  if(@($Task).Count -ne 1 -or $Task.TaskName -cne 'OpenWebPBX-PhoneHealth' -or $Task.TaskPath -cne '\' -or $Task.Description -cne 'OpenWeb PBX owned phone health and Windows security observer' -or $Task.Principal.UserId -notin 'SYSTEM','S-1-5-18' -or [string]$Task.Principal.LogonType -notin 'ServiceAccount','5' -or [string]$Task.Principal.RunLevel -notin 'Highest','1' -or @($Task.Actions).Count -ne 1 -or $Task.Actions[0].Execute -ine $execute -or $Task.Actions[0].Arguments -cne $arguments -or $Task.Actions[0].WorkingDirectory -ine 'C:\OpenWebPBX\tools'){throw 'The health task belongs to another configuration.'}
 }
+function Get-OpenWebHealthOwnedProcesses {
+ # Scheduler state alone does not prove a native child exited. Read only; never
+ # kill an uncertain PID. A former wrapper/child prevents replacing its source.
+ $rows=@(Get-CimInstance Win32_Process -Filter "Name='php.exe' OR Name='powershell.exe'" -OperationTimeoutSec 3 -ErrorAction Stop)
+ foreach($process in $rows){
+  $command=[string]$process.CommandLine
+  if($command -notmatch '(?i)(?:^|[\s"])C:\\OpenWebPBX\\tools\\(?:phone-health\.php|Phone-Health\.ps1)(?:["\s]|$)'){continue}
+  $expected=if($command -match '(?i)phone-health\.php'){ 'C:\OpenWebPBX\php\php.exe' }else{ "$env:windir\System32\WindowsPowerShell\v1.0\powershell.exe" }
+  $owner=Invoke-CimMethod -InputObject $process -MethodName GetOwnerSid -OperationTimeoutSec 3 -ErrorAction Stop
+  if($process.ExecutablePath -ine $expected -or $owner.ReturnValue -ne 0 -or $owner.Sid -cne 'S-1-5-18'){throw 'A health process identity needs review before replacing its source.'}
+  $process
+ }
+}
 function Stop-OpenWebHealthTask {
  param([Parameter(Mandatory)][IO.FileStream]$MaintenanceLock,[switch]$Disable)
  $path=Join-Path $env:ProgramData 'OpenWebPBX\upgrade.lock'
  if(!$MaintenanceLock.CanRead -or !$MaintenanceLock.CanWrite -or [IO.Path]::GetFullPath($MaintenanceLock.Name) -ine [IO.Path]::GetFullPath($path)){throw 'The owned maintenance lock is required before stopping health.'}
  $task=Get-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -ErrorAction SilentlyContinue
  Assert-OpenWebHealthTask $task
- if(!$task){return}
- if($Disable){Disable-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop|Out-Null}
- if($task.State -eq 'Running'){
-  Stop-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop
-  for($i=0;$i -lt 40;$i++){$current=Get-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop;Assert-OpenWebHealthTask $current;if($current.State -ne 'Running'){return};Start-Sleep -Milliseconds 250}
-  throw 'The owned health task did not stop before replacing helpers.'
- }
+ if($task -and $Disable){Disable-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop|Out-Null}
+ if($task -and $task.State -eq 'Running'){Stop-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop}
+ $deadline=[DateTime]::UtcNow.AddSeconds(10)
+ do{
+  $current=Get-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -ErrorAction SilentlyContinue;Assert-OpenWebHealthTask $current
+  $processes=@(Get-OpenWebHealthOwnedProcesses)
+  if((!$current -or $current.State -ne 'Running') -and $processes.Count -eq 0){return}
+  if([DateTime]::UtcNow -ge $deadline){throw 'The owned health task or native child did not stop before replacing helpers.'}
+  Start-Sleep -Milliseconds 250
+ }while($true)
 }

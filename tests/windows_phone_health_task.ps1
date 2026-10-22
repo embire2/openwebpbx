@@ -4,11 +4,13 @@ $ErrorActionPreference='Stop';$script:checks=0
 function Check([bool]$Value,[string]$Message){if(!$Value){throw $Message};$script:checks++}
 function Refuses([scriptblock]$Action,[string]$Message){try{$null=& $Action}catch{$script:checks++;return};throw $Message}
 $beforeProgramData=$env:ProgramData;$beforeWindir=$env:windir;$tmp=Join-Path ([IO.Path]::GetTempPath()) ('openweb-health-task-'+[Guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path (Join-Path $tmp 'OpenWebPBX')|Out-Null;$env:ProgramData=$tmp;$env:windir='C:\Windows';$script:task=$null;$script:stops=0;$script:disables=0;$script:neverStop=$false
+New-Item -ItemType Directory -Path (Join-Path $tmp 'OpenWebPBX')|Out-Null;$env:ProgramData=$tmp;$env:windir='C:\Windows';$script:task=$null;$script:stops=0;$script:disables=0;$script:neverStop=$false;$script:processes=@();$script:clock=0
 function Get-ScheduledTask {param($TaskName,$TaskPath,$ErrorAction);return $script:task}
 function Disable-ScheduledTask {param($TaskName,$TaskPath,$ErrorAction);$script:disables++;$script:task.Settings.Enabled=$false}
 function Stop-ScheduledTask {param($TaskName,$TaskPath,$ErrorAction);$script:stops++;if(!$script:neverStop){$script:task.State='Ready'}}
-function Start-Sleep {param($Milliseconds)}
+function Start-Sleep {param($Milliseconds);$script:clock++;if($script:clock -gt 50){throw "Bounded fixture deadline."}}
+function Get-CimInstance {param($ClassName,$Filter,$OperationTimeoutSec,$ErrorAction);return $script:processes}
+function Invoke-CimMethod {param($InputObject,$MethodName,$OperationTimeoutSec,$ErrorAction);return [pscustomobject]@{ReturnValue=0;Sid=$InputObject.OwnerSid}}
 function OwnedTask {return [pscustomobject]@{TaskName='OpenWebPBX-PhoneHealth';TaskPath='\';Description='OpenWeb PBX owned phone health and Windows security observer';Principal=[pscustomobject]@{UserId='SYSTEM';LogonType='ServiceAccount';RunLevel='Highest'};Actions=@([pscustomobject]@{Execute='C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe';Arguments='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\OpenWebPBX\tools\Phone-Health.ps1"';WorkingDirectory='C:\OpenWebPBX\tools'});State='Running';Settings=[pscustomobject]@{Enabled=$true}}}
 function TestAcl([string]$Owner,[string]$Sid,[string]$Rights,[string]$Propagation='None'){
  $identity=[pscustomobject]@{Value=$Sid};$identity|Add-Member -MemberType ScriptMethod -Name Translate -Value {param($type);return $this}
@@ -30,6 +32,13 @@ try{
  $script:task=OwnedTask;$script:task.Principal.UserId='S-1-5-18';Assert-OpenWebHealthTask $script:task;Check $true 'SYSTEM SID not accepted.'
  $script:task=@((OwnedTask),(OwnedTask));Refuses {Assert-OpenWebHealthTask $script:task} 'Multiple same-name tasks accepted.'
  $script:task=OwnedTask;$script:neverStop=$true;Refuses {Stop-OpenWebHealthTask -MaintenanceLock $lock} 'Running task did not time out.';Check ($script:stops -eq 3) 'Stop retried mutations rather than bounded observation.'
+ $script:neverStop=$false;$script:clock=0;$script:task=OwnedTask;$script:task.State='Ready';$script:processes=@([pscustomobject]@{CommandLine='"C:\OpenWebPBX\php\php.exe" -c "C:\OpenWebPBX\php\php.ini" "C:\OpenWebPBX\tools\phone-health.php" service';ExecutablePath='C:\OpenWebPBX\php\php.exe';OwnerSid='S-1-5-18'})
+ Refuses {Stop-OpenWebHealthTask -MaintenanceLock $lock} 'A ready task hid its surviving PHP child.'
+ $script:clock=0;$script:task=$null;Refuses {Stop-OpenWebHealthTask -MaintenanceLock $lock} 'A missing task hid its surviving PHP child.'
+ $script:processes[0].OwnerSid='S-1-5-21-111';Refuses {Get-OpenWebHealthOwnedProcesses} 'A different owner was treated as a trusted health process.'
+ $script:processes[0].OwnerSid='S-1-5-18';$script:processes[0].ExecutablePath='C:\foreign\php.exe';Refuses {Get-OpenWebHealthOwnedProcesses} 'A changed native executable was accepted.'
+ $script:processes=@([pscustomobject]@{CommandLine='"C:\foreign\php.exe" "C:\other\phone-health.php" service';ExecutablePath='C:\foreign\php.exe';OwnerSid='S-1-5-21-111'});Check (@(Get-OpenWebHealthOwnedProcesses).Count -eq 0) 'An unrelated PHP process was selected.'
+ $script:processes=@();$script:task=$null
  $lock.Dispose();$lock=$null;$wrong=[IO.File]::Open((Join-Path $tmp 'wrong.lock'),'CreateNew','ReadWrite','None');try{Refuses {Stop-OpenWebHealthTask -MaintenanceLock $wrong} 'Unrelated lock accepted.'}finally{$wrong.Dispose()}
  $admin='S-1-5-32-544';$setup='S-1-5-21-111-222-333-1001';$iis='S-1-5-82-1-2-3-4-5';$plain='S-1-5-21-111-222-333-1002';$allowed=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);foreach($sid in @('S-1-5-18',$admin,$setup)){$null=$allowed.Add($sid)}
  $full='C:\OpenWebPBX\tools\phone-health.php'
