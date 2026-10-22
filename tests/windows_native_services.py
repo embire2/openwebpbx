@@ -24,6 +24,9 @@ def qualify(f, caller, extension, destination, Provider, original, sip, Playback
         def decoded(left, right, left_frequency, right_frequency, seconds=3):
             left['decoded_pcm'].clear(); right['decoded_pcm'].clear()
             time.sleep(seconds)
+            for peer in (caller, extension, *providers):
+                peer.check_receiver()
+                assert peer.thread.is_alive(), 'An owned SIP/RTP receiver stopped during the native media window'
             sip.rtp_rate_check(left); sip.rtp_rate_check(right)
             return original.decoded_tone_check(left, left_frequency), original.decoded_tone_check(right, right_frequency)
 
@@ -107,6 +110,7 @@ def qualify(f, caller, extension, destination, Provider, original, sip, Playback
                 f.cli('cmb-quota', str(quota))
             account_before = state()['account']
             before = {key for peer in providers for key in peer.dialogs}
+            before_invites = [len(item.invites) for item in providers]
             call = providers[0].call('sip:999100001@' + realm, inbound_destination,
                 user=cmb['caller'], realm=realm, to_uri='sip:999100001@' + realm)
             assert call['code'] == 200
@@ -151,6 +155,8 @@ def qualify(f, caller, extension, destination, Provider, original, sip, Playback
             assert int(final['account']['reserved_seconds']) == 0 and final['bindings'] == 1
             assert int(final['account']['used_seconds']) - int(account_before['used_seconds']) == charged
             assert int(final['account']['total_seconds']) == int(account_before['total_seconds'])
+            for expected, item, offset in zip(('0820000001', cmb['destination']), providers, before_invites):
+                assert len({row['callid'] for row in item.invites[offset:] if row['number'] == expected}) == 1, 'A callback or destination was duplicated'
             f.record('native_cmb_' + ('sa_id_first_auth_decoded_bridge' if new_identity else
                 'saved_caller_decoded_bridge' if quota is None else 'short_quota_native_cutoff_exact_usage'),
                 identity_hmac_unchanged=True, persistent_binding_verified=True, no_plaintext_identity_in_facts=True,
@@ -164,6 +170,7 @@ def qualify(f, caller, extension, destination, Provider, original, sip, Playback
         run(False, 4)
         f.cli('cmb-reset'); f.cli('cmb-quota', '0')
         before = {key for peer in providers for key in peer.dialogs}
+        before_invites = [len(item.invites) for item in providers]
         call = providers[0].call('sip:999100001@' + realm, inbound_destination,
             user=cmb['caller'], realm=realm, to_uri='sip:999100001@' + realm)
         assert call['code'] == 200
@@ -173,6 +180,7 @@ def qualify(f, caller, extension, destination, Provider, original, sip, Playback
         final = state()
         assert final['request']['last_result'] == 'quota_exhausted'
         assert int(final['account']['reserved_seconds']) == 0 and find_dialog(cmb['destination'], before) is None
+        assert not any(row['number'] == cmb['destination'] for item, offset in zip(providers, before_invites) for row in item.invites[offset:]), 'An exhausted allowance attempted a destination call'
         f.record('native_cmb_exhausted_quota_no_destination', identity_hmac_unchanged=True,
                  no_destination_bridge=True, reservation_released=True,no_carrier_traffic=True)
         assert all(peer.register_requests == 0 for peer in providers), 'A fictional IP provider attempted registration'

@@ -50,7 +50,7 @@ def native_exception_fields(error,stage,prefix='primary'):
     import traceback
     frames=traceback.extract_tb(error.__traceback__)
     if not frames or stage not in NATIVE_SUBSTAGES:return {}
-    allowed={'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py'}
+    allowed={'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_clock_native.py','pbx_talking_clock_native.py'}
     location=frames[-1]
     caller=next((frame for frame in reversed(frames) if Path(frame.filename).name=='windows-native-acceptance.py'),None)
     fields={prefix+'_error_type':type(error).__name__,prefix+'_substage':stage,
@@ -1380,7 +1380,7 @@ def main():
         import traceback
         location=traceback.extract_tb(e.__traceback__)[-1]
         basename=Path(location.filename).name
-        if basename not in ('windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py'):
+        if basename not in ('windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_clock_native.py','pbx_talking_clock_native.py'):
             basename='external_component'
         failure={'schema':1,'producer':'windows-native-acceptance.py','state':'failed','checks':f.checks,'error_type':type(e).__name__,'error':str(e),'source_basename':basename,'source_line':location.lineno,'active_case':f.active_case}
         if getattr(e,'fixture_failure',None):failure.update(e.fixture_failure)

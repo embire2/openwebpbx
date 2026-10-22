@@ -50,6 +50,7 @@ function AssertExtendedNativeCases($Checks){
   $row=$rows[0]
   $integerFields=@()
   if($name -ceq 'native_clock1026_gmt2_three_decoded_announcements'){$integerFields=@('frozen_Nathaniel_assets','complete_announcements')}
+  elseif($name -like 'native_provider_*' -and $name -cne 'native_provider_incoming_owned_did_decoded_rtp'){$integerFields=@('primary_distinct_calls','backup_distinct_calls')}
   elseif($name -like 'native_cmb_*' -and $name -cne 'native_cmb_exhausted_quota_no_destination'){$integerFields=@('charged_seconds','native_reserved_limit_seconds')}
   foreach($field in $integerFields){
    $value=$row.$field;if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 100000){throw 'Extended native integer evidence is invalid.'}
@@ -74,6 +75,9 @@ function AssertExtendedNativeCases($Checks){
   }
   if($name -like 'native_cmb_*'){
    foreach($flag in 'identity_hmac_unchanged','reservation_released','no_carrier_traffic'){if($row.$flag -isnot [bool] -or !$row.$flag){throw 'Native Call Me Back ownership/settlement proof is incomplete.'}}
+   if($name -ceq 'native_cmb_short_quota_native_cutoff_exact_usage'){
+    if($null -eq $row.observed_short_cutoff_seconds -or $row.native_reserved_limit_seconds -ne 4 -or $row.observed_short_cutoff_seconds -lt 2 -or $row.observed_short_cutoff_seconds -gt 8){throw 'The configured short user quota needs an actual bounded native cutoff measurement.'}
+   }
    if($name -ceq 'native_cmb_exhausted_quota_no_destination' -and ($row.no_destination_bridge -isnot [bool] -or !$row.no_destination_bridge)){throw 'An exhausted allowance produced a destination call.'}
    if($name -cne 'native_cmb_exhausted_quota_no_destination'){
     foreach($flag in 'persistent_binding_verified','no_plaintext_identity_in_facts','total_allowance_unchanged','ten_minute_policy_ceiling_verified'){if($row.$flag -isnot [bool] -or !$row.$flag){throw 'Native Call Me Back allowance/HMAC proof is incomplete.'}}
@@ -458,7 +462,7 @@ try {
  if(Test-Path -LiteralPath $childReport){
   try{
    $child=Get-Content -LiteralPath $childReport -Raw|ConvertFrom-Json
-   if($child.state -eq 'failed' -and $child.source_basename -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows-native-fixture.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component' -and [int]$child.source_line -gt 0 -and [int]$child.source_line -le 100000 -and $child.active_case -match '^[a-z0-9_]{1,120}$' -and $child.error_type -match '^[A-Za-z0-9_]{1,80}$'){
+   if($child.state -eq 'failed' -and $child.source_basename -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_clock_native.py','pbx_talking_clock_native.py','windows-native-fixture.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component' -and [int]$child.source_line -gt 0 -and [int]$child.source_line -le 100000 -and $child.active_case -match '^[a-z0-9_]{1,120}$' -and $child.error_type -match '^[A-Za-z0-9_]{1,80}$'){
     $facts.source_basename=$child.source_basename;$facts.source_line=[int]$child.source_line;$facts.active_case=$child.active_case;$facts.error_type=$child.error_type
     $completed=@(CompletedMediaCases $child.checks);if($completed.Count){$facts.completed_media_cases=$completed}
     foreach($entry in (MediaFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
@@ -486,7 +490,7 @@ try {
      $type=$child.($prefix+'_error_type');if($type -is [string] -and $type -match '^[A-Za-z0-9_]{1,80}$'){$facts[$prefix+'_error_type']=$type}
      foreach($where in 'source','caller'){
       $name=$child.($prefix+'_'+$where+'_basename');$line=$child.($prefix+'_'+$where+'_line')
-      if($name -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','external_component' -and ($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$facts[$prefix+'_'+$where+'_basename']=$name;$facts[$prefix+'_'+$where+'_line']=[int]$line}
+      if($name -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_clock_native.py','pbx_talking_clock_native.py','external_component' -and ($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$facts[$prefix+'_'+$where+'_basename']=$name;$facts[$prefix+'_'+$where+'_line']=[int]$line}
      }
     }
     if(($child.cleanup_failure_count -is [int] -or $child.cleanup_failure_count -is [long]) -and $child.cleanup_failure_count -ge 1 -and $child.cleanup_failure_count -le 32){$facts.cleanup_failure_count=[int]$child.cleanup_failure_count}

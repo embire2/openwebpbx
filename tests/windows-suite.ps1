@@ -416,7 +416,7 @@ function SafeFailureFields($Record){
   $type=$Record.($prefix+'_error_type');if($type -is [string] -and $type -match '^[A-Za-z0-9_]{1,80}$'){$safe[$prefix+'_error_type']=$type}
   foreach($where in 'source','caller'){
    $name=$Record.($prefix+'_'+$where+'_basename');$line=$Record.($prefix+'_'+$where+'_line')
-   if($name -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','external_component' -and ($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$safe[$prefix+'_'+$where+'_basename']=$name;$safe[$prefix+'_'+$where+'_line']=[int]$line}
+   if($name -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_clock_native.py','pbx_talking_clock_native.py','external_component' -and ($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$safe[$prefix+'_'+$where+'_basename']=$name;$safe[$prefix+'_'+$where+'_line']=[int]$line}
   }
  }
  if(($Record.cleanup_failure_count -is [int] -or $Record.cleanup_failure_count -is [long]) -and $Record.cleanup_failure_count -ge 1 -and $Record.cleanup_failure_count -le 32){$safe.cleanup_failure_count=[int]$Record.cleanup_failure_count}
@@ -1122,6 +1122,8 @@ try{
  PrivateDirectory $work;PublishFacts
  if((Test-Path "$configuration\config.conf") -or (Test-Path "$state\installation.json") -or (Get-Service OpenWebPBX -ErrorAction SilentlyContinue)){throw 'The ephemeral machine already contains a PBX; it is not an empty suite target.'}
  CheckedPython @((Join-Path $source 'tests/windows_voice_installer.py'))
+ & (Join-Path $source 'tests/windows_modern_baseline_gates.ps1') -SourceRoot $source *> (Join-Path $work 'modern-baseline-validator.private.log')
+ if(!$?){throw 'Modern native baseline evidence controls failed.'}
  & (Join-Path $source 'tests/windows_native_services_controls.ps1') -SourceRoot $source *> (Join-Path $work 'native-services-validator.private.log')
  if(!$?){throw 'Extended native qualification evidence controls failed.'}
  & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_legacy_transition.ps1') *> (Join-Path $work 'legacy-source.private.log')
