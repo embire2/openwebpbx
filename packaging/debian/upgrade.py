@@ -100,7 +100,7 @@ def deployment_files(package, manifest):
         # Include stock originals and the version marker before make_backup().
         # Existing strict file/mode/owner recovery covers every replaced voice.
         result.update(voices.payload(package,manifest))
-    for helper in ['configure-sip-tls.py', 'configure-sip-tls.php', 'upgrade.py', 'verify_feed.py', 'release-public.pem', 'backups.py', 'install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py','install-meet.py','meet-nginx.conf','install-mail.py','call-diagnostics.py','openwebpbx-call-diagnostics.service','install-stun.py','openwebpbx-stun.service','openwebpbx-stun.conf','install-tenant-domains.py','tenant-domains.py','tenant-domains.php','tenant-domains-nginx.conf']:
+    for helper in ['configure-sip-tls.py', 'configure-sip-tls.php', 'upgrade.py', 'verify_feed.py', 'release-public.pem', 'backups.py', 'install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py','install-meet.py','meet-nginx.conf','install-mail.py','install-phone-health.py','phone-health.py','phone-health.php','call-diagnostics.py','openwebpbx-call-diagnostics.service','install-stun.py','openwebpbx-stun.service','openwebpbx-stun.conf','install-tenant-domains.py','tenant-domains.py','tenant-domains.php','tenant-domains-nginx.conf']:
         if helper in manifest['files']:
             result[TOOLS / helper] = package / helper
     for service in ['openwebpbx-updater.service', 'openwebpbx-update-recovery.service', 'openwebpbx-backups.service', 'openwebpbx-backups.timer']:
@@ -577,6 +577,9 @@ def finalize_completed(journal):
         domains_helper=TOOLS/'install-tenant-domains.py'
         if domains_helper.is_file():
             run(['python3',str(domains_helper),'--activate'],timeout=60)
+        health_helper=TOOLS/'install-phone-health.py'
+        if health_helper.is_file():
+            run(['python3',str(health_helper),'--activate'],timeout=60)
         save_journal(journal, 'completed', finalization='completed')
 
 

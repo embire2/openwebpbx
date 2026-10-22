@@ -125,7 +125,8 @@ class event_guard_service extends service {
 					$switch_events = [
 						['category' => 'Event-Subclass', 'subcategory' => 'sofia::pre_register'],
 						['category' => 'Event-Subclass', 'subcategory' => 'sofia::register_failure'],
-						['category' => 'Event-Subclass', 'subcategory' => 'event_guard:unblock']
+						['category' => 'Event-Subclass', 'subcategory' => 'event_guard:unblock'],
+						['category' => 'Event-Subclass', 'subcategory' => 'event_guard:phone_health_unblock']
 					];
 
 					// Add the event filters
@@ -164,6 +165,20 @@ class event_guard_service extends service {
 					$this->block_add($json_array['network-ip'], 'sip-auth-fail', $json_array);
 					continue;
 				}
+			}
+
+			// Phone Health has a separate, exact-row request queue. The old worker
+			// never sees legacy pending rows for these requests and safely ignores
+			// this subclass until the updated worker has been installed/restarted.
+			if (is_array($json_array) && ($json_array['Event-Subclass'] ?? '') === 'event_guard:phone_health_unblock') {
+				try {
+					$result = pbx_phone_health_recovery::handle($this->database->db, $this->firewall, $this->hostname,
+						$json_array['OpenWeb-Phone-Health-Block'] ?? null, $json_array['OpenWeb-Phone-Health-Recovery'] ?? null);
+					$this->info('Phone Health recovery: '.($result['status'] ?? 'ignored'));
+				} catch (Throwable $e) {
+					$this->warning('Phone Health recovery could not be confirmed; the request remains available for retry.');
+				}
+				continue;
 			}
 
 			// Sendevent CUSTOM event_guard:unblock

@@ -1,0 +1,23 @@
+# OpenWeb PBX managed Phone Health v1
+[Unit]
+Description=OpenWeb PBX phone and office health observation
+After=postgresql.service freeswitch.service openwebpbx-update-recovery.service
+ConditionPathExists=/etc/fusionpbx/config.conf
+ConditionPathExists=!/var/lib/openwebpbx/updates/maintenance
+ConditionPathExists=!/var/lib/openwebpbx/backup-restore/hold-openwebpbx.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I -B /opt/openwebpbx/tools/phone-health.py
+User=root
+Group=root
+UMask=0077
+TimeoutStartSec=30s
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectHome=true
+# Only the protected Python launcher needs root. It drops groups/GID/UID and
+# sets no-new-privileges in each child before executing any PHP/application code.
+NoNewPrivileges=false
+RestrictSUIDSGID=true
+LimitCORE=0

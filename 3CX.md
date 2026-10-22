@@ -1,5 +1,21 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+## Phone Health & Recovery — hosted Debian live, Windows follow-up — 2026-10-22
+
+**Admin → Phone Health** is live on hosted Debian: current phone/provider health, verified office security blocks, persistent critical banners, useful next steps and controlled recovery in one place. A 30-second monitor keeps incidents current; optional email alerts use the global mail queue and are off by default. Debian recovery supports only one verified IPv4 iptables sign-in block, with owner confirmation, exact security-service acknowledgment and a 15-minute cooldown. IPv6, custom adapters, stale/unverified or shared sources need instance-administrator review. This directly addresses the recent incident where an earlier failed sign-in left one office blocked after its phone settings had been corrected. [Feature, operating guide and verification](docs/phone-health.md). This is a focused hosted patch, not a new complete installer release. The earlier sealed Debian 1.0.20 candidate retains its recorded results, but including Phone Health requires a rebuilt package and fresh installation, upgrade, recovery and restore checks. Windows support remains to be built.
+
+This work belongs to **REPORT-06**, which remains **Partial**. A registration check can prove that a phone has connected; ringing and two-way sound still require an answered call. Service, storage, backup/certificate alerts, diagnostic exports and remote logging retain their own remaining acceptance conditions. Keep **133 IDs / 21 accepted / 72 partial / 40 planned** unchanged.
+
+**Windows Server follow-up — next platform work:**
+
+- [ ] Collect current phone/provider health through protected native Windows services and report a stopped, stale or unavailable collector clearly.
+- [ ] Implement the Windows security-block adapter and verified-source recovery with exact rule ownership, stale-state refusal and audit history. Never turn off the firewall or whitelist an entire office as a repair.
+- [ ] Carry incident detection, administrator alerts and recovery notices across service restarts; use the global outgoing-mail queue with deduplication and visible delivery failures.
+- [ ] Integrate service/task installation, private-file ACLs, maintenance holds, same-version repair, upgrade recovery and encrypted backup/restore.
+- [ ] Repeat owner/staff/department/tenant permission tests through trusted IIS, including denied recovery and foreign-office/provider requests.
+- [ ] Prove offline-phone, provider-failure, security-block and recovery cases on native Windows Server; preserve unrelated rules, active calls, credentials and customer media.
+- [ ] Complete the existing full Windows release gates, including decoded conference media, independent encrypted backup/restore and signed upgrade/recovery, before publishing.
+
 ## Hosted ringing and trunk settings — 2026-10-21
 
 Ring Groups now keep audible ringing while offering member phones, including after an answered receptionist. The owner confirmed that the phones ring, the caller hears ringing and both people hear each other after answering. Ordinary hold music and configured no-answer routes are preserved. Voice & Chat also has owner-only [trunk Options](docs/trunk-options.md) for direction permissions, department use, shared call limits, transport, proxy and secure audio; existing trunks retain their policy until Options is saved. Complete Debian and Windows server **1.0.20** packages are still under qualification and are not published. Current public full Debian remains **1.0.16**, the admin patch is **1.0.19**, and Android remains mandatory **1.0.18**. Other handset, carrier and site-network coverage and the wider roadmap remain separately open.
@@ -367,7 +383,7 @@ Comparison details: [3CX Hotel Module](https://www.3cx.com/docs/hotel-pbx/) and 
 - [ ] **REPORT-03 — Recording controls (Partial).** Expose policy inheritance, start/stop rights, pause/resume and caller consent choices. Done when internal, outside, queued and transferred calls record exactly the permitted portions.
 - [ ] **REPORT-04 — Media lifecycle (Partial).** Add storage usage, configurable retention, archive/retrieval and deletion history. Done when playback permissions and retention remain correct after moves, restores and guest checkout.
 - [ ] **REPORT-05 — Data connections (Build).** Provide scoped call/event exports and supported database/analytics connectors for external dashboards. Done when reconnects and repeated delivery neither lose nor double-count events.
-- [ ] **REPORT-06 — System health and alerts (Partial).** Expose provider/phone status, service failures, disk space, backup/certificate failures and protected diagnostic exports; add remote logging. Done when injected failures produce useful tenant-appropriate alerts without exposing secrets.
+- [ ] **REPORT-06 — System health and alerts (Partial).** Expose provider/phone status, service failures, disk space, backup/certificate failures and protected diagnostic exports; add remote logging. Done when injected failures produce useful tenant-appropriate alerts without exposing secrets. [Phone Health & Recovery](docs/phone-health.md) is live on hosted Debian with verified-office block recovery, persistent incidents and optional global-mail alerts; rebuilt complete installers, Windows native support and the broader system-health criteria remain open.
 
 ## P2 — Business integrations and automation
 

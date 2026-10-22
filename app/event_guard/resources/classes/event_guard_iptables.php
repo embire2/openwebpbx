@@ -50,11 +50,16 @@ class event_guard_iptables implements event_guard_interface {
 		$this->chains[] = 'sip-auth-ip';
 		$this->chains[] = 'sip-auth-fail';
 
-		// Add the chains to active iptables
-		foreach ($this->chains as $chain) {
-			shell_exec($this->firewall_path.' --new ' . $chain . ' >/dev/null 2>&1 &');
-			shell_exec($this->firewall_path.' -I INPUT -j '.$chain . ' >/dev/null 2>&1 &');
-		}
+		// Preserve existing rules and jump order when the worker is restarted.
+		(new pbx_phone_health_firewall($this->firewall_path))->ensureChains();
+	}
+
+	/** Exact, bounded checks used only by the scoped Phone Health consumer. */
+	public function block_state_exact(string $ip_address, string $filter): string {
+		return (new pbx_phone_health_firewall($this->firewall_path))->state($ip_address, $filter);
+	}
+	public function block_delete_exact(string $ip_address, string $filter): bool {
+		return (new pbx_phone_health_firewall($this->firewall_path))->remove($ip_address, $filter);
 	}
 
 	/**

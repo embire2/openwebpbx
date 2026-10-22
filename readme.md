@@ -27,7 +27,7 @@ There is no OpenWeb software licence fee. You control your server and data; host
 | **OpenWebPBX Free Phone** | [Android 1.0.18 APK](https://github.com/embire2/openwebpbx/releases/download/v1.0.18/openwebpbx-1.0.18-android.apk) · [Setup guide](docs/android-tenant-addresses-1.0.18.md) | Native **Android 9+** app. Requires a ready, registered `*.openwebpbx.com` tenant address and compatible server APIs. Mandatory on the hosted instance. Google Play publication is pending. |
 | **Windows Server** | [Historical 1.0.7 archive](https://github.com/embire2/openwebpbx/releases/tag/v1.0.7) · [Historical guide](docs/installing-1.0.7.md) | Earlier native Windows package, tested on **Windows Server 2025 x64 with Desktop Experience**. It does not contain the current Debian feature set. |
 
-**Next complete server release: 1.0.20.** Debian and Windows Server packages are under qualification and are **not published yet**. Follow the [release qualification record](docs/release-1.0.20-qualification.md). Windows 10/11 server installations and a separate Windows calling client are not currently qualified; see the [Windows client plan](docs/windows-client-plan.md).
+**Next complete server release: 1.0.20.** An earlier Debian candidate passed its recorded checks. Including the new Phone Health feature requires a rebuilt Debian package and fresh installation, upgrade, recovery and restore checks; Windows Server qualification also remains open. These packages are **not published yet**. Follow the [release qualification record](docs/release-1.0.20-qualification.md). Windows 10/11 server installations and a separate Windows calling client are not currently qualified; see the [Windows client plan](docs/windows-client-plan.md).
 
 **Android compatibility:** installing 1.0.18 alone does not add tenant-address support to a stock Debian 1.0.16 server. Use the Android version supplied with your server release until its required server support is installed. The hosted instance already has that support; complete self-hosted tenant-address setup is part of server 1.0.20, still under qualification. The [1.0.18 guide](docs/android-tenant-addresses-1.0.18.md) explains the hosted rollout and the separate Debian update-feed compatibility patch. Install app updates over the existing app to retain accounts and settings.
 
@@ -56,6 +56,7 @@ For Android, use **Users → Phone Provisioning → Connect Android App · QR Co
 - **Native mobile calling:** Android voice and optional colleague-to-colleague video, a company directory, recent calls, visible Hold/Resume, transfers, personal settings and multiple tenant profiles on compatible servers. [Android](docs/android.md) · [Video](docs/android-video.md)
 - **Meetings and useful services:** hosted audio/video conferences, UK default voice prompts, own voicemail on **121**, a GMT+2 talking clock on **1026** and optional Call Me Back services. [Meet](docs/meet.md) · [Voicemail and clock](docs/voicemail-and-clock.md) · [Call Me Back](docs/call-me-back.md)
 - **Manageable operations:** encrypted scheduled backups, retention and restore, global outgoing mail, and signed downloads with call-aware update policies and recovery. [Backups](docs/backups.md) · [Updates](docs/updates.md)
+- **Phone Health & Recovery:** see which phones and providers need attention, identify verified office security blocks and request controlled recovery. Live on hosted Debian through a focused patch; inclusion in complete installers and Windows Server support remain on the rollout plan. [Feature guide](docs/phone-health.md)
 
 The desktop provides familiar windows, a searchable Start menu, a centred taskbar and light/dark themes. Administration stays in your browser; the Android app handles calls natively.
 
@@ -69,6 +70,8 @@ OpenWeb PBX is independently developed software. Proprietary 3CX apps and hosted
 
 The published Debian release has documented installation, signed-update/recovery, encrypted restore and software calling checks. The hosted ring-group repair has also been confirmed on an actual outside call: the phones ring, the caller hears ringing and both parties hear each other after answering. Hosted trunk Options and incoming routing are documented in the [core status](docs/core-system-status.md).
 
+Hosted Debian now also provides Phone Health, persistent incident banners and optional administrator emails through the global outgoing-mail queue. Recovery is limited to a verified office sign-in block, with explicit owner confirmation and security-service acknowledgment. [Operating guide and tested limits](docs/phone-health.md).
+
 These results cover their recorded test scope. Broader physical phone/camera coverage, restrictive networks and TURN, measured meeting capacity, carrier cutovers and Google Play acceptance remain open. [Feature coverage](docs/feature-coverage.md) records evidence and limitations; [release qualification](docs/release-1.0.20-qualification.md) tracks the next installers. Recent development details belong there and in [release notes](https://github.com/embire2/openwebpbx/releases), rather than in the installation steps.
 
 ## Documentation
@@ -77,7 +80,7 @@ These results cover their recorded test scope. Broader physical phone/camera cov
 |---|---|---|
 | [Debian installation](docs/installing-1.0.16.md) | [Provider and first calls](docs/core-calling.md) | [Roadmap](3CX.md) |
 | [Android setup](docs/android.md) | [Desk-phone migration](docs/desk-phone-handover.md) | [Feature coverage](docs/feature-coverage.md) |
-| [Remote Yealink W60B](docs/yealink-w60b-remote.md) | [Backups and restore](docs/backups.md) | [Core system status](docs/core-system-status.md) |
+| [Remote Yealink W60B](docs/yealink-w60b-remote.md) | [Phone health and recovery](docs/phone-health.md) · [Backups](docs/backups.md) | [Core system status](docs/core-system-status.md) |
 | [Tenant addresses](docs/tenant-phone-accounts.md) | [Meetings](docs/meet.md) | [Windows calling-client plan](docs/windows-client-plan.md) |
 
 ## Help shape OpenWeb PBX

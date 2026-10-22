@@ -129,7 +129,7 @@ if not a.local_certificate:
 # current trusted helper while a candidate is staged and verified.
 release=P('VERSION').read_text().strip()
 tools=P('/opt/openwebpbx/tools');tools.mkdir(parents=True,exist_ok=True,mode=0o755)
-for name in ['upgrade.py','verify_feed.py','release-public.pem','configure-sip-tls.py','configure-sip-tls.php','backups.py','install-backups.sh','install-support.py','install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py','install-meet.py','meet-nginx.conf','install-mail.py','call-diagnostics.py','openwebpbx-call-diagnostics.service','install-stun.py','openwebpbx-stun.service','openwebpbx-stun.conf']:
+for name in ['upgrade.py','verify_feed.py','release-public.pem','configure-sip-tls.py','configure-sip-tls.php','backups.py','install-backups.sh','install-support.py','install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py','install-meet.py','meet-nginx.conf','install-mail.py','install-phone-health.py','phone-health.py','phone-health.php','call-diagnostics.py','openwebpbx-call-diagnostics.service','install-stun.py','openwebpbx-stun.service','openwebpbx-stun.conf']:
  shutil.copy(name,tools/name);(tools/name).chmod(0o644)
 slot=P('/opt/openwebpbx/updater/slots')/release
 shutil.copytree('updater',slot)
@@ -146,5 +146,6 @@ run(['systemctl','daemon-reload']);run(['systemctl','enable','--now','openwebpbx
 run(['bash','install-backups.sh'])
 run(['python3','install-tenant-domains.py','--activate'])
 run(['python3','install-mail.py','--activate'])
+run(['python3','install-phone-health.py','--activate'])
 if a.stun:run(['python3','install-stun.py','--install-package','--listen-ip',a.address,'--activate'])
 print('Admin is ready at https://'+a.domain)
