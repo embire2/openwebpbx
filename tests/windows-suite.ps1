@@ -1207,7 +1207,6 @@ function MeetingTransportHook {
   }
   $report=$out|ConvertFrom-Json
   if($report.schema -ne 1 -or !$report.installed -or $report.checks -lt 49){throw 'The installed meeting transport evidence is incomplete.'}
-  DtlsQualificationHook
   $facts.gates.meeting_transport='passed';$facts.checks+=('Actual strict Windows backend TLS and IIS SIP WebSocket controls: '+$report.checks)
  }finally{$process.Dispose()}
 }
@@ -1362,6 +1361,7 @@ try{
  $facts.gates.fresh='passed';$facts.checks+=('Real restore-ready fresh installation/services/native engine hash preservation')
  $phase='native PHP runtime qualification';PhpRuntimeQualificationHook
  $phase='native web readiness qualification';WebReadinessHook
+ $phase='native DTLS qualification';DtlsQualificationHook
  if(!$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly){$phase='native STUN qualification';StunHook;$phase='native phone health qualification';PhoneHealthAcceptanceHook ([DateTime]::UtcNow)}
  $phase='native tenant-domain qualification';TenantDomainsAcceptanceHook ([DateTime]::UtcNow)
  $phase='meeting transport qualification';MeetingTransportHook
