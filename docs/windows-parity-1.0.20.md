@@ -15,16 +15,24 @@ native Windows server.
 |---|---|---|
 | Phone Health & Recovery | Native components passed16 Defender and62 SYSTEM checks; durable-intent policy passed96 isolated PostgreSQL controls. Complete source `568b3ab5f` passed installed observer/restart checks, then failed the actual ESL→Defender→SQL worker gate at firewall preflight. Separate repairs pass **26** actual Windows PHP subscription controls and **four** native empty-policy query controls, including old-source negatives. | Rebuild the complete package and pass actual event-to-block-to-recovery, negative permissions, unchanged firewall policy, restart and restore. Loopback/component checks alone do not qualify this flow. |
 | Remote phones | Native .NET STUN Binding worker and setup are implemented. The current package passed33 installed Windows checks, including actual service/Defender activation, decoded modern/legacy Binding and recovery.146 separate NTFS/interruption controls use service/firewall doubles. Existing PBX-anchored audio and restored sign-in identities remain. | External test-machine Binding and phone/client acceptance; Windows IPv6 remains separate. STUN is not TURN. |
-| Conferences | Corrected native engine passes all16 ordinary/fragmented small/8KiB frontend/backend OPTIONS exchanges. Browser admission reaches the engine, but SIP488 still prevents media negotiation. | Resolve negotiation, then decoded browser/phone audio and VP8, host actions and exact cleanup. |
+| Conferences | Corrected native engine passes all16 ordinary/fragmented small/8KiB frontend/backend OPTIONS exchanges. Browser admission reaches the engine, but media remains unqualified. A separate read-only check confirms the stock Windows engine generated an already-expired DTLS certificate through a date-calculation overflow; a guarded pre-start repair is being tested. | Qualify the certificate repair and negotiation, then decoded browser/phone audio and VP8, host actions and exact cleanup. Preserve valid custom certificates and destination-owned identity during restore. |
 | Backups and restore | Scheduled-job choices are preserved. Restored pending phone-unblock requests are refused before background work resumes; other recovery history is retained. | Complete encrypted backup, same-machine failure recovery, distinct clean-server restore, media/key preservation and explicit activation. |
 | Updates | New protected tools and health task are included in installation and recovery inventory. The legacy transition accepts current signed releases rather than only 1.0.13. **11** native guard controls distinguish actual Windows contention from permission/path failures; the tenant worker defers only on the typed busy result. | Rebuilt complete-package fresh setup, same-version repair, late-failure recovery and a signed newer-version upgrade with natural restart. |
 | Public access | Existing trusted IIS, secure-phone and managed tenant-address implementations remain. | Actual public certificate issuance/renewal and external tenant/Android connections on the test machine. |
-| Existing calling suite | Users, departments, groups, queues, voicemail121, recording, hotel services and mail have native fixtures. Mandatory clock1026, Call Me Back and simulated provider-failover cases are implemented in the current test suite; earlier failures have prevented their execution. | Repeat the complete native suite against the combined current-source package, including decoded media and protected-data checks. |
+| Existing calling suite | The unchanged-package diagnostic replay passes decoded TLS two-way calling, independent G729/PCMU transcoding and three decoded clock1026 announcements. The first fictional provider call then fails; Call Me Back and later groups, queues, voicemail121, recording, hotel and mail cases remain unqualified against this package. | Resolve the provider failure and repeat the complete native suite against the combined current-source package, including decoded media and protected-data checks. |
 
 The owner's test machine is Windows Server 2025. Its original 1.0.6 installation
 was found with PBX services stopped; its data and configuration are being
 preserved before migration. Private access details and customer/test evidence
 remain outside the public repository.
+
+The test machine unexpectedly rebooted while its original file archive was
+being copied, before any preview installation. A read-only comparison after the
+reboot confirms all138 original public-table multisets,18 roles and506 relation
+owner/permission records remain exact. The verified archive prefix is retained;
+the missing tail and final complete archive verification remain in progress.
+The crash reports are preserved privately. This interruption is not a controlled
+reboot or recovery-test pass.
 
 The current complete run is39835943565 at source568b3ab5f. Its installer passed
 an independent check of every payload hash, immutable source mappings, original
@@ -57,6 +65,14 @@ to independent diagnostics requires exact timed public table/catalogue/namespace
 firewall, engine, identity and task preservation, an empty response spool,
 stopped owned children and a resumed SYSTEM observer. The failed gate and
 release/owner-update ineligibility remain recorded.
+
+A further diagnostic replay39850187983 uses the same untouched package and
+test-only provider observations: SIP response codes, bounded invite counts,
+PCMU/PCMA offer flags and gateway-state enums. Raw SIP, credentials and customer
+identities are excluded from public facts. Its source projections pass seven
+Python checks and459 actual PowerShell controls; these are diagnostic controls,
+not successful provider calls. This replay intentionally cannot qualify a
+release, upgrade or backup.
 
 The explicit custom-event subscription, exact empty-firewall-query handling and typed maintenance-contention repairs
 change product bytes. They require a newly built final Windows archive and
