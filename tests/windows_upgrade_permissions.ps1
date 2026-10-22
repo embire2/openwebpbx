@@ -128,8 +128,8 @@ try{
  $scope=Get-OpenWebUpgradePermissionScope -Root $root -StateRoot $state -EngineRoot $engine
  $expectedFiles=@($php,(Join-Path $root 'php/extras/ssl/openssl.cnf'),(Join-Path $root 'php/extras/ssl/cacert.pem'),(Join-Path $state 'native-engine.json'),(Join-Path $state 'local-codec.json'),(Join-Path $state 'meet-ca.pem'),(Join-Path $state 'meet-proxy.json'),(Join-Path $state 'phone-health-instance.json'),(Join-Path $state 'stun.json'),(Join-Path $engine 'libbcg729.dll'))
  AssertControl ($scope.Files.Count -eq 10 -and !(Compare-Object ($scope.Files|Sort-Object) ($expectedFiles|Sort-Object)))
- $expectedDirectories=@('mobile-notifications','mail','meet-proxy','stun-setup','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','storage/openweb-music'|ForEach-Object {Join-Path $state $_})
- AssertControl ($scope.Directories.Count -eq 11 -and !(Compare-Object ($scope.Directories|Sort-Object) ($expectedDirectories|Sort-Object)))
+ $expectedDirectories=@('mobile-notifications','mail','meet-proxy','stun-setup','phone-health-runtime','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','storage/openweb-music'|ForEach-Object {Join-Path $state $_})
+ AssertControl ($scope.Directories.Count -eq 12 -and !(Compare-Object ($scope.Directories|Sort-Object) ($expectedDirectories|Sort-Object)))
  foreach($name in 'installation.json','runtime.json','updater-install.json','updater-original-startup.json'){
   AssertControl (!(($scope.Files -join '|').Contains($name)))
  }
