@@ -269,6 +269,17 @@ try{
   Check ($dtlsProof.state -is [string] -and $dtlsProof.state -ceq 'passed') 'The current native DTLS qualification must pass.'
   foreach($field in 'actual_native_windows','transaction_service_adapter_double'){Check ($dtlsProof.$field -is [bool] -and $dtlsProof.$field -eq $true) 'The native DTLS scope and explicit service-adapter double must match.'}
   foreach($limit in @(@('transaction_checks',62),@('crypto_checks',12),@('installed_checks',12))){$value=$dtlsProof.($limit[0]);Check (($value -is [int] -or $value -is [long]) -and $value -ge $limit[1] -and $value -le 10000) 'Every current native DTLS proof count must be complete and bounded.'}
+  $phpProof=$baseFacts.php_runtime_qualification
+  Check ($null -ne $phpProof -and ($phpProof -is [pscustomobject] -or $phpProof -is [Collections.IDictionary]) -and $phpProof -isnot [Array]) 'The complete current native PHP runtime proof is required.'
+  Check ($phpProof.state -is [string] -and $phpProof.state -ceq 'passed' -and $phpProof.version -is [string] -and $phpProof.version -ceq '8.4.27') 'The current pinned PHP security runtime must be qualified.'
+  Check ($phpProof.actual_native -is [bool] -and $phpProof.actual_native -eq $true -and $phpProof.installed_server_changed -is [bool] -and $phpProof.installed_server_changed -eq $false) 'The native PHP fixture scope must match.'
+  Check (($phpProof.checks -is [int] -or $phpProof.checks -is [long]) -and $phpProof.checks -ge 3000 -and $phpProof.checks -le 100000 -and ($phpProof.vendor_files -is [int] -or $phpProof.vendor_files -is [long]) -and $phpProof.vendor_files -eq 79) 'The complete native PHP control and vendor inventories are required.'
+  $recoveryProof=$baseFacts.upgrade_recovery_qualification
+  Check ($null -ne $recoveryProof -and ($recoveryProof -is [pscustomobject] -or $recoveryProof -is [Collections.IDictionary]) -and $recoveryProof -isnot [Array]) 'The complete current native upgrade recovery proof is required.'
+  Check ($recoveryProof.state -is [string] -and $recoveryProof.state -ceq 'passed' -and $recoveryProof.updater_scope -is [string] -and $recoveryProof.updater_scope -ceq 'candidate_component' -and $recoveryProof.updater_version -is [string] -and $recoveryProof.updater_version -ceq $BaseVersion) 'The actual recovery entry must use the exact candidate updater.'
+  foreach($field in 'actual_native_windows','actual_configured_updater_boot'){Check ($recoveryProof.$field -is [bool] -and $recoveryProof.$field -eq $true) 'Actual native configured-updater recovery entry evidence is required.'}
+  Check ($recoveryProof.installed_server_changed -is [bool] -and $recoveryProof.installed_server_changed -eq $false) 'The recovery component fixture must preserve the installed server.'
+  foreach($limit in @(@('integration_checks',64),@('native_checks',202))){$value=$recoveryProof.($limit[0]);Check (($value -is [int] -or $value -is [long]) -and $value -ge $limit[1] -and $value -le 100000) 'The complete bounded current recovery entry matrices are required.'}
  }
  Check ($baseFacts.cleanup -eq 'owned services stopped, SFTP receiver/account removed, hostname removed, activation holds preserved') 'The qualified baseline must have completed its exact owned cleanup.'
  $base=Join-Path $candidate.directory ("openwebpbx-$BaseVersion-windows-x64.zip")
