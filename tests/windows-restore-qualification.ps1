@@ -313,7 +313,7 @@ $r=Get-Content -LiteralPath $InputFile -Raw|ConvertFrom-Json
   EnableTargetTls;NativeFixture 'native-source';NativeFixture 'export-source';AssertBackupTask
  }else{
   $originalTaskStates=@{}
-  foreach($name in 'OpenWebPBX-Cleanup','OpenWebPBX Outgoing Mail','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate'){$task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue;if($task){$originalTaskStates[$name]=[bool]$task.Settings.Enabled}}
+  foreach($name in 'OpenWebPBX-Cleanup','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate'){$task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue;if($task){$originalTaskStates[$name]=[bool]$task.Settings.Enabled}}
   NativeFixture 'late-restore';NativeFixture 'restore'
   $currentBinding=Set-SuiteFixtureBinding -Read
   Check ([Convert]::ToHexString($currentBinding.hash) -eq $pki.leaf.Thumbprint -and $currentBinding.store -eq 'My') 'Restore changed the replacement machine actual IIS certificate binding.'
@@ -352,7 +352,7 @@ $r=Get-Content -LiteralPath $InputFile -Raw|ConvertFrom-Json
  try{
   if($installed){
    foreach($name in 'OpenWebPBXUpdater','OpenWebPBX','FreeSWITCH'){Stop-Service $name -Force -ErrorAction SilentlyContinue}
-   foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-Cleanup','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate','OpenWebPBX-Updater-Restart'){$task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue;if($task){Disable-ScheduledTask -InputObject $task|Out-Null;Stop-ScheduledTask -InputObject $task -ErrorAction SilentlyContinue}}
+   foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Cleanup','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate','OpenWebPBX-Updater-Restart'){$task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue;if($task){Disable-ScheduledTask -InputObject $task|Out-Null;Stop-ScheduledTask -InputObject $task -ErrorAction SilentlyContinue}}
    # Stop only the installer-created PostgreSQL service, never another instance.
    $pg=@(Get-CimInstance Win32_Service|Where-Object {$_.Name -like 'OpenWebPBX*' -and $_.PathName -like '*C:\OpenWebPBX\pgsql*'})
    foreach($service in $pg){Stop-Service $service.Name -Force -ErrorAction SilentlyContinue}

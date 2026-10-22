@@ -321,7 +321,10 @@ class RestoreCombinedActivationControls(unittest.TestCase):
         self.assertEqual(self.fixture.facts['gates'],{'explicit_restored_updates_activation':'passed','explicit_restored_backups_activation':'passed'})
         self.assertFalse(self.b.held('updates'));self.assertFalse(self.b.held('backups'))
         ps=(HERE/'windows-restore-qualification.ps1').read_text()
-        self.assertIn("NativeFixture 'activate-calls';NativeFixture 'native-target';NativeFixture 'job'",ps)
+        # Actual clock qualification now runs between media and jobs. Preserve
+        # the activation ordering without requiring adjacent source tokens.
+        ordered=[ps.index("NativeFixture '"+name+"'") for name in ('activate-calls','native-target','job','activate-updates-backups','target-backup')]
+        self.assertEqual(ordered,sorted(ordered))
         self.assertIn("NativeFixture 'activate-updates-backups';NativeFixture 'target-backup';AssertBackupTask",ps)
         self.assertIn("foreach($name in 'FreeSWITCH','OpenWebPBX','OpenWebPBXUpdater'){AssertRestoredServiceActivation $name}",ps)
 

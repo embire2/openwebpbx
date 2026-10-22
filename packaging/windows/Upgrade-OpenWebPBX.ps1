@@ -424,11 +424,13 @@ try {
  StartPbx; ResumeEngine; $stopped = $false; CheckHealth $version
  if(Test-Path "$payload\updater\OpenWebPbx.Updater.exe"){& "$payload\Install-Updater.ps1" -PackageRoot $payload -DeferRestart}
  SaveJournal 'completed'
- Enable-ScheduledTask -TaskName OpenWebPBX-Backups | Out-Null
- Enable-ScheduledTask -TaskName 'OpenWebPBX Outgoing Mail' | Out-Null
  $originalSupport=Get-Content "$backup\support-state.json" -Raw|ConvertFrom-Json
- $originalTenantTask=$originalSupport.Tasks.PSObject.Properties['OpenWebPBX-TenantDomains']
- if(!$originalTenantTask -or !$originalTenantTask.Value.Exists -or $originalTenantTask.Value.Enabled){Enable-ScheduledTask -TaskName 'OpenWebPBX-TenantDomains'|Out-Null}
+ foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains'){
+  $originalTask=$originalSupport.Tasks.PSObject.Properties[$name]
+  if($originalTask -and ($originalTask.Value.Exists -isnot [bool] -or $originalTask.Value.Enabled -isnot [bool])){throw 'The original background-task enabled choice is invalid.'}
+  if(!$originalTask -or !$originalTask.Value.Exists -or $originalTask.Value.Enabled){Enable-ScheduledTask -TaskName $name|Out-Null}
+  else{Disable-ScheduledTask -TaskName $name|Out-Null}
+ }
  if(Get-ScheduledTask -TaskName OpenWebPBX-Cleanup -ErrorAction SilentlyContinue){
   $support=Get-Content "$backup\support-state.json" -Raw|ConvertFrom-Json
   if($support.Tasks.'OpenWebPBX-Cleanup'.Enabled){Enable-ScheduledTask -TaskName OpenWebPBX-Cleanup|Out-Null}
