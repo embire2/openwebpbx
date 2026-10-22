@@ -205,7 +205,8 @@ if($action==='provider-observations'){
  if(!is_array($plan))throw new RuntimeException('The actual runtime plan did not return a JSON object.');
  $runtime=[];
  try{$probe=__DIR__.'/windows_provider_runtime.lua';if(!is_file($probe)||is_link($probe))throw new RuntimeException('The read-only native policy observer is unavailable.');
-  $rawRuntime=event_socket::api('lua "'.str_replace('\\','/',$probe).'" '.$domain.' '.$number);if(strlen($rawRuntime)>8192)throw new RuntimeException('The native provider observation exceeds its bound.');$runtime=json_decode($rawRuntime,true,32,JSON_THROW_ON_ERROR);
+  if(str_contains($probe,"'"))throw new RuntimeException('The owned observer path cannot be quoted.');
+  $rawRuntime=event_socket::api("lua '".str_replace('\\','/',$probe)."' ".$domain.' '.$number);if(strlen($rawRuntime)>8192)throw new RuntimeException('The native provider observation exceeds its bound.');$runtime=json_decode($rawRuntime,true,32,JSON_THROW_ON_ERROR);
  }catch(Throwable $ignored){} // Preserve actual SQL/plan evidence and original call failure.
  echo json_encode(['schema'=>1,'attempts'=>$attempts,'plan'=>windows_provider_plan($plan,$s['providers'],$actualRule['name']),'runtime'=>$runtime],JSON_THROW_ON_ERROR);exit;
 }
