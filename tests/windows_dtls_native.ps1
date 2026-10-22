@@ -109,6 +109,25 @@ try{
  Refuse {Install-OpenWebDtls -PackageRoot $package -Root $PhpRoot -State $state -Certificate $certificate -Recover};Check (Test-Path -LiteralPath (Join-Path $foreignStage 'foreign.key'))
  Check ((Get-Acl -LiteralPath (Split-Path $certificate)).Sddl -ceq $certDirectoryAcl -and (Get-OpenWebDtlsHash $unrelated) -ceq $unrelatedHash)
  Check ($script:service.start_mode -ceq 'Disabled' -and (Get-OpenWebDtlsHash (Join-Path $package 'Dtls.Common.ps1')) -ceq $sourceHash)
+ # Stock MSI has not yet created cert/ before the first engine start.
+ $state=Join-Path $work 'fresh-state';[void][IO.Directory]::CreateDirectory($state);$certificate=Join-Path $work 'fresh-cert\dtls-srtp.pem';$parent=Split-Path $certificate
+ Check (!(Test-Path -LiteralPath $parent));Install
+ Check ((Validate $certificate) -ceq 'valid' -and (Test-Path -LiteralPath $parent -PathType Container))
+ $transaction=LastTransaction;$journal=Read-OpenWebDtlsJournal $transaction $certificate
+ Check (!$journal.parent_before_exists -and $journal.parent_create_intent -and $journal.parent_created -and $journal.parent_path -ceq $parent -and (Get-Acl -LiteralPath $parent).Sddl -ceq $journal.parent_desired_sddl)
+ Refuse {New-OpenWebDtlsCertificateDirectory $parent $journal.parent_desired_sddl}
+ $foreign=Join-Path $parent 'customer-key.pem';[IO.File]::WriteAllText($foreign,'unrelated key');$hash=Get-OpenWebDtlsHash $certificate
+ Refuse {Undo-OpenWebDtls $transaction $certificate};Check ((Get-OpenWebDtlsHash $certificate) -ceq $hash -and [IO.File]::ReadAllText($foreign) -ceq 'unrelated key')
+ Remove-Item -LiteralPath $foreign -Force
+ $changed=New-OpenWebDtlsAcl -Directory;$changed.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]'S-1-5-32-545','ReadAndExecute','Allow'));Set-Acl -LiteralPath $parent -AclObject $changed
+ Refuse {Undo-OpenWebDtls $transaction $certificate};Check ((Get-OpenWebDtlsHash $certificate) -ceq $hash)
+ Set-OpenWebFileSddl -LiteralPath $parent -Sddl $journal.parent_desired_sddl
+ Undo-OpenWebDtls $transaction $certificate;Check (!(Test-Path -LiteralPath $parent))
+ # Actual interrupted state immediately after atomic parent creation, before
+ # parent_created is flushed and before any installed certificate bytes exist.
+ $journal.state='applying';$journal.parent_created=$false;Write-OpenWebDtlsJournal (Join-Path $transaction 'journal.json') $journal
+ New-OpenWebDtlsCertificateDirectory $parent $journal.parent_desired_sddl
+ Undo-OpenWebDtls $transaction $certificate;Check (!(Test-Path -LiteralPath $parent) -and (Read-OpenWebDtlsJournal $transaction $certificate).state -ceq 'recovered')
  $report=[ordered]@{schema=1;producer='windows_dtls_native.ps1';state='passed';actual_native_windows=$true;actual_openssl=$true;native_ntfs_transactions=$true;service_adapter_double=$true;calling_engine_started=$false;firewall_or_trust_modified=$false;checks=$checks;crypto_checks=[int]$crypto.checks}
  if($ReportPath){$report|ConvertTo-Json -Depth 5|Set-Content -LiteralPath $ReportPath -Encoding UTF8};$report|ConvertTo-Json -Compress
 }finally{if(Test-Path -LiteralPath $work){Remove-Item -LiteralPath $work -Recurse -Force}}

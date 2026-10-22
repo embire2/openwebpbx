@@ -21,8 +21,10 @@ owned calling service stopped, it:
   administrator review and remain unchanged.
 - Generates an RSA4096/SHA256 certificate with a ten-year lifetime. Its private
   file grants access only to administrators, SYSTEM and the actual calling
-  service identity. The existing certificate directory is required and retains
-  its permissions and unrelated files.
+  service identity. An existing certificate directory retains its permissions and unrelated
+  files. For a fresh MSI installation, the known absent directory is created
+  atomically with protected administrator/SYSTEM access and directory access
+  for the calling service. Its original absence is recorded before creation.
 - Retains protected original bytes and permissions, desired bytes, and a
   flushed machine-bound journal before replacing the installed file. Recovery
   refuses foreign file bytes, permissions, service identity or damaged backups.
@@ -44,6 +46,8 @@ two-way audio and VP8 meeting tests must also pass.
 
 Portable backup restore preserves the destination's media identity. Failed
 installation/upgrade recovery instead restores the original machine's exact
-certificate bytes, permissions and transaction state. Do not copy an old
+certificate bytes, permissions, original parent-directory presence and
+transaction state. A newly created parent is removed only after verifying its
+owned permissions and that no unrelated files remain. Do not copy an old
 invalid certificate over a repaired installation or publish an older archive
 as if it contained this correction.

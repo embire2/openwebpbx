@@ -1146,7 +1146,7 @@ function DtlsQualificationHook {
   }
   if($report.schema -ne 1 -or $report.producer -cne 'windows_dtls_qualification.ps1' -or $report.state -cne 'passed'){throw 'Native DTLS evidence is incomplete.'}
   foreach($field in 'actual_native_windows','private_certificate_valid','installed_engine_untouched','native_ntfs_transactions','transaction_service_adapter_double'){if($report.$field -isnot [bool] -or !$report.$field){throw 'The actual native DTLS proof is invalid.'}}
-  foreach($limit in @(@('transaction_checks',52),@('crypto_checks',12),@('installed_checks',12))){$value=$report.($limit[0]);if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt $limit[1] -or $value -gt 10000){throw 'The native DTLS proof count is invalid.'}}
+  foreach($limit in @(@('transaction_checks',62),@('crypto_checks',12),@('installed_checks',12))){$value=$report.($limit[0]);if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt $limit[1] -or $value -gt 10000){throw 'The native DTLS proof count is invalid.'}}
   $facts.dtls_qualification=@{state='passed';transaction_checks=$report.transaction_checks;crypto_checks=$report.crypto_checks;installed_checks=$report.installed_checks;transaction_service_adapter_double=$true;actual_native_windows=$true}
  }finally{$process.Dispose()}
 }

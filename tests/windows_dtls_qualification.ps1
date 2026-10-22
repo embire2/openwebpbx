@@ -8,7 +8,7 @@ try{
  if(!$?){throw 'Native DTLS transaction controls failed.'}
  $native=Get-Content -LiteralPath $nativeReport -Raw|ConvertFrom-Json
  foreach($field in 'actual_native_windows','actual_openssl','native_ntfs_transactions','service_adapter_double'){if($native.$field -isnot [bool] -or !$native.$field){throw 'Native DTLS transaction evidence is incomplete.'}}
- if($native.schema -ne 1 -or $native.state -cne 'passed' -or $native.producer -cne 'windows_dtls_native.ps1' -or $native.calling_engine_started -isnot [bool] -or $native.calling_engine_started -or $native.firewall_or_trust_modified -isnot [bool] -or $native.firewall_or_trust_modified -or $native.checks -lt 52 -or $native.crypto_checks -lt 12){throw 'Native DTLS transaction evidence is invalid.'}
+ if($native.schema -ne 1 -or $native.state -cne 'passed' -or $native.producer -cne 'windows_dtls_native.ps1' -or $native.calling_engine_started -isnot [bool] -or $native.calling_engine_started -or $native.firewall_or_trust_modified -isnot [bool] -or $native.firewall_or_trust_modified -or $native.checks -lt 62 -or $native.crypto_checks -lt 12){throw 'Native DTLS transaction evidence is invalid.'}
  $stage='installed';$installedReport=Join-Path $work 'dtls-installed.json'
  & (Join-Path $SourceRoot 'tests\windows_dtls_installed.ps1') -PackageRoot $PackageRoot -ReportPath $installedReport *> (Join-Path $work 'dtls-installed.private.log')
  if(!$?){throw 'Installed DTLS identity controls failed.'}

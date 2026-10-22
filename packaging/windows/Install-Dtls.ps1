@@ -16,5 +16,4 @@ foreach($access in 'Read','Write'){
  if(!$blocked){$exclusive=$false}
 }
 if(!$exclusive){throw 'The PBX maintenance stream does not hold an exclusive native file lock.'}
-if(!(Test-Path -LiteralPath ([IO.Path]::GetDirectoryName($certificate)) -PathType Container)){throw 'The owned call-engine certificate directory is required; no parent permissions were changed.'}
 Install-OpenWebDtls -PackageRoot $PackageRoot -Root $root -State $state -Certificate $certificate -Recover:$Recover
