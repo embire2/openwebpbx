@@ -13,7 +13,7 @@ native Windows server.
 
 | Area | Current work | Required acceptance |
 |---|---|---|
-| Phone Health & Recovery | Actual native worker and installed observer/restart checks pass, followed by a refused whole-database comparison. An isolated real updater/database check proves its heartbeat writes while the maintenance lock is held. Revised QA pauses only the exact owned updater and restores its original service/task state; every row and namespace remains compared. | Pass the rebuilt complete event-to-block-to-recovery, negative-permission, firewall, restart and restore gate. The isolated heartbeat proof does not retrospectively identify the historical changed object. |
+| Phone Health & Recovery | Normal run39864760800 passes the complete installed gate:96 PostgreSQL,49 runtime and18 Defender controls, including continuous SYSTEM observation, restart and exact cleanup. QA pauses only the exact owned updater during whole-state comparisons and restores its original choices. | Repeat this gate in the final archive and qualify upgrade/restore integration. The isolated heartbeat proof does not retrospectively identify the historical changed object. |
 | Remote phones | Native .NET STUN Binding worker and setup are implemented. The current package passed33 installed Windows checks, including actual service/Defender activation, decoded modern/legacy Binding and recovery.146 separate NTFS/interruption controls use service/firewall doubles. Existing PBX-anchored audio and restored sign-in identities remain. | External test-machine Binding and phone/client acceptance; Windows IPv6 remains separate. STUN is not TURN. |
 | Conferences | Corrected native engine passes all16 ordinary/fragmented small/8KiB frontend/backend OPTIONS exchanges. The rebuilt fresh package now passes actual installed private DTLS certificate checks after repairing the stock date overflow. Browser media remains unqualified. | Prove negotiation, decoded browser/phone audio and VP8, host actions and exact cleanup. Preserve valid custom certificates and destination-owned identity during restore. |
 | Backups and restore | Scheduled-job choices are preserved. Restored pending phone-unblock requests are refused before background work resumes; other recovery history is retained. | Complete encrypted backup, same-machine failure recovery, distinct clean-server restore, media/key preservation and explicit activation. |
@@ -165,7 +165,14 @@ a manager window alone does not qualify PBX calling or migration.
 
 Normal run39864760800 at85dfe6525 combines the new manager, revised Health
 preservation checks,202 native recovery-entry controls and corrected local
-fictional-provider endpoints. It remains ineligible for owner migration or
+fictional-provider endpoints. Its full installed Health gate passes, along with
+fresh installation, trusted web29, STUN33, tenant75 and meeting transport49.
+Native TLS audio, independent G729 transcoding and clock cases pass individually.
+The first provider case returns404 before any provider attempt or INVITE;
+later native calling and meeting gates remain unqualified. A new QA correction
+separates the fictional incoming-provider allowlist from the ordinary test
+phone's shared network address. Its causal effect still needs native execution.
+The package remains ineligible for owner migration or
 publication: a subsequent16-control native reproduction proves a later boot
 window in updater service selection. A running new updater can survive the
 recovery mirror even when robocopy reports accepted exit3. After stopping that
@@ -174,6 +181,25 @@ Service selection must move after the durable commit, completed transactions
 must finish selection safely after a restart, and recovery must verify its
 actual result. The corrected runtime requires a rebuilt full archive; individual
 passing gates from85 remain useful evidence only.
+
+Runtime correction1a263217e now stages the new updater before commit, selects
+its service only after the durable completed journal, and retries pending
+finalization after boot without replaying an administrator's later task choices.
+Recovery refuses an incomplete updater-slot mirror. Actual Windows controls pass
+133 commit/interruption cases and53 guards, including three real child
+terminations, running-image refusal/retry and legacy dependency recovery. Service
+selection uses an explicitly reported adapter double; these controls do not
+qualify actual installed SCM handover. Root independently verified all12 source
+pins and repeated53 guard,64 integration and183 receipt controls. Actual
+original-updater managed bootstrap recovery separately passes202 controls.
+
+The original1.0.6 verifier enforces the signed minimum version even for offline
+verification. The ordinary Windows20 feed therefore retains minimum20, while
+the explicit one-time transition uses a separate signed minimum3 envelope and
+private verification context. Native checks against the original executable
+prove ordinary-feed refusal, two valid manual extractions, tampering/replay
+refusal and unchanged live trust/configuration/service state. Full signed
+original-installation migration remains pending. See [upgrade guidance](windows-upgrade.md).
 
 Publishing Windows must retain the exact currently published Android18 and
 Debian16 signed feeds. Their public bytes and signatures have been independently

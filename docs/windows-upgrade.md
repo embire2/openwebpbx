@@ -14,6 +14,26 @@ then invokes the verified transaction helper. The former 1.0.13-only guard would
 refuse a current release and has been corrected. Boundary checks are distinct
 from the pending real signed migration on the original machine.
 
+The ordinary Windows feed requires an installed 1.0.20 or newer, keeping older
+automatic helpers from applying a package they cannot safely recover. A legacy
+installation instead uses the separately signed
+`windows-legacy-transition-manifest.json` with the matching complete archive and
+`Upgrade-LegacyWindows.ps1`. This explicit transition verifies through the
+original executable in a private, temporary verification context. It still
+checks the real installed version and preserves the ordinary feed's trust
+history; it does not lower that history to accept another feed. Both signature
+checks precede applying the package. The real original-machine transition and
+its final signed artifacts remain pending qualification.
+
+After that release is qualified, run its matching transition from an
+Administrator Windows PowerShell window:
+
+```powershell
+.\Upgrade-LegacyWindows.ps1 -Archive .\openwebpbx-1.0.20-windows-x64.zip -FeedEnvelope .\windows-legacy-transition-manifest.json -TargetVersion 1.0.20
+```
+
+The manual transition envelope is not the automatic `windows-update-manifest.json`.
+
 Use only the qualified package's matching instructions and signed Windows feed.
 Do not run a fresh installer over an existing installation. Preserved disabled
 background jobs remain disabled, and restored pending phone-unblock requests are

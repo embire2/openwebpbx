@@ -189,6 +189,62 @@ class PlatformFeedChecks(unittest.TestCase):
         result = self.sign('1.0.13', '113', self.windows, ['--windows', str(self.package)])
         self.assertNotEqual(result.returncode, 0)
 
+    def test_manual_legacy_envelope_keeps_automatic_feed_exact(self):
+        automatic = self.windows.read_bytes()
+        package = self.root / 'openwebpbx-1.0.20-windows-x64.zip'
+        package.write_bytes(b'disposable manual transition artifact')
+        manual = self.root / 'windows-legacy-transition-manifest.json'
+        result = self.sign('1.0.20', '119', manual,
+                           ['--legacy-windows-transition', '--windows', str(package)])
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        payload, _ = verify(manual.read_bytes(), self.public)
+        asset = select_asset(payload, 'windows-x64', '1.0.6', '1.0.20')
+        self.assertEqual(asset['minimum_version'], '1.0.3')
+        self.assertEqual(asset['sha256'], hashlib.sha256(package.read_bytes()).hexdigest())
+        self.assertEqual(self.windows.read_bytes(), automatic)
+        self.assertEqual(self.generic.read_bytes(), self.reference)
+
+    def test_manual_legacy_signer_cannot_overwrite_normal_feeds(self):
+        package = self.root / 'openwebpbx-1.0.20-windows-x64.zip'
+        package.write_bytes(b'disposable manual transition artifact')
+        for output in (self.windows, self.generic, self.root / 'debian-update-manifest.json'):
+            before = output.read_bytes() if output.exists() else None
+            result = self.sign('1.0.20', '119', output,
+                               ['--legacy-windows-transition', '--windows', str(package)])
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(output.read_bytes() if output.exists() else None, before)
+
+    def test_manual_legacy_signer_refuses_other_modes_versions_and_minima(self):
+        manual = self.root / 'windows-legacy-transition-manifest.json'
+        for version_value, extra in (
+                ('1.0.13', ['--legacy-windows-transition']),
+                ('1.0.20', []),
+                ('1.0.20', ['--windows-only']),
+                ('1.0.20', ['--legacy-windows-transition', '--windows-only']),
+                ('1.0.20', ['--legacy-windows-transition', '--minimum-version', '1.0.20']),
+                ('1.0.20', ['--legacy-windows-transition', '--debian', str(self.debian)])):
+            package = self.root / f'openwebpbx-{version_value}-windows-x64.zip'
+            package.write_bytes(b'disposable manual transition artifact')
+            result = self.sign(version_value, '119', manual, extra + ['--windows', str(package)])
+            self.assertNotEqual(result.returncode, 0)
+
+    def test_current_windows_feed_requires_safe_installed_helper_floor(self):
+        package = self.root / 'openwebpbx-1.0.20-windows-x64.zip'
+        package.write_bytes(b'disposable current Windows artifact')
+        automatic_before = self.windows.read_bytes()
+        for extra in ([], ['--minimum-version', '1.0.3'], ['--minimum-version', '1.0.7'], ['--minimum-version', '1.0.19']):
+            result = self.sign('1.0.20', '120', self.windows,
+                               ['--windows-only', '--windows', str(package)] + extra)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(self.windows.read_bytes(), automatic_before)
+        result = self.sign('1.0.20', '120', self.windows,
+                           ['--windows-only', '--windows', str(package), '--minimum-version', '1.0.20'])
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        payload, _ = verify(self.windows.read_bytes(), self.public)
+        self.assertEqual(payload['assets'][0]['minimum_version'], '1.0.20')
+        with self.assertRaisesRegex(ValueError, 'intermediate'):
+            select_asset(payload, 'windows-x64', '1.0.19', '1.0.20')
+
     def test_windows_only_artifact_cannot_replace_generic_without_split_flag(self):
         result = self.sign('1.0.13', '113', self.generic, ['--windows', str(self.package)])
         self.assertNotEqual(result.returncode, 0)

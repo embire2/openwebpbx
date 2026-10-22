@@ -21,6 +21,8 @@ parser.add_argument('--debian', type=Path)
 parser.add_argument('--windows', type=Path)
 parser.add_argument('--windows-only', action='store_true',
                     help='Sign the independent Windows server feed; requires only --windows and windows-update-manifest.json output.')
+parser.add_argument('--legacy-windows-transition', action='store_true',
+                    help='Sign a separate one-time manual Windows 1.0.3–1.0.7 transition envelope; never the automatic feed.')
 parser.add_argument('--android', type=Path)
 parser.add_argument('--android-version-code', type=int)
 parser.add_argument('--android-certificate-sha256')
@@ -37,9 +39,15 @@ version(a.version)
 if not any([a.debian, a.windows, a.android]):parser.error('Supply at least one completed platform artifact.')
 if a.windows_only and (a.windows is None or a.debian is not None or a.android is not None or a.play_published_metadata is not None or a.output.name!='windows-update-manifest.json'):
     parser.error('The Windows-only feed requires only its Windows artifact and windows-update-manifest.json output.')
+if a.legacy_windows_transition and (a.windows_only or a.windows is None or a.debian is not None or a.android is not None or a.play_published_metadata is not None or a.output.name!='windows-legacy-transition-manifest.json' or a.minimum_version!='1.0.3' or version(a.version)<version('1.0.20')):
+    parser.error('The legacy Windows transition requires only Windows 1.0.20 or newer, minimum 1.0.3 and windows-legacy-transition-manifest.json output.')
+if not a.legacy_windows_transition and a.output.name=='windows-legacy-transition-manifest.json':
+    parser.error('Use --legacy-windows-transition for the fixed manual Windows transition envelope.')
+if a.windows is not None and not a.legacy_windows_transition and version(a.version)>=version('1.0.20') and version(a.minimum_version)<version('1.0.20'):
+    parser.error('The ordinary Windows 1.0.20+ feed requires minimum-version 1.0.20; older helpers must use the explicit legacy transition.')
 if not a.windows_only and a.output.name=='windows-update-manifest.json':
     parser.error('Use --windows-only for the fixed Windows release feed.')
-if not a.windows_only and a.windows is not None and a.debian is None and a.android is None:
+if not (a.windows_only or a.legacy_windows_transition) and a.windows is not None and a.debian is None and a.android is None:
     parser.error('A Windows-only release must use --windows-only and retain the published generic feed separately.')
 if not 1 <= a.expires_days <= 366:parser.error('Use an expiry between 1 and 366 days.')
 if a.private_key.stat().st_uid != os.geteuid() or a.private_key.stat().st_mode & 0o077:
