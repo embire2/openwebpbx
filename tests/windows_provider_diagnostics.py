@@ -1,5 +1,14 @@
 """Closed, read-only facts about the two owned fictional Windows providers."""
 import re
+import ipaddress
+
+
+def local_provider_address(peer, profile, local):
+    assert isinstance(peer, str) and isinstance(profile, str) and isinstance(local, (list, tuple)) and len(local) <= 16
+    address = ipaddress.IPv4Address(peer)
+    assert peer == profile and not address.is_unspecified and int(address) >> 24 < 224
+    assert peer in (*local, '127.0.0.1')
+    return peer
 
 ATTEMPT_CAUSES = ('none', 'other', 'PROVIDER_UNAVAILABLE', 'SUCCESS', 'NORMAL_CLEARING',
     'NORMAL_TEMPORARY_FAILURE', 'INCOMPATIBLE_DESTINATION', 'SERVICE_UNAVAILABLE',

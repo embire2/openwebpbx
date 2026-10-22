@@ -27,6 +27,12 @@ function windows_native_mail_response_class(?string $response): string {
  if(preg_match('/could not connect|failed to connect|connection (?:refused|timed out)|connect\(\) failed|SMTP connect\(\) failed/i',$response))return 'connection';
  return 'other';
 }
+function windows_native_provider_profile_address(): string {
+ require_once __DIR__.'/windows_provider_peer.php';
+ $raw=(string)event_socket::api('sofia status profile external');
+ $profile=windows_native_provider_profile_ipv4($raw);
+ return windows_native_provider_peer_address($profile,$profile,gethostbynamel(gethostname())?:[]);
+}
 function windows_native_meeting_pg_state(PDO $db): array {
  $names=['total','active','idle','idle_in_transaction','wait_lock','meeting_select','meeting_update','meeting_insert','meeting_other','meeting_wait_lock'];
  $out=['observed'=>false,'read_only'=>false,'query_visible'=>false,'counts_capped'=>false,...array_fill_keys($names,0),'error_kind'=>'database'];
@@ -166,19 +172,20 @@ if($action==='services-info'){
  $configuration=config::load();$host=$configuration->get('switch.event_socket.host',null)??'127.0.0.1';
  if(!in_array($host,['127.0.0.1','localhost'],true))throw new RuntimeException('A loopback-only event listener is required.');
  $external=(string)event_socket::api('sofia status profile external');
- if(!preg_match('/^\s*SIP-IP\s+([0-9.]+)\s*$/m',$external,$externalAddress)||!filter_var($externalAddress[1],FILTER_VALIDATE_IP,FILTER_FLAG_IPV4))throw new RuntimeException('The native external SIP interface is unavailable.');
+ require_once __DIR__.'/windows_provider_peer.php';$externalAddress=windows_native_provider_profile_ipv4($external);
  $externalPort=$q("select x.sip_profile_setting_value from v_sip_profile_settings x join v_sip_profiles p using(sip_profile_uuid) where p.sip_profile_name='external' and p.sip_profile_enabled=true and x.sip_profile_setting_name='sip-port' and x.sip_profile_setting_enabled=true limit 1")->fetchColumn();
  if(!ctype_digit((string)$externalPort)||(int)$externalPort<1024||(int)$externalPort>65535)throw new RuntimeException('The native external SIP port is unavailable.');
- echo json_encode(['external_sip'=>[$externalAddress[1],(int)$externalPort],'event_socket'=>['host'=>$host,'port'=>(int)$configuration->get('switch.event_socket.port',8021),'password'=>$configuration->get('switch.event_socket.password')],'sounds'=>(string)$configuration->get('switch.sounds.dir'),'scripts'=>(string)$configuration->get('switch.scripts.dir')],JSON_THROW_ON_ERROR);exit;
+ echo json_encode(['external_sip'=>[$externalAddress,(int)$externalPort],'event_socket'=>['host'=>$host,'port'=>(int)$configuration->get('switch.event_socket.port',8021),'password'=>$configuration->get('switch.event_socket.password')],'sounds'=>(string)$configuration->get('switch.sounds.dir'),'scripts'=>(string)$configuration->get('switch.scripts.dir')],JSON_THROW_ON_ERROR);exit;
 }
 if($action==='providers-create'){
  if(isset($s['providers'])||count($c['trunks']))throw new RuntimeException('Use the empty owned provider fixture once.');
  $ports=array_slice($argv,3);if(count($ports)!==2||count(array_unique($ports))!==2)throw new RuntimeException('Two distinct local provider ports are required.');
  foreach($ports as $port)if(!ctype_digit($port)||(int)$port<1024||(int)$port>65535)throw new RuntimeException('Invalid local provider port.');
  $s['original_phone_tuples']=$q('select extension_uuid,extension,password from v_extensions where domain_uuid=? order by extension_uuid',[$domain])->fetchAll(PDO::FETCH_ASSOC);$s['providers']=[];$save();
+ $peerHost=windows_native_provider_profile_address();
  foreach($ports as $index=>$port){
-  $input=['name'=>'Fictional native provider '.($index+1),'host'=>'127.0.0.1','port'=>$port,'transport'=>'udp','authentication'=>'ip','allowed_ips'=>'127.0.0.1','main_number'=>'99910000'.($index+1),'caller_id_in_from'=>'1','sip_cid_type'=>'rpid','codecs'=>'PCMU,PCMA','source_field'=>'ToUserPart','enabled'=>'1'];
-  $key=$pbx->save('trunk','new',$input);$current=$pbx->config();$s['providers'][]=['trunk'=>$key,'gateway'=>$current['trunks'][$key]['gateway_uuid'],'port'=>(int)$port];$save();
+  $input=['name'=>'Fictional native provider '.($index+1),'host'=>$peerHost,'port'=>$port,'transport'=>'udp','authentication'=>'ip','allowed_ips'=>$peerHost,'main_number'=>'99910000'.($index+1),'caller_id_in_from'=>'1','sip_cid_type'=>'rpid','codecs'=>'PCMU,PCMA','source_field'=>'ToUserPart','enabled'=>'1'];
+  $key=$pbx->save('trunk','new',$input);$current=$pbx->config();$s['providers'][]=['trunk'=>$key,'gateway'=>$current['trunks'][$key]['gateway_uuid'],'host'=>$peerHost,'port'=>(int)$port];$save();
  }
  $routes=[];foreach($s['providers'] as $provider)$routes[]=['trunk_id'=>$provider['trunk'],'strip'=>'2','prepend'=>'55'];
  $s['provider_rule']=$pbx->save('outbound','new',['name'=>'Fictional native failover only','prefix'=>'99','lengths'=>'5','routes'=>$routes]);
@@ -186,16 +193,16 @@ if($action==='providers-create'){
  $actual=$pbx->config();$rule=null;foreach($actual['outbound_rules'] as $candidate)if($candidate['rule_id']===$s['provider_rule'])$rule=$candidate;
  if(!$rule||$rule['prefix']!=='99'||$rule['lengths']!=='5'||count($rule['routes'])!==2)throw new RuntimeException('The fictional provider rule does not retain its prefix and length.');
  foreach($s['providers'] as $index=>$provider){$gateway=$q('select proxy,register,enabled,profile from v_gateways where domain_uuid=? and gateway_uuid=?',[$domain,$provider['gateway']])->fetch(PDO::FETCH_ASSOC);$route=$rule['routes'][$index];
-  if(!$gateway||!in_array($gateway['register'],['false',false,'f','0',0],true)||!in_array($gateway['enabled'],['true',true,'t','1',1],true)||$gateway['proxy']!=='127.0.0.1:'.$provider['port']||$gateway['profile']!=='external'||$route['trunk_id']!==$provider['trunk']||(int)$route['strip']!==2||$route['prepend']!=='55')throw new RuntimeException('The actual native provider or number rewrite differs from the owned fixture.');}
+  if(!$gateway||!in_array($gateway['register'],['false',false,'f','0',0],true)||!in_array($gateway['enabled'],['true',true,'t','1',1],true)||$gateway['proxy']!==$peerHost.':'.$provider['port']||$gateway['profile']!=='external'||$route['trunk_id']!==$provider['trunk']||(int)$route['strip']!==2||$route['prepend']!=='55')throw new RuntimeException('The actual native provider or number rewrite differs from the owned fixture.');}
  $save();echo json_encode(['created'=>true,'number_rewrite_verified'=>true,'local_nonregistering_providers'=>2],JSON_THROW_ON_ERROR);exit;
 }
 if($action==='provider-observations'){
  $number=$argv[3]??'';
  if(!in_array($number,['99100','99101','99102','99103'],true)||count($s['providers']??[])!==2)throw new RuntimeException('Only the fixed fictional provider cases may be observed.');
- require_once __DIR__.'/windows_provider_observations.php';$attempts=[];
+ require_once __DIR__.'/windows_provider_observations.php';$attempts=[];$peerHost=windows_native_provider_profile_address();
  foreach($s['providers'] as $provider){
   $gateway=$q('select proxy,register from v_gateways where domain_uuid=? and gateway_uuid=?',[$domain,$provider['gateway']])->fetch(PDO::FETCH_ASSOC);
-  if(!$gateway||!in_array($gateway['register'],['false',false,'f','0',0],true)||$gateway['proxy']!=='127.0.0.1:'.$provider['port'])throw new RuntimeException('The fictional observation provider changed.');
+  if(($provider['host']??null)!==$peerHost||!$gateway||!in_array($gateway['register'],['false',false,'f','0',0],true)||$gateway['proxy']!==$peerHost.':'.$provider['port'])throw new RuntimeException('The fictional observation provider changed.');
   $rows=$q('select state,cause,sip_status,will_retry from v_pbx_provider_attempts where domain_uuid=? and provider_uuid=? and dialled_number=? and owner_number=? order by started_at,attempt_no limit 17',[$domain,$provider['gateway'],$number,'8100'])->fetchAll(PDO::FETCH_ASSOC);
   $attempts[]=windows_provider_attempts($rows);
  }
@@ -212,7 +219,7 @@ if($action==='provider-observations'){
 }
 if($action==='cmb-setup'){
  if(isset($s['cmb'])||count($s['providers']??[])!==2)throw new RuntimeException('The owned local providers are required.');
- foreach($s['providers'] as $provider){$row=$q('select proxy,register from v_gateways where domain_uuid=? and gateway_uuid=?',[$domain,$provider['gateway']])->fetch(PDO::FETCH_ASSOC);if(!$row||!in_array($row['register'],['false',false,'f','0',0],true)||$row['proxy']!=='127.0.0.1:'.$provider['port'])throw new RuntimeException('Only exact fictional nonregistering providers may be used.');}
+ $peerHost=windows_native_provider_profile_address();foreach($s['providers'] as $provider){$row=$q('select proxy,register from v_gateways where domain_uuid=? and gateway_uuid=?',[$domain,$provider['gateway']])->fetch(PDO::FETCH_ASSOC);if(($provider['host']??null)!==$peerHost||!$row||!in_array($row['register'],['false',false,'f','0',0],true)||$row['proxy']!==$peerHost.':'.$provider['port'])throw new RuntimeException('Only exact fictional nonregistering providers may be used.');}
  $pbx->save('outbound','new',['name'=>'Fictional callback destination','prefix'=>'0820000002','lengths'=>'10','routes'=>[['trunk_id'=>$s['providers'][1]['trunk'],'strip'=>'0','prepend'=>'']]]);
  $pbx->save('outbound','new',['name'=>'Fictional callback caller','prefix'=>'0','lengths'=>'10','routes'=>[['trunk_id'=>$s['providers'][0]['trunk'],'strip'=>'0','prepend'=>'']]]);
  $service=uuid();$identity='8001015009087';$s['cmb']=['service'=>$service,'identity'=>$identity,'caller'=>'+27820000001','destination'=>'0820000002'];
@@ -263,7 +270,7 @@ if($action==='api'){
  $allowed=in_array($command,['status','show channels as json','show codecs as json','sofia status profile internal','fsctl pause_check'],true);
  foreach($s['providers']??[] as $provider)if(is_uuid($provider['gateway']??'')&&$command==='sofia status gateway '.$provider['gateway']){
   $row=$q('select proxy,register from v_gateways where domain_uuid=? and gateway_uuid=?',[$domain,$provider['gateway']])->fetch(PDO::FETCH_ASSOC);
-  if($row&&in_array($row['register'],['false',false,'f','0',0],true)&&$row['proxy']==='127.0.0.1:'.$provider['port'])$allowed=true;
+  $peerHost=windows_native_provider_profile_address();if(($provider['host']??null)===$peerHost&&$row&&in_array($row['register'],['false',false,'f','0',0],true)&&$row['proxy']===$peerHost.':'.$provider['port'])$allowed=true;
  }
  foreach($s['users'] as $u)foreach(['sofia_contact ','user_data '] as $prefix)if($command===$prefix.$u['auth'].'@'.$realm||$command===$prefix.$u['auth'].'@'.$realm.' param password')$allowed=true;
  if(!$allowed)throw new RuntimeException('Only owned read-only native queries are allowed.');echo event_socket::api($command);exit;

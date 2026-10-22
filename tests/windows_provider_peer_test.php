@@ -1,0 +1,8 @@
+<?php
+require __DIR__.'/windows_provider_peer.php';$checks=0;
+function peer_check(bool $value):void{global $checks;if(!$value)throw new RuntimeException('Owned provider address control failed.');$checks++;}
+foreach(['10.11.12.13','192.168.1.9','198.51.100.9','127.0.0.1'] as $address)peer_check(windows_native_provider_peer_address($address,$address,[$address])===$address);
+foreach([['127.0.0.1','10.11.12.13',['10.11.12.13']],['10.11.12.99','10.11.12.13',['10.11.12.13','10.11.12.99']],['10.11.12.13','10.11.12.13',[]],['0.0.0.0','0.0.0.0',['0.0.0.0']],['255.255.255.255','255.255.255.255',['255.255.255.255']],['224.0.0.1','224.0.0.1',['224.0.0.1']],['240.1.1.1','240.1.1.1',['240.1.1.1']],['::1','::1',['::1']],['10.11.12.13:5060','10.11.12.13:5060',['10.11.12.13:5060']],['provider.invalid','provider.invalid',['provider.invalid']],['10.11.12.13','10.11.12.13',array_fill(0,17,'10.11.12.13')]] as [$peer,$profile,$local]){$refused=false;try{windows_native_provider_peer_address($peer,$profile,$local);}catch(RuntimeException){$refused=true;}peer_check($refused);}
+foreach(["SIP-IP 10.11.12.13\r\n","Name external\n SIP-IP 10.11.12.13\n"] as $raw)peer_check(windows_native_provider_profile_ipv4($raw)==='10.11.12.13');
+foreach(["SIP-IP 10.11.12.13\nSIP-IP 10.11.12.14\n","SIP-IP 10.11.12.13\nSIP-IP 10.11.12.13\n","SIP-IP 999.0.0.1\n","EXT-SIP-IP 10.11.12.13\n",str_repeat('x',65537)] as $raw){$refused=false;try{windows_native_provider_profile_ipv4($raw);}catch(RuntimeException){$refused=true;}peer_check($refused);}
+echo json_encode(['schema'=>1,'state'=>'passed','checks'=>$checks,'actual_php_peer_scope'=>true,'native_transport_or_pbx_invoked'=>false]),PHP_EOL;

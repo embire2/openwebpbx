@@ -1068,17 +1068,19 @@ def native_calls(f):
             native_cleanup(sys.exc_info()[1],getattr(f,'native_substage','g729_media'),[
                 ('g729_alternate_unregister',alternate_unregister),('g729_peer_close',g729.close),
                 ('g729_codec_close',codec.search.close),('g729_regular_reregister',regular_reregister)])
+        provider_diagnostics=load_module('windows_provider_diagnostics',f.source/'tests/windows_provider_diagnostics.py')
+        peer_address=f.cli('services-info')['external_sip'][0]
+        provider_bind=provider_diagnostics.local_provider_address(peer_address,peer_address,socket.gethostbyname_ex(socket.gethostname())[2])
         class Provider(Phone):
             def __init__(self,index):
                 self.transport='udp';self.registration_packets=[];self.receiver_failure=None;self.sent_codes=[]
-                original.SourcePhone.__init__(self,{'number':'fictional-provider','auth':'fictional-provider','password':'','tone_hz':1109+index*199,'local_provider':True,'first_provider':index==0},realm,'127.0.0.1')
+                original.SourcePhone.__init__(self,{'number':'fictional-provider','auth':'fictional-provider','password':'','tone_hz':1109+index*199,'local_provider':True,'first_provider':index==0},realm,provider_bind)
             def response(self,code,headers,body=''):
                 if headers.get('cseq','').endswith(' INVITE'):
                     self.sent_codes.append((headers.get('call-id',''),code))
                     assert len(self.sent_codes)<=128,'The fictional provider response ledger exceeded its bound'
                 return super().response(code,headers,body)
         services=load_module('windows_native_services',f.source/'tests/windows_native_services.py')
-        provider_diagnostics=load_module('windows_provider_diagnostics',f.source/'tests/windows_provider_diagnostics.py')
         services.qualify(f,caller,a,destination,Provider,original,sip,NativePlayback,provider_diagnostics)
         f.record('native_simultaneous_ring_group',**call_check('8180'))
         f.record('native_hunting_ring_group',**call_check('8181'))

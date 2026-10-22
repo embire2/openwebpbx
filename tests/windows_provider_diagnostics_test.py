@@ -12,6 +12,17 @@ spec.loader.exec_module(projection)
 
 
 class Projections(unittest.TestCase):
+    def test_exact_local_profile_peer_scope(self):
+        for address in ('10.11.12.13','192.168.1.9','198.51.100.9','127.0.0.1'):
+            self.assertEqual(projection.local_provider_address(address,address,[address]),address)
+        for peer,profile,local in [('127.0.0.1','10.11.12.13',['10.11.12.13']),
+             ('10.11.12.99','10.11.12.13',['10.11.12.13','10.11.12.99']),
+             ('10.11.12.13','10.11.12.13',[]),('224.0.0.1','224.0.0.1',['224.0.0.1']),
+             ('240.1.1.1','240.1.1.1',['240.1.1.1']),('0.0.0.0','0.0.0.0',['0.0.0.0']),('255.255.255.255','255.255.255.255',['255.255.255.255']),
+             ('::1','::1',['::1']),('provider.invalid','provider.invalid',['provider.invalid']),
+             ('10.11.12.13','10.11.12.13',['10.11.12.13']*17)]:
+            with self.assertRaises((AssertionError, ValueError)):
+                projection.local_provider_address(peer,profile,local)
     def observation(self):
         return {'schema':1,'attempts':[{'observed':True,'count':1,'counts_capped':False,
             'state':'failed','cause':'INCOMPATIBLE_DESTINATION','sip_status':488,'will_retry':True,
