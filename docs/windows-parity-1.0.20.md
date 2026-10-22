@@ -23,8 +23,9 @@ native Windows server.
 | Existing calling suite | The unchanged-package diagnostic replay passes decoded TLS two-way calling, independent G729/PCMU transcoding and three decoded clock1026 announcements. The first fictional provider call then fails; Call Me Back and later groups, queues, voicemail121, recording, hotel and mail cases remain unqualified against this package. | Resolve the provider failure and repeat the complete native suite against the combined current-source package, including decoded media and protected-data checks. |
 
 The owner's test machine is Windows Server 2025. Its original 1.0.6 installation
-was found with PBX services stopped; its data and configuration are being
-preserved before migration. Private access details and customer/test evidence
+was found with PBX services stopped. Its files, logical database, permissions
+and original TLS key have now been preserved and independently verified before
+migration. Private access details and customer/test evidence
 remain outside the public repository.
 
 The welcome-mail case uses the actual installed PHP welcome/outbox dispatcher,
@@ -44,12 +45,16 @@ copy refusal. No customer or external recipient is used.
 The test machine unexpectedly rebooted while its original file archive was
 being copied, before any preview installation. A read-only comparison after the
 reboot confirms all138 original public-table multisets,18 roles and506 relation
-owner/permission records remain exact. The verified archive prefix is retained;
-the missing tail and final complete archive verification remain in progress.
+owner/permission records remain exact. The interrupted archive prefix and its
+failure are retained. The missing tail was copied, one complete archive
+reconstructed and all 85,383 files verified against the original ledger, then
+independently repeated. The original database was cleanly aligned with its
+registered Windows service, preserving all tables, roles, permissions and
+configuration; other PBX services and IIS remain stopped.
 The crash reports are preserved privately. This interruption is not a controlled
 reboot or recovery-test pass.
 
-The current complete run is39835943565 at source568b3ab5f. Its installer passed
+The earlier complete run39835943565 at source568b3ab5f passed
 an independent check of every payload hash, immutable source mappings, original
 native binaries, engine source, voice files and configured-secret exclusion.
 These archive checks do not qualify the failed runtime tests. A privately signed
@@ -86,8 +91,20 @@ test-only provider observations: SIP response codes, bounded invite counts,
 PCMU/PCMA offer flags and gateway-state enums. Raw SIP, credentials and customer
 identities are excluded from public facts. Its source projections pass seven
 Python checks and459 actual PowerShell controls; these are diagnostic controls,
-not successful provider calls. This replay intentionally cannot qualify a
+not successful provider calls. It confirms caller503 while both gateways report
+NOREG/UP and neither fictional provider receives an INVITE. Direct native parser
+checks on Windows and Debian refute the codec-list separator hypothesis; the
+local failure still needs diagnosis. This replay intentionally cannot qualify a
 release, upgrade or backup.
+
+The combined sourcee031bb10b build39851801900 exported its archive but failed
+fresh installation: the new DTLS pre-start helper required a certificate folder
+that the stock Windows engine has not created yet. Isolated tests had used an
+existing folder. The first-install path and exact parent-directory recovery are
+being corrected; no new fresh-install or conference pass is claimed. Subsequent
+recovery fixes also require a rebuilt package: held newly created DTLS objects
+must refuse recovery, and the helper must prove restored bytes/permissions or
+absence before marking its journal recovered.
 
 The explicit custom-event subscription, exact empty-firewall-query handling and typed maintenance-contention repairs
 change product bytes. They require a newly built final Windows archive and
