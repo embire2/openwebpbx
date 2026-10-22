@@ -230,13 +230,22 @@ function Restore-OpenWebSupport {
    if($entry.Value.Copy -notmatch '^support-files/[0-9]+$'){throw 'The support recovery file inventory is invalid.'}
    New-Item -ItemType Directory -Force (Split-Path $target -Parent) | Out-Null
    Copy-Item -LiteralPath (Join-Path $Backup $entry.Value.Copy) -Destination $target -Force
-  }else{Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue}
+  }else{
+   if($target.Equals([IO.Path]::GetFullPath((Join-Path $EngineRoot 'cert\dtls-srtp.pem')),[StringComparison]::OrdinalIgnoreCase)){
+    if(Test-Path -LiteralPath $target){Remove-Item -LiteralPath $target -Force -ErrorAction Stop}
+    if(Test-Path -LiteralPath $target){throw 'The original DTLS certificate absence did not restore; private recovery remains required.'}
+   }else{Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue}
+  }
  }
  foreach($entry in $record.Directories.PSObject.Properties){
   if($entry.Name -notin 'backup-runtime','acme-runtime','mobile-notifications','mail-state','meet-proxy','tenant-domains','stun-setup','dtls-setup','phone-health-runtime','updater-slots','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','openweb-music'){throw 'The support recovery folder inventory is invalid.'}
   $target=Check-SupportPath $entry.Value.Path
   if($entry.Value.Exists){CopyTree (Join-Path $Backup $entry.Name) $target -Mirror}
-  else{Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue}
+  elseif($entry.Name -ceq 'dtls-setup'){
+   if(!$target.Equals([IO.Path]::GetFullPath((Join-Path $StateRoot 'dtls-setup')),[StringComparison]::OrdinalIgnoreCase)){throw 'The DTLS recovery directory does not match its owned path.'}
+   if(Test-Path -LiteralPath $target){Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop}
+   if(Test-Path -LiteralPath $target){throw 'The original DTLS state absence did not restore; private recovery remains required.'}
+  }else{Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue}
  }
  . (Join-Path $PSScriptRoot 'File-Security.ps1')
  $permissions=New-Object 'Collections.Generic.List[object]'

@@ -1,4 +1,4 @@
-param([string]$SourceRoot=(Split-Path $PSScriptRoot -Parent))
+param([string]$SourceRoot=(Split-Path $PSScriptRoot -Parent),[string]$PreviousSupport='')
 # Execute the actual support capture/recovery functions against an isolated
 # Windows temporary installation. Adapters replace only unrelated IIS, optional
 # capability and Task Scheduler boundaries; file contents and NTFS ACLs are real.
@@ -6,6 +6,8 @@ $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 if([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT){throw 'This regression requires native Windows file security.'}
 $script:checks=0;$script:taskReads=0;$script:taskWrites=0
 function AssertControl([bool]$Value){if(!$Value){throw ('DTLS support recovery control failed at line '+(Get-PSCallStack)[1].ScriptLineNumber)};$script:checks++}
+$priorRestore=$null
+if($PreviousSupport){. $PreviousSupport;$priorRestore=${function:Restore-OpenWebSupport}}
 . (Join-Path $SourceRoot 'packaging/windows/Support-Recovery.ps1')
 . (Join-Path $SourceRoot 'packaging/windows/File-Security.ps1')
 function Get-WindowsCapability {param([switch]$Online,[string]$Name) @{State='Installed'}}
@@ -60,9 +62,35 @@ try{
   AssertControl ((Test-Path -LiteralPath $dtlsState) -eq $stateExisted)
  }}
  AssertControl ($script:taskReads -eq 24 -and $script:taskWrites -eq 24)
+ # The previous implementation silently swallowed a held native file's delete
+ # error. A refused cleanup must retain that private evidence and must never
+ # report recovery success while an originally absent identity/state remains.
+ $variants=@(@{name='current';restore=${function:Restore-OpenWebSupport};refuse=$true})
+ if($null -ne $priorRestore){$variants+=@{name='previous';restore=$priorRestore;refuse=$false}}
+ foreach($variant in $variants){foreach($heldPart in 'certificate','state'){
+  $case=Join-Path $outer ('held-'+$variant.name+'-'+$heldPart)
+  $root=Join-Path $case 'program';$state=Join-Path $case 'state';$engine=Join-Path $case 'engine';$backup=Join-Path $case 'snapshot';$package=Join-Path $case 'package'
+  foreach($path in $root,$state,$engine,$backup,(Join-Path $engine 'cert')){$null=[IO.Directory]::CreateDirectory($path)}
+  TextFile (Join-Path $package 'engine/native-manifest.json') '{"files":{}}'
+  $certificate=Join-Path $engine 'cert/dtls-srtp.pem';$dtlsState=Join-Path $state 'dtls-setup';$custom=Join-Path $engine 'cert/custom.pem';TextFile $custom 'UNRELATED-CUSTOM-IDENTITY';$customBefore=TreeCheckpoint $custom
+  Save-OpenWebSupport -Backup $backup -PackageRoot $package -Root $root -StateRoot $state -EngineRoot $engine
+  $heldFile=if($heldPart -ceq 'certificate'){$certificate}else{Join-Path $dtlsState 'owned/journal.json'};TextFile $heldFile 'PRIVATE-RECOVERY-EVIDENCE'
+  $beforeWrites=$script:taskWrites;$handle=[IO.File]::Open($heldFile,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+  try{
+   $refused=$false;try{& $variant.restore -Backup $backup -Root $root -StateRoot $state -EngineRoot $engine}catch{$refused=$true}
+   AssertControl ($refused -eq $variant.refuse)
+   AssertControl ((Test-Path -LiteralPath $heldFile) -and [IO.File]::ReadAllText($heldFile) -ceq 'PRIVATE-RECOVERY-EVIDENCE')
+   AssertControl ($script:taskWrites -eq ($beforeWrites+$(if($variant.refuse){0}else{6})))
+  }finally{$handle.Dispose()}
+  # Once the exact owned handle closes, the unchanged current recovery can
+  # complete, proving the refusal was causal rather than a fixture failure.
+  Restore-OpenWebSupport -Backup $backup -Root $root -StateRoot $state -EngineRoot $engine
+  AssertControl (!(Test-Path -LiteralPath $certificate) -and !(Test-Path -LiteralPath $dtlsState))
+  AssertControl ((TreeCheckpoint $custom) -ceq $customBefore)
+ }}
 }finally{
  if($null -eq $envBefore){Remove-Item Env:\OPENSSL_CONF -ErrorAction SilentlyContinue}else{$env:OPENSSL_CONF=$envBefore}
  if(Test-Path -LiteralPath $outer){Remove-Item -LiteralPath $outer -Recurse -Force}
 }
 AssertControl (!(Test-Path -LiteralPath $outer))
-[Console]::Out.WriteLine((@{state='passed';checks=$script:checks;native_file_security=$true;installed_resources_accessed=$false;calling_or_database_service_actions=$false;task_boundary='explicit unrelated doubles'}|ConvertTo-Json -Compress))
+[Console]::Out.WriteLine((@{state='passed';checks=$script:checks;native_file_security=$true;installed_resources_accessed=$false;calling_or_database_service_actions=$false;task_boundary='explicit unrelated doubles';paired_previous_absence_negatives=[bool]$PreviousSupport}|ConvertTo-Json -Compress))
