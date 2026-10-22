@@ -6,7 +6,9 @@ function Get-OpenWebHealthPrivilegedSids {
  if($script:OpenWebHealthPrivilegedSids -and $script:OpenWebHealthPrivilegedUntil -gt [DateTime]::UtcNow){return ,$script:OpenWebHealthPrivilegedSids}
  $allowed=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
  foreach($sid in 'S-1-5-18','S-1-5-32-544','S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'){$null=$allowed.Add($sid)}
- $module=Join-Path $PSHOME 'Modules\Microsoft.PowerShell.LocalAccounts\Microsoft.PowerShell.LocalAccounts.psd1'
+ # Windows Server2025 installs this under a versioned subdirectory. Import
+ # only the trusted OS module root, never an unqualified PSModulePath name.
+ $module=Join-Path $PSHOME 'Modules\Microsoft.PowerShell.LocalAccounts'
  Import-Module -Name $module -ErrorAction Stop
  $members=@(Microsoft.PowerShell.LocalAccounts\Get-LocalGroupMember -SID 'S-1-5-32-544' -ErrorAction Stop)
  if($members.Count -gt 2000){throw 'Local administrator membership needs review.'}
