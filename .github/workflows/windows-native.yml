@@ -90,7 +90,8 @@ jobs:
             [ordered]@{ path = $_; assembly_version = $actual; sha256 = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant() }
           })
           $desktop = Join-Path $env:NATIVE_OUTPUT 'desktop'
-          $manager = Start-Process -FilePath "$desktop/OpenWebPbx.Desktop.exe" -WorkingDirectory $desktop -PassThru
+          # An administrator may launch the absolute EXE path from any folder.
+          $manager = Start-Process -FilePath "$desktop/OpenWebPbx.Desktop.exe" -WorkingDirectory "$env:SystemRoot/System32" -PassThru
           $deadline = [DateTime]::UtcNow.AddSeconds(30)
           do {
             Start-Sleep -Milliseconds 500
@@ -102,10 +103,12 @@ jobs:
             process_alive = -not $manager.HasExited; responsive = $manager.Responding
             window_title = $manager.MainWindowTitle; window_verified = $visible
             session_id = $manager.SessionId
+            launched_outside_application_directory = $true
             limitation = if ($visible) { $null } else { 'Hosted runner did not expose an interactive manager window; interactive verification remains required.' }
           }
           [ordered]@{ version = $version; assemblies = $verified; manager_startup = $launch; protocol_checks = 'passed'; updater_checks = 'passed'; database_integration = 'not run; no database supplied' } |
             ConvertTo-Json -Depth 6 | Set-Content "$env:NATIVE_OUTPUT/verification.json" -Encoding utf8
+          if (!$visible) { throw 'The native manager must show its responsive versioned window when launched from another directory.' }
           $expected = Get-Content "$env:NATIVE_OUTPUT/source-inputs.json" -Raw | ConvertFrom-Json
           foreach ($input in $expected.source_inputs) {
             if ((Get-FileHash -LiteralPath $input.path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $input.sha256) { throw "Build modified source input $($input.path)." }
