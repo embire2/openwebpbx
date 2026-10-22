@@ -396,6 +396,17 @@ def compare_snapshots(before, after, mode):
     # are equally protected; tenant-only rows cannot establish full SQL restore.
     a = {k: v for k, v in before['all_table_values'].items() if k not in exclusions}
     b = {k: v for k, v in after['all_table_values'].items() if k not in exclusions}
+    if mode == 'source-restored' and 'v_pbx_phone_health_recoveries' in a:
+        proof = before.get('health_recovery_restore')
+        if (type(proof) is not dict or set(proof) != {'rows','hmac','pending'}
+                or type(proof['rows']) is not int or type(proof['pending']) is not int
+                or proof['rows'] != a['v_pbx_phone_health_recoveries'].get('rows')
+                or not 0 <= proof['pending'] <= proof['rows']
+                or not isinstance(proof['hmac'],str) or not re.fullmatch('[a-f0-9]{64}',proof['hmac'])):
+            raise ValueError('Exact restored phone recovery transformation evidence is required.')
+        # Do not exclude the table. Its actual complete-row digest must match
+        # the source projection changing only pending execution state.
+        a['v_pbx_phone_health_recoveries'] = {'rows':proof['rows'],'hmac':proof['hmac']}
     if a != b:
         raise ValueError('Preserved non-operational PBX records changed.')
     if mode == 'source-restored' and before['source_phone_tuples'] != after['source_phone_tuples']:
@@ -572,6 +583,8 @@ class Qualification:
                                    ('check_in', {'number': '8100', 'guest_name': 'Fictional restore guest'})):
                 self.submit(web, '/app/pbx_setup/?view=hotel', 'hotel_action', fields | {'hotel_action': action}, {'hotel_action': action})
             self.php('discover'); self.php('seed-job')
+            if tuple(map(int,self.backups.ordinary(self.backups.WEB_VERSION).read_text().strip().split('.'))) >= (1,0,20):
+                self.php('seed-health')
             self.record('normal_https_source_company_pbx_users_hotel_future_job')
         else: self.record('normal_https_independent_target_identity')
 
@@ -996,12 +1009,15 @@ class Qualification:
         distinct_installations(payload['source_snapshot'] | {k: payload[k] for k in identity}, before | identity)
         with self.backups.verify_archive(archive, self.s['passphrase'], workspace=self.work) as (_, manifest):
             mapping = self.backups.restore_targets(manifest)
-        inventory = self.file_inventory(mapping.values()); write_json(self.work / 'target-files-before.json', inventory)
+        targets=list(mapping.values())
+        if 'health_recovery_restore' in payload['source_snapshot']:
+            targets.append(self.backups.ordinary(self.backups.STATE/'phone-health-instance.json'))
+        inventory = self.file_inventory(targets); write_json(self.work / 'target-files-before.json', inventory)
         # Explicitly verify refusal precedes any mutation.
         self.cli(['restore', str(archive), '--confirm-database', self.settings['database.0.name']],
                  password=self.s['passphrase'] + '-wrong', expect_failure=True)
         compare_snapshots(before, self.snapshot('target-wrongpass'), 'factory-recovery')
-        if self.identity() != identity or self.file_inventory(mapping.values()) != inventory:
+        if self.identity() != identity or self.file_inventory(targets) != inventory:
             raise RuntimeError('Wrong-passphrase refusal changed target private bytes or ACLs.')
         self.record('wrong_passphrase_restore_refused_before_target_mutation')
         original = self.backups.atomic_copy; witness = {}
@@ -1027,7 +1043,7 @@ class Qualification:
             journal = read_json(self.backups.RESTORE / 'journal.json')
         if journal['state'] != 'recovered': raise RuntimeError('Actual late failure did not recover the factory.')
         compare_snapshots(before, self.snapshot('target-recovered'), 'factory-recovery')
-        if self.identity() != identity or self.file_inventory(mapping.values()) != inventory:
+        if self.identity() != identity or self.file_inventory(targets) != inventory:
             raise RuntimeError('Late restore recovery did not restore exact target private bytes, absence and parent ACLs.')
         if any(self.backups.held(s) for s in self.backups.HELD_UNITS): raise RuntimeError('Recovered factory still has unexpected holds.')
         shutil.move(self.backups.RESTORE, self.work / 'recovered-attempt')
@@ -1035,6 +1051,10 @@ class Qualification:
 
     def restore(self):
         payload, archive = self.target_source()
+        health = payload['source_snapshot'].get('health_recovery_restore')
+        health_identity=None
+        if health is not None:
+            health_identity=self.file_inventory([self.backups.ordinary(self.backups.STATE/'phone-health-instance.json')])
         self.cli(['restore', str(archive), '--confirm-database', self.settings['database.0.name']], password=self.s['passphrase'])
         if not all(self.backups.held(s) for s in self.backups.HELD_UNITS): raise RuntimeError('Restore must initially hold all four service classes.')
         self.s['owned'] = payload['owned']; self.s['owned_job_uuid'] = payload['owned_job_uuid']
@@ -1044,6 +1064,13 @@ class Qualification:
         after = self.snapshot('target-restored'); before = read_json(self.work / 'target-before-database.json')
         if before['target_owned'] != after['target_owned']: raise RuntimeError('Restore overwrote replacement DB identity, roles or credentials.')
         compare_snapshots(payload['source_snapshot'], after, 'source-restored')
+        if health is not None:
+            if self.file_inventory([self.backups.STATE/'phone-health-instance.json']) != health_identity:
+                raise RuntimeError('Restore changed the protected target Phone Health identity or its permissions.')
+            journal = read_json(self.backups.RESTORE/'journal.json')
+            if type(journal.get('phone_health_recoveries_refused')) is not int or journal['phone_health_recoveries_refused'] != health['pending']:
+                raise RuntimeError('The exact restored phone recovery refusal count differs.')
+            self.record('restored_pending_phone_recoveries_refused_exact_history_preserved')
         identity = self.identity()
         if identity['template_key_sha256'] != payload['template_key_sha256'] or identity['notification_sha256'] != payload['notification_sha256']:
             raise RuntimeError('Source private encryption or notification identity was not restored.')

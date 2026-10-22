@@ -390,7 +390,7 @@ function DatabaseSnapshot([string]$Name){
 function FilesSnapshot([switch]$BackupControlOnly) {
  $directories=@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots",$configuration,"$switch\conf","$switch\scripts","$switch\mod","$switch\sounds","$state\storage","$state\mobile-notifications","$state\phone-tls","$state\public-access","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build")
  $parents=@($root,"$root\updater",$state,$switch)
- $fixed=@("$state\installation.json","$state\runtime.json","$state\phone-tls.json","$state\native-engine.json","$state\local-codec.json","$state\updater-install.json","$root\php\php.ini","$root\php\extras\ssl\openssl.cnf","$root\php\extras\ssl\cacert.pem")
+ $fixed=@("$state\installation.json","$state\runtime.json","$state\phone-tls.json","$state\phone-health-instance.json","$state\native-engine.json","$state\local-codec.json","$state\updater-install.json","$root\php\php.ini","$root\php\extras\ssl\openssl.cnf","$root\php\extras\ssl\cacert.pem")
  if($BackupControlOnly){$directories=@("$state\backup-control");$parents=@();$fixed=@()}
  $files=@{}
  # Parent DACLs determine inherited access and need independent recovery even
@@ -417,7 +417,7 @@ function FilesSnapshot([switch]$BackupControlOnly) {
 function TaskSnapshot {
  $tasks=@{}
  $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect()
- foreach($name in 'OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate'){
+ foreach($name in 'OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate'){
   $task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
   if(!$task){$tasks[$name]=@{exists=$false};continue}
   $xml=[xml](Export-ScheduledTask -TaskName $name);$xml.PreserveWhitespace=$false

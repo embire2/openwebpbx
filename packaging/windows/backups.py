@@ -1116,6 +1116,21 @@ def remove_service_holds(gates):
         (RESTORE / ('hold-' + selection)).unlink(missing_ok=True)
 
 
+def refuse_restored_phone_recoveries(settings):
+    # A restored request is no longer the administrator's current confirmation,
+    # even on the same machine with the same protected instance identity. Keep
+    # the complete history; never replay a source server's pending unblock.
+    present = query(settings, "select to_regclass('public.v_pbx_phone_health_recoveries') is not null")
+    if present == 'f':
+        return 0  # Earlier matching-version archives may predate this table.
+    if present != 't':
+        raise BackupError('Restored phone recovery state could not be checked.')
+    count = query(settings, "with refused as (update public.v_pbx_phone_health_recoveries set status='refused' where status='pending' returning 1) select count(*) from refused")
+    if not isinstance(count, str) or not re.fullmatch(r'[0-9]{1,19}', count) or int(count) > 9223372036854775807:
+        raise BackupError('Restored phone recovery state could not be checked.')
+    return int(count)
+
+
 def restore(source, password, settings, **kwargs):
     safe_private_directory(STORE)
     with exclusive_guard(UPGRADE_LOCK), exclusive_guard(STORE/'worker.lock'):
@@ -1250,6 +1265,7 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
             query(settings, "update v_pbx_backup_commands set status='failed',message='Request belonged to the previous server. Retry on this server.',finished_at=now() where status in ('pending','running')")
             query(settings, "update v_pbx_backups set status='failed',message='Previous server: this encrypted backup file was not included in the restore. Keep its separately downloaded or remote copy.' where status in ('ready','creating')")
             query(settings, "update v_pbx_backup_settings set enabled=false,sftp_enabled=false where singleton=1")
+            journal['phone_health_recoveries_refused'] = refuse_restored_phone_recoveries(settings)
             journal['state'] = 'restored'
             atomic_json(RESTORE / 'journal.json', journal)
             control('start-web')

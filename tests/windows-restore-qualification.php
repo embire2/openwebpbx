@@ -97,6 +97,13 @@ function restore_fixture_snapshot_shape(array $out): void {
             throw new RuntimeException('Exact unchanged restore-transformation projections are required.');
     foreach(['v_users','v_domains','v_extensions','v_gateways','v_dialplans','v_voicemails','v_voicemail_messages','v_recordings','v_pbx_media','v_pbx_jobs','v_pbx_services','v_pbx_tenants','v_pbx_restore'] as $table)
         if(!isset($out['all_table_values'][$table]))throw new RuntimeException('A required PBX table is missing from the snapshot.');
+    if(isset($out['all_table_values']['v_pbx_phone_health_recoveries'])){
+        $proof=$out['health_recovery_restore']??null;
+        if(!is_array($proof)||array_keys($proof)!==['rows','hmac','pending']||!is_int($proof['rows'])||!is_int($proof['pending'])
+            ||$proof['rows']!==$out['all_table_values']['v_pbx_phone_health_recoveries']['rows']
+            ||$proof['rows']<0||$proof['pending']<0||$proof['pending']>$proof['rows']||!preg_match('/^[a-f0-9]{64}$/D',$proof['hmac']))
+            throw new RuntimeException('Exact restored phone recovery transformation evidence is required.');
+    }
     if(!array_key_exists('source_phone_tuples',$out)||($out['source_phone_tuples']!==null&&!preg_match('/^[a-f0-9]{64}$/D',$out['source_phone_tuples'])))throw new RuntimeException('Private phone preservation evidence is malformed.');
 }
 
@@ -191,7 +198,7 @@ function restore_fixture_main(array $argv): void {
     if($environment['OPENWEB_WINDOWS_RESTORE_TEST']!=='1'||$environment['GITHUB_ACTIONS']!=='true'
         ||$environment['RUNNER_ENVIRONMENT']!=='github-hosted'||$environment['GITHUB_REPOSITORY']!=='embire2/openwebpbx')exit(2);
     $action=$argv[1]??'';
-    if(!in_array($action,['baseline','discover','status','snapshot','seed-job','job-status','cleanup'],true))throw new RuntimeException('Unknown private restore fixture operation.');
+    if(!in_array($action,['baseline','discover','status','snapshot','seed-job','seed-health','job-status','cleanup'],true))throw new RuntimeException('Unknown private restore fixture operation.');
     require 'C:/OpenWebPBX/web/resources/require.php';
     $path=$argv[2]??'';$directory=restore_fixture_private_path($path,pbx_paths::state().'/restore-qualification');
     if(filesize($path)>2*1024*1024)throw new RuntimeException('Private fixture input exceeds its bound.');
@@ -301,6 +308,13 @@ function restore_fixture_main(array $argv): void {
             if(!preg_match('/^v_[a-z0-9_]+$/D',$table))throw new RuntimeException('An unexpected public table prevents complete qualification evidence.');
             $sql='select row_to_json(t) from "'.$table.'" t';$rows=array_map(static fn(string $r):mixed=>json_decode($r,false,512,JSON_THROW_ON_ERROR),$q($sql)->fetchAll(PDO::FETCH_COLUMN));
             $out['all_table_values'][$table]=['rows'=>count($rows),'hmac'=>restore_fixture_rows_digest($rows,$key)];
+            if($table==='v_pbx_phone_health_recoveries'){
+                // Every column and row is included. Only the documented
+                // pending -> refused execution-state transform is permitted.
+                $projected=[];$pending=0;
+                foreach($rows as $row){$copy=clone $row;if($copy->status==='pending'){$copy->status='refused';$pending++;}$projected[]=$copy;}
+                $out['health_recovery_restore']=['rows'=>count($rows),'hmac'=>restore_fixture_rows_digest($projected,$key),'pending'=>$pending];
+            }
             if(!$owned)continue;
             $columns=$q("select column_name from information_schema.columns where table_schema='public' and table_name=? and column_name in ('domain_uuid','tenant_uuid')",[$table])->fetchAll(PDO::FETCH_COLUMN);
             $where=[];$parameters=[];
@@ -315,6 +329,18 @@ function restore_fixture_main(array $argv): void {
     }
     $GLOBALS['restore_fixture_failure_step']='owned_lookup';
     $owned=$lookup();$domain=$owned['domain_uuid'];$realm=$owned['domain_name'];
+    if($action==='seed-health'){
+        if($s['role']!=='source'||isset($s['health_recovery_fixture'])
+            ||(int)$q('select count(*) from v_pbx_phone_health_recoveries where domain_uuid=?',[$domain])->fetchColumn()!==0)
+            throw new RuntimeException('Only an empty owned source health history may be seeded.');
+        $instance=pbx_phone_health::instanceId();if(!is_string($instance)||!preg_match('/^[a-f0-9]{64}$/D',$instance))throw new RuntimeException('The protected source health identity is required.');
+        $db->beginTransaction();
+        try{foreach(['pending','pending','acknowledged','refused','dispatch_failed'] as $status)
+            $q("insert into v_pbx_phone_health_recoveries(recovery_uuid,domain_uuid,actor_uuid,block_uuid,source_address,status,instance_id,acknowledged_at) values(?,?,?,?,?::inet,?,?,case when ?='acknowledged' then now() else null end)",
+                [uuid(),$domain,$admin['user_uuid'],uuid(),'192.0.2.252',$status,$instance,$status]);$db->commit();}
+        catch(Throwable $error){if($db->inTransaction())$db->rollBack();throw $error;}
+        $s['health_recovery_fixture']=true;$save();echo '{"owned_health_history":5,"pending":2,"firewall_actions":0}',PHP_EOL;return;
+    }
     if($action==='status') {
         $status=(string)event_socket::api('sofia status profile internal');$bind=preg_match('/^\s*SIP-IP\s+([0-9.]+)\s*$/m',$status,$match)?$match[1]:null;
         $messages=$q('select m.voicemail_message_uuid,m.message_length,m.voicemail_uuid,v.voicemail_id from v_voicemail_messages m join v_voicemails v using(voicemail_uuid,domain_uuid) where m.domain_uuid=? order by m.voicemail_message_uuid',[$domain])->fetchAll(PDO::FETCH_ASSOC);

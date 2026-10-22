@@ -1119,6 +1119,25 @@ class Controls(unittest.TestCase):
             changed=copy.deepcopy(after);changed['restore_projections'][table]['hmac']='changed-secret-or-identity'
             with self.subTest(table=table),self.assertRaises(ValueError):q.compare_snapshots(before,changed,'source-restored')
 
+    def test_health_complete_rows_must_equal_only_the_pending_refusal_projection(self):
+        table='v_pbx_phone_health_recoveries';before=self.snapshot()
+        before['all_table_values'][table]={'rows':5,'hmac':'a'*64}
+        before['health_recovery_restore']={'rows':5,'hmac':'b'*64,'pending':2}
+        after=copy.deepcopy(before);after['all_table_values'][table]={'rows':5,'hmac':'b'*64}
+        q.compare_snapshots(before,after,'source-restored')
+        # A missing row, unchanged pending execution, or any changed actor,
+        # address, historical result or other column changes the whole digest.
+        for row in ({'rows':4,'hmac':'b'*64},{'rows':5,'hmac':'a'*64},{'rows':5,'hmac':'c'*64}):
+            changed=copy.deepcopy(after);changed['all_table_values'][table]=row
+            with self.assertRaises(ValueError):q.compare_snapshots(before,changed,'source-restored')
+        for proof in (None,{}, {'rows':5,'hmac':'b'*64,'pending':True},
+                      {'rows':True,'hmac':'b'*64,'pending':0},{'rows':5,'hmac':'b'*64,'pending':6},
+                      {'rows':5,'hmac':'PRIVATE','pending':2},{'rows':5,'hmac':'b'*64,'pending':2,'extra':'PRIVATE'}):
+            changed=copy.deepcopy(before);changed['health_recovery_restore']=proof
+            with self.assertRaises(ValueError):q.compare_snapshots(changed,after,'source-restored')
+        q.compare_snapshots(before,copy.deepcopy(before),'factory-recovery')
+        with self.assertRaises(ValueError):q.compare_snapshots(before,after,'factory-recovery')
+
     def test_real_cli_adapter_keeps_password_out_of_arguments_and_restores_prompt(self):
         fixture=q.Qualification.__new__(q.Qualification);fixture.work=self.root;fixture.facts={}
         old_prompt=lambda _: 'untouched';prompt=SimpleNamespace(getpass=old_prompt);observed={}

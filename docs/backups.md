@@ -4,7 +4,13 @@ Backups protect **all tenants on one Debian 13 installation**. Only an enabled i
 
 This feature is included in the Debian 1.0.9 release. The previous 1.0.7 package does not include this worker. The procedures below describe that Debian implementation; the Windows candidate is qualified separately. Debian/Windows cross-platform restores remain unsupported.
 
-## Windows 1.0.13 qualification
+## Windows 1.0.20 work in progress
+
+An exact-package Windows diagnostic passed encrypted SYSTEM backups, verification, wrong-password refusal, retention, pinned SFTP upload, failure recovery, private-file permissions, factory restore and calls-only activation. This is a focused diagnostic of an earlier candidate, not acceptance or publication of the complete current Windows release. Separate-machine restore and signed upgrade/recovery still require the final package's [qualification](release-1.0.20-qualification.md).
+
+The current Windows source preserves Phone Health history on restore and refuses every restored **pending** office-unblock request. Administrators must review and confirm a new recovery after restoration, even when restoring on the same machine. Other recovery fields and historical results remain exact. The private restore journal records the number refused. A failed import restores the target's original recovery history with the rest of its factory database. The machine's protected Phone Health identity stays on the target and cannot be replaced by a source backup. These additions have passed isolated PostgreSQL and encrypted-archive controls; native final-package qualification remains required.
+
+## Historical Windows 1.0.13 qualification
 
 The unpublished Windows candidate passed full isolated run **38841661033** at source `1f8beff8b`, including its backup gate and independent original-package audit. Separate-server restore **38845992035** passed all nine source and eighteen target gates with fictional data: real encrypted scheduled/manual backups, clean-server restore, late-failure recovery, original-credential native audio/voicemail, and explicit activation. Both cleanups and temporary-secret removal were independently confirmed. Use the [matching Windows guide](installing-1.0.13.md); the Debian paths and commands below do not apply to Windows.
 

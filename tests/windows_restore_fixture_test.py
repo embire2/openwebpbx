@@ -183,6 +183,18 @@ class RestoreFixture(unittest.TestCase):
         changed['target_owned']['database_credentials'] = 'private plaintext password'
         self.assert_refuses(code, changed)
 
+    def test_health_restore_proof_requires_the_complete_matching_table_inventory(self):
+        code="restore_fixture_snapshot_shape($input);";baseline=self.snapshot()
+        baseline['all_table_values']['v_pbx_phone_health_recoveries']={'rows':5,'hmac':'a'*64}
+        proof={'rows':5,'hmac':'b'*64,'pending':2};baseline['health_recovery_restore']=proof
+        self.assert_accepts(code,baseline)
+        for value in (None,{}, proof|{'rows':4},proof|{'rows':True},proof|{'pending':True},
+                      proof|{'pending':6},proof|{'hmac':'PRIVATE'},proof|{'extra':'PRIVATE'}):
+            changed=copy.deepcopy(baseline);changed['health_recovery_restore']=value
+            self.assert_refuses(code,changed)
+        changed=copy.deepcopy(baseline);del changed['health_recovery_restore']
+        self.assert_refuses(code,changed)
+
     def test_private_input_path_refuses_symlinks_and_unscoped_files(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / 'restore-qualification'

@@ -31,6 +31,24 @@ spec.loader.exec_module(b)
 
 
 class WindowsNativeModuleEnvironment(unittest.TestCase):
+    def test_phone_recovery_restore_absence_counts_and_failed_observations_stay_closed(self):
+        with patch.object(b,'query',return_value='f') as query:
+            self.assertEqual(b.refuse_restored_phone_recoveries({}),0)
+            self.assertEqual(query.call_count,1)
+        for present in (None,True,1,[],{},'true','PRIVATE'):
+            with self.subTest(present=type(present).__name__),patch.object(b,'query',return_value=present) as query:
+                with self.assertRaises(b.BackupError):b.refuse_restored_phone_recoveries({})
+                self.assertEqual(query.call_count,1)
+        for count in (None,True,1,[],{},'-1','1.0','9223372036854775808','PRIVATE'):
+            with self.subTest(count=type(count).__name__),patch.object(b,'query',side_effect=['t',count]):
+                with self.assertRaises(b.BackupError):b.refuse_restored_phone_recoveries({})
+        for count in ('0','2'):
+            with patch.object(b,'query',side_effect=['t',count]) as query:
+                self.assertEqual(b.refuse_restored_phone_recoveries({}),int(count))
+                sql=query.call_args.args[1]
+                self.assertIn("set status='refused' where status='pending'",sql)
+                self.assertNotIn('delete',sql.lower())
+
     def test_native_module_roots_replace_core_paths_only_in_child(self):
         inherited = 'C:/PowerShell7/Modules;C:/Users/Fictional/Documents/PowerShell/Modules'
         with patch.dict(os.environ, {'SystemRoot': 'C:/Windows', 'ProgramFiles': 'C:/Program Files',
@@ -155,10 +173,18 @@ class WindowsBackups(unittest.TestCase):
           CREATE TABLE v_voicemail_messages(id uuid PRIMARY KEY);
           CREATE TABLE v_voicemails(voicemail_uuid uuid PRIMARY KEY,domain_uuid uuid,voicemail_id text,voicemail_password text,greeting_id integer);
           CREATE TABLE v_pbx_update_commands(status text);
+          CREATE TABLE v_pbx_phone_health_recoveries(recovery_uuid uuid PRIMARY KEY,domain_uuid uuid,
+            actor_uuid uuid,block_uuid uuid,source_address inet,status text NOT NULL
+            CHECK(status IN ('pending','acknowledged','refused','dispatch_failed')),
+            created_at timestamptz NOT NULL,acknowledged_at timestamptz,instance_id text);
           CREATE TABLE fixture_objects(kind text PRIMARY KEY,payload text);
           INSERT INTO v_users VALUES(gen_random_uuid(),'factory','true');
           INSERT INTO v_domains VALUES(gen_random_uuid(),'pbx.fixture.invalid');''')
         b.query(settings,(ROOT/'app/pbx_backups/resources/install.sql').read_text().split('DO $$')[0]+'COMMIT;')
+        b.query(settings,"""INSERT INTO v_pbx_phone_health_recoveries
+          SELECT gen_random_uuid(),domain_uuid,gen_random_uuid(),gen_random_uuid(),'192.0.2.77',s,now(),
+            CASE WHEN s='acknowledged' THEN now() ELSE NULL END,repeat('a',64)
+          FROM v_domains CROSS JOIN (VALUES('pending'),('pending'),('acknowledged'),('refused'),('dispatch_failed')) t(s)""")
         if source:
             b.query(settings,"INSERT INTO fixture_objects VALUES('tenant','owned fixture'),('private-phone','preserved credential'),('media-key','sealed data');INSERT INTO v_extensions VALUES(gen_random_uuid());")
             b.query(settings,"INSERT INTO v_voicemails SELECT gen_random_uuid(),domain_uuid,'1000','123456',7 FROM v_domains;")
@@ -203,6 +229,7 @@ class WindowsBackups(unittest.TestCase):
         (roots['custom-sounds']/'welcome.wav').write_bytes(b'source prompt' if source else b'factory prompt')
         # Runtime/database/uploads must never be traversed through the runtime-config label.
         (roots['runtime-config']/'do-not-backup.txt').write_text('unrelated runtime data')
+        (roots['runtime-config']/'phone-health-instance.json').write_text(json.dumps({'schema':1,'instance_id':('a' if source else 'b')*64}))
 
     @classmethod
     def tearDownClass(cls):
@@ -259,6 +286,7 @@ class WindowsBackups(unittest.TestCase):
             self.assertEqual((files/'recordings/recording.wav').read_bytes(),b'source recording')
             self.assertNotIn('storage/recordings/recording.wav',manifest['files'])
             self.assertNotIn('runtime-config/do-not-backup.txt',manifest['files'])
+            self.assertNotIn('runtime-config/phone-health-instance.json',manifest['files'])
 
     def test_02_password_tamper_and_key_envelope(self):
         with self.assertRaises(b.BackupError):
@@ -269,7 +297,7 @@ class WindowsBackups(unittest.TestCase):
             with b.verify_archive(damaged,self.password):pass
 
     def test_03_windows_names_and_case_collisions(self):
-        for name in ('storage/NUL.wav','storage/a:stream','storage/a.','storage/a ','storage/../x','C:/x','storage/a\\b','runtime-config/database/file'):
+        for name in ('storage/NUL.wav','storage/a:stream','storage/a.','storage/a ','storage/../x','C:/x','storage/a\\b','runtime-config/database/file','runtime-config/phone-health-instance.json'):
             with self.assertRaises(b.BackupError):b.safe_member(name)
         payload=self.target_state/'collision.tar.gz'
         entries={'database.dump':b'', 'storage/A.wav':b'a','storage/a.wav':b'b'}
@@ -652,6 +680,47 @@ class WindowsBackups(unittest.TestCase):
         self.assertEqual(b.query(self.target,"select voicemail_password from v_voicemails where voicemail_id='factory-mailbox'"),'246810')
         self.assertEqual(b.query(self.target,"select count(*) from pg_trigger where tgrelid='v_voicemails'::regclass and tgname='openweb_voicemail_without_pin'"),'0')
         self.assertEqual(self.database_security_state(),before)
+        self.assertEqual(json.loads((b.RESTORE/'journal.json').read_text())['state'],'recovered')
+        self.assertFalse(any(b.held(selection) for selection in b.HELD_UNITS))
+
+    def health_rows(self, settings):
+        return b.query(settings,'select jsonb_agg(to_jsonb(t) order by recovery_uuid) from v_pbx_phone_health_recoveries t',json_result=True)
+
+    def test_26_same_machine_restore_refuses_only_source_pending_health_requests(self):
+        identity=self.target_state/'phone-health-instance.json'
+        # Same physical installation keeps its protected identity. It must not
+        # make an old restored confirmation executable a second time.
+        identity.write_bytes((self.source_state/'phone-health-instance.json').read_bytes())
+        before=identity.read_bytes();source=self.health_rows(self.source)
+        factory=self.health_rows(self.target)
+        b.restore(self.archive,self.password,self.target,dry_run=True)
+        self.assertEqual(self.health_rows(self.target),factory)
+        self.assertEqual(identity.read_bytes(),before)
+        b.restore(self.archive,self.password,self.target,confirm_database=self.target_name)
+        expected=[row|{'status':'refused'} if row['status']=='pending' else row for row in source]
+        self.assertEqual(self.health_rows(self.target),expected)
+        self.assertEqual(self.health_rows(self.source),source)
+        self.assertEqual(identity.read_bytes(),before)
+        self.assertEqual(json.loads((b.RESTORE/'journal.json').read_text())['phone_health_recoveries_refused'],2)
+        self.assertEqual(b.refuse_restored_phone_recoveries(self.target),0)
+        self.assertTrue(all(b.held(selection) for selection in b.HELD_UNITS))
+
+    def test_27_post_health_invalidation_failure_recovers_complete_factory_history(self):
+        before=self.health_rows(self.target);source=self.health_rows(self.source)
+        identity=self.target_state/'phone-health-instance.json';identity_before=identity.read_bytes()
+        original=b.refuse_restored_phone_recoveries;reached=[]
+        def fail_after_invalidation(settings):
+            count=original(settings);reached.append(count)
+            self.assertEqual(count,2)
+            self.assertTrue(all(row['status']!='pending' for row in self.health_rows(settings)))
+            raise b.BackupError('Injected post-health invalidation failure')
+        with patch.object(b,'refuse_restored_phone_recoveries',side_effect=fail_after_invalidation):
+            with self.assertRaisesRegex(b.BackupError,'Injected post-health'):
+                b.restore(self.archive,self.password,self.target,confirm_database=self.target_name)
+        self.assertEqual(reached,[2])
+        self.assertEqual(self.health_rows(self.target),before)
+        self.assertEqual(self.health_rows(self.source),source)
+        self.assertEqual(identity.read_bytes(),identity_before)
         self.assertEqual(json.loads((b.RESTORE/'journal.json').read_text())['state'],'recovered')
         self.assertFalse(any(b.held(selection) for selection in b.HELD_UNITS))
 
