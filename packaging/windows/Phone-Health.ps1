@@ -6,6 +6,7 @@ try{
  if($PSScriptRoot -cne 'C:\OpenWebPBX\tools'){throw 'The installed health worker is required.'}
  . (Join-Path $PSScriptRoot 'PhoneHealth-Security.ps1')
  Assert-OpenWebHealthSystem
+ $null=Assert-OpenWebHealthProtectedPath (Join-Path $env:ProgramData 'OpenWebPBX\phone-health-runtime') -Directory
  foreach($path in @('C:\OpenWebPBX\php\php.exe','C:\OpenWebPBX\php\php.ini',(Join-Path $PSScriptRoot 'phone-health.php'),(Join-Path $PSScriptRoot 'Phone-Health.ps1'),(Join-Path $PSScriptRoot 'PhoneHealth-Security.ps1'))){$null=Assert-OpenWebHealthProtectedPath $path}
  # Web sources run as SYSTEM only when the installed source tree and all PHP
  # files are protected against IIS/users replacing executable health code.

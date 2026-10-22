@@ -19,11 +19,13 @@ class event_guard_windows implements event_guard_interface {
         foreach($ports as$protocol=>$values){sort($values,SORT_NUMERIC);if(count($values)>32)throw new RuntimeException('Too many phone listeners.');$ports[$protocol]=$values;}
         if(!$ports['tcp']||!$ports['udp'])throw new RuntimeException('Both running phone transports are required.');return $ports;
     }
+    protected function spoolDirectory(): string {return pbx_paths::state().'/phone-health-runtime';}
     /** Anonymous Windows pipes cannot provide a reliable nonblocking deadline.
-     * Pass a temporary file HANDLE instead, poll only bounded metadata, and read
-     * the safe response after exit. The temporary handle is closed/deleted here. */
+     * Use only the installed SYSTEM/Admin protected spool, never writable TEMP.
+     * Pass the file HANDLE, poll bounded metadata, and close/delete on exit. */
     protected function run(array $arguments): ?string {
-        $output=tmpfile();if(!is_resource($output))return null;
+        $directory=$this->spoolDirectory();if(!is_dir($directory)||is_link($directory))return null;
+        $file=$directory.'/.result-'.bin2hex(random_bytes(16)).'.tmp';$output=@fopen($file,'x+b');if(!is_resource($output))return null;
         $null=PHP_OS_FAMILY==='Windows'?'NUL':'/dev/null';$p=null;$exit=null;$refused=false;
         try{
             $p=@proc_open($arguments,[0=>['file',$null,'r'],1=>$output,2=>['file',$null,'w']],$pipes,null,null,['bypass_shell'=>true]);
@@ -32,7 +34,7 @@ class event_guard_windows implements event_guard_interface {
             $closed=proc_close($p);$p=null;if($exit===null||$exit<0)$exit=$closed;
             if($refused||$exit!==0||fstat($output)['size']>8192)return null;
             rewind($output);$raw=stream_get_contents($output,8193);return is_string($raw)&&strlen($raw)<=8192?$raw:null;
-        }finally{if(is_resource($p)){proc_terminate($p);proc_close($p);}fclose($output);}
+        }finally{if(is_resource($p)){proc_terminate($p);proc_close($p);}fclose($output);@unlink($file);}
     }
     protected function request(string $operation,string $address,string $filter): array {
         if(!in_array($operation,['State','Add','Remove'],true)||!in_array($filter,self::FILTERS,true)||!filter_var($address,FILTER_VALIDATE_IP,FILTER_FLAG_IPV4))return ['state'=>'unknown'];

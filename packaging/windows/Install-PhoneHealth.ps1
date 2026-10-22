@@ -12,6 +12,13 @@ try{
  foreach($name in $names){$source=Join-Path $PackageRoot $name;$item=Get-Item -LiteralPath $source -Force;if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant() -cne $manifest.files.$name){throw 'A health helper differs from the verified Windows release.'}}
  . (Join-Path $PackageRoot 'PhoneHealth-Security.ps1')
  $null=Assert-OpenWebHealthProtectedPath (Join-Path $root 'tools') -Directory
+ $spool=Join-Path $state 'phone-health-runtime'
+ if(!(Test-Path -LiteralPath $spool)){
+  New-Item -ItemType Directory -Path $spool|Out-Null
+  $acl=[Security.AccessControl.DirectorySecurity]::new();$acl.SetAccessRuleProtection($true,$false);$acl.SetOwner([Security.Principal.SecurityIdentifier]'S-1-5-32-544')
+  foreach($sid in 'S-1-5-18','S-1-5-32-544'){$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]$sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow'))};Set-Acl -LiteralPath $spool -AclObject $acl
+ }
+ $null=Assert-OpenWebHealthProtectedPath $spool -Directory
  $identity=Join-Path $state 'phone-health-instance.json'
  if(Test-Path -LiteralPath $identity){
   $null=Assert-OpenWebHealthProtectedPath $identity

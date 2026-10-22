@@ -6,6 +6,7 @@ try{
  if($PSScriptRoot -cne 'C:\OpenWebPBX\tools'){throw 'The installed security helper is required.'}
  . (Join-Path $PSScriptRoot 'PhoneHealth-Security.ps1')
  Assert-OpenWebHealthSystem
+ $null=Assert-OpenWebHealthProtectedPath (Join-Path $env:ProgramData 'OpenWebPBX\phone-health-runtime') -Directory
  foreach($name in 'PhoneHealth-Firewall.ps1','PhoneHealth-Firewall.Common.ps1','PhoneHealth-Security.ps1'){$null=Assert-OpenWebHealthProtectedPath (Join-Path $PSScriptRoot $name)}
  $env:PSModulePath=$PSHOME+'\Modules;'+[Environment]::GetFolderPath('ProgramFiles')+'\WindowsPowerShell\Modules'
  Import-Module NetSecurity -ErrorAction Stop
