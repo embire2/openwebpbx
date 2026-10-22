@@ -75,6 +75,26 @@ function Https([string]$HostName,[string]$Path,[string]$Method='GET'){
  }finally{if($stream){$stream.Dispose()};$client.Dispose()}
 }
 function XmlShape([byte[]]$Bytes){$settings=[Xml.XmlReaderSettings]::new();$settings.DtdProcessing='Prohibit';$settings.XmlResolver=$null;$memory=[IO.MemoryStream]::new($Bytes);$reader=[Xml.XmlReader]::Create($memory,$settings);$xml=[xml]::new();$xml.XmlResolver=$null;try{$xml.Load($reader);return $xml.OuterXml}finally{$reader.Dispose();$memory.Dispose()}}
+function Wait-OpenWebTenantTaskResult {
+ param([Parameter(Mandatory)][string]$Name,[Parameter(Mandatory)][DateTime]$PreviousRun,[Parameter(Mandatory)][Collections.IDictionary]$Observation,[double]$TimeoutSeconds=45)
+ if([double]::IsNaN($TimeoutSeconds) -or [double]::IsInfinity($TimeoutSeconds) -or $TimeoutSeconds -le 0 -or $TimeoutSeconds -gt 45){throw 'A bounded tenant task completion wait is required.'}
+ $timer=[Diagnostics.Stopwatch]::StartNew()
+ do{
+  Start-Sleep -Milliseconds 100
+  $before=[string](Get-ScheduledTask -TaskName $Name -TaskPath '\').State
+  $run=Get-ScheduledTaskInfo -TaskName $Name -TaskPath '\'
+  $after=[string](Get-ScheduledTask -TaskName $Name -TaskPath '\').State
+  $result=[long]$run.LastTaskResult;$fresh=$run.LastRunTime -gt $PreviousRun
+  # Scheduler state and task info are separate snapshots. Ready can arrive
+  # after an info read that still reports RUNNING, QUEUED or HAS_NOT_RUN.
+  # Wait for a fresh terminal result; a genuine nonzero exit remains a failure.
+  $pending=$result -in 267009,267011,267045
+  $complete=$fresh -and $before -ceq 'Ready' -and $after -ceq 'Ready' -and !$pending
+  $Observation.last_task_result=$result;$Observation.fresh_run=[bool]$fresh;$Observation.completed=[bool]$complete
+  if($complete){return $run}
+  if($timer.Elapsed.TotalSeconds -ge $TimeoutSeconds){throw 'The actual SYSTEM task did not publish a fresh terminal result under maintenance hold.'}
+ }while($true)
+}
 try{
  $phase='packaged_task';$manifest=Get-Content (Join-Path $PackageRoot 'release-manifest.json') -Raw|ConvertFrom-Json
  foreach($name in 'tenant-domains.py','tenant-domains.php','Tenant-Domains.ps1','Install-TenantDomains.ps1','PublicAccess.Common.ps1'){
@@ -93,12 +113,11 @@ try{
  if(!(Test-Path -LiteralPath $holdRoot)){New-Item -ItemType Directory -Path $holdRoot|Out-Null;$holdRootCreated=$true}
  $holdStream=[IO.File]::Open($hold,'CreateNew','Write','None');try{$bytes=[Text.Encoding]::ASCII.GetBytes($scope);$holdStream.Write($bytes,0,$bytes.Length)}finally{$holdStream.Dispose()};$holdOwned=$true
  $last=(Get-ScheduledTaskInfo -TaskName $taskName).LastRunTime;Start-Sleep -Milliseconds 1100;Enable-ScheduledTask -TaskName $taskName|Out-Null;Start-ScheduledTask -TaskName $taskName
- $deadline=[DateTime]::UtcNow.AddSeconds(45)
- do{Start-Sleep -Milliseconds 250;$run=Get-ScheduledTaskInfo -TaskName $taskName;$running=(Get-ScheduledTask -TaskName $taskName).State -eq 'Running';if([DateTime]::UtcNow -gt $deadline){throw 'The actual SYSTEM task did not complete under maintenance hold.'}}while($running -or $run.LastRunTime -le $last)
+ $facts.task_observation=[ordered]@{last_task_result=267011L;fresh_run=$false;completed=$false;held_worker_exit=-1;held_worker_state='unavailable';held_worker_reason='unavailable';held_worker_error_type='unavailable'}
+ $run=Wait-OpenWebTenantTaskResult -Name $taskName -PreviousRun $last -Observation $facts.task_observation
  # Preserve only closed diagnostic values. A direct held invocation is an
  # independent observation; it never substitutes for the SYSTEM task's result.
  $taskResult=[long]$run.LastTaskResult
- $facts.task_observation=[ordered]@{last_task_result=$taskResult;fresh_run=[bool]($run.LastRunTime -gt $last);completed=[bool](!$running);held_worker_exit=-1;held_worker_state='unavailable';held_worker_reason='unavailable';held_worker_error_type='unavailable'}
  $heldError=Join-Path $work 'worker.private.log'
  $heldOutput=& "$root\backup-runtime\python.exe" -I -B "$root\tools\tenant-domains.py" 2>$heldError;$heldExit=$LASTEXITCODE
  $facts.task_observation.held_worker_exit=[long]$heldExit

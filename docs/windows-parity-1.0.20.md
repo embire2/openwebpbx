@@ -67,6 +67,18 @@ control reproduces tenant lock contention; the cause of the earlier run's
 specific task result remains unproven. All failures remain part of the work
 record rather than being marked complete.
 
+A later unchanged-package replay retained a fresh Scheduler run whose info
+still reported `267009` (running) after a separate state read returned Ready.
+The qualification polling now waits for a fresh terminal result under a bounded
+timer; it continues to reject genuine nonzero exits. **Eight actual Windows
+Scheduler controls** reproduce the old inter-read race, pass the corrected
+waiter, retain a real exit17 failure, reject stale/running results and verify
+the exact SYSTEM children and owned task are removed. Fourteen portable waiter
+controls also pass. This corrects QA polling and does not change the tenant
+worker or qualify the old package. The first short-lived fixture exited before
+ownership inspection; that refusal is retained, and the passing fixture uses a
+private release-file handshake between real Scheduler snapshots.
+
 The corrected tenant worker passes19 source/OS-lock controls and five actual
 Windows SYSTEM/Scheduler cases against the final typed guard: hold/busy
 deferrals return success, an actual ACL denial remains a failure and releasing
