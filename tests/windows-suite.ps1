@@ -1174,6 +1174,9 @@ function SafePhoneHealthFailure($Record){
  $safe=@{}
  if($Record.schema -ne 1 -or $Record.producer -cne 'windows_phone_health_acceptance.ps1' -or $Record.state -cne 'failed'){return $safe}
  $safe.gates=@{};foreach($name in 'installed_task','installed_system_observer','installed_continuous_observer','installed_restart','installed_collector','postgresql_policy','runtime','firewall','native_worker','cleanup'){if($Record.gates.$name -is [string] -and $Record.gates.$name -cin 'passed','pending','failed'){$safe.gates[$name]=$Record.gates.$name}}
+ if($Record.diagnostic_recovery_exact -is [bool]){$safe.diagnostic_recovery_exact=$Record.diagnostic_recovery_exact}
+ $recovery=$Record.diagnostic_recovery_failure
+ if(($recovery -is [pscustomobject] -or $recovery -is [Collections.IDictionary]) -and $recovery.error_type -is [string] -and $recovery.error_type -cin 'RuntimeException','MethodInvocationException','ActionPreferenceStopException','ParameterBindingException','ItemNotFoundException','UnauthorizedAccessException','ArgumentException','FormatException','Win32Exception','Exception' -and ($recovery.source_line -is [int] -or $recovery.source_line -is [long]) -and $recovery.source_line -ge 1 -and $recovery.source_line -le 99999){$safe.diagnostic_recovery_failure=@{error_type=$recovery.error_type;source_line=$recovery.source_line}}
  $launcher=$Record.native_worker_launcher_failure
  if(($launcher -is [pscustomobject] -or $launcher -is [Collections.IDictionary]) -and $launcher.error_type -is [string] -and $launcher.error_type -cin 'RuntimeException','MethodInvocationException','ActionPreferenceStopException','ParameterBindingException','ItemNotFoundException','UnauthorizedAccessException','ArgumentException','FormatException','Win32Exception','Exception' -and ($launcher.source_line -is [int] -or $launcher.source_line -is [long]) -and $launcher.source_line -ge 1 -and $launcher.source_line -le 99999){$safe.native_worker_launcher_failure=@{error_type=$launcher.error_type;source_line=$launcher.source_line}}
  foreach($name in 'native_worker_failure','native_worker_cleanup_failure'){
@@ -1265,7 +1268,7 @@ try{
  if(!$?){throw 'The installed native call-engine inventory differs.'}
  $facts.gates.fresh='passed';$facts.checks+=('Real restore-ready fresh installation/services/native engine hash preservation')
  $phase='native web readiness qualification';WebReadinessHook
- if(!$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly){$phase='native STUN qualification';StunHook;$phase='native phone health qualification';PhoneHealthHook}
+ if(!$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly){$phase='native STUN qualification';StunHook;$phase='native phone health qualification';PhoneHealthAcceptanceHook ([DateTime]::UtcNow)}
  $phase='native tenant-domain qualification';TenantDomainsAcceptanceHook ([DateTime]::UtcNow)
  $phase='meeting transport qualification';MeetingTransportHook
  $acceptanceFile=Join-Path $work 'acceptance-input.json';$ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)

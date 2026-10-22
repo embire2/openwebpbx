@@ -94,3 +94,33 @@ function TenantDomainsAcceptanceHook([DateTime]$StartedAt){
   $facts.tenant_domains_continuation='independent gates only'
  }
 }
+
+function PhoneHealthAcceptanceHook([DateTime]$StartedAt){
+ try{PhoneHealthHook;if($facts.gates.phone_health -cne 'passed'){throw 'The native phone health gate did not produce its required result.'};return}
+ catch{
+  $failure=$_;RememberSuiteFailure $failure 'native phone health qualification';$facts.gates.phone_health='unqualified'
+  $facts.release_eligible=$false;$facts.owner_transaction_eligible=$false
+  try{
+   # This exception is diagnostic replay only. Normal complete qualification
+   # still stops on this failed feature. No flag can turn the failure green.
+   if(!$ReplaySuiteRunId -or $ReplaySuiteRunId -cnotmatch '^[1-9][0-9]{0,19}$'){throw 'Only an explicit unchanged-candidate replay may continue.'}
+   $path=Join-Path $work 'phone-health-native.json';$null=Assert-SuiteIndependentOrdinary $path $false;$file=Get-Item -LiteralPath $path -Force
+   if($file.Length -lt 2 -or $file.Length -gt 65536 -or $file.LastWriteTimeUtc -lt $StartedAt.ToUniversalTime().AddSeconds(-2) -or $file.LastWriteTimeUtc -gt [DateTime]::UtcNow.AddSeconds(2)){throw 'The native phone health report is invalid.'}
+   $record=Get-Content -LiteralPath $path -Raw|ConvertFrom-Json;$safe=SafePhoneHealthFailure $record
+   if(($record.schema -isnot [int] -and $record.schema -isnot [long]) -or $record.schema -ne 1 -or $record.producer -isnot [string] -or $record.producer -cne 'windows_phone_health_acceptance.ps1' -or $record.state -isnot [string] -or $record.state -cne 'failed' -or $record.actual_native_windows -isnot [bool] -or !$record.actual_native_windows -or $record.physical_phone_audio -isnot [bool] -or $record.physical_phone_audio -or $record.policy_signalling_doubles -isnot [bool] -or !$record.policy_signalling_doubles -or $record.diagnostic_recovery_exact -isnot [bool] -or !$record.diagnostic_recovery_exact -or $safe.diagnostic_recovery_exact -isnot [bool] -or !$safe.diagnostic_recovery_exact -or @($record.PSObject.Properties.Name|Where-Object {$_ -ceq 'diagnostic_recovery_failure'}).Count){throw 'Exact native-worker recovery is not proved.'}
+   foreach($gate in 'installed_task','installed_system_observer','installed_continuous_observer','installed_restart','installed_collector','cleanup'){if($record.gates.$gate -isnot [string] -or $record.gates.$gate -cne 'passed'){throw 'The recovered native worker prerequisites are incomplete.'}}
+   if($record.gates.native_worker -isnot [string] -or $record.gates.native_worker -cnotin 'pending','failed'){throw 'Only the failed native worker case may continue.'}
+   $facts.phone_health_failure=$safe
+  }catch{$facts.phone_health_continuation='aborted_report';throw $failure}
+  $health=[ordered]@{schema=1;engine_idle=$false;local_service=$false;local_version_matches=$false;trusted_iis=$false}
+  try{
+   $observer=NativeStartupFailure -StartedAt $StartedAt -PrivateDirectory $work;$health.engine_idle=[bool](NativeIdleIsHealthy $observer)
+   $web=Get-SuiteIndependentHealth
+   if(($web.schema -isnot [int] -and $web.schema -isnot [long]) -or $web.schema -ne 1 -or $web.local_service -isnot [bool] -or $web.local_version_matches -isnot [bool] -or $web.trusted_iis -isnot [bool] -or $web.local_class -isnot [string] -or $web.local_class -cne 'running' -or $web.iis_class -isnot [string] -or $web.iis_class -cne 'ready' -or ($web.iis_status -isnot [int] -and $web.iis_status -isnot [long]) -or $web.iis_status -ne 200){throw 'The independent recovered health record is invalid.'}
+   foreach($name in 'local_service','local_version_matches','trusted_iis'){$health[$name]=$web.$name}
+   $facts.phone_health_independent_health=$health
+   if(!$health.engine_idle -or !$health.local_service -or !$health.local_version_matches -or !$health.trusted_iis){throw 'Independent idle service and trusted IIS health are not proved.'}
+  }catch{$facts.phone_health_independent_health=$health;$facts.phone_health_continuation='aborted_health';throw $failure}
+  $facts.phone_health_continuation='independent gates only'
+ }
+}
