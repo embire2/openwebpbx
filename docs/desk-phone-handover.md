@@ -42,6 +42,8 @@ If the phone fails to register, check the address, existing connection type and 
 
 If registration works but a queue does not ring the phone, check the user's restored status and queue sign-in. Restore retains these settings; it does not automatically sign everyone into every queue.
 
+If every phone in one office stops registering while another office still works, check **Event Guard** for a block against that office's public address. An earlier failed attempt can leave the office blocked even after its phone settings have been corrected. Confirm the SIP server/proxy address and restored Authentication ID first, then unblock only the verified office address and retry registration. A web administration address is not automatically a SIP registrar. Check that each phone appears online and complete an answered internal call afterward.
+
 Phones still receiving automatic provisioning from 3CX can have manual edits overwritten. Retain their existing configuration export, and move or disable the old provisioning source before declaring the handover complete. A 3CX provisioning URL, SBC, tunnel, proprietary application or proprietary phone-button action requires its own replacement; a hostname edit cannot replace those services.
 
 ## What is qualified
@@ -64,3 +66,5 @@ The original Restore Report stays visible. An explicitly accepted source-data li
 **Verification boundary, 2026-10-16:** 23 original backup extension/authentication/password tuples registered successfully on a new owned SIP domain using software phones. Vendor configuration preservation and encrypted-export tests passed. The actual W60B and V62W are unavailable; physical firmware, audio, buttons and provisioning behavior remain **awaiting handset access**, with no physical-device pass recorded. Domain-only migration also requires the existing port/transport to be supported and reachable and any required TLS certificate to cover the new name.
 
 **Hosted registration update, 2026-10-19:** after the owner changed three customer phones, the server confirmed all three registered on their existing owned phone domain. A fresh comparison with the original backup confirmed all23 authentication/password tuples still match. This is registration evidence; it does not replace the calling, audio, firmware and button checks above. A new tenant web administration address does not require another change to phones already registered successfully.
+
+**Hosted recovery, 2026-10-22:** a previous authentication-failure block prevented an office's four phones from reaching the registrar. The normal scoped unblock restored all four registrations without changing credentials, routes or restarting the PBX. The owner then confirmed ringing and two-way audio on one internal test call. Other handset functions and carrier paths retain their separate verification requirements.
