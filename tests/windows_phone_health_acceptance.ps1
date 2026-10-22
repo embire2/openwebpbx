@@ -83,16 +83,18 @@ $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 try{
  . 'C:\OpenWebPBX\tools\PhoneHealth-Security.ps1';Assert-OpenWebHealthSystem
  $env:GITHUB_ACTIONS='true';$env:RUNNER_ENVIRONMENT='github-hosted';$env:GITHUB_REPOSITORY='embire2/openwebpbx'
- $output=& 'C:\OpenWebPBX\php\php.exe' '__PHP__' --native-windows-worker 2> '__ERROR__'
- if(!$? -or $LASTEXITCODE){throw 'The actual native health worker failed.'}
+ $output=& 'C:\OpenWebPBX\php\php.exe' '__PHP__' --native-windows-worker 2> '__ERROR__';$workerExit=$LASTEXITCODE
  $parsed=($output -join "`n")|ConvertFrom-Json
  [IO.File]::WriteAllText('__RESULT__',($parsed|ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+ if($workerExit){exit 1}
 }catch{[IO.File]::WriteAllText('__RESULT__',(@{state='failed';error_type=$_.Exception.GetType().Name;source_line=$_.InvocationInfo.ScriptLineNumber}|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false));exit 1}
 '@
   [IO.File]::WriteAllText($systemFile,$worker.Replace('__PHP__',$workerPhp).Replace('__ERROR__',(Join-Path $work 'native-worker.private.err')).Replace('__RESULT__',$workerResult),[Text.UTF8Encoding]::new($false))
   Start-ScheduledTask -TaskName $taskName -TaskPath '\'
   $deadline=[DateTime]::UtcNow.AddMinutes(4);while(!(Test-Path -LiteralPath $workerResult)){if([DateTime]::UtcNow -ge $deadline){throw 'The actual native health worker timed out.'};Start-Sleep -Milliseconds 250}
   $workerReport=Get-Content -LiteralPath $workerResult -Raw|ConvertFrom-Json
+  foreach($name in 'native_worker_failure','native_worker_cleanup_failure'){if($workerReport.$name){$report[$name]=$workerReport.$name}}
+  if($workerReport.state -ceq 'failed' -and $workerReport.error_type -is [string] -and ($workerReport.source_line -is [int] -or $workerReport.source_line -is [long])){$report.native_worker_launcher_failure=@{error_type=$workerReport.error_type;source_line=$workerReport.source_line}}
   foreach($field in 'actual_native_windows_worker','actual_esl_event','actual_defender_adapter','actual_postgresql','synthetic_office_history','post_native_fault_reconciled','revoked_role_refused','authorised_recovery_acknowledged'){if($workerReport.$field -ne $true){throw 'The native worker result is incomplete.'}}
   if($workerReport.state -ne 'passed' -or $workerReport.physical_phone_audio -ne $false -or $workerReport.checks -lt 13){throw 'The native worker did not pass.'}
   if((NativeHealthPolicy) -cne $policyBefore){throw 'The native worker changed original firewall policy.'}

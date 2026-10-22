@@ -1005,6 +1005,10 @@ function WebReadinessHook {
 }
 function SafeTenantDomainsProof($Record){
  $safe=@{}
+ $task=$Record.task_observation
+ if(($task -is [pscustomobject] -or $task -is [Collections.IDictionary]) -and ($task.last_task_result -is [int] -or $task.last_task_result -is [long]) -and $task.last_task_result -ge 0 -and $task.last_task_result -le 4294967295 -and $task.fresh_run -is [bool] -and $task.completed -is [bool] -and ($task.held_worker_exit -is [int] -or $task.held_worker_exit -is [long]) -and $task.held_worker_exit -ge -2147483648 -and $task.held_worker_exit -le 4294967295 -and $task.held_worker_state -is [string] -and $task.held_worker_state -cin 'unavailable','deferred' -and $task.held_worker_reason -is [string] -and $task.held_worker_reason -cin 'unavailable','maintenance_or_restore_hold' -and $task.held_worker_error_type -is [string] -and $task.held_worker_error_type -cin 'unavailable','none','BackupError','PermissionError','ValueError','ImportError','ModuleNotFoundError','OSError','FileNotFoundError','RuntimeError','JSONDecodeError','TimeoutExpired','Pending'){
+  $safe.task_observation=@{};foreach($field in 'last_task_result','fresh_run','completed','held_worker_exit','held_worker_state','held_worker_reason','held_worker_error_type'){$safe.task_observation[$field]=$task.$field}
+ }
  if(($Record.legacy_acl_status -is [int] -or $Record.legacy_acl_status -is [long]) -and $Record.legacy_acl_status -ge 100 -and $Record.legacy_acl_status -le 599){$safe.legacy_acl_status=[int]$Record.legacy_acl_status}
  $response=$Record.proof_response
  if($response -is [pscustomobject] -or $response -is [Collections.IDictionary]){
@@ -1107,8 +1111,22 @@ function StunHook {
   throw
  }
 }
+function SafePhoneHealthFailure($Record){
+ $safe=@{}
+ if($Record.schema -ne 1 -or $Record.producer -cne 'windows_phone_health_acceptance.ps1' -or $Record.state -cne 'failed'){return $safe}
+ $safe.gates=@{};foreach($name in 'installed_task','installed_system_observer','installed_continuous_observer','installed_restart','installed_collector','postgresql_policy','runtime','firewall','native_worker','cleanup'){if($Record.gates.$name -is [string] -and $Record.gates.$name -cin 'passed','pending','failed'){$safe.gates[$name]=$Record.gates.$name}}
+ $launcher=$Record.native_worker_launcher_failure
+ if(($launcher -is [pscustomobject] -or $launcher -is [Collections.IDictionary]) -and $launcher.error_type -is [string] -and $launcher.error_type -cin 'RuntimeException','MethodInvocationException','ActionPreferenceStopException','ParameterBindingException','ItemNotFoundException','UnauthorizedAccessException','ArgumentException','FormatException','Win32Exception','Exception' -and ($launcher.source_line -is [int] -or $launcher.source_line -is [long]) -and $launcher.source_line -ge 1 -and $launcher.source_line -le 99999){$safe.native_worker_launcher_failure=@{error_type=$launcher.error_type;source_line=$launcher.source_line}}
+ foreach($name in 'native_worker_failure','native_worker_cleanup_failure'){
+  $r=$Record.$name
+  if(($r -isnot [pscustomobject] -and $r -isnot [Collections.IDictionary]) -or $r.phase -isnot [string] -or $r.phase -cnotin 'preflight','bootstrap','firewall_preflight','factory_preflight','schema','fixture','esl_subscribe','esl_publish','esl_receive','native_add','ledger_intent','ledger_reconcile','role_refusal','authorised_recovery','acknowledgement','duplicate_refusal','cleanup','complete' -or $r.error_type -isnot [string] -or $r.error_type -cnotin 'RuntimeException','PDOException','Error','TypeError','ValueError','ErrorException','JsonException','Exception' -or $r.source_basename -isnot [string] -or $r.source_basename -cnotin 'windows_phone_health_worker.php','pbx_windows_event_guard.php','pbx_windows_health_stream.php','pbx_phone_health.php','pbx_phone_health_recovery.php','event_guard_windows.php','database.php','require.php','external_component' -or ($r.source_line -isnot [int] -and $r.source_line -isnot [long]) -or $r.source_line -lt 1 -or $r.source_line -gt 99999 -or $r.sqlstate -isnot [string] -or ($r.sqlstate -cne 'none' -and $r.sqlstate -cnotmatch '^[A-Z0-9]{5}$')){continue}
+  $safe[$name]=@{};foreach($field in 'phase','error_type','source_basename','source_line','sqlstate'){$safe[$name][$field]=$r.$field}
+ }
+ return $safe
+}
 function PhoneHealthHook {
  $reportPath=Join-Path $work 'phone-health-native.json'
+ try{
  & (Join-Path $PSScriptRoot 'windows_phone_health_acceptance.ps1') -PackageRoot $PackageRoot -ReportPath $reportPath -DisposableHostedRunner
  if(!(Test-Path -LiteralPath $reportPath)){throw 'The installed native phone health evidence is absent.'}
  $report=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json
@@ -1117,6 +1135,10 @@ function PhoneHealthHook {
  foreach($limit in @(@('postgresql_checks',96),@('runtime_checks',49),@('firewall_checks',16),@('native_worker_checks',13))){$v=$report.($limit[0]);if(($v -isnot [int] -and $v -isnot [long]) -or $v -lt $limit[1] -or $v -gt 100000){throw 'The native phone health check counts are invalid.'}}
  if($report.native_worker_firewall_policy_exact -isnot [bool] -or !$report.native_worker_firewall_policy_exact){throw 'The actual SYSTEM recovery worker did not preserve complete native firewall policy.'}
  $facts.gates.phone_health='passed';$facts.checks+=('Actual Windows installed SYSTEM phone health task/continuous observer/restart/collector, PostgreSQL '+$report.postgresql_checks+', runtime '+$report.runtime_checks+', Defender '+$report.firewall_checks+' and scoped cleanup; policy signalling uses doubles, physical audio unqualified')
+ }catch{
+  if(Test-Path -LiteralPath $reportPath){try{$r=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json;$safe=SafePhoneHealthFailure $r;if($safe.Count){$facts.phone_health_failure=$safe}}catch{}}
+  throw
+ }
 }
 try{
  PrivateDirectory $work;PublishFacts

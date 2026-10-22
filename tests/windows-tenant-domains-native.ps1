@@ -95,8 +95,20 @@ try{
  $last=(Get-ScheduledTaskInfo -TaskName $taskName).LastRunTime;Start-Sleep -Milliseconds 1100;Enable-ScheduledTask -TaskName $taskName|Out-Null;Start-ScheduledTask -TaskName $taskName
  $deadline=[DateTime]::UtcNow.AddSeconds(45)
  do{Start-Sleep -Milliseconds 250;$run=Get-ScheduledTaskInfo -TaskName $taskName;$running=(Get-ScheduledTask -TaskName $taskName).State -eq 'Running';if([DateTime]::UtcNow -gt $deadline){throw 'The actual SYSTEM task did not complete under maintenance hold.'}}while($running -or $run.LastRunTime -le $last)
- Check ($run.LastTaskResult -eq 0) 'Actual SYSTEM worker honors the maintenance hold without registry traffic';$facts.system_task=$true
- $heldOutput=& "$root\backup-runtime\python.exe" -I -B "$root\tools\tenant-domains.py" 2>>"$work\worker.private.log";if($LASTEXITCODE){throw 'The held installed worker failed.'};$heldResult=($heldOutput -join "`n")|ConvertFrom-Json;Check ($heldResult.state -ceq 'deferred' -and $heldResult.reason -ceq 'maintenance_or_restore_hold') 'Actual worker returns the closed maintenance result without contacting the registry'
+ # Preserve only closed diagnostic values. A direct held invocation is an
+ # independent observation; it never substitutes for the SYSTEM task's result.
+ $taskResult=[long]$run.LastTaskResult
+ $facts.task_observation=[ordered]@{last_task_result=$taskResult;fresh_run=[bool]($run.LastRunTime -gt $last);completed=[bool](!$running);held_worker_exit=-1;held_worker_state='unavailable';held_worker_reason='unavailable';held_worker_error_type='unavailable'}
+ $heldError=Join-Path $work 'worker.private.log'
+ $heldOutput=& "$root\backup-runtime\python.exe" -I -B "$root\tools\tenant-domains.py" 2>$heldError;$heldExit=$LASTEXITCODE
+ $facts.task_observation.held_worker_exit=[long]$heldExit
+ $heldResult=$null
+ try{$heldRaw=$heldOutput -join "`n";if($heldRaw.Length -le 4096){$heldResult=$heldRaw|ConvertFrom-Json;if($heldResult.state -ceq 'deferred'){$facts.task_observation.held_worker_state='deferred'};if($heldResult.reason -ceq 'maintenance_or_restore_hold'){$facts.task_observation.held_worker_reason='maintenance_or_restore_hold'}}}catch{}
+ if($heldExit -eq 0){$facts.task_observation.held_worker_error_type='none'}else{
+  try{$errorItem=Get-Item -LiteralPath $heldError;if($errorItem.Length -le 4096){$errorRecord=Get-Content -LiteralPath $heldError -Raw|ConvertFrom-Json;if(@($errorRecord.PSObject.Properties).Count -eq 2 -and $errorRecord.state -ceq 'deferred' -and $errorRecord.error_type -cin 'BackupError','PermissionError','ValueError','ImportError','ModuleNotFoundError','OSError','FileNotFoundError','RuntimeError','JSONDecodeError','TimeoutExpired','Pending'){$facts.task_observation.held_worker_error_type=[string]$errorRecord.error_type}}}catch{}
+ }
+ Check ($taskResult -eq 0) 'Actual SYSTEM worker honors the maintenance hold without registry traffic';$facts.system_task=$true
+ if($heldExit){throw 'The held installed worker failed.'};Check ($heldResult.state -ceq 'deferred' -and $heldResult.reason -ceq 'maintenance_or_restore_hold') 'Actual worker returns the closed maintenance result without contacting the registry'
  Disable-ScheduledTask -TaskName $taskName|Out-Null
  $lock=[IO.File]::Open((Join-Path $state 'upgrade.lock'),'Open','ReadWrite','None')
  $appHost=Join-Path $env:windir 'System32\inetsrv\config\applicationHost.config';$iisBefore=SaveFile $appHost;$hosts=Join-Path $env:windir 'System32\drivers\etc\hosts';$hostsBefore=SaveFile $hosts;$rootsBefore=@(Get-ChildItem Cert:\LocalMachine\Root|ForEach-Object Thumbprint|Sort-Object);$myBefore=@(Get-ChildItem Cert:\LocalMachine\My|ForEach-Object Thumbprint|Sort-Object)
