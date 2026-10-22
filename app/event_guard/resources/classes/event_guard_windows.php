@@ -19,17 +19,28 @@ class event_guard_windows implements event_guard_interface {
         foreach($ports as$protocol=>$values){sort($values,SORT_NUMERIC);if(count($values)>32)throw new RuntimeException('Too many phone listeners.');$ports[$protocol]=$values;}
         if(!$ports['tcp']||!$ports['udp'])throw new RuntimeException('Both running phone transports are required.');return $ports;
     }
+    /** Anonymous Windows pipes cannot provide a reliable nonblocking deadline.
+     * Pass a temporary file HANDLE instead, poll only bounded metadata, and read
+     * the safe response after exit. The temporary handle is closed/deleted here. */
+    protected function run(array $arguments): ?string {
+        $output=tmpfile();if(!is_resource($output))return null;
+        $null=PHP_OS_FAMILY==='Windows'?'NUL':'/dev/null';$p=null;$exit=null;$refused=false;
+        try{
+            $p=@proc_open($arguments,[0=>['file',$null,'r'],1=>$output,2=>['file',$null,'w']],$pipes,null,null,['bypass_shell'=>true]);
+            if(!is_resource($p))return null;$deadline=microtime(true)+15;
+            do{$status=proc_get_status($p);$size=fstat($output)['size'];if($size>8192||microtime(true)>$deadline){$refused=true;proc_terminate($p);break;}if(!$status['running']){$exit=$status['exitcode'];break;}usleep(20000);}while(true);
+            $closed=proc_close($p);$p=null;if($exit===null||$exit<0)$exit=$closed;
+            if($refused||$exit!==0||fstat($output)['size']>8192)return null;
+            rewind($output);$raw=stream_get_contents($output,8193);return is_string($raw)&&strlen($raw)<=8192?$raw:null;
+        }finally{if(is_resource($p)){proc_terminate($p);proc_close($p);}fclose($output);}
+    }
     protected function request(string $operation,string $address,string $filter): array {
         if(!in_array($operation,['State','Add','Remove'],true)||!in_array($filter,self::FILTERS,true)||!filter_var($address,FILTER_VALIDATE_IP,FILTER_FLAG_IPV4))return ['state'=>'unknown'];
         try{$ports=self::ports(pbx_windows_health_stream::api('sofia xmlstatus'));}catch(Throwable){return ['state'=>'unknown'];}
         $address=inet_ntop(inet_pton($address));$powershell=(getenv('SystemRoot')?:'C:\\Windows').'\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
         $helper='C:\\OpenWebPBX\\tools\\PhoneHealth-Firewall.ps1';
-        $p=@proc_open([$powershell,'-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$helper,'-Operation',$operation,'-Address',$address,'-Filter',$filter,'-TcpPorts',implode(',',$ports['tcp']),'-UdpPorts',implode(',',$ports['udp'])],[0=>['file','NUL','r'],1=>['pipe','w'],2=>['file','NUL','w']],$pipes,null,null,['bypass_shell'=>true]);
-        if(!is_resource($p))return ['state'=>'unknown'];
-        stream_set_blocking($pipes[1],false);$raw='';$exit=null;$deadline=microtime(true)+15;
-        try{do{$raw.=stream_get_contents($pipes[1],8193);$s=proc_get_status($p);if(strlen($raw)>8192||microtime(true)>$deadline){proc_terminate($p);return ['state'=>'unknown'];}if(!$s['running']){$raw.=stream_get_contents($pipes[1],8193);$exit=$s['exitcode'];break;}usleep(20000);}while(true);}
-        finally{fclose($pipes[1]);$closed=proc_close($p);if($exit===null||$exit<0)$exit=$closed;}
-        if($exit!==0||strlen($raw)>8192)return ['state'=>'unknown'];
+        $raw=$this->run([$powershell,'-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$helper,'-Operation',$operation,'-Address',$address,'-Filter',$filter,'-TcpPorts',implode(',',$ports['tcp']),'-UdpPorts',implode(',',$ports['udp'])]);
+        if($raw===null)return ['state'=>'unknown'];
         try{$r=json_decode($raw,true,8,JSON_THROW_ON_ERROR);}catch(Throwable){return ['state'=>'unknown'];}
         if(!is_array($r)||array_keys($r)!==['state']||!in_array($r['state'],['present','absent','unknown'],true))return ['state'=>'unknown'];
         return $r;
