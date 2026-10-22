@@ -35,7 +35,7 @@ function Python([string]$Phase){
 function CompletedMediaCases($Checks){
  # Publish only fixed completed case names; peer metrics and raw child data
  # remain in the administrator-private report.
- $allowed=@('native_windows_meeting_browser_video_audio','native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav','native_tls_mailbox_wire_forwarding_exact_binary_wav','native_global_smtp_unconfigured_queue_preserves_attempts','native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment','native_global_smtp_password_auth_actual_loopback','native_global_smtp_trusted_tls_hostname_auth_actual_loopback','native_clock1026_gmt2_three_decoded_announcements','native_provider_outbound_decoded_rtp','native_provider_503_failover_once_decoded_rtp','native_provider_busy_no_failover','native_provider_declined_no_failover','native_provider_incoming_owned_did_decoded_rtp','native_cmb_sa_id_first_auth_decoded_bridge','native_cmb_saved_caller_decoded_bridge','native_cmb_short_quota_native_cutoff_exact_usage','native_cmb_exhausted_quota_no_destination')
+ $allowed=@('native_windows_meeting_browser_video_audio','native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav','native_tls_mailbox_wire_forwarding_exact_binary_wav','native_global_smtp_unconfigured_queue_preserves_attempts','native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment','native_global_smtp_password_auth_actual_loopback','native_global_smtp_trusted_tls_hostname_auth_actual_loopback','native_clock1026_gmt2_three_decoded_announcements','native_provider_outbound_decoded_rtp','native_provider_503_failover_once_decoded_rtp','native_provider_busy_no_failover','native_provider_603_failover_once_decoded_rtp','native_provider_incoming_owned_did_decoded_rtp','native_cmb_sa_id_first_auth_decoded_bridge','native_cmb_saved_caller_decoded_bridge','native_cmb_short_quota_native_cutoff_exact_usage','native_cmb_exhausted_quota_no_destination')
  foreach($name in $allowed){
   foreach($check in @($Checks)){
    if($check.case -is [string] -and $check.case -ceq $name -and $check.passed -is [bool] -and $check.passed -eq $true){$name;break}
@@ -43,7 +43,7 @@ function CompletedMediaCases($Checks){
  }
 }
 function AssertExtendedNativeCases($Checks){
- $names=@('native_clock1026_gmt2_three_decoded_announcements','native_provider_outbound_decoded_rtp','native_provider_503_failover_once_decoded_rtp','native_provider_busy_no_failover','native_provider_declined_no_failover','native_provider_incoming_owned_did_decoded_rtp','native_cmb_sa_id_first_auth_decoded_bridge','native_cmb_saved_caller_decoded_bridge','native_cmb_short_quota_native_cutoff_exact_usage','native_cmb_exhausted_quota_no_destination')
+ $names=@('native_clock1026_gmt2_three_decoded_announcements','native_provider_outbound_decoded_rtp','native_provider_503_failover_once_decoded_rtp','native_provider_busy_no_failover','native_provider_603_failover_once_decoded_rtp','native_provider_incoming_owned_did_decoded_rtp','native_cmb_sa_id_first_auth_decoded_bridge','native_cmb_saved_caller_decoded_bridge','native_cmb_short_quota_native_cutoff_exact_usage','native_cmb_exhausted_quota_no_destination')
  foreach($name in $names){
   $rows=@($Checks|Where-Object {$_.case -is [string] -and $_.case -ceq $name})
   if($rows.Count -ne 1 -or $rows[0].passed -isnot [bool] -or !$rows[0].passed){throw 'Every extended native clock/provider/Call Me Back case must complete exactly once.'}
@@ -66,12 +66,12 @@ function AssertExtendedNativeCases($Checks){
   }
   if($name -like 'native_provider_*'){
    if($row.no_carrier_traffic -isnot [bool] -or !$row.no_carrier_traffic){throw 'Only fictional local provider proof is allowed.'}
-   if($name -cin 'native_provider_outbound_decoded_rtp','native_provider_503_failover_once_decoded_rtp','native_provider_incoming_owned_did_decoded_rtp'){
+   if($name -cin 'native_provider_outbound_decoded_rtp','native_provider_503_failover_once_decoded_rtp','native_provider_603_failover_once_decoded_rtp','native_provider_incoming_owned_did_decoded_rtp'){
     if($row.caller_decoded_ratio -lt .8){throw 'The fictional provider caller audio did not decode.'}
     if($name -ceq 'native_provider_incoming_owned_did_decoded_rtp'){if($row.extension_decoded_ratio -lt .8){throw 'The fictional incoming extension audio did not decode.'}}
     elseif($row.provider_decoded_ratio -lt .8){throw 'The fictional outgoing provider audio did not decode.'}
    }
-   if($name -cne 'native_provider_incoming_owned_did_decoded_rtp' -and ($row.primary_distinct_calls -ne 1 -or $row.backup_distinct_calls -ne $(if($name -ceq 'native_provider_503_failover_once_decoded_rtp'){1}else{0}))){throw 'Provider failover or refusal duplicated a call.'}
+   if($name -cne 'native_provider_incoming_owned_did_decoded_rtp' -and ($row.primary_distinct_calls -ne 1 -or $row.backup_distinct_calls -ne $(if($name -cin 'native_provider_503_failover_once_decoded_rtp','native_provider_603_failover_once_decoded_rtp'){1}else{0}))){throw 'Provider failover or refusal duplicated a call.'}
   }
   if($name -like 'native_cmb_*'){
    foreach($flag in 'identity_hmac_unchanged','reservation_released','no_carrier_traffic'){if($row.$flag -isnot [bool] -or !$row.$flag){throw 'Native Call Me Back ownership/settlement proof is incomplete.'}}

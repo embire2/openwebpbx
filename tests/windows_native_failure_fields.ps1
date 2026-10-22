@@ -10,6 +10,10 @@ Invoke-Expression $queueNodes[0].Extent.Text
 $nodes=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'SafeFailureFields'},$true))
 if($nodes.Count -ne 1){throw 'The actual caller allowlist must be uniquely identified.'}
 Invoke-Expression $nodes[0].Extent.Text
+foreach($name in 'SafeMeetingOwnerPageFields','SafeMeetingMediaFields','SafeMeetingSignalingFields','SafeMeetingPathFields'){
+ $dependencies=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name},$true))
+ if($dependencies.Count -ne 1){throw 'An actual closed failure projection dependency is missing.'};Invoke-Expression $dependencies[0].Extent.Text
+}
 $nativeAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-native-acceptance.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'The reviewed native hook must parse.'}
 $mediaNodes=@($nativeAst.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'CompletedMediaCases'},$true))

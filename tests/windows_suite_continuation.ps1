@@ -5,7 +5,7 @@ $ErrorActionPreference='Stop'
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-suite.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'The actual suite must parse.'}
-foreach($name in 'SafeQueueFailureFields','SafeVoicemailFailureFields','SafeMailboxFailureFields','SafeHotelFailureFields','SafeSmtpFailureFields','SafeNativeCleanupFields','SafeFailureFields','RememberHookFailure','RememberSuiteFailure','NativeCleanupIsExact','NativeIdleIsHealthy','NativeAcceptanceHook'){
+foreach($name in 'SafeQueueFailureFields','SafeVoicemailFailureFields','SafeMailboxFailureFields','SafeHotelFailureFields','SafeSmtpFailureFields','SafeNativeCleanupFields','SafeMeetingOwnerPageFields','SafeMeetingMediaFields','SafeMeetingSignalingFields','SafeMeetingPathFields','SafeFailureFields','RememberHookFailure','RememberSuiteFailure','NativeCleanupIsExact','NativeIdleIsHealthy','NativeAcceptanceHook'){
  $nodes=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name},$true))
  if($nodes.Count -ne 1){throw 'Actual runner control must be uniquely identified.'}
  Invoke-Expression $nodes[0].Extent.Text

@@ -30,10 +30,10 @@ def qualify(f, caller, extension, destination, Provider, original, sip, Playback
             sip.rtp_rate_check(left); sip.rtp_rate_check(right)
             return original.decoded_tone_check(left, left_frequency), original.decoded_tone_check(right, right_frequency)
 
-        # Exact distinct wire dialogs prove a 503 fallback once, and that busy /
-        # declined calls do not spill onto a second provider.
+        # 3CX retries both 503 and 603; busy486 stops. Each retry must create
+        # exactly one backup dialog and independently decode both audio paths.
         for number, winner, refused in [('99100', 0, None), ('99101', 1, None),
-                                        ('99102', None, 486), ('99103', None, 603)]:
+                                        ('99102', None, 486), ('99103', 1, 603)]:
             f.active_case = 'native_provider_' + number[-3:]
             before = [len(peer.invites) for peer in providers]
             dialogs = [set(peer.dialogs) for peer in providers]
@@ -64,8 +64,9 @@ def qualify(f, caller, extension, destination, Provider, original, sip, Playback
                     assert any(code == refused for _, code in providers[0].sent_codes[-8:]), 'The controlled refusal was not sent'
                 elif winner == 1:
                     assert any(code == 503 for _, code in providers[0].sent_codes[-8:]), 'The controlled 503 was not sent'
-                f.record('native_provider_' + ('503_failover_once_decoded_rtp' if winner == 1 else
-                         'outbound_decoded_rtp' if winner == 0 else 'busy_no_failover' if refused == 486 else 'declined_no_failover'),
+                f.record('native_provider_' + ('603_failover_once_decoded_rtp' if refused == 603 else
+                         '503_failover_once_decoded_rtp' if winner == 1 else
+                         'outbound_decoded_rtp' if winner == 0 else 'busy_no_failover'),
                          primary_distinct_calls=1, backup_distinct_calls=1 if winner == 1 else 0,
                          caller_decoded_ratio=down, provider_decoded_ratio=up, no_carrier_traffic=True)
             except BaseException as error:
