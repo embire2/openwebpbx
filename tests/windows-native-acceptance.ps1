@@ -155,10 +155,10 @@ function MeetingPathFields($Record){
  $ws=@{booleans=@('observed','connected','sent','response_received','closed_exact','large_sent','large_response_received');integers=@{status_code=699;large_status_code=699;elapsed_ms=6000};enums=@{phase=@('connect','send','receive','complete','unavailable');error_kind=@('none','timeout','tls','websocket','other','unavailable')}}
  $pg=@{booleans=@('observed','read_only','query_visible','counts_capped');integers=@{total=512;active=512;idle=512;idle_in_transaction=512;wait_lock=512;meeting_select=512;meeting_update=512;meeting_insert=512;meeting_other=512;meeting_wait_lock=512};enums=@{error_kind=@('none','timeout','database','unavailable')}}
  $http=@{booleans=@('observed','completed','ok');integers=@{http_status=599;elapsed_ms=5000};enums=@{member_state=@('waiting','admitted','left','removed','unavailable','other');error_kind=@('none','timeout','tls','http','invalid_json','other','unavailable')}}
- $specs=@{backend=$ws;frontend=$ws;database=$pg;host_http=$http;guest_http=$http};$stages=@{}
+ $specs=@{backend=$ws;frontend=$ws;fragmented_backend=$ws;fragmented_frontend=$ws;database=$pg;host_http=$http;guest_http=$http};$stages=@{}
  foreach($stage in 'before','after'){
   $row=$paths.$stage;$names=if($row -is [Collections.IDictionary]){@($row.Keys)}elseif($row -is [pscustomobject]){@($row.PSObject.Properties|ForEach-Object Name)}else{return @{}}
-  if($names.Count -ne 5 -or @($names|Where-Object {$_ -cnotin @($specs.Keys)}).Count){return @{}};$closedStage=@{}
+  if($names.Count -ne 7 -or @($names|Where-Object {$_ -cnotin @($specs.Keys)}).Count){return @{}};$closedStage=@{}
   foreach($kind in $specs.Keys){
    $peer=$row.$kind;$spec=$specs[$kind];$fields=@($spec.booleans)+@($spec.integers.Keys)+@($spec.enums.Keys)
    $names=if($peer -is [Collections.IDictionary]){@($peer.Keys)}elseif($peer -is [pscustomobject]){@($peer.PSObject.Properties|ForEach-Object Name)}else{return @{}}

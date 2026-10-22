@@ -80,7 +80,7 @@ def path_fields(record):
     ws = dict(booleans={'observed','connected','sent','response_received','closed_exact','large_sent','large_response_received'}, integers={'status_code':699,'large_status_code':699,'elapsed_ms':6000}, enums={'phase':{'connect','send','receive','complete','unavailable'},'error_kind':{'none','timeout','tls','websocket','other','unavailable'}})
     pg = dict(booleans={'observed','read_only','query_visible','counts_capped'}, integers={name:512 for name in ('total','active','idle','idle_in_transaction','wait_lock','meeting_select','meeting_update','meeting_insert','meeting_other','meeting_wait_lock')}, enums={'error_kind':{'none','timeout','database','unavailable'}})
     http = dict(booleans={'observed','completed','ok'}, integers={'http_status':599,'elapsed_ms':5000}, enums={'member_state':{'waiting','admitted','left','removed','unavailable','other'},'error_kind':{'none','timeout','tls','http','invalid_json','other','unavailable'}})
-    specs={'backend':ws,'frontend':ws,'database':pg,'host_http':http,'guest_http':http}
+    specs={'backend':ws,'frontend':ws,'fragmented_backend':ws,'fragmented_frontend':ws,'database':pg,'host_http':http,'guest_http':http}
     if not isinstance(record,dict) or set(record)!={'before','after'}:
         return {}
     safe={}

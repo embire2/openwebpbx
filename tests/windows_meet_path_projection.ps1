@@ -17,7 +17,7 @@ foreach($name in 'MeetingPathFields','SafeMeetingPathFields'){Invoke-Expression 
 $ws=@{Booleans=@('observed','connected','sent','response_received','closed_exact','large_sent','large_response_received');Integers=@{status_code=699;large_status_code=699;elapsed_ms=6000};Enums=@{phase=@('connect','send','receive','complete','unavailable');error_kind=@('none','timeout','tls','websocket','other','unavailable')}}
 $pg=@{Booleans=@('observed','read_only','query_visible','counts_capped');Integers=@{total=512;active=512;idle=512;idle_in_transaction=512;wait_lock=512;meeting_select=512;meeting_update=512;meeting_insert=512;meeting_other=512;meeting_wait_lock=512};Enums=@{error_kind=@('none','timeout','database','unavailable')}}
 $http=@{Booleans=@('observed','completed','ok');Integers=@{http_status=599;elapsed_ms=5000};Enums=@{member_state=@('waiting','admitted','left','removed','unavailable','other');error_kind=@('none','timeout','tls','http','invalid_json','other','unavailable')}}
-$specifications=[ordered]@{backend=$ws;frontend=$ws;database=$pg;host_http=$http;guest_http=$http}
+$specifications=[ordered]@{backend=$ws;frontend=$ws;fragmented_backend=$ws;fragmented_frontend=$ws;database=$pg;host_http=$http;guest_http=$http}
 function New-Map([string]$Shape,[Collections.IDictionary]$Values){$copy=@{};foreach($key in $Values.Keys){$copy[$key]=$Values[$key]};if($Shape -ceq 'object'){return [pscustomobject]$copy};return $copy}
 function New-Record([string]$Shape){
  $stages=@{};$index=1
@@ -49,7 +49,7 @@ function Exact([string]$Name,$Record){
  Check ($safe.Count -eq 1 -and $safe.Contains('meeting_path'))
  Check ($safe.meeting_path.Count -eq 2 -and (($safe.meeting_path.Keys|Sort-Object)-join '|') -ceq 'after|before')
  foreach($stage in 'before','after'){
-  Check ($safe.meeting_path.$stage.Count -eq 5 -and (($safe.meeting_path.$stage.Keys|Sort-Object)-join '|') -ceq 'backend|database|frontend|guest_http|host_http')
+  Check ($safe.meeting_path.$stage.Count -eq 7 -and (($safe.meeting_path.$stage.Keys|Sort-Object)-join '|') -ceq 'backend|database|fragmented_backend|fragmented_frontend|frontend|guest_http|host_http')
   foreach($kind in $specifications.Keys){
    $spec=$specifications[$kind];$expected=$Record.meeting_path.$stage.$kind;$actual=$safe.meeting_path.$stage.$kind
    $fields=@($spec.Booleans)+@($spec.Integers.Keys)+@($spec.Enums.Keys)
@@ -64,7 +64,7 @@ function Exact([string]$Name,$Record){
 foreach($name in 'MeetingPathFields','SafeMeetingPathFields'){
  foreach($shape in 'dictionary','object'){
   Exact $name (New-Record $shape)
-  # Mixed object/dictionary nesting must retain all ten distinct observations.
+  # Mixed object/dictionary nesting must retain all fourteen distinct observations.
   $record=New-Record $shape;$replacement=New-Record $(if($shape -ceq 'object'){'dictionary'}else{'object'})
   Set-Field $record.meeting_path 'after' $replacement.meeting_path.after;Exact $name $record
   foreach($phase in 'browser_start','owner_page','create','host_join','guest_join','admission','decoded_media','mute','unmute','end'){

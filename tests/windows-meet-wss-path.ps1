@@ -107,6 +107,9 @@ public static class OpenWebMeetWssPathProbe {
  public static Dictionary<string,object> Probe(bool frontend) {
   return ProbeUri(new Uri(frontend ? "wss://windowsqa.example.invalid:8443/meet-sip/" : "wss://openweb-meet.internal:7444/"));
  }
+ public static Dictionary<string,object> ProbeFragmented(bool frontend) {
+  return ProbeFragmentedUri(new Uri(frontend ? "wss://windowsqa.example.invalid:8443/meet-sip/" : "wss://openweb-meet.internal:7444/"));
+ }
  static void Await(Task task, Stopwatch clock, CancellationTokenSource cancel) {
   int remaining=4500-(int)clock.ElapsedMilliseconds;
   if(remaining<=0 || !task.Wait(remaining)){cancel.Cancel();throw new TimeoutException();}
@@ -162,6 +165,12 @@ public static class OpenWebMeetWssPathProbe {
  }
  // Private core is reachable by local-fixture reflection tests, never a script URI parameter.
  static Dictionary<string,object> ProbeUri(Uri target) {
+  return ProbeCore(target,false);
+ }
+ static Dictionary<string,object> ProbeFragmentedUri(Uri target) {
+  return ProbeCore(target,true);
+ }
+ static Dictionary<string,object> ProbeCore(Uri target,bool fragmented) {
   var report=new Dictionary<string,object>{{"observed",true},{"connected",false},{"sent",false},{"response_received",false},{"large_sent",false},{"large_response_received",false},{"status_code",0},{"large_status_code",0},{"phase","connect"},{"error_kind","none"},{"closed_exact",false},{"elapsed_ms",0}};
   var clock=Stopwatch.StartNew();ClientWebSocket socket=null;CancellationTokenSource cancel=null;Task pending=null;bool cleanup=true;
   try{
@@ -171,7 +180,15 @@ public static class OpenWebMeetWssPathProbe {
    if(socket.State!=WebSocketState.Open || socket.SubProtocol!="sip")throw new WebSocketException();report["connected"]=true;
    for(int exchange=0;exchange<2;exchange++){
     bool large=exchange==1;string callId=Guid.NewGuid().ToString("N")+"@invalid.invalid";byte[] request=Encoding.ASCII.GetBytes(Request(callId,large));
-    report["phase"]="send";pending=socket.SendAsync(new ArraySegment<byte>(request),WebSocketMessageType.Text,true,cancel.Token);Await(pending,clock,cancel);report[large?"large_sent":"sent"]=true;
+    report["phase"]="send";
+    if(large && fragmented){
+     pending=socket.SendAsync(new ArraySegment<byte>(request,0,4096),WebSocketMessageType.Text,false,cancel.Token);Await(pending,clock,cancel);
+     pending=Task.Delay(100,cancel.Token);Await(pending,clock,cancel);
+     pending=socket.SendAsync(new ArraySegment<byte>(request,4096,4096),WebSocketMessageType.Text,true,cancel.Token);Await(pending,clock,cancel);
+    }else{
+     pending=socket.SendAsync(new ArraySegment<byte>(request),WebSocketMessageType.Text,true,cancel.Token);Await(pending,clock,cancel);
+    }
+    report[large?"large_sent":"sent"]=true;
     report["phase"]="receive";int status=Receive(socket,callId,clock,cancel,ref pending);report[large?"large_status_code":"status_code"]=status;report[large?"large_response_received":"response_received"]=true;
    }
    report["phase"]="complete";
@@ -189,11 +206,12 @@ public static class OpenWebMeetWssPathProbe {
 }
 '@
  $backend=Get-MeetWssPathFields ([OpenWebMeetWssPathProbe]::Probe($false));$frontend=Get-MeetWssPathFields ([OpenWebMeetWssPathProbe]::Probe($true))
- if(!$backend -or !$frontend){throw 'The WSS observer did not produce its closed schema.'}
- $facts=[ordered]@{schema=1;state='observed';backend=$backend;frontend=$frontend}
+ $fragmentedBackend=Get-MeetWssPathFields ([OpenWebMeetWssPathProbe]::ProbeFragmented($false));$fragmentedFrontend=Get-MeetWssPathFields ([OpenWebMeetWssPathProbe]::ProbeFragmented($true))
+ if(!$backend -or !$frontend -or !$fragmentedBackend -or !$fragmentedFrontend){throw 'The WSS observer did not produce its closed schema.'}
+ $facts=[ordered]@{schema=1;state='observed';backend=$backend;frontend=$frontend;fragmented_backend=$fragmentedBackend;fragmented_frontend=$fragmentedFrontend}
  $bytes=[Text.UTF8Encoding]::new($false).GetBytes(($facts|ConvertTo-Json -Depth 4 -Compress))
  $stream=[IO.File]::Open($report,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
  try{$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
- if(!$backend.closed_exact -or !$frontend.closed_exact){throw 'Owned WSS observation cleanup did not complete.'}
+ if(!$backend.closed_exact -or !$frontend.closed_exact -or !$fragmentedBackend.closed_exact -or !$fragmentedFrontend.closed_exact){throw 'Owned WSS observation cleanup did not complete.'}
  Write-Output 'OBSERVED fixed owned backend and frontend WSS paths; this is diagnostic evidence only'
 }catch{throw 'The owned WSS path observation could not run completely; inspect its closed report if present.'}
