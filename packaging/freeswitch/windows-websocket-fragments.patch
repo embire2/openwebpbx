@@ -1,0 +1,58 @@
+--- a/libs/sofia-sip/libsofia-sip-ua/tport/ws.c
++++ b/libs/sofia-sip/libsofia-sip-ua/tport/ws.c
+@@ -921,11 +921,15 @@
+ 	ssize_t need = 2;
+ 	char *maskp;
+ 	int ll = 0;
+-	int frag = 0;
++	int frag = wsh->fragmented;
+ 	ssize_t blen;
+ 
+-	wsh->body = wsh->bbuffer;
+-	wsh->packetlen = 0;
++	if (!frag) {
++		wsh->body = wsh->bbuffer;
++		wsh->packetlen = 0;
++	} else {
++		wsh->body = wsh->bbuffer + wsh->packetlen;
++	}
+ 
+  again:
+ 	need = 2;
+@@ -946,7 +950,7 @@
+ 		return ws_close(wsh, WS_NONE);
+ 	}
+ 
+-	if ((wsh->datalen = ws_raw_read(wsh, wsh->buffer, 9, wsh->block)) < 0) {
++	if ((wsh->datalen = ws_raw_read(wsh, wsh->buffer, 2, wsh->block)) < 0) {
+ 		if (wsh->datalen == -2) {
+ 			return -2;
+ 		}
+@@ -954,7 +958,7 @@
+ 	}
+ 
+ 	if (wsh->datalen < need) {
+-		ssize_t bytes = ws_raw_read(wsh, wsh->buffer + wsh->datalen, 9 - wsh->datalen, WS_BLOCK);
++		ssize_t bytes = ws_raw_read(wsh, wsh->buffer + wsh->datalen, 2 - wsh->datalen, WS_BLOCK);
+ 		
+ 		if (bytes < 0 || (wsh->datalen += bytes) < need) {
+ 			/* too small - protocol err */
+@@ -1130,6 +1134,7 @@
+ 			wsh->packetlen += wsh->rplen;
+ 			wsh->body += wsh->rplen;
+ 
++			wsh->fragmented = frag;
+ 			if (frag) {
+ 				goto again;
+ 			}
+--- a/libs/sofia-sip/libsofia-sip-ua/tport/ws.h
++++ b/libs/sofia-sip/libsofia-sip-ua/tport/ws.h
+@@ -123,6 +123,8 @@
+ 	size_t write_buffer_len;
+ 
+ 	ssize_t payload_size_max;
++	/* Preserve a fragmented message across nonblocking readiness callbacks. */
++	int fragmented;
+ } wsh_t;
+ 
+ ssize_t ws_send_buf(wsh_t *wsh, ws_opcode_t oc);

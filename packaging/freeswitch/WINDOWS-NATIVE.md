@@ -95,8 +95,13 @@ checked again after extraction. It never substitutes the MSI's stock registrar
 for the patched source build.
 
 `bundle-windows-native.py` copies only the prepared manifest's verified public
-members into `codec-source/source`, preserving all 6,214 original prepared
-inputs and `source-manifest.json`. Built dependency libraries, private build
+members into `codec-source/source`, preserving all 6,215 reviewed prepared
+inputs and `source-manifest.json`. This includes the explicit
+`windows-websocket-fragments.patch`: the SIP WebSocket parser retains fragmented
+messages between nonblocking reads and reads only the two-byte base header
+before the exact extended header. The original message-size cap is retained.
+The native build runs paired historical-negative and corrected-parser controls;
+actual frontend SIP and decoded conference media remain separate gates. Built dependency libraries, private build
 outputs and combined codec DLLs are outside that allowlist. The bundled
 `core-exports.py` and `codec-source-manifest.json` pin the exact helper, source
 manifest, MSI core and APR hashes for the installer local source recipe.

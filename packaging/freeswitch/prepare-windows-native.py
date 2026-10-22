@@ -14,6 +14,9 @@ import tarfile
 FS_REV = 'ef32e205295e29f034f1453ad245ba5efb07b94a'
 SOFIA_REV = 'ad36ac8f755308e8b87f98a505e83d4e408e5cc3'
 CODEC_REV = '4203247dee4719545005ec7ab9ea536fc83df1d8'
+WS_PATCH = '7d2a3147d67537f47f57a316044fe4b61f47e060df33fa1f4b16c917958b120b'
+WS_ORIGINAL = {'ws.c': '7c0b8b55cf4010e4dd3d4dd65dd91be06697e925026d8efc2d1a9425c7a946e7', 'ws.h': '34cf6c56abb87886bd909a2cb86f7b812d1f4613066cde490cf913cedfeefb12'}
+WS_PATCHED = {'ws.c': '7e7d6a14f5426b6a18054107a4f3353cfb1569838ec88625beaa2b1d42296d55', 'ws.h': '98898e83103f7f7f499c58a2d702c5cd8f5dd35291827c6aa4881bb6289791bb'}
 REG_ORIGINAL = '1eed13a2ae440201bcc1bf6aa1f82899140794b96202496f2e21bf2bf070c9d9'
 REG_PATCHED = '8cee43d5f88b7e1cd158f125b2780409b0c52c7cbac37fd3039a2a8981ddc317'
 REG_PATCH = '1191411f00efb2ca763a41721207923ffc92f8777aa2ebfa23b342a5e801c26f'
@@ -77,6 +80,8 @@ def prepare(fs_repo, sofia_repo, codec_repo, archives, output):
     if output.exists():
         raise ValueError('Use a new dedicated build-source directory.')
     reg_patch = RECIPE / 'restore-registration.patch'
+    websocket_patch = RECIPE / 'windows-websocket-fragments.patch'
+    require_hash(websocket_patch, WS_PATCH)
     codec_patch = RECIPE.parent / 'codecs/bcg729/buffer-safety.patch'
     require_hash(reg_patch, REG_PATCH)
     require_hash(codec_patch, CODEC_PATCH)
@@ -91,6 +96,13 @@ def prepare(fs_repo, sofia_repo, codec_repo, archives, output):
     patch_tree(fs, reg_patch)
     require_hash(reg, REG_PATCHED)
     export(sofia_repo, SOFIA_REV, fs / 'libs/sofia-sip')
+    websocket = fs / 'libs/sofia-sip/libsofia-sip-ua/tport'
+    for filename, expected in WS_ORIGINAL.items():
+        require_hash(websocket / filename, expected)
+    patch_tree(fs, websocket_patch)
+    for filename, expected in WS_PATCHED.items():
+        require_hash(websocket / filename, expected)
+    shutil.copy2(websocket_patch, output / websocket_patch.name)
     codec = output / 'mod_bcg729'
     export(codec_repo, CODEC_REV, codec)
     require_hash(codec / 'mod_bcg729.c', CODEC_ORIGINAL)
@@ -121,7 +133,7 @@ def prepare(fs_repo, sofia_repo, codec_repo, archives, output):
     files = {path.relative_to(output).as_posix(): digest(path) for path in sorted(output.rglob('*')) if path.is_file() and not path.is_symlink()}
     links = {path.relative_to(output).as_posix(): str(path.readlink()) for path in sorted(output.rglob('*')) if path.is_symlink()}
     manifest = {'schema': 1, 'upstream_commit': FS_REV, 'sofia_commit': SOFIA_REV, 'codec_module_commit': CODEC_REV,
-                'patch_sha256': REG_PATCH, 'source_reg_sha256': REG_PATCHED, 'codec_patch_sha256': CODEC_PATCH,
+                'patch_sha256': REG_PATCH, 'websocket_patch_sha256': WS_PATCH, 'websocket_sources': WS_PATCHED, 'source_reg_sha256': REG_PATCHED, 'codec_patch_sha256': CODEC_PATCH,
                 'codec_source_sha256': CODEC_PATCHED, 'bcg729_debian_version': '1.1.1-3+deb13u1',
                 'bcg729_source_archives': BCG_ARCHIVES, 'files': files, 'links': links,
                 'build_only': True, 'binary_qualification': False, 'codec_distribution_status': 'local-source-build-only'}

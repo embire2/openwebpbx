@@ -29,7 +29,7 @@ parser.add_argument('--backup-runtime', type=pathlib.Path)
 parser.add_argument('--acme', type=pathlib.Path)
 parser.add_argument('--music', type=pathlib.Path)
 parser.add_argument('--codec-source', type=pathlib.Path)
-parser.add_argument('--registrar-source', type=pathlib.Path, help='Explicit matching MSI pthread source supplement; original 6214 codec inputs remain separate.')
+parser.add_argument('--registrar-source', type=pathlib.Path, help='Explicit matching MSI pthread source supplement; 6,215 reviewed codec inputs, including the Windows WebSocket patch, remain separate.')
 parser.add_argument('--voices', type=pathlib.Path, help='Complete, verified Nathaniel UK voice pack 1.0.1 directory (offline audio, no API key).')
 parser.add_argument('--output', type=pathlib.Path, default=root / 'artifacts')
 args = parser.parse_args()
@@ -67,8 +67,12 @@ if args.target == 'windows':
     if not args.codec_source or not (args.codec_source / 'source-manifest.json').is_file():
         parser.error('Supply the verified source for the local Windows call codec.')
     codec_source = json.loads((args.codec_source / 'source-manifest.json').read_text())
-    if codec_source.get('upstream_commit') != 'ef32e205295e29f034f1453ad245ba5efb07b94a' or codec_source.get('bcg729_debian_version') != '1.1.1-3+deb13u1' or codec_source.get('links') or len(codec_source.get('files', {})) != 6214:
+    if codec_source.get('upstream_commit') != 'ef32e205295e29f034f1453ad245ba5efb07b94a' or codec_source.get('bcg729_debian_version') != '1.1.1-3+deb13u1' or codec_source.get('links') or len(codec_source.get('files', {})) != 6215:
         parser.error('The corrected Windows source codec inputs are required.')
+    websocket_patch = '7d2a3147d67537f47f57a316044fe4b61f47e060df33fa1f4b16c917958b120b'
+    websocket_sources = {'ws.c': '7e7d6a14f5426b6a18054107a4f3353cfb1569838ec88625beaa2b1d42296d55', 'ws.h': '98898e83103f7f7f499c58a2d702c5cd8f5dd35291827c6aa4881bb6289791bb'}
+    if codec_source.get('websocket_patch_sha256') != websocket_patch or codec_source.get('websocket_sources') != websocket_sources or codec_source['files'].get('windows-websocket-fragments.patch') != websocket_patch or any(codec_source['files'].get('freeswitch/libs/sofia-sip/libsofia-sip-ua/tport/' + name) != expected for name, expected in websocket_sources.items()):
+        parser.error('The pinned fragmented SIP WebSocket sources and their public patch are required.')
     expected_codec_files = set(codec_source.get('files', {})) | {'source-manifest.json'}
     actual_codec_files = set()
     for path in args.codec_source.rglob('*'):
@@ -93,6 +97,8 @@ if args.target == 'windows':
                 'core_sha256': '8553d88348093d5067d93369aa9793b38fe9e3c9c9ca0c38216791700bd7f726',
                 'source_msi_sha256': 'f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d',
                 'core_version': '1.11.3',
+                'websocket_patch_sha256': websocket_patch,
+                'websocket_sources': websocket_sources,
             }
             if set(metadata['files']) != {'mod/mod_sofia.dll'} or any(metadata.get(key) != expected for key, expected in pins.items()) or not metadata.get('runtime_dependencies') or metadata.get('source_manifest_sha256') != sha256(args.codec_source / 'source-manifest.json'):
                 parser.error('Supply only the pinned patched Windows registrar and its verified provenance.')

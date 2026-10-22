@@ -87,6 +87,11 @@ jobs:
           if ($LASTEXITCODE) { throw 'Native dependency download or hash verification failed.' }
           python packaging/freeswitch/prepare-windows-native.py --freeswitch-repository "$env:ENGINE_WORK/fs-repository" --sofia-repository "$env:ENGINE_WORK/sofia-repository" --codec-repository "$env:ENGINE_WORK/codec-repository" --bcg729-archives "$env:ENGINE_WORK/downloads" --output "$env:ENGINE_WORK/source"
           if ($LASTEXITCODE) { throw 'Pinned native source preparation failed.' }
+      - name: Prove exact old and corrected WebSocket parser behavior
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tests/windows_websocket_parser.py --source-root "$env:ENGINE_WORK/source/freeswitch/libs/sofia-sip/libsofia-sip-ua/tport" --output "$env:ENGINE_WORK/websocket-parser-controls"
+          if ($LASTEXITCODE) { throw 'The exact old negative or corrected native C parser controls failed.' }
       - name: Extract the verified MSI core and derive its import library
         run: |
           $ErrorActionPreference = 'Stop'
@@ -190,6 +195,7 @@ jobs:
             ${{ runner.temp }}/openwebpbx-engine/core-exports.json
             ${{ runner.temp }}/openwebpbx-engine/registrar-startup.json
             ${{ runner.temp }}/openwebpbx-engine/registrar-limits.json
+            ${{ runner.temp }}/openwebpbx-engine/websocket-parser-controls/qualification.safe.json
             ${{ runner.temp }}/openwebpbx-engine/codec-source/
             ${{ runner.temp }}/openwebpbx-engine/codec-callback-evidence.json
             ${{ runner.temp }}/openwebpbx-engine/portable-codec-evidence.json
