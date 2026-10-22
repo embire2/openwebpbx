@@ -21,7 +21,7 @@ $source=Split-Path $PSScriptRoot -Parent;$root='C:\OpenWebPBX';$state=Join-Path 
 $work=Join-Path $env:RUNNER_TEMP ('openwebpbx-restore-'+$Role.ToLowerInvariant()+'-'+[Guid]::NewGuid().ToString('N'))
 $public=Join-Path $env:RUNNER_TEMP ('openwebpbx-restore-'+$Role.ToLowerInvariant()+'-facts')
 $transfer=Join-Path $env:RUNNER_TEMP 'openwebpbx-restore-transfer'
-$phase='verified qualified package';$installed=$false;$pki=$null;$inputFile=$null;$hostsBefore=$null;$hostsExpected=$null;$settings=$null;$python=$null;$winps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+$phase='verified qualified package';$installed=$false;$pki=$null;$inputFile=$null;$hostsBefore=$null;$hostsExpected=$null;$settings=$null;$python=$null;$PackageRoot=$null;$qualificationHealthOriginal=$null;$winps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
 $facts=[ordered]@{schema=1;role=$Role.ToLowerInvariant();run_id=$env:GITHUB_RUN_ID;source_commit=$env:GITHUB_SHA;state='running';gates=@{};actual_os_boot='unqualified';carrier='unqualified';owner_upgrade='unqualified';cleanup='pending'}
 # Import only the reviewed artifact/process and bounded IIS cleanup functions.
 # Do not dot-source the executable updater stage or its environment guards.
@@ -31,6 +31,7 @@ foreach($name in 'Check','Hash','WriteJson','PrivateDirectory','SafeRelative','E
  $nodes=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true));if($nodes.Count -ne 1){throw 'One exact qualification helper is required.'};Invoke-Expression $nodes[0].Extent.Text
 }
 . (Join-Path $PSScriptRoot 'windows-suite-pki.ps1')
+. (Join-Path $PSScriptRoot 'windows-upgrade-health-quiescence.ps1')
 function Derived([string]$Label){
  $h=[Security.Cryptography.HMACSHA256]::new([Text.Encoding]::UTF8.GetBytes($env:WINDOWS_RESTORE_FIXTURE_PASSPHRASE))
  try{return $h.ComputeHash([Text.Encoding]::UTF8.GetBytes('openweb-restore-qualification/v1/'+$Label))}finally{$h.Dispose()}
@@ -253,6 +254,8 @@ function SourceTransfer {
 }
 try{
  PrivateDirectory $work
+ & (Join-Path $PSScriptRoot 'windows_restore_health_quiescence.ps1') -SourceRoot $source
+ Check $? 'The strict source/target Health quiescence controls must pass before installation.'
  Check (!(Test-Path $root) -and !(Test-Path "$state\installation.json") -and !(Test-Path "$configuration\config.conf") -and !(Get-Service FreeSWITCH -ErrorAction SilentlyContinue)) 'Each job must be genuinely empty and refuses an existing owner installation.'
  $candidate=Artifact $BaseSuiteRunId ('openwebpbx-windows-suite-candidate-'+$BaseSuiteRunId) '.github/workflows/windows-suite.yml'
  $report=Artifact $BaseSuiteRunId ('openwebpbx-windows-suite-facts-'+$BaseSuiteRunId) '.github/workflows/windows-suite.yml'
@@ -272,7 +275,7 @@ try{
  Check ((Hash $base) -eq $baseFacts.candidate_artifact.sha256 -and $baseFacts.artifacts.candidate_sha256 -eq $baseFacts.candidate_artifact.sha256 -and $baseFacts.candidate_artifact.filename -eq ("openwebpbx-$BaseVersion-windows-x64.zip") -and $baseFacts.candidate_artifact.private_exclusions -eq 'passed' -and $baseFacts.candidate_artifact.verified_before_credentials -eq $true) 'The exact independently audited package and BOTH candidate evidence fields must match the qualification.'
  CheckedProcess 'python.exe' @((Join-Path $PSScriptRoot 'windows_candidate_archive.py'),'--archive',$base,'--version',$BaseVersion,'--sha256',$baseFacts.candidate_artifact.sha256) 'verify-qualified-package'
  $expanded=Join-Path $work 'package';PrivateDirectory $expanded;ExpandSafe $base $expanded
- $packages=@(Get-ChildItem $expanded -Directory);Check ($packages.Count -eq 1) 'One exact release package root is required.';$package=$packages[0].FullName;$python=Join-Path $package 'backup-runtime/python.exe';NativeVersions $package $BaseVersion|Out-Null
+ $packages=@(Get-ChildItem $expanded -Directory);Check ($packages.Count -eq 1) 'One exact release package root is required.';$package=$packages[0].FullName;$PackageRoot=$package;$python=Join-Path $package 'backup-runtime/python.exe';NativeVersions $package $BaseVersion|Out-Null
  if($Role -eq 'Target'){SourceTransfer}
  $binding=$env:GITHUB_RUN_ID+'/'+$env:GITHUB_SHA
  $scope=[Convert]::ToHexString((Derived ('scope/'+$binding))).ToLowerInvariant().Substring(0,24)
@@ -314,6 +317,13 @@ $r=Get-Content -LiteralPath $InputFile -Raw|ConvertFrom-Json
  # Hash the actual native helper's leaf bytes; refuse absent evidence rather
  # than infer a thumbprint as a certificate-content checksum.
  WriteJson $inputFile $settings;$settings=$null
+ $phase='exact owned Health observer quiescence before both restore baselines'
+ Suspend-OpenWebQualificationHealth ([ref]$qualificationHealthOriginal)
+ if([version]$BaseVersion -ge [version]'1.0.20'){Check $qualificationHealthOriginal.Exists 'The current package must install its exact owned Health observer before restore qualification.'}
+ $facts.health_observer=@{original_exists=[bool]$qualificationHealthOriginal.Exists;original_enabled=[bool]$qualificationHealthOriginal.Enabled;original_running=[bool]$qualificationHealthOriginal.Running;quiescent_before_baseline=$true;original_choice_restored=$false;quiescent_before_shutdown=$false}
+ # Keep the complete Health tables and private runtime files in all existing
+ # dump/snapshot comparisons. The observer remains disabled through source
+ # export, failed/normal target restore and explicit activation assertions.
  $env:OPENWEB_WINDOWS_RESTORE_TEST='1';Fixture 'baseline';NativeFixture 'setup'
  $facts.base_suite_run_id=$BaseSuiteRunId;$facts.base_archive_sha256=Hash $base;$facts.base_source_commit=$baseFacts.source_commit
  if($Role -eq 'Source'){
@@ -358,11 +368,22 @@ $r=Get-Content -LiteralPath $InputFile -Raw|ConvertFrom-Json
 }finally{
  try{
   if($installed){
+   $cleanupLock=[IO.File]::Open("$state\upgrade.lock",'OpenOrCreate','ReadWrite','None')
+   try{
+    # Restore the pre-baseline choice only after every strict comparison.
+    # Hold the shared lock while immediately quiescing again for deliberate
+    # disposable teardown, so a restarted worker cannot write between them.
+    Resume-OpenWebQualificationHealth $qualificationHealthOriginal
+    if($qualificationHealthOriginal -and $qualificationHealthOriginal.Exists){Check ([bool](Get-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth').Settings.Enabled -ceq [bool]$qualificationHealthOriginal.Enabled) 'Disposable cleanup failed to restore the original Health enabled choice.'}
+    if($facts.health_observer){$facts.health_observer.original_choice_restored=$true}
+    $cleanupHealth=$null;Suspend-OpenWebQualificationHealth ([ref]$cleanupHealth)
+    if($facts.health_observer){$facts.health_observer.quiescent_before_shutdown=$true}
    foreach($name in 'OpenWebPBXUpdater','OpenWebPBX','FreeSWITCH'){Stop-Service $name -Force -ErrorAction SilentlyContinue}
-   foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Cleanup','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate','OpenWebPBX-Updater-Restart'){$task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue;if($task){Disable-ScheduledTask -InputObject $task|Out-Null;Stop-ScheduledTask -InputObject $task -ErrorAction SilentlyContinue}}
+   foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-Cleanup','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate','OpenWebPBX-Updater-Restart'){$task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue;if($task){Disable-ScheduledTask -InputObject $task|Out-Null;Stop-ScheduledTask -InputObject $task -ErrorAction SilentlyContinue}}
    # Stop only the installer-created PostgreSQL service, never another instance.
    $pg=@(Get-CimInstance Win32_Service|Where-Object {$_.Name -like 'OpenWebPBX*' -and $_.PathName -like '*C:\OpenWebPBX\pgsql*'})
    foreach($service in $pg){Stop-Service $service.Name -Force -ErrorAction SilentlyContinue}
+   }finally{$cleanupLock.Dispose()}
   }
   if($pki){Stop-SuiteRecoveryPki $pki}
   if($installed -and (Test-Path "$env:SystemRoot\System32\inetsrv\Microsoft.Web.Administration.dll")){
