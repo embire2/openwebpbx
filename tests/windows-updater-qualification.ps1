@@ -609,7 +609,14 @@ try{
  $baseFacts=Get-Content (Join-Path $baseReport.directory 'qualification.json') -Raw|ConvertFrom-Json
  Check ($baseFacts.schema -eq 1 -and $baseFacts.source_commit -eq $baseCandidate.run.head_sha -and $baseFacts.run_id -eq $BaseSuiteRunId -and $baseFacts.state -in 'partial','passed') 'The exact qualified baseline facts are required.'
  foreach($gate in 'fresh','native_sip_audio','backups','direct_113_helper_reapply','direct_failure_rollback','restore_gate_startup'){Check ($baseFacts.gates.$gate -eq 'passed') ('All essential real '+$BaseVersion+' baseline gates must pass before preparation or updater qualification.')}
- if([version]$BaseVersion -ge [version]'1.0.20'){foreach($gate in 'web_readiness','tenant_domains','meeting_transport','meeting_browser','phone_health','stun','native_clock','native_providers','native_call_me_back'){Check ($baseFacts.gates.$gate -is [string] -and $baseFacts.gates.$gate -ceq 'passed') 'The current Windows web, tenant, meeting, phone health, STUN, clock, provider and callback gates must all be qualified.'}}
+ if([version]$BaseVersion -ge [version]'1.0.20'){
+  foreach($gate in 'web_readiness','tenant_domains','meeting_transport','meeting_browser','phone_health','stun','native_clock','native_providers','native_call_me_back'){Check ($baseFacts.gates.$gate -is [string] -and $baseFacts.gates.$gate -ceq 'passed') 'The current Windows web, tenant, meeting, phone health, STUN, clock, provider and callback gates must all be qualified.'}
+  $dtlsProof=$baseFacts.dtls_qualification
+  Check ($null -ne $dtlsProof -and ($dtlsProof -is [pscustomobject] -or $dtlsProof -is [Collections.IDictionary]) -and $dtlsProof -isnot [Array]) 'The complete current native DTLS qualification record is required.'
+  Check ($dtlsProof.state -is [string] -and $dtlsProof.state -ceq 'passed') 'The current native DTLS qualification must pass.'
+  foreach($field in 'actual_native_windows','transaction_service_adapter_double'){Check ($dtlsProof.$field -is [bool] -and $dtlsProof.$field -eq $true) 'The native DTLS scope and explicit service-adapter double must match.'}
+  foreach($limit in @(@('transaction_checks',62),@('crypto_checks',12),@('installed_checks',12))){$value=$dtlsProof.($limit[0]);Check (($value -is [int] -or $value -is [long]) -and $value -ge $limit[1] -and $value -le 10000) 'Every current native DTLS proof count must be complete and bounded.'}
+ }
  $base=Join-Path $baseCandidate.directory ('openwebpbx-'+$BaseVersion+'-windows-x64.zip');Check ((Hash $base) -eq $baseFacts.candidate_artifact.sha256 -and $baseFacts.candidate_artifact.private_exclusions -eq 'passed') 'The unchanged audited candidate checksum must match qualification facts.'
  CheckedProcess 'python.exe' @((Join-Path $PSScriptRoot 'windows_candidate_archive.py'),'--archive',$base,'--version',$BaseVersion,'--sha256',$baseFacts.candidate_artifact.sha256) 'verify-qualified-base'
  WriteJson (Join-Path $work 'baseline-facts.json') $baseFacts
