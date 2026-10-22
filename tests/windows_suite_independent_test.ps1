@@ -3,7 +3,7 @@ param([string]$SourceRoot=(Split-Path $PSScriptRoot -Parent))
 $ErrorActionPreference='Stop';$tokens=$null;$errors=$null
 $suite=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-suite.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'The suite must parse.'}
-foreach($name in 'SafeQueueFailureFields','SafeVoicemailFailureFields','SafeMailboxFailureFields','SafeHotelFailureFields','SafeSmtpFailureFields','SafeNativeCleanupFields','SafeFailureFields','SafeTenantDomainsProof','SafeTenantDomainsReport','RememberSuiteFailure','NativeIdleIsHealthy'){
+foreach($name in 'SafeQueueFailureFields','SafeVoicemailFailureFields','SafeMailboxFailureFields','SafeHotelFailureFields','SafeSmtpFailureFields','SafeMeetingOwnerPageFields','SafeMeetingMediaFields','SafeMeetingSignalingFields','SafeMeetingPathFields','SafeNativeCleanupFields','SafeFailureFields','SafeTenantDomainsProof','SafeTenantDomainsReport','RememberSuiteFailure','NativeIdleIsHealthy'){
  $nodes=@($suite.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
  if($nodes.Count -ne 1){throw 'The actual runner control must be unique.'};Invoke-Expression $nodes[0].Extent.Text
 }

@@ -1373,8 +1373,12 @@ def main():
     if a.phase=='pki-server':serve_pki(f);return
     try:
         f.web=Web(f.s['public_url'],f.evidence/'fixture-root.pem');normal_setup(f,f.web)
+        # Ordinary peers/providers close in native_calls before the separate
+        # ephemeral meeting accounts are created; global SMTP is changed last.
+        # A meeting failure must not hide earlier real core-call evidence.
+        native_calls(f)
         load_module('windows_meeting_browser',f.source/'tests/windows-meet-browser.py').run(f)
-        native_calls(f);smtp_and_queued_voicemail(f);f.web.request('/logout.php')
+        smtp_and_queued_voicemail(f);f.web.request('/logout.php')
         (f.evidence/'software-native-report.json').write_text(json.dumps({'schema':1,'producer':'windows-native-acceptance.py','state':'passed','checks':f.checks,'carrier':'unqualified','physical_devices':'unqualified','android_hardware':'unqualified','public_acme':'unqualified','scope':'fictional-hosted-runner'},indent=2))
     except BaseException as e:
         import traceback
