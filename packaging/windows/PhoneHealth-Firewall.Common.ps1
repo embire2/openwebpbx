@@ -62,9 +62,19 @@ function Test-OpenWebHealthPortOverlap($Scopes,[string[]]$Listeners){
   }else{throw 'An ambiguous firewall port needs review.'}
  };return $false
 }
+function Get-OpenWebHealthInboundBlocks {
+ try{Get-NetFirewallRule -PolicyStore ActiveStore -Enabled True -Direction Inbound -Action Block -ErrorAction Stop}
+ catch{
+  # A clean Windows policy returns this exact native empty-query error rather
+  # than an empty pipeline. Permission, provider and other query failures must
+  # remain unavailable, never become proof that a restriction is absent.
+  if([string]$_.CategoryInfo.Category -ceq 'ObjectNotFound' -and $_.FullyQualifiedErrorId -ceq 'CmdletizationQuery_NotFound,Get-NetFirewallRule'){return}
+  throw
+ }
+}
 function Test-OpenWebHealthForeignBlock([string]$Address,[hashtable]$Listeners){
  $owned=@();foreach($filter in 'sip-auth-fail','sip-auth-ip'){$base=Get-OpenWebHealthRuleName $Address $filter;$owned+=@(($base+'-tcp'),($base+'-udp'))}
- foreach($rule in @(Get-NetFirewallRule -PolicyStore ActiveStore -Enabled True -Direction Inbound -Action Block -ErrorAction Stop)){
+ foreach($rule in @(Get-OpenWebHealthInboundBlocks)){
   if($rule.Name -cin $owned){continue}
   $app=@($rule|Get-NetFirewallApplicationFilter -ErrorAction Stop)
   if($app.Count -ne 1){throw 'An ambiguous firewall rule needs review.'}

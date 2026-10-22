@@ -26,6 +26,7 @@ try{
  foreach($name in @(($base+'-tcp'),($base+'-udp'),($alternate+'-tcp'),($alternate+'-udp'),$foreign,$other)){if(@(Get-OpenWebHealthExactRule $name 'PersistentStore').Count){throw 'A reserved fixture rule already exists; no rule changed.'}}
  $baseline=Policy
  Check ((Invoke-OpenWebHealthFirewall State $source $filter $tcp $udp) -eq 'absent') 'Native empty state wrong.'
+ Check ((Invoke-OpenWebHealthFirewall State $source 'sip-auth-ip' $tcp $udp) -eq 'absent') 'Native alternate empty state wrong.'
  $null=New-NetFirewallRule -PolicyStore PersistentStore -Name $other -DisplayName 'OpenWebPBX isolated native fixture' -Direction Inbound -Action Block -Enabled True -Profile Any -RemoteAddress '198.18.0.253' -Protocol TCP -LocalPort 5090;$created+=$other
  $created+=@(($base+'-tcp'),($base+'-udp'))
  Check ((Invoke-OpenWebHealthFirewall Add $source $filter $tcp $udp) -eq 'present') 'Native scoped blocks failed.'
@@ -47,6 +48,7 @@ try{
  Check (@(Get-OpenWebHealthExactRule $other 'PersistentStore').Count -eq 1) 'Unrelated fixture disappeared.'
  $again=Policy;Check ((Invoke-OpenWebHealthFirewall Remove $source $filter $tcp $udp) -eq 'absent' -and (Policy) -ceq $again) 'Native repeat recovery changed policy.'
  RemoveFixture $other
+ Check ((Invoke-OpenWebHealthFirewall State $source 'sip-auth-ip' $tcp $udp) -eq 'absent') 'Native empty overlap query refused after cleanup.'
  Check ((Policy) -ceq $baseline) 'Native firewall projection was not preserved.'
  @{checks=$checks;actual_native_windows_defender=$true;all_original_projected_policy_exact=$true;source='reserved test address';services_started=$false;customer_calls=$false}|ConvertTo-Json -Compress
 }finally{

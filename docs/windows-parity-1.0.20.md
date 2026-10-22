@@ -13,7 +13,7 @@ native Windows server.
 
 | Area | Current work | Required acceptance |
 |---|---|---|
-| Phone Health & Recovery | Native components passed16 Defender and62 SYSTEM checks; durable-intent policy passed96 isolated PostgreSQL controls. Complete source `568b3ab5f` passed installed observer/restart checks, then failed the actual ESL→Defender→SQL worker gate. An explicit-subclass subscription correction separately passes **26** actual Windows PHP loopback/child controls, including an old-source negative. | Rebuild the complete package and pass actual event-to-block-to-recovery, negative permissions, unchanged firewall policy, restart and restore. Loopback/component checks alone do not qualify this flow. |
+| Phone Health & Recovery | Native components passed16 Defender and62 SYSTEM checks; durable-intent policy passed96 isolated PostgreSQL controls. Complete source `568b3ab5f` passed installed observer/restart checks, then failed the actual ESL→Defender→SQL worker gate at firewall preflight. Separate repairs pass **26** actual Windows PHP subscription controls and **four** native empty-policy query controls, including old-source negatives. | Rebuild the complete package and pass actual event-to-block-to-recovery, negative permissions, unchanged firewall policy, restart and restore. Loopback/component checks alone do not qualify this flow. |
 | Remote phones | Native .NET STUN Binding worker and setup are implemented. The current package passed33 installed Windows checks, including actual service/Defender activation, decoded modern/legacy Binding and recovery.146 separate NTFS/interruption controls use service/firewall doubles. Existing PBX-anchored audio and restored sign-in identities remain. | External test-machine Binding and phone/client acceptance; Windows IPv6 remains separate. STUN is not TURN. |
 | Conferences | Corrected native engine passes all16 ordinary/fragmented small/8KiB frontend/backend OPTIONS exchanges. Browser admission reaches the engine, but SIP488 still prevents media negotiation. | Resolve negotiation, then decoded browser/phone audio and VP8, host actions and exact cleanup. |
 | Backups and restore | Scheduled-job choices are preserved. Restored pending phone-unblock requests are refused before background work resumes; other recovery history is retained. | Complete encrypted backup, same-machine failure recovery, distinct clean-server restore, media/key preservation and explicit activation. |
@@ -47,18 +47,22 @@ while deferring. An intermediate fixture polling timeout is retained; its
 instrumented repeat passed, with exact final source/runtime hashes and no
 remaining owned task/process. Complete package tenant acceptance remains open.
 
-The unchanged `568b3ab5f` diagnostic replay now retains closed PHP
-phase/class/basename/line/SQLSTATE and Scheduler result observations. Continuing
+The unchanged `568b3ab5f` diagnostic replay retains closed PHP
+phase/class/basename/line/SQLSTATE and Scheduler result observations. It identifies
+a firewall preflight refusal before subscription and proves exact failed-worker
+recovery; the historical report omits the two individual firewall state values.
+The replay also passes75 native tenant checks with a successful deferred task.
+Continuing
 to independent diagnostics requires exact timed public table/catalogue/namespace,
 firewall, engine, identity and task preservation, an empty response spool,
 stopped owned children and a resumed SYSTEM observer. The failed gate and
 release/owner-update ineligibility remain recorded.
 
-The explicit custom-event subscription and typed maintenance-contention repairs
+The explicit custom-event subscription, exact empty-firewall-query handling and typed maintenance-contention repairs
 change product bytes. They require a newly built final Windows archive and
 complete acceptance; neither the old `568b3ab5f` ZIP nor a diagnostic replay becomes a
 release through these source changes. Read the [Phone Health evidence](phone-health.md#windows-server-follow-up)
-for the scope of the separate **26 / 16 / 62 / 96** and native guard **11** controls.
+for the scope of the separate **26 / 16 / 62 / 96**, read-only empty-query **four** and native guard **11** controls.
 
 Publishing Windows must retain the exact currently published Android18 and
 Debian16 signed feeds. Their public bytes and signatures have been independently

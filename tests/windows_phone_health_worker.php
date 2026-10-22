@@ -1,22 +1,32 @@
 <?php
 /** Actual installed Windows ESL -> native Defender -> PostgreSQL -> recovery.
  * Explicit disposable factory only. No physical phone or carrier call is made. */
-$phase='preflight';$primaryFailure=null;$cleanupFailure=null;
+$phase='preflight';$primaryFailure=null;$cleanupFailure=null;$firewallPreflight=null;
 function native_health_failure(Throwable $error,string $phase):array {
  $files=['windows_phone_health_worker.php','pbx_windows_event_guard.php','pbx_windows_health_stream.php','pbx_phone_health.php','pbx_phone_health_recovery.php','event_guard_windows.php','database.php','require.php'];
  $types=['RuntimeException','PDOException','Error','TypeError','ValueError','ErrorException','JsonException','Exception'];
  $file=basename(str_replace('\\','/',$error->getFile()));$line=$error->getLine();$code=(string)$error->getCode();
  return ['phase'=>$phase,'error_type'=>in_array(get_class($error),$types,true)?get_class($error):'Exception','source_basename'=>in_array($file,$files,true)?$file:'external_component','source_line'=>max(1,min(99999,$line)),'sqlstate'=>$error instanceof PDOException&&preg_match('/^[A-Z0-9]{5}$/D',$code)?$code:'none'];
 }
-set_exception_handler(static function(Throwable $error)use(&$phase,&$primaryFailure,&$cleanupFailure):void {
+set_exception_handler(static function(Throwable $error)use(&$phase,&$primaryFailure,&$cleanupFailure,&$firewallPreflight):void {
  $record=['state'=>'failed','native_worker_failure'=>$primaryFailure??native_health_failure($error,$phase)];
  if($cleanupFailure!==null)$record['native_worker_cleanup_failure']=$cleanupFailure;
+ if($firewallPreflight!==null)$record['native_worker_firewall_preflight']=$firewallPreflight;
  echo json_encode($record,JSON_THROW_ON_ERROR),PHP_EOL;exit(1);
 });
 if(PHP_SAPI!=='cli'||PHP_OS_FAMILY!=='Windows'||!in_array('--native-windows-worker',$argv,true)||getenv('GITHUB_ACTIONS')!=='true'||getenv('RUNNER_ENVIRONMENT')!=='github-hosted'||getenv('GITHUB_REPOSITORY')!=='embire2/openwebpbx')throw new RuntimeException('The disposable native Windows factory is required.');
 $phase='bootstrap';
 require 'C:/OpenWebPBX/web/resources/require.php';
-$db=database::new()->db;$schema='health_native_'.bin2hex(random_bytes(6));$checks=0;$source='198.18.0.252';$firewall=new event_guard_windows();$created=false;$subscriber=null;
+class native_health_diagnostic_adapter extends event_guard_windows {
+ public array $nativeCalls=[];
+ protected function run(array $arguments):?string {
+  $started=microtime(true);$raw=parent::run($arguments);$elapsed=microtime(true)-$started;
+  $response=$raw===null?'unavailable':'invalid';
+  if(is_string($raw)){try{$r=json_decode($raw,true,8,JSON_THROW_ON_ERROR);if(is_array($r)&&array_keys($r)===['state']&&in_array($r['state'],['absent','present','unknown'],true))$response=$r['state'];}catch(Throwable){}}
+  $this->nativeCalls[]=['response'=>$response,'deadline_reached'=>$elapsed>=14.9];return $raw;
+ }
+}
+$db=database::new()->db;$schema='health_native_'.bin2hex(random_bytes(6));$checks=0;$source='198.18.0.252';$firewall=new native_health_diagnostic_adapter();$created=false;$subscriber=null;
 $check=static function(bool $v,string $why)use(&$checks):void{if(!$v)throw new RuntimeException($why);$checks++;};
 $q=static function(string $sql,array $a=[])use($db):PDOStatement{$s=$db->prepare($sql);$s->execute($a);return $s;};
 // Only test hooks change: registrations, instance identity, event stream and
@@ -24,7 +34,9 @@ $q=static function(string $sql,array $a=[])use($db):PDOStatement{$s=$db->prepare
 class native_health_fault_guard extends pbx_windows_event_guard {protected function afterNativeAdd():void{throw new RuntimeException('Deliberate interruption after native Defender rule creation.');}}
 try{
  $phase='firewall_preflight';
- $check($firewall->block_state_exact($source,'sip-auth-fail')==='absent'&&$firewall->block_state_exact($source,'sip-auth-ip')==='absent','The native fixture source already has a block.');
+ $failState=$firewall->block_state_exact($source,'sip-auth-fail');$ipState=$firewall->block_state_exact($source,'sip-auth-ip');
+ $firewallPreflight=['auth_fail_state'=>$failState,'auth_ip_state'=>$ipState,'child_calls'=>$firewall->nativeCalls];
+ $check($failState==='absent'&&$ipState==='absent','The native fixture source already has a block or its exact state is unavailable.');
  $phase='factory_preflight';
  $check((int)$db->query('select count(*) from v_pbx_restore')->fetchColumn()===0,'An empty disposable factory is required.');
  $phase='schema';

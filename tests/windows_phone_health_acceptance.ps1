@@ -102,7 +102,7 @@ try{
   Start-ScheduledTask -TaskName $taskName -TaskPath '\'
   $deadline=[DateTime]::UtcNow.AddMinutes(4);while(!(Test-Path -LiteralPath $workerResult)){if([DateTime]::UtcNow -ge $deadline){throw 'The actual native health worker timed out.'};Start-Sleep -Milliseconds 250}
   $workerReport=Get-Content -LiteralPath $workerResult -Raw|ConvertFrom-Json
-  foreach($name in 'native_worker_failure','native_worker_cleanup_failure'){if($workerReport.$name){$report[$name]=$workerReport.$name}}
+  foreach($name in 'native_worker_failure','native_worker_cleanup_failure','native_worker_firewall_preflight'){if($workerReport.$name){$report[$name]=$workerReport.$name}}
   if($workerReport.state -ceq 'failed' -and $workerReport.error_type -is [string] -and ($workerReport.source_line -is [int] -or $workerReport.source_line -is [long])){$report.native_worker_launcher_failure=@{error_type=$workerReport.error_type;source_line=$workerReport.source_line}}
   foreach($field in 'actual_native_windows_worker','actual_esl_event','actual_defender_adapter','actual_postgresql','synthetic_office_history','post_native_fault_reconciled','revoked_role_refused','authorised_recovery_acknowledged'){if($workerReport.$field -ne $true){throw 'The native worker result is incomplete.'}}
   if($workerReport.state -ne 'passed' -or $workerReport.physical_phone_audio -ne $false -or $workerReport.checks -lt 13){throw 'The native worker did not pass.'}
@@ -158,7 +158,11 @@ try{
   $report.gates.custom_subscription='passed';$report.subscription_checks=[int]$subscription.checks
  }finally{foreach($item in @(@('OPENWEB_HEALTH_TEST_PASSWORD',$oldPassword),@('OPENWEB_HEALTH_TEST_STATE',$oldState),@('OPENWEB_HEALTH_TEST_SPOOL',$oldSpool))){if($null -eq $item[1]){Remove-Item -LiteralPath ('Env:\'+$item[0]) -ErrorAction SilentlyContinue}else{Set-Item -LiteralPath ('Env:\'+$item[0]) -Value $item[1]}}}
  $firewallOutput=& (Join-Path $PSScriptRoot 'windows_phone_health_native.ps1') -Helpers (Join-Path $root 'tools');$firewall=($firewallOutput -join "`n")|ConvertFrom-Json
- if(!$? -or $firewall.actual_native_windows_defender -ne $true -or $firewall.all_original_projected_policy_exact -ne $true -or $firewall.checks -lt 16){throw 'The native phone firewall gate failed.'};$report.gates.firewall='passed';$report.firewall_checks=[int]$firewall.checks
+ if(!$? -or $firewall.actual_native_windows_defender -ne $true -or $firewall.all_original_projected_policy_exact -ne $true -or $firewall.checks -lt 18){throw 'The native phone firewall gate failed.'}
+ $emptyOutput=& (Join-Path $PSScriptRoot 'windows_phone_health_empty_rules.ps1') -Helpers (Join-Path $root 'tools');$empty=($emptyOutput -join "`n")|ConvertFrom-Json
+ if(!$? -or $empty.state -cne 'passed' -or ($empty.checks -isnot [int] -and $empty.checks -isnot [long]) -or $empty.checks -lt 4 -or $empty.checks -gt 100000){throw 'The native empty phone-security query control failed.'}
+ foreach($field in 'actual_native_windows','actual_empty_native_query','foreign_query_store_seam','no_pbx_or_firewall_mutation'){if($empty.$field -isnot [bool] -or !$empty.$field){throw 'The native empty-query scope is invalid.'}}
+ $report.gates.firewall='passed';$report.firewall_checks=[int]$firewall.checks;$report.firewall_empty_query_checks=[int]$empty.checks
  $task=Get-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop;Assert-OpenWebHealthTask $task;if(!$task.Settings.Enabled -or $task.State -ne 'Running'){throw 'The persistent health task stopped during qualification.'}
  $report.state='passed'
 }catch{$report.state='failed';$report.error_type=$_.Exception.GetType().Name;throw}

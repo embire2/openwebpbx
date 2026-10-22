@@ -1,11 +1,11 @@
 # Portable policy/adapter control fixture. This never touches an OS firewall.
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot '..\packaging\windows\PhoneHealth-Firewall.Common.ps1')
-$env:COMPUTERNAME='OPENWEB-HEALTH-FIXTURE';$script:checks=0;$script:rules=@{};$script:deletes=@();$script:profiles=$true;$script:failCreate=$false;$script:queryFail=''
+$env:COMPUTERNAME='OPENWEB-HEALTH-FIXTURE';$script:checks=0;$script:rules=@{};$script:deletes=@();$script:profiles=$true;$script:failCreate=$false;$script:queryFail='';$script:foreignFail='';$script:foreignCategory=[Management.Automation.ErrorCategory]::ObjectNotFound
 function Check([bool]$Value,[string]$Message){if(!$Value){throw $Message};$script:checks++}
 function Refuses([scriptblock]$Action,[string]$Message){try{& $Action}catch{$script:checks++;return};throw $Message}
 function Get-NetFirewallProfile {param($PolicyStore,$ErrorAction);foreach($name in 'Domain','Private','Public'){[pscustomobject]@{Name=$name;Enabled=$script:profiles}}}
-function Get-NetFirewallRule {param($PolicyStore,$Name,$Enabled,$Direction,$Action,$ErrorAction);if($script:queryFail){$category=if($script:queryFail -like '*NotFound*'){[Management.Automation.ErrorCategory]::ObjectNotFound}else{[Management.Automation.ErrorCategory]::PermissionDenied};throw [Management.Automation.ErrorRecord]::new([InvalidOperationException]::new('Owned query fixture'),$script:queryFail,$category,$Name)};if($Name){if($script:rules.ContainsKey($Name)){$script:rules[$Name]};return};$script:rules.Values|Where-Object {$_.Enabled -eq 'True' -and $_.Direction -eq 'Inbound' -and $_.Action -eq 'Block'}}
+function Get-NetFirewallRule {param($PolicyStore,$Name,$Enabled,$Direction,$Action,$ErrorAction);if($script:queryFail){$category=if($script:queryFail -like '*NotFound*'){[Management.Automation.ErrorCategory]::ObjectNotFound}else{[Management.Automation.ErrorCategory]::PermissionDenied};throw [Management.Automation.ErrorRecord]::new([InvalidOperationException]::new('Owned query fixture'),$script:queryFail,$category,$Name)};if($Name){if($script:rules.ContainsKey($Name)){$script:rules[$Name]};return};if($script:foreignFail){throw [Management.Automation.ErrorRecord]::new([InvalidOperationException]::new('Owned foreign-query fixture'),$script:foreignFail,$script:foreignCategory,$null)};$script:rules.Values|Where-Object {$_.Enabled -eq 'True' -and $_.Direction -eq 'Inbound' -and $_.Action -eq 'Block'}}
 function Get-NetFirewallAddressFilter {param([Parameter(ValueFromPipeline)]$Rule);process{[pscustomobject]@{RemoteAddress=@($Rule.Remote);LocalAddress=@('Any')}}}
 function Get-NetFirewallPortFilter {param([Parameter(ValueFromPipeline)]$Rule);process{[pscustomobject]@{Protocol=$Rule.Protocol;LocalPort=$Rule.Ports;RemotePort='Any'}}}
 function Get-NetFirewallApplicationFilter {param([Parameter(ValueFromPipeline)]$Rule);process{[pscustomobject]@{Program='Any'}}}
@@ -29,6 +29,13 @@ foreach($scope in @('RPC','0','65536','5090-5060')){Refuses {Test-OpenWebHealthP
 Check ((Invoke-OpenWebHealthFirewall State $address $filter $tcp $udp) -ceq 'absent') 'Empty state not absent.'
 foreach($id in @('CmdletizationQuery_NotFound_Name,Get-NetFirewallRule','CmdletizationQuery_NotFound_InstanceID,Get-NetFirewallRule')){$script:queryFail=$id;Check ((Invoke-OpenWebHealthFirewall State $address $filter $tcp $udp) -ceq 'absent') 'Exact native missing-rule response refused.'}
 $script:queryFail='AccessDenied,Get-NetFirewallRule';Refuses {Invoke-OpenWebHealthFirewall State $address $filter $tcp $udp} 'Firewall read denial promoted to absence.';$script:queryFail=''
+$script:foreignFail='CmdletizationQuery_NotFound,Get-NetFirewallRule'
+Check ((Invoke-OpenWebHealthFirewall State $address 'sip-auth-ip' $tcp $udp) -ceq 'absent') 'Exact empty inbound-block query refused.'
+Check ((Invoke-OpenWebHealthFirewall Remove $address $filter $tcp $udp) -ceq 'absent' -and $script:deletes.Count -eq 0) 'Empty native policy changed during repeat recovery.'
+foreach($id in 'AccessDenied,Get-NetFirewallRule','CmdletizationQuery_NotFound_Name,Get-NetFirewallRule','CmdletizationQuery_NotFound,Other-FirewallRule'){$script:foreignFail=$id;Refuses {Invoke-OpenWebHealthFirewall State $address 'sip-auth-ip' $tcp $udp} 'Unexpected foreign-query failure became absence.'}
+$script:foreignFail='CmdletizationQuery_NotFound,Get-NetFirewallRule';$script:foreignCategory=[Management.Automation.ErrorCategory]::PermissionDenied
+Refuses {Invoke-OpenWebHealthFirewall State $address 'sip-auth-ip' $tcp $udp} 'Foreign-query permission denial became absence.'
+$script:foreignFail='';$script:foreignCategory=[Management.Automation.ErrorCategory]::ObjectNotFound
 Check ((Invoke-OpenWebHealthFirewall Add $address $filter $tcp $udp) -ceq 'present') 'Owned native shape not created.'
 Check ($script:rules.Count -eq 2) 'Expected two scoped transports.'
 Check ($script:rules[$base+'-tcp'].Protocol -ceq 'TCP' -and ($script:rules[$base+'-tcp'].Ports -join ',') -ceq $tcp) 'TCP ports differ.'
