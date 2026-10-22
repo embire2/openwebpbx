@@ -256,6 +256,24 @@ function ProviderFailureFields($Record){
  $safe=@{}
  if($Record.active_case -isnot [string] -or $Record.active_case -cnotmatch '^native_provider_10[0-3]$'){return $safe}
  $value=$Record.provider_caller_response_code;if(($value -is [int] -or $value -is [long]) -and $value -ge 100 -and $value -le 699){$safe.provider_caller_response_code=$value}
+ foreach($phase in 'before','after'){
+  $prefix='provider_'+$phase+'_plan_'
+  foreach($key in 'observed','registered','rule_matches','primary_available','backup_available'){if($Record.($prefix+$key) -is [bool]){$safe[$prefix+$key]=$Record.($prefix+$key)}}
+  foreach($bound in @(@('routes_count',0,16),@('selected_index',-1,1))){$value=$Record.($prefix+$bound[0]);if(($value -is [int] -or $value -is [long]) -and $value -ge $bound[1] -and $value -le $bound[2]){$safe[$prefix+$bound[0]]=$value}}
+  $value=$Record.($prefix+'error');if($value -is [string] -and $value -cin 'none','other','no_rule','providers_unavailable','phone_unavailable'){$safe[$prefix+'error']=$value}
+  foreach($peer in 'primary','backup'){
+   $prefix='provider_'+$phase+'_'+$peer+'_attempt_'
+   foreach($key in 'observed','counts_capped','will_retry'){if($Record.($prefix+$key) -is [bool]){$safe[$prefix+$key]=$Record.($prefix+$key)}}
+   $value=$Record.($prefix+'count');if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 16){$safe[$prefix+'count']=$value}
+   $value=$Record.($prefix+'sip_status');if(($value -is [int] -or $value -is [long]) -and ($value -eq 0 -or ($value -ge 100 -and $value -le 699))){$safe[$prefix+'sip_status']=$value}
+   $value=$Record.($prefix+'state');if($value -is [string] -and $value -cin 'absent','calling','skipped','answered','failed','cancelled','unknown'){$safe[$prefix+'state']=$value}
+   $value=$Record.($prefix+'cause');if($value -is [string] -and $value -cin 'none','other','PROVIDER_UNAVAILABLE','SUCCESS','NORMAL_CLEARING','NORMAL_TEMPORARY_FAILURE','INCOMPATIBLE_DESTINATION','SERVICE_UNAVAILABLE','DESTINATION_OUT_OF_ORDER','INVALID_GATEWAY','GATEWAY_DOWN','CHAN_NOT_IMPLEMENTED','MANDATORY_IE_MISSING','INVALID_IE_CONTENTS','NO_ROUTE_DESTINATION','CALL_REJECTED','ORIGINATOR_CANCEL','NO_USER_RESPONSE','NO_ANSWER','NORMAL_CIRCUIT_CONGESTION','USER_BUSY','LOSE_RACE','ALLOTTED_TIMEOUT','RECOVERY_ON_TIMER_EXPIRE','WRONG_CALL_STATE','UNALLOCATED_NUMBER','NETWORK_OUT_OF_ORDER','SWITCH_CONGESTION','RESOURCE_UNAVAILABLE','CRASH','UNKNOWN'){$safe[$prefix+'cause']=$value}
+   $prefix='provider_'+$phase+'_'+$peer+'_policy_'
+   foreach($key in 'available','rewrite_valid','leg_valid','options_present','options_schema_one','policy_source_forwardslash','options_module_readable'){if($Record.($prefix+$key) -is [bool]){$safe[$prefix+$key]=$Record.($prefix+$key)}}
+   foreach($key in 'enabled_kind','register_kind','options_kind'){$value=$Record.($prefix+$key);if($value -is [string] -and $value -cin 'nil','boolean','string','number','table','function','userdata','thread'){$safe[$prefix+$key]=$value}}
+   foreach($key in 'enabled_value','register_value'){$value=$Record.($prefix+$key);if($value -is [string] -and $value -cin 'true','false','t','f','1','0','other'){$safe[$prefix+$key]=$value}}
+  }
+ }
  foreach($phase in 'before','after'){foreach($peer in 'primary','backup'){
   $prefix='provider_'+$phase+'_'+$peer+'_'
   foreach($suffix in 'gateway_observed','counts_capped','offer_parsed','offer_pcmu','offer_pcma','receiver_failed','receiver_alive'){if($Record.($prefix+$suffix) -is [bool]){$safe[$prefix+$suffix]=$Record.($prefix+$suffix)}}
