@@ -4,6 +4,7 @@
 param([Parameter(Mandatory)][string]$PackageRoot,[switch]$DisposableHostedRunner,[Parameter(Mandatory)][string]$InputPath,[Parameter(Mandatory)][string]$ReportPath)
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-upgrade-lock-observer.ps1')
+. (Join-Path $PSScriptRoot 'windows-upgrade-health-quiescence.ps1')
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){throw 'Only the owned disposable hosted Windows instance may run this hook.'}
 . (Join-Path $PackageRoot 'Support-Recovery.ps1')
 $fixtureInput=Get-Content -LiteralPath $InputPath -Raw|ConvertFrom-Json
@@ -21,7 +22,7 @@ $managerSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;$manag
 $managerName='OpenWebPBX-Manager-'+$managerSid;$managerExe="$root\desktop\OpenWebPbx.Desktop.exe";$managerOriginal=$null;$managerOwned=$false;$managerStarted=$null;$managerAvailable=$false
 $managerHeldProcess=$null;$managerHeldHandles=[Collections.Generic.List[Diagnostics.Process]]::new();$managerClosureFailure=$null
 $report=[ordered]@{schema=1;state='running';checks=@();gates=[ordered]@{direct_113_helper_reapply='pending';direct_failure_rollback='pending';restore_gate_startup='pending';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified'};signed_fixtures='absent';baseline='installed candidate; same-version direct reapply is not a newer signed update'}
-$databaseSidecars=@()
+$databaseSidecars=@();$healthOriginal=$null
 function Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
 function WriteJson([string]$Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 10),[Text.UTF8Encoding]::new($false))}
 function PayloadInventory([string]$Directory,[string]$PrivatePath){
@@ -388,9 +389,9 @@ function DatabaseSnapshot([string]$Name){
  return $snapshot
 }
 function FilesSnapshot([switch]$BackupControlOnly) {
- $directories=@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots",$configuration,"$switch\conf","$switch\scripts","$switch\mod","$switch\sounds","$state\storage","$state\mobile-notifications","$state\phone-tls","$state\public-access","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build")
+ $directories=@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots",$configuration,"$switch\conf","$switch\scripts","$switch\mod","$switch\sounds","$state\storage","$state\mobile-notifications","$state\phone-tls","$state\public-access","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build","$state\phone-health-runtime","$state\stun-setup")
  $parents=@($root,"$root\updater",$state,$switch)
- $fixed=@("$state\installation.json","$state\runtime.json","$state\phone-tls.json","$state\phone-health-instance.json","$state\native-engine.json","$state\local-codec.json","$state\updater-install.json","$root\php\php.ini","$root\php\extras\ssl\openssl.cnf","$root\php\extras\ssl\cacert.pem")
+ $fixed=@("$state\installation.json","$state\runtime.json","$state\phone-tls.json","$state\phone-health-instance.json","$state\stun.json","$state\native-engine.json","$state\local-codec.json","$state\updater-install.json","$root\php\php.ini","$root\php\extras\ssl\openssl.cnf","$root\php\extras\ssl\cacert.pem")
  if($BackupControlOnly){$directories=@("$state\backup-control");$parents=@();$fixed=@()}
  $files=@{}
  # Parent DACLs determine inherited access and need independent recovery even
@@ -669,6 +670,7 @@ try{
  $prior=$env:OPENWEB_WINDOWS_BACKUP_TEST;$env:OPENWEB_WINDOWS_BACKUP_TEST='1'
  Push-Location "$root\web"
  try{& "$root\php\php.exe" (Join-Path $PSScriptRoot 'windows-backups-fixture.php') create $fixture;Check ($LASTEXITCODE -eq 0) 'The owned preservation PBX fixture failed.'}finally{Pop-Location}
+ Suspend-OpenWebQualificationHealth ([ref]$healthOriginal)
  StopUpdater;SignedChecks
  $before=DatabaseSnapshot 'before-reapply'
  $protected=@{};foreach($path in "$configuration\config.conf","$configuration\openweb-template.key","$state\runtime.json","$state\mobile-notifications\config.json","$state\phone-tls.json"){if(Test-Path $path){$protected[$path]=@{hash=(Hash $path);acl=(Get-Acl $path).Sddl}}}
@@ -753,6 +755,7 @@ try{
   Remove-Item -LiteralPath $fixture -Force -ErrorAction SilentlyContinue
  }
  if($null -eq $prior){Remove-Item Env:\OPENWEB_WINDOWS_BACKUP_TEST -ErrorAction SilentlyContinue}else{$env:OPENWEB_WINDOWS_BACKUP_TEST=$prior}
+ try{Resume-OpenWebQualificationHealth $healthOriginal}catch{$report.state='failed';$report.failed_phase='owned health observer cleanup'}
  if($report.state -eq 'passed' -and (Get-Service OpenWebPBXUpdater).Status -ne 'Running'){Start-Service OpenWebPBXUpdater}
  WriteJson $ReportPath $report
 }
