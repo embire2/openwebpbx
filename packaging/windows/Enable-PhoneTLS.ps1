@@ -6,8 +6,37 @@ $private=Join-Path $env:ProgramData 'OpenWebPBX'
 $configuration=Join-Path $env:ProgramData 'fusionpbx\config.conf'
 $root='C:\OpenWebPBX'
 if(!(Test-Path $configuration)){throw 'Install the PBX before enabling secure phone connections.'}
+function Open-OpenWebPhoneTlsMaintenance {
+ param([Parameter(Mandatory)][string]$Path,[IO.FileStream]$Borrowed,[ValidateRange(1,30000)][int]$WaitMilliseconds=30000)
+ $expected=[IO.Path]::GetFullPath($Path)
+ $current=$expected
+ while($current){
+  if(Test-Path -LiteralPath $current){$item=Get-Item -LiteralPath $current -Force -ErrorAction Stop;if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'The phone certificate maintenance path contains a link or junction.'};if($current -ceq $expected -and $item.PSIsContainer){throw 'The phone certificate maintenance path is not a regular file.'}}
+  $parent=[IO.Path]::GetDirectoryName($current);if($parent -eq $current){break};$current=$parent
+ }
+ if($Borrowed){
+  if(!$Borrowed.CanRead -or !$Borrowed.CanWrite -or ![IO.Path]::GetFullPath($Borrowed.Name).Equals($expected,[StringComparison]::OrdinalIgnoreCase)){throw 'The borrowed phone certificate maintenance lock is invalid.'}
+  foreach($access in 'Read','Write'){
+   $blocked=$false
+   try{$probe=[IO.File]::Open($expected,'Open',$access,'ReadWrite');$probe.Dispose()}catch [IO.IOException]{$fault=$_.Exception;while($fault.InnerException){$fault=$fault.InnerException};if(([long]$fault.HResult -band 4294967295L) -cin 2147942432L,2147942433L){$blocked=$true}else{throw}}
+   if(!$blocked){throw 'The borrowed phone certificate maintenance lock is not exclusive.'}
+  }
+  return $Borrowed
+ }
+ $clock=[Diagnostics.Stopwatch]::StartNew()
+ while($true){
+  try{return [IO.File]::Open($expected,'OpenOrCreate','ReadWrite','None')}
+  catch [IO.IOException]{
+   $fault=$_.Exception;while($fault.InnerException){$fault=$fault.InnerException}
+   if(([long]$fault.HResult -band 4294967295L) -cnotin 2147942432L,2147942433L){throw}
+   $remaining=$WaitMilliseconds-$clock.ElapsedMilliseconds
+   if($remaining -le 0){$busy=[InvalidOperationException]::new('Another PBX maintenance operation is running. Retry secure phone setup after it finishes.');$busy.Data['OpenWebPhoneTLSBusy']=$true;throw $busy}
+   Start-Sleep -Milliseconds ([Math]::Min(100,$remaining))
+  }
+ }
+}
 $setupLock=$MaintenanceLock
-if(!$setupLock){$setupLock=[IO.File]::Open("$private\upgrade.lock",'OpenOrCreate','ReadWrite','None')}
+$setupLock=Open-OpenWebPhoneTlsMaintenance -Path (Join-Path $private 'upgrade.lock') -Borrowed $MaintenanceLock
 try {
 . "$PSScriptRoot\Restore-Gates.ps1"
 . "$PSScriptRoot\Write-PrivateState.ps1"

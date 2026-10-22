@@ -1302,6 +1302,8 @@ try{
  if(!$?){throw 'Native provider failure projection controls failed.'}
  & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_phone_tls_failure_fields.ps1') -SourceRoot $source *> (Join-Path $work 'phone-tls-projection.private.log')
  if($LASTEXITCODE){throw 'The actual phone TLS failure launcher controls failed.'}
+ & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_phone_tls_lock.ps1') -SourceRoot $source *> (Join-Path $work 'phone-tls-lock.private.log')
+ if($LASTEXITCODE){throw 'The actual native phone TLS maintenance controls failed.'}
  & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_legacy_transition.ps1') *> (Join-Path $work 'legacy-source.private.log')
  if($LASTEXITCODE){throw 'The exact legacy upgrade boundary controls failed.'}
  & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_upgrade_health_quiescence.ps1') *> (Join-Path $work 'health-quiescence.private.log')
