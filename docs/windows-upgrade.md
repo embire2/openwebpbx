@@ -1,8 +1,27 @@
 # Updating Windows Server
 
-## Windows 1.0.13 candidate
+## Current Windows 1.0.20 work
 
-The current Windows work uses a separate signed Windows feed while Debian and Android stay on 1.0.12. No Windows 1.0.13 release is published yet. Use the [matching candidate guide](installing-1.0.13.md) and [qualification record](feature-coverage.md#windows-server-return--1013).
+The complete native Windows Server2025 package is under acceptance; it is not
+published yet. Follow the [current parity record](windows-parity-1.0.20.md) and
+[1.0.20 installation guide](installing-1.0.20.md). The original test machine's
+1.0.6 installation is being preserved before migration.
+
+The matching `Upgrade-LegacyWindows.ps1` now supports completed 1.0.3–1.0.7
+installations upgrading to 1.0.20 or newer. It requires the original installed
+signature verifier to verify the complete release before stopping the updater,
+then invokes the verified transaction helper. The former 1.0.13-only guard would
+refuse a current release and has been corrected. Boundary checks are distinct
+from the pending real signed migration on the original machine.
+
+Use only the qualified package's matching instructions and signed Windows feed.
+Do not run a fresh installer over an existing installation. Preserved disabled
+background jobs remain disabled, and restored pending phone-unblock requests are
+refused before resumed jobs can act on another server's security state.
+
+## Earlier Windows 1.0.13 qualification
+
+The earlier 1.0.13 work used a separate signed Windows feed while Debian and Android were on 1.0.12. No Windows 1.0.13 release is published yet. Use the [matching candidate guide](installing-1.0.13.md) and [qualification record](feature-coverage.md#windows-server-return--1013).
 
 Full isolated run **38841661033** at source `1f8beff8b` passed all six essential gates, both manager checks, exact cleanup and the independent original-package audit. Native build **38840969235** and startup-contention check **38845174962** passed. Separate-server restore **38845992035** passed nine source and eighteen target gates, including explicit activation, with both cleanups and independently confirmed temporary-secret removal. These checks used fictional data and laboratory trusted HTTPS.
 
