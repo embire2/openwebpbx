@@ -14,6 +14,8 @@ if (!string.IsNullOrEmpty(settingsPath)) builder.Configuration.AddJsonFile(setti
 builder.Services.AddWindowsService(options => options.ServiceName = "OpenWebPBX");
 builder.Services.AddSingleton<ServiceStatus>();
 builder.Services.AddSingleton<SwitchClient>();
+builder.Services.AddSingleton<StunStatus>();
+if (OperatingSystem.IsWindows()) builder.Services.AddHostedService<StunWorker>();
 builder.Services.AddHttpClient("push", c => c.Timeout = TimeSpan.FromSeconds(8)).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<AndroidPushSender>();
 builder.Services.AddHttpClient("voice", c => c.Timeout = TimeSpan.FromSeconds(90)).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
@@ -33,11 +35,11 @@ if (!string.IsNullOrWhiteSpace(connection))
 // authentication, permissions, tenant checks and form tokens for every user action.
 builder.WebHost.UseUrls("http://127.0.0.1:8087");
 var app = builder.Build();
-app.MapGet("/health", (ServiceStatus status) => Results.Json(new
+app.MapGet("/health", (ServiceStatus status, StunStatus stun) => Results.Json(new
 {
     application = "OpenWeb PBX", version = typeof(Program).Assembly.GetName().Version?.ToString(3),
     state = string.IsNullOrWhiteSpace(connection) ? "Setup required" : status.State,
-    lastSuccess = status.LastSuccess,
+    lastSuccess = status.LastSuccess, stun = stun.State,
     operatingSystem = OperatingSystem.IsWindows() ? "Windows" : "Linux"
 }));
 app.Run();
