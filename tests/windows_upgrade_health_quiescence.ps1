@@ -17,7 +17,7 @@ function Invoke-CimMethod($InputObject,[string]$MethodName){Check ($MethodName -
 function Start-Sleep([int]$Milliseconds){Check ($Milliseconds -eq 250);$script:sleeps++}
 function Reset([bool]$Enabled=$true,[string]$State='Ready') {
  $script:task=[pscustomobject]@{
-  Description='OpenWeb PBX owned phone health and Windows security observer'
+  TaskName='OpenWebPBX-PhoneHealth';TaskPath='\';Description='OpenWeb PBX owned phone health and Windows security observer'
   Principal=[pscustomobject]@{UserId='SYSTEM';RunLevel='Highest';LogonType='ServiceAccount'}
   Actions=@([pscustomobject]@{Execute=$env:SystemRoot+'\System32\WindowsPowerShell\v1.0\powershell.exe';Arguments='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$root+'\tools\Phone-Health.ps1"';WorkingDirectory=$root+'\tools'})
   Settings=[pscustomobject]@{MultipleInstances='IgnoreNew';Enabled=$Enabled};State=$State
@@ -40,10 +40,10 @@ try {
  }
  Reset;$script:task=$null;$original=$null;Suspend-OpenWebQualificationHealth ([ref]$original);Resume-OpenWebQualificationHealth $original
  Check (!$original.Exists -and $script:actions.Count -eq 0)
- foreach($change in 'description','principal','runlevel','logon','execute','arguments','workingdir','multiple','enabledtype','state','extraaction'){
+ foreach($change in 'taskname','taskpath','description','principal','runlevel','logon','execute','arguments','workingdir','multiple','enabledtype','state','extraaction'){
   Reset
   switch($change){
-   'description'{$task.Description='FOREIGN'} 'principal'{$task.Principal.UserId='S-1-5-21-123'} 'runlevel'{$task.Principal.RunLevel='Limited'}
+   'taskname'{$task.TaskName='FOREIGN'} 'taskpath'{$task.TaskPath='\FOREIGN\'} 'description'{$task.Description='FOREIGN'} 'principal'{$task.Principal.UserId='S-1-5-21-123'} 'runlevel'{$task.Principal.RunLevel='Limited'}
    'logon'{$task.Principal.LogonType='Interactive'} 'execute'{$task.Actions[0].Execute='FOREIGN'} 'arguments'{$task.Actions[0].Arguments+=' -Foreign'}
    'workingdir'{$task.Actions[0].WorkingDirectory='FOREIGN'} 'multiple'{$task.Settings.MultipleInstances='Parallel'}
    'enabledtype'{$task.Settings.Enabled='false'} 'state'{$task.State='Queued'} 'extraaction'{$task.Actions+=@($task.Actions[0])}
@@ -51,7 +51,7 @@ try {
   $original=$null;Refuses {Suspend-OpenWebQualificationHealth ([ref]$original)} 'foreign or changed'
   Check ($script:actions.Count -eq 0 -and $null -eq $original)
  }
- Reset;$task.Principal.UserId='S-1-5-18';$original=$null;Suspend-OpenWebQualificationHealth ([ref]$original);Resume-OpenWebQualificationHealth $original;Check $task.Settings.Enabled
+ Reset;$task.Principal.RunLevel=1;$task.Principal.LogonType=5;$task.Principal.UserId='S-1-5-18';$original=$null;Suspend-OpenWebQualificationHealth ([ref]$original);Resume-OpenWebQualificationHealth $original;Check $task.Settings.Enabled
  $installed=Join-Path (Join-Path $root 'tools') 'Phone-Health.ps1';$originalBytes=[IO.File]::ReadAllBytes($installed);[IO.File]::WriteAllText($installed,'CHANGED')
  Reset;$original=$null;Refuses {Suspend-OpenWebQualificationHealth ([ref]$original)} 'differs from';Check ($script:actions.Count -eq 0 -and $null -eq $original);[IO.File]::WriteAllBytes($installed,$originalBytes)
  Reset;$foreign=[pscustomobject]@{ExecutablePath='C:\Other\php.exe';CommandLine='php.exe other.php';OwnerSid='FOREIGN';OwnerResult=0};$processes=@($foreign);Check ((Get-OpenWebQualificationHealthProcesses) -eq 0)

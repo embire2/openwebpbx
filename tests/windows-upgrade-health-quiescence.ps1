@@ -3,7 +3,7 @@
 function Assert-OpenWebQualificationHealthTask($Task) {
  $execute=$env:SystemRoot+'\System32\WindowsPowerShell\v1.0\powershell.exe'
  $arguments='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$root+'\tools\Phone-Health.ps1"'
- if($Task.Description -cne 'OpenWeb PBX owned phone health and Windows security observer'   -or $Task.Principal.UserId -cnotin 'SYSTEM','S-1-5-18' -or [string]$Task.Principal.RunLevel -cne 'Highest'   -or [string]$Task.Principal.LogonType -cne 'ServiceAccount' -or @($Task.Actions).Count -ne 1   -or $Task.Actions[0].Execute -ine $execute -or $Task.Actions[0].Arguments -cne $arguments   -or $Task.Actions[0].WorkingDirectory -ine ($root+'\tools') -or [string]$Task.Settings.MultipleInstances -cne 'IgnoreNew'   -or $Task.Settings.Enabled -isnot [bool] -or [string]$Task.State -cnotin 'Running','Ready','Disabled') {
+ if(@($Task).Count -ne 1 -or $Task.TaskName -cne 'OpenWebPBX-PhoneHealth' -or $Task.TaskPath -cne '\' -or $Task.Description -cne 'OpenWeb PBX owned phone health and Windows security observer'   -or $Task.Principal.UserId -cnotin 'SYSTEM','S-1-5-18' -or [string]$Task.Principal.RunLevel -cnotin 'Highest','1'   -or [string]$Task.Principal.LogonType -cnotin 'ServiceAccount','5' -or @($Task.Actions).Count -ne 1   -or $Task.Actions[0].Execute -ine $execute -or $Task.Actions[0].Arguments -cne $arguments   -or $Task.Actions[0].WorkingDirectory -ine ($root+'\tools') -or [string]$Task.Settings.MultipleInstances -cne 'IgnoreNew'   -or $Task.Settings.Enabled -isnot [bool] -or [string]$Task.State -cnotin 'Running','Ready','Disabled') {
   throw 'The health qualification refuses a foreign or changed observer task.'
  }
  foreach($name in 'Phone-Health.ps1','PhoneHealth-Security.ps1') {
