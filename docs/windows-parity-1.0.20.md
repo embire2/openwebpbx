@@ -13,7 +13,7 @@ native Windows server.
 
 | Area | Current work | Required acceptance |
 |---|---|---|
-| Phone Health & Recovery | Native components passed16 Defender and62 SYSTEM checks; durable-intent policy passed96 isolated PostgreSQL controls. Complete source `568b3ab5f` passed installed observer/restart checks, then failed the actual ESL→Defender→SQL worker gate at firewall preflight. Separate repairs pass **26** actual Windows PHP subscription controls and **four** native empty-policy query controls, including old-source negatives. | Rebuild the complete package and pass actual event-to-block-to-recovery, negative permissions, unchanged firewall policy, restart and restore. Loopback/component checks alone do not qualify this flow. |
+| Phone Health & Recovery | Native components passed16 Defender and62 SYSTEM checks; durable-intent policy passed96 isolated PostgreSQL controls. Complete source `2928020da` now passes the actual native worker and installed observer/restart checks, then refuses the exact complete-public-state recovery comparison. No changed table or namespace has been established yet. Separate subscription26 and empty-policy query4 controls pass. | Identify the exact preservation difference and pass the complete event-to-block-to-recovery, negative-permission, firewall, restart and restore gate. Loopback/component checks alone do not qualify this flow. |
 | Remote phones | Native .NET STUN Binding worker and setup are implemented. The current package passed33 installed Windows checks, including actual service/Defender activation, decoded modern/legacy Binding and recovery.146 separate NTFS/interruption controls use service/firewall doubles. Existing PBX-anchored audio and restored sign-in identities remain. | External test-machine Binding and phone/client acceptance; Windows IPv6 remains separate. STUN is not TURN. |
 | Conferences | Corrected native engine passes all16 ordinary/fragmented small/8KiB frontend/backend OPTIONS exchanges. Browser admission reaches the engine, but media remains unqualified. A separate read-only check confirms the stock Windows engine generated an already-expired DTLS certificate through a date-calculation overflow; a guarded pre-start repair is being tested. | Qualify the certificate repair and negotiation, then decoded browser/phone audio and VP8, host actions and exact cleanup. Preserve valid custom certificates and destination-owned identity during restore. |
 | Backups and restore | Scheduled-job choices are preserved. Restored pending phone-unblock requests are refused before background work resumes; other recovery history is retained. | Complete encrypted backup, same-machine failure recovery, distinct clean-server restore, media/key preservation and explicit activation. |
@@ -137,6 +137,20 @@ change product bytes. They require a newly built final Windows archive and
 complete acceptance; neither the old `568b3ab5f` ZIP nor a diagnostic replay becomes a
 release through these source changes. Read the [Phone Health evidence](phone-health.md#windows-server-follow-up)
 for the scope of the separate **26 / 16 / 62 / 96**, read-only empty-query **four** and native guard **11** controls.
+
+Normal full run39856840460 clears the fresh certificate-parent blocker and
+passes trusted web29 and native STUN33. Its Health worker passes, but the complete
+public-state preservation comparison refuses at acceptance line133. The following
+identity/task comparison was not established reached. The package remains failed;
+its later calling, meeting, backup and upgrade gates are unqualified.
+The next full run39860468581 includes the native PHP matrix and runs the installed
+DTLS checks before Health. It cannot qualify an owner migration until the separate
+interrupted-upgrade recovery-entry fix is complete.
+
+The later unchanged-package diagnostic39858622611 proves that secure-phone setup
+refuses an exclusive maintenance lock with native sharing violation0x80070020.
+No provider call was reached. A short, typed wait for legitimate lock contention
+is being added; permission/path failures must still refuse immediately.
 
 Publishing Windows must retain the exact currently published Android18 and
 Debian16 signed feeds. Their public bytes and signatures have been independently
