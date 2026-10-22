@@ -19,12 +19,27 @@ native Windows server.
 | Backups and restore | Scheduled-job choices are preserved. Restored pending phone-unblock requests are refused before background work resumes; other recovery history is retained. | Complete encrypted backup, same-machine failure recovery, distinct clean-server restore, media/key preservation and explicit activation. |
 | Updates | New protected tools and health task are included in installation and recovery inventory. The legacy transition accepts current signed releases rather than only 1.0.13. **11** native guard controls distinguish actual Windows contention from permission/path failures; the tenant worker defers only on the typed busy result. | Rebuilt complete-package fresh setup, same-version repair, late-failure recovery and a signed newer-version upgrade with natural restart. |
 | Public access | Existing trusted IIS, secure-phone and managed tenant-address implementations remain. | Actual public certificate issuance/renewal and external tenant/Android connections on the test machine. |
+| Client setup and welcome mail | Shared tenant-address, app-password and profile features are implemented. A new required welcome case passes29 local real PHP/PostgreSQL/SMTP/MIME/independent QR checks and120 caller/projection controls; native Windows execution remains pending. | Pass the installed Windows welcome case, then external Android QR/manual sign-in, password change, multiple profiles and trusted-IIS role/online boundaries. |
 | Existing calling suite | The unchanged-package diagnostic replay passes decoded TLS two-way calling, independent G729/PCMU transcoding and three decoded clock1026 announcements. The first fictional provider call then fails; Call Me Back and later groups, queues, voicemail121, recording, hotel and mail cases remain unqualified against this package. | Resolve the provider failure and repeat the complete native suite against the combined current-source package, including decoded media and protected-data checks. |
 
 The owner's test machine is Windows Server 2025. Its original 1.0.6 installation
 was found with PBX services stopped; its data and configuration are being
 preserved before migration. Private access details and customer/test evidence
 remain outside the public repository.
+
+The welcome-mail case uses the actual installed PHP welcome/outbox dispatcher,
+an isolated PostgreSQL schema and two concurrent queue processes. Its one
+loopback message must contain matching HTML/inline QR content IDs and a
+password-free setup attachment whose full JSON matches an independently decoded
+QR. The installed PNG renderer must also work with `php -n`, without GD. Used
+invitations must not dispatch, and every original public row and global mail
+setting must remain exact. Alias custody and HTTPS readiness are explicitly
+modelled only for this MIME test; they do not replace the real alias/IIS and
+external Android acceptance. SMTP acceptance does not prove inbox receipt.
+The decoder is a pinned private QA dependency, not a server runtime dependency.
+The private database-credential copy is removed on success and failure; five
+additional local controls cover interruption before state creation and unsafe
+copy refusal. No customer or external recipient is used.
 
 The test machine unexpectedly rebooted while its original file archive was
 being copied, before any preview installation. A read-only comparison after the

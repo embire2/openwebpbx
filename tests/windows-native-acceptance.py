@@ -1366,6 +1366,9 @@ def smtp_and_queued_voicemail(f):
         except BaseException as error:
             error.smtp_failure=smtp_snapshot(f,sink,seed);raise
         finally:sink.shutdown();worker.join(3)
+    f.active_case='native_welcome_inline_qr_config_actual_loopback'
+    welcome=load_module('windows_welcome_native',f.source/'tests/windows_welcome_native.py').run_fixture(f.path,f.source,f.php,f.evidence)
+    f.record('native_welcome_inline_qr_config_actual_loopback',**welcome)
 
 
 def main():
@@ -1400,6 +1403,7 @@ def main():
         if getattr(e,'mailbox_failure',None):failure.update(e.mailbox_failure)
         if getattr(e,'hotel_failure',None):failure.update(e.hotel_failure)
         if getattr(e,'smtp_failure',None):failure.update(e.smtp_failure)
+        if getattr(e,'welcome_failure',None):failure.update(e.welcome_failure)
         if getattr(e,'meeting_owner_failure',None):failure.update(e.meeting_owner_failure)
         if getattr(e,'meeting_media_failure',None):failure.update(e.meeting_media_failure)
         if getattr(e,'meeting_signaling_failure',None):failure.update(e.meeting_signaling_failure)

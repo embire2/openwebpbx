@@ -35,12 +35,19 @@ function Python([string]$Phase){
 function CompletedMediaCases($Checks){
  # Publish only fixed completed case names; peer metrics and raw child data
  # remain in the administrator-private report.
- $allowed=@('native_windows_meeting_browser_video_audio','native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav','native_tls_mailbox_wire_forwarding_exact_binary_wav','native_global_smtp_unconfigured_queue_preserves_attempts','native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment','native_global_smtp_password_auth_actual_loopback','native_global_smtp_trusted_tls_hostname_auth_actual_loopback','native_clock1026_gmt2_three_decoded_announcements','native_provider_outbound_decoded_rtp','native_provider_503_failover_once_decoded_rtp','native_provider_busy_no_failover','native_provider_603_failover_once_decoded_rtp','native_provider_incoming_owned_did_decoded_rtp','native_cmb_sa_id_first_auth_decoded_bridge','native_cmb_saved_caller_decoded_bridge','native_cmb_short_quota_native_cutoff_exact_usage','native_cmb_exhausted_quota_no_destination')
+ $allowed=@('native_windows_meeting_browser_video_audio','native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav','native_tls_mailbox_wire_forwarding_exact_binary_wav','native_global_smtp_unconfigured_queue_preserves_attempts','native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment','native_global_smtp_password_auth_actual_loopback','native_global_smtp_trusted_tls_hostname_auth_actual_loopback','native_welcome_inline_qr_config_actual_loopback','native_clock1026_gmt2_three_decoded_announcements','native_provider_outbound_decoded_rtp','native_provider_503_failover_once_decoded_rtp','native_provider_busy_no_failover','native_provider_603_failover_once_decoded_rtp','native_provider_incoming_owned_did_decoded_rtp','native_cmb_sa_id_first_auth_decoded_bridge','native_cmb_saved_caller_decoded_bridge','native_cmb_short_quota_native_cutoff_exact_usage','native_cmb_exhausted_quota_no_destination')
  foreach($name in $allowed){
   foreach($check in @($Checks)){
    if($check.case -is [string] -and $check.case -ceq $name -and $check.passed -is [bool] -and $check.passed -eq $true){$name;break}
   }
  }
+}
+function AssertWelcomeNativeCase($Checks){
+ $rows=@($Checks|Where-Object {$_.case -is [string] -and $_.case -ceq 'native_welcome_inline_qr_config_actual_loopback'})
+ if($rows.Count -ne 1 -or $rows[0].passed -isnot [bool] -or !$rows[0].passed -or $rows[0].state -isnot [string] -or $rows[0].state -cne 'passed'){throw 'The actual Windows welcome MIME case must complete exactly once.'}
+ $row=$rows[0]
+ foreach($flag in 'actual_php_postgresql_dispatcher','two_concurrent_dispatchers','one_actual_loopback_delivery','inline_qr_cid_exact','independent_qr_decoded','qr_and_attached_config_exact','password_free_one_use_setup','used_invitation_suppressed','same_framework_backend','no_php_ini_or_gd_renderer','alias_custody_modelled','tls_readiness_modelled','no_external_mail','actual_windows_native','public_rows_exact','global_mail_config_exact','owned_schema_and_locks_removed','private_credentials_removed'){if($row.$flag -isnot [bool] -or !$row.$flag){throw 'The Windows welcome MIME scope/preservation proof is incomplete.'}}
+ if(($row.checks -isnot [int] -and $row.checks -isnot [long]) -or $row.checks -lt 29 -or $row.checks -gt 100000 -or $row.gd_required -isnot [bool] -or $row.gd_required -or $row.decoder_sha256 -isnot [string] -or $row.decoder_sha256 -cne '29f98a91148171460b47a942d137ecc90c4b8097636f23cca65263a56bb025d3'){throw 'The actual independent Windows QR decoder proof is invalid.'}
 }
 function AssertExtendedNativeCases($Checks){
  $names=@('native_clock1026_gmt2_three_decoded_announcements','native_provider_outbound_decoded_rtp','native_provider_503_failover_once_decoded_rtp','native_provider_busy_no_failover','native_provider_603_failover_once_decoded_rtp','native_provider_incoming_owned_did_decoded_rtp','native_cmb_sa_id_first_auth_decoded_bridge','native_cmb_saved_caller_decoded_bridge','native_cmb_short_quota_native_cutoff_exact_usage','native_cmb_exhausted_quota_no_destination')
@@ -218,6 +225,11 @@ function MeetingPathFields($Record){
 }
 function SmtpFailureFields($Record){
  $safe=@{}
+ if($Record.active_case -is [string] -and $Record.active_case -ceq 'native_welcome_inline_qr_config_actual_loopback'){
+  if($Record.welcome_cleanup_failed -is [bool]){$safe.welcome_cleanup_failed=$Record.welcome_cleanup_failed}
+  if($Record.welcome_phase -is [string] -and $Record.welcome_phase -cin 'input','database','bootstrap','queue','dispatch','inspect','suppress','cleanup' -and $Record.welcome_error_type -is [string] -and $Record.welcome_error_type -cin 'RuntimeException','PDOException','Error','TypeError','ValueError','JsonException','Exception' -and $Record.welcome_source_basename -is [string] -and $Record.welcome_source_basename -cin 'windows_welcome_native.php','pbx_mobile.php','pbx_mobile_welcome.php','email.php','outgoing_mail.php','email_send.php','database.php','config.php','settings.php','external_component' -and ($Record.welcome_source_line -is [int] -or $Record.welcome_source_line -is [long]) -and $Record.welcome_source_line -ge 1 -and $Record.welcome_source_line -le 100000 -and $Record.welcome_sqlstate -is [string] -and ($Record.welcome_sqlstate -ceq 'none' -or $Record.welcome_sqlstate -cmatch '^[A-Z0-9]{5}$')){foreach($field in 'welcome_phase','welcome_error_type','welcome_source_basename','welcome_source_line','welcome_sqlstate'){$safe[$field]=$Record.$field}}
+  return $safe
+ }
  if($Record.active_case -isnot [string] -or $Record.active_case -cne 'global_smtp_trusted_tls_hostname_auth'){return $safe}
  foreach($field in 'smtp_connection_check_passed','smtp_queue_observed'){if($Record.$field -is [bool]){$safe[$field]=$Record.$field}}
  foreach($field in 'smtp_delivery_count','smtp_envelope_count','smtp_session_count','smtp_authenticated_session_count','smtp_tls_accepted_count','smtp_tls_handshake_completed_count','smtp_tls_handshake_failed_count','smtp_seed_row_count','smtp_tick_maintenance_deferrals','smtp_tick_retry_count'){$value=$Record.$field;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 64){$safe[$field]=$value}}
@@ -431,6 +443,7 @@ try{
  $native=Get-Content "$evidence\software-native-report.json" -Raw|ConvertFrom-Json
  if(($native.schema -isnot [int] -and $native.schema -isnot [long]) -or $native.schema -ne 1 -or $native.producer -isnot [string] -or $native.producer -cne 'windows-native-acceptance.py' -or $native.state -isnot [string] -or $native.state -cne 'passed' -or $native.checks -isnot [array] -or $native.checks.Count -gt 256){throw 'Actual software native matrix failed.'}
  AssertExtendedNativeCases $native.checks
+ AssertWelcomeNativeCase $native.checks
  $facts.gates.native_clock='passed';$facts.gates.native_providers='passed';$facts.gates.native_call_me_back='passed'
  $facts.checks=@($native.checks);$facts.gates.native_sip_audio='passed';$facts.gates.smtp='passed'
  $meeting=@($native.checks|Where-Object {$_.case -ceq 'native_windows_meeting_browser_video_audio'})
