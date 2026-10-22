@@ -13,9 +13,9 @@ native Windows server.
 
 | Area | Current work | Required acceptance |
 |---|---|---|
-| Phone Health & Recovery | Native components passed16 Defender and62 SYSTEM checks; durable-intent policy passed96 isolated PostgreSQL controls. Complete source `2928020da` now passes the actual native worker and installed observer/restart checks, then refuses the exact complete-public-state recovery comparison. No changed table or namespace has been established yet. Separate subscription26 and empty-policy query4 controls pass. | Identify the exact preservation difference and pass the complete event-to-block-to-recovery, negative-permission, firewall, restart and restore gate. Loopback/component checks alone do not qualify this flow. |
+| Phone Health & Recovery | Actual native worker and installed observer/restart checks pass, followed by a refused whole-database comparison. An isolated real updater/database check proves its heartbeat writes while the maintenance lock is held. Revised QA pauses only the exact owned updater and restores its original service/task state; every row and namespace remains compared. | Pass the rebuilt complete event-to-block-to-recovery, negative-permission, firewall, restart and restore gate. The isolated heartbeat proof does not retrospectively identify the historical changed object. |
 | Remote phones | Native .NET STUN Binding worker and setup are implemented. The current package passed33 installed Windows checks, including actual service/Defender activation, decoded modern/legacy Binding and recovery.146 separate NTFS/interruption controls use service/firewall doubles. Existing PBX-anchored audio and restored sign-in identities remain. | External test-machine Binding and phone/client acceptance; Windows IPv6 remains separate. STUN is not TURN. |
-| Conferences | Corrected native engine passes all16 ordinary/fragmented small/8KiB frontend/backend OPTIONS exchanges. Browser admission reaches the engine, but media remains unqualified. A separate read-only check confirms the stock Windows engine generated an already-expired DTLS certificate through a date-calculation overflow; a guarded pre-start repair is being tested. | Qualify the certificate repair and negotiation, then decoded browser/phone audio and VP8, host actions and exact cleanup. Preserve valid custom certificates and destination-owned identity during restore. |
+| Conferences | Corrected native engine passes all16 ordinary/fragmented small/8KiB frontend/backend OPTIONS exchanges. The rebuilt fresh package now passes actual installed private DTLS certificate checks after repairing the stock date overflow. Browser media remains unqualified. | Prove negotiation, decoded browser/phone audio and VP8, host actions and exact cleanup. Preserve valid custom certificates and destination-owned identity during restore. |
 | Backups and restore | Scheduled-job choices are preserved. Restored pending phone-unblock requests are refused before background work resumes; other recovery history is retained. | Complete encrypted backup, same-machine failure recovery, distinct clean-server restore, media/key preservation and explicit activation. |
 | Updates | New protected tools and health task are included in installation and recovery inventory. The legacy transition accepts current signed releases rather than only 1.0.13. **11** native guard controls distinguish actual Windows contention from permission/path failures; the tenant worker defers only on the typed busy result. | Rebuilt complete-package fresh setup, same-version repair, late-failure recovery and a signed newer-version upgrade with natural restart. |
 | PHP runtime | The legacy upgrade now stages the same pinned PHP8.4.27 used by fresh installs. An actual private-copy8.4.26→27 matrix passes, preserving settings/custom extensions and proving full runtime/permission rollback, locked-file refusal and retry. Unexpected staged or backup files/links are refused. | Complete-package upgrade and interrupted-process recovery using the new helpers; component checks alone do not qualify the installed owner server. |
@@ -59,7 +59,8 @@ failure are retained. The missing tail was copied, one complete archive
 reconstructed and all 85,383 files verified against the original ledger, then
 independently repeated. The original database was cleanly aligned with its
 registered Windows service, preserving all tables, roles, permissions and
-configuration; other PBX services and IIS remain stopped.
+configuration. Other PBX services remain stopped; IIS was subsequently observed
+running, without an established agent start attribution.
 The crash reports are preserved privately. This interruption is not a controlled
 reboot or recovery-test pass.
 
@@ -127,7 +128,8 @@ recovery passes135 actual Windows controls, including missing/replaced/link
 refusals before key writes, preservation of custom keys and retry after a held
 directory prevents removal. Independent review found no further blocker in
 those committed changes. No new complete fresh-install or conference pass is
-claimed. Subsequent
+claimed by those component controls. A later complete fresh installation below
+does clear this specific setup blocker. Subsequent
 recovery fixes also require a rebuilt package: held newly created DTLS objects
 must refuse recovery, and the helper must prove restored bytes/permissions or
 absence before marking its journal recovered.
@@ -143,14 +145,23 @@ passes trusted web29 and native STUN33. Its Health worker passes, but the comple
 public-state preservation comparison refuses at acceptance line133. The following
 identity/task comparison was not established reached. The package remains failed;
 its later calling, meeting, backup and upgrade gates are unqualified.
-The next full run39860468581 includes the native PHP matrix and runs the installed
-DTLS checks before Health. It cannot qualify an owner migration until the separate
-interrupted-upgrade recovery-entry fix is complete.
+Normal full run39860468581 at9bd95a71f passes fresh installation,3,086 native PHP
+controls over79 vendor files, trusted web29, DTLS transactions62/crypto12/actual
+installed12 and STUN33. It still refuses the Health whole-state comparison;
+later gates are unqualified. It also predates the protected interrupted-upgrade
+recovery entry and cannot qualify an owner migration.
 
 The later unchanged-package diagnostic39858622611 proves that secure-phone setup
 refuses an exclusive maintenance lock with native sharing violation0x80070020.
-No provider call was reached. A short, typed wait for legitimate lock contention
-is being added; permission/path failures must still refuse immediately.
+No provider call was reached. The short typed wait now passes34 actual Windows
+lock/ACL/path/borrowed-handle controls; permission/path failures still refuse
+immediately. The final package must include that correction.
+
+The native WinUI manager now resolves its icon from its own application folder.
+Build39861857877 at sourceec5b0a12c passes a real responsive-window launch from
+System32. Root independently verifies all1,110 hash-listed members and71 native
+source inputs. That exact new native build is the next combined package input;
+a manager window alone does not qualify PBX calling or migration.
 
 Publishing Windows must retain the exact currently published Android18 and
 Debian16 signed feeds. Their public bytes and signatures have been independently
