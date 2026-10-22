@@ -280,6 +280,13 @@ try{
   foreach($field in 'actual_native_windows','actual_configured_updater_boot'){Check ($recoveryProof.$field -is [bool] -and $recoveryProof.$field -eq $true) 'Actual native configured-updater recovery entry evidence is required.'}
   Check ($recoveryProof.installed_server_changed -is [bool] -and $recoveryProof.installed_server_changed -eq $false) 'The recovery component fixture must preserve the installed server.'
   foreach($limit in @(@('integration_checks',64),@('native_checks',202))){$value=$recoveryProof.($limit[0]);Check (($value -is [int] -or $value -is [long]) -and $value -ge $limit[1] -and $value -le 100000) 'The complete bounded current recovery entry matrices are required.'}
+  $commitProof=$baseFacts.native_commit_selection
+  Check ($null -ne $commitProof -and ($commitProof -is [pscustomobject] -or $commitProof -is [Collections.IDictionary]) -and $commitProof -isnot [Array]) 'The current native updater commit-selection proof is required.'
+  Check ($commitProof.state -is [string] -and $commitProof.state -ceq 'passed') 'The native updater commit-selection matrix must pass.'
+  foreach($field in 'actual_native_windows','service_adapter_double','slot_assembly_fixture','actual_running_image_lock','old_silent_exit3_proven','exact_mirror_refusal_retry','completed_finalizer_idempotent','before_commit_old_scm','after_commit_resume','after_selection_idempotent','absent_creation_deferred','legacy_missing_dependency_recovery'){Check ($commitProof.$field -is [bool] -and $commitProof.$field -eq $true) 'The actual image/commit/recovery coverage and explicit fixture scope must match.'}
+  foreach($field in 'actual_installed_scm','installed_server_changed'){Check ($commitProof.$field -is [bool] -and $commitProof.$field -eq $false) 'The native commit fixture must not claim installed SCM qualification.'}
+  foreach($limit in @(@('checks',133),@('guard_checks',52))){$value=$commitProof.($limit[0]);Check (($value -is [int] -or $value -is [long]) -and $value -ge $limit[1] -and $value -le 100000) 'Both current bounded commit-selection matrices are required.'}
+  Check (($commitProof.actual_commit_interruption_positions -is [int] -or $commitProof.actual_commit_interruption_positions -is [long]) -and $commitProof.actual_commit_interruption_positions -eq 3) 'All three actual interrupted commit positions must pass.'
  }
  Check ($baseFacts.cleanup -eq 'owned services stopped, SFTP receiver/account removed, hostname removed, activation holds preserved') 'The qualified baseline must have completed its exact owned cleanup.'
  $base=Join-Path $candidate.directory ("openwebpbx-$BaseVersion-windows-x64.zip")

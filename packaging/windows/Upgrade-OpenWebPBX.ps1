@@ -10,13 +10,14 @@ $private = Join-Path $env:ProgramData 'OpenWebPBX'
 $config = Join-Path $env:ProgramData 'fusionpbx'
 $switch = 'C:\Program Files\FreeSWITCH'
 $payload = $PSScriptRoot
+$script:recoveryCodeRoot=$PSScriptRoot
 $gateHelper=Join-Path $PSScriptRoot 'Restore-Gates.ps1'
 if(!(Test-Path $gateHelper)){$gateHelper=Join-Path $root 'tools\Restore-Gates.ps1'}
 if(Test-Path $gateHelper){. $gateHelper}else{throw 'The Windows restore safeguards are missing.'}
 . (Join-Path (Split-Path $gateHelper -Parent) 'Support-Recovery.ps1')
 . (Join-Path (Split-Path $gateHelper -Parent) 'Web-Readiness.ps1')
 . (Join-Path (Split-Path $gateHelper -Parent) 'UpgradeRecovery.Common.ps1')
-$script:upgradeRecoveryEntry=$null
+$script:upgradeRecoveryEntry=$null;$script:upgradeCommitted=$false;$script:upgradeFinalizationPhase=$null;$script:upgradeFinalizationFailed=$false;$script:operatorUpdaterWasRunning=$false;$script:operatorUpdaterStopped=$false
 $updates = Join-Path $private 'updates'
 $journalPath = Join-Path $updates 'install-journal.json'
 $extracted = $null;$phpRuntime=$null
@@ -41,6 +42,7 @@ function WriteState([string]$Path,$Value) {
 function SaveJournal([string]$Phase) {
  $record=@{schema=1;state=$Phase;version=$version;previous_version=$previousVersion;backup_path=$backup;updated_at=[DateTime]::UtcNow.ToString('o');manager_tasks=@($script:managerTasks);operator_rollback=[bool]$script:operatorRollback}
  if($script:upgradeRecoveryEntry){$record.recovery_entry=$script:upgradeRecoveryEntry}
+ if($script:upgradeFinalizationPhase){$record.finalization=@{phase=$script:upgradeFinalizationPhase;failed=[bool]$script:upgradeFinalizationFailed}}
  WriteState $journalPath $record
 }
 function WaitPool([string]$Wanted) {
@@ -50,6 +52,28 @@ function WaitPool([string]$Wanted) {
 function ResumeManagers {
  foreach($task in $script:managerTasks){try{Start-ScheduledTask -TaskName $task -ErrorAction Stop}catch{Write-Warning 'A previously open manager can be reopened from its normal shortcut.'}}
 }
+function CompleteCommittedFinalization {
+ $script:upgradeFinalizationPhase='service_selection'
+ Complete-OpenWebCommittedUpgrade -Entry $script:upgradeRecoveryEntry -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock
+ $script:upgradeFinalizationPhase='background_tasks'
+ $originalSupport=Get-Content "$backup\support-state.json" -Raw|ConvertFrom-Json
+ foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth'){
+  $originalTask=$originalSupport.Tasks.PSObject.Properties[$name]
+  if($originalTask -and ($originalTask.Value.Exists -isnot [bool] -or $originalTask.Value.Enabled -isnot [bool])){throw 'The original background-task enabled choice is invalid.'}
+  if(!$originalTask -or !$originalTask.Value.Exists -or $originalTask.Value.Enabled){Enable-ScheduledTask -TaskName $name|Out-Null}
+  else{Disable-ScheduledTask -TaskName $name|Out-Null}
+  if($name -eq 'OpenWebPBX-PhoneHealth' -and (!$originalTask -or !$originalTask.Value.Exists -or $originalTask.Value.Enabled)){Start-ScheduledTask -TaskName $name}
+ }
+ if(Get-ScheduledTask -TaskName OpenWebPBX-Cleanup -ErrorAction SilentlyContinue){
+  $support=Get-Content "$backup\support-state.json" -Raw|ConvertFrom-Json
+  if($support.Tasks.'OpenWebPBX-Cleanup'.Enabled){Enable-ScheduledTask -TaskName OpenWebPBX-Cleanup|Out-Null}
+ }
+ $script:upgradeFinalizationPhase='manager_resume'
+ ResumeManagers
+ $script:upgradeFinalizationPhase='complete';$script:upgradeFinalizationFailed=$false
+ SaveJournal 'completed'
+}
+
 $script:managerTasks=@()
 function InstalledManagers {
  $expected=[IO.Path]::GetFullPath("$root\desktop\OpenWebPbx.Desktop.exe")
@@ -124,7 +148,7 @@ function CheckHealth([string]$ExpectedVersion) {
    if ($health.state -eq 'Running' -and $health.version -eq $ExpectedVersion) {
     if(Test-OpenWebTrustedLogin $state.DomainName $state.HttpsPort){
      if([version]$ExpectedVersion -lt [version]'1.0.13'){return}
-     & "$root\php\php.exe" "$PSScriptRoot\check-call-engine.php" "$root\web"
+     & "$root\php\php.exe" (Join-Path $script:recoveryCodeRoot 'check-call-engine.php') "$root\web"
      if($LASTEXITCODE -eq 0){return}
     }
    }
@@ -202,7 +226,7 @@ function RestorePbx([string]$Backup) {
  # Keep the private boot entry active until every rollback step and health
  # check finishes, including a second interruption while restoring tools/DB.
  if($script:upgradeRecoveryEntry){Ensure-OpenWebUpgradeRecoveryPublished -Entry $script:upgradeRecoveryEntry -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock}
- . (Join-Path $PSScriptRoot 'PhpRuntime.Common.ps1')
+ . (Join-Path $script:recoveryCodeRoot 'PhpRuntime.Common.ps1')
  $restorePhp=Test-OpenWebPhpBackup -Backup $Backup -Root $root
  foreach ($part in 'web', 'server', 'desktop') { CopyTree "$Backup\$part" "$root\$part" -Mirror }
  # Older immutable backups did not change PHP. New transactions preserve the
@@ -221,12 +245,17 @@ function RestorePbx([string]$Backup) {
  if(Test-Path "$Backup\updater-install.json"){
   WriteState "$private\updater-install.json" (Get-Content "$Backup\updater-install.json" -Raw|ConvertFrom-Json)
  }
+ # Select the sealed previous boot path before exact slot restoration. If a
+ # running new image prevents removal, recovery refuses; its next SCM restart
+ # then uses the old slot instead of repeatedly holding the removable image.
+ if(Test-Path "$Backup\updater-install.json"){
+  $previousUpdater=Get-Content "$Backup\updater-install.json" -Raw|ConvertFrom-Json
+  if($previousUpdater.Version -isnot [string] -or $previousUpdater.Version -cnotmatch '^\d+\.\d+\.\d+$' -or $previousUpdater.Executable -isnot [string] -or $previousUpdater.Executable -ine (Join-Path $root ('updater\slots\'+$previousUpdater.Version+'\OpenWebPbx.Updater.exe'))){throw 'The sealed previous updater must select its fixed owned slot.'}
+  & sc.exe config OpenWebPBXUpdater binPath= ('"'+$previousUpdater.Executable+'"')|Out-Null
+  if($LASTEXITCODE){throw 'The previous updater boot slot could not be restored.'}
+ }
  # Finish exact original bytes/security after SYSTEM has replaced metadata.
  Restore-OpenWebSupport -Backup $Backup -Root $root -StateRoot $private -EngineRoot $switch
- if(Test-Path "$Backup\updater-install.json"){
-  $previousUpdater=Get-Content "$private\updater-install.json" -Raw|ConvertFrom-Json
-  & sc.exe config OpenWebPBXUpdater binPath= ('"'+$previousUpdater.Executable+'"')|Out-Null
- }
  if(!(Test-Path "$Backup\updater-install.json") -and $hadUpdaterMetadata -and (Test-Path "$root\tools\Remove-Updater.ps1")){& "$root\tools\Remove-Updater.ps1"}
  if(Test-Path "$Backup\tools"){CopyTree "$Backup\tools" "$root\tools" -Mirror}
  if(Test-Path "$Backup\phone-tls"){CopyTree "$Backup\phone-tls" "$private\phone-tls" -Mirror}
@@ -273,11 +302,24 @@ try {
  if($Recover){
   if(Test-Path $journalPath){
    $journal=Get-Content $journalPath -Raw|ConvertFrom-Json
+   if($journal.state -ceq 'completed' -and $journal.PSObject.Properties['recovery_entry'] -and !($journal.PSObject.Properties['finalization'] -and $journal.finalization.phase -is [string] -and $journal.finalization.phase -ceq 'complete' -and $journal.finalization.failed -is [bool] -and !$journal.finalization.failed)){
+    $backup=$journal.backup_path;$version=$journal.version;$previousVersion=$journal.previous_version
+    $script:managerTasks=@($journal.manager_tasks);$script:operatorRollback=[bool]$journal.operator_rollback
+    $script:upgradeRecoveryEntry=$journal.recovery_entry;$script:upgradeCommitted=$true
+    CompleteCommittedFinalization
+   }
    if($journal.state -in 'prepared','quiescing','deploying','migrating','validating','rolling_back','recovery_required'){
     $backup=$journal.backup_path;$version=$journal.version;$previousVersion=$journal.previous_version
     $script:managerTasks=@($journal.manager_tasks)
     $script:operatorRollback=[bool]$journal.operator_rollback
-    if($journal.PSObject.Properties['recovery_entry']){$script:upgradeRecoveryEntry=$journal.recovery_entry;Ensure-OpenWebUpgradeRecoveryPublished -Entry $script:upgradeRecoveryEntry -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock}
+    if($journal.PSObject.Properties['recovery_entry']){
+     $script:upgradeRecoveryEntry=$journal.recovery_entry
+     Ensure-OpenWebUpgradeRecoveryPublished -Entry $script:upgradeRecoveryEntry -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock
+     # Installed tools can be mirrored back to a legacy version lacking these
+     # dependencies. Keep the current recovery execution on its sealed bundle.
+     $script:recoveryCodeRoot=$script:upgradeRecoveryEntry.bundle_path
+     foreach($name in 'Restore-Gates.ps1','Support-Recovery.ps1','Web-Readiness.ps1','UpgradeRecovery.Common.ps1','File-Security.ps1'){. (Join-Path $script:recoveryCodeRoot $name)}
+    }
     if(!(Test-Path "$backup\complete.json")){
      if($journal.state -notin 'prepared','quiescing'){throw 'The interrupted update has no complete recovery backup.'}
      $script:enginePaused=($journal.state -eq 'quiescing');StartPbx;ResumeEngine;CheckHealth $previousVersion;Complete-OpenWebUpgradeRecovery -Entry $script:upgradeRecoveryEntry -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock -Outcome Rollback;SaveJournal 'rolled_back'
@@ -295,7 +337,7 @@ try {
   if($gate.Calls -or $gate.Jobs){Write-Host 'Update recovery checked. Restored calling and background jobs remain held.'}else{Write-Host 'Update recovery checked; the phone system is running.'}
   return
  }
- if(!$Recover){Assert-OpenWebUpgradeAllowed -StateRoot $private;Assert-OpenWebUpgradeRecoveryIdle -Root $root -StateRoot $private}
+ if(!$Recover){Assert-OpenWebUpgradeAllowed -StateRoot $private;Assert-OpenWebUpgradeRecoveryIdle -Root $root -StateRoot $private;if(!$RestoreBackup){$null=Assert-OpenWebInstalledUpdaterService -Root $root -StateRoot $private}}
  if($Archive){
   if(!$FeedEnvelope -or !$TargetVersion){throw 'A signed feed and target version are required.'}
   $installedUpdater=Get-Content "$private\updater-install.json" -Raw|ConvertFrom-Json
@@ -316,6 +358,8 @@ try {
   $expected = (Get-Content "$backup\complete.json" -Raw | ConvertFrom-Json).version
   VerifyBackup $backup
   CheckIdle
+  $operatorUpdater=Assert-OpenWebInstalledUpdaterService -Root $root -StateRoot $private -StopForOperatorRollback
+  $script:operatorUpdaterWasRunning=$operatorUpdater.WasRunning;$script:operatorUpdaterStopped=[bool]$operatorUpdater.WasRunning
   PrepareManagers;PauseEngine
   $version=$expected;$previousVersion=$expected;$script:operatorRollback=$true;$restoreStarted=$true
   SaveJournal 'rolling_back'
@@ -323,7 +367,7 @@ try {
   RestorePbx $backup;$state=Get-Content "$private\installation.json" -Raw|ConvertFrom-Json
   StartPbx;ResumeEngine;$stopped = $false; CheckHealth $expected;Complete-OpenWebUpgradeRecovery -Entry $script:upgradeRecoveryEntry -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock -Outcome Rollback;SaveJournal 'rolled_back';ResumeManagers
   $success = $true
-  if(Get-Service OpenWebPBXUpdater -ErrorAction SilentlyContinue){Start-ScheduledTask OpenWebPBX-Updater-Restart}
+  if($script:operatorUpdaterWasRunning -and (Get-Service OpenWebPBXUpdater -ErrorAction SilentlyContinue)){Start-ScheduledTask OpenWebPBX-Updater-Restart}
   Write-Host "Previous installation restored. Backup: $backup"
   return
  }
@@ -446,28 +490,24 @@ try {
  SaveJournal 'validating'
  Restore-OpenWebUpgradePermissions -Permissions $upgradePermissions -Root $root -StateRoot $private -EngineRoot $switch
  StartPbx; ResumeEngine; $stopped = $false; CheckHealth $version
- if(Test-Path "$payload\updater\OpenWebPbx.Updater.exe"){& "$payload\Install-Updater.ps1" -PackageRoot $payload -DeferRestart}
+ if(Test-Path "$payload\updater\OpenWebPbx.Updater.exe"){& "$payload\Install-Updater.ps1" -PackageRoot $payload -DeferRestart -DeferServiceSelection}
  Complete-OpenWebUpgradeRecovery -Entry $script:upgradeRecoveryEntry -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock -Outcome Success
+ $script:upgradeFinalizationPhase='service_selection'
  SaveJournal 'completed'
- $originalSupport=Get-Content "$backup\support-state.json" -Raw|ConvertFrom-Json
- foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth'){
-  $originalTask=$originalSupport.Tasks.PSObject.Properties[$name]
-  if($originalTask -and ($originalTask.Value.Exists -isnot [bool] -or $originalTask.Value.Enabled -isnot [bool])){throw 'The original background-task enabled choice is invalid.'}
-  if(!$originalTask -or !$originalTask.Value.Exists -or $originalTask.Value.Enabled){Enable-ScheduledTask -TaskName $name|Out-Null}
-  else{Disable-ScheduledTask -TaskName $name|Out-Null}
-  if($name -eq 'OpenWebPBX-PhoneHealth' -and (!$originalTask -or !$originalTask.Value.Exists -or $originalTask.Value.Enabled)){Start-ScheduledTask -TaskName $name}
- }
- if(Get-ScheduledTask -TaskName OpenWebPBX-Cleanup -ErrorAction SilentlyContinue){
-  $support=Get-Content "$backup\support-state.json" -Raw|ConvertFrom-Json
-  if($support.Tasks.'OpenWebPBX-Cleanup'.Enabled){Enable-ScheduledTask -TaskName OpenWebPBX-Cleanup|Out-Null}
- }
- ResumeManagers
+ $script:upgradeCommitted=$true
+ CompleteCommittedFinalization
  $success = $true
  Write-Host "OpenWeb PBX $version is running. Private backup: $backup"
  Write-Host "To roll back: .\Upgrade-OpenWebPBX.ps1 -RestoreBackup '$backup'"
 } catch {
  $failure = $_
- if($restoreStarted -or $recoveryRestoreStarted){
+ if($script:upgradeCommitted){
+  # The durable commit is irreversible: a newly selected updater may already be
+  # running its own image. Boot recovery finishes selection/tasks idempotently.
+  $script:upgradeFinalizationFailed=$true
+  try{SaveJournal 'completed'}catch{}
+  Write-Warning 'The update is committed. Its remaining updater/background finalization will be retried by recovery.'
+ } elseif($restoreStarted -or $recoveryRestoreStarted){
   try{$stopped=$true;StopPbx}catch{}
   SaveJournal 'recovery_required'
   Write-Warning 'The selected backup has not fully restored. Keep maintenance in place and run recovery after correcting the error.'
@@ -477,7 +517,7 @@ try {
   catch { SaveJournal 'recovery_required'; Write-Warning "Automatic recovery needs attention. The private backup is $backup" }
  } elseif ($stopped) { try { StartPbx; $stopped = $false; Complete-OpenWebUpgradeRecovery -Entry $script:upgradeRecoveryEntry -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock -Outcome Rollback;SaveJournal 'rolled_back'; ResumeManagers } catch { SaveJournal 'recovery_required' } }
  if($Archive -or $Recover){
-  $exitCode=if($script:deferred){75}elseif($Recover -or ((Test-Path $journalPath) -and (Get-Content $journalPath -Raw|ConvertFrom-Json).state -eq 'recovery_required')){2}else{1}
+  $exitCode=if($script:deferred){75}elseif($script:upgradeCommitted -or $Recover -or ((Test-Path $journalPath) -and (Get-Content $journalPath -Raw|ConvertFrom-Json).state -eq 'recovery_required')){2}else{1}
   Write-Warning 'The update did not complete. Review the private update log and status.'
  }else{throw $failure}
 } finally {
@@ -486,6 +526,7 @@ try {
  if ($extracted -and (Test-Path $extracted)) { Remove-Item $extracted -Recurse -Force -ErrorAction SilentlyContinue }
  if ($phpRuntime -and (Test-Path -LiteralPath $phpRuntime.Directory)) { Remove-Item -LiteralPath $phpRuntime.Directory -Recurse -Force -ErrorAction SilentlyContinue }
  if ($lock) { $lock.Dispose() }
+ if($script:operatorUpdaterStopped -and !$restoreStarted -and $script:operatorUpdaterWasRunning){try{Start-Service -Name OpenWebPBXUpdater -ErrorAction Stop}catch{Write-Warning 'The unchanged updater service could not restart after rollback preflight refused.'}}
 }
 
 if($success -and !$Recover -and !$RestoreBackup){

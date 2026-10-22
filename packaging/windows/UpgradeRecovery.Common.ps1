@@ -143,7 +143,7 @@ function Assert-OpenWebUpgradeRecoveryIdle {
  if(Test-Path -LiteralPath $journal){$j=[Text.Encoding]::UTF8.GetString((Read-OpenWebRecoveryBytes $journal 1048576))|ConvertFrom-Json;if($j.state -cnotin 'completed','rolled_back'){throw 'Complete the interrupted upgrade recovery before starting another update.'}}
 }
 function Get-OpenWebUpgradeRecoveryMetadata {
- param($Entry,[string]$Root,[string]$StateRoot,[string]$EngineRoot,[switch]$RequirePublished)
+ param($Entry,[string]$Root,[string]$StateRoot,[string]$EngineRoot,[switch]$RequirePublished,[switch]$AllowCompleted)
  if(!$Entry -or @($Entry.PSObject.Properties).Count -ne 4 -or ($Entry.schema -isnot [int] -and $Entry.schema -isnot [long]) -or $Entry.schema -ne 1 -or $Entry.bundle_path -isnot [string] -or $Entry.metadata_sha256 -isnot [string] -or $Entry.metadata_sha256 -cnotmatch '^[a-f0-9]{64}$' -or $Entry.launcher_sha256 -isnot [string] -or $Entry.launcher_sha256 -cnotmatch '^[a-f0-9]{64}$'){throw 'The recovery journal entry is invalid.'}
  $prefix=[IO.Path]::GetFullPath((Join-Path $StateRoot 'updates\recovery-entry')).TrimEnd('\')+'\';$bundle=[IO.Path]::GetFullPath($Entry.bundle_path)
  if(!$bundle.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase) -or $bundle.Substring($prefix.Length) -cnotmatch '^[a-f0-9]{32}$'){throw 'The recovery bundle is outside its protected transaction root.'}
@@ -165,7 +165,8 @@ function Get-OpenWebUpgradeRecoveryMetadata {
  if((Get-OpenWebRecoveryHash (Read-OpenWebRecoveryBytes (Join-Path $bundle 'recovery-launcher.ps1') 1048576)) -cne $Entry.launcher_sha256){throw 'The private recovery launcher changed.'}
  foreach($pair in @(@('backup_manifest_sha256','backup-manifest.json'),@('backup_complete_sha256','complete.json'))){if($m.($pair[0]) -cnotmatch '^[a-f0-9]{64}$' -or (Get-OpenWebRecoveryHash (Read-OpenWebRecoveryBytes (Join-Path $m.backup_path $pair[1]) 16777216)) -cne $m.($pair[0])){throw 'The sealed recovery backup identity changed.'}}
  $journal=[Text.Encoding]::UTF8.GetString((Read-OpenWebRecoveryBytes (Join-Path $StateRoot 'updates\install-journal.json') 1048576))|ConvertFrom-Json
- if($journal.state -cnotin 'quiescing','deploying','migrating','validating','rolling_back','recovery_required' -or $journal.version -cne $m.version -or $journal.previous_version -cne $m.previous_version -or $journal.backup_path -ine $m.backup_path){throw 'The recovery journal no longer matches its sealed backup.'}
+ $allowedJournalStates=@('quiescing','deploying','migrating','validating','rolling_back','recovery_required');if($AllowCompleted){$allowedJournalStates+='completed'}
+ if($journal.state -cnotin $allowedJournalStates -or $journal.version -cne $m.version -or $journal.previous_version -cne $m.previous_version -or $journal.backup_path -ine $m.backup_path){throw 'The recovery journal no longer matches its sealed backup.'}
  if($RequirePublished){
   if(!$journal.recovery_entry -or $journal.recovery_entry.schema -ne 1 -or $journal.recovery_entry.bundle_path -cne $Entry.bundle_path -or $journal.recovery_entry.metadata_sha256 -cne $Entry.metadata_sha256 -or $journal.recovery_entry.launcher_sha256 -cne $Entry.launcher_sha256){throw 'The recovery journal does not pin this entry.'}
   $current=Read-OpenWebRecoveryBytes (Join-Path $StateRoot 'runtime.json') 1048576
@@ -272,4 +273,125 @@ function Ensure-OpenWebUpgradeRecoveryPublished {
  if($hash -ceq $m.runtime_before_sha256){Publish-OpenWebUpgradeRecovery -Entry $Entry -Root $Root -StateRoot $StateRoot -EngineRoot $EngineRoot -MaintenanceLock $MaintenanceLock}
  elseif($hash -cne $m.runtime_after_sha256){throw 'The interrupted recovery configuration changed.'}
  $null=Get-OpenWebUpgradeRecoveryMetadata -Entry $Entry -Root $Root -StateRoot $StateRoot -EngineRoot $EngineRoot -RequirePublished
+}
+
+function Set-OpenWebUpdaterServiceSelection {
+ param([string]$Root,[string]$Executable,[AllowEmptyCollection()][string[]]$AllowedPreviousExecutable=@())
+ $prefix=[IO.Path]::GetFullPath((Join-Path $Root 'updater\slots')).TrimEnd('\')+'\'
+ $desired=[IO.Path]::GetFullPath($Executable)
+ if(!$desired.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase) -or $desired.Substring($prefix.Length) -cnotmatch '^\d+\.\d+\.\d+\\OpenWebPbx\.Updater\.exe$'){throw 'The selected updater must be a fixed versioned installed slot.'}
+ $null=Assert-OpenWebRecoveryProtected $desired
+ foreach($previous in $AllowedPreviousExecutable){
+  if($previous -isnot [string] -or [string]::IsNullOrWhiteSpace($previous)){throw 'An owned previous updater slot is required.'}
+  $old=[IO.Path]::GetFullPath($previous)
+  if(!$old.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase) -or $old.Substring($prefix.Length) -cnotmatch '^\d+\.\d+\.\d+\\OpenWebPbx\.Updater\.exe$'){throw 'A previous updater service path is outside its owned fixed slot.'}
+ }
+ $service=Get-CimInstance Win32_Service -Filter "Name='OpenWebPBXUpdater'" -ErrorAction Stop
+ if($service){
+  if($service.StartName -cnotin 'LocalSystem','NT AUTHORITY\SYSTEM' -or $service.PathName -isnot [string]){throw 'The updater service identity is not owned SYSTEM.'}
+  $current=$service.PathName.Trim('"')
+  if($current -ine $desired){
+   if(!(@($AllowedPreviousExecutable|Where-Object {$_ -is [string] -and $_.Equals($current,[StringComparison]::OrdinalIgnoreCase)}).Count)){throw 'The updater service no longer selects an owned previous or committed slot.'}
+   $null=Assert-OpenWebRecoveryProtected $current
+  }
+  & sc.exe config OpenWebPBXUpdater binPath= ('"'+$desired+'"') start= auto depend= OpenWebPBX-Database|Out-Null
+  if($LASTEXITCODE){throw 'The committed updater service slot could not be selected.'}
+ }else{
+  New-Service -Name OpenWebPBXUpdater -BinaryPathName ('"'+$desired+'"') -DisplayName 'OpenWeb PBX Updates' -StartupType Automatic -DependsOn OpenWebPBX-Database|Out-Null
+ }
+ & sc.exe failure OpenWebPBXUpdater reset= 86400 actions= restart/15000/restart/30000/restart/60000|Out-Null
+ if($LASTEXITCODE){throw 'Committed updater recovery actions could not be configured.'}
+ & sc.exe failureflag OpenWebPBXUpdater 1|Out-Null
+ if($LASTEXITCODE){throw 'Committed updater recovery flags could not be configured.'}
+ $selected=Get-CimInstance Win32_Service -Filter "Name='OpenWebPBXUpdater'" -ErrorAction Stop
+ if(!$selected -or $selected.PathName.Trim('"') -ine $desired -or $selected.StartName -cnotin 'LocalSystem','NT AUTHORITY\SYSTEM' -or $selected.StartMode -cne 'Auto'){throw 'The committed updater service selection did not become durable.'}
+}
+function Complete-OpenWebCommittedUpgrade {
+ param($Entry,[string]$Root,[string]$StateRoot,[string]$EngineRoot,[IO.FileStream]$MaintenanceLock)
+ Assert-OpenWebRecoveryLock $MaintenanceLock $StateRoot
+ $m=Get-OpenWebUpgradeRecoveryMetadata -Entry $Entry -Root $Root -StateRoot $StateRoot -EngineRoot $EngineRoot -AllowCompleted
+ $journal=[Text.Encoding]::UTF8.GetString((Read-OpenWebRecoveryBytes (Join-Path $StateRoot 'updates\install-journal.json') 1048576))|ConvertFrom-Json
+ if($journal.state -cne 'completed' -or !$journal.recovery_entry -or $journal.recovery_entry.bundle_path -cne $Entry.bundle_path -or $journal.recovery_entry.metadata_sha256 -cne $Entry.metadata_sha256 -or $journal.recovery_entry.launcher_sha256 -cne $Entry.launcher_sha256){throw 'Only this durably completed upgrade may select its staged updater.'}
+ $runtime=Join-Path $StateRoot 'runtime.json'
+ if((Get-OpenWebRecoveryHash (Read-OpenWebRecoveryBytes $runtime)) -cne $m.runtime_before_sha256 -or (Get-Acl -LiteralPath $runtime).Sddl -cne $m.runtime_sddl -or [int](Get-Item -LiteralPath $runtime -Force).Attributes -ne $m.runtime_attributes){throw 'The committed original runtime configuration changed.'}
+ $installation=[Text.Encoding]::UTF8.GetString((Read-OpenWebRecoveryBytes (Join-Path $StateRoot 'installation.json') 1048576))|ConvertFrom-Json
+ if($installation.Completed -isnot [bool] -or !$installation.Completed -or $installation.Version -isnot [string] -or $installation.Version -cne $m.version){throw 'The committed installed version differs from its recovery identity.'}
+ $null=Assert-OpenWebRecoveryProtected $Root -Directory;$null=Assert-OpenWebRecoveryProtected (Join-Path $Root 'tools') -Directory
+ foreach($name in 'Upgrade-OpenWebPBX.ps1','UpgradeRecovery.Common.ps1','Restore-Gates.ps1','Support-Recovery.ps1','File-Security.ps1','Web-Readiness.ps1','Dtls.Common.ps1','PhoneHealth-Security.ps1','PhpRuntime.Common.ps1','Write-PrivateState.ps1','check-call-engine.php'){
+  if((Get-OpenWebRecoveryHash (Read-OpenWebRecoveryBytes (Join-Path $Root ('tools\'+$name)))) -cne $m.files.$name){throw 'Committed boot recovery dependencies differ from their sealed source.'}
+ }
+ $manifest=[Text.Encoding]::UTF8.GetString((Read-OpenWebRecoveryBytes (Join-Path $Entry.bundle_path 'release-manifest.json') 4194304))|ConvertFrom-Json
+ $slot=Join-Path $Root ('updater\slots\'+$m.version);$null=Assert-OpenWebRecoveryProtected $slot -Directory
+ $expected=[Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase);$directories=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+ foreach($file in $manifest.files.PSObject.Properties){
+  if(!$file.Name.StartsWith('updater/',[StringComparison]::Ordinal)){continue}
+  $relative=$file.Name.Substring(8)
+  if($relative -cnotmatch '^[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*$' -or $file.Value -isnot [string] -or $file.Value -cnotmatch '^[a-f0-9]{64}$'){throw 'The committed updater source inventory is invalid.'}
+  $expected.Add($relative,$file.Value);$parent=[IO.Path]::GetDirectoryName($relative.Replace('/','\'))
+  while($parent){$null=$directories.Add($parent.Replace('\','/'));$parent=[IO.Path]::GetDirectoryName($parent)}
+ }
+ if($expected.Count -lt 2 -or $expected.Count -gt 10000 -or !$expected.ContainsKey('OpenWebPbx.Updater.exe')){throw 'The complete committed updater source inventory is required.'}
+ $seen=0;$seenDirectories=0
+ foreach($item in Get-ChildItem -LiteralPath $slot -Recurse -Force -ErrorAction Stop){
+  $relative=$item.FullName.Substring($slot.Length+1).Replace('\','/')
+  $null=Assert-OpenWebRecoveryProtected $item.FullName -Directory:([bool]$item.PSIsContainer)
+  if($item.PSIsContainer){if(!$directories.Contains($relative)){throw 'The committed updater slot contains an unexpected directory.'};$seenDirectories++}
+  else{if(!$expected.ContainsKey($relative) -or (Get-OpenWebRecoveryHash (Read-OpenWebRecoveryBytes $item.FullName 268435456)) -cne $expected[$relative]){throw 'A committed updater slot file differs from the sealed release.'};$seen++}
+ }
+ if($seen -ne $expected.Count -or $seenDirectories -ne $directories.Count){throw 'The complete committed updater slot is missing files or directories.'}
+ if([Reflection.AssemblyName]::GetAssemblyName((Join-Path $slot 'OpenWebPbx.Updater.dll')).Version -ne [version]($m.version+'.0')){throw 'The committed updater assembly version differs from its sealed release.'}
+ $old=@();$backupManifest=[Text.Encoding]::UTF8.GetString((Read-OpenWebRecoveryBytes (Join-Path $m.backup_path 'backup-manifest.json')))|ConvertFrom-Json
+ if($backupManifest.files.PSObject.Properties['updater-install.json']){
+  $bytes=Read-OpenWebRecoveryBytes (Join-Path $m.backup_path 'updater-install.json') 1048576
+  if((Get-OpenWebRecoveryHash $bytes) -cne $backupManifest.files.'updater-install.json'){throw 'The original updater metadata changed.'}
+  $previous=[Text.Encoding]::UTF8.GetString($bytes)|ConvertFrom-Json
+  if($previous.Version -isnot [string] -or $previous.Version -cnotmatch '^\d+\.\d+\.\d+$' -or $previous.Executable -isnot [string] -or $previous.Executable -ine (Join-Path $Root ('updater\slots\'+$previous.Version+'\OpenWebPbx.Updater.exe'))){throw 'The original updater selection is outside its owned slot.'}
+  $old=@($previous.Executable)
+ }
+ $staged=[Text.Encoding]::UTF8.GetString((Read-OpenWebRecoveryBytes (Join-Path $StateRoot 'updater-install.json') 1048576))|ConvertFrom-Json
+ $executable=Join-Path $slot 'OpenWebPbx.Updater.exe'
+ if($staged.Version -isnot [string] -or $staged.Version -cne $m.version -or $staged.Executable -isnot [string] -or $staged.Executable -ine $executable){throw 'The staged committed updater metadata changed.'}
+ Set-OpenWebUpdaterServiceSelection -Root $Root -Executable $executable -AllowedPreviousExecutable $old
+}
+
+function Assert-OpenWebInstalledUpdaterService {
+ param([string]$Root,[string]$StateRoot,[switch]$StopForOperatorRollback)
+ $metadataPath=Join-Path $StateRoot 'updater-install.json';$null=Assert-OpenWebRecoveryProtected $metadataPath
+ $metadata=[Text.Encoding]::UTF8.GetString((Read-OpenWebRecoveryBytes $metadataPath 1048576))|ConvertFrom-Json
+ if($metadata.Version -isnot [string] -or $metadata.Version -cnotmatch '^\d+\.\d+\.\d+$' -or $metadata.Executable -isnot [string] -or $metadata.Executable -ine (Join-Path $Root ('updater\slots\'+$metadata.Version+'\OpenWebPbx.Updater.exe'))){throw 'Repair the owned installed update service before changing this server.'}
+ $null=Assert-OpenWebRecoveryProtected $metadata.Executable
+ $service=Get-CimInstance Win32_Service -Filter "Name='OpenWebPBXUpdater'" -ErrorAction Stop
+ if(!$service -or $service.PathName -isnot [string] -or $service.PathName.Trim('"') -ine $metadata.Executable -or $service.StartName -cnotin 'LocalSystem','NT AUTHORITY\SYSTEM'){throw 'Repair the missing or foreign update service before changing this server.'}
+ $running=$service.State -ceq 'Running';$servicePid=[uint32]$service.ProcessId
+ if((!$StopForOperatorRollback -and $service.StartMode -cne 'Auto') -or ($StopForOperatorRollback -and $running -and $service.StartMode -ceq 'Disabled')){throw 'The update service startup choice cannot provide safe automatic recovery; review it before continuing.'}
+ if(!$running -and ($service.State -cne 'Stopped' -or $servicePid -ne 0)){throw 'The owned updater must finish its service transition before continuing.'}
+ $process=$null
+ if($running){
+  $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+$servicePid) -ErrorAction Stop
+  if(!$servicePid -or !$process -or $process.ExecutablePath -ine $metadata.Executable){throw 'The actual updater process does not match its owned SCM slot.'}
+  $owner=Invoke-CimMethod -InputObject $process -MethodName GetOwnerSid -ErrorAction Stop
+  if($owner.ReturnValue -ne 0 -or $owner.Sid -cne 'S-1-5-18'){throw 'The actual updater process must run as SYSTEM.'}
+ }
+ if(!$StopForOperatorRollback){return [pscustomobject]@{WasRunning=$running}}
+ if($running){
+  # A helper started by this service must never stop its own ancestor.
+  $ancestor=[uint32]$PID;$seen=[Collections.Generic.HashSet[uint32]]::new();$ended=$false
+  for($i=0;$i -lt 32;$i++){
+   if($ancestor -eq $servicePid){throw 'Run rollback from an independent administrator PowerShell window after the updater finishes its current work.'}
+   if(!$ancestor){$ended=$true;break}
+   if(!$seen.Add($ancestor)){throw 'The rollback process ancestry could not be verified.'}
+   $parent=Get-CimInstance Win32_Process -Filter ('ProcessId='+$ancestor) -ErrorAction Stop
+   if(!$parent){$ended=$true;break};$ancestor=[uint32]$parent.ParentProcessId
+  }
+  if(!$ended){throw 'The rollback process ancestry exceeds its safe bound.'}
+  $again=Get-CimInstance Win32_Service -Filter "Name='OpenWebPBXUpdater'" -ErrorAction Stop
+  $same=Get-CimInstance Win32_Process -Filter ('ProcessId='+$servicePid) -ErrorAction Stop
+  if(!$again -or $again.ProcessId -ne $servicePid -or !$same -or $same.CreationDate -ne $process.CreationDate -or $same.ExecutablePath -ine $metadata.Executable){throw 'The owned updater identity changed before its controlled stop.'}
+  Stop-Service -Name OpenWebPBXUpdater -ErrorAction Stop
+  (Get-Service -Name OpenWebPBXUpdater -ErrorAction Stop).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(120))
+  $after=Get-CimInstance Win32_Service -Filter "Name='OpenWebPBXUpdater'" -ErrorAction Stop
+  $remaining=@(Get-CimInstance Win32_Process -Filter "Name='OpenWebPbx.Updater.exe'" -ErrorAction Stop|Where-Object {$_.ExecutablePath -ieq $metadata.Executable})
+  if(!$after -or $after.State -cne 'Stopped' -or $after.ProcessId -ne 0 -or $remaining.Count){throw 'The owned updater image remains active; rollback did not begin.'}
+ }
+ return [pscustomobject]@{WasRunning=$running}
 }

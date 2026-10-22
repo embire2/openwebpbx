@@ -10,6 +10,11 @@ function Prefix([string]$Directory){$tokens=$null;$errors=$null;$ast=[Management
 $new=Prefix $SourceRoot;$old=Prefix $BaselineRoot
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('ow-qa-order-'+[Guid]::NewGuid().ToString('N'));[void][IO.Directory]::CreateDirectory((Join-Path $temp 'program/tools'))
 $root=Join-Path $temp 'program';$private=Join-Path $temp 'state';$Backup=Join-Path $temp 'backup';$switch=Join-Path $temp 'engine';$config=Join-Path $temp 'config'
+$script:recoveryCodeRoot=$temp;$script:upgradeRecoveryEntry=$null
+# PHP restore has its own sealed-inventory matrix. This older metadata-order
+# control uses an explicit no-PHP adapter, including when the actual prefix
+# imports the dependency, so it remains focused on its original contract.
+[IO.File]::WriteAllText((Join-Path $temp 'PhpRuntime.Common.ps1'),'function Test-OpenWebPhpBackup {param($Backup,$Root) return $false}')
 [IO.File]::WriteAllText((Join-Path $root 'tools/Remove-Updater.ps1'),'$global:UpdaterOrderRemoval++')
 function Test-Path([string]$Path){if($Path -ceq "$root\tools\Remove-Updater.ps1"){return $true};return $script:rows.ContainsKey($Path)}
 function VerifyBackup([string]$Path){Check ($Path -ceq $Backup)}
@@ -18,14 +23,16 @@ function Copy-Item([string]$Path,[string]$Destination,[switch]$Force){Check ($sc
 function Get-Content([string]$Path,[switch]$Raw){Check ($script:rows.ContainsKey($Path));return $script:rows[$Path].text}
 function WriteState([string]$Path,$Value){$script:rows[$Path]=@{text=($Value|ConvertTo-Json -Compress);owner='SYSTEM'}}
 function Restore-OpenWebSupport{if($script:failSupport){throw 'Fictional support failure.'};if($script:backupExists){$script:rows["$private\updater-install.json"]=@{text=$script:original;owner='ORIGINAL'}}else{$script:rows.Remove("$private\updater-install.json")}}
-function sc.exe{Check ($args[0] -ceq 'config' -and $args[1] -ceq 'OpenWebPBXUpdater');$script:scm++}
+function sc.exe{Check ($args[0] -ceq 'config' -and $args[1] -ceq 'OpenWebPBXUpdater');$script:scm++;$global:LASTEXITCODE=0}
 function RunCase($Code,[bool]$BackupExists,[bool]$CurrentExists,[bool]$Failure=$false){
- $script:backupExists=$BackupExists;$script:failSupport=$Failure;$script:scm=0;$global:UpdaterOrderRemoval=0;$script:original="{`n `"Version`" : `"1.0.13`", `"Executable`" : `"fictional.exe`"`n}";$script:rows=@{}
+ $script:backupExists=$BackupExists;$script:failSupport=$Failure;$script:scm=0;$global:UpdaterOrderRemoval=0;$script:original="{`n `"Version`" : `"1.0.13`", `"Executable`" : $((Join-Path $root 'updater\slots\1.0.13\OpenWebPbx.Updater.exe')|ConvertTo-Json -Compress)`n}";$script:rows=@{}
  foreach($n in 'complete.json','installation.json','runtime.json'){$script:rows["$Backup\$n"]=@{text='{}';owner='BACKUP'}}
  if($BackupExists){$script:rows["$Backup\updater-install.json"]=@{text=$script:original;owner='BACKUP'}}
  if($CurrentExists){$script:rows["$private\updater-install.json"]=@{text='{}';owner='SYSTEM'}}
  $threw=$false;try{. $Code}catch{if(!$Failure){throw};$threw=$true}
- if($Failure){Check ($threw -and $script:scm -eq 0 -and $global:UpdaterOrderRemoval -eq 0);return}
+ # A slot mirror refusal must already have restored the old SCM boot path so
+ # a running removable newer image cannot keep being selected after restart.
+ if($Failure){Check ($threw -and $script:scm -eq 1 -and $global:UpdaterOrderRemoval -eq 0);return}
  if($BackupExists){return ($script:rows["$private\updater-install.json"].owner -ceq 'ORIGINAL' -and $script:rows["$private\updater-install.json"].text -ceq $script:original -and $script:scm -eq 1)}
  return (!$script:rows.ContainsKey("$private\updater-install.json") -and $global:UpdaterOrderRemoval -eq [int]$CurrentExists -and $script:scm -eq 0)
 }

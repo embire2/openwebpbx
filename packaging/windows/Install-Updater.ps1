@@ -1,6 +1,6 @@
 #Requires -RunAsAdministrator
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$PackageRoot,[switch]$DeferRestart)
+param([Parameter(Mandatory)][string]$PackageRoot,[switch]$DeferRestart,[switch]$DeferServiceSelection)
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 if($PSVersionTable.PSEdition -eq 'Core'){throw 'Run this helper in Windows PowerShell (powershell.exe) as administrator.'}
 if(-not ('OpenWebUpdaterCommit' -as [type])){Add-Type @'
@@ -57,11 +57,14 @@ if(!(Test-Path $startup)){
  SaveState $startup $saved
 }
 $executable="$slot\OpenWebPbx.Updater.exe"
-if(!$existing){
- New-Service -Name OpenWebPBXUpdater -BinaryPathName ('"'+$executable+'"') -DisplayName 'OpenWeb PBX Updates' -StartupType Automatic -DependsOn OpenWebPBX-Database|Out-Null
-}else{& sc.exe config OpenWebPBXUpdater binPath= ('"'+$executable+'"') start= auto depend= OpenWebPBX-Database|Out-Null;if($LASTEXITCODE){throw 'The updater service slot could not be selected.'}}
-& sc.exe failure OpenWebPBXUpdater reset= 86400 actions= restart/15000/restart/30000/restart/60000|Out-Null
-& sc.exe failureflag OpenWebPBXUpdater 1|Out-Null
+# An upgrade stages its complete slot/helpers while SCM still selects the
+# previous executable. Only its durable completed journal may advance SCM.
+if(!$DeferServiceSelection){
+ . (Join-Path $PackageRoot 'UpgradeRecovery.Common.ps1')
+ $previous=@()
+ if($existing){$service=Get-CimInstance Win32_Service -Filter "Name='OpenWebPBXUpdater'";$previous=@([string]$service.PathName.Trim('"'))}
+ Set-OpenWebUpdaterServiceSelection -Root $root -Executable $executable -AllowedPreviousExecutable $previous
+}
 $action=New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Argument '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\OpenWebPBX\tools\Restart-Updater.ps1"'
 $principal=New-ScheduledTaskPrincipal -UserId SYSTEM -LogonType ServiceAccount -RunLevel Highest
 Register-ScheduledTask -TaskName OpenWebPBX-Updater-Restart -Action $action -Principal $principal -Settings (New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 3)) -Force|Out-Null

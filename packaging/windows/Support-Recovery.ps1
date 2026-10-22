@@ -142,6 +142,24 @@ function Restore-OpenWebUpgradePermissions {
   Set-OpenWebFileSddl -LiteralPath $permission.Path -Sddl $permission.Sddl
  }
 }
+function Assert-OpenWebUpdaterSlotsRestored {
+ param([string]$Source,[string]$Target)
+ $inventories=@()
+ foreach($path in $Source,$Target){
+  $root=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+  if(!$root.PSIsContainer -or ($root.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'The updater-slot recovery root is not an ordinary directory.'}
+  $inventory=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
+  foreach($item in Get-ChildItem -LiteralPath $path -Recurse -Force -ErrorAction Stop){
+   if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'An updater-slot recovery link or junction was preserved.'}
+   $relative=$item.FullName.Substring($root.FullName.TrimEnd('\').Length+1)
+   $inventory.Add($relative,@{Directory=[bool]$item.PSIsContainer;Hash=if($item.PSIsContainer){''}else{(Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256 -ErrorAction Stop).Hash}})
+  }
+  $inventories+=,$inventory
+ }
+ $before=$inventories[0];$after=$inventories[1]
+ if($before.Count -ne $after.Count){throw 'The original updater-slot inventory did not fully restore; recovery remains required.'}
+ foreach($key in $before.Keys){if(!$after.ContainsKey($key) -or $before[$key].Directory -cne $after[$key].Directory -or $before[$key].Hash -cne $after[$key].Hash){throw 'The original updater-slot bytes or types did not fully restore; recovery remains required.'}}
+}
 function Save-OpenWebSupport {
  param([string]$Backup,[string]$PackageRoot,[string]$Root,[string]$StateRoot,[string]$EngineRoot,[IO.FileStream]$MaintenanceLock)
  $record=[ordered]@{schema=1;Files=@{};Directories=@{};Acls=@{};Tasks=@{};OpenSshClient=(Get-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0).State.ToString()}
@@ -297,7 +315,15 @@ function Restore-OpenWebSupport {
  foreach($entry in $record.Directories.PSObject.Properties){
   if($entry.Name -notin 'backup-runtime','acme-runtime','mobile-notifications','mail-state','meet-proxy','tenant-domains','stun-setup','dtls-setup','phone-health-runtime','updater-slots','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','openweb-music'){throw 'The support recovery folder inventory is invalid.'}
   $target=Check-SupportPath $entry.Value.Path
-  if($entry.Value.Exists){CopyTree (Join-Path $Backup $entry.Name) $target -Mirror}
+  if($entry.Value.Exists){
+   CopyTree (Join-Path $Backup $entry.Name) $target -Mirror
+   # Robocopy can return accepted exit3 while a running extra image remains.
+   if($entry.Name -ceq 'updater-slots'){Assert-OpenWebUpdaterSlotsRestored -Source (Join-Path $Backup $entry.Name) -Target $target}
+  }
+  elseif($entry.Name -ceq 'updater-slots'){
+   if(Test-Path -LiteralPath $target){Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop}
+   if(Test-Path -LiteralPath $target){throw 'The original updater-slot absence did not restore; recovery remains required.'}
+  }
   elseif($entry.Name -ceq 'dtls-setup'){
    if(!$target.Equals([IO.Path]::GetFullPath((Join-Path $StateRoot 'dtls-setup')),[StringComparison]::OrdinalIgnoreCase)){throw 'The DTLS recovery directory does not match its owned path.'}
    if(Test-Path -LiteralPath $target){Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop}

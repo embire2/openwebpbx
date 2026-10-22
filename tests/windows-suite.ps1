@@ -1205,6 +1205,16 @@ function Read-UpgradeRecoveryQualificationReport($Record,[string]$ExpectedVersio
  foreach($limit in @(@('integration_checks',64),@('native_checks',202))){$value=$Record.($limit[0]);if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt $limit[1] -or $value -gt 100000){throw 'The native recovery proof count is incomplete.'}}
  return @{state='passed';actual_native_windows=$true;actual_configured_updater_boot=$true;updater_scope='candidate_component';updater_version=$Record.updater_version;integration_checks=$Record.integration_checks;native_checks=$Record.native_checks;installed_server_changed=$false}
 }
+function Read-UpdaterCommitSelectionReport($Record) {
+ if(($Record -isnot [pscustomobject] -and $Record -isnot [Collections.IDictionary]) -or ($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.producer -isnot [string] -or $Record.producer -cne 'windows_updater_commit_selection.ps1' -or $Record.state -isnot [string] -or $Record.state -cne 'passed'){throw 'The current native updater commit-selection proof is invalid.'}
+ foreach($field in 'actual_native_windows','service_adapter_double','slot_assembly_fixture','actual_running_image_lock','old_silent_exit3_proven','exact_mirror_refusal_retry','completed_finalizer_idempotent','before_commit_old_scm','after_commit_resume','after_selection_idempotent','absent_creation_deferred','legacy_missing_dependency_recovery'){if($Record.$field -isnot [bool] -or !$Record.$field){throw 'The native commit-selection coverage or explicit fixture scope is incomplete.'}}
+ foreach($field in 'actual_installed_scm','installed_server_changed'){if($Record.$field -isnot [bool] -or $Record.$field){throw 'This native commit-selection fixture must not claim installed SCM or server changes.'}}
+ foreach($limit in @(@('checks',133),@('guard_checks',52))){$value=$Record.($limit[0]);if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt $limit[1] -or $value -gt 100000){throw 'The native commit-selection matrices are incomplete.'}}
+ if(($Record.actual_commit_interruption_positions -isnot [int] -and $Record.actual_commit_interruption_positions -isnot [long]) -or $Record.actual_commit_interruption_positions -ne 3){throw 'Both durable-commit sides and selected-service interruption must be covered.'}
+ $safe=@{state='passed';checks=$Record.checks;guard_checks=$Record.guard_checks;actual_commit_interruption_positions=3}
+ foreach($field in 'actual_native_windows','service_adapter_double','slot_assembly_fixture','actual_running_image_lock','old_silent_exit3_proven','exact_mirror_refusal_retry','completed_finalizer_idempotent','before_commit_old_scm','after_commit_resume','after_selection_idempotent','absent_creation_deferred','legacy_missing_dependency_recovery'){$safe[$field]=$true}
+ $safe.actual_installed_scm=$false;$safe.installed_server_changed=$false;return $safe
+}
 function UpgradeRecoveryQualificationHook {
  if($ReplaySuiteRunId){$facts.upgrade_recovery_qualification='unqualified_historical_candidate';return}
  $reportPath=Join-Path $work 'upgrade-recovery-qualification.json'
@@ -1219,6 +1229,7 @@ function UpgradeRecoveryQualificationHook {
   if($process.ExitCode -ne 0 -or !(Test-Path -LiteralPath $reportPath -PathType Leaf)){throw 'The private native recovery controls failed.'}
   $report=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json
   $facts.upgrade_recovery_qualification=Read-UpgradeRecoveryQualificationReport $report (Get-Content -LiteralPath (Join-Path $PackageRoot 'VERSION') -Raw).Trim()
+  $facts.native_commit_selection=Read-UpdaterCommitSelectionReport $report.native_commit_selection
  }finally{$process.Dispose()}
 }
 function MeetingTransportHook {
