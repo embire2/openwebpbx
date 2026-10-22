@@ -18,7 +18,7 @@ Apply the current PHP security updates before deployment. On 21 October 2026, PH
 
 Use the matching `openwebpbx-1.0.20-windows-x64.zip` only when its release notes identify it as qualified or explicitly as a preview. Windows Server 2025 x64 with Desktop Experience is the supported server target. Windows10/11 server installation remains unqualified; the native Windows calling client is a separate project.
 
-Extract the complete archive to a private directory. Start its WinUI manager as Administrator, choose **Setup**, enter the server hostname and administrator email/password, and select **Automatic public certificate**. The hostname must point at the server, with TCP80/443 and the documented SIP/audio ports reachable. The equivalent command in built-in **Windows PowerShell5.1 as Administrator** is:
+Extract the complete archive to a private directory and run **Start-OpenWebPBX.cmd**. It checks Microsoft's required runtime before opening the WinUI manager. Choose **Setup**, enter the server hostname and administrator email/password, and select **Automatic public certificate**. Approve Windows' administrator prompt to install. The hostname must point at the server, with TCP80/443 and the documented SIP/audio ports reachable. After setup, use the installed desktop shortcut. The equivalent command in built-in **Windows PowerShell5.1 as Administrator** is:
 
 ```powershell
 .\Install-OpenWebPBX.ps1 -DomainName 'pbx.example.com' -EnablePublicAccess -AdminEmail 'admin@example.com'
