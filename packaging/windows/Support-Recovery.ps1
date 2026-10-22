@@ -189,7 +189,7 @@ function Save-OpenWebSupport {
   if($exists){CopyTree $path (Join-Path $Backup $name)}
  }
  $record.Acls[$Root]=(Get-Acl -LiteralPath $Root).Sddl
- foreach($path in @("$Root\web","$Root\server","$Root\desktop","$Root\tools","$EngineRoot\mod","$EngineRoot\sounds","$EngineRoot\conf","$StateRoot\mobile-notifications","$StateRoot\mail","$StateRoot\meet-proxy","$StateRoot\tenant-domains","$StateRoot\stun-setup","$StateRoot\dtls-setup","$StateRoot\phone-health-runtime","$Root\backup-runtime","$Root\acme","$Root\updater","$StateRoot\automatic-backups","$StateRoot\backup-restore","$StateRoot\backup-control","$StateRoot\backup-downloads","$StateRoot\codec-compiler-cache","$StateRoot\codec-build","$StateRoot\storage\openweb-music")){
+ foreach($path in @("$Root\web","$Root\server","$Root\desktop","$Root\tools","$Root\php","$EngineRoot\mod","$EngineRoot\sounds","$EngineRoot\conf","$StateRoot\mobile-notifications","$StateRoot\mail","$StateRoot\meet-proxy","$StateRoot\tenant-domains","$StateRoot\stun-setup","$StateRoot\dtls-setup","$StateRoot\phone-health-runtime","$Root\backup-runtime","$Root\acme","$Root\updater","$StateRoot\automatic-backups","$StateRoot\backup-restore","$StateRoot\backup-control","$StateRoot\backup-downloads","$StateRoot\codec-compiler-cache","$StateRoot\codec-build","$StateRoot\storage\openweb-music")){
   if(Test-Path -LiteralPath $path -PathType Container){
    $record.Acls[$path]=(Get-Acl -LiteralPath $path).Sddl
    foreach($item in Get-ChildItem -LiteralPath $path -Force -Recurse){

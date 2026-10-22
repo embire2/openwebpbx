@@ -17,7 +17,7 @@ if(Test-Path $gateHelper){. $gateHelper}else{throw 'The Windows restore safeguar
 . (Join-Path (Split-Path $gateHelper -Parent) 'Web-Readiness.ps1')
 $updates = Join-Path $private 'updates'
 $journalPath = Join-Path $updates 'install-journal.json'
-$extracted = $null
+$extracted = $null;$phpRuntime=$null
 $exitCode=0;$script:deferred=$false;$script:enginePaused=$false;$restoreStarted=$false;$recoveryRestoreStarted=$false;$script:operatorRollback=$false
 if(-not ('OpenWebUpdateState' -as [type])){Add-Type @'
 using System;
@@ -196,7 +196,12 @@ function VerifyBackup([string]$Backup) {
 function RestorePbx([string]$Backup) {
  if (!(Test-Path "$Backup\complete.json")) { throw 'The selected backup is incomplete.' }
  VerifyBackup $Backup
+ . (Join-Path $PSScriptRoot 'PhpRuntime.Common.ps1')
+ $restorePhp=Test-OpenWebPhpBackup -Backup $Backup -Root $root
  foreach ($part in 'web', 'server', 'desktop') { CopyTree "$Backup\$part" "$root\$part" -Mirror }
+ # Older immutable backups did not change PHP. New transactions preserve the
+ # complete original runtime, including local configuration and extensions.
+ if($restorePhp){CopyTree "$Backup\php" "$root\php" -Mirror}
  CopyTree "$Backup\config" $config -Mirror
  CopyTree "$Backup\switch-scripts" "$switch\scripts" -Mirror
  CopyTree "$Backup\switch-conf" "$switch\conf" -Mirror
@@ -325,7 +330,7 @@ try {
   $path = [IO.Path]::GetFullPath((Join-Path $payload $entry.Key))
   if (!$path.StartsWith($packageRoot, [StringComparison]::OrdinalIgnoreCase) -or !(Test-Path -LiteralPath $path -PathType Leaf) -or (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $entry.Value) { throw 'Update file verification failed. Download and extract the release again.' }
  }
- foreach ($required in 'web/resources/require.php', 'server/OpenWebPbx.Server.exe', 'desktop/OpenWebPbx.Desktop.exe', 'bootstrap.php') {
+ foreach ($required in 'web/resources/require.php', 'server/OpenWebPbx.Server.exe', 'desktop/OpenWebPbx.Desktop.exe', 'bootstrap.php', 'PhpRuntime.Common.ps1') {
   if (!$hashes.ContainsKey($required)) { throw 'The release manifest is missing a required component.' }
  }
  foreach ($item in Get-ChildItem $payload -Force -Recurse) {
@@ -342,6 +347,9 @@ try {
  & "$payload\Install-NativeEngine.ps1" -PackageRoot $payload -Check
  & "$payload\Install-LocalCodec.ps1" -PackageRoot $payload -Check
  & "$payload\Install-Voices.ps1" -PackageRoot $payload -Check
+ . (Join-Path $payload 'PhpRuntime.Common.ps1')
+ Assert-OpenWebPhpTree -Directory (Join-Path $root 'php')
+ $phpRuntime=Prepare-OpenWebPhpRuntime -UpdatesRoot $updates
  CheckIdle
  if ($Check) { Write-Host "OpenWeb PBX $version update files and installed call engine passed preflight."; return }
  if($Automatic){CheckWindow}
@@ -351,7 +359,7 @@ try {
  New-Item -ItemType Directory -Force $backup | Out-Null
  & icacls.exe $backup /inheritance:r /grant '*S-1-5-32-544:(OI)(CI)F' /grant '*S-1-5-18:(OI)(CI)F' | Out-Null
  if ($LASTEXITCODE) { throw 'Private backup access could not be secured.' }
- foreach ($part in 'web','server','desktop') { CopyTree "$root\$part" "$backup\$part" }
+ foreach ($part in 'web','server','desktop','php') { CopyTree "$root\$part" "$backup\$part" }
  CopyTree $config "$backup\config"
  CopyTree "$switch\scripts" "$backup\switch-scripts"
  CopyTree "$switch\conf" "$backup\switch-conf"
@@ -373,6 +381,7 @@ try {
  # database snapshot. The second copy transfers only the changed files.
  CopyTree "$private\storage" "$backup\storage" -Mirror
  CopyTree "$switch\conf" "$backup\switch-conf" -Mirror
+ CopyTree "$root\php" "$backup\php" -Mirror
  Save-OpenWebSupport -Backup $backup -PackageRoot $payload -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock
  Run "$root\pgsql\bin\pg_dump.exe" @('-h','127.0.0.1','-p','5433','-U','postgres','-d','fusionpbx','-w','-Fc',"--file=$backup\database.dump")
  SealBackup $backup
@@ -389,6 +398,7 @@ try {
  # Preserve existing private/support security after intentional program hardening.
  # This in-memory success inventory never restores old contents or new objects.
  $upgradePermissions=@(Get-OpenWebUpgradePermissions -Root $root -StateRoot $private -EngineRoot $switch)
+ Install-OpenWebPhpRuntime -Prepared $phpRuntime -Root $root
  # Keep local optional applications and server.json; only reviewed release files
  # are replaced. Database, settings, keys and existing media are never re-created.
  foreach ($part in 'web','server','desktop','acme') { CopyTree "$payload\$part" "$root\$part" }
@@ -461,6 +471,7 @@ try {
  if ($null -eq $priorPgPassword) { Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue } else { $env:PGPASSWORD = $priorPgPassword }
  if($script:enginePaused -and !$stopped){try{ResumeEngine}catch{}}
  if ($extracted -and (Test-Path $extracted)) { Remove-Item $extracted -Recurse -Force -ErrorAction SilentlyContinue }
+ if ($phpRuntime -and (Test-Path -LiteralPath $phpRuntime.Directory)) { Remove-Item -LiteralPath $phpRuntime.Directory -Recurse -Force -ErrorAction SilentlyContinue }
  if ($lock) { $lock.Dispose() }
 }
 

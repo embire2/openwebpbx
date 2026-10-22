@@ -1172,6 +1172,24 @@ function DtlsQualificationHook {
   $facts.dtls_qualification=@{state='passed';transaction_checks=$report.transaction_checks;crypto_checks=$report.crypto_checks;installed_checks=$report.installed_checks;transaction_service_adapter_double=$true;actual_native_windows=$true}
  }finally{$process.Dispose()}
 }
+function PhpRuntimeQualificationHook {
+ if($ReplaySuiteRunId){$facts.php_runtime_qualification='unqualified_historical_candidate';return}
+ $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'))
+ $start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+ $start.Environment['PSModulePath']=(Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell/Modules')
+ foreach($argument in @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'windows_php_runtime.ps1'),'-SourceRoot',$source,'-WorkRoot',$work)){$start.ArgumentList.Add($argument)}
+ $process=[Diagnostics.Process]::Start($start);$stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
+ try{
+  if(!$process.WaitForExit(300000)){$process.Kill($true);$null=$process.WaitForExit(10000);throw 'The private native PHP runtime controls did not finish.'}
+  $text=$stdout.GetAwaiter().GetResult()
+  [IO.File]::WriteAllText((Join-Path $work 'php-runtime-qualification.private.out'),$text);[IO.File]::WriteAllText((Join-Path $work 'php-runtime-qualification.private.err'),$stderr.GetAwaiter().GetResult())
+  if($process.ExitCode -ne 0 -or $text.Length -gt 4096){throw 'The private native PHP runtime controls failed.'}
+  $report=$text|ConvertFrom-Json
+  if($report.schema -ne 1 -or $report.state -cne 'passed' -or $report.actual_native -isnot [bool] -or !$report.actual_native -or $report.installed_server_changed -isnot [bool] -or $report.installed_server_changed -or $report.new_version -cne '8.4.27' -or $report.old_version -cne '8.4.27'){throw 'The actual native PHP runtime proof is invalid.'}
+  foreach($field in 'checks','vendor_files'){if(($report.$field -isnot [int] -and $report.$field -isnot [long]) -or $report.$field -lt 1 -or $report.$field -gt 100000){throw 'The native PHP runtime count is invalid.'}}
+  $facts.php_runtime_qualification=@{state='passed';actual_native=$true;checks=$report.checks;vendor_files=$report.vendor_files;installed_server_changed=$false;version=$report.new_version}
+ }finally{$process.Dispose()}
+}
 function MeetingTransportHook {
  $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'))
  $start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
@@ -1342,6 +1360,7 @@ try{
  & (Join-Path $PackageRoot 'Install-NativeEngine.ps1') -PackageRoot $PackageRoot -Check
  if(!$?){throw 'The installed native call-engine inventory differs.'}
  $facts.gates.fresh='passed';$facts.checks+=('Real restore-ready fresh installation/services/native engine hash preservation')
+ $phase='native PHP runtime qualification';PhpRuntimeQualificationHook
  $phase='native web readiness qualification';WebReadinessHook
  if(!$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly){$phase='native STUN qualification';StunHook;$phase='native phone health qualification';PhoneHealthAcceptanceHook ([DateTime]::UtcNow)}
  $phase='native tenant-domain qualification';TenantDomainsAcceptanceHook ([DateTime]::UtcNow)

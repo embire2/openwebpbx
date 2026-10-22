@@ -18,6 +18,7 @@ native Windows server.
 | Conferences | Corrected native engine passes all16 ordinary/fragmented small/8KiB frontend/backend OPTIONS exchanges. Browser admission reaches the engine, but media remains unqualified. A separate read-only check confirms the stock Windows engine generated an already-expired DTLS certificate through a date-calculation overflow; a guarded pre-start repair is being tested. | Qualify the certificate repair and negotiation, then decoded browser/phone audio and VP8, host actions and exact cleanup. Preserve valid custom certificates and destination-owned identity during restore. |
 | Backups and restore | Scheduled-job choices are preserved. Restored pending phone-unblock requests are refused before background work resumes; other recovery history is retained. | Complete encrypted backup, same-machine failure recovery, distinct clean-server restore, media/key preservation and explicit activation. |
 | Updates | New protected tools and health task are included in installation and recovery inventory. The legacy transition accepts current signed releases rather than only 1.0.13. **11** native guard controls distinguish actual Windows contention from permission/path failures; the tenant worker defers only on the typed busy result. | Rebuilt complete-package fresh setup, same-version repair, late-failure recovery and a signed newer-version upgrade with natural restart. |
+| PHP runtime | The legacy upgrade now stages the same pinned PHP8.4.27 used by fresh installs. An actual private-copy8.4.26→27 matrix passes, preserving settings/custom extensions and proving full runtime/permission rollback, locked-file refusal and retry. Unexpected staged or backup files/links are refused. | Complete-package upgrade and interrupted-process recovery using the new helpers; component checks alone do not qualify the installed owner server. |
 | Public access | Existing trusted IIS, secure-phone and managed tenant-address implementations remain. | Actual public certificate issuance/renewal and external tenant/Android connections on the test machine. |
 | Client setup and welcome mail | Shared tenant-address, app-password and profile features are implemented. A new required welcome case passes29 local real PHP/PostgreSQL/SMTP/MIME/independent QR checks and120 caller/projection controls; native Windows execution remains pending. | Pass the installed Windows welcome case, then external Android QR/manual sign-in, password change, multiple profiles and trusted-IIS role/online boundaries. |
 | Existing calling suite | The unchanged-package diagnostic replay passes decoded TLS two-way calling, independent G729/PCMU transcoding and three decoded clock1026 announcements. The first fictional provider call then fails; Call Me Back and later groups, queues, voicemail121, recording, hotel and mail cases remain unqualified against this package. | Resolve the provider failure and repeat the complete native suite against the combined current-source package, including decoded media and protected-data checks. |
@@ -27,6 +28,14 @@ was found with PBX services stopped. Its files, logical database, permissions
 and original TLS key have now been preserved and independently verified before
 migration. Private access details and customer/test evidence
 remain outside the public repository.
+
+The actual legacy PHP runtime is8.4.26. Fresh and upgrade setup now share the
+same PHP8.4.27 version and SHA256 from the [official archive](https://downloads.php.net/~windows/releases/archives/).
+The complete original PHP tree is sealed before replacement; local `php.ini`,
+custom extensions and their permissions survive the vendor-file overlay.
+Recovery checks the sealed file and directory inventory before mirroring it.
+The native private-copy matrix has3,052 assertions over79 vendor files; full
+installer and actual abrupt-kill recovery remain separate required checks.
 
 The welcome-mail case uses the actual installed PHP welcome/outbox dispatcher,
 an isolated PostgreSQL schema and two concurrent queue processes. Its one
