@@ -7,7 +7,7 @@ import re
 import time
 
 
-def qualify(f, caller, extension, destination, Provider, original, sip, Playback, provider_diagnostics):
+def qualify(f, caller, extension, destination, Provider, original, sip, Playback, provider_diagnostics, media_window):
     providers = []
     playback = None
     primary = None
@@ -26,13 +26,11 @@ def qualify(f, caller, extension, destination, Provider, original, sip, Playback
         provider_diagnostics.require_ingress_scope(scope, 'outbound')
 
         def decoded(left, right, left_frequency, right_frequency, seconds=3):
-            left['decoded_pcm'].clear(); right['decoded_pcm'].clear()
-            time.sleep(seconds)
+            views = media_window({'caller': left, 'destination': right}, seconds, sip.rtp_rate_check)
             for peer in (caller, extension, *providers):
                 peer.check_receiver()
                 assert peer.thread.is_alive(), 'An owned SIP/RTP receiver stopped during the native media window'
-            sip.rtp_rate_check(left); sip.rtp_rate_check(right)
-            return original.decoded_tone_check(left, left_frequency), original.decoded_tone_check(right, right_frequency)
+            return original.decoded_tone_check(views['caller'], left_frequency), original.decoded_tone_check(views['destination'], right_frequency)
 
         # 3CX retries both 503 and 603; busy486 stops. Each retry must create
         # exactly one backup dialog and independently decode both audio paths.

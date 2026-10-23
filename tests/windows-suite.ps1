@@ -1417,6 +1417,7 @@ try{
  & (Join-Path $source 'tests/windows_native_factory_diagnostics.ps1') -SourceRoot $source *> (Join-Path $work 'native-factory-guards.private.log')
  if(!$?){throw 'Explicit native factory diagnostic controls failed.'}
  CheckedPython @((Join-Path $source 'tests/windows_provider_diagnostics_test.py'))
+ CheckedPython @((Join-Path $source 'tests/windows_cmb_media_window.py'))
  & (Join-Path $source 'tests/windows_provider_failure_fields.ps1') -SourceRoot $source *> (Join-Path $work 'provider-projection.private.log')
  if(!$?){throw 'Native provider failure projection controls failed.'}
  & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_phone_tls_failure_fields.ps1') -SourceRoot $source *> (Join-Path $work 'phone-tls-projection.private.log')

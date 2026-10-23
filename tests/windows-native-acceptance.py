@@ -1081,7 +1081,7 @@ def native_calls(f):
                     assert len(self.sent_codes)<=128,'The fictional provider response ledger exceeded its bound'
                 return super().response(code,headers,body)
         services=load_module('windows_native_services',f.source/'tests/windows_native_services.py')
-        services.qualify(f,caller,a,destination,Provider,original,sip,NativePlayback,provider_diagnostics)
+        services.qualify(f,caller,a,destination,Provider,original,sip,NativePlayback,provider_diagnostics,bridged_media_window)
         f.record('native_simultaneous_ring_group',**call_check('8180'))
         f.record('native_hunting_ring_group',**call_check('8181'))
         f.record('native_queue_agent_first',**call_check('8190'))
