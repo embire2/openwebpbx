@@ -1,0 +1,52 @@
+name: Windows Free Phone client
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Exact reviewed40-character client-branch commit
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: windows-free-phone-client
+  cancel-in-progress: false
+jobs:
+  client:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_NOLOGO: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      NUGET_XMLDOC_MODE: skip
+      PHONE_SOURCE_REF: ${{ inputs.source_ref }}
+    steps:
+      - name: Validate reviewed client source
+        run: |
+          if($env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx' -or $env:PHONE_SOURCE_REF -cnotmatch '^[a-f0-9]{40}$'){throw 'An exact reviewed client source is required.'}
+          git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_ref }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify actual source
+        run: |
+          if((git rev-parse HEAD).Trim() -cne $env:PHONE_SOURCE_REF){throw 'Client source differs.'}
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: '10.0.401'
+      - name: Probe native client toolchain and official SDK
+        run: |
+          & ./clients/windows/tools/Probe-Environment.ps1 -Output "$env:RUNNER_TEMP/windows-phone-probe"
+      - name: Preserve bounded component evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-free-phone-probe-${{ github.run_id }}
+          path: ${{ runner.temp }}/windows-phone-probe/
+          if-no-files-found: error
+          retention-days: 14
