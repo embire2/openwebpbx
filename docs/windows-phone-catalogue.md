@@ -15,3 +15,16 @@ An older updater cannot lend that descriptor. When the catalogue is entirely abs
 Current checks: 128 actual PHP signature/filesystem controls, 23 isolated Linux groups including the actual inherited-descriptor child chain and file rollback, 36 task-definition controls, 76 activation controls, 33 stage-reader controls and 171 strict native-receipt/source controls, 120 actual failure/early-catch/owned-process cleanup controls and 9 PHP failure-producer controls. Linux paths and systemd operations are explicit test adapters; task/ACL observations in portable PowerShell tests are adapters. These counts do not establish a native Windows, full installer, upgrade or release pass.
 
 The prepared disposable Windows component uses real NTFS, PHP locks, exclusive .NET file handles, durable replacement, Scheduler operations and owned child interruptions. Its reader SID alone is mapped to LocalService in the fixture; it does not test a reader process. Actual IIS identity/read permissions, installed fixed paths, normal unpublished-channel behavior, complete backup/restore, signed upgrade and final release publication remain separate acceptance gates. No private production signing key is part of the fixture.
+
+The first actual standalone Windows run (40000139958, catalogue source da482791)
+refused in Desktop preflight at its first Get-FileHash command, before any native
+catalogue case or fixture task. Its original bounded failure remains retained.
+The focused fixture correction imports the exact stock Desktop Utility and
+Security manifests and verifies their distinct FunctionInfo/CmdletInfo sources,
+ordinary ancestry, module identities and native assembly provenance. It changes
+neither PSModulePath nor production catalogue code. Ninety portable source/type/
+path controls pass on Linux (the three Linux-only ancestry/platform controls are
+not Windows claims). Read-only Windows checks also pass the exact bootstrap and
+real stock-manifest hash/ACL reads in both original and explicitly inherited Core
+module-path child environments; the parent environment remains exact. This is
+bootstrap acceptance only. A new complete native catalogue run is still required.

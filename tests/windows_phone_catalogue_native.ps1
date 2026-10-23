@@ -3,6 +3,69 @@
 param([Parameter(Mandatory)][string]$SourceBundle,[Parameter(Mandatory)][string]$SourceManifest,[Parameter(Mandatory)][string]$SourceManifestSha256,[Parameter(Mandatory)][string]$PhpDirectory,[Parameter(Mandatory)][string]$ReportPath)
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'windows_phone_catalogue_proof.ps1')
+# Desktop Process.Start children do not use the parent Core module inventory.
+# Resolve only the actual Windows stock modules; never alter PSModulePath.
+function Assert-CatalogueStockOrdinary([string]$Path){
+ if(![IO.File]::Exists($Path) -and ![IO.Directory]::Exists($Path)){throw 'A stock module input is absent.'}
+ for($item=[IO.FileInfo]::new($Path);$null -ne $item;){
+  if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Stock module ancestry must be ordinary.'}
+  if($item -is [IO.DirectoryInfo]){$item=$item.Parent}else{$item=$item.Directory}
+ }
+}
+function Get-CatalogueStockProvenance($Command,[ValidateSet('Utility','Security')][string]$Kind,[string]$NativeHome,[string]$WindowsRoot){
+ $moduleName='Microsoft.PowerShell.'+$Kind;$folder=[IO.Path]::Combine($NativeHome,'Modules', $moduleName);$manifest=[IO.Path]::Combine($folder,$moduleName+'.psd1')
+ $proof=[ordered]@{command_type=$false;command_name=$false;module_name=$false;module_path=$false;module_base=$false;module_version=$false;module_guid=$false;source_file=$false;implementation=$false}
+ if($Kind -ceq 'Utility'){
+  $proof.command_type=$Command -is [Management.Automation.FunctionInfo]
+  if(!$proof.command_type){return $proof}
+  $scriptFile=[IO.Path]::Combine($folder,$moduleName+'.psm1')
+  $proof.command_name=$Command.Name -ceq 'Get-FileHash';$proof.module_name=$Command.ModuleName -ceq $moduleName
+  # Qualified lookup returns the nested script module; visible lookup returns
+  # its stock manifest export. Both must retain the exact same script source.
+  $nested=$Command.Module.Path -ieq $scriptFile;$export=$Command.Module.Path -ieq $manifest
+  $proof.module_path=$nested -or $export;$proof.module_base=$Command.Module.ModuleBase -ieq $NativeHome
+  $proof.module_version=($nested -and $Command.Module.Version -eq [version]'0.0') -or ($export -and $Command.Module.Version -eq [version]'3.1.0.0')
+  $proof.module_guid=($nested -and $Command.Module.Guid -eq [Guid]::Empty) -or ($export -and $Command.Module.Guid -eq [Guid]'1da87e53-152b-403e-98dc-74d7b4d63d59')
+  $proof.source_file=$Command.ScriptBlock.File -ieq $scriptFile
+  $proof.implementation=$Command.ScriptBlock.Ast.Extent.File -ieq $scriptFile
+ }else{
+  $proof.command_type=$Command -is [Management.Automation.CmdletInfo]
+  if(!$proof.command_type){return $proof}
+  $assembly=$Command.ImplementingType.Assembly;$name=$assembly.GetName();$location=$assembly.Location
+  $proof.command_name=$Command.Name -ceq 'Get-Acl';$proof.module_name=$Command.ModuleName -ceq $moduleName
+  $proof.module_path=$Command.Module.Path -ieq $manifest
+  $proof.module_base=$Command.Module.ModuleBase -ieq $NativeHome -or $Command.Module.ModuleBase -ieq [IO.Path]::GetDirectoryName($location)
+  $proof.module_version=$Command.Module.Version -eq [version]'3.0.0.0';$proof.module_guid=$Command.Module.Guid -eq [Guid]'a94c8c7e-9810-47c0-b8af-65089c13a35a'
+  $proof.source_file=$location.StartsWith($WindowsRoot.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)
+  $token=([BitConverter]::ToString($name.GetPublicKeyToken())).Replace('-','').ToLowerInvariant()
+  $proof.implementation=$Command.ImplementingType.FullName -ceq 'Microsoft.PowerShell.Commands.GetAclCommand' -and $name.Name -ceq $moduleName -and $name.Version -eq [version]'3.0.0.0' -and $token -ceq '31bf3856ad364e35'
+ }
+ return $proof
+}
+function Assert-CatalogueStockProvenance($Proof){
+ $fields=@('command_type','command_name','module_name','module_path','module_base','module_version','module_guid','source_file','implementation')
+ if($Proof -isnot [Collections.IDictionary] -or $Proof.Count -ne $fields.Count){throw 'Stock command provenance has an invalid shape.'}
+ foreach($field in $fields){if($Proof[$field] -isnot [bool] -or !$Proof[$field]){throw 'The exact stock command provenance differs.'}}
+}
+function Import-CatalogueDesktopStockModules {
+ if([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or $PSVersionTable.PSEdition -cne 'Desktop'){throw 'This stock bootstrap requires Windows PowerShell.'}
+ $nativeHome=[IO.Path]::Combine([Environment]::SystemDirectory,'WindowsPowerShell','v1.0');$windows=[Environment]::GetFolderPath('Windows')
+ foreach($kind in 'Utility','Security'){
+  $moduleName='Microsoft.PowerShell.'+$kind;$folder=[IO.Path]::Combine($nativeHome,'Modules',$moduleName);$manifest=[IO.Path]::Combine($folder,$moduleName+'.psd1')
+  Assert-CatalogueStockOrdinary $manifest
+  if($kind -ceq 'Utility'){Assert-CatalogueStockOrdinary ([IO.Path]::Combine($folder,$moduleName+'.psm1'))}
+  Import-Module -Name $manifest -Global -Force -ErrorAction Stop
+  $commandName=if($kind -ceq 'Utility'){'Get-FileHash'}else{'Get-Acl'}
+  $commands=@(Get-Command -Name ($moduleName+'\'+$commandName) -All -ErrorAction Stop)
+  if($commands.Count -ne 1){throw 'The stock command is absent or ambiguous.'}
+  $command=$commands[0];Assert-CatalogueStockProvenance (Get-CatalogueStockProvenance $command $kind $nativeHome $windows)
+  Assert-CatalogueStockOrdinary $command.Module.ModuleBase;Assert-CatalogueStockOrdinary $command.Module.Path
+  if($kind -ceq 'Security'){Assert-CatalogueStockOrdinary $command.ImplementingType.Assembly.Location}
+  # All following unchanged fixture/product calls must resolve to this stock source.
+  $visible=Get-Command -Name $commandName -ErrorAction Stop
+  Assert-CatalogueStockProvenance (Get-CatalogueStockProvenance $visible $kind $nativeHome $windows)
+ }
+}
 $phase='preflight';$work=$null;$reportOwned=$false;$childrenClosed=$true;$taskRemoved=$true;$vectorsExact=$false;$successRecord=$null
 try{
 if([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or ![Environment]::Is64BitProcess -or $env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_OS -cne 'Windows' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx' -or !$env:RUNNER_TEMP){throw 'This component is restricted to disposable Windows GitHub Actions.'}
@@ -10,6 +73,7 @@ $runner=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
 foreach($path in $SourceBundle,$PhpDirectory,$ReportPath){if(![IO.Path]::GetFullPath($path).StartsWith($runner,[StringComparison]::OrdinalIgnoreCase)){throw 'Every component path must stay in the disposable runner namespace.'}}
 foreach($path in $runner,$SourceBundle,$PhpDirectory,$ReportPath){if($path.Contains("'") -or $path -match '[\x00-\x1f]'){throw 'The fixture literal path requires review.'}}
 if(Test-Path -LiteralPath $ReportPath){throw 'Never replace an existing component receipt.'};$reportOwned=$true
+if($PSVersionTable.PSEdition -ceq 'Desktop'){Import-CatalogueDesktopStockModules}
 if((Get-FileHash -LiteralPath $SourceManifest -Algorithm SHA256).Hash.ToLowerInvariant() -cne $SourceManifestSha256){throw 'The source manifest changed.'}
 $sourcePins=Get-Content -LiteralPath $SourceManifest -Raw|ConvertFrom-Json
 foreach($entry in $sourcePins.files.PSObject.Properties){$path=Join-Path $SourceBundle $entry.Name;$item=Get-Item -LiteralPath $path -Force;if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $item.Length -ne $entry.Value.bytes -or (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.Value.sha256){throw 'An exact component source changed.'}}
