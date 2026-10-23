@@ -72,10 +72,10 @@ try{
   if($case -ceq 'foreign-snapshot'){$before.ProxyXml=$trueXml.Replace('00:01:30','00:02:30')}
   if($case -ceq 'historical-ambiguous'){$before=New-Snapshot $false '' $false -Historical;$ledger.ProxyAfterXml=$falseXml.Replace('00:01:30','00:02:30');Write-Fixture $ledger.ProxyAfterXml;$current=Get-OpenWebMeetProxyXmlState}
   if($case -ceq 'full-config-race'){$before=New-Snapshot $false $falseXml $true;[IO.File]::AppendAllText($script:fixture,'<!-- concurrent unrelated configuration -->')}
-  $beforeHash=(Get-FileHash -LiteralPath $script:fixture).Hash;$manager=New-FixtureManager;$script:commits=0
+  $beforeHash=(Get-FileHash -LiteralPath $script:fixture).Hash;$beforeWriteTime=(Get-Item -LiteralPath $script:fixture).LastWriteTimeUtc.Ticks;$manager=New-FixtureManager;$script:commits=0
   try{Refuses {. $currentAction}}finally{if($NativeMwa){$manager.Dispose()}}
   Check ((Get-FileHash -LiteralPath $script:fixture).Hash -ceq $beforeHash)
-  if(!$NativeMwa){Check ($script:commits -eq 0)}
+  Check ((Get-Item -LiteralPath $script:fixture).LastWriteTimeUtc.Ticks -eq $beforeWriteTime -and ($NativeMwa -or $script:commits -eq 0))
  }
  $ledger=[pscustomobject]@{ProxyBeforeXml=$falseXml;ProxyAfterXml=$trueXml}
  foreach($field in 'ProxyXml','ProxyEnabledPresent'){
