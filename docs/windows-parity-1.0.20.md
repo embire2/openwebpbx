@@ -20,13 +20,19 @@ listener detector correctly refused an access-control condition; that refusal
 is retained and does not invalidate the basic readiness results or qualify the
 new detector. No candidate has replaced the original installation.
 
-The latest complete run39878296545 passed fresh installation, trusted web
-readiness,21 native public-port controls and14 installed listener checks. It
-stopped before STUN activation when its one-shot maintenance-lock open refused;
-the historical lock holder and native error code are unknown. The test now uses
-the existing bounded lock helper. Native controls cover a released holder, the
-unchanged30-second deadline, permission denial and unsafe paths. A new complete
-run is required; none of the later calling or backup gates passed in this run.
+The latest complete run39881454549 passed fresh installation, trusted web
+readiness, public-port checks, STUN, Phone Health, tenant setup and conference
+transport. It completed16 media cases, including group/queue delivery and the
+short callback quota limit, before a bounded observation timed out during
+hold/resume/transfer. The precise failed substage remains under investigation.
+Its fixture cleanup also refused remaining owned rows, so backups were not run.
+This archive remains unpublished and does not qualify the owner upgrade.
+
+The earlier run39878296545 stopped before STUN activation on a one-shot
+maintenance-lock open. The test now uses the existing bounded lock helper;
+the new run passes STUN, but the historical lock holder and error code remain
+unknown. Native controls retain the unchanged30-second deadline and immediate
+permission/unsafe-path refusal.
 
 | Area | Current work | Required acceptance |
 |---|---|---|
