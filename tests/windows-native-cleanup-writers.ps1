@@ -95,7 +95,20 @@ function Invoke-NativeCleanupPhp([string]$Name){
    if($child.HasExited -and $closed[0] -and $closed[1]){break}
    if($timer.ElapsedMilliseconds -ge 25000){throw 'Owned cleanup helper exceeded its bound.'};Start-Sleep -Milliseconds 10
   }while($true)
-  if($child.ExitCode -ne 0){throw 'Owned cleanup helper refused.'}
+  if($child.ExitCode -ne 0){
+   if($Name -ceq 'windows-native-cleanup-drain.php'){
+    try{
+     $row=$texts[0].ToString()|ConvertFrom-Json
+     $row|Add-Member NoteProperty child_exit_code ([int]$child.ExitCode) -Force
+     $closedFailure=Get-NativeCleanupDrainFailureFields $row
+     if($closedFailure.Count){$facts.native_cleanup_drain_failure=$closedFailure}
+    }catch{}
+    foreach($side in 0,1){
+     try{$file=Join-Path $evidence ('native-cleanup-drain-'+@('stdout','stderr')[$side]+'.private.log');$bytes=[Text.UTF8Encoding]::new($false).GetBytes($texts[$side].ToString());$stream=[IO.File]::Open($file,'CreateNew','Write','None');try{$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}}catch{}
+    }
+   }
+   throw 'Owned cleanup helper refused.'
+  }
   return ($texts[0].ToString()|ConvertFrom-Json)
  }finally{if(!$child.HasExited){$child.Kill($true);if(!$child.WaitForExit(5000)){throw 'Owned cleanup helper did not exit.'}};$child.Dispose()}
 }
@@ -112,7 +125,7 @@ function Invoke-NativeFactoryCleanup {
   $primary=$_
   try{$row=Invoke-NativeCleanupPhp 'windows-native-cleanup-rows.php';$closed=Get-NativeCleanupRowFields $row;if($closed.Count){$facts.native_cleanup_rows=$closed}}catch{$facts.native_cleanup_rows=@{schema=1;state='unavailable';error_kind='unavailable'}}
  }finally{
-  try{Resume-NativeCleanupWriters $originalWriters}
+  try{Resume-NativeCleanupWriters $originalWriters;if($originalWriters){$facts.native_cleanup_writers_restored=$true}}
   catch{$facts.native_cleanup_writers_restored=$false;if(!$primary){$primary=$_}}
   finally{if($maintenance){$maintenance.Dispose()}}
  }

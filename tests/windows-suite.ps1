@@ -165,13 +165,14 @@ function SafeMailboxFailureFields($Record){
 function SafeNativeCleanupFields($Record){
  $safe=@{}
  if($Record.native_cleanup_writers_restored -is [bool]){$safe.native_cleanup_writers_restored=$Record.native_cleanup_writers_restored}
+ if($Record.native_cleanup_stage -ceq 'restore_factory' -and $null -ne $Record.native_cleanup_drain_failure){$drain=Get-NativeCleanupDrainFailureFields $Record.native_cleanup_drain_failure;if($drain.Count){$safe.native_cleanup_drain_failure=$drain}}
  if($Record.native_cleanup_stage -ceq 'restore_factory' -and $null -ne $Record.native_cleanup_rows){$row=Get-NativeCleanupRowFields $Record.native_cleanup_rows;if($row.Count){$safe.native_cleanup_rows=$row}}
  if($Record.native_child_state -is [string] -and $Record.native_child_state -cin 'passed','failed'){$safe.native_child_state=$Record.native_child_state}
  if($Record.native_cleanup_stage -isnot [string] -or $Record.native_cleanup_stage -cnotin 'stop_notification_task','remove_notification_task','restore_factory','restore_binding','restore_files','restart_engine','remove_leaf','remove_root','stop_pki','collect_pki_logs','parent_write_guard','cleanup_unknown'){return $safe}
  $safe.native_cleanup_stage=$Record.native_cleanup_stage
  $type=$Record.native_cleanup_error_type;if($type -is [string] -and $type -cmatch '^[A-Za-z0-9_]{1,80}$'){$safe.native_cleanup_error_type=$type}
  $name=$Record.native_cleanup_source_basename;$line=$Record.native_cleanup_source_line
- if($name -is [string] -and $name -cin 'windows-native-acceptance.ps1','external_component' -and ($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$safe.native_cleanup_source_basename=$name;$safe.native_cleanup_source_line=$line}
+ if($name -is [string] -and $name -cin 'windows-native-acceptance.ps1','windows-native-cleanup-writers.ps1','external_component' -and ($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$safe.native_cleanup_source_basename=$name;$safe.native_cleanup_source_line=$line}
  if($Record.native_cleanup_reloadxml -is [string] -and $Record.native_cleanup_reloadxml -cin 'success','error','empty','other'){$safe.native_cleanup_reloadxml=$Record.native_cleanup_reloadxml}
  if($Record.native_cleanup_stage -ceq 'restart_engine' -and $Record.native_restart_observer -is [bool] -and $Record.native_restart_observer){
   $safe.native_restart_observer=$true
@@ -1481,6 +1482,9 @@ try{
  if(!$?){throw 'Explicit native factory diagnostic controls failed.'}
  CheckedPython @((Join-Path $source 'tests/windows_provider_diagnostics_test.py'))
  & (Join-Path $source 'tests/windows_native_cleanup_writers.ps1') -SourceRoot $source *> (Join-Path $work 'native-cleanup-writer-controls.private.log')
+ if(!$?){throw 'The exact native cleanup writer lifecycle controls failed.'}
+ & (Join-Path $source 'tests/windows_native_cleanup_drain_fields.ps1') -SourceRoot $source *> (Join-Path $work 'native-cleanup-drain-fields.private.log')
+ if(!$?){throw 'The closed native cleanup drain failure controls failed.'}
  & (Join-Path $source 'tests/windows_threecx_import_fields.ps1') -SourceRoot $source *> (Join-Path $work 'threecx-import-report-controls.private.log')
  if(!$?){throw 'Typed synthetic V20 import evidence controls failed.'}
  & (Join-Path $source 'tests/windows_threecx_import_controls.ps1') -SourceRoot $source *> (Join-Path $work 'threecx-import-wrapper-controls.private.log')

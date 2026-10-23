@@ -26,10 +26,10 @@ function Enable-ScheduledTask {param($TaskName,$TaskPath,$ErrorAction) $script:e
 function Stop-ScheduledTask {param($TaskName,$TaskPath,$ErrorAction) $script:events.Add('stop-task');$script:stopPending=$true;$script:stopReads=0}
 function Start-ScheduledTask {param($TaskName,$TaskPath,$ErrorAction) $script:events.Add('start-task');$script:task.State='Running'}
 function Get-Service {param($Name,$ErrorAction)
- $s=[pscustomobject]@{};$s|Add-Member ScriptMethod Stop {$script:events.Add('stop-service');$script:svc.State='Stopped';$script:svc.ProcessId=0};$s|Add-Member ScriptMethod Start {$script:events.Add('start-service');$script:svc.State='Running';$script:svc.ProcessId=42};$s|Add-Member ScriptMethod WaitForStatus {param($Status,$Timeout) if($script:svc.State -cne $Status){throw 'Adapter state mismatch'}};return $s
+ $s=[pscustomobject]@{};$s|Add-Member ScriptMethod Stop {$script:events.Add('stop-service');$script:svc.State='Stopped';$script:svc.ProcessId=0};$s|Add-Member ScriptMethod Start {$script:events.Add('start-service');if($script:restoreFailure){throw 'Owned writer restoration refusal'};$script:svc.State='Running';$script:svc.ProcessId=42};$s|Add-Member ScriptMethod WaitForStatus {param($Status,$Timeout) if($script:svc.State -cne $Status){throw 'Adapter state mismatch'}};return $s
 }
 function Reset([bool]$Running=$true,[bool]$Enabled=$true,[bool]$TaskRunning=$false){
- $script:events=[Collections.Generic.List[string]]::new();$script:wrongHash=$false;$script:foreignWriter=$false;$script:orphanBackend=$false;$script:stopPending=$false
+ $script:events=[Collections.Generic.List[string]]::new();$script:wrongHash=$false;$script:foreignWriter=$false;$script:orphanBackend=$false;$script:stopPending=$false;$script:restoreFailure=$false
  $script:svc=@{Name='OpenWebPBX';PathName='"'+(Join-Path $root 'server\OpenWebPbx.Server.exe')+'"';StartName='NT AUTHORITY\LocalService';StartMode='Manual';State=$(if($Running){'Running'}else{'Stopped'});ProcessId=$(if($Running){42}else{0})}
  $script:task=@{TaskName='OpenWebPBX-Cleanup';TaskPath='\';Principal=@{UserId='SYSTEM';RunLevel='Highest'};Actions=@(@{Execute=$root+'\php\php.exe';Arguments='"'+$root+'\web\app\pbx_setup\cleanup.php"';WorkingDirectory=$root+'\web'});Settings=@{Enabled=$Enabled};State=$(if($TaskRunning){'Running'}elseif($Enabled){'Ready'}else{'Disabled'})}
 }
@@ -68,13 +68,18 @@ try{
  function Php {param($Action) $script:events.Add('delete-and-strict-zero');if($script:deleteFailure){throw 'Owned strict zero refused'};return '{"factory_empty":true,"owned_rows":0}'}
  foreach($drainFailed in $false,$true){foreach($deleteFailed in $false,$true){
   Reset;$script:drainFailure=$drainFailed;$script:deleteFailure=$deleteFailed;$facts=@{}
-  $failed=$false;try{$result=Invoke-NativeFactoryCleanup}catch{$failed=$true}
+  $failed=$false;$failureMessage=$null;try{$result=Invoke-NativeFactoryCleanup}catch{$failed=$true;$failureMessage=$_.Exception.Message}
   Check ($failed -eq ($drainFailed -or $deleteFailed))
   Check ($events[0] -ceq 'lock' -and $events[$events.Count-1] -ceq 'unlock')
   Check ($svc.State -ceq 'Running' -and $task.Settings.Enabled)
+  Check ($facts.native_cleanup_writers_restored -is [bool] -and $facts.native_cleanup_writers_restored)
   Check (($events -contains 'delete-and-strict-zero') -eq !$drainFailed)
-  if($failed){Check ($facts.native_cleanup_rows.categories.history -eq 2)}
+  if($failed){Check ($facts.native_cleanup_rows.categories.history -eq 2);Check ($failureMessage -ceq $(if($drainFailed){'Owned drain refusal'}else{'Owned strict zero refused'}))}
  }}
+ Reset;$script:drainFailure=$true;$script:deleteFailure=$false;$script:restoreFailure=$true;$facts=@{};$failureMessage=$null
+ try{[void](Invoke-NativeFactoryCleanup)}catch{$failureMessage=$_.Exception.Message}
+ Check ($failureMessage -ceq 'Owned drain refusal' -and $facts.native_cleanup_writers_restored -is [bool] -and !$facts.native_cleanup_writers_restored)
+ Check (!$events.Contains('delete-and-strict-zero') -and $events[$events.Count-1] -ceq 'unlock')
  Reset;$script:drainFailure=$false;$script:deleteFailure=$false;$script:preOwned=$true;$facts=@{};[void](Invoke-NativeFactoryCleanup)
  Check ($events.Contains('delete-and-strict-zero') -and $facts.native_cleanup_writers_restored -and $svc.State -ceq 'Running')
  $script:preOwned=$false
@@ -94,5 +99,10 @@ try{
  $record=[pscustomobject]@{native_cleanup_stage='restore_factory';native_cleanup_rows=$row;native_cleanup_writers_restored=$false;password='PRIVATE'}
  $safe=SafeNativeCleanupFields $record;Check ($safe.native_cleanup_rows.categories.history -eq 2 -and !$safe.native_cleanup_writers_restored -and ($safe|ConvertTo-Json -Depth 8) -cnotmatch 'PRIVATE|password')
  $record.native_cleanup_rows.categories.history='2';Check (!(SafeNativeCleanupFields $record).ContainsKey('native_cleanup_rows'))
+ $drain=[pscustomobject]@{schema=1;producer='windows-native-cleanup-drain.php';state='failed';stage='spool_path';reason='spool_path';error_type='RuntimeException';source_basename='windows-native-cleanup-drain.php';source_line=35;child_exit_code=1;configured_spool_path='PRIVATE';message='PRIVATE';configured_matches_native_log=$false}
+ $record|Add-Member NoteProperty native_cleanup_drain_failure $drain
+ $safe=SafeNativeCleanupFields $record;Check ($safe.native_cleanup_drain_failure.reason -ceq 'spool_path' -and !$safe.native_cleanup_drain_failure.configured_matches_native_log -and ($safe|ConvertTo-Json -Depth 8) -cnotmatch 'PRIVATE|configured_spool_path|message')
+ $drain.source_line='35';Check (!(SafeNativeCleanupFields $record).ContainsKey('native_cleanup_drain_failure'))
+ $drain.source_line=35;$record.native_cleanup_stage='restart_engine';Check (!(SafeNativeCleanupFields $record).ContainsKey('native_cleanup_drain_failure'))
  Write-Output ('PASS '+$checks+' actual-source cleanup writer lifecycle/async-stop/ownership/strict-zero/report privacy controls; service/Scheduler adapters only')
 }finally{if($removeDrive){Remove-PSDrive C};Microsoft.PowerShell.Management\Remove-Item -LiteralPath $owned -Recurse -Force}

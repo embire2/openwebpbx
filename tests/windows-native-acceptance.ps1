@@ -131,7 +131,7 @@ function RecordNativeCleanupFailure($Facts,[string]$Stage,$Failure){
  $type=$Failure.Exception.GetType().Name
  if($type -match '^[A-Za-z0-9_]{1,80}$'){$Facts.cleanup_error_type=$type;$Facts.native_cleanup_error_type=$type}
  $name=if($Failure.InvocationInfo.ScriptName){Split-Path -Leaf $Failure.InvocationInfo.ScriptName}else{'external_component'}
- if($name -cne 'windows-native-acceptance.ps1'){$name='external_component'}
+ if($name -cnotin 'windows-native-acceptance.ps1','windows-native-cleanup-writers.ps1'){$name='external_component'}
  $Facts.native_cleanup_source_basename=$name
  $line=$Failure.InvocationInfo.ScriptLineNumber
  if(($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$Facts.native_cleanup_source_line=$line}
