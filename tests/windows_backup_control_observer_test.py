@@ -4,6 +4,7 @@ The tiny child is a control-CLI fixture. Manifest pins/native context/ACL are
 explicit adapters here; the real installed Windows invocation remains pending.
 """
 import ast
+from copy import deepcopy
 import importlib.util
 import json
 import os
@@ -30,6 +31,40 @@ def load(name, path, stdlib_only=False):
     return value
 
 observer = load('control_observer_under_test', ROOT / 'tests/windows_backup_control_observer.py')
+
+def same_ast(left, right):
+    return ast.dump(left, include_attributes=False) == ast.dump(right, include_attributes=False)
+
+def expression(text):
+    return ast.parse(text, mode='eval').body
+
+def owned_observer_guard(tree):
+    """Find the direct observer call, then require its complete original guard.
+
+    The acquisition-only retry import has a separate action-only If. It must
+    neither count as observer installation nor hide an unguarded/duplicate call.
+    """
+    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+             and isinstance(node.func, ast.Attribute) and node.func.attr == 'install'
+             and isinstance(node.func.value, ast.Name) and node.func.value.id == 'observer']
+    if len(calls) != 1:
+        raise AssertionError('Exactly one actual observer installation is required.')
+    call = calls[0]
+    owners = [node for node in tree.body if isinstance(node, ast.If)
+              and any(isinstance(child, ast.Expr) and child.value is call for child in node.body)]
+    if len(owners) != 1:
+        raise AssertionError('The observer call must be direct in one top-level guarded block.')
+    expected = expression("action in ('holds','release') and Path(b.__file__).resolve()==(Path('C:/OpenWebPBX')/'tools'/'backups.py').resolve()")
+    if not same_ast(owners[0].test, expected):
+        raise AssertionError('The exact action and installed-source ownership guard is required.')
+    expected_call = expression('observer.install(b,Path(sys.argv[3]),Path(sys.argv[4]),Path(sys.argv[5]))')
+    if not same_ast(call, expected_call):
+        raise AssertionError('The actual observer arguments must retain their owned source/package/evidence context.')
+    context = [node for node in owners[0].body if isinstance(node, ast.If)
+               and same_ast(node.test, expression('len(sys.argv)!=6'))]
+    if len(context) != 1 or context[0] is not owners[0].body[0] or len(context[0].body) != 1 or not isinstance(context[0].body[0], ast.Raise):
+        raise AssertionError('Missing context must refuse before observer import or installation.')
+    return owners[0]
 
 HARNESS = r'''
 param([string]$Source,[string]$FieldsSource,[string]$Control,[string]$Request,[string]$ReportPath)
@@ -148,11 +183,34 @@ class Controls(unittest.TestCase):
     def test_actual_embedded_probe_and_launcher_require_owned_context_only_for_controls(self):
         text=(ROOT/'tests/windows-upgrade-acceptance.ps1').read_text();embedded=text.split("$code=@'\n",1)[1].split("\n'@",1)[0]
         tree=ast.parse(embedded)
-        controls=[n for n in tree.body if isinstance(n,ast.If)and"action in ('holds', 'release')"in ast.unparse(n.test)]
-        self.assertEqual(len(controls),1);self.assertIn('observer.install',ast.unparse(controls[0]))
-        self.assertIn("Path('C:/OpenWebPBX') / 'tools' / 'backups.py'",ast.unparse(controls[0]))
+        control=owned_observer_guard(tree)
+        self.assertIn("Path('C:/OpenWebPBX') / 'tools' / 'backups.py'",ast.unparse(control))
+        retries=[node for node in tree.body if isinstance(node,ast.If)and same_ast(node.test,expression("action in ('holds','release')"))]
+        self.assertEqual(len(retries),1)
+        self.assertIsNot(retries[0],control)
+        self.assertNotIn('observer.install',ast.unparse(retries[0]))
+        self.assertIn("'owned_restore_lock_retry'",ast.unparse(retries[0]))
+        self.assertIn("Path(sys.argv[3]) / 'tests/windows_restore_lock_retry.py'",ast.unparse(retries[0]))
         self.assertIn("$Arguments[1] -cin 'holds','release'",text)
         self.assertIn('$Arguments+=@((Split-Path $PSScriptRoot -Parent),$PackageRoot,$controlEvidence)',text)
         self.assertIn('$script:controlEvidence=NewBackupControlObservationDirectory $work',text)
+
+    def test_actual_observer_selector_refuses_weakened_identity_and_call_scope(self):
+        text=(ROOT/'tests/windows-upgrade-acceptance.ps1').read_text();tree=ast.parse(text.split("$code=@'\n",1)[1].split("\n'@",1)[0])
+        for change in ('action_only','or_guard','foreign_source','moved_to_retry','duplicate_call','wrong_context','missing_context','nested_call'):
+            with self.subTest(change=change):
+                changed=deepcopy(tree);guard=owned_observer_guard(changed)
+                statement=next(node for node in guard.body if isinstance(node,ast.Expr)and isinstance(node.value,ast.Call)and isinstance(node.value.func,ast.Attribute)and node.value.func.attr=='install')
+                if change=='action_only':guard.test=expression("action in ('holds','release')")
+                elif change=='or_guard':guard.test.op=ast.Or()
+                elif change=='foreign_source':
+                    path=next(node for node in ast.walk(guard.test)if isinstance(node,ast.Constant)and node.value=='C:/OpenWebPBX');path.value='C:/ForeignPBX'
+                elif change=='moved_to_retry':
+                    retry=next(node for node in changed.body if isinstance(node,ast.If)and same_ast(node.test,expression("action in ('holds','release')")));guard.body.remove(statement);retry.body.append(statement)
+                elif change=='duplicate_call':guard.body.append(deepcopy(statement))
+                elif change=='wrong_context':statement.value.args[-1]=expression('Path(sys.argv[4])')
+                elif change=='missing_context':guard.body.pop(0)
+                elif change=='nested_call':guard.body.remove(statement);guard.body.append(ast.If(test=ast.Constant(True),body=[statement],orelse=[]))
+                with self.assertRaises(AssertionError):owned_observer_guard(changed)
 
 if __name__=='__main__':unittest.main()

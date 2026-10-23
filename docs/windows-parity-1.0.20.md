@@ -5,7 +5,13 @@ The currently published Windows release remains 1.0.7. Do not replace a
 production server with an unpublished archive. Debian's hosted Phone Health
 patch and the earlier complete Debian candidate have separate verification.
 
-Latest normal run39967659984/source62ad4a0f7 completes28 individual native
+Latest normal run39984494995/sourcea05715801 stops before installation in a
+QA source-selector check. The correction requires the actual observer call's
+complete original ownership guard, with eight mutation refusals and nine
+independently repeated test groups. A fresh complete normal run is required;
+this run supplies no installed or calling acceptance.
+
+Earlier normal run39967659984/source62ad4a0f7 completes28 individual native
 cases, including decoded conference audio/video, hold/music/transfer, ordinary
 service call-history import, voicemail, SMTP and provider failover. The full run
 still fails: the welcome fixture's input guard disagrees with its evidence
