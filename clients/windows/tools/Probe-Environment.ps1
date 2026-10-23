@@ -25,6 +25,11 @@ try{
   $stream=$binding.Open();$memory=[IO.MemoryStream]::new();try{$stream.CopyTo($memory);$bindingBytes=$memory.ToArray()}finally{$memory.Dispose();$stream.Dispose()};$text=[Text.Encoding]::UTF8.GetString($bindingBytes)
   $report.native_sdk.binding_bytes=$binding.Length
   $report.native_sdk.binding_sha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bindingBytes)).ToLowerInvariant()
+  [IO.File]::WriteAllBytes((Join-Path $Output 'LinphoneWrapper.cs'),$bindingBytes)
+  $licenseEntries=@($zip.Entries|Where-Object {$_.FullName -match '/(?:LICENSE[^/]*|COPYING[^/]*|copyright[^/]*)$' -and $_.Length -gt 0 -and $_.Length -le 128KB})
+  if($licenseEntries.Count -gt 100 -or ($licenseEntries|Measure-Object Length -Sum).Sum -gt 2MB){throw 'License evidence exceeds its bound.'}
+  $licenseEntries|ForEach-Object {[ordered]@{path=$_.FullName;bytes=$_.Length}}|ConvertTo-Json -Depth 4|Set-Content (Join-Path $Output 'license-members.json')
+  $n=0;foreach($entry in $licenseEntries){[IO.Compression.ZipFileExtensions]::ExtractToFile($entry,(Join-Path $Output ('license-'+$n+'.txt')),$false);$n++}
   $lines=$text -split "`n";$surface=@()
   for($i=0;$i -lt $lines.Count;$i++){if($lines[$i] -match 'namespace Linphone|CreateCore|CreateAuthInfo|NativeVideoWindowId|NativePreviewWindowId|OnCallStateChanged|OnAccountRegistrationStateChanged|OnTransferStateChanged|VideoDevice|RootCa|VerifyServer|Conference|public class CoreListener'){$surface+=$lines[([Math]::Max(0,$i-1))..([Math]::Min($lines.Count-1,$i+2))]}}
   $surface|Set-Content (Join-Path $Output 'linphone-binding-surface.txt') -Encoding utf8
@@ -49,7 +54,6 @@ try{
  $projects=@(Get-ChildItem -LiteralPath $project -Filter '*.csproj' -Recurse);if($projects.Count -ne 1){throw 'The official scaffold project is ambiguous.'}
  [xml]$scaffoldProject=Get-Content $projects[0].FullName -Raw;$report.template_framework=@($scaffoldProject.SelectNodes('//TargetFramework')|ForEach-Object {$_.InnerText})
  if(@(Get-ChildItem -LiteralPath $project -Filter 'Package.appxmanifest' -Recurse).Count -ne 1){throw 'The default packaged scaffold manifest is missing.'}
- & dotnet build $projects[0].FullName -c Release *> (Join-Path $Output 'scaffold-build.log');if($LASTEXITCODE){throw 'The official scaffold does not build on this toolchain.'}
  $sample=Join-Path $Output 'template-source';New-Item -ItemType Directory $sample|Out-Null
  $sourceFiles=@(Get-ChildItem -LiteralPath $project -File -Recurse -Force|Where-Object {
   $relative=[IO.Path]::GetRelativePath($project,$_.FullName).Replace('\','/');$segments=$relative.Split('/')
@@ -63,6 +67,7 @@ try{
   $relative=[IO.Path]::GetRelativePath($project,$file.FullName);$target=Join-Path $sample $relative;New-Item -ItemType Directory -Force (Split-Path $target)|Out-Null;Copy-Item -LiteralPath $file.FullName -Destination $target
  }
  $report.template_source_files=$sourceFiles.Count;$report.template_source_bytes=($sourceFiles|Measure-Object Length -Sum).Sum
+ & dotnet build $projects[0].FullName -c Release --self-contained true *> (Join-Path $Output 'scaffold-build.log');if($LASTEXITCODE){throw 'The official scaffold does not build on this toolchain.'}
  $report.template_built=$true;$report.template_launch='pending_app_activation_probe'
  $report.state='passed_component_inventory';$report.limitation='Template build and SDK inventory only; visible application launch, native calls, hardware and Store approval remain unqualified.'
 }catch{$report.state='failed';$report.error_type=$_.Exception.GetType().Name;$report.source_line=$_.InvocationInfo.ScriptLineNumber;throw}
