@@ -32,3 +32,19 @@ try{
  [IO.File]::WriteAllText($child,"[Console]::Write('ordinary-result');exit 0`n");$result=[ordered]@{};$value=Run $dotnet @('-NoProfile','-File',$child) 15 'publish_app';Check ($value-ceq 'ordinary-result' -and !$result.Contains('child_failures'))
 }finally{$env:GITHUB_ACTIONS=$oldActions;[IO.Directory]::Delete($root,$true)}
 "PASS $checks actual producer/strict-consumer/off-host-child/exit controls; no Windows certificate or package mutation"
+
+$removal=GetPackageCertificateRemoval 0 0 $false;$removalJson=$removal|ConvertTo-Json -Compress;$observed=ReadPackageCertificateRemoval $removalJson;Check (!$observed.private_key_exists -and $observed.private_certificates-eq 0 -and $observed.public_trust_certificates-eq 0)
+foreach($mutation in @(@{schema='1'},@{schema=2},@{producer='foreign'},@{private_certificates=1},@{private_certificates='0'},@{public_trust_certificates=1},@{public_trust_certificates='0'},@{private_key_exists=$true},@{private_key_exists='false'},@{private_key_exists=0},@{path='private'})){
+ $changed=$removalJson|ConvertFrom-Json -AsHashtable;foreach($key in $mutation.Keys){$changed[$key]=$mutation[$key]};$refused=$false;try{ReadPackageCertificateRemoval ($changed|ConvertTo-Json -Compress)|Out-Null}catch{$refused=$true};Check $refused
+}
+foreach($text in @('',($removalJson.Replace('"schema":1,','"schema":1,"schema":1,')),('x'*1025))){$refused=$false;try{ReadPackageCertificateRemoval $text|Out-Null}catch{$refused=$true};Check $refused}
+foreach($values in @(@(1,0,$false),@(0,1,$false),@(0,0,$true))){$refused=$false;try{GetPackageCertificateRemoval $values[0] $values[1] $values[2]|Out-Null}catch{$refused=$true};Check $refused}
+$snapshot=[ordered]@{certificates=@([ordered]@{store='My';thumbprint='private-thumbprint';bytes='private-hash';private=$true;archived=$false;friendly='private-name'});packages=@([ordered]@{full_name='private-package'});registry=@([ordered]@{path='private-path';sddl='private-sddl';values=@('private-value')})}|ConvertTo-Json -Depth 14 -Compress
+$comparison=GetPackageSnapshotComparison $snapshot $snapshot;Check ($comparison.certificates.matches -and $comparison.packages.matches -and $comparison.registry.matches -and $comparison.certificate_stores.My.matches);Check (!(($comparison|ConvertTo-Json -Depth 4 -Compress).Contains('private-')))
+foreach($category in @('certificates','packages','registry')){
+ $changed=$snapshot|ConvertFrom-Json -AsHashtable;$changed[$category]=@();$comparison=GetPackageSnapshotComparison $snapshot ($changed|ConvertTo-Json -Depth 14 -Compress);Check (!$comparison[$category].matches -and $comparison[$category].before_count-eq 1 -and $comparison[$category].after_count-eq 0)
+ foreach($other in @('certificates','packages','registry')|Where-Object {$_-cne $category}){Check $comparison[$other].matches}
+}
+$changed=$snapshot.Replace('private-name','changed-name');$comparison=GetPackageSnapshotComparison $snapshot $changed;Check (!$comparison.certificates.matches -and !$comparison.certificate_stores.My.matches -and $comparison.certificate_stores.Root.matches)
+$text=[IO.File]::ReadAllText($tool);Check ($text.Contains('$result.preexisting_vectors_preserved=$afterSnapshot-ceq $before;if(!$result.preexisting_vectors_preserved){$cleanup=$false}'));Check ($text.Contains('$result.certificate_removal=ReadPackageCertificateRemoval $output'))
+"PASS $checks total actual diagnostic/removal-consumer/vector-comparison controls; native certificate deletion and original preservation still require Windows execution"

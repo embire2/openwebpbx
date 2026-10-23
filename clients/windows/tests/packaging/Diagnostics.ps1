@@ -47,3 +47,26 @@ function GetPackageChildFailure([string]$Operation,[int]$ExitCode){
  if($Operation-cnotin @('publish_app','publish_updater','list_packages','certificate_create','certificate_remove','package_info','ui_update','ui_verify','sign_package','sign_bundle','make_bundle','package_install','seed_data','package_launch','checkpoint','package_remove') -or $ExitCode-eq 0){throw 'The child failure context differs.'}
  [ordered]@{operation=$Operation;exit_code=$ExitCode}
 }
+function GetPackageCertificateRemoval([int]$PrivateCount,[int]$TrustCount,[bool]$KeyExists){
+ if($PrivateCount-ne 0 -or $TrustCount-ne 0 -or $KeyExists){throw 'Owned certificate cleanup is incomplete.'}
+ [ordered]@{schema=1;producer='PackageCertificateRemoval';private_certificates=$PrivateCount;public_trust_certificates=$TrustCount;private_key_exists=$KeyExists}
+}
+function ReadPackageCertificateRemoval([string]$Text){
+ if($Text.Length-gt 1024){throw 'The certificate removal observation exceeds its bound.'}
+ $document=[Text.Json.JsonDocument]::Parse($Text)
+ try{if($document.RootElement.ValueKind-ne [Text.Json.JsonValueKind]::Object){throw 'Certificate removal observation must be an object.'};$seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);foreach($entry in $document.RootElement.EnumerateObject()){if(!$seen.Add($entry.Name)){throw 'Certificate removal observation repeats a field.'}}}finally{$document.Dispose()}
+ $value=$Text|ConvertFrom-Json;$expected=@('schema','producer','private_certificates','public_trust_certificates','private_key_exists'|Sort-Object)
+ if((@($value.PSObject.Properties.Name|Sort-Object)-join ',')-cne ($expected-join ',') -or $value.schema-isnot [long] -or $value.schema-ne 1 -or $value.producer-cne 'PackageCertificateRemoval' -or $value.private_certificates-isnot [long] -or $value.private_certificates-ne 0 -or $value.public_trust_certificates-isnot [long] -or $value.public_trust_certificates-ne 0 -or $value.private_key_exists-isnot [bool] -or $value.private_key_exists){throw 'The actual private certificate, public trust or key absence was not proved.'};$value
+}
+function GetPackageSnapshotComparison([string]$Before,[string]$After){
+ if($Before.Length-gt 8MB -or $After.Length-gt 8MB){throw 'Package preservation vectors exceed their bound.'}
+ $first=$Before|ConvertFrom-Json;$last=$After|ConvertFrom-Json;$observed=[ordered]@{}
+ foreach($category in @('certificates','packages','registry')){
+  $left=@($first.$category);$right=@($last.$category)
+  $observed[$category]=[ordered]@{before_count=$left.Count;after_count=$right.Count;matches=(ConvertTo-Json -InputObject $left -Depth 14 -Compress)-ceq (ConvertTo-Json -InputObject $right -Depth 14 -Compress)}
+ }
+ $stores=[ordered]@{};foreach($store in @('My','TrustedPeople','Root','CA')){
+  $left=@($first.certificates|Where-Object store -CEQ $store);$right=@($last.certificates|Where-Object store -CEQ $store)
+  $stores[$store]=[ordered]@{before_count=$left.Count;after_count=$right.Count;matches=(ConvertTo-Json -InputObject $left -Depth 4 -Compress)-ceq (ConvertTo-Json -InputObject $right -Depth 4 -Compress)}
+ };$observed.certificate_stores=$stores;$observed
+}

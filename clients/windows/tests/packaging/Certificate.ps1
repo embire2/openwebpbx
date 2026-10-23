@@ -42,7 +42,7 @@ try{
   $certificateStage='write_receipt';[IO.File]::WriteAllText((Join-Path $Root 'certificate.json'),(@{schema=1;thumbprint=$cert.Thumbprint;subject=$subject;container=$container;public_sha256=(CertificateSha $cert)}|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
   $certificateStage='add_trust';$public=[Security.Cryptography.X509Certificates.X509Certificate2]::new($cert.RawData);try{$people.Add($public)}finally{$public.Dispose()}
  }else{
-  $certificateStage='read_intent';$intent=Join-Path $Root 'certificate-intent.json';if(!(Test-Path -LiteralPath $intent -PathType Leaf)){if($mine.Count -or $trusted.Count -or [Security.Cryptography.CngKey]::Exists($container,$provider)){throw 'Foreign development identity lacks ownership intent.'};return}
+  $certificateStage='read_intent';$intent=Join-Path $Root 'certificate-intent.json';if(!(Test-Path -LiteralPath $intent -PathType Leaf)){if($mine.Count -or $trusted.Count -or [Security.Cryptography.CngKey]::Exists($container,$provider)){throw 'Foreign development identity lacks ownership intent.'};GetPackageCertificateRemoval $mine.Count $trusted.Count ([Security.Cryptography.CngKey]::Exists($container,$provider))|ConvertTo-Json -Compress;return}
   if((Get-Item -LiteralPath $intent).Length-gt 2048 -or ((Get-Item -LiteralPath $intent).Attributes-band [IO.FileAttributes]::ReparsePoint)){throw 'The certificate intent is unavailable.'};$proof=Get-Content -LiteralPath $intent -Raw|ConvertFrom-Json
   if($proof.schema-ne 1 -or $proof.nonce-cne $Nonce -or $proof.subject-cne $subject -or $proof.container-cne $container -or $mine.Count-gt 1 -or $trusted.Count-gt 1){throw 'The development certificate ownership differs.'}
   $certificateStage='read_receipt';$receiptPath=Join-Path $Root 'certificate.json';$receipt=$null;if(Test-Path -LiteralPath $receiptPath){$receipt=ReadCertificateReceipt $receiptPath};if($mine.Count -and !$receipt){throw 'The private certificate has no binding receipt; preserve it for review.'}
@@ -56,5 +56,6 @@ try{
   $certificateStage='remove_orphan';if(!$mine.Count -and [Security.Cryptography.CngKey]::Exists($container,$provider)){$key=[Security.Cryptography.CngKey]::Open($container,$provider);try{AssertOwnedKey $key $container;$key.Delete()}finally{$key.Dispose()}}
   $certificateStage='verify_removed';$my.Close();$people.Close();$my.Open('ReadOnly');$people.Open('ReadOnly')
   if(@($my.Certificates|Where-Object Subject -CEQ $subject).Count -or @($people.Certificates|Where-Object Subject -CEQ $subject).Count -or [Security.Cryptography.CngKey]::Exists($container,$provider)){throw 'Owned certificate cleanup is incomplete.'}
+  GetPackageCertificateRemoval @($my.Certificates|Where-Object Subject -CEQ $subject).Count @($people.Certificates|Where-Object Subject -CEQ $subject).Count ([Security.Cryptography.CngKey]::Exists($container,$provider))|ConvertTo-Json -Compress
  }
 }finally{$my.Dispose();$people.Dispose()}
