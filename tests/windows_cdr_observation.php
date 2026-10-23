@@ -18,12 +18,19 @@ function windows_native_cdr_observation(PDO $db,string $domain,string $realm,str
         foreach($pair as $u)if((int)$query('select count(*) from v_extensions where domain_uuid=? and extension_uuid=? and extension=?',[$domain,$u['extension_uuid'],$u['auth']??''])->fetchColumn()!==1)throw new RuntimeException('Owned native phone differs.');
         // Search by the independently observed caller SIP Call-ID first, so a
         // same-ID row in a foreign domain cannot disappear behind a scope filter.
-        $rows=$query("select xml_cdr_uuid,domain_uuid,extension_uuid,caller_id_number,destination_number,direction,billsec,json::jsonb as json from v_xml_cdr where json::jsonb #>> '{variables,sip_call_id}'=? limit 2",[$callId])->fetchAll(PDO::FETCH_ASSOC);
+        // xml_cdr::xml_array stores its decoded SIP identity in this native
+        // column. Full raw JSON is stored separately; enrichment JSON need not
+        // repeat the SIP Call-ID.
+        $rows=$query('select xml_cdr_uuid,domain_uuid,extension_uuid,caller_id_number,destination_number,direction,billsec,sip_call_id,json::jsonb as json from v_xml_cdr where sip_call_id=? limit 2',[$callId])->fetchAll(PDO::FETCH_ASSOC);
         if(count($rows)>1)throw new RuntimeException('Ambiguous native call identity.');
         if(!$rows)return$out;
-        $r=$rows[0];$v=json_decode($r['json'],true,64,JSON_THROW_ON_ERROR)['variables']??null;
-        if(!$uuid($r['xml_cdr_uuid'])||$r['domain_uuid']!==$domain||$r['extension_uuid']!==$pair['8100']['extension_uuid']||$r['caller_id_number']!=='8100'||$r['destination_number']!=='8101'||$r['direction']!=='local'||!is_array($v)||($v['sip_call_id']??null)!==$callId||($v['openweb_scope_origin']??null)!=='8100'||($v['openweb_scope_target']??null)!=='8101')throw new RuntimeException('Native call ownership differs.');
-        $id=$r['xml_cdr_uuid'];$out['cdr_rows']=1;$out['record_scope_exact']=true;$out['answered_cdr_rows']=is_numeric($r['billsec'])&&(float)$r['billsec']>0?1:0;
+        $r=$rows[0];$v=json_decode($r['json']??'{}',true,64,JSON_THROW_ON_ERROR)['variables']??[];
+        if(!$uuid($r['xml_cdr_uuid'])||$r['domain_uuid']!==$domain||$r['extension_uuid']!==$pair['8100']['extension_uuid']||$r['caller_id_number']!=='8100'||$r['destination_number']!=='8101'||$r['direction']!=='local'||$r['sip_call_id']!==$callId||!is_array($v)||(isset($v['sip_call_id'])&&$v['sip_call_id']!==$callId)||(isset($v['openweb_scope_origin'])&&$v['openweb_scope_origin']!=='8100')||(isset($v['openweb_scope_target'])&&$v['openweb_scope_target']!=='8101'))throw new RuntimeException('Native call ownership differs.');
+        $id=$r['xml_cdr_uuid'];$out['cdr_rows']=1;$out['answered_cdr_rows']=is_numeric($r['billsec'])&&(float)$r['billsec']>0?1:0;
+        // Native insertion precedes the importer's atomic enrichment/history
+        // transaction. Missing enrichment is pending, never a successful import.
+        if(($v['openweb_scope_origin']??null)!=='8100'||($v['openweb_scope_target']??null)!=='8101')return$out;
+        $out['record_scope_exact']=true;
         $history=$query('select domain_uuid,owner_number,party_number,call_type,end_status,source_id from v_pbx_call_history where source_id like ? limit 3',['native/'.$id.'/%'])->fetchAll(PDO::FETCH_ASSOC);
         if(count($history)>2)throw new RuntimeException('Ambiguous native call history.');
         $owners=[];
