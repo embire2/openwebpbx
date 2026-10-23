@@ -53,11 +53,13 @@ try{
  $sample=Join-Path $Output 'template-source';New-Item -ItemType Directory $sample|Out-Null
  $sourceFiles=@(Get-ChildItem -LiteralPath $project -File -Recurse -Force|Where-Object {
   $relative=[IO.Path]::GetRelativePath($project,$_.FullName).Replace('\','/');$segments=$relative.Split('/')
-  'bin' -notin $segments -and 'obj' -notin $segments
+  'bin' -notin $segments -and 'obj' -notin $segments -and 'PublishProfiles' -notin $segments -and
+   $_.Extension -notin '.pfx','.p12','.key','.snk','.pubxml','.publishsettings','.user'
  })
  if($sourceFiles.Count -lt 4 -or $sourceFiles.Count -gt 200 -or ($sourceFiles|Measure-Object Length -Sum).Sum -gt 4MB){throw 'The scaffold source inventory exceeds its bound.'}
  foreach($file in $sourceFiles){
   if($file.Length -gt 1MB -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'A scaffold source file is too large or linked.'}
+  if([Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($file.FullName)) -match '-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----'){throw 'Private-key material must not enter scaffold evidence.'}
   $relative=[IO.Path]::GetRelativePath($project,$file.FullName);$target=Join-Path $sample $relative;New-Item -ItemType Directory -Force (Split-Path $target)|Out-Null;Copy-Item -LiteralPath $file.FullName -Destination $target
  }
  $report.template_source_files=$sourceFiles.Count;$report.template_source_bytes=($sourceFiles|Measure-Object Length -Sum).Sum
