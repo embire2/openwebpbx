@@ -41,10 +41,10 @@ public sealed class NativePhone : IDisposable
         Factory.Instance.MspluginsDir = Path.Combine(AppContext.BaseDirectory, "native", "plugins");
         Factory.Instance.TopResourcesDir = Path.Combine(AppContext.BaseDirectory, "native", "share");
         // No path is supplied to Config: native account/auth/history state stays in memory.
-        progress?.Invoke("configuration"); var config = Factory.Instance.CreateConfigFromString("[sip]\nsave_auth_info=0\nstore_auth_info=0\n[storage]\nbackend=\nuri=\n[logging]\ndisable_stdout=1\n");
+        progress?.Invoke("configuration"); var config = Factory.Instance.CreateConfigFromString("[sip]\nsave_auth_info=0\nstore_auth_info=0\n[storage]\nbackend=\nuri=\n[lime]\nenabled=0\n[logging]\ndisable_stdout=1\n");
         Factory.Instance.EnableLogCollection(LogCollectionState.Disabled);
         progress?.Invoke("create_core"); core = Factory.Instance.CreateCoreWithConfig(config, IntPtr.Zero);
-        progress?.Invoke("database"); core.DatabaseEnabled = false; core.MaxCallLogs = 0;
+        progress?.Invoke("database"); core.DatabaseEnabled = false; core.MaxCallLogs = 0; core.LimeX3DhEnabled = false; core.DisableChat(Reason.NotAcceptable);
         core.Config.SetInt("sip", "save_auth_info", 0); core.Config.SetInt("sip", "store_auth_info", 0);
         core.Config.SetInt("sip", "use_rfc2833", 1); core.Config.SetInt("sip", "use_info", 0);
         core.Config.SetInt("rtp", "symmetric", 1);
@@ -215,9 +215,11 @@ public sealed class NativePhone : IDisposable
         try
         {
             core.AddAuthInfo(auth); var config = core.Config.Dump();
+            var policy = core.AuthInfoList.Count() == 1 && !core.DatabaseEnabled && !core.LimeX3DhEnabled && !core.ChatEnabled && core.Config.GetInt("sip", "save_auth_info", 1) == 0 && core.Config.GetInt("sip", "store_auth_info", 1) == 0 && !config.Contains(secret, StringComparison.Ordinal) && !config.Contains("owm-fixture", StringComparison.Ordinal);
+            // Keep the invented auth in memory across actual shutdown, then inspect every closed native file.
+            core.Stop();
             var files = Directory.EnumerateFiles(nativeFiles.Path, "*", SearchOption.AllDirectories).ToArray();
-            return core.AuthInfoList.Count() == 1 && !core.DatabaseEnabled && core.Config.GetInt("sip", "save_auth_info", 1) == 0 && core.Config.GetInt("sip", "store_auth_info", 1) == 0 &&
-                !config.Contains(secret, StringComparison.Ordinal) && !config.Contains("owm-fixture", StringComparison.Ordinal) && files.All(file => new FileInfo(file).Length <= 2 * 1024 * 1024 && !System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(file)).Contains(secret, StringComparison.Ordinal));
+            return policy && files.All(file => !new[] { ".db", ".sqlite", ".sqlite3", ".ini", ".rc" }.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase) && !Path.GetFileName(file).Contains("linphonerc", StringComparison.OrdinalIgnoreCase) && new FileInfo(file).Length <= 2 * 1024 * 1024 && !System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(file)).Contains(secret, StringComparison.Ordinal));
         }
         finally { core.RemoveAuthInfo(auth); core.ClearCallLogs(); }
     }

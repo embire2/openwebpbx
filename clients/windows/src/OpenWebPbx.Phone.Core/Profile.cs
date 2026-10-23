@@ -7,7 +7,7 @@ public sealed record SipAccount(string Server, string Realm, string Username, st
 {
     public override string ToString() => "Protected SIP account";
 }
-public sealed record AccountIdentity(Guid DomainId, Guid ExtensionId, string Extension, string TenantName, string DisplayName);
+public sealed record AccountIdentity(Guid DomainId, Guid ExtensionId, string Extension, string TenantName, string DisplayName, bool AppPasswordSet = true, bool CanInitializeAppPassword = false);
 public sealed record PhoneProfile(Guid Id, Uri Server, string Token, Guid DeviceId, SipAccount Sip, AccountIdentity Account,
     string[] Features, string Name = "", bool NeedsLogin = false)
 {
@@ -34,7 +34,7 @@ public sealed record PhoneProfile(Guid Id, Uri Server, string Token, Guid Device
             return new PhoneProfile(Guid.NewGuid(), server, token, device,
                 new SipAccount(host, Text(sip, "domain"), username, sip["auth_username"]?.GetValue<string>() ?? username, Text(sip, "password"), port),
                 new AccountIdentity(domain, extension, ConnectionRules.Extension(Text(account, "extension")),
-                    account["tenant_name"]?.GetValue<string>() ?? server.Host, account["display_name"]?.GetValue<string>() ?? ""),
+                    account["tenant_name"]?.GetValue<string>() ?? server.Host, account["display_name"]?.GetValue<string>() ?? "", account["app_password_set"]?.GetValue<bool>() ?? true, account["can_initialize_app_password"]?.GetValue<bool>() ?? false),
                 response["features"]?.AsArray().Select(x => x!.GetValue<string>()).ToArray() ?? []);
         }
         catch (Exception e) when (e is FormatException or InvalidOperationException or NullReferenceException or ArgumentException)

@@ -258,10 +258,13 @@ public sealed partial class MainPage : Page
     private void Choice(string title, IReadOnlyList<PhoneDevice> devices, Action<PhoneDevice> action) { var choice = new ComboBox { Header = title, ItemsSource = devices, DisplayMemberPath = "Name", MinWidth = 300 }; choice.SelectionChanged += (_, _) => { if (choice.SelectedItem is PhoneDevice device) Act(() => action(device)); }; Body.Children.Add(choice); }
     private async Task Password()
     {
-        var content = new StackPanel { Spacing = 12 }; var old = new PasswordBox { Header = "Current app password" }; var fresh = new PasswordBox { Header = "New app password (12–128 characters)" }; var repeat = new PasswordBox { Header = "Repeat new password" }; content.Children.Add(old); content.Children.Add(fresh); content.Children.Add(repeat);
-        var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Change app password", Content = content, PrimaryButtonText = "Save", CloseButtonText = "Cancel" };
+        ConnectionRules.RequireIdle(phone!.Calls.Count); var profile = current ?? throw new PhoneInputException("Connect an account first.");
+        var initialize = !profile.Account.AppPasswordSet && profile.Account.CanInitializeAppPassword;
+        if (!profile.Account.AppPasswordSet && !initialize) throw new PhoneInputException("Ask your administrator to set an app password or send a new setup invitation.");
+        var content = new StackPanel { Spacing = 12 }; var old = new PasswordBox { Header = "Current app password" }; var fresh = new PasswordBox { Header = "New app password (12–128 characters)" }; var repeat = new PasswordBox { Header = "Repeat new password" }; if (!initialize) content.Children.Add(old); content.Children.Add(fresh); content.Children.Add(repeat);
+        var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = initialize ? "Create app password" : "Change app password", Content = content, PrimaryButtonText = "Save", CloseButtonText = "Cancel" };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return; var oldValue = old.Password; var newValue = fresh.Password; var match = repeat.Password == newValue; old.Password = fresh.Password = repeat.Password = ""; ConnectionRules.AppPassword(newValue); if (!match) throw new PhoneInputException("The new passwords do not match.");
-        using var api = Api(); await api.JsonAsync("change_password", new() { ["current_password"] = oldValue, ["new_password"] = newValue }); Show("App password changed. This phone remains connected; your desk-phone password is unchanged.", false);
+        ConnectionRules.RequireIdle(phone!.Calls.Count); using var api = Api(); await api.JsonAsync("change_password", new() { ["current_password"] = oldValue, ["new_password"] = newValue }); await profiles!.UpdateAccountAsync(profile.Id, profile.Account with { AppPasswordSet = true, CanInitializeAppPassword = false }); current = profile with { Account = profile.Account with { AppPasswordSet = true, CanInitializeAppPassword = false } }; saved = await store.ReadAsync(); Show("App password changed. This phone remains connected; your desk-phone password is unchanged.", false);
     }
     private async Task StartVideo(string number)
     {

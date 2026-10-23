@@ -57,5 +57,17 @@ public sealed class ProfileManager(IProfileStore store, Func<int> activeCalls, F
         }
         finally { mutex.Release(); }
     }
+    /// <summary>Presentation/password-state metadata may refresh during calls; identity and SIP/device credentials cannot change.</summary>
+    public async Task UpdateAccountAsync(Guid id, AccountIdentity account, CancellationToken cancellation = default)
+    {
+        await mutex.WaitAsync(cancellation);
+        try
+        {
+            var profiles = await store.ReadAsync(cancellation); var existing = profiles.SingleOrDefault(x => x.Id == id) ?? throw new PhoneInputException("Choose a saved account.");
+            if (account.DomainId != existing.Account.DomainId || account.ExtensionId != existing.Account.ExtensionId || account.Extension != existing.Account.Extension) throw new PhoneInputException("The PBX account does not match this saved phone.");
+            var selected = await store.SelectedAsync(cancellation); await store.SaveAsync(profiles.Select(x => x.Id == id ? x with { Account = account } : x).ToArray(), selected, cancellation);
+        }
+        finally { mutex.Release(); }
+    }
     private void RequireIdle() => ConnectionRules.RequireIdle(activeCalls(), installing());
 }

@@ -37,6 +37,8 @@ The independent client updater must be implemented and qualified before automati
 
 These are acceptance requirements, not evidence that an updater exists. Do not publish a feed URL, signing key, package checksum or download link until the corresponding immutable artifact has been accepted. A manual signed download can be the initial route if automatic upgrade is still unfinished, provided the listing says so accurately.
 
+The reserved direct-client channel is `https://github.com/embire2/openwebpbx/releases/download/windows-phone-stable/windows-phone-update-manifest.json`. This is a planned fixed address, not a claim that the asset exists. Use independent immutable package tags such as `windows-phone-v1.0.0` and keep both those releases and the component's stable-feed release out of GitHub's generic Latest selection (`make_latest=false`). Never add this feed to the core release's `releases/latest` assets. Backend release availability is deliberately false until an accepted signed-client release catalogue is integrated; completing that activation and its preservation tests remains an explicit release TODO.
+
 ## Installation, privacy and migration checks
 
 Both flavors require a valid tenant address, extension and admin-issued app password, or a bounded one-use invitation. Setup files contain enrolment information, not reusable SIP passwords. Store/normal-user DPAPI profile migration, separate package identities, uninstall, reinstall and changing Windows users must be tested before promising migration between routes. Do not copy another user's protected profile database.
