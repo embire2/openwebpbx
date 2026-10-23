@@ -7,18 +7,18 @@ on:
         required: true
         type: string
       build_mode:
-        description: Inventory probe, native client build, or source candidate collection
+        description: Inventory, native build, source collection, or isolated calling lab
         type: choice
-        options: [probe, build, sources]
+        options: [probe, build, sources, media]
         default: probe
 permissions:
   contents: read
 concurrency:
-  group: windows-free-phone-${{ inputs.build_mode == 'sources' && 'sources' || 'client' }}
+  group: windows-free-phone-${{ inputs.build_mode == 'sources' && 'sources' || inputs.build_mode == 'media' && 'media' || 'client' }}
   cancel-in-progress: false
 jobs:
   client:
-    if: inputs.build_mode != 'sources'
+    if: inputs.build_mode == 'probe' || inputs.build_mode == 'build'
     runs-on: windows-2025
     timeout-minutes: 60
     defaults:
@@ -68,6 +68,93 @@ jobs:
         with:
           name: windows-free-phone-probe-${{ github.run_id }}
           path: ${{ runner.temp }}/windows-phone-probe/
+          if-no-files-found: error
+          retention-days: 14
+  media:
+    if: inputs.build_mode == 'media'
+    runs-on: windows-2025
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      actions: read
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PHONE_SOURCE_REF: ${{ inputs.source_ref }}
+      DOTNET_NOLOGO: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      NUGET_XMLDOC_MODE: skip
+    steps:
+      - name: Validate isolated client media request
+        run: |
+          if($env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx' -or $env:PHONE_SOURCE_REF -cnotmatch '^[a-f0-9]{40}$'){throw 'An exact reviewed client source is required.'}
+          git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_ref }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify actual client source
+        run: |
+          if((git rev-parse HEAD).Trim() -cne $env:PHONE_SOURCE_REF){throw 'Client source differs.'}
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: '10.0.401'
+      - name: Obtain exact previously qualified components
+        env:
+          MEDIA_ACTIONS_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
+          if($env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:RUNNER_OS -cne 'Windows'){throw 'Only the disposable hosted lab is allowed.'}
+          $dir=Join-Path $env:RUNNER_TEMP 'phone-media-inputs';$null=New-Item -ItemType Directory -Path $dir
+          function MediaGet([string]$Address,[string]$Target,[long]$Limit,[switch]$Api){
+            $handler=[Net.Http.HttpClientHandler]::new();$handler.AllowAutoRedirect=$false;$handler.UseDefaultCredentials=$false;$handler.UseCookies=$false
+            $http=[Net.Http.HttpClient]::new($handler);$http.Timeout=[Threading.Timeout]::InfiniteTimeSpan
+            $deadline=[Threading.CancellationTokenSource]::new([TimeSpan]::FromMinutes(15));$response=$null;$out=$null
+            try{
+              $uri=[Uri]$Address
+              for($i=0;$i -le 5;$i++){
+                if($uri.Scheme -cne 'https' -or !$uri.IsDefaultPort -or $uri.UserInfo -or $uri.Fragment -or $uri.AbsoluteUri.Length -gt 16384 -or $uri.Host -cnotin 'api.github.com','github.com','release-assets.githubusercontent.com','objects.githubusercontent.com','download.linphone.org','productionresultssa7.blob.core.windows.net'){throw 'Component redirect refused.'}
+                if($uri.Host -ceq 'api.github.com' -and (!$Api -or !$uri.AbsolutePath.StartsWith('/repos/embire2/openwebpbx/actions/',[StringComparison]::Ordinal))){throw 'API component scope differs.'}
+                if($uri.Host -ceq 'github.com' -and $uri.AbsolutePath -cne '/signalwire/freeswitch/releases/download/v1.11.3/FreeSWITCH-1.11.3-Release-x64.msi'){throw 'Public component scope differs.'}
+                if($uri.Host -ceq 'download.linphone.org' -and $uri.AbsolutePath -cne '/releases/windows/sdk/linphone-sdk-win64-5.5.23.zip'){throw 'SDK component scope differs.'}
+                $request=[Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get,$uri);$request.Headers.UserAgent.ParseAdd('OpenWebPBX-ClientMedia/1.0')
+                if($Api -and $uri.Host -ceq 'api.github.com'){$request.Headers.Authorization=[Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer',$env:MEDIA_ACTIONS_TOKEN);$request.Headers.Add('X-GitHub-Api-Version','2022-11-28')}
+                try{$response=$http.SendAsync($request,[Net.Http.HttpCompletionOption]::ResponseHeadersRead,$deadline.Token).GetAwaiter().GetResult()}finally{$request.Dispose()}
+                if([int]$response.StatusCode -in 301,302,303,307,308){$next=$response.Headers.Location;if(!$next -or $i -eq 5){throw 'Component redirect bound exceeded.'};$uri=[Uri]::new($uri,$next);$response.Dispose();$response=$null;continue}
+                if([int]$response.StatusCode -ne 200){throw 'Pinned component unavailable.'};break
+              }
+              if(!$response -or [int]$response.StatusCode -ne 200 -or ($null -ne $response.Content.Headers.ContentLength -and $response.Content.Headers.ContentLength -gt $Limit)){throw 'Component response exceeds bound.'}
+              $out=[IO.File]::Open($Target,'CreateNew','Write','None');$input=$response.Content.ReadAsStreamAsync($deadline.Token).GetAwaiter().GetResult()
+              try{$bytes=[byte[]]::new(131072);$total=0L;while(($n=$input.ReadAsync($bytes,0,$bytes.Length,$deadline.Token).GetAwaiter().GetResult()) -gt 0){$total+=$n;if($total -gt $Limit){throw 'Component body exceeds bound.'};$out.Write($bytes,0,$n)};$out.Flush($true)}finally{$input.Dispose();$out.Dispose();$out=$null}
+            }finally{if($out){$out.Dispose()};if($response){$response.Dispose()};$deadline.Dispose();$http.Dispose()}
+          }
+          $runFile=Join-Path $dir 'engine-run.json';MediaGet 'https://api.github.com/repos/embire2/openwebpbx/actions/runs/39823852979' $runFile 65536 -Api
+          $r=Get-Content $runFile -Raw|ConvertFrom-Json
+          if($r.id -ne 39823852979 -or $r.workflow_id -ne 384460242 -or $r.head_sha -cne '011dcc1701baeb94db0db81d2445482971601605' -or $r.repository.id -ne 1406074259 -or $r.head_repository.id -ne 1406074259 -or $r.event -cne 'workflow_dispatch' -or $r.path -cne '.github/workflows/windows-engine.yml' -or $r.run_attempt -ne 1 -or $r.status -cne 'completed' -or $r.conclusion -cne 'success'){throw 'Accepted engine run binding differs.'}
+          $artifactFile=Join-Path $dir 'engine-artifact.json';MediaGet 'https://api.github.com/repos/embire2/openwebpbx/actions/artifacts/12444963981' $artifactFile 65536 -Api
+          $a=Get-Content $artifactFile -Raw|ConvertFrom-Json
+          if($a.id -ne 12444963981 -or $a.name -cne 'openwebpbx-windows-engine-39823852979' -or $a.expired -isnot [bool] -or $a.expired -or $a.size_in_bytes -ne 39161015 -or $a.digest -cne 'sha256:3d4091bd972c1ea82ff9b6899c091dbeebf66416d6d76475add523ebe10a7542' -or $a.workflow_run.id -ne 39823852979 -or $a.workflow_run.head_sha -cne $r.head_sha -or $a.workflow_run.repository_id -ne 1406074259 -or $a.workflow_run.head_repository_id -ne 1406074259){throw 'Accepted engine artifact binding differs.'}
+          foreach($item in @(
+            @('sdk.zip','https://download.linphone.org/releases/windows/sdk/linphone-sdk-win64-5.5.23.zip',315960147,'9cc84037333daca88af24804e20b9d1f5e41ddd901578484b57dcc6720a8d297',$false),
+            @('core.msi','https://github.com/signalwire/freeswitch/releases/download/v1.11.3/FreeSWITCH-1.11.3-Release-x64.msi',168300544,'f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d',$false),
+            @('engine.zip','https://api.github.com/repos/embire2/openwebpbx/actions/artifacts/12444963981/zip',39161015,'3d4091bd972c1ea82ff9b6899c091dbeebf66416d6d76475add523ebe10a7542',$true)
+          )){$file=Join-Path $dir $item[0];MediaGet $item[1] $file $item[2] -Api:($item[4]);if((Get-Item $file).Length -ne $item[2] -or (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant() -cne $item[3]){throw 'Exact component bytes differ.'}}
+      - name: Exercise native calling and decoded media
+        run: |
+          & ./clients/windows/tests/media/ReceiptControls.ps1
+          & ./clients/windows/tests/media/OwnershipControls.ps1
+          python ./clients/windows/tests/media/test_engine_selection.py
+          if($LASTEXITCODE){throw 'Media extraction controls failed.'}
+          $inputs=Join-Path $env:RUNNER_TEMP 'phone-media-inputs'
+          & ./clients/windows/tools/Test-ClientMedia.ps1 -SdkZip (Join-Path $inputs 'sdk.zip') -CoreMsi (Join-Path $inputs 'core.msi') -EngineZip (Join-Path $inputs 'engine.zip') -SourceCommit $env:PHONE_SOURCE_REF -Report "$env:RUNNER_TEMP/client-media-qualification.json"
+      - name: Preserve closed native calling evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-free-phone-media-${{ github.run_id }}
+          path: ${{ runner.temp }}/client-media-qualification.json
           if-no-files-found: error
           retention-days: 14
   sources:
