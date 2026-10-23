@@ -4,7 +4,7 @@
 [CmdletBinding()]
 param(
  [ValidateSet('Plan','Collect','InspectNative')][string]$Mode='Plan',
- [string]$Output,[string]$SdkArchive,[string]$NativeRoot,[string]$DiagnosticPath,
+ [string]$Output,[string]$SdkArchive,[string]$NativeRoot,[string]$DiagnosticPath,[string]$SdkSourceArchive,
  [string]$SourceLock=(Join-Path (Split-Path $PSScriptRoot -Parent) 'native/source-lock.json')
 )
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
@@ -152,8 +152,8 @@ function SourceDiagnosticReason([Management.Automation.ErrorRecord]$Failure){
  if($codes.ContainsKey($Failure.Exception.Message)){return $codes[$Failure.Exception.Message]};return 'unknown'
 }
 function WriteSourceDiagnostic($Context,[Management.Automation.ErrorRecord]$Failure){
- $stages=@('bootstrap','sdk_input','workspace','first_party','sdk_graph','sdk_materials','licences','packet','complete')
- $operations=@('read_lock','validate_input','prepare_work','git_init','git_status','git_rev_parse','git_fetch_local','git_fetch_https','git_ls_tree','git_show','git_archive','git_other','export_files','read_binding','read_sdk_licences','read_sdk_metadata','validate_licences','build_materials','write_manifest','create_archive','write_qualification','complete')
+ $stages=@('bootstrap','sdk_input','workspace','first_party','sdk_graph','sdk_seed','sdk_materials','licences','packet','complete')
+ $operations=@('read_lock','validate_input','prepare_work','git_init','git_status','git_rev_parse','git_fetch_local','git_fetch_https','git_ls_tree','git_show','git_archive','git_other','export_files','import_source_seed','read_binding','read_sdk_licences','read_sdk_metadata','validate_licences','build_materials','write_manifest','create_archive','write_qualification','complete')
  $kinds=@('bootstrap','first_party','sdk_root','sdk_submodule','sdk_materials','candidate_packet')
  if($Context.stage -cnotin $stages -or $Context.operation -cnotin $operations -or $Context.source_kind -cnotin $kinds -or $Context.repository_depth -isnot [int] -or $Context.repository_depth -lt 0 -or $Context.repository_depth -gt 9){throw 'The closed source diagnostic state differs.'}
  $repositories=Get-Variable -Name allRepos -Scope Script -ErrorAction SilentlyContinue;$files=Get-Variable -Name allFiles -Scope Script -ErrorAction SilentlyContinue;$bytes=Get-Variable -Name totalBytes -Scope Script -ErrorAction SilentlyContinue
@@ -164,7 +164,7 @@ function WriteSourceDiagnostic($Context,[Management.Automation.ErrorRecord]$Fail
  if($Failure){
   $types=@('System.Management.Automation.RuntimeException','System.Management.Automation.MethodInvocationException','System.Management.Automation.ActionPreferenceStopException','System.Management.Automation.ItemNotFoundException','System.Management.Automation.ParameterBindingException','System.Management.Automation.PropertyNotFoundException','System.Management.Automation.ParentContainsErrorRecordException','System.Management.Automation.CmdletInvocationException','System.IO.IOException','System.IO.InvalidDataException','System.IO.FileNotFoundException','System.IO.DirectoryNotFoundException','System.UnauthorizedAccessException','System.ArgumentException','System.InvalidOperationException','System.NotSupportedException','System.ComponentModel.Win32Exception','System.NullReferenceException','System.IndexOutOfRangeException')
   $observed=$Failure.Exception.GetType().FullName;$type=if($observed -cin $types){$observed}else{'other'}
-  $name=if([IO.Path]::GetFileName($Failure.InvocationInfo.ScriptName) -ceq 'Collect-CorrespondingSource.ps1'){'Collect-CorrespondingSource.ps1'}else{'external_component'}
+  $observedName=[IO.Path]::GetFileName($Failure.InvocationInfo.ScriptName);$name=if($observedName -cin 'Collect-CorrespondingSource.ps1','Import-SourceSeed.ps1'){$observedName}else{'external_component'}
   $actualLine=$Failure.InvocationInfo.ScriptLineNumber;if($actualLine -is [int] -and $actualLine -ge 1 -and $actualLine -le 100000){$line=$actualLine}
  }
  $exit=$Context.git_exit_code;if($null -ne $exit -and ($exit -isnot [int] -and $exit -isnot [long] -or $exit -lt -2147483648L -or $exit -gt 2147483647L)){throw 'The source diagnostic Git exit differs.'}
@@ -317,7 +317,13 @@ $null=InvokeSourceGit @('-c','protocol.file.allow=always','-C',$clientCopy,'fetc
 ExportSourceRepo $clientCopy $clientCommit 'client' @('clients/windows','resources/windows-phone/release-public.pem')
 foreach($public in $lock.policy.public_material){if(!@($allFiles|Where-Object {$_.path -ceq ('client/'+$public.path) -and $_.sha256 -ceq $public.sha256}).Count){throw 'A pinned public build resource is missing from the exact client source.'}}
 Remove-Item -LiteralPath $clientCopy -Recurse -Force
-CollectSourceRepo $lock.source.url $lock.source.commit 'vendor/linphone-sdk' 0 $true
+if($SdkSourceArchive){
+ if($sourceDiagnostic){$sourceDiagnostic.stage='sdk_seed';$sourceDiagnostic.operation='import_source_seed';$sourceDiagnostic.source_kind='sdk_root';$sourceDiagnostic.repository_depth=0}
+ $importer=Join-Path $PSScriptRoot 'Import-SourceSeed.ps1'
+ if((SourceHash $importer) -cne $lock.source_seed.importer_sha256 -or $lock.source_seed.manifest_file -cne 'source-seed-files.json.gz'){throw 'The pinned source seed helper differs.'}
+ . $importer
+ ImportSourceSeed $SdkSourceArchive (Join-Path $client 'native/source-seed-files.json.gz') $lock.source_seed
+}else{CollectSourceRepo $lock.source.url $lock.source.commit 'vendor/linphone-sdk' 0 $true}
 if($sourceDiagnostic){$sourceDiagnostic.stage='sdk_materials';$sourceDiagnostic.operation='read_binding';$sourceDiagnostic.source_kind='sdk_materials';$sourceDiagnostic.repository_depth=0;$sourceDiagnostic.git_exit_code=$null}
 $archive=[IO.Compression.ZipFile]::OpenRead($sdkFile.FullName)
 try{
@@ -406,7 +412,7 @@ Write-Host 'Candidate source SDK built. Record toolchains/cache/link inputs and 
 AddSourceBytes 'Rebuild-CandidateSdk.ps1' ([Text.UTF8Encoding]::new($false).GetBytes($rebuild))
 
 AddSourceBytes 'source-lock.json' ([IO.File]::ReadAllBytes($SourceLock))
-$manifest=[ordered]@{schema=1;state='source_candidate_binary_correspondence_unproven';client_commit=$clientCommit;source_lock_sha256=(SourceHash $SourceLock);sdk_sha256=$lock.sdk.sha256;repositories=@($allRepos);files=@($allFiles);licences=@($licenses);documentation_redaction=$lock.policy.readme_redaction;unresolved_lfs_pointers=0;binary_source_mapping_verified=$false;store_accepted=$false}
+$manifest=[ordered]@{schema=1;state='source_candidate_binary_correspondence_unproven';client_commit=$clientCommit;source_lock_sha256=(SourceHash $SourceLock);sdk_sha256=$lock.sdk.sha256;sdk_source_materialization=$(if($SdkSourceArchive){'pinned_prior_source_archive_canonical_git_blobs'}else{'pinned_recursive_git'});repositories=@($allRepos);files=@($allFiles);licences=@($licenses);documentation_redaction=$lock.policy.readme_redaction;unresolved_lfs_pointers=0;binary_source_mapping_verified=$false;store_accepted=$false}
 if($sourceDiagnostic){$sourceDiagnostic.operation='write_manifest'}
 WriteSourceJson (Join-Path $packet 'source-manifest.json') $manifest
 $null=New-Item -ItemType Directory -Path $destination

@@ -717,5 +717,19 @@
       "clean rebuild and binary/source matching qualification",
       "resolved .NET/WindowsAppSDK/NuGet runtime license and redistribution notices"
     ]
+  },
+  "source_seed": {
+    "schema": 1,
+    "manifest_file": "source-seed-files.json.gz",
+    "manifest_sha256": "1fe86c72ab7bfdbfdd2ecb25b608711a0b90d86168711469817eef82e4ed5e9a",
+    "importer_sha256": "27b35306afc0094eacef8264065f0b9d0ab16ba91d6efb998b40115d26137c28",
+    "archive_url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.11/openwebpbx-1.0.11-android-source.tar.gz",
+    "archive_bytes": 364437897,
+    "archive_sha256": "61784eaae91db82d79ada014dae931f01af3e2ad2f5bbcd641b288d92bf89449",
+    "tracked_files": 38406,
+    "repositories": 33,
+    "canonical_source_bytes": 807773336,
+    "checkout_transforms": 26,
+    "qualification": "prior_release_seed_verified_against_all_original_git_blobs_not_vendor_binary_correspondence"
   }
 }

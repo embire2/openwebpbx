@@ -17,10 +17,10 @@ if(!$parent){throw 'Output ancestry did not reach RUNNER_TEMP.'}
 $source=(git rev-parse HEAD).Trim();if($LASTEXITCODE -or $source -cne $env:PHONE_SOURCE_REF){throw 'The checked-out source differs.'}
 $collector=Join-Path $PSScriptRoot 'Collect-CorrespondingSource.ps1'
 $sourceLock=Join-Path (Split-Path $PSScriptRoot -Parent) 'native/source-lock.json'
-if((Get-FileHash -LiteralPath $collector -Algorithm SHA256).Hash.ToLowerInvariant() -cne '087336a0ef0cf6327866f87f7b147a34712ff278d8ea2bf94530f0874240aed1' -or (Get-FileHash -LiteralPath $sourceLock -Algorithm SHA256).Hash.ToLowerInvariant() -cne '3e7095aceffd314638606da03caed1867c3546314dc2898d43dbc2ab8241f0ac'){throw 'The reviewed source collector inputs differ.'}
+if((Get-FileHash -LiteralPath $collector -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'c8848c88409fbd137c4f464ed738b0e00e2e289a30e0d8dae7b5b1a5676859c4' -or (Get-FileHash -LiteralPath $sourceLock -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'a20f0e3ae7b3e2f358151fbed5bb45c327731107c660e81c700f60bdc81b8c31'){throw 'The reviewed source collector inputs differ.'}
 $evidence=Join-Path $destination 'evidence';$packet=Join-Path $destination 'packet'
 $null=New-Item -ItemType Directory -Path $evidence
-$report=[ordered]@{schema=1;component='windows-free-phone-source';version='1.0.0';source_commit=$source;state='running';sdk_sha256='9cc84037333daca88af24804e20b9d1f5e41ddd901578484b57dcc6720a8d297';source_lock_sha256='3e7095aceffd314638606da03caed1867c3546314dc2898d43dbc2ab8241f0ac';binary_source_mapping_verified=$false;source_sdk_rebuild_qualified=$false;actual_calling_tested=$false;hardware_media_tested=$false;store_accepted=$false}
+$report=[ordered]@{schema=1;component='windows-free-phone-source';version='1.0.0';source_commit=$source;state='running';sdk_sha256='9cc84037333daca88af24804e20b9d1f5e41ddd901578484b57dcc6720a8d297';source_lock_sha256='a20f0e3ae7b3e2f358151fbed5bb45c327731107c660e81c700f60bdc81b8c31';binary_source_mapping_verified=$false;source_sdk_rebuild_qualified=$false;actual_calling_tested=$false;hardware_media_tested=$false;store_accepted=$false}
 $process=$null;$download=$null;$response=$null;$http=$null;$handler=$null;$failed=$false
 function WriteSourceCiJson([string]$Path,$Value){
  $bytes=[Text.UTF8Encoding]::new($false).GetBytes(($Value|ConvertTo-Json -Depth 8)+"`n")
@@ -59,18 +59,41 @@ function ReadSourceCiDiagnostic([string]$Path){
  if($record -isnot [pscustomobject] -or (Compare-Object @($record.PSObject.Properties.Name|Sort-Object -CaseSensitive) @($fields|Sort-Object -CaseSensitive) -CaseSensitive)){throw 'The closed source diagnostic fields differ.'}
  foreach($field in @('schema','source_line','sdk_repository_count','exported_file_count','exported_source_bytes','repository_depth')){if($record.$field -isnot [int] -and $record.$field -isnot [long]){throw 'The closed source diagnostic integer differs.'}}
  foreach($field in @('producer','state','stage','operation','source_kind','exception_type','source_basename','refusal_reason')){if($record.$field -isnot [string]){throw 'The closed source diagnostic string differs.'}}
- $stages=@('bootstrap','sdk_input','workspace','first_party','sdk_graph','sdk_materials','licences','packet','complete')
- $operations=@('read_lock','validate_input','prepare_work','git_init','git_status','git_rev_parse','git_fetch_local','git_fetch_https','git_ls_tree','git_show','git_archive','git_other','export_files','read_binding','read_sdk_licences','read_sdk_metadata','validate_licences','build_materials','write_manifest','create_archive','write_qualification','complete')
+ $stages=@('bootstrap','sdk_input','workspace','first_party','sdk_graph','sdk_seed','sdk_materials','licences','packet','complete')
+ $operations=@('read_lock','validate_input','prepare_work','git_init','git_status','git_rev_parse','git_fetch_local','git_fetch_https','git_ls_tree','git_show','git_archive','git_other','export_files','import_source_seed','read_binding','read_sdk_licences','read_sdk_metadata','validate_licences','build_materials','write_manifest','create_archive','write_qualification','complete')
  $kinds=@('bootstrap','first_party','sdk_root','sdk_submodule','sdk_materials','candidate_packet')
  $types=@('none','other','System.Management.Automation.RuntimeException','System.Management.Automation.MethodInvocationException','System.Management.Automation.ActionPreferenceStopException','System.Management.Automation.ItemNotFoundException','System.Management.Automation.ParameterBindingException','System.Management.Automation.PropertyNotFoundException','System.Management.Automation.ParentContainsErrorRecordException','System.Management.Automation.CmdletInvocationException','System.IO.IOException','System.IO.InvalidDataException','System.IO.FileNotFoundException','System.IO.DirectoryNotFoundException','System.UnauthorizedAccessException','System.ArgumentException','System.InvalidOperationException','System.NotSupportedException','System.ComponentModel.Win32Exception','System.NullReferenceException','System.IndexOutOfRangeException')
  $reasons=@('none','unknown','source_path','source_url','module_shape','gitlink_shape','readme_input_hash','readme_shape','readme_output_hash','source_lock','missing_input','sdk_identity','capacity_before_collection','git_time_or_capacity','git_output_bound','git_exit_nonzero','source_inventory_bound','unresolved_lfs','private_key_refused','public_key_identity','unlisted_key_material','export_scope','export_attributes','source_symlink','tar_shape','source_graph_bound','source_commit','module_graph','module_pin','module_url','client_not_clean','client_commit','missing_public_resource','sdk_binding','sdk_metadata','missing_licence','capacity_before_archive','archive_size')
- if($record.schema -ne 1 -or $record.producer -cne 'Collect-CorrespondingSource.ps1' -or $record.state -cnotin 'failed','completed' -or $record.stage -cnotin $stages -or $record.operation -cnotin $operations -or $record.source_kind -cnotin $kinds -or $record.exception_type -cnotin $types -or $record.source_basename -cnotin 'none','Collect-CorrespondingSource.ps1','external_component' -or $record.refusal_reason -cnotin $reasons){throw 'The closed source diagnostic value differs.'}
+ if($record.schema -ne 1 -or $record.producer -cne 'Collect-CorrespondingSource.ps1' -or $record.state -cnotin 'failed','completed' -or $record.stage -cnotin $stages -or $record.operation -cnotin $operations -or $record.source_kind -cnotin $kinds -or $record.exception_type -cnotin $types -or $record.source_basename -cnotin 'none','Collect-CorrespondingSource.ps1','Import-SourceSeed.ps1','external_component' -or $record.refusal_reason -cnotin $reasons){throw 'The closed source diagnostic value differs.'}
  foreach($flag in @('binary_source_mapping_verified','store_accepted')){if($record.$flag -isnot [bool] -or $record.$flag){throw 'The source diagnostic scope differs.'}}
  if($record.source_line -lt 0 -or $record.source_line -gt 100000 -or $record.sdk_repository_count -lt 0 -or $record.sdk_repository_count -gt 128 -or $record.exported_file_count -lt 0 -or $record.exported_file_count -gt 250000 -or $record.exported_source_bytes -lt 0 -or $record.exported_source_bytes -gt 1610612736 -or $record.repository_depth -lt 0 -or $record.repository_depth -gt 9){throw 'The closed source diagnostic counter differs.'}
  if($null -ne $record.git_exit_code -and (($record.git_exit_code -isnot [int] -and $record.git_exit_code -isnot [long]) -or $record.git_exit_code -lt -2147483648L -or $record.git_exit_code -gt 2147483647L)){throw 'The closed source diagnostic Git exit differs.'}
  if($record.state -ceq 'completed' -and ($record.stage -cne 'complete' -or $record.operation -cne 'complete' -or $record.exception_type -cne 'none' -or $record.source_basename -cne 'none' -or $record.source_line -ne 0 -or $record.refusal_reason -cne 'none')){throw 'The completed source diagnostic differs.'}
  if($record.state -ceq 'failed' -and ($record.exception_type -ceq 'none' -or $record.refusal_reason -ceq 'none')){throw 'The failed source diagnostic differs.'}
  return $record
+}
+function GetSourceCiSeedArchive([string]$Destination){
+ $handler=[Net.Http.HttpClientHandler]::new();$handler.AllowAutoRedirect=$false;$handler.UseDefaultCredentials=$false
+ $http=[Net.Http.HttpClient]::new($handler);$http.Timeout=[Threading.Timeout]::InfiniteTimeSpan
+ $deadline=[Threading.CancellationTokenSource]::new([TimeSpan]::FromMinutes(20));$response=$null;$output=$null
+ try{
+  $uri=[Uri]'https://github.com/embire2/openwebpbx/releases/download/v1.0.11/openwebpbx-1.0.11-android-source.tar.gz'
+  for($redirect=0;$redirect -le 5;$redirect++){
+   if($uri.Scheme -cne 'https' -or $uri.Host -cnotin 'github.com','release-assets.githubusercontent.com','objects.githubusercontent.com' -or !$uri.IsDefaultPort -or $uri.UserInfo -or $uri.Fragment -or $uri.AbsoluteUri.Length -gt 16384){throw 'The pinned source seed redirect was refused.'}
+   if($uri.Host -ceq 'github.com' -and $uri.AbsolutePath -cne '/embire2/openwebpbx/releases/download/v1.0.11/openwebpbx-1.0.11-android-source.tar.gz'){throw 'The pinned source release path differs.'}
+   $response=$http.GetAsync($uri,[Net.Http.HttpCompletionOption]::ResponseHeadersRead,$deadline.Token).GetAwaiter().GetResult()
+   if([int]$response.StatusCode -in 301,302,303,307,308){$location=$response.Headers.Location;if(!$location -or $redirect -eq 5){throw 'The source seed redirect bound was exceeded.'};$uri=[Uri]::new($uri,$location);$response.Dispose();$response=$null;continue}
+   if([int]$response.StatusCode -ne 200){throw 'The pinned public source seed is unavailable.'};break
+  }
+  if(!$response -or [int]$response.StatusCode -ne 200 -or ($null -ne $response.Content.Headers.ContentLength -and $response.Content.Headers.ContentLength -ne 364437897)){throw 'The source seed response length differs.'}
+  $output=[IO.File]::Open($Destination,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None);$input=$response.Content.ReadAsStreamAsync($deadline.Token).GetAwaiter().GetResult()
+  try{
+   $buffer=[byte[]]::new(131072);$count=0L
+   while(($read=$input.ReadAsync($buffer,0,$buffer.Length,$deadline.Token).GetAwaiter().GetResult()) -gt 0){$count+=$read;if($count -gt 364437897){throw 'The source seed download exceeds its exact bound.'};$output.Write($buffer,0,$read)}
+   $output.Flush($true)
+  }finally{$input.Dispose();$output.Dispose();$output=$null}
+  if((Get-Item -LiteralPath $Destination).Length -ne 364437897 -or (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash.ToLowerInvariant() -cne '61784eaae91db82d79ada014dae931f01af3e2ad2f5bbcd641b288d92bf89449'){throw 'The complete source seed download differs.'}
+ }finally{if($output){$output.Dispose()};if($response){$response.Dispose()};$deadline.Dispose();$http.Dispose()}
 }
 try{
  if(([IO.DriveInfo]::new([IO.Path]::GetPathRoot($temp))).AvailableFreeSpace -lt 13GB){throw 'Insufficient disposable runner capacity.'}
@@ -97,9 +120,10 @@ try{
   }finally{$input.Dispose();$download.Dispose();$download=$null}
  }finally{$deadline.Dispose()}
  if((Get-Item -LiteralPath $archive).Length -ne 315960147 -or (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $report.sdk_sha256){throw 'The complete official SDK input differs.'}
+ $sourceSeed=Join-Path $temp ('phone-source-seed-'+[Guid]::NewGuid().ToString('N')+'.tar.gz');GetSourceCiSeedArchive $sourceSeed
  $diagnosticDirectory=Join-Path $temp ('phone-source-diagnostics-'+[Guid]::NewGuid().ToString('N'));$null=New-Item -ItemType Directory -Path $diagnosticDirectory;$diagnosticPath=Join-Path $diagnosticDirectory 'collector.json'
  $info=[Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path);$info.UseShellExecute=$false;$info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
- foreach($argument in @('-NoLogo','-NoProfile','-NonInteractive','-File',$collector,'-Mode','Collect','-SdkArchive',$archive,'-Output',$packet,'-DiagnosticPath',$diagnosticPath)){$info.ArgumentList.Add($argument)}
+ foreach($argument in @('-NoLogo','-NoProfile','-NonInteractive','-File',$collector,'-Mode','Collect','-SdkArchive',$archive,'-SdkSourceArchive',$sourceSeed,'-Output',$packet,'-DiagnosticPath',$diagnosticPath)){$info.ArgumentList.Add($argument)}
  $process=[Diagnostics.Process]::Start($info);$stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync();$end=[DateTime]::UtcNow.AddMinutes(90)
  while(!$process.WaitForExit(1000)){if([DateTime]::UtcNow -gt $end){$process.Kill($true);$process.WaitForExit();throw 'The source collection exceeded its bounded deadline.'}}
  $closedOutput=$stdout.GetAwaiter().GetResult();$privateErrors=$stderr.GetAwaiter().GetResult();$report.collector_exit_code=[int]$process.ExitCode
