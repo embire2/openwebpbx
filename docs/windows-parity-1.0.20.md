@@ -1,6 +1,14 @@
 # Windows Server parity work — 1.0.20
 
 Status on 23 October 2026: **development and native acceptance in progress**.
+
+Fresh normal40005106134/sourced5a5a0ad8 is running with the same73 native
+build inputs. Failure-only restart observations now distinguish actual readiness,
+maintenance holds and owned PostgreSQL activity without reading private SQL into
+the report or acquiring the maintenance lock.41 isolated database/file and155
+strict observer controls pass, independently repeated. The original heartbeat,
+90-second restart check and all runtime behavior remain unchanged. This is
+additional evidence collection, not a restart or full-server pass.
 The currently published Windows release remains 1.0.7. Do not replace a
 production server with an unpublished archive. Debian's hosted Phone Health
 patch and the earlier complete Debian candidate have separate verification.
