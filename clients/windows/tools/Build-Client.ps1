@@ -63,6 +63,12 @@ try{
  $bitmap=[Drawing.Bitmap]::new($width,$height);$graphics=[Drawing.Graphics]::FromImage($bitmap)
  try{$graphics.CopyFromScreen($rect.Left,$rect.Top,0,0,$bitmap.Size);$bitmap.Save((Join-Path $evidence 'client-window.png'),[Drawing.Imaging.ImageFormat]::Png)}finally{$graphics.Dispose();$bitmap.Dispose()}
  $report.native_window_screenshot=$true
+ $uiReport=Join-Path $evidence 'interface-controls.json'
+ & (Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell\v1.0\powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Test-ClientInterface.ps1') -ProcessId $process.Id -Executable $exe -Report $uiReport *> (Join-Path $evidence 'interface-controls.log')
+ if($LASTEXITCODE){throw 'The native account/settings interface checks failed.'}
+ $interface=Get-Content -LiteralPath $uiReport -Raw|ConvertFrom-Json
+ if($interface.producer -cne 'Test-ClientInterface.ps1' -or $interface.state -cne 'passed' -or $interface.checks -lt 20 -or $interface.actual_native_uia -ne $true -or $interface.logged_out_accounts_settings_keypad -ne $true -or $interface.network_sign_in_tested -ne $false -or $interface.calls_placed -ne $false){throw 'Native interface proof differs.'}
+ $report.native_interface_checks=[int]$interface.checks
  $report.state='passed_build_startup';$report.limitation='Native client build and visible startup only; calling, hardware, packaging and Store acceptance remain separate gates.'
 }catch{$report.state='failed';$report.error_type=$_.Exception.GetType().Name;$report.source_line=$_.InvocationInfo.ScriptLineNumber;throw}
 finally{
@@ -79,10 +85,10 @@ finally{
  $evidenceFiles=@(Get-ChildItem -LiteralPath $evidence -File -Recurse -Force)
  $report.evidence_bounded=$true
  foreach($item in $evidenceFiles){
-  if($item.DirectoryName -cne $evidence -or $item.Name -notin 'core-checks.log','native-check-build.log','native-checks.log','native-checks.json','build.log','native-startup.json','startup-failure.json','startup-files.json','client-window.png','qualification.json' -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){Remove-Item -LiteralPath $item.FullName -Force;$report.evidence_bounded=$false;continue}
+  if($item.DirectoryName -cne $evidence -or $item.Name -notin 'core-checks.log','native-check-build.log','native-checks.log','native-checks.json','build.log','native-startup.json','startup-failure.json','startup-files.json','client-window.png','client-accounts.png','client-settings.png','interface-controls.json','interface-controls.log','qualification.json' -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){Remove-Item -LiteralPath $item.FullName -Force;$report.evidence_bounded=$false;continue}
   if($item.Length -gt 8MB){$buffer=[byte[]]::new(8MB);$input=[IO.File]::OpenRead($item.FullName);try{$count=$input.Read($buffer,0,$buffer.Length)}finally{$input.Dispose()};$output=[IO.File]::Create($item.FullName);try{$output.Write($buffer,0,$count)}finally{$output.Dispose()};$report.evidence_bounded=$false}
  }
- if($evidenceFiles.Count -gt 10 -or (Get-ChildItem -LiteralPath $evidence -File|Measure-Object Length -Sum).Sum -gt 32MB){foreach($item in Get-ChildItem -LiteralPath $evidence -File){Remove-Item -LiteralPath $item.FullName -Force};$report.evidence_bounded=$false}
+ if($evidenceFiles.Count -gt 16 -or (Get-ChildItem -LiteralPath $evidence -File|Measure-Object Length -Sum).Sum -gt 32MB){foreach($item in Get-ChildItem -LiteralPath $evidence -File){Remove-Item -LiteralPath $item.FullName -Force};$report.evidence_bounded=$false}
  if(!$report.evidence_bounded){$report.state='failed';$report.evidence_failure='size_or_file_scope'}
  $report|ConvertTo-Json -Depth 8|Set-Content (Join-Path $evidence 'qualification.json') -Encoding utf8;Pop-Location
 }

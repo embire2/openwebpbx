@@ -2,6 +2,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
 using OpenWebPbx.Phone.Core;
+using OpenWebPbx.Phone.Windows;
 using Windows.ApplicationModel.Activation;
 namespace OpenWebPbx.Phone.App;
 public partial class App : Application
@@ -14,9 +15,9 @@ public partial class App : Application
         var instance = AppInstance.FindOrRegisterForKey("OpenWebPBX-FreePhone-1");
         if (!instance.IsCurrent) { await instance.RedirectActivationToAsync(AppInstance.GetCurrent().GetActivatedEventArgs()); Environment.Exit(0); return; }
         PhoneWindow = new MainWindow(); instance.Activated += (_, activation) => PhoneWindow.DispatcherQueue.TryEnqueue(async () => await Activate(activation));
-        PhoneWindow.Activate(); await Activate(AppInstance.GetCurrent().GetActivatedEventArgs());
+        PhoneWindow.Activate(); await Activate(AppInstance.GetCurrent().GetActivatedEventArgs(), true);
     }
-    private static async Task Activate(AppActivationArguments args)
+    private static async Task Activate(AppActivationArguments args, bool initial = false)
     {
         PhoneWindow!.Show();
         try
@@ -24,9 +25,10 @@ public partial class App : Application
             if (args.Kind == ExtendedActivationKind.Protocol && args.Data is IProtocolActivatedEventArgs protocol) await PhoneWindow.Import(SetupInvitation.FromUri(protocol.Uri));
             else if (args.Kind == ExtendedActivationKind.File && args.Data is IFileActivatedEventArgs file && file.Files.Count == 1 && file.Files[0] is global::Windows.Storage.StorageFile storage)
                 await PhoneWindow.Import(await InvitationFile(storage));
-            else if (Environment.GetCommandLineArgs().Length == 2)
+            else if (args.Kind == ExtendedActivationKind.Launch)
             {
-                var argument = Environment.GetCommandLineArgs()[1];
+                var values = args.Data is ILaunchActivatedEventArgs launch ? LaunchArguments.Parse(launch.Arguments) : initial ? Environment.GetCommandLineArgs().Skip(1).ToArray() : [];
+                if (values.Length != 1) return; var argument = values[0];
                 if (Uri.TryCreate(argument, UriKind.Absolute, out var uri) && uri.Scheme == "openwebpbx") await PhoneWindow.Import(SetupInvitation.FromUri(uri));
                 else if (Path.IsPathFullyQualified(argument) && argument.EndsWith(".openwebpbx", StringComparison.OrdinalIgnoreCase)) { await using var input = new FileStream(argument, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, FileOptions.Asynchronous | FileOptions.SequentialScan); await PhoneWindow.Import(await SetupInvitation.ReadAsync(input)); }
             }

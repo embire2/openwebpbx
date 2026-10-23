@@ -1,0 +1,5 @@
+<!-- Original OpenWebPBX artwork. SPDX-License-Identifier: AGPL-3.0-or-later -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+ <rect x="12" y="12" width="232" height="232" rx="56" fill="#0067c0"/>
+ <path d="M91 63C82 55 68 59 64 72C51 112 88 169 137 191C158 201 179 201 190 187L200 172C205 164 202 157 195 153L174 141C165 136 158 138 154 145L148 155C126 143 106 123 97 105L108 98C115 94 116 86 111 79L100 65C97 61 94 61 91 63Z" fill="white"/>
+</svg>

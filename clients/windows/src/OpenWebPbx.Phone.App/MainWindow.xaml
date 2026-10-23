@@ -20,7 +20,7 @@
 
         <TitleBar x:Name="AppTitleBar" Title="OpenWebPBX Free Phone">
             <TitleBar.IconSource>
-                <ImageIconSource ImageSource="Assets/AppIcon.ico" />
+                <FontIconSource FontFamily="Segoe Fluent Icons" Glyph="&#xE717;" />
             </TitleBar.IconSource>
         </TitleBar>
 

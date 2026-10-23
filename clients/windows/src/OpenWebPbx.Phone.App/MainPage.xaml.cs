@@ -52,7 +52,7 @@ public sealed partial class MainPage : Page
             catch { Show("Your call ended. Recent calls will sync when the connection returns."); }
         };
         global::Windows.Networking.Connectivity.NetworkInformation.NetworkStatusChanged += NetworkStatusChanged;
-        initialized = true; WriteComponentReceipt(); timer.Start(); await Reload(); preferences = preferenceStore.Read(); ApplyPreferences(); section = preferences.StartupPage; Navigation.SelectedItem = Navigation.MenuItems.Cast<NavigationViewItem>().First(x => x.Tag?.ToString() == section); await Draw();
+        initialized = true; WriteComponentReceipt(); timer.Start(); await Reload(); preferences = preferenceStore.Read(); ApplyPreferences(); section = preferences.StartupPage; loading = true; Navigation.SelectedItem = Navigation.MenuItems.Cast<NavigationViewItem>().First(x => x.Tag?.ToString() == section); loading = false; await Draw();
     }
     private async Task Reload()
     {
@@ -67,7 +67,7 @@ public sealed partial class MainPage : Page
     }
     private async void Navigate(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        if (!initialized) return;
+        if (!initialized || loading) return;
         section = args.IsSettingsSelected ? "Settings" : (args.SelectedItem as NavigationViewItem)?.Tag?.ToString() ?? "Keypad";
         StopPlayback(); await Execute(Draw);
     }
@@ -135,8 +135,8 @@ public sealed partial class MainPage : Page
             else { line.Children.Add(Button("Choose call", () => phone.Select(call.Id))); line.Children.Add(Button("End call", () => phone.Hangup(call.Id))); }
             LiveCalls.Children.Add(line);
         }
-        if (!phone.Busy) { LiveCalls.Visibility = Visibility.Collapsed; videoWindow?.Close(); return; }
-        StopPlayback(); LiveCalls.Visibility = Visibility.Visible;
+        if (!phone.Busy) { LiveCallsCard.Visibility = Visibility.Collapsed; videoWindow?.Close(); return; }
+        StopPlayback(); LiveCallsCard.Visibility = Visibility.Visible;
         var controls = Row(); controls.Children.Add(Button(phone.Current?.State == CallState.Paused ? "Resume Call" : "Call Hold", phone.HoldResume, true)); controls.Children.Add(Button(phone.Current?.Muted == true ? "Unmute" : "Mute", phone.Mute)); controls.Children.Add(AsyncButton("Transfer", Transfer)); controls.Children.Add(Button("Merge calls", phone.Merge)); controls.Children.Add(Button("Video", () => { OpenVideo(); phone.SetVideo(true); })); controls.Children.Add(Button("Stop camera", phone.StopCamera)); LiveCalls.Children.Add(controls);
         if (phone.Current?.State == CallState.UpdatedByRemote) { var offer = Row(); offer.Children.Add(Button("Accept video", () => { OpenVideo(); phone.AcceptVideoOffer(true); })); offer.Children.Add(Button("Audio only", () => phone.AcceptVideoOffer(false))); LiveCalls.Children.Add(offer); }
         if (phone.Conferencing) foreach (var call in phone.Calls) LiveCalls.Children.Add(Button("Mute / unmute " + call.Name, () => phone.MuteParticipant(call.Id)));
@@ -237,6 +237,7 @@ public sealed partial class MainPage : Page
         Body.Children.Add(AsyncButton("Change my app password", Password));
         Body.Children.Add(AsyncButton("Windows microphone privacy", () => Launch("ms-settings:privacy-microphone"))); Body.Children.Add(AsyncButton("Windows camera privacy", () => Launch("ms-settings:privacy-webcam")));
         foreach (var pair in new[] { ("Terms", "terms"), ("Privacy", "privacy"), ("Delete my account", "delete") }) Body.Children.Add(AsyncButton(pair.Item1, () => Launch("https://openwebpbx.com/" + pair.Item2)));
+        Body.Children.Add(Button("Exit phone", () => App.PhoneWindow?.Exit()));
         Body.Children.Add(Text("OpenWebPBX Free Phone 1.0.0 · Native calling powered by Liblinphone 5.5.23 · AGPLv3 or later. A compatible OpenWebPBX account is required."));
     }
     private void SavePreferences(PersonalPreferences value) { preferenceStore.Save(value); preferences = value; }
