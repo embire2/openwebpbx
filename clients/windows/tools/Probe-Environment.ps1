@@ -4,6 +4,7 @@ $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:RUNNER_OS -cne 'Windows' -or $env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx'){throw 'Only the disposable hosted Windows toolchain may run this probe.'}
 New-Item -ItemType Directory -Path $Output|Out-Null
 $report=[ordered]@{schema=1;source_commit=(git rev-parse HEAD);component='windows-free-phone';version='1.0.0';state='running';actual_calling_tested=$false;store_accepted=$false}
+Push-Location (Split-Path $PSScriptRoot -Parent)
 try{
  $report.sdk=(dotnet --version).Trim();if($report.sdk -cne '10.0.401'){throw 'The selected .NET SDK differs.'}
  $bootstrap=Join-Path $PSScriptRoot 'bootstrap';Push-Location $bootstrap
@@ -13,6 +14,7 @@ try{
    $report.bootstrap_exit=$LASTEXITCODE;$report.bootstrap=if($LASTEXITCODE -eq 0){'passed'}else{'partial_failure'}
   }else{$report.bootstrap='winget_unavailable'}
  }finally{Pop-Location}
+ $report.sdk_after_bootstrap=(dotnet --version).Trim();if($report.sdk_after_bootstrap -cne '10.0.401'){throw 'The client SDK pin was not retained after bootstrap.'}
  # The official CLI template provides a buildable reference even when the
  # preinstalled hosted toolchain makes the optional WinGet bootstrap partial.
  & dotnet new install Microsoft.WindowsAppSDK.WinUI.CSharp.Templates *> (Join-Path $Output 'template-install.log')
@@ -57,4 +59,5 @@ try{
   @($zip.Entries|Where-Object {$_.FullName -match '\.(dll|lib)$'}|ForEach-Object{[ordered]@{path=$_.FullName;bytes=$_.Length}})|ConvertTo-Json -Depth 4|Set-Content (Join-Path $Output 'linphone-native-members.json') -Encoding utf8
  }finally{$zip.Dispose()}
  $report.state='passed_component_inventory';$report.limitation='Template build and SDK inventory only; visible application launch, native calls, hardware and Store approval remain unqualified.'
-}finally{$report|ConvertTo-Json -Depth 8|Set-Content (Join-Path $Output 'qualification.json') -Encoding utf8}
+}catch{$report.state='failed';$report.error_type=$_.Exception.GetType().Name;$report.source_line=$_.InvocationInfo.ScriptLineNumber;throw}
+finally{$report|ConvertTo-Json -Depth 8|Set-Content (Join-Path $Output 'qualification.json') -Encoding utf8;Pop-Location}
