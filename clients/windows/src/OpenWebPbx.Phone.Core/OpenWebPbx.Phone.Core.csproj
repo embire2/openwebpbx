@@ -9,4 +9,5 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
+<ItemGroup><EmbeddedResource Include="../../../../resources/windows-phone/release-public.pem" LogicalName="OpenWebPbx.Phone.ReleasePublicKey.pem" /></ItemGroup>
 </Project>

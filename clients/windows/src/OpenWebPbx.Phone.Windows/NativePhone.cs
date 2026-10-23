@@ -207,6 +207,7 @@ public sealed class NativePhone : IDisposable
         if (state == CallState.Released) { identities.Remove(call); history.Remove(call); }
         Changed?.Invoke();
     }
+    internal NativeAuthStorageProof? AuthStorageProof { get; private set; }
     internal bool VerifyVolatileAuth(string secret)
     {
         CheckThread(); ConnectionRules.RequireIdle(core.CallsNb);
@@ -215,11 +216,20 @@ public sealed class NativePhone : IDisposable
         try
         {
             core.AddAuthInfo(auth); var config = core.Config.Dump();
-            var policy = core.AuthInfoList.Count() == 1 && !core.DatabaseEnabled && !core.LimeX3DhEnabled && !core.ChatEnabled && core.Config.GetInt("sip", "save_auth_info", 1) == 0 && core.Config.GetInt("sip", "store_auth_info", 1) == 0 && !config.Contains(secret, StringComparison.Ordinal) && !config.Contains("owm-fixture", StringComparison.Ordinal);
-            // Keep the invented auth in memory across actual shutdown, then inspect every closed native file.
+            var count = core.AuthInfoList.Count(); var databaseDisabled = !core.DatabaseEnabled; var limeDisabled = !core.LimeX3DhEnabled; var chatDisabled = !core.ChatEnabled;
+            var saveDisabled = core.Config.GetInt("sip", "save_auth_info", 1) == 0; var storeDisabled = core.Config.GetInt("sip", "store_auth_info", 1) == 0;
+            var configSecret = config.Contains(secret, StringComparison.Ordinal); var configUser = config.Contains("owm-fixture", StringComparison.Ordinal);
             core.Stop();
-            var files = Directory.EnumerateFiles(nativeFiles.Path, "*", SearchOption.AllDirectories).ToArray();
-            return policy && files.All(file => !new[] { ".db", ".sqlite", ".sqlite3", ".ini", ".rc" }.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase) && !Path.GetFileName(file).Contains("linphonerc", StringComparison.OrdinalIgnoreCase) && new FileInfo(file).Length <= 2 * 1024 * 1024 && !System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(file)).Contains(secret, StringComparison.Ordinal));
+            var files = Directory.EnumerateFiles(nativeFiles.Path, "*", SearchOption.AllDirectories).ToArray(); var unexpectedDb = 0; var unexpectedConfig = 0; var fileSecret = false; var complete = files.Length <= 256;
+            foreach (var file in files)
+            {
+                var name = Path.GetFileName(file); if (name.EndsWith(".db", StringComparison.OrdinalIgnoreCase) || name.Contains(".sqlite", StringComparison.OrdinalIgnoreCase)) unexpectedDb++;
+                if (new[] { ".ini", ".rc" }.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase) || name.Contains("linphonerc", StringComparison.OrdinalIgnoreCase)) unexpectedConfig++;
+                if (new FileInfo(file).Length > 2 * 1024 * 1024 || (File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0) { complete = false; continue; }
+                fileSecret |= System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(file)).Contains(secret, StringComparison.Ordinal);
+            }
+            AuthStorageProof = new(count, databaseDisabled, limeDisabled, chatDisabled, saveDisabled, storeDisabled, configSecret, configUser, true, files.Length, unexpectedDb, unexpectedConfig, fileSecret, complete);
+            return AuthStorageProof.Passed;
         }
         finally { core.RemoveAuthInfo(auth); core.ClearCallLogs(); }
     }

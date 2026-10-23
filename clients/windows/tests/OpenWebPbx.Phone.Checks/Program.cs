@@ -124,6 +124,7 @@ finally { Directory.Delete(runtimeRoot, true); }
 store.OnRead = null; calls = 1; var metadataProfile = store.Values.First();
 await manager.UpdateAccountAsync(metadataProfile.Id, metadataProfile.Account with { AppPasswordSet = true, CanInitializeAppPassword = false }); Check(store.Values.First().Sip == metadataProfile.Sip); Check(store.Values.First().Token == metadataProfile.Token);
 try { await manager.UpdateAccountAsync(metadataProfile.Id, metadataProfile.Account with { DomainId = Guid.NewGuid() }); throw new Exception("Foreign account metadata accepted."); } catch (PhoneInputException) { Check(true); }
+using (var productionPublic = ClientUpdateTrust.Open()) { Check(productionPublic.KeySize == 3072); Check(Convert.ToHexString(SHA256.HashData(productionPublic.ExportSubjectPublicKeyInfo())).ToLowerInvariant() == ClientUpdateTrust.PublicSpkiSha256); }
 Console.WriteLine($"PASS {checks} client domain/API controls; HTTP handlers are explicit doubles; no Windows/native-call qualification");
 sealed class Handler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
 {

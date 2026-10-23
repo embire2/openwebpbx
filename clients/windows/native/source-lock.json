@@ -1,0 +1,721 @@
+{
+  "schema": 1,
+  "component": "windows-free-phone",
+  "client_version": "1.0.0",
+  "state": "pinned_source_candidate_not_binary_correspondence",
+  "sdk": {
+    "url": "https://download.linphone.org/releases/windows/sdk/linphone-sdk-win64-5.5.23.zip",
+    "filename": "linphone-sdk-win64-5.5.23.zip",
+    "bytes": 315960147,
+    "sha256": "9cc84037333daca88af24804e20b9d1f5e41ddd901578484b57dcc6720a8d297",
+    "binding_path": "linphone-sdk/win64/share/linphonecs/LinphoneWrapper.cs",
+    "binding_bytes": 2317396,
+    "binding_sha256": "a99c5197be469d58812afc33a2adb104505134b9a03ac7654d11e4e4341d3a15",
+    "metadata": [
+      {
+        "path": "linphone-sdk/win64/lib/cmake/BelleSIP/BelleSIPConfigVersion.cmake",
+        "bytes": 1904,
+        "sha256": "7d29a8d1ea6823ff914c0bf140269f2a4017910ec1cfffcdc207a4e343148bbd"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/BelleSIP/BelleSIPTargets-relwithdebinfo.cmake",
+        "bytes": 2160,
+        "sha256": "4bced6460c5305e4a4bed9aae0663ae72d8ed3048d9f337ad6faa576f52dcf37"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/BelleSIP/BelleSIPTargets.cmake",
+        "bytes": 6307,
+        "sha256": "d30c83e4e80354416cb67fa9e5543f6c2c1b363bf1ee46ccf7a02fac976ab629"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/Belr/BelrConfigVersion.cmake",
+        "bytes": 1904,
+        "sha256": "7d29a8d1ea6823ff914c0bf140269f2a4017910ec1cfffcdc207a4e343148bbd"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/Belr/BelrTargets-relwithdebinfo.cmake",
+        "bytes": 883,
+        "sha256": "d224be5f770d966679f24f7892ff2dae4980a597294bbe4b9cdb43b4cca74977"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/Belr/BelrTargets.cmake",
+        "bytes": 4932,
+        "sha256": "f50e992f5e92eb321d9bb130080de04dc32d9ab47ad7cf5053b5e079285e9ce8"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/hidapi/hidapi-config-version.cmake",
+        "bytes": 2830,
+        "sha256": "a1a22bcca4dcebb1c71e2486e78a5ef87fa5b3c6e72d70287ff59ca5c95e0640"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/httplib/httplibConfigVersion.cmake",
+        "bytes": 3763,
+        "sha256": "5839e39856ad47be95debd5a0030cfcd71c865e9983d8ad26e3567342add82a5"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/jsoncpp/jsoncppConfigVersion.cmake",
+        "bytes": 2827,
+        "sha256": "6bba3e97e2c2751f40ee2f4814ab8d393020bf7a6abc3ea0bcafbe1f76485a9c"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/libSRTP/libSRTPConfigVersion.cmake",
+        "bytes": 1904,
+        "sha256": "da87bc324dd7bae73b4283e3c18f25ba0d5549ef0d0363b5954755330c2adc04"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/libSRTP/libSRTPTargets-relwithdebinfo.cmake",
+        "bytes": 937,
+        "sha256": "8ad06a090c4ccc94240c65259c7cd968ad631f4ed478c09291c3fd157adfca2a"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/libSRTP/libSRTPTargets.cmake",
+        "bytes": 5037,
+        "sha256": "c16dc39f6c53d65eca4bc833b553a1cc4696958fbc12bb0bb165450d26468211"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/Opus/OpusConfigVersion.cmake",
+        "bytes": 2827,
+        "sha256": "7ff128768c9ff2b41073297ec55593df83ba5860bd3d73a4463a11c266022bc9"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/Opus/OpusTargets-relwithdebinfo.cmake",
+        "bytes": 913,
+        "sha256": "b0509f6eb20088e6c2db082dbcdfa438ec6bc0c1f6b86812508541f80bd59bf1"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/Opus/OpusTargets.cmake",
+        "bytes": 3982,
+        "sha256": "821f9d7cb588a5e638f6074c91a93aca36f34545eb0dc3293e620815152530a8"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/RNNoise/RNNoiseTargets-relwithdebinfo.cmake",
+        "bytes": 905,
+        "sha256": "d80a583057629385ea6d940d6d05e5512cfce9139be1530a467c6b3b9ee4da24"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/RNNoise/RNNoiseTargets.cmake",
+        "bytes": 4009,
+        "sha256": "d71bc5b9422266012632a3ae02a19455e3cf6898244fe7b931eb46a1fb782db3"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/TurboJpeg/TurboJpegConfigVersion.cmake",
+        "bytes": 1904,
+        "sha256": "6b4df162fde538a7269f636debb1737d67fa894ec8f0e1feda68c53dc7770ef0"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/ZXing/ZXingConfigVersion.cmake",
+        "bytes": 1904,
+        "sha256": "b4da481510d3b8b1c33e99aa4f286ff2608be0656e0a963b2f2f318f047d3df1"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/ZXing/ZXingTargets-relwithdebinfo.cmake",
+        "bytes": 927,
+        "sha256": "002bbb9f3c4d24210c61245d2ed4b698a8541d7d9da0a058ceed22791f9a21f0"
+      },
+      {
+        "path": "linphone-sdk/win64/lib/cmake/ZXing/ZXingTargets.cmake",
+        "bytes": 4034,
+        "sha256": "97422516b5cc9d515cf10db3455df2712006ca5825197bf184f19a941aab1647"
+      },
+      {
+        "path": "linphone-sdk/win64/share/BCMatroska2/cmake/BCMatroska2ConfigVersion.cmake",
+        "bytes": 1903,
+        "sha256": "1cb227f765e84c5999d34657f7e27baa7e97c2dea027d19e982fbfa58951e328"
+      },
+      {
+        "path": "linphone-sdk/win64/share/BCMatroska2/cmake/BCMatroska2Targets-relwithdebinfo.cmake",
+        "bytes": 888,
+        "sha256": "bf4629f43d0f47bef185c5adc7c20e0d2a68a86c851bc7d093b51d8005cef6d5"
+      },
+      {
+        "path": "linphone-sdk/win64/share/BCMatroska2/cmake/BCMatroska2Targets.cmake",
+        "bytes": 4988,
+        "sha256": "ee89d9790943ad4f18f8c0f5a6702dc798d0cd20196cc563150303a8274935ce"
+      },
+      {
+        "path": "linphone-sdk/win64/share/BCToolbox/cmake/BCToolboxConfigVersion.cmake",
+        "bytes": 1904,
+        "sha256": "7d29a8d1ea6823ff914c0bf140269f2a4017910ec1cfffcdc207a4e343148bbd"
+      },
+      {
+        "path": "linphone-sdk/win64/share/BCToolbox/cmake/BCToolboxTargets-relwithdebinfo.cmake",
+        "bytes": 1674,
+        "sha256": "50efcac85312764b82b9bd1b48bb411a420fa01b00b150bbc8b99bc9afb443e8"
+      },
+      {
+        "path": "linphone-sdk/win64/share/BCToolbox/cmake/BCToolboxTargets.cmake",
+        "bytes": 4386,
+        "sha256": "bbef0f8e7d16427aaf7268c666a4919b486c731f7d93aee456f76d3246841892"
+      },
+      {
+        "path": "linphone-sdk/win64/share/BCUnit/cmake/BCUnitConfigVersion.cmake",
+        "bytes": 1904,
+        "sha256": "a94eab1eda23c7bb51b306becf47ade86fd4a73069a5b63569f8b58924fe6b1e"
+      },
+      {
+        "path": "linphone-sdk/win64/share/BCUnit/cmake/BCUnitTargets-relwithdebinfo.cmake",
+        "bytes": 901,
+        "sha256": "52a74a1165a7c69f22fc8f8a9d6faf0a30c8687e824c44b0dc8c18f5f41141a6"
+      },
+      {
+        "path": "linphone-sdk/win64/share/BCUnit/cmake/BCUnitTargets.cmake",
+        "bytes": 3968,
+        "sha256": "218e84f381a4d71013b0404b22488e4248f383ddd68af08c1507748b34afb702"
+      },
+      {
+        "path": "linphone-sdk/win64/share/BelCard/cmake/BelCardConfigVersion.cmake",
+        "bytes": 1904,
+        "sha256": "7d29a8d1ea6823ff914c0bf140269f2a4017910ec1cfffcdc207a4e343148bbd"
+      },
+      {
+        "path": "linphone-sdk/win64/share/BelCard/cmake/BelCardTargets-relwithdebinfo.cmake",
+        "bytes": 974,
+        "sha256": "0e2d5dcd1e25c5a87f890ea78989ba3c5bc19301e29d3fff3f28f71c1f9b94e9"
+      },
+      {
+        "path": "linphone-sdk/win64/share/BelCard/cmake/BelCardTargets.cmake",
+        "bytes": 4937,
+        "sha256": "f2084f0e122025dca210b7f44f4e4dfd603967658a5d147f94aa4229dbe57e35"
+      },
+      {
+        "path": "linphone-sdk/win64/share/BV16/cmake/BV16Targets-relwithdebinfo.cmake",
+        "bytes": 883,
+        "sha256": "27bd13c132cc1e580b2a7965bcf689a2bea1b7f749fe9534fb8d313601d3dda0"
+      },
+      {
+        "path": "linphone-sdk/win64/share/BV16/cmake/BV16Targets.cmake",
+        "bytes": 3958,
+        "sha256": "871704ca685f4813bed9d5421a0b95876e09fe9f0d2c1491cba301251ee71467"
+      },
+      {
+        "path": "linphone-sdk/win64/share/BZRTP/cmake/BZRTPConfigVersion.cmake",
+        "bytes": 1904,
+        "sha256": "7d29a8d1ea6823ff914c0bf140269f2a4017910ec1cfffcdc207a4e343148bbd"
+      },
+      {
+        "path": "linphone-sdk/win64/share/BZRTP/cmake/BZRTPTargets-relwithdebinfo.cmake",
+        "bytes": 956,
+        "sha256": "ca4bb6050d034aa73f6ec6f9785bcac78e94e33066dc7aa559d326cd18714362"
+      },
+      {
+        "path": "linphone-sdk/win64/share/BZRTP/cmake/BZRTPTargets.cmake",
+        "bytes": 4933,
+        "sha256": "112edb6d8e11ccc628558b661e5b43c825113017388f4b210f88c9fe10579f5a"
+      },
+      {
+        "path": "linphone-sdk/win64/share/decaf/cmake/DecafTargets-relwithdebinfo.cmake",
+        "bytes": 892,
+        "sha256": "7b51dd8262fc1a0071de5c753e378a07de560226f8cc10f56f6f83935a1c3aa6"
+      },
+      {
+        "path": "linphone-sdk/win64/share/decaf/cmake/DecafTargets.cmake",
+        "bytes": 3969,
+        "sha256": "eb1e67cdfb27a11754782a2e13fcd6c4bd4cd50c4724ccd2df54ea3be3082c40"
+      },
+      {
+        "path": "linphone-sdk/win64/share/GSM/cmake/GSMTargets-relwithdebinfo.cmake",
+        "bytes": 874,
+        "sha256": "53a48061d405e5b069ffb34010a3d7de09ae9e18ca65cf6345596de56efb739f"
+      },
+      {
+        "path": "linphone-sdk/win64/share/GSM/cmake/GSMTargets.cmake",
+        "bytes": 3953,
+        "sha256": "482764eaa3f69bc3fedfb06027652577a3fd8f00df4f2968604b21dd549c5a2c"
+      },
+      {
+        "path": "linphone-sdk/win64/share/libjpeg-turbo/cmake/TurboJpegTargets-relwithdebinfo.cmake",
+        "bytes": 1421,
+        "sha256": "ea1e0cdcd455084409f19899ae44423d26c21a908a2aed95c4dae5bef6f7993c"
+      },
+      {
+        "path": "linphone-sdk/win64/share/libjpeg-turbo/cmake/TurboJpegTargets.cmake",
+        "bytes": 4359,
+        "sha256": "4979b5231402010873fb90446f6868909c9c7d49fd69ebee80844abcff779980"
+      },
+      {
+        "path": "linphone-sdk/win64/share/LibLinphone/cmake/LibLinphoneConfigVersion.cmake",
+        "bytes": 1904,
+        "sha256": "7d29a8d1ea6823ff914c0bf140269f2a4017910ec1cfffcdc207a4e343148bbd"
+      },
+      {
+        "path": "linphone-sdk/win64/share/LibLinphone/cmake/LibLinphoneTargets-relwithdebinfo.cmake",
+        "bytes": 1637,
+        "sha256": "f4374819ba81e70e67c4858bfc9f6d7fd71bf4cc9d9de7edeca71beba8e445b6"
+      },
+      {
+        "path": "linphone-sdk/win64/share/LibLinphone/cmake/LibLinphoneTargets.cmake",
+        "bytes": 5188,
+        "sha256": "204fb0d81253481437bde1989f829588b8b00910eb6e1344b137cfb75cfdbcd2"
+      },
+      {
+        "path": "linphone-sdk/win64/share/Lime/cmake/LimeConfigVersion.cmake",
+        "bytes": 1904,
+        "sha256": "7d29a8d1ea6823ff914c0bf140269f2a4017910ec1cfffcdc207a4e343148bbd"
+      },
+      {
+        "path": "linphone-sdk/win64/share/Lime/cmake/LimeTargets-relwithdebinfo.cmake",
+        "bytes": 982,
+        "sha256": "a4c2387e403c824bb3f2342e01b258a03a92a54ffc592464bfcce04ebb66dd21"
+      },
+      {
+        "path": "linphone-sdk/win64/share/Lime/cmake/LimeTargets.cmake",
+        "bytes": 3958,
+        "sha256": "9db4cc4c8f61e02f5fb0b0b6fe8f9234eb908fbb8efb864e3546d657691b50b6"
+      },
+      {
+        "path": "linphone-sdk/win64/share/Mediastreamer2/cmake/Mediastreamer2ConfigVersion.cmake",
+        "bytes": 1904,
+        "sha256": "7d29a8d1ea6823ff914c0bf140269f2a4017910ec1cfffcdc207a4e343148bbd"
+      },
+      {
+        "path": "linphone-sdk/win64/share/Mediastreamer2/cmake/Mediastreamer2Targets-relwithdebinfo.cmake",
+        "bytes": 1115,
+        "sha256": "6314cfe724ec400158df5af9fd0f0ca52f5952708017ded87322bebc4434989d"
+      },
+      {
+        "path": "linphone-sdk/win64/share/Mediastreamer2/cmake/Mediastreamer2Targets.cmake",
+        "bytes": 4995,
+        "sha256": "307538ab68ca3503ba29952bb77fbab708c07b4b7a18aa6982c20faaff3edd0a"
+      },
+      {
+        "path": "linphone-sdk/win64/share/Ortp/cmake/OrtpConfigVersion.cmake",
+        "bytes": 1904,
+        "sha256": "7d29a8d1ea6823ff914c0bf140269f2a4017910ec1cfffcdc207a4e343148bbd"
+      },
+      {
+        "path": "linphone-sdk/win64/share/Ortp/cmake/OrtpTargets-relwithdebinfo.cmake",
+        "bytes": 883,
+        "sha256": "cbf8a293ab7d1b422caa59fd5d53b946f22b771746ffa83e2803764e0c861cfc"
+      },
+      {
+        "path": "linphone-sdk/win64/share/Ortp/cmake/OrtpTargets.cmake",
+        "bytes": 4932,
+        "sha256": "40bd10dcc7dca7cdfc8aa4a9707de5ab83abc6342bf08056dc9483031bcd6caf"
+      },
+      {
+        "path": "linphone-sdk/win64/share/Speex/cmake/SpeexTargets-relwithdebinfo.cmake",
+        "bytes": 892,
+        "sha256": "83c6c7b92a780a2ddff6b966cf51f6873b198b420567aa4bbf91f29700ca6ef8"
+      },
+      {
+        "path": "linphone-sdk/win64/share/Speex/cmake/SpeexTargets.cmake",
+        "bytes": 4137,
+        "sha256": "17dc02f2f6f0517ff9ff0fe5343524cab1cf7f7700a62c7d241e37236feb21f7"
+      },
+      {
+        "path": "linphone-sdk/win64/share/SpeexDsp/cmake/SpeexDspTargets-relwithdebinfo.cmake",
+        "bytes": 919,
+        "sha256": "69f64dc88b527bd6ea5ad43efe23fd5160fb14d6ceea72f7d221d2598f934d7f"
+      },
+      {
+        "path": "linphone-sdk/win64/share/SpeexDsp/cmake/SpeexDspTargets.cmake",
+        "bytes": 4152,
+        "sha256": "0fbd983693700fa206f6042a95b2b4d7ff59fc7ceb7aaf8cc3b42c90edffa1f3"
+      },
+      {
+        "path": "linphone-sdk/win64/share/SQLITE3/cmake/Sqlite3Targets-relwithdebinfo.cmake",
+        "bytes": 910,
+        "sha256": "fb9b362a6328759ebe9371821abd4e46aa9d09b321653398c266cb71f5e4246f"
+      },
+      {
+        "path": "linphone-sdk/win64/share/SQLITE3/cmake/Sqlite3Targets.cmake",
+        "bytes": 3973,
+        "sha256": "71b9b286caae0c56b8278fa71f04806781bdf8460693fdf728c629e4345c43c5"
+      },
+      {
+        "path": "linphone-sdk/win64/share/version.txt",
+        "bytes": 83,
+        "sha256": "8e4d85f1e9dc4877fd18d77d093ae0d9eeb407776668672918001e694c6c38f4"
+      },
+      {
+        "path": "linphone-sdk/win64/share/xerces-c/cmake/XercesCTargets-relwithdebinfo.cmake",
+        "bytes": 919,
+        "sha256": "3a5fdd51543e7d259c5eb216314e580c6ae708ae5124a48cbad7b39e5eb63304"
+      },
+      {
+        "path": "linphone-sdk/win64/share/xerces-c/cmake/XercesCTargets.cmake",
+        "bytes": 4153,
+        "sha256": "34946983cb55b50f87a9e9642c86e53faae2e368a92e243734b562bdfd19b313"
+      },
+      {
+        "path": "linphone-sdk/win64/share/XML2/cmake/XML2Targets-relwithdebinfo.cmake",
+        "bytes": 883,
+        "sha256": "5aedba6dce66077d394396c83485a35a8240b2666f9c4071baffdf0a3807ac51"
+      },
+      {
+        "path": "linphone-sdk/win64/share/XML2/cmake/XML2Targets.cmake",
+        "bytes": 3958,
+        "sha256": "d4a0f4c35e0e66873e295c8d5e0f7c61777d63192f8bd9d4c39def2add3cf45c"
+      },
+      {
+        "path": "linphone-sdk/win64/share/YUV/cmake/YUVTargets-relwithdebinfo.cmake",
+        "bytes": 776,
+        "sha256": "9bb7838cb22106586123fedd2b1fd1702315b2d6c60cde2bb7cbcbd568263717"
+      },
+      {
+        "path": "linphone-sdk/win64/share/YUV/cmake/YUVTargets.cmake",
+        "bytes": 4988,
+        "sha256": "263498d388ac1e87c47ca790b572079d6baafa18ab3d8f773519b5bd9a03d3ae"
+      },
+      {
+        "path": "linphone-sdk/win64/share/zlib/cmake/ZLIBTargets-relwithdebinfo.cmake",
+        "bytes": 885,
+        "sha256": "b9cb67cbf175d9c77d7a5a39e154e16ae1e389cb927139c9474ae236d42be55a"
+      },
+      {
+        "path": "linphone-sdk/win64/share/zlib/cmake/ZLIBTargets.cmake",
+        "bytes": 3958,
+        "sha256": "0ec8e5a1d68a712bc9bf6ecba149f109b89c72fb268d0b3e651fba38c3650658"
+      }
+    ],
+    "component_versions_observed": [
+      {
+        "component": "BelleSIP",
+        "version": "5.5.0",
+        "evidence_path": "linphone-sdk/win64/lib/cmake/BelleSIP/BelleSIPConfigVersion.cmake",
+        "evidence_sha256": "7d29a8d1ea6823ff914c0bf140269f2a4017910ec1cfffcdc207a4e343148bbd"
+      },
+      {
+        "component": "Belr",
+        "version": "5.5.0",
+        "evidence_path": "linphone-sdk/win64/lib/cmake/Belr/BelrConfigVersion.cmake",
+        "evidence_sha256": "7d29a8d1ea6823ff914c0bf140269f2a4017910ec1cfffcdc207a4e343148bbd"
+      },
+      {
+        "component": "hidapi",
+        "version": "0.15.0",
+        "evidence_path": "linphone-sdk/win64/lib/cmake/hidapi/hidapi-config-version.cmake",
+        "evidence_sha256": "a1a22bcca4dcebb1c71e2486e78a5ef87fa5b3c6e72d70287ff59ca5c95e0640"
+      },
+      {
+        "component": "httplib",
+        "version": "0.15.3",
+        "evidence_path": "linphone-sdk/win64/lib/cmake/httplib/httplibConfigVersion.cmake",
+        "evidence_sha256": "5839e39856ad47be95debd5a0030cfcd71c865e9983d8ad26e3567342add82a5"
+      },
+      {
+        "component": "jsoncpp",
+        "version": "1.9.5",
+        "evidence_path": "linphone-sdk/win64/lib/cmake/jsoncpp/jsoncppConfigVersion.cmake",
+        "evidence_sha256": "6bba3e97e2c2751f40ee2f4814ab8d393020bf7a6abc3ea0bcafbe1f76485a9c"
+      },
+      {
+        "component": "libSRTP",
+        "version": "2.7.0",
+        "evidence_path": "linphone-sdk/win64/lib/cmake/libSRTP/libSRTPConfigVersion.cmake",
+        "evidence_sha256": "da87bc324dd7bae73b4283e3c18f25ba0d5549ef0d0363b5954755330c2adc04"
+      },
+      {
+        "component": "Opus",
+        "version": "1.3.1",
+        "evidence_path": "linphone-sdk/win64/lib/cmake/Opus/OpusConfigVersion.cmake",
+        "evidence_sha256": "7ff128768c9ff2b41073297ec55593df83ba5860bd3d73a4463a11c266022bc9"
+      },
+      {
+        "component": "TurboJpeg",
+        "version": "3.0.3",
+        "evidence_path": "linphone-sdk/win64/lib/cmake/TurboJpeg/TurboJpegConfigVersion.cmake",
+        "evidence_sha256": "6b4df162fde538a7269f636debb1737d67fa894ec8f0e1feda68c53dc7770ef0"
+      },
+      {
+        "component": "ZXing",
+        "version": "1.4.0",
+        "evidence_path": "linphone-sdk/win64/lib/cmake/ZXing/ZXingConfigVersion.cmake",
+        "evidence_sha256": "b4da481510d3b8b1c33e99aa4f286ff2608be0656e0a963b2f2f318f047d3df1"
+      },
+      {
+        "component": "BCMatroska2",
+        "version": "0.23",
+        "evidence_path": "linphone-sdk/win64/share/BCMatroska2/cmake/BCMatroska2ConfigVersion.cmake",
+        "evidence_sha256": "1cb227f765e84c5999d34657f7e27baa7e97c2dea027d19e982fbfa58951e328"
+      },
+      {
+        "component": "BCToolbox",
+        "version": "5.5.0",
+        "evidence_path": "linphone-sdk/win64/share/BCToolbox/cmake/BCToolboxConfigVersion.cmake",
+        "evidence_sha256": "7d29a8d1ea6823ff914c0bf140269f2a4017910ec1cfffcdc207a4e343148bbd"
+      },
+      {
+        "component": "BCUnit",
+        "version": "3.0.2",
+        "evidence_path": "linphone-sdk/win64/share/BCUnit/cmake/BCUnitConfigVersion.cmake",
+        "evidence_sha256": "a94eab1eda23c7bb51b306becf47ade86fd4a73069a5b63569f8b58924fe6b1e"
+      },
+      {
+        "component": "BelCard",
+        "version": "5.5.0",
+        "evidence_path": "linphone-sdk/win64/share/BelCard/cmake/BelCardConfigVersion.cmake",
+        "evidence_sha256": "7d29a8d1ea6823ff914c0bf140269f2a4017910ec1cfffcdc207a4e343148bbd"
+      },
+      {
+        "component": "BZRTP",
+        "version": "5.5.0",
+        "evidence_path": "linphone-sdk/win64/share/BZRTP/cmake/BZRTPConfigVersion.cmake",
+        "evidence_sha256": "7d29a8d1ea6823ff914c0bf140269f2a4017910ec1cfffcdc207a4e343148bbd"
+      },
+      {
+        "component": "LibLinphone",
+        "version": "5.5.0",
+        "evidence_path": "linphone-sdk/win64/share/LibLinphone/cmake/LibLinphoneConfigVersion.cmake",
+        "evidence_sha256": "7d29a8d1ea6823ff914c0bf140269f2a4017910ec1cfffcdc207a4e343148bbd"
+      },
+      {
+        "component": "Lime",
+        "version": "5.5.0",
+        "evidence_path": "linphone-sdk/win64/share/Lime/cmake/LimeConfigVersion.cmake",
+        "evidence_sha256": "7d29a8d1ea6823ff914c0bf140269f2a4017910ec1cfffcdc207a4e343148bbd"
+      },
+      {
+        "component": "Mediastreamer2",
+        "version": "5.5.0",
+        "evidence_path": "linphone-sdk/win64/share/Mediastreamer2/cmake/Mediastreamer2ConfigVersion.cmake",
+        "evidence_sha256": "7d29a8d1ea6823ff914c0bf140269f2a4017910ec1cfffcdc207a4e343148bbd"
+      },
+      {
+        "component": "Ortp",
+        "version": "5.5.0",
+        "evidence_path": "linphone-sdk/win64/share/Ortp/cmake/OrtpConfigVersion.cmake",
+        "evidence_sha256": "7d29a8d1ea6823ff914c0bf140269f2a4017910ec1cfffcdc207a4e343148bbd"
+      }
+    ]
+  },
+  "source": {
+    "url": "https://github.com/BelledonneCommunications/linphone-sdk.git",
+    "canonical_upstream_url": "https://gitlab.linphone.org/BC/public/linphone-sdk.git",
+    "tag": "5.5.23",
+    "tag_object": "699ca639ea2752efdda23bd949eb1f1eb8310f1b",
+    "commit": "348e8de32fb2ac56b7b0a7167968fc1ac707f7b2",
+    "gitmodules_blob": "e5a817e32cc6c3da2a738ea0a26330b25bea48fa",
+    "gitmodules_sha256": "1c0ea8af71f442deec18987437ed29eaa76f8b419f59cf620d13bfca74c05b52",
+    "direct_gitlinks": [
+      {
+        "path": "bcg729",
+        "commit": "8bec1e5fc072f3669e435edd137eb3da6da2eef7",
+        "url": "https://gitlab.linphone.org/BC/public/bcg729.git"
+      },
+      {
+        "path": "bcmatroska2",
+        "commit": "ca080c1689a3bfebe6b71c69444b94b0dba8e54a",
+        "url": "https://gitlab.linphone.org/BC/public/bcmatroska2.git"
+      },
+      {
+        "path": "belle-sip/tester/cpp-httplib",
+        "commit": "a2ed0d11c134b6c23da275103b5183b423cea8a8",
+        "url": "https://gitlab.linphone.org/BC/public/external/cpp-httplib.git"
+      },
+      {
+        "path": "external/aom",
+        "commit": "65ad4cd63cbe7f10eaa4b4af7f55fd540617516a",
+        "url": "https://gitlab.linphone.org/BC/public/external/aom.git"
+      },
+      {
+        "path": "external/bv16-floatingpoint",
+        "commit": "c4a341a3277e8adcc42427c4fd80a457fe934f2a",
+        "url": "https://gitlab.linphone.org/BC/public/external/bv16-floatingpoint.git"
+      },
+      {
+        "path": "external/codec2",
+        "commit": "164447c2fcb4ded07cfe7cee406f9c5052629536",
+        "url": "https://gitlab.linphone.org/BC/public/external/codec2.git"
+      },
+      {
+        "path": "external/dav1d",
+        "commit": "1fd0bab43674eef68eb8427b543bb8a5e4271f9f",
+        "url": "https://gitlab.linphone.org/BC/public/external/dav1d.git"
+      },
+      {
+        "path": "external/decaf",
+        "commit": "e5cc6240690d3ffdfcbdb1e4e851954b789cd5d9",
+        "url": "https://gitlab.linphone.org/BC/public/external/decaf.git"
+      },
+      {
+        "path": "external/gsm",
+        "commit": "ff67768db9e49fc749920422ea4061b7f8f01b3f",
+        "url": "https://gitlab.linphone.org/BC/public/external/gsm.git"
+      },
+      {
+        "path": "external/hidapi",
+        "commit": "d6b2a974608dec3b76fb1e36c189f22b9cf3650c",
+        "url": "https://github.com/libusb/hidapi.git"
+      },
+      {
+        "path": "external/jsoncpp",
+        "commit": "dadce78005ba1147c3f840167123d66e76e9707f",
+        "url": "https://gitlab.linphone.org/BC/public/external/jsoncpp.git"
+      },
+      {
+        "path": "external/libjpeg-turbo",
+        "commit": "91f8025a3071d6cec2c41265a038f47fcd28f092",
+        "url": "https://gitlab.linphone.org/BC/public/external/libjpeg-turbo.git"
+      },
+      {
+        "path": "external/liboqs",
+        "commit": "e219b1a679254c0eef9e3d9b224d0bb6555d474a",
+        "url": "https://gitlab.linphone.org/BC/public/external/liboqs.git"
+      },
+      {
+        "path": "external/libvpx",
+        "commit": "5a4dda49fda0f6226173c27b93659c953f094fe0",
+        "url": "https://gitlab.linphone.org/BC/public/external/libvpx.git"
+      },
+      {
+        "path": "external/libxml2",
+        "commit": "d6131eb375dd507006ed4d3541915cb1b3da5aa2",
+        "url": "https://gitlab.linphone.org/BC/public/external/libxml2.git"
+      },
+      {
+        "path": "external/libyuv",
+        "commit": "a3a7937e762a7ce33b79f4b05f2ad44093e7ba1c",
+        "url": "https://gitlab.linphone.org/BC/public/external/libyuv.git"
+      },
+      {
+        "path": "external/mbedtls",
+        "commit": "7cbc810e5645e16206555343deb2e9263c0f3750",
+        "url": "https://gitlab.linphone.org/BC/public/external/mbedtls.git"
+      },
+      {
+        "path": "external/opencore-amr",
+        "commit": "084d2a08e2bce13a27cb33f4b371030dab8c2460",
+        "url": "https://gitlab.linphone.org/BC/public/external/opencore-amr.git"
+      },
+      {
+        "path": "external/openh264",
+        "commit": "5ac757be463248e36fcde4c5417d4ac6e04a9051",
+        "url": "https://gitlab.linphone.org/BC/public/external/openh264.git"
+      },
+      {
+        "path": "external/openldap",
+        "commit": "c4d91453d12497e4db66e1bad9056ad55ac12adb",
+        "url": "https://gitlab.linphone.org/BC/public/external/openldap.git"
+      },
+      {
+        "path": "external/opus",
+        "commit": "f86ad14bbbe9644efee876ebb73a5931b25c4627",
+        "url": "https://gitlab.linphone.org/BC/public/external/opus.git"
+      },
+      {
+        "path": "external/rnnoise",
+        "commit": "d107462bff3bcda43d8115487959d1e66da905dc",
+        "url": "https://gitlab.linphone.org/BC/public/external/rnnoise.git"
+      },
+      {
+        "path": "external/soci",
+        "commit": "3a9c79088212941d0175c22cd2da8fe1bdd639df",
+        "url": "https://gitlab.linphone.org/BC/public/external/soci.git"
+      },
+      {
+        "path": "external/speex",
+        "commit": "52f01d5a680efd0433df5e130997f01e1976939a",
+        "url": "https://gitlab.linphone.org/BC/public/external/speex.git"
+      },
+      {
+        "path": "external/sqlite3",
+        "commit": "ceb88c26e1bde0ab02b09d09cbb481d9baeeefc4",
+        "url": "https://gitlab.linphone.org/BC/public/external/sqlite3.git"
+      },
+      {
+        "path": "external/srtp",
+        "commit": "930ec54bf0c5b63b7e319d8551028af897127f8c",
+        "url": "https://gitlab.linphone.org/BC/public/external/srtp.git"
+      },
+      {
+        "path": "external/vo-amrwbenc",
+        "commit": "986a52ced2a02511a3c250f101df18e7f7d36dde",
+        "url": "https://gitlab.linphone.org/BC/public/external/vo-amrwbenc.git"
+      },
+      {
+        "path": "external/xerces-c",
+        "commit": "372c0114568b9325c0bb3af93ad5f2994429233e",
+        "url": "https://gitlab.linphone.org/BC/public/external/xerces-c.git"
+      },
+      {
+        "path": "external/zlib",
+        "commit": "446edd4aeeaec542ce2b3ef78286d2c1088c93ea",
+        "url": "https://gitlab.linphone.org/BC/public/external/zlib.git"
+      },
+      {
+        "path": "external/zxing-cpp",
+        "commit": "722123ad0cadee0e4c313f80eac5162a9f8d7d73",
+        "url": "https://gitlab.linphone.org/BC/public/external/zxing-cpp.git"
+      },
+      {
+        "path": "msoboe/oboe",
+        "commit": "5975ab04b02861dc126f3c8fd687321520cd8ae4",
+        "url": "https://github.com/google/oboe"
+      }
+    ],
+    "recursive_enumeration": "all nested literal gitlinks recursively read and bound to parent commit during hosted collection; no moving branch checkout",
+    "nested_gitlinks_materialized": false
+  },
+  "build": {
+    "vendor_recipe_verified": false,
+    "desktop_candidate_preset": "windows-sdk",
+    "store_candidate_preset": "windows-store-sdk",
+    "architecture": "x64",
+    "candidate_configuration": "RelWithDebInfo",
+    "candidate_arguments": [
+      "-DLINPHONESDK_WINDOWS_ARCHS=64bits",
+      "-DLINPHONESDK_VERSION=5.5.23",
+      "-DLINPHONESDK_STATE=releases",
+      "-DLINPHONESDK_BRANCH=source-candidate-348e8de"
+    ],
+    "source_build_required_if_vendor_recipe_unavailable": true,
+    "toolchain_and_cache_qualification": "pending actual hosted source-SDK build; candidates are not a vendor-binary recipe",
+    "version_override_evidence": "pinned top-level CMakeLists.txt lines48-58 explicitly accepts user-provided LINPHONESDK_VERSION/STATE/BRANCH; these are candidate settings, not recovered vendor flags"
+  },
+  "bounds": {
+    "max_repositories": 128,
+    "max_recursion_depth": 8,
+    "max_source_files": 250000,
+    "max_source_bytes": 1610612736,
+    "max_owned_work_bytes": 10737418240,
+    "minimum_free_bytes": 12884901888,
+    "max_single_source_bytes": 268435456,
+    "max_git_seconds": 1200,
+    "max_archive_bytes": 2147483647
+  },
+  "policy": {
+    "https_hosts": [
+      "github.com",
+      "gitlab.linphone.org"
+    ],
+    "unresolved_lfs": "refuse; pointer text never counts as corresponding content",
+    "git_metadata": "never included",
+    "first_party_scope": "tracked clients/windows plus only the explicitly pinned resources/windows-phone/release-public.pem; both scopes must be committed and clean",
+    "vendor_public_test_keys": "upstream tracked test fixtures are source, never treated as deployment credentials",
+    "documentation_redaction": "only upstream SDK README registry-login example user/pass lines; record before/after hash without credential values",
+    "readme_redaction": {
+      "path": "README.md",
+      "rule": "documentation-only public registry login example; user-owned placeholders; no code or licence change",
+      "before_sha256": "c0aa8cfdcd4ac7c87a858e9b5e4d0f56000c30a7fa23474c152ea550476ea4d2",
+      "after_sha256": "1b1f5633e352a2974319fc13de73f92c8e862c3612a41ac8c140ba45d15f867a",
+      "line_count": 331,
+      "user_line": 153,
+      "password_line": 155,
+      "git_blob_sha1": "e877d77b1d9e0bffa57d2553f07bfc8e1152894b"
+    },
+    "public_material": [
+      {
+        "path": "resources/windows-phone/release-public.pem",
+        "sha256": "608691b241a17352f58b13f7883b9409ddd9bd78c3d32e07ddbfb55b8fc721ed",
+        "spki_der_sha256": "b1744a9cc37ba194fe29d6953b0967bf63a52b9a1f4c3695e30c2abab3ca82e7",
+        "pem_header": "PUBLIC KEY"
+      }
+    ]
+  },
+  "qualification": {
+    "complete_source_asset_validated": false,
+    "official_sdk_binary_source_mapping_verified": false,
+    "native_import_closure_verified": false,
+    "store_accepted": false,
+    "legal_approval": false,
+    "remaining": [
+      "hosted recursive source materialization and file/license manifest",
+      "actual shipped DLL/plugin/transitive/static dependency map",
+      "source-SDK build must enumerate and pin any non-Git downloaded archives, generated inputs and tool/runtime dependencies",
+      "authentic vendor build configuration or our own pinned source-SDK build",
+      "clean rebuild and binary/source matching qualification",
+      "resolved .NET/WindowsAppSDK/NuGet runtime license and redistribution notices"
+    ]
+  }
+}

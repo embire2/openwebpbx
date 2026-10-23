@@ -9,7 +9,8 @@ if (!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable("GITHUB_A
 if (args.Length != 1 || Path.GetDirectoryName(Path.GetFullPath(args[0])) != Path.GetFullPath(Environment.GetEnvironmentVariable("RUNNER_TEMP")!).TrimEnd(Path.DirectorySeparatorChar) || !System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(args[0]), "^phone-native-result-[a-f0-9]{32}\\.json$")) throw new InvalidOperationException("Native receipt path differs.");
 var root = Path.Combine(Environment.GetEnvironmentVariable("RUNNER_TEMP")!, "phone-native-" + Guid.NewGuid().ToString("N"));
 var checks = 0;
-void Observe(string stage) => File.WriteAllText(args[0], JsonSerializer.Serialize(new { schema = 1, producer = "OpenWebPbx.Phone.NativeChecks", state = "running", checks, stage }));
+NativeAuthStorageProof? authStorage = null;
+void Observe(string stage) => File.WriteAllText(args[0], JsonSerializer.Serialize(new { schema = 1, producer = "OpenWebPbx.Phone.NativeChecks", state = "running", checks, stage, auth_storage = authStorage }));
 void Check(bool value) { if (!value) throw new InvalidOperationException("Native control " + (checks + 1) + " failed."); checks++; }
 try
 {
@@ -23,9 +24,9 @@ try
     var changed = encrypted.ToArray(); changed[^1] ^= 1; File.WriteAllBytes(file, changed); var refused = false; try { await store.ReadAsync(); } catch (PhoneInputException) { refused = true; } Check(refused); File.WriteAllBytes(file, encrypted);
     await store.SaveAsync([], null); Check((await store.ReadAsync()).Count == 0); Check(await store.SelectedAsync() is null);
     foreach (var entry in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)) { var content = Encoding.UTF8.GetString(File.ReadAllBytes(entry)); Check(!content.Contains(profile.Sip.Password) && !content.Contains(profile.Token)); }
-    Observe("native_start"); using (var native = new NativePhone(stage => Observe("native_" + stage))) { Check(!native.Busy); Check(native.Calls.Count == 0); native.Iterate(); Check(native.Registrations.Count == 0); Observe("native_auth_inspection"); Check(native.VerifyVolatileAuth(profile.Sip.Password)); }
+    Observe("native_start"); using (var native = new NativePhone(stage => Observe("native_" + stage))) { Check(!native.Busy); Check(native.Calls.Count == 0); native.Iterate(); Check(native.Registrations.Count == 0); Observe("native_auth_inspection"); var valid = native.VerifyVolatileAuth(profile.Sip.Password); authStorage = native.AuthStorageProof; Observe("native_auth_inspection"); Check(valid); }
     using var output = new FileStream(args[0], FileMode.Create, FileAccess.Write, FileShare.Read);
-    JsonSerializer.Serialize(output, new { schema = 1, producer = "OpenWebPbx.Phone.NativeChecks", state = "passed", checks, actual_native_windows = true, actual_current_user_dpapi = true, actual_native_core = true, calls_placed = false, hardware_media_tested = false });
+    JsonSerializer.Serialize(output, new { schema = 1, producer = "OpenWebPbx.Phone.NativeChecks", state = "passed", checks, actual_native_windows = true, actual_current_user_dpapi = true, actual_native_core = true, calls_placed = false, hardware_media_tested = false, auth_storage = authStorage });
     Console.WriteLine("PASS native protected-storage/core component; no calling/hardware qualification");
 }
 finally { if (Directory.Exists(root)) Directory.Delete(root, true); }

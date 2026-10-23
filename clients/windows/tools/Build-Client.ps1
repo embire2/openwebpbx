@@ -37,7 +37,8 @@ try{
  & dotnet publish (Join-Path $client 'tests\OpenWebPbx.Phone.NativeChecks') -c Release -r win-x64 --self-contained true "-p:LinphoneBinding=$binding" -o $checks *> (Join-Path $evidence 'native-check-build.log');if($LASTEXITCODE){throw 'Native checks do not build.'}
  foreach($dll in $dlls){Copy-Item $dll.FullName (Join-Path $checks $dll.Name) -Force};Copy-Item (Join-Path $app 'native') (Join-Path $checks 'native') -Recurse
  $nativeReceipt=Join-Path $env:RUNNER_TEMP ('phone-native-result-'+[Guid]::NewGuid().ToString('N')+'.json')
- & (Join-Path $checks 'OpenWebPbx.Phone.NativeChecks.exe') $nativeReceipt *> (Join-Path $evidence 'native-checks.log');$report.native_child_exit_code=[int]$LASTEXITCODE;if($LASTEXITCODE){throw 'Native protected storage or core checks failed.'}
+ Push-Location ([Environment]::SystemDirectory)
+ try{& (Join-Path $checks 'OpenWebPbx.Phone.NativeChecks.exe') $nativeReceipt *> (Join-Path $evidence 'native-checks.log');$report.native_child_exit_code=[int]$LASTEXITCODE;if($LASTEXITCODE){throw 'Native protected storage or core checks failed.'}}finally{Pop-Location}
  $nativeResult=Get-Content -LiteralPath $nativeReceipt -Raw|ConvertFrom-Json
  if($nativeResult.schema -ne 1 -or $nativeResult.producer -cne 'OpenWebPbx.Phone.NativeChecks' -or $nativeResult.state -cne 'passed' -or $nativeResult.checks -lt 17 -or $nativeResult.checks -gt 64){throw 'Native component proof differs.'}
  foreach($flag in @('actual_native_windows','actual_current_user_dpapi','actual_native_core')){if($nativeResult.$flag -isnot [bool] -or !$nativeResult.$flag){throw 'Native component proof is incomplete.'}}
