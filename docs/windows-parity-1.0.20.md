@@ -19,7 +19,24 @@ database security returned unchanged. This does not qualify the optional staged
 listener detector, whose earlier access-control refusal is retained. No candidate
 has replaced the original installation.
 
-The newest normal run39907463774 at source5b4cf6dda passes its19162-file fresh
+Normal run39911316784 at source64a12010c passes fresh installation, trusted web,
+tenant domains, STUN, Phone Health, Meet transport and the corrected recovery
+component. It still fails the browser conference proof and a separate direct
+rollback attempt. The rollback refusal is a Windows module lookup defect:
+PowerShell7's PSHOME does not contain the stock LocalAccounts module. The narrow
+correction uses the absolute OS module root and verifies the actual cmdlet,
+module and implementing assembly before reading administrator membership.
+Native PS5/PS7 paired controls reproduce the old failure and fixed behavior;
+foreign/proxy/duplicate commands and misleading module roots are refused. No
+installed PBX or account changes were made by those read-only tests. A rebuilt
+complete archive and new full run are required; direct rollback, calling,
+backups, independent restore and owner migration remain unqualified.
+The latest conference host connects and decodes VP8; guest completion and
+two-way media remain unqualified. New closed browser exception/proof-operation
+diagnostics preserve the existing thresholds; this failure's raw cause is not
+yet established and the earlier407→488 diagnosis does not apply automatically.
+
+The preceding normal run39907463774 at source5b4cf6dda passes its19162-file fresh
 installation, native Defender21 and PHP8.4.27/3086 controls, then fails the native
 recovery-component qualification before web readiness or calling. Its owned
 cleanup succeeds. A focused inherited-StrictMode replay identifies a test-fixture

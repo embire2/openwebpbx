@@ -47,8 +47,21 @@ function Get-OpenWebRecoveryPrivilegedSids {
  if($cached -and $until -and $until.Value -gt [DateTime]::UtcNow){return ,$cached.Value}
  $allowed=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
  foreach($sid in 'S-1-5-18','S-1-5-32-544'){$null=$allowed.Add($sid)}
- Import-Module -Name (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.LocalAccounts') -ErrorAction Stop
- foreach($member in @(Microsoft.PowerShell.LocalAccounts\Get-LocalGroupMember -SID 'S-1-5-32-544' -ErrorAction Stop)){
+ # PowerShell7 has a separate PSHOME without the stock Windows module. Use
+ # only the absolute OS module root, including its stock versioned children;
+ # never resolve this privileged query from PSModulePath or a compatibility
+ # proxy. Keep this inline because the sealed boot launcher embeds it.
+ if([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or ![Environment]::Is64BitProcess){throw 'Recovery administrator discovery requires native64-bit Windows.'}
+ $module=Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell\v1.0\Modules\Microsoft.PowerShell.LocalAccounts'
+ $module=Assert-OpenWebRecoveryOrdinary $module -Directory
+ Import-Module -Name $module -ErrorAction Stop
+ $commands=@(Get-Command -Name 'Microsoft.PowerShell.LocalAccounts\Get-LocalGroupMember' -CommandType Cmdlet -All -ErrorAction Stop)
+ if($commands.Count -ne 1 -or $commands[0] -isnot [Management.Automation.CmdletInfo] -or $commands[0].ModuleName -cne 'Microsoft.PowerShell.LocalAccounts'){throw 'The stock recovery administrator command needs review.'}
+ $command=$commands[0];$moduleBase=Assert-OpenWebRecoveryOrdinary $command.Module.ModuleBase -Directory
+ $assembly=Assert-OpenWebRecoveryOrdinary $command.ImplementingType.Assembly.Location
+ $commandPath=Assert-OpenWebRecoveryOrdinary $command.Module.Path
+ if(($moduleBase -ine $module -and !$moduleBase.StartsWith($module+'\',[StringComparison]::OrdinalIgnoreCase)) -or !$assembly.StartsWith($module+'\',[StringComparison]::OrdinalIgnoreCase) -or ![string]::Equals($assembly,$commandPath,[StringComparison]::OrdinalIgnoreCase)){throw 'The recovery administrator command is outside the stock OS module.'}
+ foreach($member in @(& $command -SID 'S-1-5-32-544' -ErrorAction Stop)){
   $sid=[string]$member.SID;if($sid -notmatch '^S-1-[0-9-]+$'){throw 'Recovery administrator membership needs review.'};$null=$allowed.Add($sid)
  };$script:OpenWebRecoveryPrivilegedSids=$allowed;$script:OpenWebRecoveryPrivilegedUntil=[DateTime]::UtcNow.AddSeconds(30);return ,$allowed
 }
