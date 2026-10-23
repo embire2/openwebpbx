@@ -27,6 +27,7 @@ public sealed record WindowsPhonePolicy(string Mode, string TenantMode, bool Req
 }
 public sealed record ClientRelease(string ReleaseVersion, long Sequence, Uri Package, long Bytes, string Sha256, string Identity, string Publisher)
 {
+    public string PayloadSha256 { get; init; } = "";
     public static Version Version(string value)
     {
         var split = value.Split('.'); if (split.Length != 3 || split.Any(x => x.Length is 0 or > 5 || x.Length > 1 && x[0] == '0' || x.Any(c => c is < '0' or > '9') || !int.TryParse(x, out var n) || n > 65535)) throw new PhoneInputException("The Windows phone release version is invalid.");
@@ -55,7 +56,7 @@ public sealed record ClientRelease(string ReleaseVersion, long Sequence, Uri Pac
             if (package.GetProperty("url").GetString() != target) throw Invalid();
             var bytes = package.GetProperty("bytes").GetInt64(); var sha = package.GetProperty("sha256").GetString()!; var identity = package.GetProperty("identity").GetString()!; var publisher = package.GetProperty("publisher").GetString()!;
             if (identity != expectedIdentity || publisher != expectedPublisher || bytes is < 1000 or > 1073741824 || sha.Length != 64 || sha.Any(c => !char.IsAsciiHexDigitLower(c) && !char.IsAsciiDigit(c)) || identity.Length is < 3 or > 50 || identity.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('.' or '-')) || publisher.Length is < 4 or > 500 || !publisher.StartsWith("CN=", StringComparison.Ordinal) || publisher.Any(char.IsControl)) throw Invalid();
-            return new(version, sequence, new(target), bytes, sha, identity, publisher);
+            return new ClientRelease(version, sequence, new(target), bytes, sha, identity, publisher) { PayloadSha256 = payloadHash };
         }
         catch (Exception e) when (e is JsonException or FormatException or InvalidOperationException or ArgumentException or KeyNotFoundException) { throw Invalid(); }
     }

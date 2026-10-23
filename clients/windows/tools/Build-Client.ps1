@@ -17,6 +17,12 @@ try{
  & dotnet run --project (Join-Path $client 'tests\OpenWebPbx.Phone.Checks') -c Release *> (Join-Path $evidence 'core-checks.log');if($LASTEXITCODE){throw 'Client core checks failed.'}
  $app=Join-Path $Output 'app';$project=Join-Path $client 'src\OpenWebPbx.Phone.App\OpenWebPbx.Phone.App.csproj'
  & dotnet publish $project -c Release -r win-x64 --self-contained true '-p:PhoneDistribution=direct' "-p:LinphoneBinding=$binding" -o $app *> (Join-Path $evidence 'build.log');if($LASTEXITCODE){throw 'The native client build failed.'}
+ $updater=Join-Path $app 'updater'
+ & dotnet publish (Join-Path $client 'src\OpenWebPbx.Phone.Updater') -c Release -r win-x64 --self-contained true "-p:LinphoneBinding=$binding" '-p:DebugType=None' -o $updater *> (Join-Path $evidence 'updater-build.log');if($LASTEXITCODE){throw 'The Windows update helper build failed.'}
+ $members=@(Get-ChildItem -LiteralPath $updater -File)
+ if(@(Get-ChildItem -LiteralPath $updater -Directory).Count -or $members.Count -gt 256 -or ($members|Measure-Object Length -Sum).Sum -gt 200MB){throw 'The update helper runtime inventory is unbounded.'}
+ foreach($member in $members){if($member.Name -notmatch '^[A-Za-z0-9_.-]{1,160}\.(dll|exe|json)$' -or $member.Name -ieq 'liblinphone.dll' -or ($member.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'An unexpected update helper file was emitted.'}}
+ [ordered]@{Schema=1;Files=@($members|Sort-Object Name|ForEach-Object{[ordered]@{Name=$_.Name;Bytes=$_.Length;Sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}})}|ConvertTo-Json -Depth 5|Set-Content (Join-Path $updater 'updater-files.json') -Encoding utf8
  $dlls=@(Get-ChildItem (Join-Path $native 'bin') -Filter '*.dll'|Where-Object {$_.Name -notmatch 'tester|bcunit'})
  foreach($dll in $dlls){if(Test-Path (Join-Path $app $dll.Name)){throw 'A native dependency collides.'};Copy-Item $dll.FullName (Join-Path $app $dll.Name)}
  $plugins=Join-Path $app 'native\plugins';New-Item -ItemType Directory $plugins -Force|Out-Null;Copy-Item (Join-Path $native 'lib\mediastreamer\plugins\*.dll') $plugins
@@ -85,7 +91,7 @@ finally{
  $evidenceFiles=@(Get-ChildItem -LiteralPath $evidence -File -Recurse -Force)
  $report.evidence_bounded=$true
  foreach($item in $evidenceFiles){
-  if($item.DirectoryName -cne $evidence -or $item.Name -notin 'core-checks.log','native-check-build.log','native-checks.log','native-checks.json','build.log','native-startup.json','startup-failure.json','startup-files.json','client-window.png','client-accounts.png','client-settings.png','interface-controls.json','interface-controls.log','qualification.json' -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){Remove-Item -LiteralPath $item.FullName -Force;$report.evidence_bounded=$false;continue}
+  if($item.DirectoryName -cne $evidence -or $item.Name -notin 'core-checks.log','updater-build.log','native-check-build.log','native-checks.log','native-checks.json','build.log','native-startup.json','startup-failure.json','startup-files.json','client-window.png','client-accounts.png','client-settings.png','interface-controls.json','interface-controls.log','qualification.json' -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){Remove-Item -LiteralPath $item.FullName -Force;$report.evidence_bounded=$false;continue}
   if($item.Length -gt 8MB){$buffer=[byte[]]::new(8MB);$input=[IO.File]::OpenRead($item.FullName);try{$count=$input.Read($buffer,0,$buffer.Length)}finally{$input.Dispose()};$output=[IO.File]::Create($item.FullName);try{$output.Write($buffer,0,$count)}finally{$output.Dispose()};$report.evidence_bounded=$false}
  }
  if($evidenceFiles.Count -gt 16 -or (Get-ChildItem -LiteralPath $evidence -File|Measure-Object Length -Sum).Sum -gt 32MB){foreach($item in Get-ChildItem -LiteralPath $evidence -File){Remove-Item -LiteralPath $item.FullName -Force};$report.evidence_bounded=$false}

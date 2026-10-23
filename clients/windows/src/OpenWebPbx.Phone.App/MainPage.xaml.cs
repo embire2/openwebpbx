@@ -32,8 +32,8 @@ public sealed partial class MainPage : Page
     private Task EnsureInitialized() => initialization ??= Initialize();
     public MainPage()
     {
-        InitializeComponent(); Loaded += async (_, _) => await Execute(EnsureInitialized);
-        timer.Tick += (_, _) => { try { phone?.Iterate(); } catch { Show("The phone needs to reconnect. Finish your call and open Settings to check the connection."); } };
+        InitializeComponent(); Loaded += async (_, _) => { await Execute(EnsureInitialized); await TryCheckUpdates(); };
+        timer.Tick += (_, _) => { try { phone?.Iterate(); if (initialized && DateTimeOffset.UtcNow - updateChecked > TimeSpan.FromMinutes(30)) _ = TryCheckUpdates(); } catch { Show("The phone needs to reconnect. Finish your call and open Settings to check the connection."); } };
     }
     private async Task Initialize()
     {
@@ -114,8 +114,8 @@ public sealed partial class MainPage : Page
         for (var i = 0; i < 4; i++) pad.RowDefinitions.Add(new() { Height = GridLength.Auto });
         var keys = "123456789*0#";
         for (var i = 0; i < keys.Length; i++) { var key = keys[i]; var button = Button(key.ToString(), () => { if (phone?.Busy == true) phone.Dtmf(key); else number.Text += key; }); button.FontSize = 28; button.MinHeight = 68; Grid.SetRow(button, i / 3); Grid.SetColumn(button, i % 3); pad.Children.Add(button); }
-        Body.Children.Add(pad); var actions = Row(); actions.Children.Add(Button("Call", () => phone!.Dial(number.Text), true)); actions.Children.Add(AsyncButton("Video call", async () => await StartVideo(number.Text))); Body.Children.Add(actions);
-        Body.Children.Add(Button("Voicemail · 121", () => phone!.Dial("121")));
+        Body.Children.Add(pad); var actions = Row(); actions.Children.Add(Button("Call", () => Dial(number.Text), true)); actions.Children.Add(AsyncButton("Video call", async () => await StartVideo(number.Text))); Body.Children.Add(actions);
+        Body.Children.Add(Button("Voicemail · 121", () => Dial("121")));
     }
     private void RefreshCalls()
     {
@@ -180,7 +180,7 @@ public sealed partial class MainPage : Page
     {
         using var api = Api(); var result = await api.JsonAsync("directory"); var items = result["contacts"]?.AsArray() ?? [];
         var search = Field("Search people or extensions"); var list = new StackPanel { Spacing = 8 }; Body.Children.Add(list);
-        void Filter() { list.Children.Clear(); foreach (var item in items.OfType<JsonObject>().Where(x => ($"{x["name"]} {x["number"]}").Contains(search.Text, StringComparison.OrdinalIgnoreCase)).OrderBy(x => preferences.ContactOrder == "Name" ? x["name"]?.ToString() : x["number"]?.ToString())) { var number = item["number"]!.ToString(); var row = Row(); row.Children.Add(Button($"{item["name"]} · {number} · {item["status"]}", () => phone!.Dial(number))); if (item["id"]?.ToString() == "extension:" + number) row.Children.Add(AsyncButton("Video", () => StartVideo(number))); list.Children.Add(row); } }
+        void Filter() { list.Children.Clear(); foreach (var item in items.OfType<JsonObject>().Where(x => ($"{x["name"]} {x["number"]}").Contains(search.Text, StringComparison.OrdinalIgnoreCase)).OrderBy(x => preferences.ContactOrder == "Name" ? x["name"]?.ToString() : x["number"]?.ToString())) { var number = item["number"]!.ToString(); var row = Row(); row.Children.Add(Button($"{item["name"]} · {number} · {item["status"]}", () => Dial(number))); if (item["id"]?.ToString() == "extension:" + number) row.Children.Add(AsyncButton("Video", () => StartVideo(number))); list.Children.Add(row); } }
         search.TextChanged += (_, _) => Filter(); Filter();
     }
     private async Task FlushHistory(PhoneProfile account)
@@ -191,7 +191,7 @@ public sealed partial class MainPage : Page
     }
     private async Task DrawRecents()
     {
-        await FlushHistory(current!); using var api = Api(); var result = await api.JsonAsync("calls"); foreach (var item in (result["calls"]?.AsArray() ?? []).OfType<JsonObject>()) { var number = item["number"]!.ToString(); Body.Children.Add(Button($"{item["name"]} · {number} · {item["direction"]} · {item["started_at"]} · {item["duration"]}s", () => phone!.Dial(number))); }
+        await FlushHistory(current!); using var api = Api(); var result = await api.JsonAsync("calls"); foreach (var item in (result["calls"]?.AsArray() ?? []).OfType<JsonObject>()) { var number = item["number"]!.ToString(); Body.Children.Add(Button($"{item["name"]} · {number} · {item["direction"]} · {item["started_at"]} · {item["duration"]}s", () => Dial(number))); }
     }
     private void StopPlayback() => phone?.StopVoicemail();
     private async Task DrawVoicemail()
@@ -234,6 +234,7 @@ public sealed partial class MainPage : Page
             LoginStartup.SetDirect(launch.IsOn, Path.Combine(AppContext.BaseDirectory, "OpenWebPbx.Phone.App.exe")); await Task.CompletedTask;
 #endif
             SavePreferences(preferences with { LaunchAtLogin = launch.IsOn }); }); Body.Children.Add(launch);
+        Body.Children.Add(AsyncButton("Check for Windows phone updates", CheckUpdates));
         Body.Children.Add(AsyncButton("Change my app password", Password));
         Body.Children.Add(AsyncButton("Windows microphone privacy", () => Launch("ms-settings:privacy-microphone"))); Body.Children.Add(AsyncButton("Windows camera privacy", () => Launch("ms-settings:privacy-webcam")));
         foreach (var pair in new[] { ("Terms", "terms"), ("Privacy", "privacy"), ("Delete my account", "delete") }) Body.Children.Add(AsyncButton(pair.Item1, () => Launch("https://openwebpbx.com/" + pair.Item2)));
@@ -263,7 +264,7 @@ public sealed partial class MainPage : Page
     }
     private async Task StartVideo(string number)
     {
-        if (ConnectionRules.Number(number) == current?.Account.Extension) throw new PhoneInputException("Choose a colleague’s extension for a video call.");
+        RequireNewCall(); if (ConnectionRules.Number(number) == current?.Account.Extension) throw new PhoneInputException("Choose a colleague’s extension for a video call.");
         using var api = Api(); var bootstrap = await api.JsonAsync("bootstrap"); if (!(bootstrap["features"]?.AsArray().Any(x => x?.ToString() == "video_calls") ?? false)) throw new PhoneInputException("Video is not enabled for this PBX yet.");
         var contacts = await api.JsonAsync("directory"); if (!(contacts["contacts"]?.AsArray().OfType<JsonObject>().Any(x => x["id"]?.ToString() == "extension:" + ConnectionRules.Number(number)) ?? false)) throw new PhoneInputException("Choose a colleague listed in Contacts for a video call."); OpenVideo(); phone!.Dial(number, true);
     }

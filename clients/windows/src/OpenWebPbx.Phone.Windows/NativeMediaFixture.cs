@@ -17,6 +17,11 @@ internal sealed record NativeMediaFixture(string Root, string CaPem, string Inpu
         if (CaPem.Length is < 100 or > 262144 || !CaPem.Contains("-----BEGIN CERTIFICATE-----", StringComparison.Ordinal) || CaPem.Contains("PRIVATE KEY", StringComparison.Ordinal)) throw new InvalidOperationException("Only a public fixture CA is allowed.");
         FilePath(InputWav, true); FilePath(OutputWav, false); if (StaticImage is not null) FilePath(StaticImage, true);
     }
+    internal void NewOutput(string value)
+    {
+        FilePath(value, false); if (!value.EndsWith(".wav", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Only WAV fixture outputs are allowed.");
+        try { _ = File.GetAttributes(value); throw new InvalidOperationException("Fixture output already exists."); } catch (FileNotFoundException) { }
+    }
     private void FilePath(string value, bool required)
     {
         var path = Path.GetFullPath(value); if (!path.StartsWith(Path.GetFullPath(Root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Fixture media escaped its root.");

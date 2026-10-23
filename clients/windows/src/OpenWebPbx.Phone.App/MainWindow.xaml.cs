@@ -18,6 +18,7 @@ public sealed partial class MainWindow : Window
     }
     public void Show() { AppWindow.Show(); Activate(); }
     public void Exit() { if (!Page.CanExit) { Show(); ShowMessage("Finish your call or current request before exiting. You can close the window and keep receiving calls in the tray."); return; } exiting = true; Close(); }
+    internal void ExitForUpdate() { exiting = true; Close(); }
     public Task Import(SetupInvitation invitation) => Page.WaitAndImport(invitation);
     public void ShowMessage(string message) => Page.ShowMessage(message);
 }

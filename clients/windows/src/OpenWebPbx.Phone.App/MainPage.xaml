@@ -10,14 +10,15 @@
                 <NavigationViewItem Content="Accounts" Tag="Accounts" Icon="Manage" />
             </NavigationView.MenuItems>
             <Grid Padding="24,12,24,20" RowSpacing="16">
-                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <Grid ColumnSpacing="16"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <StackPanel><TextBlock Text="OpenWebPBX Free Phone" Style="{ThemeResource TitleTextBlockStyle}"/><TextBlock x:Name="ConnectionStatus" Text="Connect your account to get started" TextWrapping="Wrap"/></StackPanel>
                     <ComboBox x:Name="AccountChoice" Grid.Column="1" MinWidth="200" MaxWidth="320" PlaceholderText="Choose account" SelectionChanged="ChooseAccount" AutomationProperties.Name="Current account"/>
                 </Grid>
                 <InfoBar x:Name="Notice" Grid.Row="1" IsOpen="False" IsClosable="True" />
-                <Border x:Name="LiveCallsCard" Grid.Row="2" Visibility="Collapsed" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="12" Padding="16"><StackPanel x:Name="LiveCalls" Spacing="10" /></Border>
-                <ScrollViewer Grid.Row="3" HorizontalScrollBarVisibility="Disabled"><ContentControl x:Name="BodyControls" HorizontalContentAlignment="Stretch"><StackPanel x:Name="Body" Spacing="14" MaxWidth="900" HorizontalAlignment="Stretch" /></ContentControl></ScrollViewer>
+                <InfoBar x:Name="UpdateNotice" Grid.Row="2" IsOpen="False" IsClosable="True" />
+                <Border x:Name="LiveCallsCard" Grid.Row="3" Visibility="Collapsed" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="12" Padding="16"><StackPanel x:Name="LiveCalls" Spacing="10" /></Border>
+                <ScrollViewer Grid.Row="4" HorizontalScrollBarVisibility="Disabled"><ContentControl x:Name="BodyControls" HorizontalContentAlignment="Stretch"><StackPanel x:Name="Body" Spacing="14" MaxWidth="900" HorizontalAlignment="Stretch" /></ContentControl></ScrollViewer>
             </Grid>
         </NavigationView>
     </Grid>

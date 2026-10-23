@@ -125,6 +125,40 @@ store.OnRead = null; calls = 1; var metadataProfile = store.Values.First();
 await manager.UpdateAccountAsync(metadataProfile.Id, metadataProfile.Account with { AppPasswordSet = true, CanInitializeAppPassword = false }); Check(store.Values.First().Sip == metadataProfile.Sip); Check(store.Values.First().Token == metadataProfile.Token);
 try { await manager.UpdateAccountAsync(metadataProfile.Id, metadataProfile.Account with { DomainId = Guid.NewGuid() }); throw new Exception("Foreign account metadata accepted."); } catch (PhoneInputException) { Check(true); }
 using (var productionPublic = ClientUpdateTrust.Open()) { Check(productionPublic.KeySize == 3072); Check(Convert.ToHexString(SHA256.HashData(productionPublic.ExportSubjectPublicKeyInfo())).ToLowerInvariant() == ClientUpdateTrust.PublicSpkiSha256); }
+var updateRoot = Path.Combine(Path.GetTempPath(), "phone-update-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(updateRoot);
+try
+{
+    var packageBytes = Enumerable.Range(0, 4096).Select(x => (byte)(x % 251)).ToArray(); var packageHash = Convert.ToHexString(SHA256.HashData(packageBytes)).ToLowerInvariant();
+    var release = new ClientRelease("1.0.1", 2, new("https://github.com/embire2/openwebpbx/releases/download/windows-phone-v1.0.1/OpenWebPBX-Free-Phone-1.0.1-win-x64.msixbundle"), packageBytes.Length, packageHash, "OpenWebPBX.FreePhone", "CN=Open ISP cc");
+    using (var download = new ReleaseDownload(new Handler(request => { Check(request.Headers.Authorization is null && !request.Headers.Contains("Cookie")); return new(HttpStatusCode.OK) { Content = new ByteArrayContent(packageBytes) }; }))) { var path = await download.Package(release, updateRoot); Check((await File.ReadAllBytesAsync(path)).SequenceEqual(packageBytes)); }
+    foreach (var data in new[] { new byte[4096], new byte[4097], new byte[4095] }) { using var download = new ReleaseDownload(new Handler(_ => new(HttpStatusCode.OK) { Content = new ByteArrayContent(data) })); try { await download.Package(release, updateRoot); throw new Exception("Invalid package promoted."); } catch (PhoneInputException) { Check(!Directory.EnumerateFiles(updateRoot, "*.partial").Any()); } }
+    using (var download = new ReleaseDownload(new Handler(_ => new(HttpStatusCode.Redirect) { Headers = { Location = new("https://evil.invalid/package") } }))) try { await download.Package(release, updateRoot); throw new Exception("Foreign asset redirect accepted."); } catch (PhoneInputException) { Check(true); }
+    using (var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(80))) using (var download = new ReleaseDownload(new Handler(_ => new(HttpStatusCode.OK) { Content = new StreamContent(new StalledBody()) }))) try { await download.Package(release, updateRoot, cancellation: cancel.Token); throw new Exception("Stalled package read escaped cancellation."); } catch (OperationCanceledException) { Check(!Directory.EnumerateFiles(updateRoot, "*.partial").Any()); }
+    Check((await File.ReadAllBytesAsync(Directory.EnumerateFiles(updateRoot, "*.msixbundle").Single())).SequenceEqual(packageBytes));
+}
+finally { Directory.Delete(updateRoot, true); }
+var trustedRelease = new ClientRelease("1.0.1", 2, new("https://github.com/embire2/openwebpbx/releases/download/windows-phone-v1.0.1/OpenWebPBX-Free-Phone-1.0.1-win-x64.msixbundle"), 4096, new string('a',64), "OpenWebPBX.FreePhone", "CN=Open ISP cc") { PayloadSha256 = new string('b',64) };
+var floor = new ClientTrustState().Advance(trustedRelease); Check(floor.Sequence == 2); Check(floor.Advance(trustedRelease) == floor);
+Refuse(() => floor.Advance(trustedRelease with { Sequence = 1 })); Refuse(() => floor.Advance(trustedRelease with { PayloadSha256 = new string('c',64) })); Refuse(() => floor.Advance(trustedRelease with { PayloadSha256 = "" }));
+var optionalUpdate = UpdateRequirement.Evaluate(new(1,0,0), new(1,0,1), []); Check(optionalUpdate.Available && !optionalUpdate.Required); optionalUpdate.RequireNewCall();
+var requiredUpdate = UpdateRequirement.Evaluate(new(1,0,0), new(1,0,1), [new("required", "required", false, null, new(1,0,1), true)]); Check(requiredUpdate.Required); Refuse(requiredUpdate.RequireNewCall);
+Check(!UpdateRequirement.Evaluate(new(1,0,1), new(1,0,1), [new("required", "required", false, null, new(1,0,1), true)]).Required);
+Refuse(() => UpdateRequirement.Evaluate(new(1,0,0), new(1,0,1), [new("required", "required", false, null, new(1,0,2), true)]));
+Refuse(() => UpdateRequirement.RequireInstallationIdle(1)); UpdateRequirement.RequireInstallationIdle(0); Check(true);
+byte[] Bundle(string name = "OpenWebPBX.FreePhone", string version = "1.0.1.0", string architecture = "x64", bool signature = true, bool duplicate = false)
+{
+    using var bytes = new MemoryStream(); using (var zip = new System.IO.Compression.ZipArchive(bytes, System.IO.Compression.ZipArchiveMode.Create, true))
+    {
+        var text = $"<Bundle xmlns=\"http://schemas.microsoft.com/appx/2013/bundle\"><Identity Name=\"{name}\" Publisher=\"CN=Open ISP cc\" Version=\"{version}\"/><Packages><Package Type=\"application\" Architecture=\"{architecture}\" FileName=\"Phone.msix\"/></Packages></Bundle>";
+        using (var writer = new StreamWriter(zip.CreateEntry("AppxMetadata/AppxBundleManifest.xml").Open())) writer.Write(text);
+        using (var entry = zip.CreateEntry("Phone.msix").Open()) entry.WriteByte(1);
+        if (signature) using (var entry = zip.CreateEntry("AppxSignature.p7x").Open()) entry.WriteByte(1);
+        if (duplicate) using (var entry = zip.CreateEntry("Phone.msix").Open()) entry.WriteByte(2);
+    }
+    return bytes.ToArray();
+}
+using (var package = new MemoryStream(Bundle())) { ClientPackage.ValidateBundle(package, trustedRelease); Check(true); }
+foreach (var data in new[] { Bundle(name:"Other.Phone"), Bundle(version:"1.0.0.0"), Bundle(architecture:"arm64"), Bundle(signature:false), Bundle(duplicate:true) }) Refuse(() => ClientPackage.ValidateBundle(new MemoryStream(data), trustedRelease));
 Console.WriteLine($"PASS {checks} client domain/API controls; HTTP handlers are explicit doubles; no Windows/native-call qualification");
 sealed class Handler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
 {

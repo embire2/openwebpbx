@@ -24,6 +24,12 @@ try
     var changed = encrypted.ToArray(); changed[^1] ^= 1; File.WriteAllBytes(file, changed); var refused = false; try { await store.ReadAsync(); } catch (PhoneInputException) { refused = true; } Check(refused); File.WriteAllBytes(file, encrypted);
     await store.SaveAsync([], null); Check((await store.ReadAsync()).Count == 0); Check(await store.SelectedAsync() is null);
     foreach (var entry in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)) { var content = Encoding.UTF8.GetString(File.ReadAllBytes(entry)); Check(!content.Contains(profile.Sip.Password) && !content.Contains(profile.Token)); }
+    Observe("update_trust"); var updateStore = new UpdateStorage("direct", root); Check(updateStore.Read().Sequence == 0);
+    var release = new ClientRelease("1.0.1", 2, new("https://github.com/embire2/openwebpbx/releases/download/windows-phone-v1.0.1/OpenWebPBX-Free-Phone-1.0.1-win-x64.msixbundle"), 4096, new string('a',64), "OpenWebPBX.FreePhone", "CN=Open ISP cc") { PayloadSha256 = new string('b',64) };
+    updateStore.Accept(release); Check(updateStore.Read().Sequence == 2 && updateStore.Read().PayloadSha256 == release.PayloadSha256);
+    var trustFile = Path.Combine(updateStore.Directory, "accepted.dpapi"); var trustBytes = File.ReadAllBytes(trustFile); Check(!Encoding.UTF8.GetString(trustBytes).Contains(release.PayloadSha256));
+    var downgrade = false; try { updateStore.Accept(release with { Sequence = 1 }); } catch (PhoneInputException) { downgrade = true; } Check(downgrade); Check(File.ReadAllBytes(trustFile).SequenceEqual(trustBytes));
+    var trustTamper = trustBytes.ToArray(); trustTamper[^1] ^= 1; File.WriteAllBytes(trustFile, trustTamper); var trustRefused = false; try { updateStore.Read(); } catch (PhoneInputException) { trustRefused = true; } Check(trustRefused); File.WriteAllBytes(trustFile, trustBytes);
     Check(typeof(NativePhone).Assembly.GetType("OpenWebPbx.Phone.Windows.NativeMediaFixture") is null);
     Observe("native_start"); using (var native = new NativePhone(stage => Observe("native_" + stage))) { Check(!native.Busy); Check(native.Calls.Count == 0); native.Iterate(); Check(native.Registrations.Count == 0); Observe("native_auth_inspection"); var valid = native.VerifyVolatileAuth(profile.Sip.Password); authStorage = native.AuthStorageProof; Observe("native_auth_inspection"); Check(valid); }
     using var output = new FileStream(args[0], FileMode.Create, FileAccess.Write, FileShare.Read);

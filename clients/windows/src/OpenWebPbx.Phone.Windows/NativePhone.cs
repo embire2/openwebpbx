@@ -305,6 +305,15 @@ public sealed class NativePhone : IDisposable
         if (fixture.StaticImage is not null) { core.StaticPicture = fixture.StaticImage; core.StaticPictureFps = 15; core.VideoDevice = core.VideoDevicesList.First(x => x.Contains("StaticImage", StringComparison.OrdinalIgnoreCase)); }
         if (!core.IsVerifyServerCertificates || !core.IsVerifyServerCn || !core.IsMediaEncryptionMandatory) throw new InvalidOperationException("Media fixture weakened production transport policy.");
     }
+    internal void FixtureStartConferenceRecording(string ownedPath)
+    {
+        CheckThread(); if (mediaFixture is null || conference is null) throw new InvalidOperationException("Only an active isolated conference may be recorded.");
+        mediaFixture.NewOutput(ownedPath); if (conference.StartRecording(ownedPath) != 0) throw new InvalidOperationException("The native conference recorder refused.");
+    }
+    internal void FixtureStopConferenceRecording()
+    {
+        CheckThread(); if (mediaFixture is null || conference is null || conference.StopRecording() != 0) throw new InvalidOperationException("The native conference recorder did not stop.");
+    }
     internal NativeLocalPlaybackSnapshot FixturePlaybackSnapshot()
     {
         CheckThread(); if (mediaFixture is null) throw new InvalidOperationException("No media fixture is active.");
