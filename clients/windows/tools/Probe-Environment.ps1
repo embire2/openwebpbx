@@ -25,7 +25,7 @@ try{
  $sample=Join-Path $Output 'template-source';New-Item -ItemType Directory $sample|Out-Null
  $sourceFiles=@(Get-ChildItem -LiteralPath $project -File -Recurse -Force|Where-Object {
   $relative=[IO.Path]::GetRelativePath($project,$_.FullName).Replace('\','/');$segments=$relative.Split('/')
-  'bin' -cnotin $segments -and 'obj' -cnotin $segments
+  'bin' -notin $segments -and 'obj' -notin $segments
  })
  if($sourceFiles.Count -lt 4 -or $sourceFiles.Count -gt 200 -or ($sourceFiles|Measure-Object Length -Sum).Sum -gt 4MB){throw 'The scaffold source inventory exceeds its bound.'}
  foreach($file in $sourceFiles){
