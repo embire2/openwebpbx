@@ -1,6 +1,8 @@
 # Actual AST cleanup/report projection controls; all operations are private mocks.
 param([string]$SourceRoot=(Split-Path $PSScriptRoot -Parent))
 $ErrorActionPreference='Stop';$tokens=$null;$errors=$null
+. (Join-Path $SourceRoot 'tests/windows-hold-failure-fields.ps1')
+. (Join-Path $SourceRoot 'tests/windows-native-cleanup-row-fields.ps1')
 $native=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-native-acceptance.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Native hook must parse.'}
 $suite=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-suite.ps1'),[ref]$tokens,[ref]$errors)
@@ -24,7 +26,7 @@ function FixtureRecord {return [ordered]@{schema=1;action='cleanup';stage='confi
 function MaybeFail {if($script:failStage -ceq $cleanupStage){throw 'PRIVATE_CLEANUP_MESSAGE'}}
 function Stop-ScheduledTask {MaybeFail}
 function Unregister-ScheduledTask {MaybeFail}
-function Php {MaybeFail;return '{"factory_empty":true,"owned_rows":0,"owned_contacts":0}'}
+function Invoke-NativeFactoryCleanup {MaybeFail;return '{"factory_empty":true,"owned_rows":0,"owned_contacts":0}'}
 function FixtureBinding {MaybeFail}
 function Restart-Service {MaybeFail}
 function New-NativeRestartWindow {return @{observed=$false}}

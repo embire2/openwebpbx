@@ -58,6 +58,7 @@ $domain='windowsqa.example.invalid';$installed=$false;$hostAdded=$false;$sftp=$n
 $recoveryPki=$null
 . (Join-Path $PSScriptRoot 'windows-suite-pki.ps1')
 . (Join-Path $PSScriptRoot 'windows-upgrade-lock-observer.ps1')
+. (Join-Path $PSScriptRoot 'windows-native-cleanup-row-fields.ps1')
 . (Join-Path $PSScriptRoot 'windows-hold-failure-fields.ps1')
 . (Join-Path $PSScriptRoot 'windows-suite-independent.ps1')
 $facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';web_readiness='unqualified';backups='pending';native_sip_audio='unqualified';native_clock='unqualified';native_providers='unqualified';native_call_me_back='unqualified';tenant_domains='unqualified';stun='unqualified';phone_health='unqualified';meeting_transport='unqualified';meeting_browser='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
@@ -163,6 +164,8 @@ function SafeMailboxFailureFields($Record){
 }
 function SafeNativeCleanupFields($Record){
  $safe=@{}
+ if($Record.native_cleanup_writers_restored -is [bool]){$safe.native_cleanup_writers_restored=$Record.native_cleanup_writers_restored}
+ if($Record.native_cleanup_stage -ceq 'restore_factory' -and $null -ne $Record.native_cleanup_rows){$row=Get-NativeCleanupRowFields $Record.native_cleanup_rows;if($row.Count){$safe.native_cleanup_rows=$row}}
  if($Record.native_child_state -is [string] -and $Record.native_child_state -cin 'passed','failed'){$safe.native_child_state=$Record.native_child_state}
  if($Record.native_cleanup_stage -isnot [string] -or $Record.native_cleanup_stage -cnotin 'stop_notification_task','remove_notification_task','restore_factory','restore_binding','restore_files','restart_engine','remove_leaf','remove_root','stop_pki','collect_pki_logs','parent_write_guard','cleanup_unknown'){return $safe}
  $safe.native_cleanup_stage=$Record.native_cleanup_stage
@@ -1441,6 +1444,7 @@ try{
  & (Join-Path $source 'tests/windows_native_factory_diagnostics.ps1') -SourceRoot $source *> (Join-Path $work 'native-factory-guards.private.log')
  if(!$?){throw 'Explicit native factory diagnostic controls failed.'}
  CheckedPython @((Join-Path $source 'tests/windows_provider_diagnostics_test.py'))
+ & (Join-Path $source 'tests/windows_native_cleanup_writers.ps1') -SourceRoot $source *> (Join-Path $work 'native-cleanup-writer-controls.private.log')
  CheckedPython @((Join-Path $source 'tests/windows_hold_diagnostics_test.py'))
  & (Join-Path $source 'tests/windows_hold_diagnostics_controls.ps1') -SourceRoot $source *> (Join-Path $work 'hold-diagnostic-controls.private.log')
  if(!$?){throw 'The focused hold diagnostic scope and evidence controls failed.'}

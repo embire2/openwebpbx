@@ -5,6 +5,8 @@
 param([Parameter(Mandatory)][string]$PackageRoot,[switch]$DisposableHostedRunner,[Parameter(Mandatory)][string]$InputPath,[Parameter(Mandatory)][string]$ReportPath)
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-native-restart-observer.ps1')
+. (Join-Path $PSScriptRoot 'windows-native-cleanup-row-fields.ps1')
+. (Join-Path $PSScriptRoot 'windows-native-cleanup-writers.ps1')
 . (Join-Path $PSScriptRoot 'windows-hold-failure-fields.ps1')
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx') { throw 'Explicit disposable Windows hosted runner required.' }
 if([Environment]::OSVersion.Version.Build -lt 26100){throw 'Windows Server 2025 is required.'}
@@ -580,7 +582,7 @@ finally{
   Stop-ScheduledTask -TaskName $notificationTask -ErrorAction SilentlyContinue
   $cleanupStage='remove_notification_task';Unregister-ScheduledTask -TaskName $notificationTask -Confirm:$false -ErrorAction SilentlyContinue
   $cleanupStage='restore_factory'
-  if($baseline){$clean=Php 'cleanup'|ConvertFrom-Json;if($clean.cleanup_reloadxml -is [string] -and $clean.cleanup_reloadxml -cin 'success','error','empty','other'){$facts.native_cleanup_reloadxml=$clean.cleanup_reloadxml};if(!$clean.factory_empty -or $clean.owned_rows -ne 0 -or $clean.owned_contacts -ne 0){throw 'Native fixture cleanup is incomplete.'};if($clean.normal_login_bcrypt_rehash_proved){if(!$clean.original_factory_hash_restored){throw 'Original factory password hash was not restored.'};$facts.checks+='Normal generated-factory login bcrypt12-to-10 rehash proved with unchanged password, then original hash restored during cleanup'}}
+  if($baseline){$clean=Invoke-NativeFactoryCleanup|ConvertFrom-Json;if($clean.cleanup_reloadxml -is [string] -and $clean.cleanup_reloadxml -cin 'success','error','empty','other'){$facts.native_cleanup_reloadxml=$clean.cleanup_reloadxml};if(!$clean.factory_empty -or $clean.owned_rows -ne 0 -or $clean.owned_contacts -ne 0){throw 'Native fixture cleanup is incomplete.'};if($clean.normal_login_bcrypt_rehash_proved){if(!$clean.original_factory_hash_restored){throw 'Original factory password hash was not restored.'};$facts.checks+='Normal generated-factory login bcrypt12-to-10 rehash proved with unchanged password, then original hash restored during cleanup'}}
   $cleanupStage='restore_binding';if($binding -and $originalBinding){FixtureBinding -Hash $originalBinding.hash -Store $originalBinding.store}
   $cleanupStage='restore_files'
   foreach($name in $paths){$path=$originalFiles[$name];if($originalPresent.ContainsKey($name)){if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Recurse -Force};if($originalPresent[$name]){Copy-Item -LiteralPath (Join-Path $saved $name) -Destination $path -Recurse;$acl=Get-Acl -LiteralPath $path;$acl.SetSecurityDescriptorSddlForm($originalAcl[$name]);Set-Acl -LiteralPath $path -AclObject $acl}}}
