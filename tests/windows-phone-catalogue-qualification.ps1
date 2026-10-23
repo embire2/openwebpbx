@@ -16,7 +16,7 @@ $names=@(
  'packaging/windows/WindowsPhoneCatalogue.Common.ps1','packaging/windows/WindowsPhoneCatalogue.ps1','packaging/windows/Install-WindowsPhoneCatalogue.ps1',
  'packaging/windows/openssl.cnf','packaging/windows/UpgradeRecovery.Common.ps1','packaging/windows/File-Security.ps1','packaging/windows/Restore-Gates.ps1','packaging/windows/Write-PrivateState.ps1','packaging/windows/PhpRuntime.Common.ps1',
  'packaging/updates/windows-phone-catalogue.php','resources/classes/pbx_windows_phone_catalogue.php','resources/windows-phone/release-public.pem',
- 'tests/windows_phone_catalogue_proof.ps1','tests/windows_phone_catalogue_native.ps1','tests/windows_phone_catalogue_native.php','tests/windows_phone_catalogue_stage.ps1','tests/windows_phone_catalogue_activation.ps1','tests/windows_phone_catalogue_lifecycle.ps1','tests/windows_phone_catalogue_qualification.ps1','tests/windows-phone-catalogue-qualification.ps1','tests/windows_phone_catalogue_failure_controls.ps1','tests/windows_phone_catalogue_failure_controls.php','tests/windows_phone_catalogue_stock_controls.ps1')
+ 'tests/windows_phone_catalogue_proof.ps1','tests/windows_phone_catalogue_native.ps1','tests/windows_phone_catalogue_native.php','tests/windows_phone_catalogue_stage.ps1','tests/windows_phone_catalogue_activation.ps1','tests/windows_phone_catalogue_lifecycle.ps1','tests/windows_phone_catalogue_qualification.ps1','tests/windows-phone-catalogue-qualification.ps1','tests/windows_phone_catalogue_failure_controls.ps1','tests/windows_phone_catalogue_failure_controls.php','tests/windows_phone_catalogue_stock_controls.ps1','tests/windows_phone_catalogue_output_controls.ps1')
 foreach($name in $names){
  $blob=(git -C $SourceRoot rev-parse --verify ($source+':'+$name)).Trim();if($LASTEXITCODE -or $blob -cnotmatch '^[a-f0-9]{40}$'){throw 'Every native qualification input must be committed in the exact source.'}
  $actual=(git -C $SourceRoot hash-object --no-filters -- (Join-Path $SourceRoot $name)).Trim();if($LASTEXITCODE -or $actual -cne $blob){throw 'An uncommitted native qualification input differs.'}
@@ -62,6 +62,8 @@ try{
  if(!$probeOut.Wait(2000) -or !$probeErr.Wait(2000) -or $probe.ExitCode -ne 0 -or $probeErr.Result.Length -or $probeOut.Result.Trim() -cne 'PASS 9 actual PHP diagnostic producer/type/privacy/preparation controls; no Windows or production operation'){throw 'The actual PHP diagnostic controls did not pass.'}
 }finally{$probe.Dispose()}
 $childExit=$null
+& (Join-Path $SourceRoot 'tests/windows_phone_catalogue_output_controls.ps1') -SourceRoot $SourceRoot -Php (Join-Path $prepared.Directory 'php.exe')
+if(!$?){throw 'The actual pinned-PHP output controls did not pass.'}
 $stock5=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe';$stock7=Join-Path $PSHOME 'pwsh.exe'
 $null=Assert-OpenWebRecoveryOrdinary $stock5;$null=Assert-OpenWebRecoveryOrdinary $stock7
 if(![IO.Path]::GetFullPath($stock7).StartsWith(([IO.Path]::GetFullPath($env:ProgramFiles).TrimEnd('\')+'\PowerShell\'),[StringComparison]::OrdinalIgnoreCase)){throw 'PowerShell7 must be the ordinary preinstalled runner runtime.'}

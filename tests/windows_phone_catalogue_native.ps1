@@ -148,7 +148,13 @@ function FinishPhp($Child,[bool]$Success=$true){
   try{$failure.Data['catalogue_php_failure']=Read-WindowsPhoneCataloguePhpFailure ($Child.ErrorTask.Result|ConvertFrom-Json -ErrorAction Stop)}catch{$failure.Data['catalogue_php_observation_refused']=$true}
   throw $failure
  }
- return [pscustomobject]@{Exit=$p.ExitCode;Text=$out.Result;Record=if($out.Result.Trim()){$out.Result|ConvertFrom-Json}else{$null}}
+ try{return [pscustomobject]@{Exit=$p.ExitCode;Text=$out.Result;Record=if($out.Result.Trim()){$out.Result|ConvertFrom-Json -ErrorAction Stop}else{$null}}}
+ catch{
+  $original=$_;$original.Exception.Data['catalogue_php_child_exit']=[int]$p.ExitCode
+  try{$original.Exception.Data['catalogue_php_output']=Get-WindowsPhoneCatalogueChildOutput $Child.Action $Success $out.Result $Child.ErrorTask.Result}catch{$original.Exception.Data['catalogue_php_output_observation_refused']=$true}
+  if($p.ExitCode -ne 0){try{$original.Exception.Data['catalogue_php_failure']=Read-WindowsPhoneCataloguePhpFailure ($Child.ErrorTask.Result|ConvertFrom-Json -ErrorAction Stop)}catch{$original.Exception.Data['catalogue_php_observation_refused']=$true}}
+  throw $original
+ }
 }
 function Php([string]$Action,[bool]$Success=$true){return (FinishPhp (StartPhp $Action) $Success)}
 function ReadyPhp([string]$Action,[string]$Expected){
@@ -286,11 +292,12 @@ try{Complete-OpenWebWindowsPhoneCatalogueActivation -Owner install -Root $p.Root
  $failure=$_
  if($reportOwned){try{
   $meta=Get-WindowsPhoneCatalogueFailureMetadata $failure
-  $phpExit=$null;$phpFailure=$null
+  $phpExit=$null;$phpFailure=$null;$phpOutput=$null
   if($failure.Exception.Data.Contains('catalogue_php_child_exit')){$phpExit=[int]$failure.Exception.Data['catalogue_php_child_exit']}
   if($failure.Exception.Data.Contains('catalogue_php_failure')){$phpFailure=$failure.Exception.Data['catalogue_php_failure']}
+  if($failure.Exception.Data.Contains('catalogue_php_output')){$phpOutput=Read-WindowsPhoneCatalogueChildOutput $failure.Exception.Data['catalogue_php_output']}
   $retained=[bool]($work -and (Test-Path -LiteralPath $work))
-  $record=[ordered]@{schema=1;producer='windows_phone_catalogue_native.ps1';state='failed';phase=$phase;source_basename=$meta.source_basename;source_line=$meta.source_line;error_type=$meta.error_type;edition=$PSVersionTable.PSEdition;php_child_exit=$phpExit;php_failure=$phpFailure;child_processes_closed=$childrenClosed;owned_task_removed=$taskRemoved;original_vectors_preserved=$vectorsExact;owned_scope_retained=$retained;cleanup_required=($retained -and !($childrenClosed -and $taskRemoved -and $vectorsExact));actual_native_qualified=$false}
+  $record=[ordered]@{schema=1;producer='windows_phone_catalogue_native.ps1';state='failed';phase=$phase;source_basename=$meta.source_basename;source_line=$meta.source_line;error_type=$meta.error_type;edition=$PSVersionTable.PSEdition;php_child_exit=$phpExit;php_failure=$phpFailure;php_output=$phpOutput;child_processes_closed=$childrenClosed;owned_task_removed=$taskRemoved;original_vectors_preserved=$vectorsExact;owned_scope_retained=$retained;cleanup_required=($retained -and !($childrenClosed -and $taskRemoved -and $vectorsExact));actual_native_qualified=$false}
   $bytes=[Text.UTF8Encoding]::new($false).GetBytes(($record|ConvertTo-Json -Depth 8 -Compress));$report=[IO.File]::Open($ReportPath,'CreateNew','Write','None');try{$report.Write($bytes,0,$bytes.Length);$report.Flush($true)}finally{$report.Dispose()}
  }catch{$failure.Exception.Data['catalogue_fixture_failure_report_failed']=$true}}
  throw $failure

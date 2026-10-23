@@ -12,7 +12,7 @@ foreach($key in $php.Keys){$bad=PhpCopy;$bad.PSObject.Properties.Remove($key);Re
 foreach($field in 'schema','source_line'){foreach($value in @($true,'1',1.0,$null,-1,100001)){$bad=PhpCopy;$bad.$field=$value;Refuse {Read-WindowsPhoneCataloguePhpFailure $bad}}}
 foreach($field in 'producer','state','source_basename','error_type'){foreach($value in @($true,$null,@('failed'),'PRIVATE-PATH-MESSAGE')){$bad=PhpCopy;$bad.$field=$value;Refuse {Read-WindowsPhoneCataloguePhpFailure $bad}}}
 $bad=PhpCopy;$bad|Add-Member path 'PRIVATE-PATH';Refuse {Read-WindowsPhoneCataloguePhpFailure $bad}
-$native=[ordered]@{schema=1;producer='windows_phone_catalogue_native.ps1';state='failed';phase='seed';source_basename='windows_phone_catalogue_native.ps1';source_line=30;error_type='System.InvalidOperationException';edition='Core';php_child_exit=4;php_failure=(PhpCopy);child_processes_closed=$true;owned_task_removed=$true;original_vectors_preserved=$true;owned_scope_retained=$true;cleanup_required=$false;actual_native_qualified=$false}
+$native=[ordered]@{schema=1;producer='windows_phone_catalogue_native.ps1';state='failed';phase='seed';source_basename='windows_phone_catalogue_native.ps1';source_line=30;error_type='System.InvalidOperationException';edition='Core';php_child_exit=4;php_failure=(PhpCopy);php_output=$null;child_processes_closed=$true;owned_task_removed=$true;original_vectors_preserved=$true;owned_scope_retained=$true;cleanup_required=$false;actual_native_qualified=$false}
 function NativeCopy{return($native|ConvertTo-Json -Depth 5|ConvertFrom-Json)}
 Check ((Read-WindowsPhoneCatalogueNativeFailure (NativeCopy) Core).php_child_exit -eq 4)
 foreach($key in $native.Keys){$bad=NativeCopy;$bad.PSObject.Properties.Remove($key);Refuse {Read-WindowsPhoneCatalogueNativeFailure $bad Core}}
@@ -23,6 +23,10 @@ $bad=NativeCopy;$bad.php_child_exit=0;Refuse {Read-WindowsPhoneCatalogueNativeFa
 $bad=NativeCopy;$bad.actual_native_qualified=$true;Refuse {Read-WindowsPhoneCatalogueNativeFailure $bad Core}
 $bad=NativeCopy;$bad.owned_task_removed=$false;Refuse {Read-WindowsPhoneCatalogueNativeFailure $bad Core}
 $bad=NativeCopy;$bad.php_failure|Add-Member secret 'PRIVATE';Refuse {Read-WindowsPhoneCatalogueNativeFailure $bad Core}
+$bad=NativeCopy;$bad.php_output=Get-WindowsPhoneCatalogueChildOutput '--refresh' $false 'Warning: PRIVATE' ($php|ConvertTo-Json -Compress)
+Check ((Read-WindowsPhoneCatalogueNativeFailure $bad Core).php_output.action -ceq '--refresh')
+$bad.php_child_exit=$null;$bad.php_failure=$null;Refuse {Read-WindowsPhoneCatalogueNativeFailure $bad Core}
+$bad=NativeCopy;$bad.php_output=@{action='PRIVATE'};Refuse {Read-WindowsPhoneCatalogueNativeFailure $bad Core}
 $work=Join-Path ([IO.Path]::GetTempPath()) ('catalogue-failure-'+[Guid]::NewGuid().ToString('N'));$null=[IO.Directory]::CreateDirectory($work)
 try{
  foreach($file in 'windows_phone_catalogue_native.ps1','windows-phone-catalogue-qualification.ps1'){

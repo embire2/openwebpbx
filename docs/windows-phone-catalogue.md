@@ -12,7 +12,7 @@ Debian uses the shared `/run/openwebpbx-upgrade.lock`. A new updater lends its a
 
 An older updater cannot lend that descriptor. When the catalogue is entirely absent, migration can retain seven inert, bounded `windows-phone-catalogue.pending.*` files in the existing private updates directory. All seven original bytes or absence entries are added to the durable support rollback inventory before writing. The new updater's finalization checks the exact completed version, original release manifest and every retained input before executing the helper under its actual maintenance lease. Existing catalogue installations cannot use this first-install compatibility path. The pending inputs remain available for retry.
 
-Current checks: 128 actual PHP signature/filesystem controls, 23 isolated Linux groups including the actual inherited-descriptor child chain and file rollback, 36 task-definition controls, 76 activation controls, 33 stage-reader controls and 179 strict native-receipt/source controls, 120 actual failure/early-catch/owned-process cleanup controls and 9 PHP failure-producer controls. Linux paths and systemd operations are explicit test adapters; task/ACL observations in portable PowerShell tests are adapters. These counts do not establish a native Windows, full installer, upgrade or release pass.
+Current checks: 128 actual PHP signature/filesystem controls, 23 isolated Linux groups including the actual inherited-descriptor child chain and file rollback, 36 task-definition controls, 76 activation controls, 33 stage-reader controls and 179 strict native-receipt/source controls, 124 actual failure/early-catch/owned-process cleanup controls and 9 PHP failure-producer controls. Linux paths and systemd operations are explicit test adapters; task/ACL observations in portable PowerShell tests are adapters. These counts do not establish a native Windows, full installer, upgrade or release pass.
 
 The prepared disposable Windows component uses real NTFS, PHP locks, exclusive .NET file handles, durable replacement, Scheduler operations and owned child interruptions. Its reader SID alone is mapped to LocalService in the fixture; it does not test a reader process. Actual IIS identity/read permissions, installed fixed paths, normal unpublished-channel behavior, complete backup/restore, signed upgrade and final release publication remain separate acceptance gates. No private production signing key is part of the fixture.
 
@@ -38,3 +38,14 @@ catalogue call. Eight additional actual-function/import/refusal controls pass;
 no native ACL or IIS-read acceptance follows from these portable controls.
 Original vectors, stock runtime inventory and owned cleanup were verified in
 the failed native run. A fresh component run remains required.
+
+Run40003413070/source85ae862f reached mutual exclusion, then refused while
+FinishPhp parsed child JSON. The retained receipt does not identify the child
+action or raw-output shape, so no warning or lock cause is established. A focused
+QA diagnostic now retains the original JSON-conversion exception plus fixed
+action, original exit, expected-success flag, bounded character counts and output
+shape. A warning-prefix flag and any valid existing PHP failure record contain no
+raw output. Nothing is stripped or accepted after parsing fails. Real PHP child
+output and actual FinishPhp controls pass53 checks; the hosted wrapper will run
+them against the exact prepared PHP runtime. This is diagnostic coverage, not a
+native catalogue or historical-cause pass.

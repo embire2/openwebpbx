@@ -39,9 +39,29 @@ function Read-WindowsPhoneCataloguePhpFailure {
  if(($Value.source_line -isnot [int] -and $Value.source_line -isnot [long]) -or $Value.source_line -lt 0 -or $Value.source_line -gt 100000 -or $Value.source_basename -isnot [string] -or $Value.source_basename -cnotin 'windows-phone-catalogue.php','windows_phone_catalogue_native.php','refresh.fixture.php','pbx_windows_phone_catalogue.php','external_component' -or $Value.error_type -isnot [string] -or $Value.error_type -cnotin 'RuntimeException','InvalidArgumentException','UnexpectedValueException','JsonException','TypeError','ValueError','Error','ErrorException','windows_phone_catalogue_failure','external_error'){throw 'The PHP fixture diagnostic source or type differs.'}
  $safe=[ordered]@{};foreach($name in $fields){$safe[$name]=$Value.$name};return $safe
 }
+function Get-WindowsPhoneCatalogueChildOutput {
+ param([string]$Action,[bool]$ExpectedSuccess,[string]$Stdout,[string]$Stderr)
+ if($Stdout.Length -gt 32768 -or $Stderr.Length -gt 32768){throw 'The owned output observation exceeds its original bound.'}
+ $text=$Stdout.Trim();$shape='empty'
+ if($text){$shape='non_json';try{$null=$text|ConvertFrom-Json -ErrorAction Stop;$shape=if($text.StartsWith('{')){'json_object'}elseif($text.StartsWith('[')){'json_array'}else{'json_scalar'}}catch{}}
+ $allowed=@('--seed','--hold','--refresh','--assert-exclusive','--prepared-stage-check','--read','--before-rename','--after-rename','commit_without_parent','before_enable','after_enable','after_complete')
+ $row=[pscustomobject]@{action=if($Action -cin $allowed){$Action}else{'unrecognised'};expected_success=$ExpectedSuccess;stdout_characters=$Stdout.Length;stderr_characters=$Stderr.Length;stdout_shape=$shape;php_warning_prefix=($text.StartsWith('Warning:') -or $text.StartsWith('PHP Warning:'))}
+ return (Read-WindowsPhoneCatalogueChildOutput $row)
+}
+function Read-WindowsPhoneCatalogueChildOutput {
+ param($Value)
+ $fields=@('action','expected_success','stdout_characters','stderr_characters','stdout_shape','php_warning_prefix')
+ $keys=if($Value -is [pscustomobject]){@($Value.PSObject.Properties.Name)}elseif($Value -is [Collections.IDictionary]){@($Value.Keys)}else{@()}
+ if($keys.Count -ne $fields.Count -or @($keys|Where-Object {$_ -cnotin $fields}).Count){throw 'The owned child output shape differs.'}
+ if($Value.action -isnot [string] -or $Value.action -cnotin '--seed','--hold','--refresh','--assert-exclusive','--prepared-stage-check','--read','--before-rename','--after-rename','commit_without_parent','before_enable','after_enable','after_complete','unrecognised' -or $Value.stdout_shape -isnot [string] -or $Value.stdout_shape -cnotin 'empty','non_json','json_object','json_array','json_scalar'){throw 'A fixed child action/output class is required.'}
+ foreach($flag in 'expected_success','php_warning_prefix'){if($Value.$flag -isnot [bool]){throw 'A child output flag is mistyped.'}}
+ foreach($size in 'stdout_characters','stderr_characters'){if(($Value.$size -isnot [int] -and $Value.$size -isnot [long]) -or $Value.$size -lt 0 -or $Value.$size -gt 32768){throw 'The child output observation exceeds its bound.'}}
+ if(($Value.stdout_characters -eq 0 -and $Value.stdout_shape -cne 'empty') -or ($Value.php_warning_prefix -and $Value.stdout_shape -cne 'non_json')){throw 'The child output observation is inconsistent.'}
+ $out=[ordered]@{};foreach($field in $fields){$out[$field]=$Value.$field};return $out
+}
 function Read-WindowsPhoneCatalogueNativeFailure {
  param($Value,[ValidateSet('Desktop','Core')][string]$Edition)
- $fields=@('schema','producer','state','phase','source_basename','source_line','error_type','edition','php_child_exit','php_failure','child_processes_closed','owned_task_removed','original_vectors_preserved','owned_scope_retained','cleanup_required','actual_native_qualified')
+ $fields=@('schema','producer','state','phase','source_basename','source_line','error_type','edition','php_child_exit','php_failure','php_output','child_processes_closed','owned_task_removed','original_vectors_preserved','owned_scope_retained','cleanup_required','actual_native_qualified')
  if($null -eq $Value -or $Value.GetType().FullName -cne 'System.Management.Automation.PSCustomObject' -or @($Value.PSObject.Properties).Count -ne $fields.Count){throw 'The native catalogue diagnostic shape differs.'}
  foreach($name in $Value.PSObject.Properties.Name){if($name -cnotin $fields){throw 'An unknown native catalogue diagnostic field was refused.'}}
  if(($Value.schema -isnot [int] -and $Value.schema -isnot [long]) -or $Value.schema -ne 1 -or $Value.producer -isnot [string] -or $Value.producer -cne 'windows_phone_catalogue_native.ps1' -or $Value.state -isnot [string] -or $Value.state -cne 'failed' -or $Value.edition -isnot [string] -or $Value.edition -cne $Edition){throw 'The native catalogue diagnostic identity differs.'}
@@ -49,7 +69,8 @@ function Read-WindowsPhoneCatalogueNativeFailure {
  if(($Value.source_line -isnot [int] -and $Value.source_line -isnot [long]) -or $Value.source_line -lt 0 -or $Value.source_line -gt 100000 -or $Value.source_basename -isnot [string] -or $Value.source_basename -cnotin 'windows_phone_catalogue_native.ps1','windows-phone-catalogue-qualification.ps1','WindowsPhoneCatalogue.Common.ps1','UpgradeRecovery.Common.ps1','File-Security.ps1','Restore-Gates.ps1','PhpRuntime.Common.ps1','windows_phone_catalogue_proof.ps1','external_component' -or $Value.error_type -isnot [string] -or $Value.error_type -cnotin 'System.Management.Automation.RuntimeException','System.Management.Automation.MethodInvocationException','System.Management.Automation.ActionPreferenceStopException','System.Management.Automation.ParseException','System.Management.Automation.ParameterBindingException','System.Management.Automation.ItemNotFoundException','System.Management.Automation.CommandNotFoundException','System.IO.IOException','System.IO.FileNotFoundException','System.UnauthorizedAccessException','System.ArgumentException','System.InvalidOperationException','System.TimeoutException','external_error'){throw 'The native catalogue diagnostic source or type differs.'}
  if($null -ne $Value.php_child_exit -and (($Value.php_child_exit -isnot [int] -and $Value.php_child_exit -isnot [long]) -or $Value.php_child_exit -lt [int]::MinValue -or $Value.php_child_exit -gt [int]::MaxValue)){throw 'The PHP fixture exit is mistyped.'}
  $php=$null;if($null -ne $Value.php_failure){if($null -eq $Value.php_child_exit -or $Value.php_child_exit -eq 0){throw 'The PHP diagnostic requires its original failed child exit.'};$php=Read-WindowsPhoneCataloguePhpFailure $Value.php_failure}
+ $output=$null;if($null -ne $Value.php_output){if($null -eq $Value.php_child_exit){throw 'The output observation requires its original child exit.'};$output=Read-WindowsPhoneCatalogueChildOutput $Value.php_output}
  foreach($flag in 'child_processes_closed','owned_task_removed','original_vectors_preserved','owned_scope_retained','cleanup_required','actual_native_qualified'){if($Value.$flag -isnot [bool]){throw 'A native diagnostic flag is mistyped.'}}
  if($Value.actual_native_qualified -or ($Value.owned_scope_retained -and !$Value.cleanup_required -and (!$Value.child_processes_closed -or !$Value.owned_task_removed -or !$Value.original_vectors_preserved))){throw 'A native failure cannot claim unverified cleanup or qualification.'}
- $safe=[ordered]@{};foreach($name in $fields){$safe[$name]=$Value.$name};$safe.php_failure=$php;return $safe
+ $safe=[ordered]@{};foreach($name in $fields){$safe[$name]=$Value.$name};$safe.php_failure=$php;$safe.php_output=$output;return $safe
 }
