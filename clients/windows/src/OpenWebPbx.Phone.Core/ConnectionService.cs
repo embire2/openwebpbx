@@ -35,23 +35,24 @@ public sealed class TenantRegistry(HttpMessageHandler? handler = null, TimeSpan?
 /// <summary>Connection codes are consumed only by the tenant; failure after enrollment revokes the newly created device.</summary>
 public sealed class ConnectionService(ProfileManager profiles, Func<bool> idle)
 {
-    public async Task<PhoneProfile> LoginAsync(string tenant, string extension, string password, string deviceName, CancellationToken cancellation = default)
+    public async Task<PhoneProfile> LoginAsync(string tenant, string extension, string password, string deviceName, CancellationToken cancellation = default, Guid? reconnectId = null)
     {
         if (string.IsNullOrEmpty(password) || password.Length > 1024) throw new PhoneInputException("Enter your app password.");
-        return await Connect(tenant, "login", new() { ["extension"] = ConnectionRules.Extension(extension), ["password"] = password }, deviceName, cancellation);
+        return await Connect(tenant, "login", new() { ["extension"] = ConnectionRules.Extension(extension), ["password"] = password }, deviceName, cancellation, reconnectId);
     }
     public Task<PhoneProfile> EnrollAsync(SetupInvitation invitation, string deviceName, CancellationToken cancellation = default) => Connect(invitation.Server.AbsoluteUri, "enroll", new() { ["code"] = invitation.Code }, deviceName, cancellation);
-    private async Task<PhoneProfile> Connect(string tenant, string action, JsonObject body, string deviceName, CancellationToken cancellation)
+    private async Task<PhoneProfile> Connect(string tenant, string action, JsonObject body, string deviceName, CancellationToken cancellation, Guid? reconnectId = null)
     {
         ConnectionRules.RequireIdle(idle() ? 0 : 1, false); var origin = ConnectionRules.Tenant(tenant);
         using var registry = new TenantRegistry(); var proof = await registry.LookupAsync(origin, cancellation);
         using var api = new PhoneApi(origin);
         var capabilities = await api.JsonAsync("capabilities", cancellation: cancellation);
         if (capabilities["windows_phone"]?.GetValue<bool>() != true) throw new PhoneInputException("Your PBX needs the Windows Free Phone update. Ask your instance administrator to install it.");
+        if (action == "login" && capabilities["app_password"]?.GetValue<bool>() != true) throw new PhoneInputException("App-password sign-in needs an updated PBX. Use your administrator’s setup file or QR code.");
         body["device_name"] = string.IsNullOrWhiteSpace(deviceName) ? "Windows Free Phone" : new string(deviceName.Where(c => !char.IsControl(c)).Take(80).ToArray()); body["platform"] = "windows";
         var result = await api.JsonAsync(action, body, cancellation: cancellation);
         var profile = PhoneProfile.FromConnection(result, origin, proof.DomainId);
-        try { ConnectionRules.RequireIdle(idle() ? 0 : 1, false); await profiles.AddAsync(profile, cancellation); return profile; }
+        try { ConnectionRules.RequireIdle(idle() ? 0 : 1, false); if (reconnectId is Guid id) { await profiles.ReconnectAsync(id, profile, cancellation); return profile with { Id = id }; } await profiles.AddAsync(profile, cancellation); return profile; }
         catch
         {
             try { using var rollback = new PhoneApi(origin, profile.Token); await rollback.JsonAsync("revoke", new(), cancellation: CancellationToken.None); } catch { /* Newly issued device expires; no credentials are logged. */ }

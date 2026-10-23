@@ -8,7 +8,7 @@ public sealed class PreferencesStore
     public PreferencesStore(string channel)
     {
         if (channel is not ("direct" or "store")) throw new ArgumentException("Choose a supported distribution.");
-        path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenWebPBX Free Phone", channel, "preferences.json");
+        path = Path.Combine(StoragePaths.Channel(channel), "preferences.json");
     }
     public PersonalPreferences Read()
     {

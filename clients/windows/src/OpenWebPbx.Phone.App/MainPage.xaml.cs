@@ -38,7 +38,13 @@ public sealed partial class MainPage : Page
     private async Task Initialize()
     {
         if (initialized) return;
-        phone = new NativePhone(); profiles = new(store, () => phone.Calls.Count, () => false);
+        StartPhone();
+        global::Windows.Networking.Connectivity.NetworkInformation.NetworkStatusChanged += NetworkStatusChanged;
+        initialized = true; WriteComponentReceipt(); timer.Start(); await Reload(); preferences = preferenceStore.Read(); ApplyPreferences(); section = preferences.StartupPage; loading = true; Navigation.SelectedItem = Navigation.MenuItems.Cast<NavigationViewItem>().First(x => x.Tag?.ToString() == section); loading = false; await Draw();
+    }
+    private void StartPhone()
+    {
+        phone = new NativePhone(); profiles ??= new(store, () => phone.Calls.Count, () => false);
         phone.Changed += RefreshCalls;
         phone.CallFinished += async (id, number, incoming, started, duration, answered) =>
         {
@@ -51,8 +57,6 @@ public sealed partial class MainPage : Page
             }
             catch { Show("Your call ended. Recent calls will sync when the connection returns."); }
         };
-        global::Windows.Networking.Connectivity.NetworkInformation.NetworkStatusChanged += NetworkStatusChanged;
-        initialized = true; WriteComponentReceipt(); timer.Start(); await Reload(); preferences = preferenceStore.Read(); ApplyPreferences(); section = preferences.StartupPage; loading = true; Navigation.SelectedItem = Navigation.MenuItems.Cast<NavigationViewItem>().First(x => x.Tag?.ToString() == section); loading = false; await Draw();
     }
     private async Task Reload()
     {
@@ -157,12 +161,19 @@ public sealed partial class MainPage : Page
         {
             var row = Row(); row.Children.Add(Text(profile.Label + " · " + phone!.Registrations.GetValueOrDefault(profile.Id, "Offline")));
             row.Children.Add(AsyncButton("Rename", async () => { var name = new TextBox { Text = profile.Name }; var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Account name", Content = name, PrimaryButtonText = "Save", CloseButtonText = "Cancel" }; if (await dialog.ShowAsync() == ContentDialogResult.Primary) { await profiles!.RenameAsync(profile.Id, name.Text); await Reload(); await Draw(); } }));
-            row.Children.Add(AsyncButton("Remove", async () => { ConnectionRules.RequireIdle(phone!.Calls.Count); var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Remove " + profile.Label + "?", Content = "This signs this Windows phone out. Your extension and other phones keep working.", PrimaryButtonText = "Remove", CloseButtonText = "Cancel" }; if (await dialog.ShowAsync() != ContentDialogResult.Primary) return; using var api = new PhoneApi(profile.Server, profile.Token); await api.JsonAsync("revoke", new()); await profiles!.RemoveAsync(profile.Id); pendingHistory.Remove(profile.Id); await Reload(); await Draw(); })); Body.Children.Add(row);
+            row.Children.Add(AsyncButton("Sign in again", () => ReconnectAccount(profile)));
+            row.Children.Add(AsyncButton("Remove", () => RemoveAccount(profile))); Body.Children.Add(row);
         }
         var tenant = Field("Tenant address", ""); var extension = Field("Extension"); var password = new PasswordBox { Header = "App password chosen by your administrator", MaxLength = 1024 }; Body.Children.Add(password);
         Body.Children.Add(AsyncButton("Sign in", async () => { var secret = password.Password; password.Password = ""; var connection = new ConnectionService(profiles!, () => phone?.Busy == false); var added = await connection.LoginAsync(tenant.Text, extension.Text, secret, Environment.MachineName); await profiles!.SelectAsync(added.Id); await Reload(); await Draw(); }, true));
         Body.Children.Add(AsyncButton("Open welcome email setup file", ImportFile));
         Body.Children.Add(AsyncButton("Scan QR code with webcam", ScanQr));
+        Body.Children.Add(AsyncButton("Enter a one-use connection code", async () =>
+        {
+            var fields = new StackPanel { Spacing = 12 }; var host = new TextBox { Header = "Tenant address", Text = tenant.Text }; var code = new PasswordBox { Header = "One-use connection code", MaxLength = 256 }; fields.Children.Add(host); fields.Children.Add(code);
+            var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Connect this Windows phone", Content = fields, PrimaryButtonText = "Connect", CloseButtonText = "Cancel" };
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return; var invitation = new SetupInvitation(ConnectionRules.Tenant(host.Text), ConnectionRules.Code(code.Password), null); code.Password = ""; await ImportInvitation(invitation);
+        }));
         await Task.CompletedTask;
     }
     public async Task ImportInvitation(SetupInvitation invitation)
@@ -227,12 +238,12 @@ public sealed partial class MainPage : Page
         var alerts = new ToggleSwitch { Header = "Incoming call notifications", IsOn = preferences.Notifications }; alerts.Toggled += (_, _) => SavePreferences(preferences with { Notifications = alerts.IsOn }); Body.Children.Add(alerts);
         var privacy = new ToggleSwitch { Header = "Hide caller in notifications", IsOn = preferences.HideCallerInNotifications }; privacy.Toggled += (_, _) => SavePreferences(preferences with { HideCallerInNotifications = privacy.IsOn }); Body.Children.Add(privacy);
         var launch = new ToggleSwitch { Header = "Start phone when I sign in to Windows", IsOn = preferences.LaunchAtLogin }; launch.Toggled += async (_, _) => await Execute(async () => {
-#if STORE
-            var startupTask = await global::Windows.ApplicationModel.StartupTask.GetAsync("OpenWebPBXFreePhone");
-            if (launch.IsOn) { var state = await startupTask.RequestEnableAsync(); if (state != global::Windows.ApplicationModel.StartupTaskState.Enabled) throw new PhoneInputException("Windows did not enable startup. Check Startup Apps in Windows Settings."); } else startupTask.Disable();
-#else
-            LoginStartup.SetDirect(launch.IsOn, Path.Combine(AppContext.BaseDirectory, "OpenWebPbx.Phone.App.exe")); await Task.CompletedTask;
-#endif
+            if (ClientInstallation.IsPackaged)
+            {
+                var startupTask = await global::Windows.ApplicationModel.StartupTask.GetAsync(Distribution.StartupTaskId);
+                if (launch.IsOn) { var state = await startupTask.RequestEnableAsync(); if (state != global::Windows.ApplicationModel.StartupTaskState.Enabled) throw new PhoneInputException("Windows did not enable startup. Check Startup Apps in Windows Settings."); } else startupTask.Disable();
+            }
+            else LoginStartup.SetDirect(launch.IsOn, Path.Combine(AppContext.BaseDirectory, "OpenWebPbx.Phone.App.exe"));
             SavePreferences(preferences with { LaunchAtLogin = launch.IsOn }); }); Body.Children.Add(launch);
         Body.Children.Add(AsyncButton("Check for Windows phone updates", CheckUpdates));
         Body.Children.Add(AsyncButton("Change my app password", Password));
@@ -257,7 +268,7 @@ public sealed partial class MainPage : Page
         ConnectionRules.RequireIdle(phone!.Calls.Count); var profile = current ?? throw new PhoneInputException("Connect an account first.");
         var initialize = !profile.Account.AppPasswordSet && profile.Account.CanInitializeAppPassword;
         if (!profile.Account.AppPasswordSet && !initialize) throw new PhoneInputException("Ask your administrator to set an app password or send a new setup invitation.");
-        var content = new StackPanel { Spacing = 12 }; var old = new PasswordBox { Header = "Current app password" }; var fresh = new PasswordBox { Header = "New app password (12–128 characters)" }; var repeat = new PasswordBox { Header = "Repeat new password" }; if (!initialize) content.Children.Add(old); content.Children.Add(fresh); content.Children.Add(repeat);
+        var content = new StackPanel { Spacing = 12 }; content.Children.Add(Text("This phone stays connected. Other app sessions and unused setup codes for this account are disconnected. Your SIP password does not change.")); var old = new PasswordBox { Header = "Current app password" }; var fresh = new PasswordBox { Header = "New app password (12–128 characters)" }; var repeat = new PasswordBox { Header = "Repeat new password" }; if (!initialize) content.Children.Add(old); content.Children.Add(fresh); content.Children.Add(repeat);
         var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = initialize ? "Create app password" : "Change app password", Content = content, PrimaryButtonText = "Save", CloseButtonText = "Cancel" };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return; var oldValue = old.Password; var newValue = fresh.Password; var match = repeat.Password == newValue; old.Password = fresh.Password = repeat.Password = ""; ConnectionRules.AppPassword(newValue); if (!match) throw new PhoneInputException("The new passwords do not match.");
         ConnectionRules.RequireIdle(phone!.Calls.Count); using var api = Api(); await api.JsonAsync("change_password", new() { ["current_password"] = oldValue, ["new_password"] = newValue }); await profiles!.UpdateAccountAsync(profile.Id, profile.Account with { AppPasswordSet = true, CanInitializeAppPassword = false }); current = profile with { Account = profile.Account with { AppPasswordSet = true, CanInitializeAppPassword = false } }; saved = await store.ReadAsync(); Show("App password changed. This phone remains connected; your desk-phone password is unchanged.", false);

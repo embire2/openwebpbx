@@ -80,4 +80,5 @@
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../OpenWebPbx.Phone.Windows/OpenWebPbx.Phone.Windows.csproj" /></ItemGroup>
-</Project>
+<PropertyGroup Condition="'$(PhonePackageFixture)' == 'true'"><DefineConstants>$(DefineConstants);PHONE_PACKAGE_FIXTURE</DefineConstants><OutputPath>bin/package-fixture/$(Configuration)/</OutputPath><IntermediateOutputPath>obj/package-fixture/$(Configuration)/</IntermediateOutputPath></PropertyGroup>
+<PropertyGroup><DefaultItemExcludes>$(DefaultItemExcludes);bin/**;obj/**</DefaultItemExcludes></PropertyGroup></Project>

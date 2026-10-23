@@ -19,6 +19,17 @@ public sealed class ProfileManager(IProfileStore store, Func<int> activeCalls, F
         }
         finally { mutex.Release(); }
     }
+    public async Task ReconnectAsync(Guid id, PhoneProfile connected, CancellationToken cancellation = default)
+    {
+        await mutex.WaitAsync(cancellation);
+        try
+        {
+            RequireIdle(); var profiles = await store.ReadAsync(cancellation); var old = profiles.SingleOrDefault(x => x.Id == id) ?? throw new PhoneInputException("Choose the saved account to reconnect.");
+            if (old.Server != connected.Server || old.Account.DomainId != connected.Account.DomainId || old.Account.ExtensionId != connected.Account.ExtensionId || old.Account.Extension != connected.Account.Extension || connected.NeedsLogin || profiles.Any(x => x.Id != id && (x.SameAccount(connected) || x.DeviceId == connected.DeviceId))) throw new PhoneInputException("This sign-in belongs to a different account. Add it as a new account instead.");
+            var selected = await store.SelectedAsync(cancellation); RequireIdle(); await store.SaveAsync(profiles.Select(x => x.Id == id ? connected with { Id = id, Name = old.Name } : x).ToArray(), selected, cancellation);
+        }
+        finally { mutex.Release(); }
+    }
     public async Task SelectAsync(Guid id, CancellationToken cancellation = default)
     {
         await mutex.WaitAsync(cancellation);

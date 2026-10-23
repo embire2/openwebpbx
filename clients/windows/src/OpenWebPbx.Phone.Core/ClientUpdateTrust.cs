@@ -9,6 +9,9 @@ public static class ClientUpdateTrust
     public const string PublicSpkiSha256 = "b1744a9cc37ba194fe29d6953b0967bf63a52b9a1f4c3695e30c2abab3ca82e7";
     public static RSA Open()
     {
+#if PHONE_PACKAGE_FIXTURE
+        if (PackageFixture.Enabled) return PackageFixture.OpenKey();
+#endif
         using var input = typeof(ClientUpdateTrust).Assembly.GetManifestResourceStream("OpenWebPbx.Phone.ReleasePublicKey.pem") ?? throw new PhoneInputException("The Windows phone update trust is missing. Reinstall the official app.");
         using var memory = new MemoryStream(); input.CopyTo(memory); var bytes = memory.ToArray();
         if (bytes.Length > 2048 || Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant() != PublicPemSha256) throw new PhoneInputException("The Windows phone update trust differs. The current app has been kept.");

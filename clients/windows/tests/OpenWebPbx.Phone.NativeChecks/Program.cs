@@ -30,6 +30,7 @@ try
     var trustFile = Path.Combine(updateStore.Directory, "accepted.dpapi"); var trustBytes = File.ReadAllBytes(trustFile); Check(!Encoding.UTF8.GetString(trustBytes).Contains(release.PayloadSha256));
     var downgrade = false; try { updateStore.Accept(release with { Sequence = 1 }); } catch (PhoneInputException) { downgrade = true; } Check(downgrade); Check(File.ReadAllBytes(trustFile).SequenceEqual(trustBytes));
     var trustTamper = trustBytes.ToArray(); trustTamper[^1] ^= 1; File.WriteAllBytes(trustFile, trustTamper); var trustRefused = false; try { updateStore.Read(); } catch (PhoneInputException) { trustRefused = true; } Check(trustRefused); File.WriteAllBytes(trustFile, trustBytes);
+    Check(typeof(ClientUpdateTrust).Assembly.GetType("OpenWebPbx.Phone.Core.PackageFixture") is null);
     Check(typeof(NativePhone).Assembly.GetType("OpenWebPbx.Phone.Windows.NativeMediaFixture") is null);
     Observe("native_start"); using (var native = new NativePhone(stage => Observe("native_" + stage))) { Check(!native.Busy); Check(native.Calls.Count == 0); native.Iterate(); Check(native.Registrations.Count == 0); Observe("native_auth_inspection"); var valid = native.VerifyVolatileAuth(profile.Sip.Password); authStorage = native.AuthStorageProof; Observe("native_auth_inspection"); Check(valid); }
     using var output = new FileStream(args[0], FileMode.Create, FileAccess.Write, FileShare.Read);

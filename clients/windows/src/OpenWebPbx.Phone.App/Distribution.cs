@@ -7,4 +7,16 @@ internal static class Distribution
 #else
     public const string Channel = "direct";
 #endif
+    public static string InstanceKey =>
+#if PHONE_PACKAGE_FIXTURE
+        OpenWebPbx.Phone.Core.PackageFixture.InstanceKey;
+#else
+        "OpenWebPBX-FreePhone-1";
+#endif
+    public static string StartupTaskId =>
+#if PHONE_PACKAGE_FIXTURE
+        OpenWebPbx.Phone.Core.PackageFixture.StartupTaskId;
+#else
+        "OpenWebPBXFreePhone";
+#endif
 }

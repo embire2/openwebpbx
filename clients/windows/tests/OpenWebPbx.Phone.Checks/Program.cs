@@ -159,6 +159,14 @@ byte[] Bundle(string name = "OpenWebPBX.FreePhone", string version = "1.0.1.0", 
 }
 using (var package = new MemoryStream(Bundle())) { ClientPackage.ValidateBundle(package, trustedRelease); Check(true); }
 foreach (var data in new[] { Bundle(name:"Other.Phone"), Bundle(version:"1.0.0.0"), Bundle(architecture:"arm64"), Bundle(signature:false), Bundle(duplicate:true) }) Refuse(() => ClientPackage.ValidateBundle(new MemoryStream(data), trustedRelease));
+var reconnectStore = new MemoryStore(); var reconnectCalls = 0; var reconnectManager = new ProfileManager(reconnectStore, () => reconnectCalls, () => false);
+var prior = Invented(8100) with { Name = "Retained local name", NeedsLogin = true }; await reconnectManager.AddAsync(prior); var other = Invented(8101); await reconnectManager.AddAsync(other);
+var reconnectedProfile = prior with { Id = Guid.NewGuid(), DeviceId = Guid.NewGuid(), Token = new string('f',64), Sip = prior.Sip with { Password = "NEW_INVENTED_DEVICE_SECRET" }, Name = "server label", NeedsLogin = false };
+await reconnectManager.ReconnectAsync(prior.Id, reconnectedProfile); Check(reconnectStore.Values.Count == 2); Check(reconnectStore.Values[0].Id == prior.Id && reconnectStore.Values[0].Name == prior.Name); Check(reconnectStore.Values[0].Sip == reconnectedProfile.Sip); Check(reconnectStore.Values[1] == other); Check(reconnectStore.Selected == prior.Id);
+foreach (var foreign in new[] { reconnectedProfile with { Server = new("https://other.openwebpbx.com") }, reconnectedProfile with { Account = reconnectedProfile.Account with { ExtensionId = Guid.NewGuid() } }, reconnectedProfile with { Account = reconnectedProfile.Account with { DomainId = Guid.NewGuid() } }, reconnectedProfile with { DeviceId = other.DeviceId }, reconnectedProfile with { NeedsLogin = true } })
+{ var before = reconnectStore.Values.ToArray(); try { await reconnectManager.ReconnectAsync(prior.Id, foreign); throw new Exception("Foreign reconnect accepted."); } catch (PhoneInputException) { Check(reconnectStore.Values.SequenceEqual(before)); } }
+reconnectCalls = 1; try { await reconnectManager.ReconnectAsync(prior.Id, reconnectedProfile); throw new Exception("Active-call credentials replaced."); } catch (PhoneInputException) { Check(true); }
+reconnectCalls = 0; reconnectStore.OnRead = () => reconnectCalls = 1; try { await reconnectManager.ReconnectAsync(prior.Id, reconnectedProfile); throw new Exception("Late incoming call ignored."); } catch (PhoneInputException) { Check(true); }
 Console.WriteLine($"PASS {checks} client domain/API controls; HTTP handlers are explicit doubles; no Windows/native-call qualification");
 sealed class Handler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
 {

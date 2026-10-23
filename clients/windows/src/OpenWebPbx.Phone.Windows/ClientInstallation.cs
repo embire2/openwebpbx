@@ -6,6 +6,8 @@ namespace OpenWebPbx.Phone.Windows;
 public sealed record InstallRequest(int ParentId, long ParentStartedUtcTicks, string ParentPath, string InstalledFullName, string PackagePath, string Envelope);
 public static class ClientInstallation
 {
+    public static Version CurrentVersion { get { try { var version = global::Windows.ApplicationModel.Package.Current.Id.Version; return new(version.Major, version.Minor, version.Build); } catch { return new(1, 0, 0); } } }
+    public static bool IsPackaged { get { try { _ = global::Windows.ApplicationModel.Package.Current.Id; return true; } catch { return false; } } }
     public static (string Name, string Publisher, string FullName) Identity()
     {
         try { var id = global::Windows.ApplicationModel.Package.Current.Id; return (id.Name, id.Publisher, id.FullName); }

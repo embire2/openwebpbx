@@ -15,7 +15,7 @@ internal sealed class NativeSessionFiles : IDisposable
 #if PHONE_MEDIA_FIXTURE
         if (fixtureRoot is not null) { Path = System.IO.Path.Combine(fixtureRoot, "native-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(Path); return; }
 #endif
-        var parent = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenWebPBX Free Phone", "native-runtime");
+        var parent = StoragePaths.Native;
         for (var item = new DirectoryInfo(parent); item is not null; item = item.Parent) if (item.Exists && (item.Attributes & FileAttributes.ReparsePoint) != 0) throw new InvalidOperationException("The private native runtime path is linked.");
         Directory.CreateDirectory(parent); var acl = new DirectorySecurity(); acl.SetAccessRuleProtection(true, false);
         foreach (var sid in new[] { WindowsIdentity.GetCurrent().User!, new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null) }) acl.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));

@@ -11,4 +11,5 @@
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../OpenWebPbx.Phone.Core/OpenWebPbx.Phone.Core.csproj" /><ProjectReference Include="../Liblinphone.Bindings/Liblinphone.Bindings.csproj" /></ItemGroup>
 <ItemGroup><EmbeddedResource Include="../../native/runtime-resources.json" LogicalName="OpenWebPbx.Phone.RuntimeResources.json" /></ItemGroup>
+<PropertyGroup Condition="'$(PhonePackageFixture)' == 'true'"><DefineConstants>$(DefineConstants);PHONE_PACKAGE_FIXTURE</DefineConstants><OutputPath>bin/package-fixture/$(Configuration)/</OutputPath><IntermediateOutputPath>obj/package-fixture/$(Configuration)/</IntermediateOutputPath></PropertyGroup>
 </Project>

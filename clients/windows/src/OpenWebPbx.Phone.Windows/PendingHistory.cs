@@ -14,7 +14,7 @@ public sealed class PendingHistory
     public PendingHistory(string channel)
     {
         if (channel is not ("direct" or "store")) throw new ArgumentException();
-        path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenWebPBX Free Phone", channel, "pending-calls.dpapi");
+        path = Path.Combine(StoragePaths.Channel(channel), "pending-calls.dpapi");
     }
     private PendingCall[] Read()
     {

@@ -20,7 +20,7 @@ public sealed class ProtectedProfileStore : IProfileStore
     internal ProtectedProfileStore(string channel, string? isolatedTestRoot)
     {
         if (channel is not ("direct" or "store")) throw new ArgumentException("Choose a supported distribution.");
-        directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenWebPBX Free Phone", channel);
+        directory = StoragePaths.Channel(channel);
         if (isolatedTestRoot is not null)
         {
             var runner = Environment.GetEnvironmentVariable("RUNNER_TEMP"); var target = Path.GetFullPath(isolatedTestRoot);

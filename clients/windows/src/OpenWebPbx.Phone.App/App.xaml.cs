@@ -12,7 +12,7 @@ public partial class App : Application
     public App() { UnhandledException += (_, args) => ComponentDiagnostics.Failure("unhandled", args.Exception); try { InitializeComponent(); } catch (Exception e) { ComponentDiagnostics.Failure("application_constructor", e); throw; } }
     protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
     {
-        var instance = AppInstance.FindOrRegisterForKey("OpenWebPBX-FreePhone-1");
+        var instance = AppInstance.FindOrRegisterForKey(Distribution.InstanceKey);
         if (!instance.IsCurrent) { await instance.RedirectActivationToAsync(AppInstance.GetCurrent().GetActivatedEventArgs()); Environment.Exit(0); return; }
         PhoneWindow = new MainWindow(); instance.Activated += (_, activation) => PhoneWindow.DispatcherQueue.TryEnqueue(async () => await Activate(activation));
         PhoneWindow.Activate(); await Activate(AppInstance.GetCurrent().GetActivatedEventArgs(), true);

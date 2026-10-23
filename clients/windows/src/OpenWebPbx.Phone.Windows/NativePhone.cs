@@ -119,7 +119,7 @@ public sealed class NativePhone : IDisposable
     public void Synchronize(IReadOnlyList<PhoneProfile> profiles, Guid? chosen)
     {
         CheckThread(); ConnectionRules.RequireIdle(core.CallsNb);
-        foreach (var id in accounts.Keys.Where(x => profiles.All(p => p.Id != x || p.NeedsLogin)).ToArray()) Remove(id);
+        foreach (var id in accounts.Keys.Where(x => profiles.All(p => p.Id != x || p.NeedsLogin || p.Sip != accounts[x].Profile.Sip || p.DeviceId != accounts[x].Profile.DeviceId)).ToArray()) Remove(id);
         foreach (var profile in profiles.Where(x => !x.NeedsLogin && !accounts.ContainsKey(x.Id)))
         {
             var sip = profile.Sip;

@@ -6,7 +6,7 @@ using Windows.Services.Store;
 namespace OpenWebPbx.Phone.App;
 public sealed partial class MainPage
 {
-    private static readonly Version ClientVersion = new(1, 0, 0);
+    private static Version ClientVersion => ClientInstallation.CurrentVersion;
     private UpdateRequirement? updateRequirement;
     private ClientRelease? updateRelease;
     private byte[]? updateEnvelope;
@@ -15,6 +15,7 @@ public sealed partial class MainPage
     private DateTimeOffset updateChecked;
     private StoreContext? storeUpdates;
     private IReadOnlyList<StorePackageUpdate> storePackages = [];
+    private bool storeDownloaded;
     private void RequireNewCall() => updateRequirement?.RequireNewCall();
     private void Dial(string number) { RequireNewCall(); phone!.Dial(number); }
     private async Task TryCheckUpdates()
@@ -28,7 +29,11 @@ public sealed partial class MainPage
         try
         {
             var policies = new List<WindowsPhonePolicy>();
+#if PHONE_PACKAGE_FIXTURE
+            policies.Add(new("required", "required", false, new(1,0,1), new(1,0,1), true));
+#else
             foreach (var account in saved.ToArray()) { using var api = new PhoneApi(account.Server, account.Token); policies.Add(WindowsPhonePolicy.Parse(await api.JsonAsync("windows_updates"))); }
+#endif
 #if STORE
             storeUpdates ??= StoreContext.GetDefault(); WinRT.Interop.InitializeWithWindow.Initialize(storeUpdates, App.WindowHandle);
             storePackages = (await storeUpdates.GetAppAndOptionalStorePackageUpdatesAsync()).ToArray();
@@ -60,13 +65,31 @@ public sealed partial class MainPage
     private async Task ApplyUpdate()
     {
 #if STORE
-        UpdateRequirement.RequireInstallationIdle(phone!.Calls.Count);
         if (storeUpdates is null || storePackages.Count == 0) { await CheckUpdates(); return; }
+        if (!storeDownloaded)
+        {
+            var download = await storeUpdates.RequestDownloadStorePackageUpdatesAsync(storePackages);
+            if (download.OverallState != StorePackageUpdateState.Completed) throw new PhoneInputException("Microsoft Store did not finish downloading the update. Your current phone has been kept.");
+            storeDownloaded = true;
+        }
+        UpdateRequirement.RequireInstallationIdle(phone!.Calls.Count);
         var confirm = new ContentDialog { XamlRoot = XamlRoot, Title = "Update Windows phone?", Content = "The Microsoft Store will install the update. Your accounts and settings are kept.", PrimaryButtonText = "Update", CloseButtonText = "Later" };
         if (await confirm.ShowAsync() != ContentDialogResult.Primary) return;
         UpdateRequirement.RequireInstallationIdle(phone.Calls.Count);
-        var result = await storeUpdates.RequestDownloadAndInstallStorePackageUpdatesAsync(storePackages);
-        if (result.OverallState != StorePackageUpdateState.Completed) throw new PhoneInputException("Microsoft Store did not complete the update. Your current phone has been kept.");
+        // Stop accepting new calls only after the completed download and idle confirmation;
+        // a long Store download must never finish by closing a newly answered call.
+        var stopped = phone; timer.Stop(); phone = null;
+        try
+        {
+            stopped.Dispose();
+            var result = await storeUpdates.RequestDownloadAndInstallStorePackageUpdatesAsync(storePackages);
+            if (result.OverallState != StorePackageUpdateState.Completed) throw new PhoneInputException("Microsoft Store did not complete the update. Your current phone has been kept.");
+            App.PhoneWindow!.ExitForUpdate();
+        }
+        catch
+        {
+            StartPhone(); phone!.Synchronize(saved, current?.Id); timer.Start(); throw;
+        }
 #else
         if (updateRelease is null || updateEnvelope is null) { await CheckUpdates(); return; }
         var storage = new UpdateStorage(Distribution.Channel);

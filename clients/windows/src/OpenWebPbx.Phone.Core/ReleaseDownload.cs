@@ -16,7 +16,11 @@ public sealed class ReleaseDownload : IDisposable
     {
         for (var attempt = 0; attempt < 5; attempt++)
         {
-            Approved(target); using var request = new HttpRequestMessage(HttpMethod.Get, target); request.Headers.UserAgent.ParseAdd("OpenWebPBX-WindowsPhone/1.0.0");
+            Approved(target); var requestTarget = target;
+#if PHONE_PACKAGE_FIXTURE
+            requestTarget = PackageFixture.Map(target);
+#endif
+            using var request = new HttpRequestMessage(HttpMethod.Get, requestTarget); request.Headers.UserAgent.ParseAdd("OpenWebPBX-WindowsPhone/1.0.0");
             var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellation);
             if (response.StatusCode is HttpStatusCode.MovedPermanently or HttpStatusCode.Redirect or HttpStatusCode.SeeOther or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect)
             {

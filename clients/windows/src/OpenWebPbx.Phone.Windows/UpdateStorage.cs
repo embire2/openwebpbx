@@ -11,7 +11,7 @@ public sealed class UpdateStorage
     internal UpdateStorage(string channel, string? isolatedRoot)
     {
         if (channel is not ("direct" or "store")) throw new ArgumentException();
-        var parent = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenWebPBX Free Phone", channel);
+        var parent = StoragePaths.Channel(channel);
         if (isolatedRoot is not null)
         {
             var runner = Environment.GetEnvironmentVariable("RUNNER_TEMP"); var value = Path.GetFullPath(isolatedRoot);
