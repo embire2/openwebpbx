@@ -198,7 +198,11 @@ function MeetingMediaFields($Record){
   foreach($field in 'tone_ratio','power'){$value=$peer.$field;if(($value -isnot [int] -and $value -isnot [long] -and $value -isnot [single] -and $value -isnot [double]) -or [double]::IsNaN([double]$value) -or [double]::IsInfinity([double]$value) -or $value -lt 0 -or $value -gt 1){return @{}};$closed[$field]=[double]$value}
   $peers[$side]=$closed
  }
- return @{meeting_media=$peers}
+ $safe=@{meeting_media=$peers}
+ $failure=$Record.meeting_browser_failure
+ $failureKeys=if($failure -is [Collections.IDictionary]){@($failure.Keys)}elseif($failure -is [pscustomobject]){@($failure.PSObject.Properties|ForEach-Object Name)}else{@()}
+ if($failureKeys.Count -eq 2 -and @($failureKeys|Where-Object {$_ -cnotin 'kind','operation'}).Count -eq 0 -and $failure.kind -is [string] -and $failure.kind -cin 'timeout','type','reference','range','security','invalid_state','not_supported','target_closed','other' -and $failure.operation -is [string] -and $failure.operation -cin 'none','peer_lookup','stats','analyser_create','analyser_source','analyser_connect','analyser_output','spectrum','canvas_create','canvas_draw','canvas_read','complete'){$safe.meeting_browser_failure=@{kind=$failure.kind;operation=$failure.operation}}
+ return $safe
 }
 function MeetingSignalingFields($Record){
  $safe=@{}
@@ -553,7 +557,7 @@ try {
  if(Test-Path -LiteralPath $childReport){
   try{
    $child=Get-Content -LiteralPath $childReport -Raw|ConvertFrom-Json
-   if($child.state -eq 'failed' -and $child.source_basename -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_cdr_background.py','windows_cdr_observation.php','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py','windows-native-fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component' -and [int]$child.source_line -gt 0 -and [int]$child.source_line -le 100000 -and $child.active_case -match '^[a-z0-9_]{1,120}$' -and $child.error_type -match '^[A-Za-z0-9_]{1,80}$'){
+   if($child.state -eq 'failed' -and $child.source_basename -in 'windows-native-acceptance.py','windows-meet-browser.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_cdr_background.py','windows_cdr_observation.php','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py','windows-native-fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component' -and [int]$child.source_line -gt 0 -and [int]$child.source_line -le 100000 -and $child.active_case -match '^[a-z0-9_]{1,120}$' -and $child.error_type -match '^[A-Za-z0-9_]{1,80}$'){
     $facts.source_basename=$child.source_basename;$facts.source_line=[int]$child.source_line;$facts.active_case=$child.active_case;$facts.error_type=$child.error_type
     $completed=@(CompletedMediaCases $child.checks);if($completed.Count){$facts.completed_media_cases=$completed}
     foreach($entry in (MediaFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
@@ -583,7 +587,7 @@ try {
      $type=$child.($prefix+'_error_type');if($type -is [string] -and $type -match '^[A-Za-z0-9_]{1,80}$'){$facts[$prefix+'_error_type']=$type}
      foreach($where in 'source','caller'){
       $name=$child.($prefix+'_'+$where+'_basename');$line=$child.($prefix+'_'+$where+'_line')
-      if($name -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_cdr_background.py','windows_cdr_observation.php','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py','external_component' -and ($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$facts[$prefix+'_'+$where+'_basename']=$name;$facts[$prefix+'_'+$where+'_line']=[int]$line}
+      if($name -in 'windows-native-acceptance.py','windows-meet-browser.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_cdr_background.py','windows_cdr_observation.php','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py','external_component' -and ($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$facts[$prefix+'_'+$where+'_basename']=$name;$facts[$prefix+'_'+$where+'_line']=[int]$line}
      }
     }
     if(($child.cleanup_failure_count -is [int] -or $child.cleanup_failure_count -is [long]) -and $child.cleanup_failure_count -ge 1 -and $child.cleanup_failure_count -le 32){$facts.cleanup_failure_count=[int]$child.cleanup_failure_count}

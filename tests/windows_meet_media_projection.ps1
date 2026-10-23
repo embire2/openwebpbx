@@ -188,4 +188,21 @@ foreach($name in 'MeetingMediaFields','SafeMeetingMediaFields'){
  }
  Check-Refused $name $null
 }
+foreach($name in 'MeetingMediaFields','SafeMeetingMediaFields'){
+ foreach($kind in 'hash','ordered','object'){
+  foreach($errorKind in 'timeout','type','reference','range','security','invalid_state','not_supported','target_closed','other'){
+   $record=New-Record $kind;Set-Field $record 'meeting_browser_failure' (New-Map $kind @{kind=$errorKind;operation='stats'})
+   $safe=Invoke-Projection $name $record
+   Check ($safe.Count -eq 2 -and $safe.meeting_browser_failure.Count -eq 2 -and $safe.meeting_browser_failure.kind -ceq $errorKind -and $safe.meeting_browser_failure.operation -ceq 'stats')
+  }
+  foreach($operation in 'none','peer_lookup','stats','analyser_create','analyser_source','analyser_connect','analyser_output','spectrum','canvas_create','canvas_draw','canvas_read','complete'){
+   $record=New-Record $kind;Set-Field $record 'meeting_browser_failure' (New-Map $kind @{kind='type';operation=$operation})
+   $safe=Invoke-Projection $name $record
+   Check ($safe.Count -eq 2 -and $safe.meeting_browser_failure.kind -ceq 'type' -and $safe.meeting_browser_failure.operation -ceq $operation)
+  }
+  foreach($value in @($null,$true,$false,1,'PRIVATE_FIXTURE',@('type'),@{},[pscustomobject]@{},@{kind='type'},@{operation='stats'},@{kind='TYPE';operation='stats'},@{kind='type';operation='STATS'},@{kind='type';operation='stats';raw='PRIVATE_FIXTURE'},@{kind=1;operation='stats'},@{kind='type';operation=@('stats')})){
+   $record=New-Record $kind;Set-Field $record 'meeting_browser_failure' $value;Check-Valid $name $record
+  }
+ }
+}
 Write-Output "PASS $script:checks actual AST meeting-media projection controls; no installed service, network, or database invoked"

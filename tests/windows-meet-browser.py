@@ -17,6 +17,14 @@ def session_user_agent(opener):
     return values[0]
 
 
+def browser_failure_fields(record):
+    kinds = {'timeout', 'type', 'reference', 'range', 'security', 'invalid_state', 'not_supported', 'target_closed', 'other'}
+    operations = {'none', 'peer_lookup', 'stats', 'analyser_create', 'analyser_source', 'analyser_connect', 'analyser_output', 'spectrum', 'canvas_create', 'canvas_draw', 'canvas_read', 'complete'}
+    if not isinstance(record, dict) or set(record) != {'kind', 'operation'} or not isinstance(record['kind'], str) or record['kind'] not in kinds or not isinstance(record['operation'], str) or record['operation'] not in operations:
+        return {}
+    return {'meeting_browser_failure': dict(record)}
+
+
 def owner_page_fields(record):
     if not isinstance(record, dict) or set(record) != {'http_status', 'route', 'login_form', 'heading', 'same_origin', 'user_agent_matches'}:
         return {}
@@ -156,7 +164,9 @@ def run(fixture):
                         if failed.get('schema')==1 and failed.get('state')=='failed' and failed.get('phase') in {'browser_start','owner_page','create','host_join','guest_join','admission','decoded_media','mute','unmute','end'}:
                             stage=failed['phase']
                             if stage=='owner_page':owner_fields=owner_page_fields(failed.get('owner_page'))
-                            if stage in {'decoded_media','mute','unmute','end'}:observed_media=media_fields(failed.get('meeting_media'))
+                            if stage in {'decoded_media','mute','unmute','end'}:
+                                observed_media=media_fields(failed.get('meeting_media'))
+                                observed_media.update(browser_failure_fields(failed.get('browser_failure')))
                             if stage in {'host_join','guest_join','admission','decoded_media','mute','unmute','end'}:observed_signaling=signaling_fields(failed.get('meeting_signaling'))
                             observed_path=path_fields(failed.get('meeting_path'))
                     except (ValueError,OSError):pass

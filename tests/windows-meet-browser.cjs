@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const signaling = require('./windows-meet-signaling.cjs');
 const pathDiagnostics = require('./windows-meet-path-diagnostics.cjs');
+const browserFailure = require('./windows-meet-failure.cjs');
 if(process.platform !== 'win32' || process.env.OPENWEB_WINDOWS_NATIVE_TEST !== '1' || process.env.GITHUB_ACTIONS !== 'true' || process.env.RUNNER_ENVIRONMENT !== 'github-hosted' || process.env.GITHUB_REPOSITORY !== 'embire2/openwebpbx') throw Error('An explicitly disposable Windows runner is required.');
 const settings = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const {chromium} = require(path.join(settings.dependencies, 'node_modules', 'playwright-core'));
@@ -16,6 +17,7 @@ let phase = 'browser_start';
 let ownerPage;
 let hostSignaling, guestSignaling;
 let beforePath=pathDiagnostics.defaults(),afterPath,hostSecret=()=>undefined,guestSecret=()=>undefined;
+let proofPage;
 const mediaBooleans=['observed','connected','remote_audio_live','remote_video_live','local_audio_live','local_video_live','vp8_decoding','probe_error'];
 const mediaIntegers=['decoded_frames','encoded_frames','inbound_audio_packets','outbound_audio_packets','inbound_video_packets','outbound_video_packets','video_colors'];
 const mediaEnums={connection_state:['new','connecting','connected','disconnected','failed','closed','unavailable'],ice_state:['new','checking','connected','completed','disconnected','failed','closed','unavailable'],visibility:['visible','hidden','prerender','unavailable'],audio_context:['running','suspended','closed','interrupted','unavailable'],ui_state:['connected','connecting','waiting','ended','rejected','connect_error','permission_error','device_error','unavailable','other']};
@@ -65,8 +67,10 @@ function syntheticMedia(frequency) {
     return new MediaStream([...(constraints.audio?qa.destination.stream.getAudioTracks().map(track=>track.clone()):[]),...(constraints.video?qa.video.getVideoTracks().map(track=>track.clone()):[])]);
   };
   qa.proof = async () => {
+    qa.proofOperation='peer_lookup';
     const pc = qa.pcs.findLast(candidate => candidate.connectionState === 'connected');
     if(!pc) return {connected:false,states:qa.pcs.map(candidate=>candidate.connectionState)};
+    qa.proofOperation='stats';
     let decoded=0, encoded=0; const codecs=[]; const stats=await pc.getStats();
     for(const row of stats.values()){
       if(row.type==='inbound-rtp' && row.kind==='video'){decoded+=row.framesDecoded||0; codecs.push(stats.get(row.codecId)?.mimeType);}
@@ -74,19 +78,26 @@ function syntheticMedia(frequency) {
     }
     const remote=document.getElementById('remote');
     if(!qa.analyser && remote.srcObject?.getAudioTracks().length){
+      qa.proofOperation='analyser_create';
       qa.analyser=qa.audio.createAnalyser();qa.analyser.fftSize=4096;qa.analyser.smoothingTimeConstant=0;
-      qa.audio.createMediaStreamSource(new MediaStream(remote.srcObject.getAudioTracks())).connect(qa.analyser);
+      qa.proofOperation='analyser_source';
+      const source=qa.audio.createMediaStreamSource(new MediaStream(remote.srcObject.getAudioTracks()));
+      qa.proofOperation='analyser_connect';source.connect(qa.analyser);
+      qa.proofOperation='analyser_output';
       const silent=qa.audio.createGain();silent.gain.value=0;qa.analyser.connect(silent).connect(qa.audio.destination);
     }
     let total=0, band=0, power=0;
     if(qa.analyser){
+      qa.proofOperation='spectrum';
       const bins=new Float32Array(qa.analyser.frequencyBinCount), samples=new Float32Array(qa.analyser.fftSize);
       qa.analyser.getFloatFrequencyData(bins);qa.analyser.getFloatTimeDomainData(samples);
       for(let i=2;i<bins.length;i++){const energy=10**(bins[i]/10), hz=i*qa.audio.sampleRate/qa.analyser.fftSize;total+=energy;if(Math.abs(hz-(frequency===550?770:550))<35)band+=energy;}
       for(const sample of samples)power+=sample*sample;power/=samples.length;
     }
+    qa.proofOperation='canvas_create';
     const canvas=document.createElement('canvas');canvas.width=160;canvas.height=90;let colors=0;
-    if(remote.readyState>=2){const pen=canvas.getContext('2d');pen.drawImage(remote,0,0,160,90);const pixels=pen.getImageData(0,0,160,90).data,set=new Set();for(let i=0;i<pixels.length;i+=28)set.add(pixels.slice(i,i+3).join(','));colors=set.size;}
+    if(remote.readyState>=2){const pen=canvas.getContext('2d');qa.proofOperation='canvas_draw';pen.drawImage(remote,0,0,160,90);qa.proofOperation='canvas_read';const pixels=pen.getImageData(0,0,160,90).data,set=new Set();for(let i=0;i<pixels.length;i+=28)set.add(pixels.slice(i,i+3).join(','));colors=set.size;}
+    qa.proofOperation='complete';
     return {connected:true,decoded_frames:decoded,encoded_frames:encoded,codecs,video_colors:colors,tone_ratio:total?band/total:0,power};
   };
   qa.diagnostic = async () => {
@@ -112,8 +123,14 @@ function syntheticMedia(frequency) {
   };
 }
 async function proof(page) {
+  proofPage=page;
   await page.waitForFunction(async()=>{const p=await window.conferenceQA?.proof();return p?.connected&&p.decoded_frames>=10&&p.video_colors>8&&p.tone_ratio>.65&&p.power>0.00001;},null,{timeout:45000});
   return page.evaluate(()=>window.conferenceQA.proof());
+}
+async function proofFailure(error){
+ let operation='none',timer;
+ try{if(proofPage&&['decoded_media','unmute'].includes(phase))operation=await Promise.race([proofPage.evaluate(()=>window.conferenceQA?.proofOperation),new Promise(resolve=>{timer=setTimeout(()=>resolve('none'),3000);})]);}catch{}finally{clearTimeout(timer);}
+ return browserFailure.fields(error,operation);
 }
 (async()=>{
   let failure;
@@ -157,7 +174,7 @@ async function proof(page) {
     afterPath=await pathDiagnostics.observe(settings,'after',{host:hostSecret(),guest:guestSecret()});
     requireFact(pathDiagnostics.roundTrips(afterPath),'backend and IIS frontend retain correlated small and delayed-fragmented SIP responses after media');
     fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'passed',checks,host:hostProof,guest:guestProof,meeting_path:{before:beforePath,after:afterPath},physical_camera:'unqualified',scope:'fictional Windows hosted runner'},null,2));
-  }catch(error){failure=error;const media=['decoded_media','mute','unmute','end'].includes(phase)?{meeting_media:{host:await mediaFields(host),guest:await mediaFields(guest)}}:{};const signals=['host_join','guest_join','admission','decoded_media','mute','unmute','end'].includes(phase)?{meeting_signaling:{host:await signaling.collect(host,hostSignaling),guest:await signaling.collect(guest,guestSignaling)}}:{};const meeting_path={before:beforePath,after:afterPath||await pathDiagnostics.observe(settings,'after',{host:hostSecret(),guest:guestSecret()})};fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'failed',phase,...(ownerPage?{owner_page:ownerPage}:{}),...media,...signals,meeting_path}));fs.writeFileSync(path.join(evidence,'meeting-browser.private.error'),String(error.stack||error));}
+  }catch(error){failure=error;const browser_failure=await proofFailure(error);const media=['decoded_media','mute','unmute','end'].includes(phase)?{meeting_media:{host:await mediaFields(host),guest:await mediaFields(guest)}}:{};const signals=['host_join','guest_join','admission','decoded_media','mute','unmute','end'].includes(phase)?{meeting_signaling:{host:await signaling.collect(host,hostSignaling),guest:await signaling.collect(guest,guestSignaling)}}:{};const meeting_path={before:beforePath,after:afterPath||await pathDiagnostics.observe(settings,'after',{host:hostSecret(),guest:guestSecret()})};fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'failed',phase,browser_failure,...(ownerPage?{owner_page:ownerPage}:{}),...media,...signals,meeting_path}));fs.writeFileSync(path.join(evidence,'meeting-browser.private.error'),String(error.stack||error));}
   finally{
     if(meetingCreated&&owner){try{await owner.goto(settings.origin+'/app/pbx_meet/');const card=owner.locator('article.meet-card').filter({hasText:settings.subject});if(await card.getByText('Cancel Meeting',{exact:true}).count()){await card.locator('summary').click();await card.locator('[name="confirm_cancel"]').check();await card.getByRole('button',{name:'End Meeting',exact:true}).click();}}catch(error){if(!failure)failure=error;}}
     await Promise.allSettled([hostBrowser?.close(),guestBrowser?.close()]);

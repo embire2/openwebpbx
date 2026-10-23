@@ -293,7 +293,11 @@ function SafeMeetingMediaFields($Record){
   foreach($field in 'tone_ratio','power'){$value=$peer.$field;if(($value -isnot [int] -and $value -isnot [long] -and $value -isnot [single] -and $value -isnot [double]) -or [double]::IsNaN([double]$value) -or [double]::IsInfinity([double]$value) -or $value -lt 0 -or $value -gt 1){return @{}};$closed[$field]=[double]$value}
   $peers[$side]=$closed
  }
- return @{meeting_media=$peers}
+ $safe=@{meeting_media=$peers}
+ $failure=$Record.meeting_browser_failure
+ $failureKeys=if($failure -is [Collections.IDictionary]){@($failure.Keys)}elseif($failure -is [pscustomobject]){@($failure.PSObject.Properties|ForEach-Object Name)}else{@()}
+ if($failureKeys.Count -eq 2 -and @($failureKeys|Where-Object {$_ -cnotin 'kind','operation'}).Count -eq 0 -and $failure.kind -is [string] -and $failure.kind -cin 'timeout','type','reference','range','security','invalid_state','not_supported','target_closed','other' -and $failure.operation -is [string] -and $failure.operation -cin 'none','peer_lookup','stats','analyser_create','analyser_source','analyser_connect','analyser_output','spectrum','canvas_create','canvas_draw','canvas_read','complete'){$safe.meeting_browser_failure=@{kind=$failure.kind;operation=$failure.operation}}
+ return $safe
 }
 function SafeMeetingSignalingFields($Record){
  $safe=@{}
@@ -475,7 +479,7 @@ function SafeFailureFields($Record){
   $type=$Record.($prefix+'_error_type');if($type -is [string] -and $type -match '^[A-Za-z0-9_]{1,80}$'){$safe[$prefix+'_error_type']=$type}
   foreach($where in 'source','caller'){
    $name=$Record.($prefix+'_'+$where+'_basename');$line=$Record.($prefix+'_'+$where+'_line')
-   if($name -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_cdr_background.py','windows_cdr_observation.php','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py','external_component' -and ($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$safe[$prefix+'_'+$where+'_basename']=$name;$safe[$prefix+'_'+$where+'_line']=[int]$line}
+   if($name -in 'windows-native-acceptance.py','windows-meet-browser.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_cdr_background.py','windows_cdr_observation.php','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py','external_component' -and ($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$safe[$prefix+'_'+$where+'_basename']=$name;$safe[$prefix+'_'+$where+'_line']=[int]$line}
   }
  }
  if(($Record.cleanup_failure_count -is [int] -or $Record.cleanup_failure_count -is [long]) -and $Record.cleanup_failure_count -ge 1 -and $Record.cleanup_failure_count -le 32){$safe.cleanup_failure_count=[int]$Record.cleanup_failure_count}
@@ -1507,6 +1511,9 @@ try{
  if(!$?){throw 'The focused hold diagnostic scope and evidence controls failed.'}
  CheckedPython @((Join-Path $source 'tests/windows_cmb_media_window.py'))
  CheckedPython @((Join-Path $source 'tests/windows_cdr_background_test.py'))
+ CheckedPython @((Join-Path $source 'tests/windows_meet_browser_failure.py'))
+ & (Join-Path $source 'tests/windows_meet_media_projection.ps1') -SourceRoot $source *> (Join-Path $work 'meeting-media-projection.private.log')
+ if(!$?){throw 'The closed meeting media/browser failure controls failed.'}
  & (Join-Path $source 'tests/windows_cdr_native_fields.ps1') *> (Join-Path $work 'cdr-native-fields.private.log')
  if(!$?){throw 'The strict native background CDR evidence controls failed.'}
  & (Join-Path $source 'tests/windows_call_records_lifecycle.ps1') -SourceRoot $source *> (Join-Path $work 'call-records-lifecycle.private.log')
