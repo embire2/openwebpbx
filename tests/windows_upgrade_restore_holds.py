@@ -86,7 +86,7 @@ class RestoreHolds(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertTrue(self.marker.is_file())
         self.assertEqual(json.loads(self.marker.read_text()), json.loads(self.plan.read_text())['call_records_hold'])
-        self.assertEqual(json.loads(self.journal.read_text())['state'], 'prepared')
+        self.assertEqual(json.loads(self.journal.read_text())['state'], 'restored')
         self.assertTrue(all((self.restore / ('hold-' + name)).is_file() for name in ('calls', 'jobs', 'updates', 'backups')))
 
     def test_old_no_journal_refuses_actual_product_before_hold_side_effects(self):
@@ -117,7 +117,7 @@ class RestoreHolds(unittest.TestCase):
         events = self.observed()
         self.assertEqual([event['operation'] for event in events], ['plan', 'hold', 'recover-startup', 'resume-factory'])
         self.assertTrue(all(event['maintenance_lock_held'] for event in events))
-        self.assertEqual([event['journal_state'] for event in events], [None, 'prepared', 'prepared', 'recovered'])
+        self.assertEqual([event['journal_state'] for event in events], [None, 'prepared', 'restored', 'recovered'])
         trace = json.loads(Path(events[-1]['trace']).read_text())
         clear = [call for call in trace['calls'] if call['name'] == 'RemoveCallRecordHold']
         self.assertEqual(len(clear), 1)

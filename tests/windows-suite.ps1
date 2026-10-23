@@ -1557,6 +1557,7 @@ try{
  CheckedPython @((Join-Path $source 'tests/windows_restore_lock_retry.py'))
  CheckedPython @((Join-Path $source 'tests/windows_backup_control_observer_test.py'))
  & (Join-Path $source 'tests/windows_call_records_lifecycle.ps1') -SourceRoot $source *> (Join-Path $work 'call-records-lifecycle.private.log')
+ & (Join-Path $source 'tests/windows_recovery_restore_holds.ps1') -SourceRoot $source *> (Join-Path $work 'restore-recovery-holds.private.log')
  if(!$?){throw 'The actual Windows call-record activation and recovery lifecycle controls failed.'}
  & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_cdr_service_test.ps1') *> (Join-Path $work 'cdr-service-identity.private.log')
  if($LASTEXITCODE){throw 'The actual LocalService observer refusal controls failed.'}

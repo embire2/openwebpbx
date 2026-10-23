@@ -5,7 +5,24 @@ The currently published Windows release remains 1.0.7. Do not replace a
 production server with an unpublished archive. Debian's hosted Phone Health
 patch and the earlier complete Debian candidate have separate verification.
 
-Latest normal run39984494995/sourcea05715801 stops before installation in a
+Latest normal run39988468357/sourcec4e2d5273 passes native SIP/audio, clock,
+provider, Call Me Back and browser-conference gates, including the retained
+typed LocalService call-history receipt. Fresh installation, trusted web,
+synthetic V20 import, STUN, Phone Health and tenant-domain checks also pass.
+It fails later when testing recovery with restore holds; complete backups,
+upgrade/recovery, owner migration and publication remain unqualified.
+
+The startup fixture previously left its synthetic restore marked unfinished.
+It now represents a completed restore awaiting activation after installing the
+real service holds. Recovery also preserves a newer restore's CDR hold instead
+of trying to clear it using an old terminal update's identity. Incomplete
+restores, updates and finalization still refuse.139 function/file controls,
+113 existing lifecycle controls and seven journal groups pass with explicit
+SCM/IIS adapters; actual full native repetition remains required. The earlier
+run's inner error was not retained, so these reproductions do not establish
+which refusal occurred in that run.
+
+Earlier normal run39984494995/sourcea05715801 stops before installation in a
 QA source-selector check. The correction requires the actual observer call's
 complete original ownership guard, with eight mutation refusals and nine
 independently repeated test groups. A fresh complete normal run is required;

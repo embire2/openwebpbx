@@ -94,6 +94,25 @@ function CompleteInstalledCallRecordHold {
  Assert-OpenWebUpgradeAllowed -StateRoot $private
  Remove-OpenWebCallRecordHold -StateRoot $private -Hold $installed.CallRecordHold -MaintenanceLock $lock
 }
+function ResumeHeldRestore {
+ # A later restore owns its own CDR marker. Terminal install/update journals
+ # must not try to remove that marker using an earlier transaction identity.
+ # An unfinished restore still refuses all starts through the original gate.
+ $gate=Get-OpenWebRestoreGate -StateRoot $private
+ if($gate.Blocked){throw 'Complete interrupted backup recovery before restarting PBX services.'}
+ if(!$gate.Calls -and !$gate.Jobs -and !$gate.Updates -and !$gate.Backups){return $false}
+ if(Test-Path -LiteralPath $journalPath){
+  $item=Get-Item -LiteralPath $journalPath -Force -ErrorAction Stop
+  if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $item.Length -gt 1048576){throw 'The previous update journal requires recovery before restore activation.'}
+  $previous=Get-Content -LiteralPath $journalPath -Raw -Encoding UTF8|ConvertFrom-Json -ErrorAction Stop
+  if(($previous.schema -isnot [int] -and $previous.schema -isnot [long]) -or $previous.schema -ne 1 -or $previous.state -isnot [string] -or $previous.state -cnotin 'completed','rolled_back'){throw 'The previous update must finish recovery before restore activation.'}
+  if($previous.PSObject.Properties['call_records_hold']){Assert-OpenWebCallRecordHold $previous.call_records_hold}
+  if($previous.state -ceq 'completed' -and $previous.PSObject.Properties['recovery_entry'] -and !($previous.PSObject.Properties['finalization'] -and $previous.finalization.phase -is [string] -and $previous.finalization.phase -ceq 'complete' -and $previous.finalization.failed -is [bool] -and !$previous.finalization.failed)){throw 'The committed update must finish finalization before restore activation.'}
+ }
+ $null=StartPbx
+ Write-Host 'Update recovery checked. Restored services retain their activation holds.'
+ return $true
+}
 
 $script:managerTasks=@()
 function InstalledManagers {
@@ -321,6 +340,7 @@ try {
  try{$lock = [IO.File]::Open("$private\upgrade.lock", 'OpenOrCreate', 'ReadWrite', 'None')}catch [IO.IOException]{$script:deferred=$true;throw 'Another PBX update is running.'}
  $env:PGPASSWORD = $state.PostgresPassword
  if($Recover){
+  if(ResumeHeldRestore){return}
   if(!(Test-Path -LiteralPath $journalPath)){CompleteInstalledCallRecordHold}
   if(Test-Path $journalPath){
    $journal=Get-Content $journalPath -Raw|ConvertFrom-Json

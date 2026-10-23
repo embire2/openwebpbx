@@ -393,6 +393,9 @@ elif action=='holds':
   # fixture, not a database restore or an invented completed backup.
   b.atomic_json(journal_file,{'schema':1,'state':'prepared','qualification':'windows-upgrade-restore-gate','call_records_hold':hold})
   b.install_service_holds(plan)
+  # Model a completed restore awaiting activation, not an interrupted restore.
+  # This startup fixture restores no database/media and cannot qualify backups.
+  b.atomic_json(journal_file,{'schema':1,'state':'restored','qualification':'windows-upgrade-restore-gate','call_records_hold':hold})
 elif action=='release':
  stage='restore_release'
  with retry.acquire(b,b.UPGRADE_LOCK):
@@ -400,7 +403,7 @@ elif action=='release':
   if set(fixture)!={'schema','qualification','gates','call_records_hold'} or type(fixture['schema']) is not int or fixture['schema']!=1 or fixture['qualification']!='windows-upgrade-restore-gate' or not isinstance(fixture['gates'],dict) or not isinstance(hold,dict) or set(hold)!={'schema','owner','transaction'} or type(hold['schema']) is not int or hold['schema']!=1 or hold['owner']!='restore' or not isinstance(hold['transaction'],str) or len(hold['transaction'])!=32 or any(ch not in '0123456789abcdef' for ch in hold['transaction']):raise RuntimeError('The owned restore startup fixture is invalid')
   journal_file=b.ordinary(b.RESTORE/'journal.json');journal=json.loads(journal_file.read_text())
   expected={'schema':1,'state':journal.get('state'),'qualification':'windows-upgrade-restore-gate','call_records_hold':hold}
-  if digest(journal)!=digest(expected) or journal['state'] not in ('prepared','recovered'):raise RuntimeError('A different restore journal was preserved')
+  if digest(journal)!=digest(expected) or journal['state'] not in ('prepared','restored','recovered'):raise RuntimeError('A different restore journal was preserved')
   marker=b.STATE/'call-records.hold'
   if b.reparse(marker) or (marker.exists() and digest(json.loads(b.ordinary(marker).read_text()))!=digest(hold)):raise RuntimeError('A different call-record hold was preserved')
   b.control('recover-startup',fixture['gates'])
