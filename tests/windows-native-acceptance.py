@@ -1340,6 +1340,35 @@ class NativeSMTPTLSSink(socketserver.ThreadingTCPServer):
         return connection,address
 
 
+def smtp_connection_check_passed(body):
+    """Recognise the normal global-mail success notice, never body/error text."""
+    if not isinstance(body,str) or len(body)>4*1024*1024:return False
+    class Notices(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True);self.depth=0;self.ignored=0;self.text=[];self.notices=[];self.error=False
+        def handle_starttag(self,tag,attrs):
+            if tag in ('script','style'):self.ignored+=1;return
+            if self.ignored:return
+            values=dict(attrs);classes=(values.get('class') or '').split()
+            if values.get('role')=='alert' or ('mail-message' in classes and 'error' in classes):self.error=True
+            if tag=='div':
+                if self.depth:self.depth+=1
+                elif values.get('role')=='status' and 'mail-message' in classes:self.depth=1;self.text=[]
+        def handle_endtag(self,tag):
+            if tag in ('script','style') and self.ignored:self.ignored-=1;return
+            if self.ignored:return
+            if tag=='div' and self.depth:
+                self.depth-=1
+                if not self.depth:self.notices.append(' '.join(''.join(self.text).split()))
+        def handle_data(self,data):
+            if self.depth and not self.ignored:self.text.append(data)
+    parsed=Notices()
+    try:parsed.feed(body);parsed.close()
+    except (ValueError,TypeError):return False
+    matches=[notice for notice in parsed.notices if notice.startswith('SMTP connection and From address accepted.') and 'No email was sent' in notice]
+    return not parsed.error and parsed.depth==0 and parsed.ignored==0 and len(parsed.notices)==1 and len(matches)==1
+
+
 def smtp_and_queued_voicemail(f):
     f.active_case='global_smtp_unconfigured_queue_preservation'
     module=load_module('smtp_fixture',f.source/'tests/smtp_transport_integration.py')
@@ -1382,7 +1411,7 @@ def smtp_and_queued_voicemail(f):
             f.web.submit('/app/smtp_settings/','save',values)
             f.smtp_failure['smtp_stage']='connection_check'
             result=f.web.submit('/app/smtp_settings/','check',{})
-            f.smtp_failure['smtp_connection_check_passed']='SMTP connection succeeded. No email was sent.' in result[2]
+            f.smtp_failure['smtp_connection_check_passed']=smtp_connection_check_passed(result[2])
             assert f.smtp_failure['smtp_connection_check_passed'],'Normal SMTP connection check did not confirm success'
             assert not sink.deliveries,'Saved connection check unexpectedly delivered mail'
             f.smtp_failure['smtp_stage']='seed';seed=f.cli('mail-seed')['id']

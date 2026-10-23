@@ -5,6 +5,29 @@ The currently published Windows release remains 1.0.7. Do not replace a
 production server with an unpublished archive. Debian's hosted Phone Health
 patch and the earlier complete Debian candidate have separate verification.
 
+Normal39942968354/source08d803701 is still failed. Its child now reports26
+completed cases, including actual normal LocalService call-record importing and
+unconfigured/IP-auth/password SMTP. The later TLS SMTP test fails at its
+connection-check assertion: the current UI reports acceptance of the connection
+and From address, while the QA still expects the older success message. A
+focused QA correction checks the actual status notice and preserves the
+no-delivery assertion. Seven PHP POST cases use explicit token/transport doubles;
+native TLS mail qualification still needs a new complete run.
+
+The parent also omits the child's fixed Meet completion name. A narrow reporting
+correction passes3332 actual PowerShell/privacy controls and the old-source
+negative without exporting raw media or claiming a historical conference pass.
+The separate restore-hold error persists and still lacks its original inner
+operation/native exception. Closed single-invocation diagnostics now pass eight
+portable groups and50 actual native PS5.1 fake-target controls, with3336 parent
+privacy/projection checks. The native component preserves six original services
+and five original file hashes, but does not invoke the installed control or prove
+the historical cause. The focused diagnostic workflow must capture that next;
+product recovery predicates remain unchanged. Canonical cleanup and original
+writer restoration pass, but complete calling, backup, upgrade and release gates
+remain unqualified. Google separately still rejects the actual Windows sender
+at11:40UTC; the probe sent no recipient or email and changed no settings.
+
 Normal run39937274615/sourceb2b8c1d69 now passes the actual SYSTEM phone
 monitor restart, the updated legitimate-challenge protection fixture and the
 existing native installation, web, tenant, STUN and conference-transport checks.

@@ -2,6 +2,7 @@
 param([string]$SourceRoot=(Split-Path $PSScriptRoot -Parent))
 $ErrorActionPreference='Stop'
 . (Join-Path $SourceRoot 'tests/windows-hold-failure-fields.ps1')
+. (Join-Path $SourceRoot 'tests/windows-backup-control-observation-fields.ps1')
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-suite.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'The reviewed caller must parse.'}
@@ -58,7 +59,7 @@ foreach($prefix in 'primary','cleanup'){
  }
 }
 foreach($bad in '2',0,33,$true){$copy=$record.PSObject.Copy();$copy.cleanup_failure_count=$bad;Check (!(SafeFailureFields $copy).ContainsKey('cleanup_failure_count'))}
-$allowed=@('native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav','native_tls_mailbox_wire_forwarding_exact_binary_wav','native_global_smtp_unconfigured_queue_preserves_attempts','native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment','native_global_smtp_password_auth_actual_loopback','native_global_smtp_trusted_tls_hostname_auth_actual_loopback','native_welcome_inline_qr_config_actual_loopback')
+$allowed=@('native_windows_meeting_browser_video_audio','native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav','native_tls_mailbox_wire_forwarding_exact_binary_wav','native_global_smtp_unconfigured_queue_preserves_attempts','native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment','native_global_smtp_password_auth_actual_loopback','native_global_smtp_trusted_tls_hostname_auth_actual_loopback','native_welcome_inline_qr_config_actual_loopback')
 $childChecks=@(foreach($name in $allowed){[pscustomobject]@{case=$name;passed=$true;password='private-never-copy';decoded_ratio=.99;error='private-never-copy'}})
 $completed=@(CompletedMediaCases $childChecks)
 Check (($completed -join '|') -ceq ($allowed -join '|'))
@@ -81,6 +82,13 @@ foreach($bad in 'private-never-copy',$allowed[0].ToUpperInvariant(),($allowed[0]
 $mixed=SafeFailureFields ([pscustomobject]@{completed_media_cases=@('private-never-copy',$allowed[4],$allowed[4],$allowed[0]);checks=$childChecks})
 Check (($mixed.completed_media_cases -join '|') -ceq ($allowed[0]+'|'+$allowed[4]) -and $mixed.Count -eq 1)
 Check (!(SafeFailureFields ([pscustomobject]@{checks=$childChecks})).ContainsKey('completed_media_cases'))
+$control=[pscustomobject]@{schema=1;producer='windows-backup-control-observer.ps1';operation='hold';phase='operation';exit_code=1;source_pins_verified=$true;invocations=1;original_error_observed=$true;error_type='System.IO.IOException';inner_error_type='System.IO.IOException';hresult=2147942402L;source_basename='CallRecords.Common.ps1';source_line=180;caller_basename='Backup-Control.ps1';caller_line=119}
+$controlSafe=SafeFailureFields ([pscustomobject]@{backup_control_failure=$control;password='private-never-copy';raw_error='private-never-copy'})
+Check ($controlSafe.Count -eq 1 -and $controlSafe.backup_control_failure.Count -eq 15 -and $controlSafe.backup_control_failure.operation -ceq 'hold')
+Check (($controlSafe|ConvertTo-Json -Depth 6) -notmatch 'private-never-copy|password|raw_error')
+$privateControl=$control.PSObject.Copy();$privateControl|Add-Member -NotePropertyName raw_message -NotePropertyValue 'private-never-copy'
+Check (!(SafeFailureFields ([pscustomobject]@{backup_control_failure=$privateControl})).ContainsKey('backup_control_failure'))
+Check (!(SafeFailureFields ([pscustomobject]@{backup_control_failure=@($control,$control)})).ContainsKey('backup_control_failure'))
 $media=[pscustomobject]@{media_peer='caller';media_direction='received';media_window_seconds=5.0;media_span_seconds=4.98;media_rate_pps=49.9;media_packets=250;media_window_private='private-never-copy';password='private-never-copy';decoded_pcm='private-never-copy'}
 foreach($filter in 'MediaFailureFields','SafeFailureFields'){
  $safe=& $filter $media

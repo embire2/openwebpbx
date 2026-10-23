@@ -60,6 +60,7 @@ $recoveryPki=$null
 . (Join-Path $PSScriptRoot 'windows-upgrade-lock-observer.ps1')
 . (Join-Path $PSScriptRoot 'windows-native-cleanup-row-fields.ps1')
 . (Join-Path $PSScriptRoot 'windows-hold-failure-fields.ps1')
+. (Join-Path $PSScriptRoot 'windows-backup-control-observation-fields.ps1')
 . (Join-Path $PSScriptRoot 'windows-suite-independent.ps1')
 $facts=[ordered]@{schema=1;platform='Windows Server 2025 x64';source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='running';checks=@();gates=[ordered]@{fresh='pending';web_readiness='unqualified';backups='pending';native_sip_audio='unqualified';native_clock='unqualified';native_providers='unqualified';native_call_me_back='unqualified';tenant_domains='unqualified';stun='unqualified';phone_health='unqualified';meeting_transport='unqualified';meeting_browser='unqualified';direct_113_helper_reapply='unqualified';direct_failure_rollback='unqualified';restore_gate_startup='unqualified';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified';outside_acme='unqualified'};cleanup='pending'}
 if($UpgradeDiagnosticsOnly){$facts.mode='upgrade_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Post-native state is not reproduced.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false}
@@ -369,6 +370,7 @@ function SafeSmtpFailureFields($Record){
 
 function SafeFailureFields($Record){
  $safe=@{}
+ if($Record.backup_control_failure){$control=BackupControlObservationFields $Record.backup_control_failure;if($control){$safe.backup_control_failure=$control}}
  foreach($entry in (HoldFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  if($Record.native_factory_empty_before_fixture -is [bool]){$safe.native_factory_empty_before_fixture=$Record.native_factory_empty_before_fixture}
  foreach($field in 'meeting_failure','meeting_recovery_failure'){
@@ -483,7 +485,7 @@ function SafeFailureFields($Record){
   }
  }
  if(($Record.cleanup_failure_count -is [int] -or $Record.cleanup_failure_count -is [long]) -and $Record.cleanup_failure_count -ge 1 -and $Record.cleanup_failure_count -le 32){$safe.cleanup_failure_count=[int]$Record.cleanup_failure_count}
- $mediaCases=@('native_localservice_cdr_background_import','native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav','native_tls_mailbox_wire_forwarding_exact_binary_wav','native_global_smtp_unconfigured_queue_preserves_attempts','native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment','native_global_smtp_password_auth_actual_loopback','native_global_smtp_trusted_tls_hostname_auth_actual_loopback','native_welcome_inline_qr_config_actual_loopback','native_clock1026_gmt2_three_decoded_announcements','native_provider_outbound_decoded_rtp','native_provider_503_failover_once_decoded_rtp','native_provider_busy_no_failover','native_provider_603_failover_once_decoded_rtp','native_provider_incoming_owned_did_decoded_rtp','native_cmb_sa_id_first_auth_decoded_bridge','native_cmb_saved_caller_decoded_bridge','native_cmb_short_quota_native_cutoff_exact_usage','native_cmb_exhausted_quota_no_destination','native_localservice_notification_store_reader')
+ $mediaCases=@('native_localservice_cdr_background_import','native_windows_meeting_browser_video_audio','native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav','native_tls_mailbox_wire_forwarding_exact_binary_wav','native_global_smtp_unconfigured_queue_preserves_attempts','native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment','native_global_smtp_password_auth_actual_loopback','native_global_smtp_trusted_tls_hostname_auth_actual_loopback','native_welcome_inline_qr_config_actual_loopback','native_clock1026_gmt2_three_decoded_announcements','native_provider_outbound_decoded_rtp','native_provider_503_failover_once_decoded_rtp','native_provider_busy_no_failover','native_provider_603_failover_once_decoded_rtp','native_provider_incoming_owned_did_decoded_rtp','native_cmb_sa_id_first_auth_decoded_bridge','native_cmb_saved_caller_decoded_bridge','native_cmb_short_quota_native_cutoff_exact_usage','native_cmb_exhausted_quota_no_destination','native_localservice_notification_store_reader')
  $completed=@(foreach($name in $mediaCases){foreach($value in @($Record.completed_media_cases)){if($value -is [string] -and $value -ceq $name){$name;break}}})
  if($completed.Count){$safe.completed_media_cases=$completed}
  if($Record.media_peer -is [string] -and $Record.media_peer -cin 'caller','destination' -and $Record.media_direction -is [string] -and $Record.media_direction -cin 'sent','received'){
@@ -781,7 +783,7 @@ function AssertReplaySourcePaths([string[]]$Paths){
   $null=SafeRelative $path
   if($path -cin 'tests/pbx_bcg729_codec.c','tests/pbx_windows_pthread.c'){throw 'Pinned native-engine recipe inputs changed; rebuild the candidate.'}
   $nonWindows=$path.StartsWith('packaging/debian/',[StringComparison]::Ordinal) -and $path -cnotin 'packaging/debian/tenant-domains.py','packaging/debian/tenant-domains.php'
-  if($path.StartsWith('tests/',[StringComparison]::Ordinal) -or $path.StartsWith('docs/',[StringComparison]::Ordinal) -or $nonWindows -or $path -cin 'AGENTS.md','README.md','readme.md','3CX.md','packaging/BUILDING.md','.github/workflows/windows-suite.yml','.github/workflows/windows-upgrade-diagnostics.yml','.github/workflows/windows-backups-diagnostics.yml','.github/workflows/windows-voicemail-diagnostics.yml'){continue}
+  if($path.StartsWith('tests/',[StringComparison]::Ordinal) -or $path.StartsWith('docs/',[StringComparison]::Ordinal) -or $nonWindows -or $path -cin 'AGENTS.md','README.md','readme.md','3CX.md','packaging/BUILDING.md','.github/workflows/windows-suite.yml','.github/workflows/windows-upgrade-diagnostics.yml','.github/workflows/windows-backups-diagnostics.yml','.github/workflows/windows-voicemail-diagnostics.yml','.github/workflows/windows-phone.yml'){continue}
   throw 'Windows runtime, native input or package source changed; rebuild the candidate instead of replaying it.'
  }
 }
@@ -1523,6 +1525,7 @@ try{
  CheckedPython @((Join-Path $source 'tests/windows_cmb_media_window.py'))
  CheckedPython @((Join-Path $source 'tests/windows_cdr_background_test.py'))
  CheckedPython @((Join-Path $source 'tests/windows_meet_browser_failure.py'))
+ CheckedPython @((Join-Path $source 'tests/windows_smtp_notice.py'))
  & (Join-Path $source 'tests/windows_meet_media_projection.ps1') -SourceRoot $source *> (Join-Path $work 'meeting-media-projection.private.log')
  if(!$?){throw 'The closed meeting media/browser failure controls failed.'}
  & (Join-Path $source 'tests/windows_cdr_native_fields.ps1') *> (Join-Path $work 'cdr-native-fields.private.log')
@@ -1530,6 +1533,7 @@ try{
  & (Join-Path $source 'tests/windows_recovery_localaccounts.ps1') -SourceRoot $source *> (Join-Path $work 'recovery-localaccounts.private.log')
  if(!$?){throw 'The native PowerShell recovery module provenance controls failed.'}
  CheckedPython @((Join-Path $source 'tests/windows_upgrade_restore_holds.py'))
+ CheckedPython @((Join-Path $source 'tests/windows_backup_control_observer_test.py'))
  & (Join-Path $source 'tests/windows_call_records_lifecycle.ps1') -SourceRoot $source *> (Join-Path $work 'call-records-lifecycle.private.log')
  if(!$?){throw 'The actual Windows call-record activation and recovery lifecycle controls failed.'}
  & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_cdr_service_test.ps1') *> (Join-Path $work 'cdr-service-identity.private.log')

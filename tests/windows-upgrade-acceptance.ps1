@@ -5,6 +5,7 @@ param([Parameter(Mandatory)][string]$PackageRoot,[switch]$DisposableHostedRunner
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-upgrade-lock-observer.ps1')
 . (Join-Path $PSScriptRoot 'windows-upgrade-health-quiescence.ps1')
+. (Join-Path $PSScriptRoot 'windows-backup-control-observation-fields.ps1')
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){throw 'Only the owned disposable hosted Windows instance may run this hook.'}
 . (Join-Path $PackageRoot 'Support-Recovery.ps1')
 $fixtureInput=Get-Content -LiteralPath $InputPath -Raw|ConvertFrom-Json
@@ -17,6 +18,7 @@ $work=Join-Path (Split-Path $InputPath -Parent) ('upgrade-private-'+[Guid]::NewG
 New-Item -ItemType Directory -Path $work|Out-Null
 & icacls.exe $work /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F'|Out-Null
 if($LASTEXITCODE){throw 'Private upgrade qualification permissions could not be secured.'}
+$controlEvidence=$null
 $python="$root\backup-runtime\python.exe";$helper="$root\tools\Upgrade-OpenWebPBX.ps1";$fixture=$null;$phase='private snapshots';$gatePlan=$null
 $managerSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;$managerSession=[Diagnostics.Process]::GetCurrentProcess().SessionId
 $managerName='OpenWebPBX-Manager-'+$managerSid;$managerExe="$root\desktop\OpenWebPbx.Desktop.exe";$managerOriginal=$null;$managerOwned=$false;$managerStarted=$null;$managerAvailable=$false
@@ -180,10 +182,12 @@ function ProbeFailure($Record){
  $stages=@('probe_import','probe_settings','database_installation','database_identity','database_roles','database_memberships','database_schema','database_tables','database_columns','database_values','database_save','restore_holds','restore_release','pending_create','pending_check','pending_remove')
  $types=@('BackupError','BackupBusy','JSONDecodeError','KeyError','FileNotFoundError','PermissionError','ImportError','ModuleNotFoundError','RuntimeError','ValueError','TypeError','OSError','TimeoutError','AssertionError','UnicodeDecodeError','ExternalFailure')
  if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.active_case -isnot [string] -or $Record.active_case -cnotin $stages -or $Record.error_type -isnot [string] -or $Record.error_type -cnotin $types -or $Record.source_basename -isnot [string] -or $Record.source_basename -cnotin 'private-probe.py','backups.py' -or ($Record.source_line -isnot [int] -and $Record.source_line -isnot [long]) -or $Record.source_line -lt 1 -or $Record.source_line -ge 100000){return $null}
- return @{active_case=$Record.active_case;error_type=$Record.error_type;source_basename=$Record.source_basename;source_line=[int]$Record.source_line}
+ $safe=@{active_case=$Record.active_case;error_type=$Record.error_type;source_basename=$Record.source_basename;source_line=[int]$Record.source_line}
+ if($Record.PSObject.Properties['backup_control_failure']){$control=BackupControlObservationFields $Record.backup_control_failure;if($control){$safe.backup_control_failure=$control}};return $safe
 }
 function Python([string[]]$Arguments){
  $failurePath=Join-Path $work 'probe-failure.json';Remove-Item -LiteralPath $failurePath -Force -ErrorAction SilentlyContinue
+ if($Arguments.Count -eq 3 -and $Arguments[0] -ceq $probe -and $Arguments[1] -cin 'holds','release'){if(!$controlEvidence){$script:controlEvidence=NewBackupControlObservationDirectory $work};$Arguments+=@((Split-Path $PSScriptRoot -Parent),$PackageRoot,$controlEvidence)}
  & $python -I @Arguments 1>(Join-Path $work 'probe-private.out') 2>(Join-Path $work 'probe-private.err');$code=$LASTEXITCODE
  if($code){
   $script:probeFailure=$null
@@ -317,11 +321,18 @@ def failure(kind,value,tb):
  frames=[frame for frame in traceback.extract_tb(tb) if Path(frame.filename).name in {'private-probe.py','backups.py'}]
  frame=frames[-1] if frames else None
  safe={'schema':1,'active_case':stage,'error_type':kind.__name__ if kind.__name__ in allowed_types else 'ExternalFailure','source_basename':Path(frame.filename).name if frame else 'private-probe.py','source_line':frame.lineno if frame else 1}
+ observation=getattr(globals().get('b'),'qa_backup_control_failure',None)
+ if isinstance(observation,dict):safe['backup_control_failure']=observation
  try:(path.parent/'probe-failure.json').write_text(json.dumps(safe),encoding='utf-8')
  except OSError:pass
  sys.__excepthook__(kind,value,tb)
 sys.excepthook=failure
 spec=importlib.util.spec_from_file_location('backup',Path('C:/OpenWebPBX/tools/backups.py'));b=importlib.util.module_from_spec(spec);spec.loader.exec_module(b)
+if action in ('holds','release') and Path(b.__file__).resolve()==(Path('C:/OpenWebPBX')/'tools'/'backups.py').resolve():
+ if len(sys.argv)!=6:raise RuntimeError('The private control observation context is unavailable')
+ observer_path=Path(sys.argv[3])/'tests/windows_backup_control_observer.py'
+ observer_spec=importlib.util.spec_from_file_location('owned_backup_control_observer',observer_path);observer=importlib.util.module_from_spec(observer_spec);observer_spec.loader.exec_module(observer)
+ observer.install(b,Path(sys.argv[3]),Path(sys.argv[4]),Path(sys.argv[5]))
 stage='probe_settings';settings=b.read_settings()
 key_file=path.parent/'audit.key'
 if not key_file.exists():key_file.write_bytes(os.urandom(32))
