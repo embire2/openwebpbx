@@ -52,6 +52,28 @@ try { await manager.RemoveAsync(first.Id); throw new Exception("Active profile r
 calls = 0; await manager.RemoveAsync(first.Id); Check(store.Values.Count == 9 && store.Selected == store.Values.First().Id);
 store.OnRead = () => calls = 1;
 try { await manager.SelectAsync(store.Values.Last().Id); throw new Exception("Concurrent incoming call ignored."); } catch (PhoneInputException) { Check(store.Selected == store.Values.First().Id); }
+var registryProof = """{"schema":1,"hostname":"openweb.openwebpbx.com","revision":1,"domainUuid":"11111111-1111-1111-1111-111111111111","serverOrigin":"https://call.example.invalid"}""";
+using (var registry = new TenantRegistry(new Handler(request => { Check(request.RequestUri!.Host == "domains.openwebpbx.com"); Check(request.Headers.Authorization is null); return new(HttpStatusCode.OK) { Content = new StringContent(registryProof) }; })))
+    Check((await registry.LookupAsync(invitation.Server)).DomainId == Guid.Parse("11111111-1111-1111-1111-111111111111"));
+foreach (var invalid in new[] { registryProof.Replace("openweb.openwebpbx.com", "another.openwebpbx.com"), registryProof.Replace("\"revision\":1", "\"revision\":0"), registryProof.Replace("11111111-1111-1111-1111-111111111111", Guid.Empty.ToString()), registryProof.Replace("https://call.example.invalid", "http://call.example.invalid"), new string('x', 4097) })
+{
+    using var registry = new TenantRegistry(new Handler(_ => new(HttpStatusCode.OK) { Content = new StringContent(invalid) }));
+    try { await registry.LookupAsync(invitation.Server); throw new Exception("Invalid custody proof accepted."); } catch (PhoneInputException) { Check(true); }
+}
+using (var registry = new TenantRegistry(new Handler(_ => new(HttpStatusCode.Redirect) { Headers = { Location = new Uri("https://evil.invalid") } })))
+    try { await registry.LookupAsync(invitation.Server); throw new Exception("Custody redirect accepted."); } catch (PhoneInputException) { Check(true); }
+foreach (var registryMode in new[] { false, true })
+{
+    var stalled = new StalledBody(); var handler = new Handler(_ => new(HttpStatusCode.OK) { Content = new StreamContent(stalled) });
+    var started = System.Diagnostics.Stopwatch.StartNew();
+    try
+    {
+        if (registryMode) { using var registry = new TenantRegistry(handler, TimeSpan.FromMilliseconds(80)); await registry.LookupAsync(invitation.Server); }
+        else { using var api = new PhoneApi(invitation.Server, handler: handler, requestDeadline: TimeSpan.FromMilliseconds(80)); await api.JsonAsync("bootstrap"); }
+        throw new Exception("A stalled response escaped the body deadline.");
+    }
+    catch (OperationCanceledException) { Check(started.Elapsed < TimeSpan.FromSeconds(2)); Check(stalled.Closed); }
+}
 Console.WriteLine($"PASS {checks} client domain/API controls; HTTP handlers are explicit doubles; no Windows/native-call qualification");
 sealed class Handler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
 {
@@ -66,4 +88,15 @@ sealed class MemoryStore : IProfileStore
     public Task<IReadOnlyList<PhoneProfile>> ReadAsync(CancellationToken cancellation = default) { OnRead?.Invoke(); return Task.FromResult(Values); }
     public Task<Guid?> SelectedAsync(CancellationToken cancellation = default) => Task.FromResult(Selected);
     public Task SaveAsync(IReadOnlyList<PhoneProfile> profiles, Guid? selected, CancellationToken cancellation = default) { Values = profiles.ToArray(); Selected = selected; return Task.CompletedTask; }
+}
+
+sealed class StalledBody : Stream
+{
+    public bool Closed { get; private set; }
+    public override bool CanRead => true; public override bool CanSeek => false; public override bool CanWrite => false;
+    public override long Length => throw new NotSupportedException(); public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+    public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) { await Task.Delay(Timeout.Infinite, cancellationToken); return 0; }
+    public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    protected override void Dispose(bool disposing) { Closed = true; base.Dispose(disposing); }
+    public override void Flush() => throw new NotSupportedException(); public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException(); public override void SetLength(long value) => throw new NotSupportedException(); public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 }

@@ -10,9 +10,11 @@ public sealed class PhoneApi : IDisposable
     private readonly HttpClient client;
     private readonly Uri origin;
     private readonly string? token;
-    public PhoneApi(Uri tenant, string? token = null, HttpMessageHandler? handler = null)
+    private readonly TimeSpan deadline;
+    public PhoneApi(Uri tenant, string? token = null, HttpMessageHandler? handler = null, TimeSpan? requestDeadline = null)
     {
         origin = ConnectionRules.Tenant(tenant.AbsoluteUri); this.token = token;
+        deadline = requestDeadline ?? TimeSpan.FromSeconds(12); if (deadline <= TimeSpan.Zero || deadline > TimeSpan.FromSeconds(12)) throw new ArgumentOutOfRangeException(nameof(requestDeadline));
         client = new HttpClient(handler ?? new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false }, true)
         { Timeout = TimeSpan.FromSeconds(12) };
     }
@@ -26,6 +28,7 @@ public sealed class PhoneApi : IDisposable
     public Task<byte[]> VoicemailAsync(string id, CancellationToken cancellation = default) => BytesAsync("voicemail_audio", null, id, 32 * 1024 * 1024, cancellation);
     private async Task<byte[]> BytesAsync(string action, JsonObject? body, string? id, int maximum, CancellationToken cancellation)
     {
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellation); bounded.CancelAfter(deadline); cancellation = bounded.Token;
         if (action.Length is 0 or > 40 || action.Any(c => c is not (>= 'a' and <= 'z') and not '_')) throw new ArgumentException("Invalid phone action.", nameof(action));
         var target = new Uri(origin, "/app/pbx_mobile/api.php?action=" + action + (id is null ? "" : "&id=" + Uri.EscapeDataString(id)));
         using var request = new HttpRequestMessage(body is null ? HttpMethod.Get : HttpMethod.Post, target);

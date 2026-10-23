@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "phone-template-76ef105485bd4ddf88ac792051cee844 (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "phone-template-76ef105485bd4ddf88ac792051cee844 (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

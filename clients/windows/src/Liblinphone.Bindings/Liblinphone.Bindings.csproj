@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><Nullable>disable</Nullable><NoWarn>CS0612</NoWarn><AllowUnsafeBlocks>true</AllowUnsafeBlocks><EnableDefaultCompileItems>false</EnableDefaultCompileItems><GenerateAssemblyInfo>false</GenerateAssemblyInfo></PropertyGroup>
+  <ItemGroup><Compile Include="$(LinphoneBinding)" Link="LinphoneWrapper.cs" /></ItemGroup>
+  <Target Name="RequirePinnedBinding" BeforeTargets="CoreCompile">
+    <Error Condition="!Exists('$(LinphoneBinding)')" Text="Prepare the pinned official Liblinphone 5.5.23 C# binding first." />
+    <GetFileHash Files="$(LinphoneBinding)" Algorithm="SHA256"><Output TaskParameter="Items" ItemName="BindingHash" /></GetFileHash>
+    <Error Condition="'%(BindingHash.FileHash)' != 'A99C5197BE469D58812AFC33A2ADB104505134B9A03AC7654D11E4E4341D3A15'" Text="Official Liblinphone binding hash differs." />
+  </Target>
+</Project>
