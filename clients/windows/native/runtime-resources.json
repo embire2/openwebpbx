@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "sdk": "5.5.23",
+  "sdk_sha256": "9cc84037333daca88af24804e20b9d1f5e41ddd901578484b57dcc6720a8d297",
+  "files": [
+    {
+      "path": "belr/grammars/cpim_grammar.belr",
+      "bytes": 5437,
+      "sha256": "f0a0193bf52225e03daffb87cf2493510cc066cbf3248ea30276291c51ef925e"
+    },
+    {
+      "path": "belr/grammars/ics_grammar.belr",
+      "bytes": 20296,
+      "sha256": "27f89e06a2566caf9189a6e5583cfdd82366f1f6942cc502f9cf88e1b67c3d8f"
+    },
+    {
+      "path": "belr/grammars/identity_grammar.belr",
+      "bytes": 843,
+      "sha256": "125cceee56d15ac3edc75bb3d696ec2f9207963ae967739a16a5360e55791a06"
+    },
+    {
+      "path": "belr/grammars/mwi_grammar.belr",
+      "bytes": 1480,
+      "sha256": "86cb24f4e26cc01965e4a893dd49a7e8247248c23cf965c82a3192b2b3274883"
+    },
+    {
+      "path": "belr/grammars/sdp_grammar.belr",
+      "bytes": 11703,
+      "sha256": "626cd59553ef3c222236fd4d3143af41c77188245996eb5ec174d3631a322372"
+    },
+    {
+      "path": "belr/grammars/sip_grammar.belr",
+      "bytes": 19897,
+      "sha256": "229d01b59d41b172109110a0530755acd3732576e7f5a487dd8a27bbe8621be3"
+    },
+    {
+      "path": "belr/grammars/vcard3_grammar.belr",
+      "bytes": 13197,
+      "sha256": "9e1d3c2b0a3146ca31921e8bf3ff2a91903c77ff5139b69fd99bb9735b072e31"
+    },
+    {
+      "path": "belr/grammars/vcard_grammar.belr",
+      "bytes": 18503,
+      "sha256": "3f2da7ddd2ca1925fc337b04a51e2637be03b0189fe0e1e1a72b7f170900056d"
+    }
+  ]
+}

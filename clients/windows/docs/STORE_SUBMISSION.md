@@ -6,6 +6,15 @@ This is a preparation guide, checked **23 October 2026** against Microsoft's [St
 
 The project uses **Open ISP cc** as its company name. That does not establish its Microsoft seller account or package identity. The authorised owner must complete Partner Center company verification and reserve **OpenWebPBX Free Phone**, subject to availability. Microsoft's [company account instructions](https://learn.microsoft.com/en-us/windows/apps/publish/faq/open-developer-account) describe the identity/business steps; its [business verification requirements](https://learn.microsoft.com/en-us/windows/apps/publish/store-business-verification-reqs) permit supporting documents when a D‑U‑N‑S number is unavailable. Do not publish registration documents in GitHub.
 
+The owner requested account-creation steps; no existing account identity has been supplied:
+
+1. Open [Microsoft's developer registration](https://storedeveloper.microsoft.com/) and sign in with a Microsoft account controlled by the organisation. Keep its credentials and recovery methods private; enable multifactor authentication.
+2. Choose the **Company** account path for the Windows/Xbox developer programme. Select the real country/region carefully; Microsoft says it cannot be changed later.
+3. Enter the exact registered business name and matching address/contact details. Use the authorised person's work email for verification. The product's development publisher string is not a substitute for this information.
+4. Supply the company's D‑U‑N‑S number if available, or use the offered official business-document verification route. Follow the current document and domain-verification requests shown by Microsoft; do not invent a D‑U‑N‑S number.
+5. Accept the agreement personally and complete the email, business, relationship and due-diligence checks shown on the Verification summary. Account creation and document upload do not mean verification has passed.
+6. After the account is verified, open Apps & Games, reserve the app name, and copy the resulting product identity fields below. If blocked, use the account's private support channel. No account creation, reservation or Store action has been performed by this project work.
+
 Record these values privately from **Partner Center → Product identity**, then give the non-secret package values to the maintainer:
 
 | Field | Current state |

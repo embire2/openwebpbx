@@ -16,6 +16,7 @@ namespace OpenWebPbx.Phone.App;
 public sealed partial class MainPage : Page
 {
     private NativePhone? phone;
+    private VideoWindow? videoWindow;
     private readonly ProtectedProfileStore store = new(Distribution.Channel);
     private readonly PendingHistory pendingHistory = new(Distribution.Channel);
     private readonly SemaphoreSlim historyGate = new(1, 1);
@@ -131,16 +132,16 @@ public sealed partial class MainPage : Page
             {
                 if (notified.Add(call.Id) && preferences.Notifications) notifications.Show(call.Id, call.Name, preferences.HideCallerInNotifications);
                 line.Children.Add(Button("Answer", () => phone.Answer(call.Id, false), true));
-                if (call.Video) line.Children.Add(Button("Answer with video", () => phone.Answer(call.Id, true)));
+                if (call.Video && phone.Calls.Count == 1) line.Children.Add(Button("Answer with video", () => { OpenVideo(); phone.Answer(call.Id, true); }));
                 line.Children.Add(Button("Decline", () => phone.Hangup(call.Id)));
             }
             else { line.Children.Add(Button("Choose call", () => phone.Select(call.Id))); line.Children.Add(Button("End call", () => phone.Hangup(call.Id))); }
             LiveCalls.Children.Add(line);
         }
-        if (!phone.Busy) { LiveCalls.Visibility = Visibility.Collapsed; player?.Pause(); return; }
+        if (!phone.Busy) { LiveCalls.Visibility = Visibility.Collapsed; videoWindow?.Close(); player?.Pause(); return; }
         StopPlayback(); LiveCalls.Visibility = Visibility.Visible;
-        var controls = Row(); controls.Children.Add(Button(phone.Current?.State == CallState.Paused ? "Resume Call" : "Call Hold", phone.HoldResume, true)); controls.Children.Add(Button(phone.Current?.Muted == true ? "Unmute" : "Mute", phone.Mute)); controls.Children.Add(AsyncButton("Transfer", Transfer)); controls.Children.Add(Button("Merge calls", phone.Merge)); controls.Children.Add(Button("Video", () => { phone.SetVideo(true); OpenVideo(); })); controls.Children.Add(Button("Stop camera", phone.StopCamera)); LiveCalls.Children.Add(controls);
-        if (phone.Current?.State == CallState.UpdatedByRemote) { var offer = Row(); offer.Children.Add(Button("Accept video", () => { phone.AcceptVideoOffer(true); OpenVideo(); })); offer.Children.Add(Button("Audio only", () => phone.AcceptVideoOffer(false))); LiveCalls.Children.Add(offer); }
+        var controls = Row(); controls.Children.Add(Button(phone.Current?.State == CallState.Paused ? "Resume Call" : "Call Hold", phone.HoldResume, true)); controls.Children.Add(Button(phone.Current?.Muted == true ? "Unmute" : "Mute", phone.Mute)); controls.Children.Add(AsyncButton("Transfer", Transfer)); controls.Children.Add(Button("Merge calls", phone.Merge)); controls.Children.Add(Button("Video", () => { OpenVideo(); phone.SetVideo(true); })); controls.Children.Add(Button("Stop camera", phone.StopCamera)); LiveCalls.Children.Add(controls);
+        if (phone.Current?.State == CallState.UpdatedByRemote) { var offer = Row(); offer.Children.Add(Button("Accept video", () => { OpenVideo(); phone.AcceptVideoOffer(true); })); offer.Children.Add(Button("Audio only", () => phone.AcceptVideoOffer(false))); LiveCalls.Children.Add(offer); }
         if (phone.Conferencing) foreach (var call in phone.Calls) LiveCalls.Children.Add(Button("Mute / unmute " + call.Name, () => phone.MuteParticipant(call.Id)));
     }
     private static string Friendly(CallState state) => state switch { CallState.Paused => "On hold", CallState.StreamsRunning => "Connected", CallState.IncomingReceived => "Incoming call", CallState.OutgoingRinging => "Ringing", CallState.PausedByRemote => "The other person placed you on hold", CallState.Error => "Unavailable", _ => "Connecting…" };
@@ -265,9 +266,9 @@ public sealed partial class MainPage : Page
     private async Task StartVideo(string number)
     {
         using var api = Api(); var bootstrap = await api.JsonAsync("bootstrap"); if (!(bootstrap["features"]?.AsArray().Any(x => x?.ToString() == "video_calls") ?? false)) throw new PhoneInputException("Video is not enabled for this PBX yet.");
-        var contacts = await api.JsonAsync("directory"); if (!(contacts["contacts"]?.AsArray().OfType<JsonObject>().Any(x => x["id"]?.ToString() == "extension:" + ConnectionRules.Number(number)) ?? false)) throw new PhoneInputException("Choose a colleague listed in Contacts for a video call."); phone!.Dial(number, true); OpenVideo();
+        var contacts = await api.JsonAsync("directory"); if (!(contacts["contacts"]?.AsArray().OfType<JsonObject>().Any(x => x["id"]?.ToString() == "extension:" + ConnectionRules.Number(number)) ?? false)) throw new PhoneInputException("Choose a colleague listed in Contacts for a video call."); OpenVideo(); phone!.Dial(number, true);
     }
-    private void OpenVideo() { var video = new VideoWindow(phone!); video.Activate(); }
+    private void OpenVideo() { if (videoWindow is null) { videoWindow = new VideoWindow(phone!); videoWindow.Closed += (_, _) => videoWindow = null; } videoWindow.Activate(); }
     private async Task ScanQr() { var scanner = new QrScanner(); var invitation = await scanner.Scan(App.WindowHandle, phone!); if (invitation is not null) await ImportInvitation(invitation); }
     private static async Task Launch(string uri) { if (!await global::Windows.System.Launcher.LaunchUriAsync(new Uri(uri))) throw new PhoneInputException("Windows could not open that page."); }
     private static void WriteComponentReceipt()
@@ -286,5 +287,5 @@ public sealed partial class MainPage : Page
     public async Task WaitAndImport(SetupInvitation invitation) { await EnsureInitialized(); await Execute(() => ImportInvitation(invitation)); }
     public bool CanExit => phone?.Busy != true;
     public void StopCamera() => phone?.StopCamera();
-    public void Shutdown() { global::Windows.Networking.Connectivity.NetworkInformation.NetworkStatusChanged -= NetworkStatusChanged; timer.Stop(); notifications.Dispose(); StopPlayback(); phone?.Dispose(); }
+    public void Shutdown() { global::Windows.Networking.Connectivity.NetworkInformation.NetworkStatusChanged -= NetworkStatusChanged; timer.Stop(); videoWindow?.Close(); notifications.Dispose(); StopPlayback(); phone?.Dispose(); }
 }

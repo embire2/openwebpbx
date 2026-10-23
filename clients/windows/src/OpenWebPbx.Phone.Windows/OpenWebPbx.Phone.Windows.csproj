@@ -6,4 +6,5 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../OpenWebPbx.Phone.Core/OpenWebPbx.Phone.Core.csproj" /><ProjectReference Include="../Liblinphone.Bindings/Liblinphone.Bindings.csproj" /></ItemGroup>
+<ItemGroup><EmbeddedResource Include="../../native/runtime-resources.json" LogicalName="OpenWebPbx.Phone.RuntimeResources.json" /></ItemGroup>
 </Project>

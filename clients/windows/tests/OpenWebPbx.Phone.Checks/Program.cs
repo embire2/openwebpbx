@@ -86,7 +86,7 @@ using (var key = RSA.Create(3072))
     foreach (var name in new[] { "component", "platform", "channel", "version" }) { var changed = (JsonObject)payload.DeepClone(); changed[name] = "wrong"; Refuse(() => ClientRelease.Verify(Signed(changed), key, 1, "OpenWebPBX.FreePhone", "CN=Open ISP cc")); }
     foreach (var name in new[] { "url", "identity", "sha256", "publisher" }) { var changed = (JsonObject)payload.DeepClone(); changed["package"]![name] = "wrong"; Refuse(() => ClientRelease.Verify(Signed(changed), key, 1, "OpenWebPBX.FreePhone", "CN=Open ISP cc")); }
     using var stranger = RSA.Create(3072); Refuse(() => ClientRelease.Verify(envelope, stranger, 1, "OpenWebPBX.FreePhone", "CN=Open ISP cc"));
-    var policy = new JsonObject { ["schema"] = 1, ["component"] = "windows-free-phone", ["channel"] = "stable", ["mode"] = "required", ["tenant_mode"] = "required", ["required_by_instance"] = false, ["minimum_version"] = "", ["latest_version"] = "", ["feed_url"] = "https://github.com/embire2/openwebpbx/releases/latest/download/windows-phone-update-manifest.json", ["release_available"] = false };
+    var policy = new JsonObject { ["schema"] = 1, ["component"] = "windows-free-phone", ["channel"] = "stable", ["mode"] = "required", ["tenant_mode"] = "required", ["required_by_instance"] = false, ["minimum_version"] = "", ["latest_version"] = "", ["feed_url"] = "https://github.com/embire2/openwebpbx/releases/download/windows-phone-stable/windows-phone-update-manifest.json", ["release_available"] = false };
     Check(!WindowsPhonePolicy.Parse(policy).Requires(new Version(1,0,0))); policy["latest_version"] = "1.0.1"; Refuse(() => WindowsPhonePolicy.Parse(policy)); policy["release_available"] = true; Check(WindowsPhonePolicy.Parse(policy).Requires(new Version(1,0,0))); Check(!WindowsPhonePolicy.Parse(policy).Requires(new Version(1,0,1)));
     policy["minimum_version"] = "1.0.2"; Refuse(() => WindowsPhonePolicy.Parse(policy));
 }
@@ -105,6 +105,20 @@ try
 finally { File.Delete(openedFile); }
 using (var stalled = new StalledBody()) using (var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(80)))
     try { await SetupInvitation.ReadAsync(stalled, cancel.Token); throw new Exception("Stalled invitation read accepted."); } catch (OperationCanceledException) { Check(true); }
+CallingRules.Stable(false); Check(true); Refuse(() => CallingRules.Stable(true));
+CallingRules.Video(true, true, 1, false); Check(true); CallingRules.Video(true, true, 0, false, true); Check(true);
+Refuse(() => CallingRules.Video(false, true, 1, false)); Refuse(() => CallingRules.Video(true, false, 1, false)); Refuse(() => CallingRules.Video(true, true, 2, false)); Refuse(() => CallingRules.Video(true, true, 1, true)); Refuse(() => CallingRules.Video(true, true, 1, false, true));
+var runtimeRoot = Path.Combine(Path.GetTempPath(), "phone-resources-" + Guid.NewGuid().ToString("N"));
+try
+{
+    Directory.CreateDirectory(Path.Combine(runtimeRoot, "belr", "grammars")); var resourcePath = Path.Combine(runtimeRoot, "belr", "grammars", "invented.belr"); await File.WriteAllTextAsync(resourcePath, "invented fixture");
+    var resourceBytes = await File.ReadAllBytesAsync(resourcePath); var resource = new RuntimeResource("belr/grammars/invented.belr", resourceBytes.Length, Convert.ToHexString(SHA256.HashData(resourceBytes)).ToLowerInvariant());
+    RuntimeResources.Verify(runtimeRoot, [resource]); Check(true); Refuse(() => RuntimeResources.Verify(runtimeRoot, [resource, resource]));
+    Refuse(() => RuntimeResources.Verify(runtimeRoot, [resource with { Path = "../invented.belr" }])); Refuse(() => RuntimeResources.Verify(runtimeRoot, [resource with { Bytes = resource.Bytes + 1 }])); Refuse(() => RuntimeResources.Verify(runtimeRoot, [resource with { Sha256 = new string('a', 64) }]));
+    File.Delete(resourcePath); Refuse(() => RuntimeResources.Verify(runtimeRoot, [resource])); Directory.CreateDirectory(resourcePath); Refuse(() => RuntimeResources.Verify(runtimeRoot, [resource])); Directory.Delete(resourcePath);
+    if (!OperatingSystem.IsWindows()) { File.CreateSymbolicLink(resourcePath, "/etc/hosts"); Refuse(() => RuntimeResources.Verify(runtimeRoot, [resource])); File.Delete(resourcePath); }
+}
+finally { Directory.Delete(runtimeRoot, true); }
 Console.WriteLine($"PASS {checks} client domain/API controls; HTTP handlers are explicit doubles; no Windows/native-call qualification");
 sealed class Handler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
 {

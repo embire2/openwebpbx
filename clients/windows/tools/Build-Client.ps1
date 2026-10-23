@@ -21,12 +21,19 @@ try{
  foreach($dll in $dlls){if(Test-Path (Join-Path $app $dll.Name)){throw 'A native dependency collides.'};Copy-Item $dll.FullName (Join-Path $app $dll.Name)}
  $plugins=Join-Path $app 'native\plugins';New-Item -ItemType Directory $plugins -Force|Out-Null;Copy-Item (Join-Path $native 'lib\mediastreamer\plugins\*.dll') $plugins
  $share=Join-Path $app 'native\share';New-Item -ItemType Directory $share -Force|Out-Null
- foreach($resource in @('linphone','sounds','images')){if(Test-Path (Join-Path $native ('share\'+$resource))){Copy-Item (Join-Path $native ('share\'+$resource)) $share -Recurse}}
+ foreach($resource in @('belr','linphone','sounds','images')){if(Test-Path (Join-Path $native ('share\'+$resource))){Copy-Item (Join-Path $native ('share\'+$resource)) $share -Recurse}}
  $assets=Join-Path $client 'src\OpenWebPbx.Phone.App\Assets'
  $targetAssets=Join-Path $app 'Assets';New-Item -ItemType Directory -Path $targetAssets -Force|Out-Null;Get-ChildItem -LiteralPath $assets -File|Copy-Item -Destination $targetAssets -Force
  if(!(Test-Path (Join-Path $app 'Assets\AppIcon.ico'))){throw 'The native app icon is missing.'}
  @('OpenWebPbx.Phone.App.exe','Microsoft.UI.Xaml.dll','Microsoft.WindowsAppRuntime.Bootstrap.dll','liblinphone.dll','Assets/AppIcon.ico')|ForEach-Object{[ordered]@{name=$_;present=(Test-Path (Join-Path $app $_))}}|ConvertTo-Json|Set-Content (Join-Path $evidence 'startup-files.json')
- $checks=Join-Path $Output 'native-checks'
+ $grammarManifest=Get-Content (Join-Path $client 'native\runtime-resources.json') -Raw|ConvertFrom-Json
+ if($grammarManifest.files.Count -ne 8){throw 'Runtime grammar manifest differs.'}
+ foreach($entry in $grammarManifest.files){
+  $sourceGrammar=Join-Path (Join-Path $native 'share') $entry.path;$targetGrammar=Join-Path $share $entry.path
+  if((Get-Item $sourceGrammar).Length -ne $entry.bytes -or (Get-FileHash $sourceGrammar -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.sha256 -or (Get-FileHash $targetGrammar -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.sha256){throw 'A pinned runtime grammar differs.'}
+ }
+ $report.pinned_runtime_grammars=$grammarManifest.files.Count
+ $checks=Join-Path $Output 'native-checks' 
  & dotnet publish (Join-Path $client 'tests\OpenWebPbx.Phone.NativeChecks') -c Release -r win-x64 --self-contained true "-p:LinphoneBinding=$binding" -o $checks *> (Join-Path $evidence 'native-check-build.log');if($LASTEXITCODE){throw 'Native checks do not build.'}
  foreach($dll in $dlls){Copy-Item $dll.FullName (Join-Path $checks $dll.Name) -Force};Copy-Item (Join-Path $app 'native') (Join-Path $checks 'native') -Recurse
  $nativeReceipt=Join-Path $env:RUNNER_TEMP ('phone-native-result-'+[Guid]::NewGuid().ToString('N')+'.json')

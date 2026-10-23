@@ -19,7 +19,7 @@ public sealed class NativePhone : IDisposable
     private readonly Dictionary<Guid, string> registrations = [];
     private Call? selected, consultation;
     private Conference? conference;
-    private bool disposed;
+    private bool disposed, videoVisible;
     public event Action? Changed;
     public event Action<Guid, string, bool, DateTimeOffset, int, bool>? CallFinished;
     private readonly Dictionary<Call, (Guid Profile, DateTimeOffset Started, bool Answered)> history = [];
@@ -35,6 +35,7 @@ public sealed class NativePhone : IDisposable
     {
         try
         {
+        progress?.Invoke("runtime_resources"); NativeResources.Verify();
         progress?.Invoke("logging"); LoggingService.Instance.LogLevelMask = 0;
         progress?.Invoke("factory"); Factory.Instance.ConfigDir = nativeFiles.Path; Factory.Instance.DataDir = nativeFiles.Path; Factory.Instance.CacheDir = nativeFiles.Path;
         Factory.Instance.MspluginsDir = Path.Combine(AppContext.BaseDirectory, "native", "plugins");
@@ -69,6 +70,7 @@ public sealed class NativePhone : IDisposable
         };
         core.Listener.OnCallStateChanged = (sender, call, state, message) => { try { CallChanged(sender, call, state, message); } catch { Message = "The call could not be updated. Choose your call to continue."; } };
         core.Listener.OnTransferStateChanged = (_, _, state) => { if (state == CallState.Error) Message = "Transfer failed. Choose your original call to continue."; Changed?.Invoke(); };
+        core.SetUserAgent("OpenWebPBX Free Phone", "1.0.0");
         progress?.Invoke("start"); core.Start();
         progress?.Invoke("verify_policy"); if (!core.IsVerifyServerCn || !core.IsVerifyServerCertificates || !core.IsMediaEncryptionMandatory || core.Config.GetInt("sip", "save_auth_info", 1) != 0) throw new InvalidOperationException("Secure native calling policy was not applied.");
         }
@@ -107,7 +109,7 @@ public sealed class NativePhone : IDisposable
     public void NetworkChanged(bool available) { CheckThread(); core.NetworkReachable = available; if (available) core.RefreshRegisters(); Message = available ? "Reconnecting…" : "No network connection"; Changed?.Invoke(); }
     public void Dial(string number, bool video = false)
     {
-        CheckThread(); if (core.CallsNb >= 2) throw new PhoneInputException("Finish one call before starting another.");
+        CheckThread(); CallingRules.Stable(pending is not null); if (video) RequireVideo(true); if (core.CallsNb >= 2) throw new PhoneInputException("Finish one call before starting another.");
         if (SelectedProfile is not Guid id || !accounts.TryGetValue(id, out var account) || account.Account.State != RegistrationState.Ok) throw new PhoneInputException("Wait for this account to connect.");
         var address = Factory.Instance.CreateAddress($"sip:{ConnectionRules.Number(number)}@{account.Profile.Sip.Realm}");
         var active = selected; if (active is not null && active.State == CallState.StreamsRunning) { active.Pause(); pending = () => Start(); return; }
@@ -122,31 +124,31 @@ public sealed class NativePhone : IDisposable
     private Action? pending;
     public void Select(Guid id)
     {
-        CheckThread(); var target = Find(id);
+        CheckThread(); CallingRules.Stable(pending is not null); var target = Find(id);
         if (selected is not null && selected != target && selected.State == CallState.StreamsRunning) { selected.Pause(); pending = SelectAfterPause; } else SelectAfterPause();
         void SelectAfterPause() { selected = target; if (target.State == CallState.Paused) target.Resume(); Changed?.Invoke(); }
     }
     public void Answer(Guid id, bool video)
     {
-        CheckThread(); var target = Find(id);
+        CheckThread(); CallingRules.Stable(pending is not null); if (video) RequireVideo(); var target = Find(id);
         if (selected is not null && selected != target && selected.State == CallState.StreamsRunning) { selected.Pause(); pending = Accept; } else Accept();
         void Accept() { selected = target; var parameters = core.CreateCallParams(target); parameters.VideoEnabled = video && target.RemoteParams.VideoEnabled; parameters.CameraEnabled = parameters.VideoEnabled; core.VideoCaptureEnabled = parameters.VideoEnabled; target.AcceptWithParams(parameters); Changed?.Invoke(); }
     }
     public void Hangup(Guid id) { CheckThread(); var target = Find(id); if (target.State == CallState.IncomingReceived) target.Decline(Reason.Declined); else target.Terminate(); }
     public void HoldResume()
     {
-        CheckThread(); var target = Required(); if (conference is not null) { foreach (var call in core.Calls.ToArray()) { if (call.State == CallState.StreamsRunning) call.Pause(); else if (call.State == CallState.Paused) call.Resume(); } return; }
+        CheckThread(); CallingRules.Stable(pending is not null); var target = Required(); if (conference is not null) { foreach (var call in core.Calls.ToArray()) { if (call.State == CallState.StreamsRunning) call.Pause(); else if (call.State == CallState.Paused) call.Resume(); } return; }
         if (target.State == CallState.Paused) target.Resume(); else if (target.State == CallState.StreamsRunning) target.Pause(); else throw new PhoneInputException("Wait for the call to connect.");
     }
     public void Mute() { CheckThread(); var call = Required(); if (conference is not null) conference.MicrophoneMuted = !conference.MicrophoneMuted; else call.MicrophoneMuted = !call.MicrophoneMuted; Changed?.Invoke(); }
     public void Dtmf(char key) { CheckThread(); if (!"0123456789*#".Contains(key)) return; Required().SendDtmf((sbyte)key); }
-    public void BlindTransfer(string number) { CheckThread(); var call = Required(); call.TransferTo(Factory.Instance.CreateAddress($"sip:{ConnectionRules.Number(number)}@{Profile(call).Sip.Realm}")); }
+    public void BlindTransfer(string number) { CheckThread(); CallingRules.Stable(pending is not null); var call = Required(); call.TransferTo(Factory.Instance.CreateAddress($"sip:{ConnectionRules.Number(number)}@{Profile(call).Sip.Realm}")); }
     public void Consult(string number) { CheckThread(); if (consultation is not null || core.CallsNb != 1) throw new PhoneInputException("Choose a single call to transfer."); consultation = Required(); try { Dial(number); } catch { consultation = null; throw; } }
     public void CompleteTransfer() { CheckThread(); var destination = Required(); if (consultation is null || destination == consultation || destination.State != CallState.StreamsRunning) throw new PhoneInputException("Wait for the second person to answer."); consultation.TransferToAnother(destination); }
-    public void CancelConsultation() { CheckThread(); var original = consultation; consultation = null; if (original is null) return; foreach (var call in core.Calls.Where(x => x != original).ToArray()) call.Terminate(); selected = original; if (original.State == CallState.Paused) original.Resume(); }
+    public void CancelConsultation() { CheckThread(); pending = null; var original = consultation; consultation = null; if (original is null) return; foreach (var call in core.Calls.Where(x => x != original).ToArray()) call.Terminate(); selected = original; if (original.State == CallState.Paused) original.Resume(); }
     public void Merge()
     {
-        CheckThread(); var calls = core.Calls.ToArray(); if (calls.Length != 2 || calls.Any(x => x.State is not (CallState.StreamsRunning or CallState.Paused)) || Profile(calls[0]).Id != Profile(calls[1]).Id || consultation is not null) throw new PhoneInputException("Both people on the same account must answer before merging.");
+        CheckThread(); CallingRules.Stable(pending is not null); var calls = core.Calls.ToArray(); if (calls.Length != 2 || calls.Any(x => x.State is not (CallState.StreamsRunning or CallState.Paused)) || Profile(calls[0]).Id != Profile(calls[1]).Id || consultation is not null) throw new PhoneInputException("Both people on the same account must answer before merging.");
         StopCamera(); var parameters = core.CreateConferenceParams(null!); parameters.AudioEnabled = true; parameters.VideoEnabled = false; parameters.LocalParticipantEnabled = true; parameters.OneParticipantConferenceEnabled = true;
         core.Config.SetString("misc", "conference_type", "local"); var group = core.CreateConferenceWithParams(parameters);
         var added = new List<Call>();
@@ -157,10 +159,10 @@ public sealed class NativePhone : IDisposable
     public void MuteParticipant(Guid id) { CheckThread(); var call = Find(id); call.SpeakerMuted = !call.SpeakerMuted; Changed?.Invoke(); }
     public void SetVideo(bool enabled)
     {
-        CheckThread(); var call = Required(); var parameters = core.CreateCallParams(call); parameters.VideoEnabled = enabled; parameters.CameraEnabled = enabled; core.VideoCaptureEnabled = enabled; call.CameraEnabled = enabled; call.Update(parameters); Changed?.Invoke();
+        CheckThread(); CallingRules.Stable(pending is not null); if (enabled) RequireVideo(); var call = Required(); var parameters = core.CreateCallParams(call); parameters.VideoEnabled = enabled; parameters.CameraEnabled = enabled; core.VideoCaptureEnabled = enabled; call.CameraEnabled = enabled; call.Update(parameters); Changed?.Invoke();
     }
     public void StopCamera() { CheckThread(); core.VideoCaptureEnabled = false; core.VideoPreviewEnabled = false; foreach (var call in core.Calls) call.CameraEnabled = false; Changed?.Invoke(); }
-    public void AcceptVideoOffer(bool video) { CheckThread(); var call = Required(); var parameters = core.CreateCallParams(call); parameters.VideoEnabled = video; parameters.CameraEnabled = video; core.VideoCaptureEnabled = video; call.AcceptUpdate(parameters); }
+    public void AcceptVideoOffer(bool video) { CheckThread(); if (video) RequireVideo(); var call = Required(); var parameters = core.CreateCallParams(call); parameters.VideoEnabled = video; parameters.CameraEnabled = video; core.VideoCaptureEnabled = video; call.AcceptUpdate(parameters); }
     public void BeginQrScan(IntPtr preview, Action<string> found)
     {
         CheckThread(); ConnectionRules.RequireIdle(core.CallsNb);
@@ -170,7 +172,8 @@ public sealed class NativePhone : IDisposable
         core.NativePreviewWindowId = preview; core.QrcodeVideoPreviewEnabled = true; core.VideoCaptureEnabled = true; core.VideoPreviewEnabled = true;
     }
     public void EndQrScan() { CheckThread(); core.Listener.OnQrcodeFound = null!; core.QrcodeVideoPreviewEnabled = false; StopCamera(); core.NativePreviewWindowId = IntPtr.Zero; }
-    public void AttachVideo(IntPtr remote, IntPtr preview) { CheckThread(); core.NativeVideoWindowId = remote; core.NativePreviewWindowId = preview; }
+    public void AttachVideo(IntPtr remote, IntPtr preview) { CheckThread(); videoVisible = remote != IntPtr.Zero; core.NativeVideoWindowId = remote; core.NativePreviewWindowId = preview; }
+    private void RequireVideo(bool dialing = false) => CallingRules.Video(videoVisible, Cameras.Count > 0, core.CallsNb, conference is not null, dialing);
     public IReadOnlyList<PhoneDevice> Microphones => core.ExtendedAudioDevices.Where(x => x.HasCapability(AudioDeviceCapabilities.CapabilityRecord)).Select(x => new PhoneDevice(x.Id, x.DeviceName)).ToArray();
     public IReadOnlyList<PhoneDevice> Speakers => core.ExtendedAudioDevices.Where(x => x.HasCapability(AudioDeviceCapabilities.CapabilityPlay)).Select(x => new PhoneDevice(x.Id, x.DeviceName)).ToArray();
     public IReadOnlyList<string> Cameras => core.VideoDevicesList.Where(x => !x.Contains("StaticImage", StringComparison.OrdinalIgnoreCase)).ToArray();

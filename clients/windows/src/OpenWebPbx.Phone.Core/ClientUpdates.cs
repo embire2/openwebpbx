@@ -12,7 +12,7 @@ public sealed record WindowsPhonePolicy(string Mode, string TenantMode, bool Req
         try
         {
             if (value["schema"]!.GetValue<int>() != 1 || value["component"]!.GetValue<string>() != "windows-free-phone" || value["channel"]!.GetValue<string>() != "stable" ||
-                value["feed_url"]!.GetValue<string>() != "https://github.com/embire2/openwebpbx/releases/latest/download/windows-phone-update-manifest.json") throw Invalid();
+                value["feed_url"]!.GetValue<string>() != "https://github.com/embire2/openwebpbx/releases/download/windows-phone-stable/windows-phone-update-manifest.json") throw Invalid();
             var published = value["release_available"]!.GetValue<bool>(); var mode = value["mode"]!.GetValue<string>(); var tenant = value["tenant_mode"]!.GetValue<string>();
             if (mode is not ("notify" or "download" or "required") || tenant is not ("notify" or "download" or "required")) throw Invalid();
             var min = value["minimum_version"]!.GetValue<string>(); var latest = value["latest_version"]!.GetValue<string>();
