@@ -28,7 +28,8 @@ if(([IO.DriveInfo]::new([IO.Path]::GetPathRoot($temp))).AvailableFreeSpace -lt 6
 Push-Location $repo
 try{$head=(& git rev-parse HEAD).Trim();if($LASTEXITCODE -or $head -cne $SourceCommit -or (& git status --porcelain)){throw 'The exact clean client source is required.'}}finally{Pop-Location}
 $dotnet=(Get-Command dotnet -CommandType Application -ErrorAction Stop).Source;$python=(Get-Command python -CommandType Application -ErrorAction Stop).Source
-if((& $dotnet --version).Trim() -cne '10.0.401'){throw 'The exact .NET SDK is required.'}
+Push-Location $client
+try{if((& $dotnet --version).Trim() -cne '10.0.401'){throw 'The exact .NET SDK is required.'}}finally{Pop-Location}
 function PrivateDirectory([string]$Path){
  if(Test-Path -LiteralPath $Path){throw 'A new owned scope is required.'};[void][IO.Directory]::CreateDirectory($Path)
  $acl=[Security.AccessControl.DirectorySecurity]::new();$acl.SetAccessRuleProtection($true,$false)
@@ -173,7 +174,7 @@ try{
  if($manifest.source_manifest_sha256 -cne '3b230ae320b67bdd88d1d7b6fe3c9e116cf571550b489bba1a7613d7b2cf6bb1' -or $manifest.source_msi_sha256 -cne 'f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d' -or $manifest.files.'mod/mod_sofia.dll' -cne 'fa58601adfab5cd71ac598035c41fafe335f23f0ca038cb0b5c23423ff43d4d5'){throw 'Accepted patched-engine provenance differs.'}
  Copy-Item -LiteralPath (Join-Path $scope 'mod_sofia.dll') -Destination (Join-Path $engine 'mod/mod_sofia.dll') -Force
  $result.stage='managed_build';$app=Join-Path $scope 'app';$project=Join-Path $client 'tests/OpenWebPbx.Phone.MediaChecks/OpenWebPbx.Phone.MediaChecks.csproj';$binding=Join-Path $sdk 'LinphoneWrapper.cs'
- if((RunChild $dotnet @('publish',$project,'-c','Release','-r','win-x64','--self-contained','true','--disable-build-servers','-p:UseSharedCompilation=false','-m:1',('-p:LinphoneBinding='+$binding),'-o',$app) $repo 600) -ne 0){throw 'Actual media fixture build failed.'}
+ if((RunChild $dotnet @('publish',$project,'-c','Release','-r','win-x64','--self-contained','true','--disable-build-servers','-p:UseSharedCompilation=false','-m:1',('-p:LinphoneBinding='+$binding),'-o',$app) $client 600) -ne 0){throw 'Actual media fixture build failed.'}
  foreach($item in Get-ChildItem -LiteralPath $sdk -File -Filter '*.dll'){if(Test-Path (Join-Path $app $item.Name)){throw 'SDK runtime collides with managed output.'};Copy-Item -LiteralPath $item.FullName -Destination (Join-Path $app $item.Name)}
  Copy-Item -LiteralPath (Join-Path $sdk 'native') -Destination (Join-Path $app 'native') -Recurse
  Add-Type -AssemblyName System.Drawing
