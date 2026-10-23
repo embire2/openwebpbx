@@ -1321,6 +1321,21 @@ function AcceptanceHook([string]$Name,[string]$Report){
  if($record.state -ne 'passed'){throw 'An optional native acceptance hook did not pass.'}
  return $record
 }
+function SafeStunMaintenanceLockFields($Record){
+ $safe=@{}
+ foreach($name in 'maintenance_lock_acquired','maintenance_lock_busy'){if($Record.$name -is [bool]){$safe[$name]=$Record.$name}}
+ if(($Record.maintenance_lock_elapsed_ms -is [int] -or $Record.maintenance_lock_elapsed_ms -is [long]) -and $Record.maintenance_lock_elapsed_ms -ge 0 -and $Record.maintenance_lock_elapsed_ms -le 60000){$safe.maintenance_lock_elapsed_ms=[long]$Record.maintenance_lock_elapsed_ms}
+ if($Record.maintenance_lock_error_type -is [string] -and $Record.maintenance_lock_error_type -cin 'IOException','UnauthorizedAccessException','InvalidOperationException','DirectoryNotFoundException','FileNotFoundException','ArgumentException','SecurityException','NotSupportedException'){$safe.maintenance_lock_error_type=$Record.maintenance_lock_error_type}
+ if($Record.maintenance_lock_hresult -is [string] -and $Record.maintenance_lock_hresult -cmatch '^[0-9a-f]{8}$'){$safe.maintenance_lock_hresult=$Record.maintenance_lock_hresult}
+ $probe=$Record.maintenance_lock_probe
+ if($probe -is [pscustomobject] -or $probe -is [Collections.IDictionary]){
+  $part=@{}
+  if($probe.lock_probe_result -is [string] -and $probe.lock_probe_result -cin 'available','sharing_violation','lock_violation','missing','access_denied','other_io','other_error','not_ordinary'){$part.lock_probe_result=$probe.lock_probe_result}
+  if($probe.lock_probe_hresult -is [string] -and $probe.lock_probe_hresult -cmatch '^[0-9a-f]{8}$'){$part.lock_probe_hresult=$probe.lock_probe_hresult}
+  if($part.Count){$safe.maintenance_lock_probe=$part}
+ }
+ return $safe
+}
 function StunHook {
  $reportPath=Join-Path $work 'stun-native.json'
  try{
@@ -1334,6 +1349,7 @@ function StunHook {
    if(!(Test-Path -LiteralPath $reportPath) -or $process.ExitCode){throw 'The actual native STUN setup controls failed.'}
   }finally{$process.Dispose()}
   $report=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json
+  $facts.stun_lock_observation=SafeStunMaintenanceLockFields $report
   if(!$report -or $report.schema -ne 1 -or $report.state -cne 'passed' -or $report.case -cne 'native_windows_stun_setup_udp_recovery' -or ($report.checks -isnot [int] -and $report.checks -isnot [long]) -or $report.checks -lt 20 -or $report.checks -gt 1000 -or $report.external_firewall_reachability -cne 'unqualified'){throw 'The native STUN setup evidence is incomplete.'}
   foreach($name in 'actual_native','modern_binding','legacy_binding','turn_refused','idempotent','late_rule_failure_recovered','cleanup_exact','call_engine_preserved','stun_default_restored','firewall_policy_exact'){if($report.$name -isnot [bool] -or !$report.$name){throw 'Real Windows STUN, UDP, recovery and exact cleanup must pass.'}}
   $facts.gates.stun='passed';$facts.checks+=('Actual Windows STUN native service/firewall, modern/legacy decoded UDP, TURN refusal, idempotence and late-failure recovery: '+$report.checks)
@@ -1342,6 +1358,7 @@ function StunHook {
    try{$r=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json;$safe=@{}
     foreach($name in 'actual_native','modern_binding','legacy_binding','turn_refused','idempotent','late_rule_failure_recovered','cleanup_exact','call_engine_preserved','stun_default_restored','firewall_policy_exact'){if($r.$name -is [bool]){$safe[$name]=$r.$name}}
     foreach($name in 'checks','source_line','cleanup_source_line'){$v=$r.$name;if(($v -is [int] -or $v -is [long]) -and $v -ge 0 -and $v -lt 100000){$safe[$name]=$v}}
+    $lockFields=SafeStunMaintenanceLockFields $r;foreach($entry in $lockFields.GetEnumerator()){$safe[$entry.Key]=$entry.Value}
     if($r.phase -is [string] -and $r.phase -cin 'preflight','activation','modern_udp','legacy_udp','turn_refusal','idempotence','rollback','late_rule_failure'){$safe.phase=$r.phase};$facts.stun_failure=$safe
    }catch{}
   }
@@ -1424,6 +1441,8 @@ try{
  if($LASTEXITCODE){throw 'The actual phone TLS failure launcher controls failed.'}
  & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_phone_tls_lock.ps1') -SourceRoot $source *> (Join-Path $work 'phone-tls-lock.private.log')
  if($LASTEXITCODE){throw 'The actual native phone TLS maintenance controls failed.'}
+ & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_stun_lock_fields.ps1') -SourceRoot $source *> (Join-Path $work 'stun-lock-fields.private.log')
+ if($LASTEXITCODE){throw 'The closed STUN maintenance evidence controls failed.'}
  & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_legacy_transition.ps1') *> (Join-Path $work 'legacy-source.private.log')
  if($LASTEXITCODE){throw 'The exact legacy upgrade boundary controls failed.'}
  & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_upgrade_health_quiescence.ps1') *> (Join-Path $work 'health-quiescence.private.log')

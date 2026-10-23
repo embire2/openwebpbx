@@ -11,9 +11,16 @@ foreach($f in $ast.FindAll({param($n)$n -is [Management.Automation.Language.Func
 $installed=Read-OpenWebPublicJson (Join-Path $state 'installation.json');if(!$installed.Completed -or !$installed.RestoreServer){throw 'A completed empty restore-server factory is required.'}
 $manifest=Get-Content (Join-Path $PackageRoot 'release-manifest.json') -Raw|ConvertFrom-Json
 if((Get-FileHash $helper).Hash.ToLowerInvariant() -cne $manifest.files.'Enable-Stun.ps1'){throw 'The installed STUN helper differs from the complete candidate.'}
+$phoneTlsHelper=Join-Path $root 'tools\Enable-PhoneTLS.ps1'
+if((Get-FileHash $phoneTlsHelper).Hash.ToLowerInvariant() -cne $manifest.files.'Enable-PhoneTLS.ps1'){throw 'The installed maintenance-lock helper differs from the complete candidate.'}
+$lockTokens=$null;$lockErrors=$null;$lockAst=[Management.Automation.Language.Parser]::ParseFile($phoneTlsHelper,[ref]$lockTokens,[ref]$lockErrors)
+$lockFunctions=@($lockAst.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Open-OpenWebPhoneTlsMaintenance'},$true))
+if($lockErrors.Count -or $lockFunctions.Count -ne 1){throw 'The pinned bounded maintenance function is unavailable.'}
+Invoke-Expression $lockFunctions[0].Extent.Text
+. (Join-Path $PSScriptRoot 'windows-upgrade-lock-observer.ps1')
 $work=Join-Path $state ('stun-native-qualification\'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Path $work -Force|Out-Null;Set-OpenWebPublicPrivateAcl $work
 $facts=[ordered]@{schema=1;state='running';case='native_windows_stun_setup_udp_recovery';checks=0;actual_native=$true;modern_binding=$false;legacy_binding=$false;turn_refused=$false;idempotent=$false;late_rule_failure_recovered=$false;cleanup_exact=$false;call_engine_preserved=$false;stun_default_restored=$false;firewall_policy_exact=$false;external_firewall_reachability='unqualified';phase='preflight'}
-$script:checks=0;$lock=$null;$started=$false;$beforeService=$null;$beforeEngine=$null;$known=[Collections.Generic.List[string]]::new();$phase='preflight';$primary=$null
+$script:checks=0;$lock=$null;$lockClock=$null;$started=$false;$beforeService=$null;$beforeEngine=$null;$known=[Collections.Generic.List[string]]::new();$phase='preflight';$primary=$null
 function Check([bool]$Value){if(!$Value){throw ('Native STUN assertion failed at '+(Get-PSCallStack)[1].ScriptLineNumber)};$script:checks++}
 function WaitDefaultStun {
  $ready=$false
@@ -57,9 +64,13 @@ try{
  $beforeService=Get-OpenWebStunService $exe;$beforeEngine=Get-CimInstance Win32_Service -Filter "Name='FreeSWITCH'";Check ($beforeService.state -ceq 'Running' -and $beforeEngine.State -ceq 'Running')
  $address=@(Get-NetIPAddress -AddressFamily IPv4|Where-Object {$_.AddressState -eq 'Preferred' -and $_.IPAddress -notmatch '^(127\.|169\.254\.|0\.)'}|Select-Object -ExpandProperty IPAddress|Sort-Object)[0];Check (![string]::IsNullOrEmpty($address))
  Check (!(Get-OpenWebStunRule @($address) $exe).exists)
+ $facts.maintenance_lock_probe=Read-OpenWebLockProbe (Join-Path $state 'upgrade.lock')
+ $lockClock=[Diagnostics.Stopwatch]::StartNew()
+ $lock=Open-OpenWebPhoneTlsMaintenance -Path (Join-Path $state 'upgrade.lock') -WaitMilliseconds 30000
+ $facts.maintenance_lock_acquired=$true;$facts.maintenance_lock_elapsed_ms=[long]$lockClock.ElapsedMilliseconds
  $policyBefore=FirewallPolicy
  $rulesBefore=@(Get-NetFirewallRule -PolicyStore ActiveStore -ErrorAction Stop|Sort-Object Name|Select-Object Name,Description,Group,Enabled,Direction,Action,Profile|ConvertTo-Json -Depth 4 -Compress)
- $lock=[IO.File]::Open((Join-Path $state 'upgrade.lock'),'OpenOrCreate','ReadWrite','None');$started=$true
+ $started=$true
  $phase='activation';InvokeHelper;Check ((Invoke-RestMethod 'http://127.0.0.1:8087/health' -TimeoutSec 3).stun -ceq 'Running')
  $transactions=@(Get-ChildItem $base -Directory);Check ($transactions.Count -eq 1);$known.Add($transactions[0].Name)
  $pidBefore=(Get-OpenWebStunService $exe).pid;$configHash=(Get-FileHash $path).Hash;$configAcl=(Get-Acl $path).Sddl
@@ -78,7 +89,16 @@ try{
  Check ($failed -and !(Test-Path $path) -and !(Test-Path (Join-Path $base 'active.json')) -and !(Get-OpenWebStunRule @($address) $exe).exists);$facts.late_rule_failure_recovered=$true
  RestoreTransactions
  $facts.state='passed'
-}catch{$primary=$_;$facts.state='failed';$facts.error_type=$_.Exception.GetType().Name;$facts.source_line=$_.InvocationInfo.ScriptLineNumber}
+}catch{
+ $primary=$_;$facts.state='failed';$facts.error_type=$_.Exception.GetType().Name;$facts.source_line=$_.InvocationInfo.ScriptLineNumber
+ if(!$lock -and $lockClock){
+  $native=$_.Exception;while($native.InnerException){$native=$native.InnerException}
+  $facts.maintenance_lock_acquired=$false;$facts.maintenance_lock_elapsed_ms=[long]$lockClock.ElapsedMilliseconds
+  $facts.maintenance_lock_error_type=$native.GetType().Name
+  $facts.maintenance_lock_hresult=('{0:x8}' -f ([long]$native.HResult -band 4294967295L))
+  $facts.maintenance_lock_busy=[bool]$_.Exception.Data.Contains('OpenWebPhoneTLSBusy')
+ }
+}
 finally{
  try{
   if($started){
