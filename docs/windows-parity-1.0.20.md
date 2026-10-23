@@ -19,7 +19,22 @@ database security returned unchanged. This does not qualify the optional staged
 listener detector, whose earlier access-control refusal is retained. No candidate
 has replaced the original installation.
 
-The latest normal run39897697725 at sourced6c1cec7 passes fresh installation,
+The newest normal run39907463774 at source5b4cf6dda passes its19162-file fresh
+installation, native Defender21 and PHP8.4.27/3086 controls, then fails the native
+recovery-component qualification before web readiness or calling. Its owned
+cleanup succeeds. A focused inherited-StrictMode replay identifies a test-fixture
+initialization mismatch; the real upgrade script already initializes that value.
+The corrected fixtures pass the complete actual Windows PowerShell component:
+64 upgrade-order controls,204 native recovery controls and135 commit controls
+with53 guards. Candidate20 .NET boot and three process-interruption positions
+are exercised against fictional configuration, with SCM/assembly adapters
+explicit. This does not qualify the original installed server or complete
+package. A new closed failure reporter passes199 actual Windows PowerShell
+controls and exposes only stage, source basename, line and error type. The
+original run did not retain its inner failure stage, so its precise attribution
+remains separate from that later reproduction.
+
+The previous normal run39897697725 at sourced6c1cec7 passes fresh installation,
 trusted web readiness, configured public-port checks, STUN, Phone Health, tenant
 setup and conference transport. The actual Windows synthetic V20 import passes
 32 controls plus four early refusals, preserving the invented imported identities,
