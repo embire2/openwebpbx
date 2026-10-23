@@ -205,7 +205,9 @@ function PrepareCanary($Base,$BaseFacts){
   $record=Join-Path $native ('overlays/'+$relative);New-Item -ItemType Directory -Force (Split-Path $record -Parent)|Out-Null;Copy-Item -LiteralPath $path -Destination $record
  }
  [IO.File]::WriteAllText((Join-Path $overlay 'global.json'),'{"sdk":{"version":"10.0.401","rollForward":"disable"}}',[Text.UTF8Encoding]::new($false))
- Check ((& dotnet.exe --version).Trim() -eq '10.0.401') 'The pinned .NET SDK is required.'
+ Push-Location $overlay
+ try { Check ((& dotnet.exe --version).Trim() -eq '10.0.401') 'The pinned .NET SDK is required.' }
+ finally { Pop-Location }
  foreach($component in 'server','updater'){$project=if($component -eq 'server'){'OpenWebPbx.Server'}else{'OpenWebPbx.Updater'};CheckedProcess 'dotnet.exe' @('publish',('platform/'+$project),'-c','Release','-r','win-x64','--self-contained','true','-o',(Join-Path $native $component)) ($component+'-14-build') $overlay}
  CheckedProcess 'dotnet.exe' @('build','platform/OpenWebPbx.Desktop','-c','Release','-p:Platform=x64','-o',(Join-Path $native 'desktop')) 'desktop-14-build' $overlay
  foreach($project in 'OpenWebPbx.Checks','OpenWebPbx.Updater.Checks'){CheckedProcess 'dotnet.exe' @('run','--project',('platform/'+$project),'-c','Release') ($project+'-checks') $overlay}

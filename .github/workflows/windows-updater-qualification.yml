@@ -79,6 +79,8 @@ jobs:
           if($env:BASE_SUITE_RUN_ID -notmatch '^[0-9]+$'){throw 'The qualified base run must be numeric.'}
           if($env:QUALIFICATION_MODE -eq 'prepare-canary'){
             if($env:CANARY_RUN_ID){throw 'Preparation cannot consume a signed canary run.'}
+            & tests/windows_canary_sdk_controls.ps1 -DotNet (Get-Command dotnet.exe -CommandType Application -ErrorAction Stop).Source
+            if(!$?){throw 'The actual pinned SDK directory controls did not pass.'}
             & tests/windows-updater-qualification.ps1 -Mode PrepareCanary -BaseSuiteRunId $env:BASE_SUITE_RUN_ID -BaseVersion $env:BASE_VERSION -CanaryVersion $env:CANARY_VERSION -DisposableHostedRunner
           }elseif($env:QUALIFICATION_MODE -eq 'qualify-signed'){
             if($env:CANARY_RUN_ID -notmatch '^[0-9]+$' -or !$env:WINDOWS_UPDATER_SIGNED_PACKETS_B64){throw 'Root-reviewed private envelopes and exact canary run are required.'}
