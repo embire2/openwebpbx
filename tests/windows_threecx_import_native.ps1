@@ -6,8 +6,8 @@ param([Parameter(Mandatory)][string]$PackageRoot,[Parameter(Mandatory)][string]$
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:RUNNER_OS -cne 'Windows' -or $env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx' -or [Environment]::OSVersion.Version.Build -lt 26100){throw 'The disposable Windows Server 2025 factory is required.'}
 $root='C:\OpenWebPBX';$state=Join-Path $env:ProgramData 'OpenWebPBX';$work=Join-Path $state ('native-threecx-import\'+[Guid]::NewGuid().ToString('N').Substring(0,24))
-$lock=$null;$writers=$null;$updater=$null;$primary=$null;$environmentBefore=$env:OPENWEB_WINDOWS_NATIVE_TEST
-$report=[ordered]@{schema=1;producer='windows_threecx_import_native.ps1';state='running';checks=0;actual_native_windows=$true;actual_installed_php_pg_zip_restore=$false;configuration_path_adapter=$true;ui_upload_tested=$false;calling_tested=$false;installed_server_changed=$false;historical_failure_cause_proven=$false;cleanup='pending'}
+$lock=$null;$writers=$null;$updater=$null;$primary=$null;$environmentBefore=$env:OPENWEB_WINDOWS_NATIVE_TEST;$mainStarted=$false;$childCleanupProven=$false;$childCleanupFailed=$false
+$report=[ordered]@{schema=1;producer='windows_threecx_import_native.ps1';state='running';checks=0;actual_native_windows=$true;actual_installed_php_pg_zip_restore=$false;configuration_path_adapter=$true;ui_upload_tested=$false;calling_tested=$false;installed_server_changed=$false;historical_failure_cause_proven=$false;main_import_started=$false;cleanup='pending'}
 . (Join-Path $PSScriptRoot 'windows-native-cleanup-row-fields.ps1')
 . (Join-Path $PSScriptRoot 'windows-native-cleanup-writers.ps1')
 . (Join-Path $PSScriptRoot 'windows-health-updater-quiescence.ps1')
@@ -23,11 +23,22 @@ function Get-ThreecxImportFailure($Row){
  if($Row.source_basename -isnot [string] -or $Row.source_basename -cnotin 'windows_threecx_import_native.php','windows_threecx_fixture.php','pbx_setup_provisioner.php','pbx_v20_restore.php','threecx_backup.php','threecx_v20.php','pbx_paths.php','pbx_phone_restore.php','external_component' -or ($Row.source_line -isnot [int] -and $Row.source_line -isnot [long]) -or $Row.source_line -lt 1 -or $Row.source_line -gt 100000 -or $Row.cleanup_failed -isnot [bool]){return $safe}
  return @{phase=$Row.phase;error_type=$Row.error_type;source_basename=$Row.source_basename;source_line=$Row.source_line;cleanup_failed=$Row.cleanup_failed}
 }
+function Get-ThreecxRefusalObservation($Result){
+ if(($Result -isnot [Collections.IDictionary] -and $Result.GetType() -ne [Management.Automation.PSCustomObject]) -or $Result.ExitCode -isnot [int] -or $Result.Stdout -isnot [string] -or $Result.Stderr -isnot [string] -or $Result.Stdout.Length -gt 8192 -or $Result.Stderr.Length -gt 8192){throw 'The bounded sentinel child record is invalid.'}
+ $stdout=if($Result.Stdout -ceq ''){'empty'}elseif($Result.Stdout -cmatch '^PASS 4 actual import early-refusal/sentinel-preservation controls; no database or PBX used\r?\n$'){'expected_success'}elseif($Result.Stdout -cmatch '\ACould not open input file: [^\r\n]{1,4096}\r?\n\z'){'input_file_unavailable'}else{'other'}
+ $stderr=if($Result.Stderr -ceq ''){'empty'}elseif($Result.Stderr -match 'PHP Startup:'){'php_startup_warning'}elseif($Result.Stderr -match '(?:PHP )?Fatal error:|Uncaught '){'php_fatal'}elseif($Result.Stderr -match '(?:PHP )?Warning:'){'php_warning'}else{'other'}
+ return @{exit_code=$Result.ExitCode;stdout_shape=$stdout;stderr_shape=$stderr;stdout_chars=$Result.Stdout.Length;stderr_chars=$Result.Stderr.Length}
+}
+function Get-ThreecxCleanupState([bool]$MainStarted,[bool]$ChildCleanupProven,[bool]$WritersRestored,[bool]$ChildCleanupFailed){
+ if(!$WritersRestored -or $ChildCleanupFailed){return 'failed'}
+ if(!$MainStarted -or $ChildCleanupProven){return 'passed'}
+ return 'unverified'
+}
 function Invoke-BoundedThreecxPhp([string]$Name,[string[]]$Arguments){
  if($Name -cnotin 'windows_threecx_import_native.php','windows_threecx_import_refusals.php'){throw 'An exact owned import test is required.'}
  $file=Join-Path $PSScriptRoot $Name;$null=Assert-NativeCleanupOrdinary $file
  $start=[Diagnostics.ProcessStartInfo]::new($root+'\php\php.exe');$start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
- foreach($argument in @('-c',$root+'\php\php.ini',$file)+$Arguments){$start.ArgumentList.Add($argument)}
+ foreach($argument in @('-c',($root+'\php\php.ini'),$file)+$Arguments){$start.ArgumentList.Add($argument)}
  $child=[Diagnostics.Process]::Start($start)
  try{
   $readers=@($child.StandardOutput,$child.StandardError);$buffers=@([char[]]::new(1024),[char[]]::new(1024));$texts=@([Text.StringBuilder]::new(),[Text.StringBuilder]::new());$pending=@($null,$null);$closed=@($false,$false);$timer=[Diagnostics.Stopwatch]::StartNew()
@@ -66,24 +77,28 @@ try{
  Suspend-NativeCleanupWriters ([ref]$writers)
  $env:OPENWEB_WINDOWS_NATIVE_TEST='1'
  $refusal=Invoke-BoundedThreecxPhp 'windows_threecx_import_refusals.php' @()
+ $report.refusal_child=Get-ThreecxRefusalObservation $refusal
  if($refusal.ExitCode -ne 0 -or $refusal.Stderr -cne '' -or $refusal.Stdout -cnotmatch '^PASS 4 actual import early-refusal/sentinel-preservation controls; no database or PBX used\r?\n$'){
   [IO.File]::WriteAllText((Join-Path $work 'refusals.private.out'),$refusal.Stdout,[Text.UTF8Encoding]::new($false));[IO.File]::WriteAllText((Join-Path $work 'refusals.private.err'),$refusal.Stderr,[Text.UTF8Encoding]::new($false));throw 'The actual early-refusal sentinel controls did not pass.'
  }
+ $mainStarted=$true;$report.main_import_started=$true
  $result=Invoke-BoundedThreecxPhp 'windows_threecx_import_native.php' @($work);$stdout=$result.Stdout;$stderr=$result.Stderr
  [IO.File]::WriteAllText((Join-Path $work 'php.private.out'),$stdout,[Text.UTF8Encoding]::new($false));[IO.File]::WriteAllText((Join-Path $work 'php.private.err'),$stderr,[Text.UTF8Encoding]::new($false))
  [IO.File]::WriteAllText((Join-Path $work 'refusals.private.out'),$refusal.Stdout,[Text.UTF8Encoding]::new($false));[IO.File]::WriteAllText((Join-Path $work 'refusals.private.err'),$refusal.Stderr,[Text.UTF8Encoding]::new($false))
- if($result.ExitCode -ne 0){try{$failure=Get-ThreecxImportFailure ($stdout|ConvertFrom-Json);if($failure.Count){$report.php_failure=$failure}}catch{};throw 'The owned installed-PHP import refused; retain private evidence.'}
- $row=$stdout|ConvertFrom-Json;Assert-ThreecxImportReport $row
+ if($result.ExitCode -ne 0){try{$failure=Get-ThreecxImportFailure ($stdout|ConvertFrom-Json);if($failure.Count){$report.php_failure=$failure;$childCleanupFailed=$failure.cleanup_failed;$childCleanupProven=!$failure.cleanup_failed;if($childCleanupFailed){$report.child_cleanup_failed=$true}}}catch{};throw 'The owned installed-PHP import refused; retain private evidence.'}
+ $row=$stdout|ConvertFrom-Json;Assert-ThreecxImportReport $row;$childCleanupProven=$true
  foreach($field in 'synthetic_archive_only','original_credentials_preserved','custom_greeting_media_exact','default_greeting_unchanged','groups_and_routes_restored','providers_and_dids_disabled','complete_public_rows_exact','global_config_exact','owned_schema_media_key_removed','late_wav_failure_exact_rollback'){$report[$field]=$true}
  $report.checks=[int]$row.checks;$report.refusal_checks=4;$report.php_version=$row.php_version;$report.actual_installed_php_pg_zip_restore=$true
 }catch{$primary=$_;$report.state='failed';$report.error_type=$_.Exception.GetType().Name;$report.source_line=$_.InvocationInfo.ScriptLineNumber}
 finally{
- try{Resume-NativeCleanupWriters $writers}catch{if(!$primary){$primary=$_};$report.writer_restoration_failed=$true}
- try{Resume-HealthQualificationUpdater $updater}catch{if(!$primary){$primary=$_};$report.updater_restoration_failed=$true}
+ $writersRestored=$true
+ try{Resume-NativeCleanupWriters $writers}catch{$writersRestored=$false;if(!$primary){$primary=$_};$report.writer_restoration_failed=$true}
+ try{Resume-HealthQualificationUpdater $updater}catch{$writersRestored=$false;if(!$primary){$primary=$_};$report.updater_restoration_failed=$true}
  if($lock){$lock.Dispose()}
  if($null -eq $environmentBefore){Remove-Item Env:\OPENWEB_WINDOWS_NATIVE_TEST -ErrorAction SilentlyContinue}else{$env:OPENWEB_WINDOWS_NATIVE_TEST=$environmentBefore}
- if(!$primary){$report.state='passed';$report.cleanup='passed';$report.original_writer_choices_restored=$true}
- else{$report.state='failed';$report.cleanup='failed'}
+ $report.original_writer_choices_restored=$writersRestored
+ $report.cleanup=Get-ThreecxCleanupState $mainStarted $childCleanupProven $writersRestored $childCleanupFailed
+ if(!$primary){$report.state='passed'}else{$report.state='failed'}
  [IO.File]::WriteAllText($ReportPath,($report|ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
 }
 if($primary){throw 'The actual installed synthetic V20 import did not pass; inspect the closed private report.'}

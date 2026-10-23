@@ -22,6 +22,20 @@ $failure=[pscustomobject]@{schema=1;producer='windows_threecx_import_native.ps1'
 $safe=SafeThreecxImportFailure $failure;Check ($safe.php_failure.phase -ceq 'bad_wav_rollback' -and $safe.writer_restoration_failed -and ($safe|ConvertTo-Json -Depth 8) -cnotmatch 'private-must-not-export')
 foreach($field in 'phase','error_type','source_basename','source_line','cleanup_failed'){$copy=Clone $failure;$copy.php_failure.$field='private-must-not-export';$safe=SafeThreecxImportFailure $copy;Check (!$safe.ContainsKey('php_failure') -and ($safe|ConvertTo-Json -Depth 8) -cnotmatch 'private-must-not-export')}
 foreach($field in 'producer','state'){$copy=Clone $failure;$copy.$field=@($failure.$field);Check ((SafeThreecxImportFailure $copy).Count -eq 0)}
+# Child output remains administrator-private; only closed shape/count/status may escape.
+$sentinel=[pscustomobject]@{exit_code=1;stdout_shape='input_file_unavailable';stderr_shape='empty';stdout_chars=47;stderr_chars=0;stdout='private-must-not-export';stderr='private-must-not-export'}
+$failure|Add-Member NoteProperty refusal_child $sentinel
+$failure|Add-Member NoteProperty main_import_started $false
+$failure|Add-Member NoteProperty original_writer_choices_restored $true
+$failure.cleanup='passed';$safe=SafeThreecxImportFailure $failure
+Check ($safe.refusal_child.stdout_shape -ceq 'input_file_unavailable' -and !$safe.main_import_started -and $safe.original_writer_choices_restored -and $safe.cleanup -ceq 'passed' -and ($safe|ConvertTo-Json -Depth 8) -cnotmatch 'private-must-not-export')
+foreach($field in 'exit_code','stdout_shape','stderr_shape','stdout_chars','stderr_chars'){
+ foreach($bad in @($null,$true,@(1),'private-must-not-export')){$copy=Clone $failure;$copy.refusal_child.$field=$bad;$safe=SafeThreecxImportFailure $copy;Check (!$safe.ContainsKey('refusal_child') -and ($safe|ConvertTo-Json -Depth 8) -cnotmatch 'private-must-not-export')}
+}
+foreach($value in -1,8193){$copy=Clone $failure;$copy.refusal_child.stdout_chars=$value;Check (!(SafeThreecxImportFailure $copy).ContainsKey('refusal_child'))}
+$copy=Clone $failure;$copy.refusal_child.stdout_shape='empty';Check (!(SafeThreecxImportFailure $copy).ContainsKey('refusal_child'))
+$copy=Clone $failure;$copy.refusal_child.stderr_shape='php_fatal';Check (!(SafeThreecxImportFailure $copy).ContainsKey('refusal_child'))
+$copy=Clone $failure;$copy.cleanup='unverified';Check ((SafeThreecxImportFailure $copy).cleanup -ceq 'unverified')
 # Actual hook's replay branch must refuse qualification before any producer/file access.
 $ReplaySuiteRunId='39881454549';$facts=@{};ThreecxImportQualificationHook;Check ($facts.threecx_import_qualification -ceq 'unqualified_historical_candidate' -and $facts.Count -eq 1)
 $text=[IO.File]::ReadAllText($path);$ready=$text.IndexOf("`$phase='native web readiness qualification';WebReadinessHook");$import=$text.IndexOf("`$phase='native synthetic V20 import qualification';ThreecxImportQualificationHook");$health=$text.IndexOf("`$phase='native STUN qualification';StunHook");Check ($ready -ge 0 -and $import -gt $ready -and $health -gt $import)
