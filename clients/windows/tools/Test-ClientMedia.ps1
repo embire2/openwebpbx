@@ -83,24 +83,36 @@ function SystemSnapshot{
  }}
  [ordered]@{services=$services;root_certificates=$certs;firewall=$rules}|ConvertTo-Json -Depth 8 -Compress
 }
-function RunChild([string]$Exe,[string[]]$Arguments,[string]$Directory,[int]$Seconds){
+function RunChild([string]$Exe,[string[]]$Arguments,[string]$Directory,[int]$Seconds,[switch]$MsiDiagnostic){
+ if($MsiDiagnostic){$script:msiChildExit=$null;$script:msiFailure=$null;$script:msiObservationRefused=$false}
  $info=[Diagnostics.ProcessStartInfo]::new($Exe);$info.WorkingDirectory=$Directory;$info.UseShellExecute=$false;$info.CreateNoWindow=$true;$info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
  foreach($arg in $Arguments){[void]$info.ArgumentList.Add($arg)}
- $proc=[Diagnostics.Process]::Start($info);$started=$proc.StartTime.ToUniversalTime();$out=[MediaChildDrain]::Pump($proc.StandardOutput);$err=[MediaChildDrain]::Pump($proc.StandardError)
+ $proc=[Diagnostics.Process]::Start($info);$started=$proc.StartTime.ToUniversalTime();$out=[MediaChildDrain]::Pump($proc.StandardOutput);$err=if($MsiDiagnostic){[MediaChildDrain]::Capture($proc.StandardError,8192)}else{[MediaChildDrain]::Pump($proc.StandardError)}
  try{
   $clock=[Diagnostics.Stopwatch]::StartNew()
   while(!$proc.WaitForExit(500)){
    if($clock.Elapsed.TotalSeconds -ge $Seconds){throw 'Owned child deadline exceeded.'}
    if($Exe.EndsWith('OpenWebPbx.Phone.MediaChecks.exe',[StringComparison]::OrdinalIgnoreCase)){ObserveSockets}
   }
-  if($out.GetAwaiter().GetResult() -gt 8MB -or $err.GetAwaiter().GetResult() -gt 8MB){throw 'Owned child output exceeds its private bound.'};[int]$proc.ExitCode
+  $errorResult=$err.GetAwaiter().GetResult()
+  if($MsiDiagnostic){
+   $script:msiChildExit=[int]$proc.ExitCode
+   if($proc.ExitCode -ne 0){try{if($errorResult.Truncated){throw 'Bounded MSI diagnostic required.'};$script:msiFailure=ReadMsiFailure $errorResult.Text}catch{$script:msiObservationRefused=$true}}
+   $errorLength=$errorResult.Characters
+  }else{$errorLength=$errorResult}
+  if($out.GetAwaiter().GetResult() -gt 8MB -or $errorLength -gt 8MB){throw 'Owned child output exceeds its private bound.'};[int]$proc.ExitCode
  }
  finally{if(!$proc.HasExited){if($proc.StartTime.ToUniversalTime() -ne $started -or $proc.MainModule.FileName -ine $Exe){throw 'Owned child identity differs.'};$proc.Kill($true);if(!$proc.WaitForExit(10000)){throw 'Owned child cleanup failed.'}};$proc.Dispose()}
 }
 Add-Type -TypeDefinition @'
-using System.IO;using System.Threading.Tasks;
-public static class MediaChildDrain { public static async Task<long> Pump(StreamReader reader) { var chars=new char[4096];long total=0;int count;while((count=await reader.ReadAsync(chars))!=0)total=checked(total+count);return total;} }
+using System.IO;using System.Text;using System.Threading.Tasks;
+public sealed record MediaCapturedError(string Text,long Characters,bool Truncated);
+public static class MediaChildDrain {
+ public static async Task<long> Pump(StreamReader reader) { var chars=new char[4096];long total=0;int count;while((count=await reader.ReadAsync(chars))!=0)total=checked(total+count);return total;}
+ public static async Task<MediaCapturedError> Capture(StreamReader reader,int limit) { var chars=new char[4096];var text=new StringBuilder(limit);long total=0;int count;while((count=await reader.ReadAsync(chars))!=0){total=checked(total+count);var keep=System.Math.Min(count,limit-text.Length);if(keep>0)text.Append(chars,0,keep);}return new(text.ToString(),total,total>limit);}
+}
 '@
+$script:msiChildExit=$null;$script:msiFailure=$null;$script:msiObservationRefused=$false
 $script:socketSamples=0;$script:tcpObserved=$false;$script:udpObserved=$false
 function ReadOwnedRows([string]$Path,[switch]$AllowIncomplete){
  if((Get-Item -LiteralPath $Path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Owned process journal is linked.'}
@@ -131,6 +143,38 @@ function JsonShape([System.Text.Json.JsonElement]$Element){
  if($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Object){$seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);foreach($property in $Element.EnumerateObject()){if(!$seen.Add($property.Name)){throw 'Duplicate JSON member refused.'};JsonShape $property.Value}}
  elseif($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Array){foreach($entry in $Element.EnumerateArray()){JsonShape $entry}}
  elseif($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Number){[double]$number=0;if(!$Element.TryGetDouble([ref]$number) -or ![double]::IsFinite($number)){throw 'Nonfinite JSON number refused.'}}
+}
+function ReadMsiFailure([string]$Text){
+ if(!$Text -or $Text.Length -gt 8192){throw 'Bounded closed MSI diagnostic required.'}
+ $document=[System.Text.Json.JsonDocument]::Parse($Text,[System.Text.Json.JsonDocumentOptions]@{MaxDepth=3});try{JsonShape $document.RootElement}finally{$document.Dispose()};$r=$Text|ConvertFrom-Json
+ ClosedKeys $r @('schema','producer','state','operation','substage','exception_type','missing_module','source_basename','source_line')
+ if(($r.schema -isnot [long] -and $r.schema -isnot [int]) -or $r.schema -ne 1 -or $r.producer -cne 'extract_media_engine.py' -or $r.state -cne 'failed' -or $r.operation -cne 'read_only_msi_media_extract'){throw 'The MSI diagnostic identity differs.'}
+ foreach($name in @('substage','exception_type','missing_module','source_basename')){if($r.$name -isnot [string]){throw 'Typed closed MSI fields required.'}}
+ if($r.substage -cnotin @('bootstrap','validate_host','helper_identity','owned_paths','helper_import','helper_extract','msi_tables','select_media_modules','extract_cabinet','copy_core_files','write_manifest') -or $r.exception_type -cnotin @('ValueError','MediaModuleSelectionError','FileNotFoundError','PermissionError','OSError','CalledProcessError','TimeoutExpired','ImportError','ModuleNotFoundError','KeyError','TypeError','AttributeError','RuntimeError','other') -or $r.missing_module -cnotin @('unknown','mod_dptools.dll','mod_dialplan_xml.dll','mod_sndfile.dll','mod_tone_stream.dll','mod_conference.dll','mod_vpx.dll') -or $r.source_basename -cnotin @('external_component','extract_media_engine.py','extract-windows-core.py') -or ($r.source_line -isnot [long] -and $r.source_line -isnot [int]) -or $r.source_line -lt 0 -or $r.source_line -gt 100000){throw 'The MSI diagnostic value differs.'}
+ if(($r.missing_module -cne 'unknown' -and ($r.substage -cne 'select_media_modules' -or $r.exception_type -cne 'MediaModuleSelectionError')) -or ($r.source_basename -ceq 'external_component' -and $r.source_line -ne 0) -or ($r.source_basename -cne 'external_component' -and $r.source_line -eq 0)){throw 'The MSI diagnostic scope differs.'}
+ [ordered]@{schema=1;producer='extract_media_engine.py';state='failed';operation='read_only_msi_media_extract';substage=$r.substage;exception_type=$r.exception_type;missing_module=$r.missing_module;source_basename=$r.source_basename;source_line=[int]$r.source_line}
+}
+function MediaSnapshotRowCounts([object[]]$Before,[object[]]$After){
+ if($Before.Count -gt 100000 -or $After.Count -gt 100000){throw 'Snapshot row count exceeds bounds.'}
+ $maps=@();foreach($rows in @(@{rows=$Before},@{rows=$After})){
+  $map=[Collections.Generic.Dictionary[string,long]]::new([StringComparer]::Ordinal)
+  foreach($row in $rows.rows){$text=$row|ConvertTo-Json -Depth 16 -Compress -WarningAction Stop;$key=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($text)));if(!$map.ContainsKey($key)){$map[$key]=0};$map[$key]++};$maps+=,$map
+ }
+ $added=0L;$removed=0L;foreach($key in $maps[0].Keys){$right=if($maps[1].ContainsKey($key)){$maps[1][$key]}else{0};if($maps[0][$key] -gt $right){$removed+=$maps[0][$key]-$right}}
+ foreach($key in $maps[1].Keys){$left=if($maps[0].ContainsKey($key)){$maps[0][$key]}else{0};if($maps[1][$key] -gt $left){$added+=$maps[1][$key]-$left}}
+ [ordered]@{before_rows=$Before.Count;after_rows=$After.Count;removed_row_values=$removed;added_row_values=$added}
+}
+function MediaSnapshotDiffCounts([string]$Before,[string]$After){
+ if(!$Before -or !$After -or $Before.Length -gt 16MB -or $After.Length -gt 16MB){throw 'Bounded complete snapshots required.'}
+ $objects=@();foreach($text in @($Before,$After)){$document=[System.Text.Json.JsonDocument]::Parse($text,[System.Text.Json.JsonDocumentOptions]@{MaxDepth=16});try{JsonShape $document.RootElement}finally{$document.Dispose()};$value=$text|ConvertFrom-Json;ClosedKeys $value @('services','root_certificates','firewall');if($value.services -isnot [array] -or $value.root_certificates -isnot [array]){throw 'Complete snapshot arrays required.'};$objects+=,$value}
+ $categories=[ordered]@{rules='Get-NetFirewallRule';profiles='Get-NetFirewallProfile';addresses='Get-NetFirewallAddressFilter';ports='Get-NetFirewallPortFilter';applications='Get-NetFirewallApplicationFilter';services='Get-NetFirewallServiceFilter';interfaces='Get-NetFirewallInterfaceFilter';interface_types='Get-NetFirewallInterfaceTypeFilter';security='Get-NetFirewallSecurityFilter'}
+ $keys=@(foreach($store in @('ActiveStore','PersistentStore')){foreach($command in $categories.Values){$store+'/'+$command}})
+ foreach($value in $objects){ClosedKeys $value.firewall $keys}
+ $firewall=[ordered]@{}
+ foreach($category in $categories.Keys){$sets=@();foreach($value in $objects){$rows=@(foreach($store in @('ActiveStore','PersistentStore')){$field=$store+'/'+$categories[$category];if($value.firewall.$field -isnot [array]){throw 'Complete firewall collection arrays required.'};foreach($row in $value.firewall.$field){[ordered]@{store=$store;value=$row}}});$sets+=,@{rows=$rows}};$firewall[$category]=MediaSnapshotRowCounts $sets[0].rows $sets[1].rows}
+ $proof=[ordered]@{schema=1;producer='Test-ClientMedia.ps1';state='observed_snapshot_counts';exact_snapshot_changed=($Before -cne $After);services=(MediaSnapshotRowCounts $objects[0].services $objects[1].services);root_certificates=(MediaSnapshotRowCounts $objects[0].root_certificates $objects[1].root_certificates);firewall=$firewall}
+ foreach($row in @($proof.services,$proof.root_certificates)+@($firewall.Values)){foreach($name in @('before_rows','after_rows','removed_row_values','added_row_values')){if(($row[$name] -isnot [int] -and $row[$name] -isnot [long]) -or $row[$name] -lt 0 -or $row[$name] -gt 100000){throw 'Typed bounded snapshot counts required.'}}}
+ return $proof
 }
 function ReadMediaResult([string]$Path,[switch]$AllowFailure){
  if((Get-Item -LiteralPath $Path).Length -gt 131072){throw 'Bounded media receipt required.'};$raw=Get-Content -LiteralPath $Path -Raw;$document=[System.Text.Json.JsonDocument]::Parse($raw,[System.Text.Json.JsonDocumentOptions]@{MaxDepth=12});try{JsonShape $document.RootElement}finally{$document.Dispose()};$r=$raw|ConvertFrom-Json
@@ -171,7 +215,7 @@ $before=$null;$failure=$null;$media=$null;$ownedClean=$true
 try{
  $before=SystemSnapshot;$result.stage='sdk_extract';$sdk=Join-Path $scope 'sdk';ExpandSdk $SdkZip $sdk
  $result.stage='msi_extract';$extraction=Join-Path $scope 'msi';$helper=Join-Path $repo 'packaging/freeswitch/extract-windows-core.py';$adapter=Join-Path $client 'tests/media/extract_media_engine.py'
- if((RunChild $python @($adapter,'--helper',$helper,'--msi',$CoreMsi,'--output',$extraction) $scope 180) -ne 0){throw 'Read-only MSI media extraction failed.'}
+ if((RunChild $python @($adapter,'--helper',$helper,'--msi',$CoreMsi,'--output',$extraction) $scope 180 -MsiDiagnostic) -ne 0){throw 'Read-only MSI media extraction failed.'}
  $engine=Join-Path $extraction 'core';$zip=[IO.Compression.ZipFile]::OpenRead($EngineZip)
  try{
   foreach($binding in @(@('engine/mod/mod_sofia.dll','fa58601adfab5cd71ac598035c41fafe335f23f0ca038cb0b5c23423ff43d4d5'),@('engine/native-manifest.json',$null),@('source/source-manifest.json','3b230ae320b67bdd88d1d7b6fe3c9e116cf571550b489bba1a7613d7b2cf6bb1'))){
@@ -201,11 +245,14 @@ try{
  $result.state='passed_software_media'
 }catch{$failure=$_;$result.error_type=$_.Exception.GetType().Name;$result.source_line=[int]$_.InvocationInfo.ScriptLineNumber}
 finally{
+ if($null -ne $script:msiChildExit){$result.msi_child_exit_code=[int]$script:msiChildExit}
+ if($script:msiFailure){$result.msi_failure=$script:msiFailure}
+ if($script:msiObservationRefused){$result.msi_failure_observation_refused=$true}
  try{
   $journal=Join-Path $scope 'owned-processes.jsonl'
   if(Test-Path $journal){foreach($r in @(ReadOwnedRows $journal)){$p=Get-Process -Id $r.pid -ErrorAction SilentlyContinue;if($p){try{$expected=if($r.role -ceq 'peer'){Join-Path $scope 'app/OpenWebPbx.Phone.MediaChecks.exe'}else{Join-Path $scope 'engine/FreeSwitchConsole.exe'};if($p.StartTime.ToUniversalTime().Ticks -ne $r.created_utc_ticks -or $p.MainModule.FileName -ine $expected -or (Hash $expected) -cne $r.executable_sha256){throw 'Refuse a foreign process at a recorded PID.'};$p.Kill($true);if(!$p.WaitForExit(10000)){throw 'Owned process did not stop.'};$ownedClean=$false}finally{$p.Dispose()}}}}
   $roots=Join-Path $scope 'owned-roots.txt';if(Test-Path $roots){$rows=@(Get-Content -LiteralPath $roots);if($rows.Count -gt 48 -or @($rows|Select-Object -Unique).Count -ne $rows.Count){throw 'Owned peer-root inventory differs.'};foreach($leaf in $rows){if($leaf -cnotmatch '^phone-media-[a-f0-9]{32}$'){throw 'Owned peer-root leaf differs.'};$path=Join-Path $temp $leaf;if(Test-Path $path){NoLinks $path;Remove-Item -LiteralPath $path -Recurse -Force;$ownedClean=$false}}}
-  if($before){$result.system_preserved=(SystemSnapshot) -ceq $before};if(!$result.system_preserved){$ownedClean=$false}
+  if($before){$after=SystemSnapshot;$result.system_preserved=$after -ceq $before;if(!$result.system_preserved){try{$result.snapshot_diff=MediaSnapshotDiffCounts $before $after}catch{$result.snapshot_diff_observation_refused=$true}}};if(!$result.system_preserved){$ownedClean=$false}
   NoLinks $scope;Remove-Item -LiteralPath $scope -Recurse -Force
  }catch{$ownedClean=$false;$result.cleanup_error_type=$_.Exception.GetType().Name}
  $result.exact_owned_cleanup=$ownedClean -and !(Test-Path -LiteralPath $scope)
