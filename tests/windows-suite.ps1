@@ -528,6 +528,7 @@ function NativeMeetingLogCategories([string]$Text,[DateTime]$StartedAt){
   dtls_certificate='DTLS cert err|DTLS key err|DTLS check key failed|DTLS check chain cert failed|Certificate generation failed'
   dtls_handshake='DTLS packet (decode|encode|write) err|DTLS packet not written to socket|Fingerprint Verification Failed|No peer certificate presented|DTLS state from [A-Z_]+ to (FAIL|INVALID)'
   incompatible_destination='INCOMPATIBLE_DESTINATION'
+  ice_candidate_unusable='no suitable candidates found|Drop (audio|video) Candidate[^\r\n]*\((not an IP address|cannot resolve|no network path)\)'
   rtp_activation='(AUDIO|VIDEO) RTP REPORTS ERROR|Error initializing SRTP|Error allocating SRTP|Error! RE-Activating[^\r\n]*Secure RTP (SEND|RECV)'
  }
  $row=@{scope='isolated_runner_time_window';timestamped_lines=0}

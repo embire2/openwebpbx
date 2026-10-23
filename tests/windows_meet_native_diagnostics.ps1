@@ -27,11 +27,18 @@ foreach($kind in 'map','object'){
 }
 $started=[DateTime]::Now.AddSeconds(-3);$stamp=$started.ToString('yyyy-MM-dd HH:mm:ss')
 $old=$started.AddMinutes(-2).ToString('yyyy-MM-dd HH:mm:ss');$future=[DateTime]::Now.AddMinutes(2).ToString('yyyy-MM-dd HH:mm:ss')
-$examples=@{codec_negotiation='CODEC NEGOTIATION ERROR. SDP PRIVATE';missing_sdp_connection='Cannot find a c= line in the sdp at media or session level! PRIVATE';crypto_required='Crypto not negotiated but required. PRIVATE';fingerprint_file='FP FILE ERR! PRIVATE';dtls_certificate='audio DTLS check key failed PRIVATE';dtls_handshake='audio Fingerprint Verification Failed! PRIVATE';incompatible_destination='Hangup INCOMPATIBLE_DESTINATION PRIVATE';rtp_activation='AUDIO RTP REPORTS ERROR: PRIVATE'}
+$examples=@{codec_negotiation='CODEC NEGOTIATION ERROR. SDP PRIVATE';missing_sdp_connection='Cannot find a c= line in the sdp at media or session level! PRIVATE';crypto_required='Crypto not negotiated but required. PRIVATE';fingerprint_file='FP FILE ERR! PRIVATE';dtls_certificate='audio DTLS check key failed PRIVATE';dtls_handshake='audio Fingerprint Verification Failed! PRIVATE';incompatible_destination='Hangup INCOMPATIBLE_DESTINATION PRIVATE';ice_candidate_unusable='PRIVATE no suitable candidates found.';rtp_activation='AUDIO RTP REPORTS ERROR: PRIVATE'}
 foreach($name in $examples.Keys){
  $message=$examples[$name]
  $row=NativeMeetingLogCategories "$stamp.123456 10.0% [ERR] $message" $started;Check ($row[$name] -eq $true -and $row.timestamped_lines -eq 1 -and $row.scope -ceq 'isolated_runner_time_window');Check (($row|ConvertTo-Json) -cnotmatch 'PRIVATE|SDP|123456')
  foreach($prefix in $old,$future,'invalid-date',''){$row=NativeMeetingLogCategories "$prefix.123456 10.0% [ERR] $message" $started;Check (!$row[$name] -and $row.timestamped_lines -eq 0)}
 }
+foreach($reason in 'not an IP address','cannot resolve','no network path'){
+ foreach($kind in 'audio','video'){
+  $row=NativeMeetingLogCategories "$stamp.1 [DEBUG] Drop $kind Candidate cid: 1 proto: udp type: host addr: PRIVATE ($reason)" $started
+  Check ($row.ice_candidate_unusable -is [bool] -and $row.ice_candidate_unusable -eq $true);Check (($row|ConvertTo-Json -Compress) -cnotmatch 'PRIVATE|addr:|host|udp|cid:')
+ }
+}
+$row=NativeMeetingLogCategories "$stamp.1 [DEBUG] Choose rtp candidate PRIVATE`n$stamp.1 [DEBUG] Searching for rtp candidate" $started;Check ($row.ice_candidate_unusable -is [bool] -and !$row.ice_candidate_unusable)
 $row=NativeMeetingLogCategories "$stamp.0 1.0% [DEBUG] ordinary PRIVATE`nno timestamp CODEC NEGOTIATION ERROR PRIVATE" $started;Check ($row.timestamped_lines -eq 1 -and !$row.codec_negotiation)
 Write-Output ('PASS '+$checks+' actual closed runtime/log diagnostic controls; no Windows media qualification implied')
