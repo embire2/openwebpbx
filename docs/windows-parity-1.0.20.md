@@ -1,6 +1,6 @@
 # Windows Server parity work — 1.0.20
 
-Status on 22 October 2026: **development and native acceptance in progress**.
+Status on 23 October 2026: **development and native acceptance in progress**.
 The currently published Windows release remains 1.0.7. Do not replace a
 production server with an unpublished archive. Debian's hosted Phone Health
 patch and the earlier complete Debian candidate have separate verification.
@@ -11,22 +11,42 @@ service, the WinUI server manager and the independent updater. Installing Linux
 under Windows can provide a comparison environment; it does not qualify the
 native Windows server.
 
-The owner's original 1.0.6 installation has now passed a controlled native
-baseline: background-service health, the trusted HTTPS sign-in page, and
-authenticated call-engine access with no calls or providers active. The test
-returned the original service and IIS states, and an independent comparison
-found all 138 public tables and database security unchanged. A separate staged
-listener detector correctly refused an access-control condition; that refusal
-is retained and does not invalidate the basic readiness results or qualify the
-new detector. No candidate has replaced the original installation.
+The owner's original 1.0.6 installation passed a second controlled native
+baseline after the reviewed cold-build cleanup: background-service health,
+trusted HTTPS sign-in and authenticated call-engine access with no calls or
+providers active. Original service/IIS choices and all 138 public tables and
+database security returned unchanged. This does not qualify the optional staged
+listener detector, whose earlier access-control refusal is retained. No candidate
+has replaced the original installation.
 
-The latest complete run39881454549 passed fresh installation, trusted web
-readiness, public-port checks, STUN, Phone Health, tenant setup and conference
-transport. It completed16 media cases, including group/queue delivery and the
-short callback quota limit, before a bounded observation timed out during
-hold/resume/transfer. The precise failed substage remains under investigation.
-Its fixture cleanup also refused remaining owned rows, so backups were not run.
-This archive remains unpublished and does not qualify the owner upgrade.
+The latest normal run39897697725 at sourced6c1cec7 passes fresh installation,
+trusted web readiness, configured public-port checks, STUN, Phone Health, tenant
+setup and conference transport. The actual Windows synthetic V20 import passes
+32 controls plus four early refusals, preserving the invented imported identities,
+custom media and disabled providers. That isolated parser/restore test explicitly
+does not cover IIS upload or calling with imported phone credentials.
+
+The native child completes22 media cases, including hold/music/resume/transfer,
+queues and callbacks, hotel wakeup and private voicemail recording/forwarding.
+The run still fails at conference negotiation: the host receives407 then488.
+Strict cleanup separately identifies a missing Windows global log setting,
+which selects a nonexistent legacy POSIX spool although the authenticated native
+Windows spool exists. Writer choices are restored, but fixture rows remain.
+The aggregate calling gates and release remain unqualified; welcome mail,
+backups and later upgrade/recovery checks were not reached. Narrow Windows
+conference-candidate and CDR path/permissions/maintenance corrections are now
+in source112d1185b; complete qualification remains pending. Native build
+39903796050 is separately accepted against73 exact build inputs,16 protocol
+controls and an actual WinUI20 window. It does not qualify the complete package.
+
+CDR lifecycle113 controls use explicit service/task adapters;46 actual
+PostgreSQL/settings/importer controls run in isolation. The final CDR helper and
+maintenance lease pass44 actual Windows account/file/hold/recovery controls with
+only configuration-path resolution modelled. QA150d32c3d corrects the read-only
+observer to use the native SIP-ID column and passes133 isolated PostgreSQL/file
+controls. The next full run must prove automatic importing under the installed
+LocalService before any explicit test cleanup, conference media and all later
+recovery gates. These component checks do not qualify the failed complete run.
 
 An explicit diagnostic replay39889046955 reused that exact archive with no
 runtime overlay. Its native child completed immediate hold, selected hold music,
@@ -43,7 +63,8 @@ eight fixed phase boundaries, with native registration/contact and unchanged
 identity/policy checks. It keeps the deliberate alternate-codec unregister test
 and natural-expiry diagnostic intact; the voicemail deposit target stays offline
 until its original mailbox retrieval step. Fourteen helper/boundary controls pass;
-the next complete native run must prove the corrected fixture and strict cleanup.
+the latest normal run completes the hold cases; strict cleanup remains blocked
+by the separately identified log-directory setting.
 
 The earlier run39878296545 stopped before STUN activation on a one-shot
 maintenance-lock open. The test now uses the existing bounded lock helper;
@@ -59,9 +80,9 @@ permission/unsafe-path refusal.
 | Backups and restore | Scheduled-job choices are preserved. Restored pending phone-unblock requests are refused before background work resumes; other recovery history is retained. | Complete encrypted backup, same-machine failure recovery, distinct clean-server restore, media/key preservation and explicit activation. |
 | Updates | Updater service selection is now deferred until the durable upgrade commit; pending finalization can retry without rolling back a committed installation. Native component controls cover the running-image recovery defect and sealed legacy dependencies. The original6 verifier passed29 real CLI controls with an isolated, protected manual-transition context; normal Windows20 feeds retain a minimum20 floor. | Rebuilt complete-package fresh setup, actual original6 interrupted recovery and normal migration, same-version repair, signed newer-version upgrade and an OS reboot. Component service adapters do not establish actual owner SCM recovery. |
 | PHP runtime | The legacy upgrade now stages the same pinned PHP8.4.27 used by fresh installs. An actual private-copy8.4.26→27 matrix passes, preserving settings/custom extensions and proving full runtime/permission rollback, locked-file refusal and retry. Unexpected staged or backup files/links are refused. | Complete-package upgrade and interrupted-process recovery using the new helpers; component checks alone do not qualify the installed owner server. |
-| Public access | The static firewall list omitted configured provider port5080. Windows setup is being changed to verify protected PostgreSQL settings, authenticated engine status and actual native listener ownership before opening configured ports. Explicit custom RTP ranges require administrator review; automatic setup supports only the verified stock core/default range. | Exact-source native Defender and installed-collector checks, actual public certificate issuance/deferred renewal, safe firewall activation and external tenant/Android connections on the test machine. Local rule controls do not prove external packet delivery. |
+| Public access | The configured-listener fix passes21 native Defender and14 installed-collector checks, including provider port5080. Setup verifies protected settings, authenticated engine status and actual native listener ownership. Explicit custom RTP ranges require administrator review; automatic setup supports the verified stock default range. | Actual public certificate issuance/deferred renewal, current firewall-state review and external tenant/Android connections on the test machine. Local rule controls do not prove external packet delivery. |
 | Client setup and welcome mail | Shared tenant-address, app-password and profile features are implemented. A new required welcome case passes29 local real PHP/PostgreSQL/SMTP/MIME/independent QR checks and120 caller/projection controls; native Windows execution remains pending. | Pass the installed Windows welcome case, then external Android QR/manual sign-in, password change, multiple profiles and trusted-IIS role/online boundaries. |
-| Existing calling suite | Run39881454549 completes16 media cases: decoded TLS calls, G729/PCMU transcoding, clock1026, provider incoming/outgoing and fallback decisions, ring groups, queue delivery, IVR and Call Me Back, including the short quota cutoff and exhausted quota refusal. Hold/resume/transfer then times out; voicemail121, recording, hotel and mail remain unqualified in this archive. | Diagnose hold/transfer and pass the complete suite against the final archive, including cleanup and protected-data checks. Test providers do not establish commercial-carrier acceptance. |
+| Existing calling suite | Run39897697725 completes22 media cases: decoded TLS audio and transcoding; simultaneous/hunting groups; queue delivery, pause/logout/callback; IVR; hold/music/resume/transfer; hotel wakeup; private voicemail recording/forwarding; clock1026; provider incoming/outgoing/failover; and Call Me Back authentication/quota limits. Conference admission and strict CDR cleanup fail separately. | Pass the complete final archive, including conference media, cleanup and protected-data checks. Completed cases do not promote the failed child or prove commercial-carrier/physical-phone acceptance. |
 
 The owner's test machine is Windows Server 2025. Its original 1.0.6 installation
 was found with PBX services stopped. Its files, logical database, permissions
