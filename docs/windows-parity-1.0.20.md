@@ -2,13 +2,26 @@
 
 Status on 23 October 2026: **development and native acceptance in progress**.
 
-Fresh normal40005106134/sourced5a5a0ad8 is running with the same73 native
-build inputs. Failure-only restart observations now distinguish actual readiness,
-maintenance holds and owned PostgreSQL activity without reading private SQL into
-the report or acquiring the maintenance lock.41 isolated database/file and155
-strict observer controls pass, independently repeated. The original heartbeat,
-90-second restart check and all runtime behavior remain unchanged. This is
-additional evidence collection, not a restart or full-server pass.
+Normal40005106134/sourced5a5a0ad8 completes successfully. Root authenticates
+all17 essential gates: fresh installation, trusted web, backups, native calling
+and audio, clock, providers, Call Me Back, tenant domains, STUN, Phone Health,
+conference transport and decoded browser media, same-version reapply, failure
+rollback, restore-startup recovery and both manager reopen checks. The original
+typed LocalService call-history receipt and isolated synthetic V20 import also
+pass; the latter does not qualify IIS upload or calling from imported phones.
+
+The exact585095650-byte candidate has SHA256
+`d0799878b04a8564c4ae074a34d9a3cf809432eb39230f8edf4011f4bd55042e`.
+Root independently verifies19165 payloads,6651 immutable source mappings,
+1099 original native binary files,73 native inputs,6215 codec source files,
+16 registrar supplement files and4888 voice files. The complete path and
+configured-secret scan passes. This is an unpublished qualification archive.
+
+Independent encrypted restore40012370783 and newer-canary preparation
+40012387928 use the exact same source on separate disposable runners. Signed
+newer-upgrade/recovery, owner1.0.6 migration and external HTTPS/ACME remain open.
+No production server or public feed has changed. Earlier failures below remain
+historical evidence; this later pass does not establish their missing causes.
 The currently published Windows release remains 1.0.7. Do not replace a
 production server with an unpublished archive. Debian's hosted Phone Health
 patch and the earlier complete Debian candidate have separate verification.
