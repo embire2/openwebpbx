@@ -27,7 +27,17 @@ if((Get-Item $SdkZip).Length -ne 315960147 -or (Hash $SdkZip) -cne '9cc84037333d
 if(([IO.DriveInfo]::new([IO.Path]::GetPathRoot($temp))).AvailableFreeSpace -lt 6GB){throw 'The disposable media lab needs six GiB free capacity.'}
 Push-Location $repo
 try{$head=(& git rev-parse HEAD).Trim();if($LASTEXITCODE -or $head -cne $SourceCommit -or (& git status --porcelain)){throw 'The exact clean client source is required.'}}finally{Pop-Location}
-$dotnet=(Get-Command dotnet -CommandType Application -ErrorAction Stop).Source;$python=(Get-Command python -CommandType Application -ErrorAction Stop).Source
+function ResolveMediaApplication {
+ param([ValidateSet('dotnet','python')][string]$Name)
+ $command=Get-Command $Name -CommandType Application -ErrorAction Stop|Select-Object -First 1
+ if($null -eq $command -or $command -isnot [Management.Automation.ApplicationInfo] -or $command.CommandType -ne [Management.Automation.CommandTypes]::Application){throw 'One native application command is required.'}
+ [string]$path=$command.Source
+ if(!$path -or ![IO.Path]::IsPathFullyQualified($path) -or [IO.Path]::GetExtension($path) -ine '.exe' -or $path -cne [string]$command.Path -or ![string]::Equals([IO.Path]::GetFullPath($path),$path,[StringComparison]::OrdinalIgnoreCase)){throw 'A concrete fully-qualified executable is required.'}
+ $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+ if($item -isnot [IO.FileInfo] -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $item.Length -le 0){throw 'An existing ordinary executable is required.'}
+ return $path
+}
+$dotnet=ResolveMediaApplication dotnet;$python=ResolveMediaApplication python
 Push-Location $client
 try{if((& $dotnet --version).Trim() -cne '10.0.401'){throw 'The exact .NET SDK is required.'}}finally{Pop-Location}
 function PrivateDirectory([string]$Path){
