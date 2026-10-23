@@ -13,13 +13,13 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 WINPS=str(Path(os.environ.get('SystemRoot','C:/Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe')
-FIXTURE_PHP_SOURCES={'windows-native-fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component'}
-FIXTURE_ACTIONS={'baseline','discover','cleanup','status','queue-state','job','due','voicemail-login','api','mail-seed','meeting-path-state','services-info','providers-create','providers-ingress','cmb-setup','cmb-status','cmb-reset','cmb-quota'}
+FIXTURE_PHP_SOURCES={'windows_cdr_observation.php','windows-native-fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component'}
+FIXTURE_ACTIONS={'baseline','discover','cleanup','status','cdr-status','queue-state','job','due','voicemail-login','api','mail-seed','meeting-path-state','services-info','providers-create','providers-ingress','cmb-setup','cmb-status','cmb-reset','cmb-quota'}
 FIXTURE_STAGES={'initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh'}
 NATIVE_SUBSTAGES={'native_case','g729_regular_unregister','g729_alternate_register','g729_invite','g729_answer_validation',
     'g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister',
     'g729_peer_close','g729_codec_close','g729_regular_reregister','native_peer_unregister','native_peer_close','native_ledger_write',
-    'callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed','hotel_phone_answer','hotel_wire_confirmation','hotel_job_completed',
+    'cdr_background_import','callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed','hotel_phone_answer','hotel_wire_confirmation','hotel_job_completed',
     'voicemail_message_created','voicemail_recording_finalized','voicemail_mail_queued',
     'mailbox_register','mailbox_invite','mailbox_login_prompt','mailbox_main_menu_prompt','mailbox_tutorial_complete','mailbox_recording_playback',
     'mailbox_forward_extension_prompt','mailbox_forward_intro_prompt','mailbox_forwarded_prompt',
@@ -50,7 +50,7 @@ def native_exception_fields(error,stage,prefix='primary'):
     import traceback
     frames=traceback.extract_tb(error.__traceback__)
     if not frames or stage not in NATIVE_SUBSTAGES:return {}
-    allowed={'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py'}
+    allowed={'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py','windows_cdr_background.py'}
     location=frames[-1]
     caller=next((frame for frame in reversed(frames) if Path(frame.filename).name=='windows-native-acceptance.py'),None)
     fields={prefix+'_error_type':type(error).__name__,prefix+'_substage':stage,
@@ -1012,17 +1012,28 @@ def native_calls(f,hold_only=False):
             try:ratios[peer]=original.decoded_tone_check(views[peer],frequency)
             except AssertionError as error:raise media_failure(error,peer,'received',seconds,views[peer])
         return {'caller_decoded_ratio':ratios['caller'],'peer_decoded_ratio':ratios['destination'],'duration_seconds':seconds,'caller_packets':views['caller']['received'],'peer_packets':views['destination']['received']}
-    def call_check(target,expected=a,digit=None):
+    def call_check(target,expected=a,digit=None,background_cdr=False):
         f.active_case={'8101':'basic_decoded_audio','8180':'simultaneous_ring_group','8181':'hunting_ring_group','8190':'queue_agent_delivery','8170':'ivr_wire_digit_or_timeout'}[target]
         observed={'expected':a,'other':b};baseline={label:{'dialogs':set(peer.dialogs),'invites':len(peer.invites)} for label,peer in observed.items()}
         facts={};complete=True;call=None
         if target=='8190':facts,complete=queue_case_snapshot(f,observed,baseline,'before')
         try:
+            if background_cdr:
+                assert target=='8101' and expected is a and digit is None,'Only the first decoded owned call qualifies background import'
+                f.native_substage='cdr_background_import'
+                cdr=load_module('windows_cdr_background',f.source/'tests/windows_cdr_background.py')
+                service_before=cdr.observe_service(f,WINPS)
             old=set(expected.dialogs);call=caller.dial(target,destination);assert call['code']==200,'Native call was not answered'
             if digit is not None:send_ivr_digit(caller,call,digit,f.wait)
             remote=f.wait(lambda:next((v for k,v in expected.dialogs.items() if k not in old and v.get('acked')),None))
             if target=='8190':declared_queue_tiers(f,call)
-            result=media(call,remote);caller.hangup(call);time.sleep(.3);return result
+            result=media(call,remote);caller.hangup(call);time.sleep(.3)
+            if background_cdr:
+                f.active_case='native_localservice_cdr_background_import'
+                proof=cdr.qualify(f,call['callid'],service_before,lambda:cdr.observe_service(f,WINPS))
+                f.record('native_localservice_cdr_background_import',**proof)
+                f.native_substage='native_case'
+            return result
         except BaseException as error:
             if target=='8190':
                 after,finished=queue_case_snapshot(f,observed,baseline,'after',call);facts.update(after)
@@ -1055,7 +1066,7 @@ def native_calls(f,hold_only=False):
         assert proof['complete_announcements']>=3 and proof['GMT_plus_2_full_time_verified'] and proof['owned_clock_call_ended']
         f.record('native_clock1026_gmt2_three_decoded_announcements',**proof)
         refresh.refresh_owned_peers(f,(caller,a,b),'after_clock')
-        f.record('native_tls_signalling_two_way_decoded_rtp',**call_check('8101'))
+        f.record('native_tls_signalling_two_way_decoded_rtp',**call_check('8101',background_cdr=True))
         f.active_case='independent_g729_pcmu_transcoding'
         (f.evidence/'g729-profile.private.txt').write_text(f.cli('api','sofia status profile internal',json_result=False))
         (f.evidence/'g729-implementations.private.json').write_text(f.cli('api','show codecs as json',json_result=False))
