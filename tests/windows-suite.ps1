@@ -1627,6 +1627,7 @@ try{
  $facts.gates.fresh='passed';$facts.checks+=('Real restore-ready fresh installation/services/native engine hash preservation')
  $phase='native PHP runtime qualification';PhpRuntimeQualificationHook
  $phase='installed PHP SMTP notice source controls';CheckedPython @((Join-Path $source 'tests/windows_smtp_notice.py'),'--php-executable','C:\OpenWebPBX\php\php.exe','SMTPNoticeControls.test_actual_php_post_notice_and_refusals')
+ $phase='installed PHP welcome path source controls';CheckedPython @((Join-Path $source 'tests/windows_welcome_paths.py'),'--php-executable','C:\OpenWebPBX\php\php.exe')
  $phase='native upgrade recovery qualification';UpgradeRecoveryQualificationHook
  $phase='native web readiness qualification';WebReadinessHook
  $phase='installed public-listener qualification';PublicListenerQualificationHook 'installed_collector'

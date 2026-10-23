@@ -5,6 +5,16 @@ The currently published Windows release remains 1.0.7. Do not replace a
 production server with an unpublished archive. Debian's hosted Phone Health
 patch and the earlier complete Debian candidate have separate verification.
 
+Latest normal run39967659984/source62ad4a0f7 completes28 individual native
+cases, including decoded conference audio/video, hold/music/transfer, ordinary
+service call-history import, voicemail, SMTP and provider failover. The full run
+still fails: the welcome fixture's input guard disagrees with its evidence
+directory, and a separate restore fixture refuses initial maintenance-lock
+acquisition. The narrow welcome QA correction passes15 actual PHP8.4.27 path
+controls and120 existing caller controls; native dispatch needs a new run.
+The restore refusal's holder remains unproven. Aggregate calling, backups,
+upgrade/recovery, owner migration and publication remain unqualified.
+
 The next normal run39960857878 stops before installation: a source test probes
 the runner's ambient PHP and times out after five seconds. The correction keeps
 the pure DOM check early and moves all seven PHP POST cases after verification

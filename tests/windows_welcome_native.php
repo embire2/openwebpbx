@@ -21,7 +21,8 @@ if($portable){
 }else{
  if(PHP_OS_FAMILY!=='Windows'||getenv('OPENWEB_WINDOWS_NATIVE_TEST')!=='1'||getenv('GITHUB_ACTIONS')!=='true'||getenv('RUNNER_ENVIRONMENT')!=='github-hosted'||getenv('GITHUB_REPOSITORY')!=='embire2/openwebpbx')throw new RuntimeException('The explicit Windows factory is required.');
  $expected=str_replace('\\','/',getenv('ProgramData')?:'C:/ProgramData').'/OpenWebPBX/native-qualification/'.$s['scope'];
- if(strcasecmp(dirname($input),$expected)!==0||basename($input)!=='input.json'||!str_starts_with(strtolower($work),strtolower($expected.'/welcome-')))throw new RuntimeException('The owned Windows mail directory is required.');
+ require_once __DIR__.'/windows_welcome_paths.php';
+ if(!windows_welcome_owned_paths($input,$work,$expected))throw new RuntimeException('The owned Windows mail directory is required.');
  $configFile=str_replace('\\','/',getenv('ProgramData')?:'C:/ProgramData').'/fusionpbx/config.conf';
 }
 if(!is_file($configFile)||is_link($configFile)||!is_file($source.'/resources/require.php'))throw new RuntimeException('The exact application/configuration is required.');

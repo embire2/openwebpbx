@@ -2,7 +2,7 @@
 
 Windows Server parity is now being implemented and tested. The [current Windows work record](docs/windows-parity-1.0.20.md) distinguishes implemented source from native acceptance and published releases. The checklist below remains open until those checks pass.
 
-The separate native **OpenWebPBX Free Phone 1.0.0** client is also in development for Windows 11 and Windows Server 2025, using C#/.NET 10, WinUI 3 and the Android app's calling engine. Its goal is Android feature parity with Store and direct distributions. Setup checks and the official WinUI scaffold build are verified; actual client calls, media, packaging and Store certification remain open. It is not a published download or an accepted roadmap item yet.
+The separate native **OpenWebPBX Free Phone 1.0.0** client is also in development for Windows 11 and Windows Server 2025, using C#/.NET 10, WinUI 3 and the Android app's calling engine. Its goal is Android feature parity with Store and direct distributions. The actual client now builds and opens a responsive WinUI window;18 native storage/core controls pass. Calling, media, installation, update packaging and Store certification remain open. Microsoft developer-account creation instructions are prepared. It is not a published download or an accepted roadmap item yet.
 
 ## Phone Health & Recovery — hosted Debian live, Windows follow-up — 2026-10-22
 
