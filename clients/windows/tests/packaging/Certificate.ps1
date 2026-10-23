@@ -4,13 +4,15 @@
 param([Parameter(Mandatory)][ValidateSet('Create','Remove')][string]$Mode,[Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{32}$')][string]$Nonce,[Parameter(Mandatory)][string]$Root)
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'Diagnostics.ps1')
+. (Join-Path $PSScriptRoot 'NativeSecurity.ps1')
 $certificateStage='entry'
 trap { $certificatePrimary=$_;try{[Console]::Error.WriteLine(('OPENWEBPBX_PACKAGE_CERTIFICATE_OBSERVATION '+((GetPackageCertificateFailure $certificatePrimary $Mode $certificateStage)|ConvertTo-Json -Depth 3 -Compress)))}catch{};throw $certificatePrimary }
 if($PSVersionTable.PSEdition -cne 'Desktop' -or $env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:RUNNER_OS -cne 'Windows' -or $env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx'){throw 'Only the disposable native Windows certificate fixture is allowed.'}
 $expected=Join-Path ([IO.Path]::GetFullPath($env:RUNNER_TEMP)) ('phone-package-'+$Nonce);$certificateStage='root';$Root=[IO.Path]::GetFullPath($Root)
 if($Root -ine $expected -or !(Test-Path -LiteralPath $Root -PathType Container)){throw 'The owned private root differs.'}
 $parent=[IO.DirectoryInfo]::new($Root);while($parent){if($parent.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'The fixture root is linked.'};$parent=$parent.Parent}
-$certificateStage='acl';$acl=Get-Acl -LiteralPath $Root;$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;$rules=@($acl.Access)
+$certificateStage='native_module';$nativeSecurity=GetPackageNativeSecurityCommand
+$certificateStage='acl';$acl=& $nativeSecurity.Command -LiteralPath $Root;$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;$rules=@($acl.Access)
 if(!$acl.AreAccessRulesProtected -or $rules.Count-ne 2){throw 'The certificate fixture root must be protected.'}
 foreach($rule in $rules){$who=$rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value;if($who -notin @($sid,'S-1-5-18') -or $rule.AccessControlType-ne 'Allow' -or ($rule.FileSystemRights-band [Security.AccessControl.FileSystemRights]::FullControl)-ne [Security.AccessControl.FileSystemRights]::FullControl){throw 'The certificate fixture ACL differs.'}}
 $subject='CN=FreePhone Development '+$Nonce;$container='OpenWebPBX-FreePhone-Development-'+$Nonce

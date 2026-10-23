@@ -24,3 +24,11 @@ try{
  }
 }finally{[IO.Directory]::Delete($root,$true)}
 "PASS $checks actual runtime observer/strict-receipt/offhost controls; native cmdlet/module behavior is untested"
+
+. (Join-Path $PSScriptRoot 'NativeSecurity.ps1')
+$proof=[ordered]@{type_is_cmdlet=$true;module_name_matches=$true;module_equals_stock_home=$true;module_equals_assembly_directory=$false;assembly_under_windows=$true;assembly_name_matches=$true;assembly_version_matches=$true;assembly_token_matches=$true;implementing_type_matches=$true}
+AssertPackageNativeSecurityProvenance $proof;Check $true
+$proof.module_equals_stock_home=$false;$proof.module_equals_assembly_directory=$true;AssertPackageNativeSecurityProvenance $proof;Check $true
+foreach($name in @('type_is_cmdlet','module_name_matches','assembly_under_windows','assembly_name_matches','assembly_version_matches','assembly_token_matches','implementing_type_matches','module_equals_assembly_directory')){$copy=[ordered]@{};foreach($key in $proof.Keys){$copy[$key]=$proof[$key]};$copy[$name]=$false;$refused=$false;try{AssertPackageNativeSecurityProvenance $copy}catch{$refused=$true};Check $refused}
+foreach($value in @('true',1,$null)){$copy=[ordered]@{};foreach($key in $proof.Keys){$copy[$key]=$proof[$key]};$copy.type_is_cmdlet=$value;$refused=$false;try{AssertPackageNativeSecurityProvenance $copy}catch{$refused=$true};Check $refused}
+"PASS $checks total runtime observer/receipt/native-identity adapter controls; actual stock ACL read still pending"
