@@ -126,7 +126,10 @@ is moved or relaxed. A transition identifies an observed interval, not its cause
 
 Failed cases also keep a private DEBUG engine trace from the case-start byte offset,
 after the engine has exited. A strict parser exports only fixed rejection signals
-and SDP media protocol, codec and crypto-suite names. No addresses, media keys,
+and SDP direction, media protocol, codec and crypto-suite names. Both the remote
+offer and the engine’s outbound offer are observed. The lab exports its mandatory
+SRTP suite to both bridge legs; the real client’s encryption policy is unchanged.
+No addresses, media keys,
 identifiers or arbitrary messages are included in this projection. The original
 case trace is at most 2 MiB and is sealed with a dedicated QA public key using
 RSA3072-OAEP-SHA256 and AES256-GCM. Source commit, hosted run, case, size and hash

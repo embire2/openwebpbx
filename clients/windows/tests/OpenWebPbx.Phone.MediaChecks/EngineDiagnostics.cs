@@ -4,8 +4,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 namespace OpenWebPbx.Phone.MediaChecks;
-internal sealed record EngineSdp(string kind, string protocol, string[] codecs, string[] crypto_suites);
-internal sealed record EngineObservation(bool observed, int log_bytes, string[] rejection_signals, EngineSdp[] remote_sdp, bool sealed_original);
+internal sealed record EngineSdp(string direction, string kind, string protocol, string[] codecs, string[] crypto_suites);
+internal sealed record EngineObservation(bool observed, int log_bytes, string[] rejection_signals, EngineSdp[] sdp, bool sealed_original);
 internal sealed record DiagnosticBinding(int schema, string source_commit, string run_id, string stage, int plaintext_bytes, string plaintext_sha256);
 internal sealed record SealedDiagnostic(int schema, string algorithm, string public_key_sha256, string aad, string wrapped_key, string nonce, string tag, string ciphertext);
 internal static class EngineDiagnostics
@@ -27,22 +27,25 @@ internal static class EngineDiagnostics
         ("sofia.c", "Reinvite Codec Error!", "reinvite_codec_error"),
         ("sofia.c", "Reinvite resulted in codec negotiation failure.", "reinvite_negotiation_failed")];
     // Exact logger framing, fixed source and fixed messages; arbitrary remote text is never exported.
-    private static readonly Regex LogLine = new(@"^(?:[a-fA-F0-9-]{36} )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ \[(DEBUG|WARNING|ERR|ERROR|NOTICE|INFO)\] ([a-z_]+\.c):[0-9]+ (.*)$", RegexOptions.CultureInvariant);
+    private static readonly Regex LogLine = new(@"^(?:[a-fA-F0-9-]{36} )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ (?:\d{1,3}\.\d{2}%\s+)?\[(DEBUG|WARNING|ERR|ERROR|NOTICE|INFO)\] ([a-z_]+\.c):[0-9]+ (.*)$", RegexOptions.CultureInvariant);
     internal static EngineObservation Project(byte[] raw)
     {
         if (raw.Length is < 1 or > Maximum) throw new InvalidDataException("Bounded private engine trace required.");
-        var lines = new UTF8Encoding(false, true).GetString(raw).Split('\n'); var signals = new List<string>(); var offers = new List<EngineSdp>();
+        var lines = new UTF8Encoding(false, true).GetString(raw).Split('\n').Select(line => Regex.Replace(line.TrimEnd('\r'), @"^[a-fA-F0-9]{8}-(?:[a-fA-F0-9]{4}-){3}[a-fA-F0-9]{12} ", "")).ToArray(); var signals = new List<string>(); var offers = new List<EngineSdp>();
         for (int i = 0; i < lines.Length; i++)
         {
             var match = LogLine.Match(lines[i].TrimEnd('\r')); if (!match.Success) continue;
             var source = match.Groups[2].Value; var message = match.Groups[3].Value;
             foreach (var error in Errors) if (source == error.Source && (message == error.Message || error.Signal == "codec_error" && message.StartsWith(error.Message + " ", StringComparison.Ordinal)) && !signals.Contains(error.Signal)) signals.Add(error.Signal);
-            if (source != "sofia.c" || match.Groups[1].Value != "DEBUG" || message is not ("Remote SDP:" or "Duplicate SDP")) continue;
-            int end = i + 1; while (end < lines.Length && end - i <= 256 && !LogLine.IsMatch(lines[end].TrimEnd('\r'))) end++;
+            string direction; int start;
+            if (source == "sofia.c" && match.Groups[1].Value == "DEBUG" && message is "Remote SDP:" or "Duplicate SDP") { direction = "remote"; start = i + 1; }
+            else if (source == "sofia_glue.c" && match.Groups[1].Value == "DEBUG" && message.Contains(" sending invite version: ", StringComparison.Ordinal) && i + 1 < lines.Length && lines[i + 1] == "Local SDP:") { direction = "local"; start = i + 2; }
+            else continue;
+            int end = start; while (end < lines.Length && end - i <= 256 && !LogLine.IsMatch(lines[end].TrimEnd('\r'))) end++;
             if (end - i > 256) throw new InvalidDataException("Bounded SDP section required.");
             string? kind = null; string protocol = "other"; var codecs = new HashSet<string>(StringComparer.Ordinal); var suites = new HashSet<string>(StringComparer.Ordinal);
-            void Finish() { if (kind is null) return; if (offers.Count >= 16) throw new InvalidDataException("Bounded SDP count required."); offers.Add(new(kind, protocol, codecs.Order(StringComparer.Ordinal).ToArray(), suites.Order(StringComparer.Ordinal).ToArray())); }
-            for (int line = i + 1; line < end; line++)
+            void Finish() { if (kind is null) return; if (offers.Count >= 16) throw new InvalidDataException("Bounded SDP count required."); offers.Add(new(direction, kind, protocol, codecs.Order(StringComparer.Ordinal).ToArray(), suites.Order(StringComparer.Ordinal).ToArray())); }
+            for (int line = start; line < end; line++)
             {
                 var value = lines[line].TrimEnd('\r'); if (value.Length > 4096) throw new InvalidDataException("Bounded SDP line required.");
                 if (value.StartsWith("m=", StringComparison.Ordinal))

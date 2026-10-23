@@ -59,12 +59,20 @@ try
         "v=0\no=PRIVATE 0 0 IN IP4 192.0.2.10\ns=PRIVATE\nc=IN IP4 192.0.2.10\nm=audio 19000 RTP/SAVP 0 8 101\na=rtpmap:101 telephone-event/8000\na=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:PRIVATE_KEY\nm=video 19002 RTP/SAVPF 96\na=rtpmap:96 VP8/90000\na=crypto:1 PRIVATE_SUITE inline:PRIVATE_KEY\n" +
         "2026-10-23 18:30:00.223456 [WARNING] switch_core_media.c:5628 Crypto not negotiated but required.\n";
     var traceBytes = System.Text.Encoding.UTF8.GetBytes(trace); var projected = EngineDiagnostics.Project(traceBytes);
-    Check(projected.observed && projected.remote_sdp.Length == 2 && projected.remote_sdp[0].codecs.SequenceEqual(new[] { "PCMA", "PCMU", "TELEPHONE-EVENT" }));
-    Check(projected.remote_sdp[0].crypto_suites.SequenceEqual(new[] { "AES_CM_128_HMAC_SHA1_80" }) && projected.remote_sdp[1].crypto_suites.SequenceEqual(new[] { "other" }));
+    Check(projected.observed && projected.sdp.Length == 2 && projected.sdp[0].codecs.SequenceEqual(new[] { "PCMA", "PCMU", "TELEPHONE-EVENT" }));
+    Check(projected.sdp[0].crypto_suites.SequenceEqual(new[] { "AES_CM_128_HMAC_SHA1_80" }) && projected.sdp[1].crypto_suites.SequenceEqual(new[] { "other" }));
     Check(projected.rejection_signals.SequenceEqual(new[] { "required_crypto_missing" }) && !JsonSerializer.Serialize(projected).Contains("PRIVATE", StringComparison.Ordinal) && !JsonSerializer.Serialize(projected).Contains("192.0.2", StringComparison.Ordinal));
     Check(EngineDiagnostics.Project(System.Text.Encoding.UTF8.GetBytes("Crypto not negotiated but required.\n")).rejection_signals.Length == 0);
     Check(EngineDiagnostics.Project(System.Text.Encoding.UTF8.GetBytes(trace.Replace("[WARNING] switch_core_media.c", "[WARNING] other.c"))).rejection_signals.Length == 0);
-    Check(EngineDiagnostics.Project(System.Text.Encoding.UTF8.GetBytes(trace.Replace("Remote SDP:", "PRIVATE Remote SDP:"))).remote_sdp.Length == 0);
+    Check(EngineDiagnostics.Project(System.Text.Encoding.UTF8.GetBytes(trace.Replace("Remote SDP:", "PRIVATE Remote SDP:"))).sdp.Length == 0);
+    var uuidPrefix = "01234567-89ab-cdef-0123-456789abcdef ";
+    var actualFormatModel = string.Join("\n", trace.Split('\n').Select(line => uuidPrefix + line.Replace(" [DEBUG]", " 99.95% [DEBUG]").Replace(" [WARNING]", " 99.95% [WARNING]"))) +
+        "\n" + uuidPrefix + "2026-10-23 18:30:01.123456 99.95% [DEBUG] sofia_glue.c:1659 PRIVATE sending invite version: PRIVATE\n" + uuidPrefix + "Local SDP:\n" + uuidPrefix + "v=0\n" + uuidPrefix + "m=audio 19000 RTP/AVP 0 8\n";
+    var actualFormat = EngineDiagnostics.Project(System.Text.Encoding.UTF8.GetBytes(actualFormatModel));
+    Check(actualFormat.sdp.Length == 3 && actualFormat.sdp[0].direction == "remote" && actualFormat.sdp[0].protocol == "RTP/SAVP" && actualFormat.sdp[0].crypto_suites.SequenceEqual(new[] { "AES_CM_128_HMAC_SHA1_80" }));
+    Check(actualFormat.sdp[2].direction == "local" && actualFormat.sdp[2].protocol == "RTP/AVP" && actualFormat.sdp[2].crypto_suites.Length == 0 && actualFormat.sdp[2].codecs.SequenceEqual(new[] { "PCMA", "PCMU" }));
+    Check(!JsonSerializer.Serialize(actualFormat).Contains("PRIVATE", StringComparison.Ordinal) && !JsonSerializer.Serialize(actualFormat).Contains(uuidPrefix.Trim(), StringComparison.Ordinal));
+    Check(EngineDiagnostics.Project(System.Text.Encoding.UTF8.GetBytes(actualFormatModel.Replace("sofia_glue.c", "other.c"))).sdp.Length == 2);
     Refuse(() => EngineDiagnostics.Project([])); Refuse(() => EngineDiagnostics.Project(new byte[EngineDiagnostics.Maximum + 1]));
     var privateLog = Path.Combine(root, "private.log"); File.WriteAllBytes(privateLog, new byte[] { 9, 9 }.Concat(traceBytes).ToArray()); Check(EngineDiagnostics.ReadCase(privateLog, 2).SequenceEqual(traceBytes));
     Refuse(() => EngineDiagnostics.ReadCase(privateLog, -1)); Refuse(() => EngineDiagnostics.ReadCase(privateLog, new FileInfo(privateLog).Length)); Refuse(() => EngineDiagnostics.ReadCase("relative.log", 0));

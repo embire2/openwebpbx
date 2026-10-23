@@ -253,16 +253,16 @@ function ReadNativeFailureObservation($Value){
  $Value
 }
 function ReadEngineObservation($Value){
- ClosedKeys $Value @('observed','log_bytes','rejection_signals','remote_sdp','sealed_original')
- if($Value.observed -isnot [bool] -or $Value.sealed_original -isnot [bool] -or $Value.log_bytes -isnot [long] -or $Value.log_bytes -lt 0 -or $Value.log_bytes -gt 2097152 -or $Value.rejection_signals -isnot [array] -or $Value.remote_sdp -isnot [array]){throw 'Typed bounded engine observations required.'}
- if(!$Value.observed -and ($Value.rejection_signals.Count -or $Value.remote_sdp.Count)){throw 'Unobserved trace cannot contain inferred signals.'}
+ ClosedKeys $Value @('observed','log_bytes','rejection_signals','sdp','sealed_original')
+ if($Value.observed -isnot [bool] -or $Value.sealed_original -isnot [bool] -or $Value.log_bytes -isnot [long] -or $Value.log_bytes -lt 0 -or $Value.log_bytes -gt 2097152 -or $Value.rejection_signals -isnot [array] -or $Value.sdp -isnot [array]){throw 'Typed bounded engine observations required.'}
+ if(!$Value.observed -and ($Value.rejection_signals.Count -or $Value.sdp.Count)){throw 'Unobserved trace cannot contain inferred signals.'}
  if(($Value.observed -or $Value.sealed_original) -and $Value.log_bytes -eq 0){throw 'Observed trace bytes required.'}
  $signals=@('crypto_in_avp_refused','srtp_administratively_disabled','required_crypto_missing','connection_line_missing','invalid_crypto_suite','codec_error','early_codec_error','reinvite_codec_error','reinvite_negotiation_failed')
- if($Value.rejection_signals.Count -gt $signals.Count -or @($Value.rejection_signals|Select-Object -Unique).Count -ne $Value.rejection_signals.Count -or $Value.remote_sdp.Count -gt 16){throw 'Bounded unique engine observations required.'}
+ if($Value.rejection_signals.Count -gt $signals.Count -or @($Value.rejection_signals|Select-Object -Unique).Count -ne $Value.rejection_signals.Count -or $Value.sdp.Count -gt 16){throw 'Bounded unique engine observations required.'}
  foreach($signal in $Value.rejection_signals){if($signal -isnot [string] -or $signal -cnotin $signals){throw 'Closed primary engine signals required.'}}
- foreach($sdp in $Value.remote_sdp){
-  ClosedKeys $sdp @('kind','protocol','codecs','crypto_suites')
-  if($sdp.kind -isnot [string] -or $sdp.kind -cnotin @('audio','video') -or $sdp.protocol -isnot [string] -or $sdp.protocol -cnotin @('RTP/AVP','RTP/AVPF','RTP/SAVP','RTP/SAVPF','UDP/TLS/RTP/SAVP','UDP/TLS/RTP/SAVPF','other')){throw 'Closed actual SDP media types required.'}
+ foreach($sdp in $Value.sdp){
+  ClosedKeys $sdp @('direction','kind','protocol','codecs','crypto_suites')
+  if($sdp.direction -isnot [string] -or $sdp.direction -cnotin @('remote','local') -or $sdp.kind -isnot [string] -or $sdp.kind -cnotin @('audio','video') -or $sdp.protocol -isnot [string] -or $sdp.protocol -cnotin @('RTP/AVP','RTP/AVPF','RTP/SAVP','RTP/SAVPF','UDP/TLS/RTP/SAVP','UDP/TLS/RTP/SAVPF','other')){throw 'Closed actual SDP media types required.'}
   foreach($field in @('codecs','crypto_suites')){
    $allowed=if($field -ceq 'codecs'){@('PCMU','PCMA','OPUS','G722','G729','VP8','VP9','H264','TELEPHONE-EVENT','CN','other')}else{@('AES_CM_128_HMAC_SHA1_80','AES_CM_128_HMAC_SHA1_32','AEAD_AES_128_GCM','AEAD_AES_256_GCM','other')}
    if($sdp.$field -isnot [array] -or $sdp.$field.Count -gt $allowed.Count -or @($sdp.$field|Select-Object -Unique).Count -ne $sdp.$field.Count){throw 'Bounded unique SDP names required.'}

@@ -11,7 +11,7 @@ $temp=Join-Path ([IO.Path]::GetTempPath()) ('engine-diagnostics-'+[Guid]::NewGui
 function Check([bool]$Value){if(!$Value){throw 'Engine diagnostic control failed.'};$script:checks++}
 function Refuse([scriptblock]$Action){$bad=$false;try{$null=&$Action}catch{$bad=$true};Check $bad}
 function Json($Value){$Value|ConvertTo-Json -Depth 12 -Compress|ConvertFrom-Json}
-function Observation {Json ([ordered]@{observed=$true;log_bytes=500;rejection_signals=@('required_crypto_missing');remote_sdp=@([ordered]@{kind='audio';protocol='RTP/SAVP';codecs=@('PCMU');crypto_suites=@('AES_CM_128_HMAC_SHA1_80')});sealed_original=$true})}
+function Observation {Json ([ordered]@{observed=$true;log_bytes=500;rejection_signals=@('required_crypto_missing');sdp=@([ordered]@{direction='remote';kind='audio';protocol='RTP/SAVP';codecs=@('PCMU');crypto_suites=@('AES_CM_128_HMAC_SHA1_80')});sealed_original=$true})}
 function Bytes($Value){,[Text.UTF8Encoding]::new($false).GetBytes(($Value|ConvertTo-Json -Depth 12 -Compress))}
 try{
  $actual=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'PreserveSealedEngineDiagnostic'},$true))[0].Extent.Text
@@ -24,14 +24,15 @@ try{
  foreach($field in @('observed','sealed_original')){$o=Observation;$o.$field='true';Refuse {ReadEngineObservation $o}}
  foreach($count in @(-1,2097153)){$o=Observation;$o.log_bytes=[long]$count;Refuse {ReadEngineObservation $o}}
  $o=Observation;$o.observed=$false;Refuse {ReadEngineObservation $o}
- $o=Observation;$o.remote_sdp[0].protocol='PRIVATE';Refuse {ReadEngineObservation $o}
- $o=Observation;$o.remote_sdp[0].crypto_suites=@('inline:PRIVATE');Refuse {ReadEngineObservation $o}
- $o=Observation;$o.remote_sdp[0].codecs=@('PRIVATE');Refuse {ReadEngineObservation $o}
+ $o=Observation;$o.sdp[0].direction='PRIVATE';Refuse {ReadEngineObservation $o}
+ $o=Observation;$o.sdp[0].protocol='PRIVATE';Refuse {ReadEngineObservation $o}
+ $o=Observation;$o.sdp[0].crypto_suites=@('inline:PRIVATE');Refuse {ReadEngineObservation $o}
+ $o=Observation;$o.sdp[0].codecs=@('PRIVATE');Refuse {ReadEngineObservation $o}
  $o=Observation;$o.rejection_signals=@('PRIVATE');Refuse {ReadEngineObservation $o}
  $o=Observation;$o.rejection_signals=@('codec_error','codec_error');Refuse {ReadEngineObservation $o}
- $o=Observation;$o.remote_sdp=@($o.remote_sdp[0])*17;Refuse {ReadEngineObservation $o}
- $o=Observation;$o.remote_sdp[0]|Add-Member NoteProperty key 'PRIVATE';Refuse {ReadEngineObservation $o}
- $o=Observation;$o.observed=$false;$o.rejection_signals=@();$o.remote_sdp=@();$null=ReadEngineObservation $o;Check $true
+ $o=Observation;$o.sdp=@($o.sdp[0])*17;Refuse {ReadEngineObservation $o}
+ $o=Observation;$o.sdp[0]|Add-Member NoteProperty key 'PRIVATE';Refuse {ReadEngineObservation $o}
+ $o=Observation;$o.observed=$false;$o.rejection_signals=@();$o.sdp=@();$null=ReadEngineObservation $o;Check $true
  $raw=[Text.Encoding]::UTF8.GetBytes('PRIVATE fictional trace');$pemPath=Join-Path $PSScriptRoot '../OpenWebPbx.Phone.MediaChecks/MediaDiagnosticPublic.pem';$pem=[IO.File]::ReadAllText($pemPath)
  $keyHash=[Convert]::ToHexStringLower([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($pem)));Check ($keyHash -ceq '1b26bb05b12379982b68d00e92178159049af959ba04cc483a06d1b0a49e7307')
  $rsa=[Security.Cryptography.RSA]::Create();$rsa.ImportFromPem($pem);Check ($rsa.KeySize -eq 3072)
