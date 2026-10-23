@@ -1,12 +1,12 @@
 # Execute actual journal/runtime-restoration blocks and inspect mutation order.
 # The executable upgrade script itself never runs in these portable controls.
 param([string]$SourceRoot=(Split-Path $PSScriptRoot -Parent))
-$ErrorActionPreference='Stop';$script:checks=0
+$ErrorActionPreference='Stop';Set-StrictMode -Version Latest;$script:checks=0
 function Assert([bool]$Value){if(!$Value){throw ('Upgrade recovery integration control failed at '+(Get-PSCallStack)[1].ScriptLineNumber)};$script:checks++}
 $tokens=$null;$errors=$null;$path=Join-Path $SourceRoot 'packaging/windows/Upgrade-OpenWebPBX.ps1';$ast=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors);Assert ($errors.Count -eq 0)
 $nodes=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'SaveJournal'},$true));Assert ($nodes.Count -eq 1);Invoke-Expression $nodes[0].Extent.Text
 function WriteState([string]$Path,$Value){$script:saved=$Value}
-$version='1.0.20';$previousVersion='1.0.6';$backup='C:\fixture\backups\one';$journalPath='C:\fixture\updates\install-journal.json';$script:managerTasks=@('EXACT_MANAGER');$script:operatorRollback=$false;$script:upgradeFinalizationPhase=$null;$script:upgradeFinalizationFailed=$false
+$version='1.0.20';$previousVersion='1.0.6';$backup='C:\fixture\backups\one';$journalPath='C:\fixture\updates\install-journal.json';$script:managerTasks=@('EXACT_MANAGER');$script:operatorRollback=$false;$script:upgradeFinalizationPhase=$null;$script:upgradeFinalizationFailed=$false;$script:callRecordsHold=$null
 foreach($entry in @($null,[pscustomobject]@{schema=1;bundle_path='C:\fixture\updates\recovery-entry\owned';metadata_sha256=('a'*64);launcher_sha256=('b'*64)})){
  $script:upgradeRecoveryEntry=$entry
  foreach($phase in 'deploying','migrating','validating','rolling_back','recovery_required','completed','rolled_back'){
@@ -32,7 +32,7 @@ foreach($active in $false,$true){foreach($hash in 'ORIGINAL_HASH','CHANGED_HASH'
 # mutation. Reset happens only after new installed helper copies and health.
 $commands=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.CommandAst]},$true))
 function Calls([string]$Name){return @($commands|Where-Object {$_.GetCommandName() -ceq $Name})}
-$seal=Calls SealBackup;$prepare=Calls New-OpenWebUpgradeRecovery;$publish=Calls Publish-OpenWebUpgradeRecovery;$php=Calls Install-OpenWebPhpRuntime
+$seal=@(Calls SealBackup);$prepare=@(Calls New-OpenWebUpgradeRecovery);$publish=@(Calls Publish-OpenWebUpgradeRecovery);$php=@(Calls Install-OpenWebPhpRuntime)
 Assert ($seal.Count -eq 1 -and $prepare.Count -eq 1 -and $publish.Count -eq 1 -and $php.Count -eq 1)
 Assert ($seal[0].Extent.EndOffset -lt $prepare[0].Extent.StartOffset -and $prepare[0].Extent.EndOffset -lt $publish[0].Extent.StartOffset -and $publish[0].Extent.EndOffset -lt $php[0].Extent.StartOffset)
 $deploy=@($commands|Where-Object {$_.GetCommandName() -ceq 'SaveJournal' -and $_.Extent.Text -ceq "SaveJournal 'deploying'"});Assert ($deploy.Count -eq 1 -and $prepare[0].Extent.EndOffset -lt $deploy[0].Extent.StartOffset -and $deploy[0].Extent.EndOffset -lt $publish[0].Extent.StartOffset)

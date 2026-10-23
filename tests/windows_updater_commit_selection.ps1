@@ -142,7 +142,7 @@ __WRITE_STATE__
 __SAVE_JOURNAL__
 $root=$c.Root;$private=$c.State;$switch=$c.Engine;$backup=$c.Backup;$version='1.0.20';$previousVersion='1.0.6';$journalPath=$c.Journal
 $script:serviceFile=$c.ServiceFile;$script:serviceWrites=0;$script:serviceCreates=0;$script:failSelection=$false
-$script:upgradeRecoveryEntry=$entry;$script:managerTasks=@();$script:operatorRollback=$false;$script:upgradeFinalizationPhase=$null;$script:upgradeFinalizationFailed=$false
+$script:upgradeRecoveryEntry=$entry;$script:managerTasks=@();$script:operatorRollback=$false;$script:upgradeFinalizationPhase=$null;$script:upgradeFinalizationFailed=$false;$script:callRecordsHold=$null
 $lock=[IO.File]::Open((Join-Path $c.State 'upgrade.lock'),'OpenOrCreate','ReadWrite','None')
 SaveJournal 'validating'
 if($r.position -cne 'before_commit'){SaveJournal 'completed'}

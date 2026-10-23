@@ -1,6 +1,6 @@
 # Actual commit/catch/boot-driver guards. No installed Windows service is called.
 param([string]$SourceRoot=(Split-Path $PSScriptRoot -Parent))
-$ErrorActionPreference='Stop';$WarningPreference='SilentlyContinue';$script:checks=0
+$ErrorActionPreference='Stop';$WarningPreference='SilentlyContinue';Set-StrictMode -Version Latest;$script:checks=0
 function Assert([bool]$Value){if(!$Value){throw ('Commit guard control failed at '+(Get-PSCallStack)[1].ScriptLineNumber)};$script:checks++}
 function Refuses([scriptblock]$Action){$failed=$false;try{& $Action|Out-Null}catch{$failed=$true};Assert $failed}
 function Parse([string]$Path){$t=$null;$e=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($Path,[ref]$t,[ref]$e);Assert ($e.Count -eq 0);return $ast}
@@ -21,7 +21,7 @@ $script:created=0;$script:configured=0;$existing=$null;$executable='fictional';f
 # Completed-finalization failures retain the commit and never stop/restore PBX.
 Invoke-Expression (Definition $main 'SaveJournal');function WriteState([string]$Path,$Value){$script:saved=$Value}
 $catchGuard=@($main.FindAll({param($n)$n -is [Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -ceq '$script:upgradeCommitted'},$true));Assert ($catchGuard.Count -eq 1)
-$script:upgradeCommitted=$true;$script:upgradeRecoveryEntry=[pscustomobject]@{schema=1};$script:managerTasks=@();$script:operatorRollback=$false;$version='1.0.20';$previousVersion='1.0.6';$backup='fictional';$journalPath='fictional'
+$script:upgradeCommitted=$true;$script:upgradeRecoveryEntry=[pscustomobject]@{schema=1};$script:managerTasks=@();$script:operatorRollback=$false;$script:callRecordsHold=$null;$version='1.0.20';$previousVersion='1.0.6';$backup='fictional';$journalPath='fictional'
 function RestorePbx {throw 'Destructive restore reached after commit.'};function StopPbx {throw 'Destructive stop reached after commit.'}
 foreach($phase in 'service_selection','background_tasks','manager_resume'){$script:upgradeFinalizationPhase=$phase;$script:upgradeFinalizationFailed=$false;& ([scriptblock]::Create($catchGuard[0].Extent.Text));Assert ($script:saved.state -ceq 'completed' -and $script:saved.finalization.phase -ceq $phase -and $script:saved.finalization.failed -eq $true)}
 # A completed receipt is replayed only until finalization actually finishes.
