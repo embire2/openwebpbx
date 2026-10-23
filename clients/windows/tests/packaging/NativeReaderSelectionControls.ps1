@@ -31,8 +31,11 @@ $probe=[scriptblock]::Create((@($statements[$first..($last-1)]|ForEach-Object {$
  # Only filesystem discovery is adapted. The probe extracts and invokes the
  # actual committed package enumeration/guard against these invented candidates.
  function Join-Path($Path,$ChildPath){if([string]::IsNullOrEmpty($Path)){'fixture-root/'+$ChildPath}else{Microsoft.PowerShell.Management\Join-Path $Path $ChildPath}}
- function Test-Path($Path,$PathType){if($Path-like '*Microsoft Visual Studio/*'){return $true};throw 'Unexpected discovery path.'}
- function Get-ChildItem($Path,[switch]$File,$ErrorAction){if($Path-notlike '*Microsoft Visual Studio/*' -or !$File){throw 'Unexpected discovery operation.'};@($script:readerFixture)}
+ function Test-Path($Path,$PathType){if($Path.Replace('\','/')-like '*Microsoft Visual Studio/*'){return $true};throw 'Unexpected discovery path.'}
+ function Get-ChildItem($Path,[switch]$File,$ErrorAction){if($Path.Replace('\','/')-notlike '*Microsoft Visual Studio/*' -or !$File){throw 'Unexpected discovery operation.'};@($script:readerFixture)}
+ $script:readerFixture=Candidate '14.50.1.0'
+ foreach($path in @('C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.50\bin\Hostx64\x64\dumpbin.exe','/fixture/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.50/bin/Hostx64/x64/dumpbin.exe')){Check (Test-Path $path -PathType Leaf);Check (@(Get-ChildItem $path -File -ErrorAction Stop).Count-eq 1)}
+ foreach($command in @('Test-Path','Get-ChildItem')){$refused=$false;try{if($command-ceq 'Test-Path'){Test-Path 'C:\foreign\dumpbin.exe' -PathType Leaf|Out-Null}else{Get-ChildItem 'C:\foreign\dumpbin.exe' -File -ErrorAction Stop|Out-Null}}catch{$refused=$true};Check $refused}
  foreach($case in @(@{version='14.50.1.0';accepted=$true},@{version='14.50.1.0 built by private-label';accepted=$false})){$script:readerFixture=Candidate $case.version;$result=[ordered]@{};. $Probe;Check ($result.native_import_reader_preflight_accepted-eq $case.accepted -and $result.native_import_reader_selection.candidate_count-ge 1 -and !$result.native_import_reader_selection.tool_executed)}
 } $probe
 "PASS $checks actual reader-observer/strict-consumer/source-guard controls; candidate metadata are explicit adapters, no native tool selection or trust pass"
