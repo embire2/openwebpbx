@@ -184,6 +184,7 @@ jobs:
           & ./clients/windows/tests/source/SourceDiagnostics.Checks.ps1
           & ./clients/windows/tests/source/SourceCi.Checks.ps1
           & ./clients/windows/tests/source/SourceSeed.Checks.ps1
+          & ./clients/windows/tests/source/SourceLicence.Checks.ps1
           & ./clients/windows/tools/Collect-Source-Ci.ps1 -Output "$env:RUNNER_TEMP/windows-phone-source"
       - name: Preserve closed source collection evidence
         if: always()
