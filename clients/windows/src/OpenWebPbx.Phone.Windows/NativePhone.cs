@@ -12,6 +12,7 @@ public sealed record PhoneDevice(string Id, string Name);
 public sealed class NativePhone : IDisposable
 {
     private readonly LCore core;
+    private readonly NativeSessionFiles nativeFiles = new();
     private readonly int thread = Environment.CurrentManagedThreadId;
     private readonly Dictionary<Guid, (PhoneProfile Profile, Account Account, AuthInfo Auth)> accounts = [];
     private readonly Dictionary<Call, Guid> identities = [];
@@ -31,6 +32,10 @@ public sealed class NativePhone : IDisposable
     public IReadOnlyDictionary<Guid, string> Registrations => registrations;
     public NativePhone()
     {
+        try
+        {
+        LoggingService.Instance.LogLevelMask = 0;
+        Factory.Instance.ConfigDir = nativeFiles.Path; Factory.Instance.DataDir = nativeFiles.Path; Factory.Instance.CacheDir = nativeFiles.Path;
         Factory.Instance.MspluginsDir = Path.Combine(AppContext.BaseDirectory, "native", "plugins");
         Factory.Instance.TopResourcesDir = Path.Combine(AppContext.BaseDirectory, "native", "share");
         // No path is supplied to Config: native account/auth/history state stays in memory.
@@ -61,10 +66,12 @@ public sealed class NativePhone : IDisposable
             if (match.Profile is not null) registrations[match.Profile.Id] = state switch { RegistrationState.Ok => "Ready for calls", RegistrationState.Progress => "Connecting…", RegistrationState.Failed => "Could not connect. Check your connection or sign in again.", _ => "Offline" };
             Changed?.Invoke();
         };
-        core.Listener.OnCallStateChanged = CallChanged;
+        core.Listener.OnCallStateChanged = (sender, call, state, message) => { try { CallChanged(sender, call, state, message); } catch { Message = "The call could not be updated. Choose your call to continue."; } };
         core.Listener.OnTransferStateChanged = (_, _, state) => { if (state == CallState.Error) Message = "Transfer failed. Choose your original call to continue."; Changed?.Invoke(); };
         core.Start();
         if (!core.IsVerifyServerCn || !core.IsVerifyServerCertificates || !core.IsMediaEncryptionMandatory || core.Config.GetInt("sip", "save_auth_info", 1) != 0) throw new InvalidOperationException("Secure native calling policy was not applied.");
+        }
+        catch { try { core?.Stop(); } catch { } try { nativeFiles.Dispose(); } catch { } throw; }
     }
     public void Iterate() { CheckThread(); core.Iterate(); }
     public void Synchronize(IReadOnlyList<PhoneProfile> profiles, Guid? chosen)
@@ -195,9 +202,23 @@ public sealed class NativePhone : IDisposable
         if (state == CallState.Released) { identities.Remove(call); history.Remove(call); }
         Changed?.Invoke();
     }
+    internal bool VerifyVolatileAuth(string secret)
+    {
+        CheckThread(); ConnectionRules.RequireIdle(core.CallsNb);
+        if (accounts.Count != 0) throw new InvalidOperationException("Only the empty native fixture may inspect auth persistence.");
+        var auth = Factory.Instance.CreateAuthInfo("owm-fixture", "owm-fixture", secret, null!, "invented.invalid", "invented.invalid");
+        try
+        {
+            core.AddAuthInfo(auth); var config = core.Config.Dump();
+            var files = Directory.EnumerateFiles(nativeFiles.Path, "*", SearchOption.AllDirectories).ToArray();
+            return core.AuthInfoList.Count() == 1 && !core.DatabaseEnabled && core.Config.GetInt("sip", "save_auth_info", 1) == 0 && core.Config.GetInt("sip", "store_auth_info", 1) == 0 &&
+                !config.Contains(secret, StringComparison.Ordinal) && !config.Contains("owm-fixture", StringComparison.Ordinal) && files.All(file => new FileInfo(file).Length <= 2 * 1024 * 1024 && !System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(file)).Contains(secret, StringComparison.Ordinal));
+        }
+        finally { core.RemoveAuthInfo(auth); core.ClearCallLogs(); }
+    }
     private void CheckThread() { ObjectDisposedException.ThrowIf(disposed, this); if (Environment.CurrentManagedThreadId != thread) throw new InvalidOperationException("Native phone operations require its dispatcher."); }
     public void Dispose()
     {
-        if (disposed) return; CheckThread(); if (Busy) throw new PhoneInputException("Finish your calls before closing the phone."); StopCamera(); foreach (var id in accounts.Keys.ToArray()) Remove(id); core.ClearCallLogs(); core.ClearAllAuthInfo(); core.Stop(); disposed = true;
+        if (disposed) return; CheckThread(); if (Busy) throw new PhoneInputException("Finish your calls before closing the phone."); StopCamera(); foreach (var id in accounts.Keys.ToArray()) Remove(id); core.ClearCallLogs(); core.ClearAllAuthInfo(); core.Stop(); nativeFiles.Dispose(); disposed = true;
     }
 }

@@ -77,9 +77,9 @@ public sealed partial class MainPage : Page
     private async Task Execute(Func<Task> action)
     {
         if (operationInFlight) { Show("Please wait for the current request to finish."); return; }
-        operationInFlight = true; AccountChoice.IsEnabled = false; Body.IsEnabled = false;
+        operationInFlight = true; AccountChoice.IsEnabled = false; BodyControls.IsEnabled = false;
         try { await action(); } catch (PhoneInputException e) { Show(e.Message); } catch (PhoneApiException e) { Show(e.Message); } catch (OperationCanceledException) { Show("The connection timed out. Please try again."); } catch (Exception e) { if (!initialized) ComponentDiagnostics.Failure("initialization", e); Show("This action could not finish. Check your connection and try again."); }
-        finally { operationInFlight = false; AccountChoice.IsEnabled = true; Body.IsEnabled = true; }
+        finally { operationInFlight = false; AccountChoice.IsEnabled = true; BodyControls.IsEnabled = true; }
     }
     private void Act(Action action) { try { action(); } catch (PhoneInputException e) { Show(e.Message); } catch { Show("The phone could not complete that action. Wait for the call to settle and try again."); } }
     private Button Button(string title, Action action, bool accent = false)

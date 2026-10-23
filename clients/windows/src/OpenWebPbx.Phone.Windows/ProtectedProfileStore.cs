@@ -16,10 +16,18 @@ public sealed class ProtectedProfileStore : IProfileStore
     private readonly string directory, path;
     private readonly SemaphoreSlim gate = new(1, 1);
     private sealed record Envelope(int Schema, Guid? Selected, PhoneProfile[] Profiles);
-    public ProtectedProfileStore(string channel)
+    public ProtectedProfileStore(string channel) : this(channel, null) { }
+    internal ProtectedProfileStore(string channel, string? isolatedTestRoot)
     {
         if (channel is not ("direct" or "store")) throw new ArgumentException("Choose a supported distribution.");
         directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenWebPBX Free Phone", channel);
+        if (isolatedTestRoot is not null)
+        {
+            var runner = Environment.GetEnvironmentVariable("RUNNER_TEMP"); var target = Path.GetFullPath(isolatedTestRoot);
+            if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") != "true" || Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT") != "github-hosted" || Environment.GetEnvironmentVariable("GITHUB_REPOSITORY") != "embire2/openwebpbx" || runner is null ||
+                !Path.GetDirectoryName(target)!.Equals(Path.GetFullPath(runner).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase) || !System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(target), "^phone-native-[a-f0-9]{32}$") || Directory.Exists(target) || File.Exists(target)) throw new InvalidOperationException("The isolated native fixture path is unavailable.");
+            directory = target;
+        }
         path = Path.Combine(directory, "accounts.dpapi");
     }
     public async Task<IReadOnlyList<PhoneProfile>> ReadAsync(CancellationToken cancellation = default)

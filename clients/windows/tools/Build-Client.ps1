@@ -26,6 +26,17 @@ try{
  $targetAssets=Join-Path $app 'Assets';New-Item -ItemType Directory -Path $targetAssets -Force|Out-Null;Get-ChildItem -LiteralPath $assets -File|Copy-Item -Destination $targetAssets -Force
  if(!(Test-Path (Join-Path $app 'Assets\AppIcon.ico'))){throw 'The native app icon is missing.'}
  @('OpenWebPbx.Phone.App.exe','Microsoft.UI.Xaml.dll','Microsoft.WindowsAppRuntime.Bootstrap.dll','liblinphone.dll','Assets/AppIcon.ico')|ForEach-Object{[ordered]@{name=$_;present=(Test-Path (Join-Path $app $_))}}|ConvertTo-Json|Set-Content (Join-Path $evidence 'startup-files.json')
+ $checks=Join-Path $Output 'native-checks'
+ & dotnet publish (Join-Path $client 'tests\OpenWebPbx.Phone.NativeChecks') -c Release -r win-x64 --self-contained true "-p:LinphoneBinding=$binding" -o $checks *> (Join-Path $evidence 'native-check-build.log');if($LASTEXITCODE){throw 'Native checks do not build.'}
+ foreach($dll in $dlls){Copy-Item $dll.FullName (Join-Path $checks $dll.Name) -Force};Copy-Item (Join-Path $app 'native') (Join-Path $checks 'native') -Recurse
+ $nativeReceipt=Join-Path $env:RUNNER_TEMP ('phone-native-result-'+[Guid]::NewGuid().ToString('N')+'.json')
+ & (Join-Path $checks 'OpenWebPbx.Phone.NativeChecks.exe') $nativeReceipt *> (Join-Path $evidence 'native-checks.log');if($LASTEXITCODE){throw 'Native protected storage or core checks failed.'}
+ $nativeResult=Get-Content -LiteralPath $nativeReceipt -Raw|ConvertFrom-Json
+ if($nativeResult.schema -ne 1 -or $nativeResult.producer -cne 'OpenWebPbx.Phone.NativeChecks' -or $nativeResult.state -cne 'passed' -or $nativeResult.checks -lt 17 -or $nativeResult.checks -gt 64){throw 'Native component proof differs.'}
+ foreach($flag in @('actual_native_windows','actual_current_user_dpapi','actual_native_core')){if($nativeResult.$flag -isnot [bool] -or !$nativeResult.$flag){throw 'Native component proof is incomplete.'}}
+ foreach($flag in @('calls_placed','hardware_media_tested')){if($nativeResult.$flag -isnot [bool] -or $nativeResult.$flag){throw 'Native component scope differs.'}}
+ Copy-Item -LiteralPath $nativeReceipt -Destination (Join-Path $evidence 'native-checks.json')
+ $report.native_dpapi_and_core_checks=$true
  $report.direct_build=$true
  $exe=Join-Path $app 'OpenWebPbx.Phone.App.exe';$receipt=Join-Path $env:RUNNER_TEMP ('phone-ui-'+[Guid]::NewGuid().ToString('N')+'.json')
  $launchStarted=Get-Date
@@ -51,10 +62,10 @@ finally{
  $evidenceFiles=@(Get-ChildItem -LiteralPath $evidence -File -Recurse -Force)
  $report.evidence_bounded=$true
  foreach($item in $evidenceFiles){
-  if($item.DirectoryName -cne $evidence -or $item.Name -notin 'core-checks.log','build.log','native-startup.json','startup-failure.json','startup-files.json','qualification.json' -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){Remove-Item -LiteralPath $item.FullName -Force;$report.evidence_bounded=$false;continue}
+  if($item.DirectoryName -cne $evidence -or $item.Name -notin 'core-checks.log','native-check-build.log','native-checks.log','native-checks.json','build.log','native-startup.json','startup-failure.json','startup-files.json','qualification.json' -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){Remove-Item -LiteralPath $item.FullName -Force;$report.evidence_bounded=$false;continue}
   if($item.Length -gt 8MB){$buffer=[byte[]]::new(8MB);$input=[IO.File]::OpenRead($item.FullName);try{$count=$input.Read($buffer,0,$buffer.Length)}finally{$input.Dispose()};$output=[IO.File]::Create($item.FullName);try{$output.Write($buffer,0,$count)}finally{$output.Dispose()};$report.evidence_bounded=$false}
  }
- if($evidenceFiles.Count -gt 8 -or (Get-ChildItem -LiteralPath $evidence -File|Measure-Object Length -Sum).Sum -gt 32MB){foreach($item in Get-ChildItem -LiteralPath $evidence -File){Remove-Item -LiteralPath $item.FullName -Force};$report.evidence_bounded=$false}
+ if($evidenceFiles.Count -gt 10 -or (Get-ChildItem -LiteralPath $evidence -File|Measure-Object Length -Sum).Sum -gt 32MB){foreach($item in Get-ChildItem -LiteralPath $evidence -File){Remove-Item -LiteralPath $item.FullName -Force};$report.evidence_bounded=$false}
  if(!$report.evidence_bounded){$report.state='failed';$report.evidence_failure='size_or_file_scope'}
  $report|ConvertTo-Json -Depth 8|Set-Content (Join-Path $evidence 'qualification.json') -Encoding utf8;Pop-Location
 }

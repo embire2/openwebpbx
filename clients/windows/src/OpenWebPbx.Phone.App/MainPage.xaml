@@ -17,7 +17,7 @@
                 </Grid>
                 <InfoBar x:Name="Notice" Grid.Row="1" IsOpen="False" IsClosable="True" />
                 <Border Grid.Row="2" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="12" Padding="16"><StackPanel x:Name="LiveCalls" Spacing="10" /></Border>
-                <ScrollViewer Grid.Row="3" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="Body" Spacing="14" MaxWidth="900" HorizontalAlignment="Stretch" /></ScrollViewer>
+                <ScrollViewer Grid.Row="3" HorizontalScrollBarVisibility="Disabled"><ContentControl x:Name="BodyControls" HorizontalContentAlignment="Stretch"><StackPanel x:Name="Body" Spacing="14" MaxWidth="900" HorizontalAlignment="Stretch" /></ContentControl></ScrollViewer>
             </Grid>
         </NavigationView>
     </Grid>
