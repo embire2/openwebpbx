@@ -112,3 +112,28 @@ hash; the earlier UTF16 diagnostic remains separate. Original failures survive
 capture/encryption refusal. Fifty actual PHP/raw-file/ephemeral-crypto controls
 and141 strict failure controls pass with explicit ACL/native-reader adapters;
 actual Windows commit acceptance still requires another reviewed run.
+
+
+Run40012022141/sourcef29f0d35 retains the actual commit child's raw error in the
+purpose-bound encrypted record. Verified private decryption identifies
+`Get-Acl` with `CouldNotAutoloadMatchingModule`, surfaced through the state
+permission check at Common line46. This is an actual Security module-loading
+failure; no lock or ACL permission-denial cause is inferred.
+
+The runner now bootstraps only on Windows PowerShell Desktop before importing
+Common: it imports absolute stock Security and Utility manifests and validates
+the actual Get-Acl, ConvertFrom-Json and Add-Type CmdletInfo identities, module
+paths/versions/GUIDs, ordinary ancestry, native assemblies, strong-name token and
+implementation types. The two Utility commands are explicit dependencies of the
+existing Refresh/Commit paths. PSModulePath and the entire original runner body,
+shared Recovery helpers and real locks remain unchanged.
+
+Eighty portable source/type/proxy/path controls pass. Read-only Windows PS5
+probes separately establish native Utility3.1.0.0/assembly3.0.0.0 provenance:
+with child-only autoload disabled both commands are absent, then explicit stock
+import makes both real operations succeed with empty stderr. The original-mode
+392-byte stderr record is retained and contains only CLIXML progress. Parent
+environment stays exact. The owner lacks the GHA Core module directory, so no
+inherited-Core reproduction is claimed. A further optional exact-prelude probe
+refused at transport command length before execution; it is retained separately
+and does not qualify the new runner. A fresh native component is still required.
