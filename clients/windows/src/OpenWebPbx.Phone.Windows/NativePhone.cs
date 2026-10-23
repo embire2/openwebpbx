@@ -12,7 +12,13 @@ public sealed record PhoneDevice(string Id, string Name);
 public sealed class NativePhone : IDisposable
 {
     private readonly LCore core;
-    private readonly NativeSessionFiles nativeFiles = new();
+    private readonly NativeSessionFiles nativeFiles;
+#if PHONE_MEDIA_FIXTURE
+    private readonly NativeMediaFixture? mediaFixture;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Call, int> decodedFrames = new();
+    private readonly System.Collections.Concurrent.ConcurrentQueue<Call> rearmFrames = new();
+    private readonly List<string> receivedDtmf = [];
+#endif
     private readonly int thread = Environment.CurrentManagedThreadId;
     private readonly Dictionary<Guid, (PhoneProfile Profile, Account Account, AuthInfo Auth)> accounts = [];
     private readonly Dictionary<Call, Guid> identities = [];
@@ -20,6 +26,11 @@ public sealed class NativePhone : IDisposable
     private Call? selected, consultation;
     private Conference? conference;
     private bool disposed, videoVisible;
+    private Player? voicemailPlayer;
+    private string? voicemailPath;
+    private int playbackEnded;
+    private readonly List<string> pendingAudioCleanup = [];
+    private readonly List<Player> pendingPlayers = [];
     public event Action? Changed;
     public event Action<Guid, string, bool, DateTimeOffset, int, bool>? CallFinished;
     private readonly Dictionary<Call, (Guid Profile, DateTimeOffset Started, bool Answered)> history = [];
@@ -30,9 +41,21 @@ public sealed class NativePhone : IDisposable
     public IReadOnlyList<LiveCall> Calls => core.Calls.Select(View).ToArray();
     public LiveCall? Current => selected is null ? null : View(selected);
     public IReadOnlyDictionary<Guid, string> Registrations => registrations;
-    public NativePhone() : this(null) { }
-    internal NativePhone(Action<string>? progress)
+    public NativePhone() : this((Action<string>?)null) { }
+#if PHONE_MEDIA_FIXTURE
+    internal NativePhone(NativeMediaFixture fixture) : this(null, fixture) { }
+#endif
+    internal NativePhone(Action<string>? progress
+#if PHONE_MEDIA_FIXTURE
+        , NativeMediaFixture? fixture = null
+#endif
+    )
     {
+#if PHONE_MEDIA_FIXTURE
+        fixture?.Validate(); mediaFixture = fixture; nativeFiles = new(fixture?.Root);
+#else
+        nativeFiles = new();
+#endif
         try
         {
         progress?.Invoke("runtime_resources"); NativeResources.Verify();
@@ -42,6 +65,9 @@ public sealed class NativePhone : IDisposable
         Factory.Instance.TopResourcesDir = Path.Combine(AppContext.BaseDirectory, "native", "share");
         // No path is supplied to Config: native account/auth/history state stays in memory.
         progress?.Invoke("configuration"); var config = Factory.Instance.CreateConfigFromString("[sip]\nsave_auth_info=0\nstore_auth_info=0\n[storage]\nbackend=\nuri=\n[lime]\nenabled=0\n[logging]\ndisable_stdout=1\n");
+#if PHONE_MEDIA_FIXTURE
+        if (mediaFixture is not null) { config.SetString("sip", "bind_address", "127.0.0.1"); config.SetInt("sip", "use_ipv6", 0); config.SetString("rtp", "bind_address", "127.0.0.1"); }
+#endif
         Factory.Instance.EnableLogCollection(LogCollectionState.Disabled);
         progress?.Invoke("create_core"); core = Factory.Instance.CreateCoreWithConfig(config, IntPtr.Zero);
         progress?.Invoke("database"); core.DatabaseEnabled = false; core.MaxCallLogs = 0; core.LimeX3DhEnabled = false; core.DisableChat(Reason.NotAcceptable);
@@ -70,13 +96,26 @@ public sealed class NativePhone : IDisposable
         };
         core.Listener.OnCallStateChanged = (sender, call, state, message) => { try { CallChanged(sender, call, state, message); } catch { Message = "The call could not be updated. Choose your call to continue."; } };
         core.Listener.OnTransferStateChanged = (_, _, state) => { if (state == CallState.Error) Message = "Transfer failed. Choose your original call to continue."; Changed?.Invoke(); };
+#if PHONE_MEDIA_FIXTURE
+        if (mediaFixture is not null) ConfigureMediaFixture(mediaFixture);
+        core.Listener.OnDtmfReceived = (_, _, value) => { var key = ((char)value).ToString(); if ("0123456789*#".Contains(key, StringComparison.Ordinal) && receivedDtmf.Count < 128) receivedDtmf.Add(key); };
+#endif
         core.SetUserAgent("OpenWebPBX Free Phone", "1.0.0");
         progress?.Invoke("start"); core.Start();
         progress?.Invoke("verify_policy"); if (!core.IsVerifyServerCn || !core.IsVerifyServerCertificates || !core.IsMediaEncryptionMandatory || core.Config.GetInt("sip", "save_auth_info", 1) != 0) throw new InvalidOperationException("Secure native calling policy was not applied.");
         }
         catch { try { core?.Stop(); } catch { } try { nativeFiles.Dispose(); } catch { } throw; }
     }
-    public void Iterate() { CheckThread(); core.Iterate(); }
+    public void Iterate()
+    {
+        CheckThread(); core.Iterate();
+        if (Interlocked.Exchange(ref playbackEnded, 0) != 0) InterruptVoicemail();
+        foreach (var player in pendingPlayers.ToArray()) try { player.Close(); pendingPlayers.Remove(player); } catch { }
+        foreach (var file in pendingAudioCleanup.ToArray()) try { File.Delete(file); pendingAudioCleanup.Remove(file); } catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+#if PHONE_MEDIA_FIXTURE
+        while (rearmFrames.TryDequeue(out var call)) if (core.Calls.Contains(call) && call.CurrentParams.VideoEnabled) call.RequestNotifyNextVideoFrameDecoded();
+#endif
+    }
     public void Synchronize(IReadOnlyList<PhoneProfile> profiles, Guid? chosen)
     {
         CheckThread(); ConnectionRules.RequireIdle(core.CallsNb);
@@ -84,6 +123,9 @@ public sealed class NativePhone : IDisposable
         foreach (var profile in profiles.Where(x => !x.NeedsLogin && !accounts.ContainsKey(x.Id)))
         {
             var sip = profile.Sip;
+#if PHONE_MEDIA_FIXTURE
+            if (mediaFixture is not null && (sip.Server is not ("localhost" or "127.0.0.1") || sip.Port <= 1024 || !sip.Realm.EndsWith(".invalid", StringComparison.Ordinal))) throw new InvalidOperationException("Media fixture SIP escaped loopback.");
+#endif
             var auth = Factory.Instance.CreateAuthInfo(sip.Username, sip.AuthUsername, sip.Password, null!, sip.Realm, sip.Realm);
             core.AddAuthInfo(auth);
             try
@@ -107,10 +149,11 @@ public sealed class NativePhone : IDisposable
     }
     public void Reconnect() { CheckThread(); ConnectionRules.RequireIdle(core.CallsNb); core.NetworkReachable = true; core.RefreshRegisters(); Message = "Reconnecting…"; }
     public void NetworkChanged(bool available) { CheckThread(); core.NetworkReachable = available; if (available) core.RefreshRegisters(); Message = available ? "Reconnecting…" : "No network connection"; Changed?.Invoke(); }
-    public void Dial(string number, bool video = false)
+    public void Dial(string number, bool video = false) => DialOnProfile(number, video, SelectedProfile);
+    private void DialOnProfile(string number, bool video, Guid? profileId)
     {
         CheckThread(); CallingRules.Stable(pending is not null); if (video) RequireVideo(true); if (core.CallsNb >= 2) throw new PhoneInputException("Finish one call before starting another.");
-        if (SelectedProfile is not Guid id || !accounts.TryGetValue(id, out var account) || account.Account.State != RegistrationState.Ok) throw new PhoneInputException("Wait for this account to connect.");
+        if (profileId is not Guid id || !accounts.TryGetValue(id, out var account) || account.Account.State != RegistrationState.Ok) throw new PhoneInputException("Wait for this account to connect.");
         var address = Factory.Instance.CreateAddress($"sip:{ConnectionRules.Number(number)}@{account.Profile.Sip.Realm}");
         var active = selected; if (active is not null && active.State == CallState.StreamsRunning) { active.Pause(); pending = () => Start(); return; }
         Start();
@@ -143,7 +186,7 @@ public sealed class NativePhone : IDisposable
     public void Mute() { CheckThread(); var call = Required(); if (conference is not null) conference.MicrophoneMuted = !conference.MicrophoneMuted; else call.MicrophoneMuted = !call.MicrophoneMuted; Changed?.Invoke(); }
     public void Dtmf(char key) { CheckThread(); if (!"0123456789*#".Contains(key)) return; Required().SendDtmf((sbyte)key); }
     public void BlindTransfer(string number) { CheckThread(); CallingRules.Stable(pending is not null); var call = Required(); call.TransferTo(Factory.Instance.CreateAddress($"sip:{ConnectionRules.Number(number)}@{Profile(call).Sip.Realm}")); }
-    public void Consult(string number) { CheckThread(); if (consultation is not null || core.CallsNb != 1) throw new PhoneInputException("Choose a single call to transfer."); consultation = Required(); try { Dial(number); } catch { consultation = null; throw; } }
+    public void Consult(string number) { CheckThread(); if (consultation is not null || core.CallsNb != 1) throw new PhoneInputException("Choose a single call to transfer."); consultation = Required(); try { DialOnProfile(number, false, Profile(consultation).Id); } catch { consultation = null; throw; } }
     public void CompleteTransfer() { CheckThread(); var destination = Required(); if (consultation is null || destination == consultation || destination.State != CallState.StreamsRunning) throw new PhoneInputException("Wait for the second person to answer."); consultation.TransferToAnother(destination); }
     public void CancelConsultation() { CheckThread(); pending = null; var original = consultation; consultation = null; if (original is null) return; foreach (var call in core.Calls.Where(x => x != original).ToArray()) call.Terminate(); selected = original; if (original.State == CallState.Paused) original.Resume(); }
     public void Merge()
@@ -172,11 +215,44 @@ public sealed class NativePhone : IDisposable
         core.NativePreviewWindowId = preview; core.QrcodeVideoPreviewEnabled = true; core.VideoCaptureEnabled = true; core.VideoPreviewEnabled = true;
     }
     public void EndQrScan() { CheckThread(); core.Listener.OnQrcodeFound = null!; core.QrcodeVideoPreviewEnabled = false; StopCamera(); core.NativePreviewWindowId = IntPtr.Zero; }
+    public void PlayVoicemail(byte[] audio)
+    {
+        CheckThread(); ConnectionRules.RequireIdle(core.CallsNb); StopVoicemail();
+        if (audio.Length is < 44 or > 32 * 1024 * 1024 || !audio.AsSpan(0, 4).SequenceEqual("RIFF"u8) || !audio.AsSpan(8, 4).SequenceEqual("WAVE"u8)) throw new PhoneInputException("This voicemail audio format is unavailable. Dial 121 to listen through your phone.");
+        var path = Path.Combine(nativeFiles.Path, "voicemail-" + Guid.NewGuid().ToString("N") + ".wav");
+        try
+        {
+            using (var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read, 4096, FileOptions.WriteThrough)) { output.Write(audio); output.Flush(true); }
+            voicemailPath = path; voicemailPlayer = core.CreateLocalPlayer(core.OutputAudioDevice?.Id ?? core.DefaultOutputAudioDevice?.Id!, null!, IntPtr.Zero) ?? throw new PhoneInputException("Connect a speaker or headset to play voicemail.");
+            voicemailPlayer.Listener.OnEofReached = _ => Interlocked.Exchange(ref playbackEnded, 1);
+            voicemailPlayer.Open(path); voicemailPlayer.Start();
+        }
+        catch { StopVoicemail(); if (File.Exists(path)) { try { File.Delete(path); } catch (IOException) { pendingAudioCleanup.Add(path); } } throw new PhoneInputException("Voicemail could not play. Check your speaker or headset, or dial 121 to listen through your phone."); }
+    }
+    public void StopVoicemail()
+    {
+        CheckThread(); var player = voicemailPlayer; voicemailPlayer = null; Interlocked.Exchange(ref playbackEnded, 0);
+        try { player?.Close(); }
+        catch { if (player is not null) { try { player.Pause(); } catch { } pendingPlayers.Add(player); } Message = "Voicemail playback cleanup is pending. Calling remains available."; }
+        finally
+        {
+            var path = voicemailPath; voicemailPath = null;
+            if (path is not null) try { File.Delete(path); } catch (Exception error) when (error is IOException or UnauthorizedAccessException) { pendingAudioCleanup.Add(path); }
+        }
+    }
+    private void InterruptVoicemail()
+    {
+        try { StopVoicemail(); } catch { Message = "Voicemail playback could not be cleared completely. Your incoming call remains available."; }
+    }
     public void AttachVideo(IntPtr remote, IntPtr preview) { CheckThread(); videoVisible = remote != IntPtr.Zero; core.NativeVideoWindowId = remote; core.NativePreviewWindowId = preview; }
     private void RequireVideo(bool dialing = false) => CallingRules.Video(videoVisible, Cameras.Count > 0, core.CallsNb, conference is not null, dialing);
     public IReadOnlyList<PhoneDevice> Microphones => core.ExtendedAudioDevices.Where(x => x.HasCapability(AudioDeviceCapabilities.CapabilityRecord)).Select(x => new PhoneDevice(x.Id, x.DeviceName)).ToArray();
     public IReadOnlyList<PhoneDevice> Speakers => core.ExtendedAudioDevices.Where(x => x.HasCapability(AudioDeviceCapabilities.CapabilityPlay)).Select(x => new PhoneDevice(x.Id, x.DeviceName)).ToArray();
-    public IReadOnlyList<string> Cameras => core.VideoDevicesList.Where(x => !x.Contains("StaticImage", StringComparison.OrdinalIgnoreCase)).ToArray();
+    public IReadOnlyList<string> Cameras => core.VideoDevicesList.Where(x => !x.Contains("StaticImage", StringComparison.OrdinalIgnoreCase)
+#if PHONE_MEDIA_FIXTURE
+        || mediaFixture?.StaticImage is not null
+#endif
+    ).ToArray();
     public void SetMicrophone(string id) { CheckThread(); var device = core.ExtendedAudioDevices.FirstOrDefault(x => x.Id == id && x.HasCapability(AudioDeviceCapabilities.CapabilityRecord)) ?? throw new PhoneInputException("Choose an available microphone."); core.InputAudioDevice = device; core.DefaultInputAudioDevice = device; }
     public void SetSpeaker(string id) { CheckThread(); var device = core.ExtendedAudioDevices.FirstOrDefault(x => x.Id == id && x.HasCapability(AudioDeviceCapabilities.CapabilityPlay)) ?? throw new PhoneInputException("Choose an available speaker."); core.OutputAudioDevice = device; core.DefaultOutputAudioDevice = device; }
     public void SetCamera(string camera) { CheckThread(); if (!Cameras.Contains(camera)) throw new PhoneInputException("Choose an available camera."); core.VideoDevice = camera; }
@@ -191,10 +267,18 @@ public sealed class NativePhone : IDisposable
     private Call Required() => selected ?? throw new PhoneInputException("Choose an active call first.");
     private void CallChanged(LCore _, Call call, CallState state, string ignored)
     {
+        if (state is CallState.IncomingReceived or CallState.OutgoingInit) InterruptVoicemail();
         if (state == CallState.IncomingReceived && core.CallsNb > 2) { call.Decline(Reason.Busy); return; }
+#if PHONE_MEDIA_FIXTURE
+        if (mediaFixture is not null && !decodedFrames.ContainsKey(call))
+        {
+            decodedFrames[call] = 0; call.Listener.OnNextVideoFrameDecoded = observed => { decodedFrames.AddOrUpdate(observed, 1, (_, count) => count + 1); rearmFrames.Enqueue(observed); };
+        }
+        if (mediaFixture is not null && state == CallState.StreamsRunning && call.CurrentParams.VideoEnabled) call.RequestNotifyNextVideoFrameDecoded();
+#endif
         if (!history.ContainsKey(call)) history[call] = (Profile(call).Id, DateTimeOffset.UtcNow, false);
         if (state == CallState.StreamsRunning) { var old = history[call]; history[call] = (old.Profile, old.Started, true); }
-        if (state == CallState.IncomingReceived || selected is null) selected = call;
+        if (selected is null) selected = call;
         if (state == CallState.UpdatedByRemote && call.RemoteParams.VideoEnabled != call.CurrentParams.VideoEnabled) { call.DeferUpdate(); Message = "The other person requested video. Choose Accept video or Audio only."; }
         if (state == CallState.Paused && pending is not null) { var next = pending; pending = null; next(); }
         if (state is CallState.End or CallState.Error)
@@ -207,6 +291,36 @@ public sealed class NativePhone : IDisposable
         if (state == CallState.Released) { identities.Remove(call); history.Remove(call); }
         Changed?.Invoke();
     }
+#if PHONE_MEDIA_FIXTURE
+    internal void ConfigureMediaFixture(NativeMediaFixture fixture)
+    {
+        CheckThread(); fixture.Validate();
+        if (mediaFixture is null || fixture.Root != mediaFixture.Root || accounts.Count != 0 || core.CallsNb != 0) throw new InvalidOperationException("Only a fresh isolated native media core may be configured.");
+        core.RootCaData = fixture.CaPem; core.UseFiles = true; core.PlayFile = fixture.InputWav; core.RecordFile = fixture.OutputWav; core.Ipv6Enabled = false;
+#pragma warning disable CS0612 // Fixture-only forced advertisement; actual loopback bind keys are set before core creation.
+        core.NatAddress = "127.0.0.1";
+#pragma warning restore CS0612
+        var policy = core.CreateNatPolicy(); policy.StunEnabled = false; policy.IceEnabled = false; policy.TurnEnabled = false; core.NatPolicy = policy;
+        var transport = Factory.Instance.CreateTransports(); transport.UdpPort = 0; transport.TcpPort = 0; transport.TlsPort = -2; core.Transports = transport;
+        if (fixture.StaticImage is not null) { core.StaticPicture = fixture.StaticImage; core.StaticPictureFps = 15; core.VideoDevice = core.VideoDevicesList.First(x => x.Contains("StaticImage", StringComparison.OrdinalIgnoreCase)); }
+        if (!core.IsVerifyServerCertificates || !core.IsVerifyServerCn || !core.IsMediaEncryptionMandatory) throw new InvalidOperationException("Media fixture weakened production transport policy.");
+    }
+    internal NativeLocalPlaybackSnapshot FixturePlaybackSnapshot()
+    {
+        CheckThread(); if (mediaFixture is null) throw new InvalidOperationException("No media fixture is active.");
+        return new(voicemailPlayer?.State.ToString() ?? "Closed", voicemailPlayer?.Duration ?? 0, voicemailPlayer?.CurrentPosition ?? 0, voicemailPath is not null && File.Exists(voicemailPath));
+    }
+    internal NativeFixtureSnapshot FixtureSnapshot(bool clearDtmf = false)
+    {
+        CheckThread(); if (mediaFixture is null) throw new InvalidOperationException("No media fixture is active.");
+        var calls = core.Calls.Select(call => { var view = View(call); var parameters = call.CurrentParams; var definition = parameters?.ReceivedVideoDefinition; return new NativeMediaCallSnapshot(view.Id, call.State.ToString(), parameters?.MediaEncryption.ToString() ?? "None", call.AudioStats?.SrtpSuite.ToString() ?? "Invalid", parameters?.UsedVideoPayloadType?.MimeType ?? "", decodedFrames.GetValueOrDefault(call), (int)(definition?.Width ?? 0), (int)(definition?.Height ?? 0), parameters?.ReceivedFramerate ?? 0); }).ToArray();
+        var dtmf = receivedDtmf.ToArray(); if (clearDtmf) receivedDtmf.Clear();
+        return new(core.IsVerifyServerCertificates && core.IsVerifyServerCn, core.IsMediaEncryptionMandatory, calls, dtmf);
+    }
+#endif
+    // Pinned5.5.23 chat.c returns chat_deny_code!=None from the misleadingly named getter.
+    // The native fixture must prove enable=false/disable=true before this adapter can survive an SDK change.
+    private bool ChatDenied => core.ChatEnabled;
     internal NativeAuthStorageProof? AuthStorageProof { get; private set; }
     internal bool VerifyVolatileAuth(string secret)
     {
@@ -216,7 +330,9 @@ public sealed class NativePhone : IDisposable
         try
         {
             core.AddAuthInfo(auth); var config = core.Config.Dump();
-            var count = core.AuthInfoList.Count(); var databaseDisabled = !core.DatabaseEnabled; var limeDisabled = !core.LimeX3DhEnabled; var chatDisabled = !core.ChatEnabled;
+            var count = core.AuthInfoList.Count(); var databaseDisabled = !core.DatabaseEnabled; var limeDisabled = !core.LimeX3DhEnabled; var chatDisabled = ChatDenied;
+            core.EnableChat(); var allowedFlag = core.ChatEnabled; core.DisableChat(Reason.NotAcceptable); var deniedFlag = core.ChatEnabled;
+            var denyTransitions = chatDisabled && !allowedFlag && deniedFlag;
             var saveDisabled = core.Config.GetInt("sip", "save_auth_info", 1) == 0; var storeDisabled = core.Config.GetInt("sip", "store_auth_info", 1) == 0;
             var configSecret = config.Contains(secret, StringComparison.Ordinal); var configUser = config.Contains("owm-fixture", StringComparison.Ordinal);
             core.Stop();
@@ -228,7 +344,7 @@ public sealed class NativePhone : IDisposable
                 if (new FileInfo(file).Length > 2 * 1024 * 1024 || (File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0) { complete = false; continue; }
                 fileSecret |= System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(file)).Contains(secret, StringComparison.Ordinal);
             }
-            AuthStorageProof = new(count, databaseDisabled, limeDisabled, chatDisabled, saveDisabled, storeDisabled, configSecret, configUser, true, files.Length, unexpectedDb, unexpectedConfig, fileSecret, complete);
+            AuthStorageProof = new(count, databaseDisabled, limeDisabled, chatDisabled, saveDisabled, storeDisabled, denyTransitions, configSecret, configUser, true, files.Length, unexpectedDb, unexpectedConfig, fileSecret, complete);
             return AuthStorageProof.Passed;
         }
         finally { core.RemoveAuthInfo(auth); core.ClearCallLogs(); }
@@ -236,6 +352,6 @@ public sealed class NativePhone : IDisposable
     private void CheckThread() { ObjectDisposedException.ThrowIf(disposed, this); if (Environment.CurrentManagedThreadId != thread) throw new InvalidOperationException("Native phone operations require its dispatcher."); }
     public void Dispose()
     {
-        if (disposed) return; CheckThread(); if (Busy) throw new PhoneInputException("Finish your calls before closing the phone."); StopCamera(); foreach (var id in accounts.Keys.ToArray()) Remove(id); core.ClearCallLogs(); core.ClearAllAuthInfo(); core.Stop(); nativeFiles.Dispose(); disposed = true;
+        if (disposed) return; CheckThread(); if (Busy) throw new PhoneInputException("Finish your calls before closing the phone."); StopVoicemail(); StopCamera(); foreach (var id in accounts.Keys.ToArray()) Remove(id); core.ClearCallLogs(); core.ClearAllAuthInfo(); core.Stop(); nativeFiles.Dispose(); disposed = true;
     }
 }

@@ -24,6 +24,7 @@ try
     var changed = encrypted.ToArray(); changed[^1] ^= 1; File.WriteAllBytes(file, changed); var refused = false; try { await store.ReadAsync(); } catch (PhoneInputException) { refused = true; } Check(refused); File.WriteAllBytes(file, encrypted);
     await store.SaveAsync([], null); Check((await store.ReadAsync()).Count == 0); Check(await store.SelectedAsync() is null);
     foreach (var entry in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)) { var content = Encoding.UTF8.GetString(File.ReadAllBytes(entry)); Check(!content.Contains(profile.Sip.Password) && !content.Contains(profile.Token)); }
+    Check(typeof(NativePhone).Assembly.GetType("OpenWebPbx.Phone.Windows.NativeMediaFixture") is null);
     Observe("native_start"); using (var native = new NativePhone(stage => Observe("native_" + stage))) { Check(!native.Busy); Check(native.Calls.Count == 0); native.Iterate(); Check(native.Registrations.Count == 0); Observe("native_auth_inspection"); var valid = native.VerifyVolatileAuth(profile.Sip.Password); authStorage = native.AuthStorageProof; Observe("native_auth_inspection"); Check(valid); }
     using var output = new FileStream(args[0], FileMode.Create, FileAccess.Write, FileShare.Read);
     JsonSerializer.Serialize(output, new { schema = 1, producer = "OpenWebPbx.Phone.NativeChecks", state = "passed", checks, actual_native_windows = true, actual_current_user_dpapi = true, actual_native_core = true, calls_placed = false, hardware_media_tested = false, auth_storage = authStorage });

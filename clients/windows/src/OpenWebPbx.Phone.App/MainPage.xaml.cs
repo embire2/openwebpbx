@@ -7,8 +7,6 @@ using Microsoft.UI.Xaml.Media;
 using OpenWebPbx.Phone.Core;
 using OpenWebPbx.Phone.Windows;
 using Windows.Storage.Pickers;
-using Windows.Media.Core;
-using Windows.Media.Playback;
 using Windows.Storage.Streams;
 using Linphone;
 namespace OpenWebPbx.Phone.App;
@@ -26,7 +24,6 @@ public sealed partial class MainPage : Page
     private PhoneProfile? current;
     private IReadOnlyList<PhoneProfile> saved = [];
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(20) };
-    private MediaPlayer? player;
     private readonly IncomingNotifications notifications = new();
     private readonly HashSet<Guid> notified = [];
     private string section = "Keypad";
@@ -127,7 +124,7 @@ public sealed partial class MainPage : Page
         LiveCalls.Children.Clear();
         foreach (var call in phone.Calls)
         {
-            var line = Row(); line.Children.Add(Text($"{call.Name} · {call.Number} · {Friendly(call.State)}"));
+            var line = Row(); line.Children.Add(Text($"{saved.FirstOrDefault(p => p.Id == call.ProfileId)?.Label} · {call.Name} · {call.Number} · {Friendly(call.State)}"));
             if (call.State is CallState.IncomingReceived or CallState.IncomingEarlyMedia)
             {
                 if (notified.Add(call.Id) && preferences.Notifications) notifications.Show(call.Id, call.Name, preferences.HideCallerInNotifications);
@@ -138,7 +135,7 @@ public sealed partial class MainPage : Page
             else { line.Children.Add(Button("Choose call", () => phone.Select(call.Id))); line.Children.Add(Button("End call", () => phone.Hangup(call.Id))); }
             LiveCalls.Children.Add(line);
         }
-        if (!phone.Busy) { LiveCalls.Visibility = Visibility.Collapsed; videoWindow?.Close(); player?.Pause(); return; }
+        if (!phone.Busy) { LiveCalls.Visibility = Visibility.Collapsed; videoWindow?.Close(); return; }
         StopPlayback(); LiveCalls.Visibility = Visibility.Visible;
         var controls = Row(); controls.Children.Add(Button(phone.Current?.State == CallState.Paused ? "Resume Call" : "Call Hold", phone.HoldResume, true)); controls.Children.Add(Button(phone.Current?.Muted == true ? "Unmute" : "Mute", phone.Mute)); controls.Children.Add(AsyncButton("Transfer", Transfer)); controls.Children.Add(Button("Merge calls", phone.Merge)); controls.Children.Add(Button("Video", () => { OpenVideo(); phone.SetVideo(true); })); controls.Children.Add(Button("Stop camera", phone.StopCamera)); LiveCalls.Children.Add(controls);
         if (phone.Current?.State == CallState.UpdatedByRemote) { var offer = Row(); offer.Children.Add(Button("Accept video", () => { OpenVideo(); phone.AcceptVideoOffer(true); })); offer.Children.Add(Button("Audio only", () => phone.AcceptVideoOffer(false))); LiveCalls.Children.Add(offer); }
@@ -147,10 +144,11 @@ public sealed partial class MainPage : Page
     private static string Friendly(CallState state) => state switch { CallState.Paused => "On hold", CallState.StreamsRunning => "Connected", CallState.IncomingReceived => "Incoming call", CallState.OutgoingRinging => "Ringing", CallState.PausedByRemote => "The other person placed you on hold", CallState.Error => "Unavailable", _ => "Connecting…" };
     private async Task Transfer()
     {
+        var originalCall = phone?.Current?.Id ?? throw new PhoneInputException("Choose an active call first.");
         var number = new TextBox { Header = "Extension or phone number", MaxLength = 32 }; var content = new StackPanel { Spacing = 12 }; content.Children.Add(number);
         content.Children.Add(Button("Complete attended transfer", () => phone!.CompleteTransfer())); content.Children.Add(Button("Cancel and return", () => phone!.CancelConsultation()));
         var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Transfer call", Content = content, PrimaryButtonText = "Transfer now", SecondaryButtonText = "Speak first", CloseButtonText = "Cancel" };
-        var result = await dialog.ShowAsync(); if (result == ContentDialogResult.Primary) phone!.BlindTransfer(number.Text); if (result == ContentDialogResult.Secondary) phone!.Consult(number.Text);
+        var result = await dialog.ShowAsync(); if (phone?.Current?.Id != originalCall) throw new PhoneInputException("The call changed. Choose Transfer again from the call you want."); if (result == ContentDialogResult.Primary) phone!.BlindTransfer(number.Text); if (result == ContentDialogResult.Secondary) phone!.Consult(number.Text);
     }
     private async Task DrawAccounts()
     {
@@ -195,18 +193,14 @@ public sealed partial class MainPage : Page
     {
         await FlushHistory(current!); using var api = Api(); var result = await api.JsonAsync("calls"); foreach (var item in (result["calls"]?.AsArray() ?? []).OfType<JsonObject>()) { var number = item["number"]!.ToString(); Body.Children.Add(Button($"{item["name"]} · {number} · {item["direction"]} · {item["started_at"]} · {item["duration"]}s", () => phone!.Dial(number))); }
     }
-    private void StopPlayback()
-    {
-        var old = player; player = null; if (old is null) return;
-        try { old.Pause(); old.Source = null; } finally { old.Dispose(); }
-    }
+    private void StopPlayback() => phone?.StopVoicemail();
     private async Task DrawVoicemail()
     {
         using var api = Api(); var result = await api.JsonAsync("voicemail");
         foreach (var item in (result["messages"]?.AsArray() ?? []).OfType<JsonObject>())
         {
             var id = item["id"]!.ToString(); Body.Children.Add(Text($"{(item["read"]?.GetValue<bool>() == true ? "" : "New · ")}{item["caller_name"]} · {item["caller_number"]} · {item["created_at"]}")); var row = Row();
-            row.Children.Add(AsyncButton("Play", async () => { ConnectionRules.RequireIdle(phone!.Calls.Count); using var request = Api(); var bytes = await request.VoicemailAsync(id); ConnectionRules.RequireIdle(phone!.Calls.Count); var stream = new InMemoryRandomAccessStream(); using (var writer = new DataWriter(stream.GetOutputStreamAt(0))) { writer.WriteBytes(bytes); await writer.StoreAsync(); } stream.Seek(0); StopPlayback(); try { player = new MediaPlayer(); player.Source = MediaSource.CreateFromStream(stream, "audio/wav"); player.Play(); } catch { StopPlayback(); stream.Dispose(); throw new PhoneInputException("Voicemail playback is unavailable on this Windows installation. Ask your administrator to enable Media Foundation, or dial 121 to listen through your phone."); } await request.JsonAsync("voicemail_read", new() { ["id"] = id }); }));
+            row.Children.Add(AsyncButton("Play", async () => { ConnectionRules.RequireIdle(phone!.Calls.Count); using var request = Api(); var bytes = await request.VoicemailAsync(id); ConnectionRules.RequireIdle(phone!.Calls.Count); phone.PlayVoicemail(bytes); await request.JsonAsync("voicemail_read", new() { ["id"] = id }); }));
             row.Children.Add(AsyncButton("Mark read", async () => { using var request = Api(); await request.JsonAsync("voicemail_read", new() { ["id"] = id }); await Draw(); }));
             row.Children.Add(AsyncButton("Delete", async () => { var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Delete voicemail?", Content = "This removes the message from your mailbox.", PrimaryButtonText = "Delete", CloseButtonText = "Cancel" }; if (await dialog.ShowAsync() != ContentDialogResult.Primary) return; StopPlayback(); using var request = Api(); await request.JsonAsync("voicemail_delete", new() { ["id"] = id }); await Draw(); })); Body.Children.Add(row);
         }
@@ -268,6 +262,7 @@ public sealed partial class MainPage : Page
     }
     private async Task StartVideo(string number)
     {
+        if (ConnectionRules.Number(number) == current?.Account.Extension) throw new PhoneInputException("Choose a colleague’s extension for a video call.");
         using var api = Api(); var bootstrap = await api.JsonAsync("bootstrap"); if (!(bootstrap["features"]?.AsArray().Any(x => x?.ToString() == "video_calls") ?? false)) throw new PhoneInputException("Video is not enabled for this PBX yet.");
         var contacts = await api.JsonAsync("directory"); if (!(contacts["contacts"]?.AsArray().OfType<JsonObject>().Any(x => x["id"]?.ToString() == "extension:" + ConnectionRules.Number(number)) ?? false)) throw new PhoneInputException("Choose a colleague listed in Contacts for a video call."); OpenVideo(); phone!.Dial(number, true);
     }
@@ -288,7 +283,7 @@ public sealed partial class MainPage : Page
     public void NetworkChanged() => phone?.NetworkChanged(global::Windows.Networking.Connectivity.NetworkInformation.GetConnectionProfiles().Any(p => p.GetNetworkConnectivityLevel() != global::Windows.Networking.Connectivity.NetworkConnectivityLevel.None));
     public void ShowMessage(string message) => Show(message);
     public async Task WaitAndImport(SetupInvitation invitation) { await EnsureInitialized(); await Execute(() => ImportInvitation(invitation)); }
-    public bool CanExit => phone?.Busy != true;
+    public bool CanExit => !operationInFlight && phone?.Busy != true;
     public void StopCamera() => phone?.StopCamera();
     public void Shutdown() { global::Windows.Networking.Connectivity.NetworkInformation.NetworkStatusChanged -= NetworkStatusChanged; timer.Stop(); videoWindow?.Close(); notifications.Dispose(); StopPlayback(); phone?.Dispose(); }
 }

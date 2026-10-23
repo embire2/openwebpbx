@@ -55,6 +55,14 @@ try{
  $ui=Get-Content -LiteralPath $receipt -Raw|ConvertFrom-Json
  if($ui.schema -ne 1 -or $ui.version -cne '1.0.0' -or $ui.native_core_started -ne $true -or $ui.credentials_persisted -ne $false -or $ui.tls_ca_and_hostname -ne $true -or $ui.mandatory_srtp -ne $true -or $ui.calls_placed -ne $false){throw 'Native client startup policy differs.'}
  Copy-Item $receipt (Join-Path $evidence 'native-startup.json');$report.responsive_native_window=$true;$report.native_core_startup=$true
+ Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public static class PhoneWindowCapture{[StructLayout(LayoutKind.Sequential)]public struct Rect{public int Left,Top,Right,Bottom;}[DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out Rect r);[DllImport("user32.dll")]public static extern bool SetForegroundWindow(IntPtr h);}'
+ Add-Type -AssemblyName System.Drawing
+ [PhoneWindowCapture]::SetForegroundWindow($process.MainWindowHandle)|Out-Null;Start-Sleep -Milliseconds 500
+ $rect=[PhoneWindowCapture+Rect]::new();if(![PhoneWindowCapture]::GetWindowRect($process.MainWindowHandle,[ref]$rect)){throw 'Native window bounds are unavailable.'}
+ $width=$rect.Right-$rect.Left;$height=$rect.Bottom-$rect.Top;if($width -lt 320 -or $height -lt 320 -or $width -gt 4000 -or $height -gt 3000){throw 'Native window bounds differ.'}
+ $bitmap=[Drawing.Bitmap]::new($width,$height);$graphics=[Drawing.Graphics]::FromImage($bitmap)
+ try{$graphics.CopyFromScreen($rect.Left,$rect.Top,0,0,$bitmap.Size);$bitmap.Save((Join-Path $evidence 'client-window.png'),[Drawing.Imaging.ImageFormat]::Png)}finally{$graphics.Dispose();$bitmap.Dispose()}
+ $report.native_window_screenshot=$true
  $report.state='passed_build_startup';$report.limitation='Native client build and visible startup only; calling, hardware, packaging and Store acceptance remain separate gates.'
 }catch{$report.state='failed';$report.error_type=$_.Exception.GetType().Name;$report.source_line=$_.InvocationInfo.ScriptLineNumber;throw}
 finally{
@@ -71,7 +79,7 @@ finally{
  $evidenceFiles=@(Get-ChildItem -LiteralPath $evidence -File -Recurse -Force)
  $report.evidence_bounded=$true
  foreach($item in $evidenceFiles){
-  if($item.DirectoryName -cne $evidence -or $item.Name -notin 'core-checks.log','native-check-build.log','native-checks.log','native-checks.json','build.log','native-startup.json','startup-failure.json','startup-files.json','qualification.json' -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){Remove-Item -LiteralPath $item.FullName -Force;$report.evidence_bounded=$false;continue}
+  if($item.DirectoryName -cne $evidence -or $item.Name -notin 'core-checks.log','native-check-build.log','native-checks.log','native-checks.json','build.log','native-startup.json','startup-failure.json','startup-files.json','client-window.png','qualification.json' -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){Remove-Item -LiteralPath $item.FullName -Force;$report.evidence_bounded=$false;continue}
   if($item.Length -gt 8MB){$buffer=[byte[]]::new(8MB);$input=[IO.File]::OpenRead($item.FullName);try{$count=$input.Read($buffer,0,$buffer.Length)}finally{$input.Dispose()};$output=[IO.File]::Create($item.FullName);try{$output.Write($buffer,0,$count)}finally{$output.Dispose()};$report.evidence_bounded=$false}
  }
  if($evidenceFiles.Count -gt 10 -or (Get-ChildItem -LiteralPath $evidence -File|Measure-Object Length -Sum).Sum -gt 32MB){foreach($item in Get-ChildItem -LiteralPath $evidence -File){Remove-Item -LiteralPath $item.FullName -Force};$report.evidence_bounded=$false}

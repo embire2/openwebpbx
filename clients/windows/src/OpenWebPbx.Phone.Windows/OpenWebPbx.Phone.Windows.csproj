@@ -3,6 +3,10 @@
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.22000.0</SupportedOSPlatformVersion>
     <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
+    <DefineConstants Condition="'$(PhoneMediaFixture)' == 'true'">$(DefineConstants);PHONE_MEDIA_FIXTURE</DefineConstants>
+    <OutputPath Condition="'$(PhoneMediaFixture)' == 'true'">bin/media-fixture/$(Configuration)/</OutputPath>
+    <IntermediateOutputPath Condition="'$(PhoneMediaFixture)' == 'true'">obj/media-fixture/$(Configuration)/</IntermediateOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin/**;obj/**</DefaultItemExcludes>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../OpenWebPbx.Phone.Core/OpenWebPbx.Phone.Core.csproj" /><ProjectReference Include="../Liblinphone.Bindings/Liblinphone.Bindings.csproj" /></ItemGroup>

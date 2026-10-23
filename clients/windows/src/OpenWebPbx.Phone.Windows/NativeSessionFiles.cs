@@ -6,8 +6,15 @@ namespace OpenWebPbx.Phone.Windows;
 internal sealed class NativeSessionFiles : IDisposable
 {
     public string Path { get; }
-    public NativeSessionFiles()
+    public NativeSessionFiles(
+#if PHONE_MEDIA_FIXTURE
+        string? fixtureRoot = null
+#endif
+    )
     {
+#if PHONE_MEDIA_FIXTURE
+        if (fixtureRoot is not null) { Path = System.IO.Path.Combine(fixtureRoot, "native-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(Path); return; }
+#endif
         var parent = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenWebPBX Free Phone", "native-runtime");
         for (var item = new DirectoryInfo(parent); item is not null; item = item.Parent) if (item.Exists && (item.Attributes & FileAttributes.ReparsePoint) != 0) throw new InvalidOperationException("The private native runtime path is linked.");
         Directory.CreateDirectory(parent); var acl = new DirectorySecurity(); acl.SetAccessRuleProtection(true, false);
