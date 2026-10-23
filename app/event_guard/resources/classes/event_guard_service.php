@@ -216,21 +216,15 @@ class event_guard_service extends service {
 				}
 			}
 
-			// Registration to the IP address
+			// This is an authentication challenge, not a failed registration.
+			// Sofia emits it for REGISTER and INVITE, and its misleading to-host
+			// header contains the caller's From host. Phones legitimately send a
+			// private/numeric From host, including while an old contact expires.
+			// Only the independent register_failure signal can justify the
+			// authentication-failure block above; never block an entire office
+			// from these unauthenticated, caller-controlled challenge headers.
 			if (is_array($json_array) && $json_array['Event-Subclass'] == 'sofia::pre_register') {
-				if (isset($json_array['to-host'])) {
-					// Debug info
-					$this->debug("sofia::pre_register network-ip ".$json_array['network-ip'].", to-host ".$json_array['to-host']);
-
-					// Validate the to-host IP address
-					$is_valid_ip = filter_var($json_array['to-host'], FILTER_VALIDATE_IP);
-
-					// If not registered block the address
-					if ($is_valid_ip && !$this->allow_access($json_array['network-ip'])) {
-						$this->block_add($json_array['network-ip'], 'sip-auth-ip', $json_array);
-						continue;
-					}
-				}
+				continue;
 			}
 
 			// Debug information

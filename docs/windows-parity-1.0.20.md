@@ -19,6 +19,18 @@ database security returned unchanged. This does not qualify the optional staged
 listener detector, whose earlier access-control refusal is retained. No candidate
 has replaced the original installation.
 
+Normal run39932924949 at source4803149f1 is testing the stock-module recovery
+correction and closed conference diagnostics. A subsequent, separately requested
+phone-security correction also changes the Windows guard: a normal SIP challenge
+with a numeric caller host must not create an office-wide firewall block. Actual
+authentication-failure handling and controlled recovery remain unchanged. The
+policy passes129 isolated PostgreSQL controls; the real ESL/Defender fixture now
+also requires a numeric-host challenge to leave rules and the security ledger
+unchanged before exercising its existing failure/recovery cases. This later
+runtime delta requires its own rebuilt full package; an earlier run cannot
+qualify it. The corresponding narrow Debian repair is already live, without a
+calling-engine restart or credential changes.
+
 Normal run39911316784 at source64a12010c passes fresh installation, trusted web,
 tenant domains, STUN, Phone Health, Meet transport and the corrected recovery
 component. It still fails the browser conference proof and a separate direct

@@ -52,10 +52,23 @@ try{
  $q("insert into v_pbx_phone_health_contacts(domain_uuid,extension_uuid,source_address,expires_at) values(?,?,?::inet,now()+interval '5 minutes')",[$domain,$extension,$source]);
  $phase='esl_subscribe';$subscriber=new pbx_windows_health_stream();$subscriber->connect();$marker=uuid();$publisher=new pbx_windows_health_stream();
  $phase='esl_publish';
- try{$publisher->connect(false);$send=new ReflectionMethod(pbx_windows_health_stream::class,'send');$send->invoke($publisher,"sendevent CUSTOM\nEvent-Name: CUSTOM\nEvent-Subclass: sofia::register_failure\nOpenWeb-Health-Fixture: ".$marker."\nnetwork-ip: ".$source."\nto-host: ".$realm."\nto-user: native-health-auth\nuser-agent: OpenWebPBX isolated native fixture");$ack=$publisher->packet(3);$check(($ack['Content-Type']??null)==='command/reply'&&str_starts_with($ack['Reply-Text']??'','+OK'),'The real local ESL publisher did not accept the fixture event.');}finally{$publisher->close();}
- $phase='esl_receive';$event=null;$deadline=microtime(true)+4;
- while(microtime(true)<$deadline){$packet=$subscriber->packet(min(1,max(.001,$deadline-microtime(true))));if(($packet['Content-Type']??null)!=='text/event-json')continue;$candidate=json_decode($packet['body'],true,32,JSON_THROW_ON_ERROR);if(($candidate['OpenWeb-Health-Fixture']??null)===$marker){$event=$candidate;break;}}
- $check(is_array($event)&&($event['Event-Subclass']??null)==='sofia::register_failure','The actual installed subscriber did not receive the fixture event.');$subscriber->close();
+ try{
+  $publisher->connect(false);$send=new ReflectionMethod(pbx_windows_health_stream::class,'send');
+  // Both are explicitly synthetic native ESL events. The first reproduces the
+  // W60B's numeric/private From-host and empty From-user challenge; it must not
+  // mutate Defender or PostgreSQL. The genuine-failure signal then retains all
+  // the existing fault/reconciliation/recovery checks below.
+  foreach([['sofia::pre_register','192.168.10.20',''],['sofia::register_failure',$realm,'native-health-auth']]as[$subclass,$host,$user]){
+   $send->invoke($publisher,"sendevent CUSTOM\nEvent-Name: CUSTOM\nEvent-Subclass: ".$subclass."\nOpenWeb-Health-Fixture: ".$marker."\nnetwork-ip: ".$source."\nto-host: ".$host."\nto-user: ".$user."\nuser-agent: OpenWebPBX isolated native fixture");$ack=$publisher->packet(3);$check(($ack['Content-Type']??null)==='command/reply'&&str_starts_with($ack['Reply-Text']??'','+OK'),'The real local ESL publisher did not accept the fixture event.');
+  }
+ }finally{$publisher->close();}
+ $phase='esl_receive';$event=null;$challenge=null;$deadline=microtime(true)+4;
+ while(microtime(true)<$deadline){$packet=$subscriber->packet(min(1,max(.001,$deadline-microtime(true))));if(($packet['Content-Type']??null)!=='text/event-json')continue;$candidate=json_decode($packet['body'],true,32,JSON_THROW_ON_ERROR);if(($candidate['OpenWeb-Health-Fixture']??null)!==$marker)continue;if(($candidate['Event-Subclass']??null)==='sofia::register_failure')$event=$candidate;if(($candidate['Event-Subclass']??null)==='sofia::pre_register')$challenge=$candidate;if($event!==null&&$challenge!==null)break;}
+ $check(is_array($event)&&($event['Event-Subclass']??null)==='sofia::register_failure','The actual installed subscriber did not receive the fixture failure event.');
+ $check(is_array($challenge)&&($challenge['to-host']??null)==='192.168.10.20','The actual installed subscriber did not receive the numeric-host fixture challenge.');$subscriber->close();
+ $guard=new pbx_windows_event_guard($db,$firewall);$beforeChallengeCalls=count($firewall->nativeCalls);$beforeChallengeRows=(int)$q('select count(*) from v_event_guard_logs')->fetchColumn();
+ $check($guard->consume($challenge)['status']==='ignored','A legitimate numeric-host challenge was not ignored.');
+ $check(count($firewall->nativeCalls)===$beforeChallengeCalls&&(int)$q('select count(*) from v_event_guard_logs')->fetchColumn()===$beforeChallengeRows,'A challenge mutated native rules or the security ledger.');
  $phase='native_add';$fault=new native_health_fault_guard($db,$firewall);$failed=false;try{$fault->consume($event);}catch(RuntimeException$e){if($e->getMessage()!=='Deliberate interruption after native Defender rule creation.')throw$e;$failed=true;}
  $phase='ledger_intent';
  $check($failed,'The native post-mutation interruption was not reached.');$row=$q('select event_guard_log_uuid,log_status from v_event_guard_logs where ip_address=?',[$source])->fetch(PDO::FETCH_ASSOC);

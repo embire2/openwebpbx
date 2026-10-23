@@ -120,7 +120,14 @@ try{
   $guard->raw=json_encode(['row_count'=>1,'rows'=>[$reg('auth-1000',$realm,'198.51.100.53')]]);$ok($guard->consume(array_replace($event,['network-ip'=>'198.51.100.53']))['status']==='allowed','Current registered office blocked');
   $guard->raw='malformed';$beforeRules=$fw->rules;$no(fn()=>$guard->consume(array_replace($event,['network-ip'=>'198.51.100.54'])),'Unknown native registrations accepted for blocking');$ok($beforeRules===$fw->rules,'Unknown native state changed rules');$guard->raw='{"row_count":0}';
   $ok($guard->consume(array_replace($event,['Event-Subclass'=>'sofia::pre_register']))['status']==='ignored','Normal domain registration treated as direct-IP attempt');
-  $ok($guard->consume(array_replace($event,['Event-Subclass'=>'sofia::pre_register','to-host'=>'192.0.2.10','network-ip'=>'198.51.100.55']))['status']==='blocked'&&isset($fw->rules['sip-auth-ip|198.51.100.55']),'Direct-IP attempt not protected');
+  $challengeLogs=(int)$q('select count(*) from v_event_guard_logs')->fetchColumn();$challengeRules=$fw->rules;
+  foreach(['192.168.10.20','8.8.8.8','2001:db8::10',$realm,'',null,[],str_repeat('a',254)]as$fromHost){
+   foreach(['fictional-auth','',null,[]]as$fromUser){
+    $ok($guard->consume(array_replace($event,['Event-Subclass'=>'sofia::pre_register','to-host'=>$fromHost,'to-user'=>$fromUser,'network-ip'=>'198.51.100.55']))['status']==='ignored','An unauthenticated challenge blocked a phone office');
+   }
+  }
+  $ok($fw->rules===$challengeRules&&(int)$q('select count(*) from v_event_guard_logs')->fetchColumn()===$challengeLogs,'Challenge headers changed native rules or the security ledger');
+  $ok($guard->consume(array_replace($event,['to-host'=>'192.0.2.10','network-ip'=>'198.51.100.55']))['status']==='blocked'&&isset($fw->rules['sip-auth-fail|198.51.100.55']),'Genuine failed authentication to a numeric host lost protection');
   // A native rule exists before its acknowledgement can commit. Both process
   // interruption and an actual deferred PostgreSQL commit failure retain intent.
   $confirmedBefore=$health->snapshot()['summary']['blocked_offices'];

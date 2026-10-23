@@ -53,11 +53,14 @@ class pbx_windows_event_guard {
             if(!method_exists($this->firewall,'block_state_exact')||$this->firewall->block_state_exact($row['ip_address'],'sip-auth-fail')!=='present')return ['status'=>'pending','reason'=>'native_block_not_confirmed'];
             return pbx_phone_health_recovery::handle($this->db,$this->firewall,gethostname(),$block,$recovery);
         }
-        if(!in_array($kind,['sofia::register_failure','sofia::pre_register'],true))return ['status'=>'ignored'];
+        // pre_register is a challenge shared by REGISTER and INVITE. Its
+        // to-host is the caller-controlled From host, not proof of a direct-IP
+        // registration or failed digest. Private/public numeric phone headers
+        // must never create an office-wide block. Keep genuine failures below.
+        if($kind!=='sofia::register_failure')return ['status'=>'ignored'];
         $source=$event['network-ip']??null;$host=$event['to-host']??null;$user=$event['to-user']??null;
         if(!is_string($source)||!filter_var($source,FILTER_VALIDATE_IP,FILTER_FLAG_IPV4)||!is_string($host)||strlen($host)>253||!is_string($user)||strlen($user)>256||preg_match('/[\x00-\x20\x7f]/',$host.$user))return ['status'=>'ignored'];
-        if($kind==='sofia::pre_register'&&!filter_var($host,FILTER_VALIDATE_IP))return ['status'=>'ignored'];
-        $source=inet_ntop(inet_pton($source));$filter=$kind==='sofia::register_failure'?'sip-auth-fail':'sip-auth-ip';
+        $source=inet_ntop(inet_pton($source));$filter='sip-auth-fail';
         // Protect local engine, loopback and administration. These sources
         // cannot establish customer office proof or create a remote block.
         if($source==='0.0.0.0'||str_starts_with($source,'127.')||$source==='255.255.255.255')return ['status'=>'ignored'];
