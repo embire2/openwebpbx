@@ -17,6 +17,8 @@ if(Test-Path $gateHelper){. $gateHelper}else{throw 'The Windows restore safeguar
 . (Join-Path (Split-Path $gateHelper -Parent) 'Support-Recovery.ps1')
 . (Join-Path (Split-Path $gateHelper -Parent) 'Web-Readiness.ps1')
 . (Join-Path (Split-Path $gateHelper -Parent) 'UpgradeRecovery.Common.ps1')
+. (Join-Path (Split-Path $gateHelper -Parent) 'CallRecords.Common.ps1')
+$script:callRecordsHold=$null
 $script:upgradeRecoveryEntry=$null;$script:upgradeCommitted=$false;$script:upgradeFinalizationPhase=$null;$script:upgradeFinalizationFailed=$false;$script:operatorUpdaterWasRunning=$false;$script:operatorUpdaterStopped=$false
 $updates = Join-Path $private 'updates'
 $journalPath = Join-Path $updates 'install-journal.json'
@@ -42,8 +44,10 @@ function WriteState([string]$Path,$Value) {
 function SaveJournal([string]$Phase) {
  $record=@{schema=1;state=$Phase;version=$version;previous_version=$previousVersion;backup_path=$backup;updated_at=[DateTime]::UtcNow.ToString('o');manager_tasks=@($script:managerTasks);operator_rollback=[bool]$script:operatorRollback}
  if($script:upgradeRecoveryEntry){$record.recovery_entry=$script:upgradeRecoveryEntry}
+ if($script:callRecordsHold){$record.call_records_hold=$script:callRecordsHold}
  if($script:upgradeFinalizationPhase){$record.finalization=@{phase=$script:upgradeFinalizationPhase;failed=[bool]$script:upgradeFinalizationFailed}}
  WriteState $journalPath $record
+ if($Phase -ceq 'rolled_back' -and $script:callRecordsHold){Remove-OpenWebCallRecordHold -StateRoot $private -Hold $script:callRecordsHold -MaintenanceLock $lock}
 }
 function WaitPool([string]$Wanted) {
  for($i=0;$i -lt 160;$i++){if((Get-WebAppPoolState OpenWebPBX).Value -eq $Wanted){return};Start-Sleep -Milliseconds 250}
@@ -70,8 +74,25 @@ function CompleteCommittedFinalization {
  }
  $script:upgradeFinalizationPhase='manager_resume'
  ResumeManagers
+ if($script:callRecordsHold){Remove-OpenWebCallRecordHold -StateRoot $private -Hold $script:callRecordsHold -MaintenanceLock $lock}
  $script:upgradeFinalizationPhase='complete';$script:upgradeFinalizationFailed=$false
  SaveJournal 'completed'
+}
+function CompleteInstalledCallRecordHold {
+ # A successful fresh installation can lose power after Completed commits but
+ # before its marker is removed. The ordinary updater's first Recover retries
+ # only this exact installation-owned marker, never an upgrade/restore hold.
+ if(!(Test-Path -LiteralPath (Join-Path $private 'call-records.hold'))){return}
+ if(Test-Path -LiteralPath $journalPath){throw 'A pending update must recover before the fresh-install call-record hold can be released.'}
+ $installed=Get-Content -LiteralPath (Join-Path $private 'installation.json') -Raw -Encoding UTF8|ConvertFrom-Json -ErrorAction Stop
+ $installedVersion=(Get-Content -LiteralPath (Join-Path $root 'web\VERSION') -Raw -Encoding UTF8 -ErrorAction Stop).Trim()
+ if($installed.Completed -isnot [bool] -or !$installed.Completed -or $installed.Version -isnot [string] -or $installed.Version -cne $installedVersion -or !$installed.PSObject.Properties['CallRecordHold']){throw 'The fresh installation has not durably completed at its installed version.'}
+ Assert-OpenWebCallRecordHold $installed.CallRecordHold
+ if($installed.CallRecordHold.owner -cne 'install'){throw 'A different call-record hold requires its normal recovery.'}
+ $gate=Get-OpenWebRestoreGate -StateRoot $private
+ if($gate.Calls -or $gate.Jobs -or $gate.Updates -or $gate.Backups){throw 'Restore activation is required before call-record imports may resume.'}
+ Assert-OpenWebUpgradeAllowed -StateRoot $private
+ Remove-OpenWebCallRecordHold -StateRoot $private -Hold $installed.CallRecordHold -MaintenanceLock $lock
 }
 
 $script:managerTasks=@()
@@ -255,7 +276,7 @@ function RestorePbx([string]$Backup) {
   if($LASTEXITCODE){throw 'The previous updater boot slot could not be restored.'}
  }
  # Finish exact original bytes/security after SYSTEM has replaced metadata.
- Restore-OpenWebSupport -Backup $Backup -Root $root -StateRoot $private -EngineRoot $switch
+ Restore-OpenWebSupport -Backup $Backup -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock
  if(!(Test-Path "$Backup\updater-install.json") -and $hadUpdaterMetadata -and (Test-Path "$root\tools\Remove-Updater.ps1")){& "$root\tools\Remove-Updater.ps1"}
  if(Test-Path "$Backup\tools"){CopyTree "$Backup\tools" "$root\tools" -Mirror}
  if(Test-Path "$Backup\phone-tls"){CopyTree "$Backup\phone-tls" "$private\phone-tls" -Mirror}
@@ -300,8 +321,11 @@ try {
  try{$lock = [IO.File]::Open("$private\upgrade.lock", 'OpenOrCreate', 'ReadWrite', 'None')}catch [IO.IOException]{$script:deferred=$true;throw 'Another PBX update is running.'}
  $env:PGPASSWORD = $state.PostgresPassword
  if($Recover){
+  if(!(Test-Path -LiteralPath $journalPath)){CompleteInstalledCallRecordHold}
   if(Test-Path $journalPath){
    $journal=Get-Content $journalPath -Raw|ConvertFrom-Json
+   if($journal.PSObject.Properties['call_records_hold']){$script:callRecordsHold=$journal.call_records_hold;Assert-OpenWebCallRecordHold $script:callRecordsHold}
+   if($journal.state -ceq 'rolled_back' -and $script:callRecordsHold){Remove-OpenWebCallRecordHold -StateRoot $private -Hold $script:callRecordsHold -MaintenanceLock $lock}
    if($journal.state -ceq 'completed' -and $journal.PSObject.Properties['recovery_entry'] -and !($journal.PSObject.Properties['finalization'] -and $journal.finalization.phase -is [string] -and $journal.finalization.phase -ceq 'complete' -and $journal.finalization.failed -is [bool] -and !$journal.finalization.failed)){
     $backup=$journal.backup_path;$version=$journal.version;$previousVersion=$journal.previous_version
     $script:managerTasks=@($journal.manager_tasks);$script:operatorRollback=[bool]$journal.operator_rollback
@@ -318,8 +342,9 @@ try {
      # Installed tools can be mirrored back to a legacy version lacking these
      # dependencies. Keep the current recovery execution on its sealed bundle.
      $script:recoveryCodeRoot=$script:upgradeRecoveryEntry.bundle_path
-     foreach($name in 'Restore-Gates.ps1','Support-Recovery.ps1','Web-Readiness.ps1','UpgradeRecovery.Common.ps1','File-Security.ps1'){. (Join-Path $script:recoveryCodeRoot $name)}
+     foreach($name in 'Restore-Gates.ps1','Support-Recovery.ps1','Web-Readiness.ps1','UpgradeRecovery.Common.ps1','File-Security.ps1','CallRecords.Common.ps1'){. (Join-Path $script:recoveryCodeRoot $name)}
     }
+    if($script:callRecordsHold){Set-OpenWebCallRecordHold -StateRoot $private -Hold $script:callRecordsHold -MaintenanceLock $lock}
     if(!(Test-Path "$backup\complete.json")){
      if($journal.state -notin 'prepared','quiescing'){throw 'The interrupted update has no complete recovery backup.'}
      $script:enginePaused=($journal.state -eq 'quiescing');StartPbx;ResumeEngine;CheckHealth $previousVersion;Complete-OpenWebUpgradeRecovery -Entry $script:upgradeRecoveryEntry -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock -Outcome Rollback;SaveJournal 'rolled_back'
@@ -362,7 +387,9 @@ try {
   $script:operatorUpdaterWasRunning=$operatorUpdater.WasRunning;$script:operatorUpdaterStopped=[bool]$operatorUpdater.WasRunning
   PrepareManagers;PauseEngine
   $version=$expected;$previousVersion=$expected;$script:operatorRollback=$true;$restoreStarted=$true
+  $script:callRecordsHold=@{schema=1;owner='upgrade';transaction=[Guid]::NewGuid().ToString('N')}
   SaveJournal 'rolling_back'
+  Set-OpenWebCallRecordHold -StateRoot $private -Hold $script:callRecordsHold -MaintenanceLock $lock
   $stopped = $true; StopPbx
   RestorePbx $backup;$state=Get-Content "$private\installation.json" -Raw|ConvertFrom-Json
   StartPbx;ResumeEngine;$stopped = $false; CheckHealth $expected;Complete-OpenWebUpgradeRecovery -Entry $script:upgradeRecoveryEntry -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock -Outcome Rollback;SaveJournal 'rolled_back';ResumeManagers
@@ -404,6 +431,13 @@ try {
  . (Join-Path $payload 'PhpRuntime.Common.ps1')
  Assert-OpenWebPhpTree -Directory (Join-Path $root 'php')
  $phpRuntime=Prepare-OpenWebPhpRuntime -UpdatesRoot $updates
+ # A stopped original engine remains stopped. When it is running, authenticate
+ # its actual log_dir before any backup/deployment rather than guessing a path.
+ $logEngine=Get-Service -Name FreeSWITCH -ErrorAction Stop
+ if($logEngine.Status -notin 'Running','Stopped'){throw 'Wait for the call engine to finish its current startup or shutdown before updating.'}
+ $logArguments=@("$payload\windows-log.php","$root\web",'check')
+ if($logEngine.Status -eq 'Stopped'){$logArguments+='--engine-stopped'}
+ Run "$root\php\php.exe" $logArguments
  CheckIdle
  if ($Check) { Write-Host "OpenWeb PBX $version update files and installed call engine passed preflight."; return }
  if($Automatic){CheckWindow}
@@ -425,6 +459,7 @@ try {
  if(Test-Path "$root\tools"){CopyTree "$root\tools" "$backup\tools"}
  if(Test-Path "$private\phone-tls"){CopyTree "$private\phone-tls" "$backup\phone-tls"}
  if(Test-Path "$private\phone-tls.json"){Copy-Item "$private\phone-tls.json" $backup}
+ $script:callRecordsHold=@{schema=1;owner='upgrade';transaction=[Guid]::NewGuid().ToString('N')}
  SaveJournal 'prepared'
  PrepareManagers
  if($Automatic){CheckWindow}
@@ -443,6 +478,7 @@ try {
  $script:upgradeRecoveryEntry=New-OpenWebUpgradeRecovery -PackageRoot $payload -Root $root -StateRoot $private -EngineRoot $switch -Backup $backup -MaintenanceLock $lock
  SaveJournal 'deploying'
  Publish-OpenWebUpgradeRecovery -Entry $script:upgradeRecoveryEntry -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock
+ Set-OpenWebCallRecordHold -StateRoot $private -Hold $script:callRecordsHold -MaintenanceLock $lock
  Write-Host 'Backup complete. Updating the application and call-engine scripts...'
  # Historical installations inherited writable system-drive permissions. Match
  # fresh-install program protection only after the original ACLs are sealed.
@@ -472,6 +508,7 @@ try {
   Run "$root\php\php.exe" @("$payload\bootstrap.php","$root\web",'upgrade_defaults',"$backup\web")
  } finally { Pop-Location }
  Run "$root\php\php.exe" @("$payload\configure-codec.php","$root\web")
+ Install-OpenWebCallRecordAccess -PackageRoot $payload -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock
  CopyTree "$root\web\app\switch\resources\scripts" "$switch\scripts"
  CopyTree "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_setup" "$switch\scripts\app\pbx_setup"
  Copy-Item "$root\web\app\pbx_setup\resources\prompts\*.wav" "$switch\sounds\openwebpbx" -Force

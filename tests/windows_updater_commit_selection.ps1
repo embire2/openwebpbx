@@ -72,7 +72,7 @@ function Prepared([bool]$Existing=$true,[string]$DllVersion='1.0.20'){
  $script:serviceWrites=0;$script:serviceCreates=0;$script:failSelection=$false
  return $c
 }
-function InstalledClosure($c,$entry){foreach($name in 'Upgrade-OpenWebPBX.ps1','UpgradeRecovery.Common.ps1','Restore-Gates.ps1','Support-Recovery.ps1','File-Security.ps1','Web-Readiness.ps1','Dtls.Common.ps1','PhoneHealth-Security.ps1','PhpRuntime.Common.ps1','Write-PrivateState.ps1','check-call-engine.php'){Copy-Item (Join-Path $entry.bundle_path $name) (Join-Path $c.Root ('tools\'+$name)) -Force}}
+function InstalledClosure($c,$entry){foreach($name in 'Upgrade-OpenWebPBX.ps1','UpgradeRecovery.Common.ps1','Restore-Gates.ps1','Support-Recovery.ps1','File-Security.ps1','Web-Readiness.ps1','Dtls.Common.ps1','PhoneHealth-Security.ps1','PhpRuntime.Common.ps1','Write-PrivateState.ps1','check-call-engine.php','windows-log.php','CallRecords.Common.ps1'){Copy-Item (Join-Path $entry.bundle_path $name) (Join-Path $c.Root ('tools\'+$name)) -Force}}
 function Finalize($c,$entry,$lock){Complete-OpenWebCommittedUpgrade -Entry $entry -Root $c.Root -StateRoot $c.State -EngineRoot $c.Engine -MaintenanceLock $lock}
 function Commit($c,$entry){$j=Get-Content $c.Journal -Raw|ConvertFrom-Json;$j.state='completed';Json $c.Journal $j}
 try{
@@ -115,7 +115,7 @@ try{
   . ([scriptblock]::Create($rebind[0].Extent.Text))
   Assert ($script:recoveryCodeRoot -ceq $entry.bundle_path)
   CopyTree (Join-Path $c.Backup 'tools') (Join-Path $c.Root 'tools') -Mirror
-  foreach($name in 'File-Security.ps1','check-call-engine.php','PhpRuntime.Common.ps1','Support-Recovery.ps1','UpgradeRecovery.Common.ps1'){Assert (!(Test-Path (Join-Path $c.Root ('tools\'+$name))))}
+  foreach($name in 'File-Security.ps1','check-call-engine.php','windows-log.php','CallRecords.Common.ps1','PhpRuntime.Common.ps1','Support-Recovery.ps1','UpgradeRecovery.Common.ps1'){Assert (!(Test-Path (Join-Path $c.Root ('tools\'+$name))))}
   Assert ((Get-Command Write-OpenWebRecoveryRuntime).ScriptBlock.File -ieq (Join-Path $entry.bundle_path 'UpgradeRecovery.Common.ps1'))
   . (Join-Path $script:recoveryCodeRoot 'PhpRuntime.Common.ps1');Assert ((Get-OpenWebPhpRuntimeSource).Version -ceq '8.4.27')
   Complete $c $entry $lock Rollback;Assert ((Get-OpenWebRecoveryHash (Read-OpenWebRecoveryBytes $c.Runtime)) -ceq (Get-OpenWebRecoveryHash (Read-OpenWebRecoveryBytes (Join-Path $entry.bundle_path 'runtime.before.json'))))

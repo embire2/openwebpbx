@@ -4,6 +4,12 @@ if(PHP_SAPI!=='cli'){http_response_code(404);exit;}
 $web=$argv[1]??'';$stage=$argv[2]??'';
 require $web.'/resources/require.php';
 $db=$database->db;$db->setAttribute(PDO::ATTR_ERRMODE,PDO::ERRMODE_EXCEPTION);
+if(PHP_OS_FAMILY==='Windows'&&in_array($stage,['migrate','admin'],true)){
+ require_once __DIR__.'/windows-log.php';
+ $log=openweb_windows_log::initialize($db,(string)config::load()->get('switch.conf.dir',''),config::load()->get('switch.log.dir',null));
+ settings::clear_cache();
+ echo json_encode(['windows_log'=>$log],JSON_THROW_ON_ERROR)."\n";
+}
 function sql(string $q,array $p=[]): PDOStatement {global $db;$s=$db->prepare($q);$s->execute($p);return $s;}
 if($stage==='domain'){
  if(!sql('select domain_uuid from v_domains where domain_name=?',[pbx_paths::host()])->fetchColumn())sql('insert into v_domains(domain_uuid,domain_name,domain_description,domain_enabled) values(?,?,?,true)',[uuid(),pbx_paths::host(),'OpenWeb PBX platform']);

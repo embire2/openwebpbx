@@ -10,6 +10,18 @@ $control=Join-Path $private 'backup-control';$restore=Join-Path $private 'backup
 $services=@{calls='FreeSWITCH';jobs='OpenWebPBX';updates='OpenWebPBXUpdater'}
 $certificateTasks=@('OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate')
 $additionalTasks=@('OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth')
+. (Join-Path $PSScriptRoot 'CallRecords.Common.ps1')
+function RestoreCallRecordHold([string[]]$States){
+ $journalPath=OrdinaryPath (Join-Path $restore 'journal.json')
+ $item=Get-Item -LiteralPath $journalPath -Force -ErrorAction Stop
+ if($item.PSIsContainer -or $item.Length -gt 67108864){throw 'The restore call-record hold journal is invalid.'}
+ $journal=Get-Content -LiteralPath $journalPath -Raw -Encoding UTF8|ConvertFrom-Json -ErrorAction Stop
+ if($journal.state -isnot [string] -or $journal.state -cnotin $States){throw 'The durable restore state does not permit this call-record hold operation.'}
+ if(!$journal.PSObject.Properties['call_records_hold']){return $null} # Immutable historical journals.
+ Assert-OpenWebCallRecordHold $journal.call_records_hold
+ if($journal.call_records_hold.owner -cne 'restore'){throw 'The call-record hold is not owned by this restore.'}
+ return $journal.call_records_hold
+}
 function OrdinaryPath([string]$Path,[switch]$ControlOnly){
  $full=[IO.Path]::GetFullPath($Path)
  $allowed=if($ControlOnly){@($control)}else{@($private,$config,(Join-Path $backupEngineRoot 'conf'),(Join-Path $backupEngineRoot 'sounds\openwebpbx'))}
@@ -104,7 +116,7 @@ try{
  switch($Operation){
   'secure'{PrivateAcl ([string]$value.path) ([string]$value.kind)}
   'plan'{$result=Plan}
-  'hold'{ValidPlan $value;foreach($selection in 'updates','jobs','calls','backups'){HoldSelection $selection};StopWeb}
+  'hold'{ValidPlan $value;$cdrHold=RestoreCallRecordHold @('prepared','restoring','recovery_required','recovering','recovered');if($cdrHold){Set-OpenWebCallRecordHold -StateRoot $private -Hold $cdrHold -ExternalLockHeld};foreach($selection in 'updates','jobs','calls','backups'){HoldSelection $selection};StopWeb}
   'hold-selection'{HoldSelection ([string]$value.selection)}
   'start-web'{StartWeb;Set-ItemProperty IIS:\Sites\OpenWebPBX serverAutoStart $true;Set-ItemProperty IIS:\AppPools\OpenWebPBX autoStart $true}
   'recover-startup'{Startup $value}
@@ -114,6 +126,7 @@ try{
    if($value.pool_running -or $value.site_running){StartWeb}
    if(!$value.site_running){Stop-Website OpenWebPBX}
    if(!$value.pool_running){Stop-WebAppPool OpenWebPBX}
+   $cdrHold=RestoreCallRecordHold @('recovered');if($cdrHold){Remove-OpenWebCallRecordHold -StateRoot $private -Hold $cdrHold -ExternalLockHeld}
   }
   'activate'{
    ValidPlan $value.gates
@@ -138,7 +151,7 @@ try{
     }
    }
    $remaining=$false;foreach($name in 'calls','jobs','updates','backups'){if(Test-Path (Join-Path $restore ('hold-'+$name))){$remaining=$true}}
-   if(!$remaining){foreach($entry in @($value.gates.certificate_tasks.PSObject.Properties)+@($value.gates.additional_tasks.PSObject.Properties)){if($entry.Value){Enable-ScheduledTask -TaskName $entry.Name|Out-Null}}}
+   if(!$remaining){foreach($entry in @($value.gates.certificate_tasks.PSObject.Properties)+@($value.gates.additional_tasks.PSObject.Properties)){if($entry.Value){Enable-ScheduledTask -TaskName $entry.Name|Out-Null}};$cdrHold=RestoreCallRecordHold @('restored');if($cdrHold){Remove-OpenWebCallRecordHold -StateRoot $private -Hold $cdrHold -ExternalLockHeld}}
   }
   'acl-read'{foreach($path in @($value.paths)){$path=OrdinaryPath ([string]$path);$result[$path]=(Get-Acl -LiteralPath $path).Sddl}}
   'acl-restore'{

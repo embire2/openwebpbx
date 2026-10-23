@@ -197,7 +197,7 @@ function New-OpenWebUpgradeRecovery {
  if($manifest.version -cne $journal.version){throw 'The pinned release manifest version differs from the upgrade journal.'}
  $sourceFiles=@(Get-ChildItem -LiteralPath $PackageRoot -File -Force|Where-Object {$_.Extension -cin '.ps1','.psm1','.php' -or $_.Name -cin 'VERSION','release-manifest.json'})
  if($sourceFiles.Count -lt 4 -or $sourceFiles.Count -gt 500){throw 'The recovery source inventory is incomplete.'}
- foreach($required in 'Upgrade-OpenWebPBX.ps1','UpgradeRecovery.Common.ps1','Restore-Gates.ps1','Support-Recovery.ps1','File-Security.ps1','Web-Readiness.ps1','Dtls.Common.ps1','PhoneHealth-Security.ps1','PhpRuntime.Common.ps1','Write-PrivateState.ps1','check-call-engine.php','VERSION'){if($required -cnotin $sourceFiles.Name){throw 'A required boot recovery dependency is missing.'}}
+ foreach($required in 'Upgrade-OpenWebPBX.ps1','UpgradeRecovery.Common.ps1','Restore-Gates.ps1','Support-Recovery.ps1','File-Security.ps1','Web-Readiness.ps1','Dtls.Common.ps1','PhoneHealth-Security.ps1','PhpRuntime.Common.ps1','Write-PrivateState.ps1','check-call-engine.php','windows-log.php','CallRecords.Common.ps1','VERSION'){if($required -cnotin $sourceFiles.Name){throw 'A required boot recovery dependency is missing.'}}
  $parent=Join-Path $StateRoot 'updates\recovery-entry'
  if(!(Test-Path -LiteralPath $parent)){$null=[IO.Directory]::CreateDirectory($parent);Set-OpenWebRecoveryPrivate $parent -Directory}else{$null=Assert-OpenWebRecoveryProtected $parent -Directory -Private}
  $bundle=Join-Path $parent ([Guid]::NewGuid().ToString('N'));$null=[IO.Directory]::CreateDirectory($bundle);Set-OpenWebRecoveryPrivate $bundle -Directory
@@ -256,7 +256,7 @@ function Complete-OpenWebUpgradeRecovery {
  $m=Get-OpenWebUpgradeRecoveryMetadata -Entry $Entry -Root $Root -StateRoot $StateRoot -EngineRoot $EngineRoot -RequirePublished
  if($Outcome -ceq 'Success'){
   $null=Assert-OpenWebRecoveryProtected $Root -Directory;$null=Assert-OpenWebRecoveryProtected (Join-Path $Root 'tools') -Directory
-  foreach($name in 'Upgrade-OpenWebPBX.ps1','UpgradeRecovery.Common.ps1','Restore-Gates.ps1','Support-Recovery.ps1','File-Security.ps1','Web-Readiness.ps1','Dtls.Common.ps1','PhoneHealth-Security.ps1','PhpRuntime.Common.ps1','Write-PrivateState.ps1','check-call-engine.php'){
+  foreach($name in 'Upgrade-OpenWebPBX.ps1','UpgradeRecovery.Common.ps1','Restore-Gates.ps1','Support-Recovery.ps1','File-Security.ps1','Web-Readiness.ps1','Dtls.Common.ps1','PhoneHealth-Security.ps1','PhpRuntime.Common.ps1','Write-PrivateState.ps1','check-call-engine.php','windows-log.php','CallRecords.Common.ps1'){
    if((Get-OpenWebRecoveryHash (Read-OpenWebRecoveryBytes (Join-Path $Root ('tools\'+$name)))) -cne $m.files.$name){throw 'Installed boot recovery dependencies are not complete; retain the private recovery entry.'}
   }
  }else{
@@ -317,7 +317,7 @@ function Complete-OpenWebCommittedUpgrade {
  $installation=[Text.Encoding]::UTF8.GetString((Read-OpenWebRecoveryBytes (Join-Path $StateRoot 'installation.json') 1048576))|ConvertFrom-Json
  if($installation.Completed -isnot [bool] -or !$installation.Completed -or $installation.Version -isnot [string] -or $installation.Version -cne $m.version){throw 'The committed installed version differs from its recovery identity.'}
  $null=Assert-OpenWebRecoveryProtected $Root -Directory;$null=Assert-OpenWebRecoveryProtected (Join-Path $Root 'tools') -Directory
- foreach($name in 'Upgrade-OpenWebPBX.ps1','UpgradeRecovery.Common.ps1','Restore-Gates.ps1','Support-Recovery.ps1','File-Security.ps1','Web-Readiness.ps1','Dtls.Common.ps1','PhoneHealth-Security.ps1','PhpRuntime.Common.ps1','Write-PrivateState.ps1','check-call-engine.php'){
+ foreach($name in 'Upgrade-OpenWebPBX.ps1','UpgradeRecovery.Common.ps1','Restore-Gates.ps1','Support-Recovery.ps1','File-Security.ps1','Web-Readiness.ps1','Dtls.Common.ps1','PhoneHealth-Security.ps1','PhpRuntime.Common.ps1','Write-PrivateState.ps1','check-call-engine.php','windows-log.php','CallRecords.Common.ps1'){
   if((Get-OpenWebRecoveryHash (Read-OpenWebRecoveryBytes (Join-Path $Root ('tools\'+$name)))) -cne $m.files.$name){throw 'Committed boot recovery dependencies differ from their sealed source.'}
  }
  $manifest=[Text.Encoding]::UTF8.GetString((Read-OpenWebRecoveryBytes (Join-Path $Entry.bundle_path 'release-manifest.json') 4194304))|ConvertFrom-Json

@@ -30,6 +30,7 @@ if (!(Test-Path "$PSScriptRoot\web\resources\require.php") -or !(Test-Path "$PSS
 if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw 'Install the required Microsoft runtime before continuing.' }
 . "$PSScriptRoot\Restore-Gates.ps1"
 . "$PSScriptRoot\Web-Readiness.ps1"
+. "$PSScriptRoot\CallRecords.Common.ps1"
 Assert-OpenWebUpgradeAllowed -StateRoot $private
 if(Test-Path "$private\installation.json"){
  $existingInstallation=Get-Content "$private\installation.json" -Raw | ConvertFrom-Json
@@ -96,6 +97,12 @@ if (!(Test-Path "$private\installation.json")) {
  $state=@{Version=(Get-Content "$PSScriptRoot\VERSION" -Raw).Trim();DomainName=$DomainName;AdminEmail=$AdminEmail;RestoreServer=[bool]$RestoreServer;PublicAddress=$PublicAddress;HttpsPort=$HttpsPort;DatabasePassword=(Secret);PostgresPassword=(Secret);SwitchPassword=(Secret)}
  WriteUtf8 "$private\installation.json" ($state|ConvertTo-Json)
 } else { $state=Get-Content "$private\installation.json" -Raw | ConvertFrom-Json; $DomainName=$state.DomainName;$HttpsPort=$state.HttpsPort;$PublicAddress=$state.PublicAddress;if($state.AdminEmail){$AdminEmail=$state.AdminEmail};$RestoreServer=[bool]$state.RestoreServer }
+if(($state -is [Collections.IDictionary] -and !$state.Contains('CallRecordHold')) -or ($state -isnot [Collections.IDictionary] -and !$state.PSObject.Properties['CallRecordHold'])){
+ $installHold=@{schema=1;owner='install';transaction=[Guid]::NewGuid().ToString('N')}
+ if($state -is [Collections.IDictionary]){$state['CallRecordHold']=$installHold}else{$state|Add-Member -NotePropertyName CallRecordHold -NotePropertyValue $installHold -Force}
+ Write-OpenWebPrivateState -Path "$private\installation.json" -Value $state
+}
+Set-OpenWebCallRecordHold -StateRoot $private -Hold $state.CallRecordHold -MaintenanceLock $installationLock
 Write-Host 'Installing the Windows web server and PBX components...'
 $feature=Install-WindowsFeature Web-Server,Web-CGI,Web-Mgmt-Tools
 if (!$feature.Success -or $feature.RestartNeeded -eq 'Yes') { throw 'Windows needs a restart to finish installing its web server. Restart and run this installer again.' }
@@ -212,6 +219,7 @@ session.cookie_secure = true
 session.cookie_httponly = true
 session.cookie_samesite = Lax
 switch.conf.dir = $sf/conf
+switch.log.dir = $sf/log
 switch.sounds.dir = $sf/sounds
 switch.database.dir = $sf/db
 switch.storage.dir = $pf/storage
@@ -301,6 +309,7 @@ Run sc.exe @('failure','OpenWebPBX','reset=','86400','actions=','restart/60000/r
 & "$PSScriptRoot\Install-MailQueue.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
 & "$PSScriptRoot\Install-TenantDomains.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
 & "$PSScriptRoot\Install-PhoneHealth.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
+Install-OpenWebCallRecordAccess -PackageRoot $PSScriptRoot -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $installationLock
 Start-Service FreeSWITCH
 Start-Service OpenWebPBX
 if ((Get-WebAppPoolState OpenWebPBX).Value -ne 'Started') { Start-WebAppPool OpenWebPBX }
@@ -337,7 +346,8 @@ catch {
 
 if ($state -is [System.Collections.IDictionary]) { $state['Completed']=$true }
 else { $state|Add-Member -NotePropertyName Completed -NotePropertyValue $true -Force }
-WriteUtf8 "$private\installation.json" ($state|ConvertTo-Json)
+Write-OpenWebPrivateState -Path "$private\installation.json" -Value $state
+Remove-OpenWebCallRecordHold -StateRoot $private -Hold $state.CallRecordHold -MaintenanceLock $installationLock
 Remove-Item "$private\setup-secrets.json" -ErrorAction SilentlyContinue
 Write-Host "OpenWeb PBX $($state.Version) is installed at https://${DomainName}:$HttpsPort"
 Write-Host 'All tenants share this installation''s built-in database. No separate database server is required.'

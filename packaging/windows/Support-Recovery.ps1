@@ -163,6 +163,8 @@ function Assert-OpenWebUpdaterSlotsRestored {
 function Save-OpenWebSupport {
  param([string]$Backup,[string]$PackageRoot,[string]$Root,[string]$StateRoot,[string]$EngineRoot,[IO.FileStream]$MaintenanceLock)
  $record=[ordered]@{schema=1;Files=@{};Directories=@{};Acls=@{};Tasks=@{};OpenSshClient=(Get-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0).State.ToString()}
+ . (Join-Path $PackageRoot 'CallRecords.Common.ps1')
+ $record.CallRecordAccess=Get-OpenWebCallRecordAccessSnapshot -PackageRoot $PackageRoot -Root $Root -StateRoot $StateRoot -EngineRoot $EngineRoot -MaintenanceLock $MaintenanceLock
  $certificateDirectory=[IO.Path]::GetFullPath((Join-Path $EngineRoot 'cert'))
  $directoryExists=Test-Path -LiteralPath $certificateDirectory
  if($directoryExists){
@@ -233,10 +235,14 @@ function Save-OpenWebSupport {
  WriteState "$Backup\support-state.json" $record
 }
 function Restore-OpenWebSupport {
- param([string]$Backup,[string]$Root,[string]$StateRoot,[string]$EngineRoot)
+ param([string]$Backup,[string]$Root,[string]$StateRoot,[string]$EngineRoot,[IO.FileStream]$MaintenanceLock)
  if(!(Test-Path "$Backup\support-state.json")){return} # Old immutable backups.
  $record=Get-Content "$Backup\support-state.json" -Raw | ConvertFrom-Json
  if($record.schema -ne 1){throw 'The support recovery inventory is invalid.'}
+ if($record.PSObject.Properties.Name -ccontains 'CallRecordAccess'){
+  . (Join-Path $PSScriptRoot 'CallRecords.Common.ps1')
+  Restore-OpenWebCallRecordAccess -Snapshot $record.CallRecordAccess -StateRoot $StateRoot -EngineRoot $EngineRoot -MaintenanceLock $MaintenanceLock
+ }
  if(Test-Path (Join-Path $Backup 'meeting-system.json')){
   . (Join-Path $Backup 'meeting-recovery.ps1')
   Restore-OpenWebMeetSystem -Snapshot (Join-Path $Backup 'meeting-system.json') -StateRoot $StateRoot

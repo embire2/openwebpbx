@@ -33,6 +33,8 @@ class Protocol(unittest.TestCase):
             'site_running':True,'pool_running':True,'site_auto':False,'pool_auto':False}
         cls.plan['services']={'FreeSWITCH':'Manual','OpenWebPBX':'Manual','OpenWebPBXUpdater':'Auto'}
         cls.request.write_text(json.dumps(cls.plan),encoding='utf-8')
+        # Actual immutable historical restore journal: no CDR hold existed.
+        (cls.work/'journal.json').write_text(json.dumps({'schema':1,'state':'recovered'}),encoding='utf-8')
     @classmethod
     def tearDownClass(cls):cls.temporary.cleanup()
     def run_source(self,operation,*,legacy=False,noise=False,failure=False):
@@ -125,7 +127,7 @@ foreach($name in 'services','certificateTasks','additionalTasks'){
 }
 $script:calls=[Collections.Generic.List[object]]::new()
 $script:state=@{services=@{FreeSWITCH='Stopped';OpenWebPBX='Stopped';OpenWebPBXUpdater='Stopped'};modes=@{FreeSWITCH='Manual';OpenWebPBX='Manual';OpenWebPBXUpdater='Auto'};tasks=@{'OpenWebPBX-Backups'=$true;'OpenWebPBX-Cleanup'=$true};site='Stopped';pool='Stopped';site_auto=$false;pool_auto=$false}
-function OrdinaryPath {param([string]$Path,[switch]$ControlOnly);if([IO.Path]::GetFullPath($Path) -cne [IO.Path]::GetFullPath($Request)){throw 'Fictional control path refused'};return $Path}
+function OrdinaryPath {param([string]$Path,[switch]$ControlOnly);if([IO.Path]::GetFullPath($Path) -cnotin @([IO.Path]::GetFullPath($Request),[IO.Path]::GetFullPath((Join-Path $restore 'journal.json')))){throw 'Fictional control path refused'};return $Path}
 function Record([string]$Name,$Arguments){$script:calls.Add(@{name=$Name;arguments=$Arguments})}
 function Emit {
  if(!$Noise){return}

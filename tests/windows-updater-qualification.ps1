@@ -294,6 +294,9 @@ function FileSnapshot([switch]$Protected,[ValidateSet('unobserved','before_fault
  # The canary is the exact baseline payload with only native version overlays.
  # Its PHP vendor files therefore remain exact on success as well as rollback.
  $directories=@("$root\php",$configuration,"$state\storage","$state\mobile-notifications","$state\mail","$state\phone-tls","$state\public-access","$state\meet-proxy","$state\tenant-domains","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build","$state\phone-health-runtime","$state\stun-setup","$state\dtls-setup")
+ . (Join-Path $PackageRoot 'CallRecords.Common.ps1')
+ $cdrPlan=Get-OpenWebCallRecordPlan -PackageRoot $PackageRoot -Root $root -EngineRoot $engine
+ $directories+=,$cdrPlan.Path
  if(!$Protected){$directories+=@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots","$engine\conf","$engine\scripts","$engine\mod","$engine\sounds")}
  $entries=@{}
  foreach($parent in $root,"$root\updater",$state,$engine,"$engine\cert"){
@@ -314,6 +317,7 @@ function FileSnapshot([switch]$Protected,[ValidateSet('unobserved','before_fault
   }
  }
  $paths=@("$state\runtime.json","$state\phone-tls.json","$state\phone-health-instance.json","$state\stun.json","$state\native-engine.json","$state\local-codec.json","$state\meet-ca.pem","$state\meet-proxy.json","$engine\cert\dtls-srtp.pem","$engine\libbcg729.dll")
+ $paths+=@("$state\upgrade.lock","$state\call-records.hold")
  if(!$Protected){$paths+=@("$state\installation.json","$state\updater-install.json")}
  foreach($path in $paths){if(Test-Path -LiteralPath $path){
   $item=Get-Item -LiteralPath $path -Force

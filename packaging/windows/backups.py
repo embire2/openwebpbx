@@ -1305,7 +1305,8 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
         journal = {'schema': 1, 'database': settings['database.0.name'], 'user': settings['database.0.username'],
                    'services': services, 'gates': gates, 'source_host': manifest['source_host'],
                    'factory_dump_sha256': checksum(RESTORE / 'factory.dump'), 'factory_security_version': 1, 'files': original,
-                   'directories': directories, 'meeting_proxy': meeting_proxy, 'state': 'prepared'}
+                   'directories': directories, 'meeting_proxy': meeting_proxy,
+                   'call_records_hold': {'schema': 1, 'owner': 'restore', 'transaction': uuid.uuid4().hex}, 'state': 'prepared'}
         atomic_json(RESTORE / 'journal.json', journal)
         try:
             install_service_holds(journal['gates'])
