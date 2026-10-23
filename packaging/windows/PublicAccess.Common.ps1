@@ -257,3 +257,138 @@ function Register-OpenWebPublicTasks([string]$Root,[string]$StateRoot) {
   Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'OpenWeb PBX owned public certificate task' -Force|Out-Null
  }
 }
+
+# Bound both redirected streams while the protected child is running, rather
+# than allocating all output and checking its size only after it exits.
+function Read-OpenWebPublicInventoryProcess([Diagnostics.Process]$Process,[ValidateRange(1,25000)][int]$WaitMilliseconds=25000) {
+ $streams=@(@{reader=$Process.StandardOutput;buffer=(New-Object char[] 4096);text=[Text.StringBuilder]::new();limit=65536;done=$false},@{reader=$Process.StandardError;buffer=(New-Object char[] 1024);text=[Text.StringBuilder]::new();limit=4096;done=$false})
+ foreach($stream in $streams){$stream.task=$stream.reader.ReadAsync($stream.buffer,0,$stream.buffer.Length)}
+ $clock=[Diagnostics.Stopwatch]::StartNew()
+ try {
+  while(@($streams|Where-Object {!$_.done}).Count -or !$Process.HasExited){
+   if($clock.ElapsedMilliseconds -gt $WaitMilliseconds){throw 'The read-only public listener inventory timed out.'}
+   foreach($stream in $streams){
+    if($stream.done -or !$stream.task.IsCompleted){continue}
+    $count=$stream.task.GetAwaiter().GetResult()
+    if(!$count){$stream.done=$true;continue}
+    if($stream.text.Length+$count -gt $stream.limit){throw 'The read-only listener output exceeded its bound.'}
+    $null=$stream.text.Append($stream.buffer,0,$count);$stream.task=$stream.reader.ReadAsync($stream.buffer,0,$stream.buffer.Length)
+   }
+   if(@($streams|Where-Object {!$_.done}).Count -or !$Process.HasExited){Start-Sleep -Milliseconds 5}
+  }
+  return [pscustomobject]@{stdout=$streams[0].text.ToString();stderr=$streams[1].text.ToString();exit_code=[int]$Process.ExitCode}
+ }catch{if(!$Process.HasExited){$Process.Kill();$null=$Process.WaitForExit(3000)};throw}
+}
+# Stage every engine-bound public listener before changing public configuration
+# or firewall policy. The protected PHP child only reads local PG and ESL.
+function Get-OpenWebPublicListenerPlan($Context) {
+ . (Join-Path $PSScriptRoot 'PhoneHealth-Security.ps1')
+ $paths=@((Join-Path $Context.Root 'php\php.exe'),(Join-Path $Context.Root 'php\php.ini'),$Context.Configuration,(Join-Path $PSScriptRoot 'public-listeners.php'),(Join-Path $PSScriptRoot 'public-listeners-policy.php'),(Join-Path $Context.Root 'web\resources\classes\config.php'),(Join-Path $PSScriptRoot 'public-listeners-esl.php'))
+ foreach($path in $paths){$null=Assert-OpenWebHealthProtectedPath $path}
+ $service=Get-CimInstance Win32_Service -Filter "Name='FreeSWITCH'" -ErrorAction Stop
+ if(@($service).Count -ne 1 -or $service.State -cne 'Running' -or [int]$service.ProcessId -le 0){throw 'Start the installed PBX call engine before public access setup.'}
+ $match=[regex]::Match($service.PathName,'^\s*(?:"([^"]+\.exe)"|([^\s]+\.exe))(?:\s|$)')
+ if(!$match.Success){throw 'The installed calling executable is ambiguous.'}
+ $engine=if($match.Groups[1].Success){$match.Groups[1].Value}else{$match.Groups[2].Value}
+ $null=Assert-OpenWebHealthProtectedPath $engine
+ $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$service.ProcessId) -ErrorAction Stop
+ if(@($process).Count -ne 1 -or $process.ExecutablePath -ine $engine -or !$process.CreationDate){throw 'The running calling executable differs from its owned service.'}
+ $core=Join-Path (Split-Path $engine -Parent) 'FreeSwitch.dll';$null=Assert-OpenWebHealthProtectedPath $core
+ $coreHash=(Get-FileHash -LiteralPath $core -Algorithm SHA256).Hash.ToLowerInvariant()
+ $child=[Diagnostics.Process]::new();$child.StartInfo.FileName=$paths[0];$child.StartInfo.UseShellExecute=$false;$child.StartInfo.CreateNoWindow=$true;$child.StartInfo.RedirectStandardOutput=$true;$child.StartInfo.RedirectStandardError=$true
+ $arguments=@('-c',$paths[1],'-d','display_errors=0','-d','log_errors=0',$paths[3],(Join-Path $Context.Root 'web'),$Context.Configuration,$coreHash)
+ foreach($argument in $arguments){if($argument.Contains('"') -or $argument -match '[\x00-\x1f]'){throw 'A public listener helper path is invalid.'}}
+ $child.StartInfo.Arguments=($arguments|ForEach-Object {'"'+$_+'"'}) -join ' '
+ try {
+  $null=$child.Start();$result=Read-OpenWebPublicInventoryProcess $child
+  if($result.exit_code -ne 0 -and $result.stderr.Trim() -ceq 'OpenWebPBXPublicListeners:custom_audio_range'){throw 'Automatic public setup supports the standard audio range. Custom audio settings need administrator review; no public rules or configuration were changed.'}
+  if($result.exit_code -ne 0){throw 'The configured public listeners could not be verified. No public rules or configuration were changed.'}
+  $inventory=$result.stdout|ConvertFrom-Json
+ }finally{$child.Dispose()}
+ $plan=ConvertTo-OpenWebPublicListenerPlan -Inventory $inventory -Engine $engine -EngineProcessId ([int]$service.ProcessId) -EngineCreated $process.CreationDate
+ Assert-OpenWebPublicListenerOwnership $plan
+ return $plan
+}
+function ConvertTo-OpenWebPublicListenerPlan($Inventory,[string]$Engine,[int]$EngineProcessId,[datetime]$EngineCreated) {
+ if($null -eq $Inventory -or ($Inventory.schema -isnot [int] -and $Inventory.schema -isnot [long]) -or $Inventory.schema -ne 1 -or $Inventory.database_read_only -isnot [bool] -or !$Inventory.database_read_only -or $Inventory.rtp_supported_core_defaults -isnot [bool] -or !$Inventory.rtp_supported_core_defaults -or $Inventory.rtp_proof -cne 'supported_core_configured_default'){throw 'A verified read-only listener inventory is required.'}
+ $listeners=@($Inventory.listeners)
+ if(!$listeners.Count -or $listeners.Count -gt 128){throw 'The configured SIP listeners exceed their safe bound.'}
+ foreach($field in 'rtp_start','rtp_end'){if(($Inventory.$field -isnot [int] -and $Inventory.$field -isnot [long]) -or $Inventory.$field -lt 1024 -or $Inventory.$field -gt 65535){throw 'The configured audio range is invalid.'}}
+ if($Inventory.rtp_start -ne 16384 -or $Inventory.rtp_end -ne 32768){throw 'The configured audio range is too broad.'}
+ foreach($port in 3389,5432,5433,8021,8087){if($port -ge $Inventory.rtp_start -and $port -le $Inventory.rtp_end){throw 'The audio range overlaps a private service.'}}
+ $specs=@([pscustomobject]@{name='OpenWebPBX-Public-HTTP';protocol='TCP';port='80';program='System'},[pscustomobject]@{name='OpenWebPBX-Public-HTTPS';protocol='TCP';port='443';program='System'})
+ $privatePorts=@($Inventory.private_ports)
+ if(!$privatePorts.Count -or $privatePorts.Count -gt 16){throw 'A bounded private-service port inventory is required.'}
+ foreach($port in $privatePorts){if(($port -isnot [int] -and $port -isnot [long]) -or $port -lt 1 -or $port -gt 65535){throw 'A private-service port is invalid.'}}
+ foreach($port in 3389,5432,5433,8021,8087){if($port -notin $privatePorts){throw 'A required private-service exclusion is missing.'}}
+ $seen=@{}
+ foreach($listener in $listeners){
+  $ip=$null
+  if($listener.address -isnot [string] -or ![Net.IPAddress]::TryParse($listener.address,[ref]$ip) -or [Net.IPAddress]::IsLoopback($ip) -or $listener.protocol -isnot [string] -or $listener.protocol -cnotin 'TCP','UDP' -or $listener.tls -isnot [bool] -or ($listener.tls -and $listener.protocol -cne 'TCP') -or ($listener.port -isnot [int] -and $listener.port -isnot [long]) -or $listener.port -lt 1024 -or $listener.port -gt 65535 -or $listener.port -in $privatePorts){throw 'A configured public SIP listener is unsafe.'}
+  if($listener.protocol -ceq 'TCP' -and $listener.port -eq 5061 -and !$listener.tls){throw 'An existing nonsecure SIP listener conflicts with the intended phone certificate port5061.'}
+  $key=$listener.protocol+':'+$listener.port
+  if($seen.ContainsKey($key)){if($seen[$key] -ne $listener.tls){throw 'The same public port has ambiguous secure transport.'};continue};$seen[$key]=$listener.tls
+  $name=if($listener.port -eq 5060 -and !$listener.tls){'OpenWebPBX-Public-SIP-'+$listener.protocol}elseif($listener.port -eq 5061 -and $listener.tls){'OpenWebPBX-Public-SIP-TLS'}else{'OpenWebPBX-Public-SIP-'+$listener.protocol+'-'+$listener.port}
+  $specs+=[pscustomobject]@{name=$name;protocol=$listener.protocol;port=[string]$listener.port;program=$Engine}
+ }
+ $audio=[string]$Inventory.rtp_start+'-'+[string]$Inventory.rtp_end
+ $name=if($audio -ceq '16384-32768'){'OpenWebPBX-Public-RTP'}else{'OpenWebPBX-Public-RTP-'+$audio}
+ $specs+=[pscustomobject]@{name=$name;protocol='UDP';port=$audio;program=$Engine}
+ return [pscustomobject]@{engine=$Engine;engine_pid=$EngineProcessId;engine_created=$EngineCreated;listeners=$listeners;specs=$specs;rtp_start=[int]$Inventory.rtp_start;rtp_end=[int]$Inventory.rtp_end}
+}
+function Assert-OpenWebPublicListenerOwnership($Plan) {
+ $service=Get-CimInstance Win32_Service -Filter "Name='FreeSWITCH'" -ErrorAction Stop
+ $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+$Plan.engine_pid) -ErrorAction Stop
+ if(@($service).Count -ne 1 -or $service.State -cne 'Running' -or [int]$service.ProcessId -ne $Plan.engine_pid -or @($process).Count -ne 1 -or $process.ExecutablePath -ine $Plan.engine -or $process.CreationDate -ne $Plan.engine_created){throw 'The calling service changed during public listener setup.'}
+ $tcp=@(Get-NetTCPConnection -State Listen -ErrorAction Stop);$udp=@(Get-NetUDPEndpoint -ErrorAction Stop)
+ # The public certificate callback installs this fixed TLS listener later.
+ # Refuse a foreign occupant before any config/rule/ACME mutation.
+ if(@($tcp|Where-Object {$_.LocalPort -eq 5061 -and $_.OwningProcess -ne $Plan.engine_pid}).Count){throw 'Another program owns the intended secure phone port5061.'}
+ foreach($listener in $Plan.listeners){
+  $rows=if($listener.protocol -ceq 'TCP'){$tcp}else{$udp}
+  $family=([Net.IPAddress]::Parse($listener.address)).AddressFamily;$any=if($family -eq [Net.Sockets.AddressFamily]::InterNetwork){'0.0.0.0'}else{'::'}
+  $matches=@($rows|Where-Object {$_.LocalPort -eq $listener.port -and $_.LocalAddress -in $listener.address,$any})
+  if(!$matches.Count -or @($matches|Where-Object {$_.OwningProcess -ne $Plan.engine_pid}).Count){throw 'The actual native SIP listener is missing or belongs to another process.'}
+ }
+}
+function Get-OpenWebPublicOwnedRule([string]$Name) {
+ try {return @(Get-NetFirewallRule -PolicyStore PersistentStore -Name $Name -ErrorAction Stop)}
+ catch {if([string]$_.CategoryInfo.Category -ceq 'ObjectNotFound' -and $_.FullyQualifiedErrorId -cin 'CmdletizationQuery_NotFound_Name,Get-NetFirewallRule','CmdletizationQuery_NotFound_InstanceID,Get-NetFirewallRule'){return @()};throw}
+}
+function Assert-OpenWebPublicRule($Rule,$Spec) {
+ $ports=@($Rule|Get-NetFirewallPortFilter -ErrorAction Stop);$apps=@($Rule|Get-NetFirewallApplicationFilter -ErrorAction Stop);$addresses=@($Rule|Get-NetFirewallAddressFilter -ErrorAction Stop);$services=@($Rule|Get-NetFirewallServiceFilter -ErrorAction Stop);$interfaces=@($Rule|Get-NetFirewallInterfaceFilter -ErrorAction Stop);$types=@($Rule|Get-NetFirewallInterfaceTypeFilter -ErrorAction Stop);$security=@($Rule|Get-NetFirewallSecurityFilter -ErrorAction Stop)
+ $marker='OpenWeb PBX owned public access';$number=if($Spec.protocol -ceq 'TCP'){'6'}else{'17'}
+ if(@($Rule).Count -ne 1 -or $Rule.Name -cne $Spec.name -or $Rule.Description -cne $marker -or $Rule.Group -cne $marker -or [string]$Rule.Direction -cne 'Inbound' -or [string]$Rule.Action -cne 'Allow' -or [string]$Rule.Enabled -cnotin 'True','False' -or $ports.Count -ne 1 -or $apps.Count -ne 1 -or $addresses.Count -ne 1 -or $services.Count -ne 1 -or $interfaces.Count -ne 1 -or $types.Count -ne 1 -or $security.Count -ne 1 -or [string]$ports[0].Protocol -cnotin $Spec.protocol,$number -or [string]$ports[0].LocalPort -cne $Spec.port -or [string]$ports[0].RemotePort -cne 'Any' -or $apps[0].Program -ine $Spec.program -or [string]$addresses[0].LocalAddress -cne 'Any' -or [string]$addresses[0].RemoteAddress -cne 'Any' -or [string]$services[0].Service -cne 'Any' -or [string]$Rule.Profile -cne 'Any' -or [string]$Rule.EdgeTraversalPolicy -cnotin 'Block','0' -or [string]$Rule.LooseSourceMapping -cne 'False' -or [string]$Rule.LocalOnlyMapping -cne 'False' -or [string]$interfaces[0].InterfaceAlias -cne 'Any' -or [string]$types[0].InterfaceType -cnotin 'Any','0' -or [string]$security[0].Authentication -cnotin 'NotRequired','0' -or [string]$security[0].Encryption -cnotin 'NotRequired','0' -or [string]$security[0].LocalUser -cne 'Any' -or [string]$security[0].RemoteUser -cne 'Any' -or [string]$security[0].RemoteMachine -cne 'Any' -or [string]$security[0].OverrideBlockRules -cne 'False') {throw 'A named public firewall rule belongs to another configuration; it was preserved.'}
+}
+function Test-OpenWebPublicListenerRules($Plan,[switch]$IncludeIntendedTls) {
+ $before=@{};$specs=@($Plan.specs)
+ if($IncludeIntendedTls -and !@($specs|Where-Object {$_.name -ceq 'OpenWebPBX-Public-SIP-TLS'}).Count){$specs+=[pscustomobject]@{name='OpenWebPBX-Public-SIP-TLS';protocol='TCP';port='5061';program=$Plan.engine}}
+ foreach($spec in $specs){$rules=@(Get-OpenWebPublicOwnedRule $spec.name);if($rules.Count){Assert-OpenWebPublicRule $rules $spec;$before[$spec.name]=[string]$rules[0].Enabled}else{$before[$spec.name]=$null}}
+ return $before
+}
+function Sync-OpenWebPublicListenerPlan($Context,$Plan,[IO.FileStream]$MaintenanceLock) {
+ Assert-OpenWebPublicMaintenance $Context $MaintenanceLock
+ Assert-OpenWebPublicListenerOwnership $Plan
+ # Inspect the complete plan first. A foreign later rule must not leave earlier
+ # rules/configuration changed merely because enumeration reached them first.
+ $before=Test-OpenWebPublicListenerRules $Plan
+ $created=@();$enabled=@()
+ try {
+  foreach($spec in $Plan.specs){
+   if($null -eq $before[$spec.name]){$created+=$spec.name;$null=New-NetFirewallRule -PolicyStore PersistentStore -Name $spec.name -DisplayName ('OpenWeb PBX public '+$spec.name.Substring(18)) -Description 'OpenWeb PBX owned public access' -Group 'OpenWeb PBX owned public access' -Direction Inbound -Action Allow -Protocol $spec.protocol -LocalPort $spec.port -Program $spec.program -Profile Any -ErrorAction Stop}
+   elseif($before[$spec.name] -ceq 'False'){$enabled+=$spec.name;Enable-NetFirewallRule -PolicyStore PersistentStore -Name $spec.name -ErrorAction Stop|Out-Null}
+   $actual=@(Get-OpenWebPublicOwnedRule $spec.name);Assert-OpenWebPublicRule $actual $spec;if([string]$actual[0].Enabled -cne 'True'){throw 'A public listener rule did not become enabled.'}
+  }
+ } catch {
+  $primary=$_
+  $cleanupFailures=0
+  foreach($spec in $Plan.specs){
+   try {
+    if($spec.name -cin $created){$actual=@(Get-OpenWebPublicOwnedRule $spec.name);if($actual.Count){Assert-OpenWebPublicRule $actual $spec;Remove-NetFirewallRule -PolicyStore PersistentStore -Name $spec.name -ErrorAction Stop};if(@(Get-OpenWebPublicOwnedRule $spec.name).Count){throw 'The new owned rule still exists after rollback.'}}
+    elseif($spec.name -cin $enabled){$actual=@(Get-OpenWebPublicOwnedRule $spec.name);Assert-OpenWebPublicRule $actual $spec;Disable-NetFirewallRule -PolicyStore PersistentStore -Name $spec.name -ErrorAction Stop|Out-Null;$actual=@(Get-OpenWebPublicOwnedRule $spec.name);Assert-OpenWebPublicRule $actual $spec;if([string]$actual[0].Enabled -cne 'False'){throw 'The original disabled rule was not restored.'}}
+   }catch{$cleanupFailures++}
+  }
+  if($cleanupFailures){$failure=[InvalidOperationException]::new('Public firewall setup failed and exact rule recovery needs administrator review.',$primary.Exception);$failure.Data['OpenWebPublicRuleCleanupFailed']=$true;throw $failure}
+  throw $primary
+ }
+}

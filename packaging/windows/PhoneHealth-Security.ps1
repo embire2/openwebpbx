@@ -3,7 +3,11 @@ function Get-OpenWebHealthPrivilegedSids {
  # Fresh initdb runs with a restricted token and installation explicitly
  # grants the named setup administrator access. That existing administrative
  # principal is valid; this helper does not rewrite or broaden its ACL.
- if($script:OpenWebHealthPrivilegedSids -and $script:OpenWebHealthPrivilegedUntil -gt [DateTime]::UtcNow){return ,$script:OpenWebHealthPrivilegedSids}
+ # A fresh strict-mode caller has no cache variables yet. Inspect presence
+ # before dereferencing them, and retain an existing, still-valid cache.
+ $cached=Get-Variable -Scope Script -Name OpenWebHealthPrivilegedSids -ErrorAction SilentlyContinue
+ $until=Get-Variable -Scope Script -Name OpenWebHealthPrivilegedUntil -ErrorAction SilentlyContinue
+ if($cached -and $until -and $cached.Value -is [Collections.Generic.HashSet[string]] -and $until.Value -is [DateTime] -and $until.Value -gt [DateTime]::UtcNow){return ,$cached.Value}
  $allowed=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
  foreach($sid in 'S-1-5-18','S-1-5-32-544','S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'){$null=$allowed.Add($sid)}
  # Windows Server2025 installs this under a versioned subdirectory. Import

@@ -23,6 +23,10 @@ try {
  $PublicAddress=Resolve-OpenWebPublicAddress $PublicAddress $addresses
  # Let ACME perform its actual outside port-80 reachability/ownership test. No DNS
  # credential is collected, and a successful local probe is never called issuance.
+ # Validate actual protected PG/ESL/native listener ownership, audio range and
+ # the intended certificate port before the first public state/rule change.
+ $listenerPlan=Get-OpenWebPublicListenerPlan $context
+ $null=Test-OpenWebPublicListenerRules $listenerPlan -IncludeIntendedTls
  $statePath=Join-Path $context.Directory 'state.json'
  if(Test-Path -LiteralPath $statePath) {
   $state=Read-OpenWebPublicJson $statePath
@@ -35,25 +39,7 @@ try {
  }
  $client=Initialize-OpenWebAcme $context
  $null=Set-OpenWebPublicBinding $DomainName 'http' '' $context.Root
- $service=Get-CimInstance Win32_Service -Filter "Name='FreeSWITCH'"
- if(-not $service -or $service.State -ne 'Running') { throw 'Start the installed PBX call engine before public access setup.' }
- $match=[regex]::Match($service.PathName,'^\s*(?:"([^"]+\.exe)"|([^\s]+\.exe))(?:\s|$)')
- if(-not $match.Success) { throw 'The installed call-engine executable could not be identified.' }
- $engine=if($match.Groups[1].Success){$match.Groups[1].Value}else{$match.Groups[2].Value}
- $null=Assert-OpenWebOrdinaryPath $engine
- $marker='OpenWeb PBX owned public access'
- foreach($spec in @(@('HTTP','TCP','80','System'),@('HTTPS','TCP','443','System'),@('SIP TCP','TCP','5060',$engine),@('SIP UDP','UDP','5060',$engine),@('SIP TLS','TCP','5061',$engine),@('RTP','UDP','16384-32768',$engine))) {
-  $name='OpenWebPBX-Public-'+($spec[0] -replace ' ','-')
-  $rule=Get-NetFirewallRule -Name $name -ErrorAction SilentlyContinue
-  if($rule) {
-   $port=$rule|Get-NetFirewallPortFilter;$program=$rule|Get-NetFirewallApplicationFilter
-   $protocol=if($spec[1] -eq 'TCP'){'6'}else{'17'}
-   if($rule.Description -ne $marker -or $rule.Group -ne $marker -or $rule.Direction -ne 'Inbound' -or $rule.Action -ne 'Allow' -or [string]$port.Protocol -notin @($spec[1],$protocol) -or [string]$port.LocalPort -ne $spec[2] -or $program.Program -ne $spec[3]) { throw 'A firewall rule with this name belongs to another configuration. It was preserved.' }
-   Enable-NetFirewallRule -Name $name|Out-Null
-  } else {
-   New-NetFirewallRule -Name $name -DisplayName ('OpenWeb PBX public '+$spec[0]) -Description $marker -Group $marker -Direction Inbound -Action Allow -Protocol $spec[1] -LocalPort $spec[2] -Program $spec[3] -Profile Any|Out-Null
-  }
- }
+ Sync-OpenWebPublicListenerPlan $context $listenerPlan $lock
  Register-OpenWebPublicTasks $context.Root $context.StateRoot
  Assert-OpenWebPublicMaintenance $context $lock
  $callback=Join-Path $context.Root 'tools\Renew-PhoneCertificate.ps1'
@@ -65,6 +51,10 @@ try {
  if($pending.hostname -ne $DomainName) { throw 'The certificate client did not return the requested hostname.' }
  $null=Set-OpenWebPublicConfiguration $context.Configuration $DomainName $PublicAddress
  & $callback -Root $context.Root -StateRoot $context.StateRoot -MaintenanceLock $lock
+ # The certificate callback may have newly bound internal TLS5061. Only a
+ # fresh native ownership check can add its public allow rule.
+ $securePlan=Get-OpenWebPublicListenerPlan $context
+ Sync-OpenWebPublicListenerPlan $context $securePlan $lock
  # Public DNS may name the router rather than a local NIC. Bind only actual
  # installed IPv4 interfaces; the router forwards UDP3478 to this instance.
  $stunAddresses=@(Get-NetIPAddress -AddressFamily IPv4 -AddressState Preferred|Where-Object {$_.IPAddress -notmatch '^(127\.|169\.254\.)'}|Select-Object -ExpandProperty IPAddress|Sort-Object -Unique)

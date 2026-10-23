@@ -44,7 +44,7 @@ if(!(Test-Path "$slot\OpenWebPbx.Updater.exe")){
 foreach($name in 'Upgrade-OpenWebPBX.ps1','Register-ManagerRestart.ps1','Restart-Updater.ps1','Remove-Updater.ps1',
  'Restore-Gates.ps1','Write-PrivateState.ps1','Support-Recovery.ps1','UpgradeRecovery.Common.ps1','Web-Readiness.ps1','File-Security.ps1','Install-NativeEngine.ps1','Install-LocalCodec.ps1','configure-codec.php','check-call-engine.php','Configure-PHP.ps1','PhpRuntime.Common.ps1',
  'configure-notifications.ps1','configure-music.php','Install-Dtls.ps1','Dtls.Common.ps1','configure-dtls.php','Enable-PhoneTLS.ps1','phone-tls.php','phone-tls-chain.php',
- 'Test-PhoneTLS.ps1','Enable-PublicAccess.ps1','Renew-PhoneCertificate.ps1','PublicAccess.Common.ps1','Enable-Stun.ps1',
+ 'Test-PhoneTLS.ps1','Enable-PublicAccess.ps1','Renew-PhoneCertificate.ps1','PublicAccess.Common.ps1','public-listeners.php','public-listeners-policy.php','public-listeners-esl.php','Enable-Stun.ps1',
  'Install-Backups.ps1','Backup-Control.ps1','configure-backups.php','backups.py','cacert.pem','openssl.cnf'){
  Copy-Item (Join-Path $PackageRoot $name) (Join-Path "$root\tools" $name) -Force
 }

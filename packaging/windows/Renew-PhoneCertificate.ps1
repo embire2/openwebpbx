@@ -55,6 +55,8 @@ try {
  if($pending.schema -ne 1 -or $pending.hostname -ne $hostname) { throw 'The pending certificate does not belong to this public-access setup.' }
  $certificate=Get-OpenWebPublicCertificate $pending.thumbprint $hostname
  try {
+  $listenerPlan=Get-OpenWebPublicListenerPlan $context
+  $null=Test-OpenWebPublicListenerRules $listenerPlan -IncludeIntendedTls
   $null=Get-OpenWebPublicSite $hostname $context.Root
   Assert-OpenWebPublicMaintenance $context $MaintenanceLock
   # Only the exact hostname binding is updated. Local-test and foreign bindings remain.
@@ -71,6 +73,10 @@ try {
   Assert-OpenWebPublicMaintenance $context $MaintenanceLock
   try {
    & (Join-Path $PSScriptRoot 'Enable-PhoneTLS.ps1') -CertificateThumbprint $certificate.Thumbprint -MaintenanceLock $MaintenanceLock
+   # A deferred first certificate can bind5061 on this later retry. Add
+   # its allow rule only after current native ownership is actually proved.
+   $boundPlan=Get-OpenWebPublicListenerPlan $context
+   Sync-OpenWebPublicListenerPlan $context $boundPlan $MaintenanceLock
   } catch {
    if($_.Exception.Data['OpenWebPhoneTLSBusy'] -eq $true) {
     # IIS can use the renewed certificate while the existing SIP certificate stays
