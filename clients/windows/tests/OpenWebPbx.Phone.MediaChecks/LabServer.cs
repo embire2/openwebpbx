@@ -16,6 +16,7 @@ internal sealed class LabServer : IDisposable
     private readonly string root, executable, journal; private string? executableHash; private Process? process; private DateTime started;
     private Task? stdout, stderr; private TcpClient? socket; private NetworkStream? stream; private StreamReader? reader;
     private readonly string secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+    private long caseLogOffset;
     private readonly int eventPort = FreePort(), sipPort = FreePort(); private bool disposed;
     public int TlsPort { get; } = FreePort();
     public string Realm { get; } = "media-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(8)).ToLowerInvariant() + ".invalid";
@@ -51,9 +52,9 @@ internal sealed class LabServer : IDisposable
     private void WriteConfiguration()
     {
         Config("modules.conf", new XElement("modules", Modules.Select(name => new XElement("load", new XAttribute("module", name)))));
-        Config("switch.conf", new XElement("settings", Param("rtp-start-port", 39000), Param("rtp-end-port", 39200), Param("max-sessions", 16), Param("sessions-per-second", 8)));
+        Config("switch.conf", new XElement("settings", Param("rtp-start-port", 39000), Param("rtp-end-port", 39200), Param("max-sessions", 16), Param("sessions-per-second", 8), Param("loglevel", "debug")));
         Config("console.conf", new XElement("mappings", new XElement("map", new XAttribute("name", "all"), new XAttribute("value", "warning"))));
-        Config("logfile.conf", new XElement("profiles", new XElement("profile", new XAttribute("name", "default"), new XElement("settings", Param("rollover", 1048576)), new XElement("mappings", new XElement("map", new XAttribute("name", "all"), new XAttribute("value", "warning"))))));
+        Config("logfile.conf", new XElement("profiles", new XElement("profile", new XAttribute("name", "default"), new XElement("settings", Param("logfile", Path.Combine(root, "log", "case-debug.log")), Param("rollover", 16 * EngineDiagnostics.Maximum)), new XElement("mappings", new XElement("map", new XAttribute("name", "all"), new XAttribute("value", "debug"))))));
         Config("event_socket.conf", new XElement("settings", Param("listen-ip", "127.0.0.1"), Param("listen-port", eventPort), Param("password", secret), Param("nat-map", false)));
         var settings = new XElement("settings", Param("sip-ip", "127.0.0.1"), Param("rtp-ip", "127.0.0.1"), Param("ext-sip-ip", "127.0.0.1"), Param("ext-rtp-ip", "127.0.0.1"), Param("sip-port", sipPort), Param("tls", true), Param("tls-only", true), Param("tls-sip-port", TlsPort), Param("tls-cert-dir", Path.Combine(root, "tls")), Param("tls-bind-params", "transport=tls"), Param("tls-version", "tlsv1.2"), Param("tls-verify-policy", "none"), Param("context", "media"), Param("dialplan", "XML"), Param("auth-calls", true), Param("challenge-realm", Realm), Param("inbound-codec-prefs", "PCMU,PCMA,VP8"), Param("outbound-codec-prefs", "PCMU,PCMA,VP8"), Param("inbound-proxy-media", false), Param("disable-transcoding", false), Param("inbound-late-negotiation", true), Param("manage-presence", false));
         Config("sofia.conf", new XElement("profiles", new XElement("profile", new XAttribute("name", "media"), new XElement("domains"), settings)));
@@ -63,6 +64,29 @@ internal sealed class LabServer : IDisposable
         var route = new XElement("extension", new XAttribute("name", "only-owned-phones"), new XElement("condition", new XAttribute("field", "destination_number"), new XAttribute("expression", "^(810[123])$"), Action("set", "hangup_after_bridge=true"), Action("set", "call_timeout=15"), Action("set", "rtp_secure_media=mandatory:AES_CM_128_HMAC_SHA1_80"), Action("set", "hold_music=" + Path.Combine(root, "sounds/hold.wav").Replace('\\', '/')), Action("export", "nolocal:hold_music=" + Path.Combine(root, "sounds/hold.wav").Replace('\\', '/')), Action("bridge", "user/$1@" + Realm)));
         var doc = new XDocument(new XElement("document", new XAttribute("type", "freeswitch/xml"), new XElement("section", new XAttribute("name", "configuration"), new XElement("X-PRE-PROCESS", new XAttribute("cmd", "include"), new XAttribute("data", "autoload_configs/*.xml"))), directory, new XElement("section", new XAttribute("name", "dialplan"), new XElement("context", new XAttribute("name", "media"), route))));
         doc.Save(Path.Combine(root, "conf/freeswitch.xml"));
+    }
+    internal void BeginCase()
+    {
+        // Observation only: losing a trace must not replace a native call failure.
+        try { var file = Path.Combine(root, "log", "case-debug.log"); caseLogOffset = File.Exists(file) ? new FileInfo(file).Length : 0; } catch { caseLogOffset = -1; }
+    }
+    internal EngineObservation ObserveFailure(string source, string run, string stage)
+    {
+        try
+        {
+            if (process is not null) throw new InvalidOperationException("Private trace requires completed engine disposal.");
+            var raw = EngineDiagnostics.ReadCase(Path.Combine(root, "log", "case-debug.log"), caseLogOffset);
+            using var resource = typeof(LabServer).Assembly.GetManifestResourceStream("OpenWebPbx.Phone.MediaChecks.MediaDiagnosticPublic.pem") ?? throw new InvalidDataException();
+            using var text = new StreamReader(resource, new UTF8Encoding(false, true)); var publicPem = text.ReadToEnd();
+            if (Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(publicPem))) != EngineDiagnostics.KeyHash) throw new InvalidDataException("Dedicated public diagnostic key differs.");
+            var encrypted = EngineDiagnostics.Seal(raw, source, run, stage, publicPem);
+            var destination = Path.Combine(Path.GetDirectoryName(root)!, "engine-diagnostic.sealed.json");
+            Protocol.NoLinks(Path.Combine(root, "log"));
+            using var file = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None); file.Write(encrypted); file.Flush(true);
+            try { return EngineDiagnostics.Project(raw) with { sealed_original = true }; }
+            catch { return new(false, raw.Length, [], [], true); }
+        }
+        catch { return new(false, 0, [], [], false); }
     }
     internal void Start()
     {
@@ -103,7 +127,7 @@ internal sealed class LabServer : IDisposable
         finally
         {
             reader?.Dispose(); stream?.Dispose(); socket?.Dispose();
-            if (process is not null) { if (!process.HasExited) { ProcessImage.Require(process, executable, started, executableHash ?? throw new InvalidOperationException()); process.Kill(true); if (!process.WaitForExit(10000)) throw new TimeoutException("Owned engine termination failed."); } stdout?.GetAwaiter().GetResult(); stderr?.GetAwaiter().GetResult(); process.Dispose(); }
+            if (process is not null) { if (!process.HasExited) { ProcessImage.Require(process, executable, started, executableHash ?? throw new InvalidOperationException()); process.Kill(true); if (!process.WaitForExit(10000)) throw new TimeoutException("Owned engine termination failed."); } stdout?.GetAwaiter().GetResult(); stderr?.GetAwaiter().GetResult(); process.Dispose(); process = null; }
         }
     }
 }

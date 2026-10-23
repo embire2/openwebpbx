@@ -124,11 +124,25 @@ extraction, compilation, entry to native media and its return. Each compares wit
 the original initial baseline; neither baseline nor final preservation predicate
 is moved or relaxed. A transition identifies an observed interval, not its cause.
 
+Failed cases also keep a private DEBUG engine trace from the case-start byte offset,
+after the engine has exited. A strict parser exports only fixed rejection signals
+and SDP media protocol, codec and crypto-suite names. No addresses, media keys,
+identifiers or arbitrary messages are included in this projection. The original
+case trace is at most 2 MiB and is sealed with a dedicated QA public key using
+RSA3072-OAEP-SHA256 and AES256-GCM. Source commit, hosted run, case, size and hash
+are authenticated as associated data. The separate fixed encrypted artifact is
+`client-media-private.sealed.json`; only the QA custodian can decrypt it. It is
+unrelated to the production release signer. The plaintext stays within the owned
+protected temporary tree until existing cleanup removes it. Failure to observe,
+parse or preserve a diagnostic never turns a failed native case into a pass.
+The original complete system snapshot and all media predicates remain unchanged.
+
 Pure controls that need no SDK or Windows execution:
 
 ```text
 dotnet run --project clients/windows/tests/media/PureMediaChecks.csproj
 pwsh -NoProfile -File clients/windows/tests/media/ReceiptControls.ps1
+pwsh -NoProfile -File clients/windows/tests/media/EngineDiagnosticControls.ps1
 pwsh -NoProfile -File clients/windows/tests/media/OwnershipControls.ps1
 python clients/windows/tests/media/test_engine_selection.py
 ```

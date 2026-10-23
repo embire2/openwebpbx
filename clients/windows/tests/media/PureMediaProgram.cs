@@ -54,6 +54,33 @@ try
     WaitObservation.RunCore("incoming_initial", () => { predicates++; return true; }, Observe, 20, () => elapsed, _ => throw new InvalidDataException()); Check(predicates == 1 && observations == 0);
     predicates = 0; try { WaitObservation.RunCore("incoming_initial", () => { predicates++; return false; }, Observe, 20, () => elapsed, Sleep); throw new InvalidDataException(); } catch (TimeoutException timeout) { Check(predicates == 200 && elapsed == 20000 && observations == 1 && timeout.Data["media_wait_observation"] is MediaWaitObservation); }
     var primary = new InvalidDataException("PRIVATE"); try { WaitObservation.RunCore("conference_merged", () => throw primary, () => throw new InvalidOperationException("PRIVATE"), 20, () => 0, _ => throw new InvalidDataException()); } catch (InvalidDataException caught) { Check(ReferenceEquals(caught, primary) && !caught.Data.Contains("media_wait_observation")); }
+    // Real parser/crypto/filesystem controls. The SDP input is explicitly fictional.
+    var trace = "2026-10-23 18:30:00.123456 [DEBUG] sofia.c:7521 Remote SDP:\n" +
+        "v=0\no=PRIVATE 0 0 IN IP4 192.0.2.10\ns=PRIVATE\nc=IN IP4 192.0.2.10\nm=audio 19000 RTP/SAVP 0 8 101\na=rtpmap:101 telephone-event/8000\na=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:PRIVATE_KEY\nm=video 19002 RTP/SAVPF 96\na=rtpmap:96 VP8/90000\na=crypto:1 PRIVATE_SUITE inline:PRIVATE_KEY\n" +
+        "2026-10-23 18:30:00.223456 [WARNING] switch_core_media.c:5628 Crypto not negotiated but required.\n";
+    var traceBytes = System.Text.Encoding.UTF8.GetBytes(trace); var projected = EngineDiagnostics.Project(traceBytes);
+    Check(projected.observed && projected.remote_sdp.Length == 2 && projected.remote_sdp[0].codecs.SequenceEqual(new[] { "PCMA", "PCMU", "TELEPHONE-EVENT" }));
+    Check(projected.remote_sdp[0].crypto_suites.SequenceEqual(new[] { "AES_CM_128_HMAC_SHA1_80" }) && projected.remote_sdp[1].crypto_suites.SequenceEqual(new[] { "other" }));
+    Check(projected.rejection_signals.SequenceEqual(new[] { "required_crypto_missing" }) && !JsonSerializer.Serialize(projected).Contains("PRIVATE", StringComparison.Ordinal) && !JsonSerializer.Serialize(projected).Contains("192.0.2", StringComparison.Ordinal));
+    Check(EngineDiagnostics.Project(System.Text.Encoding.UTF8.GetBytes("Crypto not negotiated but required.\n")).rejection_signals.Length == 0);
+    Check(EngineDiagnostics.Project(System.Text.Encoding.UTF8.GetBytes(trace.Replace("[WARNING] switch_core_media.c", "[WARNING] other.c"))).rejection_signals.Length == 0);
+    Check(EngineDiagnostics.Project(System.Text.Encoding.UTF8.GetBytes(trace.Replace("Remote SDP:", "PRIVATE Remote SDP:"))).remote_sdp.Length == 0);
+    Refuse(() => EngineDiagnostics.Project([])); Refuse(() => EngineDiagnostics.Project(new byte[EngineDiagnostics.Maximum + 1]));
+    var privateLog = Path.Combine(root, "private.log"); File.WriteAllBytes(privateLog, new byte[] { 9, 9 }.Concat(traceBytes).ToArray()); Check(EngineDiagnostics.ReadCase(privateLog, 2).SequenceEqual(traceBytes));
+    Refuse(() => EngineDiagnostics.ReadCase(privateLog, -1)); Refuse(() => EngineDiagnostics.ReadCase(privateLog, new FileInfo(privateLog).Length)); Refuse(() => EngineDiagnostics.ReadCase("relative.log", 0));
+    var traceLink = Path.Combine(root, "trace-link"); File.CreateSymbolicLink(traceLink, privateLog); Refuse(() => EngineDiagnostics.ReadCase(traceLink, 0)); File.Delete(traceLink);
+    using var diagnosticKey = System.Security.Cryptography.RSA.Create(3072); var publicPem = diagnosticKey.ExportSubjectPublicKeyInfoPem();
+    var sealedBytes = EngineDiagnostics.Seal(traceBytes, new string('a', 40), "123456", "outgoing_audio", publicPem); var sealedTrace = JsonSerializer.Deserialize<SealedDiagnostic>(sealedBytes)!;
+    var key = diagnosticKey.Decrypt(Convert.FromBase64String(sealedTrace.wrapped_key), System.Security.Cryptography.RSAEncryptionPadding.OaepSHA256);
+    var aad = Convert.FromBase64String(sealedTrace.aad); var cipher = Convert.FromBase64String(sealedTrace.ciphertext); var nonce = Convert.FromBase64String(sealedTrace.nonce); var tag = Convert.FromBase64String(sealedTrace.tag); var plain = new byte[cipher.Length];
+    using var aes = new System.Security.Cryptography.AesGcm(key, 16); aes.Decrypt(nonce, cipher, tag, plain, aad); Check(plain.SequenceEqual(traceBytes));
+    var binding = JsonSerializer.Deserialize<DiagnosticBinding>(aad)!; Check(binding.source_commit == new string('a', 40) && binding.run_id == "123456" && binding.stage == "outgoing_audio" && binding.plaintext_bytes == traceBytes.Length && binding.plaintext_sha256 == Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(traceBytes)));
+    Check(!System.Text.Encoding.UTF8.GetString(sealedBytes).Contains("PRIVATE", StringComparison.Ordinal) && sealedTrace.algorithm == "RSA3072-OAEP-SHA256+A256GCM");
+    void AuthenticationRefuses(byte[] changedCipher, byte[] changedTag, byte[] changedAad) { bool refused = false; try { aes.Decrypt(nonce, changedCipher, changedTag, new byte[changedCipher.Length], changedAad); } catch (System.Security.Cryptography.AuthenticationTagMismatchException) { refused = true; } Check(refused); }
+    var changed = cipher.ToArray(); changed[0] ^= 1; AuthenticationRefuses(changed, tag, aad); var changedTag = tag.ToArray(); changedTag[0] ^= 1; AuthenticationRefuses(cipher, changedTag, aad); var changedAad = aad.ToArray(); changedAad[0] ^= 1; AuthenticationRefuses(cipher, tag, changedAad);
+    using var wrongKey = System.Security.Cryptography.RSA.Create(3072); bool wrongKeyRefused = false; try { wrongKey.Decrypt(Convert.FromBase64String(sealedTrace.wrapped_key), System.Security.Cryptography.RSAEncryptionPadding.OaepSHA256); } catch (System.Security.Cryptography.CryptographicException) { wrongKeyRefused = true; } Check(wrongKeyRefused);
+    Refuse(() => EngineDiagnostics.Seal(traceBytes, "PRIVATE", "123456", "outgoing_audio", publicPem)); Refuse(() => EngineDiagnostics.Seal(traceBytes, new string('a', 40), "PRIVATE", "outgoing_audio", publicPem)); Refuse(() => EngineDiagnostics.Seal(traceBytes, new string('a', 40), "123456", "PRIVATE", publicPem)); Refuse(() => EngineDiagnostics.Seal(new byte[EngineDiagnostics.Maximum + 1], new string('a', 40), "123456", "outgoing_audio", publicPem));
+    System.Security.Cryptography.CryptographicOperations.ZeroMemory(key);
     var productionAbsence = false;
     if (args.Length != 0)
     {

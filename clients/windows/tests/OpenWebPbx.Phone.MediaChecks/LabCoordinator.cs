@@ -4,7 +4,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.Json;
 namespace OpenWebPbx.Phone.MediaChecks;
-internal sealed record LabInput(int Schema, string Root, string EngineRoot, string SourceCommit, string SdkSha256, string EngineSha256, string ImageA, string ImageB);
+internal sealed record LabInput(int Schema, string Root, string EngineRoot, string SourceCommit, string SdkSha256, string EngineSha256, string ImageA, string ImageB, string RunId);
 internal sealed record AudioObservation(AudioWindow Window, double FreshSeconds, double ObservedSeconds);
 internal sealed class LabPeer : IDisposable
 {
@@ -141,6 +141,8 @@ internal static class LabCoordinator
         if (input.Schema != 1 || input.SdkSha256 != "9cc84037333daca88af24804e20b9d1f5e41ddd901578484b57dcc6720a8d297" || input.EngineSha256 != "3d4091bd972c1ea82ff9b6899c091dbeebf66416d6d76475add523ebe10a7542" || !System.Text.RegularExpressions.Regex.IsMatch(input.SourceCommit, "^[a-f0-9]{40}$")) throw new InvalidDataException("Pinned media inputs differ.");
         var temp = Path.GetFullPath(Environment.GetEnvironmentVariable("RUNNER_TEMP")!); var root = Path.GetFullPath(input.Root);
         if (!string.Equals(root, own, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Owned media lab root differs.");
+        if (input.RunId != Environment.GetEnvironmentVariable("GITHUB_RUN_ID") || !System.Text.RegularExpressions.Regex.IsMatch(input.RunId, "^[1-9][0-9]{0,19}$")) throw new InvalidDataException("Exact hosted run binding required.");
+        EngineObservation? engineObservation = null;
         var cases = new List<object>(); var stage = "engine_start"; var operation = "engine_construct"; Exception? failure = null; bool cleanup = true; bool engineStarted = false, engineStopped = false;
         var peers = new List<LabPeer>(); var peerRoots = new List<string>(); LabServer? server = null;
         try
@@ -149,7 +151,7 @@ internal static class LabCoordinator
             server = new LabServer(root, input.EngineRoot, journal); operation = "engine_start"; server.Start(); engineStarted = true;
             foreach (var name in new[] { "tls_chain_hostname", "outgoing_audio", "incoming_audio", "hold_music_resume", "dtmf", "blind_transfer", "consult_complete", "consult_cancel", "call_waiting", "local_conference", "software_vp8", "voicemail_local_player" })
             {
-                stage = name; operation = "case_prepare"; var paths = new List<string>(); var facts = new Dictionary<string, object>();
+                stage = name; operation = "case_prepare"; server.BeginCase(); var paths = new List<string>(); var facts = new Dictionary<string, object>();
                 string NewRoot(int index)
                 {
                     var own = Path.Combine(temp, "phone-media-" + Guid.NewGuid().ToString("N")); PrivateDirectory(own); peerRoots.Add(own);
@@ -227,9 +229,11 @@ internal static class LabCoordinator
         {
             if (!StopPeers(peers)) cleanup = false;
             if (server is not null) { try { server.Dispose(); engineStopped = true; } catch { cleanup = false; } }
+            if (failure is not null && server is not null && engineStopped) engineObservation = server.ObserveFailure(input.SourceCommit, input.RunId, stage);
             foreach (var path in peerRoots) { try { Protocol.NoLinks(path); Directory.Delete(path, true); } catch { cleanup = false; } }
             if (LabPeer.CleanupRefused) cleanup = false;
             var receipt = JsonSerializer.SerializeToNode(new { schema = 1, producer = "OpenWebPbx.Phone.MediaChecks", state = failure is null && cleanup && cases.Count == 12 ? "passed_software_media" : "failed", stage, error_type = failure?.GetType().Name ?? "none", cases, exact_owned_cleanup = cleanup, input.SourceCommit, input.SdkSha256, input.EngineSha256, test_managed_assembly = true, production_binary_tested = false, hardware_media_tested = false, gui_render_tested = false, carrier_calls_placed = false, store_accepted = false, installer_transaction_executed = false, production_update_channel_tested = false })!.AsObject();
+            if (engineObservation is not null) receipt["engine_observation"] = JsonSerializer.SerializeToNode(engineObservation);
             if (failure is not null) { receipt["failure_observation"] = JsonSerializer.SerializeToNode(FailureObservation.Capture(failure, operation)); receipt["engine_lifecycle"] = JsonSerializer.SerializeToNode(new { start_completed = engineStarted, shutdown_completed = engineStopped }); }
             Protocol.Write(reportPath, receipt);
         }

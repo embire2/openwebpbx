@@ -4,7 +4,7 @@ $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 $tool=Join-Path $PSScriptRoot '../../tools/Test-ClientMedia.ps1';$tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile([IO.Path]::GetFullPath($tool),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'The actual media wrapper does not parse.'}
-foreach($name in @('ClosedKeys','JsonShape','ReadNativeWaitObservation','ReadNativeFailureObservation','ReadMediaResult')){
+foreach($name in @('ClosedKeys','JsonShape','ReadNativeWaitObservation','ReadNativeFailureObservation','ReadEngineObservation','ReadMediaResult')){
  $found=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
  if($found.Count -ne 1){throw 'Exactly one actual consumer function is required.'};. ([scriptblock]::Create($found[0].Extent.Text))
 }

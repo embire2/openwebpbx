@@ -22,6 +22,7 @@ function Ordinary([string]$Path,[bool]$Exists=$true){
  $full
 }
 foreach($inputPath in @($SdkZip,$CoreMsi,$EngineZip)){[void](Ordinary $inputPath)}
+$sealedOutput=Ordinary (Join-Path $temp 'client-media-private.sealed.json') $false;if(Test-Path -LiteralPath $sealedOutput){throw 'The encrypted diagnostic output must be new.'}
 $Report=Ordinary $Report $false;if(Test-Path -LiteralPath $Report){throw 'The output must be new.'}
 if((Get-Item $SdkZip).Length -ne 315960147 -or (Hash $SdkZip) -cne '9cc84037333daca88af24804e20b9d1f5e41ddd901578484b57dcc6720a8d297' -or (Get-Item $CoreMsi).Length -ne 168300544 -or (Hash $CoreMsi) -cne 'f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d' -or (Get-Item $EngineZip).Length -ne 39161015 -or (Hash $EngineZip) -cne '3d4091bd972c1ea82ff9b6899c091dbeebf66416d6d76475add523ebe10a7542'){throw 'Exact previously accepted component inputs are required.'}
 if(([IO.DriveInfo]::new([IO.Path]::GetPathRoot($temp))).AvailableFreeSpace -lt 6GB){throw 'The disposable media lab needs six GiB free capacity.'}
@@ -251,10 +252,51 @@ function ReadNativeFailureObservation($Value){
  if($null -ne $Value.wait){$null=ReadNativeWaitObservation $Value.wait}
  $Value
 }
+function ReadEngineObservation($Value){
+ ClosedKeys $Value @('observed','log_bytes','rejection_signals','remote_sdp','sealed_original')
+ if($Value.observed -isnot [bool] -or $Value.sealed_original -isnot [bool] -or $Value.log_bytes -isnot [long] -or $Value.log_bytes -lt 0 -or $Value.log_bytes -gt 2097152 -or $Value.rejection_signals -isnot [array] -or $Value.remote_sdp -isnot [array]){throw 'Typed bounded engine observations required.'}
+ if(!$Value.observed -and ($Value.rejection_signals.Count -or $Value.remote_sdp.Count)){throw 'Unobserved trace cannot contain inferred signals.'}
+ if(($Value.observed -or $Value.sealed_original) -and $Value.log_bytes -eq 0){throw 'Observed trace bytes required.'}
+ $signals=@('crypto_in_avp_refused','srtp_administratively_disabled','required_crypto_missing','connection_line_missing','invalid_crypto_suite','codec_error','early_codec_error','reinvite_codec_error','reinvite_negotiation_failed')
+ if($Value.rejection_signals.Count -gt $signals.Count -or @($Value.rejection_signals|Select-Object -Unique).Count -ne $Value.rejection_signals.Count -or $Value.remote_sdp.Count -gt 16){throw 'Bounded unique engine observations required.'}
+ foreach($signal in $Value.rejection_signals){if($signal -isnot [string] -or $signal -cnotin $signals){throw 'Closed primary engine signals required.'}}
+ foreach($sdp in $Value.remote_sdp){
+  ClosedKeys $sdp @('kind','protocol','codecs','crypto_suites')
+  if($sdp.kind -isnot [string] -or $sdp.kind -cnotin @('audio','video') -or $sdp.protocol -isnot [string] -or $sdp.protocol -cnotin @('RTP/AVP','RTP/AVPF','RTP/SAVP','RTP/SAVPF','UDP/TLS/RTP/SAVP','UDP/TLS/RTP/SAVPF','other')){throw 'Closed actual SDP media types required.'}
+  foreach($field in @('codecs','crypto_suites')){
+   $allowed=if($field -ceq 'codecs'){@('PCMU','PCMA','OPUS','G722','G729','VP8','VP9','H264','TELEPHONE-EVENT','CN','other')}else{@('AES_CM_128_HMAC_SHA1_80','AES_CM_128_HMAC_SHA1_32','AEAD_AES_128_GCM','AEAD_AES_256_GCM','other')}
+   if($sdp.$field -isnot [array] -or $sdp.$field.Count -gt $allowed.Count -or @($sdp.$field|Select-Object -Unique).Count -ne $sdp.$field.Count){throw 'Bounded unique SDP names required.'}
+   foreach($value in $sdp.$field){if($value -isnot [string] -or $value -cnotin $allowed){throw 'Only closed codec and suite names may leave the lab.'}}
+  }
+ }
+ $Value
+}
+function ReadSealedEngineDiagnostic([byte[]]$Bytes,[string]$Stage){
+ if($Bytes.Length -lt 1 -or $Bytes.Length -gt 2810000){throw 'Bounded encrypted diagnostic required.'}
+ $raw=[Text.UTF8Encoding]::new($false,$true).GetString($Bytes);$document=[Text.Json.JsonDocument]::Parse($raw,[Text.Json.JsonDocumentOptions]@{MaxDepth=3});try{JsonShape $document.RootElement}finally{$document.Dispose()};$value=$raw|ConvertFrom-Json
+ ClosedKeys $value @('schema','algorithm','public_key_sha256','aad','wrapped_key','nonce','tag','ciphertext')
+ if($value.schema -isnot [long] -or $value.schema -ne 1 -or $value.algorithm -cne 'RSA3072-OAEP-SHA256+A256GCM' -or $value.public_key_sha256 -cne '1b26bb05b12379982b68d00e92178159049af959ba04cc483a06d1b0a49e7307'){throw 'Dedicated diagnostic encryption identity required.'}
+ $decoded=@{}
+ foreach($field in @('aad','wrapped_key','nonce','tag','ciphertext')){if($value.$field -isnot [string]){throw 'Typed encrypted fields required.'};$decoded[$field]=[Convert]::FromBase64String($value.$field);if([Convert]::ToBase64String($decoded[$field]) -cne $value.$field){throw 'Canonical encrypted fields required.'}}
+ if($decoded.aad.Length -gt 1024 -or $decoded.wrapped_key.Length -ne 384 -or $decoded.nonce.Length -ne 12 -or $decoded.tag.Length -ne 16 -or $decoded.ciphertext.Length -lt 1 -or $decoded.ciphertext.Length -gt 2097152){throw 'Exact encryption field bounds required.'}
+ $aad=[Text.UTF8Encoding]::new($false,$true).GetString($decoded.aad);$document=[Text.Json.JsonDocument]::Parse($aad,[Text.Json.JsonDocumentOptions]@{MaxDepth=2});try{JsonShape $document.RootElement}finally{$document.Dispose()};$binding=$aad|ConvertFrom-Json
+ ClosedKeys $binding @('schema','source_commit','run_id','stage','plaintext_bytes','plaintext_sha256')
+ if($binding.schema -isnot [long] -or $binding.schema -ne 1 -or $binding.source_commit -isnot [string] -or $binding.source_commit -cne $SourceCommit -or $binding.run_id -isnot [string] -or $binding.run_id -cnotmatch '^[1-9][0-9]{0,19}$' -or $binding.run_id -cne $env:GITHUB_RUN_ID -or $binding.stage -isnot [string] -or $binding.stage -cne $Stage -or $binding.stage -cnotin @('engine_start','tls_chain_hostname','outgoing_audio','incoming_audio','hold_music_resume','dtmf','blind_transfer','consult_complete','consult_cancel','call_waiting','local_conference','software_vp8','voicemail_local_player') -or $binding.plaintext_bytes -isnot [long] -or $binding.plaintext_bytes -ne $decoded.ciphertext.Length -or $binding.plaintext_sha256 -isnot [string] -or $binding.plaintext_sha256 -cnotmatch '^[a-f0-9]{64}$'){throw 'Exact source/run/stage authenticated metadata required.'}
+ [ordered]@{schema=1;file='client-media-private.sealed.json';bytes=$Bytes.Length;sha256=[Convert]::ToHexStringLower([Security.Cryptography.SHA256]::HashData($Bytes));public_key_sha256=$value.public_key_sha256;source_commit=$binding.source_commit;run_id=$binding.run_id;stage=$binding.stage;plaintext_bytes=$binding.plaintext_bytes}
+}
+function PreserveSealedEngineDiagnostic([string]$InputPath,[string]$OutputPath,[string]$Stage){
+ if(![string]::Equals($InputPath,(Join-Path $scope 'engine-diagnostic.sealed.json'),[StringComparison]::OrdinalIgnoreCase) -or ![string]::Equals($OutputPath,(Join-Path $temp 'client-media-private.sealed.json'),[StringComparison]::OrdinalIgnoreCase)){throw 'Exact owned encrypted diagnostic paths required.'}
+ $sealedInput=Ordinary $InputPath;$output=Ordinary $OutputPath $false;if(Test-Path -LiteralPath $output){throw 'Encrypted diagnostic output must be new.'}
+ $file=[IO.File]::Open($sealedInput,'Open','Read','None');try{if($file.Length -lt 1 -or $file.Length -gt 2810000){throw 'Bounded encrypted diagnostic required.'};$bytes=[byte[]]::new([int]$file.Length);$file.ReadExactly($bytes)}finally{$file.Dispose()}
+ $receipt=ReadSealedEngineDiagnostic $bytes $Stage
+ $file=[IO.File]::Open($output,'CreateNew','Write','None');try{$file.Write($bytes);$file.Flush($true)}finally{$file.Dispose()}
+ $receipt
+}
 function ReadMediaResult([string]$Path,[switch]$AllowFailure){
  if((Get-Item -LiteralPath $Path).Length -gt 131072){throw 'Bounded media receipt required.'};$raw=Get-Content -LiteralPath $Path -Raw;$document=[System.Text.Json.JsonDocument]::Parse($raw,[System.Text.Json.JsonDocumentOptions]@{MaxDepth=12});try{JsonShape $document.RootElement}finally{$document.Dispose()};$r=$raw|ConvertFrom-Json
  $keys=@('schema','producer','state','stage','error_type','cases','exact_owned_cleanup','SourceCommit','SdkSha256','EngineSha256','test_managed_assembly','production_binary_tested','hardware_media_tested','gui_render_tested','carrier_calls_placed','store_accepted','installer_transaction_executed','production_update_channel_tested')
  if($AllowFailure -and $r.PSObject.Properties.Name -contains 'failure_observation'){$keys+=@('failure_observation','engine_lifecycle');$null=ReadNativeFailureObservation $r.failure_observation;ClosedKeys $r.engine_lifecycle @('start_completed','shutdown_completed');foreach($flag in @('start_completed','shutdown_completed')){if($r.engine_lifecycle.$flag -isnot [bool]){throw 'Typed actual engine lifecycle required.'}}}
+ if($AllowFailure -and $r.PSObject.Properties.Name -contains 'engine_observation'){$keys+='engine_observation';$null=ReadEngineObservation $r.engine_observation}
  ClosedKeys $r $keys
  if($r.schema -isnot [long] -or $r.schema -ne 1 -or $r.producer -cne 'OpenWebPbx.Phone.MediaChecks' -or $r.SourceCommit -cne $SourceCommit -or $r.SdkSha256 -cne '9cc84037333daca88af24804e20b9d1f5e41ddd901578484b57dcc6720a8d297' -or $r.EngineSha256 -cne '3d4091bd972c1ea82ff9b6899c091dbeebf66416d6d76475add523ebe10a7542'){throw 'Media receipt source and component bindings differ.'}
  foreach($flag in @('exact_owned_cleanup','test_managed_assembly','production_binary_tested','hardware_media_tested','gui_render_tested','carrier_calls_placed','store_accepted','installer_transaction_executed','production_update_channel_tested')){if($r.$flag -isnot [bool]){throw 'Typed media scope flags required.'}}
@@ -315,10 +357,10 @@ try{
  Add-Type -AssemblyName System.Drawing
  foreach($n in 1,2){$image=Join-Path $scope ('frame'+$n+'.jpg');$bitmap=[Drawing.Bitmap]::new(640,480);$g=[Drawing.Graphics]::FromImage($bitmap);try{$g.Clear($(if($n -eq 1){[Drawing.Color]::SteelBlue}else{[Drawing.Color]::DarkOrange}));$g.FillRectangle([Drawing.Brushes]::White,40,40,180,120);$g.FillEllipse([Drawing.Brushes]::Black,360,250,120,120);$bitmap.Save($image,[Drawing.Imaging.ImageFormat]::Jpeg)}finally{$g.Dispose();$bitmap.Dispose()}}
  $inputFile=Join-Path $scope 'lab.json';$childReport=Join-Path $scope 'media.json'
- [ordered]@{Schema=1;Root=$scope;EngineRoot=$engine;SourceCommit=$SourceCommit;SdkSha256='9cc84037333daca88af24804e20b9d1f5e41ddd901578484b57dcc6720a8d297';EngineSha256='3d4091bd972c1ea82ff9b6899c091dbeebf66416d6d76475add523ebe10a7542';ImageA=(Join-Path $scope 'frame1.jpg');ImageB=(Join-Path $scope 'frame2.jpg')}|ConvertTo-Json|Set-Content -LiteralPath $inputFile -Encoding utf8NoBOM
+ [ordered]@{Schema=1;Root=$scope;EngineRoot=$engine;SourceCommit=$SourceCommit;SdkSha256='9cc84037333daca88af24804e20b9d1f5e41ddd901578484b57dcc6720a8d297';EngineSha256='3d4091bd972c1ea82ff9b6899c091dbeebf66416d6d76475add523ebe10a7542';ImageA=(Join-Path $scope 'frame1.jpg');ImageB=(Join-Path $scope 'frame2.jpg');RunId=$env:GITHUB_RUN_ID}|ConvertTo-Json|Set-Content -LiteralPath $inputFile -Encoding utf8NoBOM
  $result.stage='actual_media';$exe=Join-Path $app 'OpenWebPbx.Phone.MediaChecks.exe';ObserveServiceBoundary 'immediately_before_native_media';$result.child_exit=RunChild $exe @('--run',$inputFile,$childReport) ([Environment]::SystemDirectory) 1200;ObserveServiceBoundary 'after_native_media'
  if($result.child_exit -ne 0){
-  if(Test-Path -LiteralPath $childReport){$failed=ReadMediaResult $childReport -AllowFailure;$result.native_failure=[ordered]@{stage=$failed.stage;error_type=$failed.error_type;completed_cases=[int]$failed.cases.Count;owned_cleanup=[bool]$failed.exact_owned_cleanup};if($failed.PSObject.Properties.Name -contains 'failure_observation'){$result.native_failure.observation=$failed.failure_observation;$result.native_failure.engine_lifecycle=$failed.engine_lifecycle}}
+  if(Test-Path -LiteralPath $childReport){$failed=ReadMediaResult $childReport -AllowFailure;$result.native_failure=[ordered]@{stage=$failed.stage;error_type=$failed.error_type;completed_cases=[int]$failed.cases.Count;owned_cleanup=[bool]$failed.exact_owned_cleanup};if($failed.PSObject.Properties.Name -contains 'failure_observation'){$result.native_failure.observation=$failed.failure_observation;$result.native_failure.engine_lifecycle=$failed.engine_lifecycle};if($failed.PSObject.Properties.Name -contains 'engine_observation'){$result.native_failure.engine_observation=$failed.engine_observation};if($failed.PSObject.Properties.Name -contains 'engine_observation' -and $failed.engine_observation.sealed_original){try{$result.sealed_engine_diagnostic=PreserveSealedEngineDiagnostic (Join-Path $scope 'engine-diagnostic.sealed.json') $sealedOutput $failed.stage}catch{$result.sealed_engine_diagnostic_preservation_refused=$true}}}
   throw 'Actual Windows client media lab failed.'
  };$media=ReadMediaResult $childReport;$result.actual_native_calling=$true
  if(!$script:tcpObserved -or !$script:udpObserved -or $script:socketSamples -lt 3){throw 'Actual owned loopback socket sampling is incomplete.'};$result.loopback_socket_samples=$script:socketSamples;$result.owned_socket_sampling_loopback=$true
