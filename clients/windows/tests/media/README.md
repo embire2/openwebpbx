@@ -119,6 +119,14 @@ thumbprints and all nine firewall collections in ActiveStore/PersistentStore.
 Any missing preservation or cleanup holds the result. Raw media, private keys,
 SIP secrets, paths and child output are not published in the receipt.
 
+A failed decoded WAV read retains a fixed parser reason plus the numeric header,
+chunk and PCM format fields from the exact buffer that failed. It never reopens
+the recording for diagnosis, publishes PCM samples or claims an atomic snapshot
+while a native writer may be active. The original exception, parser predicates,
+12-second capture deadline and decoded-audio thresholds are unchanged. Real file
+controls distinguish empty/unfinalized headers, unsupported format and malformed
+chunks; they do not identify an earlier native failure without its observations.
+
 Five additional read-only service observations bracket SDK extraction, MSI
 extraction, compilation, entry to native media and its return. Each compares with
 the original initial baseline; neither baseline nor final preservation predicate

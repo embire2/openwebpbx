@@ -241,15 +241,29 @@ function ReadNativeWaitObservation($Value){
  }
  $Value
 }
+function ReadNativeWaveObservation($Value){
+ ClosedKeys $Value @('reason','source','growing','snapshot_atomic','length_check_bytes','buffer_bytes','riff','wave','riff_declared_bytes','chunk','chunk_offset','chunk_declared_bytes','chunk_effective_bytes','format_tag','channels','sample_rate','sample_bits','alignment','byte_rate','format_seen','data_seen','data_bytes')
+ if($Value.reason -isnot [string] -or $Value.reason -cnotin @('file_length','riff_wave_shape','chunk_header','terminal_data_shape','chunk_length','pcm_format','pcm_layout','duplicate_data','chunk_padding','decoded_samples') -or $Value.source -isnot [string] -or $Value.source -cnotin @('file_length_check','failed_read_buffer') -or $Value.chunk -isnot [string] -or $Value.chunk -cnotin @('none','fmt','data','other')){throw 'Closed failed-WAV reason/source/chunk required.'}
+ foreach($field in @('growing','snapshot_atomic','format_seen','data_seen')){if($Value.$field -isnot [bool]){throw 'Typed failed-WAV scope required.'}}
+ if($Value.snapshot_atomic){throw 'Concurrent file reads are not atomic snapshots.'}
+ foreach($field in @('riff','wave')){if($null -ne $Value.$field -and $Value.$field -isnot [bool]){throw 'Typed observed WAV marker required.'}}
+ foreach($field in @('length_check_bytes','buffer_bytes','chunk_offset','data_bytes')){if($Value.$field -isnot [long] -or $Value.$field -lt $(if($field -ceq 'chunk_offset'){-1}else{0}) -or ($field -cne 'length_check_bytes' -and $Value.$field -gt 134217728)){throw 'Bounded failed-WAV counts required.'}}
+ foreach($field in @('riff_declared_bytes','chunk_declared_bytes','chunk_effective_bytes','format_tag','channels','sample_rate','sample_bits','alignment','byte_rate')){
+  if($null -ne $Value.$field -and ($Value.$field -isnot [long] -or $Value.$field -lt 0 -or $Value.$field -gt $(if($field -in @('format_tag','channels','sample_bits','alignment')){65535}else{4294967295}))){throw 'Typed bounded WAV field required.'}
+ }
+ if($Value.source -ceq 'file_length_check' -and ($Value.buffer_bytes -ne 0 -or $Value.reason -cne 'file_length' -or $null -ne $Value.riff -or $null -ne $Value.wave -or $Value.format_seen -or $Value.data_seen)){throw 'Length-only failure cannot infer buffer contents.'}
+ $Value
+}
 function ReadNativeFailureObservation($Value){
- ClosedKeys $Value @('operation','source_basename','source_line','peer','wait')
- if($Value.operation -isnot [string] -or $Value.operation -cnotin @('engine_construct','engine_start','case_prepare','wrong_ca_create','wrong_ca_wait','wrong_ca_assert','wrong_ca_dispose','wrong_name_create','wrong_name_wait','wrong_name_assert','wrong_name_dispose','peer_0_create','peer_1_create','peer_2_create','registration_wait','security_assert','case_execute','peers_cleanup','engine_idle','engine_shutdown') -or $Value.source_basename -isnot [string] -or $Value.source_basename -cnotin @('LabCoordinator.cs','LabServer.cs','PeerRunner.cs','PeerProtocol.cs','CoreCodecInventory.cs','ProcessImage.cs','WaitObservation.cs','NativePhone.cs','NativeMediaFixture.cs','external_component') -or $Value.source_line -isnot [long] -or $Value.source_line -lt 0 -or $Value.source_line -gt 100000 -or (($Value.source_basename -ceq 'external_component') -ne ($Value.source_line -eq 0))){throw 'Closed actual failure source differs.'}
+ ClosedKeys $Value @('operation','source_basename','source_line','peer','wait','wave')
+ if($Value.operation -isnot [string] -or $Value.operation -cnotin @('engine_construct','engine_start','case_prepare','wrong_ca_create','wrong_ca_wait','wrong_ca_assert','wrong_ca_dispose','wrong_name_create','wrong_name_wait','wrong_name_assert','wrong_name_dispose','peer_0_create','peer_1_create','peer_2_create','registration_wait','security_assert','case_execute','peers_cleanup','engine_idle','engine_shutdown') -or $Value.source_basename -isnot [string] -or $Value.source_basename -cnotin @('LabCoordinator.cs','LabServer.cs','PeerRunner.cs','PeerProtocol.cs','CoreCodecInventory.cs','ProcessImage.cs','WaitObservation.cs','AudioProof.cs','NativePhone.cs','NativeMediaFixture.cs','external_component') -or $Value.source_line -isnot [long] -or $Value.source_line -lt 0 -or $Value.source_line -gt 100000 -or (($Value.source_basename -ceq 'external_component') -ne ($Value.source_line -eq 0))){throw 'Closed actual failure source differs.'}
  if($null -ne $Value.peer){$peer=$Value.peer;ClosedKeys $peer @('progress','exited_before_cleanup','exit_code_before_cleanup','error_type','stderr_observed')
   if($peer.progress -isnot [string] -or $peer.progress -cnotin @('none','native_runtime_resources','native_logging','native_factory','native_configuration','native_create_core','native_database','native_encryption','native_trusted_roots','native_devices','native_listeners','native_start','native_verify_policy','ready','unrecognised') -or $peer.exited_before_cleanup -isnot [bool] -or $peer.stderr_observed -isnot [bool] -or $peer.error_type -isnot [string] -or $peer.error_type -cnotin @('none','InvalidDataException','InvalidOperationException','JsonException','IOException','FileNotFoundException','DirectoryNotFoundException','UnauthorizedAccessException','TimeoutException','DllNotFoundException','EntryPointNotFoundException','BadImageFormatException','TypeInitializationException','ArgumentException','ArgumentNullException','NullReferenceException','NotSupportedException','AccessViolationException','other','unobserved')){throw 'Closed native peer observation differs.'}
   if($peer.exited_before_cleanup){if($peer.exit_code_before_cleanup -isnot [long] -or $peer.exit_code_before_cleanup -lt [int]::MinValue -or $peer.exit_code_before_cleanup -gt [int]::MaxValue){throw 'Observed native peer exit differs.'}}elseif($null -ne $peer.exit_code_before_cleanup){throw 'No exit may be inferred for a live peer.'}
   if($peer.stderr_observed -eq ($peer.error_type -ceq 'unobserved')){throw 'Native peer stderr scope differs.'}
  }
  if($null -ne $Value.wait){$null=ReadNativeWaitObservation $Value.wait}
+ if($null -ne $Value.wave){$null=ReadNativeWaveObservation $Value.wave}
  $Value
 }
 function ReadEngineObservation($Value){

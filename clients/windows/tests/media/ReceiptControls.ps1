@@ -4,7 +4,7 @@ $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 $tool=Join-Path $PSScriptRoot '../../tools/Test-ClientMedia.ps1';$tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile([IO.Path]::GetFullPath($tool),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'The actual media wrapper does not parse.'}
-foreach($name in @('ClosedKeys','JsonShape','ReadNativeWaitObservation','ReadNativeFailureObservation','ReadEngineObservation','ReadMediaResult')){
+foreach($name in @('ClosedKeys','JsonShape','ReadNativeWaitObservation','ReadNativeWaveObservation','ReadNativeFailureObservation','ReadEngineObservation','ReadMediaResult')){
  $found=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
  if($found.Count -ne 1){throw 'Exactly one actual consumer function is required.'};. ([scriptblock]::Create($found[0].Extent.Text))
 }
@@ -63,7 +63,7 @@ try{
  $failed=Model;$failed.state='failed';$failed.stage='hold_music_resume';$failed.error_type='InvalidDataException';$failed.cases=$failed.cases[0..2];$closed=Validate $failed -AllowFailure;Check ($closed.state -ceq 'failed' -and $closed.cases.Count -eq 3)
  $refused=$false;try{$null=Validate $failed}catch{$refused=$true};Check $refused
  $refused=$false;try{$null=Validate (Model) -AllowFailure}catch{$refused=$true};Check $refused
- $failed.failure_observation=[ordered]@{operation='wrong_ca_create';source_basename='LabCoordinator.cs';source_line=37;wait=$null;peer=[ordered]@{progress='native_devices';exited_before_cleanup=$true;exit_code_before_cleanup=2;error_type='InvalidOperationException';stderr_observed=$true}};$failed.engine_lifecycle=[ordered]@{start_completed=$true;shutdown_completed=$false}
+ $failed.failure_observation=[ordered]@{operation='wrong_ca_create';source_basename='LabCoordinator.cs';source_line=37;wait=$null;wave=$null;peer=[ordered]@{progress='native_devices';exited_before_cleanup=$true;exit_code_before_cleanup=2;error_type='InvalidOperationException';stderr_observed=$true}};$failed.engine_lifecycle=[ordered]@{start_completed=$true;shutdown_completed=$false}
  $observed=Validate $failed -AllowFailure;Check ($observed.failure_observation.peer.exit_code_before_cleanup -eq 2)
  foreach($mutation in @('operation','source','line','raw','exit','live_exit','peer_type','peer_progress','stderr','engine_type')){
   $copy=($failed|ConvertTo-Json -Depth 12)|ConvertFrom-Json -AsHashtable
@@ -77,5 +77,14 @@ try{
   $refused=$false;try{$null=Validate $copy -AllowFailure}catch{$refused=$true};Check $refused
  }
  $failed.error_type='arbitrary private text' ;$refused=$false;try{$null=Validate $failed -AllowFailure}catch{$refused=$true};Check $refused
+ $failed.error_type='InvalidDataException'
+ $failed.failure_observation.source_basename='AudioProof.cs';$failed.failure_observation.source_line=23
+ $failed.failure_observation.wave=[ordered]@{reason='decoded_samples';source='failed_read_buffer';growing=$true;snapshot_atomic=$false;length_check_bytes=44;buffer_bytes=44;riff=$true;wave=$true;riff_declared_bytes=0;chunk='data';chunk_offset=36;chunk_declared_bytes=0;chunk_effective_bytes=0;format_tag=1;channels=1;sample_rate=8000;sample_bits=16;alignment=2;byte_rate=16000;format_seen=$true;data_seen=$true;data_bytes=0}
+ $closedWave=Validate $failed -AllowFailure;Check ($closedWave.failure_observation.wave.reason -ceq 'decoded_samples' -and !$closedWave.failure_observation.wave.snapshot_atomic)
+ foreach($mutation in @('reason','source','raw','atomic','boolean','marker','negative','count_type','oversize','tag','rate','chunk','declared','length_only')){
+  $copy=($failed|ConvertTo-Json -Depth 12)|ConvertFrom-Json -AsHashtable;$w=$copy.failure_observation.wave
+  switch($mutation){reason{$w.reason='PRIVATE'}source{$w.source='PRIVATE'}raw{$w['raw']='PRIVATE'}atomic{$w.snapshot_atomic=$true}boolean{$w.growing=1}marker{$w.riff='true'}negative{$w.data_bytes=-1}count_type{$w.buffer_bytes='44'}oversize{$w.buffer_bytes=134217729}tag{$w.format_tag=65536}rate{$w.sample_rate=4294967296}chunk{$w.chunk='PRIVATE'}declared{$w.chunk_declared_bytes=-1}length_only{$w.source='file_length_check'}}
+  $bad=$false;try{$null=Validate $copy -AllowFailure}catch{$bad=$true};Check $bad
+ }
  [ordered]@{schema=1;state='passed_pure_actual_consumer';checks=$checks;modelled_receipts_only=$true;actual_native_calling=$false;hardware_media_tested=$false}|ConvertTo-Json -Compress
 }finally{Remove-Item -LiteralPath $root -Recurse -Force}

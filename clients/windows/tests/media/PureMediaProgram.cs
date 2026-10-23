@@ -89,6 +89,36 @@ try
     using var wrongKey = System.Security.Cryptography.RSA.Create(3072); bool wrongKeyRefused = false; try { wrongKey.Decrypt(Convert.FromBase64String(sealedTrace.wrapped_key), System.Security.Cryptography.RSAEncryptionPadding.OaepSHA256); } catch (System.Security.Cryptography.CryptographicException) { wrongKeyRefused = true; } Check(wrongKeyRefused);
     Refuse(() => EngineDiagnostics.Seal(traceBytes, "PRIVATE", "123456", "outgoing_audio", publicPem)); Refuse(() => EngineDiagnostics.Seal(traceBytes, new string('a', 40), "PRIVATE", "outgoing_audio", publicPem)); Refuse(() => EngineDiagnostics.Seal(traceBytes, new string('a', 40), "123456", "PRIVATE", publicPem)); Refuse(() => EngineDiagnostics.Seal(new byte[EngineDiagnostics.Maximum + 1], new string('a', 40), "123456", "outgoing_audio", publicPem));
     System.Security.Cryptography.CryptographicOperations.ZeroMemory(key);
+    WaveReadObservation ObserveWave(byte[] bytes, bool growing, string reason)
+    {
+        var file = Path.Combine(root, "PRIVATE-wave-" + Guid.NewGuid().ToString("N")); File.WriteAllBytes(file, bytes);
+        try { PcmWave.Read(file, growing); throw new InvalidOperationException("Expected original parser refusal."); }
+        catch (InvalidDataException error)
+        {
+            var observation = error.Data["media_wave_observation"] as WaveReadObservation ?? throw new InvalidOperationException("Original failure observation missing.");
+            Check(observation.reason == reason && !observation.snapshot_atomic && observation.growing == growing && !JsonSerializer.Serialize(observation).Contains("PRIVATE", StringComparison.Ordinal));
+            var captured = FailureObservation.Capture(error, "case_execute"); Check(ReferenceEquals(captured.wave, observation) && captured.source_basename == "AudioProof.cs" && captured.source_line > 0);
+            return observation;
+        }
+    }
+    var audioBytes = File.ReadAllBytes(single); var emptyHeader = audioBytes.Take(44).ToArray(); Array.Clear(emptyHeader, 4, 4); Array.Clear(emptyHeader, 40, 4);
+    var emptyObservation = ObserveWave(emptyHeader, true, "decoded_samples"); Check(emptyObservation.source == "failed_read_buffer" && emptyObservation.buffer_bytes == 44 && emptyObservation.format_seen && emptyObservation.data_seen && emptyObservation.data_bytes == 0 && emptyObservation.format_tag == 1 && emptyObservation.sample_bits == 16);
+    var partial = ObserveWave(emptyHeader.Take(40).ToArray(), true, "file_length"); Check(partial.source == "file_length_check" && partial.length_check_bytes == 40 && partial.buffer_bytes == 0 && partial.riff is null);
+    var wrongRiff = audioBytes.ToArray(); wrongRiff[0] = 0; var riffObservation = ObserveWave(wrongRiff, true, "riff_wave_shape"); Check(riffObservation.riff == false && riffObservation.wave == true);
+    var unsupported = audioBytes.ToArray(); System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(unsupported.AsSpan(20), 3); Check(ObserveWave(unsupported, true, "pcm_format").format_tag == 3);
+    var eightBit = audioBytes.ToArray(); System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(eightBit.AsSpan(34), 8); Check(ObserveWave(eightBit, true, "pcm_format").sample_bits == 8);
+    var invalidRate = audioBytes.ToArray(); System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(invalidRate.AsSpan(24), 1000); Check(ObserveWave(invalidRate, true, "pcm_layout").sample_rate == 1000);
+    var tooLongChunk = audioBytes.ToArray(); System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(tooLongChunk.AsSpan(16), uint.MaxValue); Check(ObserveWave(tooLongChunk, true, "chunk_length").chunk_declared_bytes == uint.MaxValue);
+    var unfinalized = ObserveWave(emptyHeader, false, "riff_wave_shape"); Check(unfinalized.riff == true && unfinalized.wave == true && unfinalized.riff_declared_bytes == 0);
+    var growth = Path.Combine(root, "growing-observation.wav");
+    using (var writer = new FileStream(growth, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.ReadWrite))
+    {
+        writer.Write(emptyHeader); writer.Flush(true); InvalidDataException? primaryRead = null;
+        try { PcmWave.Read(growth, true); } catch (InvalidDataException error) { primaryRead = error; }
+        Check(primaryRead?.Data["media_wave_observation"] is WaveReadObservation { reason: "decoded_samples", data_bytes: 0 });
+        writer.Write(audioBytes.AsSpan(44)); writer.Flush(true); Check(PcmWave.Read(growth, true).Duration == 4 && PcmWave.Read(growth, true).Tail([425]).GoodFraction == 1);
+        Check(primaryRead?.Data["media_wave_observation"] is WaveReadObservation { buffer_bytes: 44, data_bytes: 0 });
+    }
     var productionAbsence = false;
     if (args.Length != 0)
     {

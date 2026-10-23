@@ -5,6 +5,11 @@ using System.Text;
 namespace OpenWebPbx.Phone.MediaChecks;
 
 internal sealed record AudioWindow(double StartSeconds, double Seconds, double MinimumToneRatio, double MinimumRms, double GoodFraction);
+internal sealed record WaveReadObservation(string reason, string source, bool growing, bool snapshot_atomic,
+    long length_check_bytes, int buffer_bytes, bool? riff, bool? wave, long? riff_declared_bytes,
+    string chunk, int chunk_offset, long? chunk_declared_bytes, long? chunk_effective_bytes,
+    int? format_tag, int? channels, long? sample_rate, int? sample_bits, int? alignment, long? byte_rate,
+    bool format_seen, bool data_seen, int data_bytes);
 internal sealed class PcmWave
 {
     public int Rate { get; }
@@ -13,38 +18,64 @@ internal sealed class PcmWave
     private PcmWave(int rate, double[] samples) { Rate = rate; Samples = samples; }
     public static PcmWave Read(string path, bool growing = false)
     {
+        byte[]? bytes = null; long lengthCheck = -1; var reason = "file_length"; var chunk = "none"; var chunkOffset = -1;
+        long? declared = null, effective = null; int? formatTag = null, observedChannels = null, sampleBits = null, observedAlignment = null;
+        long? sampleRate = null, byteRate = null; bool format = false; int dataAt = -1, dataLength = 0;
+        try
+        {
         using var input = new FileStream(path, FileMode.Open, FileAccess.Read, growing ? FileShare.ReadWrite : FileShare.Read);
-        if (input.Length is < 44 or > 128 * 1024 * 1024) throw new InvalidDataException("Bounded decoded WAV required.");
-        var bytes = new byte[checked((int)input.Length)]; input.ReadExactly(bytes);
+        if ((lengthCheck = input.Length) is < 44 or > 128 * 1024 * 1024) throw new InvalidDataException("Bounded decoded WAV required.");
+        bytes = new byte[checked((int)input.Length)]; input.ReadExactly(bytes);
+        reason = "riff_wave_shape";
         if (!bytes.AsSpan(0, 4).SequenceEqual("RIFF"u8) || !bytes.AsSpan(8, 4).SequenceEqual("WAVE"u8) || (!growing && BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(4)) + 8L != bytes.Length)) throw new InvalidDataException("Exact RIFF/WAVE shape required.");
-        int rate = 0, channels = 0, alignment = 0, dataAt = -1, dataLength = 0; bool format = false;
+        int rate = 0, channels = 0, alignment = 0;
         for (var at = 12; at < bytes.Length;)
         {
+            reason = "chunk_header"; chunkOffset = at; chunk = "none"; declared = effective = null;
             if (at + 8 > bytes.Length) throw new InvalidDataException("Incomplete WAV chunk.");
             var length = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(at + 4)); var start = at + 8;
+            declared = length; chunk = bytes.AsSpan(at, 4).SequenceEqual("fmt "u8) ? "fmt" : bytes.AsSpan(at, 4).SequenceEqual("data"u8) ? "data" : "other";
             // Explicit file-media observation adapter: an open native WAV commonly
             // leaves RIFF/data lengths unfinished. Snapshot only the bytes already
             // read, never manufacture samples or change the writer's file.
             if (growing && bytes.AsSpan(at, 4).SequenceEqual("data"u8))
             {
+                reason = "terminal_data_shape";
                 if (!format || dataAt != -1) throw new InvalidDataException("Unique terminal PCM data required.");
                 length = checked((uint)(bytes.Length - start));
             }
+            effective = length; reason = "chunk_length";
             if (length > bytes.Length - start) throw new InvalidDataException("WAV chunk exceeds file.");
             if (bytes.AsSpan(at, 4).SequenceEqual("fmt "u8))
             {
+                reason = "pcm_format";
+                if (length >= 16 && start + 16 <= bytes.Length) { formatTag = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(start)); observedChannels = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(start + 2)); sampleRate = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(start + 4)); byteRate = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(start + 8)); observedAlignment = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(start + 12)); sampleBits = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(start + 14)); }
                 if (format || length < 16 || length > 256 || BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(start)) != 1 || BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(start + 14)) != 16) throw new InvalidDataException("Unique PCM16 format required.");
                 channels = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(start + 2)); rate = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(start + 4))); alignment = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(start + 12));
+                reason = "pcm_layout";
                 if (channels is < 1 or > 2 || rate is < 8000 or > 48000 || alignment != channels * 2 || BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(start + 8)) != rate * alignment) throw new InvalidDataException("PCM rate/channels differ.");
                 format = true;
             }
-            if (bytes.AsSpan(at, 4).SequenceEqual("data"u8)) { if (dataAt != -1) throw new InvalidDataException("Duplicate audio data."); dataAt = start; dataLength = checked((int)length); }
-            at = checked(start + (int)length + (int)(length & 1)); if (at > bytes.Length) throw new InvalidDataException("Missing WAV padding.");
+            if (bytes.AsSpan(at, 4).SequenceEqual("data"u8)) { reason = "duplicate_data"; if (dataAt != -1) throw new InvalidDataException("Duplicate audio data."); dataAt = start; dataLength = checked((int)length); }
+            reason = "chunk_padding"; at = checked(start + (int)length + (int)(length & 1)); if (at > bytes.Length) throw new InvalidDataException("Missing WAV padding.");
         }
+        reason = "decoded_samples";
         if (!format || dataAt < 0 || dataLength % alignment != 0 || dataLength == 0) throw new InvalidDataException("Complete decoded samples required.");
         var samples = new double[dataLength / alignment];
         for (var n = 0; n < samples.Length; n++) { double value = 0; for (var channel = 0; channel < channels; channel++) value += BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(dataAt + n * alignment + channel * 2)); samples[n] = value / channels; }
         return new(rate, samples);
+        }
+        catch (InvalidDataException error)
+        {
+            // This is the exact buffer used by the failed read. No observer reopens
+            // the growing file; a concurrent writer means it is not an atomic snapshot.
+            try { error.Data["media_wave_observation"] = new WaveReadObservation(reason, bytes is null ? "file_length_check" : "failed_read_buffer", growing, false,
+                lengthCheck, bytes?.Length ?? 0, bytes is { Length: >= 4 } ? bytes.AsSpan(0, 4).SequenceEqual("RIFF"u8) : null,
+                bytes is { Length: >= 12 } ? bytes.AsSpan(8, 4).SequenceEqual("WAVE"u8) : null,
+                bytes is { Length: >= 8 } ? BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(4)) : null,
+                chunk, chunkOffset, declared, effective, formatTag, observedChannels, sampleRate, sampleBits, observedAlignment, byteRate, format, dataAt >= 0, dataLength); } catch { }
+            throw;
+        }
     }
     public static void Write(string path, IReadOnlyList<double> frequencies, double seconds = 120, int rate = 8000, double amplitude = .25)
     {
