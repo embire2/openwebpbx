@@ -49,3 +49,24 @@ raw output. Nothing is stripped or accepted after parsing fails. Real PHP child
 output and actual FinishPhp controls pass53 checks; the hosted wrapper will run
 them against the exact prepared PHP runtime. This is diagnostic coverage, not a
 native catalogue or historical-cause pass.
+
+
+Run40006107690/sourcefd1da72c preserves the actual failing `--refresh` child:
+exit0, expected-success false,272 stdout characters,0 stderr characters,
+non-JSON output and no plain warning-prefix match. The retained original job
+and artifact contain no child text, so the underlying cause remains unknown.
+The diagnostic now frames the exact captured .NET UTF16 code units (stdout and
+stderr, each at most32768 characters) in a new private file, preserving the
+original JSON-conversion failure. The exporter checks actual bytes, framing and
+SHA256 before sealing with the pinned QA public key using RSA3072-OAEP-SHA256
+and AES256-GCM. Authenticated metadata binds purpose, exact source/run, edition,
+stage, size and hash. Only that sealed envelope and closed fields enter the
+existing JSON artifact. No private key enters the runner; failed collection or
+encryption cannot replace the primary error. No output is stripped or accepted.
+
+The focused checks pass85 real binary/CreateNew/hash/ephemeral-crypto controls,
+63 actual PHP/FinishPhp controls and132 strict failure/primary-preservation
+controls. Protected-file/ACL APIs are explicit portable adapters. No Windows
+catalogue case, lock cause, installed IIS reader or release pass is inferred;
+a fresh native run is still required. Runtime catalogue and lock behavior stay
+unchanged.

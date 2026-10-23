@@ -1,3 +1,11 @@
+function Read-WindowsPhoneCatalogueOriginalBinding($Value){
+ $fields=@('schema','bytes','sha256','stdout_characters','stderr_characters')
+ $keys=if($Value -is [pscustomobject]){@($Value.PSObject.Properties.Name)}elseif($Value -is [Collections.IDictionary]){@($Value.Keys)}else{@()}
+ if($keys.Count -ne $fields.Count -or @($keys|Where-Object {$_ -cnotin $fields}).Count){throw 'The original child binding shape differs.'}
+ foreach($n in 'schema','bytes','stdout_characters','stderr_characters'){if($Value.$n -isnot [int] -and $Value.$n -isnot [long]){throw 'The original child binding integer differs.'}}
+ if($Value.schema -ne 1 -or $Value.stdout_characters -lt 0 -or $Value.stdout_characters -gt 32768 -or $Value.stderr_characters -lt 0 -or $Value.stderr_characters -gt 32768 -or $Value.bytes -ne (8+2*($Value.stdout_characters+$Value.stderr_characters)) -or $Value.bytes -gt 131080 -or $Value.sha256 -isnot [string] -or $Value.sha256 -cnotmatch '^[a-f0-9]{64}$'){throw 'The exact original child size/hash binding differs.'}
+ $result=[ordered]@{};foreach($field in $fields){$result[$field]=$Value.$field};return $result
+}
 # Closed receipt consumer; safe to dot-source without native actions.
 function Get-WindowsPhoneCatalogueNativeCases {
  return @('php_crypto_fixture_seeded','php_parent_blocks_dotnet_exclusive','php_parent_blocks_other_php','parent_commit_uses_real_movefileex','commit_child_refuses_without_parent','dotnet_parent_blocks_php','php_recovers_after_dotnet_release','before_rename_child_killed_only_after_prepared_stage','before_rename_recovery_forward','after_rename_child_killed_only_after_prepared_journal','after_rename_recovery_forward','expired_prepared_highwater_unavailable','fresh_higher_release_after_expired_recovery','partial_stage_preserved','native_task_staged_disabled','native_task_foreign_action_preserved','native_task_foreign_trigger_preserved','native_task_foreign_principal_preserved','native_task_foreign_settings_preserved','native_task_foreign_security_preserved','native_activation_requires_completed_install','native_activation_preserves_disabled_choice','native_activation_before_enable_kill_recovery','native_activation_after_enable_kill_recovery','native_activation_after_complete_kill_recovery','native_activation_terminal_preserves_admin_choice','native_scheduled_worker_system_identity','native_owned_task_removed_only','source_runtime_whole_inventory_exact','original_services_files_exact')
@@ -61,7 +69,7 @@ function Read-WindowsPhoneCatalogueChildOutput {
 }
 function Read-WindowsPhoneCatalogueNativeFailure {
  param($Value,[ValidateSet('Desktop','Core')][string]$Edition)
- $fields=@('schema','producer','state','phase','source_basename','source_line','error_type','edition','php_child_exit','php_failure','php_output','child_processes_closed','owned_task_removed','original_vectors_preserved','owned_scope_retained','cleanup_required','actual_native_qualified')
+ $fields=@('schema','producer','state','phase','source_basename','source_line','error_type','edition','php_child_exit','php_failure','php_output','php_original','child_processes_closed','owned_task_removed','original_vectors_preserved','owned_scope_retained','cleanup_required','actual_native_qualified')
  if($null -eq $Value -or $Value.GetType().FullName -cne 'System.Management.Automation.PSCustomObject' -or @($Value.PSObject.Properties).Count -ne $fields.Count){throw 'The native catalogue diagnostic shape differs.'}
  foreach($name in $Value.PSObject.Properties.Name){if($name -cnotin $fields){throw 'An unknown native catalogue diagnostic field was refused.'}}
  if(($Value.schema -isnot [int] -and $Value.schema -isnot [long]) -or $Value.schema -ne 1 -or $Value.producer -isnot [string] -or $Value.producer -cne 'windows_phone_catalogue_native.ps1' -or $Value.state -isnot [string] -or $Value.state -cne 'failed' -or $Value.edition -isnot [string] -or $Value.edition -cne $Edition){throw 'The native catalogue diagnostic identity differs.'}
@@ -70,7 +78,8 @@ function Read-WindowsPhoneCatalogueNativeFailure {
  if($null -ne $Value.php_child_exit -and (($Value.php_child_exit -isnot [int] -and $Value.php_child_exit -isnot [long]) -or $Value.php_child_exit -lt [int]::MinValue -or $Value.php_child_exit -gt [int]::MaxValue)){throw 'The PHP fixture exit is mistyped.'}
  $php=$null;if($null -ne $Value.php_failure){if($null -eq $Value.php_child_exit -or $Value.php_child_exit -eq 0){throw 'The PHP diagnostic requires its original failed child exit.'};$php=Read-WindowsPhoneCataloguePhpFailure $Value.php_failure}
  $output=$null;if($null -ne $Value.php_output){if($null -eq $Value.php_child_exit){throw 'The output observation requires its original child exit.'};$output=Read-WindowsPhoneCatalogueChildOutput $Value.php_output}
+ $original=$null;if($null -ne $Value.php_original){if($null -eq $output){throw 'The retained original requires its child output projection.'};$original=Read-WindowsPhoneCatalogueOriginalBinding $Value.php_original;if($original.stdout_characters -ne $output.stdout_characters -or $original.stderr_characters -ne $output.stderr_characters){throw 'The original and projected output sizes differ.'}}
  foreach($flag in 'child_processes_closed','owned_task_removed','original_vectors_preserved','owned_scope_retained','cleanup_required','actual_native_qualified'){if($Value.$flag -isnot [bool]){throw 'A native diagnostic flag is mistyped.'}}
  if($Value.actual_native_qualified -or ($Value.owned_scope_retained -and !$Value.cleanup_required -and (!$Value.child_processes_closed -or !$Value.owned_task_removed -or !$Value.original_vectors_preserved))){throw 'A native failure cannot claim unverified cleanup or qualification.'}
- $safe=[ordered]@{};foreach($name in $fields){$safe[$name]=$Value.$name};$safe.php_failure=$php;$safe.php_output=$output;return $safe
+ $safe=[ordered]@{};foreach($name in $fields){$safe[$name]=$Value.$name};$safe.php_failure=$php;$safe.php_output=$output;$safe.php_original=$original;return $safe
 }

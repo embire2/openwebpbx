@@ -3,6 +3,7 @@
 param([Parameter(Mandatory)][string]$SourceBundle,[Parameter(Mandatory)][string]$SourceManifest,[Parameter(Mandatory)][string]$SourceManifestSha256,[Parameter(Mandatory)][string]$PhpDirectory,[Parameter(Mandatory)][string]$ReportPath)
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'windows_phone_catalogue_proof.ps1')
+. (Join-Path $PSScriptRoot 'windows_phone_catalogue_sealed_output.ps1')
 # Desktop Process.Start children do not use the parent Core module inventory.
 # Resolve only the actual Windows stock modules; never alter PSModulePath.
 function Assert-CatalogueStockOrdinary([string]$Path){
@@ -152,6 +153,7 @@ function FinishPhp($Child,[bool]$Success=$true){
  catch{
   $original=$_;$original.Exception.Data['catalogue_php_child_exit']=[int]$p.ExitCode
   try{$original.Exception.Data['catalogue_php_output']=Get-WindowsPhoneCatalogueChildOutput $Child.Action $Success $out.Result $Child.ErrorTask.Result}catch{$original.Exception.Data['catalogue_php_output_observation_refused']=$true}
+  try{$original.Exception.Data['catalogue_php_original']=Write-WindowsPhoneCatalogueOriginal $ReportPath $out.Result $Child.ErrorTask.Result}catch{$original.Exception.Data['catalogue_php_original_observation_refused']=$true}
   if($p.ExitCode -ne 0){try{$original.Exception.Data['catalogue_php_failure']=Read-WindowsPhoneCataloguePhpFailure ($Child.ErrorTask.Result|ConvertFrom-Json -ErrorAction Stop)}catch{$original.Exception.Data['catalogue_php_observation_refused']=$true}}
   throw $original
  }
@@ -292,12 +294,13 @@ try{Complete-OpenWebWindowsPhoneCatalogueActivation -Owner install -Root $p.Root
  $failure=$_
  if($reportOwned){try{
   $meta=Get-WindowsPhoneCatalogueFailureMetadata $failure
-  $phpExit=$null;$phpFailure=$null;$phpOutput=$null
+  $phpExit=$null;$phpFailure=$null;$phpOutput=$null;$phpOriginal=$null
   if($failure.Exception.Data.Contains('catalogue_php_child_exit')){$phpExit=[int]$failure.Exception.Data['catalogue_php_child_exit']}
   if($failure.Exception.Data.Contains('catalogue_php_failure')){$phpFailure=$failure.Exception.Data['catalogue_php_failure']}
   if($failure.Exception.Data.Contains('catalogue_php_output')){$phpOutput=Read-WindowsPhoneCatalogueChildOutput $failure.Exception.Data['catalogue_php_output']}
+  if($null -ne $phpOutput -and $failure.Exception.Data.Contains('catalogue_php_original')){$phpOriginal=Read-WindowsPhoneCatalogueOriginalBinding $failure.Exception.Data['catalogue_php_original']}
   $retained=[bool]($work -and (Test-Path -LiteralPath $work))
-  $record=[ordered]@{schema=1;producer='windows_phone_catalogue_native.ps1';state='failed';phase=$phase;source_basename=$meta.source_basename;source_line=$meta.source_line;error_type=$meta.error_type;edition=$PSVersionTable.PSEdition;php_child_exit=$phpExit;php_failure=$phpFailure;php_output=$phpOutput;child_processes_closed=$childrenClosed;owned_task_removed=$taskRemoved;original_vectors_preserved=$vectorsExact;owned_scope_retained=$retained;cleanup_required=($retained -and !($childrenClosed -and $taskRemoved -and $vectorsExact));actual_native_qualified=$false}
+  $record=[ordered]@{schema=1;producer='windows_phone_catalogue_native.ps1';state='failed';phase=$phase;source_basename=$meta.source_basename;source_line=$meta.source_line;error_type=$meta.error_type;edition=$PSVersionTable.PSEdition;php_child_exit=$phpExit;php_failure=$phpFailure;php_output=$phpOutput;php_original=$phpOriginal;child_processes_closed=$childrenClosed;owned_task_removed=$taskRemoved;original_vectors_preserved=$vectorsExact;owned_scope_retained=$retained;cleanup_required=($retained -and !($childrenClosed -and $taskRemoved -and $vectorsExact));actual_native_qualified=$false}
   $bytes=[Text.UTF8Encoding]::new($false).GetBytes(($record|ConvertTo-Json -Depth 8 -Compress));$report=[IO.File]::Open($ReportPath,'CreateNew','Write','None');try{$report.Write($bytes,0,$bytes.Length);$report.Flush($true)}finally{$report.Dispose()}
  }catch{$failure.Exception.Data['catalogue_fixture_failure_report_failed']=$true}}
  throw $failure
