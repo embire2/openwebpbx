@@ -1,4 +1,29 @@
 BEGIN;
+-- Refuse unknown platform policy before modifying the owned schema. The lock
+-- spans the inspection and migration so a concurrent DDL cannot change it.
+DO $openweb_windows_phone$
+DECLARE target regclass; visible regclass; platform_column smallint; constraint_row record; total integer;
+BEGIN
+ target:=to_regclass(format('%I.v_pbx_mobile_devices',current_schema()));
+ visible:=to_regclass('v_pbx_mobile_devices');
+ IF visible IS NOT NULL AND target IS DISTINCT FROM visible THEN
+  RAISE EXCEPTION 'Ambiguous mobile table namespace; no migration performed';
+ END IF;
+ IF target IS NOT NULL THEN
+  EXECUTE format('LOCK TABLE %s IN ACCESS EXCLUSIVE MODE',target);
+  SELECT attnum INTO platform_column FROM pg_attribute
+   WHERE attrelid=target AND attname='platform' AND atttypid='text'::regtype AND attnotnull AND NOT attisdropped;
+  IF platform_column IS NULL THEN RAISE EXCEPTION 'Unknown mobile platform column; no migration performed'; END IF;
+  SELECT count(*) INTO total FROM pg_constraint WHERE conrelid=target AND contype='c' AND platform_column=ANY(conkey);
+  IF total<>1 THEN RAISE EXCEPTION 'Unknown mobile platform constraints; no migration performed'; END IF;
+  SELECT conname,convalidated,pg_get_expr(conbin,conrelid) expression INTO constraint_row
+   FROM pg_constraint WHERE conrelid=target AND contype='c' AND platform_column=ANY(conkey);
+  IF NOT constraint_row.convalidated OR NOT (
+   (constraint_row.conname='v_pbx_mobile_devices_platform_check' AND constraint_row.expression='(platform = ''android''::text)') OR
+   (constraint_row.conname='openweb_mobile_device_platform' AND constraint_row.expression='(platform = ANY (ARRAY[''android''::text, ''windows''::text]))')
+  ) THEN RAISE EXCEPTION 'Unknown mobile platform constraint; no migration performed'; END IF;
+ END IF;
+END $openweb_windows_phone$;
 CREATE TABLE IF NOT EXISTS v_pbx_mobile_enrollments (
  enrollment_uuid uuid PRIMARY KEY, domain_uuid uuid NOT NULL REFERENCES v_domains ON DELETE CASCADE,
  extension_uuid uuid NOT NULL REFERENCES v_extensions ON DELETE CASCADE,
@@ -11,7 +36,7 @@ CREATE INDEX IF NOT EXISTS openweb_mobile_enroll_extension ON v_pbx_mobile_enrol
 CREATE TABLE IF NOT EXISTS v_pbx_mobile_devices (
  device_uuid uuid PRIMARY KEY, domain_uuid uuid NOT NULL REFERENCES v_domains ON DELETE CASCADE,
  extension_uuid uuid NOT NULL REFERENCES v_extensions ON DELETE CASCADE,
- device_name text NOT NULL, platform text NOT NULL CHECK(platform='android'),
+ device_name text NOT NULL, platform text NOT NULL CONSTRAINT openweb_mobile_device_platform CHECK(platform IN('android','windows')),
  token_hash text UNIQUE NOT NULL CHECK(length(token_hash)=64),
  sip_username text UNIQUE NOT NULL CHECK(sip_username ~ '^owm-[0-9a-f]{32}$'),
  sip_a1_hash text NOT NULL CHECK(length(sip_a1_hash)=32),
@@ -19,6 +44,13 @@ CREATE TABLE IF NOT EXISTS v_pbx_mobile_devices (
  last_seen_at timestamptz, revoked_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS openweb_mobile_device_extension ON v_pbx_mobile_devices(extension_uuid);
+DO $openweb_windows_phone$
+BEGIN
+ IF EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid=to_regclass('v_pbx_mobile_devices') AND conname='v_pbx_mobile_devices_platform_check') THEN
+  ALTER TABLE v_pbx_mobile_devices DROP CONSTRAINT v_pbx_mobile_devices_platform_check;
+  ALTER TABLE v_pbx_mobile_devices ADD CONSTRAINT openweb_mobile_device_platform CHECK(platform IN('android','windows'));
+ END IF;
+END $openweb_windows_phone$;
 CREATE TABLE IF NOT EXISTS v_pbx_mobile_presence (
  domain_uuid uuid NOT NULL REFERENCES v_domains ON DELETE CASCADE,
  extension_uuid uuid NOT NULL REFERENCES v_extensions ON DELETE CASCADE,
@@ -99,4 +131,13 @@ END $$;
 DROP TRIGGER IF EXISTS openweb_mobile_welcome_delete ON v_pbx_mobile_welcome;
 CREATE TRIGGER openweb_mobile_welcome_delete BEFORE DELETE ON v_pbx_mobile_welcome
  FOR EACH ROW EXECUTE FUNCTION openweb_mobile_cancel_welcome();
+-- Windows Phone never shares the Android/server update policies or floors.
+CREATE TABLE IF NOT EXISTS v_pbx_windows_phone_policies (
+ scope_key text PRIMARY KEY CHECK(scope_key='instance' OR scope_key ~ '^tenant:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'),
+ mode text NOT NULL DEFAULT 'notify' CHECK(mode IN('notify','download','required')),
+ minimum_version text NOT NULL DEFAULT '' CHECK(minimum_version='' OR minimum_version ~ '^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$'),
+ updated_at timestamptz NOT NULL DEFAULT now(), updated_by uuid REFERENCES v_users ON DELETE SET NULL,
+ CHECK(scope_key='instance' OR minimum_version='')
+);
+INSERT INTO v_pbx_windows_phone_policies(scope_key) VALUES('instance') ON CONFLICT DO NOTHING;
 COMMIT;
