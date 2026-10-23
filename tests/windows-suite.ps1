@@ -1089,6 +1089,58 @@ function SafeWebReadinessReport($Record){
  foreach($name in 'manifest_helper_hash','scalar_boolean','trusted_tls','actual_iis'){if($Record.$name -isnot [bool]){return $null};$safe[$name]=$Record.$name}
  return $safe
 }
+function Read-PublicListenerQualificationReport($Record,[string]$Kind,$ChildExit) {
+ if(($Record -isnot [pscustomobject] -and $Record -isnot [Collections.IDictionary]) -or ($ChildExit -isnot [int] -and $ChildExit -isnot [long]) -or $ChildExit -ne 0 -or ($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.state -isnot [string] -or $Record.state -cne 'passed'){throw 'The native public-listener proof or child result is invalid.'}
+ if($Kind -ceq 'native_defender'){
+  $producer='windows_public_listeners_native.ps1';$minimum=21
+  $positive=@('actual_native_defender','actual_os_listener_ownership','service_identity_adapter_double','global_policy_exact','actual_throw_after_create_and_enable','idempotent','foreign_named_rule_preserved','configured_private_ports_excluded','profiles_all_enabled_at_observation')
+  $negative=@('firewall_enforcement_tested','firewall_profiles_changed','installed_server_changed','calls_placed')
+ }elseif($Kind -ceq 'installed_collector'){
+  $producer='windows_public_listener_installed.ps1';$minimum=14
+  $positive=@('actual_installed_php_pg_esl_os','exact_installed_helper_manifest','provider_5080_tcp_udp_planned','tls_only_when_actually_bound','configured_default_audio_source','private_service_ports_excluded','read_only_preflight')
+  $negative=@('firewall_or_configuration_mutated','calling_or_audio_acceptance','installed_server_changed')
+ }else{throw 'The public-listener proof scope is unknown.'}
+ if($Record.producer -isnot [string] -or $Record.producer -cne $producer -or ($Record.checks -isnot [int] -and $Record.checks -isnot [long]) -or $Record.checks -lt $minimum -or $Record.checks -gt 100000){throw 'The actual public-listener evidence producer or control count is incomplete.'}
+ $safe=@{schema=1;producer=$producer;state='passed';checks=$Record.checks}
+ foreach($field in $positive){if($Record.$field -isnot [bool] -or !$Record.$field){throw 'The actual public-listener coverage or explicit fixture scope is incomplete.'};$safe[$field]=$true}
+ foreach($field in $negative){if($Record.$field -isnot [bool] -or $Record.$field){throw 'The public-listener proof must preserve its read-only and packet-enforcement limits.'};$safe[$field]=$false}
+ return $safe
+}
+function PublicListenerQualificationHook([string]$Kind) {
+ if($ReplaySuiteRunId){$facts.public_listener_qualification='unqualified_historical_candidate';return}
+ if($Kind -cnotin 'native_defender','installed_collector'){throw 'The public-listener qualification stage is invalid.'}
+ if(!$facts.Contains('public_listener_qualification')){$facts.public_listener_qualification=@{state='partial';native_defender='pending';installed_collector='pending';outside_acme='unqualified'}}
+ if($Kind -ceq 'installed_collector'){
+  if($facts.public_listener_qualification.native_defender -isnot [Collections.IDictionary] -or $facts.public_listener_qualification.native_defender.state -cne 'passed' -or $facts.gates.fresh -cne 'passed' -or $facts.gates.web_readiness -cne 'passed' -or !(Test-Path -LiteralPath (Join-Path $PackageRoot 'public-listeners.php'))){throw 'Actual installed listener proof requires the current package, native Defender proof, fresh installation and trusted web readiness.'}
+ }
+ $script=if($Kind -ceq 'native_defender'){'windows_public_listeners_native.ps1'}else{'windows_public_listener_installed.ps1'}
+ $reportPath=Join-Path $work ('public-listener-'+$Kind+'.json')
+ $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'))
+ $start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+ $start.Environment['PSModulePath']=(Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell/Modules')
+ $arguments=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot $script))
+ if($Kind -ceq 'native_defender'){$arguments+=@('-SourceRoot',$source)}else{$arguments+=@('-PackageRoot',$PackageRoot,'-ReportPath',$reportPath)}
+ foreach($argument in $arguments){$start.ArgumentList.Add($argument)}
+ $process=[Diagnostics.Process]::Start($start);$stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
+ try{
+  if(!$process.WaitForExit(240000)){$process.Kill($true);$null=$process.WaitForExit(10000);throw 'The native public-listener proof exceeded its deadline.'}
+  if(!$stdout.Wait(5000) -or !$stderr.Wait(5000)){throw 'The native public-listener proof retained an output pipe.'}
+  $text=$stdout.Result
+  [IO.File]::WriteAllText((Join-Path $work ('public-listener-'+$Kind+'.private.out')),$text);[IO.File]::WriteAllText((Join-Path $work ('public-listener-'+$Kind+'.private.err')),$stderr.Result)
+  if($Kind -ceq 'native_defender'){
+   if($text.Length -gt 16384){throw 'The native Defender public-listener report exceeded its bound.'}
+   $report=$text|ConvertFrom-Json
+  }else{
+   $file=Get-Item -LiteralPath $reportPath
+   if($file.Length -gt 16384 -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'The installed public-listener report is invalid.'}
+   $report=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json
+  }
+  $safe=Read-PublicListenerQualificationReport $report $Kind $process.ExitCode
+  $facts.public_listener_qualification[$Kind]=$safe
+  if($Kind -ceq 'installed_collector'){$facts.public_listener_qualification.state='passed'}
+  $facts.checks+=('Actual native public-listener '+$Kind+' controls: '+$safe.checks+'; public ACME and packet enforcement are unqualified')
+ }finally{$process.Dispose()}
+}
 function WebReadinessHook {
  $reportPath=Join-Path $work 'web-readiness-native.json'
  $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'))
@@ -1358,6 +1410,8 @@ try{
  CheckedPython @((Join-Path $source 'tests/windows_voice_installer.py'))
  & (Join-Path $source 'tests/windows_modern_baseline_gates.ps1') -SourceRoot $source *> (Join-Path $work 'modern-baseline-validator.private.log')
  if(!$?){throw 'Modern native baseline evidence controls failed.'}
+ & (Join-Path $source 'tests/windows_public_listener_evidence.ps1') -SourceRoot $source *> (Join-Path $work 'public-listener-evidence.private.log')
+ if(!$?){throw 'Actual public-listener qualification evidence controls failed.'}
  & (Join-Path $source 'tests/windows_native_services_controls.ps1') -SourceRoot $source *> (Join-Path $work 'native-services-validator.private.log')
  if(!$?){throw 'Extended native qualification evidence controls failed.'}
  & (Join-Path $source 'tests/windows_native_factory_diagnostics.ps1') -SourceRoot $source *> (Join-Path $work 'native-factory-guards.private.log')
@@ -1381,6 +1435,7 @@ try{
  if($release.version -ne (Get-Content (Join-Path $source 'VERSION') -Raw).Trim()){throw 'The candidate package release differs from source.'}
  $mapped=VerifyInventory $PackageRoot $release.files;$facts.checks+=('Exact candidate package inventory: '+$mapped+' files')
  $phase='original candidate export';ExportOriginalCandidate $release
+ $phase='native public-listener firewall qualification';PublicListenerQualificationHook 'native_defender'
  $phase='fresh installation';$admin='windowsqa-'+[Guid]::NewGuid().ToString('N').Substring(0,12)+'@example.invalid';$password=ConvertTo-SecureString (RandomSecret) -AsPlainText -Force
  $hosts=Join-Path $env:SystemRoot 'System32/drivers/etc/hosts';$marker='# OpenWebPBX-WindowsSuite-'+$env:GITHUB_RUN_ID
  if([IO.File]::ReadAllText($hosts) -match '(?im)^\s*[^#\r\n]+\s+windowsqa\.example\.invalid(?:\s|$)'){throw 'The suite hostname already has an unrelated hosts entry.'}
@@ -1429,6 +1484,7 @@ try{
  $phase='native PHP runtime qualification';PhpRuntimeQualificationHook
  $phase='native upgrade recovery qualification';UpgradeRecoveryQualificationHook
  $phase='native web readiness qualification';WebReadinessHook
+ $phase='installed public-listener qualification';PublicListenerQualificationHook 'installed_collector'
  $phase='native DTLS qualification';DtlsQualificationHook
  if(!$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly){$phase='native STUN qualification';StunHook;$phase='native phone health qualification';InvokeSuitePhoneHealthQualification $SkipPhoneHealthForNativeDiagnostics}
  $phase='native tenant-domain qualification';TenantDomainsAcceptanceHook ([DateTime]::UtcNow)
