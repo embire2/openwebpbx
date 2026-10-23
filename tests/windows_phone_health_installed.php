@@ -10,6 +10,12 @@ if(($argv[1]??'')==='preservation'){
  require_once __DIR__.'/windows_phone_health_preservation.php';
  echo json_encode(windows_health_preservation($db),JSON_THROW_ON_ERROR),PHP_EOL;exit;
 }
+if(($argv[1]??'')==='restart-phase'){
+ if(count($argv)!==3||!preg_match('/^(?:none|[1-9][0-9]{0,4}(?:,[1-9][0-9]{0,4}){0,31})$/D',$argv[2]))throw new InvalidArgumentException('Bounded owned connection input required.');
+ require_once __DIR__.'/windows_phone_health_restart_phase.php';
+ $ports=$argv[2]==='none'?[]:array_map('intval',explode(',',$argv[2]));
+ echo json_encode(windows_health_restart_phase($db,pbx_paths::state(),$ports),JSON_THROW_ON_ERROR),PHP_EOL;exit;
+}
 if(($argv[1]??'')==='heartbeat'){
  $q=$db->query("select pid,extract(epoch from state_change)::double precision changed,client_port from pg_stat_activity where datname=current_database() and usename=current_user and state='idle' and query like 'select recovery_uuid,block_uuid from v_pbx_phone_health_recoveries %'");
  $rows=$q->fetchAll(PDO::FETCH_ASSOC);echo json_encode(['state'=>'observed','workers'=>$rows],JSON_THROW_ON_ERROR),PHP_EOL;exit;

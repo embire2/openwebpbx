@@ -6,6 +6,7 @@ $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx' -or [Environment]::OSVersion.Version.Build -lt 26100){throw 'The explicit disposable Windows Server factory is required.'}
 $state=Join-Path $env:ProgramData 'OpenWebPBX';$root='C:\OpenWebPBX';$work=Join-Path $state ('health-qualification\'+[Guid]::NewGuid().ToString('N'));$taskName='OpenWebPBX-HealthComponent-'+[Guid]::NewGuid().ToString('N');$created=$false
 $report=[ordered]@{schema=1;producer='windows_phone_health_acceptance.ps1';state='running';actual_native_windows=$true;gates=[ordered]@{installed_task='pending';installed_system_observer='pending';installed_collector='pending';installed_continuous_observer='pending';installed_restart='pending';native_worker='pending';postgresql_policy='pending';runtime='pending';custom_subscription='pending';firewall='pending';cleanup='pending'};policy_signalling_doubles=$true;physical_phone_audio=$false}
+. (Join-Path $PSScriptRoot 'windows-health-restart-phase.ps1')
 $workerRecoveryVerified=$false;$workerRecoveryFailure=$null;$workerPrimaryFailure=$null
 function PrivateDirectory([string]$Path){New-Item -ItemType Directory -Force -Path $Path|Out-Null;$acl=[Security.AccessControl.DirectorySecurity]::new();$acl.SetAccessRuleProtection($true,$false);$acl.SetOwner([Security.Principal.SecurityIdentifier]'S-1-5-32-544');foreach($sid in 'S-1-5-18','S-1-5-32-544'){$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]$sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow'))};Set-Acl -LiteralPath $Path -AclObject $acl}
 function Php([string]$File,[string[]]$Arguments){$output=& "$root\php\php.exe" $File @Arguments 2>> (Join-Path $work 'php.private.err');if($LASTEXITCODE){throw 'The native health PHP check failed.'};return (($output -join "`n")|ConvertFrom-Json)}
@@ -26,7 +27,7 @@ function HealthProcess {
  return $null
 }
 function HealthRestartObservation($RequestedAt) {
- $row=[ordered]@{schema=1;task_observed=$false;task_state='unavailable';task_enabled=$false;task_info_observed=$false;last_result=0L;fresh_start=$false;processes_observed=$false;owned_wrappers=0;owned_php=0;system_verified=$false;connections_observed=$false;pg_connections=0;heartbeat_observed=$false;matching_heartbeats=0;error_kind='none'}
+ $row=[ordered]@{schema=1;task_observed=$false;task_state='unavailable';task_enabled=$false;task_info_observed=$false;last_result=0L;fresh_start=$false;processes_observed=$false;owned_wrappers=0;owned_php=0;system_verified=$false;connections_observed=$false;pg_connections=0;heartbeat_observed=$false;matching_heartbeats=0;phase_observation=$null;error_kind='none'}
  $stage='context'
  try{
   if($RequestedAt -isnot [DateTime]){throw 'A restart observation context is required.'}
@@ -46,6 +47,9 @@ function HealthRestartObservation($RequestedAt) {
   if($php.Count -ne 1){return $row}
   $stage='connections';$connections=@(Get-NetTCPConnection -OwningProcess $php[0].ProcessId -RemoteAddress '127.0.0.1' -RemotePort 5433 -State Established -ErrorAction Stop)
   if($connections.Count -gt 32){throw 'Too many observer database connections.'};$row.connections_observed=$true;$row.pg_connections=$connections.Count
+  $stage='phase';$ports=[Collections.Generic.HashSet[int]]::new()
+  foreach($connection in $connections){$port=$connection.LocalPort;if(($port -isnot [uint16] -and $port -isnot [int] -and $port -isnot [uint32] -and $port -isnot [long]) -or $port -lt 1 -or $port -gt 65535 -or !$ports.Add([int]$port)){throw 'The owned database connection port is invalid.'}}
+  $row.phase_observation=Read-HealthRestartPhase (Php (Join-Path $PSScriptRoot 'windows_phone_health_installed.php') @('restart-phase',$(if($ports.Count){($ports|Sort-Object) -join ','}else{'none'})))
   $stage='heartbeat';$heartbeat=Php (Join-Path $PSScriptRoot 'windows_phone_health_installed.php') @('heartbeat')
   if($heartbeat.state -cne 'observed' -or $heartbeat.workers -isnot [array] -or $heartbeat.workers.Count -gt 32){throw 'The read-only heartbeat observation is invalid.'}
   foreach($worker in $heartbeat.workers){$port=$worker.client_port;if($port -is [string] -and $port -cmatch '^[1-9][0-9]{0,4}$'){$port=[int]$port};if(($port -isnot [int] -and $port -isnot [long]) -or $port -lt 1 -or $port -gt 65535){throw 'The heartbeat port is invalid.'};if(@($connections|Where-Object {$_.LocalPort -eq $port}).Count){$row.matching_heartbeats++}}
