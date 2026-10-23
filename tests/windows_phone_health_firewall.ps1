@@ -41,6 +41,17 @@ Check ($script:rules.Count -eq 2) 'Expected two scoped transports.'
 Check ($script:rules[$base+'-tcp'].Protocol -ceq 'TCP' -and ($script:rules[$base+'-tcp'].Ports -join ',') -ceq $tcp) 'TCP ports differ.'
 Check ($script:rules[$base+'-udp'].Protocol -ceq 'UDP' -and ($script:rules[$base+'-udp'].Ports -join ',') -ceq $udp) 'UDP ports differ.'
 Check ((Invoke-OpenWebHealthFirewall Add $address $filter $tcp $udp) -ceq 'present' -and $script:rules.Count -eq 2) 'Repeat add changes rules.'
+foreach($protocol in 'tcp','udp'){$script:rules[$base+'-'+$protocol].Remote=@(($address+'/32'))}
+$cidrBefore=$script:rules|ConvertTo-Json -Depth 5
+Check ((Invoke-OpenWebHealthFirewall State $address $filter $tcp $udp) -ceq 'present') 'Exact native IPv4 CIDR form not recognised.'
+Check ((Invoke-OpenWebHealthFirewall Add $address $filter $tcp $udp) -ceq 'present' -and ($script:rules|ConvertTo-Json -Depth 5) -ceq $cidrBefore) 'Exact CIDR repeat changed owned rules.'
+foreach($scope in '/32','198.51.100.11/32','198.51.100.10/24'){
+ $script:rules[$base+'-tcp'].Remote=@($scope);$unownedBefore=$script:rules|ConvertTo-Json -Depth 5
+ Check ((Invoke-OpenWebHealthFirewall Remove $address $filter $tcp $udp) -ceq 'unknown' -and $script:deletes.Count -eq 0 -and ($script:rules|ConvertTo-Json -Depth 5) -ceq $unownedBefore) 'Malformed or broader address ownership allowed recovery.'
+}
+$script:rules[$base+'-tcp'].Remote=@($address,($address+'/32'))
+Check ((Invoke-OpenWebHealthFirewall State $address $filter $tcp $udp) -ceq 'unknown') 'Multiple address entries accepted as exact ownership.'
+foreach($protocol in 'tcp','udp'){$script:rules[$base+'-'+$protocol].Remote=@($address)}
 $before=$script:rules|ConvertTo-Json -Depth 5
 Check ((Invoke-OpenWebHealthFirewall State '198.51.100.1' $filter $tcp $udp) -ceq 'absent') 'Substring address matched.'
 Check ((Invoke-OpenWebHealthFirewall Remove $address 'sip-auth-ip' $tcp $udp) -ceq 'unknown' -and ($script:rules|ConvertTo-Json -Depth 5) -ceq $before) 'Wrong filter removed.'
