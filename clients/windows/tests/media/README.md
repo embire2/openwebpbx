@@ -102,7 +102,11 @@ source basename/line, last accepted native startup stage and observed peer exit
 and error type. Service-difference diagnostics retain at most16 ordinary service
 names, changed property names and typed status/start mode; command paths and
 accounts never leave the runner. These observations do not relax the complete
-system snapshot comparison. Durable PID/start-time/executable-hash journals permit cleanup of
+system snapshot comparison. Process ownership queries the executable image on
+the held Windows process handle with `QueryFullProcessImageNameW`; it requires
+the exact launched path, PID, start time and pre-launch ordinary-file hash.
+It does not depend on `Process.MainModule` becoming available during startup and
+does not retry or restart a native peer. Durable PID/start-time/executable-hash journals permit cleanup of
 exact owned processes, and nonce root lists permit only owned non-reparse tree
 removal. The wrapper compares service identities/states, root-certificate
 thumbprints and all nine firewall collections in ActiveStore/PersistentStore.

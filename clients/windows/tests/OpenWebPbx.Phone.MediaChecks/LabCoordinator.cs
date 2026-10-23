@@ -9,7 +9,7 @@ internal sealed record AudioObservation(AudioWindow Window, double FreshSeconds,
 internal sealed class LabPeer : IDisposable
 {
     private readonly Process process; private readonly Task<(string Type, bool Observed)> errors; private int sequence; private readonly DateTime start; private bool disposed;
-    private string progress = "none";
+    private string progress = "none"; private readonly string executableHash;
     internal static bool CleanupRefused { get; private set; }
     public PeerState State { get; private set; } = null!;
     public string Root { get; }
@@ -20,12 +20,13 @@ internal sealed class LabPeer : IDisposable
         Root = input.Root; var path = Path.Combine(Root, "peer.json"); Protocol.Write(path, input);
         var exe = Environment.ProcessPath ?? throw new InvalidOperationException();
         if (!exe.EndsWith("OpenWebPbx.Phone.MediaChecks.exe", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Run the published native fixture.");
+        executableHash = ProcessImage.HashFile(exe);
         var info = new ProcessStartInfo(exe) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = AppContext.BaseDirectory, CreateNoWindow = true };
         info.ArgumentList.Add("--peer"); info.ArgumentList.Add(path); process = Process.Start(info) ?? throw new InvalidOperationException(); start = process.StartTime.ToUniversalTime(); errors = Protocol.PeerError(process.StandardError);
         var end = DateTime.UtcNow.AddSeconds(60);
         try
         {
-        Protocol.Own(process, "peer", journal);
+        Protocol.Own(process, "peer", journal, exe, start, executableHash);
         while (DateTime.UtcNow < end)
         {
             var reply = Receive(end - DateTime.UtcNow); if (reply.Sequence != 0 || !reply.Ok) throw new InvalidDataException("Native startup control failed.");
@@ -76,7 +77,7 @@ internal sealed class LabPeer : IDisposable
     }
     private void StopOwned()
     {
-        if (!process.HasExited) { if (process.StartTime.ToUniversalTime() != start || !string.Equals(process.MainModule?.FileName, Environment.ProcessPath, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Owned process identity differs."); process.Kill(true); if (!process.WaitForExit(10000)) throw new TimeoutException("Owned peer termination failed."); }
+        if (!process.HasExited) { ProcessImage.Require(process, Environment.ProcessPath ?? throw new InvalidOperationException(), start, executableHash); process.Kill(true); if (!process.WaitForExit(10000)) throw new TimeoutException("Owned peer termination failed."); }
     }
 }
 internal static class LabCoordinator

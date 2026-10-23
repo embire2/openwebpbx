@@ -33,6 +33,13 @@ try
     foreach (var invalidPeer in new[] { peerError + peerError, peerError.Replace("InvalidOperationException", "PRIVATE"), peerError.Replace("\"schema\":1", "\"schema\":1,\"schema\":1"), peerError.Replace("\"schema\":1", "\"schema\":true"), peerError.Replace("\"schema\":1", "\"schema\":1,\"private\":\"PRIVATE\""), new string('x', 8193) }) Check(FailureObservation.ReadPeerError(invalidPeer, true) == ("unobserved", false));
     Check(FailureObservation.ReadPeerError(peerError, false) == ("unobserved", false));
     var safe = FailureObservation.Capture(new InvalidOperationException("PRIVATE"), "wrong_ca_create"); Check(safe.operation == "wrong_ca_create" && safe.source_basename == "external_component" && safe.source_line == 0 && !JsonSerializer.Serialize(safe).Contains("PRIVATE", StringComparison.Ordinal));
-    Console.WriteLine(JsonSerializer.Serialize(new { schema = 1, state = "passed_pure_audio_codec_and_diagnostic_components", checks, actual_native_calling = false, hardware_media_tested = false, codec_inventory_input = "explicit_model" }));
+    var executable = Path.Combine(root, "fixture.exe"); File.WriteAllBytes(executable, [1, 2, 3]); var imageHash = ProcessImage.HashFile(executable);
+    Check(ProcessImage.Validate(executable, 1000, 42, executable, 1000, 42, false) == executable); ProcessImage.VerifyFile(executable, imageHash); Check(true);
+    Refuse(() => ProcessImage.Validate(executable, 1000, 42, executable, 1000, 43, false)); Refuse(() => ProcessImage.Validate(executable, 1000, 42, executable, 1001, 42, false)); Refuse(() => ProcessImage.Validate(executable, 1000, 42, executable, 1000, 42, true));
+    Refuse(() => ProcessImage.Validate(executable, 1000, 42, executable + ".other", 1000, 42, false)); Refuse(() => ProcessImage.Validate("relative.exe", 1000, 42, "relative.exe", 1000, 42, false)); Refuse(() => ProcessImage.Validate(executable, 1000, 42, "relative.exe", 1000, 42, false));
+    Refuse(() => ProcessImage.Validate(executable, 0, 42, executable, 0, 42, false)); Refuse(() => ProcessImage.Validate(executable, 1000, 0, executable, 1000, 0, false));
+    Refuse(() => ProcessImage.VerifyFile(executable, new string('0', 64))); Refuse(() => ProcessImage.VerifyFile(executable, "PRIVATE")); File.WriteAllBytes(executable, [4, 5, 6]); Refuse(() => ProcessImage.VerifyFile(executable, imageHash));
+    var link = Path.Combine(root, "linked.exe"); File.CreateSymbolicLink(link, executable); Refuse(() => ProcessImage.HashFile(link)); File.Delete(link); Refuse(() => ProcessImage.HashFile(root));
+    Console.WriteLine(JsonSerializer.Serialize(new { schema = 1, state = "passed_pure_audio_codec_diagnostic_and_process_identity_components", checks, actual_native_calling = false, hardware_media_tested = false, codec_inventory_input = "explicit_model" }));
 }
 finally { Directory.Delete(root, true); }

@@ -13,7 +13,7 @@ namespace OpenWebPbx.Phone.MediaChecks;
 // a service, imports a certificate, accesses a PBX database or uses a provider.
 internal sealed class LabServer : IDisposable
 {
-    private readonly string root, executable, journal; private Process? process; private DateTime started;
+    private readonly string root, executable, journal; private string? executableHash; private Process? process; private DateTime started;
     private Task? stdout, stderr; private TcpClient? socket; private NetworkStream? stream; private StreamReader? reader;
     private readonly string secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
     private readonly int eventPort = FreePort(), sipPort = FreePort(); private bool disposed;
@@ -66,10 +66,11 @@ internal sealed class LabServer : IDisposable
     }
     internal void Start()
     {
+        executableHash = ProcessImage.HashFile(executable);
         var info = new ProcessStartInfo(executable) { WorkingDirectory = root, UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
         foreach (var arg in new[] { "-nonat", "-nort", "-base", root, "-conf", Path.Combine(root, "conf"), "-mod", Path.Combine(root, "mod"), "-db", Path.Combine(root, "db"), "-log", Path.Combine(root, "log"), "-run", Path.Combine(root, "run") }) info.ArgumentList.Add(arg);
         process = Process.Start(info) ?? throw new InvalidOperationException(); started = process.StartTime.ToUniversalTime(); stdout = Protocol.Drain(process.StandardOutput); stderr = Protocol.Drain(process.StandardError);
-        Protocol.Own(process, "engine", journal);
+        Protocol.Own(process, "engine", journal, executable, started, executableHash);
         var clock = Stopwatch.StartNew();
         while (clock.Elapsed.TotalSeconds < 25 && !process.HasExited)
         {
@@ -102,7 +103,7 @@ internal sealed class LabServer : IDisposable
         finally
         {
             reader?.Dispose(); stream?.Dispose(); socket?.Dispose();
-            if (process is not null) { if (!process.HasExited) { if (process.StartTime.ToUniversalTime() != started || !string.Equals(process.MainModule?.FileName, executable, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Owned engine identity differs."); process.Kill(true); if (!process.WaitForExit(10000)) throw new TimeoutException("Owned engine termination failed."); } stdout?.GetAwaiter().GetResult(); stderr?.GetAwaiter().GetResult(); process.Dispose(); }
+            if (process is not null) { if (!process.HasExited) { ProcessImage.Require(process, executable, started, executableHash ?? throw new InvalidOperationException()); process.Kill(true); if (!process.WaitForExit(10000)) throw new TimeoutException("Owned engine termination failed."); } stdout?.GetAwaiter().GetResult(); stderr?.GetAwaiter().GetResult(); process.Dispose(); }
         }
     }
 }

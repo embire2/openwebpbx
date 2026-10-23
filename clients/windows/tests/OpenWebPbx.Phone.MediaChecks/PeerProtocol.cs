@@ -13,10 +13,10 @@ internal static class Protocol
 {
     internal static readonly JsonSerializerOptions Json = new() { MaxDepth = 8, PropertyNameCaseInsensitive = false };
     internal static string Hash(string path) { using var file = File.OpenRead(path); return Convert.ToHexString(SHA256.HashData(file)).ToLowerInvariant(); }
-    internal static void Own(Process process, string role, string journal)
+    internal static void Own(Process process, string role, string journal, string expectedPath, DateTime expectedStart, string expectedHash)
     {
-        var exe = process.MainModule?.FileName ?? throw new InvalidDataException();
-        var line = JsonSerializer.Serialize(new { role, pid = process.Id, created_utc_ticks = process.StartTime.ToUniversalTime().Ticks, executable_sha256 = Hash(exe) }, Json) + "\n";
+        ProcessImage.Require(process, expectedPath, expectedStart, expectedHash);
+        var line = JsonSerializer.Serialize(new { role, pid = process.Id, created_utc_ticks = expectedStart.ToUniversalTime().Ticks, executable_sha256 = expectedHash }, Json) + "\n";
         using var file = new FileStream(journal, FileMode.Append, FileAccess.Write, FileShare.Read); var bytes = System.Text.Encoding.UTF8.GetBytes(line); file.Write(bytes); file.Flush(true);
     }
     internal static void NoLinks(string path)
