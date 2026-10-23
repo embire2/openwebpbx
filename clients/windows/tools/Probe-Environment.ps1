@@ -23,9 +23,16 @@ try{
  $projects=@(Get-ChildItem -LiteralPath $project -Filter '*.csproj' -Recurse);if($projects.Count -ne 1){throw 'The official scaffold project is ambiguous.'}
  & dotnet build $projects[0].FullName -c Release *> (Join-Path $Output 'scaffold-build.log');if($LASTEXITCODE){throw 'The official scaffold does not build on this toolchain.'}
  $sample=Join-Path $Output 'template-source';New-Item -ItemType Directory $sample|Out-Null
- Get-ChildItem -LiteralPath $project -File -Recurse|Where-Object {$_.FullName -notmatch '\\(?:bin|obj)\\' -and $_.Length -lt 1048576}|ForEach-Object{
-  $relative=[IO.Path]::GetRelativePath($project,$_.FullName);$target=Join-Path $sample $relative;New-Item -ItemType Directory -Force (Split-Path $target)|Out-Null;Copy-Item -LiteralPath $_.FullName -Destination $target
+ $sourceFiles=@(Get-ChildItem -LiteralPath $project -File -Recurse -Force|Where-Object {
+  $relative=[IO.Path]::GetRelativePath($project,$_.FullName).Replace('\','/');$segments=$relative.Split('/')
+  'bin' -cnotin $segments -and 'obj' -cnotin $segments
+ })
+ if($sourceFiles.Count -lt 4 -or $sourceFiles.Count -gt 200 -or ($sourceFiles|Measure-Object Length -Sum).Sum -gt 4MB){throw 'The scaffold source inventory exceeds its bound.'}
+ foreach($file in $sourceFiles){
+  if($file.Length -gt 1MB -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'A scaffold source file is too large or linked.'}
+  $relative=[IO.Path]::GetRelativePath($project,$file.FullName);$target=Join-Path $sample $relative;New-Item -ItemType Directory -Force (Split-Path $target)|Out-Null;Copy-Item -LiteralPath $file.FullName -Destination $target
  }
+ $report.template_source_files=$sourceFiles.Count;$report.template_source_bytes=($sourceFiles|Measure-Object Length -Sum).Sum
  $report.template_built=$true;$report.template_launch='pending_app_activation_probe'
  $sdkUrl='https://download.linphone.org/releases/windows/sdk/linphone-sdk-win64-5.5.23.zip'
  $archive=Join-Path $env:RUNNER_TEMP 'openweb-phone-linphone-5.5.23.zip'
@@ -35,15 +42,17 @@ try{
  Add-Type -AssemblyName System.IO.Compression.FileSystem;$zip=[IO.Compression.ZipFile]::OpenRead($archive)
  try{
   $report.native_sdk.members=$zip.Entries.Count
-  foreach($entry in $zip.Entries){if($entry.FullName -ceq 'linphone-sdk/win64/share/doc/linphone-sdk/LICENSE.md'){
-   $reader=[IO.StreamReader]::new($entry.Open());try{[IO.File]::WriteAllText((Join-Path $Output 'linphone-sdk-LICENSE.md'),$reader.ReadToEnd())}finally{$reader.Dispose()}
-  }}
+  $licenses=@($zip.Entries|Where-Object {$_.FullName -ceq 'linphone-sdk/win64/share/doc/linphone-sdk/LICENSE.md'})
+  if($licenses.Count -ne 1 -or $licenses[0].Length -lt 100 -or $licenses[0].Length -gt 32768){throw 'The exact SDK license is missing or oversized.'}
+  $license=Join-Path $Output 'linphone-sdk-LICENSE.md';[IO.Compression.ZipFileExtensions]::ExtractToFile($licenses[0],$license,$false)
+  if(!(Test-Path -LiteralPath $license) -or (Get-Item $license).Length -ne $licenses[0].Length){throw 'The SDK license was not retained.'}
+  $report.native_sdk.license_sha256=(Get-FileHash $license -Algorithm SHA256).Hash.ToLowerInvariant()
   $binding=$zip.GetEntry('linphone-sdk/win64/share/linphonecs/LinphoneWrapper.cs');if(!$binding -or $binding.Length -gt 3MB){throw 'The official C# binding is unavailable or changed.'}
-  $reader=[IO.StreamReader]::new($binding.Open());try{$text=$reader.ReadToEnd()}finally{$reader.Dispose()}
+  $stream=$binding.Open();$memory=[IO.MemoryStream]::new();try{$stream.CopyTo($memory);$bindingBytes=$memory.ToArray()}finally{$memory.Dispose();$stream.Dispose()};$text=[Text.Encoding]::UTF8.GetString($bindingBytes)
   $report.native_sdk.binding_bytes=$binding.Length
-  $report.native_sdk.binding_sha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($text))).ToLowerInvariant()
+  $report.native_sdk.binding_sha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bindingBytes)).ToLowerInvariant()
   $lines=$text -split "`n";$surface=@()
-  for($i=0;$i -lt $lines.Count;$i++){if($lines[$i] -match 'namespace Linphone|CreateCore|CreateAuthInfo|NativeVideoWindowId|NativePreviewWindowId|OnCallStateChanged|OnAccountRegistrationStateChanged|OnTransferStateChanged|VideoDevice|RootCa|VerifyServer|Conference|public class CoreListener'){$surface+=$lines[[Math]::Max(0,$i-1)..[Math]::Min($lines.Count-1,$i+2)]}}
+  for($i=0;$i -lt $lines.Count;$i++){if($lines[$i] -match 'namespace Linphone|CreateCore|CreateAuthInfo|NativeVideoWindowId|NativePreviewWindowId|OnCallStateChanged|OnAccountRegistrationStateChanged|OnTransferStateChanged|VideoDevice|RootCa|VerifyServer|Conference|public class CoreListener'){$surface+=$lines[([Math]::Max(0,$i-1))..([Math]::Min($lines.Count-1,$i+2))]}}
   $surface|Set-Content (Join-Path $Output 'linphone-binding-surface.txt') -Encoding utf8
   @($zip.Entries|Where-Object {$_.FullName -match '\.(dll|lib)$'}|ForEach-Object{[ordered]@{path=$_.FullName;bytes=$_.Length}})|ConvertTo-Json -Depth 4|Set-Content (Join-Path $Output 'linphone-native-members.json') -Encoding utf8
  }finally{$zip.Dispose()}
