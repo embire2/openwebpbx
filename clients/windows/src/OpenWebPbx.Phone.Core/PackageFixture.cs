@@ -7,29 +7,28 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 namespace OpenWebPbx.Phone.Core;
 /// <summary>Hosted development package only. This type and its public test key do not exist in a production assembly.</summary>
-public static class PackageFixture
+public static partial class PackageFixture
 {
-    private sealed record Options(string Nonce, string Root, string PublicKey, string FeedBase);
+    internal sealed record Options(string Nonce, string Root, string PublicKey, string FeedBase, int HostProcessId, long HostStartedUtcTicks, string HostExecutable, string UserSid, string MachineName, string SourceCommit);
     private static readonly Lazy<Options> Value = new(Read);
     private static Options Read()
     {
-        if (!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable("GITHUB_ACTIONS") != "true" || Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT") != "github-hosted" || Environment.GetEnvironmentVariable("GITHUB_REPOSITORY") != "embire2/openwebpbx") throw new InvalidOperationException("Only a disposable hosted Windows package fixture may run.");
-        using var input = typeof(PackageFixture).Assembly.GetManifestResourceStream("OpenWebPbx.Phone.PackageFixture.json") ?? throw new InvalidOperationException(); using var memory = new MemoryStream(); input.CopyTo(memory); if (memory.Length > 8192) throw new InvalidOperationException();
-        var options = JsonSerializer.Deserialize<Options>(memory.ToArray()) ?? throw new InvalidOperationException(); var temp = Environment.GetEnvironmentVariable("RUNNER_TEMP") ?? throw new InvalidOperationException();
-        if (!Regex.IsMatch(options.Nonce, "^[a-f0-9]{32}$") || !Path.GetFullPath(options.Root).Equals(Path.Combine(Path.GetFullPath(temp), "phone-package-" + options.Nonce), StringComparison.OrdinalIgnoreCase) || !Directory.Exists(options.Root) || options.PublicKey.Length is < 400 or > 2048 || options.PublicKey.Contains("PRIVATE", StringComparison.Ordinal)) throw new InvalidOperationException();
+        if (!OperatingSystem.IsWindows()) throw new InvalidOperationException("Only a disposable hosted Windows package fixture may run.");
+        using var input = typeof(PackageFixture).Assembly.GetManifestResourceStream("OpenWebPbx.Phone.PackageFixture.json") ?? throw new InvalidOperationException();
+        var options = JsonSerializer.Deserialize<Options>(ReadBounded(input, 8192)) ?? throw new InvalidOperationException();
+        if (!Regex.IsMatch(options.Nonce, "^[a-f0-9]{32}$") || !Path.IsPathFullyQualified(options.Root) || Path.GetFileName(options.Root) != "phone-package-" + options.Nonce || !Directory.Exists(options.Root) || options.PublicKey.Length is < 400 or > 2048 || options.PublicKey.Contains("PRIVATE", StringComparison.Ordinal)) throw new InvalidOperationException();
         if (!Uri.TryCreate(options.FeedBase, UriKind.Absolute, out var origin) || origin.Scheme != "http" || origin.Host != "127.0.0.1" || origin.Port <= 1024 || origin.UserInfo != "" || origin.AbsolutePath != "/" || origin.Query != "" || origin.Fragment != "") throw new InvalidOperationException();
+        AuthorizeProcess(options);
         return options;
     }
     public static void ObserveProcessEntry()
     {
-        // Diagnostic only: a broker may omit job environment variables. This never
-        // changes Read() or authorizes a fixture that the ordinary guard refuses.
+        // Diagnostic only. The separate authority checks still decide whether execution is allowed.
         try
         {
             if (!OperatingSystem.IsWindows()) return;
             using var input = typeof(PackageFixture).Assembly.GetManifestResourceStream("OpenWebPbx.Phone.PackageFixture.json"); if (input is null) return;
-            using var memory = new MemoryStream(); input.CopyTo(memory); if (memory.Length > 8192) return;
-            var options = JsonSerializer.Deserialize<Options>(memory.ToArray()); if (options is null || !Regex.IsMatch(options.Nonce, "^[a-f0-9]{32}$") || !Path.IsPathFullyQualified(options.Root) || Path.GetFileName(options.Root) != "phone-package-" + options.Nonce) return;
+            var options = JsonSerializer.Deserialize<Options>(ReadBounded(input, 8192)); if (options is null || !Regex.IsMatch(options.Nonce, "^[a-f0-9]{32}$") || !Path.IsPathFullyQualified(options.Root) || Path.GetFileName(options.Root) != "phone-package-" + options.Nonce) return;
             var directory = new DirectoryInfo(options.Root); if (!directory.Exists) return;
             for (var parent = directory; parent is not null; parent = parent.Parent) if ((parent.Attributes & FileAttributes.ReparsePoint) != 0) return;
             var acl = directory.GetAccessControl(); var sid = WindowsIdentity.GetCurrent().User!.Value; var rules = acl.GetAccessRules(true, true, typeof(SecurityIdentifier)).Cast<FileSystemAccessRule>().ToArray();

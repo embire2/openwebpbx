@@ -33,12 +33,12 @@ try{
 }finally{$env:GITHUB_ACTIONS=$oldActions;[IO.Directory]::Delete($root,$true)}
 "PASS $checks actual producer/strict-consumer/off-host-child/exit controls; no Windows certificate or package mutation"
 
-$removal=GetPackageCertificateRemoval 0 0 $false;$removalJson=$removal|ConvertTo-Json -Compress;$observed=ReadPackageCertificateRemoval $removalJson;Check (!$observed.private_key_exists -and $observed.private_certificates-eq 0 -and $observed.public_trust_certificates-eq 0)
-foreach($mutation in @(@{schema='1'},@{schema=2},@{producer='foreign'},@{private_certificates=1},@{private_certificates='0'},@{public_trust_certificates=1},@{public_trust_certificates='0'},@{private_key_exists=$true},@{private_key_exists='false'},@{private_key_exists=0},@{path='private'},@{private_location='LocalMachine'},@{private_store='Root'},@{trust_location='CurrentUser'},@{trust_store='Root'})){
+$removal=GetPackageCertificateRemoval 0 0 $false 0;$removalJson=$removal|ConvertTo-Json -Compress;$observed=ReadPackageCertificateRemoval $removalJson;Check (!$observed.private_key_exists -and $observed.private_certificates-eq 0 -and $observed.public_trust_certificates-eq 0)
+foreach($mutation in @(@{schema='1'},@{schema=2},@{producer='foreign'},@{private_certificates=1},@{private_certificates='0'},@{public_trust_certificates=1},@{public_trust_certificates='0'},@{private_key_exists=$true},@{private_key_exists='false'},@{private_key_exists=0},@{path='private'},@{private_location='LocalMachine'},@{private_store='Root'},@{trust_location='CurrentUser'},@{trust_store='Root'},@{cached_public_certificates=1},@{cached_public_certificates='0'},@{cache_location='LocalMachine'},@{cache_store='Root'})){
  $changed=$removalJson|ConvertFrom-Json -AsHashtable;foreach($key in $mutation.Keys){$changed[$key]=$mutation[$key]};$refused=$false;try{ReadPackageCertificateRemoval ($changed|ConvertTo-Json -Compress)|Out-Null}catch{$refused=$true};Check $refused
 }
 foreach($text in @('',($removalJson.Replace('"schema":1,','"schema":1,"schema":1,')),('x'*1025))){$refused=$false;try{ReadPackageCertificateRemoval $text|Out-Null}catch{$refused=$true};Check $refused}
-foreach($values in @(@(1,0,$false),@(0,1,$false),@(0,0,$true))){$refused=$false;try{GetPackageCertificateRemoval $values[0] $values[1] $values[2]|Out-Null}catch{$refused=$true};Check $refused}
+foreach($values in @(@(1,0,$false),@(0,1,$false),@(0,0,$true))){$refused=$false;try{GetPackageCertificateRemoval $values[0] $values[1] $values[2] 0|Out-Null}catch{$refused=$true};Check $refused}
 $snapshot=[ordered]@{certificates=@([ordered]@{location='CurrentUser';store='My';thumbprint='private-thumbprint';bytes=('a'*64);private=$true;archived=$false;friendly='private-name'});packages=@([ordered]@{full_name='private-package'});registry=@([ordered]@{path='Software\Microsoft\Windows\CurrentVersion\Run';sddl='private-sddl';values=@('private-value')})}|ConvertTo-Json -Depth 14 -Compress
 $comparison=GetPackageSnapshotComparison $snapshot $snapshot;Check ($comparison.certificates.matches -and $comparison.packages.matches -and $comparison.registry.matches -and $comparison.certificate_stores.CurrentUser_My.matches);Check (!(($comparison|ConvertTo-Json -Depth 5 -Compress).Contains('private-')))
 foreach($category in @('certificates','packages','registry')){
@@ -53,9 +53,11 @@ $certificate=Join-Path $PSScriptRoot 'Certificate.ps1';$certificateAst=[Manageme
 $intentGuard=@($certificateAst.FindAll({param($node)$node-is [Management.Automation.Language.IfStatementAst] -and $node.Extent.Text.StartsWith('if($proof.schema-ne 2')},$true));Check ($intentGuard.Count-eq 1)
 & {
  param($Guard)
- $Nonce='a'*32;$subject='CN=FreePhone Development '+$Nonce;$container='OpenWebPBX-FreePhone-Development-'+$Nonce;$mine=@();$trusted=@()
- $valid=[pscustomobject]@{schema=2;nonce=$Nonce;subject=$subject;container=$container;private_location='CurrentUser';private_store='My';trust_location='LocalMachine';trust_store='TrustedPeople'};$proof=$valid;. $Guard;Check $true
- foreach($field in @('schema','nonce','subject','container','private_location','private_store','trust_location','trust_store')){$proof=$valid|ConvertTo-Json|ConvertFrom-Json;$proof.$field=if($field-ceq 'schema'){1}else{'foreign'};$refused=$false;try{. $Guard}catch{$refused=$true};Check $refused}
+ $Nonce='a'*32;$subject='CN=FreePhone Development '+$Nonce;$container='OpenWebPBX-FreePhone-Development-'+$Nonce;$mine=@();$trusted=@();$cached=@()
+ $valid=[pscustomobject]@{schema=2;nonce=$Nonce;subject=$subject;container=$container;private_location='CurrentUser';private_store='My';trust_location='LocalMachine';trust_store='TrustedPeople';cache_location='CurrentUser';cache_store='CA';cache_absent_before=$true};$proof=$valid;. $Guard;Check $true
+ foreach($field in @('schema','nonce','subject','container','private_location','private_store','trust_location','trust_store','cache_location','cache_store','cache_absent_before')){$proof=$valid|ConvertTo-Json|ConvertFrom-Json;$proof.$field=if($field-ceq 'schema'){1}else{'foreign'};$refused=$false;try{. $Guard}catch{$refused=$true};Check $refused}
+ foreach($changed in @($false,'false')){$proof=$valid|ConvertTo-Json|ConvertFrom-Json;$proof.cache_absent_before=$changed;$refused=$false;try{. $Guard}catch{$refused=$true};Check $refused}
+ $proof=$valid;$cached=@(1,2);$refused=$false;try{. $Guard}catch{$refused=$true};Check $refused
 } ([scriptblock]::Create($intentGuard[0].Extent.Text))
 $bindingGuard=@($certificateAst.FindAll({param($node)$node-is [Management.Automation.Language.IfStatementAst] -and $node.Extent.Text.StartsWith('if($trusted.Count -and (!$mine.Count')},$true));Check ($bindingGuard.Count-eq 1)
 & {
@@ -82,3 +84,27 @@ $observers=@($ast.FindAll({param($node)$node-is [Management.Automation.Language.
  [void](Observe 'unknown-private-phase');Check ($result.vector_observation_failures[1].phase-ceq 'other')
 } ([scriptblock]::Create($observers[0].Extent.Text)) $snapshot
 "PASS $checks total scoped-trust/actual-guard/closed-observer controls; role/certificate/store snapshots are explicit adapters, not native LM trust acceptance"
+
+# Execute the actual cached-certificate binding and re-read/removal branch with an
+# explicit store adapter. Hashing uses the actual receipt producer over byte arrays.
+$preflight=@($certificateAst.FindAll({param($node)$node-is [Management.Automation.Language.IfStatementAst] -and $node.Extent.Text.StartsWith('if($mine.Count -or $trusted.Count -or $cached.Count -or')},$true)|Where-Object {$_.Extent.Text.Contains('The development certificate or private container already exists.')});Check ($preflight.Count-eq 1)
+& {param($Guard);$mine=@();$trusted=@();$cached=@([pscustomobject]@{Subject='preexisting'});$refused=$false;try{. $Guard}catch{$refused=$_.Exception.Message-ceq 'The development certificate or private container already exists.'};Check ($refused -and $cached.Count-eq 1 -and $cached[0].Subject-ceq 'preexisting')} ([scriptblock]::Create($preflight[0].Extent.Text))
+$shaDefinition=@($certificateAst.FindAll({param($node)$node-is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name-ceq 'CertificateSha'},$true));Check ($shaDefinition.Count-eq 1)
+$cacheBinding=@($certificateAst.FindAll({param($node)$node-is [Management.Automation.Language.ForEachStatementAst] -and $node.Variable.VariablePath.UserPath-ceq 'cachedCertificate'},$true));Check ($cacheBinding.Count-eq 1)
+$cacheRemoval=@($certificateAst.FindAll({param($node)$node-is [Management.Automation.Language.IfStatementAst] -and $node.Extent.Text.StartsWith('if($cached.Count){')},$true));Check ($cacheRemoval.Count-eq 1)
+& {
+ param($Sha,$Binding,$Removal)
+ . $Sha;$subject='CN=FreePhone Development '+('a'*32);$valid=[pscustomobject]@{Subject=$subject;Thumbprint=('b'*40);HasPrivateKey=$false;RawData=[byte[]](1,2,3,4)};$receipt=[pscustomobject]@{subject=$subject;thumbprint=$valid.Thumbprint;public_sha256=(CertificateSha $valid)};$cached=@($valid);. $Binding;Check $true
+ $alternatives=@();foreach($field in @('Subject','Thumbprint','HasPrivateKey','RawData')){$changed=[pscustomobject]@{Subject=$valid.Subject;Thumbprint=$valid.Thumbprint;HasPrivateKey=$false;RawData=$valid.RawData};$changed.$field=switch($field){'HasPrivateKey'{$true};'RawData'{[byte[]](1,2,3,5)};default{'foreign'}};$alternatives+=,$changed}
+ foreach($changed in $alternatives){$cached=@($changed);$refused=$false;try{. $Binding}catch{$refused=$true};Check $refused}
+ foreach($entries in @(@($valid),@(),@($valid,$valid)) + @($alternatives|ForEach-Object {,@($_)})){
+  $cached=@($valid);$cache=[pscustomobject]@{Certificates=@($entries);removed=[Collections.Generic.List[object]]::new();opens=[Collections.Generic.List[string]]::new()};$cache|Add-Member ScriptMethod Close {};$cache|Add-Member ScriptMethod Open {param($mode)$this.opens.Add($mode)};$cache|Add-Member ScriptMethod Remove {param($cert)$this.removed.Add($cert)}
+  $refused=$false;try{. $Removal}catch{$refused=$true};$matches=$entries.Count-eq 1 -and [object]::ReferenceEquals($entries[0],$valid);Check ($refused-ne $matches);Check ($cache.removed.Count-eq [int]$matches);Check ($cache.opens.Count-eq 1 -and $cache.opens[0]-ceq 'ReadWrite')
+ }
+} ([scriptblock]::Create($shaDefinition[0].Extent.Text)) ([scriptblock]::Create($cacheBinding[0].Extent.Text)) ([scriptblock]::Create($cacheRemoval[0].Extent.Text))
+
+$authority=[ordered]@{schema=1;producer='PackageFixtureAuthority';state='authorized';stage='package_identity';error_type=$null;hresult=$null};$authorityText=$authority|ConvertTo-Json -Compress;$accepted=ReadPackageAuthorityObservation $authorityText;Check ($accepted.state-ceq 'authorized')
+foreach($mutation in @(@{schema='1'},@{producer='foreign'},@{path='private'},@{stage='context'},@{state='unknown'},@{error_type='Exception'},@{hresult=0},@{state='refused'},@{stage='private-stage'})){$changed=$authorityText|ConvertFrom-Json -AsHashtable;foreach($field in $mutation.Keys){$changed[$field]=$mutation[$field]};$refused=$false;try{ReadPackageAuthorityObservation ($changed|ConvertTo-Json -Compress)|Out-Null}catch{$refused=$true};Check $refused}
+$authority.state='refused';$authority.stage='context';$authority.error_type='InvalidOperationException';$authority.hresult=-2146233079;$authorityText=$authority|ConvertTo-Json -Compress;Check ((ReadPackageAuthorityObservation $authorityText).state-ceq 'refused')
+foreach($text in @($authorityText.Replace('"schema":1,','"schema":1,"schema":1,'),($authorityText.Replace('-2146233079','"-2146233079"')),('x'*2049))){$refused=$false;try{ReadPackageAuthorityObservation $text|Out-Null}catch{$refused=$true};Check $refused}
+"PASS $checks total actual diagnostic/cache-guard/authority-observer controls; certificate stores remain explicit adapters"

@@ -29,6 +29,9 @@ public static class ClientInstallation
         try
         {
             var start = new ProcessStartInfo(executable) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(executable)! }; start.ArgumentList.Add(path);
+#if PHONE_PACKAGE_FIXTURE
+            PackageFixture.ConfigureUpdaterChild(start);
+#endif
             using var child = Process.Start(start) ?? throw new InvalidOperationException(); started = true;
             var ready = path + ".ready"; using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
             while (true)

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <DefineConstants>$(DefineConstants);PHONE_PACKAGE_FIXTURE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/OpenWebPbx.Phone.Core/PackageFixture.cs" Link="PackageFixture.cs" />
+    <Compile Include="../../src/OpenWebPbx.Phone.Core/PackageFixtureAuthority.cs" Link="PackageFixtureAuthority.cs" />
+  </ItemGroup>
+</Project>
