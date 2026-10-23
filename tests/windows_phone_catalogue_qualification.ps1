@@ -27,4 +27,29 @@ foreach($file in 'tests/windows_phone_catalogue_native.ps1','tests/windows-phone
  $guards=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.IfStatementAst] -and $n.Extent.Text.Contains('github-hosted') -and $n.Extent.Text.Contains('embire2/openwebpbx') -and $n.Extent.Text.Contains('GITHUB_ACTIONS')},$true));Check ($guards.Count -eq 1)
  $scriptText=[IO.File]::ReadAllText($path);Check ($scriptText.IndexOf('github-hosted') -lt $scriptText.IndexOf('New-Item'))
 }
+# Execute the actual parent import statements against temporary copies. Native
+# ACL APIs are not invoked; the real function definitions and path resolver are.
+$native=[IO.File]::ReadAllText((Join-Path $SourceRoot 'tests/windows_phone_catalogue_native.ps1'))
+$start=$native.IndexOf("`$fixtureCommon=Join-Path `$tools 'WindowsPhoneCatalogue.Common.ps1'")
+$end=$native.IndexOf("`$library=[IO.File]::ReadAllText",$start);Check ($start -gt 0 -and $end -gt $start)
+$import=[scriptblock]::Create($native.Substring($start,$end-$start))
+$temporary=Join-Path ([IO.Path]::GetTempPath()) ('catalogue-parent-import-'+[Guid]::NewGuid().ToString('N'));$null=[IO.Directory]::CreateDirectory($temporary)
+try{
+ $tools=$temporary
+ foreach($dependency in 'UpgradeRecovery.Common.ps1','File-Security.ps1','Restore-Gates.ps1'){Copy-Item -LiteralPath (Join-Path $SourceRoot ('packaging/windows/'+$dependency)) -Destination (Join-Path $tools $dependency)}
+ $original=[IO.File]::ReadAllText((Join-Path $SourceRoot 'packaging/windows/WindowsPhoneCatalogue.Common.ps1'))
+ $expression="[Security.Principal.NTAccount]::new('IIS AppPool\OpenWebPBX').Translate([Security.Principal.SecurityIdentifier])"
+ Check (([regex]::Matches($original,[regex]::Escape($expression))).Count -eq 1)
+ $common=$original.Replace($expression,"[Security.Principal.SecurityIdentifier]::new('S-1-5-19')")+"`nfunction Get-OpenWebWindowsPhoneCataloguePaths {return 'EXACT_FIXTURE_PATH_RESOLVER'}`n"
+ [IO.File]::WriteAllText((Join-Path $tools 'WindowsPhoneCatalogue.Common.ps1'),$original)
+ . (Join-Path $tools 'WindowsPhoneCatalogue.Common.ps1')
+ Check (${function:Set-OpenWebWindowsPhoneCatalogueDirectory}.ToString().Contains($expression))
+ $denied=$false;try{. $import}catch{$denied=$true};Check $denied
+ Check (${function:Set-OpenWebWindowsPhoneCatalogueDirectory}.ToString().Contains($expression))
+ [IO.File]::WriteAllText((Join-Path $tools 'WindowsPhoneCatalogue.Common.ps1'),$common)
+ . $import
+ Check (!${function:Set-OpenWebWindowsPhoneCatalogueDirectory}.ToString().Contains($expression))
+ Check (${function:Set-OpenWebWindowsPhoneCatalogueDirectory}.ToString().Contains("[Security.Principal.SecurityIdentifier]::new('S-1-5-19')"))
+ Check ((Get-OpenWebWindowsPhoneCataloguePaths) -ceq 'EXACT_FIXTURE_PATH_RESOLVER')
+}finally{[IO.Directory]::Delete($temporary,$true)}
 Write-Output ('PASS '+$checks+' actual catalogue receipt/type/source guard controls; no native primitive or full release qualification')

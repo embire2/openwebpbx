@@ -122,6 +122,10 @@ PrivateFile (Join-Path $package 'WindowsPhoneCatalogue.Common.ps1') $common
 foreach($name in 'WindowsPhoneCatalogue.ps1','Install-WindowsPhoneCatalogue.ps1'){Copy-Item -LiteralPath (Join-Path $helperDirectory $name) -Destination (Join-Path $package $name);Set-OpenWebRecoveryPrivate (Join-Path $package $name)}
 Copy-Item -LiteralPath (Join-Path $SourceBundle 'tests/windows_phone_catalogue_native.php') -Destination (Join-Path $package 'windows-phone-catalogue.php');Set-OpenWebRecoveryPrivate (Join-Path $package 'windows-phone-catalogue.php')
 foreach($name in 'WindowsPhoneCatalogue.Common.ps1','WindowsPhoneCatalogue.ps1','Install-WindowsPhoneCatalogue.ps1','windows-phone-catalogue.php'){Copy-Item -LiteralPath (Join-Path $package $name) -Destination (Join-Path $tools $name);Set-OpenWebRecoveryPrivate (Join-Path $tools $name)}
+# The parent must use the same exact reviewed reader-SID adapter as its children.
+$fixtureCommon=Join-Path $tools 'WindowsPhoneCatalogue.Common.ps1'
+if([IO.File]::ReadAllText($fixtureCommon) -cne $common){throw 'The protected fixture Common copy differs.'}
+. $fixtureCommon
 $library=[IO.File]::ReadAllText((Join-Path $SourceBundle 'packaging/updates/windows-phone-catalogue.php'));$literal="'C:/OpenWebPBX/tools/WindowsPhoneCatalogue.ps1'"
 if(([regex]::Matches($library,[regex]::Escape($literal))).Count -ne 1){throw 'The one declared fixture commit-path adapter differs.'}
 $adapted=$library.Replace($literal,"'"+$paths.Runner.Replace('\','/').Replace("'","\\'")+"'")
