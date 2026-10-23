@@ -10,6 +10,7 @@ Push-Location $repo;try{if((git rev-parse HEAD).Trim()-cne $SourceCommit -or (gi
 for($p=[IO.DirectoryInfo]::new($temp);$p;$p=$p.Parent){if(!$p.Exists -or ($p.Attributes-band [IO.FileAttributes]::ReparsePoint)){throw 'Runtime temporary ancestry is not ordinary.'}}
 $nonce=[Guid]::NewGuid().ToString('N');$root=Join-Path $temp ('phone-package-runtime-'+$nonce);if(Test-Path -LiteralPath $root){throw 'Runtime root must be new.'};$created=$false;$failure=$null;$before=$null;$native=Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell\v1.0\powershell.exe'
 . (Join-Path $client 'tests/packaging/RuntimeReceipt.ps1')
+. (Join-Path $client 'tests/packaging/NativeReaderSelection.ps1')
 $result=[ordered]@{schema=1;producer='Test-PackageRuntime.ps1';source_commit=$SourceCommit;state='incomplete';actual_native_windows=$true;certificate_mutation=$false;package_installation=$false;process_environment_changed=$false;acl_preserved=$false;exact_owned_cleanup=$false;observations=@()}
 try{
  [void][IO.Directory]::CreateDirectory($root);$created=$true;$acl=[Security.AccessControl.DirectorySecurity]::new();$acl.SetAccessRuleProtection($true,$false);foreach($sid in @([Security.Principal.WindowsIdentity]::GetCurrent().User,[Security.Principal.SecurityIdentifier]::new('S-1-5-18'))){$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow'))};[IO.FileSystemAclExtensions]::SetAccessControl([IO.DirectoryInfo]::new($root),$acl);$before=(Get-Acl -LiteralPath $root).Sddl
@@ -23,6 +24,12 @@ try{
    $result.observations+=,[ordered]@{mode=$mode;child_exit_code=$p.ExitCode;observation=$view}
   }finally{if(!$p.HasExited){if($p.StartTime.ToUniversalTime()-ne $when -or $p.MainModule.FileName-ine $native){throw 'Runtime child identity changed.'};$p.Kill($true);if(!$p.WaitForExit(10000)){throw 'Runtime child did not stop.'}};$p.Dispose()}
  }
+ # Observe the exact current package enumeration and first guard without building,
+ # selecting, trusting or executing a native dependency reader.
+ $selectionSource=Join-Path $client 'tools/Test-ClientPackage.ps1';$tokens=$null;$errors=$null;$selectionAst=[Management.Automation.Language.Parser]::ParseFile($selectionSource,[ref]$tokens,[ref]$errors);if($errors){throw 'Native reader selection source does not parse.'}
+ $enumeration=@($selectionAst.FindAll({param($node)$node-is [Management.Automation.Language.ForEachStatementAst] -and $node.Variable.VariablePath.UserPath-ceq 'folder' -and $node.Extent.Text.Contains('$readers+=@(Get-ChildItem -Path $pattern -File -ErrorAction Stop)')},$true));$guard=@($selectionAst.FindAll({param($node)$node-is [Management.Automation.Language.IfStatementAst] -and $node.Extent.Text.StartsWith('if(!$readers.Count -or $readers.Count-gt 16 -or')},$true));if($enumeration.Count-ne 1 -or $guard.Count-ne 1){throw 'Native reader selection source is not unique.'}
+ $readers=@();. ([scriptblock]::Create($enumeration[0].Extent.Text));$result.native_import_reader_selection=ReadPackageNativeReaderObservation ((GetPackageNativeReaderObservation $readers)|ConvertTo-Json -Depth 5 -Compress)
+ $result.native_import_reader_preflight_accepted=$false;try{. ([scriptblock]::Create($guard[0].Extent.Text));$result.native_import_reader_preflight_accepted=$true}catch{if($_.Exception.Message-cne 'An ordinary bounded installed native dependency reader is required.'){throw}}
  $result.state='observed';$result.acl_preserved=(Get-Acl -LiteralPath $root).Sddl-ceq $before;if(!$result.acl_preserved){throw 'Owned runtime ACL changed.'}
 }catch{$failure=$_;$result.state='failed';$result.error_type=$_.Exception.GetType().Name;$result.source_line=[int]$_.InvocationInfo.ScriptLineNumber}
 finally{
