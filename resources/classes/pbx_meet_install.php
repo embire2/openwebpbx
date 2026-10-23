@@ -6,6 +6,7 @@ final class pbx_meet_install {
         // Refuse contradictory identities before touching configuration.
         self::dialplans($db,false);
         self::profiles($db);
+        self::candidates($db,false);
         $db->exec(file_get_contents(dirname(__DIR__,2).'/app/pbx_meet/resources/install.sql'));
         pbx_video::configure($db);
         $q=static function($sql,$args=[])use($db){$s=$db->prepare($sql);$s->execute($args);return $s;};
@@ -17,6 +18,7 @@ final class pbx_meet_install {
             'disable-transcoding'=>'false','manage-presence'=>'false','rtp-timeout-sec'=>'60','rtp-hold-timeout-sec'=>'300',
             'dtmf-type'=>'rfc2833','inbound-reg-force-matching-username'=>'true','accept-blind-reg'=>'false','accept-blind-auth'=>'false'];
         foreach($settings as $name=>$value){if(!$q('select 1 from v_sip_profile_settings where sip_profile_uuid=? and sip_profile_setting_name=?',[$id,$name])->fetchColumn())$q('insert into v_sip_profile_settings(sip_profile_setting_uuid,sip_profile_uuid,sip_profile_setting_name,sip_profile_setting_value,sip_profile_setting_enabled) values(?,?,?,?,true)',[uuid(),$id,$name,$value]);}
+        self::candidates($db,true);
         $profile='b26410e0-b732-4c72-b9cf-cc045c395a57';
         $q("insert into v_conference_profiles(conference_profile_uuid,profile_name,profile_enabled,profile_description) values(?,'openweb-meet',true,'OpenWeb audio and camera meetings') on conflict(conference_profile_uuid) do nothing",[$profile]);
         $params=['rate'=>'8000','interval'=>'20','energy-level'=>'100','comfort-noise'=>'false','caller-controls'=>'none','moderator-controls'=>'none',
@@ -35,6 +37,35 @@ final class pbx_meet_install {
         }
         // Existing PBXs must see the additive meeting route without waiting for cache expiry.
         $cache=new cache;foreach($q('select domain_name from v_domains')->fetchAll(PDO::FETCH_COLUMN)as$domain)$cache->delete('dialplan:'.$domain);
+    }
+    /** Browser ICE includes private LAN and CGNAT hosts even over trusted WSS.
+     * The native WAN-only fallback rejects those before answering the call.
+     * This list belongs only to the meeting profile, never SIP authentication.
+     */
+    private static function candidates(PDO $db,bool $apply): void {
+        $profile='cfb1c835-c30c-409b-bff7-a893a7e84df1';
+        $q=static function($sql,$args=[])use($db){$s=$db->prepare($sql);$s->execute($args);return$s;};
+        // Any existing policy, including a disabled/custom policy, is an
+        // administrator choice. Do not append another OR-ed ACL around it.
+        if($q("select 1 from v_sip_profile_settings where sip_profile_uuid=? and sip_profile_setting_name='apply-candidate-acl'",[$profile])->fetchColumn())return;
+        $id='d0b34c75-5fc7-4a2f-9a32-411ab068f662';$name='openweb-meet-candidates';
+        $nodes=[['allow','0.0.0.0/0'],['deny','0.0.0.0/8'],['deny','169.254.0.0/16'],['deny','224.0.0.0/4'],['deny','240.0.0.0/4'],['allow','2000::/3'],['allow','fc00::/7'],['allow','::1/128']];
+        $rows=$q('select access_control_uuid,access_control_name,access_control_default from v_access_controls where access_control_uuid=? or access_control_name=?',[$id,$name])->fetchAll(PDO::FETCH_ASSOC);
+        if($rows&&($rows!==[['access_control_uuid'=>$id,'access_control_name'=>$name,'access_control_default'=>'deny']]))throw new RuntimeException('The private meeting candidate policy needs administrator review.');
+        $current=$q('select node_type,node_cidr from v_access_control_nodes where access_control_uuid=?',[$id])->fetchAll(PDO::FETCH_NUM);
+        $expected=$nodes;sort($current);sort($expected);
+        if(($rows&&$current!==$expected)||(!$rows&&$current))throw new RuntimeException('The private meeting candidate rules need administrator review.');
+        if(!$apply)return;
+        $own=!$db->inTransaction();if($own)$db->beginTransaction();else$db->exec('savepoint openweb_meet_candidates');
+        try{
+            if(!$rows){
+                $q('insert into v_access_controls(access_control_uuid,access_control_name,access_control_default,access_control_description) values(?,?,?,?)',[$id,$name,'deny','Private meeting media candidates; not SIP authentication']);
+                foreach($nodes as[$type,$cidr])$q('insert into v_access_control_nodes(access_control_node_uuid,access_control_uuid,node_type,node_cidr,node_description) values(?,?,?,?,?)',[uuid(),$id,$type,$cidr,'OpenWeb meeting media']);
+            }
+            $q("insert into v_sip_profile_settings(sip_profile_setting_uuid,sip_profile_uuid,sip_profile_setting_name,sip_profile_setting_value,sip_profile_setting_enabled) values(?,?,'apply-candidate-acl',?,true)",[uuid(),$profile,$name]);
+            if($own)$db->commit();else$db->exec('release savepoint openweb_meet_candidates');
+        }catch(Throwable $error){if($own){if($db->inTransaction())$db->rollBack();}else{$db->exec('rollback to savepoint openweb_meet_candidates');$db->exec('release savepoint openweb_meet_candidates');}throw$error;}
+        (new cache)->delete('configuration:acl.conf');
     }
     /** Only these private, fixed identities belong to the meeting installer. */
     private static function profiles(PDO $db): bool {

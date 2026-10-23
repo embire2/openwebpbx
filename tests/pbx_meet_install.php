@@ -5,7 +5,7 @@ $db=$database->db;$db->setAttribute(PDO::ATTR_ERRMODE,PDO::ERRMODE_EXCEPTION);$s
 $check=static function($v,$why)use(&$n){if(!$v)throw new RuntimeException($why);$n++;};
 try{
  $db->exec('create schema '.$schema.';set search_path to '.$schema.',public');
- $tables=['v_domains','v_users','v_sip_profiles','v_sip_profile_settings','v_conference_profiles','v_conference_profile_params','v_dialplans','v_dialplan_details','v_menus','v_menu_items','v_menu_languages','v_groups','v_menu_item_groups'];
+ $tables=['v_domains','v_users','v_sip_profiles','v_sip_profile_settings','v_conference_profiles','v_conference_profile_params','v_dialplans','v_dialplan_details','v_menus','v_menu_items','v_menu_languages','v_groups','v_menu_item_groups','v_access_controls','v_access_control_nodes'];
  foreach($tables as$t)$db->exec('create table '.$t.' (like public.'.$t.' including all)');
  // Actual alphabetical --defaults order reaches Meet before sip_profiles.
  // It must leave a completely fresh profile table empty for the stock seeder.
@@ -53,6 +53,7 @@ try{
  $before=[];foreach($tables as$t)$before[$t]=$db->query('select coalesce(json_agg(x order by row_to_json(x)::text),\'[]\') from '.$t.' x')->fetchColumn();
  pbx_meet_install::apply($db);
  foreach($tables as$t)$check($before[$t]===$db->query('select coalesce(json_agg(x order by row_to_json(x)::text),\'[]\') from '.$t.' x')->fetchColumn(),'Repeated installation preserved '.$t);
+ require __DIR__.'/pbx_meet_candidates.php';pbx_meet_candidate_checks($db,$check,$tables);
  $apps=['global'=>'0f56aaac-01ba-46e6-944d-58eaa8712170','openweb-meet-only'=>'78c3e839-69bb-4e44-8932-edc4fbc92bf7'];
  $domain=uuid();$secondDomain=uuid();foreach([$domain,$secondDomain]as$d)$db->prepare("insert into v_domains(domain_uuid,domain_name,domain_enabled) values(?,?,true)")->execute([$d,$d.'.invalid']);
  $domains=[['domain_uuid'=>$domain,'domain_name'=>$domain.'.invalid'],['domain_uuid'=>$secondDomain,'domain_name'=>$secondDomain.'.invalid']];
