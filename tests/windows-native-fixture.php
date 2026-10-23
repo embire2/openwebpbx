@@ -7,10 +7,10 @@ function windows_native_fixture_failure_record(Throwable $error,string $inputFil
   if($root===false||$input===false||is_link($inputFile)||!is_file($inputFile)||basename($input)!=='input.json')return false;
   $root=strtolower(rtrim(str_replace('\\','/',$root),'/'));$directory=strtolower(str_replace('\\','/',dirname($input)));
   if(dirname($directory)!==$root||!preg_match('/^[a-f0-9]{24}$/D',basename($directory)))return false;
-  if(!in_array($action,['baseline','discover','cleanup','status','queue-state','job','due','voicemail-login','api','mail-seed','meeting-path-state','services-info','providers-create','providers-ingress','cmb-setup','cmb-status','cmb-reset','cmb-quota'],true))return false;
+  if(!in_array($action,['baseline','discover','cleanup','status','cdr-status','queue-state','job','due','voicemail-login','api','mail-seed','meeting-path-state','services-info','providers-create','providers-ingress','cmb-setup','cmb-status','cmb-reset','cmb-quota'],true))return false;
   if(!in_array($stage,['initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh'],true))$stage='initialization';
   $source=basename(str_replace('\\','/',$error->getFile()));
-  if(!in_array($source,['windows-native-fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php'],true))$source='external_component';
+  if(!in_array($source,['windows-native-fixture.php','windows_cdr_observation.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php'],true))$source='external_component';
   $type=basename(str_replace('\\','/',get_class($error)));if(!preg_match('/^[A-Za-z0-9_]{1,80}$/D',$type))$type='Throwable';
   $line=$error->getLine();if($line<1||$line>100000)$line=1;
   $bytes=json_encode(['schema'=>1,'error_type'=>$type,'source_basename'=>$source,'source_line'=>$line,'action'=>$action,'stage'=>$stage],JSON_THROW_ON_ERROR);
@@ -158,6 +158,11 @@ if($action==='discover'){
  }unset($u);
  $fixtureStage='policy_save';$q('update v_pbx_restore set config=cast(? as jsonb) where domain_uuid=?',[json_encode($c,JSON_THROW_ON_ERROR),$domain]);$db->commit();$save();
  $fixtureStage='cache_refresh';foreach($s['users'] as $u)(new cache)->delete('directory:'.$u['auth'].'@'.$realm);event_socket::api('reloadxml');echo "{\"normal_https_users_discovered\":4,\"fictional_auth_collision\":true}\n";exit;
+}
+if($action==='cdr-status'){
+ require_once __DIR__.'/windows_cdr_observation.php';
+ $reader=new class($db) extends pbx_call_records {public function spool():string{return $this->directory();}};
+ echo json_encode(windows_native_cdr_observation($db,$domain,$realm,(string)($argv[3]??''),$s['users']??[],$reader->spool()),JSON_THROW_ON_ERROR),PHP_EOL;exit;
 }
 if($action==='status'){
  $status=event_socket::api('sofia status profile internal');if(!preg_match('/^\s*SIP-IP\s+([0-9.]+)\s*$/m',$status,$m))throw new RuntimeException('Native profile IP unavailable.');
