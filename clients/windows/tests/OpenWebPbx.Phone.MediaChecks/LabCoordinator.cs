@@ -99,7 +99,11 @@ internal static class LabCoordinator
     }
     private static void Secure(PeerState state)
     {
-        if (!state.Native.TlsCaAndHostname || !state.Native.MandatorySrtp || state.Native.Calls.Any(call => call.State == "StreamsRunning" && (call.Encryption != "SRTP" || call.SrtpSuite != "AESCM128HMACSHA180"))) throw new InvalidDataException("Actual TLS/SRTP state differs.");
+        if (!state.Native.TlsCaAndHostname || !state.Native.MandatorySrtp || state.Native.Calls.Any(call => call.State == "StreamsRunning" && (call.Encryption != "SRTP" || call.SrtpSuite != "AESCM128HMACSHA180"))) {
+            var error = new InvalidDataException("Actual TLS/SRTP state differs.");
+            try { error.Data["media_security_observation"] = SecurityObservation.Capture(state.Native.TlsCaAndHostname, state.Native.MandatorySrtp, state.Native.Calls.Select(call => SecurityObservation.Call(call.State, call.Encryption, call.SrtpSuite)).ToArray()); } catch { }
+            throw error;
+        }
     }
     private static void Connected(LabPeer a, LabPeer b, bool video = false, string phase = "initial")
     {

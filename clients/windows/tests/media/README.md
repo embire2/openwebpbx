@@ -119,6 +119,10 @@ thumbprints and all nine firewall collections in ActiveStore/PersistentStore.
 Any missing preservation or cleanup holds the result. Raw media, private keys,
 SIP secrets, paths and child output are not published in the receipt.
 
+A failed TLS/SRTP assertion retains its original trust and mandatory-policy flags
+and the closed call-state/current-encryption/SRTP-suite values from the exact
+already-sampled argument. It makes no new native query or readiness retry.
+
 A failed decoded WAV read retains a fixed parser reason plus the numeric header,
 chunk and PCM format fields from the exact buffer that failed. It never reopens
 the recording for diagnosis, publishes PCM samples or claims an atomic snapshot

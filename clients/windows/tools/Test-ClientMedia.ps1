@@ -254,8 +254,16 @@ function ReadNativeWaveObservation($Value){
  if($Value.source -ceq 'file_length_check' -and ($Value.buffer_bytes -ne 0 -or $Value.reason -cne 'file_length' -or $null -ne $Value.riff -or $null -ne $Value.wave -or $Value.format_seen -or $Value.data_seen)){throw 'Length-only failure cannot infer buffer contents.'}
  $Value
 }
+function ReadNativeSecurityObservation($Value){
+ ClosedKeys $Value @('source','tls_ca_and_hostname','mandatory_srtp','call_count','calls')
+ if($Value.source -isnot [string] -or $Value.source -cne 'already_sampled_secure_argument' -or $Value.tls_ca_and_hostname -isnot [bool] -or $Value.mandatory_srtp -isnot [bool] -or $Value.call_count -isnot [long] -or $Value.call_count -lt 0 -or $Value.call_count -gt 2 -or $Value.calls -isnot [array] -or $Value.calls.Count -ne $Value.call_count){throw 'Exact already-sampled native security scope required.'}
+ foreach($call in $Value.calls){ClosedKeys $call @('state','encryption','srtp_suite')
+  if($call.state -isnot [string] -or $call.state -cnotin @('Idle','IncomingReceived','PushIncomingReceived','OutgoingInit','OutgoingProgress','OutgoingRinging','OutgoingEarlyMedia','Connected','StreamsRunning','Pausing','Paused','Resuming','Referred','Error','End','PausedByRemote','UpdatedByRemote','IncomingEarlyMedia','Updating','Released','EarlyUpdatedByRemote','EarlyUpdating','unrecognised') -or $call.encryption -isnot [string] -or $call.encryption -cnotin @('None','SRTP','ZRTP','DTLS','unrecognised') -or $call.srtp_suite -isnot [string] -or $call.srtp_suite -cnotin @('AESCM128HMACSHA180','AESCM128HMACSHA132','AES192CMHMACSHA180','AES192CMHMACSHA132','AES256CMHMACSHA180','AES256CMHMACSHA132','AEADAES128GCM','AEADAES256GCM','Invalid','unrecognised')){throw 'Only closed pinned native security enums may leave the fixture.'}
+ }
+ $Value
+}
 function ReadNativeFailureObservation($Value){
- ClosedKeys $Value @('operation','source_basename','source_line','peer','wait','wave')
+ ClosedKeys $Value @('operation','source_basename','source_line','peer','wait','wave','security')
  if($Value.operation -isnot [string] -or $Value.operation -cnotin @('engine_construct','engine_start','case_prepare','wrong_ca_create','wrong_ca_wait','wrong_ca_assert','wrong_ca_dispose','wrong_name_create','wrong_name_wait','wrong_name_assert','wrong_name_dispose','peer_0_create','peer_1_create','peer_2_create','registration_wait','security_assert','case_execute','peers_cleanup','engine_idle','engine_shutdown') -or $Value.source_basename -isnot [string] -or $Value.source_basename -cnotin @('LabCoordinator.cs','LabServer.cs','PeerRunner.cs','PeerProtocol.cs','CoreCodecInventory.cs','ProcessImage.cs','WaitObservation.cs','AudioProof.cs','NativePhone.cs','NativeMediaFixture.cs','external_component') -or $Value.source_line -isnot [long] -or $Value.source_line -lt 0 -or $Value.source_line -gt 100000 -or (($Value.source_basename -ceq 'external_component') -ne ($Value.source_line -eq 0))){throw 'Closed actual failure source differs.'}
  if($null -ne $Value.peer){$peer=$Value.peer;ClosedKeys $peer @('progress','exited_before_cleanup','exit_code_before_cleanup','error_type','stderr_observed')
   if($peer.progress -isnot [string] -or $peer.progress -cnotin @('none','native_runtime_resources','native_logging','native_factory','native_configuration','native_create_core','native_database','native_encryption','native_trusted_roots','native_devices','native_listeners','native_start','native_verify_policy','ready','unrecognised') -or $peer.exited_before_cleanup -isnot [bool] -or $peer.stderr_observed -isnot [bool] -or $peer.error_type -isnot [string] -or $peer.error_type -cnotin @('none','InvalidDataException','InvalidOperationException','JsonException','IOException','FileNotFoundException','DirectoryNotFoundException','UnauthorizedAccessException','TimeoutException','DllNotFoundException','EntryPointNotFoundException','BadImageFormatException','TypeInitializationException','ArgumentException','ArgumentNullException','NullReferenceException','NotSupportedException','AccessViolationException','other','unobserved')){throw 'Closed native peer observation differs.'}
@@ -264,6 +272,7 @@ function ReadNativeFailureObservation($Value){
  }
  if($null -ne $Value.wait){$null=ReadNativeWaitObservation $Value.wait}
  if($null -ne $Value.wave){$null=ReadNativeWaveObservation $Value.wave}
+ if($null -ne $Value.security){$null=ReadNativeSecurityObservation $Value.security}
  $Value
 }
 function ReadEngineObservation($Value){

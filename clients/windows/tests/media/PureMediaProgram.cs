@@ -119,6 +119,13 @@ try
         writer.Write(audioBytes.AsSpan(44)); writer.Flush(true); Check(PcmWave.Read(growth, true).Duration == 4 && PcmWave.Read(growth, true).Tail([425]).GoodFraction == 1);
         Check(primaryRead?.Data["media_wave_observation"] is WaveReadObservation { buffer_bytes: 44, data_bytes: 0 });
     }
+    var security = SecurityObservation.Capture(true, true, [SecurityObservation.Call("StreamsRunning", "SRTP", "Invalid")]); Check(security.tls_ca_and_hostname && security.mandatory_srtp && security.calls[0].srtp_suite == "Invalid");
+    Check(SecurityObservation.Capture(false, true, []).tls_ca_and_hostname == false); Check(SecurityObservation.Capture(true, false, []).mandatory_srtp == false);
+    foreach (var encryption in SecurityObservation.Encryptions) Check(SecurityObservation.Call("StreamsRunning", encryption, "AESCM128HMACSHA180").encryption == encryption);
+    foreach (var suite in SecurityObservation.Suites) Check(SecurityObservation.Call("StreamsRunning", "SRTP", suite).srtp_suite == suite);
+    var unknownSecurity = SecurityObservation.Capture(true, true, [SecurityObservation.Call("PRIVATE", "PRIVATE", "PRIVATE")]); Check(!JsonSerializer.Serialize(unknownSecurity).Contains("PRIVATE", StringComparison.Ordinal) && unknownSecurity.calls[0] == new MediaSecurityCall("unrecognised", "unrecognised", "unrecognised"));
+    Refuse(() => SecurityObservation.Capture(true, true, [security.calls[0], security.calls[0], security.calls[0]]));
+    var securityError = new InvalidDataException("PRIVATE"); securityError.Data["media_security_observation"] = security; Check(ReferenceEquals(FailureObservation.Capture(securityError, "case_execute").security, security));
     var productionAbsence = false;
     if (args.Length != 0)
     {
