@@ -70,3 +70,22 @@ controls. Protected-file/ACL APIs are explicit portable adapters. No Windows
 catalogue case, lock cause, installed IIS reader or release pass is inferred;
 a fresh native run is still required. Runtime catalogue and lock behavior stay
 unchanged.
+
+
+Run40008746341/source39a05353 reproduces the same Desktop failure and retains
+its original272/0-character child output encrypted. Verified private decryption
+identifies a Notice from `stream_get_contents` in the protected reader (line63),
+with errno13 while reading the empty maintenance lease before the competing
+refresh returns valid deferred JSON. The fixture's PHP holder owns both leases
+at that point. No raw private output or paths are published.
+
+The correction changes only the reader's content assignment: after actual
+`fopen` and `fstat`, an opened zero-byte file supplies empty data without issuing
+a content read against Windows' mandatory byte lock. The complete subsequent
+before/opened/after identity and metadata checks and finally-close remain exact;
+real lease acquisition remains unchanged. There is no error suppression, output
+stripping or early return. Thirty-five actual isolated Linux file/refusal checks
+pass, including explicit read/metadata adapters that show zero content reads and
+all nine later metadata guards. The unchanged old reader fails the empty-read
+adapter at the expected operation. Existing128 PHP and23 Debian groups pass.
+A fresh Windows component must still prove the corrected native lifecycle.
