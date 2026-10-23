@@ -41,10 +41,10 @@ function Python([string]$Phase){
 function CompletedMediaCases($Checks){
  # Publish only fixed completed case names; peer metrics and raw child data
  # remain in the administrator-private report.
- $allowed=@('native_windows_meeting_browser_video_audio','native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav','native_tls_mailbox_wire_forwarding_exact_binary_wav','native_global_smtp_unconfigured_queue_preserves_attempts','native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment','native_global_smtp_password_auth_actual_loopback','native_global_smtp_trusted_tls_hostname_auth_actual_loopback','native_welcome_inline_qr_config_actual_loopback','native_clock1026_gmt2_three_decoded_announcements','native_provider_outbound_decoded_rtp','native_provider_503_failover_once_decoded_rtp','native_provider_busy_no_failover','native_provider_603_failover_once_decoded_rtp','native_provider_incoming_owned_did_decoded_rtp','native_cmb_sa_id_first_auth_decoded_bridge','native_cmb_saved_caller_decoded_bridge','native_cmb_short_quota_native_cutoff_exact_usage','native_cmb_exhausted_quota_no_destination')
+ $allowed=@('native_localservice_cdr_background_import','native_windows_meeting_browser_video_audio','native_tls_signalling_two_way_decoded_rtp','native_g729_pcmu_independent_codec_two_way_transcoding','native_simultaneous_ring_group','native_hunting_ring_group','native_queue_agent_first','native_ivr_negotiated_wire_rfc2833','native_visible_sip_hold_selected_music_resume_transfer','native_configured_ivr_timeout','native_queue_pause_logout_wire_callback_localservice_agent_first_decoded_rtp','native_hotel_wakeup_localservice_claim_wire_confirmation','native_voicemail_recording_private_owned_wav','native_tls_mailbox_wire_forwarding_exact_binary_wav','native_global_smtp_unconfigured_queue_preserves_attempts','native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment','native_global_smtp_password_auth_actual_loopback','native_global_smtp_trusted_tls_hostname_auth_actual_loopback','native_welcome_inline_qr_config_actual_loopback','native_clock1026_gmt2_three_decoded_announcements','native_provider_outbound_decoded_rtp','native_provider_503_failover_once_decoded_rtp','native_provider_busy_no_failover','native_provider_603_failover_once_decoded_rtp','native_provider_incoming_owned_did_decoded_rtp','native_cmb_sa_id_first_auth_decoded_bridge','native_cmb_saved_caller_decoded_bridge','native_cmb_short_quota_native_cutoff_exact_usage','native_cmb_exhausted_quota_no_destination')
  foreach($name in $allowed){
   foreach($check in @($Checks)){
-   if($check.case -is [string] -and $check.case -ceq $name -and $check.passed -is [bool] -and $check.passed -eq $true){$name;break}
+   if($check.case -is [string] -and $check.case -ceq $name -and $check.passed -is [bool] -and $check.passed -eq $true){if($name -ceq 'native_localservice_cdr_background_import'){try{AssertCdrBackgroundNativeCase $Checks}catch{break}};$name;break}
   }
  }
 }
@@ -54,6 +54,21 @@ function AssertWelcomeNativeCase($Checks){
  $row=$rows[0]
  foreach($flag in 'actual_php_postgresql_dispatcher','two_concurrent_dispatchers','one_actual_loopback_delivery','inline_qr_cid_exact','independent_qr_decoded','qr_and_attached_config_exact','password_free_one_use_setup','used_invitation_suppressed','same_framework_backend','no_php_ini_or_gd_renderer','alias_custody_modelled','tls_readiness_modelled','no_external_mail','actual_windows_native','public_rows_exact','global_mail_config_exact','owned_schema_and_locks_removed','private_credentials_removed'){if($row.$flag -isnot [bool] -or !$row.$flag){throw 'The Windows welcome MIME scope/preservation proof is incomplete.'}}
  if(($row.checks -isnot [int] -and $row.checks -isnot [long]) -or $row.checks -lt 29 -or $row.checks -gt 100000 -or $row.gd_required -isnot [bool] -or $row.gd_required -or $row.decoder_sha256 -isnot [string] -or $row.decoder_sha256 -cne '29f98a91148171460b47a942d137ecc90c4b8097636f23cca65263a56bb025d3'){throw 'The actual independent Windows QR decoder proof is invalid.'}
+}
+function AssertCdrBackgroundNativeCase($Checks){
+ $rows=@($Checks|Where-Object {$_.case -is [string] -and $_.case -ceq 'native_localservice_cdr_background_import'})
+ if($rows.Count -ne 1){throw 'The actual LocalService call-record case must complete exactly once.'}
+ $row=$rows[0]
+ $flags=@('actual_background_import','actual_localservice_identity','backend_pid_unchanged','read_only_observer','no_explicit_importer','before_system_drain','exact_call_domain_correlation','history_sources_exact','spool_absent')
+ $counts=@{matched_cdr_rows=1;answered_cdr_rows=1;history_rows=2;history_owner_rows=2}
+ $fields=@('case','passed','polls','elapsed_seconds')+$flags+@($counts.Keys)
+ $names=@($row.PSObject.Properties.Name)
+ if($names.Count -ne $fields.Count -or @($names|Where-Object {$_ -cnotin $fields}).Count -or $row.passed -isnot [bool] -or !$row.passed){throw 'The LocalService call-record proof must use its exact closed fields.'}
+ foreach($flag in $flags){if($row.$flag -isnot [bool] -or !$row.$flag){throw 'The normal background call-record scope is incomplete.'}}
+ foreach($name in $counts.Keys){$value=$row.$name;if(($value -isnot [int] -and $value -isnot [long]) -or $value -ne $counts[$name]){throw 'The exact answered call and both participant histories are required.'}}
+ if(($row.polls -isnot [int] -and $row.polls -isnot [long]) -or $row.polls -lt 1 -or $row.polls -gt 26){throw 'The background importer polling bound is invalid.'}
+ $elapsed=$row.elapsed_seconds
+ if(($elapsed -isnot [int] -and $elapsed -isnot [long] -and $elapsed -isnot [single] -and $elapsed -isnot [double]) -or [double]::IsNaN([double]$elapsed) -or [double]::IsInfinity([double]$elapsed) -or $elapsed -lt 0 -or $elapsed -gt 30){throw 'The background importer deadline is invalid.'}
 }
 function AssertExtendedNativeCases($Checks){
  $names=@('native_clock1026_gmt2_three_decoded_announcements','native_provider_outbound_decoded_rtp','native_provider_503_failover_once_decoded_rtp','native_provider_busy_no_failover','native_provider_603_failover_once_decoded_rtp','native_provider_incoming_owned_did_decoded_rtp','native_cmb_sa_id_first_auth_decoded_bridge','native_cmb_saved_caller_decoded_bridge','native_cmb_short_quota_native_cutoff_exact_usage','native_cmb_exhausted_quota_no_destination')
@@ -489,6 +504,7 @@ try{
  }else{
  AssertExtendedNativeCases $native.checks
  AssertWelcomeNativeCase $native.checks
+ AssertCdrBackgroundNativeCase $native.checks
  $facts.gates.native_clock='passed';$facts.gates.native_providers='passed';$facts.gates.native_call_me_back='passed'
  $facts.checks=@($native.checks);$facts.gates.native_sip_audio='passed';$facts.gates.smtp='passed'
  $meeting=@($native.checks|Where-Object {$_.case -ceq 'native_windows_meeting_browser_video_audio'})
@@ -537,7 +553,7 @@ try {
  if(Test-Path -LiteralPath $childReport){
   try{
    $child=Get-Content -LiteralPath $childReport -Raw|ConvertFrom-Json
-   if($child.state -eq 'failed' -and $child.source_basename -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py','windows-native-fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component' -and [int]$child.source_line -gt 0 -and [int]$child.source_line -le 100000 -and $child.active_case -match '^[a-z0-9_]{1,120}$' -and $child.error_type -match '^[A-Za-z0-9_]{1,80}$'){
+   if($child.state -eq 'failed' -and $child.source_basename -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_cdr_background.py','windows_cdr_observation.php','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py','windows-native-fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component' -and [int]$child.source_line -gt 0 -and [int]$child.source_line -le 100000 -and $child.active_case -match '^[a-z0-9_]{1,120}$' -and $child.error_type -match '^[A-Za-z0-9_]{1,80}$'){
     $facts.source_basename=$child.source_basename;$facts.source_line=[int]$child.source_line;$facts.active_case=$child.active_case;$facts.error_type=$child.error_type
     $completed=@(CompletedMediaCases $child.checks);if($completed.Count){$facts.completed_media_cases=$completed}
     foreach($entry in (MediaFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
@@ -560,14 +576,14 @@ try {
     if($child.active_case -eq 'normal_admin_owned_extension_audio_preferences'){
      foreach($field in 'owned_domain_matches','authentication_id_matches','sip_password_matches'){if($child.$field -is [bool]){$facts[$field]=[bool]$child.$field}}
     }
-    $nativeStages=@('native_case','g729_regular_unregister','g729_alternate_register','g729_invite','g729_answer_validation','g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister','g729_peer_close','g729_codec_close','g729_regular_reregister','native_peer_unregister','native_peer_close','native_ledger_write','callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed','hotel_phone_answer','hotel_wire_confirmation','hotel_job_completed','voicemail_message_created','voicemail_recording_finalized','voicemail_mail_queued','mailbox_register','mailbox_invite','mailbox_login_prompt','mailbox_main_menu_prompt','mailbox_tutorial_complete','mailbox_recording_playback','mailbox_forward_extension_prompt','mailbox_forward_intro_prompt','mailbox_forwarded_prompt','mailbox_forwarded_message_created','mailbox_forwarded_binary_copy','mailbox_observer_close')
+    $nativeStages=@('native_case','cdr_background_import','g729_regular_unregister','g729_alternate_register','g729_invite','g729_answer_validation','g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister','g729_peer_close','g729_codec_close','g729_regular_reregister','native_peer_unregister','native_peer_close','native_ledger_write','callback_request_created','callback_agent_answer','callback_target_answer','callback_job_completed','hotel_phone_answer','hotel_wire_confirmation','hotel_job_completed','voicemail_message_created','voicemail_recording_finalized','voicemail_mail_queued','mailbox_register','mailbox_invite','mailbox_login_prompt','mailbox_main_menu_prompt','mailbox_tutorial_complete','mailbox_recording_playback','mailbox_forward_extension_prompt','mailbox_forward_intro_prompt','mailbox_forwarded_prompt','mailbox_forwarded_message_created','mailbox_forwarded_binary_copy','mailbox_observer_close')
     foreach($prefix in 'primary','cleanup'){
      if($child.($prefix+'_substage') -isnot [string] -or $child.($prefix+'_substage') -cnotin $nativeStages){continue}
      $facts[$prefix+'_substage']=$child.($prefix+'_substage')
      $type=$child.($prefix+'_error_type');if($type -is [string] -and $type -match '^[A-Za-z0-9_]{1,80}$'){$facts[$prefix+'_error_type']=$type}
      foreach($where in 'source','caller'){
       $name=$child.($prefix+'_'+$where+'_basename');$line=$child.($prefix+'_'+$where+'_line')
-      if($name -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py','external_component' -and ($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$facts[$prefix+'_'+$where+'_basename']=$name;$facts[$prefix+'_'+$where+'_line']=[int]$line}
+      if($name -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_cdr_background.py','windows_cdr_observation.php','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py','external_component' -and ($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$facts[$prefix+'_'+$where+'_basename']=$name;$facts[$prefix+'_'+$where+'_line']=[int]$line}
      }
     }
     if(($child.cleanup_failure_count -is [int] -or $child.cleanup_failure_count -is [long]) -and $child.cleanup_failure_count -ge 1 -and $child.cleanup_failure_count -le 32){$facts.cleanup_failure_count=[int]$child.cleanup_failure_count}
