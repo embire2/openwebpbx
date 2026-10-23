@@ -1,0 +1,21 @@
+# OpenWeb PBX managed WindowsPhone catalogue v1
+[Unit]
+Description=Verify WindowsPhone release metadata
+After=network-online.target openwebpbx-update-recovery.service
+Wants=network-online.target
+ConditionPathExists=/var/www/fusionpbx/resources/windows-phone/release-public.pem
+ConditionPathExists=!/var/lib/openwebpbx/updates/maintenance
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/php -c /etc/php/8.4/cli/php.ini /opt/openwebpbx/tools/windows-phone-catalogue.php
+User=root
+Group=root
+UMask=0027
+TimeoutStartSec=90s
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectHome=true
+NoNewPrivileges=true
+RestrictSUIDSGID=true
+LimitCORE=0

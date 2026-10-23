@@ -163,6 +163,10 @@ function Assert-OpenWebUpdaterSlotsRestored {
 function Save-OpenWebSupport {
  param([string]$Backup,[string]$PackageRoot,[string]$Root,[string]$StateRoot,[string]$EngineRoot,[IO.FileStream]$MaintenanceLock)
  $record=[ordered]@{schema=1;Files=@{};Directories=@{};Acls=@{};Tasks=@{};OpenSshClient=(Get-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0).State.ToString()}
+ . (Join-Path $PackageRoot 'WindowsPhoneCatalogue.Common.ps1')
+ $cataloguePaths=Get-OpenWebWindowsPhoneCataloguePaths $Root $StateRoot
+ Assert-OpenWebWindowsPhoneCatalogueState $cataloguePaths
+ Assert-OpenWebWindowsPhoneCatalogueTask (Get-ScheduledTask -TaskName 'OpenWebPBX-WindowsPhoneCatalogue' -ErrorAction SilentlyContinue) $cataloguePaths
  . (Join-Path $PackageRoot 'CallRecords.Common.ps1')
  $record.CallRecordAccess=Get-OpenWebCallRecordAccessSnapshot -PackageRoot $PackageRoot -Root $Root -StateRoot $StateRoot -EngineRoot $EngineRoot -MaintenanceLock $MaintenanceLock
  $certificateDirectory=[IO.Path]::GetFullPath((Join-Path $EngineRoot 'cert'))
@@ -194,7 +198,7 @@ function Save-OpenWebSupport {
   if($exists){New-Item -ItemType Directory -Force "$Backup\support-files" | Out-Null;Copy-Item -LiteralPath $path -Destination (Join-Path $Backup $copy);$record.Acls[$path]=(Get-Acl -LiteralPath $path).Sddl}
  }
  $directories=@{
-  'backup-runtime'="$Root\backup-runtime";'acme-runtime'="$Root\acme";'mobile-notifications'="$StateRoot\mobile-notifications";'mail-state'="$StateRoot\mail";'meet-proxy'="$StateRoot\meet-proxy";'tenant-domains'="$StateRoot\tenant-domains";'stun-setup'="$StateRoot\stun-setup";'dtls-setup'="$StateRoot\dtls-setup";'phone-health-runtime'="$StateRoot\phone-health-runtime";'updater-slots'="$Root\updater\slots"
+  'backup-runtime'="$Root\backup-runtime";'acme-runtime'="$Root\acme";'mobile-notifications'="$StateRoot\mobile-notifications";'mail-state'="$StateRoot\mail";'meet-proxy'="$StateRoot\meet-proxy";'tenant-domains'="$StateRoot\tenant-domains";'stun-setup'="$StateRoot\stun-setup";'dtls-setup'="$StateRoot\dtls-setup";'phone-health-runtime'="$StateRoot\phone-health-runtime";'windows-phone-catalogue'="$StateRoot\windows-phone-catalogue";'updater-slots'="$Root\updater\slots"
   'automatic-backups'="$StateRoot\automatic-backups";'backup-restore'="$StateRoot\backup-restore";'backup-control'="$StateRoot\backup-control";'backup-downloads'="$StateRoot\backup-downloads"
   'codec-compiler-cache'="$StateRoot\codec-compiler-cache";'codec-build'="$StateRoot\codec-build";'openweb-music'="$StateRoot\storage\openweb-music"
  }
@@ -209,7 +213,7 @@ function Save-OpenWebSupport {
   if($exists){CopyTree $path (Join-Path $Backup $name)}
  }
  $record.Acls[$Root]=(Get-Acl -LiteralPath $Root).Sddl
- foreach($path in @("$Root\web","$Root\server","$Root\desktop","$Root\tools","$Root\php","$EngineRoot\mod","$EngineRoot\sounds","$EngineRoot\conf","$StateRoot\mobile-notifications","$StateRoot\mail","$StateRoot\meet-proxy","$StateRoot\tenant-domains","$StateRoot\stun-setup","$StateRoot\dtls-setup","$StateRoot\phone-health-runtime","$Root\backup-runtime","$Root\acme","$Root\updater","$StateRoot\automatic-backups","$StateRoot\backup-restore","$StateRoot\backup-control","$StateRoot\backup-downloads","$StateRoot\codec-compiler-cache","$StateRoot\codec-build","$StateRoot\storage\openweb-music")){
+ foreach($path in @("$Root\web","$Root\server","$Root\desktop","$Root\tools","$Root\php","$EngineRoot\mod","$EngineRoot\sounds","$EngineRoot\conf","$StateRoot\mobile-notifications","$StateRoot\mail","$StateRoot\meet-proxy","$StateRoot\tenant-domains","$StateRoot\stun-setup","$StateRoot\dtls-setup","$StateRoot\phone-health-runtime","$StateRoot\windows-phone-catalogue","$Root\backup-runtime","$Root\acme","$Root\updater","$StateRoot\automatic-backups","$StateRoot\backup-restore","$StateRoot\backup-control","$StateRoot\backup-downloads","$StateRoot\codec-compiler-cache","$StateRoot\codec-build","$StateRoot\storage\openweb-music")){
   if(Test-Path -LiteralPath $path -PathType Container){
    $record.Acls[$path]=(Get-Acl -LiteralPath $path).Sddl
    foreach($item in Get-ChildItem -LiteralPath $path -Force -Recurse){
@@ -218,7 +222,7 @@ function Save-OpenWebSupport {
    }
   }
  }
- foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){
+ foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-WindowsPhoneCatalogue','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){
   $task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
   $record.Tasks[$name]=@{Exists=[bool]$task;Enabled=if($task){[bool]$task.Settings.Enabled}else{$false}}
   if($task){
@@ -229,6 +233,8 @@ function Save-OpenWebSupport {
    if($name -eq 'OpenWebPBX-PhoneHealth'){
     . (Join-Path $PackageRoot 'PhoneHealth-Security.ps1')
     Stop-OpenWebHealthTask -MaintenanceLock $MaintenanceLock -Disable
+   }elseif($name -eq 'OpenWebPBX-WindowsPhoneCatalogue'){
+    Stop-OpenWebWindowsPhoneCatalogue -Paths $cataloguePaths -MaintenanceLock $MaintenanceLock
    }elseif($name -in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-Cleanup'){Disable-ScheduledTask -TaskName $name | Out-Null}
   }
  }
@@ -247,7 +253,7 @@ function Restore-OpenWebSupport {
   . (Join-Path $Backup 'meeting-recovery.ps1')
   Restore-OpenWebMeetSystem -Snapshot (Join-Path $Backup 'meeting-system.json') -StateRoot $StateRoot
  }
- $allowed=@($Root,"$StateRoot\native-engine.json","$StateRoot\local-codec.json","$StateRoot\meet-ca.pem","$StateRoot\meet-proxy.json","$StateRoot\updater-original-startup.json","$StateRoot\updater-install.json","$StateRoot\installation.json","$StateRoot\phone-health-instance.json","$StateRoot\stun.json","$StateRoot\mobile-notifications","$StateRoot\mail","$StateRoot\meet-proxy","$StateRoot\tenant-domains","$StateRoot\stun-setup","$StateRoot\dtls-setup","$StateRoot\phone-health-runtime","$StateRoot\automatic-backups","$StateRoot\backup-restore","$StateRoot\backup-control","$StateRoot\backup-downloads","$StateRoot\codec-compiler-cache","$StateRoot\codec-build","$StateRoot\storage\openweb-music","$EngineRoot")
+ $allowed=@($Root,"$StateRoot\native-engine.json","$StateRoot\local-codec.json","$StateRoot\meet-ca.pem","$StateRoot\meet-proxy.json","$StateRoot\updater-original-startup.json","$StateRoot\updater-install.json","$StateRoot\installation.json","$StateRoot\phone-health-instance.json","$StateRoot\stun.json","$StateRoot\mobile-notifications","$StateRoot\mail","$StateRoot\meet-proxy","$StateRoot\tenant-domains","$StateRoot\stun-setup","$StateRoot\dtls-setup","$StateRoot\phone-health-runtime","$StateRoot\windows-phone-catalogue","$StateRoot\automatic-backups","$StateRoot\backup-restore","$StateRoot\backup-control","$StateRoot\backup-downloads","$StateRoot\codec-compiler-cache","$StateRoot\codec-build","$StateRoot\storage\openweb-music","$EngineRoot")
  function Check-SupportPath([string]$Path){
   $full=[IO.Path]::GetFullPath($Path);$valid=$false
   foreach($base in $allowed){if($full.Equals($base,[StringComparison]::OrdinalIgnoreCase) -or $full.StartsWith($base.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)){$valid=$true;break}}
@@ -319,14 +325,14 @@ function Restore-OpenWebSupport {
   if(Test-Path -LiteralPath $certificateDirectory){throw 'The original DTLS parent absence did not restore.'}
  }
  foreach($entry in $record.Directories.PSObject.Properties){
-  if($entry.Name -notin 'backup-runtime','acme-runtime','mobile-notifications','mail-state','meet-proxy','tenant-domains','stun-setup','dtls-setup','phone-health-runtime','updater-slots','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','openweb-music'){throw 'The support recovery folder inventory is invalid.'}
+  if($entry.Name -notin 'backup-runtime','acme-runtime','mobile-notifications','mail-state','meet-proxy','tenant-domains','stun-setup','dtls-setup','phone-health-runtime','windows-phone-catalogue','updater-slots','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','openweb-music'){throw 'The support recovery folder inventory is invalid.'}
   $target=Check-SupportPath $entry.Value.Path
   if($entry.Value.Exists){
    CopyTree (Join-Path $Backup $entry.Name) $target -Mirror
    # Robocopy can return accepted exit3 while a running extra image remains.
-   if($entry.Name -ceq 'updater-slots'){Assert-OpenWebUpdaterSlotsRestored -Source (Join-Path $Backup $entry.Name) -Target $target}
+   if($entry.Name -in 'updater-slots','windows-phone-catalogue'){Assert-OpenWebUpdaterSlotsRestored -Source (Join-Path $Backup $entry.Name) -Target $target}
   }
-  elseif($entry.Name -ceq 'updater-slots'){
+  elseif($entry.Name -in 'updater-slots','windows-phone-catalogue'){
    if(Test-Path -LiteralPath $target){Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop}
    if(Test-Path -LiteralPath $target){throw 'The original updater-slot absence did not restore; recovery remains required.'}
   }
@@ -351,7 +357,7 @@ function Restore-OpenWebSupport {
   Set-OpenWebFileSddl -LiteralPath $permission.Path -Sddl $permission.Sddl
  }
  foreach($entry in $record.Tasks.PSObject.Properties){
-  if($entry.Name -notin 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){throw 'The support recovery task inventory is invalid.'}
+  if($entry.Name -notin 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-WindowsPhoneCatalogue','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){throw 'The support recovery task inventory is invalid.'}
   if($entry.Value.Exists){
    Register-ScheduledTask -TaskName $entry.Name -Xml (Get-Content "$Backup\$($entry.Name).xml" -Raw) -Force | Out-Null
    if($entry.Value.Enabled){Enable-ScheduledTask -TaskName $entry.Name | Out-Null}else{Disable-ScheduledTask -TaskName $entry.Name | Out-Null}

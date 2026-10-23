@@ -34,7 +34,7 @@ function Case([string]$Kind='default'){
  $old='param([switch]$Recover) if(!$Recover){exit 2};[IO.File]::WriteAllText('+("'"+(Join-Path $state 'selected-entry.txt').Replace("'","''")+"'")+",'old');exit 75"
  WriteText (Join-Path $root 'tools\Upgrade-OpenWebPBX.ps1') $old
  foreach($name in 'UpgradeRecovery.Common.ps1','File-Security.ps1'){WriteText (Join-Path $package $name) ([IO.File]::ReadAllText((Join-Path $SourceRoot ('packaging\windows\'+$name))))}
- foreach($name in 'Restore-Gates.ps1','Support-Recovery.ps1','Web-Readiness.ps1','Dtls.Common.ps1','PhoneHealth-Security.ps1','PhpRuntime.Common.ps1','Write-PrivateState.ps1','check-call-engine.php','windows-log.php','CallRecords.Common.ps1'){WriteText (Join-Path $package $name) ('# FICTIONAL dependency '+$name)}
+ foreach($name in 'Restore-Gates.ps1','Support-Recovery.ps1','Web-Readiness.ps1','Dtls.Common.ps1','PhoneHealth-Security.ps1','PhpRuntime.Common.ps1','Write-PrivateState.ps1','check-call-engine.php','windows-log.php','CallRecords.Common.ps1','WindowsPhoneCatalogue.Common.ps1'){WriteText (Join-Path $package $name) ('# FICTIONAL dependency '+$name)}
  WriteText (Join-Path $package 'Upgrade-OpenWebPBX.ps1') ($old.Replace("'old'","'new'"))
  WriteText (Join-Path $package 'VERSION') "1.0.20`n"
  if($Kind -ceq 'partial'){WriteText (Join-Path $package 'aaa-copy-window.php') ('#'+('x'*8388608))}
@@ -99,8 +99,8 @@ try{
    if($exists){[IO.File]::WriteAllBytes($path,$saved)}else{[IO.File]::Delete($path)}
   }
   Refuses {Complete $c $entry $lock Success}
-  foreach($name in 'Upgrade-OpenWebPBX.ps1','UpgradeRecovery.Common.ps1','Restore-Gates.ps1','Support-Recovery.ps1','File-Security.ps1','Web-Readiness.ps1','Dtls.Common.ps1','PhoneHealth-Security.ps1','PhpRuntime.Common.ps1','Write-PrivateState.ps1','check-call-engine.php','windows-log.php','CallRecords.Common.ps1'){[IO.File]::Copy((Join-Path $entry.bundle_path $name),(Join-Path $c.Root ('tools\'+$name)),$true)}
-  foreach($name in 'Upgrade-OpenWebPBX.ps1','UpgradeRecovery.Common.ps1','Restore-Gates.ps1','Support-Recovery.ps1','File-Security.ps1','Web-Readiness.ps1','Dtls.Common.ps1','PhoneHealth-Security.ps1','PhpRuntime.Common.ps1','Write-PrivateState.ps1','check-call-engine.php','windows-log.php','CallRecords.Common.ps1'){
+  foreach($name in 'Upgrade-OpenWebPBX.ps1','UpgradeRecovery.Common.ps1','Restore-Gates.ps1','Support-Recovery.ps1','File-Security.ps1','Web-Readiness.ps1','Dtls.Common.ps1','PhoneHealth-Security.ps1','PhpRuntime.Common.ps1','Write-PrivateState.ps1','check-call-engine.php','windows-log.php','CallRecords.Common.ps1','WindowsPhoneCatalogue.Common.ps1'){[IO.File]::Copy((Join-Path $entry.bundle_path $name),(Join-Path $c.Root ('tools\'+$name)),$true)}
+  foreach($name in 'Upgrade-OpenWebPBX.ps1','UpgradeRecovery.Common.ps1','Restore-Gates.ps1','Support-Recovery.ps1','File-Security.ps1','Web-Readiness.ps1','Dtls.Common.ps1','PhoneHealth-Security.ps1','PhpRuntime.Common.ps1','Write-PrivateState.ps1','check-call-engine.php','windows-log.php','CallRecords.Common.ps1','WindowsPhoneCatalogue.Common.ps1'){
    $path=Join-Path $c.Root ('tools\'+$name);$saved=[IO.File]::ReadAllBytes($path);[IO.File]::Delete($path)
    Refuses {Complete $c $entry $lock Success};[IO.File]::WriteAllBytes($path,$saved)
   }

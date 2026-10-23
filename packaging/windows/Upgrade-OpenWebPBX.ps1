@@ -18,6 +18,7 @@ if(Test-Path $gateHelper){. $gateHelper}else{throw 'The Windows restore safeguar
 . (Join-Path (Split-Path $gateHelper -Parent) 'Web-Readiness.ps1')
 . (Join-Path (Split-Path $gateHelper -Parent) 'UpgradeRecovery.Common.ps1')
 . (Join-Path (Split-Path $gateHelper -Parent) 'CallRecords.Common.ps1')
+. (Join-Path (Split-Path $gateHelper -Parent) 'WindowsPhoneCatalogue.Common.ps1')
 $script:callRecordsHold=$null
 $script:upgradeRecoveryEntry=$null;$script:upgradeCommitted=$false;$script:upgradeFinalizationPhase=$null;$script:upgradeFinalizationFailed=$false;$script:operatorUpdaterWasRunning=$false;$script:operatorUpdaterStopped=$false
 $updates = Join-Path $private 'updates'
@@ -68,6 +69,8 @@ function CompleteCommittedFinalization {
   else{Disable-ScheduledTask -TaskName $name|Out-Null}
   if($name -eq 'OpenWebPBX-PhoneHealth' -and (!$originalTask -or !$originalTask.Value.Exists -or $originalTask.Value.Enabled)){Start-ScheduledTask -TaskName $name}
  }
+ Complete-OpenWebWindowsPhoneCatalogueActivation -Owner upgrade -Root $root -StateRoot $private -MaintenanceLock $lock
+ Start-OpenWebWindowsPhoneCatalogue -Root $root -StateRoot $private
  if(Get-ScheduledTask -TaskName OpenWebPBX-Cleanup -ErrorAction SilentlyContinue){
   $support=Get-Content "$backup\support-state.json" -Raw|ConvertFrom-Json
   if($support.Tasks.'OpenWebPBX-Cleanup'.Enabled){Enable-ScheduledTask -TaskName OpenWebPBX-Cleanup|Out-Null}
@@ -321,7 +324,7 @@ try {
  try{$lock = [IO.File]::Open("$private\upgrade.lock", 'OpenOrCreate', 'ReadWrite', 'None')}catch [IO.IOException]{$script:deferred=$true;throw 'Another PBX update is running.'}
  $env:PGPASSWORD = $state.PostgresPassword
  if($Recover){
-  if(!(Test-Path -LiteralPath $journalPath)){CompleteInstalledCallRecordHold}
+  if(!(Test-Path -LiteralPath $journalPath)){CompleteInstalledCallRecordHold;Complete-OpenWebWindowsPhoneCatalogueActivation -Owner install -Root $root -StateRoot $private -MaintenanceLock $lock}
   if(Test-Path $journalPath){
    $journal=Get-Content $journalPath -Raw|ConvertFrom-Json
    if($journal.PSObject.Properties['call_records_hold']){$script:callRecordsHold=$journal.call_records_hold;Assert-OpenWebCallRecordHold $script:callRecordsHold}
@@ -342,7 +345,7 @@ try {
      # Installed tools can be mirrored back to a legacy version lacking these
      # dependencies. Keep the current recovery execution on its sealed bundle.
      $script:recoveryCodeRoot=$script:upgradeRecoveryEntry.bundle_path
-     foreach($name in 'Restore-Gates.ps1','Support-Recovery.ps1','Web-Readiness.ps1','UpgradeRecovery.Common.ps1','File-Security.ps1','CallRecords.Common.ps1'){. (Join-Path $script:recoveryCodeRoot $name)}
+     foreach($name in 'Restore-Gates.ps1','Support-Recovery.ps1','Web-Readiness.ps1','UpgradeRecovery.Common.ps1','File-Security.ps1','CallRecords.Common.ps1','WindowsPhoneCatalogue.Common.ps1'){. (Join-Path $script:recoveryCodeRoot $name)}
     }
     if($script:callRecordsHold){Set-OpenWebCallRecordHold -StateRoot $private -Hold $script:callRecordsHold -MaintenanceLock $lock}
     if(!(Test-Path "$backup\complete.json")){
@@ -382,6 +385,7 @@ try {
   if (!$backup.StartsWith($backupRoot, [StringComparison]::OrdinalIgnoreCase) -or !(Test-Path "$backup\complete.json")) { throw 'Choose a completed private OpenWeb PBX update backup.' }
   $expected = (Get-Content "$backup\complete.json" -Raw | ConvertFrom-Json).version
   VerifyBackup $backup
+  Assert-OpenWebWindowsPhoneCatalogueRollback -PackageRoot $script:recoveryCodeRoot -Backup $backup -Root $root -StateRoot $private -MaintenanceLock $lock
   CheckIdle
   $operatorUpdater=Assert-OpenWebInstalledUpdaterService -Root $root -StateRoot $private -StopForOperatorRollback
   $script:operatorUpdaterWasRunning=$operatorUpdater.WasRunning;$script:operatorUpdaterStopped=[bool]$operatorUpdater.WasRunning
@@ -521,6 +525,7 @@ try {
  & "$payload\Install-MailQueue.ps1" -PackageRoot $payload -DeferStart -MaintenanceLock $lock
  & "$payload\Install-TenantDomains.ps1" -PackageRoot $payload -DeferStart -MaintenanceLock $lock
  & "$payload\Install-PhoneHealth.ps1" -PackageRoot $payload -DeferStart -MaintenanceLock $lock
+ & "$payload\Install-WindowsPhoneCatalogue.ps1" -PackageRoot $payload -Owner upgrade -MaintenanceLock $lock
  Remove-Item "$private\cache\*" -Recurse -Force -ErrorAction SilentlyContinue
  $state.Version = $version
  WriteState "$private\installation.json" $state

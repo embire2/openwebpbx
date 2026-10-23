@@ -15,7 +15,7 @@ class pbx_setup{function __construct($d){}function canManage(){return true;}}
 class pbx_tenants{function __construct($d){}function canDomain($d){return true;}}
 class pbx_admin{function __construct(private PDO $db,$s=null){}function config(){return json_decode($this->db->query("select config from v_pbx_restore where domain_uuid='".$_SESSION['domain_uuid']."'")->fetchColumn(),true);}}
 class database{static function new(){return(object)['db'=>$GLOBALS['fixture_db']];}}
-foreach(['pbx_tenant_domains','pbx_mobile_password','pbx_updates','pbx_windows_phone_updates','pbx_mobile','token']as$name)require PROJECT_ROOT.'/resources/classes/'.$name.'.php';
+foreach(['pbx_tenant_domains','pbx_mobile_password','pbx_updates','pbx_windows_phone_catalogue','pbx_windows_phone_updates','pbx_mobile','token']as$name)require PROJECT_ROOT.'/resources/classes/'.$name.'.php';
 function fixture_connect():PDO{
  $dsn=getenv('OPENWEB_TEST_DSN');if(!is_string($dsn)||!preg_match('~^pgsql:host=/(?:var/)?tmp/openweb-windows-phone-[a-f0-9]+/socket;port=[0-9]+;dbname=windows_phone_fixture$~D',$dsn))throw new RuntimeException('An independently owned socket-only PostgreSQL fixture is required.');
  $db=new PDO($dsn,'postgres',null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);

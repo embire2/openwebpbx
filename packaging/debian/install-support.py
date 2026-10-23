@@ -23,6 +23,10 @@ SUPPORT = {'tenant-domains.py': Path('/opt/openwebpbx/tools/tenant-domains.py'),
            'install-phone-health.py': Path('/opt/openwebpbx/tools/install-phone-health.py'),
            'phone-health.py': Path('/opt/openwebpbx/tools/phone-health.py'),
            'phone-health.php': Path('/opt/openwebpbx/tools/phone-health.php'),
+           'install-windows-phone-catalogue.py': Path('/opt/openwebpbx/tools/install-windows-phone-catalogue.py'),
+           'windows-phone-catalogue.php': Path('/opt/openwebpbx/tools/windows-phone-catalogue.php'),
+           'openwebpbx-windows-phone-catalogue.service': Path('/etc/systemd/system/openwebpbx-windows-phone-catalogue.service'),
+           'openwebpbx-windows-phone-catalogue.timer': Path('/etc/systemd/system/openwebpbx-windows-phone-catalogue.timer'),
            'openwebpbx-phone-health.service': Path('/etc/systemd/system/openwebpbx-phone-health.service'),
            'openwebpbx-phone-health.timer': Path('/etc/systemd/system/openwebpbx-phone-health.timer'),
            'install-stun.py': Path('/opt/openwebpbx/tools/install-stun.py'),
@@ -159,6 +163,12 @@ def ensure_dependencies():
                        env=os.environ | {'DEBIAN_FRONTEND': 'noninteractive'}, check=True, timeout=900)
 
 
+def run_catalogue_helper(catalogue_fd, legacy_catalogue):
+    if not legacy_catalogue:
+        options = {'pass_fds':(catalogue_fd,)} if catalogue_fd is not None else {}
+        subprocess.run(['python3',str(PACKAGE/'install-windows-phone-catalogue.py')],check=True,cwd=PACKAGE,timeout=120,**options)
+
+
 def install():
     if os.geteuid() != 0:
         raise PermissionError('The instance installer must run as root.')
@@ -166,6 +176,10 @@ def install():
     for name in SUPPORT:
         if digest(PACKAGE / name) != manifest['files'].get(name):
             raise ValueError('The backup helper differs from the reviewed release.')
+    catalogue_spec=importlib.util.spec_from_file_location('candidate_catalogue',PACKAGE/'install-windows-phone-catalogue.py')
+    catalogue=importlib.util.module_from_spec(catalogue_spec);catalogue_spec.loader.exec_module(catalogue)
+    catalogue_fd=catalogue.inherited_fd()
+    legacy_catalogue=False
     spec = importlib.util.spec_from_file_location('restore_sofia', PACKAGE / 'restore-sofia.py')
     registrar = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(registrar)
@@ -198,6 +212,12 @@ def install():
             health=importlib.util.module_from_spec(health_spec);health_spec.loader.exec_module(health)
             targets = list(SUPPORT.values()) + NOTIFICATION_FILES + [registrar.TARGET] + meeting.targets() + mail.targets() + domain_helper.targets()
             targets.extend(path for path in health.targets() if path not in targets)
+            if catalogue_fd is None:
+                # Old updaters cannot lend their descriptor. Only an absent
+                # first catalogue may defer inert inputs to the new finalizer.
+                catalogue.assert_first_absence()
+                legacy_catalogue=True
+            targets.extend(path for path in catalogue.targets()+catalogue.pending_targets() if path not in targets)
             # Existing systemd enablement is preserved. A newly created link is
             # included as an absent target so older rollback code removes it.
             for link in TIMER_LINKS:
@@ -207,6 +227,8 @@ def install():
             upgrade.validate_backup(backup)
     if native_content is not None and not migrating:
         raise ValueError('An existing registrar must be updated through the recoverable instance updater.')
+    if migrating:
+        catalogue.stage_pending()
     registrar.install(native_content)
     ensure_dependencies()
     for name in ['install-phone-health.py','phone-health.py','phone-health.php','install-mail.py','call-diagnostics.py','openwebpbx-call-diagnostics.service','install-stun.py','openwebpbx-stun.service','openwebpbx-stun.conf','install-meet.py','meet-nginx.conf','install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py']:
@@ -235,6 +257,7 @@ def install():
     subprocess.run(['python3',str(PACKAGE/'install-mail.py')],check=True,cwd=PACKAGE,timeout=60)
     subprocess.run(['python3',str(PACKAGE/'install-tenant-domains.py')],check=True,cwd=PACKAGE,timeout=60)
     subprocess.run(['python3',str(PACKAGE/'install-phone-health.py')],check=True,cwd=PACKAGE,timeout=60)
+    run_catalogue_helper(catalogue_fd, legacy_catalogue)
     # Older installed updaters do not know the newly bundled spoken targets.
     # The candidate helper augments their verified recovery inventory before
     # changing any voice, while the engine remains in the same stopped phase.

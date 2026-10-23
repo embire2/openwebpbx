@@ -188,6 +188,10 @@ with tempfile.TemporaryDirectory(prefix='openweb-release-') as temporary:
             if path.is_symlink() or not path.is_file():
                 raise ValueError('A reviewed installer source is missing or linked: '+filename)
             shutil.copy2(path, stage / path.name)
+    shared_catalogue=root/'packaging/updates/windows-phone-catalogue.php'
+    if shared_catalogue.relative_to(root).as_posix() not in files or shared_catalogue.is_symlink() or not shared_catalogue.is_file():
+        raise ValueError('The reviewed WindowsPhone catalogue worker is missing.')
+    shutil.copy2(shared_catalogue,stage/'windows-phone-catalogue.php')
     if args.target == 'windows':
         # One portable instance protocol implementation; provider credentials
         # and the central registry configuration never belong in an installer.

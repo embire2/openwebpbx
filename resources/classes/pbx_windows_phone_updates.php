@@ -17,9 +17,8 @@ class pbx_windows_phone_updates {
         if(!in_array($tenant,array_column($this->tenants(),'tenant_uuid'),true))throw new DomainException('Windows phone settings are outside your tenant permissions.');
     }
     private function policy(string $scope):array{return $this->q('select mode,minimum_version,updated_at from v_pbx_windows_phone_policies where scope_key=:s',['s'=>$scope])->fetch(PDO::FETCH_ASSOC)?:['mode'=>'notify','minimum_version'=>'','updated_at'=>null];}
-    /** Closed until release engineering supplies an accepted signed client release.
-     * Neither administrator input nor a PBX/Android version can activate it. */
-    protected function publishedVersion():string{return '';}
+    /** Only accepted signed metadata can activate a release; an API call never fetches it. */
+    protected function publishedVersion():string{return(new pbx_windows_phone_catalogue)->publishedVersion();}
     private function release():string{
         $value=$this->publishedVersion();if($value!==''&&!self::versionValid($value))throw new RuntimeException('The Windows phone release metadata is unavailable.');return$value;
     }
@@ -27,7 +26,7 @@ class pbx_windows_phone_updates {
         if(!is_string($value)||!preg_match('/^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$/D',$value))return false;
         foreach(explode('.',$value)as$part)if((int)$part>65535)return false;return true;
     }
-    public function instancePolicy():array{$this->access(true);return $this->policy('instance')+['component'=>self::COMPONENT,'feed_url'=>self::FEED_URL,'latest_version'=>$this->release(),'release_available'=>$this->release()!==''];}
+    public function instancePolicy():array{$this->access(true);$latest=$this->release();return $this->policy('instance')+['component'=>self::COMPONENT,'feed_url'=>self::FEED_URL,'latest_version'=>$latest,'release_available'=>$latest!==''];}
     public function tenantPolicy(string $tenant):array{$this->tenant($tenant);return$this->policy('tenant:'.$tenant);}
     public function saveTenant(string $tenant,array $input):void{
         $this->tenant($tenant);$mode=$input['mode']??null;if(!is_string($mode)||!in_array($mode,['notify','download','required'],true))throw new InvalidArgumentException('Choose a Windows phone update option.');

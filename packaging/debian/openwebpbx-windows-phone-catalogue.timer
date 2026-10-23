@@ -1,0 +1,9 @@
+# OpenWeb PBX managed WindowsPhone catalogue v1
+[Unit]
+Description=Refresh signed WindowsPhone metadata every six hours
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=6h
+Persistent=true
+[Install]
+WantedBy=timers.target openwebpbx-updater.service

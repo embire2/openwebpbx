@@ -31,6 +31,7 @@ if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw 'Install the required Micros
 . "$PSScriptRoot\Restore-Gates.ps1"
 . "$PSScriptRoot\Web-Readiness.ps1"
 . "$PSScriptRoot\CallRecords.Common.ps1"
+. "$PSScriptRoot\WindowsPhoneCatalogue.Common.ps1"
 Assert-OpenWebUpgradeAllowed -StateRoot $private
 if(Test-Path "$private\installation.json"){
  $existingInstallation=Get-Content "$private\installation.json" -Raw | ConvertFrom-Json
@@ -309,6 +310,7 @@ Run sc.exe @('failure','OpenWebPBX','reset=','86400','actions=','restart/60000/r
 & "$PSScriptRoot\Install-MailQueue.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
 & "$PSScriptRoot\Install-TenantDomains.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
 & "$PSScriptRoot\Install-PhoneHealth.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
+& "$PSScriptRoot\Install-WindowsPhoneCatalogue.ps1" -PackageRoot $PSScriptRoot -Owner install -MaintenanceLock $installationLock
 Install-OpenWebCallRecordAccess -PackageRoot $PSScriptRoot -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $installationLock
 Start-Service FreeSWITCH
 Start-Service OpenWebPBX
@@ -348,6 +350,7 @@ if ($state -is [System.Collections.IDictionary]) { $state['Completed']=$true }
 else { $state|Add-Member -NotePropertyName Completed -NotePropertyValue $true -Force }
 Write-OpenWebPrivateState -Path "$private\installation.json" -Value $state
 Remove-OpenWebCallRecordHold -StateRoot $private -Hold $state.CallRecordHold -MaintenanceLock $installationLock
+Complete-OpenWebWindowsPhoneCatalogueActivation -Owner install -Root $root -StateRoot $private -MaintenanceLock $installationLock
 Remove-Item "$private\setup-secrets.json" -ErrorAction SilentlyContinue
 Write-Host "OpenWeb PBX $($state.Version) is installed at https://${DomainName}:$HttpsPort"
 Write-Host 'All tenants share this installation''s built-in database. No separate database server is required.'
@@ -360,5 +363,6 @@ Enable-ScheduledTask -TaskName 'OpenWebPBX Outgoing Mail' | Out-Null
 Enable-ScheduledTask -TaskName 'OpenWebPBX-TenantDomains' | Out-Null
 Enable-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' | Out-Null
 Start-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth'
+Start-OpenWebWindowsPhoneCatalogue -Root $root -StateRoot $private
 Start-Service OpenWebPBXUpdater
 if($EnablePublicAccess){& "$PSScriptRoot\Enable-PublicAccess.ps1" -DomainName $DomainName -Email $AdminEmail -PublicAddress $PublicAddress}

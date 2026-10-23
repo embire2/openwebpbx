@@ -31,6 +31,8 @@ BACKUPS = Path('/var/backups/openwebpbx')
 UPDATER = Path('/opt/openwebpbx/updater')
 PUBLIC_KEY = Path(__file__).with_name('release-public.pem')
 TERMINAL = {'completed', 'rolled_back'}
+CATALOGUE_LOCK_FD = None
+CATALOGUE_LEASE_ENV = 'OPENWEBPBX_CATALOGUE_LEASE_FD'
 
 class Deferred(RuntimeError):
     pass
@@ -539,6 +541,42 @@ def reload_web_proxy(run):
         run(['systemctl', 'reload', 'nginx'])
 
 
+
+def catalogue_child_options():
+    if CATALOGUE_LOCK_FD is None:
+        raise RecoveryRequired('Catalogue finalization requires the current maintenance lease.')
+    # Only the exact bootstrap/catalogue children receive this open description.
+    return {'pass_fds':(CATALOGUE_LOCK_FD,), 'env':os.environ | {CATALOGUE_LEASE_ENV:str(CATALOGUE_LOCK_FD)}}
+
+
+def catalogue_pending_helper(version):
+    prefix='windows-phone-catalogue.pending.'
+    names=('install-windows-phone-catalogue.py','windows-phone-catalogue.php',
+           'openwebpbx-windows-phone-catalogue.service','openwebpbx-windows-phone-catalogue.timer',
+           'release-manifest.json','VERSION','receipt.json')
+    paths={name:UPDATES/(prefix+name) for name in names}
+    if not any(path.exists() or path.is_symlink() for path in paths.values()):
+        return None
+    for path in paths.values():
+        for node in (path,*path.parents):
+            status=node.lstat()
+            if node.is_symlink() or status.st_uid != 0 or status.st_mode & 0o022:
+                raise RecoveryRequired('Deferred catalogue inputs are not protected.')
+        status=path.stat()
+        if not path.is_file() or status.st_nlink != 1 or status.st_mode & 0o077 or status.st_size > 4194304:
+            raise RecoveryRequired('Deferred catalogue inputs are not bounded ordinary private files.')
+    receipt=json.loads(paths['receipt.json'].read_text());manifest_bytes=paths['release-manifest.json'].read_bytes();manifest=json.loads(manifest_bytes)
+    if (set(receipt) != {'schema','component','version','manifest_sha256'} or type(receipt['schema']) is not int
+            or receipt['schema'] != 1 or receipt['component'] != 'windows-free-phone' or receipt['version'] != version
+            or receipt['manifest_sha256'] != hashlib.sha256(manifest_bytes).hexdigest() or manifest.get('version') != version
+            or paths['VERSION'].read_text().strip() != version):
+        raise RecoveryRequired('Deferred catalogue inputs do not match the committed version.')
+    for name in names[:4]+('VERSION',):
+        if hashlib.sha256(paths[name].read_bytes()).hexdigest() != manifest['files'].get(name):
+            raise RecoveryRequired('Deferred catalogue source differs from its retained original release manifest.')
+    return paths['install-windows-phone-catalogue.py']
+
+
 def finalize_completed(journal):
     """Finish an older updater's committed transaction on the new worker's start.
 
@@ -580,6 +618,13 @@ def finalize_completed(journal):
         health_helper=TOOLS/'install-phone-health.py'
         if health_helper.is_file():
             run(['python3',str(health_helper),'--activate'],timeout=60)
+        catalogue_helper=catalogue_pending_helper(version)
+        if catalogue_helper is not None:
+            run(['python3',str(catalogue_helper),'--activate','--pending-version',version],timeout=120,**catalogue_child_options())
+        else:
+            catalogue_helper=TOOLS/'install-windows-phone-catalogue.py'
+            if catalogue_helper.is_file():
+                run(['python3',str(catalogue_helper),'--activate'],timeout=120,**catalogue_child_options())
         save_journal(journal, 'completed', finalization='completed')
 
 
@@ -704,7 +749,7 @@ def install_candidate(package,manifest,trust,settings,*,automatic=False):
             fsync_directory(slot);fsync_directory(slot.parent)
             service_dropins()
             save_journal(journal,'migrating')
-            run(['php',str(package/'bootstrap.php'),str(WEB),'migrate'],cwd=WEB)
+            run(['php',str(package/'bootstrap.php'),str(WEB),'migrate'],cwd=WEB,**catalogue_child_options())
             for step in ['--defaults','--group','--menu']:run(['php','core/upgrade/upgrade.php',step],cwd=WEB)
             clear_cache(settings)
             save_journal(journal,'validating')
@@ -742,6 +787,8 @@ def main():
     except BlockingIOError:
         if args.recover and args.boot:return
         raise Deferred('Another OpenWeb PBX update or recovery is running.') from None
+    global CATALOGUE_LOCK_FD
+    CATALOGUE_LOCK_FD=lock.fileno()
     previous=json.loads(JOURNAL.read_text()) if JOURNAL.exists() else None
     if previous and previous.get('state') not in TERMINAL:
         recover(previous,boot=args.boot)
