@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+function ReadPackageRuntimeReceipt([string]$Text,[string]$Mode,[int]$ExitCode){
+ if($Text.Length-gt 16384 -or $Mode-cnotin @('Ambient','Stock') -or $ExitCode-notin @(0,1)){throw 'Runtime receipt scope differs.'}
+ $doc=[Text.Json.JsonDocument]::Parse($Text);try{
+  function UniqueRuntimeJson($Element){
+   if($Element.ValueKind-eq [Text.Json.JsonValueKind]::Object){$names=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);foreach($property in $Element.EnumerateObject()){if(!$names.Add($property.Name)){throw 'Runtime JSON repeats a field.'};UniqueRuntimeJson $property.Value}}
+   elseif($Element.ValueKind-eq [Text.Json.JsonValueKind]::Array){foreach($entry in $Element.EnumerateArray()){UniqueRuntimeJson $entry}}
+  };UniqueRuntimeJson $doc.RootElement
+ }finally{$doc.Dispose()}
+ $v=$Text|ConvertFrom-Json -AsHashtable
+ function Fields($Value,[string[]]$Required,[string[]]$Optional=@()){if($Value-isnot [Collections.IDictionary]){throw 'Runtime object required.'};foreach($name in $Required){if(!$Value.Contains($name)){throw 'Runtime field missing.'}};foreach($name in $Value.Keys){if($name-cnotin ($Required+$Optional)){throw 'Unknown runtime field.'}}}
+ $base=@('schema','producer','mode','stage','getacl_invoked','getacl_succeeded','acl_matches_native_read','explicit_stock_import','command_observed','certificate_mutation','package_mutation')
+ Fields $v $base @('module_paths','provenance','failure','discovery_failure','command_count')
+ if($v.schema-isnot [long] -or $v.schema-ne 1 -or $v.producer-cne 'PackageRuntimeProbe' -or $v.mode-cne $Mode -or $v.stage-cnotin @('observe_environment','explicit_stock_import','get_acl')){throw 'Runtime receipt binding differs.'}
+ foreach($name in @('getacl_invoked','getacl_succeeded','acl_matches_native_read','explicit_stock_import','command_observed','certificate_mutation','package_mutation')){if($v[$name]-isnot [bool]){throw 'Runtime boolean required.'}}
+ if($v.certificate_mutation -or $v.package_mutation -or ($v.getacl_succeeded -and !$v.getacl_invoked) -or ($v.acl_matches_native_read -and !$v.getacl_succeeded) -or ($Mode-ceq 'Ambient' -and $v.explicit_stock_import) -or (($v.getacl_succeeded -and $v.acl_matches_native_read)-ne ($ExitCode-eq 0))){throw 'Runtime observation contradicts its actual child exit.'}
+ if(($Mode-ceq 'Stock' -and $v.getacl_invoked -and !$v.explicit_stock_import) -or ($v.getacl_succeeded -and $v.acl_matches_native_read -and $v.Contains('failure'))){throw 'Runtime success or explicit-import state differs.'}
+ if($v.Contains('module_paths')){Fields $v.module_paths @('count','parent_shell_count','stock_count');foreach($n in @('count','parent_shell_count','stock_count')){if($v.module_paths[$n]-isnot [long] -or $v.module_paths[$n]-lt 0 -or $v.module_paths[$n]-gt 128){throw 'Runtime path count differs.'}};if($v.module_paths.parent_shell_count-gt $v.module_paths.count -or $v.module_paths.stock_count-gt $v.module_paths.count){throw 'Runtime path totals differ.'}}
+ if($v.Contains('provenance')){
+  $names=@('type_is_cmdlet','module_name_matches','module_under_stock','module_under_parent','assembly_under_windows','assembly_under_parent','assembly_name_matches','assembly_token_matches','implementing_type_matches');Fields $v.provenance ($names+@('assembly_version_major'));foreach($n in $names){if($v.provenance[$n]-isnot [bool]){throw 'Runtime provenance boolean required.'}};if($v.provenance.assembly_version_major-isnot [long] -or $v.provenance.assembly_version_major-lt 0 -or $v.provenance.assembly_version_major-gt 100 -or !$v.command_observed){throw 'Runtime assembly version differs.'}
+ };if($v.command_observed-ne $v.Contains('provenance')){throw 'Runtime command observation differs.'}
+ if($v.Contains('command_count') -and ($v.command_count-isnot [long] -or $v.command_count-lt 0 -or $v.command_count-gt 32)){throw 'Runtime command count differs.'}
+ foreach($key in @('failure','discovery_failure')){if(!$v.Contains($key)){continue};$chain=$v[$key];if($chain-isnot [array] -or $chain.Count-lt 1 -or $chain.Count-gt 8){throw 'Runtime error chain differs.'};foreach($e in $chain){Fields $e @('type','hresult') @('category','id');if($e.type-isnot [string] -or $e.type-cnotmatch '^(Exception|[A-Za-z][A-Za-z0-9]{0,90}Exception)$' -or $e.hresult-isnot [long] -or $e.hresult-lt [int]::MinValue -or $e.hresult-gt [int]::MaxValue -or $e.Contains('id')-ne $e.Contains('category')){throw 'Runtime native exception differs.'};if($e.Contains('id') -and ($e.category-cnotin [enum]::GetNames([Management.Automation.ErrorCategory]) -or $e.id-cnotin @('other','PropertyNotFoundStrict','CommandNotFoundException','CouldNotAutoloadMatchingModule','CouldNotAutoloadModule','Modules_ModuleNotFound','Modules_InvalidManifest','GetAcl_AclNotFound','GetAcl_NotSupported','GetAcl_SystemException','GetAcl_ArgumentException','GetAcl_UnauthorizedAccessException','GetAcl_PathNotFound','System.Management.Automation.CmdletInvocationException,Microsoft.PowerShell.Commands.GetAclCommand'))){throw 'Runtime category or fixed error ID differs.'}}}
+ $v
+}
