@@ -30,37 +30,38 @@ public sealed class NativePhone : IDisposable
     public IReadOnlyList<LiveCall> Calls => core.Calls.Select(View).ToArray();
     public LiveCall? Current => selected is null ? null : View(selected);
     public IReadOnlyDictionary<Guid, string> Registrations => registrations;
-    public NativePhone()
+    public NativePhone() : this(null) { }
+    internal NativePhone(Action<string>? progress)
     {
         try
         {
-        LoggingService.Instance.LogLevelMask = 0;
-        Factory.Instance.ConfigDir = nativeFiles.Path; Factory.Instance.DataDir = nativeFiles.Path; Factory.Instance.CacheDir = nativeFiles.Path;
+        progress?.Invoke("logging"); LoggingService.Instance.LogLevelMask = 0;
+        progress?.Invoke("factory"); Factory.Instance.ConfigDir = nativeFiles.Path; Factory.Instance.DataDir = nativeFiles.Path; Factory.Instance.CacheDir = nativeFiles.Path;
         Factory.Instance.MspluginsDir = Path.Combine(AppContext.BaseDirectory, "native", "plugins");
         Factory.Instance.TopResourcesDir = Path.Combine(AppContext.BaseDirectory, "native", "share");
         // No path is supplied to Config: native account/auth/history state stays in memory.
-        var config = Factory.Instance.CreateConfigFromString("[sip]\nsave_auth_info=0\nstore_auth_info=0\n[storage]\nbackend=\nuri=\n[logging]\ndisable_stdout=1\n");
+        progress?.Invoke("configuration"); var config = Factory.Instance.CreateConfigFromString("[sip]\nsave_auth_info=0\nstore_auth_info=0\n[storage]\nbackend=\nuri=\n[logging]\ndisable_stdout=1\n");
         Factory.Instance.EnableLogCollection(LogCollectionState.Disabled);
-        core = Factory.Instance.CreateCoreWithConfig(config, IntPtr.Zero);
-        core.DatabaseEnabled = false; core.MaxCallLogs = 0;
+        progress?.Invoke("create_core"); core = Factory.Instance.CreateCoreWithConfig(config, IntPtr.Zero);
+        progress?.Invoke("database"); core.DatabaseEnabled = false; core.MaxCallLogs = 0;
         core.Config.SetInt("sip", "save_auth_info", 0); core.Config.SetInt("sip", "store_auth_info", 0);
         core.Config.SetInt("sip", "use_rfc2833", 1); core.Config.SetInt("sip", "use_info", 0);
         core.Config.SetInt("rtp", "symmetric", 1);
         core.AutoIterateEnabled = false; core.MaxCalls = 2;
-        core.MediaEncryption = MediaEncryption.SRTP; core.MediaEncryptionMandatory = true;
+        progress?.Invoke("encryption"); core.MediaEncryption = MediaEncryption.SRTP; core.MediaEncryptionMandatory = true;
         core.SrtpCryptoSuites = "AES_CM_128_HMAC_SHA1_80";
-        using (var roots = new X509Store(StoreName.Root, StoreLocation.LocalMachine))
+        progress?.Invoke("trusted_roots"); using (var roots = new X509Store(StoreName.Root, StoreLocation.LocalMachine))
         {
             roots.Open(OpenFlags.ReadOnly);
             core.RootCaData = string.Join("\n", roots.Certificates.Cast<X509Certificate2>().Select(c => c.ExportCertificatePem()));
         }
         core.VerifyServerCertificates(true); core.VerifyServerCn(true);
-        foreach (var codec in core.VideoPayloadTypes) codec.Enable(codec.MimeType.Equals("VP8", StringComparison.OrdinalIgnoreCase));
+        progress?.Invoke("devices"); foreach (var codec in core.VideoPayloadTypes) codec.Enable(codec.MimeType.Equals("VP8", StringComparison.OrdinalIgnoreCase));
         core.PreferredVideoDefinitionByName = "vga"; core.PreferredFramerate = 15f;
         core.EchoCancellationEnabled = true; core.VideoCaptureEnabled = false; core.VideoDisplayEnabled = true;
         var video = Factory.Instance.CreateVideoActivationPolicy(); video.AutomaticallyAccept = false; video.AutomaticallyInitiate = false; core.VideoActivationPolicy = video;
         var transport = Factory.Instance.CreateTransports(); transport.UdpPort = 0; transport.TcpPort = 0; transport.TlsPort = -1; core.Transports = transport;
-        core.Listener.OnAccountRegistrationStateChanged = (_, account, state, _) =>
+        progress?.Invoke("listeners"); core.Listener.OnAccountRegistrationStateChanged = (_, account, state, _) =>
         {
             var match = accounts.Values.FirstOrDefault(x => x.Account == account);
             if (match.Profile is not null) registrations[match.Profile.Id] = state switch { RegistrationState.Ok => "Ready for calls", RegistrationState.Progress => "Connecting…", RegistrationState.Failed => "Could not connect. Check your connection or sign in again.", _ => "Offline" };
@@ -68,8 +69,8 @@ public sealed class NativePhone : IDisposable
         };
         core.Listener.OnCallStateChanged = (sender, call, state, message) => { try { CallChanged(sender, call, state, message); } catch { Message = "The call could not be updated. Choose your call to continue."; } };
         core.Listener.OnTransferStateChanged = (_, _, state) => { if (state == CallState.Error) Message = "Transfer failed. Choose your original call to continue."; Changed?.Invoke(); };
-        core.Start();
-        if (!core.IsVerifyServerCn || !core.IsVerifyServerCertificates || !core.IsMediaEncryptionMandatory || core.Config.GetInt("sip", "save_auth_info", 1) != 0) throw new InvalidOperationException("Secure native calling policy was not applied.");
+        progress?.Invoke("start"); core.Start();
+        progress?.Invoke("verify_policy"); if (!core.IsVerifyServerCn || !core.IsVerifyServerCertificates || !core.IsMediaEncryptionMandatory || core.Config.GetInt("sip", "save_auth_info", 1) != 0) throw new InvalidOperationException("Secure native calling policy was not applied.");
         }
         catch { try { core?.Stop(); } catch { } try { nativeFiles.Dispose(); } catch { } throw; }
     }
@@ -163,6 +164,7 @@ public sealed class NativePhone : IDisposable
     public void BeginQrScan(IntPtr preview, Action<string> found)
     {
         CheckThread(); ConnectionRules.RequireIdle(core.CallsNb);
+        if (Cameras.Count == 0) throw new PhoneInputException("No available webcam was found. Open your welcome email setup file instead.");
         if (!Factory.Instance.IsQrcodeAvailable) throw new PhoneInputException("QR scanning is unavailable. Open your welcome email setup file instead.");
         core.Listener.OnQrcodeFound = (_, result) => { if (result.Length <= 16384) found(result); };
         core.NativePreviewWindowId = preview; core.QrcodeVideoPreviewEnabled = true; core.VideoCaptureEnabled = true; core.VideoPreviewEnabled = true;

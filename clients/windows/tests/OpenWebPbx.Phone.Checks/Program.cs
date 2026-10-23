@@ -90,6 +90,21 @@ using (var key = RSA.Create(3072))
     Check(!WindowsPhonePolicy.Parse(policy).Requires(new Version(1,0,0))); policy["latest_version"] = "1.0.1"; Refuse(() => WindowsPhonePolicy.Parse(policy)); policy["release_available"] = true; Check(WindowsPhonePolicy.Parse(policy).Requires(new Version(1,0,0))); Check(!WindowsPhonePolicy.Parse(policy).Requires(new Version(1,0,1)));
     policy["minimum_version"] = "1.0.2"; Refuse(() => WindowsPhonePolicy.Parse(policy));
 }
+using (var input = new MemoryStream(setup)) Check((await SetupInvitation.ReadAsync(input)).Extension == "1000");
+var openedFile = Path.Combine(Path.GetTempPath(), "phone-invitation-" + Guid.NewGuid().ToString("N") + ".openwebpbx");
+try
+{
+    await File.WriteAllBytesAsync(openedFile, setup); await using (var input = File.OpenRead(openedFile)) Check((await SetupInvitation.ReadAsync(input)).Code == invitation.Code);
+    await File.WriteAllBytesAsync(openedFile, new byte[ConnectionRules.MaximumSetupBytes + 1]);
+    try { await using var input = File.OpenRead(openedFile); await SetupInvitation.ReadAsync(input); throw new Exception("Oversized opened file accepted."); } catch (PhoneInputException) { Check(true); }
+    await File.WriteAllBytesAsync(openedFile, setup);
+    await using var underlying = new FileStream(openedFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, FileOptions.Asynchronous);
+    using var growing = new GrowingFile(underlying, () => File.AppendAllText(openedFile, new string(' ', 20000)));
+    try { await SetupInvitation.ReadAsync(growing); throw new Exception("Growing opened file accepted."); } catch (PhoneInputException) { Check(growing.BytesRead == ConnectionRules.MaximumSetupBytes + 1); }
+}
+finally { File.Delete(openedFile); }
+using (var stalled = new StalledBody()) using (var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(80)))
+    try { await SetupInvitation.ReadAsync(stalled, cancel.Token); throw new Exception("Stalled invitation read accepted."); } catch (OperationCanceledException) { Check(true); }
 Console.WriteLine($"PASS {checks} client domain/API controls; HTTP handlers are explicit doubles; no Windows/native-call qualification");
 sealed class Handler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
 {
@@ -115,4 +130,13 @@ sealed class StalledBody : Stream
     public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     protected override void Dispose(bool disposing) { Closed = true; base.Dispose(disposing); }
     public override void Flush() => throw new NotSupportedException(); public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException(); public override void SetLength(long value) => throw new NotSupportedException(); public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+}
+
+sealed class GrowingFile(Stream source, Action grow) : Stream
+{
+    public int BytesRead { get; private set; } private bool grown;
+    public override bool CanRead => true; public override bool CanSeek => false; public override bool CanWrite => false;
+    public override long Length => throw new NotSupportedException(); public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+    public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) { var count = await source.ReadAsync(buffer, cancellationToken); BytesRead += count; if (!grown) { grown = true; grow(); } return count; }
+    public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException(); public override void Flush() => throw new NotSupportedException(); public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException(); public override void SetLength(long value) => throw new NotSupportedException(); public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 }

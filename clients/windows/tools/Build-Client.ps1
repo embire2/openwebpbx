@@ -4,7 +4,7 @@ $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:RUNNER_OS -cne 'Windows' -or $env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx'){throw 'Build only on the disposable hosted Windows runner.'}
 $client=Split-Path $PSScriptRoot -Parent;$evidence=Join-Path $Output 'evidence';New-Item -ItemType Directory -Path $evidence -Force|Out-Null
 $report=[ordered]@{schema=1;component='windows-free-phone';version='1.0.0';source_commit=(git rev-parse HEAD);state='running';actual_calling_tested=$false;physical_audio_video_tested=$false;store_accepted=$false}
-$process=$null;$receipt=$null;$launchStarted=$null;Push-Location $client
+$process=$null;$receipt=$null;$launchStarted=$null;$nativeReceipt=$null;Push-Location $client
 try{
  if((dotnet --version).Trim() -cne '10.0.401'){throw 'The exact .NET SDK is required.'}
  $archive=Join-Path $env:RUNNER_TEMP 'windows-phone-linphone-5.5.23.zip'
@@ -30,7 +30,7 @@ try{
  & dotnet publish (Join-Path $client 'tests\OpenWebPbx.Phone.NativeChecks') -c Release -r win-x64 --self-contained true "-p:LinphoneBinding=$binding" -o $checks *> (Join-Path $evidence 'native-check-build.log');if($LASTEXITCODE){throw 'Native checks do not build.'}
  foreach($dll in $dlls){Copy-Item $dll.FullName (Join-Path $checks $dll.Name) -Force};Copy-Item (Join-Path $app 'native') (Join-Path $checks 'native') -Recurse
  $nativeReceipt=Join-Path $env:RUNNER_TEMP ('phone-native-result-'+[Guid]::NewGuid().ToString('N')+'.json')
- & (Join-Path $checks 'OpenWebPbx.Phone.NativeChecks.exe') $nativeReceipt *> (Join-Path $evidence 'native-checks.log');if($LASTEXITCODE){throw 'Native protected storage or core checks failed.'}
+ & (Join-Path $checks 'OpenWebPbx.Phone.NativeChecks.exe') $nativeReceipt *> (Join-Path $evidence 'native-checks.log');$report.native_child_exit_code=[int]$LASTEXITCODE;if($LASTEXITCODE){throw 'Native protected storage or core checks failed.'}
  $nativeResult=Get-Content -LiteralPath $nativeReceipt -Raw|ConvertFrom-Json
  if($nativeResult.schema -ne 1 -or $nativeResult.producer -cne 'OpenWebPbx.Phone.NativeChecks' -or $nativeResult.state -cne 'passed' -or $nativeResult.checks -lt 17 -or $nativeResult.checks -gt 64){throw 'Native component proof differs.'}
  foreach($flag in @('actual_native_windows','actual_current_user_dpapi','actual_native_core')){if($nativeResult.$flag -isnot [bool] -or !$nativeResult.$flag){throw 'Native component proof is incomplete.'}}
@@ -50,6 +50,7 @@ try{
  $report.state='passed_build_startup';$report.limitation='Native client build and visible startup only; calling, hardware, packaging and Store acceptance remain separate gates.'
 }catch{$report.state='failed';$report.error_type=$_.Exception.GetType().Name;$report.source_line=$_.InvocationInfo.ScriptLineNumber;throw}
 finally{
+ if($nativeReceipt -and (Test-Path $nativeReceipt)){Copy-Item -LiteralPath $nativeReceipt -Destination (Join-Path $evidence 'native-checks.json') -Force}
  if($process -and $process.HasExited){$report.process_exit_code=[int]$process.ExitCode}
  if($launchStarted){
   try{

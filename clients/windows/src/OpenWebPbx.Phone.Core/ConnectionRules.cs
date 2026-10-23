@@ -65,6 +65,18 @@ public sealed class PhoneInputException(string message) : Exception(message);
 public sealed record SetupInvitation(Uri Server, string Code, string? Extension)
 {
     public override string ToString() => "OpenWebPBX connection invitation for " + Server.Host;
+    /// <summary>Read the opened file itself with a hard cap; its earlier metadata may be stale.</summary>
+    public static async Task<SetupInvitation> ReadAsync(Stream input, CancellationToken cancellation = default)
+    {
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellation); bounded.CancelAfter(TimeSpan.FromSeconds(12));
+        var bytes = new byte[ConnectionRules.MaximumSetupBytes + 1]; var total = 0;
+        while (total < bytes.Length)
+        {
+            var count = await input.ReadAsync(bytes.AsMemory(total), bounded.Token); if (count == 0) break; total += count;
+        }
+        if (total > ConnectionRules.MaximumSetupBytes) throw new PhoneInputException("Choose a current OpenWebPBX setup file smaller than 16 KB.");
+        return Parse(bytes.AsSpan(0, total));
+    }
     public static SetupInvitation Parse(ReadOnlySpan<byte> data)
     {
         if (data.Length is 0 or > ConnectionRules.MaximumSetupBytes)

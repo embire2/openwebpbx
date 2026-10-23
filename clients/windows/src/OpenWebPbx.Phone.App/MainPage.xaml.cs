@@ -25,7 +25,7 @@ public sealed partial class MainPage : Page
     private PhoneProfile? current;
     private IReadOnlyList<PhoneProfile> saved = [];
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(20) };
-    private readonly MediaPlayer player = new();
+    private MediaPlayer? player;
     private readonly IncomingNotifications notifications = new();
     private readonly HashSet<Guid> notified = [];
     private string section = "Keypad";
@@ -65,13 +65,13 @@ public sealed partial class MainPage : Page
     private async void ChooseAccount(object sender, SelectionChangedEventArgs args)
     {
         if (loading || AccountChoice.SelectedItem is not PhoneProfile profile || profiles is null) return;
-        await Execute(async () => { await profiles.SelectAsync(profile.Id); await Reload(); await Draw(); });
+        await Execute(async () => { StopPlayback(); await profiles.SelectAsync(profile.Id); await Reload(); await Draw(); });
     }
     private async void Navigate(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         if (!initialized) return;
         section = args.IsSettingsSelected ? "Settings" : (args.SelectedItem as NavigationViewItem)?.Tag?.ToString() ?? "Keypad";
-        player.Pause(); player.Source = null; await Execute(Draw);
+        StopPlayback(); await Execute(Draw);
     }
     private void Show(string message, bool error = true) { Notice.Message = message; Notice.Severity = error ? InfoBarSeverity.Warning : InfoBarSeverity.Success; Notice.IsOpen = true; }
     private async Task Execute(Func<Task> action)
@@ -137,8 +137,8 @@ public sealed partial class MainPage : Page
             else { line.Children.Add(Button("Choose call", () => phone.Select(call.Id))); line.Children.Add(Button("End call", () => phone.Hangup(call.Id))); }
             LiveCalls.Children.Add(line);
         }
-        if (!phone.Busy) { LiveCalls.Visibility = Visibility.Collapsed; player.Pause(); return; }
-        player.Pause(); LiveCalls.Visibility = Visibility.Visible;
+        if (!phone.Busy) { LiveCalls.Visibility = Visibility.Collapsed; player?.Pause(); return; }
+        StopPlayback(); LiveCalls.Visibility = Visibility.Visible;
         var controls = Row(); controls.Children.Add(Button(phone.Current?.State == CallState.Paused ? "Resume Call" : "Call Hold", phone.HoldResume, true)); controls.Children.Add(Button(phone.Current?.Muted == true ? "Unmute" : "Mute", phone.Mute)); controls.Children.Add(AsyncButton("Transfer", Transfer)); controls.Children.Add(Button("Merge calls", phone.Merge)); controls.Children.Add(Button("Video", () => { phone.SetVideo(true); OpenVideo(); })); controls.Children.Add(Button("Stop camera", phone.StopCamera)); LiveCalls.Children.Add(controls);
         if (phone.Current?.State == CallState.UpdatedByRemote) { var offer = Row(); offer.Children.Add(Button("Accept video", () => { phone.AcceptVideoOffer(true); OpenVideo(); })); offer.Children.Add(Button("Audio only", () => phone.AcceptVideoOffer(false))); LiveCalls.Children.Add(offer); }
         if (phone.Conferencing) foreach (var call in phone.Calls) LiveCalls.Children.Add(Button("Mute / unmute " + call.Name, () => phone.MuteParticipant(call.Id)));
@@ -175,7 +175,7 @@ public sealed partial class MainPage : Page
     private async Task ImportFile()
     {
         var picker = new FileOpenPicker(); WinRT.Interop.InitializeWithWindow.Initialize(picker, App.WindowHandle); picker.FileTypeFilter.Add(".openwebpbx"); picker.FileTypeFilter.Add(".json");
-        var file = await picker.PickSingleFileAsync(); if (file is null) return; var properties = await file.GetBasicPropertiesAsync(); if (properties.Size > ConnectionRules.MaximumSetupBytes) throw new PhoneInputException("Choose a current OpenWebPBX setup file."); var bytes = await global::Windows.Storage.FileIO.ReadBufferAsync(file); var data = new byte[bytes.Length]; using (var reader = DataReader.FromBuffer(bytes)) reader.ReadBytes(data); await ImportInvitation(SetupInvitation.Parse(data));
+        var file = await picker.PickSingleFileAsync(); if (file is null) return; await using var input = await file.OpenStreamForReadAsync(); await ImportInvitation(await SetupInvitation.ReadAsync(input));
     }
     private async Task DrawContacts()
     {
@@ -194,17 +194,22 @@ public sealed partial class MainPage : Page
     {
         await FlushHistory(current!); using var api = Api(); var result = await api.JsonAsync("calls"); foreach (var item in (result["calls"]?.AsArray() ?? []).OfType<JsonObject>()) { var number = item["number"]!.ToString(); Body.Children.Add(Button($"{item["name"]} · {number} · {item["direction"]} · {item["started_at"]} · {item["duration"]}s", () => phone!.Dial(number))); }
     }
+    private void StopPlayback()
+    {
+        var old = player; player = null; if (old is null) return;
+        try { old.Pause(); old.Source = null; } finally { old.Dispose(); }
+    }
     private async Task DrawVoicemail()
     {
         using var api = Api(); var result = await api.JsonAsync("voicemail");
         foreach (var item in (result["messages"]?.AsArray() ?? []).OfType<JsonObject>())
         {
             var id = item["id"]!.ToString(); Body.Children.Add(Text($"{(item["read"]?.GetValue<bool>() == true ? "" : "New · ")}{item["caller_name"]} · {item["caller_number"]} · {item["created_at"]}")); var row = Row();
-            row.Children.Add(AsyncButton("Play", async () => { ConnectionRules.RequireIdle(phone!.Calls.Count); using var request = Api(); var bytes = await request.VoicemailAsync(id); ConnectionRules.RequireIdle(phone!.Calls.Count); var stream = new InMemoryRandomAccessStream(); using (var writer = new DataWriter(stream.GetOutputStreamAt(0))) { writer.WriteBytes(bytes); await writer.StoreAsync(); } stream.Seek(0); player.Source = MediaSource.CreateFromStream(stream, "audio/wav"); player.Play(); await request.JsonAsync("voicemail_read", new() { ["id"] = id }); }));
+            row.Children.Add(AsyncButton("Play", async () => { ConnectionRules.RequireIdle(phone!.Calls.Count); using var request = Api(); var bytes = await request.VoicemailAsync(id); ConnectionRules.RequireIdle(phone!.Calls.Count); var stream = new InMemoryRandomAccessStream(); using (var writer = new DataWriter(stream.GetOutputStreamAt(0))) { writer.WriteBytes(bytes); await writer.StoreAsync(); } stream.Seek(0); StopPlayback(); try { player = new MediaPlayer(); player.Source = MediaSource.CreateFromStream(stream, "audio/wav"); player.Play(); } catch { StopPlayback(); stream.Dispose(); throw new PhoneInputException("Voicemail playback is unavailable on this Windows installation. Ask your administrator to enable Media Foundation, or dial 121 to listen through your phone."); } await request.JsonAsync("voicemail_read", new() { ["id"] = id }); }));
             row.Children.Add(AsyncButton("Mark read", async () => { using var request = Api(); await request.JsonAsync("voicemail_read", new() { ["id"] = id }); await Draw(); }));
-            row.Children.Add(AsyncButton("Delete", async () => { var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Delete voicemail?", Content = "This removes the message from your mailbox.", PrimaryButtonText = "Delete", CloseButtonText = "Cancel" }; if (await dialog.ShowAsync() != ContentDialogResult.Primary) return; player.Pause(); player.Source = null; using var request = Api(); await request.JsonAsync("voicemail_delete", new() { ["id"] = id }); await Draw(); })); Body.Children.Add(row);
+            row.Children.Add(AsyncButton("Delete", async () => { var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Delete voicemail?", Content = "This removes the message from your mailbox.", PrimaryButtonText = "Delete", CloseButtonText = "Cancel" }; if (await dialog.ShowAsync() != ContentDialogResult.Primary) return; StopPlayback(); using var request = Api(); await request.JsonAsync("voicemail_delete", new() { ["id"] = id }); await Draw(); })); Body.Children.Add(row);
         }
-        Body.Children.Add(Button("Stop playback", () => { player.Pause(); player.Source = null; }));
+        Body.Children.Add(Button("Stop playback", () => { StopPlayback(); }));
     }
     private async Task DrawAvailability()
     {
@@ -281,5 +286,5 @@ public sealed partial class MainPage : Page
     public async Task WaitAndImport(SetupInvitation invitation) { await EnsureInitialized(); await Execute(() => ImportInvitation(invitation)); }
     public bool CanExit => phone?.Busy != true;
     public void StopCamera() => phone?.StopCamera();
-    public void Shutdown() { global::Windows.Networking.Connectivity.NetworkInformation.NetworkStatusChanged -= NetworkStatusChanged; timer.Stop(); notifications.Dispose(); player.Dispose(); phone?.Dispose(); }
+    public void Shutdown() { global::Windows.Networking.Connectivity.NetworkInformation.NetworkStatusChanged -= NetworkStatusChanged; timer.Stop(); notifications.Dispose(); StopPlayback(); phone?.Dispose(); }
 }

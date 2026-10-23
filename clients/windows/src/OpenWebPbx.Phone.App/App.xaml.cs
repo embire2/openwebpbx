@@ -28,7 +28,7 @@ public partial class App : Application
             {
                 var argument = Environment.GetCommandLineArgs()[1];
                 if (Uri.TryCreate(argument, UriKind.Absolute, out var uri) && uri.Scheme == "openwebpbx") await PhoneWindow.Import(SetupInvitation.FromUri(uri));
-                else if (Path.IsPathFullyQualified(argument) && argument.EndsWith(".openwebpbx", StringComparison.OrdinalIgnoreCase)) await PhoneWindow.Import(SetupInvitation.Parse(await File.ReadAllBytesAsync(argument)));
+                else if (Path.IsPathFullyQualified(argument) && argument.EndsWith(".openwebpbx", StringComparison.OrdinalIgnoreCase)) { await using var input = new FileStream(argument, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, FileOptions.Asynchronous | FileOptions.SequentialScan); await PhoneWindow.Import(await SetupInvitation.ReadAsync(input)); }
             }
         }
         catch (PhoneInputException e) { PhoneWindow.ShowMessage(e.Message); }
@@ -36,7 +36,6 @@ public partial class App : Application
     }
     private static async Task<SetupInvitation> InvitationFile(global::Windows.Storage.StorageFile file)
     {
-        var properties = await file.GetBasicPropertiesAsync(); if (properties.Size > ConnectionRules.MaximumSetupBytes) throw new PhoneInputException("Choose a current OpenWebPBX setup file.");
-        var data = await global::Windows.Storage.FileIO.ReadBufferAsync(file); var bytes = new byte[data.Length]; using (var reader = global::Windows.Storage.Streams.DataReader.FromBuffer(data)) reader.ReadBytes(bytes); return SetupInvitation.Parse(bytes);
+        await using var input = await file.OpenStreamForReadAsync(); return await SetupInvitation.ReadAsync(input);
     }
 }
