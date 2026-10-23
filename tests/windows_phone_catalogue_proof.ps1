@@ -1,3 +1,12 @@
+function Read-WindowsPhoneCatalogueCommitBinding($Value){
+ $fields=@('schema','bytes','sha256','stdout_bytes','stderr_bytes','php_action','php_child_exit')
+ $keys=if($Value -is [pscustomobject]){@($Value.PSObject.Properties.Name)}elseif($Value -is [Collections.IDictionary]){@($Value.Keys)}else{@()}
+ if($keys.Count-ne $fields.Count -or @($keys|Where-Object {$_ -cnotin $fields}).Count){throw 'The original commit binding shape differs.'}
+ foreach($n in 'schema','bytes','stdout_bytes','stderr_bytes','php_child_exit'){if($Value.$n -isnot [int] -and $Value.$n -isnot [long]){throw 'The original commit binding integer differs.'}}
+ if($Value.schema-ne 1 -or $Value.stdout_bytes-lt 0 -or $Value.stdout_bytes-gt 65536 -or $Value.stderr_bytes-lt 0 -or $Value.stderr_bytes-gt 65536 -or $Value.bytes-ne (8+$Value.stdout_bytes+$Value.stderr_bytes) -or $Value.bytes-gt 131080 -or $Value.sha256 -isnot [string] -or $Value.sha256-cnotmatch '^[a-f0-9]{64}$' -or $Value.php_child_exit-lt [int]::MinValue -or $Value.php_child_exit-gt [int]::MaxValue){throw 'The original commit size/hash/exit binding differs.'}
+ if($Value.php_action -isnot [string] -or $Value.php_action-cnotin '--seed','--hold','--refresh','--assert-exclusive','--prepared-stage-check','--read','--before-rename','--after-rename','commit_without_parent','before_enable','after_enable','after_complete','unrecognised'){throw 'The original commit child action differs.'}
+ $result=[ordered]@{};foreach($field in $fields){$result[$field]=$Value.$field};return $result
+}
 function Read-WindowsPhoneCatalogueOriginalBinding($Value){
  $fields=@('schema','bytes','sha256','stdout_characters','stderr_characters')
  $keys=if($Value -is [pscustomobject]){@($Value.PSObject.Properties.Name)}elseif($Value -is [Collections.IDictionary]){@($Value.Keys)}else{@()}
@@ -69,7 +78,7 @@ function Read-WindowsPhoneCatalogueChildOutput {
 }
 function Read-WindowsPhoneCatalogueNativeFailure {
  param($Value,[ValidateSet('Desktop','Core')][string]$Edition)
- $fields=@('schema','producer','state','phase','source_basename','source_line','error_type','edition','php_child_exit','php_failure','php_output','php_original','child_processes_closed','owned_task_removed','original_vectors_preserved','owned_scope_retained','cleanup_required','actual_native_qualified')
+ $fields=@('schema','producer','state','phase','source_basename','source_line','error_type','edition','php_child_exit','php_failure','php_output','php_original','commit_original','child_processes_closed','owned_task_removed','original_vectors_preserved','owned_scope_retained','cleanup_required','actual_native_qualified')
  if($null -eq $Value -or $Value.GetType().FullName -cne 'System.Management.Automation.PSCustomObject' -or @($Value.PSObject.Properties).Count -ne $fields.Count){throw 'The native catalogue diagnostic shape differs.'}
  foreach($name in $Value.PSObject.Properties.Name){if($name -cnotin $fields){throw 'An unknown native catalogue diagnostic field was refused.'}}
  if(($Value.schema -isnot [int] -and $Value.schema -isnot [long]) -or $Value.schema -ne 1 -or $Value.producer -isnot [string] -or $Value.producer -cne 'windows_phone_catalogue_native.ps1' -or $Value.state -isnot [string] -or $Value.state -cne 'failed' -or $Value.edition -isnot [string] -or $Value.edition -cne $Edition){throw 'The native catalogue diagnostic identity differs.'}
@@ -79,7 +88,8 @@ function Read-WindowsPhoneCatalogueNativeFailure {
  $php=$null;if($null -ne $Value.php_failure){if($null -eq $Value.php_child_exit -or $Value.php_child_exit -eq 0){throw 'The PHP diagnostic requires its original failed child exit.'};$php=Read-WindowsPhoneCataloguePhpFailure $Value.php_failure}
  $output=$null;if($null -ne $Value.php_output){if($null -eq $Value.php_child_exit){throw 'The output observation requires its original child exit.'};$output=Read-WindowsPhoneCatalogueChildOutput $Value.php_output}
  $original=$null;if($null -ne $Value.php_original){if($null -eq $output){throw 'The retained original requires its child output projection.'};$original=Read-WindowsPhoneCatalogueOriginalBinding $Value.php_original;if($original.stdout_characters -ne $output.stdout_characters -or $original.stderr_characters -ne $output.stderr_characters){throw 'The original and projected output sizes differ.'}}
+ $commit=$null;if($null-ne $Value.commit_original){$commit=Read-WindowsPhoneCatalogueCommitBinding $Value.commit_original;if($null-eq $Value.php_child_exit -or $commit.php_child_exit-ne $Value.php_child_exit -or $null-ne $original){throw 'The commit stream requires its exclusive original PHP failure binding.'}}
  foreach($flag in 'child_processes_closed','owned_task_removed','original_vectors_preserved','owned_scope_retained','cleanup_required','actual_native_qualified'){if($Value.$flag -isnot [bool]){throw 'A native diagnostic flag is mistyped.'}}
  if($Value.actual_native_qualified -or ($Value.owned_scope_retained -and !$Value.cleanup_required -and (!$Value.child_processes_closed -or !$Value.owned_task_removed -or !$Value.original_vectors_preserved))){throw 'A native failure cannot claim unverified cleanup or qualification.'}
- $safe=[ordered]@{};foreach($name in $fields){$safe[$name]=$Value.$name};$safe.php_failure=$php;$safe.php_output=$output;$safe.php_original=$original;return $safe
+ $safe=[ordered]@{};foreach($name in $fields){$safe[$name]=$Value.$name};$safe.php_failure=$php;$safe.php_output=$output;$safe.php_original=$original;$safe.commit_original=$commit;return $safe
 }

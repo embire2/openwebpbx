@@ -4,6 +4,7 @@ param([Parameter(Mandatory)][string]$SourceBundle,[Parameter(Mandatory)][string]
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'windows_phone_catalogue_proof.ps1')
 . (Join-Path $PSScriptRoot 'windows_phone_catalogue_sealed_output.ps1')
+. (Join-Path $PSScriptRoot 'windows_phone_catalogue_commit_output.ps1')
 # Desktop Process.Start children do not use the parent Core module inventory.
 # Resolve only the actual Windows stock modules; never alter PSModulePath.
 function Assert-CatalogueStockOrdinary([string]$Path){
@@ -130,6 +131,8 @@ if([IO.File]::ReadAllText($fixtureCommon) -cne $common){throw 'The protected fix
 $library=[IO.File]::ReadAllText((Join-Path $SourceBundle 'packaging/updates/windows-phone-catalogue.php'));$literal="'C:/OpenWebPBX/tools/WindowsPhoneCatalogue.ps1'"
 if(([regex]::Matches($library,[regex]::Escape($literal))).Count -ne 1){throw 'The one declared fixture commit-path adapter differs.'}
 $adapted=$library.Replace($literal,"'"+$paths.Runner.Replace('\','/').Replace("'","\\'")+"'")
+$commitFailureAnchor='if(proc_close($process)!==0)throw new RuntimeException(';if(([regex]::Matches($library,[regex]::Escape($commitFailureAnchor))).Count-ne 1){throw 'The exact commit failure expression differs.'};$commitFailureLine=($library.Substring(0,$library.IndexOf($commitFailureAnchor)).Split([char]10)).Count
+$adapted=Convert-WindowsPhoneCatalogueCommitCapture $adapted
 PrivateFile (Join-Path $root 'refresh.fixture.php') $adapted
 $openssl=Join-Path $root 'openssl.cnf';Copy-Item -LiteralPath (Join-Path $helperDirectory 'openssl.cnf') -Destination $openssl;Set-OpenWebRecoveryPrivate $openssl;if((Get-FileHash -LiteralPath $openssl -Algorithm SHA256).Hash.ToLowerInvariant() -cne $sourcePins.files.'packaging/windows/openssl.cnf'.sha256){throw 'The fixture OpenSSL configuration differs from its original source pin.'}
 PrivateFile $paths.Ini ('extension_dir="'+(Join-Path $PhpDirectory 'ext').Replace('\','/')+'"'+"`nextension=openssl`nextension=mbstring`n")
@@ -138,6 +141,7 @@ function SaveConfig {PrivateFile (Join-Path $tools 'fixture.json') ($config|Conv
 SaveConfig
 function StartPhp([string]$Action){
  $start=[Diagnostics.ProcessStartInfo]::new();$start.FileName=$paths.Php;$start.Arguments='-c "'+$paths.Ini+'" "'+$paths.Worker+'" '+$Action;$start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardInput=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+ $capture=New-WindowsPhoneCatalogueCommitCapture $work $children.Count;$start.EnvironmentVariables['OPENWEB_CATALOGUE_COMMIT_STDOUT']=$capture.stdout;$start.EnvironmentVariables['OPENWEB_CATALOGUE_COMMIT_STDERR']=$capture.stderr
  $p=[Diagnostics.Process]::Start($start);$row=[pscustomobject]@{Process=$p;Started=$p.StartTime.ToUniversalTime().Ticks;ErrorTask=$p.StandardError.ReadToEndAsync();Action=$Action;Executable=$paths.Php};$children.Add($row);return $row
 }
 function FinishPhp($Child,[bool]$Success=$true){
@@ -147,6 +151,7 @@ function FinishPhp($Child,[bool]$Success=$true){
  if($Success -and ($p.ExitCode -ne 0 -or $Child.ErrorTask.Result.Length)){
   $failure=[InvalidOperationException]::new('The owned PHP operation refused.');$failure.Data['catalogue_php_child_exit']=[int]$p.ExitCode
   try{$failure.Data['catalogue_php_failure']=Read-WindowsPhoneCataloguePhpFailure ($Child.ErrorTask.Result|ConvertFrom-Json -ErrorAction Stop)}catch{$failure.Data['catalogue_php_observation_refused']=$true}
+  try{$phpFailure=$failure.Data['catalogue_php_failure'];if($phpFailure -and $phpFailure.source_basename-ceq 'refresh.fixture.php' -and $phpFailure.source_line-eq $commitFailureLine -and $phpFailure.error_type-ceq 'RuntimeException'){$failure.Data['catalogue_commit_original']=Write-WindowsPhoneCatalogueCommitOriginal $ReportPath $work $index $Child.Action ([int]$p.ExitCode)}}catch{$failure.Data['catalogue_commit_observation_refused']=$true}
   throw $failure
  }
  try{return [pscustomobject]@{Exit=$p.ExitCode;Text=$out.Result;Record=if($out.Result.Trim()){$out.Result|ConvertFrom-Json -ErrorAction Stop}else{$null}}}
@@ -294,13 +299,14 @@ try{Complete-OpenWebWindowsPhoneCatalogueActivation -Owner install -Root $p.Root
  $failure=$_
  if($reportOwned){try{
   $meta=Get-WindowsPhoneCatalogueFailureMetadata $failure
-  $phpExit=$null;$phpFailure=$null;$phpOutput=$null;$phpOriginal=$null
+  $phpExit=$null;$phpFailure=$null;$phpOutput=$null;$phpOriginal=$null;$commitOriginal=$null
   if($failure.Exception.Data.Contains('catalogue_php_child_exit')){$phpExit=[int]$failure.Exception.Data['catalogue_php_child_exit']}
   if($failure.Exception.Data.Contains('catalogue_php_failure')){$phpFailure=$failure.Exception.Data['catalogue_php_failure']}
   if($failure.Exception.Data.Contains('catalogue_php_output')){$phpOutput=Read-WindowsPhoneCatalogueChildOutput $failure.Exception.Data['catalogue_php_output']}
   if($null -ne $phpOutput -and $failure.Exception.Data.Contains('catalogue_php_original')){$phpOriginal=Read-WindowsPhoneCatalogueOriginalBinding $failure.Exception.Data['catalogue_php_original']}
+  if($failure.Exception.Data.Contains('catalogue_commit_original')){$commitOriginal=Read-WindowsPhoneCatalogueCommitBinding $failure.Exception.Data['catalogue_commit_original']}
   $retained=[bool]($work -and (Test-Path -LiteralPath $work))
-  $record=[ordered]@{schema=1;producer='windows_phone_catalogue_native.ps1';state='failed';phase=$phase;source_basename=$meta.source_basename;source_line=$meta.source_line;error_type=$meta.error_type;edition=$PSVersionTable.PSEdition;php_child_exit=$phpExit;php_failure=$phpFailure;php_output=$phpOutput;php_original=$phpOriginal;child_processes_closed=$childrenClosed;owned_task_removed=$taskRemoved;original_vectors_preserved=$vectorsExact;owned_scope_retained=$retained;cleanup_required=($retained -and !($childrenClosed -and $taskRemoved -and $vectorsExact));actual_native_qualified=$false}
+  $record=[ordered]@{schema=1;producer='windows_phone_catalogue_native.ps1';state='failed';phase=$phase;source_basename=$meta.source_basename;source_line=$meta.source_line;error_type=$meta.error_type;edition=$PSVersionTable.PSEdition;php_child_exit=$phpExit;php_failure=$phpFailure;php_output=$phpOutput;php_original=$phpOriginal;commit_original=$commitOriginal;child_processes_closed=$childrenClosed;owned_task_removed=$taskRemoved;original_vectors_preserved=$vectorsExact;owned_scope_retained=$retained;cleanup_required=($retained -and !($childrenClosed -and $taskRemoved -and $vectorsExact));actual_native_qualified=$false}
   $bytes=[Text.UTF8Encoding]::new($false).GetBytes(($record|ConvertTo-Json -Depth 8 -Compress));$report=[IO.File]::Open($ReportPath,'CreateNew','Write','None');try{$report.Write($bytes,0,$bytes.Length);$report.Flush($true)}finally{$report.Dispose()}
  }catch{$failure.Exception.Data['catalogue_fixture_failure_report_failed']=$true}}
  throw $failure

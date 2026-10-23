@@ -89,3 +89,26 @@ pass, including explicit read/metadata adapters that show zero content reads and
 all nine later metadata guards. The unchanged old reader fails the empty-read
 adapter at the expected operation. Existing128 PHP and23 Debian groups pass.
 A fresh Windows component must still prove the corrected native lifecycle.
+
+
+Run40009929505/source7672632c retains a different original failure: Desktop
+mutual exclusion, PHP exit3, `refresh.fixture.php` line53. That exact source
+operation reports a nonzero exit from the PowerShell durable-commit child; its
+inner error was discarded by the original NUL descriptors. The underlying
+PowerShell cause is not yet established. Original vectors, child/task cleanup
+and the stock runtime inventory remained exact; no complete native pass follows.
+
+A fixture-only observer changes exactly those two descriptor destinations to
+private precreated files supplied through each direct PHP child's environment.
+Without those child-only values the descriptors remain NUL, preserving scheduled
+worker behavior. Executable, arguments, proc_close invocation, real lock checks
+and product source stay unchanged. Capture uses the failing child's exact index
+and only its validated RuntimeException at the original commit-failure source
+line. Unrelated later failures cannot attach stale output. Up to65536 raw bytes
+per stream are framed with UInt32LE lengths, without text decoding, then sealed
+under the existing QA public key. Distinct authenticated stage `commit_child`
+and explicit raw encoding bind source, run, edition, PHP exit/action, size and
+hash; the earlier UTF16 diagnostic remains separate. Original failures survive
+capture/encryption refusal. Fifty actual PHP/raw-file/ephemeral-crypto controls
+and141 strict failure controls pass with explicit ACL/native-reader adapters;
+actual Windows commit acceptance still requires another reviewed run.

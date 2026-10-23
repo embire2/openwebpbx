@@ -19,10 +19,11 @@ function Write-WindowsPhoneCatalogueOriginal([string]$ReportPath,[string]$Stdout
  $null=Assert-OpenWebRecoveryProtected $path -Private
  return (Read-WindowsPhoneCatalogueOriginalBinding ([pscustomobject]@{schema=1;bytes=$raw.Length;sha256=$hash;stdout_characters=$Stdout.Length;stderr_characters=$Stderr.Length}))
 }
-function Seal-WindowsPhoneCatalogueOriginal([byte[]]$Raw,[string]$SourceCommit,[string]$RunId,[string]$Edition,[string]$PublicPem){
+function Seal-WindowsPhoneCatalogueOriginal([byte[]]$Raw,[string]$SourceCommit,[string]$RunId,[string]$Edition,[string]$PublicPem,$CommitBinding=$null){
  if($PSVersionTable.PSEdition -cne 'Core' -or $Raw.Length -lt 8 -or $Raw.Length -gt 131080 -or $SourceCommit -cnotmatch '^[a-f0-9]{40}$' -or $RunId -cnotmatch '^[1-9][0-9]{0,19}$' -or $Edition -cnotin 'Desktop','Core' -or !$PublicPem.StartsWith('-----BEGIN PUBLIC KEY-----') -or $PublicPem.Contains('PRIVATE KEY')){throw 'The exact catalogue diagnostic binding is required.'}
  $sha=[Security.Cryptography.SHA256]::Create();try{$plainHash=([BitConverter]::ToString($sha.ComputeHash($Raw))).Replace('-','').ToLowerInvariant();$publicHash=([BitConverter]::ToString($sha.ComputeHash([Text.UTF8Encoding]::new($false).GetBytes($PublicPem)))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose()}
  $binding=[ordered]@{schema=1;purpose='windows-phone-catalogue-output';source_commit=$SourceCommit;run_id=$RunId;edition=$Edition;stage='finish_php_json';plaintext_bytes=$Raw.Length;plaintext_sha256=$plainHash}
+ if($null-ne $CommitBinding){$commit=Read-WindowsPhoneCatalogueCommitBinding $CommitBinding;if($commit.bytes-ne $Raw.Length -or $commit.sha256-cne $plainHash){throw 'The sealed commit stream binding differs.'};$binding.stage='commit_child';$binding.encoding='uint32le-length-prefixed-raw-v1';$binding.php_child_exit=$commit.php_child_exit;$binding.php_action=$commit.php_action}
  $aad=[Text.UTF8Encoding]::new($false).GetBytes(($binding|ConvertTo-Json -Depth 4 -Compress));$rsa=[Security.Cryptography.RSA]::Create();$key=$null;$aes=$null
  try{
   $rsa.ImportFromPem($PublicPem);if($rsa.KeySize -ne 3072){throw 'The catalogue diagnostic requires RSA3072.'}

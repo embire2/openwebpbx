@@ -4,7 +4,8 @@ param([Parameter(Mandatory)][string]$SourceRoot,[Parameter(Mandatory)][string]$S
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'windows_phone_catalogue_proof.ps1')
 . (Join-Path $PSScriptRoot 'windows_phone_catalogue_sealed_output.ps1')
-$sealedChildOutput=$null;$sealedChildOutputRefused=$false
+. (Join-Path $PSScriptRoot 'windows_phone_catalogue_commit_output.ps1')
+$sealedChildOutput=$null;$sealedChildOutputRefused=$false;$sealedCommitOutput=$null;$sealedCommitOutputRefused=$false
 $phase='preflight';$source='';$reportOwned=$false;$work=$null;$edition='';$childExit=$null;$childFailure=$null;$packageBound=$false;$stockExact=$false;$childEnded=$true
 try{
 if(!$IsWindows -or $PSVersionTable.PSEdition -cne 'Core' -or $env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_OS -cne 'Windows' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx' -or !$env:RUNNER_TEMP){throw 'Catalogue native qualification requires disposable Windows GitHub Actions and PowerShell7.'}
@@ -18,7 +19,7 @@ $names=@(
  'packaging/windows/WindowsPhoneCatalogue.Common.ps1','packaging/windows/WindowsPhoneCatalogue.ps1','packaging/windows/Install-WindowsPhoneCatalogue.ps1',
  'packaging/windows/openssl.cnf','packaging/windows/UpgradeRecovery.Common.ps1','packaging/windows/File-Security.ps1','packaging/windows/Restore-Gates.ps1','packaging/windows/Write-PrivateState.ps1','packaging/windows/PhpRuntime.Common.ps1',
  'packaging/updates/windows-phone-catalogue.php','resources/classes/pbx_windows_phone_catalogue.php','resources/windows-phone/release-public.pem',
- 'tests/windows_phone_catalogue_proof.ps1','tests/windows_phone_catalogue_sealed_output.ps1','tests/windows_phone_catalogue_sealed_controls.ps1','tests/windows_phone_catalogue_diagnostic_public.pem','tests/windows_phone_catalogue_native.ps1','tests/windows_phone_catalogue_native.php','tests/windows_phone_catalogue_stage.ps1','tests/windows_phone_catalogue_activation.ps1','tests/windows_phone_catalogue_lifecycle.ps1','tests/windows_phone_catalogue_qualification.ps1','tests/windows-phone-catalogue-qualification.ps1','tests/windows_phone_catalogue_failure_controls.ps1','tests/windows_phone_catalogue_failure_controls.php','tests/windows_phone_catalogue_stock_controls.ps1','tests/windows_phone_catalogue_output_controls.ps1')
+ 'tests/windows_phone_catalogue_proof.ps1','tests/windows_phone_catalogue_sealed_output.ps1','tests/windows_phone_catalogue_commit_output.ps1','tests/windows_phone_catalogue_commit_controls.ps1','tests/windows_phone_catalogue_sealed_controls.ps1','tests/windows_phone_catalogue_diagnostic_public.pem','tests/windows_phone_catalogue_native.ps1','tests/windows_phone_catalogue_native.php','tests/windows_phone_catalogue_stage.ps1','tests/windows_phone_catalogue_activation.ps1','tests/windows_phone_catalogue_lifecycle.ps1','tests/windows_phone_catalogue_qualification.ps1','tests/windows-phone-catalogue-qualification.ps1','tests/windows_phone_catalogue_failure_controls.ps1','tests/windows_phone_catalogue_failure_controls.php','tests/windows_phone_catalogue_stock_controls.ps1','tests/windows_phone_catalogue_output_controls.ps1')
 foreach($name in $names){
  $blob=(git -C $SourceRoot rev-parse --verify ($source+':'+$name)).Trim();if($LASTEXITCODE -or $blob -cnotmatch '^[a-f0-9]{40}$'){throw 'Every native qualification input must be committed in the exact source.'}
  $actual=(git -C $SourceRoot hash-object --no-filters -- (Join-Path $SourceRoot $name)).Trim();if($LASTEXITCODE -or $actual -cne $blob){throw 'An uncommitted native qualification input differs.'}
@@ -66,6 +67,8 @@ try{
 $childExit=$null
 & (Join-Path $SourceRoot 'tests/windows_phone_catalogue_output_controls.ps1') -SourceRoot $SourceRoot -Php (Join-Path $prepared.Directory 'php.exe')
 if(!$?){throw 'The actual pinned-PHP output controls did not pass.'}
+& (Join-Path $SourceRoot 'tests/windows_phone_catalogue_commit_controls.ps1') -SourceRoot $SourceRoot -Php (Join-Path $prepared.Directory 'php.exe')
+if(!$?){throw 'The actual pinned-PHP commit output controls did not pass.'}
 $stock5=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe';$stock7=Join-Path $PSHOME 'pwsh.exe'
 $null=Assert-OpenWebRecoveryOrdinary $stock5;$null=Assert-OpenWebRecoveryOrdinary $stock7
 if(![IO.Path]::GetFullPath($stock7).StartsWith(([IO.Path]::GetFullPath($env:ProgramFiles).TrimEnd('\')+'\PowerShell\'),[StringComparison]::OrdinalIgnoreCase)){throw 'PowerShell7 must be the ordinary preinstalled runner runtime.'}
@@ -92,6 +95,7 @@ try{
    if($child.ExitCode -ne 0 -or $errorOutput.Result.Length -or $output.Result.Length -gt 32768){
     try{if((Get-Item -LiteralPath $childReport).Length -gt 16384){throw 'The native failure report is oversized.'};$childFailure=Read-WindowsPhoneCatalogueNativeFailure (Get-Content -LiteralPath $childReport -Raw|ConvertFrom-Json) $edition}catch{$childFailure=$null}
     if($null -ne $childFailure -and $null -ne $childFailure.php_original){try{$sealedChildOutput=Protect-WindowsPhoneCatalogueOriginal $childReport $childFailure.php_original (Join-Path $bundle 'tests/windows_phone_catalogue_diagnostic_public.pem') $source $env:GITHUB_RUN_ID $edition $childFailure.php_output}catch{$sealedChildOutputRefused=$true}}
+    if($null -ne $childFailure -and $null -ne $childFailure.commit_original){try{$sealedCommitOutput=Protect-WindowsPhoneCatalogueCommitOriginal $childReport $childFailure.commit_original (Join-Path $bundle 'tests/windows_phone_catalogue_diagnostic_public.pem') $source $env:GITHUB_RUN_ID $edition $childFailure.php_child_exit}catch{$sealedCommitOutputRefused=$true}}
     throw 'The exact native catalogue component refused; preserve original evidence.'
    }
    $record=Get-Content -LiteralPath $childReport -Raw|ConvertFrom-Json
@@ -113,7 +117,7 @@ try{
   $retained=[bool]($work -and (Test-Path -LiteralPath $work))
   $sourceSafe=if($source -cmatch '^[a-f0-9]{40}$'){$source}else{''}
   $nativeCleanup=($null -ne $childFailure -and !$childFailure.cleanup_required)
-  $record=[ordered]@{schema=1;producer='windows-phone-catalogue-qualification.ps1';state='failed';source_commit=$sourceSafe;phase=$phase;source_basename=$meta.source_basename;source_line=$meta.source_line;error_type=$meta.error_type;edition=$edition;child_exit=$childExit;child_ended=$childEnded;child_failure=$childFailure;sealed_child_output=$sealedChildOutput;sealed_child_output_refused=$sealedChildOutputRefused;package_source_bound=$packageBound;stock_runtime_preservation_verified=$stockExact;owned_scope_retained=$retained;native_cleanup_verified=$nativeCleanup;full_upgrade_restore_qualified=$false;production_release_published=$false}
+  $record=[ordered]@{schema=1;producer='windows-phone-catalogue-qualification.ps1';state='failed';source_commit=$sourceSafe;phase=$phase;source_basename=$meta.source_basename;source_line=$meta.source_line;error_type=$meta.error_type;edition=$edition;child_exit=$childExit;child_ended=$childEnded;child_failure=$childFailure;sealed_child_output=$sealedChildOutput;sealed_child_output_refused=$sealedChildOutputRefused;sealed_commit_output=$sealedCommitOutput;sealed_commit_output_refused=$sealedCommitOutputRefused;package_source_bound=$packageBound;stock_runtime_preservation_verified=$stockExact;owned_scope_retained=$retained;native_cleanup_verified=$nativeCleanup;full_upgrade_restore_qualified=$false;production_release_published=$false}
   $stream=[IO.File]::Open($ReportPath,'CreateNew','Write','None');try{$bytes=[Text.UTF8Encoding]::new($false).GetBytes(($record|ConvertTo-Json -Depth 10));$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
  }catch{$failure.Exception.Data['catalogue_top_level_failure_report_failed']=$true}}
  throw $failure

@@ -12,7 +12,7 @@ foreach($key in $php.Keys){$bad=PhpCopy;$bad.PSObject.Properties.Remove($key);Re
 foreach($field in 'schema','source_line'){foreach($value in @($true,'1',1.0,$null,-1,100001)){$bad=PhpCopy;$bad.$field=$value;Refuse {Read-WindowsPhoneCataloguePhpFailure $bad}}}
 foreach($field in 'producer','state','source_basename','error_type'){foreach($value in @($true,$null,@('failed'),'PRIVATE-PATH-MESSAGE')){$bad=PhpCopy;$bad.$field=$value;Refuse {Read-WindowsPhoneCataloguePhpFailure $bad}}}
 $bad=PhpCopy;$bad|Add-Member path 'PRIVATE-PATH';Refuse {Read-WindowsPhoneCataloguePhpFailure $bad}
-$native=[ordered]@{schema=1;producer='windows_phone_catalogue_native.ps1';state='failed';phase='seed';source_basename='windows_phone_catalogue_native.ps1';source_line=30;error_type='System.InvalidOperationException';edition='Core';php_child_exit=4;php_failure=(PhpCopy);php_output=$null;php_original=$null;child_processes_closed=$true;owned_task_removed=$true;original_vectors_preserved=$true;owned_scope_retained=$true;cleanup_required=$false;actual_native_qualified=$false}
+$native=[ordered]@{schema=1;producer='windows_phone_catalogue_native.ps1';state='failed';phase='seed';source_basename='windows_phone_catalogue_native.ps1';source_line=30;error_type='System.InvalidOperationException';edition='Core';php_child_exit=4;php_failure=(PhpCopy);php_output=$null;php_original=$null;commit_original=$null;child_processes_closed=$true;owned_task_removed=$true;original_vectors_preserved=$true;owned_scope_retained=$true;cleanup_required=$false;actual_native_qualified=$false}
 function NativeCopy{return($native|ConvertTo-Json -Depth 5|ConvertFrom-Json)}
 Check ((Read-WindowsPhoneCatalogueNativeFailure (NativeCopy) Core).php_child_exit -eq 4)
 foreach($key in $native.Keys){$bad=NativeCopy;$bad.PSObject.Properties.Remove($key);Refuse {Read-WindowsPhoneCatalogueNativeFailure $bad Core}}
@@ -30,6 +30,9 @@ $bad=NativeCopy;$bad.php_output=@{action='PRIVATE'};Refuse {Read-WindowsPhoneCat
 $bad=NativeCopy;$bad.php_output=Get-WindowsPhoneCatalogueChildOutput '--refresh' $false 'PRIVATE' ''; $bad.php_original=[pscustomobject]@{schema=1;bytes=22;sha256=('a'*64);stdout_characters=7;stderr_characters=0};Check ((Read-WindowsPhoneCatalogueNativeFailure $bad Core).php_original.bytes-eq 22)
 $bad.php_original.stdout_characters=6;$bad.php_original.bytes=20;Refuse {Read-WindowsPhoneCatalogueNativeFailure $bad Core}
 $bad.php_output=$null;Refuse {Read-WindowsPhoneCatalogueNativeFailure $bad Core}
+$bad=NativeCopy;$bad.commit_original=[pscustomobject]@{schema=1;bytes=8;sha256=('a'*64);stdout_bytes=0;stderr_bytes=0;php_action='--hold';php_child_exit=4};Check ((Read-WindowsPhoneCatalogueNativeFailure $bad Core).commit_original.php_child_exit-eq 4)
+$bad.commit_original.php_child_exit=3;Refuse {Read-WindowsPhoneCatalogueNativeFailure $bad Core};$bad.commit_original.php_child_exit=4;$bad.php_child_exit=$null;Refuse {Read-WindowsPhoneCatalogueNativeFailure $bad Core}
+$bad.php_child_exit=4;$bad.php_output=Get-WindowsPhoneCatalogueChildOutput '--refresh' $false 'PRIVATE' '';$bad.php_original=[pscustomobject]@{schema=1;bytes=22;sha256=('a'*64);stdout_characters=7;stderr_characters=0};Refuse {Read-WindowsPhoneCatalogueNativeFailure $bad Core}
 $work=Join-Path ([IO.Path]::GetTempPath()) ('catalogue-failure-'+[Guid]::NewGuid().ToString('N'));$null=[IO.Directory]::CreateDirectory($work)
 try{
  foreach($file in 'windows_phone_catalogue_native.ps1','windows-phone-catalogue-qualification.ps1'){
@@ -37,7 +40,7 @@ try{
   $outer=@($ast.EndBlock.Statements|Where-Object {$_ -is [Management.Automation.Language.TryStatementAst]});Check ($outer.Count -eq 1 -and $outer[0].CatchClauses.Count -eq 1)
   $body=$outer[0].CatchClauses[0].Body.Extent.Text;$body=$body.Substring(1,$body.Length-2)
   foreach($collision in $false,$true){
-   $reportOwned=$true;$ReportPath=Join-Path $work ([Guid]::NewGuid().ToString('N')+'.json');$phase='preparation';$source=('a'*40);$edition='Core';$childExit=$null;$childFailure=$null;$sealedChildOutput=$null;$sealedChildOutputRefused=$false;$packageBound=$false;$stockExact=$false;$childEnded=$true;$childrenClosed=$true;$taskRemoved=$true;$vectorsExact=$false
+   $reportOwned=$true;$ReportPath=Join-Path $work ([Guid]::NewGuid().ToString('N')+'.json');$phase='preparation';$source=('a'*40);$edition='Core';$childExit=$null;$childFailure=$null;$sealedChildOutput=$null;$sealedChildOutputRefused=$false;$sealedCommitOutput=$null;$sealedCommitOutputRefused=$false;$packageBound=$false;$stockExact=$false;$childEnded=$true;$childrenClosed=$true;$taskRemoved=$true;$vectorsExact=$false
    if($collision){[IO.File]::WriteAllText($ReportPath,'KEEP-ORIGINAL')}
    $original=[InvalidOperationException]::new('PRIVATE-PATH-MESSAGE-SECRET');$caught=$null
    try{&([scriptblock]::Create('try{throw $original}catch{'+$body+'}'))}catch{$caught=$_}
@@ -81,4 +84,10 @@ $caught=$null;try{&([scriptblock]::Create($branches[0].Extent.Text+"`nthrow 'The
 Check ($caught.Exception.Message-ceq 'The exact native catalogue component refused; preserve original evidence.');Check ($null-eq $sealedChildOutput)
 # Dot-source the same branch to inspect its closed flag in this scope.
 .([scriptblock]::Create($branches[0].Extent.Text));Check $sealedChildOutputRefused
+$commitBranches=@($wrapperAst.FindAll({param($n)$n -is [Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text-ceq '$null -ne $childFailure -and $null -ne $childFailure.commit_original'},$true));Check ($commitBranches.Count-eq 1)
+function Protect-WindowsPhoneCatalogueCommitOriginal {throw 'PRIVATE_ENCRYPTION_ERROR'}
+$childFailure=[pscustomobject]@{commit_original=@{};php_child_exit=3};$sealedCommitOutput=$null;$sealedCommitOutputRefused=$false
+$caught=$null;try{&([scriptblock]::Create($commitBranches[0].Extent.Text+"`nthrow 'The exact native catalogue component refused; preserve original evidence.'"))}catch{$caught=$_}
+Check ($caught.Exception.Message-ceq 'The exact native catalogue component refused; preserve original evidence.');Check ($null-eq $sealedCommitOutput)
+.([scriptblock]::Create($commitBranches[0].Extent.Text));Check $sealedCommitOutputRefused
 Write-Output ('PASS '+$checks+' actual closed catalogue failure/type/early-catch/primary-preservation controls; native primitives not executed')
