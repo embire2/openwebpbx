@@ -20,6 +20,14 @@ listener detector correctly refused an access-control condition; that refusal
 is retained and does not invalidate the basic readiness results or qualify the
 new detector. No candidate has replaced the original installation.
 
+The latest complete run39878296545 passed fresh installation, trusted web
+readiness,21 native public-port controls and14 installed listener checks. It
+stopped before STUN activation when its one-shot maintenance-lock open refused;
+the historical lock holder and native error code are unknown. The test now uses
+the existing bounded lock helper. Native controls cover a released holder, the
+unchanged30-second deadline, permission denial and unsafe paths. A new complete
+run is required; none of the later calling or backup gates passed in this run.
+
 | Area | Current work | Required acceptance |
 |---|---|---|
 | Phone Health & Recovery | Normal run39864760800 passes the complete installed gate:96 PostgreSQL,49 runtime and18 Defender controls, including continuous SYSTEM observation, restart and exact cleanup. QA pauses only the exact owned updater during whole-state comparisons and restores its original choices. | Repeat this gate in the final archive and qualify upgrade/restore integration. The isolated heartbeat proof does not retrospectively identify the historical changed object. |
