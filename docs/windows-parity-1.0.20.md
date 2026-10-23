@@ -19,8 +19,19 @@ database security returned unchanged. This does not qualify the optional staged
 listener detector, whose earlier access-control refusal is retained. No candidate
 has replaced the original installation.
 
-Normal run39932924949 at source4803149f1 is testing the stock-module recovery
-correction and closed conference diagnostics. A subsequent, separately requested
+Normal run39932924949 at source4803149f1 passes fresh installation, web29,
+synthetic V20 import32+4, STUN33 and recovery204/integration64/commit135+53,
+then fails the Phone Health observer restart check at acceptance105. Its initial
+SYSTEM observer, native collector and continuous scan pass; the restarted
+process/connection/heartbeat predicate does not pass. The original facts do not
+identify the underlying Scheduler/process state. Canonical cleanup passes, but
+Meet, calling and direct rollback are not reached. New bounded diagnostics retain
+only owned task state/result, SYSTEM wrapper/PHP counts and scoped connection/
+heartbeat observations if this check fails again. Root and peer each pass98
+actual-source controls with explicit native API doubles; the90-second restart
+deadline, identity checks and data predicates remain unchanged. These controls
+do not establish the historical failure's cause or a native restart pass.
+A subsequent, separately requested
 phone-security correction also changes the Windows guard: a normal SIP challenge
 with a numeric caller host must not create an office-wide firewall block. Actual
 authentication-failure handling and controlled recovery remain unchanged. The

@@ -25,6 +25,34 @@ function HealthProcess {
  foreach($row in $rows){if(@($connections|Where-Object {$_.LocalPort -eq [int]$row.client_port}).Count){return @{pid=[int]$processes[0].ProcessId;database_pid=[int]$row.pid;changed=[double]$row.changed}}}
  return $null
 }
+function HealthRestartObservation($RequestedAt) {
+ $row=[ordered]@{schema=1;task_observed=$false;task_state='unavailable';task_enabled=$false;task_info_observed=$false;last_result=0L;fresh_start=$false;processes_observed=$false;owned_wrappers=0;owned_php=0;system_verified=$false;connections_observed=$false;pg_connections=0;heartbeat_observed=$false;matching_heartbeats=0;error_kind='none'}
+ $stage='context'
+ try{
+  if($RequestedAt -isnot [DateTime]){throw 'A restart observation context is required.'}
+  $stage='task';$task=Get-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop;Assert-OpenWebHealthTask $task
+  if(@($task).Count -ne 1 -or $task.Settings.Enabled -isnot [bool]){throw 'The owned task observation is invalid.'}
+  $row.task_observed=$true;$row.task_enabled=$task.Settings.Enabled;$value=[string]$task.State;$row.task_state=if($value -cin 'Running','Ready','Queued','Disabled','Unknown'){$value}else{'other'}
+  $stage='task_info';$info=Get-ScheduledTaskInfo -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop
+  if(($info.LastTaskResult -isnot [uint32] -and $info.LastTaskResult -isnot [int] -and $info.LastTaskResult -isnot [long]) -or $info.LastTaskResult -lt 0 -or $info.LastTaskResult -gt 4294967295 -or $info.LastRunTime -isnot [DateTime]){throw 'The owned task result is invalid.'}
+  # Scheduler LastRunTime has whole-second precision; expose that observation,
+  # never use this diagnostic flag as a restart acceptance predicate.
+  $ticks=$RequestedAt.ToUniversalTime().Ticks;$requestedSecond=[DateTime]::new(($ticks-($ticks%[TimeSpan]::TicksPerSecond)),[DateTimeKind]::Utc)
+  $row.task_info_observed=$true;$row.last_result=[long]$info.LastTaskResult;$row.fresh_start=$info.LastRunTime.ToUniversalTime() -ge $requestedSecond
+  $stage='processes';$owned=@(Get-OpenWebHealthOwnedProcesses);if($owned.Count -gt 16){throw 'Too many owned observer processes.'}
+  $php=@($owned|Where-Object {$_.ExecutablePath -ieq 'C:\OpenWebPBX\php\php.exe' -and $_.CommandLine -match 'phone-health\.php"?\s+service\b'})
+  $wrappers=@($owned|Where-Object {$_.ExecutablePath -ine 'C:\OpenWebPBX\php\php.exe' -and $_.CommandLine -notmatch '(?i)(?:^|\s)-Once(?:\s|$)'})
+  $row.processes_observed=$true;$row.owned_php=$php.Count;$row.owned_wrappers=$wrappers.Count;$row.system_verified=$owned.Count -gt 0
+  if($php.Count -ne 1){return $row}
+  $stage='connections';$connections=@(Get-NetTCPConnection -OwningProcess $php[0].ProcessId -RemoteAddress '127.0.0.1' -RemotePort 5433 -State Established -ErrorAction Stop)
+  if($connections.Count -gt 32){throw 'Too many observer database connections.'};$row.connections_observed=$true;$row.pg_connections=$connections.Count
+  $stage='heartbeat';$heartbeat=Php (Join-Path $PSScriptRoot 'windows_phone_health_installed.php') @('heartbeat')
+  if($heartbeat.state -cne 'observed' -or $heartbeat.workers -isnot [array] -or $heartbeat.workers.Count -gt 32){throw 'The read-only heartbeat observation is invalid.'}
+  foreach($worker in $heartbeat.workers){$port=$worker.client_port;if($port -is [string] -and $port -cmatch '^[1-9][0-9]{0,4}$'){$port=[int]$port};if(($port -isnot [int] -and $port -isnot [long]) -or $port -lt 1 -or $port -gt 65535){throw 'The heartbeat port is invalid.'};if(@($connections|Where-Object {$_.LocalPort -eq $port}).Count){$row.matching_heartbeats++}}
+  $row.heartbeat_observed=$true
+ }catch{$row.error_kind=$stage}
+ return $row
+}
 function HealthPreservationDifference($Before,$After) {
  $out=[ordered]@{schema=1;snapshot_valid=$false;namespace_changed=$false;inventory_changed=$false;table_count_changed=$false;global_digest_changed=$false;shape_changed_count=0;data_changed_count=0;object_count_before=0;object_count_after=0;changed_objects=@()}
  foreach($snapshot in $Before,$After){
@@ -55,6 +83,8 @@ function HealthPreservationDifference($Before,$After) {
  return $out
 }
 try{
+ & (Join-Path $PSScriptRoot 'windows_health_restart_observation.ps1') -SourceRoot (Split-Path $PSScriptRoot -Parent)
+ if(!$?){throw 'The closed restart observation controls did not pass.'}
  & (Join-Path $PSScriptRoot 'windows_health_preservation_diagnostics.ps1') -SourceRoot (Split-Path $PSScriptRoot -Parent)
  if(!$?){throw 'The closed complete-preservation diagnostics controls did not pass.'}
  & (Join-Path $PSScriptRoot 'windows_health_updater_quiescence.ps1') -SourceRoot (Split-Path $PSScriptRoot -Parent)
@@ -101,8 +131,9 @@ try{
  $maintenance=$null;$deadline=[DateTime]::UtcNow.AddSeconds(30)
  while(!$maintenance){try{$maintenance=[IO.File]::Open((Join-Path $state 'upgrade.lock'),'OpenOrCreate','ReadWrite','None')}catch [IO.IOException]{if([DateTime]::UtcNow -ge $deadline){throw 'The observer restart could not acquire the maintenance lock.'};Start-Sleep -Milliseconds 250}}
  try{Stop-OpenWebHealthTask -MaintenanceLock $maintenance -Disable;if((Get-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\').Settings.Enabled -or (Get-Process -Id $first.pid -ErrorAction SilentlyContinue)){throw 'The owned observer did not stop cleanly.'};if(@(Get-ChildItem -LiteralPath (Join-Path $state 'phone-health-runtime') -Force).Count){throw 'Stopping the observer left private response files.'}}
- finally{$maintenance.Dispose();Enable-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop|Out-Null;Start-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop}
- $restarted=$null;$deadline=[DateTime]::UtcNow.AddSeconds(90);while(!$restarted){$restarted=HealthProcess;if(!$restarted){if([DateTime]::UtcNow -ge $deadline){throw 'The installed observer did not restart and scan.'};Start-Sleep -Milliseconds 500}}
+ finally{$maintenance.Dispose();$restartRequestedAt=[DateTime]::UtcNow;Enable-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop|Out-Null;Start-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop}
+ try{$restarted=$null;$deadline=[DateTime]::UtcNow.AddSeconds(90);while(!$restarted){$restarted=HealthProcess;if(!$restarted){if([DateTime]::UtcNow -ge $deadline){throw 'The installed observer did not restart and scan.'};Start-Sleep -Milliseconds 500}}}
+ catch{$primary=$_;try{$report.restart_observation=HealthRestartObservation $restartRequestedAt}catch{};throw $primary}
  if($restarted.pid -eq $first.pid){throw 'The observer restart retained its old resident process.'};$report.gates.installed_restart='passed'
  # Actual ESL event -> real installed Defender adapter -> durable SQL ->
  # exact authorised removal, in a disposable schema. The normal observer is

@@ -1432,6 +1432,17 @@ function StunHook {
 function SafePhoneHealthFailure($Record){
  $safe=@{}
  if($Record.schema -ne 1 -or $Record.producer -cne 'windows_phone_health_acceptance.ps1' -or $Record.state -cne 'failed'){return $safe}
+ $restart=$Record.restart_observation
+ $restartKeys=if($restart -is [pscustomobject]){@($restart.PSObject.Properties.Name)}elseif($restart -is [Collections.IDictionary]){@($restart.Keys)}else{@()}
+ $flags=@('task_observed','task_enabled','task_info_observed','fresh_start','processes_observed','system_verified','connections_observed','heartbeat_observed')
+ $bounds=@{last_result=4294967295L;owned_wrappers=16;owned_php=16;pg_connections=32;matching_heartbeats=32}
+ $fields=@('schema','task_state','error_kind')+$flags+@($bounds.Keys)
+ if($restartKeys.Count -eq $fields.Count -and @($restartKeys|Where-Object {$_ -cnotin $fields}).Count -eq 0){
+  $valid=($restart.schema -is [int] -or $restart.schema -is [long]) -and $restart.schema -eq 1 -and $restart.task_state -is [string] -and $restart.task_state -cin 'unavailable','Running','Ready','Queued','Disabled','Unknown','other' -and $restart.error_kind -is [string] -and $restart.error_kind -cin 'none','context','task','task_info','processes','connections','heartbeat'
+  foreach($field in $flags){if($restart.$field -isnot [bool]){$valid=$false}}
+  foreach($field in $bounds.Keys){$value=$restart.$field;if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt $bounds[$field]){$valid=$false}}
+  if($valid){$part=@{};foreach($field in $fields){$part[$field]=$restart.$field};$safe.restart_observation=$part}
+ }
  $safe.gates=@{};foreach($name in 'installed_task','installed_system_observer','installed_continuous_observer','installed_restart','installed_collector','postgresql_policy','runtime','custom_subscription','firewall','native_worker','cleanup'){if($Record.gates.$name -is [string] -and $Record.gates.$name -cin 'passed','pending','failed'){$safe.gates[$name]=$Record.gates.$name}}
  if($Record.diagnostic_recovery_exact -is [bool]){$safe.diagnostic_recovery_exact=$Record.diagnostic_recovery_exact}
  $recovery=$Record.diagnostic_recovery_failure
