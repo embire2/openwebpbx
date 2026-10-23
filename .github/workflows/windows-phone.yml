@@ -7,14 +7,14 @@ on:
         required: true
         type: string
       build_mode:
-        description: Inventory, native build, source collection, calling, or package qualification
+        description: Inventory, native build, sources, calling, packages, or update catalogue qualification
         type: choice
-        options: [probe, build, sources, media, packages]
+        options: [probe, build, sources, media, packages, package_runtime, catalogue]
         default: probe
 permissions:
   contents: read
 concurrency:
-  group: windows-free-phone-${{ inputs.build_mode == 'sources' && 'sources' || inputs.build_mode == 'media' && 'media' || inputs.build_mode == 'packages' && 'packages' || 'client' }}
+  group: windows-free-phone-${{ inputs.build_mode == 'sources' && 'sources' || inputs.build_mode == 'media' && 'media' || inputs.build_mode == 'packages' && 'packages' || inputs.build_mode == 'package_runtime' && 'package-runtime' || inputs.build_mode == 'catalogue' && 'catalogue' || 'client' }}
   cancel-in-progress: false
 jobs:
   client:
@@ -204,6 +204,72 @@ jobs:
         with:
           name: windows-free-phone-package-${{ github.run_id }}
           path: ${{ runner.temp }}/phone-package-result-*.json
+          if-no-files-found: error
+          retention-days: 14
+  package_runtime:
+    if: inputs.build_mode == 'package_runtime'
+    runs-on: windows-2025
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PHONE_SOURCE_REF: ${{ inputs.source_ref }}
+    steps:
+      - name: Validate isolated package runtime request
+        run: |
+          if($env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx' -or $env:PHONE_SOURCE_REF -cnotmatch '^[a-f0-9]{40}$' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted'){throw 'An exact reviewed source on a disposable hosted runner is required.'}
+          git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_ref }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify actual package runtime source
+        run: |
+          if((git rev-parse HEAD).Trim() -cne $env:PHONE_SOURCE_REF){throw 'Package runtime source differs.'}
+      - name: Observe native PowerShell package prerequisites
+        run: |
+          & ./clients/windows/tools/Test-PackageRuntime.ps1 -SourceCommit $env:PHONE_SOURCE_REF -Report "$env:RUNNER_TEMP/windows-phone-package-runtime.json"
+      - name: Preserve closed package runtime evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-free-phone-package-runtime-${{ github.run_id }}
+          path: ${{ runner.temp }}/windows-phone-package-runtime.json
+          if-no-files-found: error
+          retention-days: 14
+  catalogue:
+    if: inputs.build_mode == 'catalogue'
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PHONE_SOURCE_REF: ${{ inputs.source_ref }}
+    steps:
+      - name: Validate isolated update catalogue request
+        run: |
+          if($env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx' -or $env:PHONE_SOURCE_REF -cnotmatch '^[a-f0-9]{40}$' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted'){throw 'An exact reviewed source on a disposable hosted runner is required.'}
+          git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_ref }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify actual catalogue source
+        run: |
+          if((git rev-parse HEAD).Trim() -cne $env:PHONE_SOURCE_REF){throw 'Catalogue source differs.'}
+      - name: Exercise actual Windows update catalogue primitives
+        run: |
+          & ./tests/windows-phone-catalogue-qualification.ps1 -SourceRoot $env:GITHUB_WORKSPACE -SourceCommit $env:PHONE_SOURCE_REF -ReportPath "$env:RUNNER_TEMP/windows-phone-catalogue-qualification.json"
+      - name: Preserve closed catalogue component evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-free-phone-catalogue-${{ github.run_id }}
+          path: ${{ runner.temp }}/windows-phone-catalogue-qualification.json
           if-no-files-found: error
           retention-days: 14
   sources:

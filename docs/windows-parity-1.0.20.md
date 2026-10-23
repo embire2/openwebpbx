@@ -5,7 +5,7 @@ The currently published Windows release remains 1.0.7. Do not replace a
 production server with an unpublished archive. Debian's hosted Phone Health
 patch and the earlier complete Debian candidate have separate verification.
 
-Latest normal run39988468357/sourcec4e2d5273 passes native SIP/audio, clock,
+Latest completed normal run39988468357/sourcec4e2d5273 passes native SIP/audio, clock,
 provider, Call Me Back and browser-conference gates, including the retained
 typed LocalService call-history receipt. Fresh installation, trusted web,
 synthetic V20 import, STUN, Phone Health and tenant-domain checks also pass.
@@ -21,6 +21,10 @@ restores, updates and finalization still refuse.139 function/file controls,
 SCM/IIS adapters; actual full native repetition remains required. The earlier
 run's inner error was not retained, so these reproductions do not establish
 which refusal occurred in that run.
+
+Fresh normal39997482930/sourceb66612e52 is running this correction with all
+73 native build inputs unchanged. It excludes the still-isolated Windows phone
+catalogue and client packaging changes; a pass cannot qualify those later inputs.
 
 Earlier normal run39984494995/sourcea05715801 stops before installation in a
 QA source-selector check. The correction requires the actual observer call's

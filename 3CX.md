@@ -2,11 +2,13 @@
 
 Windows Server parity is now being implemented and tested. The [current Windows work record](docs/windows-parity-1.0.20.md) distinguishes implemented source from native acceptance and published releases. The checklist below remains open until those checks pass.
 
-The latest Windows server run passes native calling/audio, provider, Call Me Back, clock and browser-conference checks. Its later restore-startup recovery test fails, so this is still an unpublished candidate. A focused recovery fix preserves a newer restore's holds; complete backup/restore, upgrade/recovery and owner-machine qualification remain required.
+The latest completed Windows server run passes native calling/audio, provider, Call Me Back, clock and browser-conference checks. Its later restore-startup recovery test fails, so this is still an unpublished candidate. A focused recovery fix preserves a newer restore's holds and is now in a fresh complete run; complete backup/restore, upgrade/recovery and owner-machine qualification remain required.
 
 The separate native **OpenWebPBX Free Phone 1.0.0** client is also in development for Windows 11 and Windows Server 2025, using C#/.NET 10, WinUI 3 and the Android app's calling engine. Its goal is Android feature parity with Store and direct distributions. The actual client builds and opens a responsive WinUI window;25 native checks,172 core checks and23 UI Automation checks pass, alongside a separate Store-flavour compile. Calling, media, installation, update packaging and Store certification remain open. Microsoft developer-account creation instructions are prepared. It is not a published download or an accepted roadmap item yet.
 
 The first Windows-phone source archive has passed a complete file and licence inventory check; rebuilding its third-party SDK and matching the supplied binaries remain open. The calling lab's mistaken external VP8-module requirement is corrected to check the core's actual built-in codec before calls. Signed-package installation/update tests are prepared, with reviewed certificate and helper cleanup. These preparations do not count as successful calls or installs. The public [privacy notice](https://openwebpbx.com/privacy#windows) now describes the Windows preview's data handling.
+
+The next client checks address two observed test-startup failures: early process-image discovery in the calling lab and native PowerShell ACL discovery before a development signing certificate is created. Real calls and package installation remain unaccepted. The independent Windows-phone update catalogue is also being qualified separately before it can advertise a download.
 
 ## Phone Health & Recovery — hosted Debian live, Windows follow-up — 2026-10-22
 
