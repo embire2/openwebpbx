@@ -328,6 +328,10 @@ def failure(kind,value,tb):
  sys.__excepthook__(kind,value,tb)
 sys.excepthook=failure
 spec=importlib.util.spec_from_file_location('backup',Path('C:/OpenWebPBX/tools/backups.py'));b=importlib.util.module_from_spec(spec);spec.loader.exec_module(b)
+if action in ('holds','release'):
+ if len(sys.argv)!=6:raise RuntimeError('The exact qualification acquisition context is unavailable')
+ retry_path=Path(sys.argv[3])/'tests/windows_restore_lock_retry.py'
+ retry_spec=importlib.util.spec_from_file_location('owned_restore_lock_retry',retry_path);retry=importlib.util.module_from_spec(retry_spec);retry_spec.loader.exec_module(retry)
 if action in ('holds','release') and Path(b.__file__).resolve()==(Path('C:/OpenWebPBX')/'tools'/'backups.py').resolve():
  if len(sys.argv)!=6:raise RuntimeError('The private control observation context is unavailable')
  observer_path=Path(sys.argv[3])/'tests/windows_backup_control_observer.py'
@@ -379,7 +383,7 @@ if action=='database':
  except Exception:pass
 elif action=='holds':
  stage='restore_holds'
- with b.exclusive_guard(b.UPGRADE_LOCK):
+ with retry.acquire(b,b.UPGRADE_LOCK):
   journal_file=b.RESTORE/'journal.json'
   if journal_file.exists() or any((b.RESTORE/('hold-'+name)).exists() for name in b.HELD_UNITS) or (b.STATE/'call-records.hold').exists():raise RuntimeError('An unrelated restore journal or hold exists')
   plan=b.control('plan')
@@ -391,7 +395,7 @@ elif action=='holds':
   b.install_service_holds(plan)
 elif action=='release':
  stage='restore_release'
- with b.exclusive_guard(b.UPGRADE_LOCK):
+ with retry.acquire(b,b.UPGRADE_LOCK):
   fixture=json.loads(path.read_text());hold=fixture.get('call_records_hold')
   if set(fixture)!={'schema','qualification','gates','call_records_hold'} or type(fixture['schema']) is not int or fixture['schema']!=1 or fixture['qualification']!='windows-upgrade-restore-gate' or not isinstance(fixture['gates'],dict) or not isinstance(hold,dict) or set(hold)!={'schema','owner','transaction'} or type(hold['schema']) is not int or hold['schema']!=1 or hold['owner']!='restore' or not isinstance(hold['transaction'],str) or len(hold['transaction'])!=32 or any(ch not in '0123456789abcdef' for ch in hold['transaction']):raise RuntimeError('The owned restore startup fixture is invalid')
   journal_file=b.ordinary(b.RESTORE/'journal.json');journal=json.loads(journal_file.read_text())

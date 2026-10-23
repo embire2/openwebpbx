@@ -75,7 +75,7 @@ class RestoreHolds(unittest.TestCase):
         return target
 
     def run_probe(self, action, *, probe=None, fault=''):
-        return subprocess.run([sys.executable, '-I', '-B', '-S', str(probe or self.probe), action, str(self.plan)],
+        return subprocess.run([sys.executable, '-I', '-B', '-S', str(probe or self.probe), action, str(self.plan), str(ROOT), str(ROOT), str(self.work)],
                               env=self.env | {'OPENWEB_HOLD_FAULT': fault}, capture_output=True, timeout=60)
 
     def observed(self):

@@ -1554,6 +1554,7 @@ try{
  & (Join-Path $source 'tests/windows_recovery_localaccounts.ps1') -SourceRoot $source *> (Join-Path $work 'recovery-localaccounts.private.log')
  if(!$?){throw 'The native PowerShell recovery module provenance controls failed.'}
  CheckedPython @((Join-Path $source 'tests/windows_upgrade_restore_holds.py'))
+ CheckedPython @((Join-Path $source 'tests/windows_restore_lock_retry.py'))
  CheckedPython @((Join-Path $source 'tests/windows_backup_control_observer_test.py'))
  & (Join-Path $source 'tests/windows_call_records_lifecycle.ps1') -SourceRoot $source *> (Join-Path $work 'call-records-lifecycle.private.log')
  if(!$?){throw 'The actual Windows call-record activation and recovery lifecycle controls failed.'}

@@ -15,6 +15,15 @@ controls and120 existing caller controls; native dispatch needs a new run.
 The restore refusal's holder remains unproven. Aggregate calling, backups,
 upgrade/recovery, owner migration and publication remain unqualified.
 
+The restore-startup test now waits up to30 seconds for the existing maintenance
+guard, retrying only BackupBusy from acquisition. The protected body runs once;
+permission/path errors and body failures propagate unchanged. Fourteen actual
+Windows component cases and independent original-file/runtime checks pass,
+alongside seven acquisition and seven journal groups. This proves resilience to
+a legitimate CDR read-lease schedule, while the historical holder and full
+installed restore remain unqualified. The next normal archive must include both
+QA corrections and repeat all required gates.
+
 The next normal run39960857878 stops before installation: a source test probes
 the runner's ambient PHP and times out after five seconds. The correction keeps
 the pure DOM check early and moves all seven PHP POST cases after verification
