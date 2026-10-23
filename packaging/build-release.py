@@ -137,7 +137,7 @@ def copy_tracked_tree(source, destination):
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path,target)
 
-excluded = {'.gitignore', '.project', '.github', 'AGENTS.md', '3CX.md', 'tests', 'platform', 'packaging', 'docs', 'website', 'android', 'mobile'}
+excluded = {'.gitignore', '.project', '.github', 'AGENTS.md', '3CX.md', 'tests', 'platform', 'clients', 'packaging', 'docs', 'website', 'android', 'mobile'}
 name = f'openwebpbx-{version}-' + ('windows-x64' if args.target == 'windows' else 'debian13-amd64')
 args.output.mkdir(parents=True, exist_ok=True)
 with tempfile.TemporaryDirectory(prefix='openweb-release-') as temporary:

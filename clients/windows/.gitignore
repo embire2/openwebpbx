@@ -1,0 +1,8 @@
+**/bin/
+**/obj/
+native-sdk/
+artifacts/
+*.pfx
+*.p12
+*.key
+.env*
