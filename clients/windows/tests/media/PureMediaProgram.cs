@@ -126,6 +126,68 @@ try
     var unknownSecurity = SecurityObservation.Capture(true, true, [SecurityObservation.Call("PRIVATE", "PRIVATE", "PRIVATE")]); Check(!JsonSerializer.Serialize(unknownSecurity).Contains("PRIVATE", StringComparison.Ordinal) && unknownSecurity.calls[0] == new MediaSecurityCall("unrecognised", "unrecognised", "unrecognised"));
     Refuse(() => SecurityObservation.Capture(true, true, [security.calls[0], security.calls[0], security.calls[0]]));
     var securityError = new InvalidDataException("PRIVATE"); securityError.Data["media_security_observation"] = security; Check(ReferenceEquals(FailureObservation.Capture(securityError, "case_execute").security, security));
+    // Actual fixed-header/file/hash observer controls; native call metadata is an explicit model.
+    var recordRoot = Path.Combine(root, "PRIVATE-recorder"); Directory.CreateDirectory(recordRoot); var recordPath = Path.Combine(recordRoot, "output.wav");
+    var nativePayload = RecorderObservation.Payload("StreamsRunning", "PCMU", 8000, 1);
+    var pendingRecorder = RecorderObservation.Pending(recordRoot, recordPath, true, true, [nativePayload]);
+    var notClosed = RecorderObservation.Complete(pendingRecorder, false); Check(!notClosed.owned_peers_closed && notClosed.file_observation == "peers_not_closed" && notClosed.closed_file is null);
+    var absentRecorder = RecorderObservation.Complete(pendingRecorder, true); Check(absentRecorder.owned_peers_closed && absentRecorder.file_observation == "read_refused" && absentRecorder.closed_file is null);
+    File.WriteAllBytes(recordPath, []); var closedEmpty = RecorderObservation.Complete(pendingRecorder, true);
+    Check(closedEmpty.closed_file is { length_bytes: 0, header_bytes: 0, riff: null, sample_rate: null } && closedEmpty.closed_file.sha256 == Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData([])));
+    File.WriteAllBytes(recordPath, audioBytes); var closedActual = RecorderObservation.Complete(pendingRecorder, true); var closedHeader = closedActual.closed_file!;
+    Check(closedHeader.phase == "after_owned_peer_shutdown" && closedHeader.length_bytes == audioBytes.Length && closedHeader.header_bytes == 44 && closedHeader.riff == true && closedHeader.wave == true && closedHeader.format == true && closedHeader.data == true);
+    Check(closedHeader.format_tag == 1 && closedHeader.channels == 1 && closedHeader.sample_rate == 8000 && closedHeader.sample_bits == 16 && closedHeader.alignment == 2 && closedHeader.byte_rate == 16000 && closedHeader.bytes_after_fixed_header == audioBytes.Length - 44 && closedHeader.data_declared_bytes == audioBytes.Length - 44);
+    Check(closedHeader.sha256 == Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(audioBytes)) && File.ReadAllBytes(recordPath).SequenceEqual(audioBytes));
+    Check(!JsonSerializer.Serialize(closedActual).Contains("PRIVATE", StringComparison.Ordinal));
+    var originalRecorderError = new InvalidDataException("PRIVATE"); originalRecorderError.Data["media_recorder_observation"] = closedActual; Check(ReferenceEquals(FailureObservation.Capture(originalRecorderError, "case_execute").recorder, closedActual));
+    var sourceHeaderModel = audioBytes.Take(44).ToArray(); System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(sourceHeaderModel.AsSpan(4), 32); System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(sourceHeaderModel.AsSpan(40), 0); File.WriteAllBytes(recordPath, sourceHeaderModel);
+    var closedSourceModel = RecorderObservation.ReadClosed(recordRoot, recordPath); Check(closedSourceModel.riff_declared_bytes == 32 && closedSourceModel.data_declared_bytes == 0 && closedSourceModel.bytes_after_fixed_header == 0); Refuse(() => PcmWave.Read(recordPath));
+    File.WriteAllBytes(recordPath, unsupported); Check(RecorderObservation.ReadClosed(recordRoot, recordPath).format_tag == 3); Refuse(() => PcmWave.Read(recordPath));
+    foreach (var length in new[] { 1, 4, 8, 12, 16, 36, 40, 43 }) { File.WriteAllBytes(recordPath, audioBytes.Take(length).ToArray()); Check(RecorderObservation.ReadClosed(recordRoot, recordPath).header_bytes == length); }
+    File.WriteAllBytes(recordPath, Enumerable.Repeat((byte)255, 44).ToArray()); var rawHeader = RecorderObservation.ReadClosed(recordRoot, recordPath); Check(rawHeader.riff == false && rawHeader.wave == false && rawHeader.format == false && rawHeader.data == false && rawHeader.format_tag is null && rawHeader.data_declared_bytes is null);
+    File.Delete(recordPath); File.CreateSymbolicLink(recordPath, single); Refuse(() => RecorderObservation.ReadClosed(recordRoot, recordPath)); Check(RecorderObservation.Complete(pendingRecorder, true).file_observation == "read_refused"); File.Delete(recordPath);
+    var linkedRecordRoot = Path.Combine(root, "PRIVATE-linked-recording"); Directory.CreateSymbolicLink(linkedRecordRoot, recordRoot); Refuse(() => RecorderObservation.ReadClosed(linkedRecordRoot, Path.Combine(linkedRecordRoot, "output.wav"))); Directory.Delete(linkedRecordRoot);
+    using (var largeRecorder = new FileStream(recordPath, FileMode.CreateNew)) largeRecorder.SetLength((long)RecorderObservation.Maximum + 1); Refuse(() => RecorderObservation.ReadClosed(recordRoot, recordPath)); File.Delete(recordPath);
+    Refuse(() => RecorderObservation.Pending(recordRoot, single, true, true, [nativePayload])); Refuse(() => RecorderObservation.Pending(recordRoot, Path.Combine(recordRoot, "other.wav"), true, true, [nativePayload])); Refuse(() => RecorderObservation.Pending("relative", "relative/output.wav", false, false, []));
+    Refuse(() => RecorderObservation.Pending(recordRoot, recordPath, false, true, [nativePayload])); Refuse(() => RecorderObservation.Pending(recordRoot, recordPath, true, true, [])); Refuse(() => RecorderObservation.Pending(recordRoot, recordPath, true, true, [nativePayload, nativePayload, nativePayload]));
+    Refuse(() => RecorderObservation.Pending(recordRoot, recordPath, true, true, [new("PRIVATE", "PRIVATE", 8000, 1)]));
+    Check(RecorderObservation.Payload("PRIVATE", "PRIVATE", int.MaxValue, -1) == new RecorderPayload("unrecognised", "unrecognised", 0, 0));
+    Check(RecorderObservation.Pending(recordRoot, Path.Combine(recordRoot, "conference.wav"), false, false, []).Recording == "conference_mix");
+    // Exact original zero-byte refusal plus actual growing files. Only the clock,
+    // sleeps and peer payload are adapters; no synthetic media is accepted here.
+    File.WriteAllBytes(recordPath, []); InvalidDataException? emptyPrimary = null;
+    try { PcmWave.Read(recordPath, true); } catch (InvalidDataException error) { emptyPrimary = error; }
+    Check(emptyPrimary?.Data["media_wave_observation"] is WaveReadObservation { reason: "file_length", length_check_bytes: 0, buffer_bytes: 0 });
+    var retainedEmpty = emptyPrimary!.Data["media_wave_observation"]; long intervalClock = 10; var sleeps = new List<int>(); PendingRecorderObservation grown;
+    using (var liveWriter = new FileStream(recordPath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite))
+    {
+        grown = RecorderObservation.ObserveInitialization(emptyPrimary, pendingRecorder, 0, () => intervalClock,
+            duration => { Check(duration is > 0 and <= 100); sleeps.Add(duration); liveWriter.Write(audioBytes.AsSpan(44, duration * 16)); liveWriter.Flush(true); intervalClock += duration; });
+        Check(grown.Interval is { state: "observed", phase: "before_owned_peer_shutdown", snapshot_atomic: false, requested_ms: 5000, elapsed_ms: 5000, wait_completed: true });
+        Check(grown.Interval!.prefix is { length_before_bytes: 80000, length_after_bytes: 80000, header_bytes: 44, riff: false, format_tag: null });
+        Check(sleeps.Count == 50 && sleeps.Sum() == 5000 && intervalClock == 5010 && ReferenceEquals(emptyPrimary.Data["media_wave_observation"], retainedEmpty));
+    }
+    Check(RecorderObservation.Complete(grown, true).initialization_interval == grown.Interval);
+    intervalClock = 11050; sleeps.Clear(); var shortInterval = RecorderObservation.ObserveInitialization(emptyPrimary, pendingRecorder, 0, () => intervalClock, duration => { sleeps.Add(duration); intervalClock += duration; });
+    Check(shortInterval.Interval is { state: "observed", requested_ms: 950, elapsed_ms: 950, start_capture_ms: 11050, end_capture_ms: 12000 } && sleeps.Sum() == 950 && sleeps.All(duration => duration is > 0 and <= 100));
+    intervalClock = 12000; var exhausted = RecorderObservation.ObserveInitialization(emptyPrimary, pendingRecorder, 0, () => intervalClock, _ => throw new InvalidOperationException("No sleeping allowed.")); Check(exhausted.Interval is { state: "no_remaining_budget", requested_ms: 0, elapsed_ms: 0, prefix: null, wait_completed: false });
+    intervalClock = 11990; var overslept = RecorderObservation.ObserveInitialization(emptyPrimary, pendingRecorder, 0, () => intervalClock, duration => { Check(duration == 10); intervalClock += 25; }); Check(overslept.Interval is { state: "capture_budget_expired", end_capture_ms: 12015, requested_ms: 10, prefix: null });
+    intervalClock = 0; var requestedTotal = 0; var stagnant = RecorderObservation.ObserveInitialization(emptyPrimary, pendingRecorder, 0, () => intervalClock, duration => requestedTotal += duration); Check(stagnant.Interval is { state: "observation_refused", wait_completed: false, prefix: null } && requestedTotal == 5000);
+    var observedPrimary = emptyPrimary;
+    try { try { throw emptyPrimary; } catch (InvalidDataException original) { _ = RecorderObservation.ObserveInitialization(original, pendingRecorder, 0, () => 0, _ => throw new IOException("PRIVATE")); throw; } }
+    catch (InvalidDataException original) { Check(ReferenceEquals(original, observedPrimary) && ReferenceEquals(original.Data["media_wave_observation"], retainedEmpty)); }
+    var backward = RecorderObservation.ObserveInitialization(emptyPrimary, pendingRecorder, 10, () => 9, _ => throw new InvalidOperationException()); Check(backward.Interval is { state: "observation_refused", start_capture_ms: null, prefix: null });
+    var unknownCall = RecorderObservation.ObserveInitialization(emptyPrimary, pendingRecorder with { SameCallIdentity = false }, 0, () => 10, _ => throw new InvalidOperationException()); Check(unknownCall.Interval is { state: "call_not_confirmed", requested_ms: 0, prefix: null });
+    var nonzeroFailure = new InvalidDataException(); nonzeroFailure.Data["media_wave_observation"] = ((WaveReadObservation)retainedEmpty!) with { length_check_bytes = 1 };
+    Check(ReferenceEquals(RecorderObservation.ObserveInitialization(nonzeroFailure, pendingRecorder, 0, () => throw new InvalidOperationException(), _ => throw new InvalidOperationException()), pendingRecorder));
+    var wrongShapeFailure = new InvalidDataException(); wrongShapeFailure.Data["media_wave_observation"] = ((WaveReadObservation)retainedEmpty!) with { growing = false };
+    Check(ReferenceEquals(RecorderObservation.ObserveInitialization(wrongShapeFailure, pendingRecorder, 0, () => throw new InvalidOperationException(), _ => throw new InvalidOperationException()), pendingRecorder));
+    Check(ReferenceEquals(RecorderObservation.ObserveInitialization(emptyPrimary, pendingRecorder, 300001, () => throw new InvalidOperationException(), _ => throw new InvalidOperationException()), pendingRecorder));
+    Check(!JsonSerializer.Serialize(grown.Interval).Contains("PRIVATE", StringComparison.Ordinal));
+    File.WriteAllBytes(recordPath, audioBytes); var liveFormat = RecorderObservation.ReadPrefix(recordRoot, recordPath); Check(liveFormat.sample_rate == 8000 && liveFormat.format_tag == 1 && liveFormat.data_declared_bytes == 64000 && File.ReadAllBytes(recordPath).SequenceEqual(audioBytes));
+    File.WriteAllBytes(recordPath, []); Check(RecorderObservation.ReadPrefix(recordRoot, recordPath) is { header_bytes: 0, riff: null, data_declared_bytes: null });
+    File.Delete(recordPath); File.CreateSymbolicLink(recordPath, single); Refuse(() => RecorderObservation.ReadPrefix(recordRoot, recordPath)); File.Delete(recordPath);
+    intervalClock = 0; var missingPrefix = RecorderObservation.ObserveInitialization(emptyPrimary, pendingRecorder, 0, () => intervalClock, duration => intervalClock += duration); Check(missingPrefix.Interval is { state: "observation_refused", wait_completed: true, requested_ms: 5000, prefix: null });
     var productionAbsence = false;
     if (args.Length != 0)
     {

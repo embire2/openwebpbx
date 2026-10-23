@@ -30,7 +30,7 @@ internal sealed record NativeMediaFixture(string Root, string CaPem, string Inpu
         else if (required) throw new InvalidOperationException("Fixture input is missing.");
     }
 }
-internal sealed record NativeMediaCallSnapshot(Guid Id, string State, string Encryption, string SrtpSuite, string VideoCodec, int DecodedVideoFrames, int Width, int Height, float ReceivedFps);
+internal sealed record NativeMediaCallSnapshot(Guid Id, string State, string Encryption, string SrtpSuite, string VideoCodec, int DecodedVideoFrames, int Width, int Height, float ReceivedFps, string AudioCodec, int AudioClockRate, int AudioChannels);
 internal sealed record NativeLocalPlaybackSnapshot(string State, int Duration, int Position, bool OwnedFilePresent);
 internal sealed record NativeMediaCallSignal(int State, int Reason, int ProtocolCode, bool Observed);
 internal sealed record NativeFixtureSnapshot(bool TlsCaAndHostname, bool MandatorySrtp, NativeMediaCallSnapshot[] Calls, string[] Dtmf, NativeMediaCallSignal[] Signals);

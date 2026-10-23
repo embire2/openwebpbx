@@ -262,8 +262,61 @@ function ReadNativeSecurityObservation($Value){
  }
  $Value
 }
+function ReadNativeRecorderInterval($Value){
+ ClosedKeys $Value @('phase','snapshot_atomic','state','failure_capture_ms','start_capture_ms','end_capture_ms','elapsed_ms','requested_ms','wait_completed','prefix')
+ if($Value.phase -isnot [string] -or $Value.phase -cne 'before_owned_peer_shutdown' -or $Value.snapshot_atomic -isnot [bool] -or $Value.snapshot_atomic -or $Value.state -isnot [string] -or $Value.state -cnotin @('observed','observation_refused','call_not_confirmed','no_remaining_budget','capture_budget_expired') -or $Value.wait_completed -isnot [bool]){throw 'Closed diagnostic interval scope required.'}
+ foreach($name in @('failure_capture_ms','start_capture_ms','end_capture_ms','elapsed_ms')){if($null -ne $Value.$name -and ($Value.$name -isnot [long] -or $Value.$name -lt 0 -or $Value.$name -gt 300000)){throw 'Bounded capture-relative milliseconds required.'}}
+ if($null -eq $Value.failure_capture_ms -or $Value.requested_ms -isnot [long] -or $Value.requested_ms -lt 0 -or $Value.requested_ms -gt 5000){throw 'Original failure time and bounded requested wait required.'}
+ if(($null -eq $Value.start_capture_ms) -ne ($null -eq $Value.end_capture_ms) -or ($null -eq $Value.start_capture_ms) -ne ($null -eq $Value.elapsed_ms)){throw 'Partial interval timing is inconsistent.'}
+ if($null -ne $Value.start_capture_ms -and ($Value.start_capture_ms -lt $Value.failure_capture_ms -or $Value.end_capture_ms -lt $Value.start_capture_ms -or $Value.elapsed_ms -ne $Value.end_capture_ms-$Value.start_capture_ms)){throw 'Monotonic actual interval required.'}
+ if($Value.requested_ms -gt 0 -and ($null -eq $Value.start_capture_ms -or $Value.start_capture_ms -ge 12000 -or $Value.requested_ms -ne [Math]::Min(5000,12000-$Value.start_capture_ms))){throw 'Diagnostic wait exceeds original capture budget.'}
+ if($Value.state -ceq 'observed' -and (!$Value.wait_completed -or $Value.requested_ms -eq 0 -or $Value.elapsed_ms -lt $Value.requested_ms -or $null -eq $Value.prefix)){throw 'Observed prefix requires completed diagnostic interval.'}
+ if($Value.state -cne 'observed' -and $null -ne $Value.prefix){throw 'Unavailable interval cannot publish prefix.'}
+ if($Value.state -ceq 'capture_budget_expired' -and (!$Value.wait_completed -or $Value.requested_ms -eq 0 -or $Value.end_capture_ms -le 12000)){throw 'Overshoot observation differs.'}
+ if($Value.state -in @('call_not_confirmed','no_remaining_budget') -and ($Value.requested_ms -ne 0 -or $Value.wait_completed -or $null -eq $Value.start_capture_ms -or $Value.elapsed_ms -ne 0)){throw 'Skipped observation cannot imply a wait.'}
+ if($Value.state -ceq 'no_remaining_budget' -and $Value.start_capture_ms -lt 12000){throw 'Remaining original budget was not exhausted.'}
+ if($null -ne $Value.prefix){
+  $f=$Value.prefix;ClosedKeys $f @('length_before_bytes','length_after_bytes','header_bytes','riff','wave','format','data','riff_declared_bytes','format_declared_bytes','format_tag','channels','sample_rate','byte_rate','alignment','sample_bits','data_declared_bytes')
+  foreach($name in @('length_before_bytes','length_after_bytes')){if($f.$name -isnot [long] -or $f.$name -lt 0 -or $f.$name -gt 134217728){throw 'Bounded live file lengths required.'}}
+  if($f.header_bytes -isnot [long] -or $f.header_bytes -ne [Math]::Min(44,$f.length_before_bytes)){throw 'Only the bounded actually read prefix is retained.'}
+  $offsets=@{riff=0;wave=8;format=12;data=36};foreach($name in $offsets.Keys){if($null -ne $f.$name -and $f.$name -isnot [bool]){throw 'Typed live-header marker required.'};if(($null -ne $f.$name) -ne ($f.header_bytes -ge $offsets[$name]+4)){throw 'Marker cannot precede live prefix bytes.'}}
+  foreach($name in @('riff_declared_bytes','format_declared_bytes','sample_rate','byte_rate','data_declared_bytes')){if($null -ne $f.$name -and ($f.$name -isnot [long] -or $f.$name -lt 0 -or $f.$name -gt 4294967295)){throw 'Bounded live header uint32 required.'}}
+  foreach($name in @('format_tag','channels','alignment','sample_bits')){if($null -ne $f.$name -and ($f.$name -isnot [long] -or $f.$name -lt 0 -or $f.$name -gt 65535)){throw 'Bounded live header uint16 required.'}}
+  if(($null -ne $f.riff_declared_bytes) -ne ($f.riff -eq $true -and $f.header_bytes -ge 8)){throw 'Live RIFF length cannot precede marker.'}
+  $hasFormat=$f.riff -eq $true -and $f.wave -eq $true -and $f.format -eq $true -and $f.header_bytes -ge 36
+  foreach($name in @('format_declared_bytes','format_tag','channels','sample_rate','byte_rate','alignment','sample_bits')){if(($null -ne $f.$name) -ne $hasFormat){throw 'Live format values require complete fixed prefix.'}}
+  if(($null -ne $f.data_declared_bytes) -ne ($f.riff -eq $true -and $f.wave -eq $true -and $f.data -eq $true -and $f.header_bytes -eq 44)){throw 'Live data length requires fixed prefix.'}
+ }
+ $Value
+}
+function ReadNativeRecorderObservation($Value){
+ ClosedKeys $Value @('scope','recording','payload_phase','payload_observed','same_call_identity','call_count','calls','owned_peers_closed','file_observation','closed_file','initialization_interval')
+ if($Value.scope -isnot [string] -or $Value.scope -cne 'failed_capture_same_owned_recorder' -or $Value.recording -isnot [string] -or $Value.recording -cnotin @('receive_output','conference_mix') -or $Value.payload_phase -isnot [string] -or $Value.payload_phase -cne 'after_failed_read_before_cleanup'){throw 'Closed recorder observation scope required.'}
+ foreach($flag in @('payload_observed','same_call_identity','owned_peers_closed')){if($Value.$flag -isnot [bool]){throw 'Typed recorder lifecycle required.'}}
+ if($Value.call_count -isnot [long] -or $Value.call_count -lt 0 -or $Value.call_count -gt 2 -or $Value.calls -isnot [array] -or $Value.calls.Count -ne $Value.call_count -or (!$Value.payload_observed -and ($Value.same_call_identity -or $Value.call_count -ne 0)) -or ($Value.same_call_identity -and $Value.call_count -eq 0)){throw 'Recorder native snapshot scope differs.'}
+ foreach($call in $Value.calls){
+  ClosedKeys $call @('state','codec','clock_rate','channels')
+  if($call.state -isnot [string] -or $call.state -cnotin @('Idle','IncomingReceived','PushIncomingReceived','OutgoingInit','OutgoingProgress','OutgoingRinging','OutgoingEarlyMedia','Connected','StreamsRunning','Pausing','Paused','Resuming','Referred','Error','End','PausedByRemote','UpdatedByRemote','IncomingEarlyMedia','Updating','Released','EarlyUpdatedByRemote','EarlyUpdating','unrecognised') -or $call.codec -isnot [string] -or $call.codec -cnotin @('PCMU','PCMA','opus','G722','G729','speex','L16','none','unrecognised') -or $call.clock_rate -isnot [long] -or $call.clock_rate -lt 0 -or $call.clock_rate -gt 192000 -or $call.channels -isnot [long] -or $call.channels -lt 0 -or $call.channels -gt 8){throw 'Bounded closed native audio payload required.'}
+ }
+ if($null -ne $Value.initialization_interval){$null=ReadNativeRecorderInterval $Value.initialization_interval;if($Value.initialization_interval.state -ceq 'call_not_confirmed' -and $Value.payload_observed -and $Value.same_call_identity){throw 'Call identity skip differs.'};if($Value.initialization_interval.requested_ms -gt 0 -and (!$Value.payload_observed -or !$Value.same_call_identity)){throw 'Diagnostic waiting requires this same call.'}}
+ if($Value.file_observation -isnot [string] -or $Value.file_observation -cnotin @('observed','read_refused','peers_not_closed') -or (($Value.file_observation -ceq 'peers_not_closed') -ne (!$Value.owned_peers_closed)) -or (($Value.file_observation -ceq 'observed') -ne ($null -ne $Value.closed_file))){throw 'Recorder after-close boundary differs.'}
+ if($null -ne $Value.closed_file){
+  $f=$Value.closed_file;ClosedKeys $f @('phase','length_bytes','sha256','header_bytes','riff','wave','format','data','riff_declared_bytes','format_declared_bytes','format_tag','channels','sample_rate','byte_rate','alignment','sample_bits','data_declared_bytes','bytes_after_fixed_header')
+  if($f.phase -isnot [string] -or $f.phase -cne 'after_owned_peer_shutdown' -or $f.length_bytes -isnot [long] -or $f.length_bytes -lt 0 -or $f.length_bytes -gt 134217728 -or $f.sha256 -isnot [string] -or $f.sha256 -cnotmatch '^[a-f0-9]{64}$' -or $f.header_bytes -isnot [long] -or $f.header_bytes -ne [Math]::Min(44,$f.length_bytes)){throw 'Bounded hashed after-close file required.'}
+  $offsets=@{riff=0;wave=8;format=12;data=36};foreach($name in $offsets.Keys){if($null -ne $f.$name -and $f.$name -isnot [bool]){throw 'Typed closed-header marker required.'};if(($null -ne $f.$name) -ne ($f.header_bytes -ge $offsets[$name]+4)){throw 'Marker cannot precede observed header bytes.'}}
+  foreach($name in @('riff_declared_bytes','format_declared_bytes','sample_rate','byte_rate','data_declared_bytes')){if($null -ne $f.$name -and ($f.$name -isnot [long] -or $f.$name -lt 0 -or $f.$name -gt 4294967295)){throw 'Bounded header uint32 required.'}}
+  foreach($name in @('format_tag','channels','alignment','sample_bits')){if($null -ne $f.$name -and ($f.$name -isnot [long] -or $f.$name -lt 0 -or $f.$name -gt 65535)){throw 'Bounded header uint16 required.'}}
+  if(($null -ne $f.riff_declared_bytes) -ne ($f.riff -eq $true -and $f.header_bytes -ge 8)){throw 'RIFF length cannot precede its marker.'}
+  $hasFormat=$f.riff -eq $true -and $f.wave -eq $true -and $f.format -eq $true -and $f.header_bytes -ge 36
+  foreach($name in @('format_declared_bytes','format_tag','channels','sample_rate','byte_rate','alignment','sample_bits')){if(($null -ne $f.$name) -ne $hasFormat){throw 'Format values require the complete fixed header.'}}
+  $hasData=$f.riff -eq $true -and $f.wave -eq $true -and $f.data -eq $true -and $f.header_bytes -eq 44
+  if(($null -ne $f.data_declared_bytes) -ne $hasData -or ($null -ne $f.bytes_after_fixed_header) -ne $hasData){throw 'Data values require the fixed header.'}
+  if($hasData -and ($f.bytes_after_fixed_header -isnot [long] -or $f.bytes_after_fixed_header -ne $f.length_bytes-44)){throw 'Actual bytes after fixed header differ.'}
+ }
+ $Value
+}
 function ReadNativeFailureObservation($Value){
- ClosedKeys $Value @('operation','source_basename','source_line','peer','wait','wave','security')
+ ClosedKeys $Value @('operation','source_basename','source_line','peer','wait','wave','security','recorder')
  if($Value.operation -isnot [string] -or $Value.operation -cnotin @('engine_construct','engine_start','case_prepare','wrong_ca_create','wrong_ca_wait','wrong_ca_assert','wrong_ca_dispose','wrong_name_create','wrong_name_wait','wrong_name_assert','wrong_name_dispose','peer_0_create','peer_1_create','peer_2_create','registration_wait','security_assert','case_execute','peers_cleanup','engine_idle','engine_shutdown') -or $Value.source_basename -isnot [string] -or $Value.source_basename -cnotin @('LabCoordinator.cs','LabServer.cs','PeerRunner.cs','PeerProtocol.cs','CoreCodecInventory.cs','ProcessImage.cs','WaitObservation.cs','AudioProof.cs','NativePhone.cs','NativeMediaFixture.cs','external_component') -or $Value.source_line -isnot [long] -or $Value.source_line -lt 0 -or $Value.source_line -gt 100000 -or (($Value.source_basename -ceq 'external_component') -ne ($Value.source_line -eq 0))){throw 'Closed actual failure source differs.'}
  if($null -ne $Value.peer){$peer=$Value.peer;ClosedKeys $peer @('progress','exited_before_cleanup','exit_code_before_cleanup','error_type','stderr_observed')
   if($peer.progress -isnot [string] -or $peer.progress -cnotin @('none','native_runtime_resources','native_logging','native_factory','native_configuration','native_create_core','native_database','native_encryption','native_trusted_roots','native_devices','native_listeners','native_start','native_verify_policy','ready','unrecognised') -or $peer.exited_before_cleanup -isnot [bool] -or $peer.stderr_observed -isnot [bool] -or $peer.error_type -isnot [string] -or $peer.error_type -cnotin @('none','InvalidDataException','InvalidOperationException','JsonException','IOException','FileNotFoundException','DirectoryNotFoundException','UnauthorizedAccessException','TimeoutException','DllNotFoundException','EntryPointNotFoundException','BadImageFormatException','TypeInitializationException','ArgumentException','ArgumentNullException','NullReferenceException','NotSupportedException','AccessViolationException','other','unobserved')){throw 'Closed native peer observation differs.'}
@@ -273,6 +326,12 @@ function ReadNativeFailureObservation($Value){
  if($null -ne $Value.wait){$null=ReadNativeWaitObservation $Value.wait}
  if($null -ne $Value.wave){$null=ReadNativeWaveObservation $Value.wave}
  if($null -ne $Value.security){$null=ReadNativeSecurityObservation $Value.security}
+ if($null -ne $Value.recorder){$null=ReadNativeRecorderObservation $Value.recorder
+  if($null -ne $Value.recorder.initialization_interval){
+   $w=$Value.wave;if($null -eq $w -or $w.reason -cne 'file_length' -or $w.source -cne 'file_length_check' -or !$w.growing -or $w.snapshot_atomic -or $w.length_check_bytes -ne 0 -or $w.buffer_bytes -ne 0 -or $w.chunk -cne 'none' -or $w.chunk_offset -ne -1 -or $w.format_seen -or $w.data_seen -or $w.data_bytes -ne 0){throw 'Only the exact original zero-byte refusal permits a diagnostic interval.'}
+   foreach($field in @('riff','wave','riff_declared_bytes','chunk_declared_bytes','chunk_effective_bytes','format_tag','channels','sample_rate','sample_bits','alignment','byte_rate')){if($null -ne $w.$field){throw 'Zero-byte refusal cannot have inferred header data.'}}
+  }
+ }
  $Value
 }
 function ReadEngineObservation($Value){

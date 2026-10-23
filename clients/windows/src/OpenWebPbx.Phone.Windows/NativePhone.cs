@@ -333,10 +333,10 @@ public sealed class NativePhone : IDisposable
         CheckThread(); if (mediaFixture is null) throw new InvalidOperationException("No media fixture is active.");
         return new(voicemailPlayer?.State.ToString() ?? "Closed", voicemailPlayer?.Duration ?? 0, voicemailPlayer?.CurrentPosition ?? 0, voicemailPath is not null && File.Exists(voicemailPath));
     }
-    internal NativeFixtureSnapshot FixtureSnapshot(bool clearDtmf = false)
+    internal NativeFixtureSnapshot FixtureSnapshot(bool clearDtmf = false, bool observeAudioPayload = false)
     {
         CheckThread(); if (mediaFixture is null) throw new InvalidOperationException("No media fixture is active.");
-        var calls = core.Calls.Select(call => { var view = View(call); var parameters = call.CurrentParams; var definition = parameters?.ReceivedVideoDefinition; return new NativeMediaCallSnapshot(view.Id, call.State.ToString(), parameters?.MediaEncryption.ToString() ?? "None", call.AudioStats?.SrtpSuite.ToString() ?? "Invalid", parameters?.UsedVideoPayloadType?.MimeType ?? "", decodedFrames.GetValueOrDefault(call), (int)(definition?.Width ?? 0), (int)(definition?.Height ?? 0), parameters?.ReceivedFramerate ?? 0); }).ToArray();
+        var calls = core.Calls.Select(call => { var view = View(call); var parameters = call.CurrentParams; var definition = parameters?.ReceivedVideoDefinition; var audio = observeAudioPayload ? parameters?.UsedAudioPayloadType : null; return new NativeMediaCallSnapshot(view.Id, call.State.ToString(), parameters?.MediaEncryption.ToString() ?? "None", call.AudioStats?.SrtpSuite.ToString() ?? "Invalid", parameters?.UsedVideoPayloadType?.MimeType ?? "", decodedFrames.GetValueOrDefault(call), (int)(definition?.Width ?? 0), (int)(definition?.Height ?? 0), parameters?.ReceivedFramerate ?? 0, audio?.MimeType ?? "none", audio?.ClockRate ?? 0, audio?.Channels ?? 0); }).ToArray();
         var dtmf = receivedDtmf.ToArray(); if (clearDtmf) receivedDtmf.Clear();
         return new(core.IsVerifyServerCertificates && core.IsVerifyServerCn, core.IsMediaEncryptionMandatory, calls, dtmf, mediaSignals.ToArray());
     }

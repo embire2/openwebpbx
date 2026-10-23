@@ -116,6 +116,7 @@ internal static class LabCoordinator
         // seconds of NEW decoded samples, then a completely good current 3 s tail.
         // Resets restart the observation; an old final WAV never qualifies it.
         var timer = Stopwatch.StartNew(); double? baseline = null; var previous = 0d;
+        var observedCallIds = peer.State.Native.Calls.Select(call => call.Id).Order().ToArray();
         while (timer.Elapsed.TotalSeconds < 12)
         {
             try
@@ -124,6 +125,21 @@ internal static class LabCoordinator
                 if (baseline is null || wave.Duration < previous) baseline = wave.Duration;
                 previous = wave.Duration;
                 if (wave.Duration - baseline.Value >= 3.3 && timer.Elapsed.TotalSeconds >= 3.3) return new(wave.Tail(frequencies), wave.Duration - baseline.Value, timer.Elapsed.TotalSeconds);
+            }
+            catch (InvalidDataException error) when (error.Data["media_wave_observation"] is WaveReadObservation)
+            {
+                var failedElapsed = timer.ElapsedMilliseconds;
+                // Observe only after the original exact read has failed. No retry,
+                // changed acceptance or new call/recorder operation follows here.
+                try
+                {
+                    var observed = false; var same = false; RecorderPayload[] payloads = [];
+                    try { var current = peer.Command("recorder_payload").Native.Calls; observed = true; same = observedCallIds.Length > 0 && observedCallIds.SequenceEqual(current.Select(call => call.Id).Order()); payloads = current.Select(call => RecorderObservation.Payload(call.State, call.AudioCodec, call.AudioClockRate, call.AudioChannels)).ToArray(); } catch { }
+                    var pending = RecorderObservation.Pending(peer.Root, recording ?? peer.Output, observed, same, payloads);
+                    error.Data["media_recorder_pending"] = RecorderObservation.ObserveInitialization(error, pending, failedElapsed, () => timer.ElapsedMilliseconds, Thread.Sleep);
+                }
+                catch { }
+                throw;
             }
             catch (IOException) { }
             Thread.Sleep(100);
@@ -155,7 +171,7 @@ internal static class LabCoordinator
             server = new LabServer(root, input.EngineRoot, journal); operation = "engine_start"; server.Start(); engineStarted = true;
             foreach (var name in new[] { "tls_chain_hostname", "outgoing_audio", "incoming_audio", "hold_music_resume", "dtmf", "blind_transfer", "consult_complete", "consult_cancel", "call_waiting", "local_conference", "software_vp8", "voicemail_local_player" })
             {
-                stage = name; operation = "case_prepare"; server.BeginCase(); var paths = new List<string>(); var facts = new Dictionary<string, object>();
+                stage = name; operation = "case_prepare"; server.BeginCase(); var paths = new List<string>(); var facts = new Dictionary<string, object>(); Exception? caseFailure = null;
                 string NewRoot(int index)
                 {
                     var own = Path.Combine(temp, "phone-media-" + Guid.NewGuid().ToString("N")); PrivateDirectory(own); peerRoots.Add(own);
@@ -224,7 +240,14 @@ internal static class LabCoordinator
                     operation = "peers_cleanup"; if (!StopPeers(peers)) { cleanup = false; throw new InvalidDataException("Owned peer cleanup failed."); } operation = "engine_idle"; server.RequireIdle();
                     cases.Add(new { name, state = "passed", actual_nativephone = true, file_media_adapter = true, growing_wav_snapshot_adapter = true, facts });
                 }
-                finally { if (!StopPeers(peers)) cleanup = false; }
+                catch (Exception error) { caseFailure = error; throw; }
+                finally
+                {
+                    // Preserve the existing once-only owned shutdown before any final
+                    // recorder observation. An observer can never replace the failure.
+                    var peersClosed = StopPeers(peers); if (!peersClosed) cleanup = false;
+                    try { if (caseFailure?.Data["media_recorder_pending"] is PendingRecorderObservation pending) caseFailure.Data["media_recorder_observation"] = RecorderObservation.Complete(pending, peersClosed); } catch { }
+                }
             }
             operation = "engine_idle"; server.RequireIdle(); operation = "engine_shutdown"; server.Dispose(); engineStopped = true; server = null;
         }

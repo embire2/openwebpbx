@@ -23,7 +23,7 @@ internal static partial class PeerRunner
         _ = Task.Run(() => { try { string? line; while ((line = Console.ReadLine()) is not null) { if (line.Length > 4096 || commands.Count >= 64) break; commands.Enqueue(line); } } finally { Volatile.Write(ref stdinEnded, true); } });
         NativePhone? phone = null; nint window = 0; var started = DateTime.UtcNow; var stopping = false; var lastSequence = 0; Exception? primary = null;
         void Reply(PeerReply value) { var json = JsonSerializer.Serialize(value, Protocol.Json); if (json.Length > 32768) throw new InvalidDataException("Peer snapshot exceeds its bound."); Console.WriteLine(json); Console.Out.Flush(); }
-        PeerState Snapshot(bool clear = false) => new(phone!.Registrations.Values.SingleOrDefault() == "Ready for calls", phone.Registrations.Values.SingleOrDefault() == "Could not connect. Check your connection or sign in again.", phone.Busy, phone.Conferencing, phone.Current?.Id, phone.Calls.Select(call => new CallView(call.Id, call.Number, call.State.ToString(), call.Incoming)).ToArray(), phone.FixtureSnapshot(clear), phone.FixturePlaybackSnapshot());
+        PeerState Snapshot(bool clear = false, bool recorder = false) => new(phone!.Registrations.Values.SingleOrDefault() == "Ready for calls", phone.Registrations.Values.SingleOrDefault() == "Could not connect. Check your connection or sign in again.", phone.Busy, phone.Conferencing, phone.Current?.Id, phone.Calls.Select(call => new CallView(call.Id, call.Number, call.State.ToString(), call.Incoming)).ToArray(), phone.FixtureSnapshot(clear, recorder), phone.FixturePlaybackSnapshot());
         try
         {
             var fixture = new NativeMediaFixture(input.Root, input.CaPem, input.InputWav, input.OutputWav, input.StaticImage);
@@ -47,6 +47,7 @@ internal static partial class PeerRunner
                         switch (command.Action)
                         {
                             case "snapshot": break;
+                            case "recorder_payload": Reply(new(command.Sequence, command.Action, true, "", Snapshot(false, true))); continue;
                             case "clear_dtmf": Reply(new(command.Sequence, command.Action, true, "", Snapshot(true))); continue;
                             case "dial": phone.Dial(command.Number, command.Video); break;
                             case "answer": phone.Answer(command.Call ?? throw new InvalidDataException(), command.Video); break;
