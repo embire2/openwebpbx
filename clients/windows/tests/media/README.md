@@ -99,7 +99,13 @@ missing cleanup and wider scope claims. A separate failure-only path exports
 only a closed stage/type/completed-case count; it cannot accept a failed run as
 qualified. A failed native run additionally retains its fixed operation name,
 source basename/line, last accepted native startup stage and observed peer exit
-and error type. Service-difference diagnostics retain at most16 ordinary service
+and error type. Every native wait also has a fixed name and its original8/20second
+deadline. Only after a failed wait, at most3 peers are sampled once for call
+counts/states and up to32 native state/reason/SIP-status observations. These
+fixture-only observations contain no number, address, display name or error text;
+an observation failure cannot replace the original failure. The ordinary compiled
+Windows assembly is checked for absence of the fixture types, fields and methods.
+Service-difference diagnostics retain at most16 ordinary service
 names, changed property names and typed status/start mode; command paths and
 accounts never leave the runner. These observations do not relax the complete
 system snapshot comparison. Process ownership queries the executable image on
@@ -112,6 +118,11 @@ removal. The wrapper compares service identities/states, root-certificate
 thumbprints and all nine firewall collections in ActiveStore/PersistentStore.
 Any missing preservation or cleanup holds the result. Raw media, private keys,
 SIP secrets, paths and child output are not published in the receipt.
+
+Five additional read-only service observations bracket SDK extraction, MSI
+extraction, compilation, entry to native media and its return. Each compares with
+the original initial baseline; neither baseline nor final preservation predicate
+is moved or relaxed. A transition identifies an observed interval, not its cause.
 
 Pure controls that need no SDK or Windows execution:
 

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using OpenWebPbx.Phone.MediaChecks;
 using System.Text.Json;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 var root = Path.Combine(Path.GetTempPath(), "phone-media-pure-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(root); var checks = 0;
 void Check(bool value) { if (!value) throw new InvalidDataException("Pure media control failed."); checks++; }
 void Refuse(Action action) { bool refused = false; try { action(); } catch (InvalidDataException) { refused = true; } Check(refused); }
@@ -40,6 +42,30 @@ try
     Refuse(() => ProcessImage.Validate(executable, 0, 42, executable, 0, 42, false)); Refuse(() => ProcessImage.Validate(executable, 1000, 0, executable, 1000, 0, false));
     Refuse(() => ProcessImage.VerifyFile(executable, new string('0', 64))); Refuse(() => ProcessImage.VerifyFile(executable, "PRIVATE")); File.WriteAllBytes(executable, [4, 5, 6]); Refuse(() => ProcessImage.VerifyFile(executable, imageHash));
     var link = Path.Combine(root, "linked.exe"); File.CreateSymbolicLink(link, executable); Refuse(() => ProcessImage.HashFile(link)); File.Delete(link); Refuse(() => ProcessImage.HashFile(root));
-    Console.WriteLine(JsonSerializer.Serialize(new { schema = 1, state = "passed_pure_audio_codec_diagnostic_and_process_identity_components", checks, actual_native_calling = false, hardware_media_tested = false, codec_inventory_input = "explicit_model" }));
+    MediaWaitPeer[] Peers() => [new(0, true, new(true, false, false, 0, [], [new(13, 4, 404, true)]))];
+    var waitModel = new MediaWaitObservation("incoming_initial", 20, Peers()); Check(WaitObservation.Require(waitModel).peers[0].state!.signals[0].protocol_code == 404);
+    Refuse(() => WaitObservation.Require(waitModel with { name = "PRIVATE" })); Refuse(() => WaitObservation.Require(waitModel with { deadline_seconds = 21 })); Refuse(() => WaitObservation.Require(waitModel with { peers = [] }));
+    Refuse(() => WaitObservation.Require(waitModel with { peers = [new(1, false, null)] })); Refuse(() => WaitObservation.Require(waitModel with { peers = [new(0, false, waitModel.peers[0].state)] }));
+    foreach (var badSignal in new[] { new MediaWaitSignal(22, 4, 404, true), new(13, 26, 404, true), new(13, 4, 700, true), new(13, 4, 404, false) }) Refuse(() => WaitObservation.Require(waitModel with { peers = [new(0, true, waitModel.peers[0].state! with { signals = [badSignal] })] }));
+    Refuse(() => WaitObservation.Require(waitModel with { peers = [new(0, true, waitModel.peers[0].state! with { call_count = 1, states = ["PRIVATE"] })] }));
+    long elapsed = 0; var predicates = 0; var observations = 0;
+    MediaWaitPeer[] Observe() { observations++; return Peers(); }
+    void Sleep(int duration) { if (duration != 100) throw new InvalidDataException("Original poll interval differs."); elapsed += duration; }
+    WaitObservation.RunCore("incoming_initial", () => { predicates++; return true; }, Observe, 20, () => elapsed, _ => throw new InvalidDataException()); Check(predicates == 1 && observations == 0);
+    predicates = 0; try { WaitObservation.RunCore("incoming_initial", () => { predicates++; return false; }, Observe, 20, () => elapsed, Sleep); throw new InvalidDataException(); } catch (TimeoutException timeout) { Check(predicates == 200 && elapsed == 20000 && observations == 1 && timeout.Data["media_wait_observation"] is MediaWaitObservation); }
+    var primary = new InvalidDataException("PRIVATE"); try { WaitObservation.RunCore("conference_merged", () => throw primary, () => throw new InvalidOperationException("PRIVATE"), 20, () => 0, _ => throw new InvalidDataException()); } catch (InvalidDataException caught) { Check(ReferenceEquals(caught, primary) && !caught.Data.Contains("media_wait_observation")); }
+    var productionAbsence = false;
+    if (args.Length != 0)
+    {
+        if (args.Length != 2 || args[0] != "--production-windows-assembly") throw new InvalidDataException("Explicit production assembly argument required.");
+        using var stream = File.OpenRead(args[1]); using var pe = new PEReader(stream); var metadata = pe.GetMetadataReader();
+        var types = metadata.TypeDefinitions.Select(handle => metadata.GetString(metadata.GetTypeDefinition(handle).Name)).ToHashSet(StringComparer.Ordinal);
+        var methods = metadata.MethodDefinitions.Select(handle => metadata.GetString(metadata.GetMethodDefinition(handle).Name)).ToHashSet(StringComparer.Ordinal);
+        var fields = metadata.FieldDefinitions.Select(handle => metadata.GetString(metadata.GetFieldDefinition(handle).Name)).ToHashSet(StringComparer.Ordinal);
+        Check(types.Contains("NativePhone")); foreach (var type in new[] { "NativeMediaFixture", "NativeMediaCallSignal", "NativeFixtureSnapshot", "NativeMediaCallSnapshot", "NativeLocalPlaybackSnapshot" }) Check(!types.Contains(type));
+        foreach (var method in new[] { "ConfigureMediaFixture", "FixtureSnapshot", "FixturePlaybackSnapshot", "FixtureStartConferenceRecording", "FixtureStopConferenceRecording" }) Check(!methods.Contains(method));
+        foreach (var field in new[] { "mediaFixture", "mediaSignals", "decodedFrames", "receivedDtmf", "rearmFrames" }) Check(!fields.Contains(field)); productionAbsence = true;
+    }
+    Console.WriteLine(JsonSerializer.Serialize(new { schema = 1, state = "passed_pure_audio_codec_diagnostic_and_process_identity_components", production_fixture_absence_checked = productionAbsence, checks, actual_native_calling = false, hardware_media_tested = false, codec_inventory_input = "explicit_model" }));
 }
 finally { Directory.Delete(root, true); }

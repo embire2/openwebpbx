@@ -191,14 +191,64 @@ function MediaServiceChanges([object[]]$Before,[object[]]$After){
  }
  [ordered]@{changed_services=$total;truncated=($total -gt 16);rows=$changes.ToArray()}
 }
+function ReadServiceBoundary($Value){
+ $stages=@('after_sdk_extract','after_msi_extract','after_managed_build','immediately_before_native_media','after_native_media')
+ if($Value.stage -isnot [string] -or $Value.stage -cnotin $stages -or $Value.observed -isnot [bool]){throw 'A fixed service boundary is required.'}
+ if(!$Value.observed){ClosedKeys $Value @('stage','observed');return $Value}
+ ClosedKeys $Value @('stage','observed','elapsed_ms','changes')
+ if(($Value.elapsed_ms -isnot [long] -and $Value.elapsed_ms -isnot [int]) -or $Value.elapsed_ms -lt 0 -or $Value.elapsed_ms -gt 3600000){throw 'A bounded observation time is required.'}
+ $changes=$Value.changes;ClosedKeys $changes @('changed_services','truncated','rows')
+ if(($changes.changed_services -isnot [long] -and $changes.changed_services -isnot [int]) -or $changes.changed_services -lt 0 -or $changes.changed_services -gt 4096 -or $changes.truncated -isnot [bool] -or $changes.truncated -ne ($changes.changed_services -gt 16) -or $changes.rows -isnot [array] -or $changes.rows.Count -ne [Math]::Min(16,$changes.changed_services)){throw 'Bounded service changes are required.'}
+ $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+ foreach($row in $changes.rows){ClosedKeys $row @('name','changed_properties','before_present','after_present','before_state','after_state','before_mode','after_mode')
+  if($row.name -isnot [string] -or $row.name -cnotmatch '^[A-Za-z0-9_.-]{1,128}$' -or !$seen.Add($row.name) -or $row.changed_properties -isnot [array] -or $row.changed_properties.Count -lt 1 -or $row.changed_properties.Count -gt 4 -or @($row.changed_properties|Select-Object -Unique).Count -ne $row.changed_properties.Count){throw 'Unique closed service names/properties required.'}
+  foreach($property in $row.changed_properties){if($property -isnot [string] -or $property -cnotin @('state','mode','path','account')){throw 'Only property names may be exported.'}}
+  foreach($side in @('before','after')){$present=$side+'_present';$state=$side+'_state';$mode=$side+'_mode';if($row.$present -isnot [bool]){throw 'Typed service presence required.'};if($row.$present){if($row.$state -isnot [string] -or $row.$state -cnotin @('Stopped','Start Pending','Stop Pending','Running','Continue Pending','Pause Pending','Paused','Unknown') -or $row.$mode -isnot [string] -or $row.$mode -cnotin @('Auto','Manual','Disabled','Boot','System','Unknown')){throw 'Only typed service status and start modes may be exported.'}}elseif($null -ne $row.$state -or $null -ne $row.$mode){throw 'No state may be inferred for an absent service.'}}
+  if(!$row.before_present -and !$row.after_present){throw 'A changed service must have been observed.'}
+ }
+ $Value
+}
+function ObserveServiceBoundary([string]$Stage){
+ # Observation failure never replaces a product/test failure. Raw private service
+ # command paths/accounts stay in memory and never enter the closed projection.
+ try{
+  $order=@('after_sdk_extract','after_msi_extract','after_managed_build','immediately_before_native_media','after_native_media')
+  if($Stage -cnotin $order){return}
+  if($script:serviceBoundaries.Count -ge 5 -or $Stage -cne $order[$script:serviceBoundaries.Count] -or $null -eq $script:serviceBoundaryBefore){throw 'Service observation order or baseline unavailable.'}
+  $after=@(Get-CimInstance Win32_Service|Sort-Object Name|ForEach-Object {[ordered]@{name=$_.Name;state=$_.State;mode=$_.StartMode;path=$_.PathName;account=$_.StartName}})
+  # Reuse the actual snapshot's serialized row type before the strict projection.
+  $after=ConvertTo-Json -InputObject $after -Depth 4 -Compress|ConvertFrom-Json -NoEnumerate
+  $row=[ordered]@{stage=$Stage;observed=$true;elapsed_ms=$script:serviceBoundaryClock.ElapsedMilliseconds;changes=(MediaServiceChanges $script:serviceBoundaryBefore $after)}
+  $safe=ReadServiceBoundary ($row|ConvertTo-Json -Depth 8 -Compress|ConvertFrom-Json)
+ }catch{$safe=[pscustomobject]@{stage=$Stage;observed=$false}}
+ if($script:serviceBoundaries.Count -lt 5){$script:serviceBoundaries.Add($safe)}
+}
+function ReadNativeWaitObservation($Value){
+ ClosedKeys $Value @('name','deadline_seconds','peers')
+ $names=@('wrong_ca_refused','wrong_name_refused','registrations_ready','incoming_initial','streams_initial','incoming_voicemail','streams_voicemail','incoming_blind','streams_blind','incoming_consultation','streams_consultation','incoming_waiting','streams_waiting','voicemail_playing','voicemail_incoming','voicemail_removed','update_idle','held','resumed','dtmf_received','blind_original_ended','consult_completed','consult_cancelled','waiting_original_resumed','conference_merged')
+ $states=@('Idle','IncomingReceived','PushIncomingReceived','OutgoingInit','OutgoingProgress','OutgoingRinging','OutgoingEarlyMedia','Connected','StreamsRunning','Pausing','Paused','Resuming','Referred','Error','End','PausedByRemote','UpdatedByRemote','IncomingEarlyMedia','Updating','Released','EarlyUpdatedByRemote','EarlyUpdating')
+ if($Value.name -isnot [string] -or $Value.name -cnotin $names -or $Value.deadline_seconds -isnot [long] -or $Value.deadline_seconds -notin @(8,20) -or $Value.peers -isnot [array] -or $Value.peers.Count -lt 1 -or $Value.peers.Count -gt 3){throw 'Exact bounded native wait required.'}
+ for($index=0;$index -lt $Value.peers.Count;$index++){$peer=$Value.peers[$index];ClosedKeys $peer @('position','observed','state')
+  if($peer.position -isnot [long] -or $peer.position -ne $index -or $peer.observed -isnot [bool] -or $peer.observed -ne ($null -ne $peer.state)){throw 'Exact observed peer scope required.'}
+  if(!$peer.observed){continue};$state=$peer.state;ClosedKeys $state @('ready','registration_failed','busy','call_count','states','signals')
+  foreach($flag in @('ready','registration_failed','busy')){if($state.$flag -isnot [bool]){throw 'Typed peer status required.'}}
+  if($state.call_count -isnot [long] -or $state.call_count -lt 0 -or $state.call_count -gt 2 -or $state.states -isnot [array] -or $state.states.Count -ne $state.call_count -or $state.signals -isnot [array] -or $state.signals.Count -gt 32){throw 'Bounded peer call counts required.'}
+  foreach($name in $state.states){if($name -isnot [string] -or $name -cnotin $states){throw 'Closed native call state required.'}}
+  foreach($signal in $state.signals){ClosedKeys $signal @('state','reason','protocol_code','observed');if($signal.observed -isnot [bool]){throw 'Typed native observation required.'};foreach($number in @('state','reason','protocol_code')){if($signal.$number -isnot [long]){throw 'Typed native signal required.'}}
+   if($signal.observed){if($signal.state -lt 0 -or $signal.state -gt 21 -or $signal.reason -lt 0 -or $signal.reason -gt 25 -or $signal.protocol_code -lt -1 -or $signal.protocol_code -gt 699){throw 'Closed native signal bounds differ.'}}elseif($signal.state -ne -1 -or $signal.reason -ne -1 -or $signal.protocol_code -ne -1){throw 'Unobserved native values cannot be inferred.'}
+  }
+ }
+ $Value
+}
 function ReadNativeFailureObservation($Value){
- ClosedKeys $Value @('operation','source_basename','source_line','peer')
- if($Value.operation -isnot [string] -or $Value.operation -cnotin @('engine_construct','engine_start','case_prepare','wrong_ca_create','wrong_ca_wait','wrong_ca_assert','wrong_ca_dispose','wrong_name_create','wrong_name_wait','wrong_name_assert','wrong_name_dispose','peer_0_create','peer_1_create','peer_2_create','registration_wait','security_assert','case_execute','peers_cleanup','engine_idle','engine_shutdown') -or $Value.source_basename -isnot [string] -or $Value.source_basename -cnotin @('LabCoordinator.cs','LabServer.cs','PeerRunner.cs','PeerProtocol.cs','CoreCodecInventory.cs','ProcessImage.cs','NativePhone.cs','NativeMediaFixture.cs','external_component') -or $Value.source_line -isnot [long] -or $Value.source_line -lt 0 -or $Value.source_line -gt 100000 -or (($Value.source_basename -ceq 'external_component') -ne ($Value.source_line -eq 0))){throw 'Closed actual failure source differs.'}
+ ClosedKeys $Value @('operation','source_basename','source_line','peer','wait')
+ if($Value.operation -isnot [string] -or $Value.operation -cnotin @('engine_construct','engine_start','case_prepare','wrong_ca_create','wrong_ca_wait','wrong_ca_assert','wrong_ca_dispose','wrong_name_create','wrong_name_wait','wrong_name_assert','wrong_name_dispose','peer_0_create','peer_1_create','peer_2_create','registration_wait','security_assert','case_execute','peers_cleanup','engine_idle','engine_shutdown') -or $Value.source_basename -isnot [string] -or $Value.source_basename -cnotin @('LabCoordinator.cs','LabServer.cs','PeerRunner.cs','PeerProtocol.cs','CoreCodecInventory.cs','ProcessImage.cs','WaitObservation.cs','NativePhone.cs','NativeMediaFixture.cs','external_component') -or $Value.source_line -isnot [long] -or $Value.source_line -lt 0 -or $Value.source_line -gt 100000 -or (($Value.source_basename -ceq 'external_component') -ne ($Value.source_line -eq 0))){throw 'Closed actual failure source differs.'}
  if($null -ne $Value.peer){$peer=$Value.peer;ClosedKeys $peer @('progress','exited_before_cleanup','exit_code_before_cleanup','error_type','stderr_observed')
   if($peer.progress -isnot [string] -or $peer.progress -cnotin @('none','native_runtime_resources','native_logging','native_factory','native_configuration','native_create_core','native_database','native_encryption','native_trusted_roots','native_devices','native_listeners','native_start','native_verify_policy','ready','unrecognised') -or $peer.exited_before_cleanup -isnot [bool] -or $peer.stderr_observed -isnot [bool] -or $peer.error_type -isnot [string] -or $peer.error_type -cnotin @('none','InvalidDataException','InvalidOperationException','JsonException','IOException','FileNotFoundException','DirectoryNotFoundException','UnauthorizedAccessException','TimeoutException','DllNotFoundException','EntryPointNotFoundException','BadImageFormatException','TypeInitializationException','ArgumentException','ArgumentNullException','NullReferenceException','NotSupportedException','AccessViolationException','other','unobserved')){throw 'Closed native peer observation differs.'}
   if($peer.exited_before_cleanup){if($peer.exit_code_before_cleanup -isnot [long] -or $peer.exit_code_before_cleanup -lt [int]::MinValue -or $peer.exit_code_before_cleanup -gt [int]::MaxValue){throw 'Observed native peer exit differs.'}}elseif($null -ne $peer.exit_code_before_cleanup){throw 'No exit may be inferred for a live peer.'}
   if($peer.stderr_observed -eq ($peer.error_type -ceq 'unobserved')){throw 'Native peer stderr scope differs.'}
  }
+ if($null -ne $Value.wait){$null=ReadNativeWaitObservation $Value.wait}
  $Value
 }
 function ReadMediaResult([string]$Path,[switch]$AllowFailure){
@@ -239,10 +289,13 @@ function ReadMediaResult([string]$Path,[switch]$AllowFailure){
 $scope=Join-Path $temp ('phone-client-media-'+[Guid]::NewGuid().ToString('N'));PrivateDirectory $scope
 $result=[ordered]@{schema=1;producer='Test-ClientMedia.ps1';source_commit=$SourceCommit;state='failed';stage='prepare';actual_native_calling=$false;hardware_media_tested=$false;production_binary_tested=$false;store_accepted=$false;exact_owned_cleanup=$false;system_preserved=$false;hold_audio_fixture='generated1553Hz_PCM_WAV';licensed_music_file_tested=$false}
 $before=$null;$failure=$null;$media=$null;$ownedClean=$true
+$script:serviceBoundaryBefore=$null;$script:serviceBoundaries=[Collections.Generic.List[object]]::new();$script:serviceBoundaryClock=[Diagnostics.Stopwatch]::StartNew()
 try{
- $before=SystemSnapshot;$result.stage='sdk_extract';$sdk=Join-Path $scope 'sdk';ExpandSdk $SdkZip $sdk
+ $before=SystemSnapshot;try{$script:serviceBoundaryBefore=($before|ConvertFrom-Json).services}catch{}
+ $result.stage='sdk_extract';$sdk=Join-Path $scope 'sdk';ExpandSdk $SdkZip $sdk;ObserveServiceBoundary 'after_sdk_extract'
  $result.stage='msi_extract';$extraction=Join-Path $scope 'msi';$helper=Join-Path $repo 'packaging/freeswitch/extract-windows-core.py';$adapter=Join-Path $client 'tests/media/extract_media_engine.py'
  if((RunChild $python @($adapter,'--helper',$helper,'--msi',$CoreMsi,'--output',$extraction) $scope 180 -MsiDiagnostic) -ne 0){throw 'Read-only MSI media extraction failed.'}
+ ObserveServiceBoundary 'after_msi_extract'
  $engine=Join-Path $extraction 'core';$zip=[IO.Compression.ZipFile]::OpenRead($EngineZip)
  try{
   foreach($binding in @(@('engine/mod/mod_sofia.dll','fa58601adfab5cd71ac598035c41fafe335f23f0ca038cb0b5c23423ff43d4d5'),@('engine/native-manifest.json',$null),@('source/source-manifest.json','3b230ae320b67bdd88d1d7b6fe3c9e116cf571550b489bba1a7613d7b2cf6bb1'))){
@@ -256,13 +309,14 @@ try{
  Copy-Item -LiteralPath (Join-Path $scope 'mod_sofia.dll') -Destination (Join-Path $engine 'mod/mod_sofia.dll') -Force
  $result.stage='managed_build';$app=Join-Path $scope 'app';$project=Join-Path $client 'tests/OpenWebPbx.Phone.MediaChecks/OpenWebPbx.Phone.MediaChecks.csproj';$binding=Join-Path $sdk 'LinphoneWrapper.cs'
  if((RunChild $dotnet @('publish',$project,'-c','Release','-r','win-x64','--self-contained','true','--disable-build-servers','-p:UseSharedCompilation=false','-m:1',('-p:LinphoneBinding='+$binding),'-o',$app) $client 600) -ne 0){throw 'Actual media fixture build failed.'}
+ ObserveServiceBoundary 'after_managed_build'
  foreach($item in Get-ChildItem -LiteralPath $sdk -File -Filter '*.dll'){if(Test-Path (Join-Path $app $item.Name)){throw 'SDK runtime collides with managed output.'};Copy-Item -LiteralPath $item.FullName -Destination (Join-Path $app $item.Name)}
  Copy-Item -LiteralPath (Join-Path $sdk 'native') -Destination (Join-Path $app 'native') -Recurse
  Add-Type -AssemblyName System.Drawing
  foreach($n in 1,2){$image=Join-Path $scope ('frame'+$n+'.jpg');$bitmap=[Drawing.Bitmap]::new(640,480);$g=[Drawing.Graphics]::FromImage($bitmap);try{$g.Clear($(if($n -eq 1){[Drawing.Color]::SteelBlue}else{[Drawing.Color]::DarkOrange}));$g.FillRectangle([Drawing.Brushes]::White,40,40,180,120);$g.FillEllipse([Drawing.Brushes]::Black,360,250,120,120);$bitmap.Save($image,[Drawing.Imaging.ImageFormat]::Jpeg)}finally{$g.Dispose();$bitmap.Dispose()}}
  $inputFile=Join-Path $scope 'lab.json';$childReport=Join-Path $scope 'media.json'
  [ordered]@{Schema=1;Root=$scope;EngineRoot=$engine;SourceCommit=$SourceCommit;SdkSha256='9cc84037333daca88af24804e20b9d1f5e41ddd901578484b57dcc6720a8d297';EngineSha256='3d4091bd972c1ea82ff9b6899c091dbeebf66416d6d76475add523ebe10a7542';ImageA=(Join-Path $scope 'frame1.jpg');ImageB=(Join-Path $scope 'frame2.jpg')}|ConvertTo-Json|Set-Content -LiteralPath $inputFile -Encoding utf8NoBOM
- $result.stage='actual_media';$exe=Join-Path $app 'OpenWebPbx.Phone.MediaChecks.exe';$result.child_exit=RunChild $exe @('--run',$inputFile,$childReport) ([Environment]::SystemDirectory) 1200
+ $result.stage='actual_media';$exe=Join-Path $app 'OpenWebPbx.Phone.MediaChecks.exe';ObserveServiceBoundary 'immediately_before_native_media';$result.child_exit=RunChild $exe @('--run',$inputFile,$childReport) ([Environment]::SystemDirectory) 1200;ObserveServiceBoundary 'after_native_media'
  if($result.child_exit -ne 0){
   if(Test-Path -LiteralPath $childReport){$failed=ReadMediaResult $childReport -AllowFailure;$result.native_failure=[ordered]@{stage=$failed.stage;error_type=$failed.error_type;completed_cases=[int]$failed.cases.Count;owned_cleanup=[bool]$failed.exact_owned_cleanup};if($failed.PSObject.Properties.Name -contains 'failure_observation'){$result.native_failure.observation=$failed.failure_observation;$result.native_failure.engine_lifecycle=$failed.engine_lifecycle}}
   throw 'Actual Windows client media lab failed.'
@@ -272,6 +326,7 @@ try{
  $result.state='passed_software_media'
 }catch{$failure=$_;$result.error_type=$_.Exception.GetType().Name;$result.source_line=[int]$_.InvocationInfo.ScriptLineNumber}
 finally{
+ $result.service_boundaries=$script:serviceBoundaries.ToArray()
  if($null -ne $script:msiChildExit){$result.msi_child_exit_code=[int]$script:msiChildExit}
  if($script:msiFailure){$result.msi_failure=$script:msiFailure}
  if($script:msiObservationRefused){$result.msi_failure_observation_refused=$true}

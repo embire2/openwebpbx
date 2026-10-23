@@ -89,18 +89,22 @@ internal static class LabCoordinator
         foreach (var sid in new[] { WindowsIdentity.GetCurrent().User!, new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null) }) acl.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
         new DirectoryInfo(path).SetAccessControl(acl);
     }
-    private static void Wait(Func<bool> predicate, int seconds = 20)
+    private static void Wait(string name, Func<bool> predicate, LabPeer[] observed, int seconds = 20)
     {
-        var end = Stopwatch.StartNew(); while (end.Elapsed.TotalSeconds < seconds) { if (predicate()) return; Thread.Sleep(100); } throw new TimeoutException("The actual native call transition did not complete.");
+        WaitObservation.Run(name, predicate, () => observed.Select((peer, index) =>
+        {
+            try { var state = peer.Command(); return new MediaWaitPeer(index, true, new(state.Ready, state.RegistrationFailed, state.Busy, state.Calls.Length, state.Calls.Select(call => call.State).ToArray(), state.Native.Signals.Select(signal => new MediaWaitSignal(signal.State, signal.Reason, signal.ProtocolCode, signal.Observed)).ToArray())); }
+            catch { return new MediaWaitPeer(index, false, null); }
+        }).ToArray(), seconds);
     }
     private static void Secure(PeerState state)
     {
         if (!state.Native.TlsCaAndHostname || !state.Native.MandatorySrtp || state.Native.Calls.Any(call => call.State == "StreamsRunning" && (call.Encryption != "SRTP" || call.SrtpSuite != "AESCM128HMACSHA180"))) throw new InvalidDataException("Actual TLS/SRTP state differs.");
     }
-    private static void Connected(LabPeer a, LabPeer b, bool video = false)
+    private static void Connected(LabPeer a, LabPeer b, bool video = false, string phase = "initial")
     {
-        Wait(() => b.Command().Calls.Any(call => call.Incoming && call.State == "IncomingReceived")); b.Command("answer", call: b.State.Calls.Single(call => call.Incoming && call.State == "IncomingReceived").Id, video: video);
-        Wait(() => a.Command().Native.Calls.Any(call => call.State == "StreamsRunning") && b.Command().Native.Calls.Any(call => call.State == "StreamsRunning")); Secure(a.State); Secure(b.State);
+        Wait("incoming_" + phase, () => b.Command().Calls.Any(call => call.Incoming && call.State == "IncomingReceived"), [a, b]); b.Command("answer", call: b.State.Calls.Single(call => call.Incoming && call.State == "IncomingReceived").Id, video: video);
+        Wait("streams_" + phase, () => a.Command().Native.Calls.Any(call => call.State == "StreamsRunning") && b.Command().Native.Calls.Any(call => call.State == "StreamsRunning"), [a, b]); Secure(a.State); Secure(b.State);
     }
     private static AudioObservation Capture(LabPeer peer, double[] frequencies, string? recording = null)
     {
@@ -165,17 +169,17 @@ internal static class LabCoordinator
                     // explicit native registration failure is required for each negative.
                     if (name == "tls_chain_hostname")
                     {
-                        operation = "wrong_ca_create"; using (var wrongCa = Create(0, server.WrongCaPem, distinct: true)) { operation = "wrong_ca_wait"; Wait(() => wrongCa.Command().RegistrationFailed, 20); operation = "wrong_ca_assert"; if (wrongCa.State.Ready) throw new InvalidDataException("Untrusted TLS CA accepted."); operation = "wrong_ca_dispose"; }
-                        operation = "wrong_name_create"; using (var wrongName = Create(0, host: "localhost", distinct: true)) { operation = "wrong_name_wait"; Wait(() => wrongName.Command().RegistrationFailed, 20); operation = "wrong_name_assert"; if (wrongName.State.Ready) throw new InvalidDataException("Wrong TLS name accepted."); operation = "wrong_name_dispose"; }
+                        operation = "wrong_ca_create"; using (var wrongCa = Create(0, server.WrongCaPem, distinct: true)) { operation = "wrong_ca_wait"; Wait("wrong_ca_refused", () => wrongCa.Command().RegistrationFailed, [wrongCa], 20); operation = "wrong_ca_assert"; if (wrongCa.State.Ready) throw new InvalidDataException("Untrusted TLS CA accepted."); operation = "wrong_ca_dispose"; }
+                        operation = "wrong_name_create"; using (var wrongName = Create(0, host: "localhost", distinct: true)) { operation = "wrong_name_wait"; Wait("wrong_name_refused", () => wrongName.Command().RegistrationFailed, [wrongName], 20); operation = "wrong_name_assert"; if (wrongName.State.Ready) throw new InvalidDataException("Wrong TLS name accepted."); operation = "wrong_name_dispose"; }
                         facts["wrong_ca_refused"] = true; facts["wrong_name_refused"] = true;
                     }
                     operation = "peer_0_create"; peers.Add(Create(0)); operation = "peer_1_create"; peers.Add(Create(1)); operation = "peer_2_create"; peers.Add(Create(2)); var a = peers[0]; var b = peers[1]; var c = peers[2];
-                    operation = "registration_wait"; Wait(() => peers.All(peer => peer.Command().Ready), 20); operation = "security_assert"; foreach (var peer in peers) Secure(peer.State); facts["actual_tls_registration"] = true; operation = "case_execute";
+                    operation = "registration_wait"; Wait("registrations_ready", () => peers.All(peer => peer.Command().Ready), peers.ToArray(), 20); operation = "security_assert"; foreach (var peer in peers) Secure(peer.State); facts["actual_tls_registration"] = true; operation = "case_execute";
                     if (name == "tls_chain_hostname") { }
                     else if (name == "voicemail_local_player")
                     {
-                        a.Command("play"); Wait(() => a.Command().Playback.State == "Playing" && a.State.Playback.Position >= 200 && a.State.Playback.Duration >= 3500 && a.State.Playback.OwnedFilePresent, 8); facts["native_player_advanced"] = true;
-                        b.Command("dial", "8101"); Wait(() => a.Command().Calls.Any(call => call.Incoming)); Wait(() => !a.Command().Playback.OwnedFilePresent && a.State.Playback.State == "Closed", 8); facts["incoming_call_removed_private_playback"] = true; Connected(b, a); Pair(facts, "answered", a, [733], b, [425]);
+                        a.Command("play"); Wait("voicemail_playing", () => a.Command().Playback.State == "Playing" && a.State.Playback.Position >= 200 && a.State.Playback.Duration >= 3500 && a.State.Playback.OwnedFilePresent, [a], 8); facts["native_player_advanced"] = true;
+                        b.Command("dial", "8101"); Wait("voicemail_incoming", () => a.Command().Calls.Any(call => call.Incoming), [a, b]); Wait("voicemail_removed", () => !a.Command().Playback.OwnedFilePresent && a.State.Playback.State == "Closed", [a, b], 8); facts["incoming_call_removed_private_playback"] = true; Connected(b, a, phase: "voicemail"); Pair(facts, "answered", a, [733], b, [425]);
                     }
                     else
                     {
@@ -185,23 +189,23 @@ internal static class LabCoordinator
                         {
                             case "outgoing_audio":
                                 a.Command("update_active_refusal"); facts["active_call_deferred_update"] = true; Pair(facts, "after_update_refusal", a, [733], b, [425]);
-                                foreach (var call in a.Command().Calls) a.Command("hangup", call: call.Id); Wait(() => !a.Command().Busy && !b.Command().Busy); a.Command("update_idle_accept"); facts["idle_allows_update"] = true; break;
+                                foreach (var call in a.Command().Calls) a.Command("hangup", call: call.Id); Wait("update_idle", () => !a.Command().Busy && !b.Command().Busy, [a, b]); a.Command("update_idle_accept"); facts["idle_allows_update"] = true; break;
                             case "hold_music_resume":
-                                a.Command("hold"); Wait(() => a.Command().Native.Calls.Any(call => call.State == "Paused")); facts["held_caller_music"] = Capture(b, [1553]);
-                                a.Command("hold"); Wait(() => a.Command().Native.Calls.Any(call => call.State == "StreamsRunning")); Pair(facts, "resumed", a, [733], b, [425]); break;
+                                a.Command("hold"); Wait("held", () => a.Command().Native.Calls.Any(call => call.State == "Paused"), [a, b]); facts["held_caller_music"] = Capture(b, [1553]);
+                                a.Command("hold"); Wait("resumed", () => a.Command().Native.Calls.Any(call => call.State == "StreamsRunning"), [a, b]); Pair(facts, "resumed", a, [733], b, [425]); break;
                             case "dtmf":
-                                b.Command("clear_dtmf"); foreach (var digit in "578#") { a.Command("dtmf", digit.ToString()); Thread.Sleep(180); } Wait(() => string.Concat(b.Command().Native.Dtmf) == "578#", 8); facts["received_exact_digits"] = true; break;
+                                b.Command("clear_dtmf"); foreach (var digit in "578#") { a.Command("dtmf", digit.ToString()); Thread.Sleep(180); } Wait("dtmf_received", () => string.Concat(b.Command().Native.Dtmf) == "578#", [a, b], 8); facts["received_exact_digits"] = true; break;
                             case "blind_transfer":
-                                a.Command("blind", "8103"); Connected(b, c); Wait(() => !a.Command().Busy); Pair(facts, "transferred", b, [1013], c, [733]); break;
+                                a.Command("blind", "8103"); Connected(b, c, phase: "blind"); Wait("blind_original_ended", () => !a.Command().Busy, [a, b, c]); Pair(facts, "transferred", b, [1013], c, [733]); break;
                             case "consult_complete": case "consult_cancel":
-                                a.Command("consult", "8103"); Connected(a, c); Pair(facts, "consultation", a, [1013], c, [425]); a.Command(name == "consult_complete" ? "complete" : "cancel");
-                                if (name == "consult_complete") { Wait(() => !a.Command().Busy && b.Command().Busy && c.Command().Busy); Pair(facts, "completed", b, [1013], c, [733]); }
-                                else { Wait(() => a.Command().Native.Calls.Any(call => call.State == "StreamsRunning") && !c.Command().Busy); Pair(facts, "cancelled", a, [733], b, [425]); } break;
+                                a.Command("consult", "8103"); Connected(a, c, phase: "consultation"); Pair(facts, "consultation", a, [1013], c, [425]); a.Command(name == "consult_complete" ? "complete" : "cancel");
+                                if (name == "consult_complete") { Wait("consult_completed", () => !a.Command().Busy && b.Command().Busy && c.Command().Busy, [a, b, c]); Pair(facts, "completed", b, [1013], c, [733]); }
+                                else { Wait("consult_cancelled", () => a.Command().Native.Calls.Any(call => call.State == "StreamsRunning") && !c.Command().Busy, [a, b, c]); Pair(facts, "cancelled", a, [733], b, [425]); } break;
                             case "call_waiting":
-                                var original = a.Command().Calls.Single().Id; c.Command("dial", "8101"); Connected(c, a); Pair(facts, "waiting_answered", a, [1013], c, [425]);
-                                a.Command("select", call: original); Wait(() => a.Command().Current == original && a.State.Native.Calls.Any(call => call.Id == original && call.State == "StreamsRunning")); Pair(facts, "original_resumed", a, [733], b, [425]); break;
+                                var original = a.Command().Calls.Single().Id; c.Command("dial", "8101"); Connected(c, a, phase: "waiting"); Pair(facts, "waiting_answered", a, [1013], c, [425]);
+                                a.Command("select", call: original); Wait("waiting_original_resumed", () => a.Command().Current == original && a.State.Native.Calls.Any(call => call.Id == original && call.State == "StreamsRunning"), [a, b, c]); Pair(facts, "original_resumed", a, [733], b, [425]); break;
                             case "local_conference":
-                                a.Command("dial", "8103"); Connected(a, c); a.Command("merge"); Wait(() => a.Command().Conferencing && a.State.Calls.Length == 2); a.Command("conference_record");
+                                a.Command("dial", "8103"); Connected(a, c, phase: "consultation"); a.Command("merge"); Wait("conference_merged", () => a.Command().Conferencing && a.State.Calls.Length == 2, [a, b, c]); a.Command("conference_record");
                                 facts["host_sdk_recorded_mix"] = Capture(a, [425, 733, 1013], Path.Combine(a.Root, "conference.wav")); facts["left_received_mix"] = Capture(b, [425, 1013]); facts["right_received_mix"] = Capture(c, [425, 733]); a.Command("conference_stop"); facts["sdk_conference_recording"] = PcmWave.Read(Path.Combine(a.Root, "conference.wav")).Duration >= 9; if (!(bool)facts["sdk_conference_recording"]) throw new InvalidDataException("Actual SDK conference recording missing."); break;
                             case "software_vp8":
                                 var beforeA = a.Command().Native.Calls.Single().DecodedVideoFrames; var beforeB = b.Command().Native.Calls.Single().DecodedVideoFrames; Thread.Sleep(3000); var afterA = a.Command().Native.Calls.Single(); var afterB = b.Command().Native.Calls.Single();

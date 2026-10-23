@@ -18,6 +18,7 @@ public sealed class NativePhone : IDisposable
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Call, int> decodedFrames = new();
     private readonly System.Collections.Concurrent.ConcurrentQueue<Call> rearmFrames = new();
     private readonly List<string> receivedDtmf = [];
+    private readonly List<NativeMediaCallSignal> mediaSignals = [];
 #endif
     private readonly int thread = Environment.CurrentManagedThreadId;
     private readonly Dictionary<Guid, (PhoneProfile Profile, Account Account, AuthInfo Auth)> accounts = [];
@@ -270,6 +271,16 @@ public sealed class NativePhone : IDisposable
     private Call Required() => selected ?? throw new PhoneInputException("Choose an active call first.");
     private void CallChanged(LCore _, Call call, CallState state, string ignored)
     {
+#if PHONE_MEDIA_FIXTURE
+        if (mediaFixture is not null)
+        {
+            // Observation alone: preserve native callback behavior even if an
+            // optional error-info getter refuses during call teardown.
+            try { var reason = (int)call.Reason; var code = call.ErrorInfo?.ProtocolCode ?? 0; if ((int)state is < 0 or > 21 || reason is < 0 or > 25 || code is < -1 or > 699) throw new InvalidDataException(); mediaSignals.Add(new((int)state, reason, code, true)); }
+            catch { mediaSignals.Add(new(-1, -1, -1, false)); }
+            if (mediaSignals.Count > 32) mediaSignals.RemoveAt(0);
+        }
+#endif
         if (state is CallState.IncomingReceived or CallState.OutgoingInit) InterruptVoicemail();
         if (state == CallState.IncomingReceived && core.CallsNb > 2) { call.Decline(Reason.Busy); return; }
 #if PHONE_MEDIA_FIXTURE
@@ -327,7 +338,7 @@ public sealed class NativePhone : IDisposable
         CheckThread(); if (mediaFixture is null) throw new InvalidOperationException("No media fixture is active.");
         var calls = core.Calls.Select(call => { var view = View(call); var parameters = call.CurrentParams; var definition = parameters?.ReceivedVideoDefinition; return new NativeMediaCallSnapshot(view.Id, call.State.ToString(), parameters?.MediaEncryption.ToString() ?? "None", call.AudioStats?.SrtpSuite.ToString() ?? "Invalid", parameters?.UsedVideoPayloadType?.MimeType ?? "", decodedFrames.GetValueOrDefault(call), (int)(definition?.Width ?? 0), (int)(definition?.Height ?? 0), parameters?.ReceivedFramerate ?? 0); }).ToArray();
         var dtmf = receivedDtmf.ToArray(); if (clearDtmf) receivedDtmf.Clear();
-        return new(core.IsVerifyServerCertificates && core.IsVerifyServerCn, core.IsMediaEncryptionMandatory, calls, dtmf);
+        return new(core.IsVerifyServerCertificates && core.IsVerifyServerCn, core.IsMediaEncryptionMandatory, calls, dtmf, mediaSignals.ToArray());
     }
 #endif
     // Pinned5.5.23 chat.c returns chat_deny_code!=None from the misleadingly named getter.
