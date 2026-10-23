@@ -253,6 +253,7 @@ jobs:
       - name: Observe native PowerShell package prerequisites
         run: |
           & ./clients/windows/tests/packaging/RuntimeControls.ps1
+          & ./clients/windows/tests/packaging/NativeReaderSelectionControls.ps1
           & ./clients/windows/tools/Test-PackageRuntime.ps1 -SourceCommit $env:PHONE_SOURCE_REF -Report "$env:RUNNER_TEMP/windows-phone-package-runtime.json"
       - name: Preserve closed package runtime evidence
         if: always()
