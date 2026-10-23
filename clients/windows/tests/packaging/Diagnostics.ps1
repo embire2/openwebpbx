@@ -3,6 +3,7 @@ function GetPackageCertificateFailure([Management.Automation.ErrorRecord]$Record
  if($Mode-cnotin @('Create','Remove') -or $Stage-cnotin @('entry','root','acl','stores','create_preflight','create_intent','native_module','create_certificate','verify_created','write_receipt','add_trust','read_intent','read_receipt','verify_bindings','verify_keys','remove_trust','remove_private','remove_orphan','verify_removed')){throw 'Unknown certificate diagnostic context.'}
  $reasons=@{
   'Only the disposable native Windows certificate fixture is allowed.'='host_guard'
+  'The disposable certificate fixture requires the hosted administrator.'='administrator_required'
   'The owned private root differs.'='root_scope'
   'The fixture root is linked.'='root_link'
   'The certificate fixture root must be protected.'='root_acl_shape'
@@ -40,7 +41,7 @@ function ReadPackageCertificateFailure([string]$Text,[string]$Mode){
  $names=@($value.PSObject.Properties.Name|Sort-Object);$expected=@('schema','producer','mode','stage','source','line','error_type','hresult','inner_type','inner_hresult','reason'|Sort-Object)
  if(($names -join ',')-cne ($expected -join ',') -or $value.schema-isnot [long] -or $value.schema-ne 1 -or $value.producer-cne 'PackageCertificateFailure' -or $value.mode-cne $Mode -or $value.stage-cnotin @('entry','root','acl','stores','create_preflight','create_intent','native_module','create_certificate','verify_created','write_receipt','add_trust','read_intent','read_receipt','verify_bindings','verify_keys','remove_trust','remove_private','remove_orphan','verify_removed') -or $value.source-cnotin @('Certificate.ps1','other') -or $value.line-isnot [long] -or $value.line-lt 0 -or $value.line-gt 10000 -or $value.error_type-isnot [string] -or $value.error_type-cnotmatch '^(Exception|[A-Za-z][A-Za-z0-9]{0,90}Exception)$' -or $value.hresult-isnot [long] -or $value.hresult-lt [int]::MinValue -or $value.hresult-gt [int]::MaxValue){throw 'The typed certificate diagnostic differs.'}
  if(($null-eq $value.inner_type)-ne ($null-eq $value.inner_hresult) -or ($null-ne $value.inner_type -and ($value.inner_type-isnot [string] -or $value.inner_type-cnotmatch '^(Exception|[A-Za-z][A-Za-z0-9]{0,90}Exception)$' -or $value.inner_hresult-isnot [long] -or $value.inner_hresult-lt [int]::MinValue -or $value.inner_hresult-gt [int]::MaxValue))){throw 'The typed inner certificate diagnostic differs.'}
- if($value.reason-cnotin @('external_exception','host_guard','root_scope','root_link','root_acl_shape','root_acl_rule','key_scope','receipt_file','receipt_identity','identity_exists','intent_exists','module_absent','module_provenance','created_identity','created_key_type','intent_absent','intent_file','intent_identity','receipt_absent','private_binding','public_binding','private_key_type','cleanup_incomplete')){throw 'Unknown certificate guard reason.'}
+ if($value.reason-cnotin @('external_exception','host_guard','administrator_required','root_scope','root_link','root_acl_shape','root_acl_rule','key_scope','receipt_file','receipt_identity','identity_exists','intent_exists','module_absent','module_provenance','created_identity','created_key_type','intent_absent','intent_file','intent_identity','receipt_absent','private_binding','public_binding','private_key_type','cleanup_incomplete')){throw 'Unknown certificate guard reason.'}
  $value
 }
 function GetPackageChildFailure([string]$Operation,[int]$ExitCode){
@@ -49,24 +50,27 @@ function GetPackageChildFailure([string]$Operation,[int]$ExitCode){
 }
 function GetPackageCertificateRemoval([int]$PrivateCount,[int]$TrustCount,[bool]$KeyExists){
  if($PrivateCount-ne 0 -or $TrustCount-ne 0 -or $KeyExists){throw 'Owned certificate cleanup is incomplete.'}
- [ordered]@{schema=1;producer='PackageCertificateRemoval';private_certificates=$PrivateCount;public_trust_certificates=$TrustCount;private_key_exists=$KeyExists}
+ [ordered]@{schema=1;producer='PackageCertificateRemoval';private_certificates=$PrivateCount;public_trust_certificates=$TrustCount;private_key_exists=$KeyExists;private_location='CurrentUser';private_store='My';trust_location='LocalMachine';trust_store='TrustedPeople'}
 }
 function ReadPackageCertificateRemoval([string]$Text){
  if($Text.Length-gt 1024){throw 'The certificate removal observation exceeds its bound.'}
  $document=[Text.Json.JsonDocument]::Parse($Text)
  try{if($document.RootElement.ValueKind-ne [Text.Json.JsonValueKind]::Object){throw 'Certificate removal observation must be an object.'};$seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);foreach($entry in $document.RootElement.EnumerateObject()){if(!$seen.Add($entry.Name)){throw 'Certificate removal observation repeats a field.'}}}finally{$document.Dispose()}
- $value=$Text|ConvertFrom-Json;$expected=@('schema','producer','private_certificates','public_trust_certificates','private_key_exists'|Sort-Object)
- if((@($value.PSObject.Properties.Name|Sort-Object)-join ',')-cne ($expected-join ',') -or $value.schema-isnot [long] -or $value.schema-ne 1 -or $value.producer-cne 'PackageCertificateRemoval' -or $value.private_certificates-isnot [long] -or $value.private_certificates-ne 0 -or $value.public_trust_certificates-isnot [long] -or $value.public_trust_certificates-ne 0 -or $value.private_key_exists-isnot [bool] -or $value.private_key_exists){throw 'The actual private certificate, public trust or key absence was not proved.'};$value
+ $value=$Text|ConvertFrom-Json;$expected=@('schema','producer','private_certificates','public_trust_certificates','private_key_exists','private_location','private_store','trust_location','trust_store'|Sort-Object)
+ if((@($value.PSObject.Properties.Name|Sort-Object)-join ',')-cne ($expected-join ',') -or $value.schema-isnot [long] -or $value.schema-ne 1 -or $value.producer-cne 'PackageCertificateRemoval' -or $value.private_certificates-isnot [long] -or $value.private_certificates-ne 0 -or $value.public_trust_certificates-isnot [long] -or $value.public_trust_certificates-ne 0 -or $value.private_key_exists-isnot [bool] -or $value.private_key_exists -or $value.private_location-cne 'CurrentUser' -or $value.private_store-cne 'My' -or $value.trust_location-cne 'LocalMachine' -or $value.trust_store-cne 'TrustedPeople'){throw 'The actual private certificate, public trust or key absence was not proved.'};$value
 }
-function GetPackageSnapshotComparison([string]$Before,[string]$After){
+function GetPackageSnapshotComparison([string]$Before,[string]$After,[string]$OwnedCertificateSha){
  if($Before.Length-gt 8MB -or $After.Length-gt 8MB){throw 'Package preservation vectors exceed their bound.'}
+ if($OwnedCertificateSha -and $OwnedCertificateSha-cnotmatch '^[a-f0-9]{64}$'){throw 'The optional owned certificate byte identity differs.'}
  $first=$Before|ConvertFrom-Json;$last=$After|ConvertFrom-Json;$observed=[ordered]@{}
  foreach($category in @('certificates','packages','registry')){
   $left=@($first.$category);$right=@($last.$category)
   $observed[$category]=[ordered]@{before_count=$left.Count;after_count=$right.Count;matches=(ConvertTo-Json -InputObject $left -Depth 14 -Compress)-ceq (ConvertTo-Json -InputObject $right -Depth 14 -Compress)}
  }
- $stores=[ordered]@{};foreach($store in @('My','TrustedPeople','Root','CA')){
-  $left=@($first.certificates|Where-Object store -CEQ $store);$right=@($last.certificates|Where-Object store -CEQ $store)
-  $stores[$store]=[ordered]@{before_count=$left.Count;after_count=$right.Count;matches=(ConvertTo-Json -InputObject $left -Depth 4 -Compress)-ceq (ConvertTo-Json -InputObject $right -Depth 4 -Compress)}
- };$observed.certificate_stores=$stores;$observed
+ $stores=[ordered]@{};foreach($location in @('CurrentUser','LocalMachine')){foreach($store in @('My','TrustedPeople','Root','CA')){
+  $left=@($first.certificates|Where-Object {$_.location-ceq $location -and $_.store-ceq $store});$right=@($last.certificates|Where-Object {$_.location-ceq $location -and $_.store-ceq $store})
+  $stores[$location+'_'+$store]=[ordered]@{before_count=$left.Count;after_count=$right.Count;matches=(ConvertTo-Json -InputObject $left -Depth 4 -Compress)-ceq (ConvertTo-Json -InputObject $right -Depth 4 -Compress);owned_byte_matches=$(if($OwnedCertificateSha){@($right|Where-Object bytes -CEQ $OwnedCertificateSha).Count}else{$null})}
+ }};$observed.certificate_stores=$stores
+ $roots=[ordered]@{startup_run='Software\Microsoft\Windows\CurrentVersion\Run';startup_approved='Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run';protocol='Software\Classes\openwebpbx';file_association='Software\Classes\.openwebpbx';protocol_choice='Software\Microsoft\Windows\Shell\Associations\UrlAssociations\openwebpbx\UserChoice';file_choice='Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.openwebpbx\UserChoice'}
+ $registry=[ordered]@{};foreach($label in $roots.Keys){$path=$roots[$label];$left=@($first.registry|Where-Object {$_.path-ieq $path -or $_.path.StartsWith($path+'\',[StringComparison]::OrdinalIgnoreCase)});$right=@($last.registry|Where-Object {$_.path-ieq $path -or $_.path.StartsWith($path+'\',[StringComparison]::OrdinalIgnoreCase)});$registry[$label]=[ordered]@{before_nodes=$left.Count;after_nodes=$right.Count;matches=(ConvertTo-Json -InputObject $left -Depth 14 -Compress)-ceq (ConvertTo-Json -InputObject $right -Depth 14 -Compress);acl_matches=(ConvertTo-Json -InputObject @($left|Select-Object path,sddl) -Compress)-ceq (ConvertTo-Json -InputObject @($right|Select-Object path,sddl) -Compress)}};$observed.registry_roots=$registry;$observed
 }
