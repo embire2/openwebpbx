@@ -5,9 +5,12 @@
 param([Parameter(Mandatory)][string]$PackageRoot,[switch]$DisposableHostedRunner,[Parameter(Mandatory)][string]$InputPath,[Parameter(Mandatory)][string]$ReportPath)
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-native-restart-observer.ps1')
+. (Join-Path $PSScriptRoot 'windows-hold-failure-fields.ps1')
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx') { throw 'Explicit disposable Windows hosted runner required.' }
 if([Environment]::OSVersion.Version.Build -lt 26100){throw 'Windows Server 2025 is required.'}
 $inputData=Get-Content -LiteralPath $InputPath -Raw|ConvertFrom-Json -AsHashtable
+$HoldDiagnosticsOnly=$inputData.ContainsKey('hold_diagnostics_only') -and $inputData.hold_diagnostics_only -is [bool] -and $inputData.hold_diagnostics_only
+if($HoldDiagnosticsOnly -and ($inputData.native_diagnostics_only -isnot [bool] -or !$inputData.native_diagnostics_only)){throw 'Hold-only diagnostics require explicit native diagnostics and an empty disposable factory.'}
 $root='C:\OpenWebPBX';$state=Join-Path $env:ProgramData 'OpenWebPBX';$source=Split-Path $PSScriptRoot -Parent
 if($inputData.schema -ne 1 -or !$inputData.restore_server -or [IO.Path]::GetFullPath($inputData.private_state_root) -ne [IO.Path]::GetFullPath($state) -or [IO.Path]::GetFullPath($inputData.source_root) -ne [IO.Path]::GetFullPath($source) -or $inputData.public_url -ne 'https://windowsqa.example.invalid:8443' -or $inputData.run_id -ne $env:GITHUB_RUN_ID){throw 'The private disposable factory contract is invalid.'}
 $installation=Get-Content -LiteralPath "$state\installation.json" -Raw|ConvertFrom-Json
@@ -25,6 +28,7 @@ $inputData.scope=$scope;$inputData.company_name='Fictional Windows '+$scope;$inp
 $envBefore=$env:OPENWEB_WINDOWS_NATIVE_TEST;$opensslBefore=$env:OPENSSL_CONF;$env:OPENWEB_WINDOWS_NATIVE_TEST='1';$env:OPENSSL_CONF="$root\php\extras\ssl\openssl.cnf"
 $script="$source\tests\windows-native-acceptance.py";$fixture="$source\tests\windows-native-fixture.php";$pkiProcess=$null;$pkiOutput=$null;$pkiErrors=$null;$leaf=$null;$rootCertificate=$null;$binding=$null;$originalBinding=$null;$baseline=$false;$nativePassed=$false;$cleanupPassed=$false;$phase='factory inventory';$errorType=$null
 $facts=[ordered]@{schema=1;state='running';platform='Windows Server 2025 x64';scope='fictional disposable hosted runner';checks=@();gates=[ordered]@{native_sip_audio='pending';meeting_browser='pending';native_clock='pending';native_providers='pending';native_call_me_back='pending';smtp='pending';notification_store='pending';cleanup='pending';public_acme='unqualified';physical_devices='unqualified';carrier='unqualified';android_hardware='unqualified'}}
+if($HoldDiagnosticsOnly){$facts.diagnostic_case='hold';$facts.full_release_eligible=$false;$facts.owner_eligible=$false;$facts.public_eligible=$false;$facts.restore_eligible=$false;$facts.signed_upgrade_eligible=$false}
 function Php([string]$Action){$output=& "$root\php\php.exe" $fixture $Action $privateInput 2>>"$evidence\private-php-errors.log";if($LASTEXITCODE){throw 'Private native fixture operation failed.'};return ($output -join "`n")}
 function Python([string]$Phase){
  $beforeModules=$env:PSModulePath
@@ -477,6 +481,10 @@ try{
  $phase='normal HTTPS and native calling';Python 'acceptance'
  $native=Get-Content "$evidence\software-native-report.json" -Raw|ConvertFrom-Json
  if(($native.schema -isnot [int] -and $native.schema -isnot [long]) -or $native.schema -ne 1 -or $native.producer -isnot [string] -or $native.producer -cne 'windows-native-acceptance.py' -or $native.state -isnot [string] -or $native.state -cne 'passed' -or $native.checks -isnot [array] -or $native.checks.Count -gt 256){throw 'Actual software native matrix failed.'}
+ if($HoldDiagnosticsOnly){
+  if($native.diagnostic_case -isnot [string] -or $native.diagnostic_case -cne 'hold' -or $native.full_release_eligible -isnot [bool] -or $native.full_release_eligible -or $native.owner_eligible -isnot [bool] -or $native.owner_eligible){throw 'Hold-only diagnostics cannot qualify the full suite or owner.'}
+  AssertNativeHoldDiagnosticCases $native.checks;$facts.checks=@($native.checks);$facts.gates.hold_diagnostic='passed';$nativePassed=$true
+ }else{
  AssertExtendedNativeCases $native.checks
  AssertWelcomeNativeCase $native.checks
  $facts.gates.native_clock='passed';$facts.gates.native_providers='passed';$facts.gates.native_call_me_back='passed'
@@ -512,6 +520,7 @@ try {
  $facts.checks+='Actual LOCAL SERVICE reads IIS-generated stable keys with parent write denied; production C# reader source tested separately; no delivery sent'
  $facts.completed_media_cases=@('native_localservice_notification_store_reader')
  $facts.gates.notification_store='passed';$nativePassed=$true
+ }
 }catch{
  $errorType=$_.Exception.GetType().Name;$facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$errorType
  $facts.source_basename='windows-native-acceptance.ps1';$facts.source_line=$_.InvocationInfo.ScriptLineNumber;$facts.active_case=$phase.Replace(' ','_')
@@ -526,10 +535,11 @@ try {
  if(Test-Path -LiteralPath $childReport){
   try{
    $child=Get-Content -LiteralPath $childReport -Raw|ConvertFrom-Json
-   if($child.state -eq 'failed' -and $child.source_basename -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_clock_native.py','pbx_talking_clock_native.py','windows-native-fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component' -and [int]$child.source_line -gt 0 -and [int]$child.source_line -le 100000 -and $child.active_case -match '^[a-z0-9_]{1,120}$' -and $child.error_type -match '^[A-Za-z0-9_]{1,80}$'){
+   if($child.state -eq 'failed' -and $child.source_basename -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py','windows-native-fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component' -and [int]$child.source_line -gt 0 -and [int]$child.source_line -le 100000 -and $child.active_case -match '^[a-z0-9_]{1,120}$' -and $child.error_type -match '^[A-Za-z0-9_]{1,80}$'){
     $facts.source_basename=$child.source_basename;$facts.source_line=[int]$child.source_line;$facts.active_case=$child.active_case;$facts.error_type=$child.error_type
     $completed=@(CompletedMediaCases $child.checks);if($completed.Count){$facts.completed_media_cases=$completed}
     foreach($entry in (MediaFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
+    foreach($entry in (HoldFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
     foreach($entry in (ProviderFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
     foreach($entry in (QueueFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
     foreach($entry in (VoicemailFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
@@ -555,7 +565,7 @@ try {
      $type=$child.($prefix+'_error_type');if($type -is [string] -and $type -match '^[A-Za-z0-9_]{1,80}$'){$facts[$prefix+'_error_type']=$type}
      foreach($where in 'source','caller'){
       $name=$child.($prefix+'_'+$where+'_basename');$line=$child.($prefix+'_'+$where+'_line')
-      if($name -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_clock_native.py','pbx_talking_clock_native.py','external_component' -and ($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$facts[$prefix+'_'+$where+'_basename']=$name;$facts[$prefix+'_'+$where+'_line']=[int]$line}
+      if($name -in 'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py','external_component' -and ($line -is [int] -or $line -is [long]) -and $line -gt 0 -and $line -lt 100000){$facts[$prefix+'_'+$where+'_basename']=$name;$facts[$prefix+'_'+$where+'_line']=[int]$line}
      }
     }
     if(($child.cleanup_failure_count -is [int] -or $child.cleanup_failure_count -is [long]) -and $child.cleanup_failure_count -ge 1 -and $child.cleanup_failure_count -le 32){$facts.cleanup_failure_count=[int]$child.cleanup_failure_count}
@@ -600,4 +610,4 @@ finally{
  [IO.File]::WriteAllText($ReportPath,($facts|ConvertTo-Json -Depth 14),[Text.UTF8Encoding]::new($false))
 }
 if($facts.state -ne 'passed'){throw 'Windows native acceptance did not pass. Review private evidence; factory cleanup must pass before backups.'}
-Write-Host 'Actual fictional Windows native calling, SMTP, notification storage and factory cleanup passed.'
+if($HoldDiagnosticsOnly){Write-Host 'Actual owned hold/expiry/re-registration diagnostics and strict factory cleanup passed; full/owner/public qualification remains unavailable.'}else{Write-Host 'Actual fictional Windows native calling, SMTP, notification storage and factory cleanup passed.'}

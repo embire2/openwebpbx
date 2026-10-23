@@ -1,6 +1,7 @@
 # Actual native-child and outer-suite projection functions; no service access.
 param([string]$SourceRoot=(Split-Path $PSScriptRoot -Parent))
 $ErrorActionPreference='Stop';$checks=0
+. (Join-Path $SourceRoot 'tests/windows-hold-failure-fields.ps1')
 function Check([bool]$Value){if(!$Value){throw ('Provider projection control failed at '+(Get-PSCallStack)[1].ScriptLineNumber+' field '+$field)};$script:checks++}
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-suite.ps1'),[ref]$tokens,[ref]$errors)

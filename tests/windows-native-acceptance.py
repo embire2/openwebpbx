@@ -50,7 +50,7 @@ def native_exception_fields(error,stage,prefix='primary'):
     import traceback
     frames=traceback.extract_tb(error.__traceback__)
     if not frames or stage not in NATIVE_SUBSTAGES:return {}
-    allowed={'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_clock_native.py','pbx_talking_clock_native.py'}
+    allowed={'windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py'}
     location=frames[-1]
     caller=next((frame for frame in reversed(frames) if Path(frame.filename).name=='windows-native-acceptance.py'),None)
     fields={prefix+'_error_type':type(error).__name__,prefix+'_substage':stage,
@@ -846,7 +846,7 @@ def normal_setup(f,web):
     f.record('normal_iis_notification_two_saves_stable_vapid_csrf_no_push_delivery')
 
 
-def native_calls(f):
+def native_calls(f,hold_only=False):
     f.active_case='native_profile_and_fixture_dependencies'
     status=f.cli('status');bind=status['bind'];assert bind in socket.gethostbyname_ex(socket.gethostname())[2] or bind=='127.0.0.1','Native profile uses a nonlocal endpoint'
     ca=f.evidence/'fixture-root.pem';realm=f.s['realm'];users=f.s['users'];ledger=[]
@@ -929,6 +929,11 @@ def native_calls(f):
         def run_media(self):super().run()
         def check_receiver(self):
             if self.receiver_failure is not None:raise self.receiver_failure
+        def register(self,destination,password=None,expires=120):
+            started=time.monotonic();result=super().register(destination,password,expires)
+            load_module('windows_hold_native',f.source/'tests/windows_hold_native.py').registration_result(self,result,expires,started)
+            if result.get('code')==200 and expires>0:self.hold_registration_destination=tuple(destination)
+            return result
         def exchange(self,*args,**kwargs):
             self.check_receiver()
             try:return super().exchange(*args,**kwargs)
@@ -1033,6 +1038,15 @@ def native_calls(f):
                 failure=RuntimeError('The independent media peer registration failed')
                 failure.sip_failure={'sip_response_code':int(result['code']),'digest_challenge_count':int(result.get('digest_challenge_count',0))}
                 raise failure
+        if hold_only:
+            f.active_case='native_hold_diagnostic_preflight'
+            hold=load_module('windows_hold_native',f.source/'tests/windows_hold_native.py')
+            def diagnostic_hold(stage):
+                f.active_case='native_hold_diagnostic_'+stage
+                result=hold.qualify(f,caller,a,b,destination,media,original.decoded_tone_check)
+                f.record('native_hold_diagnostic_'+stage,**result)
+            hold.expiry_diagnostic(f,peers,diagnostic_hold)
+            return
         f.active_case='native_clock1026_decoded_three_announcements'
         services=f.cli('services-info')
         clock=load_module('windows_clock_adapter',f.source/'tests/windows_clock_native.py')
@@ -1087,13 +1101,7 @@ def native_calls(f):
         f.record('native_queue_agent_first',**call_check('8190'))
         f.record('native_ivr_negotiated_wire_rfc2833',**call_check('8170',digit='2'))
         f.active_case='hold_selected_music_resume_transfer'
-        old=set(a.dialogs);call=caller.dial('8101',destination);assert call['code']==200
-        remote=f.wait(lambda:next((v for k,v in a.dialogs.items() if k not in old),None));media(call,remote)
-        assert caller.hold(call,True)==200;time.sleep(10);music=f.music(bytes(remote['decoded_pcm']))
-        assert caller.hold(call,False)==200;time.sleep(4);original.decoded_tone_check(remote,caller.tone_hz)
-        before=set(b.dialogs);assert caller.blind_transfer(call,'8102') in (200,202)
-        transferred=f.wait(lambda:next((v for k,v in b.dialogs.items() if k not in before and v.get('acked')),None));time.sleep(5)
-        original.decoded_tone_check(transferred,a.tone_hz);a.hangup_incoming(next(k for k,v in a.dialogs.items() if v is remote))
+        music=load_module('windows_hold_native',f.source/'tests/windows_hold_native.py').qualify(f,caller,a,b,destination,media,original.decoded_tone_check)
         f.record('native_visible_sip_hold_selected_music_resume_transfer',**music)
         # Timer expires through the configured receptionist destination; no fake DTMF.
         started=time.monotonic();result=call_check('8170',expected=b);elapsed=time.monotonic()-started
@@ -1382,6 +1390,11 @@ def main():
         # Ordinary peers/providers close in native_calls before the separate
         # ephemeral meeting accounts are created; global SMTP is changed last.
         # A meeting failure must not hide earlier real core-call evidence.
+        if f.s.get('hold_diagnostics_only') is True:
+            native_calls(f,hold_only=True)
+            f.web.request('/logout.php')
+            (f.evidence/'software-native-report.json').write_text(json.dumps({'schema':1,'producer':'windows-native-acceptance.py','state':'passed','checks':f.checks,'diagnostic_case':'hold','full_release_eligible':False,'owner_eligible':False,'physical_devices':'unqualified','scope':'fictional-hosted-runner-hold-diagnostic-only'},indent=2))
+            return
         native_calls(f)
         load_module('windows_meeting_browser',f.source/'tests/windows-meet-browser.py').run(f)
         smtp_and_queued_voicemail(f);f.web.request('/logout.php')
@@ -1390,7 +1403,7 @@ def main():
         import traceback
         location=traceback.extract_tb(e.__traceback__)[-1]
         basename=Path(location.filename).name
-        if basename not in ('windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_clock_native.py','pbx_talking_clock_native.py'):
+        if basename not in ('windows-native-acceptance.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py'):
             basename='external_component'
         failure={'schema':1,'producer':'windows-native-acceptance.py','state':'failed','checks':f.checks,'error_type':type(e).__name__,'error':str(e),'source_basename':basename,'source_line':location.lineno,'active_case':f.active_case}
         if getattr(e,'fixture_failure',None):failure.update(e.fixture_failure)
@@ -1399,6 +1412,7 @@ def main():
         if getattr(e,'audio_failure',None):failure.update(e.audio_failure)
         if getattr(e,'native_failure',None):failure.update(e.native_failure)
         if getattr(e,'media_failure',None):failure.update(e.media_failure)
+        if getattr(e,'hold_failure',None):failure.update(e.hold_failure)
         if getattr(e,'media_window_private',None):failure['media_window_private']=e.media_window_private
         if getattr(e,'queue_failure',None):failure.update(e.queue_failure)
         if getattr(e,'voicemail_failure',None):failure.update(e.voicemail_failure)

@@ -1,6 +1,7 @@
 # Execute the actual generated phone-TLS failure launcher without PBX changes.
 param([string]$SourceRoot=(Split-Path $PSScriptRoot -Parent))
 $ErrorActionPreference='Stop';$checks=0
+. (Join-Path $SourceRoot 'tests/windows-hold-failure-fields.ps1')
 function Check([bool]$Value){if(!$Value){throw ('Closed phone TLS diagnostics failed at '+(Get-PSCallStack)[1].ScriptLineNumber)};$script:checks++}
 $tokens=$null;$errors=$null
 $native=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-native-acceptance.ps1'),[ref]$tokens,[ref]$errors);Check (!$errors.Count)

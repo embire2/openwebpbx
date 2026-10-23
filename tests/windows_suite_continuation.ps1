@@ -2,6 +2,7 @@
 # mocked hooks/observer. No Windows services, native engines or PBX are invoked.
 param([string]$SourceRoot=(Split-Path $PSScriptRoot -Parent))
 $ErrorActionPreference='Stop'
+. (Join-Path $SourceRoot 'tests/windows-hold-failure-fields.ps1')
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-suite.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'The actual suite must parse.'}
