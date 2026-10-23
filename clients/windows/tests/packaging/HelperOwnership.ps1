@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+function AssertPackageHelperOwnership($Observed,$Journal,$Package,[string]$ExpectedSha,[string]$ExpectedPackageSha,[object[]]$Parents,[string]$CurrentUserSid){
+ $prefix=[regex]::Escape($Package.data_parent.TrimEnd('\')+'\direct\updates\')
+ if($Journal.schema-ne 1 -or $Journal.producer-cne 'WindowsPhoneUpdaterOwnership' -or $Journal.pid-isnot [long] -or $Journal.pid-le 0 -or $Journal.created_utc_ticks-isnot [long] -or $Journal.created_utc_ticks-le 0 -or $Journal.executable-isnot [string] -or $Journal.executable-cnotmatch ('^'+$prefix+'helper-[a-f0-9]{32}\\OpenWebPbx\.Phone\.Updater\.exe$') -or $Journal.executable_sha256-cne $ExpectedSha -or $Journal.installed_full_name-cne $Package.full_name -or $Journal.family_name-cne $Package.family_name -or $Journal.data_parent-cne $Package.data_parent -or $Journal.package_sha256-cne $ExpectedPackageSha -or $Journal.request_sha256-isnot [string] -or $Journal.request_sha256-cnotmatch '^[a-f0-9]{64}$' -or $Journal.user_sid-cne $CurrentUserSid){throw 'The cached helper scope or request binding differs.'}
+ if($Observed.pid-ne $Journal.pid -or $Observed.created_utc_ticks-ne $Journal.created_utc_ticks -or $Observed.executable-ine $Journal.executable -or $Observed.executable_sha256-cne $ExpectedSha){throw 'The exact live cached helper identity differs.'}
+ $matches=@($Parents|Where-Object {$_.pid-eq $Journal.parent_id -and $_.created_utc_ticks-eq $Journal.parent_started_utc_ticks -and $_.executable-ieq $Journal.parent_path})
+ if($matches.Count-ne 1){throw 'The cached helper has no exact observed parent request context.'}
+}

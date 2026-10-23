@@ -1,0 +1,117 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#Requires -Version 7.4
+[CmdletBinding()]
+param([Parameter(Mandatory)][string]$SdkZip,[Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{40}$')][string]$SourceCommit,[Parameter(Mandatory)][string]$Report)
+$ErrorActionPreference='Stop';Set-StrictMode -Version Latest;$ProgressPreference='SilentlyContinue'
+if(!$IsWindows -or $env:GITHUB_ACTIONS-cne 'true' -or $env:RUNNER_ENVIRONMENT-cne 'github-hosted' -or $env:RUNNER_OS-cne 'Windows' -or $env:GITHUB_REPOSITORY-cne 'embire2/openwebpbx'){throw 'Only the disposable hosted Windows package fixture is allowed.'}
+$client=Split-Path $PSScriptRoot -Parent;$repo=Split-Path (Split-Path $client -Parent) -Parent;$temp=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\');$SdkZip=[IO.Path]::GetFullPath($SdkZip);$Report=[IO.Path]::GetFullPath($Report)
+if([IO.Path]::GetDirectoryName($Report)-ine $temp -or [IO.Path]::GetFileName($Report)-cnotmatch '^phone-package-result-[a-f0-9]{32}\.json$' -or (Test-Path $Report) -or !$SdkZip.StartsWith($temp+'\',[StringComparison]::OrdinalIgnoreCase) -or ((Get-Item $SdkZip).Attributes-band [IO.FileAttributes]::ReparsePoint) -or (Get-Item $SdkZip).Length-ne 315960147 -or (Get-FileHash $SdkZip -Algorithm SHA256).Hash-cne '9CC84037333DACA88AF24804E20B9D1F5E41DDD901578484B57DCC6720A8D297'){throw 'The bounded output or exact SDK input differs.'}
+Push-Location $repo;try{if((git rev-parse HEAD).Trim()-cne $SourceCommit -or (git status --porcelain)){throw 'Exact clean committed source is required.'}}finally{Pop-Location}
+if(([IO.DriveInfo]::new([IO.Path]::GetPathRoot($temp))).AvailableFreeSpace-lt 6GB){throw 'The disposable package fixture requires six GiB free space.'}
+$nonce=[Guid]::NewGuid().ToString('N');$root=Join-Path $temp ('phone-package-'+$nonce);if(Test-Path $root){throw 'The owned package root must be new.'}
+$identity='OpenWebPBX.FreePhone.Dev.'+$nonce.Substring(0,16);$publisher='CN=FreePhone Development '+$nonce;$nativePS=$null;$python=$null;$dotnet=$null;$rootCreated=$false
+$started=[DateTime]::UtcNow;$feed=$null;$releaseKey=$null;$updater=$null;$failure=$null;$cleanup=$true;$installed=$false;$installAttempted=$false;$before=$null;$ownedInfo=$null;$parentRecords=[Collections.Generic.List[object]]::new();$expectedHelperSha=$null;$expectedPackageSha=$null;$certAttempted=$false;$stage='baseline'
+$result=[ordered]@{schema=1;producer='Test-ClientPackage.ps1';source_commit=$SourceCommit;state='failed';actual_native_windows=$true;development_managed_binary=$true;production_binary_tested=$false;production_update_channel_tested=$false;store_accepted=$false;hardware_media_tested=$false;calling_tested=$false;exact_owned_cleanup=$false;preexisting_vectors_preserved=$false}
+function Run([string]$Exe,[string[]]$Arguments,[int]$Seconds=120){
+ $info=[Diagnostics.ProcessStartInfo]::new($Exe);$info.WorkingDirectory=if($Exe-ieq $dotnet){$client}else{[Environment]::SystemDirectory};$info.UseShellExecute=$false;$info.CreateNoWindow=$true;$info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true;foreach($argument in $Arguments){[void]$info.ArgumentList.Add($argument)}
+ $p=[Diagnostics.Process]::Start($info);$when=$p.StartTime.ToUniversalTime();$stdout=$p.StandardOutput.ReadToEndAsync();$stderr=$p.StandardError.ReadToEndAsync()
+ try{if(!$p.WaitForExit($Seconds*1000)){throw 'An owned package child exceeded its deadline.'};$text=$stdout.GetAwaiter().GetResult();$errorText=$stderr.GetAwaiter().GetResult();if($text.Length-gt 8MB -or $errorText.Length-gt 8MB){throw 'Owned child output exceeds its private bound.'};if($p.ExitCode-ne 0){throw 'An actual package child refused.'};$text}
+ finally{if(!$p.HasExited){if($p.StartTime.ToUniversalTime()-ne $when -or $p.MainModule.FileName-ine $Exe){throw 'Refuse a foreign child process.'};$p.Kill($true);if(!$p.WaitForExit(10000)){throw 'Owned child cleanup failed.'}};$p.Dispose()}
+}
+function RegistryTree([string]$Path){
+ $nodes=[Collections.Generic.List[object]]::new();$pending=[Collections.Generic.Stack[string]]::new();$pending.Push($Path)
+ while($pending.Count){$next=$pending.Pop();if($nodes.Count-ge 512){throw 'The fixed registry vector exceeds its bound.'};$key=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($next,$false)
+  try{
+   $values=@();$sddl=$null;if($key){$names=@($key.GetValueNames()|Sort-Object);if($names.Count-gt 4096){throw 'The fixed registry value vector exceeds its bound.'};foreach($name in $names){$values+=[ordered]@{name=$name;kind=[string]$key.GetValueKind($name);value=$key.GetValue($name,$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)}};$sddl=(Get-Acl -LiteralPath ('HKCU:\'+$next)).Sddl;foreach($child in @($key.GetSubKeyNames()|Sort-Object -Descending)){$pending.Push($next+'\'+$child)}}
+   $nodes.Add([ordered]@{path=$next;exists=($null-ne $key);sddl=$sddl;values=$values})
+  }finally{if($key){$key.Dispose()}}
+ };$nodes.ToArray()
+}
+function Snapshot{
+ $stores=@();foreach($name in @('My','TrustedPeople','Root','CA')){$s=[Security.Cryptography.X509Certificates.X509Store]::new($name,'CurrentUser');try{$s.Open('ReadOnly');$stores+=@($s.Certificates|Sort-Object Thumbprint|ForEach-Object{[ordered]@{store=$name;thumbprint=$_.Thumbprint;bytes=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($_.RawData));private=$_.HasPrivateKey;archived=$_.Archived;friendly=$_.FriendlyName}})}finally{$s.Dispose()}}
+ $packages=@(Run $updater @('--fixture-list-packages') 120|ConvertFrom-Json)
+ $registry=@();foreach($path in @('Software\Microsoft\Windows\CurrentVersion\Run','Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run','Software\Classes\openwebpbx','Software\Classes\.openwebpbx','Software\Microsoft\Windows\Shell\Associations\UrlAssociations\openwebpbx\UserChoice','Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.openwebpbx\UserChoice')){$registry+=@(RegistryTree $path)}
+ [ordered]@{certificates=$stores;packages=$packages;registry=$registry}|ConvertTo-Json -Depth 14 -Compress
+}
+function Cert([string]$Mode){[void](Run $nativePS @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $client 'tests/packaging/Certificate.ps1'),'-Mode',$Mode,'-Nonce',$nonce,'-Root',$root) 120)}
+function Info{Run $updater @('--fixture-info') 120|ConvertFrom-Json}
+function AppProcess($Info){$path=Join-Path $Info.installed_location 'OpenWebPbx.Phone.App.exe';$end=[DateTime]::UtcNow.AddSeconds(60);do{$rows=@(Get-Process -Name 'OpenWebPbx.Phone.App' -ErrorAction SilentlyContinue|Where-Object{try{$_.StartTime.ToUniversalTime()-ge $started -and $_.MainModule.FileName-ieq $path -and $_.MainWindowHandle-ne 0 -and $_.Responding}catch{$false}});if($rows.Count-eq 1){return $rows[0]};if($rows.Count-gt 1){throw 'Ambiguous owned package processes.'};Start-Sleep -Milliseconds 100}while([DateTime]::UtcNow-lt $end);throw 'The actual owned packaged window did not appear.'}
+. (Join-Path $client 'tests/packaging/HelperOwnership.ps1')
+function Ui([string]$Mode,$Info){$p=AppProcess $Info;try{
+ $record=[ordered]@{pid=$p.Id;created_utc_ticks=$p.StartTime.ToUniversalTime().Ticks;executable=$p.MainModule.FileName};$parentRecords.Add($record)
+ $journal=Join-Path $root 'observed-app-processes.jsonl';$bytes=[Text.Encoding]::UTF8.GetBytes(($record|ConvertTo-Json -Compress)+"`n");$file=[IO.File]::Open($journal,'Append','Write','Read');try{$file.Write($bytes);$file.Flush($true)}finally{$file.Dispose()}
+[void](Run $nativePS @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $client 'tests/packaging/Interface.ps1'),'-Mode',$Mode,'-ProcessId',[string]$p.Id,'-StartedUtcTicks',[string]$p.StartTime.ToUniversalTime().Ticks,'-Executable',$p.MainModule.FileName,'-Nonce',$nonce,'-Root',$root) 180)}finally{$p.Dispose()}}
+try{
+ [void][IO.Directory]::CreateDirectory($root);$rootCreated=$true;$acl=[Security.AccessControl.DirectorySecurity]::new();$acl.SetAccessRuleProtection($true,$false);foreach($sid in @([Security.Principal.WindowsIdentity]::GetCurrent().User,[Security.Principal.SecurityIdentifier]::new('S-1-5-18'))){$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow'))};[IO.FileSystemAclExtensions]::SetAccessControl([IO.DirectoryInfo]::new($root),$acl)
+$nativePS=Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell\v1.0\powershell.exe';$python=(Get-Command python -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source;$dotnet=(Get-Command dotnet -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source
+Push-Location $client;try{if((& $dotnet --version).Trim()-cne '10.0.401'){throw 'Exact .NET SDK required.'}}finally{Pop-Location}
+
+ $stage='prepare';$sdk=Join-Path $root 'sdk';Expand-Archive -LiteralPath $SdkZip -DestinationPath $sdk;$native=Join-Path $sdk 'linphone-sdk\win64';$binding=Join-Path $native 'share\linphonecs\LinphoneWrapper.cs'
+ if((Get-FileHash $binding -Algorithm SHA256).Hash-cne 'A99C5197BE469D58812AFC33A2ADB104505134B9A03AC7654D11E4E4341D3A15'){throw 'The pinned SDK binding differs.'}
+ $feedInfo=[Diagnostics.ProcessStartInfo]::new($python);$feedInfo.UseShellExecute=$false;$feedInfo.CreateNoWindow=$true;foreach($arg in @((Join-Path $client 'tests/packaging/feed.py'),$root)){[void]$feedInfo.ArgumentList.Add($arg)};$feed=[Diagnostics.Process]::Start($feedInfo);$feedStarted=$feed.StartTime.ToUniversalTime();$end=[DateTime]::UtcNow.AddSeconds(15);while(!(Test-Path (Join-Path $root 'feed-ready.json')) -and [DateTime]::UtcNow-lt $end){if($feed.HasExited){throw 'Owned feed exited.'};Start-Sleep -Milliseconds 50};$ready=Get-Content (Join-Path $root 'feed-ready.json') -Raw|ConvertFrom-Json;if($ready.schema-ne 1 -or $ready.pid-ne $feed.Id -or $ready.port-lt 1025 -or $ready.port-gt 65535){throw 'Owned loopback feed identity differs.'}
+ $releaseKey=[Security.Cryptography.RSA]::Create(3072);$config=Join-Path $root 'fixture.public.json';[ordered]@{Nonce=$nonce;Root=$root;PublicKey=$releaseKey.ExportSubjectPublicKeyInfoPem();FeedBase=('http://127.0.0.1:'+$ready.port+'/')}|ConvertTo-Json -Depth 3|Set-Content $config -Encoding utf8NoBOM
+ $app=Join-Path $root 'app';$project=Join-Path $client 'src/OpenWebPbx.Phone.App/OpenWebPbx.Phone.App.csproj';$props=@('-c','Release','-r','win-x64','--self-contained','true','-m:1','-p:UseSharedCompilation=false',('-p:LinphoneBinding='+$binding),'-p:PhonePackageFixture=true',('-p:PhonePackageFixtureConfiguration='+$config))
+ [void](Run $dotnet (@('publish',$project)+$props+@('-p:PhoneDistribution=direct','-o',$app)) 900)
+ $helper=Join-Path $app 'updater';[void](Run $dotnet (@('publish',(Join-Path $client 'src/OpenWebPbx.Phone.Updater'))+$props+@('-p:DebugType=None','-o',$helper)) 600);$updater=Join-Path $helper 'OpenWebPbx.Phone.Updater.exe'
+ $members=@(Get-ChildItem $helper -File);if($members.Count-gt 256 -or @($members|Where-Object{$_.Name-cnotmatch '^[A-Za-z0-9_.-]{1,160}\.(dll|exe|json)$'}).Count){throw 'An unexpected updater runtime was published.'};[ordered]@{Schema=1;Files=@($members|Sort-Object Name|ForEach-Object{[ordered]@{Name=$_.Name;Bytes=$_.Length;Sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}})}|ConvertTo-Json -Depth 4|Set-Content (Join-Path $helper 'updater-files.json') -Encoding utf8NoBOM
+ foreach($file in Get-ChildItem (Join-Path $native 'bin') -Filter '*.dll'|Where-Object Name -NotMatch 'tester|bcunit'){if(Test-Path (Join-Path $app $file.Name)){throw 'Native runtime collision.'};Copy-Item $file.FullName (Join-Path $app $file.Name)}
+ New-Item -ItemType Directory (Join-Path $app 'native/plugins') -Force|Out-Null;Copy-Item (Join-Path $native 'lib/mediastreamer/plugins/*.dll') (Join-Path $app 'native/plugins')
+ foreach($name in @('belr','linphone','sounds','images')){if(Test-Path (Join-Path $native ('share/'+$name))){New-Item -ItemType Directory (Join-Path $app 'native/share') -Force|Out-Null;Copy-Item (Join-Path $native ('share/'+$name)) (Join-Path $app 'native/share') -Recurse}}
+ New-Item -ItemType Directory (Join-Path $app 'Assets') -Force|Out-Null;Get-ChildItem (Join-Path $client 'src/OpenWebPbx.Phone.App/Assets') -File|Copy-Item -Destination (Join-Path $app 'Assets') -Force
+ $before=Snapshot;$result.managed_fixture_sha256=(Get-FileHash (Join-Path $app 'OpenWebPbx.Phone.Windows.dll') -Algorithm SHA256).Hash.ToLowerInvariant();$stage='development_certificate';$certAttempted=$true;Cert 'Create';$cert=Get-Content (Join-Path $root 'certificate.json') -Raw|ConvertFrom-Json
+ $kit=Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Directory|Where-Object Name -Match '^10\.[0-9.]+$'|Sort-Object {[version]$_.Name} -Descending|Where-Object{Test-Path (Join-Path $_.FullName 'x64/signtool.exe')}|Select-Object -First 1;$sign=Join-Path $kit.FullName 'x64/signtool.exe';$make=Join-Path $kit.FullName 'x64/makeappx.exe'
+ foreach($version in @('1.0.0','1.0.1')){
+  $stage='make_package';$directory=Join-Path $root ('package-'+$version);New-Item -ItemType Directory $directory|Out-Null;$msix=Join-Path $directory 'Phone.msix'
+  $manifest=Join-Path $app 'AppxManifest.xml';if(Test-Path $manifest){Remove-Item $manifest}
+  & (Join-Path $PSScriptRoot 'Package-Client.ps1') -AppRoot $app -Output $msix -Identity $identity -Publisher $publisher -Version $version -DevelopmentNonce $nonce
+  [void](Run $sign @('sign','/fd','SHA256','/s','My','/sha1',$cert.thumbprint,$msix) 120)
+  if($version-ceq '1.0.0'){Copy-Item $msix (Join-Path $root 'install.msix')}else{[void](Run $make @('bundle','/d',$directory,'/p',(Join-Path $root 'update.msixbundle'),'/bv','1.0.1.0') 180);[void](Run $sign @('sign','/fd','SHA256','/s','My','/sha1',$cert.thumbprint,(Join-Path $root 'update.msixbundle')) 120)}
+ }
+ $package=Get-Item (Join-Path $root 'update.msixbundle');$payload=[ordered]@{schema=1;purpose='windows-phone-release';component='windows-free-phone';platform='windows-x64';channel='stable';version='1.0.1';sequence=2;published_at=[DateTime]::UtcNow.AddMinutes(-1).ToString("yyyy-MM-ddTHH:mm:ssZ");expires_at=[DateTime]::UtcNow.AddHours(12).ToString("yyyy-MM-ddTHH:mm:ssZ");package=[ordered]@{url='https://github.com/embire2/openwebpbx/releases/download/windows-phone-v1.0.1/OpenWebPBX-Free-Phone-1.0.1-win-x64.msixbundle';bytes=$package.Length;sha256=(Get-FileHash $package.FullName -Algorithm SHA256).Hash.ToLowerInvariant();identity=$identity;publisher=$publisher}};$bytes=[Text.Encoding]::UTF8.GetBytes(($payload|ConvertTo-Json -Depth 5 -Compress));$signature=$releaseKey.SignData($bytes,[Security.Cryptography.HashAlgorithmName]::SHA256,[Security.Cryptography.RSASignaturePadding]::Pkcs1)
+ [ordered]@{algorithm='rsa-sha256';key_id='windows-phone-release-1';payload=[Convert]::ToBase64String($bytes);signature=[Convert]::ToBase64String($signature)}|ConvertTo-Json -Compress|Set-Content (Join-Path $root 'catalogue.json') -Encoding utf8NoBOM
+ $stage='install';$installAttempted=$true;[void](Run $updater @('--fixture-install') 180);$installed=$true;$info=Info;$ownedInfo=$info;$expectedHelperSha=(Get-FileHash $updater -Algorithm SHA256).Hash.ToLowerInvariant();$expectedPackageSha=(Get-FileHash (Join-Path $root 'update.msixbundle') -Algorithm SHA256).Hash.ToLowerInvariant();$info|ConvertTo-Json -Depth 4|Set-Content (Join-Path $root 'owned-package.json') -Encoding utf8NoBOM;if($info.version-cne '1.0.0.0'){throw 'The actual initial package version differs.'}
+ $stage='seed_data';$checkpoint=Run $updater @('--fixture-seed') 120|ConvertFrom-Json
+ $stage='packaged_launch';[void](Run $updater @('--fixture-launch') 120);Ui 'Update' $info
+ $stage='actual_update';$end=[DateTime]::UtcNow.AddSeconds(120);do{$info=Info;if($info.version-ceq '1.0.1.0'){break};Start-Sleep -Milliseconds 250}while([DateTime]::UtcNow-lt $end);if($info.version-cne '1.0.1.0'){throw 'Windows did not install the real fixture update.'}
+ Ui 'Verify' $info;$after=Run $updater @('--fixture-checkpoint') 120|ConvertFrom-Json
+ if(($checkpoint|ConvertTo-Json -Depth 6 -Compress)-cne ($after|ConvertTo-Json -Depth 6 -Compress)){throw 'Saved account/history data or personal preferences changed across the update.'}
+ $result.actual_signed_msix_install=$true;$result.actual_signature_hash_verifier=$true;$result.actual_idle_helper_install_relaunch=$true;$result.actual_native_confirmation=$true;$result.account_data_and_preferences_preserved=$true;$result.account_history_dpapi=$true;$result.preferences_protected_json=$true;$result.state='passed_development_package'
+}catch{
+ $primary=$_; $operationFailure=Join-Path $root 'fixture-operation-failure.json'
+ if(Test-Path -LiteralPath $operationFailure){try{$detail=Get-Content -LiteralPath $operationFailure -Raw|ConvertFrom-Json;if($detail.schema-eq 1 -and $detail.producer-ceq 'PackageFixtureOperations' -and $detail.state-ceq 'failed' -and $detail.error_type-cmatch '^(Exception|[A-Za-z][A-Za-z0-9]{0,70}Exception)$' -and $detail.hresult-is [long] -and $detail.hresult-ge [int]::MinValue -and $detail.hresult-le [int]::MaxValue -and $detail.operation-cmatch '^--fixture-(install|remove|info|launch|seed|checkpoint|list-packages)$'){$result.operation_failure=[ordered]@{operation=$detail.operation;error_type=$detail.error_type;hresult=$detail.hresult}}}catch{}}
+ $startup=Join-Path $root 'fixture-startup.json'
+ if(Test-Path -LiteralPath $startup){try{if((Get-Item $startup).Length-gt 2048){throw 'Startup observation is unbounded.'};$view=Get-Content $startup -Raw|ConvertFrom-Json;if($view.schema-ne 1 -or $view.producer-cne 'PackageFixtureStartup' -or $view.state-cne 'observed'){throw 'Startup observation producer differs.'};$closed=[ordered]@{};foreach($flag in @('actions_match','hosted_match','repo_match','runner_temp_present','runner_temp_matches')){if($view.$flag-isnot [bool]){throw 'Startup observation requires typed flags.'};$closed[$flag]=$view.$flag};$result.startup_observation=$closed}catch{}}
+ $failure=$primary;$result.error_type=$primary.Exception.GetType().Name;$result.source_line=[int]$primary.InvocationInfo.ScriptLineNumber;$result.stage=$stage}
+finally{
+ # Stop the owned app first so it cannot launch a new cached helper after the helper scan.
+ if($updater){
+  try{foreach($p in @(Get-Process -Name 'OpenWebPbx.Phone.App','OpenWebPbx.Phone.Updater' -ErrorAction SilentlyContinue)){try{$path=$p.MainModule.FileName;if($p.StartTime.ToUniversalTime()-ge $started -and ($path.StartsWith((Join-Path ([Environment]::GetFolderPath('ProgramFiles')) ('WindowsApps\'+$identity+'_')),[StringComparison]::OrdinalIgnoreCase) -or $path.StartsWith($root+'\',[StringComparison]::OrdinalIgnoreCase))){$p.Kill($true);if(!$p.WaitForExit(10000)){throw 'The exact owned package process did not stop.'}}}finally{$p.Dispose()}}}catch{$cleanup=$false;$result.process_cleanup_error=$_.Exception.GetType().Name}
+ }
+ if($ownedInfo){
+  try{
+   $cache=Join-Path $ownedInfo.data_parent 'direct/updates';$user=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+   $end=[DateTime]::UtcNow.AddSeconds(3)
+   do{
+    $live=@(Get-Process -Name 'OpenWebPbx.Phone.Updater' -ErrorAction SilentlyContinue|Where-Object{try{$_.MainModule.FileName.StartsWith($cache+'\',[StringComparison]::OrdinalIgnoreCase)}catch{$false}})
+    if(!$live.Count){break};$proofs=@();if(Test-Path $cache){$files=@(Get-ChildItem -LiteralPath $cache -Filter 'install-*.owner.json' -File);if($files.Count-gt 32){throw 'Cached helper ownership records exceed their bound.'};foreach($file in $files){if(($file.Attributes-band [IO.FileAttributes]::ReparsePoint) -or $file.Length-gt 8192 -or $file.Name-cnotmatch '^install-[a-f0-9]{32}\.json\.owner\.json$'){throw 'An ordinary bounded cached-helper journal is required.'};$proofs+=,(Get-Content $file.FullName -Raw|ConvertFrom-Json)}}
+    foreach($p in $live){try{$observed=[ordered]@{pid=$p.Id;created_utc_ticks=$p.StartTime.ToUniversalTime().Ticks;executable=$p.MainModule.FileName;executable_sha256=(Get-FileHash $p.MainModule.FileName -Algorithm SHA256).Hash.ToLowerInvariant()};$matching=@($proofs|Where-Object {$_.pid-eq $p.Id -and $_.created_utc_ticks-eq $observed.created_utc_ticks});if($matching.Count-ne 1){if([DateTime]::UtcNow-lt $end){continue};throw 'A live cached helper lacks its exact retained ownership proof.'};AssertPackageHelperOwnership $observed $matching[0] $ownedInfo $expectedHelperSha $expectedPackageSha $parentRecords.ToArray() $user;$p.Kill($true);if(!$p.WaitForExit(10000)){throw 'The exact cached helper did not stop.'}}finally{$p.Dispose()}}
+    Start-Sleep -Milliseconds 100
+   }while([DateTime]::UtcNow-lt $end)
+   # An iteration may cross the deadline after waiting for its ownership journal.
+   # A final live check is mandatory before removing its package or signing identity.
+   $remaining=@(Get-Process -Name 'OpenWebPbx.Phone.Updater' -ErrorAction SilentlyContinue)
+   try{foreach($p in $remaining){if(!$p.HasExited -and $p.MainModule.FileName.StartsWith($cache+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'An owned cached helper remains after the bounded cleanup.'}}}finally{foreach($p in $remaining){$p.Dispose()}}
+  }catch{$cleanup=$false;$result.cached_helper_cleanup_error=$_.Exception.GetType().Name}
+ }
+ if($updater){
+  if($installAttempted -and $cleanup){try{[void](Run $updater @('--fixture-remove') 180)}catch{$cleanup=$false;$result.package_cleanup_error=$_.Exception.GetType().Name}}
+ }
+ if($certAttempted -and $cleanup){try{Cert 'Remove'}catch{$cleanup=$false;$result.certificate_cleanup_error=$_.Exception.GetType().Name}}
+ if($before -and $cleanup){try{$result.preexisting_vectors_preserved=(Snapshot)-ceq $before;if(!$result.preexisting_vectors_preserved){$cleanup=$false}}catch{$cleanup=$false;$result.preservation_error=$_.Exception.GetType().Name}}
+ if($feed){try{if(!$feed.HasExited){if($feed.StartTime.ToUniversalTime()-ne $feedStarted -or $feed.MainModule.FileName-ine $python){throw 'Refuse a foreign loopback feed process.'};$feed.Kill($true);if(!$feed.WaitForExit(10000)){throw 'The owned loopback feed did not stop.'}}}catch{$cleanup=$false}finally{$feed.Dispose()}}
+ if($releaseKey){$releaseKey.Dispose()}
+ if($cleanup -and $rootCreated){try{$rootItem=Get-Item -LiteralPath $root -Force;if(!$rootItem.PSIsContainer -or ($rootItem.Attributes-band [IO.FileAttributes]::ReparsePoint)){throw 'Owned cleanup requires the original ordinary root.'};foreach($item in Get-ChildItem $root -Force -Recurse){if($item.Attributes-band [IO.FileAttributes]::ReparsePoint){throw 'Owned cleanup refuses linked entries.'}};Remove-Item -LiteralPath $root -Recurse -Force;if(Test-Path $root){throw 'The owned package tree remains.'}}catch{$cleanup=$false}}
+ $result.exact_owned_cleanup=$cleanup -and !(Test-Path $root);if(!$result.exact_owned_cleanup -or !$result.preexisting_vectors_preserved){$result.state='failed'}
+ try{$file=[IO.File]::Open($Report,'CreateNew','Write','None');try{$bytes=[Text.Encoding]::UTF8.GetBytes(($result|ConvertTo-Json -Depth 6));$file.Write($bytes);$file.Flush($true)}finally{$file.Dispose()}}catch{if($failure){try{$failure.Exception.Data['receipt_write_failed']=$true}catch{}}else{$failure=$_}}
+}
+if($failure){throw $failure};if($result.state-cne 'passed_development_package'){throw 'Windows package qualification remains incomplete.'}

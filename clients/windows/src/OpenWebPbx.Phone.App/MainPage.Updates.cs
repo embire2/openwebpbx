@@ -41,12 +41,12 @@ public sealed partial class MainPage
             var required = policies.Any(x => x.Requires(ClientVersion)) || storePackages.Any(x => x.Mandatory);
             updateRequirement = new(storePackages.Count != 0, required && storePackages.Count != 0, ClientVersion);
 #else
-            if (policies.Count > 0 && policies.All(x => !x.Published)) { updateChecked = DateTimeOffset.UtcNow; Show("Your Windows phone is up to date. No newer Windows phone release has been published.", false); return; }
+            if (policies.Count > 0 && policies.All(x => !x.Published)) { updateRequirement = null; updateRelease = null; updateEnvelope = null; downloadedUpdate = null; RefreshUpdateNotice(); updateChecked = DateTimeOffset.UtcNow; Show("Your Windows phone is up to date. No newer Windows phone release has been published.", false); return; }
             var identity = ClientInstallation.Identity(); var trust = new UpdateStorage(Distribution.Channel); var floor = trust.Read();
             using var download = new ReleaseDownload(); var envelope = await download.CatalogueBytes(); using var key = ClientUpdateTrust.Open();
             var release = ClientRelease.Verify(envelope, key, floor.Sequence, identity.Name, identity.Publisher, floor.Sequence == 0 ? null : floor.PayloadSha256);
             var requirement = UpdateRequirement.Evaluate(ClientVersion, ClientRelease.Version(release.ReleaseVersion), policies);
-            trust.Accept(release); updateRelease = release; updateEnvelope = envelope; updateRequirement = requirement;
+            trust.Accept(release); if (updateRelease?.PayloadSha256 != release.PayloadSha256) downloadedUpdate = null; updateRelease = release; updateEnvelope = envelope; updateRequirement = requirement;
 #endif
             updateChecked = DateTimeOffset.UtcNow; RefreshUpdateNotice();
             if (updateRequirement?.Available != true) Show("Your Windows phone is up to date.", false);
@@ -58,6 +58,8 @@ public sealed partial class MainPage
         if (updateRequirement?.Available != true) { UpdateNotice.IsOpen = false; return; }
         UpdateNotice.Severity = updateRequirement.Required ? InfoBarSeverity.Warning : InfoBarSeverity.Informational;
         UpdateNotice.Title = updateRequirement.Required ? "Required Windows phone update" : "Windows phone update available";
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(UpdateNotice, "WindowsPhoneUpdateBanner");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(UpdateNotice, UpdateNotice.Title);
         UpdateNotice.Message = updateRequirement.Required ? "Finish your current calls, then install the update. Incoming calls remain available." : "Install the latest Windows phone when you are ready. Your accounts and settings are kept.";
         UpdateNotice.IsClosable = !updateRequirement.Required;
         UpdateNotice.ActionButton = AsyncButton(downloadedUpdate is null ? "Get update" : "Install and restart", ApplyUpdate, true); UpdateNotice.IsOpen = true;
@@ -74,6 +76,7 @@ public sealed partial class MainPage
         }
         UpdateRequirement.RequireInstallationIdle(phone!.Calls.Count);
         var confirm = new ContentDialog { XamlRoot = XamlRoot, Title = "Update Windows phone?", Content = "The Microsoft Store will install the update. Your accounts and settings are kept.", PrimaryButtonText = "Update", CloseButtonText = "Later" };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(confirm, "WindowsPhoneUpdateConfirmation");
         if (await confirm.ShowAsync() != ContentDialogResult.Primary) return;
         UpdateRequirement.RequireInstallationIdle(phone.Calls.Count);
         // Stop accepting new calls only after the completed download and idle confirmation;
@@ -100,6 +103,7 @@ public sealed partial class MainPage
         }
         UpdateRequirement.RequireInstallationIdle(phone!.Calls.Count);
         var confirm = new ContentDialog { XamlRoot = XamlRoot, Title = "Install Windows phone update?", Content = "The phone will close while Windows installs the verified update, then reopen. Your accounts and settings are kept.", PrimaryButtonText = "Install and restart", CloseButtonText = "Later" };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(confirm, "WindowsPhoneUpdateConfirmation");
         if (await confirm.ShowAsync() != ContentDialogResult.Primary) return;
         UpdateRequirement.RequireInstallationIdle(phone.Calls.Count);
         await ClientInstallation.StartUpdate(downloadedUpdate, updateEnvelope, storage);

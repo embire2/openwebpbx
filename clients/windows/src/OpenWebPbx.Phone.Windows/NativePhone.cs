@@ -68,6 +68,9 @@ public sealed class NativePhone : IDisposable
 #if PHONE_MEDIA_FIXTURE
         if (mediaFixture is not null) { config.SetString("sip", "bind_address", "127.0.0.1"); config.SetInt("sip", "use_ipv6", 0); config.SetString("rtp", "bind_address", "127.0.0.1"); }
 #endif
+#if PHONE_PACKAGE_FIXTURE
+        config.SetString("sip", "bind_address", "127.0.0.1"); config.SetInt("sip", "use_ipv6", 0); config.SetString("rtp", "bind_address", "127.0.0.1");
+#endif
         Factory.Instance.EnableLogCollection(LogCollectionState.Disabled);
         progress?.Invoke("create_core"); core = Factory.Instance.CreateCoreWithConfig(config, IntPtr.Zero);
         progress?.Invoke("database"); core.DatabaseEnabled = false; core.MaxCallLogs = 0; core.LimeX3DhEnabled = false; core.DisableChat(Reason.NotAcceptable);

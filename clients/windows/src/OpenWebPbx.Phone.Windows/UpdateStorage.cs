@@ -43,5 +43,18 @@ public sealed class UpdateStorage
         try { using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough)) { file.Write(encrypted); file.Flush(true); } File.Move(temporary, path, true); }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
+    public static UpdateStorage ForPackage(string family, string channel)
+    {
+        if (channel is not ("direct" or "store")) throw new ArgumentException();
+        return new UpdateStorage(new DirectoryInfo(Path.Combine(StoragePaths.ForPackage(family), channel)));
+    }
+    private UpdateStorage(DirectoryInfo installedDirectory)
+    {
+        var installedParent = installedDirectory.FullName;
+        if (!System.IO.Directory.Exists(installedParent)) throw Invalid();
+        Directory = Path.Combine(installedParent, "updates");
+        for (var item = new DirectoryInfo(Directory); item is not null; item = item.Parent) if (item.Exists && (item.Attributes & FileAttributes.ReparsePoint) != 0) throw Invalid();
+        if (!System.IO.Directory.Exists(Directory)) throw Invalid(); path = Path.Combine(Directory, "accepted.dpapi");
+    }
     private static PhoneInputException Invalid() => new("Your saved Windows update trust could not be opened. The current phone has been kept.");
 }

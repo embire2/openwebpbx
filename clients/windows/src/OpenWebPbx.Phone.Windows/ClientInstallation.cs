@@ -6,6 +6,7 @@ namespace OpenWebPbx.Phone.Windows;
 public sealed record InstallRequest(int ParentId, long ParentStartedUtcTicks, string ParentPath, string InstalledFullName, string PackagePath, string Envelope);
 public static class ClientInstallation
 {
+    public static string PrivateDirectoryForPackage(string family) => StoragePaths.ForPackage(family);
     public static Version CurrentVersion { get { try { var version = global::Windows.ApplicationModel.Package.Current.Id.Version; return new(version.Major, version.Minor, version.Build); } catch { return new(1, 0, 0); } } }
     public static bool IsPackaged { get { try { _ = global::Windows.ApplicationModel.Package.Current.Id; return true; } catch { return false; } } }
     public static (string Name, string Publisher, string FullName) Identity()
@@ -27,7 +28,7 @@ public static class ClientInstallation
         var started = false;
         try
         {
-            var start = new ProcessStartInfo(executable) { UseShellExecute = false, WorkingDirectory = AppContext.BaseDirectory }; start.ArgumentList.Add(path);
+            var start = new ProcessStartInfo(executable) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(executable)! }; start.ArgumentList.Add(path);
             using var child = Process.Start(start) ?? throw new InvalidOperationException(); started = true;
             var ready = path + ".ready"; using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
             while (true)
