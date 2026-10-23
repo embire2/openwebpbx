@@ -94,6 +94,7 @@ jobs:
           if((git rev-parse HEAD).Trim() -cne $env:PHONE_SOURCE_REF){throw 'Client source differs.'}
       - name: Collect pinned source candidate
         run: |
+          & ./clients/windows/tests/source/SourceCi.Checks.ps1
           & ./clients/windows/tools/Collect-Source-Ci.ps1 -Output "$env:RUNNER_TEMP/windows-phone-source"
       - name: Preserve closed source collection evidence
         if: always()
