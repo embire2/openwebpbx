@@ -1529,6 +1529,7 @@ try{
  if(!$?){throw 'The strict native background CDR evidence controls failed.'}
  & (Join-Path $source 'tests/windows_recovery_localaccounts.ps1') -SourceRoot $source *> (Join-Path $work 'recovery-localaccounts.private.log')
  if(!$?){throw 'The native PowerShell recovery module provenance controls failed.'}
+ CheckedPython @((Join-Path $source 'tests/windows_upgrade_restore_holds.py'))
  & (Join-Path $source 'tests/windows_call_records_lifecycle.ps1') -SourceRoot $source *> (Join-Path $work 'call-records-lifecycle.private.log')
  if(!$?){throw 'The actual Windows call-record activation and recovery lifecycle controls failed.'}
  & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_cdr_service_test.ps1') *> (Join-Path $work 'cdr-service-identity.private.log')

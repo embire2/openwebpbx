@@ -368,14 +368,33 @@ if action=='database':
  except Exception:pass
 elif action=='holds':
  stage='restore_holds'
- if (b.RESTORE/'journal.json').exists():raise RuntimeError('An unrelated restore journal exists')
  with b.exclusive_guard(b.UPGRADE_LOCK):
-  plan=b.control('plan');save(plan);b.install_service_holds(plan)
+  journal_file=b.RESTORE/'journal.json'
+  if journal_file.exists() or any((b.RESTORE/('hold-'+name)).exists() for name in b.HELD_UNITS) or (b.STATE/'call-records.hold').exists():raise RuntimeError('An unrelated restore journal or hold exists')
+  plan=b.control('plan')
+  hold={'schema':1,'owner':'restore','transaction':uuid.uuid4().hex}
+  save({'schema':1,'qualification':'windows-upgrade-restore-gate','gates':plan,'call_records_hold':hold})
+  # Exercise the real current hold contract. This is a nonce-owned startup
+  # fixture, not a database restore or an invented completed backup.
+  b.atomic_json(journal_file,{'schema':1,'state':'prepared','qualification':'windows-upgrade-restore-gate','call_records_hold':hold})
+  b.install_service_holds(plan)
 elif action=='release':
  stage='restore_release'
- plan=json.loads(path.read_text());b.control('recover-startup',plan)
- for name in b.HELD_UNITS:(b.RESTORE/('hold-'+name)).unlink(missing_ok=True)
- b.control('resume-factory',plan)
+ with b.exclusive_guard(b.UPGRADE_LOCK):
+  fixture=json.loads(path.read_text());hold=fixture.get('call_records_hold')
+  if set(fixture)!={'schema','qualification','gates','call_records_hold'} or type(fixture['schema']) is not int or fixture['schema']!=1 or fixture['qualification']!='windows-upgrade-restore-gate' or not isinstance(fixture['gates'],dict) or not isinstance(hold,dict) or set(hold)!={'schema','owner','transaction'} or type(hold['schema']) is not int or hold['schema']!=1 or hold['owner']!='restore' or not isinstance(hold['transaction'],str) or len(hold['transaction'])!=32 or any(ch not in '0123456789abcdef' for ch in hold['transaction']):raise RuntimeError('The owned restore startup fixture is invalid')
+  journal_file=b.ordinary(b.RESTORE/'journal.json');journal=json.loads(journal_file.read_text())
+  expected={'schema':1,'state':journal.get('state'),'qualification':'windows-upgrade-restore-gate','call_records_hold':hold}
+  if digest(journal)!=digest(expected) or journal['state'] not in ('prepared','recovered'):raise RuntimeError('A different restore journal was preserved')
+  marker=b.STATE/'call-records.hold'
+  if b.reparse(marker) or (marker.exists() and digest(json.loads(b.ordinary(marker).read_text()))!=digest(hold)):raise RuntimeError('A different call-record hold was preserved')
+  b.control('recover-startup',fixture['gates'])
+  for name in b.HELD_UNITS:(b.RESTORE/('hold-'+name)).unlink(missing_ok=True)
+  journal['state']='recovered';b.atomic_json(journal_file,journal)
+  b.control('resume-factory',fixture['gates'])
+  if (b.STATE/'call-records.hold').exists() or any((b.RESTORE/('hold-'+name)).exists() for name in b.HELD_UNITS):raise RuntimeError('The owned restore startup holds were retained')
+  if digest(json.loads(b.ordinary(journal_file).read_text()))!=digest(journal):raise RuntimeError('A different restore journal was preserved')
+  journal_file.unlink()
 elif action=='pending':
  stage='pending_create'
  identifier=str(uuid.uuid4());b.query(settings,"insert into v_pbx_update_commands(command_uuid,action) values("+b.literal(identifier)+",'check')");save({'command':identifier})

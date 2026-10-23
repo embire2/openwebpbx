@@ -5,6 +5,38 @@ The currently published Windows release remains 1.0.7. Do not replace a
 production server with an unpublished archive. Debian's hosted Phone Health
 patch and the earlier complete Debian candidate have separate verification.
 
+Normal run39937274615/sourceb2b8c1d69 now passes the actual SYSTEM phone
+monitor restart, the updated legitimate-challenge protection fixture and the
+existing native installation, web, tenant, STUN and conference-transport checks.
+Its child completes22 ordinary calling cases, then fails the conference proof
+with `type` at `peer_lookup`; host video alone does not qualify the guest or
+two-way conference audio. A separate restore-hold test also fails. Canonical
+cleanup and original writer restoration pass. Complete release acceptance is
+still pending.
+
+The call-record progress collector also combines two snapshots of the same
+execution, so its exactly-one validator omits that completed case as a
+duplicate. The QA correction prefers the valid terminal report, using progress
+only as a fallback.140 actual PowerShell/filesystem controls and the unchanged
+source negative preserve refusal of genuine duplicates and incomplete terminal
+scope. No historical LocalService import pass is inferred from this correction.
+Actual Chromium with the pinned driver reproduces premature async conference
+readiness and the matching type error. The QA correction awaits each media
+record sequentially under the same45-second media and15-second mute deadlines;
+all decoded-media thresholds are unchanged.77 async-adapter controls, three
+Python groups and10 browser component checks pass. Modelled positive media
+records in that component do not qualify real Windows conference audio/video.
+
+The restore-startup fixture also omitted the journal required by the real hold
+operation. It now creates an exact nonce-owned prepared journal under the shared
+lock, restores saved startup choices, marks the journal recovered before the
+real resume operation and removes only its unchanged journal after success.
+Seven actual embedded Python/PowerShell/filesystem groups include changed-owner,
+foreign-marker and failed-operation retry cases; SCM/IIS/marker ACL adapters are
+explicit. Product backup predicates are unchanged, and the historical generic
+child failure does not expose its original sub-operation. A new complete normal
+run is required. The original owner installation is unchanged.
+
 The target is the complete implemented PBX suite on native Windows Server 2025:
 IIS/PHP administration, local PostgreSQL, FreeSWITCH calling, the .NET background
 service, the WinUI server manager and the independent updater. Installing Linux

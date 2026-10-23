@@ -1,8 +1,9 @@
+param([string]$SourcePath=(Join-Path $PSScriptRoot 'windows-native-acceptance.ps1'))
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 $tokens=$null;$errors=$null
-$ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'windows-native-acceptance.ps1'),[ref]$tokens,[ref]$errors)
+$ast=[Management.Automation.Language.Parser]::ParseFile($SourcePath,[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Native acceptance source does not parse.'}
-foreach($name in 'AssertCdrBackgroundNativeCase','CompletedMediaCases'){
+foreach($name in 'AssertCdrBackgroundNativeCase','CompletedMediaCases','CollectNativeProgress'){
  $functions=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
  if($functions.Count -ne 1){throw 'Exactly one actual acceptance function is required.'}
  . ([scriptblock]::Create($functions[0].Extent.Text))
@@ -38,4 +39,33 @@ $calls=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.Com
 Check ($calls.Count -eq 2) 'normal-full validator plus validated completed-case path'
 $branches=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.IfStatementAst] -and $node.Clauses[0].Item1.Extent.Text -ceq '$HoldDiagnosticsOnly' -and $node.ElseClause -and $node.ElseClause.Extent.Text.Contains('AssertWelcomeNativeCase')},$true))
 Check ($branches.Count -eq 1 -and $branches[0].ElseClause.Extent.Text.Contains('AssertCdrBackgroundNativeCase $native.checks') -and !$branches[0].Clauses[0].Item2.Extent.Text.Contains('AssertCdrBackgroundNativeCase')) 'mandatory full-only proof retains separate hold diagnostic'
+$work=Join-Path ([IO.Path]::GetTempPath()) ('openweb-cdr-snapshots-'+[Guid]::NewGuid().ToString('N'))
+[IO.Directory]::CreateDirectory($work)|Out-Null
+function WriteSnapshot([string]$Name,[string]$State,$Rows,[string]$Producer='windows-native-acceptance.py'){
+ $value=[ordered]@{schema=1;producer=$Producer;state=$State;checks=@($Rows)}
+ [IO.File]::WriteAllText((Join-Path $work $Name),($value|ConvertTo-Json -Depth 10),[Text.UTF8Encoding]::new($false))
+}
+function HasCdr($Facts){return @($Facts.completed_media_cases|Where-Object {$_ -ceq $row.case}).Count -eq 1}
+try{
+ WriteSnapshot 'software-native-report.json' 'failed' @($row)
+ WriteSnapshot 'native-progress.json' 'running' @($row)
+ $facts=@{completed_media_cases=@()};CollectNativeProgress $facts $work
+ Check ((HasCdr $facts) -and $facts.native_child_state -ceq 'failed') 'terminal and progress are snapshots, not duplicate executions'
+ $invalid=Clone $row;$invalid.spool_absent=$false
+ WriteSnapshot 'software-native-report.json' 'failed' @($invalid)
+ $facts=@{completed_media_cases=@()};CollectNativeProgress $facts $work
+ Check ($facts.completed_media_cases.Count -eq 0) 'older progress cannot mask incomplete terminal scope'
+ WriteSnapshot 'software-native-report.json' 'failed' @($row,$row)
+ $facts=@{completed_media_cases=@()};CollectNativeProgress $facts $work
+ Check ($facts.completed_media_cases.Count -eq 0) 'genuine duplicate terminal cases still refuse'
+ WriteSnapshot 'software-native-report.json' 'failed' @()
+ $facts=@{completed_media_cases=@()};CollectNativeProgress $facts $work
+ Check ($facts.completed_media_cases.Count -eq 0 -and $facts.native_child_state -ceq 'failed') 'empty terminal snapshot takes precedence over older progress'
+ Remove-Item -LiteralPath (Join-Path $work 'software-native-report.json')
+ $facts=@{completed_media_cases=@()};CollectNativeProgress $facts $work
+ Check ((HasCdr $facts) -and !$facts.ContainsKey('native_child_state')) 'running snapshot remains available before a terminal report'
+ WriteSnapshot 'software-native-report.json' 'failed' @($row) 'foreign.py'
+ $facts=@{completed_media_cases=@()};CollectNativeProgress $facts $work
+ Check ((HasCdr $facts) -and !$facts.ContainsKey('native_child_state')) 'foreign report cannot replace the valid progress producer'
+}finally{Remove-Item -LiteralPath $work -Recurse -Force}
 [pscustomobject]@{schema=1;state='passed';checks=$script:checks;scope='actual_PowerShell_AST_closed_CDR_consumer';native_importer_qualified=$false;installed_server_changed=$false}|ConvertTo-Json -Compress

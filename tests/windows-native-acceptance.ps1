@@ -131,7 +131,9 @@ function CollectNativeProgress($Facts,[string]$Evidence){
     if($child.state -cnotin 'passed','failed'){continue}
     $Facts.native_child_state=$child.state
    }elseif($child.state -cne 'running'){continue}
-   $checks+=@($child.checks)
+   # The terminal report and progress file are snapshots of the same rows.
+   # Prefer the first valid snapshot; combining them invents duplicate cases.
+   $checks=@($child.checks);break
   }catch{}
  }
  $completed=@(CompletedMediaCases $checks)

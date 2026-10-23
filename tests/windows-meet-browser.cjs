@@ -124,8 +124,22 @@ function syntheticMedia(frequency) {
 }
 async function proof(page) {
   proofPage=page;
-  await page.waitForFunction(async()=>{const p=await window.conferenceQA?.proof();return p?.connected&&p.decoded_frames>=10&&p.video_colors>8&&p.tone_ratio>.65&&p.power>0.00001;},null,{timeout:45000});
-  return page.evaluate(()=>window.conferenceQA.proof());
+  return pollProof(page,p=>p?.connected&&p.decoded_frames>=10&&p.video_colors>8&&p.tone_ratio>.65&&p.power>0.00001,45000);
+}
+async function pollProof(page,accept,timeout) {
+  // The pinned driver's synchronous poller treats a Promise as truthy.
+  // Await each proof before testing its media values; keep evaluations serial.
+  if(!Number.isInteger(timeout)||timeout<1||timeout>45000)throw new RangeError('A bounded media observation deadline is required.');
+  const deadline=performance.now()+timeout;
+  const expired=()=>{const error=new Error('The required decoded media observation did not arrive.');error.name='TimeoutError';return error;};
+  while(true){
+    const remaining=deadline-performance.now();if(remaining<=0)throw expired();
+    let timer,record;
+    try{record=await Promise.race([page.evaluate(()=>window.conferenceQA?.proof()),new Promise((_,reject)=>{timer=setTimeout(()=>reject(expired()),remaining);})]);}finally{clearTimeout(timer);}
+    if(performance.now()>=deadline)throw expired();
+    if(accept(record))return record;
+    await new Promise(resolve=>setTimeout(resolve,Math.min(100,deadline-performance.now())));
+  }
 }
 async function proofFailure(error){
  let operation='none',timer;
@@ -163,7 +177,7 @@ async function proofFailure(error){
     requireFact(hostProof.codecs.every(value=>value==='video/VP8')&&guestProof.codecs.every(value=>value==='video/VP8'),'two real browsers decode mixed VP8 and independent two-way audio');
     const row=host.locator('#people > div').filter({hasText:'Fictional video guest'});
     phase='mute';await row.getByRole('button',{name:'Mute',exact:true}).click();
-    await host.waitForFunction(async()=>{const p=await window.conferenceQA.proof();return p.connected&&p.power<0.000001;},null,{timeout:15000});
+    await pollProof(host,p=>p?.connected&&p.power<0.000001,15000);
     requireFact(true,'host mute removes decoded guest audio');
     phase='unmute';await row.getByRole('button',{name:'Allow Microphone',exact:true}).click();await proof(host);
     requireFact(true,'host unmute restores independently decoded guest tone');

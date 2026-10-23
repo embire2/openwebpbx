@@ -37,6 +37,19 @@ class BrowserFailureControls(unittest.TestCase):
         self.assertIs(proof['actual_media_qualified'], False)
         self.assertIs(proof['network_or_server_changed'], False)
 
+    @unittest.skipUnless(shutil.which('node'), 'Node required for the actual asynchronous media wait')
+    def test_actual_awaited_media_wait(self):
+        result = subprocess.run([shutil.which('node'), str(ROOT/'tests/windows_meet_polling.cjs')], capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        proof = json.loads(result.stdout)
+        self.assertEqual(proof['state'], 'passed')
+        self.assertGreaterEqual(proof['checks'], 70)
+        self.assertIs(proof['actual_wait_source'], True)
+        self.assertEqual(proof['media_deadline_ms'], 45000)
+        self.assertEqual(proof['mute_deadline_ms'], 15000)
+        self.assertIs(proof['actual_browser_or_media_qualified'], False)
+        self.assertIs(proof['network_or_server_changed'], False)
+
 
 if __name__ == '__main__':
     unittest.main()
