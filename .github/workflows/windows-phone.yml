@@ -146,8 +146,11 @@ jobs:
           & ./clients/windows/tests/media/ReceiptControls.ps1
           & ./clients/windows/tests/media/OwnershipControls.ps1
           & ./clients/windows/tests/media/ApplicationControls.ps1
+          & ./clients/windows/tests/media/DiagnosticControls.ps1
           python ./clients/windows/tests/media/test_engine_selection.py
           if($LASTEXITCODE){throw 'Media extraction controls failed.'}
+          python ./clients/windows/tests/media/test_msi_diagnostics.py
+          if($LASTEXITCODE){throw 'Media diagnostic controls failed.'}
           $inputs=Join-Path $env:RUNNER_TEMP 'phone-media-inputs'
           & ./clients/windows/tools/Test-ClientMedia.ps1 -SdkZip (Join-Path $inputs 'sdk.zip') -CoreMsi (Join-Path $inputs 'core.msi') -EngineZip (Join-Path $inputs 'engine.zip') -SourceCommit $env:PHONE_SOURCE_REF -Report "$env:RUNNER_TEMP/client-media-qualification.json"
       - name: Preserve closed native calling evidence
