@@ -147,6 +147,7 @@ jobs:
           & ./clients/windows/tests/media/OwnershipControls.ps1
           & ./clients/windows/tests/media/ApplicationControls.ps1
           & ./clients/windows/tests/media/DiagnosticControls.ps1
+          & ./clients/windows/tests/media/ServiceBoundaryControls.ps1
           python ./clients/windows/tests/media/test_engine_selection.py
           if($LASTEXITCODE){throw 'Media extraction controls failed.'}
           python ./clients/windows/tests/media/test_msi_diagnostics.py
