@@ -8,6 +8,7 @@ using System.Text;
 
 int checks = 0;
 void Check(bool condition, string message) { if (!condition) throw new Exception(message); checks++; }
+checks += CallRecordMaintenanceChecks.Run();
 var frame = await SwitchClient.ReadFrame(new MemoryStream(Encoding.UTF8.GetBytes("Content-Type: api/response\nContent-Length: 7\n\nUP test")), default);
 Check(frame["Body"] == "UP test", "Length-delimited body");
 try { await SwitchClient.ReadFrame(new MemoryStream("Content-Length: 9999999\n\n"u8.ToArray()), default); throw new Exception("Oversized frame accepted"); } catch (IOException) { checks++; }

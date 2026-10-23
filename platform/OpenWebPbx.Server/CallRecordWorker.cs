@@ -18,6 +18,10 @@ public sealed class CallRecordWorker(IConfiguration settings, ILogger<CallRecord
 
     public async Task Tick(CancellationToken ct)
     {
+        using var maintenance = OperatingSystem.IsWindows()
+            ? WindowsCallRecordLease.TryAcquire(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "OpenWebPBX"))
+            : null;
+        if (OperatingSystem.IsWindows() && maintenance is null) return;
         var web = settings["CallRecords:WebRoot"] ?? (OperatingSystem.IsWindows() ? @"C:\OpenWebPBX\Web" : "/var/www/fusionpbx");
         var php = settings["CallRecords:Php"] ?? (OperatingSystem.IsWindows() ? @"C:\OpenWebPBX\php\php.exe" : "/usr/bin/php");
         var script = Path.Combine(web, "app", "pbx_setup", "call_records.php");
