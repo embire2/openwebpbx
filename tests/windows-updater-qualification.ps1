@@ -635,6 +635,27 @@ try{
  foreach($gate in 'fresh','native_sip_audio','backups','direct_113_helper_reapply','direct_failure_rollback','restore_gate_startup'){Check ($baseFacts.gates.$gate -eq 'passed') ('All essential real '+$BaseVersion+' baseline gates must pass before preparation or updater qualification.')}
  if([version]$BaseVersion -ge [version]'1.0.20'){
   foreach($gate in 'web_readiness','tenant_domains','meeting_transport','meeting_browser','phone_health','stun','native_clock','native_providers','native_call_me_back'){Check ($baseFacts.gates.$gate -is [string] -and $baseFacts.gates.$gate -ceq 'passed') 'The current Windows web, tenant, meeting, phone health, STUN, clock, provider and callback gates must all be qualified.'}
+  $listenerProof=$baseFacts.public_listener_qualification
+  Check ($null -ne $listenerProof -and ($listenerProof -is [pscustomobject] -or $listenerProof -is [Collections.IDictionary]) -and $listenerProof -isnot [Array]) 'The current public-listener qualification record is required.'
+  Check ($listenerProof.state -is [string] -and $listenerProof.state -ceq 'passed') 'Both actual native public-listener stages must pass.'
+  Check ($listenerProof.outside_acme -is [string] -and $listenerProof.outside_acme -ceq 'unqualified') 'Public ACME acceptance remains a separate explicit qualification.'
+  foreach($kind in 'native_defender','installed_collector'){
+   $listenerRecord=$listenerProof.$kind
+   Check ($null -ne $listenerRecord -and ($listenerRecord -is [pscustomobject] -or $listenerRecord -is [Collections.IDictionary]) -and $listenerRecord -isnot [Array]) 'Both current public-listener stage records are required.'
+   if($kind -ceq 'native_defender'){
+    $producer='windows_public_listeners_native.ps1';$minimum=21
+    $positive=@('actual_native_defender','actual_os_listener_ownership','service_identity_adapter_double','global_policy_exact','actual_throw_after_create_and_enable','idempotent','foreign_named_rule_preserved','configured_private_ports_excluded','profiles_all_enabled_at_observation')
+    $negative=@('firewall_enforcement_tested','firewall_profiles_changed','installed_server_changed','calls_placed')
+   }else{
+    $producer='windows_public_listener_installed.ps1';$minimum=14
+    $positive=@('actual_installed_php_pg_esl_os','exact_installed_helper_manifest','provider_5080_tcp_udp_planned','tls_only_when_actually_bound','configured_default_audio_source','private_service_ports_excluded','read_only_preflight')
+    $negative=@('firewall_or_configuration_mutated','calling_or_audio_acceptance','installed_server_changed')
+   }
+   Check (($listenerRecord.schema -is [int] -or $listenerRecord.schema -is [long]) -and $listenerRecord.schema -eq 1 -and $listenerRecord.state -is [string] -and $listenerRecord.state -ceq 'passed' -and $listenerRecord.producer -is [string] -and $listenerRecord.producer -ceq $producer) 'The exact native public-listener producer and passed schema are required.'
+   Check (($listenerRecord.checks -is [int] -or $listenerRecord.checks -is [long]) -and $listenerRecord.checks -ge $minimum -and $listenerRecord.checks -le 100000) 'Both complete bounded public-listener matrices are required.'
+   foreach($field in $positive){Check ($listenerRecord.$field -is [bool] -and $listenerRecord.$field -eq $true) 'Actual public-listener coverage and fixture scope must match.'}
+   foreach($field in $negative){Check ($listenerRecord.$field -is [bool] -and $listenerRecord.$field -eq $false) 'Public-listener enforcement and calling limitations must remain explicit.'}
+  }
   $dtlsProof=$baseFacts.dtls_qualification
   Check ($null -ne $dtlsProof -and ($dtlsProof -is [pscustomobject] -or $dtlsProof -is [Collections.IDictionary]) -and $dtlsProof -isnot [Array]) 'The complete current native DTLS qualification record is required.'
   Check ($dtlsProof.state -is [string] -and $dtlsProof.state -ceq 'passed') 'The current native DTLS qualification must pass.'
