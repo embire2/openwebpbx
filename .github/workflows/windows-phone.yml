@@ -7,14 +7,14 @@ on:
         required: true
         type: string
       build_mode:
-        description: Inventory, native build, source collection, or isolated calling lab
+        description: Inventory, native build, source collection, calling, or package qualification
         type: choice
-        options: [probe, build, sources, media]
+        options: [probe, build, sources, media, packages]
         default: probe
 permissions:
   contents: read
 concurrency:
-  group: windows-free-phone-${{ inputs.build_mode == 'sources' && 'sources' || inputs.build_mode == 'media' && 'media' || 'client' }}
+  group: windows-free-phone-${{ inputs.build_mode == 'sources' && 'sources' || inputs.build_mode == 'media' && 'media' || inputs.build_mode == 'packages' && 'packages' || 'client' }}
   cancel-in-progress: false
 jobs:
   client:
@@ -159,6 +159,50 @@ jobs:
         with:
           name: windows-free-phone-media-${{ github.run_id }}
           path: ${{ runner.temp }}/client-media-qualification.json
+          if-no-files-found: error
+          retention-days: 14
+  packages:
+    if: inputs.build_mode == 'packages'
+    runs-on: windows-2025
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PHONE_SOURCE_REF: ${{ inputs.source_ref }}
+      DOTNET_NOLOGO: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      NUGET_XMLDOC_MODE: skip
+    steps:
+      - name: Validate isolated development package request
+        run: |
+          if($env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx' -or $env:PHONE_SOURCE_REF -cnotmatch '^[a-f0-9]{40}$' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted'){throw 'An exact client source on a disposable hosted runner is required.'}
+          git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_ref }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify actual client source
+        run: |
+          if((git rev-parse HEAD).Trim() -cne $env:PHONE_SOURCE_REF){throw 'Client source differs.'}
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: '10.0.401'
+      - name: Obtain exact public calling SDK
+        run: |
+          & ./clients/windows/tools/Get-ClientSdk.ps1 -Output "$env:RUNNER_TEMP/phone-package-sdk.zip"
+      - name: Qualify signed development package install and update
+        run: |
+          & ./clients/windows/tests/packaging/GuardChecks.ps1
+          $report=Join-Path $env:RUNNER_TEMP ('phone-package-result-'+[Guid]::NewGuid().ToString('N')+'.json')
+          & ./clients/windows/tools/Test-ClientPackage.ps1 -SdkZip "$env:RUNNER_TEMP/phone-package-sdk.zip" -SourceCommit $env:PHONE_SOURCE_REF -Report $report
+      - name: Preserve closed package qualification evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-free-phone-package-${{ github.run_id }}
+          path: ${{ runner.temp }}/phone-package-result-*.json
           if-no-files-found: error
           retention-days: 14
   sources:
