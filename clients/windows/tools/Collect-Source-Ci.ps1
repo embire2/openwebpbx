@@ -17,10 +17,10 @@ if(!$parent){throw 'Output ancestry did not reach RUNNER_TEMP.'}
 $source=(git rev-parse HEAD).Trim();if($LASTEXITCODE -or $source -cne $env:PHONE_SOURCE_REF){throw 'The checked-out source differs.'}
 $collector=Join-Path $PSScriptRoot 'Collect-CorrespondingSource.ps1'
 $sourceLock=Join-Path (Split-Path $PSScriptRoot -Parent) 'native/source-lock.json'
-if((Get-FileHash -LiteralPath $collector -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'c8848c88409fbd137c4f464ed738b0e00e2e289a30e0d8dae7b5b1a5676859c4' -or (Get-FileHash -LiteralPath $sourceLock -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'a20f0e3ae7b3e2f358151fbed5bb45c327731107c660e81c700f60bdc81b8c31'){throw 'The reviewed source collector inputs differ.'}
+if((Get-FileHash -LiteralPath $collector -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'f5ed5012dc8113aa2d43107376a32dee02a44e52209172c0f795f00db10fc5cc' -or (Get-FileHash -LiteralPath $sourceLock -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'a186868fd2bb54a8512e8a542db52c5e004a4c3ed04c72e38bd7017c8239d751'){throw 'The reviewed source collector inputs differ.'}
 $evidence=Join-Path $destination 'evidence';$packet=Join-Path $destination 'packet'
 $null=New-Item -ItemType Directory -Path $evidence
-$report=[ordered]@{schema=1;component='windows-free-phone-source';version='1.0.0';source_commit=$source;state='running';sdk_sha256='9cc84037333daca88af24804e20b9d1f5e41ddd901578484b57dcc6720a8d297';source_lock_sha256='a20f0e3ae7b3e2f358151fbed5bb45c327731107c660e81c700f60bdc81b8c31';binary_source_mapping_verified=$false;source_sdk_rebuild_qualified=$false;actual_calling_tested=$false;hardware_media_tested=$false;store_accepted=$false}
+$report=[ordered]@{schema=1;component='windows-free-phone-source';version='1.0.0';source_commit=$source;state='running';sdk_sha256='9cc84037333daca88af24804e20b9d1f5e41ddd901578484b57dcc6720a8d297';source_lock_sha256='a186868fd2bb54a8512e8a542db52c5e004a4c3ed04c72e38bd7017c8239d751';binary_source_mapping_verified=$false;source_sdk_rebuild_qualified=$false;actual_calling_tested=$false;hardware_media_tested=$false;store_accepted=$false}
 $process=$null;$download=$null;$response=$null;$http=$null;$handler=$null;$failed=$false
 function WriteSourceCiJson([string]$Path,$Value){
  $bytes=[Text.UTF8Encoding]::new($false).GetBytes(($Value|ConvertTo-Json -Depth 8)+"`n")

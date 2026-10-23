@@ -55,6 +55,25 @@ function ProtectSourceReadme([byte[]]$Bytes,$Rule){
  if($after -cne $Rule.after_sha256){throw 'The documentation-only redaction output differs.'}
  return ,$result
 }
+function GetSourceLicenceMaterials([object[]]$Files,[object[]]$Repositories,[object[]]$Inline,[string]$Packet){
+ $materials=[Collections.Generic.List[object]]::new()
+ foreach($file in $Files){if($file.path -match '(?i)(^|/)(license[^/]*|licence[^/]*|copying[^/]*|notice[^/]*|copyright[^/]*|readme\.ijg)$'){$materials.Add($file)}}
+ if($Inline.Count -gt 16){throw 'The inline source notice inventory exceeds its bound.'}
+ $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+ foreach($notice in $Inline){
+  $component=AssertSourceRelative $notice.component;$path=AssertSourceRelative $notice.path
+  if(!$seen.Add($path) -or !$path.StartsWith(($component+'/'),[StringComparison]::Ordinal) -or $notice.commit -cnotmatch '^[a-f0-9]{40}$' -or $notice.sha256 -cnotmatch '^[a-f0-9]{64}$' -or ($notice.bytes -isnot [int] -and $notice.bytes -isnot [long]) -or $notice.bytes -lt 1 -or $notice.bytes -gt 2MB -or $notice.declaration -cnotin 'upstream_lgpl21_notice','upstream_gpl2_or_later_notice','upstream_copyright_disclaimer'){throw 'The pinned inline source notice differs.'}
+  $repo=@($Repositories|Where-Object {$_.path -ceq $component -and $_.commit -ceq $notice.commit})
+  $file=@($Files|Where-Object {$_.path -ceq $path})
+  if($repo.Count -ne 1 -or $file.Count -ne 1 -or $file[0].kind -cne 'regular' -or $file[0].bytes -ne $notice.bytes -or $file[0].sha256 -cne $notice.sha256){throw 'An inline notice is not in the exact collected component.'}
+  $disk=Get-Item -LiteralPath (Join-Path $Packet $path) -Force
+  if($disk.PSIsContainer -or ($disk.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $disk.Length -ne $notice.bytes -or (SourceHash $disk.FullName) -cne $notice.sha256){throw 'The collected inline source notice bytes differ.'}
+  $record=[ordered]@{};foreach($field in $file[0].PSObject.Properties){$record[$field.Name]=$field.Value}
+  if($file[0] -is [Collections.IDictionary]){$record=[ordered]@{};foreach($key in $file[0].Keys){$record[$key]=$file[0][$key]}}
+  $record.licence_basis='pinned_inline_source_notice';$record.declaration=$notice.declaration;$record.component=$component;$record.component_commit=$notice.commit;$materials.Add($record)
+ }
+ return $materials.ToArray()
+}
 function ReadSourcePeImports([string]$Path){
  $file=Get-Item -LiteralPath $Path
  if($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $file.Length -lt 64 -or $file.Length -gt 256MB){throw 'An ordinary bounded PE file is required.'}
@@ -345,13 +364,16 @@ try{
  }
 }finally{$archive.Dispose()}
 if($sourceDiagnostic){$sourceDiagnostic.stage='licences';$sourceDiagnostic.operation='validate_licences';$sourceDiagnostic.git_exit_code=$null}
-$licenses=@($allFiles|Where-Object {$_.path -match '(?i)(^|/)(license[^/]*|licence[^/]*|copying[^/]*|notice[^/]*|copyright[^/]*|readme\.ijg)$'})
+$licenses=@(GetSourceLicenceMaterials @($allFiles) @($allRepos) @($lock.policy.inline_licence_material) $packet)
 foreach($component in $allRepos){if(!@($licenses|Where-Object {$_.path.StartsWith(($component.path+'/'),[StringComparison]::Ordinal)}).Count){throw 'A source component has no collected licence/copyright material; manual source review is required.'}}
 if($sourceDiagnostic){$sourceDiagnostic.stage='packet';$sourceDiagnostic.operation='build_materials';$sourceDiagnostic.source_kind='candidate_packet';$sourceDiagnostic.git_exit_code=$null}
 $notes=@'
 # Source candidate: not an accepted matching-binary release
 
 All repository commits, files, licence materials and symbolic-link descriptions are in source-manifest.json.
+The manifest records whether the SDK came from recursive Git or the hash-pinned prior source archive.
+Archive-seeded source is checked against every original Git blob, including the listed checkout transformations.
+Pinned inline source notices are indexed alongside named licence files; their complete source files are retained.
 The SDK ZIP and generated binding were hash-checked. Vendor binary-to-source/build correspondence remains unproven.
 Tracked Git LFS pointers refuse collection; .git, environment, credentials and untracked client data are not exported.
 The upstream README registry example is redacted using the hash-pinned documentation-only rule in source-lock.json.

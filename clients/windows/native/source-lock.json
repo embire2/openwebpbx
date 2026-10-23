@@ -701,6 +701,32 @@
         "spki_der_sha256": "b1744a9cc37ba194fe29d6953b0967bf63a52b9a1f4c3695e30c2abab3ca82e7",
         "pem_header": "PUBLIC KEY"
       }
+    ],
+    "inline_licence_material": [
+      {
+        "component": "vendor/linphone-sdk/external/bv16-floatingpoint",
+        "commit": "c4a341a3277e8adcc42427c4fd80a457fe934f2a",
+        "path": "vendor/linphone-sdk/external/bv16-floatingpoint/bv16/bv.c",
+        "bytes": 7781,
+        "sha256": "ea16647dec7f42e50503b22ece06b5ed17bb6d7b8f8d761913a5f09c056f39c5",
+        "declaration": "upstream_lgpl21_notice"
+      },
+      {
+        "component": "vendor/linphone-sdk/external/bv16-floatingpoint",
+        "commit": "c4a341a3277e8adcc42427c4fd80a457fe934f2a",
+        "path": "vendor/linphone-sdk/external/bv16-floatingpoint/CMakeLists.txt",
+        "bytes": 4404,
+        "sha256": "29f73bc1ba57b0cb601f47f5997cb676e6c726300780231ba0375c72ee0796c8",
+        "declaration": "upstream_gpl2_or_later_notice"
+      },
+      {
+        "component": "vendor/linphone-sdk/external/sqlite3",
+        "commit": "ceb88c26e1bde0ab02b09d09cbb481d9baeeefc4",
+        "path": "vendor/linphone-sdk/external/sqlite3/sqlite3.h",
+        "bytes": 644069,
+        "sha256": "d088aa96aa70db50f02acc5c86eca61a5d17556e4c363b9c06079239bf7f87b1",
+        "declaration": "upstream_copyright_disclaimer"
+      }
     ]
   },
   "qualification": {
