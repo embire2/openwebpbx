@@ -14,6 +14,15 @@ function Read-UpgradeRecoveryQualificationOutput([object[]]$Output,[bool]$Succee
  $count=[int]$Matches[1];$version=$Matches[2]
  if($count -lt 202 -or $count -gt 100000 -or $version -cne $ExpectedVersion){throw 'The exact candidate recovery matrix is incomplete.'};return $count
 }
+function New-UpgradeRecoveryQualificationFailure([Management.Automation.ErrorRecord]$Failure,[string]$Stage) {
+ if($Stage -cnotin 'integration','native','commit_selection'){throw 'An exact recovery qualification stage is required.'}
+ $name=[IO.Path]::GetFileName([string]$Failure.InvocationInfo.ScriptName)
+ if($name -cnotin 'windows-upgrade-recovery-qualification.ps1','windows_upgrade_recovery_qualification.ps1','windows_updater_commit_proof.ps1','windows_upgrade_recovery_integration.ps1','windows_upgrade_recovery.ps1','windows_updater_commit_selection.ps1','windows_updater_commit_selection_controls.ps1','UpgradeRecovery.Common.ps1','Upgrade-OpenWebPBX.ps1','CallRecords.Common.ps1','Write-PrivateState.ps1'){$name='external_component'}
+ $line=[int]$Failure.InvocationInfo.ScriptLineNumber;if($line -lt 0 -or $line -gt 100000){$line=0}
+ $type=$Failure.Exception.GetType().FullName
+ if($type -cnotin 'System.Management.Automation.RuntimeException','System.Management.Automation.MethodInvocationException','System.Management.Automation.ActionPreferenceStopException','System.Management.Automation.PSInvalidCastException','System.Management.Automation.PSArgumentException','System.Management.Automation.CommandNotFoundException','System.Management.Automation.ParameterBindingException','System.Management.Automation.ItemNotFoundException','System.Management.Automation.ParseException','System.Management.Automation.ParentContainsErrorRecordException','System.UnauthorizedAccessException','System.IO.IOException','System.ArgumentException','System.InvalidOperationException','System.TimeoutException'){$type='external_error'}
+ return [ordered]@{schema=1;producer='windows-upgrade-recovery-qualification.ps1';state='failed';stage=$Stage;source_basename=$name;source_line=$line;error_type=$type}
+}
 $stage='integration';$work=Split-Path $ReportPath
 try{
  & (Join-Path $SourceRoot 'tests\windows_upgrade_recovery_qualification.ps1') -SourceRoot $SourceRoot
@@ -41,6 +50,6 @@ try{
  $commitRecord=$commitOutput[0]|ConvertFrom-Json
  [ordered]@{schema=1;producer='windows-upgrade-recovery-qualification.ps1';state='passed';actual_native_windows=$true;integration_checks=$integrationChecks;native_checks=$nativeChecks;actual_configured_updater_boot=$true;updater_version=$version;updater_scope='candidate_component';installed_server_changed=$false;native_commit_selection=$commitRecord}|ConvertTo-Json|Set-Content -LiteralPath $ReportPath -Encoding UTF8
 }catch{
- [ordered]@{schema=1;producer='windows-upgrade-recovery-qualification.ps1';state='failed';stage=$stage;source_basename='windows-upgrade-recovery-qualification.ps1';source_line=[int]$_.InvocationInfo.ScriptLineNumber}|ConvertTo-Json|Set-Content -LiteralPath $ReportPath -Encoding UTF8
+ New-UpgradeRecoveryQualificationFailure $_ $stage|ConvertTo-Json|Set-Content -LiteralPath $ReportPath -Encoding UTF8
  throw
 }

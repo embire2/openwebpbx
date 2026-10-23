@@ -56,4 +56,24 @@ try{
  # The previous wrapper's log write replaces a failed child's status with true.
  $old=@(& $scriptPath);$old|Set-Content -LiteralPath (Join-Path $work 'old.private.out');$overwritten=$?;Check $overwritten
 }finally{$SourceRoot=$originalSourceRoot;Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue}
+foreach($pair in @(@($wrapper,'New-UpgradeRecoveryQualificationFailure'),@($suite,'SafeUpgradeRecoveryQualificationFailure'))){$functions=@($pair[0].FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $pair[1]},$true));Check ($functions.Count -eq 1);Invoke-Expression $functions[0].Extent.Text}
+try{throw 'PRIVATE_RECOVERY_MESSAGE'}catch{$failure=$_}
+foreach($phase in 'integration','native','commit_selection'){
+ $record=New-UpgradeRecoveryQualificationFailure $failure $phase
+ $record=[pscustomobject]$record;$safe=SafeUpgradeRecoveryQualificationFailure $record
+ Check ($safe.Count -eq 7 -and $safe.stage -ceq $phase -and $safe.source_basename -ceq 'windows_upgrade_recovery_qualification.ps1' -and $safe.source_line -gt 0)
+ Check (($safe|ConvertTo-Json -Compress) -cnotmatch 'PRIVATE_RECOVERY_MESSAGE|ScriptStackTrace|InvocationInfo|/root|C:\\')
+}
+Refuses {New-UpgradeRecoveryQualificationFailure $failure 'PRIVATE_STAGE'}
+$valid=New-UpgradeRecoveryQualificationFailure $failure 'native'|ConvertTo-Json|ConvertFrom-Json
+foreach($name in 'schema','producer','state','stage','source_basename','source_line','error_type'){
+ $copy=$valid|ConvertTo-Json|ConvertFrom-Json;$copy.PSObject.Properties.Remove($name);Check ((SafeUpgradeRecoveryQualificationFailure $copy).Count -eq 0)
+ foreach($bad in $null,$true,@('private'),@{},'PRIVATE_RECOVERY_MESSAGE'){$copy=$valid|ConvertTo-Json|ConvertFrom-Json;$copy.$name=$bad;Check ((SafeUpgradeRecoveryQualificationFailure $copy).Count -eq 0)}
+}
+foreach($line in -1,100001,1.0,'1',$true){$copy=$valid|ConvertTo-Json|ConvertFrom-Json;$copy.source_line=$line;Check ((SafeUpgradeRecoveryQualificationFailure $copy).Count -eq 0)}
+foreach($line in 0,100000,[long]5){$copy=$valid|ConvertTo-Json|ConvertFrom-Json;$copy.source_line=$line;Check ((SafeUpgradeRecoveryQualificationFailure $copy).source_line -eq $line)}
+foreach($bad in $null,@(),@($valid),@{},'PRIVATE_RECOVERY_MESSAGE'){Check ((SafeUpgradeRecoveryQualificationFailure $bad).Count -eq 0)}
+$valid|Add-Member -NotePropertyName raw_output -NotePropertyValue 'PRIVATE_RECOVERY_MESSAGE';Check ((SafeUpgradeRecoveryQualificationFailure $valid|ConvertTo-Json -Compress) -cnotmatch 'PRIVATE_RECOVERY_MESSAGE|raw_output')
+$hooks=@($suite.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'UpgradeRecoveryQualificationHook'},$true));Check ($hooks.Count -eq 1)
+Check ($hooks[0].Extent.Text.Contains('$file.Length -le 16384') -and $hooks[0].Extent.Text.Contains('$facts.upgrade_recovery_failure=$safe'))
 Write-Output ('PASS '+$checks+' actual recovery wrapper/report/child-exit controls; no installed server changed')

@@ -1320,6 +1320,13 @@ function Read-UpdaterCommitSelectionReport($Record) {
  foreach($field in 'actual_native_windows','service_adapter_double','slot_assembly_fixture','actual_running_image_lock','old_silent_exit3_proven','exact_mirror_refusal_retry','completed_finalizer_idempotent','before_commit_old_scm','after_commit_resume','after_selection_idempotent','absent_creation_deferred','legacy_missing_dependency_recovery'){$safe[$field]=$true}
  $safe.actual_installed_scm=$false;$safe.installed_server_changed=$false;return $safe
 }
+function SafeUpgradeRecoveryQualificationFailure($Record) {
+ if($null -eq $Record -or $Record.GetType() -ne [Management.Automation.PSCustomObject]){return @{}}
+ $names=@($Record.PSObject.Properties.Name);foreach($name in 'schema','producer','state','stage','source_basename','source_line','error_type'){if($name -cnotin $names){return @{}}}
+ if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.producer -isnot [string] -or $Record.producer -cne 'windows-upgrade-recovery-qualification.ps1' -or $Record.state -isnot [string] -or $Record.state -cne 'failed'){return @{}}
+ if($Record.stage -isnot [string] -or $Record.stage -cnotin 'integration','native','commit_selection' -or $Record.source_basename -isnot [string] -or $Record.source_basename -cnotin 'windows-upgrade-recovery-qualification.ps1','windows_upgrade_recovery_qualification.ps1','windows_updater_commit_proof.ps1','windows_upgrade_recovery_integration.ps1','windows_upgrade_recovery.ps1','windows_updater_commit_selection.ps1','windows_updater_commit_selection_controls.ps1','UpgradeRecovery.Common.ps1','Upgrade-OpenWebPBX.ps1','CallRecords.Common.ps1','Write-PrivateState.ps1','external_component' -or ($Record.source_line -isnot [int] -and $Record.source_line -isnot [long]) -or $Record.source_line -lt 0 -or $Record.source_line -gt 100000 -or $Record.error_type -isnot [string] -or $Record.error_type -cnotin 'System.Management.Automation.RuntimeException','System.Management.Automation.MethodInvocationException','System.Management.Automation.ActionPreferenceStopException','System.Management.Automation.PSInvalidCastException','System.Management.Automation.PSArgumentException','System.Management.Automation.CommandNotFoundException','System.Management.Automation.ParameterBindingException','System.Management.Automation.ItemNotFoundException','System.Management.Automation.ParseException','System.Management.Automation.ParentContainsErrorRecordException','System.UnauthorizedAccessException','System.IO.IOException','System.ArgumentException','System.InvalidOperationException','System.TimeoutException','external_error'){return @{}}
+ return @{schema=1;producer='windows-upgrade-recovery-qualification.ps1';state='failed';stage=$Record.stage;source_basename=$Record.source_basename;source_line=[int]$Record.source_line;error_type=$Record.error_type}
+}
 function UpgradeRecoveryQualificationHook {
  if($ReplaySuiteRunId){$facts.upgrade_recovery_qualification='unqualified_historical_candidate';return}
  $reportPath=Join-Path $work 'upgrade-recovery-qualification.json'
@@ -1335,6 +1342,9 @@ function UpgradeRecoveryQualificationHook {
   $report=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json
   $facts.upgrade_recovery_qualification=Read-UpgradeRecoveryQualificationReport $report (Get-Content -LiteralPath (Join-Path $PackageRoot 'VERSION') -Raw).Trim()
   $facts.native_commit_selection=Read-UpdaterCommitSelectionReport $report.native_commit_selection
+ }catch{
+  try{if(Test-Path -LiteralPath $reportPath -PathType Leaf){$file=Get-Item -LiteralPath $reportPath -Force;if(!($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -and $file.Length -le 16384){$safe=SafeUpgradeRecoveryQualificationFailure (Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json);if($safe.Count){$facts.upgrade_recovery_failure=$safe}}}}catch{}
+  throw
  }finally{$process.Dispose()}
 }
 function MeetingTransportHook {
