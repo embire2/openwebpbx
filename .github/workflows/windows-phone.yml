@@ -207,6 +207,7 @@ jobs:
         run: |
           & ./clients/windows/tests/packaging/GuardChecks.ps1
           & ./clients/windows/tests/packaging/DiagnosticControls.ps1
+          & ./clients/windows/tests/packaging/NativeImportControls.ps1
           python ./clients/windows/tests/packaging/AssetControls.py
           if($LASTEXITCODE){throw 'Literal package asset controls failed.'}
           $report=Join-Path $env:RUNNER_TEMP ('phone-package-result-'+[Guid]::NewGuid().ToString('N')+'.json')
@@ -218,6 +219,14 @@ jobs:
           name: windows-free-phone-package-${{ github.run_id }}
           path: ${{ runner.temp }}/phone-package-result-*.json
           if-no-files-found: error
+          retention-days: 14
+      - name: Preserve closed development-payload import inventory
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-free-phone-native-imports-${{ github.run_id }}
+          path: ${{ runner.temp }}/phone-native-imports-*.json
+          if-no-files-found: ignore
           retention-days: 14
   package_runtime:
     if: inputs.build_mode == 'package_runtime'
