@@ -90,6 +90,38 @@ function Get-OpenWebMeetProxyXmlState([string]$Path) {
  if($present -and $node.GetAttribute('enabled') -cnotin 'true','false'){throw 'The local IIS proxy enabled value is unsupported.'}
  return @{Xml=(ConvertTo-OpenWebMeetProxyXml $node);EnabledPresent=[bool]$present;Enabled=([bool]$present -and $node.GetAttribute('enabled') -ceq 'true');ConfigurationSha256=$checksum}
 }
+function Read-OpenWebMeetProxyXmlChoice([string]$Xml) {
+ if($Xml.Length -gt 1048576){throw 'The meeting proxy recovery section exceeds its bound.'}
+ if(!$Xml){return @{Xml='';EnabledPresent=$false;Enabled=$false}}
+ $settings=[Xml.XmlReaderSettings]::new();$settings.DtdProcessing='Prohibit';$settings.XmlResolver=$null;$settings.MaxCharactersInDocument=1048576
+ $text=[IO.StringReader]::new($Xml);$reader=[Xml.XmlReader]::Create($text,$settings);$document=[xml]::new();$document.XmlResolver=$null
+ try{$document.Load($reader)}finally{$reader.Dispose();$text.Dispose()}
+ $node=$document.DocumentElement
+ if(!$node -or $node.Name -cne 'proxy' -or $node.NamespaceURI -or (ConvertTo-OpenWebMeetProxyXml $node) -cne $Xml){throw 'The meeting proxy recovery section is not its exact canonical snapshot.'}
+ $present=$node.HasAttribute('enabled');$value=$node.GetAttribute('enabled')
+ if($present -and $value -cnotin 'true','false'){throw 'The meeting proxy recovery enabled value is invalid.'}
+ return @{Xml=$Xml;EnabledPresent=[bool]$present;Enabled=([bool]$present -and $value -ceq 'true')}
+}
+function Get-OpenWebMeetRecoveryProxyChoice($Before,$Ledger) {
+ if($Before.Proxy.Enabled -isnot [bool]){throw 'The original meeting proxy state is invalid.'}
+ foreach($field in 'ProxyBeforeXml','ProxyAfterXml'){if($Ledger.$field -isnot [string]){throw 'The owned meeting proxy recovery choices are invalid.'}}
+ if($Before.PSObject.Properties['ProxyXml']){
+  if($Before.ProxyXml -isnot [string] -or $Before.ProxyEnabledPresent -isnot [bool]){throw 'The exact meeting proxy recovery snapshot is invalid.'}
+  $choice=Read-OpenWebMeetProxyXmlChoice $Before.ProxyXml
+  if($choice.Enabled -ne $Before.Proxy.Enabled -or $choice.EnabledPresent -ne $Before.ProxyEnabledPresent){throw 'The exact meeting proxy recovery snapshot disagrees with its original state.'}
+  Assert-OpenWebMeetProxyOwnership $choice.Xml ([string]$Ledger.ProxyBeforeXml) ([string]$Ledger.ProxyAfterXml)
+  return $choice
+ }
+ # Older snapshots captured effective proxy state but discarded the XML. Choose
+ # only an unambiguous owned before/after section with that captured state.
+ $choices=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+ foreach($xml in @($Ledger.ProxyBeforeXml,$Ledger.ProxyAfterXml)){
+  $choice=Read-OpenWebMeetProxyXmlChoice $xml
+  if($choice.Enabled -eq $Before.Proxy.Enabled){$choices[$choice.Xml]=$choice}
+ }
+ if($choices.Count -ne 1){throw 'The older meeting proxy snapshot cannot be restored unambiguously.'}
+ return @($choices.Values)[0]
+}
 function Get-OpenWebMeetEnabledProxyXml($State) {
  $xml=[xml]::new();$xml.XmlResolver=$null
  if($State.Xml){$xml.LoadXml([string]$State.Xml)}else{$xml.LoadXml('<proxy/>')}
@@ -114,7 +146,9 @@ function Save-OpenWebMeetSystem {
  $reg='HKLM:\SOFTWARE\Microsoft\IIS Extensions\Application Request Routing\Parameters'
  $value=Get-ItemProperty -LiteralPath $reg -Name SecureConnectionIgnoreFlags -ErrorAction SilentlyContinue
  $record=[ordered]@{Schema=1;Hosts=[Convert]::ToBase64String([IO.File]::ReadAllBytes($hosts));HostsSddl=(Get-Acl -LiteralPath $hosts).Sddl;Proxy=(Get-OpenWebMeetProxyState);IgnoreKeyExists=(Test-Path -LiteralPath $reg);IgnoreFlagsExists=($null -ne $value);IgnoreFlags=if($value){[int]$value.SecureConnectionIgnoreFlags}else{0};RootThumbprints=@(Get-ChildItem Cert:\LocalMachine\Root|ForEach-Object Thumbprint);WebSockets=[bool](Get-WindowsFeature Web-WebSockets).Installed;Rewrite=(Test-Path "$env:windir\System32\inetsrv\rewrite.dll");Arr=(Test-Path "$env:ProgramFiles\IIS\Application Request Routing\requestRouter.dll")}
- $null=Get-OpenWebMeetProxyXmlState
+ $proxySnapshot=Read-OpenWebMeetProxyXmlChoice (Get-OpenWebMeetProxyXmlState).Xml
+ if($record.Proxy.Enabled -ne $proxySnapshot.Enabled){throw 'The local and effective meeting proxy states disagree.'}
+ $record.ProxyXml=$proxySnapshot.Xml;$record.ProxyEnabledPresent=$proxySnapshot.EnabledPresent
  $record.PreviousMeetCertificate=$null
  $record.PreviousMeetLedger=$null
  $ledgerFile=Join-Path $StateRoot 'meet-proxy.json'
@@ -208,13 +242,14 @@ function Restore-OpenWebMeetSystem {
    if($ledger.PSObject.Properties['ProxyBeforeXml']){Assert-OpenWebMeetProxyOwnership $current.Xml ([string]$ledger.ProxyBeforeXml) ([string]$ledger.ProxyAfterXml)}
    if([bool]$section['preserveHostHeader'] -ne [bool]$before.Proxy.PreserveHostHeader){throw 'IIS proxy host policy changed during recovery.'}
    if($ledger.PSObject.Properties['ProxyBeforeXml']){
-    if($current.Xml -cne [string]$ledger.ProxyBeforeXml){
-     if(!$ledger.ProxyBeforeXml){$section.RevertToParent()}
-     elseif($ledger.ProxyEnabledBeforePresent){$section['enabled']=[bool]$ledger.ProxyEnabledBefore}
+    $desired=Get-OpenWebMeetRecoveryProxyChoice $before $ledger
+    if($current.Xml -cne $desired.Xml){
+     if(!$desired.Xml){$section.RevertToParent()}
+     elseif($desired.EnabledPresent){$section['enabled']=[bool]$desired.Enabled}
      else{$section.Attributes['enabled'].Delete()}
      if((Get-OpenWebMeetProxyXmlState).ConfigurationSha256 -cne $current.ConfigurationSha256){throw 'The IIS configuration changed before scoped meeting recovery.'}
      $manager.CommitChanges()
-     if((Get-OpenWebMeetProxyXmlState).Xml -cne [string]$ledger.ProxyBeforeXml){throw 'IIS proxy recovery did not preserve the original section.'}
+     if((Get-OpenWebMeetProxyXmlState).Xml -cne $desired.Xml){throw 'IIS proxy recovery did not preserve the original section.'}
     }
    }elseif([bool]$section['enabled'] -ne [bool]$before.Proxy.Enabled){throw 'IIS proxy enabled state changed before this transaction recorded ownership.'}
   }finally{$manager.Dispose()}

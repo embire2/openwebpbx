@@ -122,6 +122,10 @@ try{
    Check ((Get-OpenWebMeetProxyXmlState $fixture).Xml -ceq $original.Xml) ('native MWA scoped '+$case.Name+' proxy recovery is exact')
   }
   Check ((Get-OpenWebMeetProxyXmlState).Xml -ceq $globalProxyBefore) 'isolated native MWA fixture leaves global IIS proxy exact'
+  $phase='snapshot_recovery'
+  $snapshotReport=(& (Join-Path $PSScriptRoot 'windows_meet_recovery_snapshot.ps1') -SourceRoot (Split-Path $PSScriptRoot -Parent) -NativeMwa)|ConvertFrom-Json
+  Check (($snapshotReport.schema -is [int] -or $snapshotReport.schema -is [long]) -and $snapshotReport.schema -eq 1 -and $snapshotReport.state -is [string] -and $snapshotReport.state -ceq 'passed' -and ($snapshotReport.checks -is [int] -or $snapshotReport.checks -is [long]) -and $snapshotReport.checks -ge 49 -and $snapshotReport.checks -le 1000 -and $snapshotReport.native_mwa -is [bool] -and $snapshotReport.native_mwa -and $snapshotReport.mwa_adapter_double -is [bool] -and !$snapshotReport.mwa_adapter_double -and $snapshotReport.installed_iis_changed -is [bool] -and !$snapshotReport.installed_iis_changed) 'actual native MWA snapshot recovery preserves current proxy and initial-install rollback'
+  foreach($field in 'actual_source_restore_body','old_enabled_to_disabled_proven','new_snapshot_and_historical_preserved','initial_install_undo','foreign_xml_and_full_config_refused'){Check ($snapshotReport.$field -is [bool] -and $snapshotReport.$field) ('native scoped snapshot recovery coverage: '+$field)}
   function BackendTls([string]$Name){
    $tcp=[Net.Sockets.TcpClient]::new();$ssl=$null
    try{$tcp.Connect('127.0.0.1',7444);$ssl=[Net.Security.SslStream]::new($tcp.GetStream(),$false);$ssl.AuthenticateAsClient($Name);if(!$ssl.IsAuthenticated -or !$ssl.IsEncrypted){throw 'TLS did not authenticate.'}}

@@ -1076,7 +1076,7 @@ function NativeAcceptanceHook([string]$Report,[DateTime]$StartedAt){
  }
 }
 function SafeMeetingTransportReport($Record){
- $phases=@('portable_controls','installed_arguments','installed_ledger','strict_proxy','websocket_inherited','websocket_locked_override','native_modules','mwa_absent','mwa_absent_enabled','mwa_explicit_false','mwa_explicit_true','backend_tls','backend_wrong_host','frontend_wss','frontend_query_refusal')
+ $phases=@('portable_controls','installed_arguments','installed_ledger','strict_proxy','websocket_inherited','websocket_locked_override','native_modules','mwa_absent','mwa_absent_enabled','mwa_explicit_false','mwa_explicit_true','snapshot_recovery','backend_tls','backend_wrong_host','frontend_wss','frontend_query_refusal')
  if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.state -isnot [string] -or $Record.state -cne 'failed' -or $Record.installed -isnot [bool] -or !$Record.installed -or $Record.control_phase -isnot [string] -or $Record.control_phase -cnotin $phases){return $null}
  $safe=SafeFailureFields ([pscustomobject]@{active_case=('native_windows_meeting_'+$Record.control_phase);meeting_failure=$Record.failure})
  if(!$safe.ContainsKey('meeting_failure')){return $null}
