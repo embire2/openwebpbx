@@ -32,3 +32,10 @@ $proof.module_equals_stock_home=$false;$proof.module_equals_assembly_directory=$
 foreach($name in @('type_is_cmdlet','module_name_matches','assembly_under_windows','assembly_name_matches','assembly_version_matches','assembly_token_matches','implementing_type_matches','module_equals_assembly_directory')){$copy=[ordered]@{};foreach($key in $proof.Keys){$copy[$key]=$proof[$key]};$copy[$name]=$false;$refused=$false;try{AssertPackageNativeSecurityProvenance $copy}catch{$refused=$true};Check $refused}
 foreach($value in @('true',1,$null)){$copy=[ordered]@{};foreach($key in $proof.Keys){$copy[$key]=$proof[$key]};$copy.type_is_cmdlet=$value;$refused=$false;try{AssertPackageNativeSecurityProvenance $copy}catch{$refused=$true};Check $refused}
 "PASS $checks total runtime observer/receipt/native-identity adapter controls; actual stock ACL read still pending"
+
+$savedHome=$HOME;$actualCommand=Get-Command Get-Item -CommandType Cmdlet -ErrorAction Stop
+$actualProvenance=GetPackageNativeSecurityProvenance $actualCommand
+Check ($HOME-ceq $savedHome)
+Check ($actualProvenance.type_is_cmdlet-is [bool] -and $actualProvenance.type_is_cmdlet -and $actualProvenance.assembly_version_major-is [int])
+Check (!$actualProvenance.module_name_matches -and !$actualProvenance.implementing_type_matches)
+"PASS $checks total runtime observer/receipt/actual-cmdlet-provenance controls; this foreign cmdlet is not native Security acceptance"
