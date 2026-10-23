@@ -1244,6 +1244,42 @@ function DtlsQualificationHook {
   $facts.dtls_qualification=@{state='passed';transaction_checks=$report.transaction_checks;crypto_checks=$report.crypto_checks;installed_checks=$report.installed_checks;transaction_service_adapter_double=$true;actual_native_windows=$true}
  }finally{$process.Dispose()}
 }
+function ReadThreecxImportQualificationReport($Record){
+ if($null -eq $Record -or $Record.GetType() -ne [Management.Automation.PSCustomObject] -or ($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.producer -isnot [string] -or $Record.producer -cne 'windows_threecx_import_native.ps1' -or $Record.state -isnot [string] -or $Record.state -cne 'passed' -or $Record.cleanup -isnot [string] -or $Record.cleanup -cne 'passed' -or $Record.php_version -isnot [string] -or $Record.php_version -cne '8.4.27' -or ($Record.checks -isnot [int] -and $Record.checks -isnot [long]) -or $Record.checks -lt 32 -or $Record.checks -gt 1000){throw 'The actual installed V20 import report is invalid.'}
+ $safe=[ordered]@{schema=1;producer='windows_threecx_import_native.ps1';state='passed';cleanup='passed';checks=[int]$Record.checks;php_version='8.4.27'}
+ foreach($field in 'actual_native_windows','actual_installed_php_pg_zip_restore','configuration_path_adapter','synthetic_archive_only','original_credentials_preserved','custom_greeting_media_exact','default_greeting_unchanged','groups_and_routes_restored','providers_and_dids_disabled','complete_public_rows_exact','global_config_exact','owned_schema_media_key_removed','late_wav_failure_exact_rollback','original_writer_choices_restored'){if($Record.$field -isnot [bool] -or !$Record.$field){throw 'The complete isolated V20 import/preservation evidence is required.'};$safe[$field]=$true}
+ foreach($field in 'ui_upload_tested','calling_tested','installed_server_changed','historical_failure_cause_proven'){if($Record.$field -isnot [bool] -or $Record.$field){throw 'The actual import coverage limits must remain explicit.'};$safe[$field]=$false}
+ return $safe
+}
+function SafeThreecxImportFailure($Record){
+ if($null -eq $Record -or $Record.GetType() -ne [Management.Automation.PSCustomObject] -or ($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.producer -isnot [string] -or $Record.producer -cne 'windows_threecx_import_native.ps1' -or $Record.state -isnot [string] -or $Record.state -cne 'failed'){return @{}}
+ $safe=@{schema=1;producer='windows_threecx_import_native.ps1';state='failed'}
+ if($Record.cleanup -is [string] -and $Record.cleanup -cin 'passed','failed'){$safe.cleanup=$Record.cleanup}
+ if(($Record.checks -is [int] -or $Record.checks -is [long]) -and $Record.checks -ge 0 -and $Record.checks -le 1000){$safe.checks=[int]$Record.checks}
+ if($Record.error_type -is [string] -and $Record.error_type -cmatch '^[A-Za-z0-9_]{1,80}$'){$safe.error_type=$Record.error_type}
+ if(($Record.source_line -is [int] -or $Record.source_line -is [long]) -and $Record.source_line -gt 0 -and $Record.source_line -le 100000){$safe.source_line=[int]$Record.source_line}
+ foreach($field in 'child_cleanup_failed','writer_restoration_failed','updater_restoration_failed'){if($Record.$field -is [bool]){$safe[$field]=$Record.$field}}
+ $child=$Record.php_failure
+ if($null -ne $child -and $child.GetType() -eq [Management.Automation.PSCustomObject] -and $child.phase -is [string] -and $child.phase -cin 'input','database','synthetic_archive','apply','repeat_refusal','unsafe_zip','bad_wav_rollback' -and $child.error_type -is [string] -and $child.error_type -cin 'RuntimeException','InvalidArgumentException','PDOException','TypeError','ValueError','Error','Exception' -and $child.source_basename -is [string] -and $child.source_basename -cin 'windows_threecx_import_native.php','windows_threecx_fixture.php','pbx_setup_provisioner.php','pbx_v20_restore.php','threecx_backup.php','threecx_v20.php','pbx_paths.php','pbx_phone_restore.php','external_component' -and ($child.source_line -is [int] -or $child.source_line -is [long]) -and $child.source_line -gt 0 -and $child.source_line -le 100000 -and $child.cleanup_failed -is [bool]){$safe.php_failure=@{phase=$child.phase;error_type=$child.error_type;source_basename=$child.source_basename;source_line=[int]$child.source_line;cleanup_failed=$child.cleanup_failed}}
+ return $safe
+}
+function ThreecxImportQualificationHook {
+ if($ReplaySuiteRunId){$facts.threecx_import_qualification='unqualified_historical_candidate';return}
+ $path=Join-Path $work 'threecx-import-native.json';$started=[DateTime]::UtcNow
+ if(Test-Path -LiteralPath $path){throw 'Retain the prior actual V20 import evidence.'}
+ try{
+  & (Join-Path $source 'tests/windows_threecx_import_native.ps1') -PackageRoot $PackageRoot -ReportPath $path -DisposableHostedRunner *> (Join-Path $work 'threecx-import-native.private.log')
+  if(!$?){throw 'Actual installed V20 import qualification failed.'}
+  $file=Get-Item -LiteralPath $path -Force
+  if($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $file.Length -lt 2 -or $file.Length -gt 65536 -or $file.LastWriteTimeUtc -lt $started.AddSeconds(-2) -or $file.LastWriteTimeUtc -gt [DateTime]::UtcNow.AddSeconds(2)){throw 'A fresh bounded native import report is required.'}
+  $facts.threecx_import_qualification=ReadThreecxImportQualificationReport (Get-Content -LiteralPath $path -Raw|ConvertFrom-Json)
+  $facts.checks+='Actual installed PHP8.4.27/PostgreSQL synthetic V20 parser, provisioning, restore, credentials, custom greeting, groups/routes, disabled providers and late-WAV rollback; isolated path adapter, no UI upload or calls'
+ }catch{
+  $failure=$_
+  try{if(Test-Path -LiteralPath $path -PathType Leaf){$file=Get-Item -LiteralPath $path -Force;if(!($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -and $file.Length -le 65536){$safe=SafeThreecxImportFailure (Get-Content -LiteralPath $path -Raw|ConvertFrom-Json);if($safe.Count){$facts.threecx_import_failure=$safe}}}}catch{}
+  throw $failure
+ }
+}
 function PhpRuntimeQualificationHook {
  if($ReplaySuiteRunId){$facts.php_runtime_qualification='unqualified_historical_candidate';return}
  $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'))
@@ -1445,6 +1481,10 @@ try{
  if(!$?){throw 'Explicit native factory diagnostic controls failed.'}
  CheckedPython @((Join-Path $source 'tests/windows_provider_diagnostics_test.py'))
  & (Join-Path $source 'tests/windows_native_cleanup_writers.ps1') -SourceRoot $source *> (Join-Path $work 'native-cleanup-writer-controls.private.log')
+ & (Join-Path $source 'tests/windows_threecx_import_fields.ps1') -SourceRoot $source *> (Join-Path $work 'threecx-import-report-controls.private.log')
+ if(!$?){throw 'Typed synthetic V20 import evidence controls failed.'}
+ & (Join-Path $source 'tests/windows_threecx_import_controls.ps1') -SourceRoot $source *> (Join-Path $work 'threecx-import-wrapper-controls.private.log')
+ if(!$?){throw 'The actual installed V20 import wrapper refusal controls failed.'}
  CheckedPython @((Join-Path $source 'tests/windows_hold_diagnostics_test.py'))
  & (Join-Path $source 'tests/windows_hold_diagnostics_controls.ps1') -SourceRoot $source *> (Join-Path $work 'hold-diagnostic-controls.private.log')
  if(!$?){throw 'The focused hold diagnostic scope and evidence controls failed.'}
@@ -1519,6 +1559,7 @@ try{
  $phase='native upgrade recovery qualification';UpgradeRecoveryQualificationHook
  $phase='native web readiness qualification';WebReadinessHook
  $phase='installed public-listener qualification';PublicListenerQualificationHook 'installed_collector'
+ $phase='native synthetic V20 import qualification';ThreecxImportQualificationHook
  $phase='native DTLS qualification';DtlsQualificationHook
  if(!$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly){$phase='native STUN qualification';StunHook;$phase='native phone health qualification';InvokeSuitePhoneHealthQualification $SkipPhoneHealthForNativeDiagnostics}
  $phase='native tenant-domain qualification';TenantDomainsAcceptanceHook ([DateTime]::UtcNow)
