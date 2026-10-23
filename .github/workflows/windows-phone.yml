@@ -6,6 +6,11 @@ on:
         description: Exact reviewed40-character client-branch commit
         required: true
         type: string
+      build_mode:
+        description: Inventory probe or actual native client build
+        type: choice
+        options: [probe, build]
+        default: probe
 permissions:
   contents: read
 concurrency:
@@ -22,11 +27,12 @@ jobs:
       DOTNET_NOLOGO: '1'
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       NUGET_XMLDOC_MODE: skip
+      PHONE_BUILD_MODE: ${{ inputs.build_mode }}
       PHONE_SOURCE_REF: ${{ inputs.source_ref }}
     steps:
       - name: Validate reviewed client source
         run: |
-          if($env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx' -or $env:PHONE_SOURCE_REF -cnotmatch '^[a-f0-9]{40}$'){throw 'An exact reviewed client source is required.'}
+          if($env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx' -or $env:PHONE_SOURCE_REF -cnotmatch '^[a-f0-9]{40}$' -or $env:PHONE_BUILD_MODE -cnotin @('probe','build')){throw 'An exact reviewed client source and supported mode are required.'}
           git config --global core.autocrlf false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -40,10 +46,23 @@ jobs:
         with:
           dotnet-version: '10.0.401'
       - name: Probe native client toolchain and official SDK
+        if: inputs.build_mode == 'probe'
         run: |
           & ./clients/windows/tools/Probe-Environment.ps1 -Output "$env:RUNNER_TEMP/windows-phone-probe"
+      - name: Build and launch native client
+        if: inputs.build_mode == 'build'
+        run: |
+          & ./clients/windows/tools/Build-Client.ps1 -Output "$env:RUNNER_TEMP/windows-phone-build"
+      - name: Preserve native client build evidence
+        if: always() && inputs.build_mode == 'build'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-free-phone-build-${{ github.run_id }}
+          path: ${{ runner.temp }}/windows-phone-build/evidence/
+          if-no-files-found: error
+          retention-days: 14
       - name: Preserve bounded component evidence
-        if: always()
+        if: always() && inputs.build_mode == 'probe'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: windows-free-phone-probe-${{ github.run_id }}
