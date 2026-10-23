@@ -1072,6 +1072,24 @@ function NativeIdleIsHealthy($Observer){
  }
  return $true
 }
+function ReadSuiteCdrBackgroundImport($Checks){
+ $rows=@($Checks|Where-Object {$_.case -is [string] -and $_.case -ceq 'native_localservice_cdr_background_import'})
+ if($rows.Count -ne 1 -or $rows[0] -isnot [pscustomobject]){throw 'Exactly one typed native background call-record proof is required.'}
+ $row=$rows[0]
+ $flags=@('actual_background_import','actual_localservice_identity','backend_pid_unchanged','read_only_observer','no_explicit_importer','before_system_drain','exact_call_domain_correlation','history_sources_exact','spool_absent')
+ $counts=@{matched_cdr_rows=1;answered_cdr_rows=1;history_rows=2;history_owner_rows=2}
+ $fields=@('case','passed','polls','elapsed_seconds')+$flags+@($counts.Keys)
+ $names=@($row.PSObject.Properties.Name)
+ if($names.Count -ne $fields.Count -or @($names|Where-Object {$_ -cnotin $fields}).Count -or $row.passed -isnot [bool] -or !$row.passed){throw 'The public call-record receipt must contain its exact closed fields.'}
+ $safe=[ordered]@{case='native_localservice_cdr_background_import';passed=$true}
+ foreach($flag in $flags){if($row.$flag -isnot [bool] -or !$row.$flag){throw 'Every native background call-record scope flag must be true.'};$safe[$flag]=$true}
+ foreach($name in $counts.Keys){$value=$row.$name;if(($value -isnot [int] -and $value -isnot [long]) -or $value -ne $counts[$name]){throw 'Exact native call-record and participant-history counts are required.'};$safe[$name]=[int]$value}
+ if(($row.polls -isnot [int] -and $row.polls -isnot [long]) -or $row.polls -lt 1 -or $row.polls -gt 26){throw 'The native call-record poll count is invalid.'}
+ $elapsed=$row.elapsed_seconds
+ if(($elapsed -isnot [int] -and $elapsed -isnot [long] -and $elapsed -isnot [single] -and $elapsed -isnot [double]) -or [double]::IsNaN([double]$elapsed) -or [double]::IsInfinity([double]$elapsed) -or $elapsed -lt 0 -or $elapsed -gt 30){throw 'The native call-record elapsed time must be finite and bounded.'}
+ $safe.polls=[int]$row.polls;$safe.elapsed_seconds=[double]$elapsed
+ return $safe
+}
 function NativeAcceptanceHook([string]$Report,[DateTime]$StartedAt){
  try{
   $record=AcceptanceHook 'windows-native-acceptance.ps1' $Report
@@ -1525,11 +1543,14 @@ try{
  CheckedPython @((Join-Path $source 'tests/windows_cmb_media_window.py'))
  CheckedPython @((Join-Path $source 'tests/windows_cdr_background_test.py'))
  CheckedPython @((Join-Path $source 'tests/windows_meet_browser_failure.py'))
- CheckedPython @((Join-Path $source 'tests/windows_smtp_notice.py'))
+ CheckedPython @((Join-Path $source 'tests/windows_smtp_notice.py'),'SMTPNoticeControls.test_actual_dom_success_and_refusals')
+ CheckedPython @((Join-Path $source 'tests/windows_smtp_notice_controls.py'))
  & (Join-Path $source 'tests/windows_meet_media_projection.ps1') -SourceRoot $source *> (Join-Path $work 'meeting-media-projection.private.log')
  if(!$?){throw 'The closed meeting media/browser failure controls failed.'}
  & (Join-Path $source 'tests/windows_cdr_native_fields.ps1') *> (Join-Path $work 'cdr-native-fields.private.log')
  if(!$?){throw 'The strict native background CDR evidence controls failed.'}
+ & (Join-Path $source 'tests/windows_cdr_success_projection.ps1') -SourceRoot $source *> (Join-Path $work 'cdr-success-projection.private.log')
+ if(!$?){throw 'The strict public native background CDR receipt controls failed.'}
  & (Join-Path $source 'tests/windows_recovery_localaccounts.ps1') -SourceRoot $source *> (Join-Path $work 'recovery-localaccounts.private.log')
  if(!$?){throw 'The native PowerShell recovery module provenance controls failed.'}
  CheckedPython @((Join-Path $source 'tests/windows_upgrade_restore_holds.py'))
@@ -1605,6 +1626,7 @@ try{
  if(!$?){throw 'The installed native call-engine inventory differs.'}
  $facts.gates.fresh='passed';$facts.checks+=('Real restore-ready fresh installation/services/native engine hash preservation')
  $phase='native PHP runtime qualification';PhpRuntimeQualificationHook
+ $phase='installed PHP SMTP notice source controls';CheckedPython @((Join-Path $source 'tests/windows_smtp_notice.py'),'--php-executable','C:\OpenWebPBX\php\php.exe','SMTPNoticeControls.test_actual_php_post_notice_and_refusals')
  $phase='native upgrade recovery qualification';UpgradeRecoveryQualificationHook
  $phase='native web readiness qualification';WebReadinessHook
  $phase='installed public-listener qualification';PublicListenerQualificationHook 'installed_collector'
@@ -1629,6 +1651,9 @@ try{
    }else{
    if($native.gates.meeting_browser -cne 'passed'){throw 'The actual Windows meeting browser media gate is required.'}
    foreach($gate in 'native_clock','native_providers','native_call_me_back'){if($native.gates.$gate -cne 'passed'){throw 'The actual native clock, local providers and Call Me Back gates are required.'};$facts.gates.$gate='passed'}
+   if(!$NativeDiagnosticsOnly -and !$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly -and !$ReplaySuiteRunId -and !$SkipPhoneHealthForNativeDiagnostics -and !$HoldDiagnosticsOnly){
+    $facts.native_cdr_background_import=ReadSuiteCdrBackgroundImport $native.checks
+   }
    $facts.gates.native_sip_audio='passed';$facts.gates.meeting_browser='passed'
    }
   }

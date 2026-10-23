@@ -1,11 +1,13 @@
 """Actual global SMTP POST/notice source; native SMTP transport stays separate."""
+import argparse
 import ast
 from html import escape
 from html.parser import HTMLParser
 import json
-from pathlib import Path
-import shutil
+import os
+from pathlib import Path, PureWindowsPath
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -17,6 +19,35 @@ assert len(functions)==1
 scope={'HTMLParser':HTMLParser}
 exec(compile(ast.Module(body=functions,type_ignores=[]),str(source),'exec'),scope)
 accepted=scope['smtp_connection_check_passed']
+PHP_EXECUTABLE=None
+WINDOWS_PHP=PureWindowsPath(r'C:\OpenWebPBX\php\php.exe')
+SELECTORS=('SMTPNoticeControls.test_actual_dom_success_and_refusals',
+           'SMTPNoticeControls.test_actual_php_post_notice_and_refusals')
+
+
+def installed_windows_php(value):
+    return isinstance(value,str) and PureWindowsPath(value)==WINDOWS_PHP
+
+
+def required_php(value):
+    if not isinstance(value,str) or not value:
+        raise ValueError('The PHP POST controls require --php-executable; no ambient PHP or skipped result is accepted.')
+    path=Path(value)
+    if not path.is_absolute() or not path.is_file() or path.is_symlink():
+        raise ValueError('An explicit absolute ordinary PHP executable is required.')
+    if os.name=='nt' and not installed_windows_php(value):
+        raise ValueError('Windows POST controls require the manifest-verified installed PHP executable.')
+    return str(path)
+
+
+def parse_cli(arguments):
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--php-executable',help='Explicit PHP executable; on Windows only the manifest-verified installed C:\\OpenWebPBX\\php\\php.exe is accepted.')
+    parser.add_argument('selectors',nargs='*',metavar='TEST')
+    parsed=parser.parse_args(arguments)
+    if any(value not in SELECTORS for value in parsed.selectors):
+        parser.error('Select only the explicit DOM or PHP POST unittest method.')
+    return parsed
 
 
 class SMTPNoticeControls(unittest.TestCase):
@@ -37,10 +68,11 @@ class SMTPNoticeControls(unittest.TestCase):
                      '<div class="mail-message" role="status">Outgoing mail settings saved for all tenants.</div>','x'*(4*1024*1024+1)]:
             with self.subTest(body=str(body)[:40]):self.assertFalse(accepted(body))
 
-    @unittest.skipUnless(shutil.which('php'),'PHP needed for actual normal POST branch with explicit transport/token doubles')
     def test_actual_php_post_notice_and_refusals(self):
-        version=subprocess.run([shutil.which('php'),'-r','echo PHP_VERSION;'],capture_output=True,text=True,timeout=5)
+        executable=required_php(PHP_EXECUTABLE)
+        version=subprocess.run([executable,'-n','-r','echo PHP_VERSION;'],capture_output=True,text=True,timeout=5)
         self.assertEqual(version.returncode,0,version.stderr);self.assertRegex(version.stdout,r'^\d+\.\d+\.\d+(?:[-+].*)?$')
+        if os.name=='nt':self.assertEqual(version.stdout,'8.4.27')
         print(json.dumps({'actual_php_cli_version':version.stdout,'scope':'checkout POST prelude; explicit token/mail transport doubles','native_windows_or_smtp_transport_qualified':False}))
         php=r'''<?php
 $scenario=json_decode($argv[2],true,512,JSON_THROW_ON_ERROR);$output=$argv[3];$calls=0;$saves=0;
@@ -66,7 +98,7 @@ eval(substr($source,$start,$end-$start));
             root=Path(directory);script=root/'post.php';script.write_text(php)
             for i,(scenario,success,calls,saves) in enumerate(scenarios):
                 output=root/(str(i)+'.json')
-                result=subprocess.run([shutil.which('php'),str(script),str(ROOT/'app/smtp_settings/index.php'),json.dumps(scenario),str(output)],capture_output=True,text=True,timeout=10)
+                result=subprocess.run([executable,'-n',str(script),str(ROOT/'app/smtp_settings/index.php'),json.dumps(scenario),str(output)],capture_output=True,text=True,timeout=10)
                 self.assertEqual(result.returncode,0,result.stderr);self.assertFalse(result.stderr)
                 row=json.loads(output.read_text());self.assertEqual(row['calls'],calls);self.assertEqual(row['saves'],saves)
                 body='<div class="mail-message" role="status">'+escape(row['notice'])+'</div>' if row['notice'] else ''
@@ -77,4 +109,7 @@ eval(substr($source,$start,$end-$start));
                     self.assertNotIn('SMTP connection succeeded. No email was sent.',body)
 
 
-if __name__=='__main__':unittest.main()
+if __name__=='__main__':
+    arguments=parse_cli(sys.argv[1:])
+    PHP_EXECUTABLE=arguments.php_executable
+    unittest.main(argv=[sys.argv[0],*arguments.selectors])

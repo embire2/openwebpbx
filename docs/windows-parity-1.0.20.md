@@ -5,6 +5,15 @@ The currently published Windows release remains 1.0.7. Do not replace a
 production server with an unpublished archive. Debian's hosted Phone Health
 patch and the earlier complete Debian candidate have separate verification.
 
+The next normal run39960857878 stops before installation: a source test probes
+the runner's ambient PHP and times out after five seconds. The correction keeps
+the pure DOM check early and moves all seven PHP POST cases after verification
+of the installed, pinned PHP8.4.27, with explicit executable selection, `-n` and
+unchanged deadlines. Its local checks pass; native repetition is still required.
+Successful normal facts will also retain the already validated closed17-field
+background call-history receipt, so release review can inspect that evidence
+directly. Diagnostic and replay runs cannot publish it as a normal-service pass.
+
 The focused diagnostic39955069293 now captures the real restore-hold refusal:
 the Python parent lock fails the existing Common exclusive-handle check. Actual
 isolated Windows reproduction confirms the mismatch. Changing only the Python
