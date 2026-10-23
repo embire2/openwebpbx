@@ -27,6 +27,12 @@ try
     Refuse(() => CoreCodecInventory.Require(Inventory([rows[0], rows[1], Codec("VP9 Video", "CORE_VPX_MODULE")])));
     Refuse(() => CoreCodecInventory.Require(Inventory(rows, 4)));
     Refuse(() => CoreCodecInventory.Require(Inventory(rows.Concat(Enumerable.Range(0, 1022).Select(_ => Codec("other", "other"))).ToArray())));
-    Console.WriteLine(JsonSerializer.Serialize(new { schema = 1, state = "passed_pure_audio_and_codec_components", checks, actual_native_calling = false, hardware_media_tested = false, codec_inventory_input = "explicit_model" }));
+    var peerError = "{\"schema\":1,\"state\":\"refused_or_failed\",\"error_type\":\"InvalidOperationException\"}";
+    Check(FailureObservation.ReadPeerError(peerError, true) == ("InvalidOperationException", true));
+    Check(FailureObservation.ReadPeerError("", true) == ("none", true));
+    foreach (var invalidPeer in new[] { peerError + peerError, peerError.Replace("InvalidOperationException", "PRIVATE"), peerError.Replace("\"schema\":1", "\"schema\":1,\"schema\":1"), peerError.Replace("\"schema\":1", "\"schema\":true"), peerError.Replace("\"schema\":1", "\"schema\":1,\"private\":\"PRIVATE\""), new string('x', 8193) }) Check(FailureObservation.ReadPeerError(invalidPeer, true) == ("unobserved", false));
+    Check(FailureObservation.ReadPeerError(peerError, false) == ("unobserved", false));
+    var safe = FailureObservation.Capture(new InvalidOperationException("PRIVATE"), "wrong_ca_create"); Check(safe.operation == "wrong_ca_create" && safe.source_basename == "external_component" && safe.source_line == 0 && !JsonSerializer.Serialize(safe).Contains("PRIVATE", StringComparison.Ordinal));
+    Console.WriteLine(JsonSerializer.Serialize(new { schema = 1, state = "passed_pure_audio_codec_and_diagnostic_components", checks, actual_native_calling = false, hardware_media_tested = false, codec_inventory_input = "explicit_model" }));
 }
 finally { Directory.Delete(root, true); }

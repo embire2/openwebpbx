@@ -97,7 +97,12 @@ The receipt consumer rejects incomplete/extra/duplicate cases, unknown fields,
 nonfinite or untyped numbers, private identifiers, weak audio/video measurements,
 missing cleanup and wider scope claims. A separate failure-only path exports
 only a closed stage/type/completed-case count; it cannot accept a failed run as
-qualified. Durable PID/start-time/executable-hash journals permit cleanup of
+qualified. A failed native run additionally retains its fixed operation name,
+source basename/line, last accepted native startup stage and observed peer exit
+and error type. Service-difference diagnostics retain at most16 ordinary service
+names, changed property names and typed status/start mode; command paths and
+accounts never leave the runner. These observations do not relax the complete
+system snapshot comparison. Durable PID/start-time/executable-hash journals permit cleanup of
 exact owned processes, and nonce root lists permit only owned non-reparse tree
 removal. The wrapper compares service identities/states, root-certificate
 thumbprints and all nine firewall collections in ActiveStore/PersistentStore.

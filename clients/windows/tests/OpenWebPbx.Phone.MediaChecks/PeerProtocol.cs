@@ -29,6 +29,12 @@ internal static class Protocol
         var chars = new char[4096]; long total = 0; int count;
         while ((count = await reader.ReadAsync(chars)) != 0) { total += count; if (total > 64 * 1024 * 1024) throw new InvalidDataException("Owned child output exceeded its private bound."); }
     }
+    internal static async Task<(string Type, bool Observed)> PeerError(StreamReader reader)
+    {
+        var chars = new char[4096]; var text = new System.Text.StringBuilder(8192); long total = 0; int count;
+        while ((count = await reader.ReadAsync(chars)) != 0) { total = checked(total + count); var keep = Math.Min(count, 8192 - text.Length); if (keep > 0) text.Append(chars, 0, keep); if (total > 64 * 1024 * 1024) throw new InvalidDataException("Owned child output exceeded its private bound."); }
+        return FailureObservation.ReadPeerError(text.ToString(), total <= 8192);
+    }
     internal static void Guard()
     {
         if (!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable("GITHUB_ACTIONS") != "true" || Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT") != "github-hosted" || Environment.GetEnvironmentVariable("GITHUB_REPOSITORY") != "embire2/openwebpbx") throw new InvalidOperationException("Only the disposable hosted Windows media lab is allowed.");

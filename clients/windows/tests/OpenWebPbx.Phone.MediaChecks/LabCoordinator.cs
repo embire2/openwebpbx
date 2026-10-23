@@ -8,7 +8,8 @@ internal sealed record LabInput(int Schema, string Root, string EngineRoot, stri
 internal sealed record AudioObservation(AudioWindow Window, double FreshSeconds, double ObservedSeconds);
 internal sealed class LabPeer : IDisposable
 {
-    private readonly Process process; private readonly Task errors; private int sequence; private readonly DateTime start; private bool disposed;
+    private readonly Process process; private readonly Task<(string Type, bool Observed)> errors; private int sequence; private readonly DateTime start; private bool disposed;
+    private string progress = "none";
     internal static bool CleanupRefused { get; private set; }
     public PeerState State { get; private set; } = null!;
     public string Root { get; }
@@ -20,7 +21,7 @@ internal sealed class LabPeer : IDisposable
         var exe = Environment.ProcessPath ?? throw new InvalidOperationException();
         if (!exe.EndsWith("OpenWebPbx.Phone.MediaChecks.exe", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Run the published native fixture.");
         var info = new ProcessStartInfo(exe) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = AppContext.BaseDirectory, CreateNoWindow = true };
-        info.ArgumentList.Add("--peer"); info.ArgumentList.Add(path); process = Process.Start(info) ?? throw new InvalidOperationException(); start = process.StartTime.ToUniversalTime(); errors = Protocol.Drain(process.StandardError);
+        info.ArgumentList.Add("--peer"); info.ArgumentList.Add(path); process = Process.Start(info) ?? throw new InvalidOperationException(); start = process.StartTime.ToUniversalTime(); errors = Protocol.PeerError(process.StandardError);
         var end = DateTime.UtcNow.AddSeconds(60);
         try
         {
@@ -28,12 +29,21 @@ internal sealed class LabPeer : IDisposable
         while (DateTime.UtcNow < end)
         {
             var reply = Receive(end - DateTime.UtcNow); if (reply.Sequence != 0 || !reply.Ok) throw new InvalidDataException("Native startup control failed.");
+            progress = FailureObservation.Progress.Contains(reply.Stage, StringComparer.Ordinal) ? reply.Stage : "unrecognised";
             if (reply.Stage == "ready") { State = reply.State ?? throw new InvalidDataException(); return; }
             if (!reply.Stage.StartsWith("native_", StringComparison.Ordinal) || reply.Stage.Length > 80) throw new InvalidDataException("Native startup progress differs.");
         }
         throw new TimeoutException("Native peer startup deadline.");
         }
-        catch { try { StopOwned(); } catch { CleanupRefused = true; } process.Dispose(); disposed = true; throw; }
+        catch (Exception error) { ObserveFailure(error); try { StopOwned(); } catch { CleanupRefused = true; } FinishFailureObservation(error); process.Dispose(); disposed = true; throw; }
+    }
+    private void ObserveFailure(Exception error)
+    {
+        try { var exited = process.HasExited; error.Data["media_peer_observation"] = new PeerFailureObservation(progress, exited, exited ? process.ExitCode : null, "unobserved", false); } catch { }
+    }
+    private void FinishFailureObservation(Exception error)
+    {
+        try { if (error.Data["media_peer_observation"] is PeerFailureObservation observed && process.HasExited) { var captured = errors.WaitAsync(TimeSpan.FromSeconds(2)).GetAwaiter().GetResult(); error.Data["media_peer_observation"] = observed with { error_type = captured.Type, stderr_observed = captured.Observed }; } } catch { }
     }
     private PeerReply Receive(TimeSpan timeout)
     {
@@ -44,9 +54,10 @@ internal sealed class LabPeer : IDisposable
     public PeerState Command(string action = "snapshot", string number = "", Guid? call = null, bool video = false)
     {
         process.StandardInput.WriteLine(JsonSerializer.Serialize(new PeerCommand(++sequence, action, number, call, video), Protocol.Json)); process.StandardInput.Flush();
-        var reply = Receive(TimeSpan.FromSeconds(12));
+        try { var reply = Receive(TimeSpan.FromSeconds(12));
         if (reply.Sequence != sequence || !reply.Ok || reply.State is null) throw new InvalidDataException("Actual NativePhone operation refused: " + action);
-        State = reply.State; return State;
+        State = reply.State; return State; }
+        catch (Exception error) { ObserveFailure(error); FinishFailureObservation(error); throw; }
     }
     public void Dispose()
     {
@@ -56,6 +67,7 @@ internal sealed class LabPeer : IDisposable
             if (!process.HasExited) { foreach (var call in Command().Calls) Command("hangup", call: call.Id); var end = DateTime.UtcNow.AddSeconds(8); while (Command().Busy && DateTime.UtcNow < end) Thread.Sleep(50); Command("shutdown"); process.StandardInput.Close(); if (!process.WaitForExit(12000)) throw new TimeoutException("Owned peer shutdown timed out."); }
             errors.GetAwaiter().GetResult(); if (process.ExitCode != 0) throw new InvalidDataException("Owned native peer did not exit cleanly.");
         }
+        catch (Exception error) { ObserveFailure(error); FinishFailureObservation(error); throw; }
         finally
         {
             StopOwned();
@@ -124,15 +136,15 @@ internal static class LabCoordinator
         if (input.Schema != 1 || input.SdkSha256 != "9cc84037333daca88af24804e20b9d1f5e41ddd901578484b57dcc6720a8d297" || input.EngineSha256 != "3d4091bd972c1ea82ff9b6899c091dbeebf66416d6d76475add523ebe10a7542" || !System.Text.RegularExpressions.Regex.IsMatch(input.SourceCommit, "^[a-f0-9]{40}$")) throw new InvalidDataException("Pinned media inputs differ.");
         var temp = Path.GetFullPath(Environment.GetEnvironmentVariable("RUNNER_TEMP")!); var root = Path.GetFullPath(input.Root);
         if (!string.Equals(root, own, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Owned media lab root differs.");
-        var cases = new List<object>(); var stage = "engine_start"; Exception? failure = null; bool cleanup = true;
+        var cases = new List<object>(); var stage = "engine_start"; var operation = "engine_construct"; Exception? failure = null; bool cleanup = true; bool engineStarted = false, engineStopped = false;
         var peers = new List<LabPeer>(); var peerRoots = new List<string>(); LabServer? server = null;
         try
         {
             var journal = Path.Combine(root, "owned-processes.jsonl"); using (var file = new FileStream(journal, FileMode.CreateNew)) file.Flush(true);
-            server = new LabServer(root, input.EngineRoot, journal); server.Start();
+            server = new LabServer(root, input.EngineRoot, journal); operation = "engine_start"; server.Start(); engineStarted = true;
             foreach (var name in new[] { "tls_chain_hostname", "outgoing_audio", "incoming_audio", "hold_music_resume", "dtmf", "blind_transfer", "consult_complete", "consult_cancel", "call_waiting", "local_conference", "software_vp8", "voicemail_local_player" })
             {
-                stage = name; var paths = new List<string>(); var facts = new Dictionary<string, object>();
+                stage = name; operation = "case_prepare"; var paths = new List<string>(); var facts = new Dictionary<string, object>();
                 string NewRoot(int index)
                 {
                     var own = Path.Combine(temp, "phone-media-" + Guid.NewGuid().ToString("N")); PrivateDirectory(own); peerRoots.Add(own);
@@ -152,12 +164,12 @@ internal static class LabCoordinator
                     // explicit native registration failure is required for each negative.
                     if (name == "tls_chain_hostname")
                     {
-                        using (var wrongCa = Create(0, server.WrongCaPem, distinct: true)) { Wait(() => wrongCa.Command().RegistrationFailed, 20); if (wrongCa.State.Ready) throw new InvalidDataException("Untrusted TLS CA accepted."); }
-                        using (var wrongName = Create(0, host: "localhost", distinct: true)) { Wait(() => wrongName.Command().RegistrationFailed, 20); if (wrongName.State.Ready) throw new InvalidDataException("Wrong TLS name accepted."); }
+                        operation = "wrong_ca_create"; using (var wrongCa = Create(0, server.WrongCaPem, distinct: true)) { operation = "wrong_ca_wait"; Wait(() => wrongCa.Command().RegistrationFailed, 20); operation = "wrong_ca_assert"; if (wrongCa.State.Ready) throw new InvalidDataException("Untrusted TLS CA accepted."); operation = "wrong_ca_dispose"; }
+                        operation = "wrong_name_create"; using (var wrongName = Create(0, host: "localhost", distinct: true)) { operation = "wrong_name_wait"; Wait(() => wrongName.Command().RegistrationFailed, 20); operation = "wrong_name_assert"; if (wrongName.State.Ready) throw new InvalidDataException("Wrong TLS name accepted."); operation = "wrong_name_dispose"; }
                         facts["wrong_ca_refused"] = true; facts["wrong_name_refused"] = true;
                     }
-                    peers.Add(Create(0)); peers.Add(Create(1)); peers.Add(Create(2)); var a = peers[0]; var b = peers[1]; var c = peers[2];
-                    Wait(() => peers.All(peer => peer.Command().Ready), 20); foreach (var peer in peers) Secure(peer.State); facts["actual_tls_registration"] = true;
+                    operation = "peer_0_create"; peers.Add(Create(0)); operation = "peer_1_create"; peers.Add(Create(1)); operation = "peer_2_create"; peers.Add(Create(2)); var a = peers[0]; var b = peers[1]; var c = peers[2];
+                    operation = "registration_wait"; Wait(() => peers.All(peer => peer.Command().Ready), 20); operation = "security_assert"; foreach (var peer in peers) Secure(peer.State); facts["actual_tls_registration"] = true; operation = "case_execute";
                     if (name == "tls_chain_hostname") { }
                     else if (name == "voicemail_local_player")
                     {
@@ -198,21 +210,23 @@ internal static class LabCoordinator
                         }
                         foreach (var peer in peers) Secure(peer.Command());
                     }
-                    if (!StopPeers(peers)) { cleanup = false; throw new InvalidDataException("Owned peer cleanup failed."); } server.RequireIdle();
+                    operation = "peers_cleanup"; if (!StopPeers(peers)) { cleanup = false; throw new InvalidDataException("Owned peer cleanup failed."); } operation = "engine_idle"; server.RequireIdle();
                     cases.Add(new { name, state = "passed", actual_nativephone = true, file_media_adapter = true, growing_wav_snapshot_adapter = true, facts });
                 }
                 finally { if (!StopPeers(peers)) cleanup = false; }
             }
-            server.RequireIdle(); server.Dispose(); server = null;
+            operation = "engine_idle"; server.RequireIdle(); operation = "engine_shutdown"; server.Dispose(); engineStopped = true; server = null;
         }
         catch (Exception error) { failure = error; }
         finally
         {
             if (!StopPeers(peers)) cleanup = false;
-            if (server is not null) { try { server.Dispose(); } catch { cleanup = false; } }
+            if (server is not null) { try { server.Dispose(); engineStopped = true; } catch { cleanup = false; } }
             foreach (var path in peerRoots) { try { Protocol.NoLinks(path); Directory.Delete(path, true); } catch { cleanup = false; } }
             if (LabPeer.CleanupRefused) cleanup = false;
-            Protocol.Write(reportPath, new { schema = 1, producer = "OpenWebPbx.Phone.MediaChecks", state = failure is null && cleanup && cases.Count == 12 ? "passed_software_media" : "failed", stage, error_type = failure?.GetType().Name ?? "none", cases, exact_owned_cleanup = cleanup, input.SourceCommit, input.SdkSha256, input.EngineSha256, test_managed_assembly = true, production_binary_tested = false, hardware_media_tested = false, gui_render_tested = false, carrier_calls_placed = false, store_accepted = false, installer_transaction_executed = false, production_update_channel_tested = false });
+            var receipt = JsonSerializer.SerializeToNode(new { schema = 1, producer = "OpenWebPbx.Phone.MediaChecks", state = failure is null && cleanup && cases.Count == 12 ? "passed_software_media" : "failed", stage, error_type = failure?.GetType().Name ?? "none", cases, exact_owned_cleanup = cleanup, input.SourceCommit, input.SdkSha256, input.EngineSha256, test_managed_assembly = true, production_binary_tested = false, hardware_media_tested = false, gui_render_tested = false, carrier_calls_placed = false, store_accepted = false, installer_transaction_executed = false, production_update_channel_tested = false })!.AsObject();
+            if (failure is not null) { receipt["failure_observation"] = JsonSerializer.SerializeToNode(FailureObservation.Capture(failure, operation)); receipt["engine_lifecycle"] = JsonSerializer.SerializeToNode(new { start_completed = engineStarted, shutdown_completed = engineStopped }); }
+            Protocol.Write(reportPath, receipt);
         }
         return failure is null && cleanup && cases.Count == 12 ? 0 : 1;
     }

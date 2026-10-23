@@ -9,5 +9,5 @@ try
 }
 catch (Exception error)
 {
-    Console.Error.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { schema = 1, state = "refused_or_failed", error_type = error.GetType().Name })); return 2;
+    Console.Error.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { schema = 1, state = "refused_or_failed", error_type = FailureObservation.TypeName(error) })); return 2;
 }

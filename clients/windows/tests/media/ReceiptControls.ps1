@@ -4,7 +4,7 @@ $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 $tool=Join-Path $PSScriptRoot '../../tools/Test-ClientMedia.ps1';$tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile([IO.Path]::GetFullPath($tool),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'The actual media wrapper does not parse.'}
-foreach($name in @('ClosedKeys','JsonShape','ReadMediaResult')){
+foreach($name in @('ClosedKeys','JsonShape','ReadNativeFailureObservation','ReadMediaResult')){
  $found=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
  if($found.Count -ne 1){throw 'Exactly one actual consumer function is required.'};. ([scriptblock]::Create($found[0].Extent.Text))
 }
@@ -63,6 +63,13 @@ try{
  $failed=Model;$failed.state='failed';$failed.stage='hold_music_resume';$failed.error_type='InvalidDataException';$failed.cases=$failed.cases[0..2];$closed=Validate $failed -AllowFailure;Check ($closed.state -ceq 'failed' -and $closed.cases.Count -eq 3)
  $refused=$false;try{$null=Validate $failed}catch{$refused=$true};Check $refused
  $refused=$false;try{$null=Validate (Model) -AllowFailure}catch{$refused=$true};Check $refused
+ $failed.failure_observation=[ordered]@{operation='wrong_ca_create';source_basename='LabCoordinator.cs';source_line=37;peer=[ordered]@{progress='native_devices';exited_before_cleanup=$true;exit_code_before_cleanup=2;error_type='InvalidOperationException';stderr_observed=$true}};$failed.engine_lifecycle=[ordered]@{start_completed=$true;shutdown_completed=$false}
+ $observed=Validate $failed -AllowFailure;Check ($observed.failure_observation.peer.exit_code_before_cleanup -eq 2)
+ foreach($mutation in @('operation','source','line','raw','exit','live_exit','peer_type','peer_progress','stderr','engine_type')){
+  $copy=($failed|ConvertTo-Json -Depth 12)|ConvertFrom-Json -AsHashtable
+  switch($mutation){operation{$copy.failure_observation.operation='PRIVATE'}source{$copy.failure_observation.source_basename='C:/PRIVATE'}line{$copy.failure_observation.source_line='37'}raw{$copy.failure_observation.raw='PRIVATE'}exit{$copy.failure_observation.peer.exit_code_before_cleanup=2147483648}live_exit{$copy.failure_observation.peer.exited_before_cleanup=$false}peer_type{$copy.failure_observation.peer.error_type='PRIVATE'}peer_progress{$copy.failure_observation.peer.progress='PRIVATE'}stderr{$copy.failure_observation.peer.stderr_observed=$false}engine_type{$copy.engine_lifecycle.start_completed=1}}
+  $refused=$false;try{$null=Validate $copy -AllowFailure}catch{$refused=$true};Check $refused
+ }
  $failed.error_type='arbitrary private text';$refused=$false;try{$null=Validate $failed -AllowFailure}catch{$refused=$true};Check $refused
  [ordered]@{schema=1;state='passed_pure_actual_consumer';checks=$checks;modelled_receipts_only=$true;actual_native_calling=$false;hardware_media_tested=$false}|ConvertTo-Json -Compress
 }finally{Remove-Item -LiteralPath $root -Recurse -Force}
