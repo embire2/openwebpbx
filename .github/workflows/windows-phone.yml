@@ -7,17 +7,18 @@ on:
         required: true
         type: string
       build_mode:
-        description: Inventory probe or actual native client build
+        description: Inventory probe, native client build, or source candidate collection
         type: choice
-        options: [probe, build]
+        options: [probe, build, sources]
         default: probe
 permissions:
   contents: read
 concurrency:
-  group: windows-free-phone-client
+  group: windows-free-phone-${{ inputs.build_mode == 'sources' && 'sources' || 'client' }}
   cancel-in-progress: false
 jobs:
   client:
+    if: inputs.build_mode != 'sources'
     runs-on: windows-2025
     timeout-minutes: 60
     defaults:
@@ -67,5 +68,46 @@ jobs:
         with:
           name: windows-free-phone-probe-${{ github.run_id }}
           path: ${{ runner.temp }}/windows-phone-probe/
+          if-no-files-found: error
+          retention-days: 14
+  sources:
+    if: inputs.build_mode == 'sources'
+    runs-on: windows-2025
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PHONE_SOURCE_REF: ${{ inputs.source_ref }}
+    steps:
+      - name: Validate reviewed source candidate request
+        run: |
+          if($env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx' -or $env:PHONE_SOURCE_REF -cnotmatch '^[a-f0-9]{40}$'){throw 'An exact reviewed client source is required.'}
+          git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_ref }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify actual source
+        run: |
+          if((git rev-parse HEAD).Trim() -cne $env:PHONE_SOURCE_REF){throw 'Client source differs.'}
+      - name: Collect pinned source candidate
+        run: |
+          & ./clients/windows/tools/Collect-Source-Ci.ps1 -Output "$env:RUNNER_TEMP/windows-phone-source"
+      - name: Preserve closed source collection evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-free-phone-source-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/windows-phone-source/evidence/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve source candidate for review
+        if: success()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-free-phone-source-candidate-${{ github.run_id }}
+          path: ${{ runner.temp }}/windows-phone-source/packet/
           if-no-files-found: error
           retention-days: 14
