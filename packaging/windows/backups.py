@@ -275,11 +275,11 @@ def windows_exclusive_guard(path, *, existing_only=False):
             raise BackupBusy('Another backup, restore or release update is running. Retry after it finishes.') from None
         raise BackupError('The operation lock needs administrator review.') from None
 
-    # Share reads/writes so a second Python process reaches LockFileEx. Its
-    # exclusive byte lock also interoperates with the previous CRT lock; an
-    # existing/new .NET FileShare.None handle instead produces native error 32.
-    # Refusing DELETE sharing prevents the held node from being replaced.
-    handle = create(str(path), 0xC0000000, 3, None, 3 if existing_only else 4, 0x00200080, None)
+    # Deny sharing to match the .NET maintenance contract and its independent
+    # parent-lock check. Keep the byte lock for legacy CRT interoperability;
+    # competing old/new Python and .NET handles refuse with native 32 or 33.
+    # This also prevents the held node from being replaced.
+    handle = create(str(path), 0xC0000000, 0, None, 3 if existing_only else 4, 0x00200080, None)
     if handle == ctypes.c_void_p(-1).value:
         refuse(ctypes.get_last_error())
     try:

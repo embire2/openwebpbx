@@ -5,6 +5,18 @@ The currently published Windows release remains 1.0.7. Do not replace a
 production server with an unpublished archive. Debian's hosted Phone Health
 patch and the earlier complete Debian candidate have separate verification.
 
+The focused diagnostic39955069293 now captures the real restore-hold refusal:
+the Python parent lock fails the existing Common exclusive-handle check. Actual
+isolated Windows reproduction confirms the mismatch. Changing only the Python
+handle's sharing mode, while retaining its byte lock, passes16 cross-process
+controls and all12 native guard regression tests. The new test rejects the old
+source. Original service records and checked installed file hashes stay exact;
+the tests use a new private temporary runtime and never invoke installed backup
+control or customer configuration. This correction still needs a rebuilt normal
+full qualification, independent restore and signed-upgrade checks. The diagnostic
+reuses an old archive and cannot qualify the new product code or prove an
+unretained historical inner error.
+
 Normal39942968354/source08d803701 is still failed. Its child now reports26
 completed cases, including actual normal LocalService call-record importing and
 unconfigured/IP-auth/password SMTP. The later TLS SMTP test fails at its
@@ -17,13 +29,14 @@ native TLS mail qualification still needs a new complete run.
 The parent also omits the child's fixed Meet completion name. A narrow reporting
 correction passes3332 actual PowerShell/privacy controls and the old-source
 negative without exporting raw media or claiming a historical conference pass.
-The separate restore-hold error persists and still lacks its original inner
-operation/native exception. Closed single-invocation diagnostics now pass eight
+That normal run's separate restore-hold error lacks its original inner
+operation/native exception. Closed single-invocation diagnostics pass eight
 portable groups and50 actual native PS5.1 fake-target controls, with3336 parent
 privacy/projection checks. The native component preserves six original services
 and five original file hashes, but does not invoke the installed control or prove
-the historical cause. The focused diagnostic workflow must capture that next;
-product recovery predicates remain unchanged. Canonical cleanup and original
+the historical cause. The later focused diagnostic above captures its own actual
+refusal, and the minimal Python lock correction now requires fresh full testing.
+Canonical cleanup and original
 writer restoration pass, but complete calling, backup, upgrade and release gates
 remain unqualified. Google separately still rejects the actual Windows sender
 at11:40UTC; the probe sent no recipient or email and changed no settings.

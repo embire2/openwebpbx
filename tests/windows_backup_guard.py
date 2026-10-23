@@ -87,6 +87,50 @@ class GuardControls(unittest.TestCase):
         with self.module.exclusive_guard(path):
             pass
 
+    @unittest.skipUnless(os.name == 'nt', 'Actual Windows Python/Common external maintenance contract')
+    def test_actual_call_records_common_accepts_python_parent_lock(self):
+        state = self.root / 'common-contract'
+        state.mkdir()
+        path = state / 'upgrade.lock'
+        original = b'owned cross-language lock bytes'
+        path.write_bytes(original)
+        script = self.root / 'common-contract.ps1'
+        script.write_text(r'''
+param([string]$SourceRoot,[string]$StateRoot)
+$ErrorActionPreference='Stop'
+foreach($file in 'UpgradeRecovery.Common.ps1','CallRecords.Common.ps1'){
+ $tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot ('packaging/windows/'+$file)),[ref]$tokens,[ref]$errors)
+ if($errors.Count){throw 'The actual Common source must parse.'}
+ $required=if($file -ceq 'UpgradeRecovery.Common.ps1'){@('Initialize-OpenWebUpgradeRecoveryNative','Assert-OpenWebRecoveryOrdinary')}else{@('Assert-OpenWebCallRecordLock')}
+ foreach($name in $required){
+  $nodes=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name},$true))
+  if($nodes.Count -ne 1){throw 'The actual Common definition must be unique.'}
+  . ([scriptblock]::Create($nodes[0].Extent.Text))
+ }
+}
+Initialize-OpenWebUpgradeRecoveryNative
+$exclusive=[OpenWebPbx.UpgradeRecoveryNativeV1]::Exclusive((Join-Path $StateRoot 'upgrade.lock'))
+$accepted=$false;$refusal='none'
+try{Assert-OpenWebCallRecordLock -StateRoot $StateRoot -ExternalLockHeld;$accepted=$true}catch{
+ if($_.Exception.Message -cne 'The call-record controller requires its parent exclusive maintenance lock.'){throw}
+ $refusal='parent_not_exclusive'
+}
+[Console]::Out.WriteLine((@{schema=1;exclusive=[bool]$exclusive;external_assertion_accepted=[bool]$accepted;refusal=$refusal}|ConvertTo-Json -Compress))
+''', encoding='utf-8')
+        command = [str(Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'),
+                   '-NoProfile', '-NonInteractive', '-File', str(script), '-SourceRoot', str(ROOT), '-StateRoot', str(state)]
+        def observe():
+            result = subprocess.run(command, capture_output=True, timeout=20)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stderr.strip(), b'')
+            return json.loads(result.stdout.decode('utf-8-sig'))
+        with self.module.exclusive_guard(path):
+            self.assertEqual(observe(), {'schema': 1, 'exclusive': True,
+                                         'external_assertion_accepted': True, 'refusal': 'none'})
+        self.assertEqual(observe(), {'schema': 1, 'exclusive': False,
+                                     'external_assertion_accepted': False, 'refusal': 'parent_not_exclusive'})
+        self.assertEqual(path.read_bytes(), original)
+
     @unittest.skipUnless(os.name == 'nt', 'Actual Windows native sharing and ACL controls')
     def test_dotnet_fileshare_none_is_typed_busy_and_released(self):
         import base64
