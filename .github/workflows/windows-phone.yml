@@ -197,6 +197,8 @@ jobs:
         run: |
           & ./clients/windows/tests/packaging/GuardChecks.ps1
           & ./clients/windows/tests/packaging/DiagnosticControls.ps1
+          python ./clients/windows/tests/packaging/AssetControls.py
+          if($LASTEXITCODE){throw 'Literal package asset controls failed.'}
           $report=Join-Path $env:RUNNER_TEMP ('phone-package-result-'+[Guid]::NewGuid().ToString('N')+'.json')
           & ./clients/windows/tools/Test-ClientPackage.ps1 -SdkZip "$env:RUNNER_TEMP/phone-package-sdk.zip" -SourceCommit $env:PHONE_SOURCE_REF -Report $report
       - name: Preserve closed package qualification evidence
