@@ -27,7 +27,9 @@ helper = module(helper_path, "actual_read_only_core_extract")
 def fixture():
     files = [["core", "c_core", "FreeSwitch.dll", "100"], ["console", "c_core", "FreeSwitchConsole.exe", "100"]]
     components = {"c_core": "ROOT", "c_module": "MOD"}
-    for index, name in enumerate(helper.STARTUP_MODULES + adapter.MODULES):
+    # Fixed known MSI modules: do not manufacture whatever the adapter requests.
+    media = ("mod_dptools.dll", "mod_dialplan_xml.dll", "mod_sndfile.dll", "mod_tone_stream.dll", "mod_conference.dll")
+    for index, name in enumerate(helper.STARTUP_MODULES + media):
         files.append(["module" + str(index), "c_module", name, "100"])
     return files, components
 
@@ -37,7 +39,7 @@ class SelectionChecks(unittest.TestCase):
         self.assertEqual(hashlib.sha256(helper_path.read_bytes()).hexdigest(), adapter.HELPER_SHA)
         rows, components = fixture()
         selected = adapter.selection(helper.selected_files, rows, components, "ROOT")
-        self.assertEqual(len(selected), 13)
+        self.assertEqual(len(selected), 12)
         self.assertEqual({path for _, path in selected if path.startswith("mod/")}, {"mod/" + name for name in helper.STARTUP_MODULES + adapter.MODULES})
 
     def test_all_missing_media_modules_refuse(self):

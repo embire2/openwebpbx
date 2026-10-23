@@ -36,7 +36,11 @@ required media modules. No installer actions execute. The original source
 archive includes `codec-source/source/freeswitch/src/switch_pcm.c`, whose built-in
 `CORE_PCM_MODULE` registers PCMU and PCMA; the loader preloads that module. Actual
 runtime `show codecs as json` must independently expose both interfaces before
-calls. No external `mod_g711` is assumed.
+calls. The same archive's `switch_vpx.c` and loader define and preload
+`CORE_VPX_MODULE`; VP8 is also built into the core, with no external `mod_vpx.dll`.
+The lab requires exactly one actual `VP8 Video` codec under `CORE_VPX_MODULE`
+before calls. The decoded video thresholds below remain independent requirements.
+No external `mod_g711` is assumed.
 
 The actual `NativePhone` class is referenced by a managed test assembly built
 with `PhoneMediaFixture=true`. Engine-owned `PHONE_MEDIA_FIXTURE` seams are absent

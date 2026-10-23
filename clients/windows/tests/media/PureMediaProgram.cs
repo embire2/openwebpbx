@@ -17,6 +17,16 @@ try
     var growing = File.ReadAllBytes(single); Array.Clear(growing, 4, 4); Array.Clear(growing, 40, 4); var open = Path.Combine(root, "open.wav"); File.WriteAllBytes(open, growing); Refuse(() => PcmWave.Read(open)); Check(PcmWave.Read(open, true).Tail([425]).GoodFraction == 1); Check(File.ReadAllBytes(open).SequenceEqual(growing));
     var wrongNow = Path.Combine(root, "past.wav"); PcmWave.Write(wrongNow, [733], 4); var past = File.ReadAllBytes(single); var current = File.ReadAllBytes(wrongNow); var ordered = past.Concat(current.Skip(44)).ToArray(); System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(ordered.AsSpan(4), (uint)(ordered.Length - 8)); System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(ordered.AsSpan(40), (uint)(ordered.Length - 44)); var orderedPath = Path.Combine(root, "ordered.wav"); File.WriteAllBytes(orderedPath, ordered); Refuse(() => PcmWave.Read(orderedPath).Tail([425])); Check(PcmWave.Read(orderedPath).Tail([733]).GoodFraction == 1);
     var typed = JsonSerializer.Deserialize<AudioWindow>(JsonSerializer.Serialize(proof))!; Check(double.IsFinite(typed.MinimumToneRatio) && typed.GoodFraction == 1);
-    Console.WriteLine(JsonSerializer.Serialize(new { schema = 1, state = "passed_pure_audio_components", checks, actual_native_calling = false, hardware_media_tested = false }));
+    object Codec(string name, string key, string type = "codec") => new { type, name, ikey = key };
+    object[] rows = [Codec("G.711 ulaw", "CORE_PCM_MODULE"), Codec("G.711 alaw", "CORE_PCM_MODULE"), Codec("VP8 Video", "CORE_VPX_MODULE")];
+    string Inventory(object[] values, int? count = null) => JsonSerializer.Serialize(new { row_count = count ?? values.Length, rows = values });
+    CoreCodecInventory.Require(Inventory(rows)); Check(true);
+    for (var index = 0; index < rows.Length; index++) { Refuse(() => CoreCodecInventory.Require(Inventory(rows.Where((_, i) => i != index).ToArray()))); Refuse(() => CoreCodecInventory.Require(Inventory(rows.Concat([rows[index]]).ToArray()))); }
+    Refuse(() => CoreCodecInventory.Require(Inventory([rows[0], rows[1], Codec("VP8 Video", "mod_vpx")])));
+    Refuse(() => CoreCodecInventory.Require(Inventory([rows[0], rows[1], Codec("VP8 Video", "CORE_VPX_MODULE", "application")])));
+    Refuse(() => CoreCodecInventory.Require(Inventory([rows[0], rows[1], Codec("VP9 Video", "CORE_VPX_MODULE")])));
+    Refuse(() => CoreCodecInventory.Require(Inventory(rows, 4)));
+    Refuse(() => CoreCodecInventory.Require(Inventory(rows.Concat(Enumerable.Range(0, 1022).Select(_ => Codec("other", "other"))).ToArray())));
+    Console.WriteLine(JsonSerializer.Serialize(new { schema = 1, state = "passed_pure_audio_and_codec_components", checks, actual_native_calling = false, hardware_media_tested = false, codec_inventory_input = "explicit_model" }));
 }
 finally { Directory.Delete(root, true); }

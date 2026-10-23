@@ -14,7 +14,9 @@ from types import SimpleNamespace
 sys.dont_write_bytecode = True
 
 HELPER_SHA = "f3014f84cb7aa6fd51f751c1fe34605b7b80710771916c6c6013837c09412d98"
-MODULES = ("mod_dptools.dll", "mod_dialplan_xml.dll", "mod_sndfile.dll", "mod_tone_stream.dll", "mod_conference.dll", "mod_vpx.dll")
+# VP8 is provided by the pinned core's CORE_VPX_MODULE, not a separate DLL.
+# The lab separately requires the actual codec inventory before making calls.
+MODULES = ("mod_dptools.dll", "mod_dialplan_xml.dll", "mod_sndfile.dll", "mod_tone_stream.dll", "mod_conference.dll")
 SUBSTAGES = ("bootstrap", "validate_host", "helper_identity", "owned_paths", "helper_import", "helper_extract", "msi_tables", "select_media_modules", "extract_cabinet", "copy_core_files", "write_manifest")
 substage = "bootstrap"
 

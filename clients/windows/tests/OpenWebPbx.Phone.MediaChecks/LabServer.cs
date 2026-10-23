@@ -43,7 +43,7 @@ internal sealed class LabServer : IDisposable
         File.WriteAllText(Path.Combine(root, "tls/cafile.pem"), CaPem, new UTF8Encoding(false));
         PcmWave.Write(Path.Combine(root, "sounds/hold.wav"), [1553]); WriteConfiguration();
     }
-    private static readonly string[] Modules = ["mod_console", "mod_logfile", "mod_commands", "mod_sofia", "mod_event_socket", "mod_dptools", "mod_dialplan_xml", "mod_sndfile", "mod_tone_stream", "mod_conference", "mod_vpx"];
+    private static readonly string[] Modules = ["mod_console", "mod_logfile", "mod_commands", "mod_sofia", "mod_event_socket", "mod_dptools", "mod_dialplan_xml", "mod_sndfile", "mod_tone_stream", "mod_conference"];
     private static void Copy(string from, string to) { if ((File.GetAttributes(from) & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0) throw new InvalidDataException("Ordinary accepted engine input required."); File.Copy(from, to, false); }
     private static int FreePort() { var socket = new TcpListener(IPAddress.Loopback, 0); try { socket.Start(); return ((IPEndPoint)socket.LocalEndpoint).Port; } finally { socket.Stop(); } }
     private static XElement Param(string name, object value) => new("param", new XAttribute("name", name), new XAttribute("value", value));
@@ -80,15 +80,7 @@ internal sealed class LabServer : IDisposable
         socket.ReceiveTimeout = 5000; socket.SendTimeout = 5000; stream = socket.GetStream(); stream.ReadTimeout = 5000; stream.WriteTimeout = 5000; reader = new StreamReader(stream, Encoding.ASCII, false, 4096, true);
         if (Frame().Headers.GetValueOrDefault("content-type") != "auth/request") throw new InvalidDataException("Owned ESL greeting differs."); Send("auth " + secret); if (Frame().Headers.GetValueOrDefault("reply-text") != "+OK accepted") throw new InvalidDataException("Owned ESL authentication failed.");
         foreach (var module in Modules) if (Api("module_exists " + module).Trim() != "true") throw new InvalidDataException("Required actual engine module missing.");
-        using (var codecs = JsonDocument.Parse(Api("show codecs as json"), new JsonDocumentOptions { MaxDepth = 4 }))
-        {
-            var rows = codecs.RootElement.GetProperty("rows").EnumerateArray().ToArray();
-            if (rows.Length is < 2 or > 1024 || codecs.RootElement.GetProperty("row_count").GetInt32() != rows.Length) throw new InvalidDataException("Bounded actual codec inventory required.");
-            // Names and built-in key are bound to switch_pcm.c / loader source in
-            // the exact accepted engine archive, not an assumed external module.
-            foreach (var name in new[] { "G.711 ulaw", "G.711 alaw" })
-                if (rows.Count(row => row.GetProperty("type").GetString() == "codec" && row.GetProperty("name").GetString() == name && row.GetProperty("ikey").GetString() == "CORE_PCM_MODULE") != 1) throw new InvalidDataException("Actual built-in PCMU/PCMA unavailable.");
-        }
+        CoreCodecInventory.Require(Api("show codecs as json"));
         var status = Api("sofia status profile media"); if (!System.Text.RegularExpressions.Regex.IsMatch(status, @"(?m)^SIP-IP\s+127\.0\.0\.1\s*$") || !status.Contains(TlsPort.ToString(), StringComparison.Ordinal)) throw new InvalidDataException("Loopback TLS profile not proven.");
     }
     private void Send(string text) { if (text.Length > 256 || text.Any(c => c is '\n' or '\r')) throw new InvalidDataException(); var data = Encoding.ASCII.GetBytes(text + "\n\n"); stream!.Write(data); }
