@@ -5,7 +5,7 @@ $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 $path=Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'tools/Collect-Source-Ci.ps1'
 $tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'The source CI wrapper does not parse.'}
-foreach($name in @('AssertSourceCiResult','AssertSourceCiManifest')){
+foreach($name in @('AssertSourceCiResult','AssertSourceCiManifest','ReadSourceCiDiagnostic')){
  $functions=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
  if($functions.Count -ne 1){throw 'The exact actual consumer function is required.'}
  . ([scriptblock]::Create($functions[0].Extent.Text))
@@ -37,5 +37,17 @@ try{
  DenySourceCi {AssertSourceCiManifest $valid $digest 2}
  $duplicate=MakeSourceCiZip 'duplicate.zip' @('source-manifest.json','source-manifest.json');DenySourceCi {AssertSourceCiManifest $duplicate $digest 1}
  $missing=MakeSourceCiZip 'missing.zip' @('other.json','payload.txt');DenySourceCi {AssertSourceCiManifest $missing $digest 1}
+ $diagnostic=Join-Path $root 'collector.json'
+ $diagnosticFixture=[ordered]@{schema=1;producer='Collect-CorrespondingSource.ps1';state='failed';stage='sdk_graph';operation='git_fetch_https';source_kind='sdk_submodule';exception_type='System.Management.Automation.RuntimeException';source_basename='Collect-CorrespondingSource.ps1';source_line=200;sdk_repository_count=1;exported_file_count=74;exported_source_bytes=783298;repository_depth=9;git_exit_code=128;refusal_reason='git_exit_nonzero';binary_source_mapping_verified=$false;store_accepted=$false}
+ function SaveSourceCiDiagnostic($Value){[IO.File]::WriteAllText($diagnostic,($Value|ConvertTo-Json),[Text.UTF8Encoding]::new($false))}
+ SaveSourceCiDiagnostic $diagnosticFixture;$parsed=ReadSourceCiDiagnostic $diagnostic;CheckSourceCi ($parsed.repository_depth -eq 9 -and $parsed.git_exit_code -eq 128)
+ foreach($field in @('schema','source_line','sdk_repository_count','exported_file_count','exported_source_bytes','repository_depth','git_exit_code')){
+  foreach($value in @($true,1.0,'1')){$changed=$diagnosticFixture|ConvertTo-Json|ConvertFrom-Json;$changed.$field=$value;SaveSourceCiDiagnostic $changed;DenySourceCi {ReadSourceCiDiagnostic $diagnostic}}
+ }
+ foreach($field in @('state','stage','operation','source_kind','exception_type','source_basename','refusal_reason')){$changed=$diagnosticFixture|ConvertTo-Json|ConvertFrom-Json;$changed.$field='unlisted private text';SaveSourceCiDiagnostic $changed;DenySourceCi {ReadSourceCiDiagnostic $diagnostic}}
+ $changed=$diagnosticFixture|ConvertTo-Json|ConvertFrom-Json;$changed|Add-Member extra 'unlisted';SaveSourceCiDiagnostic $changed;DenySourceCi {ReadSourceCiDiagnostic $diagnostic}
+ $changed=$diagnosticFixture|ConvertTo-Json|ConvertFrom-Json;$changed.repository_depth=10;SaveSourceCiDiagnostic $changed;DenySourceCi {ReadSourceCiDiagnostic $diagnostic}
+ $changed=$diagnosticFixture|ConvertTo-Json|ConvertFrom-Json;$changed.state='completed';SaveSourceCiDiagnostic $changed;DenySourceCi {ReadSourceCiDiagnostic $diagnostic}
+ $changed.stage='complete';$changed.operation='complete';$changed.exception_type='none';$changed.source_basename='none';$changed.source_line=0;$changed.refusal_reason='none';SaveSourceCiDiagnostic $changed;$parsed=ReadSourceCiDiagnostic $diagnostic;CheckSourceCi ($parsed.state -ceq 'completed')
 }finally{[IO.Directory]::Delete($root,$true)}
 Write-Output ('PASS '+$checks+' actual source CI consumer/ZIP controls; no hosted source collection or binary correspondence claim')

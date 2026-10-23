@@ -4,7 +4,7 @@
 [CmdletBinding()]
 param(
  [ValidateSet('Plan','Collect','InspectNative')][string]$Mode='Plan',
- [string]$Output,[string]$SdkArchive,[string]$NativeRoot,
+ [string]$Output,[string]$SdkArchive,[string]$NativeRoot,[string]$DiagnosticPath,
  [string]$SourceLock=(Join-Path (Split-Path $PSScriptRoot -Parent) 'native/source-lock.json')
 )
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
@@ -126,6 +126,58 @@ function NewSourceZip([string]$Root,[string]$Path){
   foreach($relative in $files){$null=AssertSourceRelative $relative;$entry=$zip.CreateEntry($relative,[IO.Compression.CompressionLevel]::NoCompression);$entry.LastWriteTime=[DateTimeOffset]::new(1980,1,1,0,0,0,[TimeSpan]::Zero);$entry.ExternalAttributes=0;$input=[IO.File]::OpenRead((Join-Path $Root $relative));$output=$entry.Open();try{$input.CopyTo($output)}finally{$input.Dispose();$output.Dispose()}}
  }finally{if($zip){$zip.Dispose()};$stream.Dispose()}
 }
+function NewSourceDiagnosticContext([string]$Path,[string]$Temp){
+ $leaf=AssertSourceHostedOutput $Path $Temp;$directory=Split-Path $leaf -Parent
+ if([IO.Path]::GetFileName($leaf) -cne 'collector.json' -or [IO.Path]::GetFileName($directory) -cnotmatch '^phone-source-diagnostics-[a-f0-9]{32}$' -or [IO.Path]::GetFullPath((Split-Path $directory -Parent)) -cne [IO.Path]::GetFullPath($Temp).TrimEnd([IO.Path]::DirectorySeparatorChar)){throw 'The dedicated source diagnostic scope differs.'}
+ $item=Get-Item -LiteralPath $directory -Force
+ if(!$item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or @(Get-ChildItem -LiteralPath $directory -Force).Count){throw 'Use an empty ordinary caller-owned source diagnostic directory.'}
+ return @{path=$leaf;stage='bootstrap';operation='read_lock';source_kind='bootstrap';repository_depth=0;git_exit_code=$null}
+}
+function SourceDiagnosticReason([Management.Automation.ErrorRecord]$Failure){
+ if(!$Failure){return 'none'}
+ # Exact static guard strings only. The original message is never exported.
+ $codes=@{
+  'Unsafe source path.'='source_path';'Unsafe source path component.'='source_path';'A canonical public HTTPS source URL is required.'='source_url';
+  'Duplicate submodule declaration.'='module_shape';'Unsupported submodule configuration.'='module_shape';'Duplicate submodule field.'='module_shape';'Missing or duplicate submodule path/URL.'='module_shape';'Unexpected literal gitlink row.'='gitlink_shape';
+  'The upstream documentation redaction input differs.'='readme_input_hash';'The pinned documentation credential example has changed shape.'='readme_shape';'The documentation-only redaction output differs.'='readme_output_hash';
+  'The source candidate lock differs.'='source_lock';'The exact existing SDK ZIP and a new output directory are required.'='missing_input';'The exact complete official SDK input is required.'='sdk_identity';'Insufficient capacity before source collection.'='capacity_before_collection';
+  'The bounded owned source operation exceeded time/capacity.'='git_time_or_capacity';'Git metadata output exceeds its bound.'='git_output_bound';'A pinned source Git operation failed; no archive is qualified.'='git_exit_nonzero';
+  'Source inventory collision or capacity bound exceeded.'='source_inventory_bound';'Unresolved required LFS content cannot be supplied as a pointer.'='unresolved_lfs';'Private signing/identity key material cannot enter first-party source.'='private_key_refused';'The pinned public-only source resource differs.'='public_key_identity';'The pinned public SubjectPublicKeyInfo differs.'='public_key_identity';'First-party credential/key material needs an exact public-only source allowance.'='unlisted_key_material';
+  'Source export requires an owned repository copy.'='export_scope';'Source attributes escaped the owned copy.'='export_scope';'Unexpected source export attributes.'='export_attributes';'Unsafe source symbolic link.'='source_symlink';'A source link escapes its repository.'='source_symlink';'Unsupported or oversized source TAR entry.'='tar_shape';'A regular source file is missing its body.'='tar_shape';
+  'Source graph identity or recursion bound exceeded.'='source_graph_bound';'A fetched source commit differs.'='source_commit';'Every literal gitlink requires one exact module path/URL.'='module_graph';'The locked direct SDK source graph differs.'='module_graph';'A direct SDK gitlink differs.'='module_pin';'A source module mapping is ambiguous.'='module_graph';'A locked source URL differs.'='module_url';
+  'Commit the exact complete client source before collecting its source asset.'='client_not_clean';'An exact client source commit is required.'='client_commit';'A pinned public build resource is missing from the exact client source.'='missing_public_resource';
+  'The exact generated C# binding is missing.'='sdk_binding';'The exact generated C# binding differs.'='sdk_binding';'The observed SDK build metadata differs.'='sdk_metadata';'SDK build metadata bytes differ.'='sdk_metadata';'A source component has no collected licence/copyright material; manual source review is required.'='missing_licence';
+  'Insufficient capacity before deterministic source archive creation.'='capacity_before_archive';'The source candidate exceeds the bounded upload size.'='archive_size'
+ }
+ if($codes.ContainsKey($Failure.Exception.Message)){return $codes[$Failure.Exception.Message]};return 'unknown'
+}
+function WriteSourceDiagnostic($Context,[Management.Automation.ErrorRecord]$Failure){
+ $stages=@('bootstrap','sdk_input','workspace','first_party','sdk_graph','sdk_materials','licences','packet','complete')
+ $operations=@('read_lock','validate_input','prepare_work','git_init','git_status','git_rev_parse','git_fetch_local','git_fetch_https','git_ls_tree','git_show','git_archive','git_other','export_files','read_binding','read_sdk_licences','read_sdk_metadata','validate_licences','build_materials','write_manifest','create_archive','write_qualification','complete')
+ $kinds=@('bootstrap','first_party','sdk_root','sdk_submodule','sdk_materials','candidate_packet')
+ if($Context.stage -cnotin $stages -or $Context.operation -cnotin $operations -or $Context.source_kind -cnotin $kinds -or $Context.repository_depth -isnot [int] -or $Context.repository_depth -lt 0 -or $Context.repository_depth -gt 9){throw 'The closed source diagnostic state differs.'}
+ $repositories=Get-Variable -Name allRepos -Scope Script -ErrorAction SilentlyContinue;$files=Get-Variable -Name allFiles -Scope Script -ErrorAction SilentlyContinue;$bytes=Get-Variable -Name totalBytes -Scope Script -ErrorAction SilentlyContinue
+ $repoCount=if($null -eq $repositories){0}else{$repositories.Value.Count};$fileCount=if($null -eq $files){0}else{$files.Value.Count};$sourceBytes=if($null -eq $bytes){0L}else{$bytes.Value}
+ foreach($count in @($repoCount,$fileCount,$sourceBytes)){if($count -isnot [int] -and $count -isnot [long]){throw 'The source diagnostic counters must be integers.'}}
+ if($repoCount -lt 0 -or $repoCount -gt 128 -or $fileCount -lt 0 -or $fileCount -gt 250000 -or $sourceBytes -lt 0 -or $sourceBytes -gt 1610612736){throw 'The source diagnostic counter bounds differ.'}
+ $type='none';$name='none';$line=0
+ if($Failure){
+  $types=@('System.Management.Automation.RuntimeException','System.Management.Automation.MethodInvocationException','System.Management.Automation.ActionPreferenceStopException','System.Management.Automation.ItemNotFoundException','System.Management.Automation.ParameterBindingException','System.Management.Automation.PropertyNotFoundException','System.Management.Automation.ParentContainsErrorRecordException','System.Management.Automation.CmdletInvocationException','System.IO.IOException','System.IO.InvalidDataException','System.IO.FileNotFoundException','System.IO.DirectoryNotFoundException','System.UnauthorizedAccessException','System.ArgumentException','System.InvalidOperationException','System.NotSupportedException','System.ComponentModel.Win32Exception','System.NullReferenceException','System.IndexOutOfRangeException')
+  $observed=$Failure.Exception.GetType().FullName;$type=if($observed -cin $types){$observed}else{'other'}
+  $name=if([IO.Path]::GetFileName($Failure.InvocationInfo.ScriptName) -ceq 'Collect-CorrespondingSource.ps1'){'Collect-CorrespondingSource.ps1'}else{'external_component'}
+  $actualLine=$Failure.InvocationInfo.ScriptLineNumber;if($actualLine -is [int] -and $actualLine -ge 1 -and $actualLine -le 100000){$line=$actualLine}
+ }
+ $exit=$Context.git_exit_code;if($null -ne $exit -and ($exit -isnot [int] -and $exit -isnot [long] -or $exit -lt -2147483648L -or $exit -gt 2147483647L)){throw 'The source diagnostic Git exit differs.'}
+ $record=[ordered]@{schema=1;producer='Collect-CorrespondingSource.ps1';state=$(if($Failure){'failed'}else{'completed'});stage=$Context.stage;operation=$Context.operation;source_kind=$Context.source_kind;exception_type=$type;source_basename=$name;source_line=$line;sdk_repository_count=[int]$repoCount;exported_file_count=[int]$fileCount;exported_source_bytes=[long]$sourceBytes;repository_depth=$Context.repository_depth;git_exit_code=$exit;refusal_reason=(SourceDiagnosticReason $Failure);binary_source_mapping_verified=$false;store_accepted=$false}
+ if([Text.Encoding]::UTF8.GetByteCount(($record|ConvertTo-Json -Compress)) -gt 4096){throw 'The closed source diagnostic exceeds its bound.'}
+ WriteSourceJson $Context.path $record
+}
+$sourceDiagnostic=$null;$sourcePrimaryFailure=$null
+if($DiagnosticPath){
+ if($Mode -cne 'Collect' -or $env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx' -or !$env:RUNNER_TEMP){throw 'An explicit hosted collection is required for a source diagnostic sidecar.'}
+ $sourceDiagnostic=NewSourceDiagnosticContext $DiagnosticPath $env:RUNNER_TEMP
+}
+try {
 # No network or owner action occurs in Plan mode.
 $lock=Get-Content -LiteralPath $SourceLock -Raw|ConvertFrom-Json
 if($lock.schema -ne 1 -or $lock.source.commit -cnotmatch '^[a-f0-9]{40}$' -or $lock.source.direct_gitlinks.Count -ne 31 -or $lock.qualification.official_sdk_binary_source_mapping_verified -ne $false){throw 'The source candidate lock differs.'}
@@ -139,11 +191,13 @@ if($Mode -ceq 'InspectNative'){
  if(!$Output){throw 'A native inspection output file is required.'}
  $safeOutput=AssertSourceHostedOutput $Output $env:RUNNER_TEMP;WriteSourceJson $safeOutput $result;return
 }
+if($sourceDiagnostic){$sourceDiagnostic.stage='sdk_input';$sourceDiagnostic.operation='validate_input'}
 if(!$SdkArchive -or !$Output){throw 'The exact existing SDK ZIP and a new output directory are required.'}
 $sdkFile=Get-Item -LiteralPath $SdkArchive
 if($sdkFile.PSIsContainer -or ($sdkFile.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $sdkFile.Length -ne $lock.sdk.bytes -or (SourceHash $sdkFile.FullName) -cne $lock.sdk.sha256){throw 'The exact complete official SDK input is required.'}
 $temp=[IO.Path]::GetFullPath($env:RUNNER_TEMP);$destination=AssertSourceHostedOutput $Output $temp
 $drive=[IO.DriveInfo]::new([IO.Path]::GetPathRoot($temp));if($drive.AvailableFreeSpace -lt $lock.bounds.minimum_free_bytes){throw 'Insufficient capacity before source collection.'}
+if($sourceDiagnostic){$sourceDiagnostic.stage='workspace';$sourceDiagnostic.operation='prepare_work'}
 $work=Join-Path $temp ('phone-source-'+[Guid]::NewGuid().ToString('N'));$null=New-Item -ItemType Directory -Path $work
 $packet=Join-Path $work 'packet';$null=New-Item -ItemType Directory -Path $packet
 $emptyConfig=Join-Path $work 'empty.gitconfig';[IO.File]::WriteAllText($emptyConfig,'')
@@ -151,6 +205,14 @@ $sterileTree=Join-Path $work 'empty-worktree';$null=New-Item -ItemType Directory
 $git=(Get-Command git -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source
 $allFiles=[Collections.Generic.List[object]]::new();$allRepos=[Collections.Generic.List[object]]::new();$seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase);$totalBytes=0L
 function InvokeSourceGit([string[]]$Arguments,[switch]$MayBeAbsent){
+ $diagnostic=Get-Variable -Name sourceDiagnostic -Scope Script -ValueOnly -ErrorAction SilentlyContinue
+ if($diagnostic){
+  $verbs=@($Arguments|Where-Object {$_ -cin 'init','status','rev-parse','fetch','ls-tree','show','archive'})
+  $verb=if($verbs.Count){$verbs[0]}else{'other'}
+  $diagnostic.operation=switch -CaseSensitive($verb){'init'{'git_init'}'status'{'git_status'}'rev-parse'{'git_rev_parse'}'fetch'{if($diagnostic.source_kind -ceq 'first_party'){'git_fetch_local'}else{'git_fetch_https'}}'ls-tree'{'git_ls_tree'}'show'{'git_show'}'archive'{'git_archive'}default{'git_other'}}
+  $diagnostic.git_exit_code=$null
+ }
+
  $info=[Diagnostics.ProcessStartInfo]::new($git);$info.UseShellExecute=$false;$info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
  foreach($arg in @('-c','credential.helper=','-c',('core.attributesFile='+$emptyConfig),'-c',('core.hooksPath='+$work+'/no-hooks'),'-c','protocol.allow=never','-c','protocol.https.allow=always','-c','http.followRedirects=false')+$Arguments){$info.ArgumentList.Add($arg)}
  $info.Environment['GIT_CONFIG_NOSYSTEM']='1';$info.Environment['GIT_CONFIG_GLOBAL']=$emptyConfig;$info.Environment['GIT_CONFIG_COUNT']='0';$info.Environment['GIT_TERMINAL_PROMPT']='0';$info.Environment['GIT_LFS_SKIP_SMUDGE']='1'
@@ -161,6 +223,7 @@ function InvokeSourceGit([string[]]$Arguments,[switch]$MayBeAbsent){
    if([DateTime]::UtcNow -gt $deadline -or $used -gt $lock.bounds.max_owned_work_bytes -or $drive.AvailableFreeSpace -lt 2GB){$process.Kill($true);$process.WaitForExit();throw 'The bounded owned source operation exceeded time/capacity.'}
   }
   $text=$stdout.GetAwaiter().GetResult();$errors=$stderr.GetAwaiter().GetResult()
+  if($diagnostic){$diagnostic.git_exit_code=[int]$process.ExitCode}
   if($text.Length -gt 8MB -or $errors.Length -gt 1MB){throw 'Git metadata output exceeds its bound.'}
   if($process.ExitCode -and !($MayBeAbsent -and $process.ExitCode -eq 1)){throw 'A pinned source Git operation failed; no archive is qualified.'}
   return $text
@@ -198,6 +261,7 @@ function ExportSourceRepo([string]$Repository,[string]$Commit,[string]$Prefix,[s
  if((Test-Path -LiteralPath $attributes) -and [IO.File]::ReadAllText($attributes) -cne $override){throw 'Unexpected source export attributes.'}
  [IO.File]::WriteAllText($attributes,$override,[Text.UTF8Encoding]::new($false))
  $null=InvokeSourceGit $arguments
+ $diagnostic=Get-Variable -Name sourceDiagnostic -Scope Script -ValueOnly -ErrorAction SilentlyContinue;if($diagnostic){$diagnostic.operation='export_files';$diagnostic.git_exit_code=$null}
  $stream=[IO.File]::OpenRead($tar);$reader=[Formats.Tar.TarReader]::new($stream)
  try{while($entry=$reader.GetNextEntry()){
   if($entry.EntryType.ToString() -in 'Directory','GlobalExtendedAttributes','ExtendedAttributes'){continue}
@@ -219,6 +283,7 @@ function ExportSourceRepo([string]$Repository,[string]$Commit,[string]$Prefix,[s
  }}finally{$reader.Dispose();$stream.Dispose();Remove-Item -LiteralPath $tar}
 }
 function CollectSourceRepo([string]$Url,[string]$Commit,[string]$Prefix,[int]$Depth,[bool]$RootSdk=$false){
+ $diagnostic=Get-Variable -Name sourceDiagnostic -Scope Script -ValueOnly -ErrorAction SilentlyContinue;if($diagnostic){$diagnostic.stage='sdk_graph';$diagnostic.operation='validate_input';$diagnostic.git_exit_code=$null;$diagnostic.source_kind=if($RootSdk){'sdk_root'}else{'sdk_submodule'};$diagnostic.repository_depth=$Depth}
  $Url=AssertSourceUrl $Url;$null=AssertSourceRelative $Prefix
  if($Commit -cnotmatch '^[a-f0-9]{40}$' -or $Depth -gt $lock.bounds.max_recursion_depth -or $allRepos.Count -ge $lock.bounds.max_repositories){throw 'Source graph identity or recursion bound exceeded.'}
  $repo=Join-Path $work ('repository-'+$allRepos.Count);$null=InvokeSourceGit @('init','--bare',$repo);$null=InvokeSourceGit @('-C',$repo,'fetch','--no-tags','--no-recurse-submodules','--depth=1',$Url,$Commit)
@@ -242,6 +307,7 @@ function CollectSourceRepo([string]$Url,[string]$Commit,[string]$Prefix,[int]$De
   CollectSourceRepo $next $link.commit ($Prefix+'/'+$link.path) ($Depth+1)
  }
 }
+if($sourceDiagnostic){$sourceDiagnostic.stage='first_party';$sourceDiagnostic.operation='git_status';$sourceDiagnostic.source_kind='first_party'}
 $client=Split-Path $PSScriptRoot -Parent;$repository=Split-Path (Split-Path $client -Parent) -Parent
 if((InvokeSourceGit @('-C',$repository,'status','--porcelain','--untracked-files=all','--','clients/windows','resources/windows-phone/release-public.pem')).Trim()){throw 'Commit the exact complete client source before collecting its source asset.'}
 $clientCommit=(InvokeSourceGit @('-C',$repository,'rev-parse','HEAD')).Trim();if($clientCommit -cnotmatch '^[a-f0-9]{40}$'){throw 'An exact client source commit is required.'}
@@ -252,16 +318,19 @@ ExportSourceRepo $clientCopy $clientCommit 'client' @('clients/windows','resourc
 foreach($public in $lock.policy.public_material){if(!@($allFiles|Where-Object {$_.path -ceq ('client/'+$public.path) -and $_.sha256 -ceq $public.sha256}).Count){throw 'A pinned public build resource is missing from the exact client source.'}}
 Remove-Item -LiteralPath $clientCopy -Recurse -Force
 CollectSourceRepo $lock.source.url $lock.source.commit 'vendor/linphone-sdk' 0 $true
+if($sourceDiagnostic){$sourceDiagnostic.stage='sdk_materials';$sourceDiagnostic.operation='read_binding';$sourceDiagnostic.source_kind='sdk_materials';$sourceDiagnostic.repository_depth=0;$sourceDiagnostic.git_exit_code=$null}
 $archive=[IO.Compression.ZipFile]::OpenRead($sdkFile.FullName)
 try{
  $binding=@($archive.Entries|Where-Object {$_.FullName -ceq $lock.sdk.binding_path});if($binding.Count -ne 1 -or $binding[0].Length -ne $lock.sdk.binding_bytes){throw 'The exact generated C# binding is missing.'}
  $stream=$binding[0].Open();$memory=[IO.MemoryStream]::new();try{$stream.CopyTo($memory);$bytes=$memory.ToArray()}finally{$stream.Dispose();$memory.Dispose()}
  if(([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()) -cne $lock.sdk.binding_sha256){throw 'The exact generated C# binding differs.'}
  AddSourceBytes 'vendor-generated/LinphoneWrapper.cs' $bytes
+ if($sourceDiagnostic){$sourceDiagnostic.operation='read_sdk_licences'}
  foreach($entry in $archive.Entries){
   if(!$entry.Name -or $entry.Length -gt 1MB -or $entry.FullName -notmatch '/(LICENSE[^/]*|LICENCE[^/]*|COPYING[^/]*|NOTICE[^/]*|COPYRIGHT[^/]*|README\.ijg|version\.txt)$'){continue}
   $stream=$entry.Open();$memory=[IO.MemoryStream]::new();try{$stream.CopyTo($memory);$bytes=$memory.ToArray()}finally{$stream.Dispose();$memory.Dispose()};AddSourceBytes ('sdk-materials/'+$entry.FullName) $bytes
  }
+ if($sourceDiagnostic){$sourceDiagnostic.operation='read_sdk_metadata'}
  foreach($metadata in $lock.sdk.metadata){
   $entry=@($archive.Entries|Where-Object {$_.FullName -ceq $metadata.path});if($entry.Count -ne 1 -or $entry[0].Length -ne $metadata.bytes){throw 'The observed SDK build metadata differs.'}
   $stream=$entry[0].Open();$memory=[IO.MemoryStream]::new();try{$stream.CopyTo($memory);$bytes=$memory.ToArray()}finally{$stream.Dispose();$memory.Dispose()}
@@ -269,8 +338,10 @@ try{
   if(!$seen.Contains('sdk-materials/'+$metadata.path)){AddSourceBytes ('sdk-materials/'+$metadata.path) $bytes}
  }
 }finally{$archive.Dispose()}
+if($sourceDiagnostic){$sourceDiagnostic.stage='licences';$sourceDiagnostic.operation='validate_licences';$sourceDiagnostic.git_exit_code=$null}
 $licenses=@($allFiles|Where-Object {$_.path -match '(?i)(^|/)(license[^/]*|licence[^/]*|copying[^/]*|notice[^/]*|copyright[^/]*|readme\.ijg)$'})
 foreach($component in $allRepos){if(!@($licenses|Where-Object {$_.path.StartsWith(($component.path+'/'),[StringComparison]::Ordinal)}).Count){throw 'A source component has no collected licence/copyright material; manual source review is required.'}}
+if($sourceDiagnostic){$sourceDiagnostic.stage='packet';$sourceDiagnostic.operation='build_materials';$sourceDiagnostic.source_kind='candidate_packet';$sourceDiagnostic.git_exit_code=$null}
 $notes=@'
 # Source candidate: not an accepted matching-binary release
 
@@ -336,13 +407,26 @@ AddSourceBytes 'Rebuild-CandidateSdk.ps1' ([Text.UTF8Encoding]::new($false).GetB
 
 AddSourceBytes 'source-lock.json' ([IO.File]::ReadAllBytes($SourceLock))
 $manifest=[ordered]@{schema=1;state='source_candidate_binary_correspondence_unproven';client_commit=$clientCommit;source_lock_sha256=(SourceHash $SourceLock);sdk_sha256=$lock.sdk.sha256;repositories=@($allRepos);files=@($allFiles);licences=@($licenses);documentation_redaction=$lock.policy.readme_redaction;unresolved_lfs_pointers=0;binary_source_mapping_verified=$false;store_accepted=$false}
+if($sourceDiagnostic){$sourceDiagnostic.operation='write_manifest'}
 WriteSourceJson (Join-Path $packet 'source-manifest.json') $manifest
 $null=New-Item -ItemType Directory -Path $destination
 if($drive.AvailableFreeSpace -lt $totalBytes+2GB){throw 'Insufficient capacity before deterministic source archive creation.'}
+if($sourceDiagnostic){$sourceDiagnostic.operation='create_archive'}
 $zipPath=Join-Path $destination ('openwebpbx-free-phone-'+$lock.client_version+'-source-candidate.zip');NewSourceZip $packet $zipPath
 if((Get-Item -LiteralPath $zipPath).Length -gt $lock.bounds.max_archive_bytes){throw 'The source candidate exceeds the bounded upload size.'}
 $result=[ordered]@{schema=1;state='collected_source_candidate_not_binary_correspondence';client_commit=$clientCommit;source_lock_sha256=(SourceHash $SourceLock);archive_filename=[IO.Path]::GetFileName($zipPath);archive_bytes=(Get-Item $zipPath).Length;archive_sha256=(SourceHash $zipPath);manifest_sha256=(SourceHash (Join-Path $packet 'source-manifest.json'));repositories=$allRepos.Count;files=$allFiles.Count;source_bytes=$totalBytes;licence_files=$licenses.Count;binary_source_mapping_verified=$false;source_sdk_rebuild_qualified=$false;store_accepted=$false}
+if($sourceDiagnostic){$sourceDiagnostic.operation='write_qualification'}
 WriteSourceJson (Join-Path $destination 'source-qualification.json') $result
 [IO.File]::WriteAllText((Join-Path $destination 'SHA256SUMS'),($result.archive_sha256+'  '+$result.archive_filename+"`n"),[Text.UTF8Encoding]::new($false))
 $result|ConvertTo-Json -Compress
 # Preserve owned work on refusal for bounded CI diagnostics. Hosted job cleanup owns removal.
+
+if($sourceDiagnostic){$sourceDiagnostic.stage='complete';$sourceDiagnostic.operation='complete'}
+} catch {
+ $sourcePrimaryFailure=$_
+ throw
+} finally {
+ if($sourceDiagnostic){
+  try{WriteSourceDiagnostic $sourceDiagnostic $sourcePrimaryFailure}catch{if(!$sourcePrimaryFailure){throw}}
+ }
+}
