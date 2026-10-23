@@ -915,7 +915,7 @@ def native_calls(f,hold_only=False):
             result=result.replace(b'SIP/2.0/UDP',('SIP/2.0/'+self.transport.upper()).encode()).replace(f'@{self.ip}:{self.port}>'.encode(),f'@{self.ip}:{self.port};transport={self.transport}>'.encode())
             if a and a[0]=='REGISTER':
                 self.registration_packets.append(result)
-                assert len(self.registration_packets)<=20,'Owned registration trace exceeded its bound'
+                assert len(self.registration_packets)<=40,'Owned registration trace exceeded its bound'
             return result
         def response(self,*a,**kw):
             return super().response(*a,**kw).replace(f'@{self.ip}:{self.port}>'.encode(),f'@{self.ip}:{self.port};transport={self.transport}>'.encode())
@@ -1047,12 +1047,14 @@ def native_calls(f,hold_only=False):
                 f.record('native_hold_diagnostic_'+stage,**result)
             hold.expiry_diagnostic(f,peers,diagnostic_hold)
             return
+        refresh=load_module('windows_hold_native',f.source/'tests/windows_hold_native.py')
         f.active_case='native_clock1026_decoded_three_announcements'
         services=f.cli('services-info')
         clock=load_module('windows_clock_adapter',f.source/'tests/windows_clock_native.py')
         proof=clock.qualify_clock(caller,original,{'domain':f.s['domain'],'realm':realm,'sip_destination':destination,'event_socket':services['event_socket']},f.source,services['sounds'],services['scripts'],f.evidence/'clock1026-native')
         assert proof['complete_announcements']>=3 and proof['GMT_plus_2_full_time_verified'] and proof['owned_clock_call_ended']
         f.record('native_clock1026_gmt2_three_decoded_announcements',**proof)
+        refresh.refresh_owned_peers(f,(caller,a,b),'after_clock')
         f.record('native_tls_signalling_two_way_decoded_rtp',**call_check('8101'))
         f.active_case='independent_g729_pcmu_transcoding'
         (f.evidence/'g729-profile.private.txt').write_text(f.cli('api','sofia status profile internal',json_result=False))
@@ -1082,6 +1084,7 @@ def native_calls(f,hold_only=False):
             native_cleanup(sys.exc_info()[1],getattr(f,'native_substage','g729_media'),[
                 ('g729_alternate_unregister',alternate_unregister),('g729_peer_close',g729.close),
                 ('g729_codec_close',codec.search.close),('g729_regular_reregister',regular_reregister)])
+        refresh.refresh_owned_peers(f,(caller,a,b),'before_provider_services')
         provider_diagnostics=load_module('windows_provider_diagnostics',f.source/'tests/windows_provider_diagnostics.py')
         peer_address=f.cli('services-info')['external_sip'][0]
         provider_bind=provider_diagnostics.local_provider_address(peer_address,peer_address,socket.gethostbyname_ex(socket.gethostname())[2])
@@ -1096,10 +1099,12 @@ def native_calls(f,hold_only=False):
                 return super().response(code,headers,body)
         services=load_module('windows_native_services',f.source/'tests/windows_native_services.py')
         services.qualify(f,caller,a,destination,Provider,original,sip,NativePlayback,provider_diagnostics,bridged_media_window)
+        refresh.refresh_owned_peers(f,(caller,a,b),'before_groups')
         f.record('native_simultaneous_ring_group',**call_check('8180'))
         f.record('native_hunting_ring_group',**call_check('8181'))
         f.record('native_queue_agent_first',**call_check('8190'))
         f.record('native_ivr_negotiated_wire_rfc2833',**call_check('8170',digit='2'))
+        refresh.refresh_owned_peers(f,(caller,a,b),'before_hold')
         f.active_case='hold_selected_music_resume_transfer'
         music=load_module('windows_hold_native',f.source/'tests/windows_hold_native.py').qualify(f,caller,a,b,destination,media,original.decoded_tone_check)
         f.record('native_visible_sip_hold_selected_music_resume_transfer',**music)
@@ -1108,6 +1113,7 @@ def native_calls(f,hold_only=False):
         assert elapsed>=3.5 and elapsed<16,'Configured IVR timeout was not observed';f.record('native_configured_ivr_timeout',elapsed_seconds=round(elapsed,3),**result)
         # Queue-only pause/logout takes precedence, and the actual caller's
         # negotiated wire digit requests the durable callback.
+        refresh.refresh_owned_peers(f,(caller,a,b),'before_callbacks')
         f.active_case='queue_pause_logout_wire_callback'
         f.web.agent('8101','break');f.web.agent('8102','logout')
         observed={'expected':a,'other':b,'target':caller}
@@ -1132,6 +1138,7 @@ def native_calls(f,hold_only=False):
             after,finished,_=callback_snapshot(f,observed,baseline,'after',waiting,job,health);facts.update(after)
             facts['queue_diagnostics_complete']=complete and finished;error.queue_failure=facts
             raise
+        refresh.refresh_owned_peers(f,(caller,a,b),'before_hotel')
         f.active_case='hotel_wakeup_worker_wire_confirmation'
         wake=(datetime.now(timezone.utc)+timedelta(minutes=2)).strftime('%Y-%m-%dT%H:%M')
         f.web.submit('/app/pbx_setup/?view=hotel','hotel_action',{'hotel_action':'wakeup','number':'8102','timezone':'UTC','wake_at':wake})
@@ -1157,6 +1164,7 @@ def native_calls(f,hold_only=False):
             if not getattr(error,'native_failure',None):error.native_failure=native_exception_fields(error,getattr(f,'native_substage','native_case'))
             raise
         # Unregistered destination invokes the normal native voicemail recorder.
+        refresh.refresh_owned_peers(f,(caller,a,b),'before_voicemail_deposit')
         f.active_case='native_voicemail_recording_and_email_queue'
         facts,complete=voicemail_snapshot(f,'before');file=None
         try:
@@ -1181,6 +1189,7 @@ def native_calls(f,hold_only=False):
         # Retrieve that real recording through authenticated 121 and forward it with wire
         # RFC2833. Native playback events synchronize actual menu prompts;
         # they never inject digits or bypass the mailbox authentication.
+        refresh.refresh_owned_peers(f,(caller,a,b),'before_mailbox_retrieval')
         f.active_case='native_voicemail_wire_forwarding_binary_copy'
         f.native_substage='native_case'
         mailbox_info=f.cli('voicemail-login')

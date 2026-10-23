@@ -177,3 +177,56 @@ def expiry_diagnostic(fixture, peers, run_hold):
     run_hold('reregistered')
     fixture.record('native_hold_diagnostic_identical_tuple_reregistered', exact_tuples_preserved=True,
                    all_three_actual_contacts_returned=True, no_product_registration_change=True)
+
+
+REFRESH_BOUNDARIES = {'after_clock', 'before_provider_services', 'before_groups',
+                      'before_hold', 'before_callbacks', 'before_hotel',
+                      'before_voicemail_deposit', 'before_mailbox_retrieval'}
+
+
+def refresh_owned_peers(fixture, peers, boundary):
+    """Keep the three ordinary software contacts current at fixed phase edges.
+
+    This deliberately has no timer/thread. It cannot interleave the alternate
+    G729 unregister test or register the intentionally offline voicemail phone.
+    """
+    assert boundary in REFRESH_BOUNDARIES
+    assert len(peers) == 3 and [peer.aor for peer in peers] == ['8100', '8101', '8102']
+    assert [peer.transport for peer in peers] == ['tls', 'udp', 'udp']
+    fixture.active_case = 'native_owned_registration_refresh_' + boundary
+    identity = [(p.aor, p.auth_user, p.password, p.realm, p.transport) for p in peers]
+    destinations = [getattr(p, 'hold_registration_destination', None) for p in peers]
+    before = fixture.cli('status')
+    expected_rows = before['extension_codec_preferences']
+    leases = []
+    for peer, endpoint in zip(peers, destinations):
+        peer.check_receiver()
+        expected = next(u for u in fixture.s['users'] if u['number'] == peer.aor)
+        assert (expected['auth'], expected['password'], fixture.s['realm']) == (peer.auth_user, peer.password, peer.realm)
+        row = expected_rows[peer.auth_user]
+        assert row['extension_uuid'] == expected['extension_uuid']
+        assert row['password_sha256'] == hashlib.sha256(peer.password.encode()).hexdigest()
+        assert endpoint == (before['bind'], 5061 if peer.transport == 'tls' else 5060)
+        registration = getattr(peer, 'hold_registration', {})
+        assert registration.get('observed') is True and registration.get('code') == 200
+        assert type(registration.get('requested')) is int and registration['requested'] == 120
+        assert type(registration.get('accepted')) is int and 1 <= registration['accepted'] <= 86400
+        leases.append(registration['accepted'])
+    for peer, endpoint, lease in zip(peers, destinations, leases):
+        result = peer.register(endpoint)
+        if result.get('code') != 200:
+            raise AssertionError('The exact owned software-phone lease could not be refreshed')
+        current = peer.hold_registration
+        assert current.get('requested') == 120 and current.get('accepted') == lease
+        peer.check_receiver()
+        assert contact_state(fixture, peer) == 'registered'
+    after = fixture.cli('status')
+    assert [(p.aor, p.auth_user, p.password, p.realm, p.transport) for p in peers] == identity
+    assert [p.hold_registration_destination for p in peers] == destinations
+    assert after['extension_codec_preferences'] == expected_rows
+    assert after['registration_limits'] == before['registration_limits']
+    assert all(contact_state(fixture, peer) == 'registered' for peer in peers)
+    fixture.record('native_owned_registration_refresh_' + boundary, peer_count=3,
+                   unchanged_authentication_tuples=True, unchanged_registration_endpoints=True,
+                   all_actual_contacts_current=True, negotiated_expiry_unchanged=True,
+                   no_product_registration_change=True)

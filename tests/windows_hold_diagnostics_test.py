@@ -1,5 +1,7 @@
 """Actual diagnostic/parser code controls; no PBX or native media is claimed."""
 import importlib.util
+import ast
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -89,6 +91,114 @@ class Tests(unittest.TestCase):
                 self.assertGreaterEqual(clock.now, 1120)
                 self.assertEqual(len(fixture.checks), 2)
                 self.assertNotIn('private', json.dumps(fixture.checks))
+
+    def refresh_fixture(self):
+        peers = [Peer(name) for name in ('8100', '8101', '8102')]
+        users = [dict(number=peer.aor, auth=peer.auth_user, password=peer.password,
+                      extension_uuid='owned-' + str(index)) for index, peer in enumerate(peers)]
+        rows = {peer.auth_user: dict(extension_uuid=user['extension_uuid'], password_sha256=hashlib.sha256(peer.password.encode()).hexdigest(), absolute_codec_string='PCMU') for peer, user in zip(peers, users)}
+        class RefreshFixture:
+            def __init__(self):
+                self.s = dict(users=users, realm=peers[0].realm)
+                self.calls, self.checks, self.status_reads = [], [], 0
+                self.status = dict(bind='127.0.0.1', extension_codec_preferences=rows, registration_limits=['1'] * 4)
+            def cli(self, action, command=None, **options):
+                if action == 'status':
+                    self.status_reads += 1
+                    return copy.deepcopy(self.status)
+                return 'sofia/owned-contact'
+            def record(self, case, **facts):
+                self.checks.append(dict(case=case, **facts))
+        fixture = RefreshFixture()
+        for index, peer in enumerate(peers):
+            peer.transport = 'tls' if index == 0 else 'udp'
+            peer.hold_registration_destination = ('127.0.0.1', 5061 if index == 0 else 5060)
+            peer.check_receiver = lambda: None
+            def register(endpoint, item=peer):
+                fixture.calls.append((item.aor, endpoint))
+                hold.registration_result(item, dict(code=200, text='SIP/2.0 200 OK\r\nExpires: 120\r\n\r\n'), 120, hold.time.monotonic())
+                return dict(code=200)
+            peer.register = register
+        return fixture, peers
+
+    def test_synchronous_refresh_preserves_identity_endpoints_and_policy(self):
+        for phase in hold.REFRESH_BOUNDARIES:
+            fixture, peers = self.refresh_fixture()
+            before = copy.deepcopy(fixture.status)
+            hold.refresh_owned_peers(fixture, peers, phase)
+            self.assertEqual(fixture.calls, [('8100', ('127.0.0.1', 5061)), ('8101', ('127.0.0.1', 5060)), ('8102', ('127.0.0.1', 5060))])
+            self.assertEqual(fixture.status, before)
+            self.assertEqual(fixture.checks[0]['peer_count'], 3)
+            self.assertTrue(fixture.checks[0]['no_product_registration_change'])
+            self.assertNotIn('private', json.dumps(fixture.checks))
+
+    def test_refresh_excludes_g729_interleave_and_offline_voicemail(self):
+        for phase in ('during_g729', 'before_voicemail', '', None):
+            fixture, peers = self.refresh_fixture()
+            with self.assertRaises(AssertionError):
+                hold.refresh_owned_peers(fixture, peers, phase)
+            self.assertFalse(fixture.calls)
+            self.assertEqual(fixture.status_reads, 0)
+        fixture, peers = self.refresh_fixture();peers[2].aor = '8103'
+        with self.assertRaises(AssertionError):hold.refresh_owned_peers(fixture, peers, 'before_hold')
+        self.assertFalse(fixture.calls)
+
+    def test_refresh_refuses_changed_endpoint_or_identity_before_register(self):
+        for field, value in [('endpoint', ('127.0.0.1', 5060)), ('password', 'changed-owned-password'), ('transport', 'unknown')]:
+            fixture, peers = self.refresh_fixture()
+            if field == 'endpoint':peers[0].hold_registration_destination = value
+            elif field == 'transport':peers[0].transport = value
+            else:peers[0].password = value
+            with self.assertRaises(AssertionError):hold.refresh_owned_peers(fixture, peers, 'before_hold')
+            self.assertFalse(fixture.calls)
+
+    def test_failed_refresh_or_changed_lease_cannot_complete(self):
+        for code, lease in [(403, 120), (200, 180)]:
+            fixture, peers = self.refresh_fixture()
+            def changed(endpoint):
+                fixture.calls.append(('8100', endpoint))
+                hold.registration_result(peers[0], dict(code=code, text=f'SIP/2.0 {code} Result\r\nExpires: {lease}\r\n\r\n'), 120, hold.time.monotonic())
+                return dict(code=code)
+            peers[0].register = changed
+            with self.assertRaises(AssertionError):hold.refresh_owned_peers(fixture, peers, 'before_hold')
+            self.assertEqual(len(fixture.calls), 1)
+            self.assertFalse(fixture.checks)
+
+    def test_refresh_requires_unchanged_actual_sql_identity(self):
+        for kind in ('password', 'limit'):
+            fixture, peers = self.refresh_fixture();original = peers[2].register
+            def changed(endpoint):
+                result = original(endpoint)
+                if kind == 'password':fixture.status['extension_codec_preferences'][peers[0].auth_user]['password_sha256'] = 'changed'
+                else:fixture.status['registration_limits'][0] = '2'
+                return result
+            peers[2].register = changed
+            with self.assertRaises(AssertionError):hold.refresh_owned_peers(fixture, peers, 'before_hold')
+            self.assertFalse(fixture.checks)
+
+    def test_200_without_actual_current_contact_is_refused(self):
+        fixture, peers = self.refresh_fixture();original = fixture.cli
+        fixture.cli = lambda action, *args, **kw: original(action, *args, **kw) if action == 'status' else 'error/user_not_registered'
+        with self.assertRaises(AssertionError):hold.refresh_owned_peers(fixture, peers, 'before_hold')
+        self.assertEqual(len(fixture.calls), 1)
+        self.assertFalse(fixture.checks)
+
+    def test_fixed_boundaries_follow_g729_and_never_refresh_the_offline_peer(self):
+        tree = ast.parse(Path(__file__).with_name('windows-native-acceptance.py').read_text())
+        calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == 'refresh_owned_peers']
+        phases = [node.args[2].value for node in sorted(calls, key=lambda node: node.lineno)]
+        self.assertEqual(phases, ['after_clock', 'before_provider_services', 'before_groups', 'before_hold', 'before_callbacks', 'before_hotel', 'before_voicemail_deposit', 'before_mailbox_retrieval'])
+        for node in calls:
+            self.assertEqual([item.id for item in node.args[1].elts], ['caller', 'a', 'b'])
+        native = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == 'native_calls')
+        g729 = next(node for node in ast.walk(native) if isinstance(node, ast.Try) and any(isinstance(item, ast.Assign) and any(isinstance(target, ast.Attribute) and target.attr == 'native_substage' for target in item.targets) and isinstance(item.value, ast.Constant) and item.value.value == 'g729_regular_unregister' for item in node.body))
+        self.assertLess(g729.end_lineno, next(node.lineno for node in calls if node.args[2].value == 'before_provider_services'))
+        hold_branch = next(node for node in ast.walk(native) if isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id == 'hold_only')
+        self.assertTrue(any(isinstance(node, ast.Return) for node in ast.walk(hold_branch)))
+        self.assertLess(hold_branch.end_lineno, min(node.lineno for node in calls))
+        text = Path(__file__).with_name('windows-native-acceptance.py').read_text()
+        self.assertIn("len(self.registration_packets)<=40", text)
+        self.assertLessEqual((1 + 2 + len(hold.REFRESH_BOUNDARIES) + 1) * 3, 40)
 
     def test_expiry_uses_original_tls_and_udp_endpoints(self):
         self.expiry()

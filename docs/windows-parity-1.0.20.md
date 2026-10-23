@@ -28,6 +28,23 @@ hold/resume/transfer. The precise failed substage remains under investigation.
 Its fixture cleanup also refused remaining owned rows, so backups were not run.
 This archive remains unpublished and does not qualify the owner upgrade.
 
+An explicit diagnostic replay39889046955 reused that exact archive with no
+runtime overlay. Its native child completed immediate hold, selected hold music,
+resume and transfer; observed the real short registration leases expire; then
+repeated the call after re-registering the unchanged original credentials and
+transport endpoints. The original media thresholds stayed in place. Exact
+per-case music/lease measurements were not exported, and this does not identify
+the historical timeout's cause. The replay still failed: the new strict cleanup
+helper refused before deleting fixture rows. That separate reason is under
+investigation; this diagnostic cannot qualify a release or owner upgrade.
+
+The normal software-phone fixture now refreshes its three existing contacts at
+eight fixed phase boundaries, with native registration/contact and unchanged
+identity/policy checks. It keeps the deliberate alternate-codec unregister test
+and natural-expiry diagnostic intact; the voicemail deposit target stays offline
+until its original mailbox retrieval step. Fourteen helper/boundary controls pass;
+the next complete native run must prove the corrected fixture and strict cleanup.
+
 The earlier run39878296545 stopped before STUN activation on a one-shot
 maintenance-lock open. The test now uses the existing bounded lock helper;
 the new run passes STUN, but the historical lock holder and error code remain
