@@ -28,7 +28,7 @@ public sealed class ProtectedProfileStore : IProfileStore
     { await gate.WaitAsync(cancellation); try { return Read().Selected; } finally { gate.Release(); } }
     private Envelope Read()
     {
-        EnsurePrivateDirectory(); if (!File.Exists(path)) return new(1, null, []);
+        EnsurePrivateDirectory(); if (!ExistsStrict(path)) return new(1, null, []);
         Ordinary(path); var size = new FileInfo(path).Length; if (size is < 32 or > Maximum) throw InvalidStore();
         var bytes = Dpapi.Unprotect(File.ReadAllBytes(path));
         try
@@ -49,7 +49,7 @@ public sealed class ProtectedProfileStore : IProfileStore
         try
         {
             if (profiles.Count > 10 || profiles.Select(x => x.Id).Distinct().Count() != profiles.Count || (selected is not null && profiles.All(x => x.Id != selected))) throw InvalidStore();
-            EnsurePrivateDirectory(); if (File.Exists(path)) Ordinary(path);
+            EnsurePrivateDirectory(); if (ExistsStrict(path)) Ordinary(path);
             var plain = JsonSerializer.SerializeToUtf8Bytes(new Envelope(1, selected, profiles.ToArray())); byte[] sealedBytes;
             try { if (plain.Length > Maximum / 2) throw InvalidStore(); sealedBytes = Dpapi.Protect(plain); }
             finally { CryptographicOperations.ZeroMemory(plain); }
@@ -80,6 +80,7 @@ public sealed class ProtectedProfileStore : IProfileStore
         foreach (var sid in Owners()) acl.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.FullControl, AccessControlType.Allow));
         new FileInfo(value).SetAccessControl(acl);
     }
+    private static bool ExistsStrict(string value) { try { _ = File.GetAttributes(value); return true; } catch (FileNotFoundException) { return false; } }
     private static void Ordinary(string value) { if ((File.GetAttributes(value) & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0) throw InvalidStore(); }
     private static PhoneInputException InvalidStore() => new("Your saved accounts could not be opened securely. Do not delete the saved file; contact support.");
 }

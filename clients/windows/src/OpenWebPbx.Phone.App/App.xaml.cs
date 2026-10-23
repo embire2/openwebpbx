@@ -8,7 +8,7 @@ public partial class App : Application
 {
     public static MainWindow? PhoneWindow { get; private set; }
     public static IntPtr WindowHandle => PhoneWindow is null ? IntPtr.Zero : WinRT.Interop.WindowNative.GetWindowHandle(PhoneWindow);
-    public App() { InitializeComponent(); }
+    public App() { UnhandledException += (_, args) => ComponentDiagnostics.Failure("unhandled", args.Exception); try { InitializeComponent(); } catch (Exception e) { ComponentDiagnostics.Failure("application_constructor", e); throw; } }
     protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
     {
         var instance = AppInstance.FindOrRegisterForKey("OpenWebPBX-FreePhone-1");

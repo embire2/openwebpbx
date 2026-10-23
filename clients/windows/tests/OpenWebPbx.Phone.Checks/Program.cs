@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Net;
 using System.Text;
+using System.Security.Cryptography;
+using System.Text.Json.Nodes;
 using OpenWebPbx.Phone.Core;
 var checks = 0;
 void Check(bool value) { if (!value) throw new InvalidOperationException($"Control {checks + 1} failed."); checks++; }
@@ -73,6 +75,20 @@ foreach (var registryMode in new[] { false, true })
         throw new Exception("A stalled response escaped the body deadline.");
     }
     catch (OperationCanceledException) { Check(started.Elapsed < TimeSpan.FromSeconds(2)); Check(stalled.Closed); }
+}
+Check(new PersonalPreferences().Validated().Theme == "System");
+foreach (var bad in new[] { new PersonalPreferences { Theme = "Unsafe" }, new PersonalPreferences { StartupPage = "Provider" }, new PersonalPreferences { ContactOrder = "Unknown" }, new PersonalPreferences { Microphone = "bad\nname" }, new PersonalPreferences { Ringtone = new string('x', 2049) } }) Refuse(() => bad.Validated());
+using (var key = RSA.Create(3072))
+{
+    var payload = new JsonObject { ["schema"] = 1, ["component"] = "windows-free-phone", ["platform"] = "windows-x64", ["channel"] = "stable", ["version"] = "1.0.1", ["sequence"] = 2, ["package"] = new JsonObject { ["url"] = "https://github.com/embire2/openwebpbx/releases/download/windows-phone-v1.0.1/OpenWebPBX-Free-Phone-1.0.1-win-x64.msixbundle", ["bytes"] = 4096, ["sha256"] = new string('a', 64), ["identity"] = "OpenWebPBX.FreePhone", ["publisher"] = "CN=Open ISP cc" } };
+    byte[] Signed(JsonObject item) { var data = Encoding.UTF8.GetBytes(item.ToJsonString()); return Encoding.UTF8.GetBytes(new JsonObject { ["algorithm"] = "rsa-sha256", ["key_id"] = "windows-phone-release-1", ["payload"] = Convert.ToBase64String(data), ["signature"] = Convert.ToBase64String(key.SignData(data, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)) }.ToJsonString()); }
+    var envelope = Signed(payload); Check(ClientRelease.Verify(envelope, key, 1, "OpenWebPBX.FreePhone", "CN=Open ISP cc").Sequence == 2); Refuse(() => ClientRelease.Verify(envelope, key, 3, "OpenWebPBX.FreePhone", "CN=Open ISP cc"));
+    foreach (var name in new[] { "component", "platform", "channel", "version" }) { var changed = (JsonObject)payload.DeepClone(); changed[name] = "wrong"; Refuse(() => ClientRelease.Verify(Signed(changed), key, 1, "OpenWebPBX.FreePhone", "CN=Open ISP cc")); }
+    foreach (var name in new[] { "url", "identity", "sha256", "publisher" }) { var changed = (JsonObject)payload.DeepClone(); changed["package"]![name] = "wrong"; Refuse(() => ClientRelease.Verify(Signed(changed), key, 1, "OpenWebPBX.FreePhone", "CN=Open ISP cc")); }
+    using var stranger = RSA.Create(3072); Refuse(() => ClientRelease.Verify(envelope, stranger, 1, "OpenWebPBX.FreePhone", "CN=Open ISP cc"));
+    var policy = new JsonObject { ["schema"] = 1, ["component"] = "windows-free-phone", ["channel"] = "stable", ["mode"] = "required", ["tenant_mode"] = "required", ["required_by_instance"] = false, ["minimum_version"] = "", ["latest_version"] = "", ["feed_url"] = "https://github.com/embire2/openwebpbx/releases/latest/download/windows-phone-update-manifest.json", ["release_available"] = false };
+    Check(!WindowsPhonePolicy.Parse(policy).Requires(new Version(1,0,0))); policy["latest_version"] = "1.0.1"; Refuse(() => WindowsPhonePolicy.Parse(policy)); policy["release_available"] = true; Check(WindowsPhonePolicy.Parse(policy).Requires(new Version(1,0,0))); Check(!WindowsPhonePolicy.Parse(policy).Requires(new Version(1,0,1)));
+    policy["minimum_version"] = "1.0.2"; Refuse(() => WindowsPhonePolicy.Parse(policy));
 }
 Console.WriteLine($"PASS {checks} client domain/API controls; HTTP handlers are explicit doubles; no Windows/native-call qualification");
 sealed class Handler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler

@@ -4,7 +4,7 @@ $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:RUNNER_OS -cne 'Windows' -or $env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx'){throw 'Build only on the disposable hosted Windows runner.'}
 $client=Split-Path $PSScriptRoot -Parent;$evidence=Join-Path $Output 'evidence';New-Item -ItemType Directory -Path $evidence -Force|Out-Null
 $report=[ordered]@{schema=1;component='windows-free-phone';version='1.0.0';source_commit=(git rev-parse HEAD);state='running';actual_calling_tested=$false;physical_audio_video_tested=$false;store_accepted=$false}
-$process=$null;Push-Location $client
+$process=$null;$receipt=$null;$launchStarted=$null;Push-Location $client
 try{
  if((dotnet --version).Trim() -cne '10.0.401'){throw 'The exact .NET SDK is required.'}
  $archive=Join-Path $env:RUNNER_TEMP 'windows-phone-linphone-5.5.23.zip'
@@ -22,11 +22,16 @@ try{
  $plugins=Join-Path $app 'native\plugins';New-Item -ItemType Directory $plugins -Force|Out-Null;Copy-Item (Join-Path $native 'lib\mediastreamer\plugins\*.dll') $plugins
  $share=Join-Path $app 'native\share';New-Item -ItemType Directory $share -Force|Out-Null
  foreach($resource in @('linphone','sounds','images')){if(Test-Path (Join-Path $native ('share\'+$resource))){Copy-Item (Join-Path $native ('share\'+$resource)) $share -Recurse}}
+ $assets=Join-Path $client 'src\OpenWebPbx.Phone.App\Assets'
+ $targetAssets=Join-Path $app 'Assets';New-Item -ItemType Directory -Path $targetAssets -Force|Out-Null;Get-ChildItem -LiteralPath $assets -File|Copy-Item -Destination $targetAssets -Force
+ if(!(Test-Path (Join-Path $app 'Assets\AppIcon.ico'))){throw 'The native app icon is missing.'}
+ @('OpenWebPbx.Phone.App.exe','Microsoft.UI.Xaml.dll','Microsoft.WindowsAppRuntime.Bootstrap.dll','liblinphone.dll','Assets/AppIcon.ico')|ForEach-Object{[ordered]@{name=$_;present=(Test-Path (Join-Path $app $_))}}|ConvertTo-Json|Set-Content (Join-Path $evidence 'startup-files.json')
  $report.direct_build=$true
  $exe=Join-Path $app 'OpenWebPbx.Phone.App.exe';$receipt=Join-Path $env:RUNNER_TEMP ('phone-ui-'+[Guid]::NewGuid().ToString('N')+'.json')
+ $launchStarted=Get-Date
  $process=Start-Process -FilePath $exe -WorkingDirectory ([Environment]::SystemDirectory) -ArgumentList @('--component-receipt',('"'+$receipt+'"')) -PassThru
  $end=[DateTime]::UtcNow.AddSeconds(60)
- do{Start-Sleep -Milliseconds 250;$process.Refresh();if($process.HasExited){throw 'The native client exited before its visible window.'}}while([DateTime]::UtcNow -lt $end -and (!(Test-Path $receipt) -or $process.MainWindowHandle -eq 0 -or !$process.Responding))
+ do{Start-Sleep -Milliseconds 250;$process.Refresh();if($process.HasExited){$report.process_exit_code=[int]$process.ExitCode;throw 'The native client exited before its visible window.'}}while([DateTime]::UtcNow -lt $end -and (!(Test-Path $receipt) -or $process.MainWindowHandle -eq 0 -or !$process.Responding))
  if(!(Test-Path $receipt) -or $process.MainWindowHandle -eq 0 -or !$process.Responding -or $process.MainWindowTitle -cne 'OpenWebPBX Free Phone'){throw 'A responsive native client window was not proven.'}
  $ui=Get-Content -LiteralPath $receipt -Raw|ConvertFrom-Json
  if($ui.schema -ne 1 -or $ui.version -cne '1.0.0' -or $ui.native_core_started -ne $true -or $ui.credentials_persisted -ne $false -or $ui.tls_ca_and_hostname -ne $true -or $ui.mandatory_srtp -ne $true -or $ui.calls_placed -ne $false){throw 'Native client startup policy differs.'}
@@ -34,6 +39,22 @@ try{
  $report.state='passed_build_startup';$report.limitation='Native client build and visible startup only; calling, hardware, packaging and Store acceptance remain separate gates.'
 }catch{$report.state='failed';$report.error_type=$_.Exception.GetType().Name;$report.source_line=$_.InvocationInfo.ScriptLineNumber;throw}
 finally{
+ if($process -and $process.HasExited){$report.process_exit_code=[int]$process.ExitCode}
+ if($launchStarted){
+  try{
+   $events=@(Get-WinEvent -FilterHashtable @{LogName='Application';StartTime=$launchStarted;Level=2} -MaxEvents 20 -ErrorAction Stop|Where-Object {$_.Message -match 'OpenWebPbx\.Phone\.App(?:\.exe)?'})
+   $report.startup_events=@($events|ForEach-Object {$message=$_.Message;$types=@([regex]::Matches($message,'System\.(?:[A-Za-z0-9]+\.)*[A-Za-z0-9]+Exception')|ForEach-Object {$_.Value}|Select-Object -Unique -First 4);[ordered]@{event_id=[int]$_.Id;managed_error_types=$types}})
+  }catch{$report.startup_events_observation='unavailable'}
+ }
+ if($receipt -and (Test-Path ($receipt+'.failure.json'))){Copy-Item ($receipt+'.failure.json') (Join-Path $evidence 'startup-failure.json')}
  if($process -and !$process.HasExited){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue;Wait-Process -Id $process.Id -Timeout 10 -ErrorAction SilentlyContinue}
+ $evidenceFiles=@(Get-ChildItem -LiteralPath $evidence -File -Recurse -Force)
+ $report.evidence_bounded=$true
+ foreach($item in $evidenceFiles){
+  if($item.DirectoryName -cne $evidence -or $item.Name -notin 'core-checks.log','build.log','native-startup.json','startup-failure.json','startup-files.json','qualification.json' -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){Remove-Item -LiteralPath $item.FullName -Force;$report.evidence_bounded=$false;continue}
+  if($item.Length -gt 8MB){$buffer=[byte[]]::new(8MB);$input=[IO.File]::OpenRead($item.FullName);try{$count=$input.Read($buffer,0,$buffer.Length)}finally{$input.Dispose()};$output=[IO.File]::Create($item.FullName);try{$output.Write($buffer,0,$count)}finally{$output.Dispose()};$report.evidence_bounded=$false}
+ }
+ if($evidenceFiles.Count -gt 8 -or (Get-ChildItem -LiteralPath $evidence -File|Measure-Object Length -Sum).Sum -gt 32MB){foreach($item in Get-ChildItem -LiteralPath $evidence -File){Remove-Item -LiteralPath $item.FullName -Force};$report.evidence_bounded=$false}
+ if(!$report.evidence_bounded){$report.state='failed';$report.evidence_failure='size_or_file_scope'}
  $report|ConvertTo-Json -Depth 8|Set-Content (Join-Path $evidence 'qualification.json') -Encoding utf8;Pop-Location
 }

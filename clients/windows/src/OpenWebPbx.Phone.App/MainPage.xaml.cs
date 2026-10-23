@@ -16,17 +16,25 @@ namespace OpenWebPbx.Phone.App;
 public sealed partial class MainPage : Page
 {
     private NativePhone? phone;
-    private readonly ProtectedProfileStore store = new("direct");
+    private readonly ProtectedProfileStore store = new(Distribution.Channel);
+    private readonly PendingHistory pendingHistory = new(Distribution.Channel);
+    private readonly SemaphoreSlim historyGate = new(1, 1);
+    private readonly PreferencesStore preferenceStore = new(Distribution.Channel);
+    private PersonalPreferences preferences = new();
     private ProfileManager? profiles;
     private PhoneProfile? current;
     private IReadOnlyList<PhoneProfile> saved = [];
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(20) };
     private readonly MediaPlayer player = new();
+    private readonly IncomingNotifications notifications = new();
+    private readonly HashSet<Guid> notified = [];
     private string section = "Keypad";
-    private bool loading, initialized;
+    private bool loading, initialized, operationInFlight;
+    private Task? initialization;
+    private Task EnsureInitialized() => initialization ??= Initialize();
     public MainPage()
     {
-        InitializeComponent(); Loaded += async (_, _) => await Execute(Initialize);
+        InitializeComponent(); Loaded += async (_, _) => await Execute(EnsureInitialized);
         timer.Tick += (_, _) => { try { phone?.Iterate(); } catch { Show("The phone needs to reconnect. Finish your call and open Settings to check the connection."); } };
     }
     private async Task Initialize()
@@ -37,10 +45,16 @@ public sealed partial class MainPage : Page
         phone.CallFinished += async (id, number, incoming, started, duration, answered) =>
         {
             var account = saved.FirstOrDefault(p => p.Id == id); if (account is null) return;
-            try { using var api = new PhoneApi(account.Server, account.Token); await api.JsonAsync("call_log", new() { ["id"] = Guid.NewGuid().ToString(), ["number"] = number, ["direction"] = incoming ? answered ? "incoming" : "missed" : "outgoing", ["started_at"] = started.ToString("O"), ["duration"] = duration, ["answered"] = answered }); }
-            catch { Show("Your call ended. Recent calls will refresh when the connection returns."); }
+            try
+            {
+                string safeNumber; try { safeNumber = ConnectionRules.Number(number); } catch (PhoneInputException) { safeNumber = ""; }
+                pendingHistory.Enqueue(new(Guid.NewGuid(), id, safeNumber, incoming ? answered ? "incoming" : "missed" : "outgoing", started, duration, answered));
+                await FlushHistory(account);
+            }
+            catch { Show("Your call ended. Recent calls will sync when the connection returns."); }
         };
-        initialized = true; WriteComponentReceipt(); timer.Start(); await Reload(); Navigation.SelectedItem = Navigation.MenuItems[0]; await Draw();
+        global::Windows.Networking.Connectivity.NetworkInformation.NetworkStatusChanged += NetworkStatusChanged;
+        initialized = true; WriteComponentReceipt(); timer.Start(); await Reload(); preferences = preferenceStore.Read(); ApplyPreferences(); section = preferences.StartupPage; Navigation.SelectedItem = Navigation.MenuItems.Cast<NavigationViewItem>().First(x => x.Tag?.ToString() == section); await Draw();
     }
     private async Task Reload()
     {
@@ -60,7 +74,13 @@ public sealed partial class MainPage : Page
         player.Pause(); player.Source = null; await Execute(Draw);
     }
     private void Show(string message, bool error = true) { Notice.Message = message; Notice.Severity = error ? InfoBarSeverity.Warning : InfoBarSeverity.Success; Notice.IsOpen = true; }
-    private async Task Execute(Func<Task> action) { try { await action(); } catch (PhoneInputException e) { Show(e.Message); } catch (PhoneApiException e) { Show(e.Message); } catch (OperationCanceledException) { Show("The connection timed out. Please try again."); } catch { Show("This action could not finish. Check your connection and try again."); } }
+    private async Task Execute(Func<Task> action)
+    {
+        if (operationInFlight) { Show("Please wait for the current request to finish."); return; }
+        operationInFlight = true; AccountChoice.IsEnabled = false; Body.IsEnabled = false;
+        try { await action(); } catch (PhoneInputException e) { Show(e.Message); } catch (PhoneApiException e) { Show(e.Message); } catch (OperationCanceledException) { Show("The connection timed out. Please try again."); } catch (Exception e) { if (!initialized) ComponentDiagnostics.Failure("initialization", e); Show("This action could not finish. Check your connection and try again."); }
+        finally { operationInFlight = false; AccountChoice.IsEnabled = true; Body.IsEnabled = true; }
+    }
     private void Act(Action action) { try { action(); } catch (PhoneInputException e) { Show(e.Message); } catch { Show("The phone could not complete that action. Wait for the call to settle and try again."); } }
     private Button Button(string title, Action action, bool accent = false)
     {
@@ -109,6 +129,7 @@ public sealed partial class MainPage : Page
             var line = Row(); line.Children.Add(Text($"{call.Name} · {call.Number} · {Friendly(call.State)}"));
             if (call.State is CallState.IncomingReceived or CallState.IncomingEarlyMedia)
             {
+                if (notified.Add(call.Id) && preferences.Notifications) notifications.Show(call.Id, call.Name, preferences.HideCallerInNotifications);
                 line.Children.Add(Button("Answer", () => phone.Answer(call.Id, false), true));
                 if (call.Video) line.Children.Add(Button("Answer with video", () => phone.Answer(call.Id, true)));
                 line.Children.Add(Button("Decline", () => phone.Hangup(call.Id)));
@@ -137,7 +158,7 @@ public sealed partial class MainPage : Page
         {
             var row = Row(); row.Children.Add(Text(profile.Label + " · " + phone!.Registrations.GetValueOrDefault(profile.Id, "Offline")));
             row.Children.Add(AsyncButton("Rename", async () => { var name = new TextBox { Text = profile.Name }; var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Account name", Content = name, PrimaryButtonText = "Save", CloseButtonText = "Cancel" }; if (await dialog.ShowAsync() == ContentDialogResult.Primary) { await profiles!.RenameAsync(profile.Id, name.Text); await Reload(); await Draw(); } }));
-            row.Children.Add(AsyncButton("Remove", async () => { ConnectionRules.RequireIdle(phone!.Calls.Count); var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Remove " + profile.Label + "?", Content = "This signs this Windows phone out. Your extension and other phones keep working.", PrimaryButtonText = "Remove", CloseButtonText = "Cancel" }; if (await dialog.ShowAsync() != ContentDialogResult.Primary) return; using var api = new PhoneApi(profile.Server, profile.Token); await api.JsonAsync("revoke", new()); await profiles!.RemoveAsync(profile.Id); await Reload(); await Draw(); })); Body.Children.Add(row);
+            row.Children.Add(AsyncButton("Remove", async () => { ConnectionRules.RequireIdle(phone!.Calls.Count); var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Remove " + profile.Label + "?", Content = "This signs this Windows phone out. Your extension and other phones keep working.", PrimaryButtonText = "Remove", CloseButtonText = "Cancel" }; if (await dialog.ShowAsync() != ContentDialogResult.Primary) return; using var api = new PhoneApi(profile.Server, profile.Token); await api.JsonAsync("revoke", new()); await profiles!.RemoveAsync(profile.Id); pendingHistory.Remove(profile.Id); await Reload(); await Draw(); })); Body.Children.Add(row);
         }
         var tenant = Field("Tenant address", ""); var extension = Field("Extension"); var password = new PasswordBox { Header = "App password chosen by your administrator", MaxLength = 1024 }; Body.Children.Add(password);
         Body.Children.Add(AsyncButton("Sign in", async () => { var secret = password.Password; password.Password = ""; var connection = new ConnectionService(profiles!, () => phone?.Busy == false); var added = await connection.LoginAsync(tenant.Text, extension.Text, secret, Environment.MachineName); await profiles!.SelectAsync(added.Id); await Reload(); await Draw(); }, true));
@@ -160,12 +181,18 @@ public sealed partial class MainPage : Page
     {
         using var api = Api(); var result = await api.JsonAsync("directory"); var items = result["contacts"]?.AsArray() ?? [];
         var search = Field("Search people or extensions"); var list = new StackPanel { Spacing = 8 }; Body.Children.Add(list);
-        void Filter() { list.Children.Clear(); foreach (var item in items.OfType<JsonObject>().Where(x => ($"{x["name"]} {x["number"]}").Contains(search.Text, StringComparison.OrdinalIgnoreCase)).OrderBy(x => x["name"]?.ToString())) { var number = item["number"]!.ToString(); var row = Row(); row.Children.Add(Button($"{item["name"]} · {number} · {item["status"]}", () => phone!.Dial(number))); if (item["id"]?.ToString() == "extension:" + number) row.Children.Add(AsyncButton("Video", () => StartVideo(number))); list.Children.Add(row); } }
+        void Filter() { list.Children.Clear(); foreach (var item in items.OfType<JsonObject>().Where(x => ($"{x["name"]} {x["number"]}").Contains(search.Text, StringComparison.OrdinalIgnoreCase)).OrderBy(x => preferences.ContactOrder == "Name" ? x["name"]?.ToString() : x["number"]?.ToString())) { var number = item["number"]!.ToString(); var row = Row(); row.Children.Add(Button($"{item["name"]} · {number} · {item["status"]}", () => phone!.Dial(number))); if (item["id"]?.ToString() == "extension:" + number) row.Children.Add(AsyncButton("Video", () => StartVideo(number))); list.Children.Add(row); } }
         search.TextChanged += (_, _) => Filter(); Filter();
+    }
+    private async Task FlushHistory(PhoneProfile account)
+    {
+        await historyGate.WaitAsync();
+        try { using var api = new PhoneApi(account.Server, account.Token); foreach (var row in pendingHistory.For(account.Id)) { if (saved.All(x => x.Id != account.Id)) return; await api.JsonAsync("call_log", row.Body()); pendingHistory.Acknowledge(account.Id, row.Id); } }
+        finally { historyGate.Release(); }
     }
     private async Task DrawRecents()
     {
-        using var api = Api(); var result = await api.JsonAsync("calls"); foreach (var item in (result["calls"]?.AsArray() ?? []).OfType<JsonObject>()) { var number = item["number"]!.ToString(); Body.Children.Add(Button($"{item["name"]} · {number} · {item["direction"]} · {item["started_at"]} · {item["duration"]}s", () => phone!.Dial(number))); }
+        await FlushHistory(current!); using var api = Api(); var result = await api.JsonAsync("calls"); foreach (var item in (result["calls"]?.AsArray() ?? []).OfType<JsonObject>()) { var number = item["number"]!.ToString(); Body.Children.Add(Button($"{item["name"]} · {number} · {item["direction"]} · {item["started_at"]} · {item["duration"]}s", () => phone!.Dial(number))); }
     }
     private async Task DrawVoicemail()
     {
@@ -181,7 +208,7 @@ public sealed partial class MainPage : Page
     }
     private async Task DrawAvailability()
     {
-        using var api = Api(); var status = await api.JsonAsync("availability"); var choice = new ComboBox { Header = "My availability", ItemsSource = new[] { "Available", "Away", "Do Not Disturb", "Lunch", "Business Trip" }, SelectedIndex = 0 }; Body.Children.Add(choice);
+        using var api = Api(); var status = await api.JsonAsync("availability"); var choice = new ComboBox { Header = "My availability", ItemsSource = status["statuses"]!.AsArray().Select(x => x!.ToString()).ToArray(), SelectedItem = status["status"]!.ToString() }; Body.Children.Add(choice);
         var duration = new ComboBox { Header = "Return to normal after", ItemsSource = new[] { "Until changed", "15 minutes", "30 minutes", "1 hour", "2 hours", "4 hours", "8 hours" }, SelectedIndex = 0 }; Body.Children.Add(duration);
         Body.Children.Add(AsyncButton("Save availability", async () => { using var request = Api(); await request.JsonAsync("set_status", new() { ["status"] = choice.SelectedItem.ToString(), ["minutes"] = new[] { 0, 15, 30, 60, 120, 240, 480 }[duration.SelectedIndex] }); Show("Availability saved", false); }));
         foreach (var queue in (status["queues"]?.AsArray() ?? []).OfType<JsonObject>()) { var toggle = new ToggleSwitch { Header = queue["name"]?.ToString() ?? queue["number"]?.ToString(), IsOn = queue["joined"]?.GetValue<bool>() == true }; toggle.Toggled += async (_, _) => { toggle.IsEnabled = false; await Execute(async () => { using var request = Api(); await request.JsonAsync("queue_status", new() { ["number"] = queue["number"]!.ToString(), ["joined"] = toggle.IsOn }); }); toggle.IsEnabled = true; }; Body.Children.Add(toggle); }
@@ -189,16 +216,38 @@ public sealed partial class MainPage : Page
     private void DrawSettings()
     {
         Body.Children.Add(Text("Personal settings keep secure calling and your administrator’s routes intact."));
-        Choice("Microphone", phone!.Microphones, device => phone.SetMicrophone(device.Id)); Choice("Speaker or headset", phone.Speakers, device => phone.SetSpeaker(device.Id));
-        var cameras = new ComboBox { Header = "Camera", ItemsSource = phone.Cameras }; cameras.SelectionChanged += (_, _) => { if (cameras.SelectedItem is string camera) Act(() => phone.SetCamera(camera)); }; Body.Children.Add(cameras);
+        Choice("Microphone", phone!.Microphones, device => { phone.SetMicrophone(device.Id); SavePreferences(preferences with { Microphone = device.Id }); }); Choice("Speaker or headset", phone.Speakers, device => { phone.SetSpeaker(device.Id); SavePreferences(preferences with { Speaker = device.Id }); });
+        var cameras = new ComboBox { Header = "Camera", ItemsSource = phone.Cameras }; cameras.SelectionChanged += (_, _) => { if (cameras.SelectedItem is string camera) Act(() => { phone.SetCamera(camera); SavePreferences(preferences with { Camera = camera }); }); }; Body.Children.Add(cameras);
         Body.Children.Add(Button("Camera off", phone.StopCamera));
-        var theme = new ComboBox { Header = "Theme", ItemsSource = new[] { "System", "Light", "Dark" }, SelectedIndex = 0 }; theme.SelectionChanged += (_, _) => RequestedTheme = theme.SelectedIndex switch { 1 => ElementTheme.Light, 2 => ElementTheme.Dark, _ => ElementTheme.Default }; Body.Children.Add(theme);
-        Body.Children.Add(AsyncButton("Choose WAV ringtone", async () => { var picker = new FileOpenPicker(); WinRT.Interop.InitializeWithWindow.Initialize(picker, App.WindowHandle); picker.FileTypeFilter.Add(".wav"); var file = await picker.PickSingleFileAsync(); if (file is not null) phone.SetRingtone(file.Path); }));
+        var theme = new ComboBox { Header = "Theme", ItemsSource = new[] { "System", "Light", "Dark" }, SelectedItem = preferences.Theme }; theme.SelectionChanged += (_, _) => { SavePreferences(preferences with { Theme = theme.SelectedItem.ToString()! }); ApplyPreferences(); }; Body.Children.Add(theme);
+        Body.Children.Add(AsyncButton("Choose WAV ringtone", async () => { var picker = new FileOpenPicker(); WinRT.Interop.InitializeWithWindow.Initialize(picker, App.WindowHandle); picker.FileTypeFilter.Add(".wav"); var file = await picker.PickSingleFileAsync(); if (file is not null) { phone.SetRingtone(file.Path); SavePreferences(preferences with { Ringtone = file.Path }); } }));
         Body.Children.Add(AsyncButton("Check connection", async () => { using var api = Api(); await api.JsonAsync("bootstrap"); if (!phone.Busy) phone.Reconnect(); Show("Your PBX is reachable. Secure phone registration is shown above.", false); }));
+        var startup = new ComboBox { Header = "Open on", ItemsSource = new[] { "Keypad", "Contacts", "Recents", "Voicemail" }, SelectedItem = preferences.StartupPage }; startup.SelectionChanged += (_, _) => SavePreferences(preferences with { StartupPage = startup.SelectedItem.ToString()! }); Body.Children.Add(startup);
+        var sort = new ComboBox { Header = "Sort contacts by", ItemsSource = new[] { "Name", "Extension" }, SelectedItem = preferences.ContactOrder }; sort.SelectionChanged += (_, _) => SavePreferences(preferences with { ContactOrder = sort.SelectedItem.ToString()! }); Body.Children.Add(sort);
+        var alerts = new ToggleSwitch { Header = "Incoming call notifications", IsOn = preferences.Notifications }; alerts.Toggled += (_, _) => SavePreferences(preferences with { Notifications = alerts.IsOn }); Body.Children.Add(alerts);
+        var privacy = new ToggleSwitch { Header = "Hide caller in notifications", IsOn = preferences.HideCallerInNotifications }; privacy.Toggled += (_, _) => SavePreferences(preferences with { HideCallerInNotifications = privacy.IsOn }); Body.Children.Add(privacy);
+        var launch = new ToggleSwitch { Header = "Start phone when I sign in to Windows", IsOn = preferences.LaunchAtLogin }; launch.Toggled += async (_, _) => await Execute(async () => {
+#if STORE
+            var startupTask = await global::Windows.ApplicationModel.StartupTask.GetAsync("OpenWebPBXFreePhone");
+            if (launch.IsOn) { var state = await startupTask.RequestEnableAsync(); if (state != global::Windows.ApplicationModel.StartupTaskState.Enabled) throw new PhoneInputException("Windows did not enable startup. Check Startup Apps in Windows Settings."); } else startupTask.Disable();
+#else
+            LoginStartup.SetDirect(launch.IsOn, Path.Combine(AppContext.BaseDirectory, "OpenWebPbx.Phone.App.exe")); await Task.CompletedTask;
+#endif
+            SavePreferences(preferences with { LaunchAtLogin = launch.IsOn }); }); Body.Children.Add(launch);
         Body.Children.Add(AsyncButton("Change my app password", Password));
         Body.Children.Add(AsyncButton("Windows microphone privacy", () => Launch("ms-settings:privacy-microphone"))); Body.Children.Add(AsyncButton("Windows camera privacy", () => Launch("ms-settings:privacy-webcam")));
         foreach (var pair in new[] { ("Terms", "terms"), ("Privacy", "privacy"), ("Delete my account", "delete") }) Body.Children.Add(AsyncButton(pair.Item1, () => Launch("https://openwebpbx.com/" + pair.Item2)));
         Body.Children.Add(Text("OpenWebPBX Free Phone 1.0.0 · Native calling powered by Liblinphone 5.5.23 · AGPLv3 or later. A compatible OpenWebPBX account is required."));
+    }
+    private void SavePreferences(PersonalPreferences value) { preferenceStore.Save(value); preferences = value; }
+    private void ApplyPreferences()
+    {
+        RequestedTheme = preferences.Theme switch { "Light" => ElementTheme.Light, "Dark" => ElementTheme.Dark, _ => ElementTheme.Default };
+        if (phone is null) return;
+        if (phone.Microphones.Any(x => x.Id == preferences.Microphone)) phone.SetMicrophone(preferences.Microphone);
+        if (phone.Speakers.Any(x => x.Id == preferences.Speaker)) phone.SetSpeaker(preferences.Speaker);
+        if (phone.Cameras.Contains(preferences.Camera)) phone.SetCamera(preferences.Camera);
+        if (preferences.Ringtone != "") try { phone.SetRingtone(preferences.Ringtone); } catch (PhoneInputException) { /* Missing personal file keeps the native default. */ }
     }
     private void Choice(string title, IReadOnlyList<PhoneDevice> devices, Action<PhoneDevice> action) { var choice = new ComboBox { Header = title, ItemsSource = devices, DisplayMemberPath = "Name", MinWidth = 300 }; choice.SelectionChanged += (_, _) => { if (choice.SelectedItem is PhoneDevice device) Act(() => action(device)); }; Body.Children.Add(choice); }
     private async Task Password()
@@ -210,7 +259,7 @@ public sealed partial class MainPage : Page
     }
     private async Task StartVideo(string number)
     {
-        using var api = Api(); var bootstrap = await api.JsonAsync("bootstrap"); if (!(bootstrap["features"]?.AsArray().Any(x => x?.ToString() == "video") ?? false)) throw new PhoneInputException("Video is not enabled for this PBX yet.");
+        using var api = Api(); var bootstrap = await api.JsonAsync("bootstrap"); if (!(bootstrap["features"]?.AsArray().Any(x => x?.ToString() == "video_calls") ?? false)) throw new PhoneInputException("Video is not enabled for this PBX yet.");
         var contacts = await api.JsonAsync("directory"); if (!(contacts["contacts"]?.AsArray().OfType<JsonObject>().Any(x => x["id"]?.ToString() == "extension:" + ConnectionRules.Number(number)) ?? false)) throw new PhoneInputException("Choose a colleague listed in Contacts for a video call."); phone!.Dial(number, true); OpenVideo();
     }
     private void OpenVideo() { var video = new VideoWindow(phone!); video.Activate(); }
@@ -226,10 +275,11 @@ public sealed partial class MainPage : Page
         using var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
         System.Text.Json.JsonSerializer.Serialize(output, new { schema = 1, version = "1.0.0", native_core_started = true, credentials_persisted = false, tls_ca_and_hostname = true, mandatory_srtp = true, calls_placed = false });
     }
-    public void NetworkChanged() => phone?.NetworkChanged(global::Windows.Networking.Connectivity.NetworkInformation.GetInternetConnectionProfile() is not null);
+    private void NetworkStatusChanged(object sender) => DispatcherQueue.TryEnqueue(NetworkChanged);
+    public void NetworkChanged() => phone?.NetworkChanged(global::Windows.Networking.Connectivity.NetworkInformation.GetConnectionProfiles().Any(p => p.GetNetworkConnectivityLevel() != global::Windows.Networking.Connectivity.NetworkConnectivityLevel.None));
     public void ShowMessage(string message) => Show(message);
-    public async Task WaitAndImport(SetupInvitation invitation) { if (!initialized) await Execute(Initialize); await Execute(() => ImportInvitation(invitation)); }
+    public async Task WaitAndImport(SetupInvitation invitation) { await EnsureInitialized(); await Execute(() => ImportInvitation(invitation)); }
     public bool CanExit => phone?.Busy != true;
     public void StopCamera() => phone?.StopCamera();
-    public void Shutdown() { timer.Stop(); player.Dispose(); phone?.Dispose(); }
+    public void Shutdown() { global::Windows.Networking.Connectivity.NetworkInformation.NetworkStatusChanged -= NetworkStatusChanged; timer.Stop(); notifications.Dispose(); player.Dispose(); phone?.Dispose(); }
 }

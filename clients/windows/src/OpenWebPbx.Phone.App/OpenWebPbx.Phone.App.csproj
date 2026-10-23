@@ -9,6 +9,7 @@
     <Platforms>x64</Platforms>
     <Platform>x64</Platform>
     <SelfContained>true</SelfContained>
+    <DefineConstants Condition="'$(PhoneDistribution)' == 'store'">$(DefineConstants);STORE</DefineConstants>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <EnableWinAppRunSupport>false</EnableWinAppRunSupport>
     <PhoneDistribution Condition="'$(PhoneDistribution)' == ''">direct</PhoneDistribution>

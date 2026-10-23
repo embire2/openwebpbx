@@ -172,7 +172,7 @@ public sealed class NativePhone : IDisposable
     private LiveCall View(Call call)
     {
         if (!identities.TryGetValue(call, out var id)) identities[call] = id = Guid.NewGuid();
-        return new(id, Profile(call).Id, call.RemoteAddress.DisplayName ?? call.RemoteAddress.Username, call.RemoteAddress.Username, call.State, call.Dir == CallDir.Incoming, call.Duration, call.CurrentParams?.VideoEnabled == true, call.MicrophoneMuted, call.CameraEnabled);
+        return new(id, Profile(call).Id, call.RemoteAddress.DisplayName ?? call.RemoteAddress.Username, call.RemoteAddress.Username, call.State, call.Dir == CallDir.Incoming, call.Duration, call.CurrentParams?.VideoEnabled == true || call.RemoteParams?.VideoEnabled == true, call.MicrophoneMuted, call.CameraEnabled);
     }
     private PhoneProfile Profile(Call call) => accounts.Values.FirstOrDefault(x => x.Account == call.Params?.Account || x.Profile.Sip.Username == call.ToAddress?.Username).Profile ?? accounts.Values.Single(x => x.Profile.Sip.Username == call.CallLog.LocalAddress.Username).Profile;
     private Call Find(Guid id) => identities.FirstOrDefault(x => x.Value == id && core.Calls.Contains(x.Key)).Key ?? throw new PhoneInputException("That call has ended.");

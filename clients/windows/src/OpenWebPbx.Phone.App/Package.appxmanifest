@@ -2,19 +2,18 @@
 
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
   xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   xmlns:systemai="http://schemas.microsoft.com/appx/manifest/systemai/windows10"
-  IgnorableNamespaces="uap uap10 rescap systemai">
+  IgnorableNamespaces="uap uap10 rescap systemai desktop">
 
   <Identity
     Name="OpenWebPBX.FreePhone"
     Publisher="CN=Open ISP cc"
     Version="1.0.0.0" />
-
-  <mp:PhoneIdentity PhoneProductId="OpenWebPBX.FreePhone" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
   <Properties>
     <DisplayName>OpenWebPBX Free Phone</DisplayName>
@@ -47,14 +46,19 @@
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
         <uap:SplashScreen Image="Assets\SplashScreen.png" />
       </uap:VisualElements>
+      <Extensions>
+        <uap:Extension Category="windows.protocol"><uap:Protocol Name="openwebpbx"><uap:DisplayName>OpenWebPBX setup</uap:DisplayName></uap:Protocol></uap:Extension>
+        <uap:Extension Category="windows.fileTypeAssociation"><uap:FileTypeAssociation Name="openwebpbx"><uap:DisplayName>OpenWebPBX connection invitation</uap:DisplayName><uap:SupportedFileTypes><uap:FileType>.openwebpbx</uap:FileType></uap:SupportedFileTypes></uap:FileTypeAssociation></uap:Extension>
+        <desktop:Extension Category="windows.startupTask" Executable="$targetnametoken$.exe" EntryPoint="Windows.FullTrustApplication"><desktop:StartupTask TaskId="OpenWebPBXFreePhone" Enabled="false" DisplayName="OpenWebPBX Free Phone" /></desktop:Extension>
+      </Extensions>
     </Application>
   </Applications>
 
   <Capabilities>
+    <Capability Name="internetClientServer" />
+    <Capability Name="privateNetworkClientServer" />
     <rescap:Capability Name="runFullTrust" />
     <DeviceCapability Name="microphone" />
     <DeviceCapability Name="webcam" />
-    <Capability Name="internetClientServer" />
-    <Capability Name="privateNetworkClientServer" />
   </Capabilities>
 </Package>
