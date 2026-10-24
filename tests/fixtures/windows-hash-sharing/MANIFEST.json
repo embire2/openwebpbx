@@ -1,0 +1,10 @@
+{
+  "Hash-Probe.ps1": "e32ac4eb8683741a430cd81c5594859e233b68008e2c628552eeec4e14fb2620",
+  "Hold-ReadLease.ps1": "ecd701989455ef5c7f4045f10d55c252015bbb7098f1df222cb4cc96ec69b033",
+  "WindowsCallRecordLease.cs": "d5086c15bffe78b91ea4108e3e4693c3af656b2fd94c3fd7e6d55cb6b6ee5bf8",
+  "backups.py": "a1b032a6ead38af079acb945869845a8f56015823e891dedc2bb22e33e23545e",
+  "probe.py": "0c12efbf86da8e5c38fe9a6912c96f76cd06a8dc4a34fe4b28039276bedb037a",
+  "source-pins.json": "69424d2792ad89e41dac1e40377574b2f18ad06b52ec80a09647e8da9933cee2",
+  "windows-upgrade-acceptance.ps1": "3633395d13f93457021cda3c92450c609dcefe2cf253280ef36bcfaca27c4381",
+  "windows_backup_guard.py": "49b3a963a5e65afa706e90ff450b516b1a20b295ddb9ed8b65d55c44af15ef58"
+}

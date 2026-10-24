@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "source_commit": "23477de2f295db8b09a7a79228a19184c394de03",
+  "files": {
+    "windows-upgrade-acceptance.ps1": {
+      "git_path": "tests/windows-upgrade-acceptance.ps1",
+      "sha256": "3633395d13f93457021cda3c92450c609dcefe2cf253280ef36bcfaca27c4381",
+      "bytes": 78048
+    },
+    "WindowsCallRecordLease.cs": {
+      "git_path": "platform/OpenWebPbx.Server/WindowsCallRecordLease.cs",
+      "sha256": "d5086c15bffe78b91ea4108e3e4693c3af656b2fd94c3fd7e6d55cb6b6ee5bf8",
+      "bytes": 1717
+    },
+    "backups.py": {
+      "git_path": "packaging/windows/backups.py",
+      "sha256": "a1b032a6ead38af079acb945869845a8f56015823e891dedc2bb22e33e23545e",
+      "bytes": 86075
+    },
+    "windows_backup_guard.py": {
+      "git_path": "tests/windows_backup_guard.py",
+      "sha256": "49b3a963a5e65afa706e90ff450b516b1a20b295ddb9ed8b65d55c44af15ef58",
+      "bytes": 15506
+    }
+  }
+}
