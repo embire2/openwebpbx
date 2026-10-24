@@ -17,7 +17,7 @@ function Must([bool]$Value){$script:controlCount++;if(!$Value){throw ('Hash obse
 $sentinel='PRIVATE_HASH_VALUE_MUST_NEVER_ESCAPE'
 $share=[IO.IOException]::new($sentinel,[int]-2147024864)
 $paths=QualificationSnapshotPaths
-Must ($paths.Count -eq 39)
+Must ($paths.Count -eq 45)
 # Compare all closed paths, categories, nine scope roots and boundary negatives to the existing Python classifier.
 $python=$env:OPENWEB_TEST_PYTHON
 if(!$python){foreach($candidate in 'python3','python.exe','python'){ $command=Get-Command $candidate -CommandType Application -ErrorAction SilentlyContinue|Select-Object -First 1;if($command){$python=$command.Source;break}}}

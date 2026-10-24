@@ -94,6 +94,14 @@ function QualificationSnapshotPaths {
  $paths=@{}
  foreach($pair in @(@('installation','installation'),@('runtime','runtime'),@('updater-install','updater_install'),@('native-engine','native_engine'),@('local-codec','local_codec'),@('phone-tls','phone_tls_metadata'))){$paths['c:/programdata/openwebpbx/'+$pair[0]+'.json']=$pair[1]}
  $paths+=@{'c:/openwebpbx'='program_root';'c:/openwebpbx/php/php.ini'='php_ini';'c:/openwebpbx/php/extras/ssl/openssl.cnf'='php_openssl';'c:/openwebpbx/php/extras/ssl/cacert.pem'='php_cacert';'c:/programdata/openwebpbx/mobile-notifications'='notification_store';'c:/programdata/openwebpbx/mobile-notifications/config.json'='notification_config';'c:/programdata/openwebpbx/mobile-notifications/config.json.lock'='notification_lock';'c:/programdata/fusionpbx'='fusionpbx_root';'c:/programdata/fusionpbx/config.conf'='fusionpbx_config';'c:/programdata/fusionpbx/openweb-template.key'='fusionpbx_template_key';'c:/programdata/openwebpbx/automatic-backups/worker.lock'='automatic_backups_worker_lock';'c:/programdata/openwebpbx/storage'='storage_root';'c:/programdata/openwebpbx/storage/openweb-music'='stock_music_root';'c:/programdata/openwebpbx/storage/openweb-music/readme.md'='stock_music_readme';'c:/programdata/openwebpbx/storage/openweb-music/manifest.json'='stock_music_manifest';'c:/program files/freeswitch/sounds'='stock_sounds_root';'c:/program files/freeswitch/sounds/openwebpbx'='stock_sounds_openwebpbx'}
+ $paths+=@{
+  'c:/programdata/openwebpbx/phone-health-instance.json'='phone_health_metadata';
+  'c:/programdata/openwebpbx/stun.json'='stun_metadata';
+  'c:/programdata/openwebpbx/meet-ca.pem'='meet_ca';
+  'c:/programdata/openwebpbx/meet-proxy.json'='meet_proxy_metadata';
+  'c:/programdata/openwebpbx/upgrade.lock'='upgrade_lock';
+  'c:/programdata/openwebpbx/call-records.hold'='cdr_hold'
+ }
  foreach($name in 'phone-tls','public-access','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build'){$paths['c:/programdata/openwebpbx/'+$name]=$name.Replace('-','_')+'_root'}
  foreach($rate in 8000,16000,32000,48000){$base='c:/programdata/openwebpbx/storage/openweb-music/'+$rate;$paths[$base]='stock_music_'+$rate+'_dir';$paths[$base+'/lofi-beat-loop-schmoop.wav']='stock_music_'+$rate+'_track'}
  return $paths
