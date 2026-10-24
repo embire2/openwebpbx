@@ -70,6 +70,12 @@ SFTP observer. Canonical cleanup passes, but complete calling/conference and
 backup gates remain unqualified; the candidate was not downloaded. Separate
 restore **40104065626** is running with the three-file path-check correction
 against the older accepted package, without the default-port product change.
+Its source has passed all nine gates; clean-target acceptance remains pending.
+The backup test's exact workflow-branch admission is corrected after a local
+reproduction. Welcome failure observations now distinguish original table/config
+comparisons and retain an earlier Python error separately. Both QA changes pass
+root and independent component checks; the historical changing record or writer
+is still unknown. The next fresh normal run must repeat the complete gates.
 
 Publication and further signing remain held for build-host and credential
 recovery. The owner reports rebuilding Debian173.214.174.68, but this workspace

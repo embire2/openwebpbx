@@ -23,6 +23,10 @@ the independent SFTP backup observer. Canonical cleanup passes; complete
 calling/conference and backup gates remain unqualified and no candidate was
 downloaded. Separate restore40104065626 repeats the path-check correction
 against the unchanged accepted package; it cannot qualify the default-port change.
+Its source passes all nine gates, with the clean target still running. The backup
+observer's exact branch allowance and bounded welcome-failure diagnostics are
+reviewed and integrated for the next fresh normal run. Their component tests do
+not qualify native SFTP, establish the historical changing record, or relax cleanup.
 Publication and further signing remain held for build-host
 and credential recovery; owner migration, actual OS reboot and external access
 remain open. See the [current Windows release-gate table](windows-parity-1.0.20.md#windows-release-gates)
