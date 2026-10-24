@@ -5,7 +5,9 @@ The complete server 1.0.20 release is not public, and the hosted instance has
 not received the complete server upgrade. Android remains 1.0.18, including its
 existing mandatory minimum.
 
-**Current work on 24 October:** the unchanged candidate from normal40005106134
+**Latest restore result:** independent40104065626 passes all nine source and twenty clean-target gates for accepted40005106134. Root verifies original artifacts, preserved credentials/media/target identities, recovery, native software calling, voicemail/clock/jobs, scheduled backups and cleanup. This covers the older accepted archive only. Fresh normal40106683010/source23477de2f is running; the changed final package still needs independent restore, signing/trust recovery and owner/external checks.
+
+**Earlier work on 24 October:** the unchanged candidate from normal40005106134
 passes all 17 full-suite gates. Independent replacement restore40100133999 passes its source
 job, then refuses a meeting-setting snapshot guard. The exact Windows path-format
 QA correction ce38c420b passes actual PostgreSQL/PHP tests and independent review;

@@ -17,17 +17,22 @@ Root independently verifies19165 payloads,6651 immutable source mappings,
 16 registrar supplement files and4888 voice files. The complete path and
 configured-secret scan passes. This is an unpublished qualification archive.
 
-Independent replacement restore **40100133999** passes all nine source
-checks, including actual voicemail, a recorded two-way call, and the scheduled
-encrypted backup. Its replacement target refuses the snapshot's meeting-setting
-guard at PHP line109. Cleanup and original Phone Health task-choice restoration
-pass. This compound guard does not identify the historical raw field or value.
-A source reproduction using actual PostgreSQL/PHP identifies a valid Windows
-path serialization that the test refused. QA correction ce38c420b accepts only
-that exact alternative while preserving target bindings and complete row checks;
-ten focused groups and the existing restore controls pass independently and at
-root. It changes no product code and requires a new native restore run. Earlier
-40095999962 retains only its generic PHP-child failure. The previous run
+Independent replacement restore **40104065626** passes all nine source and
+twenty clean-target gates against accepted40005106134. Root authenticates both
+original artifacts, preserved target database/certificate identity, complete
+database comparisons, late-copy recovery, original-credential software-phone
+two-way audio, voicemail121, Nathaniel clock1026, restored jobs, scheduled
+backups and canonical cleanup. Phone Health history and original task choices
+are preserved; restored pending unblock requests remain refused. The run uses
+only the three reviewed QA path-comparison changes on the older accepted product.
+It does not qualify the later default-port runtime change, owner migration,
+real OS reboot, carrier calls or public access.
+
+Earlier40100133999 refused the compound meeting-setting guard at PHP line109;
+its exact historical field/value remains unretained. The source reproduction
+and ce38c420b correction accept only the legitimate Windows path serialization,
+preserving complete rows and original target bindings. Earlier40095999962 retains
+only its generic PHP-child failure. The previous run
 40092304354 refused a changed digest in `v_sip_profile_settings`; row counts
 matched and cleanup passed. The current QA validates the installer-owned
 meeting addresses and certificate path against each target's local configuration
@@ -68,14 +73,14 @@ test cleanup. Its public-database/configuration comparison needs further
 observation. The independent backup check also refuses during entry to the
 SFTP observer. Canonical cleanup passes, but complete calling/conference and
 backup gates remain unqualified; the candidate was not downloaded. Separate
-restore **40104065626** is running with the three-file path-check correction
-against the older accepted package, without the default-port product change.
-Its source has passed all nine gates; clean-target acceptance remains pending.
+restore **40104065626** passes against the older accepted package, without the
+default-port product change.
 The backup test's exact workflow-branch admission is corrected after a local
 reproduction. Welcome failure observations now distinguish original table/config
 comparisons and retain an earlier Python error separately. Both QA changes pass
 root and independent component checks; the historical changing record or writer
-is still unknown. The next fresh normal run must repeat the complete gates.
+is still unknown. Fresh normal **40106683010/source23477de2f** is running with
+both QA changes and must repeat the complete gates.
 
 Publication and further signing remain held for build-host and credential
 recovery. The owner reports rebuilding Debian173.214.174.68, but this workspace
@@ -354,10 +359,10 @@ release gates. Earlier run descriptions above remain historical records.
 
 | Area | Verified in the current normal package | Still required before release |
 |---|---|---|
-| Phone Health & Recovery | Installed SYSTEM observation, continuous collection and restart pass129 PostgreSQL,49 runtime and18 Defender controls. | Complete newer-upgrade and separate-server restore preservation, then owner-machine checks. |
+| Phone Health & Recovery | Installed SYSTEM observation, continuous collection and restart pass129 PostgreSQL,49 runtime and18 Defender controls; accepted-package upgrade and separate restore preservation also pass. | Repeat relevant checks on the final changed package, then owner-machine checks. |
 | Remote phones | Native STUN service and33 installed Binding/Defender/recovery checks pass; media remains anchored by the PBX. | External test-machine STUN, actual phone/app connections and two-way audio. Windows IPv6 remains separate; STUN does not provide TURN. |
 | Conferences | Native TLS/WebSocket transport55 and decoded browser audio/video gates pass in the normal package. | External browser/phone acceptance and destination identity/media checks in independent restore. |
-| Backups and restore | Real scheduled encrypted backups, verification, retention, media/private-key preservation, same-machine recovery and explicit activation pass in accepted40005106134. | Separate restore40104065626 repeats the exact Windows-path QA correction against that package. Fresh default-port candidate40100370382 fails welcome cleanup and SFTP-observer entry; complete native repetition remains required. Debian archives are unsupported on Windows. |
+| Backups and restore | Scheduled encrypted backups, retention, media/private-key preservation, recovery and activation pass in accepted40005106134; independent restore40104065626 adds nine source and twenty clean-target passes. | Fresh normal40106683010 and a new independent restore must qualify the default-port product correction. Debian archives are unsupported on Windows. |
 | Updates | Fresh install, same-version reapply, direct rollback, restore-startup recovery and both manager reopen gates pass;40097476201 also passes the complete signed newer-upgrade path. | Original1.0.6 migration/interrupted recovery and actual OS reboot. Run40097476201 passes signed newer upgrade/rollback for the accepted archive; a changed product archive requires fresh qualification. |
 | PHP runtime | Pinned PHP8.4.27 is installed and exercised by the normal package; native private-copy runtime preservation/rollback checks also pass. | Full legacy owner upgrade and interruption/recovery. Component checks do not substitute for that migration. |
 | Public access | Installed listener/Defender checks, trusted IIS login, local certificate/readiness and tenant-domain workers pass. | Public ACME issuance/renewal and external tenant/Android/provider access. Local rule checks do not prove internet packet delivery. |
