@@ -97,6 +97,10 @@ function restore_fixture_meeting_rebind(PDO $db,array $rows,string $key): array 
     if((!filter_var($address,FILTER_VALIDATE_IP)&&!filter_var($address,FILTER_VALIDATE_DOMAIN,FILTER_FLAG_HOSTNAME))
         ||$conf===''||strpbrk($conf,"\r\n\0")!==false)throw new RuntimeException('The actual local meeting binding is invalid.');
     $expected=['rtp-ip'=>$address,'ext-rtp-ip'=>$address,'tls-cert-dir'=>rtrim($conf,'/\\').'/tls/openweb-meet'];
+    // Windows restore passes pathlib's backslash prefix to rebind, which
+    // appends this exact forward-slash suffix. Accept only that serialization
+    // of this same configured path; keep the original expected binding exact.
+    $windowsTls=str_replace('/','\\',rtrim($conf,'/\\')).'/tls/openweb-meet';
     $seen=[];$projected=[];
     foreach($rows as $row) {
         if(!is_object($row))throw new RuntimeException('Complete PostgreSQL meeting rows are required.');
@@ -105,7 +109,8 @@ function restore_fixture_meeting_rebind(PDO $db,array $rows,string $key): array 
             $name=$row->sip_profile_setting_name;
             if(isset($seen[$name])||!restore_fixture_uuid($row->sip_profile_setting_uuid??null)
                 ||!in_array($row->sip_profile_setting_enabled??null,['true',true,'t'],true)
-                ||($row->sip_profile_setting_value??null)!==$expected[$name])
+                ||(($row->sip_profile_setting_value??null)!==$expected[$name]
+                    &&($name!=='tls-cert-dir'||($row->sip_profile_setting_value??null)!==$windowsTls)))
                 throw new RuntimeException('The private meeting value must match this installation before comparison.');
             $seen[$name]=true;$copy->sip_profile_setting_value='__openweb_restore_owned_meeting_binding__';
         }

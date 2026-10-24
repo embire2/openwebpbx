@@ -5,17 +5,50 @@ import copy
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath, WindowsPath
 import pwd
 import shutil
 import subprocess
 import tempfile
 import unittest
+from types import SimpleNamespace
 
 HERE=Path(__file__).resolve().parent
 SPEC=importlib.util.spec_from_file_location('meeting_restore_compare',HERE/'windows-restore-qualification.py')
 q=importlib.util.module_from_spec(SPEC);SPEC.loader.exec_module(q)
 PG=Path(os.environ.get('OPENWEB_TEST_POSTGRES_BIN','/usr/lib/postgresql/18/bin'))
+
+
+def actual_windows_restore_arguments():
+    # Execute only the unchanged product function with query/file/run adapters.
+    # WindowsPath and PureWindowsPath share the real Windows string formatter.
+    if WindowsPath.__str__ is not PureWindowsPath.__str__:
+        raise AssertionError('The exact Windows formatter implementation changed.')
+    tree=ast.parse((HERE.parent/'packaging/windows/backups.py').read_text())
+    nodes=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='restore_meeting']
+    if len(nodes)!=1:raise AssertionError('One actual product restore_meeting function is required.')
+    commands=[];paths=[];queries=[]
+    def query(settings,sql):
+        queries.append(sql);return 't' if "to_regclass" in sql else '1'
+    def ordinary(path):paths.append(path);return path
+    def run(command,**kwargs):commands.append((command,kwargs))
+    roots={'freeswitch-config':PureWindowsPath('C:/TargetPBX/conf'),
+        'runtime-config':PureWindowsPath('C:/ProgramData/OpenWebPBX'),
+        'fusionpbx-config':PureWindowsPath('C:/ProgramData/fusionpbx')}
+    namespace=dict(query=query,ordinary=ordinary,run=run,ROOTS=roots,
+        APP=PureWindowsPath('C:/OpenWebPBX'),WEB_VERSION=PureWindowsPath('C:/OpenWebPBX/web/VERSION'),os=SimpleNamespace(name='nt'))
+    exec(compile(ast.Module(body=nodes,type_ignores=[]),'actual-backups-restore-meeting','exec'),namespace)
+    if namespace['restore_meeting']({}) is not True or len(commands)!=1 or len(paths)!=2 or len(queries)!=2:
+        raise AssertionError('The exact once-only product argument flow changed.')
+    command,kwargs=commands[0]
+    if kwargs!={'timeout':120} or len(command)!=7 or command[:2]!=[r'C:\OpenWebPBX\php\php.exe','-r']:
+        raise AssertionError('The original executable/argument/deadline contract changed.')
+    if command[5]!=str(roots['freeswitch-config']):raise AssertionError('The raw Windows conf argument changed.')
+    code=command[2]
+    guard=next(line for line in code.splitlines() if line.startswith("if(str_replace('"))
+    if "pbx_meet_install::rebind($db,null,$argv[3]);" not in code:
+        raise AssertionError('The actual product must pass raw argv3 to rebind.')
+    return {'windows_conf':command[5],'product_path_guard':guard}
 
 
 class MeetingRebindControls(unittest.TestCase):
@@ -37,7 +70,7 @@ class MeetingRebindControls(unittest.TestCase):
         cls.started=True
         cls.run_pg('pg_ctl','-D',str(cls.directory/'data'),'-l',str(cls.directory/'postgres.log'),'-o',options,'-w','-t','20','start')
         child=subprocess.run(['php',str(HERE/'windows-restore-meeting-rebind.php')],
-            input=json.dumps({'temporary':str(cls.directory)}),text=True,capture_output=True,
+            input=json.dumps({'temporary':str(cls.directory)}|actual_windows_restore_arguments()),text=True,capture_output=True,
             env=os.environ|{'OPENWEB_MEETING_REBIND_TEST':'1'},timeout=30)
         if child.returncode:raise AssertionError('The isolated actual PHP fixture failed: '+child.stderr)
         cls.evidence=json.loads(child.stdout)
@@ -76,6 +109,32 @@ class MeetingRebindControls(unittest.TestCase):
     def test_actual_windows_same_path_changes_only_two_addresses(self):
         case=self.evidence['same_path'];self.assertEqual(case['actual_rebound_rows'],2)
         self.compare(case['source'],case['target'],case['baseline'])
+
+    def test_actual_windows_argument_and_exact_target_binding(self):
+        proof=self.evidence['windows_argument']
+        self.assertIs(proof['config_guard_passed'],True)
+        self.assertIs(proof['exact_raw_windows_tls_value'],True)
+        self.assertIs(proof['different_from_raw_config_tls'],True)
+        self.assertEqual(proof['actual_rebound_rows'],3)
+        self.assertEqual(proof['collector'],'passed')
+        self.assertIs(proof['idempotent'],True)
+        self.assertEqual(proof['snapshot']['meeting_rebind']['binding'],proof['baseline']['meeting_rebind']['binding'])
+        self.compare(proof['source'],proof['snapshot'],proof['baseline'])
+
+    def test_windows_representation_is_not_general_path_normalization(self):
+        expected={'mixed_prefix','backslash_suffix','different_case','different_drive','neighbor_directory',
+            'parent_component','dot_component','repeated_separator','repeated_suffix_separator',
+            'encoded_component','neighbor_suffix','trailing_separator'}
+        self.assertEqual(set(self.evidence['windows_path_refused']),expected)
+        self.assertEqual(len(self.evidence['windows_path_refused']),len(expected))
+        self.assertEqual(set(self.evidence['windows_guard_refused']),{'disabled_tls','duplicate_tls','invalid_uuid'})
+        self.assertEqual(len(self.evidence['windows_guard_refused']),3)
+
+    def test_windows_representation_preserves_other_rows_and_original_binding(self):
+        self.assertEqual(set(self.evidence['windows_changed_snapshots']),
+            {'foreign_tls','owned_uuid','owned_other_column','different_config','different_address'})
+        for name,snapshot in self.evidence['windows_changed_snapshots'].items():
+            with self.subTest(name=name),self.assertRaises(ValueError):self.compare(target=snapshot)
 
     def test_actual_invalid_owned_values_and_profile_identities_refuse_in_php(self):
         expected={f'{kind}_{name}' for name in ('rtp-ip','ext-rtp-ip','tls-cert-dir')
