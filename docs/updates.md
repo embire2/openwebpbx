@@ -47,7 +47,7 @@ A completed update is not automatically reverted after users have resumed work; 
 
 ## Windows Server
 
-The Windows edition uses the same signed release feed and independent C# updater. See [Windows updates and recovery](windows-upgrade.md) for service names, backup/recovery commands and the administration manager's restart behavior. Windows Server 2025 is the qualified server platform; Windows 10/11 full-server qualification remains outstanding.
+Windows Server1.0.20 uses its own signed **windows-update-manifest.json** and independent C# updater. Its ordinary feed requires installed1.0.20 or newer; earlier Windows installations need a separately qualified legacy transition, which is not published. The Android **update-manifest.json** remains1.0.18 and **debian-update-manifest.json** remains1.0.16, preserved byte-for-byte with the Windows release. See [Windows updates and recovery](windows-upgrade.md) for service names, recovery and manager reopening. Windows Server2025 x64 Desktop Experience is supported; the server installer refuses Windows10/11. The Windows calling client is separate.
 
 ## Android phones
 

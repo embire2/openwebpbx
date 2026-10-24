@@ -2,7 +2,7 @@
 
 Public destination: **https://openwebpbx.com/**. Deploy only the contents of `public/` to that domain's document root. The site is static HTML, CSS, JavaScript and SVG; it needs no Node build, database, external fonts or third-party scripts. The PBX application and private account data are separate.
 
-Current deployment: **[https://openwebpbx.com/](https://openwebpbx.com/)**, published to the existing cPanel document root on 2026-10-08 and refreshed to 1.0.15 on 2026-10-16, with Play policy pages updated on 2026-10-17. HTTP and `www` requests redirect to the HTTPS apex while preserving the path and query. No DNS or mail routing was changed.
+Current deployment: **[https://openwebpbx.com/](https://openwebpbx.com/)**, published to the existing cPanel document root on 2026-10-08 and refreshed to 1.0.15 on 2026-10-16, with Play policy pages updated on 2026-10-17 and the Windows Server1.0.20 download/catalogue published on2026-10-24. The latter changes only index.html, assets/site.js and releases.json; all three are exact over public HTTPS, ten legal/consent resources and hosting rules are preserved, and six desktop/mobile light/dark layouts,13 feature dialogs, Start search and minimize/restore pass with zero browser errors. The catalogue uses actual GitHub asset sizes, SHA256 hashes and publication time. Debian16/admin19/Android18 remain separate releases. HTTP and `www` requests redirect to the HTTPS apex while preserving the path and query. No DNS or mail routing was changed.
 
 The project-domain `/tenantadmin`, `/tenantadmin/` and `/tenantadmin/index.php` entries redirect to the authenticated PBX portal at https://call.openweb.co.za/tenantadmin/. Query parameters are preserved. Account authentication and tenant data stay on the PBX instance.
 

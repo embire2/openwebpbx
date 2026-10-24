@@ -1,5 +1,13 @@
 # OpenWeb PBX core system status
 
+## Windows Server 1.0.20 released — 2026-10-24
+
+[Windows Server 1.0.20](https://github.com/embire2/openwebpbx/releases/tag/v1.0.20) is published for **Windows Server 2025 x64 with Desktop Experience**. The complete implemented suite includes the local database, calling engine, web administration, Phone Health, conferences, backups, background services, updater and native server manager. This is separate from the unfinished Windows calling client.
+
+The exact published package passes normal40111566679 (17 essential gates), independent replacement restore40123098262 (source9/target20), and signed newer upgrade40125359325 (9 gates plus111 native scheduling/file-sharing controls). These include decoded two-way software calling, browser audio/video, encrypted backups, restored original credentials/media, natural updater restart, rollback, manager reopening and cleanup. All seven public downloads are streamed and checksum-verified. [Windows guide](installing-windows-1.0.20.md) · [Evidence and remaining checks](windows-parity-1.0.20.md).
+
+The ordinary Windows feed starts at installed1.0.20. Original1.0.6 migration/interrupted recovery, actual OS reboot, external phone/carrier/camera acceptance and the separate restored-conference media supplement remain open. No legacy-transition envelope is published. Debian13 remains1.0.16, admin1.0.19 and Android1.0.18; their existing signed feeds are unchanged. The roadmap remains **133 goals /21 accepted /72 partial /40 planned**. Earlier dated entries below retain their historical scope.
+
 ## Phone Health & Recovery — hosted Debian live — 2026-10-22
 
 **Admin → Phone Health** is live on hosted Debian: current phone/provider checks, visible critical incidents and verified office security blocks, with owner-only controlled recovery. The page refreshes every 15 seconds and a 30-second monitor detects changes. Optional email alerts and recovery notices use the global queue with deduplication; email starts off. Recovery uses a separate targeted Event Guard request for one previously verified, tenant-owned IPv4 iptables sign-in block; confirmation, audit, a 15-minute cooldown and refusal of shared, stale or unverified requests protect the action. The original security log remains blocked until worker acknowledgment. IPv6 and custom adapters require review. No permanent whitelist, credential reset, provider enablement or service restart is part of recovery. The corrected managed service and timer, normal owner HTTPS, menu entry and six responsive light/dark browser layouts passed. [Operating guide, tests and limits](phone-health.md).

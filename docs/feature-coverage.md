@@ -1,5 +1,13 @@
 # OpenWeb PBX feature coverage
 
+## Windows Server 1.0.20 released — 2026-10-24
+
+[Windows Server 1.0.20](https://github.com/embire2/openwebpbx/releases/tag/v1.0.20) is published for **Windows Server 2025 x64 with Desktop Experience**. The complete implemented suite includes the local database, calling engine, web administration, Phone Health, conferences, backups, background services, updater and native server manager. This is separate from the unfinished Windows calling client.
+
+The exact published package passes normal40111566679 (17 essential gates), independent replacement restore40123098262 (source9/target20), and signed newer upgrade40125359325 (9 gates plus111 native scheduling/file-sharing controls). These include decoded two-way software calling, browser audio/video, encrypted backups, restored original credentials/media, natural updater restart, rollback, manager reopening and cleanup. All seven public downloads are streamed and checksum-verified. [Windows guide](installing-windows-1.0.20.md) · [Evidence and remaining checks](windows-parity-1.0.20.md).
+
+The ordinary Windows feed starts at installed1.0.20. Original1.0.6 migration/interrupted recovery, actual OS reboot, external phone/carrier/camera acceptance and the separate restored-conference media supplement remain open. No legacy-transition envelope is published. Debian13 remains1.0.16, admin1.0.19 and Android1.0.18; their existing signed feeds are unchanged. The roadmap remains **133 goals /21 accepted /72 partial /40 planned**. Earlier dated entries below retain their historical scope.
+
 ## Phone Health & Recovery — hosted Debian live — 2026-10-22
 
 The hosted Debian patch adds an owner-access **Admin → Phone Health** page, current phone/provider evidence, persistent critical incident banners and a 30-second background monitor. It targets the verified office-lockout case without inferring a cause for every offline phone. Recent authenticated desk-phone observations form a new 30-day history; offline incidents require a 90-second disappearance. Optional email starts off and uses the global queue with deduplicated opening/recovery notices. Owner-only recovery rechecks one current IPv4 iptables sign-in block against a previously verified source, refuses stale/shared/foreign requests, uses a separate targeted Event Guard request, audits the change and imposes a 15-minute cooldown. The old log remains blocked until worker acknowledgment; IPv6/custom adapters require review. The action does not create a whitelist, reset credentials, change routes/providers or restart services. [Guide](phone-health.md).
