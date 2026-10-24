@@ -13,7 +13,7 @@ $work=Join-Path $env:RUNNER_TEMP ('OpenWebUpdaterControls-'+[guid]::NewGuid().To
 $taskName='OpenWebPBX-QA-'+[guid]::NewGuid().ToString('N')
 $public=Join-Path $env:RUNNER_TEMP 'openwebpbx-updater-runtime-facts'
 $facts=[ordered]@{schema=1;run_id=$env:GITHUB_RUN_ID;source_commit=$env:GITHUB_SHA;state='running';scope='isolated Scheduler and file-sharing components';release_eligible=$false;cleanup='pending'}
-function Must([bool]$Value){$script:checks++;if(!$Value){throw ('Updater runtime control failed at '+(Get-PSCallStack)[1].ScriptLineNumber)}}
+function Must([bool]$Value){$script:checks++;if(!$Value){$script:failedControlLine=[int](Get-PSCallStack)[1].ScriptLineNumber;throw 'An updater runtime assertion refused.'}}
 function Definitions([string]$Path){
  $tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($Path,[ref]$tokens,[ref]$errors);Must (@($errors).Count -eq 0)
  $defs=@{};foreach($node in @($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst]},$true))){Must (!$defs.ContainsKey($node.Name));$defs[$node.Name]=$node.Extent.Text};return $defs
@@ -44,10 +44,17 @@ try{
  $null=New-Item -ItemType Directory -Path $work
  $defs=Definitions (Join-Path $PSScriptRoot 'windows-updater-qualification.ps1')
  $script:testPython=(Get-Command python.exe -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source
- foreach($name in 'Check','WriteJson','CheckedProcess','QualificationComparisonFields','QualificationComparisonDetails','QualificationTaskDifference','QualificationTaskDifferenceFields','EqualTaskSnapshots','NormalTaskPreservation','OpenQualificationCleanupLock'){
-  Must ($defs.ContainsKey($name));. ([scriptblock]::Create($defs[$name]))
+ $names=@('Check','WriteJson','CheckedProcess','QualificationComparisonFields','QualificationComparisonDetails','QualificationTaskDifference','QualificationTaskDifferenceFields','EqualTaskSnapshots','NormalTaskPreservation','OpenQualificationCleanupLock')
+ foreach($name in $names){
+  Must ($defs.ContainsKey($name))
  }
- $equal=$defs.Equal.Replace('"$root\backup-runtime\python.exe"','$script:testPython');Must ($equal -cne $defs.Equal -and $equal.Replace('$script:testPython','"$root\backup-runtime\python.exe"') -ceq $defs.Equal);. ([scriptblock]::Create($equal))
+ $equal=$defs.Equal.Replace('"$root\backup-runtime\python.exe"','$script:testPython');Must ($equal -cne $defs.Equal -and $equal.Replace('$script:testPython','"$root\backup-runtime\python.exe"') -ceq $defs.Equal)
+ # A file-backed bootstrap preserves the actual comparator's PSScriptRoot.
+ # Anonymous scriptblocks otherwise lose its adjacent Python script location.
+ $fixture=Join-Path $work 'windows-updater-qualification.ps1'
+ [IO.File]::WriteAllText($fixture,((@($names|ForEach-Object {$defs[$_]})+@($equal)) -join "`n"))
+ $comparator=Join-Path $PSScriptRoot 'windows-compare-json.py';$copied=Join-Path $work 'windows-compare-json.py';Copy-Item -LiteralPath $comparator -Destination $copied
+ Must ((Get-FileHash -LiteralPath $comparator).Hash -ceq (Get-FileHash -LiteralPath $copied).Hash);. $fixture
  $security=Definitions (Join-Path $source 'packaging/windows/Support-Recovery.ps1');. ([scriptblock]::Create($security['Test-OpenWebTaskSecurityEquivalent']))
  $tokens=$null;$errors=$null;$installer=[Management.Automation.Language.Parser]::ParseFile((Join-Path $source 'packaging/windows/Install-PhoneHealth.ps1'),[ref]$tokens,[ref]$errors);Must (@($errors).Count -eq 0)
  $trigger=@($installer.FindAll({param($n)$n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -ceq '$triggers'},$true));Must ($trigger.Count -eq 1)
@@ -63,8 +70,10 @@ try{
  Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Trigger $triggers -Force|Out-Null
  $after=Snapshot;Must ($before['OpenWebPBX-PhoneHealth'].xml -cne $after['OpenWebPBX-PhoneHealth'].xml)
  $old=$defs.NormalTaskPreservation.Replace(",'OpenWebPBX-PhoneHealth')",')');Must ($old -cne $defs.NormalTaskPreservation -and $old.Replace("'OpenWebPBX-TenantDomains')","'OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth')") -ceq $defs.NormalTaskPreservation)
+ $phase='native_scheduler_old_comparator'
  . ([scriptblock]::Create($old));$caught=$null;try{NormalTaskPreservation $before $after $started}catch{$caught=$_}
  Must ($null -ne $caught -and $script:qualificationComparisonFailure.report.comparison_result -ceq 'different' -and $script:qualificationComparisonFailure.task.known_tasks['OpenWebPBX-PhoneHealth'][0] -ceq 'xml')
+ $phase='native_scheduler_corrected_comparator'
  . ([scriptblock]::Create($defs.NormalTaskPreservation));NormalTaskPreservation $before $after $started;Must ($null -eq $script:qualificationComparisonFailure)
  foreach($case in 'action','interval','boot','principal','enabled','file_acl','com_acl','future','duplicate'){
   $changed=CopyRows $after;$row=$changed['OpenWebPBX-PhoneHealth'];[xml]$xml=$row.xml;$ns=[Xml.XmlNamespaceManager]::new($xml.NameTable);$ns.AddNamespace('t','http://schemas.microsoft.com/windows/2004/02/mit/task')
@@ -109,6 +118,7 @@ try{[IO.File]::WriteAllText($Ready,'held');Start-Sleep -Milliseconds $HoldMillis
  $facts.actual_cdr_lease_original_refusal=$true;$facts.cleanup_acquisition_waits_and_bounds=$true;$facts.other_errors_not_retried=$true;$facts.lock_bytes_preserved=$true;$facts.state='passed'
 }catch{
  $facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$_.Exception.GetType().Name;$facts.source_line=[int]$_.InvocationInfo.ScriptLineNumber
+ if($script:failedControlLine -gt 0 -and $script:failedControlLine -le 1000){$facts.control_line=$script:failedControlLine}
 }finally{
  try{
   if($child){if(!$child.HasExited){$child.Kill();Must ($child.WaitForExit(10000))};$child.Dispose()}
