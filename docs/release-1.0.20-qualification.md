@@ -30,6 +30,9 @@ at1.0.20; an unqualified legacy transition is not published. Restored-conference
 supplement40126434519 is separate and failed in its extra Python child; the inner cause was not retained and no restored-conference media pass is claimed. Earlier failed runs below retain
 their original limited evidence and unknown causes; later success assigns none.
 
+The following earlier work records describe the state at the time of each run.
+Their pending checks do not override the accepted evidence above.
+
 **Earlier work on 24 October:** the unchanged candidate from normal40005106134
 passes all 17 full-suite gates. Independent replacement restore40100133999 passes its source
 job, then refuses a meeting-setting snapshot guard. The exact Windows path-format
@@ -112,26 +115,28 @@ to be identical.
 
 ## Windows Server
 
-Windows Server 2025 x64 with Desktop Experience remains under qualification.
-Native build39825672102 passed, including a responsive WinUI manager; its
-71 platform inputs and original artifact were independently verified. Corrected
-engine build39823852979 passed its native parser, registration and codec
-controls. Neither result alone qualifies the complete server.
-
-The accepted normal40005106134 package now passes the installed Phone Health,
-STUN, calling, provider failover, clock, Call Me Back, conference and background
-call-history checks, alongside fresh installation, backups and recovery. Earlier
-component-only results do not replace this complete package evidence.
+The published Windows Server 1.0.20 package supports Windows Server 2025 x64
+with Desktop Experience. Normal40111566679, independent replacement
+restore40123098262 and signed next-version upgrade40125359325 qualify the exact
+archive identified above. These include installed Phone Health, STUN, calling,
+provider failover, clock, Call Me Back, fresh browser conferences, automatic call
+history, encrypted backups, restore and update recovery. Use the
+[matching installation guide](installing-windows-1.0.20.md) and
+[current gate table](windows-parity-1.0.20.md#windows-release-gates).
 
 The owner's original1.0.6 installation has retained file/ACL, database/global,
 configuration, IIS, certificate, service/task and firewall recovery copies.
 It has not been upgraded. Migration/interruption/recovery on that installation,
-actual OS reboot, public certificate issuance/renewal, external phone/provider
-access and final release integrity remain open. Independent restore and newer
-updater results must also pass; see the current table above. Public releases
-and all retained platform feeds are unchanged.
+actual OS reboot, public certificate issuance/renewal and external phone/provider
+access remain open. Restored-meeting media has a separate unfinished qualification.
+Public delivery of all seven release assets is verified; the Android and Debian
+signed feeds retain their original bytes.
 
 ### Earlier Windows candidate checks
+
+These records concern superseded candidates and component tests. They do not
+replace the current package's accepted results or qualify the remaining owner
+migration and external-device checks.
 
 The superseded candidate at `2310f466` completed its initial installer but its
 normal IIS sign-in page returned HTTP 500. Precise native configuration reads

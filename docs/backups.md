@@ -2,19 +2,21 @@
 
 Backups protect **all tenants on one Debian 13 installation**. Only an enabled instance administrator with the **pbx_backup_instance** permission can change settings, request or download a copy. Tenant administrators cannot access another tenant’s data through this page.
 
-This feature is included in the Debian 1.0.9 release. The previous 1.0.7 package does not include this worker. The procedures below describe that Debian implementation; use the separate [Windows backup and restore guide](windows-backups.md) for the unpublished Windows candidate and its qualification limits. Debian/Windows cross-platform restores remain unsupported.
+Instance backups were introduced in Debian 1.0.9; the earlier 1.0.7 package did not include this worker. The published complete Debian 13 server is 1.0.16, with a separate 1.0.19 administration update. The procedures below describe Debian; use the separate [Windows backup and restore guide](windows-backups.md) for published Windows 1.0.20 and its qualification limits. Debian/Windows cross-platform restores remain unsupported.
 
-## Windows 1.0.20 work in progress
+## Windows 1.0.20 published qualification
 
-An exact-package Windows diagnostic passed encrypted SYSTEM backups, verification, wrong-password refusal, retention, pinned SFTP upload, failure recovery, private-file permissions, factory restore and calls-only activation. This is a focused diagnostic of an earlier candidate, not acceptance or publication of the complete current Windows release. Separate-machine restore and signed upgrade/recovery still require the final package's [qualification](release-1.0.20-qualification.md).
+[Windows Server 1.0.20](https://github.com/embire2/openwebpbx/releases/tag/v1.0.20) is published for Windows Server 2025 x64 with Desktop Experience. Its exact package passes normal40111566679 (17 essential gates), independent replacement restore40123098262 (source9/target20), and signed newer upgrade40125359325 (9 gates plus111 native scheduling/file-sharing controls). See the [qualification record](release-1.0.20-qualification.md) for accepted scope and remaining owner 1.0.6 migration, OS reboot, physical/carrier/external-NAT and restored-conference media checks.
 
-The current Windows source preserves Phone Health history on restore and refuses every restored **pending** office-unblock request. Administrators must review and confirm a new recovery after restoration, even when restoring on the same machine. Other recovery fields and historical results remain exact. The private restore journal records the number refused. A failed import restores the target's original recovery history with the rest of its factory database. The machine's protected Phone Health identity stays on the target and cannot be replaced by a source backup. These additions have passed isolated PostgreSQL and encrypted-archive controls; native final-package qualification remains required.
+An earlier exact-package Windows diagnostic passed encrypted SYSTEM backups, verification, wrong-password refusal, retention, pinned SFTP upload, failure recovery, private-file permissions, factory restore and calls-only activation. Those results describe that earlier candidate; the published package's full qualification is recorded separately above.
+
+The current Windows source preserves Phone Health history on restore and refuses every restored **pending** office-unblock request. Administrators must review and confirm a new recovery after restoration, even when restoring on the same machine. Other recovery fields and historical results remain exact. The private restore journal records the number refused. A failed import restores the target's original recovery history with the rest of its factory database. The machine's protected Phone Health identity stays on the target and cannot be replaced by a source backup. The published 1.0.20 normal and independent replacement-restore suites cover these behaviors; their acceptance scope is recorded above.
 
 ## Historical Windows 1.0.13 qualification
 
 The unpublished Windows candidate passed full isolated run **38841661033** at source `1f8beff8b`, including its backup gate and independent original-package audit. Separate-server restore **38845992035** passed all nine source and eighteen target gates with fictional data: real encrypted scheduled/manual backups, clean-server restore, late-failure recovery, original-credential native audio/voicemail, and explicit activation. Both cleanups and temporary-secret removal were independently confirmed. Use the [matching Windows guide](installing-1.0.13.md); the Debian paths and commands below do not apply to Windows.
 
-Signed newer-version test **38848638287** also passed all nine required gates, original-artifact verification, exact cleanup and temporary-secret removal. Migration/upgrade of the still-running supplied original 1.0.6 installation remains blocked by unexplained changes to test copies. Public certificates, Android-to-Windows connection, physical handsets/live carriers and an actual OS restart remain unqualified; these isolated restore results do not publish Windows 1.0.13.
+Signed newer-version test **38848638287** also passed all nine required gates, original-artifact verification, exact cleanup and temporary-secret removal. At that historical stage, migration/upgrade of the supplied original 1.0.6 installation remained blocked by unexplained changes to test copies. Public certificates, Android-to-Windows connection, physical handsets/live carriers and an actual OS restart remain unqualified; these isolated restore results do not publish Windows 1.0.13.
 
 ## Set up
 
@@ -82,7 +84,7 @@ Do not put these directories under the web root or grant tenants filesystem acce
 
 Do this on a **separate fresh installation**, not the running customer PBX.
 
-1. Install the same OpenWeb PBX release as the backup, with the original public server name and a valid certificate. For Debian1.0.20 and later, add **`--restore-server`** to `./install.sh`; this prepares an empty instance instead of creating sample extensions/tenants. Use the built-in local PostgreSQL instance. Do not move DNS or activate the replacement’s carrier trunks yet. Earlier releases support the same empty-restore bootstrap through `OPENWEB_RESTORE_SERVER=true ./install.sh ...`; use the matching release’s instructions.
+1. Install the same OpenWeb PBX release as the backup, with the original public server name and a valid certificate. For a future qualified Debian 1.0.20 or later release, add **`--restore-server`** to `./install.sh`; this prepares an empty instance instead of creating sample extensions/tenants. Use the built-in local PostgreSQL instance. Do not move DNS or activate the replacement’s carrier trunks yet. Earlier releases support the same empty-restore bootstrap through `OPENWEB_RESTORE_SERVER=true ./install.sh ...`; use the matching release’s instructions.
 2. Copy the encrypted backup to a root-only folder on the replacement. Compare its encrypted SHA-256 with the saved download value.
 3. Verify the entire copy. The tool prompts privately for the original password:
 
