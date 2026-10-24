@@ -63,7 +63,13 @@ restores preserve credentials, encryption keys, certificate/mailbox settings and
 service holds. Broader media/Phone Health checks belong to that separate suite.
 A fresh Windows package and native qualification are required; the accepted
 older archive does not contain this runtime change. Fresh normal **40100370382**
-from source b3225ed98 is running without replay or diagnostic-only flags.
+from source b3225ed98 fails after28 completed native child cases, at welcome
+test cleanup. Its public-database/configuration comparison needs further
+observation. The independent backup check also refuses during entry to the
+SFTP observer. Canonical cleanup passes, but complete calling/conference and
+backup gates remain unqualified; the candidate was not downloaded. Separate
+restore **40104065626** is running with the three-file path-check correction
+against the older accepted package, without the default-port product change.
 
 Publication and further signing remain held for build-host and credential
 recovery. The owner reports rebuilding Debian173.214.174.68, but this workspace
@@ -345,7 +351,7 @@ release gates. Earlier run descriptions above remain historical records.
 | Phone Health & Recovery | Installed SYSTEM observation, continuous collection and restart pass129 PostgreSQL,49 runtime and18 Defender controls. | Complete newer-upgrade and separate-server restore preservation, then owner-machine checks. |
 | Remote phones | Native STUN service and33 installed Binding/Defender/recovery checks pass; media remains anchored by the PBX. | External test-machine STUN, actual phone/app connections and two-way audio. Windows IPv6 remains separate; STUN does not provide TURN. |
 | Conferences | Native TLS/WebSocket transport55 and decoded browser audio/video gates pass in the normal package. | External browser/phone acceptance and destination identity/media checks in independent restore. |
-| Backups and restore | Real scheduled encrypted backups, verification, retention, media/private-key preservation, same-machine recovery and explicit activation pass. | Independent target40100133999 refuses a meeting snapshot guard. The exact Windows-path QA correction passes component tests and needs native repetition. Fresh normal40100370382 is testing the separate default-HTTPS-port product correction. Debian archives are unsupported on Windows. |
+| Backups and restore | Real scheduled encrypted backups, verification, retention, media/private-key preservation, same-machine recovery and explicit activation pass in accepted40005106134. | Separate restore40104065626 repeats the exact Windows-path QA correction against that package. Fresh default-port candidate40100370382 fails welcome cleanup and SFTP-observer entry; complete native repetition remains required. Debian archives are unsupported on Windows. |
 | Updates | Fresh install, same-version reapply, direct rollback, restore-startup recovery and both manager reopen gates pass;40097476201 also passes the complete signed newer-upgrade path. | Original1.0.6 migration/interrupted recovery and actual OS reboot. Run40097476201 passes signed newer upgrade/rollback for the accepted archive; a changed product archive requires fresh qualification. |
 | PHP runtime | Pinned PHP8.4.27 is installed and exercised by the normal package; native private-copy runtime preservation/rollback checks also pass. | Full legacy owner upgrade and interruption/recovery. Component checks do not substitute for that migration. |
 | Public access | Installed listener/Defender checks, trusted IIS login, local certificate/readiness and tenant-domain workers pass. | Public ACME issuance/renewal and external tenant/Android/provider access. Local rule checks do not prove internet packet delivery. |

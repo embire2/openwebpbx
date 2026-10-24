@@ -18,7 +18,11 @@ restore and updater failures remain recorded with their limited evidence;
 independent restore remains unqualified. Physical phones, carrier cutover and rendered UI
 are outside the import diagnostic. A default-HTTPS-port
 restore compatibility correction is now reviewed in source. Fresh normal40100370382
-is building and testing that product change without replay or diagnostic flags.
+fails after28 completed native child cases at welcome-test cleanup, then in
+the independent SFTP backup observer. Canonical cleanup passes; complete
+calling/conference and backup gates remain unqualified and no candidate was
+downloaded. Separate restore40104065626 repeats the path-check correction
+against the unchanged accepted package; it cannot qualify the default-port change.
 Publication and further signing remain held for build-host
 and credential recovery; owner migration, actual OS reboot and external access
 remain open. See the [current Windows release-gate table](windows-parity-1.0.20.md#windows-release-gates)
