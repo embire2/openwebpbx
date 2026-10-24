@@ -37,8 +37,61 @@ $x=Clone $row;$x.case=$x.case.ToUpperInvariant();Refuse @($x) 'case name is exac
 $x=Clone $row;$value=$x.spool_absent;$x.PSObject.Properties.Remove('spool_absent');$x|Add-Member -NotePropertyName Spool_Absent -NotePropertyValue $value;Refuse @($x) 'field spelling is exact'
 $calls=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'AssertCdrBackgroundNativeCase'},$true))
 Check ($calls.Count -eq 2) 'normal-full validator plus validated completed-case path'
-$branches=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.IfStatementAst] -and $node.Clauses[0].Item1.Extent.Text -ceq '$HoldDiagnosticsOnly' -and $node.ElseClause -and $node.ElseClause.Extent.Text.Contains('AssertWelcomeNativeCase')},$true))
-Check ($branches.Count -eq 1 -and $branches[0].ElseClause.Extent.Text.Contains('AssertCdrBackgroundNativeCase $native.checks') -and !$branches[0].Clauses[0].Item2.Extent.Text.Contains('AssertCdrBackgroundNativeCase')) 'mandatory full-only proof retains separate hold diagnostic'
+# Inspect the actual enclosing branch, retaining mandatory full-only proof.
+function TestFullNativeProofBranch($Node){
+ if($Node -isnot [Management.Automation.Language.IfStatementAst] -or $Node.Clauses.Count -ne 2 -or !$Node.ElseClause){return $false}
+ if($Node.Clauses[0].Item1.Extent.Text -cne '$ThreecxImportOnly' -or $Node.Clauses[1].Item1.Extent.Text -cne '$HoldDiagnosticsOnly'){return $false}
+ $import=@('Assert-NativeThreecxImportReport $native','$facts.checks=@($native.checks)',"`$facts.gates.threecx_import_diagnostic='passed'",'$nativePassed=$true')
+ $hold=@("if(`$native.diagnostic_case -isnot [string] -or `$native.diagnostic_case -cne 'hold' -or `$native.full_release_eligible -isnot [bool] -or `$native.full_release_eligible -or `$native.owner_eligible -isnot [bool] -or `$native.owner_eligible){throw 'Hold-only diagnostics cannot qualify the full suite or owner.'}",'AssertNativeHoldDiagnosticCases $native.checks','$facts.checks=@($native.checks)',"`$facts.gates.hold_diagnostic='passed'",'$nativePassed=$true')
+ foreach($index in 0,1){
+  $expected=if($index -eq 0){$import}else{$hold};$statements=@($Node.Clauses[$index].Item2.Statements)
+  if($statements.Count -ne $expected.Count){return $false}
+  for($i=0;$i -lt $expected.Count;$i++){if($statements[$i].Extent.Text -cne $expected[$i]){return $false}}
+ }
+ $full=@($Node.ElseClause.Statements)
+ $proofs=@('AssertExtendedNativeCases $native.checks','AssertWelcomeNativeCase $native.checks','AssertCdrBackgroundNativeCase $native.checks')
+ if($full.Count -lt $proofs.Count){return $false}
+ for($i=0;$i -lt $proofs.Count;$i++){if($full[$i] -isnot [Management.Automation.Language.PipelineAst] -or $full[$i].Extent.Text -cne $proofs[$i]){return $false}}
+ foreach($name in 'AssertWelcomeNativeCase','AssertCdrBackgroundNativeCase'){
+  $calls=@($Node.FindAll({param($n)$n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -ceq $name},$true))
+  if($calls.Count -ne 1 -or $calls[0].Parent.Parent -ne $Node.ElseClause){return $false}
+ }
+ return $true
+}
+$branches=@($ast.FindAll({param($node)$node -is [Management.Automation.Language.IfStatementAst] -and $node.ElseClause -and $node.ElseClause.Extent.Text.Contains('AssertWelcomeNativeCase')},$true))
+Check ($branches.Count -eq 1 -and (TestFullNativeProofBranch $branches[0])) 'exact diagnostic branches cannot claim full CDR/welcome proof'
+$branchText=$branches[0].Extent.Text
+$mutations=@(
+ $branchText.Replace('if($ThreecxImportOnly)','if($true)'),
+ $branchText.Replace('if($ThreecxImportOnly)','if($ThreecxImportOnly -or $HoldDiagnosticsOnly)'),
+ $branchText.Replace('elseif($HoldDiagnosticsOnly)','elseif($ThreecxImportOnly)'),
+ $branchText.Replace('Assert-NativeThreecxImportReport $native;',''),
+ $branchText.Replace('Assert-NativeThreecxImportReport $native;','AssertCdrBackgroundNativeCase $native.checks;'),
+ $branchText.Replace('Assert-NativeThreecxImportReport $native;','AssertWelcomeNativeCase $native.checks;'),
+ $branchText.Replace('Assert-NativeThreecxImportReport $native;','Assert-NativeThreecxImportReport $native;$facts.full_release_eligible=$true;'),
+ $branchText.Replace("`$facts.gates.threecx_import_diagnostic='passed'","`$facts.gates.native_sip_audio='passed'"),
+ $branchText.Replace('AssertNativeHoldDiagnosticCases $native.checks;',''),
+ $branchText.Replace('AssertNativeHoldDiagnosticCases $native.checks;','AssertCdrBackgroundNativeCase $native.checks;'),
+ $branchText.Replace('AssertNativeHoldDiagnosticCases $native.checks;','AssertNativeHoldDiagnosticCases $native.checks;AssertWelcomeNativeCase $native.checks;'),
+ $branchText.Replace('$native.full_release_eligible -or','$false -or'),
+ $branchText.Replace('$native.owner_eligible){throw','$false){throw'),
+ $branchText.Replace("`$facts.gates.hold_diagnostic='passed'","`$facts.gates.native_sip_audio='passed'"),
+ $branchText.Replace('AssertCdrBackgroundNativeCase $native.checks',''),
+ $branchText.Replace('AssertWelcomeNativeCase $native.checks',''),
+ $branchText.Replace('AssertCdrBackgroundNativeCase $native.checks','AssertCdrBackgroundNativeCase $other.checks'),
+ $branchText.Replace('AssertCdrBackgroundNativeCase $native.checks','if($optional){AssertCdrBackgroundNativeCase $native.checks}'),
+ $branchText.Replace('AssertCdrBackgroundNativeCase $native.checks','try{AssertCdrBackgroundNativeCase $native.checks}catch{}'),
+ $branchText.Replace('AssertCdrBackgroundNativeCase $native.checks','AssertCdrBackgroundNativeCase $native.checks;AssertCdrBackgroundNativeCase $native.checks'),
+ $branchText.Replace('AssertExtendedNativeCases $native.checks','return;AssertExtendedNativeCases $native.checks'),
+ $branchText.Replace('AssertExtendedNativeCases $native.checks',"`$facts.gates.native_sip_audio='passed';AssertExtendedNativeCases `$native.checks"),
+ $branchText.Replace('AssertWelcomeNativeCase $native.checks','AssertWelcomeNativeCase $other.checks')
+)
+foreach($changed in $mutations){
+ Check ($changed -cne $branchText) 'mutation changes original source'
+ $tokens=$null;$errors=$null;$parsed=[Management.Automation.Language.Parser]::ParseInput($changed,[ref]$tokens,[ref]$errors)
+ Check ($errors.Count -eq 0) 'mutation is valid PowerShell AST'
+ Check ($parsed.EndBlock.Statements.Count -eq 1 -and !(TestFullNativeProofBranch $parsed.EndBlock.Statements[0])) 'unsafe branch must refuse'
+}
 $work=Join-Path ([IO.Path]::GetTempPath()) ('openweb-cdr-snapshots-'+[Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($work)|Out-Null
 function WriteSnapshot([string]$Name,[string]$State,$Rows,[string]$Producer='windows-native-acceptance.py'){
