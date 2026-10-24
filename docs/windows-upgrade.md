@@ -2,9 +2,10 @@
 
 ## Current Windows 1.0.20 work
 
-The complete native Windows Server2025 package is under acceptance; it is not
-published yet. Follow the [current parity record](windows-parity-1.0.20.md) and
-[1.0.20 installation guide](installing-1.0.20.md). The original test machine's
+The complete native Windows Server2025 fresh-server package passes normal,
+independent restore and signed newer-upgrade/recovery qualification. Follow the
+[current parity record](windows-parity-1.0.20.md) and
+[Windows1.0.20 installation guide](installing-windows-1.0.20.md). The original test machine's
 1.0.6 installation is being preserved before migration.
 
 The matching `Upgrade-LegacyWindows.ps1` now supports completed 1.0.3–1.0.7

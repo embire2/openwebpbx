@@ -1,11 +1,34 @@
 # Server 1.0.20 qualification
 
-This is an in-progress qualification record, not a publication announcement.
-The complete server 1.0.20 release is not public, and the hosted instance has
-not received the complete server upgrade. Android remains 1.0.18, including its
-existing mandatory minimum.
+Windows Server 1.0.20 is qualified for fresh Windows Server 2025 x64 with
+Desktop Experience and ordinary updates starting from installed1.0.20.
+[Download the matching release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.20)
+and follow the [Windows installation guide](installing-windows-1.0.20.md).
+The complete Debian server remains1.0.16, its administration update1.0.19,
+and Android1.0.18 with its existing mandatory minimum. The hosted Debian
+instance has not received a complete server1.0.20 upgrade.
 
-**Latest results:** full normal40111566679/source9f826eccd passes all17 essential Windows gates, typed normal background call-history importing, isolated V20 import and canonical cleanup. Root accepts the exact585104517-byte package SHA256 `9a45d51c1ee1d1f985062fc16fb0cdfaea43aee6c1a7a540a7b820852e776522`, all19166 payloads/6652 source mappings/1099 native files/73 inputs and complete private-value/path scans. Generated music is bound to the original run artifact and the entire manifest is reconstructed. Unsigned1.0.21 preparation40119763798 passes its complete archive/native/version/private-value audits. Both private envelopes are signed locally and the packet verifies. Signed40120989588 passes fault transfer/rollback and both manager reopens, then encounters a sharing violation in the late protected snapshot; aggregate upgrade remains unqualified and its exact temporary secret is removed. Replacement restore40119790351 stops in an unidentified export wait; diagnostic repeat40123098262 passes all nine source and20 clean-target gates, with original-credential two-way media, voicemail121, Nathaniel1026, scheduled jobs/backups, complete database/identity preservation and canonical cleanup. Signed repeat40125359325 is running with the same pair and unchanged preservation checks; only six missing fixed-path diagnostic labels are added. Owner migration, actual reboot and external checks remain pending. Earlier401040 restore and400974 signed-upgrade results retain their older-package scope; earlier failed normals remain historical evidence.
+**Current accepted evidence:**
+
+- [Normal40111566679](https://github.com/embire2/openwebpbx/actions/runs/40111566679): all17 essential Windows gates, typed normal background call history, isolated V20 import and canonical cleanup.
+- [Independent restore40123098262](https://github.com/embire2/openwebpbx/actions/runs/40123098262): source9/target20 gates; preserved credentials, database, media and target identities; original-credential two-way software calls; voicemail121; Nathaniel1026; scheduled jobs/backups; canonical cleanup.
+- [Signed newer upgrade40125359325](https://github.com/embire2/openwebpbx/actions/runs/40125359325): all9 signed upgrade/rollback gates and111 native scheduling/file-sharing controls; full verified downloads, natural updater restart, both manager reopens, protected data and canonical cleanup. The exact owned temporary secret is removed.
+
+All three bind the same585104517-byte ZIP, SHA256
+`9a45d51c1ee1d1f985062fc16fb0cdfaea43aee6c1a7a540a7b820852e776522`,
+built from9f826eccd6cb6c792bdc949e7b6e551c5cea4f5b. Its19166 payloads,
+6652 source mappings,1099 native files and73 build inputs pass complete audit;
+configured private values and customer/environment files are excluded. Original
+generated music is authenticated and the entire manifest reconstructed.
+The release tag adds documentation/publication tooling; the archive and explicit
+corresponding source remain the qualified build. Existing Android/Debian signed
+feeds are preserved byte-for-byte.
+
+Original1.0.6 migration/interrupted recovery, actual Windows reboot and external
+physical phone/carrier/camera checks remain unqualified. The ordinary feed starts
+at1.0.20; an unqualified legacy transition is not published. Restored-conference
+supplement40126434519 is separate and running. Earlier failed runs below retain
+their original limited evidence and unknown causes; later success assigns none.
 
 **Earlier work on 24 October:** the unchanged candidate from normal40005106134
 passes all 17 full-suite gates. Independent replacement restore40100133999 passes its source

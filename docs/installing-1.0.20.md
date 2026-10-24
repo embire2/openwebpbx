@@ -2,7 +2,7 @@
 
 This complete server build targets **Debian 13 amd64**, with a separate **Windows Server 2025 x64** package that requires its own qualification. The current Android client remains **1.0.18/code118**. Historical Windows server releases remain available; the native Windows calling app is under separate development. See the [Windows client plan](windows-client-plan.md).
 
-**1.0.20 is not published yet.** This guide describes the candidate installation flow. Follow the [release qualification record](release-1.0.20-qualification.md) and [Windows release checks](windows-parity-1.0.20.md); current public downloads are listed in the [README](../readme.md#downloads-and-platforms). Once your platform is published, use its matching archive and `SHA256SUMS`, and extract the complete archive into an empty private folder.
+**Windows Server1.0.20 has completed functional qualification; Debian1.0.20 remains a candidate.** For the Windows release, use the [focused Windows guide](installing-windows-1.0.20.md) and matching published assets. This general guide also records the candidate Debian flow. Follow the [release qualification record](release-1.0.20-qualification.md) and [Windows release checks](windows-parity-1.0.20.md); current public downloads are listed in the [README](../readme.md#downloads-and-platforms). Once your platform is published, use its matching archive and `SHA256SUMS`, and extract the complete archive into an empty private folder.
 
 **Install only a published package whose release notes record the completed qualification for your platform. Development archives are not stable releases.** Release preparation is authorized; the exact package must finish its functional qualification before publication.
 

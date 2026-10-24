@@ -1,6 +1,6 @@
 # Windows Server parity work — 1.0.20
 
-Status on 24 October 2026: **development and native acceptance in progress**.
+Status on 24 October 2026: **fresh Windows Server1.0.20 functional acceptance complete**.
 
 Current normal **40111566679/source9f826eccd** passes all17 essential gates,
 including native two-way calling, decoded browser audio/video, backups, Phone
@@ -16,13 +16,15 @@ The accepted585104517-byte ZIP has SHA256
 `9a45d51c1ee1d1f985062fc16fb0cdfaea43aee6c1a7a540a7b820852e776522`.
 Unsigned newer1.0.21 preparation **40119763798** passes complete transport,
 73-source/1099-native/actual-version and private-value audits. Existing-key
-private envelopes and their exact packet are verified. Signed **40120989588**
-passes fault HTTPS/rollback and both manager reopens, then refuses a late fixed
-protected-file hash with IOException/Win32 code32. The exact file and holder are
-unretained; six missing fixed-path labels are being added without changing any
-hash, snapshot, retry or preservation requirement. Cleanup passes and the exact
-owned temporary GitHub secret is removed. Aggregate newer-upgrade acceptance
-remains pending.
+private envelopes and their exact packet are verified. Signed repeat
+**40125359325/QAheadb3cb8fd** passes all9 newer-upgrade/rollback gates and111
+actual Scheduler/CDR-sharing controls. Root authenticates original artifacts,
+base/canary/source/archive and private sequences; full HTTPS transfer, natural
+restart, both manager reopens, protected data and canonical cleanup pass. The
+exact owned temporary secret is removed. Earlier40120989588 retains its late
+fixed-file IOException/code32 with unknown file/holder; later success establishes
+no historical cause. The diagnostic label-only change preserves all hashes,
+snapshots, retries and comparisons.
 
 Restore **40119790351** stops at an unidentified source export wait. Four QA-only
 failure-observation files preserve the original deadline, polls and exception;
@@ -32,10 +34,9 @@ calling/media and both manual/daily encrypted backups. Its independent clean
 target also passes all20 gates: complete database/media and target identities,
 original-credential decoded two-way calls, voicemail121, Nathaniel1026, scheduled
 jobs/backups and canonical cleanup. All six original Phone Health choices are
-restored. Signed repeat40125359325 uses the same verified pair with six diagnostic
-labels added and unchanged preservation checks. Restored-conference supplement
-40126434519 is separate and running. This is not yet a public release. Owner
-migration, actual OS reboot and external access are separate.
+restored. Signed repeat40125359325 passes with the same verified pair and unchanged
+preservation checks. Restored-conference supplement40126434519 is separate and
+running. Owner migration, actual OS reboot and external access are separate.
 
 Earlier normal **40106683010/source23477de2f** failed after complete native calling,
 conference, SMTP/welcome and factory-cleanup acceptance. Root authenticates11
@@ -131,9 +132,10 @@ remains pending.
 
 The owner has authorized release preparation, signing and publication irrespective
 of rebuild verification. That earlier hold is superseded; exact-package functional
-qualification remains required. No owner-machine upgrade or public feed change has
-occurred. The public Windows version remains **1.0.7**. Do not replace a production
-server with an unpublished archive.
+qualification remains required. The fresh Windows Server1.0.20 release uses a separate signed feed with
+minimum1.0.20; original owner-machine migration is still unqualified. Use only
+the matching published assets and guide, and never run fresh setup over an
+existing installation.
 
 See the [current release-gate table](#windows-release-gates),
 [Windows installation checklist](installing-1.0.20.md#windows-server-installation)
@@ -400,21 +402,23 @@ permission/unsafe-path refusal.
 
 ## Windows release gates
 
-The table below reflects the accepted normal run40005106134 and the current
-release gates. Earlier run descriptions above remain historical records.
+The table reflects accepted normal40111566679 and independent replacement
+restore40123098262 against the exact9a45d51c package. Signed next-version
+qualification40125359325 passes all9 gates and111 native controls. Earlier run descriptions retain their
+original package scope.
 
-| Area | Verified in the current normal package | Still required before release |
+| Area | Verified for the current package | Remaining qualification and deployment checks |
 |---|---|---|
-| Phone Health & Recovery | Installed SYSTEM observation, continuous collection and restart pass129 PostgreSQL,49 runtime and18 Defender controls; accepted-package upgrade and separate restore preservation also pass. | Repeat relevant checks on the final changed package, then owner-machine checks. |
+| Phone Health & Recovery | Installed SYSTEM observation, continuous collection and restart pass129 PostgreSQL,49 runtime and18 Defender controls; accepted-package upgrade and separate restore preservation also pass. | Owner-machine registration and recovery checks; broader physical-phone coverage. |
 | Remote phones | Native STUN service and33 installed Binding/Defender/recovery checks pass; media remains anchored by the PBX. | External test-machine STUN, actual phone/app connections and two-way audio. Windows IPv6 remains separate; STUN does not provide TURN. |
-| Conferences | Native TLS/WebSocket transport55 and decoded browser audio/video gates pass in the normal package. | External browser/phone acceptance and destination identity/media checks in independent restore. |
-| Backups and restore | Scheduled encrypted backups, retention, media/private-key preservation, recovery and activation pass in accepted40005106134; independent restore40104065626 adds nine source and twenty clean-target passes. | Fresh normal40106683010 and a new independent restore must qualify the default-port product correction. Debian archives are unsupported on Windows. |
-| Updates | Fresh install, same-version reapply, direct rollback, restore-startup recovery and both manager reopen gates pass;40097476201 also passes the complete signed newer-upgrade path. | Original1.0.6 migration/interrupted recovery and actual OS reboot. Run40097476201 passes signed newer upgrade/rollback for the accepted archive; a changed product archive requires fresh qualification. |
+| Conferences | Native TLS/WebSocket transport55 and decoded browser audio/video gates pass in the normal package. | External browser/phone acceptance. Supplement40126434519 is checking decoded browser media on the independently restored target. |
+| Backups and restore | Scheduled encrypted backups, retention, media/private-key preservation, recovery and activation pass in normal40111566679; restore40123098262 passes nine source and20 clean-target gates on that exact archive, including the default-HTTPS-port correction. | Owner-instance restore checks. Debian instance archives are unsupported on Windows. |
+| Updates | Fresh installation, same-version reapply, direct rollback, restore-startup recovery and both manager reopen gates pass in40111566679. The matched1.0.21 canary archive and existing-key envelopes are fully audited. | Signed40125359325 now passes all9 gates for this exact base/canary pair. Original1.0.6 migration/interrupted recovery and actual OS reboot remain open; earlier40097476201 retains its older-package scope. |
 | PHP runtime | Pinned PHP8.4.27 is installed and exercised by the normal package; native private-copy runtime preservation/rollback checks also pass. | Full legacy owner upgrade and interruption/recovery. Component checks do not substitute for that migration. |
 | Public access | Installed listener/Defender checks, trusted IIS login, local certificate/readiness and tenant-domain workers pass. | Public ACME issuance/renewal and external tenant/Android/provider access. Local rule checks do not prove internet packet delivery. |
 | Client setup and welcome mail | The installed normal suite includes the welcome MIME/inline QR/setup-attachment case and global SMTP checks against local controlled recipients. | External Android QR/manual sign-in, password changes and multiple profiles on the owner server. Controlled SMTP acceptance does not prove delivery by the owner's relay. |
-| Calling | The complete normal calling, provider, Call Me Back, clock, conference and background call-history gates pass, including strict fixture cleanup. | Commercial provider and physical phone/app acceptance on the owner machine, plus independent restored calling/media checks. |
-| 3CX migration | Installed PHP/PostgreSQL V20 import checks pass. Diagnostic40098653401 additionally passes real IIS upload/import and original-credential software-phone direct/ring-group decoded two-way audio. | Rendered browser flow, physical phones and real carrier handover; repeat relevant checks after the pending runtime correction. |
+| Calling | The complete normal calling, provider, Call Me Back, clock, conference and background call-history gates pass, including strict fixture cleanup. | Commercial provider and physical phone/app acceptance on the owner machine. Independent restored original-credential two-way software calling, voicemail and clock pass in40123098262. |
+| 3CX migration | Installed PHP/PostgreSQL V20 import checks pass. Diagnostic40098653401 additionally passes real IIS upload/import and original-credential software-phone direct/ring-group decoded two-way audio. | Rendered browser flow, physical phones and real carrier handover. The earlier IIS diagnostic retains its original archive scope; the current normal suite independently tests supported V20 configuration importing. |
 
 Current server support is Windows Server2025 x64 with Desktop Experience.
 Windows10/11 server installation is deliberately refused. WinUI supplies the
