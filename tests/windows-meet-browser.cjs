@@ -13,6 +13,15 @@ if(!settings.pathProbe||normalized(settings.pathProbe.php)!==normalized('C:/Open
 const evidence = path.dirname(process.argv[2]);
 const checks = [];
 let hostBrowser, guestBrowser, owner, host, guest, meetingCreated = false;
+let restoredMeetingId;
+if(settings.restoredLedger && normalized(settings.restoredLedger)!==normalized(path.join(privateDirectory,'restored-meeting.private.json')))throw Error('Exact restored meeting ledger required.');
+function saveRestoredMeeting(id){
+  if(typeof id!=='string'||!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(id))throw Error('One newly created meeting UUID is required.');
+  const fd=fs.openSync(settings.restoredLedger,'wx',0o600);
+  try{fs.writeFileSync(fd,JSON.stringify({schema:1,meeting_uuid:id,subject:settings.subject}));fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+  restoredMeetingId=id;
+}
+
 let phase = 'browser_start';
 let ownerPage;
 let hostSignaling, guestSignaling;
@@ -162,6 +171,11 @@ async function proofFailure(error){
     phase='create';const create=owner.locator('form').filter({has:owner.locator('input[name="action"][value="create"]')});
     await create.locator('input[name="subject"]').fill(settings.subject);
     await create.getByRole('button',{name:'Create Meeting',exact:true}).click();await snapshot(owner,'created-meet');meetingCreated=true;
+    if(settings.restoredLedger){
+      const createdIds=await owner.locator('form input[name="action"][value="host"]').locator('..').locator('input[name="id"]').evaluateAll(nodes=>nodes.map(node=>node.value));
+      if(createdIds.length!==1)throw Error('The create response has no unique owned meeting UUID.');
+      saveRestoredMeeting(createdIds[0]);
+    }
     const invitation=await owner.locator('#invitation').inputValue();
     requireFact(invitation.startsWith(settings.origin+'/app/pbx_meet/join.php#'),'normal UI invitation retains trusted authority');
     phase='host_join';const popup=hostContext.waitForEvent('page');await owner.getByRole('button',{name:'Start Now',exact:true}).click();host=await popup;hostSignaling=signaling.watch(host,settings.origin);hostSecret=pathDiagnostics.capture(host,settings.origin);await host.waitForLoadState('domcontentloaded');await snapshot(host,'host-ready');
@@ -190,7 +204,7 @@ async function proofFailure(error){
     fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'passed',checks,host:hostProof,guest:guestProof,meeting_path:{before:beforePath,after:afterPath},physical_camera:'unqualified',scope:'fictional Windows hosted runner'},null,2));
   }catch(error){failure=error;const browser_failure=await proofFailure(error);const media=['decoded_media','mute','unmute','end'].includes(phase)?{meeting_media:{host:await mediaFields(host),guest:await mediaFields(guest)}}:{};const signals=['host_join','guest_join','admission','decoded_media','mute','unmute','end'].includes(phase)?{meeting_signaling:{host:await signaling.collect(host,hostSignaling),guest:await signaling.collect(guest,guestSignaling)}}:{};const meeting_path={before:beforePath,after:afterPath||await pathDiagnostics.observe(settings,'after',{host:hostSecret(),guest:guestSecret()})};fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'failed',phase,browser_failure,...(ownerPage?{owner_page:ownerPage}:{}),...media,...signals,meeting_path}));fs.writeFileSync(path.join(evidence,'meeting-browser.private.error'),String(error.stack||error));}
   finally{
-    if(meetingCreated&&owner){try{await owner.goto(settings.origin+'/app/pbx_meet/');const card=owner.locator('article.meet-card').filter({hasText:settings.subject});if(await card.getByText('Cancel Meeting',{exact:true}).count()){await card.locator('summary').click();await card.locator('[name="confirm_cancel"]').check();await card.getByRole('button',{name:'End Meeting',exact:true}).click();}}catch(error){if(!failure)failure=error;}}
+    if(meetingCreated&&owner){try{await owner.goto(settings.origin+'/app/pbx_meet/');const card=settings.restoredLedger?owner.locator('article.meet-card').filter({has:owner.locator('input[name="id"][value="'+restoredMeetingId+'"]')}):owner.locator('article.meet-card').filter({hasText:settings.subject});if(settings.restoredLedger&&(!restoredMeetingId||await card.count()!==1||await card.locator('h3').innerText()!==settings.subject))throw Error('Exact restored meeting ownership is unavailable.');if(await card.getByText('Cancel Meeting',{exact:true}).count()){await card.locator('summary').click();await card.locator('[name="confirm_cancel"]').check();await card.getByRole('button',{name:'End Meeting',exact:true}).click();}}catch(error){if(!failure)failure=error;}}
     await Promise.allSettled([hostBrowser?.close(),guestBrowser?.close()]);
   }
   if(failure){console.error('Actual Windows browser meeting media qualification failed; private evidence retained.');process.exitCode=1;}

@@ -10,7 +10,8 @@ param(
  [Parameter(Mandatory)][ValidateSet('Source','Target')][string]$Role,
  [Parameter(Mandatory)][ValidatePattern('^[1-9][0-9]{0,19}$')][string]$BaseSuiteRunId,
  [ValidatePattern('^\d+\.\d+\.\d+$')][string]$BaseVersion='1.0.13',
- [switch]$DisposableHostedRunner
+ [switch]$DisposableHostedRunner,
+ [switch]$RestoredConferenceSupplement
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx' -or $env:GITHUB_EVENT_NAME -ne 'workflow_dispatch'){throw 'Only the explicitly disposable owned manually dispatched hosted Windows runner is authorized.'}
@@ -192,6 +193,35 @@ function AssertRestoredServiceActivation([string]$Name){
   }catch{}
   throw
  }
+}
+function RestoredMeetingSupplement {
+ Check ($Role -ceq 'Target' -and [version]$BaseVersion -ge [version]'1.0.20') 'The conference supplement requires the restored current target.'
+ $script:phase='restored browser conference supplement'
+ $bindingBefore=Set-SuiteFixtureBinding -Read
+ $adapter=Join-Path $state ('native-qualification/'+[Guid]::NewGuid().ToString('N').Substring(0,24))
+ Check (!(Test-Path -LiteralPath $adapter)) 'A fresh private native adapter is required.'
+ PrivateDirectory $adapter
+ CheckedProcess $python @('-I','-B',(Join-Path $PSScriptRoot 'windows_restored_meeting.py'),'--input',$inputFile,'--adapter',$adapter) 'restored-conference-supplement' $source 600000
+ Check (!(Test-Path -LiteralPath $adapter)) 'The owned native adapter scope survived cleanup.'
+ $meeting=Get-Content -LiteralPath (Join-Path (Split-Path $inputFile -Parent) 'restored-conference.safe.json') -Raw|ConvertFrom-Json
+ $keys=@('schema','state','producer','run_id','source_commit','base_suite_run_id','base_archive_sha256','media','original_meetings_and_members_preserved','original_bindings_and_holds_preserved','owned_processes_closed','owned_native_scope_removed','remaining_calls','existing_invitation_continuity','physical_camera','external_nat')
+ Check (@($meeting.PSObject.Properties).Count -eq $keys.Count -and @($meeting.PSObject.Properties.Name|Where-Object {$_ -cnotin $keys}).Count -eq 0) 'One exact closed restored-conference receipt is required.'
+ Check (($meeting.schema -is [long] -or $meeting.schema -is [int]) -and $meeting.schema -eq 1 -and $meeting.state -ceq 'passed' -and $meeting.producer -ceq 'windows_restored_meeting.py') 'The restored media producer did not pass.'
+ Check ($meeting.run_id -ceq $env:GITHUB_RUN_ID -and $meeting.source_commit -ceq $env:GITHUB_SHA -and $meeting.base_suite_run_id -ceq $BaseSuiteRunId -and $meeting.base_archive_sha256 -ceq $facts.base_archive_sha256) 'The restored media receipt changed its run or archive binding.'
+ foreach($name in 'original_meetings_and_members_preserved','original_bindings_and_holds_preserved','owned_processes_closed','owned_native_scope_removed'){Check ($meeting.$name -is [bool] -and $meeting.$name) 'Exact restored conference preservation and cleanup are required.'}
+ Check (($meeting.remaining_calls -is [long] -or $meeting.remaining_calls -is [int]) -and $meeting.remaining_calls -eq 0) 'Restored conference calls survived.'
+ foreach($name in 'existing_invitation_continuity','physical_camera','external_nat'){Check ($meeting.$name -ceq 'unqualified') 'Unobserved conference capabilities cannot be promoted.'}
+ $media=$meeting.media;$mediaKeys=@('checks','wss_roundtrips','host_frames','guest_frames','host_tone_ratio','guest_tone_ratio','physical_camera')
+ Check (@($media.PSObject.Properties).Count -eq $mediaKeys.Count -and @($media.PSObject.Properties.Name|Where-Object {$_ -cnotin $mediaKeys}).Count -eq 0) 'Closed original browser media proof required.'
+ foreach($pair in @(@('checks',9),@('wss_roundtrips',16))){$n=$media.($pair[0]);Check (($n -is [long] -or $n -is [int]) -and $n -eq $pair[1]) 'All original browser and WSS checks are required.'}
+ foreach($name in 'host_frames','guest_frames'){$n=$media.$name;Check (($n -is [long] -or $n -is [int]) -and $n -ge 10 -and $n -le 2147483647) 'Decoded VP8 frames are required.'}
+ foreach($name in 'host_tone_ratio','guest_tone_ratio'){$n=$media.$name;Check (($n -is [double] -or $n -is [long] -or $n -is [int]) -and $n -gt .65 -and $n -le 1) 'Independent decoded audio tones are required.'}
+ Check ($media.physical_camera -ceq 'unqualified') 'Synthetic browser media does not qualify physical cameras.'
+ $bindingAfter=Set-SuiteFixtureBinding -Read
+ Check ([Convert]::ToBase64String($bindingBefore.hash) -ceq [Convert]::ToBase64String($bindingAfter.hash) -and $bindingBefore.store -ceq $bindingAfter.store) 'Restored meeting execution changed the exact target IIS certificate binding.'
+ $facts.qualification_mode='restored_conference_supplement'
+ $facts.restored_conference=$meeting
+ $facts.gates.restored_browser_conference_two_way_decoded_audio_video='passed'
 }
 function SafeRestoreWaitFailure($Record){
  if($null -eq $Record -or $Record -is [Array]){return $null}
@@ -439,6 +469,7 @@ $r=Get-Content -LiteralPath $InputFile -Raw|ConvertFrom-Json
   HeldServiceRestart
   EnableTargetTls -Prepared;NativeFixture 'activate-calls';NativeFixture 'native-target'
   if([version]$BaseVersion -ge [version]'1.0.20'){NativeFixture 'clock-target'}
+  if($RestoredConferenceSupplement){RestoredMeetingSupplement}
   NativeFixture 'job'
   NativeFixture 'activate-updates-backups';NativeFixture 'target-backup';AssertBackupTask
   $phase='postactivation original task states'
