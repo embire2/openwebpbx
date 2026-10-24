@@ -79,7 +79,7 @@ def backup_exception_fields(error,phase,checks):
     frames=[];current=error.__traceback__
     while current is not None:
         name=Path(current.tb_frame.f_code.co_filename).name
-        if name in {'windows_backups_native.py','backups.py'} and 0<current.tb_lineno<=20000:
+        if name in {'windows_backups_native.py','backups.py','windows-backups-worker-observer.py'} and 0<current.tb_lineno<=20000:
             frames.append({'source_basename':name,'source_line':current.tb_lineno})
         current=current.tb_next
     fields={'schema':1,'failed_phase':phase if phase in BACKUP_PHASES else 'unknown',

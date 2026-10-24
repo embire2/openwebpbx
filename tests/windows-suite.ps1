@@ -883,7 +883,7 @@ function BackupFailureReport([string]$Path,[datetime]$StartedAt){
   $safe.failed_phase=if($failure.failed_phase -is [string] -and $failure.failed_phase -cin $phases){$failure.failed_phase}else{'unknown'}
   $safe.error_type=if($failure.error_type -is [string] -and $failure.error_type -cin $types){$failure.error_type}else{'unknown'}
   $safe.source_frames=@();$frames=@($failure.source_frames)
-  if($frames.Count -le 8){foreach($frame in $frames){if($frame.source_basename -is [string] -and $frame.source_basename -cin @('windows_backups_native.py','backups.py') -and (& $integer $frame.source_line 1 20000)){$safe.source_frames+=@{source_basename=$frame.source_basename;source_line=[int]$frame.source_line}}}}
+  if($frames.Count -le 8){foreach($frame in $frames){if($frame.source_basename -is [string] -and $frame.source_basename -cin @('windows_backups_native.py','backups.py','windows-backups-worker-observer.py') -and (& $integer $frame.source_line 1 20000)){$safe.source_frames+=@{source_basename=$frame.source_basename;source_line=[int]$frame.source_line}}}}
   if(& $integer $failure.completed_checks 0 64){$safe.completed_checks=[int]$failure.completed_checks}
   $http=$failure.last_http;$safe.last_http=@{target='unknown';method='unknown';status=$null}
   if($http.target -is [string] -and $http.target -cin @('login','backups','notifications','download','unknown')){$safe.last_http.target=$http.target}
