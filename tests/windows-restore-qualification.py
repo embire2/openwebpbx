@@ -453,7 +453,20 @@ def restore_table_failure_fields(error):
     return {'table_comparison': observation} if observation else {}
 
 
-def compare_snapshots(before, after, mode):
+def meeting_rebind_proof(snapshot):
+    proof=snapshot.get('meeting_rebind')
+    table=snapshot.get('all_table_values',{}).get('v_sip_profile_settings')
+    if (not isinstance(proof,dict) or set(proof)!={'rows','hmac','binding'}
+            or type(proof['rows']) is not int or proof['rows']<3
+            or not isinstance(table,dict) or set(table)!={'rows','hmac'}
+            or type(table['rows']) is not int or proof['rows']!=table['rows']
+            or any(not isinstance(value,str) or re.fullmatch('[a-f0-9]{64}',value) is None
+                   for value in (proof['hmac'],proof['binding'],table['hmac']))):
+        raise ValueError('The complete validated local meeting rebind evidence is required.')
+    return proof
+
+
+def compare_snapshots(before, after, mode, *, target_baseline=None):
     if mode not in ('factory-recovery', 'source-restored'):
         raise ValueError('Unknown snapshot comparison.')
     if before['schema_metadata'] != after['schema_metadata']:
@@ -469,6 +482,17 @@ def compare_snapshots(before, after, mode):
     # are equally protected; tenant-only rows cannot establish full SQL restore.
     a = {k: v for k, v in before['all_table_values'].items() if k not in exclusions}
     b = {k: v for k, v in after['all_table_values'].items() if k not in exclusions}
+    if mode == 'source-restored' and ('v_sip_profile_settings' in a or 'v_sip_profile_settings' in b):
+        if not isinstance(target_baseline,dict):
+            raise ValueError('The replacement installation baseline is required for meeting rebinding.')
+        source_meet=meeting_rebind_proof(before);restored_meet=meeting_rebind_proof(after)
+        target_meet=meeting_rebind_proof(target_baseline)
+        if restored_meet['binding'] != target_meet['binding']:
+            raise ValueError('Restore changed the original replacement meeting binding context.')
+        # The PHP collector checked exact local values. Compare every original
+        # row and other cell, substituting only the three validated value cells.
+        a['v_sip_profile_settings']={k:source_meet[k] for k in ('rows','hmac')}
+        b['v_sip_profile_settings']={k:restored_meet[k] for k in ('rows','hmac')}
     if mode == 'source-restored' and 'v_pbx_phone_health_recoveries' in a:
         proof = before.get('health_recovery_restore')
         if (type(proof) is not dict or set(proof) != {'rows','hmac','pending'}
@@ -1142,7 +1166,7 @@ class Qualification:
         self.save(); self.php('discover')
         after = self.snapshot('target-restored'); before = read_json(self.work / 'target-before-database.json')
         if before['target_owned'] != after['target_owned']: raise RuntimeError('Restore overwrote replacement DB identity, roles or credentials.')
-        compare_snapshots(payload['source_snapshot'], after, 'source-restored')
+        compare_snapshots(payload['source_snapshot'], after, 'source-restored', target_baseline=before)
         if health is not None:
             if self.file_inventory([self.backups.STATE/'phone-health-instance.json']) != health_identity:
                 raise RuntimeError('Restore changed the protected target Phone Health identity or its permissions.')

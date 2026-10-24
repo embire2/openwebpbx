@@ -78,6 +78,43 @@ function restore_fixture_rows_digest(array $rows,string $key): string {
     return restore_fixture_digest($encoded,$key);
 }
 
+function restore_fixture_meeting_rebind(PDO $db,array $rows,string $key): array {
+    // The actual restore rebinds exactly three settings on the installer's
+    // fixed private Meet profile. Validate each installation's configured
+    // values before projecting ONLY their value cells. Every complete row,
+    // UUID, other column and other profile remains in this table digest.
+    $profile='cfb1c835-c30c-409b-bff7-a893a7e84df1';
+    foreach([
+        ['v_sip_profiles','sip_profile_uuid','sip_profile_name',$profile],
+        ['v_conference_profiles','conference_profile_uuid','profile_name','b26410e0-b732-4c72-b9cf-cc045c395a57']
+    ] as [$table,$id,$name,$expected]) {
+        $query=$db->prepare("select $id,$name from $table where $id=? or $name='openweb-meet'");$query->execute([$expected]);$owned=$query->fetchAll(PDO::FETCH_ASSOC);
+        if(count($owned)!==1||$owned[0][$id]!==$expected||$owned[0][$name]!=='openweb-meet')
+            throw new RuntimeException('The disposable qualification requires the exact installed private meeting identities.');
+    }
+    $address=pbx_paths::address();if($address==='')$address=pbx_paths::host();
+    $conf=(string)config::load()->get('switch.conf.dir');
+    if((!filter_var($address,FILTER_VALIDATE_IP)&&!filter_var($address,FILTER_VALIDATE_DOMAIN,FILTER_FLAG_HOSTNAME))
+        ||$conf===''||strpbrk($conf,"\r\n\0")!==false)throw new RuntimeException('The actual local meeting binding is invalid.');
+    $expected=['rtp-ip'=>$address,'ext-rtp-ip'=>$address,'tls-cert-dir'=>rtrim($conf,'/\\').'/tls/openweb-meet'];
+    $seen=[];$projected=[];
+    foreach($rows as $row) {
+        if(!is_object($row))throw new RuntimeException('Complete PostgreSQL meeting rows are required.');
+        $copy=clone $row;
+        if(($row->sip_profile_uuid??null)===$profile&&array_key_exists($row->sip_profile_setting_name??'', $expected)) {
+            $name=$row->sip_profile_setting_name;
+            if(isset($seen[$name])||!restore_fixture_uuid($row->sip_profile_setting_uuid??null)
+                ||!in_array($row->sip_profile_setting_enabled??null,['true',true,'t'],true)
+                ||($row->sip_profile_setting_value??null)!==$expected[$name])
+                throw new RuntimeException('The private meeting value must match this installation before comparison.');
+            $seen[$name]=true;$copy->sip_profile_setting_value='__openweb_restore_owned_meeting_binding__';
+        }
+        $projected[]=$copy;
+    }
+    if(count($seen)!==3)throw new RuntimeException('All three exact installer-owned meeting values are required.');
+    return ['rows'=>count($rows),'hmac'=>restore_fixture_rows_digest($projected,$key),'binding'=>restore_fixture_digest($expected,$key)];
+}
+
 function restore_fixture_snapshot_shape(array $out): void {
     if(($out['schema']??null)!==1||!in_array($out['role']??'', ['source','target'],true)
         ||!preg_match('/^[a-f0-9]{24}$/D',$out['scope']??'')||!preg_match('/^[a-z0-9-]{1,48}$/D',$out['label']??''))throw new RuntimeException('Private snapshot identity is incomplete.');
@@ -103,6 +140,13 @@ function restore_fixture_snapshot_shape(array $out): void {
             ||$proof['rows']!==$out['all_table_values']['v_pbx_phone_health_recoveries']['rows']
             ||$proof['rows']<0||$proof['pending']<0||$proof['pending']>$proof['rows']||!preg_match('/^[a-f0-9]{64}$/D',$proof['hmac']))
             throw new RuntimeException('Exact restored phone recovery transformation evidence is required.');
+    }
+    if(isset($out['all_table_values']['v_sip_profile_settings'])) {
+        $proof=$out['meeting_rebind']??null;
+        if(!is_array($proof)||array_keys($proof)!==['rows','hmac','binding']||!is_int($proof['rows'])||$proof['rows']<3
+            ||$proof['rows']!==$out['all_table_values']['v_sip_profile_settings']['rows']
+            ||!preg_match('/^[a-f0-9]{64}$/D',$proof['hmac'])||!preg_match('/^[a-f0-9]{64}$/D',$proof['binding']))
+            throw new RuntimeException('The complete validated local meeting rebind evidence is required.');
     }
     if(!array_key_exists('source_phone_tuples',$out)||($out['source_phone_tuples']!==null&&!preg_match('/^[a-f0-9]{64}$/D',$out['source_phone_tuples'])))throw new RuntimeException('Private phone preservation evidence is malformed.');
 }
@@ -308,6 +352,7 @@ function restore_fixture_main(array $argv): void {
             if(!preg_match('/^v_[a-z0-9_]+$/D',$table))throw new RuntimeException('An unexpected public table prevents complete qualification evidence.');
             $sql='select row_to_json(t) from "'.$table.'" t';$rows=array_map(static fn(string $r):mixed=>json_decode($r,false,512,JSON_THROW_ON_ERROR),$q($sql)->fetchAll(PDO::FETCH_COLUMN));
             $out['all_table_values'][$table]=['rows'=>count($rows),'hmac'=>restore_fixture_rows_digest($rows,$key)];
+            if($table==='v_sip_profile_settings')$out['meeting_rebind']=restore_fixture_meeting_rebind($db,$rows,$key);
             if($table==='v_pbx_phone_health_recoveries'){
                 // Every column and row is included. Only the documented
                 // pending -> refused execution-state transform is permitted.

@@ -195,6 +195,19 @@ class RestoreFixture(unittest.TestCase):
         changed=copy.deepcopy(baseline);del changed['health_recovery_restore']
         self.assert_refuses(code,changed)
 
+    def test_meeting_proof_requires_all_rows_and_exact_validated_binding_shape(self):
+        code="restore_fixture_snapshot_shape($input);";baseline=self.snapshot()
+        baseline['all_table_values']['v_sip_profile_settings']={'rows':10,'hmac':'a'*64}
+        proof={'rows':10,'hmac':'b'*64,'binding':'c'*64};baseline['meeting_rebind']=proof
+        self.assert_accepts(code,baseline)
+        for value in (None,{},proof|{'rows':9},proof|{'rows':True},proof|{'rows':2},
+                      proof|{'hmac':'PRIVATE'},proof|{'binding':[]},proof|{'binding':'PRIVATE'},
+                      proof|{'extra':'PRIVATE'},{k:v for k,v in proof.items() if k!='binding'}):
+            changed=copy.deepcopy(baseline);changed['meeting_rebind']=value
+            self.assert_refuses(code,changed)
+        changed=copy.deepcopy(baseline);del changed['meeting_rebind']
+        self.assert_refuses(code,changed)
+
     def test_private_input_path_refuses_symlinks_and_unscoped_files(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / 'restore-qualification'
