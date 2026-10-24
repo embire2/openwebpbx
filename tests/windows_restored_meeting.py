@@ -17,6 +17,47 @@ TABLES = ('v_pbx_meetings', 'v_pbx_meeting_members')
 GATE = 'restored_browser_conference_two_way_decoded_audio_video'
 
 
+FAILURE_CASES = ('unavailable', 'native_windows_meeting_browser_media', 'native_windows_meeting_dependencies',
+                 'native_windows_meeting_unknown', *( 'native_windows_meeting_' + name for name in
+                 ('browser_start', 'owner_page', 'create', 'host_join', 'guest_join', 'admission', 'decoded_media', 'mute', 'unmute', 'end')))
+FAILURE_TYPES = ('RuntimeError', 'ValueError', 'TypeError', 'KeyError', 'AttributeError', 'AssertionError',
+                 'TimeoutError', 'TimeoutExpired', 'OSError', 'FileNotFoundError', 'PermissionError',
+                 'JSONDecodeError', 'SSLError', 'HTTPError', 'URLError', 'external_error')
+FAILURE_SOURCES = ('windows_restored_meeting.py', 'windows-restore-qualification.py',
+                   'windows-meet-browser.py', 'windows_meeting_owned_process.py')
+
+
+def failure_record(error):
+    """Read only closed failure metadata; messages, locals and streams stay private."""
+    kind = type(error).__name__
+    frames = []; trace = error.__traceback__
+    expected = {os.path.normcase(os.path.abspath(Path(__file__).with_name(name))): name for name in FAILURE_SOURCES}
+    for _ in range(32):
+        if trace is None: break
+        source = expected.get(os.path.normcase(os.path.abspath(trace.tb_frame.f_code.co_filename)))
+        if source is not None and type(trace.tb_lineno) is int and 0 < trace.tb_lineno < 1000000:
+            frames.append({'source_basename': source, 'source_line': trace.tb_lineno})
+        trace = trace.tb_next
+    case = getattr(error, 'restored_meeting_active_case', None)
+    def flag(name):
+        value = getattr(error, name, None)
+        return value if type(value) is bool else None
+    return {'schema': 1, 'state': 'failed', 'producer': 'windows_restored_meeting.py',
+            'error_type': kind if kind in FAILURE_TYPES else 'external_error',
+            'cleanup_verified': getattr(error, 'restored_meeting_cleanup_verified', False) is True,
+            'source_frames': frames[-4:], 'active_case': case if type(case) is str and case in FAILURE_CASES else 'unavailable',
+            'owned_process_cleanup_failed': flag('owned_process_cleanup_failed'),
+            'owned_processes_closed': flag('owned_processes_closed')}
+
+
+def observe_failure_case(error, fixture):
+    try:
+        case = getattr(fixture, 'active_case', None)
+        if type(case) is str and case in FAILURE_CASES:
+            error.restored_meeting_active_case = case
+    except BaseException: pass
+
+
 def require(value):
     if not value: raise RuntimeError('The exact restored conference supplement refused.')
 
@@ -213,7 +254,9 @@ def qualify(q, adapter):
         web = q.web(True); fixture.web = types.SimpleNamespace(open=web.opener)
         with native_environment(): browser.run(fixture)
         require(lifecycle == ['dependencies', 'browser'] and len(proof) == 1)
-    except BaseException as error: primary = error
+    except BaseException as error:
+        primary = error
+        observe_failure_case(error, fixture)
     finally:
         try:
             require(not getattr(primary, 'owned_process_cleanup_failed', False)
@@ -265,7 +308,6 @@ def main():
 if __name__ == '__main__':
     try: main()
     except BaseException as error:
-        print(json.dumps({'schema': 1, 'state': 'failed', 'producer': 'windows_restored_meeting.py',
-                          'error_type': type(error).__name__ if type(error).__name__ in ('RuntimeError', 'ValueError', 'TimeoutExpired', 'OSError') else 'external_error',
-                          'cleanup_verified': getattr(error, 'restored_meeting_cleanup_verified', False) is True}))
+        try: print(json.dumps(failure_record(error)))
+        except BaseException: pass
         raise SystemExit(1)

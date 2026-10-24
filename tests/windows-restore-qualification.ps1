@@ -194,6 +194,54 @@ function AssertRestoredServiceActivation([string]$Name){
   throw
  }
 }
+function SafeRestoredConferenceFailure($Record){
+ if($null -eq $Record -or ($Record -isnot [Collections.IDictionary] -and $Record -isnot [pscustomobject])){return $null}
+ $keys=@('schema','state','producer','error_type','cleanup_verified','source_frames','active_case','owned_process_cleanup_failed','owned_processes_closed')
+ $actual=if($Record -is [Collections.IDictionary]){@($Record.Keys)}else{@($Record.PSObject.Properties.Name)}
+ if($actual.Count -ne $keys.Count -or @($actual|Where-Object {$_ -cnotin $keys}).Count){return $null}
+ if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.state -isnot [string] -or $Record.state -cne 'failed' -or $Record.producer -isnot [string] -or $Record.producer -cne 'windows_restored_meeting.py' -or $Record.cleanup_verified -isnot [bool]){return $null}
+ $types=@('RuntimeError','ValueError','TypeError','KeyError','AttributeError','AssertionError','TimeoutError','TimeoutExpired','OSError','FileNotFoundError','PermissionError','JSONDecodeError','SSLError','HTTPError','URLError','external_error')
+ $cases=@('unavailable','native_windows_meeting_browser_media','native_windows_meeting_dependencies','native_windows_meeting_unknown','native_windows_meeting_browser_start','native_windows_meeting_owner_page','native_windows_meeting_create','native_windows_meeting_host_join','native_windows_meeting_guest_join','native_windows_meeting_admission','native_windows_meeting_decoded_media','native_windows_meeting_mute','native_windows_meeting_unmute','native_windows_meeting_end')
+ if($Record.error_type -isnot [string] -or $Record.error_type -cnotin $types -or $Record.active_case -isnot [string] -or $Record.active_case -cnotin $cases -or $Record.source_frames -isnot [Array] -or $Record.source_frames.Count -gt 4){return $null}
+ $frames=@()
+ foreach($frame in $Record.source_frames){
+  if($null -eq $frame -or ($frame -isnot [Collections.IDictionary] -and $frame -isnot [pscustomobject])){return $null}
+  $names=if($frame -is [Collections.IDictionary]){@($frame.Keys)}else{@($frame.PSObject.Properties.Name)}
+  if($names.Count -ne 2 -or @($names|Where-Object {$_ -cnotin @('source_basename','source_line')}).Count -or $frame.source_basename -isnot [string] -or $frame.source_basename -cnotin @('windows_restored_meeting.py','windows-restore-qualification.py','windows-meet-browser.py','windows_meeting_owned_process.py') -or ($frame.source_line -isnot [int] -and $frame.source_line -isnot [long]) -or $frame.source_line -le 0 -or $frame.source_line -ge 1000000){return $null}
+  $frames+=@{source_basename=$frame.source_basename;source_line=$frame.source_line}
+ }
+ foreach($name in 'owned_process_cleanup_failed','owned_processes_closed'){if($null -ne $Record.$name -and $Record.$name -isnot [bool]){return $null}}
+ return @{schema=1;state='failed';producer='windows_restored_meeting.py';error_type=$Record.error_type;cleanup_verified=$Record.cleanup_verified;source_frames=$frames;active_case=$Record.active_case;owned_process_cleanup_failed=$Record.owned_process_cleanup_failed;owned_processes_closed=$Record.owned_processes_closed}
+}
+function ReadRestoredConferenceFailure {
+ $child=$script:qualificationFailedChild
+ if($null -eq $child -or $child -isnot [Collections.IDictionary]){return $null}
+ $keys=@($child.Keys)
+ if($keys.Count -ne 4 -or @($keys|Where-Object {$_ -cnotin @('caller','label','completion','exit_code')}).Count -or $child.caller -isnot [string] -or $child.caller -cne 'CheckedProcess' -or $child.label -isnot [string] -or $child.label -cne 'restored-conference-supplement' -or $child.completion -isnot [string] -or $child.completion -cne 'exit' -or ($child.exit_code -isnot [int] -and $child.exit_code -isnot [long]) -or $child.exit_code -eq 0 -or $child.exit_code -lt -2147483648L -or $child.exit_code -gt 4294967295L){return $null}
+ $path=Join-Path $work 'restored-conference-supplement.out'
+ if(!(Test-Path -LiteralPath $path -PathType Leaf)){return $null}
+ $item=Get-Item -LiteralPath $path -Force
+ if($item.Length -le 0 -or $item.Length -gt 8192 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){return $null}
+ $parent=$item.Directory;$depth=0
+ while($null -ne $parent){if(++$depth -gt 32 -or ($parent.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){return $null};$parent=$parent.Parent}
+ $stream=$null;$document=$null
+ try{
+  $stream=[IO.File]::Open($path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+  if($stream.Length -le 0 -or $stream.Length -gt 8192){return $null}
+  $expected=$stream.Length;$buffer=[byte[]]::new(8193);$length=0
+  do{$read=$stream.Read($buffer,$length,$buffer.Length-$length);$length+=$read}while($read -gt 0 -and $length -lt $buffer.Length)
+  if($length -ne $expected -or $stream.Length -ne $expected){return $null}
+  $json=[Text.UTF8Encoding]::new($false,$true).GetString($buffer,0,$length)
+  $options=[Text.Json.JsonDocumentOptions]::new();$options.MaxDepth=8
+  $document=[Text.Json.JsonDocument]::Parse($json,$options)
+  if($document.RootElement.ValueKind -ne [Text.Json.JsonValueKind]::Object){return $null}
+  $objects=@($document.RootElement);$frames=[Text.Json.JsonElement]::new()
+  if(!$document.RootElement.TryGetProperty('source_frames',[ref]$frames) -or $frames.ValueKind -ne [Text.Json.JsonValueKind]::Array -or $frames.GetArrayLength() -gt 4){return $null}
+  foreach($frame in $frames.EnumerateArray()){if($frame.ValueKind -ne [Text.Json.JsonValueKind]::Object){return $null};$objects+=,$frame}
+  foreach($object in $objects){$names=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);foreach($property in $object.EnumerateObject()){if(!$names.Add($property.Name)){return $null}}}
+  return SafeRestoredConferenceFailure (ConvertFrom-Json -InputObject $json -AsHashtable)
+ }catch{return $null}finally{if($document){$document.Dispose()};if($stream){$stream.Dispose()}}
+}
 function RestoredMeetingSupplement {
  Check ($Role -ceq 'Target' -and [version]$BaseVersion -ge [version]'1.0.20') 'The conference supplement requires the restored current target.'
  $script:phase='restored browser conference supplement'
@@ -201,7 +249,11 @@ function RestoredMeetingSupplement {
  $adapter=Join-Path $state ('native-qualification/'+[Guid]::NewGuid().ToString('N').Substring(0,24))
  Check (!(Test-Path -LiteralPath $adapter)) 'A fresh private native adapter is required.'
  PrivateDirectory $adapter
- CheckedProcess $python @('-I','-B',(Join-Path $PSScriptRoot 'windows_restored_meeting.py'),'--input',$inputFile,'--adapter',$adapter) 'restored-conference-supplement' $source 600000
+ try{CheckedProcess $python @('-I','-B',(Join-Path $PSScriptRoot 'windows_restored_meeting.py'),'--input',$inputFile,'--adapter',$adapter) 'restored-conference-supplement' $source 600000}
+ catch{
+  try{$failure=ReadRestoredConferenceFailure;if($null -ne $failure){$facts.restored_conference_failure=$failure}}catch{}
+  throw
+ }
  Check (!(Test-Path -LiteralPath $adapter)) 'The owned native adapter scope survived cleanup.'
  $meeting=Get-Content -LiteralPath (Join-Path (Split-Path $inputFile -Parent) 'restored-conference.safe.json') -Raw|ConvertFrom-Json
  $keys=@('schema','state','producer','run_id','source_commit','base_suite_run_id','base_archive_sha256','media','original_meetings_and_members_preserved','original_bindings_and_holds_preserved','owned_processes_closed','owned_native_scope_removed','remaining_calls','existing_invitation_continuity','physical_camera','external_nat')
