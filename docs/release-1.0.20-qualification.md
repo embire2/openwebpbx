@@ -29,9 +29,11 @@ Its source passes all nine gates, with the clean target still running. The backu
 observer's exact branch allowance and bounded welcome-failure diagnostics are
 reviewed and integrated for the next fresh normal run. Their component tests do
 not qualify native SFTP, establish the historical changing record, or relax cleanup.
-Publication and further signing remain held for build-host
-and credential recovery; owner migration, actual OS reboot and external access
-remain open. See the [current Windows release-gate table](windows-parity-1.0.20.md#windows-release-gates)
+The owner has authorized release preparation, signing and publication without
+waiting for rebuild verification. The exact package's functional qualification,
+owner migration, actual OS reboot and external access remain open. This authorization
+does not change the scope of any recorded test result.
+See the [current Windows release-gate table](windows-parity-1.0.20.md#windows-release-gates)
 and [Windows work record](windows-parity-1.0.20.md).
 
 The Debian archive described below is historical: it predates Phone Health and must not be

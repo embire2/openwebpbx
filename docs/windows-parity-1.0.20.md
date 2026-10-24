@@ -94,10 +94,9 @@ native calling suite with both QA changes, then fails in the later upgrade hash
 operation described above. The SFTP observer is not reached, so that native check
 remains pending.
 
-Publication and further signing remain held for build-host and credential
-recovery. The owner reports rebuilding Debian173.214.174.68, but this workspace
-still observes its original boot identity; independent confirmation of the
-replacement is pending. No owner-machine upgrade or public feed change has
+The owner has authorized release preparation, signing and publication irrespective
+of rebuild verification. That earlier hold is superseded; exact-package functional
+qualification remains required. No owner-machine upgrade or public feed change has
 occurred. The public Windows version remains **1.0.7**. Do not replace a production
 server with an unpublished archive.
 
