@@ -36,7 +36,7 @@ $script:qualificationComparisonFailure=$null
 $script:qualificationFailedHash=$null
 $facts=[ordered]@{schema=1;mode=$Mode;run_id=$env:GITHUB_RUN_ID;source_commit=$env:GITHUB_SHA;state='running';scope='disposable Windows Server 2025, fictional PBX, laboratory trusted HTTPS';checks=@();gates=[ordered]@{canary_build='pending';fault_https_download='unqualified';fault_rollback='unqualified';normal_https_download='unqualified';newer_upgrade='unqualified';natural_updater_restart='unqualified';manager_reopen_rollback='unqualified';manager_reopen_success='unqualified';protected_data='unqualified';public_github_delivery='unqualified';owner_106_upgrade='unqualified';carrier='unqualified'};cleanup='pending'}
 function Check([bool]$Value,[string]$Message){if(!$Value){throw $Message}}
-function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null,$HashFailure=$null){
+function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null,$HashFailure=$null,$BackupWorker=$null){
  # Project only known source callsites and fixed child identities. Messages,
  # process arguments, private streams and the paths in the trace stay private.
  $frames=[Collections.Generic.List[object]]::new();$seen=@{}
@@ -67,7 +67,26 @@ function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null
   }
  }
  if($frames.ToArray().function -ccontains 'Hash' -and $frames.ToArray().function -ccontains 'SnapshotHash' -and $frames.ToArray().function -ccontains 'FileSnapshot'){$hash=QualificationHashFailureFields $HashFailure;if($hash){$safe.hash_failure=$hash}}
+ if($frames.ToArray().function -ccontains 'Check' -and $frames.ToArray().function -ccontains 'InitializeQualificationBackupWorker'){try{$worker=QualificationBackupWorkerFailureFields $BackupWorker;if($worker){$safe.backup_worker=$worker}}catch{}}
  return $safe
+}
+function QualificationBackupWorkerFailureFields($Record){
+ if($Record -isnot [Collections.IDictionary] -or $Record.Count -ne 6){return $null}
+ foreach($key in $Record.Keys){if($key -isnot [string] -or $key -cnotin @('schema','last_task_result','task_state','last_run_advanced','last_run_not_future','prior_run_not_future')){return $null}}
+ if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1){return $null}
+ $result=$Record.last_task_result
+ if(($result -isnot [int] -and $result -isnot [uint32] -and $result -isnot [long]) -or $result -eq 0 -or $result -lt [int]::MinValue -or $result -gt [uint32]::MaxValue){return $null}
+ if($Record.task_state -isnot [string] -or $Record.task_state -cne 'Ready'){return $null}
+ foreach($flag in 'last_run_advanced','last_run_not_future','prior_run_not_future'){if($Record[$flag] -isnot [bool]){return $null}}
+ if(!$Record.last_run_advanced){return $null}
+ return @{schema=1;last_task_result=[long]$result;task_state='Ready';last_run_advanced=$true;last_run_not_future=$Record.last_run_not_future;prior_run_not_future=$Record.prior_run_not_future}
+}
+function ObserveQualificationBackupWorkerFailure($Task,$Info,$Prior){
+ # Read only the objects used by the original refusal. No second Scheduler
+ # query, retry, worker invocation, date/path/argument or error-message output.
+ if($Info.LastRunTime -isnot [DateTime] -or $Prior.LastRunTime -isnot [DateTime]){return $null}
+ $observed=Get-Date
+ return QualificationBackupWorkerFailureFields @{schema=1;last_task_result=$Info.LastTaskResult;task_state=[string]$Task.State;last_run_advanced=($Info.LastRunTime -gt $Prior.LastRunTime);last_run_not_future=($Info.LastRunTime -le $observed);prior_run_not_future=($Prior.LastRunTime -le $observed)}
 }
 function Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
 function QualificationSnapshotPaths {
@@ -278,7 +297,11 @@ function InitializeQualificationBackupWorker([string]$Root,[string]$StateRoot,[s
   $info=Get-ScheduledTaskInfo -TaskName OpenWebPBX-Backups -ErrorAction Stop
   Check ($info.LastRunTime -is [DateTime]) 'The normal backup task execution time is unavailable.'
   if($info.LastRunTime -gt $prior.LastRunTime -and [string]$task.State -eq 'Ready'){
-   Check ($info.LastTaskResult -eq 0) 'The actual normal backup task did not finish successfully.'
+   try{Check ($info.LastTaskResult -eq 0) 'The actual normal backup task did not finish successfully.'}catch{
+    $primary=$_
+    try{$observed=ObserveQualificationBackupWorkerFailure $task $info $prior;if($observed){$primary.Exception.Data['openweb_qa_backup_worker']=$observed}}catch{}
+    throw
+   }
    $completed=$true;break
   }
   $remaining--;if($remaining -gt 0){Start-Sleep -Milliseconds 500}
@@ -868,7 +891,7 @@ if(!$?){exit 1}
  }
 }catch{
  $facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$_.Exception.GetType().Name;$facts.source_basename=if($_.InvocationInfo.ScriptName){Split-Path -Leaf $_.InvocationInfo.ScriptName}else{'external_component'};$facts.source_line=[int]$_.InvocationInfo.ScriptLineNumber
- $facts.failure_observation=QualificationFailureObservation $_.ScriptStackTrace $script:qualificationFailedChild $script:qualificationComparisonFailure $script:qualificationFailedHash
+ $facts.failure_observation=QualificationFailureObservation $_.ScriptStackTrace $script:qualificationFailedChild $script:qualificationComparisonFailure $script:qualificationFailedHash $_.Exception.Data['openweb_qa_backup_worker']
  Write-Error ('Disposable updater qualification failed in '+$phase+'. Private streams are not published.') -ErrorAction Continue
 }finally{
  Remove-Item Env:\GH_TOKEN,Env:\WINDOWS_UPDATER_SIGNED_PACKETS_B64 -ErrorAction SilentlyContinue
