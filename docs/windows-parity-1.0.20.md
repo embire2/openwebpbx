@@ -14,10 +14,23 @@ baseline music and its refusal is retained.
 
 The accepted585104517-byte ZIP has SHA256
 `9a45d51c1ee1d1f985062fc16fb0cdfaea43aee6c1a7a540a7b820852e776522`.
-Independent replacement restore **40119790351** and unsigned newer1.0.21
-preparation **40119763798** now run against this exact package. New-package
-restore and signed-upgrade acceptance remain pending; this is not yet a public
-release. Owner migration, actual OS reboot and external access are separate.
+Unsigned newer1.0.21 preparation **40119763798** passes complete transport,
+73-source/1099-native/actual-version and private-value audits. Existing-key
+private envelopes and their exact packet are verified. Signed **40120989588**
+passes fault HTTPS/rollback and both manager reopens, then refuses a late fixed
+protected-file hash with IOException/Win32 code32. The exact file and holder are
+unretained; six missing fixed-path labels are being added without changing any
+hash, snapshot, retry or preservation requirement. Cleanup passes and the exact
+owned temporary GitHub secret is removed. Aggregate newer-upgrade acceptance
+remains pending.
+
+Restore **40119790351** stops at an unidentified source export wait. Four QA-only
+failure-observation files preserve the original deadline, polls and exception;
+root repeats nine Python groups and41 PowerShell cases. Diagnostic repeat
+**40123098262/sourceac0b2db** now passes all nine source gates, actual software
+calling/media and both manual/daily encrypted backups. Its independent clean
+target is running against the unchanged accepted package. This is not yet a
+public release. Owner migration, actual OS reboot and external access are separate.
 
 Earlier normal **40106683010/source23477de2f** failed after complete native calling,
 conference, SMTP/welcome and factory-cleanup acceptance. Root authenticates11
