@@ -1435,6 +1435,10 @@ def main():
     if a.phase=='prepare-pki':prepare_pki(f);return
     if a.phase=='pki-server':serve_pki(f);return
     try:
+        if f.s.get('threecx_import_only') is True:
+            load_module('windows_threecx_https_native',f.source/'tests/windows_threecx_https_native.py').run(f,sys.modules[__name__])
+            (f.evidence/'software-native-report.json').write_text(json.dumps({'schema':1,'producer':'windows-native-acceptance.py','state':'passed','checks':f.checks,'diagnostic_case':'threecx_import','full_release_eligible':False,'owner_eligible':False,'public_eligible':False,'restore_eligible':False,'signed_upgrade_eligible':False,'physical_devices':'unqualified','ui_render':'unqualified','carrier':'unqualified','public_acme':'unqualified','scope':'fictional-hosted-runner-threecx-import-only'},indent=2))
+            return
         f.web=Web(f.s['public_url'],f.evidence/'fixture-root.pem');normal_setup(f,f.web)
         # Ordinary peers/providers close in native_calls before the separate
         # ephemeral meeting accounts are created; global SMTP is changed last.
@@ -1452,7 +1456,7 @@ def main():
         import traceback
         location=traceback.extract_tb(e.__traceback__)[-1]
         basename=Path(location.filename).name
-        if basename not in ('windows-native-acceptance.py','windows-meet-browser.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py'):
+        if basename not in ('windows_threecx_https_native.py','windows-native-acceptance.py','windows-meet-browser.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py'):
             basename='external_component'
         failure={'schema':1,'producer':'windows-native-acceptance.py','state':'failed','checks':f.checks,'error_type':type(e).__name__,'error':str(e),'source_basename':basename,'source_line':location.lineno,'active_case':f.active_case}
         if getattr(e,'fixture_failure',None):failure.update(e.fixture_failure)

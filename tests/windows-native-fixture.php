@@ -129,11 +129,12 @@ if($action==='baseline'){
  $s['drafts_before']=$q('select draft_uuid from v_pbx_setup_drafts')->fetchAll(PDO::FETCH_COLUMN);$save();echo "{\"factory_empty\":true}\n";exit;
 }
 if(!isset($s['baseline']))throw new RuntimeException('Original factory inventory is required.');
-if($action==='discover'||$action==='cleanup'){
+if(($s['threecx_import_only']??false)===true){require_once __DIR__.'/windows_threecx_https_fixture.php';windows_threecx_https_before($action,$s,$q,$save,$factory,(string)($argv[3]??''));}
+if($action==='discover'||$action==='import-discover'||$action==='cleanup'){
  $fixtureStage='owned_service_lookup';
  $service=$q('select s.domain_uuid,s.tenant_uuid,d.domain_name,t.home_domain_uuid from v_pbx_services s join v_domains d using(domain_uuid) join v_pbx_tenants t using(tenant_uuid) where s.service_name=? and t.owner_user_uuid=?',[$s['service_name'],$s['factory_admin']['user_uuid']])->fetch(PDO::FETCH_ASSOC);
  if($service){$s['owned']=$service;$save();}
- if($action==='discover'&&!$service)throw new RuntimeException('Normal HTTPS setup did not create its owned PBX.');
+ if(in_array($action,['discover','import-discover'],true)&&!$service)throw new RuntimeException('Normal HTTPS setup did not create its owned PBX.');
 }
 $owned=$s['owned']??null;
 if(!$owned){if($action==='cleanup'){$restoreGlobals();foreach($q('select draft_uuid from v_pbx_setup_drafts where user_uuid=?',[$s['factory_admin']['user_uuid']])->fetchAll(PDO::FETCH_COLUMN) as $id)if(!in_array($id,$s['drafts_before'],true))$q('delete from v_pbx_setup_drafts where draft_uuid=?',[$id]);$factory();echo json_encode(['factory_empty'=>true,'owned_rows'=>0,'owned_contacts'=>0,'original_identity_preserved'=>true,'normal_login_bcrypt_rehash_proved'=>$s['normal_login_bcrypt_rehash_proved']??false,'original_factory_hash_restored'=>$s['original_factory_hash_restored']??false],JSON_THROW_ON_ERROR),PHP_EOL;exit;}throw new RuntimeException('Owned PBX is unavailable.');}
@@ -144,6 +145,7 @@ $fixtureStage='admin_permissions';$admin=$s['factory_admin'];unset($_SESSION['pe
 if(empty($permissions['pbx_tenant_manage'])||empty($permissions['pbx_service_create']))throw new RuntimeException('The genuine factory administrator is required.');
 $_SESSION=['authorized'=>true,'user_uuid'=>$admin['user_uuid'],'domain_uuid'=>$domain,'domain_name'=>$realm,'user'=>['domain_uuid'=>$admin['domain_uuid']],'permissions'=>$permissions];
 $fixtureStage='config_read';$pbx=new pbx_admin($db);$c=$pbx->config();
+if($action==='import-discover'){windows_threecx_https_require(($s['threecx_import_only']??null)===true);windows_threecx_https_discover($s,$c,$domain,$realm,$q,$save);exit;}
 if($action==='discover'){
  $s['realm']=$realm;$s['domain']=$domain;$s['music']=pbx_paths::storage().'/openweb-music/8000/lofi-beat-loop-schmoop.wav';
  $s['users']=[];

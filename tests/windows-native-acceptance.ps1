@@ -8,9 +8,11 @@ $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-native-cleanup-row-fields.ps1')
 . (Join-Path $PSScriptRoot 'windows-native-cleanup-writers.ps1')
 . (Join-Path $PSScriptRoot 'windows-hold-failure-fields.ps1')
+. (Join-Path $PSScriptRoot 'windows-threecx-https-fields.ps1')
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx') { throw 'Explicit disposable Windows hosted runner required.' }
 if([Environment]::OSVersion.Version.Build -lt 26100){throw 'Windows Server 2025 is required.'}
 $inputData=Get-Content -LiteralPath $InputPath -Raw|ConvertFrom-Json -AsHashtable
+$ThreecxImportOnly=Test-NativeThreecxImportMode $inputData
 $HoldDiagnosticsOnly=$inputData.ContainsKey('hold_diagnostics_only') -and $inputData.hold_diagnostics_only -is [bool] -and $inputData.hold_diagnostics_only
 if($HoldDiagnosticsOnly -and ($inputData.native_diagnostics_only -isnot [bool] -or !$inputData.native_diagnostics_only)){throw 'Hold-only diagnostics require explicit native diagnostics and an empty disposable factory.'}
 $root='C:\OpenWebPBX';$state=Join-Path $env:ProgramData 'OpenWebPBX';$source=Split-Path $PSScriptRoot -Parent
@@ -31,6 +33,7 @@ $envBefore=$env:OPENWEB_WINDOWS_NATIVE_TEST;$opensslBefore=$env:OPENSSL_CONF;$en
 $script="$source\tests\windows-native-acceptance.py";$fixture="$source\tests\windows-native-fixture.php";$pkiProcess=$null;$pkiOutput=$null;$pkiErrors=$null;$leaf=$null;$rootCertificate=$null;$binding=$null;$originalBinding=$null;$baseline=$false;$nativePassed=$false;$cleanupPassed=$false;$phase='factory inventory';$errorType=$null
 $facts=[ordered]@{schema=1;state='running';platform='Windows Server 2025 x64';scope='fictional disposable hosted runner';checks=@();gates=[ordered]@{native_sip_audio='pending';meeting_browser='pending';native_clock='pending';native_providers='pending';native_call_me_back='pending';smtp='pending';notification_store='pending';cleanup='pending';public_acme='unqualified';physical_devices='unqualified';carrier='unqualified';android_hardware='unqualified'}}
 if($HoldDiagnosticsOnly){$facts.diagnostic_case='hold';$facts.full_release_eligible=$false;$facts.owner_eligible=$false;$facts.public_eligible=$false;$facts.restore_eligible=$false;$facts.signed_upgrade_eligible=$false}
+if($ThreecxImportOnly){$facts.diagnostic_case='threecx_import';$facts.full_release_eligible=$false;$facts.owner_eligible=$false;$facts.public_eligible=$false;$facts.restore_eligible=$false;$facts.signed_upgrade_eligible=$false;$facts.gates.ui_render='unqualified'}
 function Php([string]$Action){$output=& "$root\php\php.exe" $fixture $Action $privateInput 2>>"$evidence\private-php-errors.log";if($LASTEXITCODE){throw 'Private native fixture operation failed.'};return ($output -join "`n")}
 function Python([string]$Phase){
  $beforeModules=$env:PSModulePath
@@ -504,7 +507,9 @@ try{
  $phase='normal HTTPS and native calling';Python 'acceptance'
  $native=Get-Content "$evidence\software-native-report.json" -Raw|ConvertFrom-Json
  if(($native.schema -isnot [int] -and $native.schema -isnot [long]) -or $native.schema -ne 1 -or $native.producer -isnot [string] -or $native.producer -cne 'windows-native-acceptance.py' -or $native.state -isnot [string] -or $native.state -cne 'passed' -or $native.checks -isnot [array] -or $native.checks.Count -gt 256){throw 'Actual software native matrix failed.'}
- if($HoldDiagnosticsOnly){
+ if($ThreecxImportOnly){
+  Assert-NativeThreecxImportReport $native;$facts.checks=@($native.checks);$facts.gates.threecx_import_diagnostic='passed';$nativePassed=$true
+ }elseif($HoldDiagnosticsOnly){
   if($native.diagnostic_case -isnot [string] -or $native.diagnostic_case -cne 'hold' -or $native.full_release_eligible -isnot [bool] -or $native.full_release_eligible -or $native.owner_eligible -isnot [bool] -or $native.owner_eligible){throw 'Hold-only diagnostics cannot qualify the full suite or owner.'}
   AssertNativeHoldDiagnosticCases $native.checks;$facts.checks=@($native.checks);$facts.gates.hold_diagnostic='passed';$nativePassed=$true
  }else{
@@ -559,7 +564,7 @@ try {
  if(Test-Path -LiteralPath $childReport){
   try{
    $child=Get-Content -LiteralPath $childReport -Raw|ConvertFrom-Json
-   if($child.state -eq 'failed' -and $child.source_basename -in 'windows-native-acceptance.py','windows-meet-browser.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_cdr_background.py','windows_cdr_observation.php','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py','windows-native-fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component' -and [int]$child.source_line -gt 0 -and [int]$child.source_line -le 100000 -and $child.active_case -match '^[a-z0-9_]{1,120}$' -and $child.error_type -match '^[A-Za-z0-9_]{1,80}$'){
+   if($child.state -eq 'failed' -and $child.source_basename -in 'windows_threecx_https_native.py','windows-native-acceptance.py','windows-meet-browser.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_cdr_background.py','windows_cdr_observation.php','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py','windows-native-fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component' -and [int]$child.source_line -gt 0 -and [int]$child.source_line -le 100000 -and $child.active_case -match '^[a-z0-9_]{1,120}$' -and $child.error_type -match '^[A-Za-z0-9_]{1,80}$'){
     $facts.source_basename=$child.source_basename;$facts.source_line=[int]$child.source_line;$facts.active_case=$child.active_case;$facts.error_type=$child.error_type
     $completed=@(CompletedMediaCases $child.checks);if($completed.Count){$facts.completed_media_cases=$completed}
     foreach($entry in (MediaFailureFields $child).GetEnumerator()){$facts[$entry.Key]=$entry.Value}
@@ -605,6 +610,7 @@ finally{
   $cleanupStage='remove_notification_task';Unregister-ScheduledTask -TaskName $notificationTask -Confirm:$false -ErrorAction SilentlyContinue
   $cleanupStage='restore_factory'
   if($baseline){$clean=Invoke-NativeFactoryCleanup|ConvertFrom-Json;if($clean.cleanup_reloadxml -is [string] -and $clean.cleanup_reloadxml -cin 'success','error','empty','other'){$facts.native_cleanup_reloadxml=$clean.cleanup_reloadxml};if(!$clean.factory_empty -or $clean.owned_rows -ne 0 -or $clean.owned_contacts -ne 0){throw 'Native fixture cleanup is incomplete.'};if($clean.normal_login_bcrypt_rehash_proved){if(!$clean.original_factory_hash_restored){throw 'Original factory password hash was not restored.'};$facts.checks+='Normal generated-factory login bcrypt12-to-10 rehash proved with unchanged password, then original hash restored during cleanup'}}
+  if($ThreecxImportOnly){$importState=Get-Content -LiteralPath $privateInput -Raw|ConvertFrom-Json;if($nativePassed -or $importState.PSObject.Properties.Name -ccontains 'import_fixture'){if($importState.import_upload_cleanup -isnot [bool] -or !$importState.import_upload_cleanup){throw 'Exact synthetic upload cleanup must pass.'};$facts.threecx_upload_cleanup=$true}else{$facts.threecx_upload_cleanup='not_reached'}}
   $cleanupStage='restore_binding';if($binding -and $originalBinding){FixtureBinding -Hash $originalBinding.hash -Store $originalBinding.store}
   $cleanupStage='restore_files'
   foreach($name in $paths){$path=$originalFiles[$name];if($originalPresent.ContainsKey($name)){if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Recurse -Force};if($originalPresent[$name]){Copy-Item -LiteralPath (Join-Path $saved $name) -Destination $path -Recurse;$acl=Get-Acl -LiteralPath $path;$acl.SetSecurityDescriptorSddlForm($originalAcl[$name]);Set-Acl -LiteralPath $path -AclObject $acl}}}
@@ -634,4 +640,4 @@ finally{
  [IO.File]::WriteAllText($ReportPath,($facts|ConvertTo-Json -Depth 14),[Text.UTF8Encoding]::new($false))
 }
 if($facts.state -ne 'passed'){throw 'Windows native acceptance did not pass. Review private evidence; factory cleanup must pass before backups.'}
-if($HoldDiagnosticsOnly){Write-Host 'Actual owned hold/expiry/re-registration diagnostics and strict factory cleanup passed; full/owner/public qualification remains unavailable.'}else{Write-Host 'Actual fictional Windows native calling, SMTP, notification storage and factory cleanup passed.'}
+if($ThreecxImportOnly){Write-Host 'Actual synthetic HTTPS import and original-credential calling diagnostic passed with canonical cleanup; no release or owner eligibility.'}elseif($HoldDiagnosticsOnly){Write-Host 'Actual owned hold/expiry/re-registration diagnostics and strict factory cleanup passed; full/owner/public qualification remains unavailable.'}else{Write-Host 'Actual fictional Windows native calling, SMTP, notification storage and factory cleanup passed.'}
