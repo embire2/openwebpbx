@@ -6,17 +6,20 @@ not received the complete server upgrade. Android remains 1.0.18, including its
 existing mandatory minimum.
 
 **Current work on 24 October:** the unchanged candidate from normal40005106134
-passes all 17 full-suite gates. Independent replacement restore40095999962 passes its source
-job, then fails in a target PHP verification child; its exact action/inner error
-needs further observation. Updater40097476201 passes all nine upgrade gates and
+passes all 17 full-suite gates. Independent replacement restore40100133999 passes its source
+job, then refuses a meeting-setting snapshot guard. The exact Windows path-format
+QA correction ce38c420b passes actual PostgreSQL/PHP tests and independent review;
+native restore repetition remains required. The historical raw field/value is
+unretained. Updater40097476201 passes all nine upgrade gates and
 cleanup for the accepted archive and its existing signed canary. Actual IIS
 import/calling diagnostic40098653401 passes its six scoped upload, preserved-credential,
 direct/ring-group decoded-audio and cleanup cases. The earlier
 restore and updater failures remain recorded with their limited evidence;
 independent restore remains unqualified. Physical phones, carrier cutover and rendered UI
 are outside the import diagnostic. A default-HTTPS-port
-restore compatibility correction is now reviewed in source and needs a rebuilt
-Windows package and fresh native acceptance. Publication and further signing remain held for build-host
+restore compatibility correction is now reviewed in source. Fresh normal40100370382
+is building and testing that product change without replay or diagnostic flags.
+Publication and further signing remain held for build-host
 and credential recovery; owner migration, actual OS reboot and external access
 remain open. See the [current Windows release-gate table](windows-parity-1.0.20.md#windows-release-gates)
 and [Windows work record](windows-parity-1.0.20.md).
