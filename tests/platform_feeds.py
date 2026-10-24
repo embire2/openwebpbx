@@ -58,12 +58,12 @@ class PlatformFeedChecks(unittest.TestCase):
         self.assertEqual(self.sign('1.0.13', '113', self.windows, ['--windows-only', '--windows', str(self.package)]).returncode, 0)
         self.payload, _ = verify(self.windows.read_bytes(), self.public)
 
-    def write_package(self, extra=None, corrupt=None):
+    def write_package(self, extra=None, corrupt=None, manifest_bytes=None):
         prefix = 'openwebpbx-1.0.13-windows-x64/'
         with zipfile.ZipFile(self.package, 'w') as archive:
             for name, data in self.files.items():
                 archive.writestr(prefix + name, b'changed' if name == corrupt else data)
-            archive.writestr(prefix + 'release-manifest.json', json.dumps({'version': '1.0.13', 'files': {k: hashlib.sha256(v).hexdigest() for k, v in self.files.items()}}))
+            archive.writestr(prefix + 'release-manifest.json', manifest_bytes if manifest_bytes is not None else json.dumps({'version': '1.0.13', 'files': {k: hashlib.sha256(v).hexdigest() for k, v in self.files.items()}}))
             if extra:
                 archive.writestr(prefix + extra, b'unlisted')
 
@@ -102,6 +102,44 @@ class PlatformFeedChecks(unittest.TestCase):
         self.assertTrue(result['generic_reference_byte_identical'])
         self.assertEqual(result['windows_manifest_files'], len(self.files))
         self.assertEqual(self.generic.read_bytes(), self.reference)
+
+    def test_complete_manifest_larger_than_old_two_mib_limit(self):
+        self.files.update({f'web/qualification-documents/{index:05d}/'+('x'*42)+'.txt': b'owned synthetic document'
+                           for index in range(19000)})
+        self.write_package()
+        with zipfile.ZipFile(self.package) as archive:
+            size = archive.getinfo('openwebpbx-1.0.13-windows-x64/release-manifest.json').file_size
+        self.assertGreater(size, 2 * 1024**2)
+        self.assertLess(size, 8 * 1024**2)
+        result = self.validate(windows=self.resigned_package())
+        self.assertEqual(result['windows_manifest_files'], len(self.files))
+
+    def test_manifest_eight_mib_boundary_is_still_bounded(self):
+        raw = json.dumps({'version': '1.0.13', 'files':
+                         {k: hashlib.sha256(v).hexdigest() for k, v in self.files.items()}}).encode()
+        self.write_package(manifest_bytes=raw+b' '*(8 * 1024**2-len(raw)))
+        self.assertEqual(self.validate(windows=self.resigned_package())['windows_manifest_files'], len(self.files))
+        self.write_package(manifest_bytes=raw+b' '*(8 * 1024**2+1-len(raw)))
+        with self.assertRaisesRegex(ValueError, 'bounded file manifest'):
+            self.validate(windows=self.resigned_package())
+
+    def test_large_manifest_preserves_json_version_inventory_and_hash_refusals(self):
+        document = {'version': '1.0.13', 'files':
+                    {k: hashlib.sha256(v).hexdigest() for k, v in self.files.items()}}
+        wrong_version = json.loads(json.dumps(document)); wrong_version['version'] = '1.0.12'
+        wrong_hash = json.loads(json.dumps(document)); wrong_hash['files']['bootstrap.php'] = '0'*64
+        missing = json.loads(json.dumps(document)); missing['files'].pop('bootstrap.php')
+        valid = json.dumps(document).encode()
+        cases = [(b'{invalid', 'Expecting'),
+                 (valid[:-1]+b',"version":"1.0.13"}', 'duplicate fields'),
+                 (json.dumps(wrong_version).encode(), 'complete file inventory'),
+                 (json.dumps(missing).encode(), 'complete file inventory'),
+                 (json.dumps(wrong_hash).encode(), 'manifest verification')]
+        for raw, message in cases:
+            with self.subTest(refusal=message):
+                self.write_package(manifest_bytes=raw+b' '*(2 * 1024**2+128-len(raw)))
+                with self.assertRaisesRegex(ValueError, message):
+                    self.validate(windows=self.resigned_package())
 
     def test_legacy_generic_clients_keep_both_112_downloads(self):
         generic, _ = verify(self.reference, self.public)

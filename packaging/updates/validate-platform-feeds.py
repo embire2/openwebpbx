@@ -9,6 +9,9 @@ import zipfile
 
 from verify_feed import MAX_ENVELOPE, no_duplicate_keys, verify
 
+# Match the installed Windows PackageExtractor manifest bound.
+MAX_MANIFEST_BYTES = 8 * 1024**2
+
 
 def validate(generic, reference, windows, public_key, package, *, generic_version, windows_version,
              debian=None, debian_reference=None, debian_version=None, now=None):
@@ -64,7 +67,7 @@ def validate(generic, reference, windows, public_key, package, *, generic_versio
             if not item.is_dir():
                 members[relative] = item
         marker = members.get('release-manifest.json')
-        if marker is None or marker.file_size > 2 * 1024 * 1024:
+        if marker is None or marker.file_size > MAX_MANIFEST_BYTES:
             raise ValueError('The Windows archive has no bounded file manifest.')
         manifest = json.loads(archive.read(marker), object_pairs_hook=no_duplicate_keys)
         if manifest.get('version') != windows_version or not isinstance(manifest.get('files'), dict) or set(members) != set(manifest['files']) | {'release-manifest.json'}:
