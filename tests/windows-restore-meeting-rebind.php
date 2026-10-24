@@ -88,4 +88,60 @@ try{$snapshot('target-restored');throw new LogicException('Unrebound local value
 $seed($sourceAddress,$targetConf);$samePathSource=$snapshot('source');$configuration($targetAddress,$targetConf);$addressOnly=pbx_meet_install::rebind($db);
 if($addressOnly!==2)throw new RuntimeException('Two actual address changes were required when the native configuration path remains the same.');
 $out['same_path']=['source'=>$samePathSource,'baseline'=>$baseline,'target'=>$snapshot('target-restored'),'actual_rebound_rows'=>$addressOnly];
+// Real raw Windows argument from the unchanged Python product function.
+$seed($sourceAddress,$sourceConf);$configuration($targetAddress,$targetConf);
+$windowsConf=$input['windows_conf']??null;$guard=$input['product_path_guard']??null;
+if($windowsConf!==str_replace('/','\\',$targetConf)||!is_string($guard))throw new RuntimeException('The actual raw Windows conf argument is required.');
+$product=file_get_contents(dirname(__DIR__).'/packaging/windows/backups.py');
+$productGuards=array_values(array_filter(preg_split("/\\R/",$product),static fn(string $line):bool=>str_starts_with($line,"if(str_replace(")));
+if(count($productGuards)!==1||$guard!==$productGuards[0])throw new RuntimeException('The exact product configuration equality guard is required.');
+$argv[3]=$windowsConf;eval($guard);
+$windowsChanged=pbx_meet_install::rebind($db,null,$argv[3]);
+$windowsValues=$rows('v_sip_profile_settings');$actualTls=null;
+foreach($windowsValues as$row)if($row->sip_profile_uuid===$profile&&$row->sip_profile_setting_name==='tls-cert-dir')$actualTls=$row->sip_profile_setting_value;
+$out['windows_argument']=['actual_rebound_rows'=>$windowsChanged,'config_guard_passed'=>true,
+    'exact_raw_windows_tls_value'=>$actualTls===rtrim($windowsConf,'/\\').'/tls/openweb-meet',
+    'different_from_raw_config_tls'=>$actualTls!==rtrim($targetConf,'/\\').'/tls/openweb-meet'];
+try{$out['windows_argument']['snapshot']=$snapshot('target-restored');$out['windows_argument']['collector']='passed';}
+catch(RuntimeException $error){$out['windows_argument']['collector']='refused';$out['windows_argument']['error_type']=get_class($error);$out['windows_argument']['source_basename']=basename($error->getFile());$out['windows_argument']['source_line']=$error->getLine();}
+$out['windows_argument']['baseline']=$baseline;$out['windows_argument']['source']=$source;
+$out['windows_argument']['idempotent']=pbx_meet_install::rebind($db,null,$windowsConf)===0;
+$out['windows_path_refused']=[];$out['windows_changed_snapshots']=[];
+$pathVariants=[
+    'mixed_prefix'=>'C:\TargetPBX/conf/tls/openweb-meet',
+    'backslash_suffix'=>$windowsConf.'\tls\openweb-meet',
+    'different_case'=>'C:\targetPBX\conf/tls/openweb-meet',
+    'different_drive'=>'D:\TargetPBX\conf/tls/openweb-meet',
+    'neighbor_directory'=>'C:\TargetPBX\conf-other/tls/openweb-meet',
+    'parent_component'=>'C:\TargetPBX\sub\..\conf/tls/openweb-meet',
+    'dot_component'=>'C:\TargetPBX\.\conf/tls/openweb-meet',
+    'repeated_separator'=>'C:\TargetPBX\\\\conf/tls/openweb-meet',
+    'repeated_suffix_separator'=>$windowsConf.'//tls/openweb-meet',
+    'encoded_component'=>'C:\TargetPBX\%63onf/tls/openweb-meet',
+    'neighbor_suffix'=>$windowsConf.'/tls/openweb-meet-other',
+    'trailing_separator'=>$windowsConf.'/tls/openweb-meet/',
+];
+$change=$db->prepare("update v_sip_profile_settings set sip_profile_setting_value=? where sip_profile_uuid=? and sip_profile_setting_name='tls-cert-dir'");
+foreach($pathVariants as$name=>$value){
+    $db->beginTransaction();try{$change->execute([$value,$profile]);try{$snapshot('target-restored');}catch(RuntimeException $error){$out['windows_path_refused'][]=$name;}}finally{$db->rollBack();}
+}
+foreach(['foreign_tls'=>"update v_sip_profile_settings set sip_profile_setting_value='C:\TargetPBX\conf/tls/openweb-meet' where sip_profile_uuid='$foreign' and sip_profile_setting_name='tls-cert-dir'",
+    'owned_uuid'=>"update v_sip_profile_settings set sip_profile_setting_uuid='99999999-9999-4999-8999-999999999999' where sip_profile_uuid='$profile' and sip_profile_setting_name='tls-cert-dir'",
+    'owned_other_column'=>"update v_sip_profile_settings set custom_payload='{\"custom\":\"changed\"}'::jsonb where sip_profile_uuid='$profile' and sip_profile_setting_name='tls-cert-dir'"] as$name=>$sql){
+    $db->beginTransaction();try{$db->exec($sql);$out['windows_changed_snapshots'][$name]=$snapshot('target-restored');}finally{$db->rollBack();}
+}
+$out['windows_guard_refused']=[];
+foreach(['disabled_tls'=>"update v_sip_profile_settings set sip_profile_setting_enabled=false where sip_profile_uuid='$profile' and sip_profile_setting_name='tls-cert-dir'",
+    'duplicate_tls'=>"insert into v_sip_profile_settings select '99999999-9999-4999-8999-999999999999',sip_profile_uuid,sip_profile_setting_name,sip_profile_setting_value,sip_profile_setting_enabled,sip_profile_setting_order,custom_payload from v_sip_profile_settings where sip_profile_uuid='$profile' and sip_profile_setting_name='tls-cert-dir'"] as$name=>$sql){
+    $db->beginTransaction();try{$db->exec($sql);try{$snapshot('target-restored');}catch(RuntimeException $error){$out['windows_guard_refused'][]=$name;}}finally{$db->rollBack();}
+}
+// A malformed UUID cannot be stored in PostgreSQL's uuid column; exercise the
+// actual collector's shape guard with a single explicit in-memory row mutation.
+$badRows=$rows('v_sip_profile_settings');foreach($badRows as$row)if($row->sip_profile_uuid===$profile&&$row->sip_profile_setting_name==='tls-cert-dir')$row->sip_profile_setting_uuid='invalid-uuid';
+try{restore_fixture_meeting_rebind($db,$badRows,$key);}catch(RuntimeException $error){$out['windows_guard_refused'][]='invalid_uuid';}
+// A self-consistent different configured path/address still fails the original
+// target-baseline binding, even when using the genuine Windows serialization.
+foreach(['different_config'=>[$targetAddress,'C:/Unapproved/conf'],'different_address'=>['203.0.113.77',$targetConf]] as$name=>[$address,$conf]){
+    $db->beginTransaction();try{$configuration($address,$conf);$argv[3]=str_replace('/','\\',$conf);eval($guard);pbx_meet_install::rebind($db,null,$argv[3]);$out['windows_changed_snapshots'][$name]=$snapshot('target-restored');}finally{$db->rollBack();$configuration($targetAddress,$targetConf);}
+}
 echo json_encode($out,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES),PHP_EOL;
