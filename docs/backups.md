@@ -2,7 +2,7 @@
 
 Backups protect **all tenants on one Debian 13 installation**. Only an enabled instance administrator with the **pbx_backup_instance** permission can change settings, request or download a copy. Tenant administrators cannot access another tenant’s data through this page.
 
-This feature is included in the Debian 1.0.9 release. The previous 1.0.7 package does not include this worker. The procedures below describe that Debian implementation; the Windows candidate is qualified separately. Debian/Windows cross-platform restores remain unsupported.
+This feature is included in the Debian 1.0.9 release. The previous 1.0.7 package does not include this worker. The procedures below describe that Debian implementation; use the separate [Windows backup and restore guide](windows-backups.md) for the unpublished Windows candidate and its qualification limits. Debian/Windows cross-platform restores remain unsupported.
 
 ## Windows 1.0.20 work in progress
 

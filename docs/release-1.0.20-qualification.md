@@ -5,10 +5,23 @@ The complete server 1.0.20 release is not public, and the hosted instance has
 not received the complete server upgrade. Android remains 1.0.18, including its
 existing mandatory minimum.
 
-**Current work on 22 October:** native Windows parity is being qualified with
-the new Phone Health and STUN implementations and corrected WebSocket engine.
-See [the current Windows record](windows-parity-1.0.20.md). The Debian archive
-described below is historical: it predates Phone Health and must not be
+**Current work on 24 October:** the unchanged candidate from normal40005106134
+passes all 17 full-suite gates. Independent replacement restore40095999962 passes its source
+job, then fails in a target PHP verification child; its exact action/inner error
+needs further observation. Updater40097476201 passes all nine upgrade gates and
+cleanup for the accepted archive and its existing signed canary. Actual IIS
+import/calling diagnostic40098653401 passes its six scoped upload, preserved-credential,
+direct/ring-group decoded-audio and cleanup cases. The earlier
+restore and updater failures remain recorded with their limited evidence;
+independent restore remains unqualified. Physical phones, carrier cutover and rendered UI
+are outside the import diagnostic. A default-HTTPS-port
+restore compatibility correction is now reviewed in source and needs a rebuilt
+Windows package and fresh native acceptance. Publication and further signing remain held for build-host
+and credential recovery; owner migration, actual OS reboot and external access
+remain open. See the [current Windows release-gate table](windows-parity-1.0.20.md#windows-release-gates)
+and [Windows work record](windows-parity-1.0.20.md).
+
+The Debian archive described below is historical: it predates Phone Health and must not be
 published or installed over the newer hosted patch. A Debian release containing
 that feature needs a rebuilt package and new installation/update/restore checks.
 
@@ -67,21 +80,18 @@ Native build39825672102 passed, including a responsive WinUI manager; its
 engine build39823852979 passed its native parser, registration and codec
 controls. Neither result alone qualifies the complete server.
 
-Actual component checks on the owner's test machine passed16 Defender and62
-SYSTEM controls, plus isolated Task Scheduler child termination. Later durable
-protection intent/reconciliation and visible unconfirmed-state changes passed96
-isolated PostgreSQL controls with firewall doubles. STUN setup passed146 native
-NTFS/ACL/interruption controls with service/firewall doubles. The complete
-installed observer, actual event-to-firewall recovery and native STUN activation
-remain mandatory package gates. Clock1026, Call Me Back and provider-failover
-coverage is being added to the Windows call fixture.
+The accepted normal40005106134 package now passes the installed Phone Health,
+STUN, calling, provider failover, clock, Call Me Back, conference and background
+call-history checks, alongside fresh installation, backups and recovery. Earlier
+component-only results do not replace this complete package evidence.
 
-The original1.0.6 test installation remains untouched while its full file/ACL
-archive is prepared. Its logical database, globals/configuration, IIS, encrypted
-certificate, service/task and firewall metadata have external verified copies.
-Actual migration, public certificate issuance, outside Android/tenant access,
-independent clean-server restore and signed newer-version recovery remain open.
-Public releases and all retained platform feeds are unchanged.
+The owner's original1.0.6 installation has retained file/ACL, database/global,
+configuration, IIS, certificate, service/task and firewall recovery copies.
+It has not been upgraded. Migration/interruption/recovery on that installation,
+actual OS reboot, public certificate issuance/renewal, external phone/provider
+access and final release integrity remain open. Independent restore and newer
+updater results must also pass; see the current table above. Public releases
+and all retained platform feeds are unchanged.
 
 ### Earlier Windows candidate checks
 

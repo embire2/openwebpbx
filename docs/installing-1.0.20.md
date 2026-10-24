@@ -1,10 +1,10 @@
 # Install OpenWeb PBX 1.0.20
 
-This complete server build targets **Debian 13 amd64**, with a separate **Windows Server 2025 x64** package that requires its own qualification. The current Android client remains **1.0.18/code118**. Historical Windows server releases remain available; a native Windows calling app is planned separately. See the [Windows client plan](windows-client-plan.md).
+This complete server build targets **Debian 13 amd64**, with a separate **Windows Server 2025 x64** package that requires its own qualification. The current Android client remains **1.0.18/code118**. Historical Windows server releases remain available; the native Windows calling app is under separate development. See the [Windows client plan](windows-client-plan.md).
 
-Use the matching assets on the [1.0.20 release page](https://github.com/embire2/openwebpbx/releases/tag/v1.0.20) and verify the release status. Check each download against `SHA256SUMS` and extract the entire Debian archive into an empty folder. Current verification and release status are recorded in [feature coverage](feature-coverage.md).
+**1.0.20 is not published yet.** This guide describes the candidate installation flow. Follow the [release qualification record](release-1.0.20-qualification.md) and [Windows release checks](windows-parity-1.0.20.md); current public downloads are listed in the [README](../readme.md#downloads-and-platforms). Once your platform is published, use its matching archive and `SHA256SUMS`, and extract the complete archive into an empty private folder.
 
-**Install only a published package whose release notes record the completed qualification for your platform. Development archives are not stable releases.**
+**Install only a published package whose release notes record the completed qualification for your platform. Development archives are not stable releases.** Publication and further signing are currently held for build-host and credential recovery; a preview label does not bypass that hold.
 
 Version 1.0.20 includes admin incoming-route controls, the mandatory Android18 tenant-address support, managed tenant addresses, manual extension/app-password sign-in, separate simultaneous phone profiles and inline-QR/setup-file welcome invitations. Read [tenant phone accounts](tenant-phone-accounts.md) and [the Play submission audit](google-play-audit-1.0.17.md). It retains Meet audio/video conferences, Nathaniel UK default prompts, PIN-free own voicemail on **121**, the repaired GMT+2 clock on **1026**, optional Call Me Back and native Android video. It retains the department roles, phone-handover checks and provider evidence delivered in 1.0.15. Read [Meet](meet.md), [Android video](android-video.md), [staff access](department-staff.md), [phone handover](desk-phone-handover.md) and [first calls](core-calling.md). Physical phone/camera and carrier qualification remain separate.
 
@@ -16,7 +16,7 @@ Apply the current PHP security updates before deployment. On 21 October 2026, PH
 
 ## Windows Server installation
 
-Use the matching `openwebpbx-1.0.20-windows-x64.zip` only when its release notes identify it as qualified or explicitly as a preview. Windows Server 2025 x64 with Desktop Experience is the supported server target. Windows10/11 server installation remains unqualified; the native Windows calling client is a separate project.
+Use the matching `openwebpbx-1.0.20-windows-x64.zip` only after the release hold is cleared and its Windows qualification is recorded. Windows Server 2025 x64 with Desktop Experience is the supported server target. The server installer refuses Windows10/11; the native Windows calling client is a separate project.
 
 Extract the complete archive to a private directory and run **Start-OpenWebPBX.cmd**. It checks Microsoft's required runtime before opening the WinUI manager. Choose **Setup**, enter the server hostname and administrator email/password, and select **Automatic public certificate**. Approve Windows' administrator prompt to install. The hostname must point at the server, with TCP80/443 and the documented SIP/audio ports reachable. After setup, use the installed desktop shortcut. The equivalent command in built-in **Windows PowerShell5.1 as Administrator** is:
 
@@ -24,7 +24,19 @@ Extract the complete archive to a private directory and run **Start-OpenWebPBX.c
 .\Install-OpenWebPBX.ps1 -DomainName 'pbx.example.com' -EnablePublicAccess -AdminEmail 'admin@example.com'
 ```
 
-Setup installs the local PostgreSQL database, IIS/PHP, call engine, background service, updater, backup tooling, offline Nathaniel prompts, secure meeting proxy and the server manager. No separate database server is needed. Calls/providers stay off until configured. For a clean encrypted-backup replacement, add `-RestoreServer` and retain the original public hostname and HTTPS port. See [Windows meeting transport](windows-meet.md) for the scoped proxy prerequisites and recovery behavior. Preserve existing installations and use the manager/updater's documented upgrade path; never run a fresh installer over an existing PBX. Check [Windows upgrade guidance](windows-upgrade.md), the platform's actual release notes and the feature-coverage limits before replacing a production system.
+Setup installs the local PostgreSQL database, IIS/PHP, call engine, background service, updater, backup tooling, offline Nathaniel prompts, secure meeting proxy and the server manager. No separate database server is needed. The call engine starts during setup; provider trunks must be configured and explicitly enabled before provider calls can run. For a clean replacement receiving an encrypted **Windows** instance backup, add `-RestoreServer` and retain the original public hostname and HTTPS port. Debian instance backups are not accepted by the Windows restorer; the 3CX configuration importer is a separate migration path. See [Windows meeting transport](windows-meet.md) for the scoped proxy prerequisites and recovery behavior. Preserve existing installations and use the manager/updater's documented upgrade path; never run a fresh installer over an existing PBX. Check [Windows upgrade guidance](windows-upgrade.md), the platform's actual release notes and the feature-coverage limits before replacing a production system.
+
+Before setup, finish any pending Windows restart and use an administrator account. The launcher checks the required Microsoft Visual C++ x64 runtime and verifies Microsoft's signature before installing it; follow a requested restart before continuing. Use built-in Windows PowerShell 5.1 for setup, because its IIS modules are required. The release supplies its application runtimes; installing Visual Studio is not a server prerequisite.
+
+For public access, point one public IPv4 DNS record at the server or its forwarding router. The standard network plan uses TCP80/443 for certificate validation/web access, TCP/UDP5060 for phones, TCP/UDP5080 for providers, TCP5061 for phone TLS, UDP16384–32768 for call audio and UDP3478 for STUN. SIP rules follow the actual configured listeners. The installer does not configure an upstream router; STUN is not a TURN relay. See the [Windows network and certificate guide](../packaging/windows/ACME.md) for the exact checks and renewal behavior. PostgreSQL, the call-engine control socket and the local service API stay local.
+
+After setup, verify all of the following before moving live numbers:
+
+- Open the installed manager and check its version and Running status; sign in through the intended trusted HTTPS hostname without a certificate warning.
+- Connect two phones and prove ringing, two-way audio, hold/resume and voicemail. Then test the configured provider's incoming/outgoing calls and routes.
+- Verify Phone Health shows the expected registrations, send a controlled welcome email, and test the tenant address/Android connection and any browser meetings you use.
+- Create and verify an encrypted backup. For a replacement, follow the [Windows backup and restore guide](windows-backups.md), including separate activation of calls and jobs.
+- In a planned maintenance window, restart Windows and repeat service, HTTPS and calling checks. This is still an open qualification step, not a claim that a native reboot has passed.
 
 ## New Debian server
 
@@ -108,7 +120,7 @@ The setting does not create a published Google Play update: Google's account/tes
 
 ## Backups and hold music
 
-Open **System → Backups**, set a backup password and schedule, choose retention, and include voicemail/recordings when required. Save the password separately from the server. Encrypted backups support local storage and SFTP. Restore onto a separate clean Debian instance; restored calling and job services remain held until explicit activation. Read [backup and restore](backups.md) before using the restore command.
+Open **System → Backups**, set a backup password and schedule, choose retention, and include voicemail/recordings when required. Save the password separately from the server. Encrypted backups support local storage and SFTP. Restore onto a separate empty installation of the same platform and release; restored calling and job services remain held until explicit activation. Follow the matching [Debian guide](backups.md) or [Windows guide](windows-backups.md), including each platform's current qualification limits. Debian/Windows cross-platform instance restores are unsupported.
 
 Existing hold music is retained. The stock hold-music default uses the bundled CC0 instrumental. Existing custom music choices are retained; phones do not stream the song from an external website. The earlier 1.0.11 native tests verified music on the single held call, both conference legs and the remaining held caller, followed by resumed media. [Feature coverage](feature-coverage.md#visible-call-controls-personal-settings-and-instance-phone-floor--1011) records the complete window/continuous-RTP proof and preserved failed long fixed-offset comparison. See [music on hold](music-on-hold.md) for the track source and licence.
 

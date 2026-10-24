@@ -1,6 +1,6 @@
 # Windows Server parity work — 1.0.20
 
-Status on 23 October 2026: **development and native acceptance in progress**.
+Status on 24 October 2026: **development and native acceptance in progress**.
 
 Normal40005106134/sourced5a5a0ad8 completes successfully. Root authenticates
 all17 essential gates: fresh installation, trusted web, backups, native calling
@@ -17,14 +17,66 @@ Root independently verifies19165 payloads,6651 immutable source mappings,
 16 registrar supplement files and4888 voice files. The complete path and
 configured-secret scan passes. This is an unpublished qualification archive.
 
-Independent encrypted restore40012370783 and newer-canary preparation
-40012387928 use the exact same source on separate disposable runners. Signed
-newer-upgrade/recovery, owner1.0.6 migration and external HTTPS/ACME remain open.
-No production server or public feed has changed. Earlier failures below remain
-historical evidence; this later pass does not establish their missing causes.
-The currently published Windows release remains 1.0.7. Do not replace a
-production server with an unpublished archive. Debian's hosted Phone Health
-patch and the earlier complete Debian candidate have separate verification.
+Independent replacement restore **40095999962** has passed all nine source
+checks, including actual voicemail, a recorded two-way call, and the scheduled
+encrypted backup. The replacement target fails in the PHP verification child;
+the retained error does not identify its action or inner PHP failure. Cleanup
+and original Phone Health task-choice restoration pass. Additional closed
+diagnostics are being prepared; no target restore pass follows. The previous run
+40092304354 refused a changed digest in `v_sip_profile_settings`; row counts
+matched and cleanup passed. The current QA validates the installer-owned
+meeting addresses and certificate path against each target's local configuration
+while comparing every other row and field. It does not establish the raw values
+in that historical failure.
+
+Newer-version updater **40097476201** passes all nine upgrade gates: complete
+fault/normal HTTPS downloads, rollback, genuine newer-version installation,
+natural updater restart, both manager reopen checks and protected data. Root
+verified the original artifact, exact baseline/canary hashes and cleanup. The
+existing synthetic signatures were reused; no signing key was accessed, and
+the temporary test secret was removed. This acceptance covers the unchanged
+accepted product and its original canary, not the pending default-port correction.
+The earlier backup-worker warm-up failure remains recorded without an inferred cause.
+
+Real IIS V20 upload/import and original-credential calling diagnostic
+**40098653401** passes all six intended cases against the accepted archive:
+actual trusted multipart upload and CSRF checks, import/credential/media
+preservation, original-credential registration, direct and ring-group decoded
+two-way audio, and cleanup. The synthetic upload is removed. Its overall result
+remains partial: this isolated mode cannot qualify or publish a full release,
+and it does not prove rendered UI, physical handsets or carrier calls. Earlier
+attempts stopped before installation at test-source guards; their evidence is
+retained separately.
+
+A documentation review also identified a restore-address compatibility gap:
+manual setup with HTTPS port443 stores an explicit `:443`, while automatic
+public setup stores no port. The current restorer compares those URL strings
+literally. Correction bf35c8078 now accepts only those equivalent root HTTPS
+forms. Five actual source/encrypted-archive/PostgreSQL groups pass independently
+and at root; the separate unchanged 31-test backup suite also passes. The focused
+restores preserve credentials, encryption keys, certificate/mailbox settings and
+service holds. Broader media/Phone Health checks belong to that separate suite.
+A fresh Windows package and native qualification are required; the accepted
+older archive does not contain this runtime change.
+
+Publication and further signing remain held for build-host and credential
+recovery. The owner reports rebuilding Debian173.214.174.68, but this workspace
+still observes its original boot identity; independent confirmation of the
+replacement is pending. No owner-machine upgrade or public feed change has
+occurred. The public Windows version remains **1.0.7**. Do not replace a production
+server with an unpublished archive.
+
+See the [current release-gate table](#windows-release-gates),
+[Windows installation checklist](installing-1.0.20.md#windows-server-installation)
+and [Windows backup/restore procedure](windows-backups.md). Windows10/11 server
+installation and Debian-to-Windows instance restores are unsupported. The
+separate Windows calling client is not part of this server archive.
+
+## Earlier qualification records
+
+The following entries retain their original run scope. Later acceptance does
+not establish an unretained cause for an earlier failure. The current gate table
+below takes precedence over historical descriptions of pending work.
 
 Earlier normal run39988468357/sourcec4e2d5273 passes native SIP/audio, clock,
 provider, Call Me Back and browser-conference gates, including the retained
@@ -277,17 +329,29 @@ the new run passes STUN, but the historical lock holder and error code remain
 unknown. Native controls retain the unchanged30-second deadline and immediate
 permission/unsafe-path refusal.
 
-| Area | Current work | Required acceptance |
+## Windows release gates
+
+The table below reflects the accepted normal run40005106134 and the current
+release gates. Earlier run descriptions above remain historical records.
+
+| Area | Verified in the current normal package | Still required before release |
 |---|---|---|
-| Phone Health & Recovery | Normal run39864760800 passes the complete installed gate:96 PostgreSQL,49 runtime and18 Defender controls, including continuous SYSTEM observation, restart and exact cleanup. QA pauses only the exact owned updater during whole-state comparisons and restores its original choices. | Repeat this gate in the final archive and qualify upgrade/restore integration. The isolated heartbeat proof does not retrospectively identify the historical changed object. |
-| Remote phones | Native .NET STUN Binding worker and setup are implemented. The current package passed33 installed Windows checks, including actual service/Defender activation, decoded modern/legacy Binding and recovery.146 separate NTFS/interruption controls use service/firewall doubles. Existing PBX-anchored audio and restored sign-in identities remain. | External test-machine Binding and phone/client acceptance; Windows IPv6 remains separate. STUN is not TURN. |
-| Conferences | Corrected native engine passes all16 ordinary/fragmented small/8KiB frontend/backend OPTIONS exchanges. The rebuilt fresh package now passes actual installed private DTLS certificate checks after repairing the stock date overflow. Browser media remains unqualified. | Prove negotiation, decoded browser/phone audio and VP8, host actions and exact cleanup. Preserve valid custom certificates and destination-owned identity during restore. |
-| Backups and restore | Scheduled-job choices are preserved. Restored pending phone-unblock requests are refused before background work resumes; other recovery history is retained. | Complete encrypted backup, same-machine failure recovery, distinct clean-server restore, media/key preservation and explicit activation. |
-| Updates | Updater service selection is now deferred until the durable upgrade commit; pending finalization can retry without rolling back a committed installation. Native component controls cover the running-image recovery defect and sealed legacy dependencies. The original6 verifier passed29 real CLI controls with an isolated, protected manual-transition context; normal Windows20 feeds retain a minimum20 floor. | Rebuilt complete-package fresh setup, actual original6 interrupted recovery and normal migration, same-version repair, signed newer-version upgrade and an OS reboot. Component service adapters do not establish actual owner SCM recovery. |
-| PHP runtime | The legacy upgrade now stages the same pinned PHP8.4.27 used by fresh installs. An actual private-copy8.4.26→27 matrix passes, preserving settings/custom extensions and proving full runtime/permission rollback, locked-file refusal and retry. Unexpected staged or backup files/links are refused. | Complete-package upgrade and interrupted-process recovery using the new helpers; component checks alone do not qualify the installed owner server. |
-| Public access | The configured-listener fix passes21 native Defender and14 installed-collector checks, including provider port5080. Setup verifies protected settings, authenticated engine status and actual native listener ownership. Explicit custom RTP ranges require administrator review; automatic setup supports the verified stock default range. | Actual public certificate issuance/deferred renewal, current firewall-state review and external tenant/Android connections on the test machine. Local rule controls do not prove external packet delivery. |
-| Client setup and welcome mail | Shared tenant-address, app-password and profile features are implemented. A new required welcome case passes29 local real PHP/PostgreSQL/SMTP/MIME/independent QR checks and120 caller/projection controls; native Windows execution remains pending. | Pass the installed Windows welcome case, then external Android QR/manual sign-in, password change, multiple profiles and trusted-IIS role/online boundaries. |
-| Existing calling suite | Run39897697725 completes22 media cases: decoded TLS audio and transcoding; simultaneous/hunting groups; queue delivery, pause/logout/callback; IVR; hold/music/resume/transfer; hotel wakeup; private voicemail recording/forwarding; clock1026; provider incoming/outgoing/failover; and Call Me Back authentication/quota limits. Conference admission and strict CDR cleanup fail separately. | Pass the complete final archive, including conference media, cleanup and protected-data checks. Completed cases do not promote the failed child or prove commercial-carrier/physical-phone acceptance. |
+| Phone Health & Recovery | Installed SYSTEM observation, continuous collection and restart pass129 PostgreSQL,49 runtime and18 Defender controls. | Complete newer-upgrade and separate-server restore preservation, then owner-machine checks. |
+| Remote phones | Native STUN service and33 installed Binding/Defender/recovery checks pass; media remains anchored by the PBX. | External test-machine STUN, actual phone/app connections and two-way audio. Windows IPv6 remains separate; STUN does not provide TURN. |
+| Conferences | Native TLS/WebSocket transport55 and decoded browser audio/video gates pass in the normal package. | External browser/phone acceptance and destination identity/media checks in independent restore. |
+| Backups and restore | Real scheduled encrypted backups, verification, retention, media/private-key preservation, same-machine recovery and explicit activation pass. | Independent target40095999962 fails in a PHP verification child whose action/inner error is not retained; further diagnostics are required. Default-HTTPS-port compatibility is corrected in source and needs fresh native acceptance. Debian archives are unsupported on Windows. |
+| Updates | Fresh install, same-version reapply, direct rollback, restore-startup recovery and both manager reopen gates pass;40097476201 also passes the complete signed newer-upgrade path. | Original1.0.6 migration/interrupted recovery and actual OS reboot. Run40097476201 passes signed newer upgrade/rollback for the accepted archive; a changed product archive requires fresh qualification. |
+| PHP runtime | Pinned PHP8.4.27 is installed and exercised by the normal package; native private-copy runtime preservation/rollback checks also pass. | Full legacy owner upgrade and interruption/recovery. Component checks do not substitute for that migration. |
+| Public access | Installed listener/Defender checks, trusted IIS login, local certificate/readiness and tenant-domain workers pass. | Public ACME issuance/renewal and external tenant/Android/provider access. Local rule checks do not prove internet packet delivery. |
+| Client setup and welcome mail | The installed normal suite includes the welcome MIME/inline QR/setup-attachment case and global SMTP checks against local controlled recipients. | External Android QR/manual sign-in, password changes and multiple profiles on the owner server. Controlled SMTP acceptance does not prove delivery by the owner's relay. |
+| Calling | The complete normal calling, provider, Call Me Back, clock, conference and background call-history gates pass, including strict fixture cleanup. | Commercial provider and physical phone/app acceptance on the owner machine, plus independent restored calling/media checks. |
+| 3CX migration | Installed PHP/PostgreSQL V20 import checks pass. Diagnostic40098653401 additionally passes real IIS upload/import and original-credential software-phone direct/ring-group decoded two-way audio. | Rendered browser flow, physical phones and real carrier handover; repeat relevant checks after the pending runtime correction. |
+
+Current server support is Windows Server2025 x64 with Desktop Experience.
+Windows10/11 server installation is deliberately refused. WinUI supplies the
+installer/status manager and opens web administration; a complete native C#
+administration rewrite is not finished. The separate Windows calling client has
+its own unpublished acceptance gates and is not bundled into this server archive.
 
 The owner's test machine is Windows Server 2025. Its original 1.0.6 installation
 was found with PBX services stopped. Its files, logical database, permissions
