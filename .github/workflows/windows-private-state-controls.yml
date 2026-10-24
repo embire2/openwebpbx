@@ -21,9 +21,18 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 1
+      - name: Select the exact readable Python interpreter
+        id: python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12.10'
+          architecture: 'x64'
+          check-latest: false
+          update-environment: false
       - name: Test original hashing with actual owned read and exclusive handles
         env:
           PYTHONDONTWRITEBYTECODE: '1'
+          OPENWEB_HASH_PYTHON: ${{ steps.python.outputs.python-path }}
         run: |
           $ErrorActionPreference='Stop'
           if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:RUNNER_OS -cne 'Windows' -or $env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx'){throw 'Only the owned hosted component job is allowed.'}
@@ -32,7 +41,10 @@ jobs:
           if((Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant() -cne '488600318b2902a0a76c728269f98237c521b70dd2d5927ba91e9caed7d4752f'){throw 'The reviewed component manifest changed.'}
           $pins=Get-Content -LiteralPath $manifest -Raw|ConvertFrom-Json
           foreach($entry in $pins.PSObject.Properties){if((Get-FileHash -LiteralPath (Join-Path $probeBundle $entry.Name) -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.Value){throw 'A reviewed component input changed.'}}
-          $python=(Get-Command python.exe -CommandType Application -ErrorAction Stop).Source
+          $python=$env:OPENWEB_HASH_PYTHON
+          if(!$python -or ![IO.Path]::IsPathFullyQualified($python)){throw 'The exact setup action interpreter path is required.'}
+          $pythonFile=Get-Item -LiteralPath $python -Force
+          if($pythonFile.PSIsContainer -or $pythonFile.Length -le 0 -or ($pythonFile.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'The interpreter must be an ordinary readable executable, not an app alias.'}
           $pwsh=(Get-Process -Id $PID).Path
           $pyHash=(Get-FileHash -LiteralPath $python -Algorithm SHA256).Hash.ToLowerInvariant()
           $psHash=(Get-FileHash -LiteralPath $pwsh -Algorithm SHA256).Hash.ToLowerInvariant()
