@@ -35,10 +35,14 @@ target also passes all20 gates: complete database/media and target identities,
 original-credential decoded two-way calls, voicemail121, Nathaniel1026, scheduled
 jobs/backups and canonical cleanup. All six original Phone Health choices are
 restored. Signed repeat40125359325 passes with the same verified pair and unchanged
-preservation checks. Restored-conference supplement40126434519 separately
-fails in its Python child with a nonzero exit; the inner cause is not retained.
-Cleanup and original Health choices pass; a bounded failure-only observer is
-under review and restored-meeting media remains unqualified. Owner migration, actual OS reboot and external access are separate.
+preservation checks. The separate restored-conference repeat40136954198 passes
+nine source gates, then refuses before a decoded-media result in the original
+browser child's connection preflight/initialization phase. Its exact inner cause
+is unretained. Supplemental cleanup, canonical cleanup and original Health choices
+pass; existing closed connection diagnostics are being propagated without changing
+media checks. Restored-meeting media remains unqualified. Earlier supplement
+failures retain their original limited evidence. Owner migration, actual OS reboot
+and external access are separate.
 
 Earlier normal **40106683010/source23477de2f** failed after complete native calling,
 conference, SMTP/welcome and factory-cleanup acceptance. Root authenticates11
@@ -413,7 +417,7 @@ original package scope.
 |---|---|---|
 | Phone Health & Recovery | Installed SYSTEM observation, continuous collection and restart pass129 PostgreSQL,49 runtime and18 Defender controls; accepted-package upgrade and separate restore preservation also pass. | Owner-machine registration and recovery checks; broader physical-phone coverage. |
 | Remote phones | Native STUN service and33 installed Binding/Defender/recovery checks pass; media remains anchored by the PBX. | External test-machine STUN, actual phone/app connections and two-way audio. Windows IPv6 remains separate; STUN does not provide TURN. |
-| Conferences | Native TLS/WebSocket transport55 and decoded browser audio/video gates pass in the normal package. | External browser/phone acceptance. Supplement40126434519 failed in its extra child before a retained decoded-media result; that separate workflow remains unqualified. |
+| Conferences | Native TLS/WebSocket transport55 and decoded browser audio/video gates pass in the normal package. | External browser/phone acceptance. Restored-conference repeat40136954198 failed during connection preflight/browser initialization before a decoded-media result; that separate workflow remains unqualified. |
 | Backups and restore | Scheduled encrypted backups, retention, media/private-key preservation, recovery and activation pass in normal40111566679; restore40123098262 passes nine source and20 clean-target gates on that exact archive, including the default-HTTPS-port correction. | Owner-instance restore checks. Debian instance archives are unsupported on Windows. |
 | Updates | Fresh installation, same-version reapply, direct rollback, restore-startup recovery and both manager reopen gates pass in40111566679. The matched1.0.21 canary archive and existing-key envelopes are fully audited. | Signed40125359325 now passes all9 gates for this exact base/canary pair. Original1.0.6 migration/interrupted recovery and actual OS reboot remain open; earlier40097476201 retains its older-package scope. |
 | PHP runtime | Pinned PHP8.4.27 is installed and exercised by the normal package; native private-copy runtime preservation/rollback checks also pass. | Full legacy owner upgrade and interruption/recovery. Component checks do not substitute for that migration. |

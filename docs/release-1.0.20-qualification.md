@@ -26,8 +26,13 @@ feeds are preserved byte-for-byte.
 
 Original1.0.6 migration/interrupted recovery, actual Windows reboot and external
 physical phone/carrier/camera checks remain unqualified. The ordinary feed starts
-at1.0.20; an unqualified legacy transition is not published. Restored-conference
-supplement40126434519 is separate and failed in its extra Python child; the inner cause was not retained and no restored-conference media pass is claimed. Earlier failed runs below retain
+at1.0.20; an unqualified legacy transition is not published. The separate
+restored-conference repeat40136954198 passes nine source gates, then refuses
+before a decoded-media result during the original browser child's connection
+preflight/initialization phase. Its exact inner cause is unretained; supplemental
+cleanup, canonical cleanup and original Health choices pass. Closed connection
+diagnostics are under review. No restored-conference media pass is claimed.
+Earlier failed runs below retain
 their original limited evidence and unknown causes; later success assigns none.
 
 The following earlier work records describe the state at the time of each run.
