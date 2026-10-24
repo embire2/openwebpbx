@@ -63,6 +63,11 @@ jobs:
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           dotnet-version: '10.0.401'
+      - name: Prove actual Scheduler renewal and CDR cleanup exclusion
+        if: inputs.mode == 'qualify-signed'
+        run: |
+          & tests/windows_updater_runtime_controls.ps1 -DisposableHostedRunner
+          if(!$?){throw 'The actual updater runtime controls did not pass.'}
       - name: Run only the explicitly selected disposable stage
         env:
           GH_TOKEN: ${{ github.token }}
@@ -104,6 +109,14 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+      - name: Preserve bounded native component facts
+        if: always() && inputs.mode == 'qualify-signed'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openwebpbx-windows-updater-runtime-${{ github.run_id }}
+          path: ${{ runner.temp }}/openwebpbx-updater-runtime-facts/qualification.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Preserve only the credential-free stage facts
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

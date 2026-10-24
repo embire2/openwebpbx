@@ -16,7 +16,7 @@ $taskNode=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.Functi
 $owned=@('OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate')
 foreach($name in $owned){Must ($taskNode[0].Extent.Text.Contains("'"+$name+"'") -and $defs.QualificationTaskDifference.Contains("'"+$name+"'") -and $defs.QualificationTaskDifferenceFields.Contains("'"+$name+"'"))}
 Must ($defs.Equal.Contains("@('-I','-B',(Join-Path `$PSScriptRoot 'windows-compare-json.py'),`$a,`$b)"))
-Must ($defs.NormalTaskPreservation.Contains("if(`$name -in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains')"))
+Must ($defs.NormalTaskPreservation.Contains("if(`$name -in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth')"))
 $temporary=Join-Path ([IO.Path]::GetTempPath()) ('OpenWebTaskObservation-'+[guid]::NewGuid().ToString('N'));$null=New-Item -ItemType Directory -Path $temporary
 $sensitive='PRIVATE_TASK_SQL_password_XML_SDDL_credential'
 $original='<Task xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Date>2026-01-01T00:00:00</Date><Author>PRIVATE_TASK_SQL_password_XML_SDDL_credential</Author></RegistrationInfo><Triggers><TimeTrigger><StartBoundary>2026-01-01T00:00:00</StartBoundary><Repetition><Interval>PT1M</Interval></Repetition></TimeTrigger></Triggers><Actions><Exec><Command>PRIVATE_TASK_SQL_password_XML_SDDL_credential</Command></Exec></Actions><Settings><Enabled>true</Enabled></Settings></Task>'
@@ -52,10 +52,18 @@ try{
   Must (($before|ConvertTo-Json -Depth 32 -Compress) -ceq $originalBefore)
  }}
  $valid=CopyRows $report.task_difference;$validComparison=CopyRows $script:qualificationComparisonFailure;$validTrace=$caught.ScriptStackTrace;$validChild=$script:qualificationFailedChild.Clone()
- # The proposed timestamp cause is only a fixture possibility. Preserve refusal.
+ # Reproduce the original timestamp refusal, then require the corrected actual
+ # normalizer to accept only this renewal. Native Scheduler executes separately.
  $after=CopyRows $before;$after['OpenWebPBX-PhoneHealth'].xml=$original.Replace($originalBoundary,[DateTime]::UtcNow.AddSeconds(90).ToString('o'))
+ $old=$defs.NormalTaskPreservation.Replace(",'OpenWebPBX-PhoneHealth')",')')
+ Must ($old -cne $defs.NormalTaskPreservation -and $old.Replace("'OpenWebPBX-TenantDomains')","'OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth')") -ceq $defs.NormalTaskPreservation)
+ $currentFixture=[IO.File]::ReadAllText($fixture);Must ($currentFixture.Contains($defs.NormalTaskPreservation))
+ [IO.File]::WriteAllText($fixture,$currentFixture.Replace($defs.NormalTaskPreservation,$old));. $fixture
  $caught=$null;try{NormalTaskPreservation $before $after $started}catch{$caught=$_};$children++
  $report=Observe $caught;Must ($report.task_difference.known_tasks['OpenWebPBX-PhoneHealth'][0] -ceq 'xml')
+ [IO.File]::WriteAllText($fixture,$currentFixture);. $fixture
+ NormalTaskPreservation $before $after $started;$children++
+ Must ($null -eq $script:qualificationComparisonFailure)
  # Known/unknown names and presence changes: only closed identifiers leave the observer.
  $left=@{'OpenWebPBX-PhoneHealth'=(Row);'OpenWebPBX-Cleanup'=(Row);$sensitive=(Row)}
  $right=CopyRows $left;$right['OpenWebPBX-PhoneHealth']=@{exists=$false};$right.Remove('OpenWebPBX-Cleanup');$right['OpenWebPBX-Backups']=Row;$right[$sensitive].acl='new-'+$sensitive

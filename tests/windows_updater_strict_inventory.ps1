@@ -23,7 +23,11 @@ $temporary=Join-Path ([IO.Path]::GetTempPath()) ('openweb-updater-inventory-'+[G
 try{
  $work=$temporary
  $root=Join-Path $temporary 'root';$state=Join-Path $temporary 'state';$engine=Join-Path $temporary 'engine';$configuration=Join-Path $temporary 'configuration';$env:SystemRoot=Join-Path $temporary 'Windows';$script:acls=@{}
- $privateDirectories=@("$root\php",$configuration,"$state\storage","$state\mobile-notifications","$state\mail","$state\phone-tls","$state\public-access","$state\meet-proxy","$state\tenant-domains","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build","$state\phone-health-runtime","$state\stun-setup","$state\dtls-setup")
+ # Explicit configured-CDR-path adapter; this inventory component does not run
+ # Windows PHP/native path protection. The returned spool is real owned files.
+ $PackageRoot=Join-Path $temporary 'package';$null=[IO.Directory]::CreateDirectory($PackageRoot)
+ [IO.File]::WriteAllText((Join-Path $PackageRoot 'CallRecords.Common.ps1'),'function Get-OpenWebCallRecordPlan {param($PackageRoot,$Root,$EngineRoot) return @{Path=(Join-Path $EngineRoot "log/xml_cdr")}}')
+ $privateDirectories=@("$root\php",$configuration,"$state\storage","$state\mobile-notifications","$state\mail","$state\phone-tls","$state\public-access","$state\meet-proxy","$state\tenant-domains","$state\automatic-backups","$state\backup-restore","$state\backup-control","$state\backup-downloads","$state\codec-compiler-cache","$state\codec-build","$state\phone-health-runtime","$state\stun-setup","$state\dtls-setup",(Join-Path $engine 'log/xml_cdr'))
  $programDirectories=@("$root\web","$root\server","$root\desktop","$root\tools","$root\backup-runtime","$root\acme","$root\updater\slots","$engine\conf","$engine\scripts","$engine\mod","$engine\sounds")
  $parents=@($root,"$root\updater",$state,$engine,"$engine\cert")
  $fixed=@("$state\runtime.json","$state\phone-tls.json","$state\phone-health-instance.json","$state\stun.json","$state\native-engine.json","$state\local-codec.json","$state\meet-ca.pem","$state\meet-proxy.json","$engine\cert\dtls-srtp.pem","$engine\libbcg729.dll")
@@ -100,7 +104,7 @@ try{
   $null=$tasks.Remove($name);Assert (!(TaskSnapshot)[$name].exists -and (Fingerprint (TaskSnapshot)) -cne (Fingerprint $taskBefore));$tasks[$name]=$original
  }
  Assert ((Fingerprint (TaskSnapshot)) -ceq (Fingerprint $taskBefore))
- # Execute the actual renewal normalizer for all three owned repeating
+ # Execute the actual renewal normalizer for all four owned repeating
  # workers. TenantDomains has one startup plus one repeating trigger; only
  # its freshly registered boundary and descriptive author/date may advance.
  function WriteJson([string]$Path,$Value){}
@@ -108,7 +112,7 @@ try{
  function TaskRecord([string]$Xml){return @{exists=$true;enabled=$true;xml=$Xml;acl='ORIGINAL_ACL';security='ORIGINAL_SECURITY'}}
  $started=[DateTime]::UtcNow.AddSeconds(-5);$boundary=[DateTime]::UtcNow.AddMinutes(1).ToString('o')
  $xml='<Task xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Date>2026-01-01T00:00:00</Date><Author>Administrator</Author></RegistrationInfo><Triggers><BootTrigger/><TimeTrigger><StartBoundary>2026-01-01T00:00:00</StartBoundary><Repetition><Interval>PT2M</Interval></Repetition></TimeTrigger></Triggers><Actions><Exec><Command>owned.exe</Command></Exec></Actions><Principals><Principal><UserId>S-1-5-18</UserId></Principal></Principals><Settings><Enabled>true</Enabled></Settings></Task>'
- foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains'){
+ foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth'){
   $beforeTask=@{($name)=(TaskRecord $xml)};$changed=$xml.Replace('2026-01-01T00:00:00',$boundary).Replace('Administrator','SYSTEM')
   NormalTaskPreservation $beforeTask @{($name)=(TaskRecord $changed)} $started;Assert $true
   foreach($case in 'action','file_acl','com_acl','enabled','future_schedule','extra_trigger','interval','principal','setting'){
@@ -125,9 +129,10 @@ try{
    $refused=$false;try{NormalTaskPreservation $beforeTask @{($name)=$record} $started}catch{$refused=$true};Assert $refused
   }
  }
- # A non-repeating Health task gets no schedule exception.
- $healthBefore=@{'OpenWebPBX-PhoneHealth'=(TaskRecord $xml)};$refused=$false
- try{NormalTaskPreservation $healthBefore @{'OpenWebPBX-PhoneHealth'=(TaskRecord ($xml.Replace('2026-01-01T00:00:00',$boundary)))} $started}catch{$refused=$true};Assert $refused
+ # Phone Health re-registers its one-minute trigger too. The complete remaining
+ # XML/security contract still compares exactly; native Scheduler is separate.
+ $healthBefore=@{'OpenWebPBX-PhoneHealth'=(TaskRecord $xml)}
+ NormalTaskPreservation $healthBefore @{'OpenWebPBX-PhoneHealth'=(TaskRecord ($xml.Replace('2026-01-01T00:00:00',$boundary)))} $started;Assert $true
  # Prove quiescence occurs once before all preservation baselines, original
  # choices resume under cleanup lock only after comparisons, then exact stop.
  $commands=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.CommandAst]},$true))

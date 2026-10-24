@@ -632,6 +632,19 @@ function Equal($Before,$After,[string]$Label){
   throw
  }
 }
+function OpenQualificationCleanupLock([string]$Path,[ValidateRange(0,30000)][int]$WaitMilliseconds=30000){
+ # The normal CDR reader may briefly hold its shared lease after startup. Wait
+ # only for native sharing/lock violations; never retry protected cleanup work.
+ $clock=[Diagnostics.Stopwatch]::StartNew()
+ while($true){
+  try{return [IO.File]::Open($Path,'OpenOrCreate','ReadWrite','None')}
+  catch{
+   $native=$_.Exception.GetBaseException()
+   if($native -isnot [IO.IOException] -or ($native.HResult -band 65535) -notin 32,33 -or $clock.ElapsedMilliseconds -ge $WaitMilliseconds){throw}
+   Start-Sleep -Milliseconds ([int][Math]::Min(100,[Math]::Max(1,$WaitMilliseconds-$clock.ElapsedMilliseconds)))
+  }
+ }
+}
 function NormalTaskPreservation($Before,$After,[DateTime]$Started){
  WriteJson (Join-Path $work 'normal-tasks-exact-before.json') $Before;WriteJson (Join-Path $work 'normal-tasks-exact-after.json') $After
  $normalizedBefore=@{};$normalizedAfter=@{}
@@ -644,7 +657,7 @@ function NormalTaskPreservation($Before,$After,[DateTime]$Started){
     # Re-registration records the actual current operator/date. These two
     # descriptive fields may change; executable/principal/settings/security may not.
     foreach($node in @($xml.SelectNodes('/t:Task/t:RegistrationInfo/t:Date|/t:Task/t:RegistrationInfo/t:Author',$namespaces))){$node.ParentNode.RemoveChild($node)|Out-Null}
-    if($name -in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains'){
+    if($name -in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth'){
      $nodes=@($xml.SelectNodes('/t:Task/t:Triggers/t:TimeTrigger/t:StartBoundary',$namespaces));Check ($nodes.Count -eq 1) 'The owned repeating task must retain one bounded schedule.'
      if([object]::ReferenceEquals($pair.source,$After)){$time=[DateTime]::Parse($nodes[0].InnerText).ToUniversalTime();Check ($time -ge $Started.ToUniversalTime().AddSeconds(-5) -and $time -le [DateTime]::UtcNow.AddMinutes(2)) 'The renewed owned schedule must be created during this real normal update.'}
      $nodes[0].InnerText='QUALIFIED_ONCE_TRIGGER_TIME'
@@ -862,7 +875,7 @@ if(!$?){exit 1}
  $cleanup=$true
  try{
   if($installed){
-   $lock=[IO.File]::Open("$state\upgrade.lock",'OpenOrCreate','ReadWrite','None')
+   $lock=OpenQualificationCleanupLock "$state\upgrade.lock"
    try{
     # Keep the guard through shutdown; a later scheduled tick may not begin a
     # transaction between the ownership check and removal of this fixture.
