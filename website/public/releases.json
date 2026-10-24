@@ -1,7 +1,64 @@
 {
-  "reviewed_on": "2026-10-21",
+  "reviewed_on": "2026-10-24",
   "repository": "embire2/openwebpbx",
   "releases": [
+    {
+      "version": "1.0.20",
+      "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.20",
+      "published_at": "2026-10-24T20:09:47Z",
+      "prerelease": false,
+      "scope": "Complete Windows Server2025 x64 Desktop Experience suite; fresh setup and ordinary updates from installed1.0.20. Legacy original-machine transition remains unqualified; Debian16/admin19/Android18 unchanged.",
+      "build_source_commit": "9f826eccd6cb6c792bdc949e7b6e551c5cea4f5b",
+      "qualification": {
+        "normal": 40111566679,
+        "independent_restore": 40123098262,
+        "signed_newer_upgrade": 40125359325
+      },
+      "assets": [
+        {
+          "name": "openwebpbx-1.0.20-windows-x64.zip",
+          "bytes": 585104517,
+          "sha256": "9a45d51c1ee1d1f985062fc16fb0cdfaea43aee6c1a7a540a7b820852e776522",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.20/openwebpbx-1.0.20-windows-x64.zip"
+        },
+        {
+          "name": "windows-update-manifest.json",
+          "bytes": 1204,
+          "sha256": "21e2b85bacb2ad4dcfcde547a4a6ac759c2e50f9a9ea18f267e36bb3b995f880",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.20/windows-update-manifest.json"
+        },
+        {
+          "name": "update-manifest.json",
+          "bytes": 1404,
+          "sha256": "7c43ac14cf765a7602ddcc8fa4b187fe19d61ba2b4197f96f6d5448a6ad87e54",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.20/update-manifest.json"
+        },
+        {
+          "name": "debian-update-manifest.json",
+          "bytes": 1816,
+          "sha256": "444e30c483a09f6fa4dd280419d33e7e929cf4262bc2ec14476d143d9bfbb92d",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.20/debian-update-manifest.json"
+        },
+        {
+          "name": "openwebpbx-1.0.20-source.tar.gz",
+          "bytes": 47632586,
+          "sha256": "7b5740ab7f00f283ad899e8767510ebdf96b9ef282ca8e300d2cd5cfa934fa74",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.20/openwebpbx-1.0.20-source.tar.gz"
+        },
+        {
+          "name": "installing-windows-1.0.20.md",
+          "bytes": 7551,
+          "sha256": "c6bfb8f7a3962ab5a64d9490c8d5b266543b8bc90988ebb520c3cae84425cbf2",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.20/installing-windows-1.0.20.md"
+        },
+        {
+          "name": "SHA256SUMS",
+          "bytes": 569,
+          "sha256": "709db119564c07e4f4fb901169e49c2de12fc55c8679e9dca5b820e19df66ce1",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.20/SHA256SUMS"
+        }
+      ]
+    },
     {
       "version": "1.0.19",
       "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.19",
@@ -794,16 +851,16 @@
       "name": "Windows Server 2025",
       "architecture": "x64",
       "edition": "Desktop Experience",
-      "status": "historical 1.0.7 download; separate Windows 1.0.13 candidate under qualification",
-      "version": "1.0.7"
+      "status": "published; complete implemented server suite; fresh native calling/media, restore and signed upgrade/recovery checks pass; external deployment checks remain",
+      "version": "1.0.20"
     },
     {
       "name": "Windows 11",
-      "status": "server installer planned; unqualified"
+      "status": "server installer unsupported; no qualified server download"
     },
     {
       "name": "Windows 10",
-      "status": "server installer planned; unqualified"
+      "status": "server installer unsupported; no qualified server download"
     }
   ],
   "client_platforms": [
@@ -818,6 +875,15 @@
         "armeabi-v7a",
         "x86_64"
       ]
+    },
+    {
+      "name": "Windows native calling client",
+      "supported_targets": [
+        "Windows 11",
+        "Windows Server 2025 Desktop Experience"
+      ],
+      "planned_version": "1.0.0",
+      "status": "development; separate C#/WinUI3 client; calling/package/Store acceptance incomplete; no published download"
     }
   ],
   "admin_update": {
