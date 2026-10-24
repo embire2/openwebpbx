@@ -2,7 +2,24 @@
 
 Status on 24 October 2026: **development and native acceptance in progress**.
 
-Latest normal **40106683010/source23477de2f** fails after complete native calling,
+Current normal **40111566679/source9f826eccd** passes all17 essential gates,
+including native two-way calling, decoded browser audio/video, backups, Phone
+Health, rollback, restore-startup recovery and both manager reopen checks. Root
+validates the typed normal LocalService call-history receipt and synthetic V20
+import, then audits all19166 payloads,6652 source mappings,1099 native files and
+73 native inputs. Configured-private-value and path scans pass. The unchanged
+canonical hold track and all eight packaged music inputs match this run's original
+build artifact; the earlier source-only expectation incorrectly reused generated
+baseline music and its refusal is retained.
+
+The accepted585104517-byte ZIP has SHA256
+`9a45d51c1ee1d1f985062fc16fb0cdfaea43aee6c1a7a540a7b820852e776522`.
+Independent replacement restore **40119790351** and unsigned newer1.0.21
+preparation **40119763798** now run against this exact package. New-package
+restore and signed-upgrade acceptance remain pending; this is not yet a public
+release. Owner migration, actual OS reboot and external access are separate.
+
+Earlier normal **40106683010/source23477de2f** failed after complete native calling,
 conference, SMTP/welcome and factory-cleanup acceptance. Root authenticates11
 passed gates and the typed normal background call-history receipt. The upgrade
 hook then refuses with `System.IO.IOException` in its unchanged file-hash helper
