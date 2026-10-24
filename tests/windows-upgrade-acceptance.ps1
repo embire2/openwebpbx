@@ -5,6 +5,7 @@ param([Parameter(Mandatory)][string]$PackageRoot,[switch]$DisposableHostedRunner
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-upgrade-lock-observer.ps1')
 . (Join-Path $PSScriptRoot 'windows-upgrade-health-quiescence.ps1')
+. (Join-Path $PSScriptRoot 'windows-upgrade-hash-observer.ps1')
 . (Join-Path $PSScriptRoot 'windows-backup-control-observation-fields.ps1')
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){throw 'Only the owned disposable hosted Windows instance may run this hook.'}
 . (Join-Path $PackageRoot 'Support-Recovery.ps1')
@@ -25,7 +26,17 @@ $managerName='OpenWebPBX-Manager-'+$managerSid;$managerExe="$root\desktop\OpenWe
 $managerHeldProcess=$null;$managerHeldHandles=[Collections.Generic.List[Diagnostics.Process]]::new();$managerClosureFailure=$null
 $report=[ordered]@{schema=1;state='running';checks=@();gates=[ordered]@{direct_113_helper_reapply='pending';direct_failure_rollback='pending';restore_gate_startup='pending';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified'};signed_fixtures='absent';baseline='installed candidate; same-version direct reapply is not a newer signed update'}
 $databaseSidecars=@();$healthOriginal=$null
-function Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
+function Hash([string]$Path){
+ try{return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}catch{
+  $primary=$_
+  try{
+   $primary.Exception.Data.Remove('openweb_qa_hash_failure')
+   $observed=ObserveUpgradeHashFailure $Path $primary @(Get-PSCallStack) @{root=$root;state=$state;configuration=$configuration;engine=$switch;work=$work;package=$PackageRoot}
+   if($observed){$primary.Exception.Data['openweb_qa_hash_failure']=$observed}
+  }catch{}
+  throw
+ }
+}
 function WriteJson([string]$Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 10),[Text.UTF8Encoding]::new($false))}
 function Record-OpenWebUpgradeCleanupFailure([string]$Phase){
  if($Phase -cnotin 'owned manager cleanup','restore hold cleanup','owned fixture cleanup','owned health observer cleanup'){throw 'Unknown qualification cleanup phase.'}
@@ -770,6 +781,7 @@ try{
 }catch{
  $report.state='failed';$report.failed_phase=$phase
  $report.error_type=$_.Exception.GetType().FullName;$report.source_basename=if($_.InvocationInfo.ScriptName){Split-Path -Leaf $_.InvocationInfo.ScriptName}else{'windows-upgrade-acceptance.ps1'};$report.source_line=[int]$_.InvocationInfo.ScriptLineNumber
+ try{if($_.Exception.Data.Contains('openweb_qa_hash_failure')){$observed=UpgradeHashFailureFields $_.Exception.Data['openweb_qa_hash_failure'];if($observed){$report.hash_failure=$observed}}}catch{}
  if($probeFailure){
   $report.caller_basename=$report.source_basename;$report.caller_line=$report.source_line
   foreach($entry in $probeFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}

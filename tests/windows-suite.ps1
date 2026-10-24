@@ -413,8 +413,10 @@ function SafeSmtpFailureFields($Record){
  return $safe
 }
 
+. (Join-Path $PSScriptRoot 'windows-upgrade-hash-observer.ps1')
 function SafeFailureFields($Record){
  $safe=@{}
+ if($Record.source_basename -ceq 'windows-upgrade-acceptance.ps1' -and $Record.error_type -is [string]){try{$observed=UpgradeHashFailureFields $Record.hash_failure;if($observed -and $Record.error_type.Split('.')[-1] -ceq $observed.error_type){$safe.hash_failure=$observed}}catch{}}
  if($Record.backup_control_failure){$control=BackupControlObservationFields $Record.backup_control_failure;if($control){$safe.backup_control_failure=$control}}
  foreach($entry in (HoldFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  if($Record.native_factory_empty_before_fixture -is [bool]){$safe.native_factory_empty_before_fixture=$Record.native_factory_empty_before_fixture}
