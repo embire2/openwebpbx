@@ -380,6 +380,79 @@ def preserve_machine_identity(actual, expected):
             raise ValueError('The original target machine, SID or authenticated runner identity changed.')
 
 
+# Fixed source-owned identifiers only; custom table names, rows and HMACs stay private.
+RESTORE_DIAGNOSTIC_TABLES = frozenset(('v_default_settings', 'v_dialplan_details', 'v_dialplans', 'v_domain_settings', 'v_domains', 'v_email_queue', 'v_event_guard', 'v_event_guard_logs', 'v_extensions', 'v_gateways', 'v_group_permissions', 'v_groups', 'v_menu', 'v_menu_items', 'v_pbx_android_devices', 'v_pbx_call_history', 'v_pbx_jobs', 'v_pbx_mail_queue', 'v_pbx_meeting_invitations', 'v_pbx_meeting_members', 'v_pbx_meetings', 'v_pbx_phone_health_alerts', 'v_pbx_phone_health_contacts', 'v_pbx_phone_health_issues', 'v_pbx_phone_health_recoveries', 'v_pbx_phone_health_settings', 'v_pbx_phone_health_state', 'v_pbx_restore', 'v_pbx_service_assignments', 'v_pbx_services', 'v_pbx_setup_templates', 'v_pbx_sip_domains', 'v_pbx_templates', 'v_pbx_tenant_users', 'v_pbx_tenants', 'v_pbx_windows_devices', 'v_permissions', 'v_sip_profile_settings', 'v_sip_profiles', 'v_user_contacts', 'v_user_emails', 'v_user_groups', 'v_user_settings', 'v_users', 'v_vars', 'v_voicemail_messages', 'v_voicemails', 'v_xml_cdr'))
+RESTORE_TABLE_OBSERVATION_FIELDS = frozenset(('schema', 'mode', 'label', 'before_tables', 'after_tables',
+    'changed_tables', 'known_tables', 'other_tables', 'row_count_changed', 'digest_changed',
+    'missing_before', 'missing_after'))
+
+
+def restore_table_observation_fields(record):
+    """Validate closed comparison metadata; no snapshot value can pass through."""
+    if type(record) is not dict or set(record) != RESTORE_TABLE_OBSERVATION_FIELDS:
+        return {}
+    if type(record['schema']) is not int or record['schema'] != 1:
+        return {}
+    if type(record['mode']) is not str or type(record['label']) is not str:
+        return {}
+    pair = (record['mode'], record['label'])
+    if pair not in (('factory-recovery', 'target-wrongpass'), ('factory-recovery', 'target-recovered'),
+                    ('source-restored', 'target-restored')):
+        return {}
+    count_names = ('before_tables', 'after_tables', 'changed_tables', 'other_tables',
+                   'row_count_changed', 'digest_changed', 'missing_before', 'missing_after')
+    if any(type(record[name]) is not int or not 0 <= record[name] <= 4096 for name in count_names):
+        return {}
+    names = record['known_tables']
+    if (type(names) is not list or len(names) > len(RESTORE_DIAGNOSTIC_TABLES)
+            or any(type(name) is not str or name not in RESTORE_DIAGNOSTIC_TABLES for name in names)
+            or names != sorted(set(names))):
+        return {}
+    changed = record['changed_tables']
+    if (not 1 <= changed <= record['before_tables'] + record['after_tables']
+            or len(names) + record['other_tables'] != changed
+            or record['missing_before'] > record['after_tables']
+            or record['missing_after'] > record['before_tables']
+            or record['missing_before'] + record['missing_after'] > changed
+            or any(record[name] > changed - record['missing_before'] - record['missing_after']
+                   for name in ('row_count_changed', 'digest_changed'))):
+        return {}
+    return {name: list(record[name]) if name == 'known_tables' else record[name]
+            for name in sorted(RESTORE_TABLE_OBSERVATION_FIELDS)}
+
+
+def observe_restore_table_difference(before, after, mode, label):
+    """Bounded failure-only metadata, never an alternative acceptance predicate."""
+    if type(before) is not dict or type(after) is not dict or len(before) > 4096 or len(after) > 4096:
+        return {}
+    names = set(before) | set(after)
+    if len(names) > 4096 or any(type(name) is not str for name in names):
+        return {}
+    for group in (before, after):
+        for value in group.values():
+            if (type(value) is not dict or set(value) != {'rows', 'hmac'}
+                    or type(value['rows']) is not int or value['rows'] < 0
+                    or type(value['hmac']) is not str or not re.fullmatch('[a-f0-9]{64}', value['hmac'])):
+                return {}
+    changed = {name for name in names if before.get(name) != after.get(name)}
+    shared = changed & before.keys() & after.keys()
+    known = sorted(changed & RESTORE_DIAGNOSTIC_TABLES)
+    record = dict(schema=1, mode=mode, label=label, before_tables=len(before), after_tables=len(after),
+                  changed_tables=len(changed), known_tables=known, other_tables=len(changed)-len(known),
+                  row_count_changed=sum(before[name]['rows'] != after[name]['rows'] for name in shared),
+                  digest_changed=sum(before[name]['hmac'] != after[name]['hmac'] for name in shared),
+                  missing_before=len(changed-before.keys()),
+                  missing_after=len(changed-after.keys()))
+    return restore_table_observation_fields(record)
+
+
+def restore_table_failure_fields(error):
+    if type(error) is not ValueError:
+        return {}
+    observation = restore_table_observation_fields(getattr(error, 'table_comparison', None))
+    return {'table_comparison': observation} if observation else {}
+
+
 def compare_snapshots(before, after, mode):
     if mode not in ('factory-recovery', 'source-restored'):
         raise ValueError('Unknown snapshot comparison.')
@@ -408,7 +481,13 @@ def compare_snapshots(before, after, mode):
         # the source projection changing only pending execution state.
         a['v_pbx_phone_health_recoveries'] = {'rows':proof['rows'],'hmac':proof['hmac']}
     if a != b:
-        raise ValueError('Preserved non-operational PBX records changed.')
+        error = ValueError('Preserved non-operational PBX records changed.')
+        try:
+            observation = observe_restore_table_difference(a, b, mode, after.get('label'))
+            if observation: error.table_comparison = observation
+        except Exception:
+            pass  # Diagnostic failure must preserve the original comparison refusal.
+        raise error
     if mode == 'source-restored' and before['source_phone_tuples'] != after['source_phone_tuples']:
         raise ValueError('Actual native phone credentials or mailbox PINs changed.')
     if mode == 'source-restored' and before['restore_projections'] != after['restore_projections']:
@@ -1180,6 +1259,7 @@ if __name__ == '__main__':
         observation = restore_cli_failure_fields(getattr(error, 'cli_failure', None))
         if observation: facts['cli_failure'] = observation
         facts.update(restore_schema_failure_fields(error))
+        facts.update(restore_table_failure_fields(error))
         if getattr(error,'clock_phase',None) in CLOCK_PHASES:facts['clock_phase']=error.clock_phase
         peer_failures=restore_peer_failure_fields(getattr(error,'peer_cleanup_failure',None))
         if peer_failures:facts['peer_cleanup_failure']=peer_failures

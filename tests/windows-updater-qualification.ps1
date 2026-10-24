@@ -51,17 +51,18 @@ function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null
    if(!$seen.ContainsKey($key)){$seen[$key]=$true;$frames.Add(@{source_basename=$sourceName;source_line=$line;function=$name})}
   }
  }
- $labels=@('fetch-immutable-source','source-worktree','server-14-build','updater-14-build','desktop-14-build','OpenWebPbx.Checks-checks','OpenWebPbx.Updater.Checks-checks','prepare-audited-canary','verify-qualified-base','verify-fault','verify-normal','verify-private-signatures','actual-fresh13','python-setup','python-prepare-pki','python-request','compare-fault-database','compare-fault-files','compare-fault-tasks','compare-normal-tasks','compare-normal-database','compare-normal-protected-files','compare-normal-installation-secrets','fixture-baseline','fixture-discover','fixture-status','fixture-snapshot','fixture-cleanup')
+ $labels=@('fetch-immutable-source','source-worktree','server-14-build','updater-14-build','desktop-14-build','OpenWebPbx.Checks-checks','OpenWebPbx.Updater.Checks-checks','prepare-audited-canary','verify-qualified-base','verify-fault','verify-normal','verify-private-signatures','actual-fresh13','python-setup','python-prepare-pki','python-request','compare-fault-database','compare-fault-files','compare-fault-tasks','compare-normal-tasks','compare-normal-task-contract-security','compare-normal-database','compare-normal-protected-files','compare-normal-installation-secrets','fixture-baseline','fixture-discover','fixture-status','fixture-snapshot','fixture-cleanup')
  $childReport=$null
  if($Child -is [Collections.IDictionary] -and $Child.label -is [string] -and $Child.label -cin $labels -and $Child.caller -cin @('CheckedProcess','Fixture') -and $Child.caller -cin $frames.ToArray().function){
   if($Child.completion -ceq 'exit' -and $Child.exit_code -is [int] -and $Child.exit_code -ne 0){$childReport=@{label=$Child.label;completion='exit';exit_code=$Child.exit_code}}
   elseif($Child.completion -ceq 'deadline' -and $null -eq $Child.exit_code){$childReport=@{label=$Child.label;completion='deadline';exit_code=$null}}
  }
  $safe=@{schema=1;callsites=$frames.ToArray();child=$childReport}
- if($childReport -and $frames.ToArray().function -ccontains 'Equal' -and $Comparison -is [Collections.IDictionary] -and $Comparison.label -is [string] -and $Comparison.label -cin @('fault-database','fault-files','fault-tasks','normal-database','normal-protected-files','normal-installation-secrets','normal-tasks') -and $childReport.label -ceq ('compare-'+$Comparison.label)){
+ if($childReport -and $frames.ToArray().function -ccontains 'Equal' -and $Comparison -is [Collections.IDictionary] -and $Comparison.label -is [string] -and $Comparison.label -cin @('fault-database','fault-files','fault-tasks','normal-database','normal-protected-files','normal-installation-secrets','normal-tasks','normal-task-contract-security') -and $childReport.label -ceq ('compare-'+$Comparison.label)){
   $report=QualificationComparisonDetails $Comparison.report
   if($report -and (($report.comparison_result -ceq 'different' -and $childReport.completion -ceq 'exit' -and $childReport.exit_code -eq 1) -or ($report.comparison_result -ceq 'error' -and $childReport.completion -ceq 'exit' -and $childReport.exit_code -eq 2) -or $report.comparison_result -ceq 'unavailable')){
    $safe.comparison=$report
+   if($Comparison.label -ceq 'normal-task-contract-security' -and $report.comparison_result -ceq 'different' -and $frames.ToArray().function -ccontains 'EqualTaskSnapshots' -and $frames.ToArray().function -ccontains 'NormalTaskPreservation'){try{$task=QualificationTaskDifferenceFields $Comparison.task;if($task){$safe.task_difference=$task}}catch{}}
    if($Comparison.label -ceq 'fault-files' -and $report.comparison_result -ceq 'different'){$capture=QualificationFileCaptureFields $Comparison.capture;if($capture){$safe.file_capture=$capture}}
   }
  }
@@ -416,6 +417,55 @@ function EqualTaskSnapshots($Before,$After,[string]$Message){
  }
  Equal $left $right $Message
 }
+function QualificationTaskDifferenceFields($Record){
+ # Fixed names/field labels only. Never project XML, actions, ACLs or task values.
+ if($Record -isnot [Collections.IDictionary] -or $Record.Count -ne 6){return $null}
+ $fields=@('schema','before_tasks','after_tasks','changed_tasks','unknown_tasks','known_tasks')
+ foreach($key in $Record.Keys){if($key -isnot [string] -or $key -cnotin $fields){return $null}}
+ if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1){return $null}
+ foreach($name in 'before_tasks','after_tasks','changed_tasks','unknown_tasks'){$n=$Record[$name];if(($n -isnot [int] -and $n -isnot [long]) -or $n -lt 0 -or $n -gt 64){return $null}}
+ $names=@('OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate')
+ $allowed=@('exists','enabled','xml','acl','added','removed');$rows=$Record.known_tasks
+ if($rows -isnot [Collections.IDictionary] -or $rows.Count -gt $names.Count -or $Record.changed_tasks -lt 1 -or $Record.changed_tasks -gt ($Record.before_tasks+$Record.after_tasks) -or ($rows.Count+$Record.unknown_tasks) -ne $Record.changed_tasks){return $null}
+ $copy=@{}
+ foreach($name in $rows.Keys){
+  if($name -isnot [string] -or $name -cnotin $names){return $null};$values=$rows[$name]
+  if($values -isnot [Array] -or $values.Count -lt 1 -or $values.Count -gt $allowed.Count){return $null}
+  $seen=@();foreach($value in $values){if($value -isnot [string] -or $value -cnotin $allowed -or $value -cin $seen){return $null};$seen+=,$value}
+  if(($seen -ccontains 'added' -or $seen -ccontains 'removed') -and $seen.Count -ne 1){return $null}
+  $ordered=@($allowed|Where-Object {$_ -cin $seen});if([string]::Join(',', $seen) -cne [string]::Join(',', $ordered)){return $null}
+  $copy[$name]=@($seen)
+ }
+ return @{schema=1;before_tasks=[int]$Record.before_tasks;after_tasks=[int]$Record.after_tasks;changed_tasks=[int]$Record.changed_tasks;unknown_tasks=[int]$Record.unknown_tasks;known_tasks=$copy}
+}
+function QualificationTaskDifference($Before,$After){
+ # Called only after the original exact comparator refused the normalized rows.
+ # Unexpected producer shapes omit the diagnostic, never change that refusal.
+ foreach($side in @($Before,$After)){
+  if($side -isnot [Collections.IDictionary] -or $side.Count -gt 64){return $null}
+  foreach($name in $side.Keys){
+   if($name -isnot [string] -or $name.Length -gt 256){return $null};$row=$side[$name]
+   if($row -isnot [Collections.IDictionary] -or $row.Keys -cnotcontains 'exists' -or $row.exists -isnot [bool]){return $null}
+   $fields=if($row.exists){@('exists','enabled','xml','acl')}else{@('exists')}
+   if($row.Count -ne $fields.Count -or @($row.Keys|Where-Object {$_ -cnotin $fields}).Count){return $null}
+   if($row.exists -and ($row.enabled -isnot [bool] -or $row.xml -isnot [string] -or $row.xml.Length -gt 1048576 -or $row.acl -isnot [string] -or $row.acl.Length -gt 65536)){return $null}
+  }
+ }
+ $names=@(@($Before.Keys)+@($After.Keys)|Sort-Object -CaseSensitive -Unique);if($names.Count -gt 64){return $null}
+ $known=@('OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate')
+ $rows=@{};$changed=0;$unknown=0
+ foreach($name in $names){
+  $fields=@()
+  if($Before.Keys -cnotcontains $name){$fields=@('added')}
+  elseif($After.Keys -cnotcontains $name){$fields=@('removed')}
+  else{foreach($field in 'exists','enabled','xml','acl'){
+   $left=$Before[$name];$right=$After[$name];$leftHas=$left.Keys -ccontains $field;$rightHas=$right.Keys -ccontains $field
+   if($leftHas -ne $rightHas -or ($leftHas -and ![object]::Equals($left[$field],$right[$field]))){$fields+=,$field}
+  }}
+  if($fields.Count){$changed++;if($name -cin $known){$rows[$name]=@($fields)}else{$unknown++}}
+ }
+ return QualificationTaskDifferenceFields @{schema=1;before_tasks=$Before.Count;after_tasks=$After.Count;changed_tasks=$changed;unknown_tasks=$unknown;known_tasks=$rows}
+}
 function QualificationComparisonFields($Record){
  $result=$Record.comparison_result;$stage=$Record.comparison_stage
  if($result -isnot [string] -or $result -cnotin 'equal','different','error','unavailable' -or $stage -isnot [string]){return $null}
@@ -575,6 +625,7 @@ function Equal($Before,$After,[string]$Label){
    }
   }catch{}
   $script:qualificationComparisonFailure=@{label=$Label;report=$report}
+  if($Label -ceq 'normal-task-contract-security' -and $report.comparison_result -ceq 'different'){try{$task=QualificationTaskDifference $Before $After;if($task){$script:qualificationComparisonFailure.task=$task}}catch{}}
   if($Label -ceq 'fault-files' -and $report.comparison_result -ceq 'different' -and $report.comparison_files_observed -eq $true){
    try{$script:qualificationComparisonFailure.capture=QualificationFileCapture $Before $After $state $configuration}catch{$script:qualificationComparisonFailure.capture=@{state='unavailable';paths=@{}}}
   }

@@ -8,7 +8,7 @@ if([string]::IsNullOrWhiteSpace($SourceRoot)){$SourceRoot=Split-Path $PSScriptRo
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-restore-qualification.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Restore qualification source must parse.'}
-foreach($name in 'SafeRestoreFixtureFailure','SafeRestorePeerFailures','SafeRestoreSchemaFailure','SafeRestoreMailboxFailure','SafeRestoreToneFailure','SafeRestoreCliFailure','SafeRestoreServiceActivationFailure','AssertRestoredServiceActivation','NativeFixture'){
+foreach($name in 'SafeRestoreFixtureFailure','SafeRestorePeerFailures','SafeRestoreSchemaFailure','SafeRestoreTableFailure','SafeRestoreMailboxFailure','SafeRestoreToneFailure','SafeRestoreCliFailure','SafeRestoreServiceActivationFailure','AssertRestoredServiceActivation','NativeFixture'){
  $nodes=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true))
  if($nodes.Count -ne 1){throw 'One exact source function is required.'}
  if($name -eq 'NativeFixture'){$nativeDefinition=$nodes[0].Extent.Text}else{Invoke-Expression $nodes[0].Extent.Text}
@@ -312,6 +312,35 @@ try{
    Assert (($null -ne $facts.native_failure.identity_field) -eq ($mode -eq 'valid'))
    if($mode -eq 'valid'){Assert ($facts.native_failure.failure_kind -ceq 'non_distinct_installation_identity' -and $facts.native_failure.identity_field -ceq $field)}
    Assert (($facts|ConvertTo-Json -Depth 20 -Compress) -notmatch 'PRIVATE|password|C:/secret')
+  }
+ }
+ foreach($label in 'target-wrongpass','target-recovered','target-restored'){
+  foreach($mode in 'valid','wrong_action','wrong_type','wrong_source','wrong_label','wrong_mode','extra','missing','boolean','string','negative','too_many','wrong_sum','private_name','duplicate','unsorted'){
+   $action=if($label -ceq 'target-restored'){'restore'}else{'late-restore'};$comparisonMode=if($action -ceq 'restore'){'source-restored'}else{'factory-recovery'}
+   $observation=@{schema=1;mode=$comparisonMode;label=$label;before_tables=4;after_tables=4;changed_tables=2;known_tables=@('v_extensions');other_tables=1;row_count_changed=1;digest_changed=2;missing_before=0;missing_after=0}
+   $facts=@{};$script:childRecord=@{state='failed';error_type='ValueError';source_basename='windows-restore-qualification.py';source_line=411;table_comparison=$observation;message='PRIVATE SQL password/path'}
+   switch($mode){
+    'wrong_action'{$action='cleanup'}
+    'wrong_type'{$script:childRecord.error_type='RuntimeError'}
+    'wrong_source'{$script:childRecord.source_basename='unknown.py'}
+    'wrong_label'{$observation.label='PRIVATE'}
+    'wrong_mode'{$observation.mode='PRIVATE'}
+    'extra'{$observation.message='PRIVATE'}
+    'missing'{$observation.Remove('before_tables')}
+    'boolean'{$observation.changed_tables=$true}
+    'string'{$observation.changed_tables='2'}
+    'negative'{$observation.other_tables=-1}
+    'too_many'{$observation.changed_tables=4097}
+    'wrong_sum'{$observation.other_tables=0}
+    'private_name'{$observation.known_tables=@('v_PRIVATE')}
+    'duplicate'{$observation.known_tables=@('v_extensions','v_extensions');$observation.other_tables=0}
+    'unsorted'{$observation.known_tables=@('v_users','v_extensions');$observation.other_tables=0}
+   }
+   $caught=$null;try{NativeFixture $action}catch{$caught=$_}
+   Assert ([object]::ReferenceEquals($caught.Exception,$script:childFailure))
+   Assert (($null -ne $facts.native_failure.table_comparison) -eq ($mode -ceq 'valid'))
+   if($mode -ceq 'valid'){Assert ($facts.native_failure.table_comparison.Count -eq 12 -and $facts.native_failure.table_comparison.known_tables[0] -ceq 'v_extensions' -and $facts.native_failure.table_comparison.changed_tables -eq 2)}
+   Assert (($facts|ConvertTo-Json -Depth 20 -Compress) -notmatch 'PRIVATE|password|path')
   }
  }
  foreach($label in 'target-wrongpass','target-recovered','target-restored'){
