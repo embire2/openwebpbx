@@ -1,6 +1,7 @@
 # Exact-source controls only. No task, file ACL, service or installed PBX is read.
 param([string]$SourceRoot=(Split-Path $PSScriptRoot -Parent),[switch]$PortableOnly)
 $ErrorActionPreference='Stop';$checks=0;$nativeChecks=0
+. (Join-Path $PSScriptRoot 'windows-task-security-equal-boundary.ps1')
 function AssertControl([bool]$Value){if(!$Value){throw ('Task security control failed at line '+(@(Get-PSCallStack)[1].ScriptLineNumber))};$script:checks++}
 function SourceFunction([string]$Path,[string]$Name){
  $tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($Path,[ref]$tokens,[ref]$errors)
@@ -33,7 +34,49 @@ $snapshotFunctions=@()
 foreach($path in $upgrade,$updater){
  $snapshot=SourceFunction $path 'TaskSnapshot';AssertControl ($snapshot.Extent.Text.Contains('GetSecurityDescriptor(7)') -and !$snapshot.Extent.Text.Contains('Test-OpenWebTaskSecurityEquivalent'))
  $snapshotFunctions+=,(SourceFunction $path 'EqualTaskSnapshots')
- AssertControl ((SourceFunction $path 'Equal').Extent.Text -notmatch 'TaskSecurity|TaskSnapshot|security')
+ $genericEqual=SourceFunction $path 'Equal'
+ AssertControl (Test-GenericEqualTaskSecurityBoundary $genericEqual ($path -ceq $updater))
+}
+# Preserve the old refusal, then exercise the narrow actual-AST exception.
+$actualEqual=SourceFunction $updater 'Equal';$actualText=$actualEqual.Extent.Text
+AssertControl ($actualText -match 'TaskSecurity|TaskSnapshot|security')
+AssertControl (!(Test-GenericEqualTaskSecurityBoundary $actualEqual))
+$observer='if($Label -ceq ''normal-task-contract-security'' -and $report.comparison_result -ceq ''different''){try{$task=QualificationTaskDifference $Before $After;if($task){$script:qualificationComparisonFailure.task=$task}}catch{}}'
+AssertControl ($actualText.Contains($observer))
+$mutations=@(
+ $actualText.Replace($observer,'').Replace('try{CheckedProcess',('try{'+$observer+';CheckedProcess')),
+ $actualText.Replace($observer,'').Replace("('compare-'+`$Label)}catch{",("('compare-'+`$Label);"+$observer+'}catch{')),
+ $actualText.Replace($observer,$observer.Replace('normal-task-contract-security','normal-tasks')),
+ $actualText.Replace($observer,$observer.Replace("'different'","'equal'")),
+ $actualText.Replace($observer,$observer.Replace("`$Label -ceq","`$Label -cne")),
+ $actualText.Replace($observer,$observer.Replace('QualificationTaskDifference $Before $After','QualificationTaskDifference (Normalize $Before) $After')),
+ $actualText.Replace($observer,$observer.Replace('catch{}','catch{throw}')),
+ $actualText.Replace('$a,$b)','$b,$a)'),
+ $actualText.Replace('windows-compare-json.py','not-the-exact-comparator.py'),
+ $actualText.Replace("@('-I','-B',","@('-B',"),
+ $actualText.Replace("@('-I','-B',","@('-I',"),
+ $actualText.Replace('backup-runtime\python.exe','backup-runtime\pythonw.exe'),
+ $actualText.Replace('WriteJson $a $Before','WriteJson $a (Normalize $Before)'),
+ $actualText.Replace('WriteJson $b $After','WriteJson $b $Before'),
+ $actualText.Replace('WriteJson $a $Before','WriteJson $a (Test-OpenWebTaskSecurityEquivalent $Before $After)'),
+ $actualText.Replace("`n  throw`n","`n  return`n"),
+ $actualText.Replace("`n  throw`n","`n  throw 'replacement failure'`n"),
+ $actualText.Replace("`n  throw`n","`n  exit 0`n"),
+ $actualText.Replace("`n  throw`n","`n  break`n"),
+ $actualText.Replace("`n  throw`n","`n  continue`n"),
+ $actualText.Replace("`n  throw`n","`n  `$Before.Remove('acl');throw`n"),
+ $actualText.Replace('$path=Join-Path $work','return;$path=Join-Path $work'),
+ $actualText.Replace("('compare-'+`$Label)}catch{","('compare-'+`$Label)}catch [IO.IOException]{"),
+ $actualText.Replace("`n }`n}","`n }finally{Write-Output UNEXPECTED}`n}"),
+ $actualText.Replace('$report=@{comparison_result=',"TaskSnapshot;`$report=@{comparison_result="),
+ $actualText.Replace('$report=@{comparison_result=',"Test-OpenWebTaskSecurityEquivalent `$Before `$After;`$report=@{comparison_result=")
+)
+foreach($changed in $mutations){
+ AssertControl ($changed -cne $actualText)
+ $tokens=$null;$errors=$null;$parsed=[Management.Automation.Language.Parser]::ParseInput($changed,[ref]$tokens,[ref]$errors)
+ AssertControl ($errors.Count -eq 0)
+ $equal=@($parsed.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Equal'},$true))
+ AssertControl ($equal.Count -eq 1 -and !(Test-GenericEqualTaskSecurityBoundary $equal[0] $true))
 }
 AssertControl ((Get-Content $upgrade -Raw).Contains(". (Join-Path `$PackageRoot 'Support-Recovery.ps1')"))
 AssertControl ((Get-Content $updater -Raw).Contains(". (Join-Path `$package 'Support-Recovery.ps1')"))
