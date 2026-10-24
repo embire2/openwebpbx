@@ -193,6 +193,25 @@ function AssertRestoredServiceActivation([string]$Name){
   throw
  }
 }
+function SafeRestoreWaitFailure($Record){
+ if($null -eq $Record -or $Record -is [Array]){return $null}
+ $keys=@('schema','wait_kind','timeout_seconds','source_basename','caller_function','caller_line')
+ $actual=@();if($Record -is [Collections.IDictionary]){$actual=@($Record.Keys)}else{$actual=@($Record.PSObject.Properties.Name)}
+ if($actual.Count -notin 6,7 -or @($actual|Where-Object {$_ -cnotin ($keys+@('backup_task'))}).Count -or @($keys|Where-Object {$_ -cnotin $actual}).Count){return $null}
+ $sites=@{native_invite_ack=@('native',120);native_recording_row=@('native',120);native_media_files=@('media',120);manual_backup_request=@('backup_request',120);manual_backup_complete=@('backup_request',600);restored_daily_task_result=@('backup_request',180);daily_backup_request=@('backup_request',180);daily_backup_complete=@('backup_request',600);restored_job_invite_ack=@('job',120);restored_job_completion=@('job',120)}
+ if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.wait_kind -isnot [string] -or $Record.wait_kind -cnotin @($sites.Keys)){return $null}
+ $site=$sites[$Record.wait_kind]
+ if(($Record.timeout_seconds -isnot [int] -and $Record.timeout_seconds -isnot [long]) -or $Record.timeout_seconds -ne $site[1] -or $Record.caller_function -isnot [string] -or $Record.caller_function -cne $site[0] -or $Record.source_basename -isnot [string] -or $Record.source_basename -cne 'windows-restore-qualification.py' -or ($Record.caller_line -isnot [int] -and $Record.caller_line -isnot [long]) -or $Record.caller_line -le 0 -or $Record.caller_line -ge 1000000){return $null}
+ $safe=@{schema=1;wait_kind=$Record.wait_kind;timeout_seconds=$Record.timeout_seconds;source_basename=$Record.source_basename;caller_function=$Record.caller_function;caller_line=$Record.caller_line}
+ if('backup_task' -cin $actual){
+  $task=$Record.backup_task;if($null -eq $task -or $task -is [Array]){return $null}
+  $taskKeys=@();if($task -is [Collections.IDictionary]){$taskKeys=@($task.Keys)}else{$taskKeys=@($task.PSObject.Properties.Name)}
+  if($taskKeys.Count -ne 4 -or @($taskKeys|Where-Object {$_ -cnotin @('state','last_result','expected_system_action','last_run_available')}).Count -or $task.state -isnot [string] -or $task.state -cnotin @('Unknown','Disabled','Queued','Ready','Running') -or ($task.last_result -isnot [int] -and $task.last_result -isnot [long]) -or $task.last_result -lt 0 -or $task.last_result -gt 4294967295 -or $task.expected_system_action -isnot [bool] -or $task.last_run_available -isnot [bool]){return $null}
+  $safe.backup_task=@{state=$task.state;last_result=$task.last_result;expected_system_action=$task.expected_system_action;last_run_available=$task.last_run_available}
+ }
+ return $safe
+}
+
 function NativeFixture([string]$Action){
  $script:phase=$Action
  # The extracted interpreter remains independent of private installed state.
@@ -232,6 +251,12 @@ function NativeFixture([string]$Action){
    if($facts.native_failure -and $safe.state -ceq 'failed' -and $safe.error_type -is [string] -and $safe.error_type -ceq 'RuntimeError' -and $safe.source_basename -is [string] -and $safe.source_basename -ceq 'windows-restore-qualification.py' -and (Test-Path -LiteralPath $privateOutput -PathType Leaf)){
     $phpOutput=Get-Item -LiteralPath $privateOutput -Force
     if($phpOutput.Length -gt 0 -and $phpOutput.Length -le 1048576 -and ($phpOutput.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0){$phpFailure=SafeRestorePhpFailure $safe.php_failure;if($phpFailure){$facts.native_failure.php_failure=$phpFailure}}
+   }
+  }catch{}
+  try{
+   if($Action -cin @('export-source','target-backup','native-source','native-target','job') -and $facts.native_failure -and $safe.state -ceq 'failed' -and $safe.error_type -is [string] -and $safe.error_type -ceq 'TimeoutError' -and $safe.source_basename -is [string] -and $safe.source_basename -ceq 'windows-restore-qualification.py' -and (Test-Path -LiteralPath $privateOutput -PathType Leaf)){
+    $waitOutput=Get-Item -LiteralPath $privateOutput -Force
+    if($waitOutput.Length -gt 0 -and $waitOutput.Length -le 1048576 -and ($waitOutput.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0){$waitFailure=SafeRestoreWaitFailure $safe.wait_failure;if($waitFailure){$facts.native_failure.wait_failure=$waitFailure}}
    }
   }catch{}
   throw
