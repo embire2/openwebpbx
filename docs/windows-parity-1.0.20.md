@@ -29,8 +29,13 @@ failure-observation files preserve the original deadline, polls and exception;
 root repeats nine Python groups and41 PowerShell cases. Diagnostic repeat
 **40123098262/sourceac0b2db** now passes all nine source gates, actual software
 calling/media and both manual/daily encrypted backups. Its independent clean
-target is running against the unchanged accepted package. This is not yet a
-public release. Owner migration, actual OS reboot and external access are separate.
+target also passes all20 gates: complete database/media and target identities,
+original-credential decoded two-way calls, voicemail121, Nathaniel1026, scheduled
+jobs/backups and canonical cleanup. All six original Phone Health choices are
+restored. Signed repeat40125359325 uses the same verified pair with six diagnostic
+labels added and unchanged preservation checks. Restored-conference supplement
+40126434519 is separate and running. This is not yet a public release. Owner
+migration, actual OS reboot and external access are separate.
 
 Earlier normal **40106683010/source23477de2f** failed after complete native calling,
 conference, SMTP/welcome and factory-cleanup acceptance. Root authenticates11
