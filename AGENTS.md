@@ -1,5 +1,12 @@
 # OpenWeb PBX workspace
 
+## Restored conference inventory repeat prepared — 2026-10-24
+
+- Supplemental run 40131259611 failed before browser work at the exact 64-entry QA inventory cap; all 9 source gates, canonical cleanup and original Health choices pass. Exact native entry names/count beyond 64 remain unretained. Standard restore 40123098262 remains separately accepted with 9 source/20 target gates. Older 40126434519 still has an unknown inner refusal.
+- Root and peer accept the corrected inventory QA source e84f1a60 after 8 inventory and 7 affected failure/privacy/source groups. The original 64 metadata allowance adds only validated journal-bound factory copies; full bytes/paths/reparse/holds snapshots remain. Data hashes stream under existing core count/data policy. Rejected patch 648a and peer refusal fee99 are preserved: the accepted revision hashes the journal before parsing and keeps its final equality, with an actual old-admits/new-refuses replacement control.
+- One fresh explicit supplemental repeat is authorized on unchanged accepted normal 401115/source 9f826/archive 9a45. Original source 9/target 20 plus the conference 21st gate, 16-field success receipt, media/owned Job, deadlines, clock, cleanup and Health choices remain exact. Its native result is pending. No main/runtime/native/owner/signer/public-package change is part of this QA branch; invitation continuity, physical cameras, external NAT, carrier, owner migration and OS reboot remain unqualified.
+
+
 ## Restored conference observer repeat prepared — 2026-10-24
 
 - Separate restored-conference supplement 40126434519 failed in its exact Python child after all 9 source gates; the private inner refusal is unretained. Canonical cleanup and original Health choices pass. Standard restore 40123098262 remains separately accepted with 9 source/20 target gates; no product or standard-restore regression is established.

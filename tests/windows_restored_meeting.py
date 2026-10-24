@@ -178,10 +178,84 @@ def preserved_rows(before, after, identity, subject, ledger=None, successful=Fal
     return owned
 
 
+def recovery_file_digest(path, expected_size, maximum):
+    path = ordinary(path)
+    require(type(expected_size) is int and type(maximum) is int and 0 <= expected_size <= maximum)
+    result = hashlib.sha256(); count = 0
+    with path.open('rb') as stream:
+        before = os.fstat(stream.fileno()); require(before.st_size == expected_size)
+        while True:
+            chunk = stream.read(min(1024**2, expected_size - count + 1))
+            if not chunk: break
+            count += len(chunk); require(count <= expected_size); result.update(chunk)
+        after = os.fstat(stream.fileno())
+        current = ordinary(path).stat()
+        require(count == expected_size == after.st_size == current.st_size
+                and (before.st_dev, before.st_ino) == (after.st_dev, after.st_ino) == (current.st_dev, current.st_ino))
+    return result.hexdigest()
+
+
+def recovery_inventory(q, root):
+    journal = root / 'journal.json'; copies_root = root / 'factory-files'
+    if not journal.exists():
+        if copies_root.exists(): require(next(ordinary(copies_root, True).iterdir(), None) is None)
+        return {}, 0
+    # The journal retains the old metadata bound. Recovery data files instead
+    # use the actual core producer's existing archive/data policy, streamed.
+    original_journal = digest(journal); value = read_json(journal, 8 * 1024**2)
+    maximum_files, maximum_bytes = q.backups.MAX_FILES, q.backups.MAX_ARCHIVE
+    require(type(maximum_files) is int and 0 < maximum_files <= 500000
+            and type(maximum_bytes) is int and 0 < maximum_bytes <= 50 * 1000**3)
+    require(type(value) is dict and type(value.get('schema')) is int and value['schema'] == 1
+            and type(value.get('factory_security_version')) is int and value['factory_security_version'] == 1
+            and type(value.get('files')) is dict and len(value['files']) <= maximum_files)
+    copies_root = ordinary(copies_root, True); names = set(); targets = set(); sizes = {}; hashes = {}; total = 0
+    allowed = tuple(q.backups.ROOTS.values()) + tuple(q.backups.MEDIA.values())
+    for target_name, entry in value['files'].items():
+        require(type(target_name) is str)
+        target = Path(target_name)
+        require(target.is_absolute() and str(target) == target_name and '..' not in target.parts
+                and target not in targets and any(target == root or root in target.parents for root in allowed))
+        for item in (target, *target.parents): require(not q.backups.reparse(item))
+        targets.add(target)
+        require(type(entry) is dict and type(entry.get('exists')) is bool)
+        if not entry['exists']:
+            require('copy' not in entry); continue
+        name, size, checksum = entry.get('copy'), entry.get('size'), entry.get('sha256')
+        require(type(name) is str and re.fullmatch(r'0|[1-9][0-9]{0,5}', name)
+                and int(name) < maximum_files and name not in names
+                and type(size) is int and 0 <= size <= maximum_bytes
+                and type(entry.get('mode')) is int and 0 <= entry['mode'] <= 0o7777
+                and type(entry.get('sddl')) is str and 0 < len(entry['sddl']) <= 32768
+                and type(checksum) is str and re.fullmatch('[a-f0-9]{64}', checksum))
+        names.add(name); total += size; require(total <= maximum_bytes)
+        key = 'factory-files/' + name; sizes[key] = size; hashes[key] = checksum
+    children = []
+    for child in copies_root.iterdir():
+        require(len(children) < len(names)); children.append(child)
+    require(len(children) == len(names) and {path.name for path in children} == names)
+    dump = ordinary(root / 'factory.dump'); size = dump.stat().st_size
+    checksum = value.get('factory_dump_sha256')
+    require(type(checksum) is str and re.fullmatch('[a-f0-9]{64}', checksum)
+            and 0 <= size <= maximum_bytes and total + size <= maximum_bytes)
+    sizes['factory.dump'] = size; hashes['factory.dump'] = checksum
+    for key, size in sizes.items():
+        require(recovery_file_digest(root / key, size, maximum_bytes) == hashes[key])
+    require(digest(journal) == original_journal)
+    return {key: (sizes[key], hashes[key]) for key in sizes}, len(names)
+
+
 def stable_files(q):
     root = ordinary(q.backups.RESTORE, True)
-    entries = list(root.rglob('*')); require(len(entries) <= 64)
-    result = {str(p.relative_to(root)): digest(p) for p in entries if not p.is_dir()}
+    recovery, copy_count = recovery_inventory(q, root); entries = []
+    for path in root.rglob('*'):
+        require(len(entries) < 64 + copy_count); entries.append(path)
+    result = {}
+    for path in entries:
+        if path.is_dir(): continue
+        key = path.relative_to(root).as_posix()
+        result[str(path.relative_to(root))] = recovery_file_digest(path, recovery[key][0], q.backups.MAX_ARCHIVE) if key in recovery else digest(path)
+        if key in recovery: require(result[str(path.relative_to(root))] == recovery[key][1])
     for p in entries: ordinary(p, p.is_dir())
     require('hold-calls' not in result and all('hold-' + name in result for name in ('jobs', 'updates', 'backups')))
     for name, path in {'original_input': q.path, 'original_ca': q.s['web_ca'], 'runtime': q.backups.STATE / 'runtime.json',

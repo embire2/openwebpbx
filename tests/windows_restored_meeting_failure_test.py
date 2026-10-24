@@ -32,6 +32,19 @@ def primary_at(filename, kind=ValueError, depth=0):
 class FailureObservation(unittest.TestCase):
     def test_whole_original_drivers_reconstruct_and_runtime_helpers_remain_exact(self):
         source = (HERE / 'windows_restored_meeting.py').read_text()
+        begin = source.index('def recovery_file_digest('); end = source.index('def stable_files(q):', begin)
+        source = source[:begin] + source[end:]
+        addition = """    recovery, copy_count = recovery_inventory(q, root); entries = []
+    for path in root.rglob('*'):
+        require(len(entries) < 64 + copy_count); entries.append(path)
+    result = {}
+    for path in entries:
+        if path.is_dir(): continue
+        key = path.relative_to(root).as_posix()
+        result[str(path.relative_to(root))] = recovery_file_digest(path, recovery[key][0], q.backups.MAX_ARCHIVE) if key in recovery else digest(path)
+        if key in recovery: require(result[str(path.relative_to(root))] == recovery[key][1])"""
+        original = "    entries = list(root.rglob('*')); require(len(entries) <= 64)\n    result = {str(p.relative_to(root)): digest(p) for p in entries if not p.is_dir()}"
+        self.assertEqual(source.count(addition), 1); source = source.replace(addition, original, 1)
         begin = source.index('FAILURE_CASES = '); end = source.index('def require(value):', begin)
         source = source[:begin] + source[end:]
         addition = '    except BaseException as error:\n        primary = error\n        observe_failure_case(error, fixture)'
