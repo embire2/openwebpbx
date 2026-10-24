@@ -4,7 +4,7 @@ This complete server build targets **Debian 13 amd64**, with a separate **Window
 
 **1.0.20 is not published yet.** This guide describes the candidate installation flow. Follow the [release qualification record](release-1.0.20-qualification.md) and [Windows release checks](windows-parity-1.0.20.md); current public downloads are listed in the [README](../readme.md#downloads-and-platforms). Once your platform is published, use its matching archive and `SHA256SUMS`, and extract the complete archive into an empty private folder.
 
-**Install only a published package whose release notes record the completed qualification for your platform. Development archives are not stable releases.** Publication and further signing are currently held for build-host and credential recovery; a preview label does not bypass that hold.
+**Install only a published package whose release notes record the completed qualification for your platform. Development archives are not stable releases.** Release preparation is authorized; the exact package must finish its functional qualification before publication.
 
 Version 1.0.20 includes admin incoming-route controls, the mandatory Android18 tenant-address support, managed tenant addresses, manual extension/app-password sign-in, separate simultaneous phone profiles and inline-QR/setup-file welcome invitations. Read [tenant phone accounts](tenant-phone-accounts.md) and [the Play submission audit](google-play-audit-1.0.17.md). It retains Meet audio/video conferences, Nathaniel UK default prompts, PIN-free own voicemail on **121**, the repaired GMT+2 clock on **1026**, optional Call Me Back and native Android video. It retains the department roles, phone-handover checks and provider evidence delivered in 1.0.15. Read [Meet](meet.md), [Android video](android-video.md), [staff access](department-staff.md), [phone handover](desk-phone-handover.md) and [first calls](core-calling.md). Physical phone/camera and carrier qualification remain separate.
 
@@ -16,7 +16,7 @@ Apply the current PHP security updates before deployment. On 21 October 2026, PH
 
 ## Windows Server installation
 
-Use the matching `openwebpbx-1.0.20-windows-x64.zip` only after the release hold is cleared and its Windows qualification is recorded. Windows Server 2025 x64 with Desktop Experience is the supported server target. The server installer refuses Windows10/11; the native Windows calling client is a separate project.
+Use the matching `openwebpbx-1.0.20-windows-x64.zip` only after publication with its completed Windows qualification recorded. Windows Server 2025 x64 with Desktop Experience is the supported server target. The server installer refuses Windows10/11; the native Windows calling client is a separate project.
 
 Extract the complete archive to a private directory and run **Start-OpenWebPBX.cmd**. It checks Microsoft's required runtime before opening the WinUI manager. Choose **Setup**, enter the server hostname and administrator email/password, and select **Automatic public certificate**. Approve Windows' administrator prompt to install. The hostname must point at the server, with TCP80/443 and the documented SIP/audio ports reachable. After setup, use the installed desktop shortcut. The equivalent command in built-in **Windows PowerShell5.1 as Administrator** is:
 
