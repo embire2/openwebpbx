@@ -1211,6 +1211,20 @@ def restore(source, password, settings, **kwargs):
         return _restore(source, password, settings, **kwargs)
 
 
+def same_restore_https_address(source, target):
+    if source == target:
+        return True
+    # The installer writes :443; automatic public setup omits that default.
+    # Admit only those root HTTPS origins, with identical hostname spelling.
+    # Other ports, paths, credentials, query/fragment and URL normalizations
+    # retain the original exact-match requirement.
+    if not isinstance(source, str) or not isinstance(target, str):
+        return False
+    first = re.fullmatch(r'(https://[A-Za-z0-9.-]+)(?::443)?', source)
+    second = re.fullmatch(r'(https://[A-Za-z0-9.-]+)(?::443)?', target)
+    return bool(first and second and first[1] == second[1])
+
+
 def _restore(source, password, settings, *, dry_run=False, confirm_database=None):
     safe_private_directory(RESTORE)
     with verify_archive(source, password, workspace=RESTORE) as (extracted, manifest):
@@ -1219,7 +1233,7 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
             raise BackupError('Install the same application release as this backup before restoring.')
         if manifest['source_host'] != settings.get('openweb.public_host', ''):
             raise BackupError('Install the replacement server with the original public server name before restoring.')
-        if manifest.get('source_url', '') != settings.get('openweb.public_url', ''):
+        if not same_restore_https_address(manifest.get('source_url', ''), settings.get('openweb.public_url', '')):
             raise BackupError('Install the replacement server with the original HTTPS address and port before restoring.')
         if manifest.get('installation_layout') != installation_layout():
             raise BackupError('Install the replacement server with the original application and ProgramData layout before restoring. Absolute private-data paths cannot be migrated automatically.')
