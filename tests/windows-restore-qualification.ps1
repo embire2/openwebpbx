@@ -198,7 +198,7 @@ function SafeRestoredConferenceFailure($Record){
  if($null -eq $Record -or ($Record -isnot [Collections.IDictionary] -and $Record -isnot [pscustomobject])){return $null}
  $keys=@('schema','state','producer','error_type','cleanup_verified','source_frames','active_case','owned_process_cleanup_failed','owned_processes_closed')
  $actual=if($Record -is [Collections.IDictionary]){@($Record.Keys)}else{@($Record.PSObject.Properties.Name)}
- if($actual.Count -ne $keys.Count -or @($actual|Where-Object {$_ -cnotin $keys}).Count){return $null}
+ if($actual.Count -notin 9,10 -or @($actual|Where-Object {$_ -cnotin ($keys+@('meeting_path'))}).Count -or @($keys|Where-Object {$_ -cnotin $actual}).Count){return $null}
  if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.state -isnot [string] -or $Record.state -cne 'failed' -or $Record.producer -isnot [string] -or $Record.producer -cne 'windows_restored_meeting.py' -or $Record.cleanup_verified -isnot [bool]){return $null}
  $types=@('RuntimeError','ValueError','TypeError','KeyError','AttributeError','AssertionError','TimeoutError','TimeoutExpired','OSError','FileNotFoundError','PermissionError','JSONDecodeError','SSLError','HTTPError','URLError','external_error')
  $cases=@('unavailable','native_windows_meeting_browser_media','native_windows_meeting_dependencies','native_windows_meeting_unknown','native_windows_meeting_browser_start','native_windows_meeting_owner_page','native_windows_meeting_create','native_windows_meeting_host_join','native_windows_meeting_guest_join','native_windows_meeting_admission','native_windows_meeting_decoded_media','native_windows_meeting_mute','native_windows_meeting_unmute','native_windows_meeting_end')
@@ -211,7 +211,40 @@ function SafeRestoredConferenceFailure($Record){
   $frames+=@{source_basename=$frame.source_basename;source_line=$frame.source_line}
  }
  foreach($name in 'owned_process_cleanup_failed','owned_processes_closed'){if($null -ne $Record.$name -and $Record.$name -isnot [bool]){return $null}}
- return @{schema=1;state='failed';producer='windows_restored_meeting.py';error_type=$Record.error_type;cleanup_verified=$Record.cleanup_verified;source_frames=$frames;active_case=$Record.active_case;owned_process_cleanup_failed=$Record.owned_process_cleanup_failed;owned_processes_closed=$Record.owned_processes_closed}
+ $safe=@{schema=1;state='failed';producer='windows_restored_meeting.py';error_type=$Record.error_type;cleanup_verified=$Record.cleanup_verified;source_frames=$frames;active_case=$Record.active_case;owned_process_cleanup_failed=$Record.owned_process_cleanup_failed;owned_processes_closed=$Record.owned_processes_closed}
+ if('meeting_path' -cin $actual){
+  if($Record.active_case -cne 'native_windows_meeting_browser_start'){return $null}
+  $paths=SafeRestoredConferencePathFields $Record
+  if($paths -isnot [Collections.IDictionary] -or $paths.Count -ne 1 -or !$paths.Contains('meeting_path')){return $null}
+  $safe.meeting_path=$paths.meeting_path
+ }
+ return $safe
+}
+function SafeRestoredConferencePathFields($Record){
+ $safe=@{}
+ if($Record.active_case -isnot [string] -or $Record.active_case -cnotin 'native_windows_meeting_browser_start','native_windows_meeting_owner_page','native_windows_meeting_create','native_windows_meeting_host_join','native_windows_meeting_guest_join','native_windows_meeting_admission','native_windows_meeting_decoded_media','native_windows_meeting_mute','native_windows_meeting_unmute','native_windows_meeting_end'){return $safe}
+ $paths=$Record.meeting_path
+ $keys=if($paths -is [Collections.IDictionary]){@($paths.Keys)}elseif($paths -is [pscustomobject]){@($paths.PSObject.Properties|ForEach-Object Name)}else{return $safe}
+ if($keys.Count -ne 2 -or @($keys|Where-Object {$_ -cnotin 'before','after'}).Count){return $safe}
+ $ws=@{booleans=@('observed','connected','sent','response_received','closed_exact','large_sent','large_response_received');integers=@{status_code=699;large_status_code=699;elapsed_ms=6000};enums=@{phase=@('connect','send','receive','complete','unavailable');error_kind=@('none','timeout','tls','websocket','other','unavailable')}}
+ $pg=@{booleans=@('observed','read_only','query_visible','counts_capped');integers=@{total=512;active=512;idle=512;idle_in_transaction=512;wait_lock=512;meeting_select=512;meeting_update=512;meeting_insert=512;meeting_other=512;meeting_wait_lock=512};enums=@{error_kind=@('none','timeout','database','unavailable')}}
+ $http=@{booleans=@('observed','completed','ok');integers=@{http_status=599;elapsed_ms=5000};enums=@{member_state=@('waiting','admitted','left','removed','unavailable','other');error_kind=@('none','timeout','tls','http','invalid_json','other','unavailable')}}
+ $specs=@{backend=$ws;frontend=$ws;fragmented_backend=$ws;fragmented_frontend=$ws;database=$pg;host_http=$http;guest_http=$http};$stages=@{}
+ foreach($stage in 'before','after'){
+  $row=$paths.$stage;$names=if($row -is [Collections.IDictionary]){@($row.Keys)}elseif($row -is [pscustomobject]){@($row.PSObject.Properties|ForEach-Object Name)}else{return @{}}
+  if($names.Count -ne 7 -or @($names|Where-Object {$_ -cnotin @($specs.Keys)}).Count){return @{}};$closedStage=@{}
+  foreach($kind in $specs.Keys){
+   $peer=$row.$kind;$spec=$specs[$kind];$fields=@($spec.booleans)+@($spec.integers.Keys)+@($spec.enums.Keys)
+   $names=if($peer -is [Collections.IDictionary]){@($peer.Keys)}elseif($peer -is [pscustomobject]){@($peer.PSObject.Properties|ForEach-Object Name)}else{return @{}}
+   if($names.Count -ne $fields.Count -or @($names|Where-Object {$_ -cnotin $fields}).Count){return @{}};$closed=@{}
+   foreach($field in $spec.booleans){if($peer.$field -isnot [bool]){return @{}};$closed[$field]=$peer.$field}
+   foreach($field in $spec.integers.Keys){$value=$peer.$field;if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt $spec.integers[$field]){return @{}};$closed[$field]=[int]$value}
+   foreach($field in $spec.enums.Keys){$value=$peer.$field;if($value -isnot [string] -or $value -cnotin $spec.enums[$field]){return @{}};$closed[$field]=$value}
+   $closedStage[$kind]=$closed
+  }
+  $stages[$stage]=$closedStage
+ }
+ return @{meeting_path=$stages}
 }
 function ReadRestoredConferenceFailure {
  $child=$script:qualificationFailedChild
@@ -235,10 +268,21 @@ function ReadRestoredConferenceFailure {
   $options=[Text.Json.JsonDocumentOptions]::new();$options.MaxDepth=8
   $document=[Text.Json.JsonDocument]::Parse($json,$options)
   if($document.RootElement.ValueKind -ne [Text.Json.JsonValueKind]::Object){return $null}
-  $objects=@($document.RootElement);$frames=[Text.Json.JsonElement]::new()
+  $frames=[Text.Json.JsonElement]::new()
   if(!$document.RootElement.TryGetProperty('source_frames',[ref]$frames) -or $frames.ValueKind -ne [Text.Json.JsonValueKind]::Array -or $frames.GetArrayLength() -gt 4){return $null}
-  foreach($frame in $frames.EnumerateArray()){if($frame.ValueKind -ne [Text.Json.JsonValueKind]::Object){return $null};$objects+=,$frame}
-  foreach($object in $objects){$names=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);foreach($property in $object.EnumerateObject()){if(!$names.Add($property.Name)){return $null}}}
+  $pending=[Collections.Generic.Stack[Text.Json.JsonElement]]::new();$pending.Push($document.RootElement);$containers=0
+  while($pending.Count){
+   if(++$containers -gt 64){return $null};$node=$pending.Pop()
+   if($node.ValueKind -eq [Text.Json.JsonValueKind]::Object){
+    $names=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($property in $node.EnumerateObject()){
+     if(!$names.Add($property.Name)){return $null}
+     if($property.Value.ValueKind -in [Text.Json.JsonValueKind]::Object,[Text.Json.JsonValueKind]::Array){$pending.Push($property.Value)}
+    }
+   }elseif($node.ValueKind -eq [Text.Json.JsonValueKind]::Array){
+    foreach($value in $node.EnumerateArray()){if($value.ValueKind -in [Text.Json.JsonValueKind]::Object,[Text.Json.JsonValueKind]::Array){$pending.Push($value)}}
+   }
+  }
   return SafeRestoredConferenceFailure (ConvertFrom-Json -InputObject $json -AsHashtable)
  }catch{return $null}finally{if($document){$document.Dispose()};if($stream){$stream.Dispose()}}
 }

@@ -61,7 +61,15 @@ class RecoveryInventory(unittest.TestCase):
         fixed = '    original_journal = digest(journal); value = read_json(journal, 8 * 1024**2)'
         rejected = '    value = read_json(journal, 8 * 1024**2); original_journal = digest(journal)'
         self.assertEqual(current.count(fixed), 1)
-        old_source = current.replace(fixed, rejected, 1)
+        inventory_source = current
+        helper = next(n for n in ast.parse(current).body if isinstance(n, ast.FunctionDef) and n.name == 'restored_path_fields')
+        inventory_source = inventory_source.replace(ast.get_source_segment(current, helper) + '\n\n\n', '', 1)
+        start = inventory_source.index("    if record['active_case'] == 'native_windows_meeting_browser_start':")
+        end = inventory_source.index('    return record\n', start) + len('    return record\n')
+        inventory_source = inventory_source[:start] + inventory_source[end:]
+        inventory_source = inventory_source.replace("    record = {'schema': 1, 'state': 'failed', 'producer': 'windows_restored_meeting.py',", "    return {'schema': 1, 'state': 'failed', 'producer': 'windows_restored_meeting.py',", 1)
+        self.assertEqual(hashlib.sha256(inventory_source.encode()).hexdigest(), 'e84f1a60b98fc905f58d49a4f2da1d5a06f529b452bdded0c3555150c05218fc')
+        old_source = inventory_source.replace(fixed, rejected, 1)
         self.assertEqual(hashlib.sha256(old_source.encode()).hexdigest(), '9a87dde5bdbf8061b9901dd609f52185cc48f3a1e5159003fc80a14387fffee9')
         old = types.ModuleType('rejected_648a_journal_order'); old.__file__ = str(HERE / 'windows_restored_meeting.py')
         exec(compile(old_source, old.__file__, 'exec'), old.__dict__)

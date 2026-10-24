@@ -1,5 +1,12 @@
 # OpenWeb PBX workspace
 
+## Restored conference closed-path repeat prepared — 2026-10-24
+
+- Supplemental run 40136954198 reached the actual browser child and failed at browser_start, which spans BEFORE WSS preflight/round-trip checks and Chromium launch/context setup. Its exact inner cause is unretained. All 9 source gates, supplemental cleanup, canonical cleanup and original Health choices pass. Standard restore 40123098262 remains separately accepted with 9 source/20 target gates; older failures retain their original limited evidence.
+- Root and peer accept the exact seven-file QA observer after 40 Python groups and both PowerShell versions: 99 failure cases/149 checks, 9070 closed-path controls, 15/153 unchanged success and 41/59 wait controls. It carries only the already collected, closed meeting_path attribute for the exact failed stage; original Python/PS validator bodies are reused verbatim. No raw logs, URLs, tokens, SQL or other private values are projected. Existing collectors, original commands/security/deadlines/media/owned Job/finally and 16 success fields remain exact; all 73 native inputs and product/native paths/modes match accepted 9f826.
+- One fresh explicit supplemental source/target repeat is authorized on unchanged accepted normal 401115/source 9f826/archive 9a45/version 1.0.20. Its native result is pending. Rejected 648a/fee99 and all historical receipts remain preserved. No main/runtime/native/owner/signing/public-package/feed change is part of this QA branch; existing invitation continuity, physical cameras, external NAT, carrier, owner migration and OS reboot remain unqualified.
+
+
 ## Restored conference inventory repeat prepared — 2026-10-24
 
 - Supplemental run 40131259611 failed before browser work at the exact 64-entry QA inventory cap; all 9 source gates, canonical cleanup and original Health choices pass. Exact native entry names/count beyond 64 remain unretained. Standard restore 40123098262 remains separately accepted with 9 source/20 target gates. Older 40126434519 still has an unknown inner refusal.

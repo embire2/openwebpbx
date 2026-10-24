@@ -42,12 +42,19 @@ def failure_record(error):
     def flag(name):
         value = getattr(error, name, None)
         return value if type(value) is bool else None
-    return {'schema': 1, 'state': 'failed', 'producer': 'windows_restored_meeting.py',
+    record = {'schema': 1, 'state': 'failed', 'producer': 'windows_restored_meeting.py',
             'error_type': kind if kind in FAILURE_TYPES else 'external_error',
             'cleanup_verified': getattr(error, 'restored_meeting_cleanup_verified', False) is True,
             'source_frames': frames[-4:], 'active_case': case if type(case) is str and case in FAILURE_CASES else 'unavailable',
             'owned_process_cleanup_failed': flag('owned_process_cleanup_failed'),
             'owned_processes_closed': flag('owned_processes_closed')}
+    if record['active_case'] == 'native_windows_meeting_browser_start':
+        try:
+            paths = getattr(error, 'meeting_path_failure', None)
+            if type(paths) is dict and set(paths) == {'meeting_path'}:
+                record.update(restored_path_fields(paths['meeting_path']))
+        except BaseException: pass
+    return record
 
 
 def observe_failure_case(error, fixture):
@@ -56,6 +63,29 @@ def observe_failure_case(error, fixture):
         if type(case) is str and case in FAILURE_CASES:
             error.restored_meeting_active_case = case
     except BaseException: pass
+
+
+def restored_path_fields(record):
+    ws = dict(booleans={'observed','connected','sent','response_received','closed_exact','large_sent','large_response_received'}, integers={'status_code':699,'large_status_code':699,'elapsed_ms':6000}, enums={'phase':{'connect','send','receive','complete','unavailable'},'error_kind':{'none','timeout','tls','websocket','other','unavailable'}})
+    pg = dict(booleans={'observed','read_only','query_visible','counts_capped'}, integers={name:512 for name in ('total','active','idle','idle_in_transaction','wait_lock','meeting_select','meeting_update','meeting_insert','meeting_other','meeting_wait_lock')}, enums={'error_kind':{'none','timeout','database','unavailable'}})
+    http = dict(booleans={'observed','completed','ok'}, integers={'http_status':599,'elapsed_ms':5000}, enums={'member_state':{'waiting','admitted','left','removed','unavailable','other'},'error_kind':{'none','timeout','tls','http','invalid_json','other','unavailable'}})
+    specs={'backend':ws,'frontend':ws,'fragmented_backend':ws,'fragmented_frontend':ws,'database':pg,'host_http':http,'guest_http':http}
+    if not isinstance(record,dict) or set(record)!={'before','after'}:
+        return {}
+    safe={}
+    for stage in ('before','after'):
+        row=record[stage]
+        if not isinstance(row,dict) or set(row)!=set(specs):
+            return {}
+        safe[stage]={}
+        for name,spec in specs.items():
+            value=row[name]
+            if not isinstance(value,dict) or set(value)!=spec['booleans']|set(spec['integers'])|set(spec['enums']):
+                return {}
+            if any(type(value[key]) is not bool for key in spec['booleans']) or any(type(value[key]) is not int or not 0<=value[key]<=maximum for key,maximum in spec['integers'].items()) or any(not isinstance(value[key],str) or value[key] not in allowed for key,allowed in spec['enums'].items()):
+                return {}
+            safe[stage][name]=dict(value)
+    return {'meeting_path':safe}
 
 
 def require(value):

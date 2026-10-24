@@ -3,7 +3,7 @@ $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 $tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Source parse refused.'}
 $definitions=@{}
-foreach($name in 'SafeRestoredConferenceFailure','ReadRestoredConferenceFailure','RestoredMeetingSupplement'){
+foreach($name in 'SafeRestoredConferenceFailure','SafeRestoredConferencePathFields','ReadRestoredConferenceFailure','RestoredMeetingSupplement'){
  $nodes=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name},$true))
  if($nodes.Count -ne 1){throw 'One exact observed source function required.'}
  $definitions[$name]=$nodes[0].Extent.Text.Replace('$PSScriptRoot',("'"+$PSScriptRoot.Replace("'","''")+"'"))
@@ -35,6 +35,26 @@ try{
  foreach($kind in 'RuntimeError','ValueError','TypeError','KeyError','AttributeError','AssertionError','TimeoutError','TimeoutExpired','OSError','FileNotFoundError','PermissionError','JSONDecodeError','SSLError','HTTPError','URLError','external_error'){$row=Copy-ObservedRecord $base;$row.error_type=$kind;Assert ($null -ne (SafeRestoredConferenceFailure $row));$cases++}
  foreach($case in 'unavailable','native_windows_meeting_browser_media','native_windows_meeting_dependencies','native_windows_meeting_unknown','native_windows_meeting_browser_start','native_windows_meeting_owner_page','native_windows_meeting_create','native_windows_meeting_host_join','native_windows_meeting_guest_join','native_windows_meeting_admission','native_windows_meeting_decoded_media','native_windows_meeting_mute','native_windows_meeting_unmute','native_windows_meeting_end'){$row=Copy-ObservedRecord $base;$row.active_case=$case;Assert ($null -ne (SafeRestoredConferenceFailure $row));$cases++}
  $json=$base|ConvertTo-Json -Depth 8 -Compress
+ $nodeCode="const d=require(process.argv[1]);process.stdout.write(JSON.stringify({before:d.defaults(),after:d.defaults()}));"
+ $pathJson=& node -e $nodeCode (Join-Path $PSScriptRoot 'windows-meet-path-diagnostics.cjs')
+ Assert ($LASTEXITCODE -eq 0)
+ $withPath=Copy-ObservedRecord $base;$withPath.active_case='native_windows_meeting_browser_start'
+ $withPath.meeting_path=ConvertFrom-Json -InputObject $pathJson -AsHashtable
+ $withPath.meeting_path.before.backend.status_code=200;$withPath.meeting_path.after.frontend.elapsed_ms=49
+ $closed=SafeRestoredConferenceFailure $withPath;Assert ($null -ne $closed -and $closed.Count -eq 10 -and $closed.meeting_path.before.backend.status_code -eq 200 -and $closed.meeting_path.after.frontend.elapsed_ms -eq 49);$cases++
+ $pathRecordJson=$withPath|ConvertTo-Json -Depth 9 -Compress
+ foreach($case in 'valid-path','nested-duplicate','nested-private','wrong-phase','containers-over-bound'){
+  $row=Copy-ObservedRecord $withPath;$script:qualificationFailedChild=GoodChild
+  switch($case){
+   nested-private{$row.meeting_path.before.backend.raw_header='PRIVATE password'}
+   wrong-phase{$row.active_case='native_windows_meeting_decoded_media'}
+   containers-over-bound{$row.meeting_path.before.backend.extra=@(@{})*65}
+  }
+  $value=$row|ConvertTo-Json -Depth 10 -Compress
+  if($case -ceq 'nested-duplicate'){$value=$value.Replace('"status_code":200','"status_code":200,"status_code":200')}
+  Assert ($value.Length -le 8192);WriteOutput $value
+  $observed=ReadRestoredConferenceFailure;Assert (($null -ne $observed) -eq ($case -ceq 'valid-path'));$cases++
+ }
  $script:qualificationFailedChild=GoodChild
  foreach($case in 'valid','valid-bound','missing','empty','oversized','malformed','duplicate-root','duplicate-frame','private-extra','invalid-utf8','array-root','null-root','deep-json','directory','file-link','parent-link'){
   if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Recurse -Force}
@@ -85,16 +105,17 @@ try{
  $addition=" try{"+$call+"}`n catch{`n  try{`$failure=ReadRestoredConferenceFailure;if(`$null -ne `$failure){`$facts.restored_conference_failure=`$failure}}catch{}`n  throw`n }"
  Assert ($definitions.RestoredMeetingSupplement.Contains($addition))
  $oldDefinition=$definitions.RestoredMeetingSupplement.Replace($addition,' '+$call)
- foreach($case in 'old-blind-failure','new-closed-failure','new-missing-fields','new-observer-throws'){
+ foreach($case in 'old-blind-failure','new-closed-failure','new-closed-path','new-missing-fields','new-observer-throws'){
   $definition=if($case -ceq 'old-blind-failure'){$oldDefinition}else{$definitions.RestoredMeetingSupplement};. ([scriptblock]::Create($definition))
   . ([scriptblock]::Create($definitions.ReadRestoredConferenceFailure))
   if($case -ceq 'new-observer-throws'){function ReadRestoredConferenceFailure {throw 'PRIVATE observer fault'}}
   $facts=@{base_archive_sha256=('a'*64);gates=@{}};$script:bindingReads=0;$script:childCalls=0;$script:primary=[InvalidOperationException]::new('PRIVATE original child failure')
-  $script:childOutput=if($case -ceq 'new-missing-fields'){'{"schema":1,"state":"failed"}'}else{$json}
+  $script:childOutput=if($case -ceq 'new-missing-fields'){'{"schema":1,"state":"failed"}'}elseif($case -ceq 'new-closed-path'){$pathRecordJson}else{$json}
   $failure=$null;try{RestoredMeetingSupplement;throw 'The original refusal was swallowed.'}catch{$failure=$_}
   Assert ([object]::ReferenceEquals($failure.Exception,$script:primary));Assert ($script:childCalls -eq 1);Assert ($script:bindingReads -eq 1)
   Assert (!$facts.gates.ContainsKey('restored_browser_conference_two_way_decoded_audio_video'));Assert (!$facts.ContainsKey('qualification_mode'))
-  Assert ($facts.ContainsKey('restored_conference_failure') -eq ($case -ceq 'new-closed-failure'))
+  Assert ($facts.ContainsKey('restored_conference_failure') -eq ($case -cin @('new-closed-failure','new-closed-path')))
+  if($case -ceq 'new-closed-path'){Assert ($facts.restored_conference_failure.meeting_path.before.backend.status_code -eq 200)}
   $cases++
  }
 }finally{Remove-Item -LiteralPath $owned -Recurse -Force}
