@@ -53,6 +53,17 @@ function SafeRestoreFixtureFailure($Record){
  if(($Record.source_line -isnot [int] -and $Record.source_line -isnot [long]) -or $Record.source_line -le 0 -or $Record.source_line -ge 1000000){return $null}
  return @{schema=1;action='cleanup';step=$Record.step;reason=$Record.reason;error_type=$Record.error_type;source_basename=$Record.source_basename;source_line=$Record.source_line}
 }
+function SafeRestorePhpFailure($Record){
+ if($null -eq $Record -or $Record -is [array]){return $null}
+ $keys=@('schema','action','returncode','error_type','source_basename','source_line')
+ if($Record -is [Collections.IDictionary]){$actual=@($Record.Keys)}else{$actual=@($Record.PSObject.Properties.Name)}
+ if($actual.Count -ne $keys.Count -or @($actual|Where-Object {$_ -cnotin $keys}).Count){return $null}
+ if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.action -isnot [string] -or $Record.action -cnotin @('baseline','discover','status','snapshot','seed-job','seed-health','job-status','cleanup')){return $null}
+ if(($Record.returncode -isnot [int] -and $Record.returncode -isnot [long]) -or $Record.returncode -eq 0 -or $Record.returncode -lt -2147483648L -or $Record.returncode -gt 4294967295L -or ($Record.source_line -isnot [int] -and $Record.source_line -isnot [long]) -or $Record.error_type -isnot [string] -or $Record.source_basename -isnot [string]){return $null}
+ if($Record.error_type -ceq 'unavailable'){if($Record.source_basename -cne 'unavailable' -or $Record.source_line -ne 0){return $null}}
+ elseif($Record.error_type -cnotin @('RuntimeException','PDOException','JsonException','TypeError','ValueError','Error','Exception','external_error') -or $Record.source_basename -cnotin @('windows-restore-qualification.php','database.php','pbx_paths.php','pbx_meet_install.php','cache.php','event_socket.php','config.php','external_component') -or $Record.source_line -le 0 -or $Record.source_line -ge 1000000){return $null}
+ return @{schema=1;action=$Record.action;returncode=$Record.returncode;error_type=$Record.error_type;source_basename=$Record.source_basename;source_line=$Record.source_line}
+}
 function SafeRestorePeerFailures($Records,[switch]$Receiver){
  $maximum=if($Receiver){2}else{12}
  if($Records -isnot [array] -or $Records.Count -lt 1 -or $Records.Count -gt $maximum){return $null}
@@ -215,6 +226,12 @@ function NativeFixture([string]$Action){
    if($Action -cin @('export-source','late-restore','restore','activate-calls','job','activate-updates','activate-backups','activate-updates-backups','target-backup') -and $facts.native_failure -and $safe.state -ceq 'failed' -and $safe.error_type -is [string] -and $safe.error_type -ceq 'RuntimeError' -and $safe.source_basename -is [string] -and $safe.source_basename -ceq 'windows-restore-qualification.py' -and (Test-Path -LiteralPath $privateOutput -PathType Leaf)){
     $cliOutput=Get-Item -LiteralPath $privateOutput -Force
     if($cliOutput.Length -gt 0 -and $cliOutput.Length -le 1048576 -and ($cliOutput.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0){$cli=SafeRestoreCliFailure $safe.cli_failure;if($cli){$facts.native_failure.cli_failure=$cli}}
+   }
+  }catch{}
+  try{
+   if($facts.native_failure -and $safe.state -ceq 'failed' -and $safe.error_type -is [string] -and $safe.error_type -ceq 'RuntimeError' -and $safe.source_basename -is [string] -and $safe.source_basename -ceq 'windows-restore-qualification.py' -and (Test-Path -LiteralPath $privateOutput -PathType Leaf)){
+    $phpOutput=Get-Item -LiteralPath $privateOutput -Force
+    if($phpOutput.Length -gt 0 -and $phpOutput.Length -le 1048576 -and ($phpOutput.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0){$phpFailure=SafeRestorePhpFailure $safe.php_failure;if($phpFailure){$facts.native_failure.php_failure=$phpFailure}}
    }
   }catch{}
   throw

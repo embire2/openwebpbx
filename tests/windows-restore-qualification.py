@@ -61,6 +61,48 @@ def restore_fixture_failure_fields(record, action):
     return {key: record[key] for key in sorted(fields)}
 
 
+PHP_FIXTURE_ACTIONS = ('baseline', 'discover', 'status', 'snapshot', 'seed-job', 'seed-health', 'job-status', 'cleanup')
+PHP_FIXTURE_TYPES = ('RuntimeException', 'PDOException', 'JsonException', 'TypeError', 'ValueError', 'Error', 'Exception', 'external_error')
+PHP_FIXTURE_SOURCES = ('windows-restore-qualification.php', 'database.php', 'pbx_paths.php', 'pbx_meet_install.php', 'cache.php', 'event_socket.php', 'config.php', 'external_component')
+
+
+def restore_php_failure_fields(record):
+    keys = {'schema', 'action', 'returncode', 'error_type', 'source_basename', 'source_line'}
+    if (type(record) is not dict or set(record) != keys or type(record['schema']) is not int or record['schema'] != 1
+            or type(record['action']) is not str or record['action'] not in PHP_FIXTURE_ACTIONS
+            or type(record['returncode']) is not int or record['returncode'] == 0 or not -2147483648 <= record['returncode'] <= 4294967295
+            or type(record['error_type']) is not str or type(record['source_basename']) is not str or type(record['source_line']) is not int):
+        return {}
+    if record['error_type'] == 'unavailable':
+        if record['source_basename'] != 'unavailable' or record['source_line'] != 0: return {}
+    elif (record['error_type'] not in PHP_FIXTURE_TYPES or record['source_basename'] not in PHP_FIXTURE_SOURCES
+          or not 0 < record['source_line'] < 1000000):
+        return {}
+    return {key: record[key] for key in sorted(keys)}
+
+
+def prepare_restore_php_observation(path, action):
+    if type(action) is not str or action not in PHP_FIXTURE_ACTIONS: return None
+    target = Path(str(path) + '.' + action + '.php.failure.json')
+    return target if not target.exists() and not target.is_symlink() else None
+
+
+def observe_restore_php_failure(action, returncode, path):
+    result = restore_php_failure_fields({'schema': 1, 'action': action, 'returncode': returncode,
+        'error_type': 'unavailable', 'source_basename': 'unavailable', 'source_line': 0})
+    if not result: return {}
+    try:
+        if path is not None and not path.is_symlink() and path.is_file() and path.stat().st_size <= 2048:
+            record = read_json(path, 2048)
+            if (type(record) is dict and set(record) == {'schema', 'action', 'error_type', 'source_basename', 'source_line'}
+                    and record.get('action') == action):
+                observed = restore_php_failure_fields(record | {'returncode': returncode})
+                if observed and observed['error_type'] != 'unavailable': return observed
+    except Exception:
+        pass  # Metadata failure never replaces the exact child refusal.
+    return result
+
+
 def canonical(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False,
                       separators=(',', ':'), allow_nan=False).encode('utf-8')
@@ -596,12 +638,19 @@ class Qualification:
     def php(self, action):
         failure_path = Path(str(self.path) + '.cleanup.failure.json')
         failure_absent = not failure_path.exists() and not failure_path.is_symlink()
+        php_observation = None
+        try: php_observation = prepare_restore_php_observation(self.path, action)
+        except Exception: pass
         child = subprocess.run(['C:/OpenWebPBX/php/php.exe', str(self.source / 'tests/windows-restore-qualification.php'),
             action, str(self.path)], cwd='C:/OpenWebPBX/web', stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
         (self.work / (action + '.private.out')).write_bytes(child.stdout)
         (self.work / (action + '.private.err')).write_bytes(child.stderr)
         if child.returncode:
             error = RuntimeError('The private scoped PHP fixture failed.')
+            try:
+                fields = observe_restore_php_failure(action, child.returncode, php_observation)
+                if fields: error.php_failure = fields
+            except Exception: pass
             if action == 'cleanup' and failure_absent:
                 try:
                     if not failure_path.is_symlink() and failure_path.is_file() and failure_path.stat().st_size <= 2048:
@@ -1278,6 +1327,10 @@ if __name__ == '__main__':
                  'source_line': trace.tb_lineno if trace and 0 < trace.tb_lineno < 1000000 else 0}
         observation = restore_fixture_failure_fields(getattr(error, 'fixture_failure', None), 'cleanup')
         if observation: facts['fixture_failure'] = observation
+        try:
+            observation = restore_php_failure_fields(getattr(error, 'php_failure', None))
+            if observation: facts['php_failure'] = observation
+        except Exception: pass
         facts.update(restore_identity_failure_fields(error))
         facts.update(restore_query_failure_fields(error))
         observation = restore_cli_failure_fields(getattr(error, 'cli_failure', None))

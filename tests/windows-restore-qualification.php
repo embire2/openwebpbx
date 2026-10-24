@@ -213,6 +213,24 @@ function restore_fixture_failure_record(Throwable $error,string $input,string $a
     }catch(Throwable $ignored){return false;}
 }
 
+function restore_fixture_php_failure_record(Throwable $error,string $input,string $action,string $root): bool {
+    // Separate closed observation: never change the existing cleanup receipt.
+    if(!in_array($action,['baseline','discover','status','snapshot','seed-job','seed-health','job-status','cleanup'],true))return false;
+    try {
+        $directory=restore_fixture_private_path($input,$root);
+        if(strtolower(str_replace('\\','/',dirname($input)))!==strtolower(str_replace('\\','/',$directory)))return false;
+        $type=get_class($error);
+        if(!in_array($type,['RuntimeException','PDOException','JsonException','TypeError','ValueError','Error','Exception'],true))$type='external_error';
+        $source=basename(str_replace('\\','/',$error->getFile()));
+        if(!in_array($source,['windows-restore-qualification.php','database.php','pbx_paths.php','pbx_meet_install.php','cache.php','event_socket.php','config.php'],true))$source='external_component';
+        $line=$error->getLine();if($line<1||$line>=1000000)return false;
+        $raw=json_encode(['schema'=>1,'action'=>$action,'error_type'=>$type,'source_basename'=>$source,'source_line'=>$line],JSON_THROW_ON_ERROR);
+        if(strlen($raw)>2048)return false;
+        $stream=@fopen($input.'.'.$action.'.php.failure.json','xb');if(!$stream)return false;
+        try{return fwrite($stream,$raw)===strlen($raw)&&fflush($stream);}finally{fclose($stream);}
+    }catch(Throwable $ignored){return false;}
+}
+
 function restore_fixture_write(string $path,array $value): void {
     if(is_link($path)||(file_exists($path)&&!is_file($path)))throw new RuntimeException('Private evidence must be an ordinary file.');
     $raw=json_encode($value,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES);
@@ -513,6 +531,7 @@ if(!defined('OPENWEB_RESTORE_FIXTURE_LIBRARY_ONLY')) {
         // SQL/runtime/phone credentials never appear in runner console output.
         global $argv;
         restore_fixture_failure_record($error,(string)($argv[2]??''),(string)($argv[1]??''),(string)($GLOBALS['restore_fixture_failure_step']??'initialization'),rtrim((string)(getenv('ProgramData')?:'C:/ProgramData'),'/\\').'/OpenWebPBX/restore-qualification');
+        try{restore_fixture_php_failure_record($error,(string)($argv[2]??''),(string)($argv[1]??''),rtrim((string)(getenv('ProgramData')?:'C:/ProgramData'),'/\\').'/OpenWebPBX/restore-qualification');}catch(Throwable $ignored){}
         fwrite(STDERR,"Private Windows restore qualification fixture failed.\n");exit(1);
     });
     restore_fixture_main($argv);
