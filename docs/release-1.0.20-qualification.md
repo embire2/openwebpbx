@@ -27,7 +27,7 @@ feeds are preserved byte-for-byte.
 Original1.0.6 migration/interrupted recovery, actual Windows reboot and external
 physical phone/carrier/camera checks remain unqualified. The ordinary feed starts
 at1.0.20; an unqualified legacy transition is not published. Restored-conference
-supplement40126434519 is separate and running. Earlier failed runs below retain
+supplement40126434519 is separate and failed in its extra Python child; the inner cause was not retained and no restored-conference media pass is claimed. Earlier failed runs below retain
 their original limited evidence and unknown causes; later success assigns none.
 
 **Earlier work on 24 October:** the unchanged candidate from normal40005106134
