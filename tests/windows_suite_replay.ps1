@@ -14,6 +14,15 @@ foreach($path in 'tests/windows_meet_proxy.ps1','tests/owned-qa.py','docs/instal
  AssertReplaySourcePaths @($path);Check $true
 }
 AssertReplaySourcePaths @();Check $true
+# This reviewed QA workflow is one exact filename, not a workflow-directory grant.
+$reviewedWorkflow='.github/workflows/windows-updater-qualification.yml'
+AssertReplaySourcePaths @($reviewedWorkflow);Check $true
+foreach($unreviewed in '.github/workflows/unknown.yml','.github/workflows/windows-restore-qualification.yml','.github/workflows/windows-updater-qualification.yaml','.github/workflows/windows-updater-qualification.yml.old','.github/workflows/windows-updater-qualification.yml/child','.github/workflows/Windows-updater-qualification.yml','.github/WORKFLOWS/windows-updater-qualification.yml','.github/workflows/windows-native.yml','.github/workflows/windows-engine.yml','.github/actions/windows-updater-qualification.yml','packaging/windows/Upgrade-OpenWebPBX.ps1','platform/OpenWebPbx.Server/Program.cs','packaging/freeswitch/windows-native-inputs.json','tests/pbx_bcg729_codec.c','tests/pbx_windows_pthread.c'){
+ Refuses {AssertReplaySourcePaths @($unreviewed)}
+ # An allowed QA entry cannot hide a later or earlier product/native change.
+ Refuses {AssertReplaySourcePaths @($reviewedWorkflow,'tests/owned-qa.py',$unreviewed)}
+ Refuses {AssertReplaySourcePaths @($unreviewed,'docs/owned-qa.md',$reviewedWorkflow)}
+}
 foreach($path in 'VERSION','ADMIN_VERSION','app/pbx_setup/index.php','core/desktop/index.php','resources/functions.php','platform/Directory.Build.props','packaging/windows/Tenant-Domains.ps1','packaging/windows/bootstrap.php','packaging/debian/tenant-domains.py','packaging/debian/tenant-domains.php','packaging/build-release.py','packaging/voices/catalog.json','packaging/updates/release-public.pem','packaging/freeswitch/core-exports.py','tests/pbx_bcg729_codec.c','tests/pbx_windows_pthread.c','.github/workflows/windows-engine.yml','tests/../VERSION','docs//invalid.md'){
  Refuses {AssertReplaySourcePaths @($path)}
 }

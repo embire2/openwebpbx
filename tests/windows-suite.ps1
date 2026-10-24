@@ -787,7 +787,7 @@ function AssertReplaySourcePaths([string[]]$Paths){
   $null=SafeRelative $path
   if($path -cin 'tests/pbx_bcg729_codec.c','tests/pbx_windows_pthread.c'){throw 'Pinned native-engine recipe inputs changed; rebuild the candidate.'}
   $nonWindows=$path.StartsWith('packaging/debian/',[StringComparison]::Ordinal) -and $path -cnotin 'packaging/debian/tenant-domains.py','packaging/debian/tenant-domains.php'
-  if($path.StartsWith('tests/',[StringComparison]::Ordinal) -or $path.StartsWith('docs/',[StringComparison]::Ordinal) -or $nonWindows -or $path -cin 'AGENTS.md','README.md','readme.md','3CX.md','packaging/BUILDING.md','.github/workflows/windows-suite.yml','.github/workflows/windows-upgrade-diagnostics.yml','.github/workflows/windows-backups-diagnostics.yml','.github/workflows/windows-voicemail-diagnostics.yml','.github/workflows/windows-phone.yml'){continue}
+  if($path.StartsWith('tests/',[StringComparison]::Ordinal) -or $path.StartsWith('docs/',[StringComparison]::Ordinal) -or $nonWindows -or $path -cin 'AGENTS.md','README.md','readme.md','3CX.md','packaging/BUILDING.md','.github/workflows/windows-suite.yml','.github/workflows/windows-updater-qualification.yml','.github/workflows/windows-upgrade-diagnostics.yml','.github/workflows/windows-backups-diagnostics.yml','.github/workflows/windows-voicemail-diagnostics.yml','.github/workflows/windows-phone.yml'){continue}
   throw 'Windows runtime, native input or package source changed; rebuild the candidate instead of replaying it.'
  }
 }
