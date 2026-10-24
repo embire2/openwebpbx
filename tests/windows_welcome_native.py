@@ -71,6 +71,77 @@ def remove_private_config(work):
     path.unlink()
 
 
+WELCOME_INVENTORY_TABLES = ('v_default_settings', 'v_domain_settings', 'v_domains', 'v_email_queue', 'v_email_queue_attachments', 'v_event_guard_logs', 'v_extensions', 'v_gateways', 'v_logs', 'v_pbx_backup_commands', 'v_pbx_backup_settings', 'v_pbx_backup_status', 'v_pbx_backups', 'v_pbx_jobs', 'v_pbx_mobile_devices', 'v_pbx_phone_health_contacts', 'v_pbx_phone_health_issues', 'v_pbx_phone_health_recoveries', 'v_pbx_phone_health_settings', 'v_pbx_phone_health_state', 'v_pbx_restore', 'v_pbx_services', 'v_pbx_tenant_domains', 'v_pbx_tenants', 'v_pbx_update_commands', 'v_pbx_update_policies', 'v_pbx_update_status', 'v_user_logs', 'v_user_settings', 'v_users', 'v_xml_cdr')
+
+def welcome_inventory_fields(record):
+    keys = {'schema', 'public_equal', 'config_equal', 'config_check', 'baseline_state', 'sample_state',
+            'before_tables', 'after_tables', 'changed_tables', 'added_tables', 'removed_tables', 'unlisted_tables', 'tables'}
+    if type(record) is not dict or set(record) != keys or type(record['schema']) is not int or record['schema'] != 1:
+        return {}
+    if any(type(record[k]) is not bool for k in ('public_equal', 'config_equal')):
+        return {}
+    if type(record['config_check']) is not str or record['config_check'] not in ('original', 'after_refusal', 'unavailable'):
+        return {}
+    if record['config_check'] == 'unavailable' and record['config_equal']:
+        return {}
+    for key in ('baseline_state', 'sample_state'):
+        if type(record[key]) is not str or record[key] not in ('matched', 'unstable', 'unavailable'):
+            return {}
+    for key in ('before_tables', 'after_tables', 'changed_tables', 'added_tables', 'removed_tables', 'unlisted_tables'):
+        if type(record[key]) is not int or not 0 <= record[key] <= (1024 if key in ('changed_tables', 'unlisted_tables') else 512):
+            return {}
+    if type(record['tables']) is not list or len(record['tables']) > 8:
+        return {}
+    names = []
+    for row in record['tables']:
+        if (type(row) is not dict or set(row) != {'name', 'before', 'after', 'kind'}
+                or type(row['name']) is not str or row['name'] not in WELCOME_INVENTORY_TABLES
+                or type(row['kind']) is not str or row['kind'] not in ('added', 'removed', 'changed')
+                or any(type(row[k]) is not int or not 0 <= row[k] <= 1000000 for k in ('before', 'after'))):
+            return {}
+        if row['kind'] == 'added' and row['before'] != 0 or row['kind'] == 'removed' and row['after'] != 0:
+            return {}
+        names.append(row['name'])
+    if names != sorted(set(names)) or len(names) + record['unlisted_tables'] != record['changed_tables']:
+        return {}
+    if record['added_tables'] + record['removed_tables'] > record['changed_tables']:
+        return {}
+    matched = record['baseline_state'] == record['sample_state'] == 'matched'
+    if not matched and any(record[k] != 0 for k in ('changed_tables', 'added_tables', 'removed_tables', 'unlisted_tables')):
+        return {}
+    if record['baseline_state'] != 'matched' and record['before_tables'] != 0 or record['sample_state'] != 'matched' and record['after_tables'] != 0:
+        return {}
+    if matched and (record['after_tables'] - record['before_tables'] != record['added_tables'] - record['removed_tables']
+                    or record['added_tables'] > record['after_tables'] or record['removed_tables'] > record['before_tables']
+                    or sum(row['kind'] == 'added' for row in record['tables']) > record['added_tables']
+                    or sum(row['kind'] == 'removed' for row in record['tables']) > record['removed_tables']):
+        return {}
+    if matched and (record['public_equal'] != (record['changed_tables'] == 0)):
+        return {}
+    return {key: ([dict(row) for row in record[key]] if key == 'tables' else record[key]) for key in sorted(keys)}
+
+
+def welcome_primary_fields(error):
+    if error is None:
+        return {}
+    trace = error.__traceback__
+    selected = None
+    while trace:
+        selected = trace
+        if Path(trace.tb_frame.f_code.co_filename).name == 'windows_welcome_native.py' and trace.tb_frame.f_code.co_name == 'run_fixture':
+            break
+        trace = trace.tb_next
+    if selected is None or not 1 <= selected.tb_lineno <= 100000:
+        return {}
+    name = Path(selected.tb_frame.f_code.co_filename).name
+    if name not in ('windows_welcome_native.py', 'windows_welcome_qr.py', 'smtp_transport_integration.py'):
+        name = 'external_component'
+    kind = type(error).__name__
+    if kind not in ('RuntimeError', 'AssertionError', 'TimeoutExpired', 'CalledProcessError', 'ValueError', 'JSONDecodeError', 'UnicodeDecodeError', 'OSError', 'TypeError'):
+        kind = 'external_error'
+    return {'schema': 1, 'error_type': kind, 'source_basename': name, 'source_line': selected.tb_lineno}
+
+
 def decoder(work, wheel_input=None):
     name, url, size, digest = DECODERS[os.name]
     wheel = work / name
@@ -176,6 +247,11 @@ def run_fixture(input_path, source, php, evidence, *, portable=False, wheel_inpu
                         and isinstance(failure.get('sqlstate'), str)
                         and (failure['sqlstate'] == 'none' or len(failure['sqlstate']) == 5 and failure['sqlstate'].isascii() and failure['sqlstate'].isalnum() and failure['sqlstate'].upper() == failure['sqlstate'])):
                     error.welcome_failure = {'welcome_' + key: failure[key] for key in ('phase', 'error_type', 'source_basename', 'source_line', 'sqlstate')}
+                    try:
+                        if action == 'cleanup' and result.returncode == 1 and failure['phase'] == 'cleanup' and failure['error_type'] == 'RuntimeException' and failure['source_basename'] == 'windows_welcome_native.php':
+                            observed = welcome_inventory_fields(failure.get('welcome_cleanup_inventory'))
+                            if observed: error.welcome_failure['welcome_cleanup_inventory'] = observed
+                    except Exception: pass
                     break
             raise error
         return json.loads(result.stdout) if json_result else result.stdout
@@ -301,6 +377,14 @@ def run_fixture(input_path, source, php, evidence, *, portable=False, wheel_inpu
         error = RuntimeError('The welcome fixture cleanup requires review.')
         error.welcome_failure = dict(getattr(primary, 'welcome_failure', None) or getattr(cleanup_error, 'welcome_failure', {}))
         error.welcome_failure['welcome_cleanup_failed'] = True
+        try:
+            observed = welcome_primary_fields(primary)
+            if observed: error.welcome_failure['welcome_primary'] = observed
+        except Exception: pass
+        try:
+            observed = welcome_inventory_fields(getattr(cleanup_error, 'welcome_failure', {}).get('welcome_cleanup_inventory'))
+            if observed: error.welcome_failure['welcome_cleanup_inventory'] = observed
+        except Exception: pass
         raise error from cleanup_error
     if primary:
         raise primary

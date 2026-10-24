@@ -353,11 +353,52 @@ function SafeMeetingPathFields($Record){
  }
  return @{meeting_path=$stages}
 }
+function SafeWelcomeInventory($Record){
+ if($null -eq $Record -or $Record -is [array]){return $null}
+ $keys=@('schema','public_equal','config_equal','config_check','baseline_state','sample_state','before_tables','after_tables','changed_tables','added_tables','removed_tables','unlisted_tables','tables')
+ $actual=if($Record -is [Collections.IDictionary]){@($Record.Keys)}else{@($Record.PSObject.Properties.Name)}
+ if($actual.Count -ne $keys.Count -or @($actual|Where-Object {$_ -cnotin $keys}).Count){return $null}
+ if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.public_equal -isnot [bool] -or $Record.config_equal -isnot [bool] -or $Record.config_check -isnot [string] -or $Record.config_check -cnotin @('original','after_refusal','unavailable')){return $null}
+ if($Record.config_check -ceq 'unavailable' -and $Record.config_equal){return $null}
+ foreach($key in 'baseline_state','sample_state'){if($Record.$key -isnot [string] -or $Record.$key -cnotin @('matched','unstable','unavailable')){return $null}}
+ foreach($key in 'before_tables','after_tables','changed_tables','added_tables','removed_tables','unlisted_tables'){
+  $limit=if($key -cin @('changed_tables','unlisted_tables')){1024}else{512};$value=$Record.$key
+  if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt $limit){return $null}
+ }
+ if($Record.tables -isnot [array] -or $Record.tables.Count -gt 8){return $null}
+ $known=@('v_default_settings','v_domain_settings','v_domains','v_email_queue','v_email_queue_attachments','v_event_guard_logs','v_extensions','v_gateways','v_logs','v_pbx_backup_commands','v_pbx_backup_settings','v_pbx_backup_status','v_pbx_backups','v_pbx_jobs','v_pbx_mobile_devices','v_pbx_phone_health_contacts','v_pbx_phone_health_issues','v_pbx_phone_health_recoveries','v_pbx_phone_health_settings','v_pbx_phone_health_state','v_pbx_restore','v_pbx_services','v_pbx_tenant_domains','v_pbx_tenants','v_pbx_update_commands','v_pbx_update_policies','v_pbx_update_status','v_user_logs','v_user_settings','v_users','v_xml_cdr');$rows=@();$names=@()
+ foreach($row in $Record.tables){
+  if($null -eq $row -or $row -is [array]){return $null};$fields=if($row -is [Collections.IDictionary]){@($row.Keys)}else{@($row.PSObject.Properties.Name)}
+  if($fields.Count -ne 4 -or @($fields|Where-Object {$_ -cnotin @('name','before','after','kind')}).Count -or $row.name -isnot [string] -or $row.name -cnotin $known -or $row.kind -isnot [string] -or $row.kind -cnotin @('added','removed','changed')){return $null}
+  foreach($key in 'before','after'){$value=$row.$key;if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 1000000){return $null}}
+  if(($row.kind -ceq 'added' -and $row.before -ne 0) -or ($row.kind -ceq 'removed' -and $row.after -ne 0)){return $null}
+  if($names -ccontains $row.name -or ($names.Count -and [string]::CompareOrdinal($names[-1],$row.name) -ge 0)){return $null}
+  $names+=,$row.name;$rows+=,@{name=$row.name;before=$row.before;after=$row.after;kind=$row.kind}
+ }
+ if($rows.Count+$Record.unlisted_tables -ne $Record.changed_tables -or $Record.added_tables+$Record.removed_tables -gt $Record.changed_tables){return $null}
+ $matched=$Record.baseline_state -ceq 'matched' -and $Record.sample_state -ceq 'matched'
+ if(!$matched){foreach($key in 'changed_tables','added_tables','removed_tables','unlisted_tables'){if($Record.$key -ne 0){return $null}}}
+ if(($Record.baseline_state -cne 'matched' -and $Record.before_tables -ne 0) -or ($Record.sample_state -cne 'matched' -and $Record.after_tables -ne 0)){return $null}
+ if($matched -and ($Record.after_tables-$Record.before_tables -ne $Record.added_tables-$Record.removed_tables -or $Record.added_tables -gt $Record.after_tables -or $Record.removed_tables -gt $Record.before_tables -or @($rows|Where-Object {$_.kind -ceq 'added'}).Count -gt $Record.added_tables -or @($rows|Where-Object {$_.kind -ceq 'removed'}).Count -gt $Record.removed_tables)){return $null}
+ if($matched -and $Record.public_equal -ne ($Record.changed_tables -eq 0)){return $null}
+ $safe=@{};foreach($key in $keys){$safe[$key]=$Record.$key};$safe.tables=$rows;return $safe
+}
+function SafeWelcomePrimary($Record){
+ if($null -eq $Record -or $Record -is [array]){return $null}
+ $keys=@('schema','error_type','source_basename','source_line');$actual=if($Record -is [Collections.IDictionary]){@($Record.Keys)}else{@($Record.PSObject.Properties.Name)}
+ if($actual.Count -ne 4 -or @($actual|Where-Object {$_ -cnotin $keys}).Count){return $null}
+ if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.error_type -isnot [string] -or $Record.error_type -cnotin @('RuntimeError','AssertionError','TimeoutExpired','CalledProcessError','ValueError','JSONDecodeError','UnicodeDecodeError','OSError','TypeError','external_error') -or $Record.source_basename -isnot [string] -or $Record.source_basename -cnotin @('windows_welcome_native.py','windows_welcome_qr.py','smtp_transport_integration.py','external_component') -or ($Record.source_line -isnot [int] -and $Record.source_line -isnot [long]) -or $Record.source_line -lt 1 -or $Record.source_line -gt 100000){return $null}
+ return @{schema=1;error_type=$Record.error_type;source_basename=$Record.source_basename;source_line=$Record.source_line}
+}
 function SafeSmtpFailureFields($Record){
  $safe=@{}
  if($Record.active_case -is [string] -and $Record.active_case -ceq 'native_welcome_inline_qr_config_actual_loopback'){
   if($Record.welcome_cleanup_failed -is [bool]){$safe.welcome_cleanup_failed=$Record.welcome_cleanup_failed}
   if($Record.welcome_phase -is [string] -and $Record.welcome_phase -cin 'input','database','bootstrap','queue','dispatch','inspect','suppress','cleanup' -and $Record.welcome_error_type -is [string] -and $Record.welcome_error_type -cin 'RuntimeException','PDOException','Error','TypeError','ValueError','JsonException','Exception' -and $Record.welcome_source_basename -is [string] -and $Record.welcome_source_basename -cin 'windows_welcome_native.php','pbx_mobile.php','pbx_mobile_welcome.php','email.php','outgoing_mail.php','email_send.php','database.php','config.php','settings.php','external_component' -and ($Record.welcome_source_line -is [int] -or $Record.welcome_source_line -is [long]) -and $Record.welcome_source_line -ge 1 -and $Record.welcome_source_line -le 100000 -and $Record.welcome_sqlstate -is [string] -and ($Record.welcome_sqlstate -ceq 'none' -or $Record.welcome_sqlstate -cmatch '^[A-Z0-9]{5}$')){foreach($field in 'welcome_phase','welcome_error_type','welcome_source_basename','welcome_source_line','welcome_sqlstate'){$safe[$field]=$Record.$field}}
+  if($Record.welcome_cleanup_failed -is [bool] -and $Record.welcome_cleanup_failed){
+   try{$observed=SafeWelcomeInventory $Record.welcome_cleanup_inventory;if($observed){$safe.welcome_cleanup_inventory=$observed}}catch{}
+   try{$observed=SafeWelcomePrimary $Record.welcome_primary;if($observed){$safe.welcome_primary=$observed}}catch{}
+  }
   return $safe
  }
  if($Record.active_case -isnot [string] -or $Record.active_case -cne 'global_smtp_trusted_tls_hostname_auth'){return $safe}

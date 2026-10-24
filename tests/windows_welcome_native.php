@@ -4,12 +4,15 @@
  * Alias custody/readiness are explicitly modelled; no external mail is sent.
  */
 if(PHP_SAPI!=='cli')exit(2);
-$phase='input';
-set_exception_handler(static function(Throwable $error)use(&$phase):void{
+$phase='input';$welcomeInventory=null;
+set_exception_handler(static function(Throwable $error)use(&$phase,&$welcomeInventory):void{
  $file=basename(str_replace('\\','/',$error->getFile()));
  if(!in_array($file,['windows_welcome_native.php','pbx_mobile.php','pbx_mobile_welcome.php','email.php','outgoing_mail.php','email_send.php','database.php','config.php','settings.php'],true))$file='external_component';
- echo json_encode(['state'=>'failed','phase'=>$phase,'error_type'=>get_class($error),'source_basename'=>$file,'source_line'=>$error->getLine(),'sqlstate'=>$error instanceof PDOException&&(bool)preg_match('/^[A-Z0-9]{5}$/D',(string)$error->getCode())?(string)$error->getCode():'none'],JSON_THROW_ON_ERROR),PHP_EOL;exit(1);
+ $failure=['state'=>'failed','phase'=>$phase,'error_type'=>get_class($error),'source_basename'=>$file,'source_line'=>$error->getLine(),'sqlstate'=>$error instanceof PDOException&&(bool)preg_match('/^[A-Z0-9]{5}$/D',(string)$error->getCode())?(string)$error->getCode():'none'];
+ try{if($phase==='cleanup'&&is_array($welcomeInventory)&&strlen(json_encode($welcomeInventory,JSON_THROW_ON_ERROR))<=1400)$failure['welcome_cleanup_inventory']=$welcomeInventory;}catch(Throwable $ignored){}
+ echo json_encode($failure,JSON_THROW_ON_ERROR),PHP_EOL;exit(1);
 });
+try{if(is_file(__DIR__.'/windows_welcome_inventory.php'))@include_once __DIR__.'/windows_welcome_inventory.php';}catch(Throwable $ignored){}
 $action=$argv[1]??'';$input=$argv[2]??'';$work=$argv[3]??'';$portable=in_array('--portable-socket-factory',$argv,true);
 if(!in_array($action,['prepare','dispatch','inspect','suppress','cleanup'],true)||!is_file($input)||is_link($input)||!is_dir($work)||is_link($work))throw new RuntimeException('An owned mail fixture is required.');
 $s=json_decode(file_get_contents($input),true,64,JSON_THROW_ON_ERROR);
@@ -64,6 +67,7 @@ if($action==='prepare'){
   if(!is_string($service)||!preg_match('/^pbx-[a-f0-9]{12}\./D',$service)||$service!==($owned['domain_name']??''))throw new RuntimeException('The normal native fixture tenant is unavailable.');
  }else{if((int)$db->query('select count(*) from public.v_users')->fetchColumn()!==0)throw new RuntimeException('The socket database is not empty.');}
  $state['public_before']=welcome_public_fingerprint($db);$state['schema_created']=false;file_put_contents($stateFile,json_encode($state,JSON_THROW_ON_ERROR));
+ try{if(function_exists('welcome_inventory_baseline'))$state['public_observation_before']=welcome_inventory_baseline($db,$state['public_before']);}catch(Throwable $ignored){}
  if($q('select to_regnamespace(?)',[$schema])->fetchColumn())throw new RuntimeException('The fixture schema name is already occupied.');
  $db->exec('create schema '.$schema);$state['schema_created']=true;file_put_contents($stateFile,json_encode($state,JSON_THROW_ON_ERROR));$db->exec('set search_path to '.$schema);
  foreach(['v_default_settings','v_domain_settings','v_user_settings','v_domains','v_users','v_extensions','v_voicemails','v_voicemail_messages','v_pbx_restore','v_pbx_services','v_pbx_tenants','v_email_queue','v_email_queue_attachments']as$table)$db->exec('create table '.$table.'(like public.'.$table.' including all)');
@@ -80,8 +84,12 @@ if($action==='prepare'){
 if($action==='cleanup'){
  $phase='cleanup';if($db->inTransaction())$db->rollBack();$db->exec('set search_path to public');
  if(($state['schema_created']??false)===true)$db->exec('drop schema '.$schema.' cascade');
- $exact=welcome_public_fingerprint($db)===$state['public_before']&&hash_file('sha256',$configFile)===$state['original_config_sha256'];
- if(!$exact)throw new RuntimeException('The original instance inventory changed.');
+ $publicAfter=null;$configAfter=null;
+ $exact=($publicAfter=welcome_public_fingerprint($db))===$state['public_before']&&($configAfter=hash_file('sha256',$configFile))===$state['original_config_sha256'];
+ if(!$exact){
+  try{if(function_exists('welcome_inventory_failure'))$welcomeInventory=welcome_inventory_failure($db,$state,$configFile,$publicAfter,$configAfter);}catch(Throwable $ignored){}
+  throw new RuntimeException('The original instance inventory changed.');
+ }
  if(PHP_OS_FAMILY==='Windows')foreach($state['queues']as$id){if(!preg_match('/^[a-f0-9-]{36}$/D',$id))throw new RuntimeException('An owned queue identity changed.');$lock=str_replace('\\','/',getenv('ProgramData')?:'C:/ProgramData').'/OpenWebPBX/mail/dispatch.'.$id.'.lock';if(is_link($lock))throw new RuntimeException('An owned mail lock changed.');if(is_file($lock)&&!unlink($lock))throw new RuntimeException('An owned mail lock could not be removed.');}
  echo json_encode(['state'=>'cleaned','public_exact'=>true,'config_exact'=>true,'owned_schema_removed'=>true,'only_owned_locks_removed'=>true],JSON_THROW_ON_ERROR),PHP_EOL;exit;
 }
