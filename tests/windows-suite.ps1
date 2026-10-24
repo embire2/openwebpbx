@@ -4,9 +4,10 @@
 param(
  [string]$NativeRunId,[string]$EngineRunId,[string]$PackageRoot,[string]$ReplaySuiteRunId,
  [string]$ReplayCandidateArtifactId,[string]$ReplayCandidateSha256,
- [switch]$DisposableHostedRunner,[switch]$UpgradeDiagnosticsOnly,[switch]$BackupsDiagnosticsOnly,[switch]$ReplayTerminalProducers,[switch]$NativeDiagnosticsOnly,[switch]$SkipPhoneHealthForNativeDiagnostics,[switch]$HoldDiagnosticsOnly
+ [switch]$DisposableHostedRunner,[switch]$UpgradeDiagnosticsOnly,[switch]$BackupsDiagnosticsOnly,[switch]$ReplayTerminalProducers,[switch]$NativeDiagnosticsOnly,[switch]$SkipPhoneHealthForNativeDiagnostics,[switch]$HoldDiagnosticsOnly,[switch]$ThreecxImportOnly
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
+. (Join-Path $PSScriptRoot 'windows-threecx-suite-mode.ps1')
 function SuiteMusicWorkflow([bool]$DiagnosticOnly,[bool]$BackupDiagnosticOnly=$false){
  if($DiagnosticOnly -and $BackupDiagnosticOnly){throw 'Diagnostic modes are mutually exclusive.'}
  if($BackupDiagnosticOnly){return '.github/workflows/windows-backups-diagnostics.yml'}
@@ -34,7 +35,9 @@ AssertHoldDiagnosticsMode $HoldDiagnosticsOnly $NativeDiagnosticsOnly $UpgradeDi
 function AssertFactoryNativeDiagnosticsMode([bool]$SkipHealth,[bool]$NativeOnly,[string]$OriginalRun,[string]$ProvidedPackage){
  if($SkipHealth -and (!$NativeOnly -or $OriginalRun -or $ProvidedPackage)){throw 'Skipping phone health is restricted to explicit native diagnostics of a freshly built, newly installed package.'}
 }
-AssertFactoryNativeDiagnosticsMode $SkipPhoneHealthForNativeDiagnostics $NativeDiagnosticsOnly $ReplaySuiteRunId $PackageRoot
+AssertThreecxImportSuiteMode $ThreecxImportOnly $NativeDiagnosticsOnly $SkipPhoneHealthForNativeDiagnostics $HoldDiagnosticsOnly $UpgradeDiagnosticsOnly $BackupsDiagnosticsOnly $ReplayTerminalProducers $PackageRoot $ReplaySuiteRunId $NativeRunId $EngineRunId $ReplayCandidateArtifactId $ReplayCandidateSha256
+$threecxImportModeValidated=[bool]$ThreecxImportOnly
+if(!$ThreecxImportOnly){AssertFactoryNativeDiagnosticsMode $SkipPhoneHealthForNativeDiagnostics $NativeDiagnosticsOnly $ReplaySuiteRunId $PackageRoot}
 $factoryDiagnosticsSourceValidated=[bool]$SkipPhoneHealthForNativeDiagnostics
 function AssertSuiteReplayMode([string]$OriginalRunId,[string]$ProvidedPackage,[bool]$DiagnosticOnly,[bool]$BackupDiagnosticOnly,[bool]$TerminalProducers,[string]$ExpectedArtifactId,[string]$ExpectedZipSha256){
  if($DiagnosticOnly -and $BackupDiagnosticOnly){throw 'Diagnostic modes are mutually exclusive.'}
@@ -68,6 +71,7 @@ elseif($BackupsDiagnosticsOnly){$facts.mode='backup_diagnostics_only';$facts.qua
 elseif($NativeDiagnosticsOnly){$facts.mode='native_diagnostics_only';$facts.qualification_scope='Diagnostic only; not release qualification. Backups, upgrades and recovery are unqualified.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false;$facts.gates.backups='unqualified'}
 if($SkipPhoneHealthForNativeDiagnostics){$facts.mode='native_factory_diagnostics_only';$facts.qualification_scope='Fresh isolated native calling diagnostics only. Phone Health qualification is skipped from the outset. Backups, upgrades, recovery, owner transactions and public release are unqualified.';$facts.native_factory_phone_health_skipped=$false;$facts.native_factory_fresh_package=$false}
 if($HoldDiagnosticsOnly){$facts.native_diagnostic_case='hold';$facts.qualification_scope='Hold/transfer and natural registration expiry diagnostics only. Full native suite, backups, upgrades, restore, owner and public release are unqualified.';$facts.full_release_eligible=$false;$facts.public_eligible=$false;$facts.restore_eligible=$false;$facts.signed_upgrade_eligible=$false}
+if($ThreecxImportOnly){$facts.mode='threecx_import_diagnostics_only';$facts.native_diagnostic_case='threecx_import';$facts.qualification_scope='Synthetic trusted-IIS upload/import and original-credential calling diagnostic only, using the accepted unchanged archive in a new empty installation. Full native suite, Phone Health, backups, upgrades, restore, owner and public release remain unqualified.';$facts.release_eligible=$false;$facts.owner_transaction_eligible=$false;$facts.full_release_eligible=$false;$facts.public_eligible=$false;$facts.restore_eligible=$false;$facts.signed_upgrade_eligible=$false;$facts.gates.threecx_import_diagnostic='unqualified';$facts.candidate_upload='excluded'}
 function PrivateDirectory([string]$Path){
  New-Item -ItemType Directory -Force -Path $Path|Out-Null
  & icacls.exe $Path /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F'|Out-Null
@@ -1540,8 +1544,16 @@ try{
  & (Join-Path $source 'tests/windows_threecx_import_controls.ps1') -SourceRoot $source *> (Join-Path $work 'threecx-import-wrapper-controls.private.log')
  if(!$?){throw 'The actual installed V20 import wrapper refusal controls failed.'}
  CheckedPython @((Join-Path $source 'tests/windows_hold_diagnostics_test.py'))
- & (Join-Path $source 'tests/windows_hold_diagnostics_controls.ps1') -SourceRoot $source *> (Join-Path $work 'hold-diagnostic-controls.private.log')
+ & {param([switch]$ThreecxImportOnly); & (Join-Path $source 'tests/windows_hold_diagnostics_controls.ps1') -SourceRoot $source *> (Join-Path $work 'hold-diagnostic-controls.private.log')}
  if(!$?){throw 'The focused hold diagnostic scope and evidence controls failed.'}
+ if($ThreecxImportOnly){
+  & (Join-Path $source 'tests/windows-threecx-suite-controls.ps1') -SourceRoot $source *> (Join-Path $work 'threecx-suite-controls.private.log')
+  if(!$?){throw 'The isolated import diagnostic admission and routing controls failed.'}
+  & (Join-Path $source 'tests/windows-threecx-https-controls.ps1') *> (Join-Path $work 'threecx-https-controls.private.log')
+  if(!$?){throw 'The exact import diagnostic receipt controls failed.'}
+  CheckedPython @((Join-Path $source 'tests/windows_threecx_https_controls.py'))
+ }
+
  CheckedPython @((Join-Path $source 'tests/windows_cmb_media_window.py'))
  CheckedPython @((Join-Path $source 'tests/windows_cdr_background_test.py'))
  CheckedPython @((Join-Path $source 'tests/windows_meet_browser_failure.py'))
@@ -1582,7 +1594,7 @@ try{
  $PackageRoot=[IO.Path]::GetFullPath($PackageRoot);$release=Get-Content (Join-Path $PackageRoot 'release-manifest.json') -Raw|ConvertFrom-Json
  if($release.version -ne (Get-Content (Join-Path $source 'VERSION') -Raw).Trim()){throw 'The candidate package release differs from source.'}
  $mapped=VerifyInventory $PackageRoot $release.files;$facts.checks+=('Exact candidate package inventory: '+$mapped+' files')
- $phase='original candidate export';ExportOriginalCandidate $release
+ if($ThreecxImportOnly){AssertThreecxImportAcceptedReplay $facts}else{$phase='original candidate export';ExportOriginalCandidate $release}
  $phase='native public-listener firewall qualification';PublicListenerQualificationHook 'native_defender'
  $phase='fresh installation';$admin='windowsqa-'+[Guid]::NewGuid().ToString('N').Substring(0,12)+'@example.invalid';$password=ConvertTo-SecureString (RandomSecret) -AsPlainText -Force
  $hosts=Join-Path $env:SystemRoot 'System32/drivers/etc/hosts';$marker='# OpenWebPBX-WindowsSuite-'+$env:GITHUB_RUN_ID
@@ -1637,19 +1649,22 @@ try{
  $phase='installed public-listener qualification';PublicListenerQualificationHook 'installed_collector'
  $phase='native synthetic V20 import qualification';ThreecxImportQualificationHook
  $phase='native DTLS qualification';DtlsQualificationHook
- if(!$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly){$phase='native STUN qualification';StunHook;$phase='native phone health qualification';InvokeSuitePhoneHealthQualification $SkipPhoneHealthForNativeDiagnostics}
+ if(!$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly){$phase='native STUN qualification';StunHook;$phase='native phone health qualification';if($ThreecxImportOnly){InvokeThreecxImportEmptyFactory $facts $threecxImportModeValidated $NativeDiagnosticsOnly $SkipPhoneHealthForNativeDiagnostics $HoldDiagnosticsOnly $work}else{InvokeSuitePhoneHealthQualification $SkipPhoneHealthForNativeDiagnostics}}
  $phase='native tenant-domain qualification';TenantDomainsAcceptanceHook ([DateTime]::UtcNow)
  $phase='meeting transport qualification';MeetingTransportHook
  $acceptanceFile=Join-Path $work 'acceptance-input.json';$ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
  try{$plain=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)}finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
  $acceptance=@{schema=1;run_id=$env:GITHUB_RUN_ID;restore_server=$true;admin_email=$admin;admin_password=$plain;public_url=('https://'+$domain+':8443');package_root=$PackageRoot;source_root=$source;private_state_root=$state;python='C:/OpenWebPBX/backup-runtime/python.exe';evidence_directory=(Join-Path $work 'native-private-evidence');native_diagnostics_only=[bool]$NativeDiagnosticsOnly;hold_diagnostics_only=[bool]$HoldDiagnosticsOnly}
+ if($ThreecxImportOnly){$acceptance.threecx_import_only=[bool]$ThreecxImportOnly}
  [IO.File]::WriteAllText($acceptanceFile,($acceptance|ConvertTo-Json),[Text.UTF8Encoding]::new($false));$plain=$null;$acceptance=$null
  # BEGIN qualification-gate-routing
  if(!$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly){
   $phase='native acceptance hook';$nativeStartTime=[DateTime]::UtcNow;$native=NativeAcceptanceHook (Join-Path $work 'native-acceptance.json') $nativeStartTime
   if($native){
    if($SkipPhoneHealthForNativeDiagnostics){if($native.native_factory_empty_before_fixture -isnot [bool] -or !$native.native_factory_empty_before_fixture){throw 'The native calling fixture did not prove its empty factory baseline.'};$facts.native_factory_empty_before_fixture=$true}
-   if($HoldDiagnosticsOnly){
+   if($ThreecxImportOnly){
+    $facts.threecx_import_diagnostic=ReadSuiteThreecxImportDiagnostic $native;$facts.gates.threecx_import_diagnostic='passed'
+   }elseif($HoldDiagnosticsOnly){
     if($native.native_factory_empty_before_fixture -isnot [bool] -or !$native.native_factory_empty_before_fixture -or $native.diagnostic_case -isnot [string] -or $native.diagnostic_case -cne 'hold' -or $native.gates.hold_diagnostic -cne 'passed'){throw 'Hold diagnostics require their actual empty factory and completed native cases.'}
     foreach($flag in 'full_release_eligible','owner_eligible','public_eligible','restore_eligible','signed_upgrade_eligible'){if($native.$flag -isnot [bool] -or $native.$flag){throw 'A focused diagnostic cannot qualify full release, owner, public, restore or signed upgrade.'}}
     $facts.hold_diagnostic='passed';$facts.native_factory_empty_before_fixture=$true

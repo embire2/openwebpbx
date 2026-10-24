@@ -31,6 +31,11 @@ on:
         required: false
         default: false
         type: boolean
+      threecx_import_only:
+        description: Synthetic HTTPS V20 import and original-credential calling only; requires native diagnostics and Health skip; accepted replay only; never publishes a candidate
+        required: false
+        default: false
+        type: boolean
       skip_phone_health_for_native_diagnostics:
         description: Explicit fresh-factory calling diagnostics only; skip Health qualification from the outset; never release eligible
         required: false
@@ -115,6 +120,7 @@ jobs:
           REPLAY_TERMINAL_PRODUCERS: ${{ inputs.replay_terminal_producers }}
           NATIVE_DIAGNOSTICS_ONLY: ${{ inputs.native_diagnostics_only }}
           HOLD_DIAGNOSTICS_ONLY: ${{ inputs.hold_diagnostics_only }}
+          THREECX_IMPORT_ONLY: ${{ inputs.threecx_import_only }}
           SKIP_PHONE_HEALTH_FOR_NATIVE_DIAGNOSTICS: ${{ inputs.skip_phone_health_for_native_diagnostics }}
         run: |
           $ErrorActionPreference='Stop'
@@ -122,7 +128,9 @@ jobs:
           if($env:REPLAY_SUITE_RUN_ID -and $env:REPLAY_SUITE_RUN_ID -cnotmatch '^[1-9][0-9]{0,19}$'){throw 'The optional replay run must be numeric.'}
           & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_task_security.ps1
           if($LASTEXITCODE){throw 'Native task security controls failed before server qualification.'}
+          if($env:THREECX_IMPORT_ONLY -and $env:THREECX_IMPORT_ONLY -cnotin 'true','false'){throw 'The import diagnostic input must be a boolean.'}
           $producerOptions=@{}
+          if($env:THREECX_IMPORT_ONLY -ceq 'true'){$producerOptions.ThreecxImportOnly=$true}
           if($env:NATIVE_DIAGNOSTICS_ONLY -ceq 'true'){$producerOptions.NativeDiagnosticsOnly=$true}
           if($env:HOLD_DIAGNOSTICS_ONLY -ceq 'true'){$producerOptions.HoldDiagnosticsOnly=$true}
           if($env:SKIP_PHONE_HEALTH_FOR_NATIVE_DIAGNOSTICS -ceq 'true'){$producerOptions.SkipPhoneHealthForNativeDiagnostics=$true}
@@ -139,7 +147,7 @@ jobs:
           retention-days: 14
           compression-level: 6
       - name: Preserve only the original verified candidate package and checksum
-        if: always()
+        if: ${{ always() && !inputs.threecx_import_only }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: openwebpbx-windows-suite-candidate-${{ github.run_id }}
