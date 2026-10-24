@@ -5,7 +5,7 @@ The complete server 1.0.20 release is not public, and the hosted instance has
 not received the complete server upgrade. Android remains 1.0.18, including its
 existing mandatory minimum.
 
-**Latest restore result:** independent40104065626 passes all nine source and twenty clean-target gates for accepted40005106134. Root verifies original artifacts, preserved credentials/media/target identities, recovery, native software calling, voicemail/clock/jobs, scheduled backups and cleanup. This covers the older accepted archive only. Fresh normal40106683010/source23477de2f is running; the changed final package still needs independent restore, signing/trust recovery and owner/external checks.
+**Latest results:** independent40104065626 passes all nine source and twenty clean-target gates for accepted40005106134. Root verifies original artifacts, preserved credentials/media/target identities, recovery, native software calling, voicemail/clock/jobs, scheduled backups and cleanup. This covers the older accepted archive only. Fresh normal40106683010/source23477de2f passes complete native calling/conferences, welcome mail and normal background call history, then fails at a file-hash operation during rollback qualification. Its exact file/caller/native error code are unretained. Canonical cleanup passes, but backups and complete upgrade/recovery remain unqualified; the failed candidate was not downloaded. The changed final package still needs full qualification, independent restore, signing/trust recovery and owner/external checks.
 
 **Earlier work on 24 October:** the unchanged candidate from normal40005106134
 passes all 17 full-suite gates. Independent replacement restore40100133999 passes its source

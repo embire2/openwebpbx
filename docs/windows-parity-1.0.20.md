@@ -2,6 +2,16 @@
 
 Status on 24 October 2026: **development and native acceptance in progress**.
 
+Latest normal **40106683010/source23477de2f** fails after complete native calling,
+conference, SMTP/welcome and factory-cleanup acceptance. Root authenticates11
+passed gates and the typed normal background call-history receipt. The upgrade
+hook then refuses with `System.IO.IOException` in its unchanged file-hash helper
+at line28, during rollback qualification. The exact file, caller and native error
+code were not retained. Failure-only observations are being added; file sharing,
+hashing, retries and preservation requirements remain unchanged. Canonical cleanup
+passes, but backups and complete upgrade/recovery remain unqualified. The candidate
+was not downloaded and no separate restore or canary used this failed base.
+
 Normal40005106134/sourced5a5a0ad8 completes successfully. Root authenticates
 all17 essential gates: fresh installation, trusted web, backups, native calling
 and audio, clock, providers, Call Me Back, tenant domains, STUN, Phone Health,
@@ -79,8 +89,10 @@ The backup test's exact workflow-branch admission is corrected after a local
 reproduction. Welcome failure observations now distinguish original table/config
 comparisons and retain an earlier Python error separately. Both QA changes pass
 root and independent component checks; the historical changing record or writer
-is still unknown. Fresh normal **40106683010/source23477de2f** is running with
-both QA changes and must repeat the complete gates.
+is still unknown. Fresh normal **40106683010/source23477de2f** passes the complete
+native calling suite with both QA changes, then fails in the later upgrade hash
+operation described above. The SFTP observer is not reached, so that native check
+remains pending.
 
 Publication and further signing remain held for build-host and credential
 recovery. The owner reports rebuilding Debian173.214.174.68, but this workspace
