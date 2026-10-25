@@ -15,12 +15,12 @@ function wrapper(source,mode,events,onError=false){
  const fakeFs={...fs,existsSync:p=>p===report?available():false,lstatSync:()=>{ordinary();return {isFile:()=>true};},statSync:()=>{ordinary();return {size:Buffer.byteLength(raw)};},readFileSync:p=>{if(p!==report)return Buffer.from('owned test public CA marker');ordinary();return raw;}};
  const fakeExec=(exe,args,options,callback)=>{
   if(exe==='owned-php'){assert.deepEqual(JSON.parse(JSON.stringify(args)),['owned-fixture','meeting-path-state','owned-input']);assert.deepEqual(JSON.parse(JSON.stringify(options)),{timeout:6000,maxBuffer:16384,windowsHide:true});callback(null,JSON.stringify(realRequire('./windows-meet-path-diagnostics.cjs').defaults().database));return;}
-  assert.equal(exe,'owned-powershell');assert.deepEqual(JSON.parse(JSON.stringify(args)),['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File','owned-wss','-Hostname','windowsqa.example.invalid','-Port','8443','-ReportPath',report,'-DisposableHostedRunner']);assert.deepEqual(JSON.parse(JSON.stringify(options)),{timeout:27000,maxBuffer:16384,windowsHide:true});events.calls++;
+  assert.equal(exe,'owned-powershell');assert.deepEqual(JSON.parse(JSON.stringify(args)),['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File','owned-wss','-Hostname','windowsqa.example.invalid','-Port','8443','-ReportPath',report,'-DisposableHostedRunner']);const actual=JSON.parse(JSON.stringify(options));if(Object.hasOwn(actual,'env')){const copy=actual.env;delete actual.env;assert(Object.keys(copy).filter(k=>k.toUpperCase()==='PSMODULEPATH').length===1&&copy.PSModulePath==='Modules'&&copy.OTHER==='unchanged'&&copy.SystemRoot==='C:/Windows');events.nativeEnv=true;}assert.deepEqual(actual,{timeout:27000,maxBuffer:16384,windowsHide:true});events.calls++;
   called=true;const error=Object.assign(Error(SECRET),{code:1,killed:false,signal:null});callback(mode==='normal-no-json'?null:error,mode==='valid-report'?'OBSERVED actual diagnostic evidence':mode==='no-output'?'':mode==='invalid-json'?SECRET:JSON.stringify(ps));
  };
  const helper=onError?{...safe,outcome:()=>{throw Error(SECRET)}}:safe;
  const custom=id=>id==='node:fs'?fakeFs:id==='node:child_process'?{execFile:fakeExec}:id==='./windows-meet-wss-failure.cjs'?helper:realRequire(id);
- vm.runInNewContext('(function(require,module,exports){'+source+'\n})',{Buffer,URL,performance,Promise,console,setTimeout,clearTimeout})(custom,module,module.exports);
+ vm.runInNewContext('(function(require,module,exports){'+source+'\n})',{Buffer,URL,performance,Promise,console,setTimeout,clearTimeout,process:{env:{SystemRoot:'C:/Windows',OTHER:'unchanged',PSMODULEPATH:'Core one',psmodulepath:'Core two',PSModulePath:'Core three'}}})(custom,module,module.exports);
  const settings={origin:'https://windowsqa.example.invalid:8443',report:'/owned/evidence/browser.json',pathProbe:{caFile:'owned-ca',powershell:'owned-powershell',wssScript:'owned-wss',php:'owned-php',fixtureScript:'owned-fixture',fixtureInput:'owned-input'}};
  return module.exports.observe(settings,'before',{},v=>{events.failures.push(v);if(mode==='observer-throws')throw Error(SECRET);});
 }
@@ -43,7 +43,7 @@ async function run(original){
  const source=fs.readFileSync(path.join(__dirname,'windows-meet-path-diagnostics.cjs'),'utf8');
  for(const mode of ['no-output','invalid-json','normal-no-json','valid-report','malformed-report','observer-throws']){
   const old={calls:0,failures:[]},current={calls:0,failures:[]};const before=await wrapper(original,mode,old),after=await wrapper(source,mode,current);
-  assert.equal(JSON.stringify(after),JSON.stringify(before),mode+JSON.stringify(current));checks++;check(old.calls===1&&current.calls===1&&old.failures.length===0);check(current.failures.length===(mode==='valid-report'?0:1));
+  assert.equal(JSON.stringify(after),JSON.stringify(before),mode+JSON.stringify(current));checks++;check(old.calls===1&&current.calls===1&&old.failures.length===0);check(!old.nativeEnv&&current.nativeEnv===true);check(current.failures.length===(mode==='valid-report'?0:1));
   if(current.failures.length){check(!!safe.list(current.failures));check(!JSON.stringify(current.failures).includes(SECRET));}
  }
  const observerFault={calls:0,failures:[]};const result=await wrapper(source,'no-output',observerFault,true);check(observerFault.calls===1&&observerFault.failures.length===0&&result.backend.observed===false);

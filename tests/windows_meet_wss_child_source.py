@@ -13,6 +13,14 @@ def pre_wss_child_source(filename, source=None):
         source = source.replace(bootstrap, '', 1).replace(call, '', 1)
         assert hashlib.sha256(source.encode()).hexdigest() == '53d31893311d158cc0375c34b66175dead78a67ebb8fdc040d43dab8203ad299'
 
+    if filename == 'windows-meet-path-diagnostics.cjs':
+        helper = "function nativePowerShellEnvironment(executable){\n const environment=Object.fromEntries(Object.entries(process.env).filter(([name])=>name.toUpperCase()!=='PSMODULEPATH'));\n environment.PSModulePath=path.join(path.dirname(executable),'Modules');return environment;\n}\n"
+        assert source.count(helper) == 1
+        source = source.replace(helper, '', 1)
+        addition = ',env:nativePowerShellEnvironment(executable)'
+        assert source.count(addition) == 1
+        source = source.replace(addition, '', 1)
+        assert hashlib.sha256(source.encode()).hexdigest() == '79e22e6ba08cf76feb4cb2f589572271719b27ade4944842c0de99f46ccede76'
     expected, changes = PINS[filename]
     for new, old in changes:
         assert source.count(new) == 1, (filename, 'exact observer addition')

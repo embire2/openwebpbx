@@ -49,7 +49,11 @@ function statusProbe(origin,ca,token){
  });
 }
 function child(executable,args,timeout){return new Promise(resolve=>{execFile(executable,args,{timeout,maxBuffer:16384,windowsHide:true},(error,stdout)=>{if(error){resolve(null);return;}try{resolve(JSON.parse(stdout.replace(/^\uFEFF/,'')));}catch{resolve(null);}});});}
-function wssChild(executable,args,timeout){const started=performance.now();return new Promise(resolve=>{execFile(executable,args,{timeout,maxBuffer:16384,windowsHide:true},(error,stdout)=>{try{resolve(wssFailure.outcome(error,stdout,performance.now()-started));}catch{resolve(null);}});});}
+function nativePowerShellEnvironment(executable){
+ const environment=Object.fromEntries(Object.entries(process.env).filter(([name])=>name.toUpperCase()!=='PSMODULEPATH'));
+ environment.PSModulePath=path.join(path.dirname(executable),'Modules');return environment;
+}
+function wssChild(executable,args,timeout){const started=performance.now();return new Promise(resolve=>{execFile(executable,args,{timeout,maxBuffer:16384,windowsHide:true,env:nativePowerShellEnvironment(executable)},(error,stdout)=>{try{resolve(wssFailure.outcome(error,stdout,performance.now()-started));}catch{resolve(null);}});});}
 async function observe(settings,label,secrets={},onFailure){
  const row=defaults(),probe=settings.pathProbe;
  if(!probe||!['before','after'].includes(label))return row;
