@@ -20,6 +20,7 @@ function Run([string]$Exe,[string[]]$Arguments,[int]$Seconds,[string]$Operation)
  try{if(!$p.WaitForExit($Seconds*1000)){throw 'An owned package child exceeded its deadline.'};$text=$stdout.GetAwaiter().GetResult();$errorText=$stderr.GetAwaiter().GetResult();if($text.Length-gt 8MB -or $errorText.Length-gt 8MB){throw 'Owned child output exceeds its private bound.'};if($p.ExitCode-ne 0){
    try{$observation=GetPackageChildFailure $Operation $p.ExitCode;if(!$result.Contains('child_failures')){$result.child_failures=@()};if($result.child_failures.Count-ge 16){throw 'Child observations exceed their bound.'};$result.child_failures+=,$observation}catch{$result.child_observation_refused=$true}
    if($Operation-in @('certificate_create','certificate_remove')){try{$mode=if($Operation-ceq 'certificate_create'){'Create'}else{'Remove'};$result[$Operation+'_failure']=ReadPackageCertificateFailure $errorText $mode}catch{$result[$Operation+'_observation_refused']=$true}}
+   if($Operation-in @('ui_update','ui_verify')){try{$uiMode=if($Operation-ceq 'ui_update'){'Update'}else{'Verify'};$result[$Operation+'_failure']=ReadPackageInterfaceFailure $errorText $uiMode}catch{$result[$Operation+'_observation_refused']=$true}}
    throw 'An actual package child refused.'
   };$text}
  finally{if(!$p.HasExited){if($p.StartTime.ToUniversalTime()-ne $when -or $p.MainModule.FileName-ine $Exe){throw 'Refuse a foreign child process.'};$p.Kill($true);if(!$p.WaitForExit(10000)){throw 'Owned child cleanup failed.'}};$p.Dispose()}
