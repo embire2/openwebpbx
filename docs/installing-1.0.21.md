@@ -1,6 +1,6 @@
 # Install OpenWeb PBX 1.0.21
 
-This complete server build targets **Debian 13 amd64**, with a separate **Windows Server 2025 x64** package that requires its own qualification. The current Android client remains **1.0.18/code118**. Historical Windows server releases remain available; the native Windows calling app is under separate development. See the [Windows client plan](windows-client-plan.md).
+The 1.0.21 release prepares a **Windows Server 2025 x64** package and deployment of the same new features on hosted Debian 13. The complete public Debian 13 installer remains **1.0.16**; Debian build/install instructions below do not announce a new public Debian archive. Android remains **1.0.18/code118**. Windows 10/11 server installs and Debian-to-Windows instance-backup restores remain unsupported.
 
 **Windows Server1.0.21 has completed functional qualification; Debian1.0.21 remains a candidate.** For the Windows release, use the [focused Windows guide](installing-windows-1.0.21.md) and matching published assets. This general guide also records the candidate Debian flow. Follow the [release qualification record](release-1.0.21-qualification.md) and [Windows release checks](windows-parity-1.0.21.md); current public downloads are listed in the [README](../readme.md#downloads-and-platforms). Once your platform is published, use its matching archive and `SHA256SUMS`, and extract the complete archive into an empty private folder.
 

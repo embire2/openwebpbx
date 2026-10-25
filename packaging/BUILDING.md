@@ -1,8 +1,8 @@
 # Building OpenWeb PBX
 
-## Windows Server 1.0.20 candidate
+## Windows Server 1.0.21 candidate
 
-The current checkout prepares native Windows Server 1.0.20. Qualification is in progress; the published Windows release remains 1.0.7. Public full Debian remains 1.0.16, with the separate 1.0.19 administration patch, and Android remains 1.0.18. Use each immutable release revision for its matching build. See the [current Windows acceptance record](../docs/windows-parity-1.0.20.md).
+The current checkout prepares Windows Server 1.0.21. Its complete package is under qualification; the published Windows release is 1.0.20. Public full Debian remains 1.0.16, with the separate 1.0.19 administration patch, and Android remains 1.0.18. Use each immutable release revision for its matching build. See the [current Windows acceptance record](../docs/release-1.0.21-qualification.md).
 
 The manual `windows-native.yml` workflow uses .NET SDK 10.0.401 and Visual Studio 2026 on Windows Server 2025. It publishes the complete service, updater and WinUI output, immutable source hashes, assembly versions and an actual responsive top-level-window check. Select a successful build whose complete input inventory matches the candidate; a successful compile does not qualify installation or calling.
 
@@ -17,12 +17,12 @@ python3 packaging/build-release.py --target windows \
   --codec-source /private/engine/codec-source/source \
   --backup-runtime /private/backup-runtime --acme /private/acme \
   --music /private/music --voices /private/voices/1.0.1 \
-  --output artifacts/release-1.0.20
+  --output artifacts/release-1.0.21
 ```
 
 Only tracked source and exact verified runtime inventories are copied. At installation, the local codec recipe downloads its pinned compiler, builds and proves the converter privately, and installs it while the engine is stopped. The installer never distributes a combined converter binary. Native ZIP integrity does not qualify SIP/media, global mail, phone health, STUN, real service permissions, encrypted clean-server restore or rollback; the disposable `windows-suite.yml` workflow exercises those separately. Its final package must include all reviewed runtime corrections; a previous archive does not qualify later changes.
 
-After complete qualification, sign the exact Windows archive with `packaging/updates/sign-feed.py --windows-only --windows <archive> --version 1.0.20 --minimum-version 1.0.20 --sequence <unused-sequence> --private-key <private-key> --output <windows-update-manifest.json>`. The private signing key stays outside the repository and hosted runners. Use a sequence above every preserved platform feed. Keep both published `update-manifest.json` (Android) and `debian-update-manifest.json` byte-for-byte in the new release. Validate all three before publication:
+After complete qualification, sign the exact Windows archive with `packaging/updates/sign-feed.py --windows-only --windows <archive> --version 1.0.21 --minimum-version 1.0.20 --sequence <unused-sequence> --private-key <private-key> --output <windows-update-manifest.json>`. The private signing key stays outside the repository and hosted runners. Use a sequence above every preserved platform feed. Keep both published `update-manifest.json` (Android) and `debian-update-manifest.json` byte-for-byte in the new release. Validate all three before publication:
 
 ```sh
 python3 packaging/updates/validate-platform-feeds.py \
@@ -33,11 +33,11 @@ python3 packaging/updates/validate-platform-feeds.py \
   --debian-reference /private/published/debian-envelope.json \
   --debian-version 1.0.16 \
   --windows /private/publication/windows-update-manifest.json \
-  --windows-package /private/publication/openwebpbx-1.0.20-windows-x64.zip \
-  --windows-version 1.0.20
+  --windows-package /private/publication/openwebpbx-1.0.21-windows-x64.zip \
+  --windows-version 1.0.21
 ```
 
-Preserve the original envelopes and download provenance privately; do not recreate or re-sign them. Complete public downloads must match before updating the homepage catalogue. See [candidate installation](../docs/installing-1.0.20.md), [Windows upgrades](../docs/windows-upgrade.md) and [the update protocol](updates/PROTOCOL.md). The historical 1.0.13 candidate's results remain in their own record.
+Preserve the original envelopes and download provenance privately; do not recreate or re-sign them. Complete public downloads must match before updating the homepage catalogue. See [candidate installation](../docs/installing-1.0.21.md), [Windows upgrades](../docs/windows-upgrade.md) and [the update protocol](updates/PROTOCOL.md). The historical 1.0.13 candidate's results remain in their own record.
 
 ## Historical 1.0.12 source build
 
