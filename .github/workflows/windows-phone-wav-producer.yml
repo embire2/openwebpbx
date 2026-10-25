@@ -47,6 +47,13 @@ jobs:
           architecture: 'x64'
           check-latest: false
           update-environment: false
+      - name: Prove failure-only observation on owned native controls
+        id: observer_preflight
+        timeout-minutes: 2
+        env:
+          OPENWEB_WAV_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          & ./clients/windows/tools/Invoke-JobFailureObservationPreflight.ps1 -PythonExecutable $env:OPENWEB_WAV_PYTHON
       - name: Build and test the distinct fixture WAV producer
         env:
           OPENWEB_WAV_PYTHON: ${{ steps.python.outputs.python-path }}
@@ -58,5 +65,13 @@ jobs:
         with:
           name: windows-phone-wav-producer-${{ github.run_id }}
           path: ${{ runner.temp }}/phone-wav-evidence/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain separate native observer control evidence
+        if: always() && steps.observer_preflight.outputs.evidence_root != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-phone-wav-observer-preflight-${{ github.run_id }}
+          path: ${{ steps.observer_preflight.outputs.evidence_root }}
           if-no-files-found: error
           retention-days: 14

@@ -83,6 +83,13 @@ def run_request(path):
     spec = importlib.util.spec_from_file_location('openweb_recorder_owned_job', core_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    observer_path = ordinary(Path(__file__).with_name('WavProducerFailureObservation.py'))
+    if digest(observer_path) != '7601f99702cdc75af73c2e7263c37b409f96153df88bf62378e940f952069f4d' or request['job_core_sha256'] != 'afb20f0f207ce0928570d8afd8bee08e3b736bffd7f4e48d3f4aa8fae9fc30de':
+        raise ValueError('Exact failure-only observation source required.')
+    observer_spec = importlib.util.spec_from_file_location('openweb_recorder_failure_observation', observer_path)
+    observer_module = importlib.util.module_from_spec(observer_spec)
+    observer_spec.loader.exec_module(observer_module)
+    observer = observer_module.FailureObserver(module, core_path)
     report = {'schema': 1, 'producer': 'WavProducerOwnedChild', 'state': 'failed',
               'request_sha256': hashlib.sha256(raw).hexdigest(), 'job_core_sha256': request['job_core_sha256'],
               'interpreter_sha256': request['python_sha256'], 'command_image_sha256': request['command_sha256'],
@@ -91,6 +98,7 @@ def run_request(path):
     result = None
     failure = None
     try:
+        observer.install()
         result = module.run(command, directory, request['seconds'], working_directory=working)
         report['command_exit'] = result.returncode
         report['output_read_completed'] = True
@@ -99,6 +107,7 @@ def run_request(path):
         report['error_type'] = type(error).__name__ if type(error).__name__ in ('RuntimeError', 'OSError', 'TimeoutExpired', 'ValueError') else 'other'
         report['timed_out'] = isinstance(error, subprocess.TimeoutExpired)
     finally:
+        observer.restore()
         proof_path = directory / 'process.safe.json'
         if proof_path.is_file() and proof_path.stat().st_size <= 8192:
             ordinary(proof_path)
@@ -117,12 +126,14 @@ def run_request(path):
             report['process_proof_sha256'] = hashlib.sha256(proof_raw).hexdigest()
             report['owned_processes_closed'] = proof['owned_processes_closed']
             report['handles_closed'] = proof['handles_closed']
-        if digest(executable) != request['command_sha256'] or digest(interpreter) != request['python_sha256'] or digest(core_path) != request['job_core_sha256']:
+        if digest(executable) != request['command_sha256'] or digest(interpreter) != request['python_sha256'] or digest(core_path) != request['job_core_sha256'] or digest(observer_path) != '7601f99702cdc75af73c2e7263c37b409f96153df88bf62378e940f952069f4d':
             raise ValueError('Original tool/Job bytes changed during supervision.')
         if failure is None and report['owned_processes_closed'] and report['handles_closed'] and report['output_read_completed']:
             report['state'] = 'observed_complete_owned_child'
         with (directory / 'driver.safe.json').open('x', encoding='utf-8') as target:
             json.dump(report, target, separators=(',', ':'))
+        if failure is not None:
+            observer.record_failure(failure, directory, hashlib.sha256(raw).hexdigest())
     return 0 if report['state'] == 'observed_complete_owned_child' else 1
 
 
