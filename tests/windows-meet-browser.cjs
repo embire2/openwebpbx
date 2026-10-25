@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const signaling = require('./windows-meet-signaling.cjs');
 const pathDiagnostics = require('./windows-meet-path-diagnostics.cjs');
+const wssFailure = require('./windows-meet-wss-failure.cjs');
 const browserFailure = require('./windows-meet-failure.cjs');
 if(process.platform !== 'win32' || process.env.OPENWEB_WINDOWS_NATIVE_TEST !== '1' || process.env.GITHUB_ACTIONS !== 'true' || process.env.RUNNER_ENVIRONMENT !== 'github-hosted' || process.env.GITHUB_REPOSITORY !== 'embire2/openwebpbx') throw Error('An explicitly disposable Windows runner is required.');
 const settings = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
@@ -13,10 +14,21 @@ if(!settings.pathProbe||normalized(settings.pathProbe.php)!==normalized('C:/Open
 const evidence = path.dirname(process.argv[2]);
 const checks = [];
 let hostBrowser, guestBrowser, owner, host, guest, meetingCreated = false;
+let restoredMeetingId;
+if(settings.restoredLedger && normalized(settings.restoredLedger)!==normalized(path.join(privateDirectory,'restored-meeting.private.json')))throw Error('Exact restored meeting ledger required.');
+function saveRestoredMeeting(id){
+  if(typeof id!=='string'||!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(id))throw Error('One newly created meeting UUID is required.');
+  const fd=fs.openSync(settings.restoredLedger,'wx',0o600);
+  try{fs.writeFileSync(fd,JSON.stringify({schema:1,meeting_uuid:id,subject:settings.subject}));fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+  restoredMeetingId=id;
+}
+
 let phase = 'browser_start';
 let ownerPage;
 let hostSignaling, guestSignaling;
 let beforePath=pathDiagnostics.defaults(),afterPath,hostSecret=()=>undefined,guestSecret=()=>undefined;
+const wssChildFailures=[];
+function wssChildFailure(record){const safe=wssFailure.validate(record);if(safe&&wssChildFailures.length<2&&!wssChildFailures.some(value=>value.label===safe.label))wssChildFailures.push(safe);}
 let proofPage;
 const mediaBooleans=['observed','connected','remote_audio_live','remote_video_live','local_audio_live','local_video_live','vp8_decoding','probe_error'];
 const mediaIntegers=['decoded_frames','encoded_frames','inbound_audio_packets','outbound_audio_packets','inbound_video_packets','outbound_video_packets','video_colors'];
@@ -149,7 +161,7 @@ async function proofFailure(error){
 (async()=>{
   let failure;
   try{
-    beforePath=await pathDiagnostics.observe(settings,'before');
+    beforePath=await pathDiagnostics.observe(settings,'before',{},wssChildFailure);
     requireFact(pathDiagnostics.roundTrips(beforePath),'backend and IIS frontend return correlated small and delayed-fragmented SIP responses before media');
     const launch={channel:'msedge',headless:true,args:['--autoplay-policy=no-user-gesture-required','--disable-features=WebRtcHideLocalIpsWithMdns']};
     hostBrowser=await chromium.launch(launch);guestBrowser=await chromium.launch(launch);
@@ -162,6 +174,11 @@ async function proofFailure(error){
     phase='create';const create=owner.locator('form').filter({has:owner.locator('input[name="action"][value="create"]')});
     await create.locator('input[name="subject"]').fill(settings.subject);
     await create.getByRole('button',{name:'Create Meeting',exact:true}).click();await snapshot(owner,'created-meet');meetingCreated=true;
+    if(settings.restoredLedger){
+      const createdIds=await owner.locator('form input[name="action"][value="host"]').locator('..').locator('input[name="id"]').evaluateAll(nodes=>nodes.map(node=>node.value));
+      if(createdIds.length!==1)throw Error('The create response has no unique owned meeting UUID.');
+      saveRestoredMeeting(createdIds[0]);
+    }
     const invitation=await owner.locator('#invitation').inputValue();
     requireFact(invitation.startsWith(settings.origin+'/app/pbx_meet/join.php#'),'normal UI invitation retains trusted authority');
     phase='host_join';const popup=hostContext.waitForEvent('page');await owner.getByRole('button',{name:'Start Now',exact:true}).click();host=await popup;hostSignaling=signaling.watch(host,settings.origin);hostSecret=pathDiagnostics.capture(host,settings.origin);await host.waitForLoadState('domcontentloaded');await snapshot(host,'host-ready');
@@ -185,12 +202,22 @@ async function proofFailure(error){
     await host.waitForFunction(()=>window.conferenceQA.pcs.every(pc=>pc.connectionState==='closed'),null,{timeout:15000});
     await guest.waitForFunction(()=>window.conferenceQA.pcs.every(pc=>pc.connectionState==='closed'),null,{timeout:15000});
     requireFact(true,'host end closes both actual browser media connections');
-    afterPath=await pathDiagnostics.observe(settings,'after',{host:hostSecret(),guest:guestSecret()});
+    afterPath=await pathDiagnostics.observe(settings,'after',{host:hostSecret(),guest:guestSecret()},wssChildFailure);
     requireFact(pathDiagnostics.roundTrips(afterPath),'backend and IIS frontend retain correlated small and delayed-fragmented SIP responses after media');
     fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'passed',checks,host:hostProof,guest:guestProof,meeting_path:{before:beforePath,after:afterPath},physical_camera:'unqualified',scope:'fictional Windows hosted runner'},null,2));
-  }catch(error){failure=error;const browser_failure=await proofFailure(error);const media=['decoded_media','mute','unmute','end'].includes(phase)?{meeting_media:{host:await mediaFields(host),guest:await mediaFields(guest)}}:{};const signals=['host_join','guest_join','admission','decoded_media','mute','unmute','end'].includes(phase)?{meeting_signaling:{host:await signaling.collect(host,hostSignaling),guest:await signaling.collect(guest,guestSignaling)}}:{};const meeting_path={before:beforePath,after:afterPath||await pathDiagnostics.observe(settings,'after',{host:hostSecret(),guest:guestSecret()})};fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'failed',phase,browser_failure,...(ownerPage?{owner_page:ownerPage}:{}),...media,...signals,meeting_path}));fs.writeFileSync(path.join(evidence,'meeting-browser.private.error'),String(error.stack||error));}
+  }catch(error){failure=error;const browser_failure=await proofFailure(error);const media=['decoded_media','mute','unmute','end'].includes(phase)?{meeting_media:{host:await mediaFields(host),guest:await mediaFields(guest)}}:{};const signals=['host_join','guest_join','admission','decoded_media','mute','unmute','end'].includes(phase)?{meeting_signaling:{host:await signaling.collect(host,hostSignaling),guest:await signaling.collect(guest,guestSignaling)}}:{};const meeting_path={before:beforePath,after:afterPath||await pathDiagnostics.observe(settings,'after',{host:hostSecret(),guest:guestSecret()},wssChildFailure)};fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'failed',phase,browser_failure,...(ownerPage?{owner_page:ownerPage}:{}),...media,...signals,meeting_path,...(phase==='browser_start'&&wssFailure.list(wssChildFailures)?{meeting_wss_child_failure:wssFailure.list(wssChildFailures)}:{})}));fs.writeFileSync(path.join(evidence,'meeting-browser.private.error'),String(error.stack||error));}
   finally{
-    if(meetingCreated&&owner){try{await owner.goto(settings.origin+'/app/pbx_meet/');const card=owner.locator('article.meet-card').filter({hasText:settings.subject});if(await card.getByText('Cancel Meeting',{exact:true}).count()){await card.locator('summary').click();await card.locator('[name="confirm_cancel"]').check();await card.getByRole('button',{name:'End Meeting',exact:true}).click();}}catch(error){if(!failure)failure=error;}}
+    // Successful restored meetings are verified ended by the strict parent DB/UUID ledger proof.
+    // Ended product cards deliberately contain no UUID form; failure cancellation stays exact.
+    if(meetingCreated&&owner&&(!settings.restoredLedger||failure)){try{await owner.goto(settings.origin+'/app/pbx_meet/');const card=settings.restoredLedger?owner.locator('article.meet-card').filter({has:owner.locator('input[name="id"][value="'+restoredMeetingId+'"]')}):owner.locator('article.meet-card').filter({hasText:settings.subject});if(settings.restoredLedger&&(!restoredMeetingId||await card.count()!==1||await card.locator('h3').innerText()!==settings.subject))throw Error('Exact restored meeting ownership is unavailable.');if(await card.getByText('Cancel Meeting',{exact:true}).count()){await card.locator('summary').click();await card.locator('[name="confirm_cancel"]').check();await card.getByRole('button',{name:'End Meeting',exact:true}).click();}}catch(error){if(!failure){
+        failure=error;
+        try{
+          const frames=String(error.stack||'').split('\n').slice(1,9);
+          const frame=frames.map(value=>value.match(/(?:\(|at )(.+):(\d+):(\d+)\)?$/)).find(value=>value&&value[1]===__filename&&Number(value[2])>0&&Number(value[2])<1000000);
+          const error_type=['Error','TypeError','RangeError','ReferenceError','SyntaxError','TimeoutError'].includes(error.name)?error.name:'other';
+          fs.writeFileSync(settings.report,JSON.stringify({schema:1,state:'failed',phase:'cleanup',cleanup_failure:{error_type,source_basename:frame?'windows-meet-browser.cjs':'unavailable',source_line:frame?Number(frame[2]):0}}));
+        }catch{}
+      }}}
     await Promise.allSettled([hostBrowser?.close(),guestBrowser?.close()]);
   }
   if(failure){console.error('Actual Windows browser meeting media qualification failed; private evidence retained.');process.exitCode=1;}

@@ -10,7 +10,8 @@ param(
  [Parameter(Mandatory)][ValidateSet('Source','Target')][string]$Role,
  [Parameter(Mandatory)][ValidatePattern('^[1-9][0-9]{0,19}$')][string]$BaseSuiteRunId,
  [ValidatePattern('^\d+\.\d+\.\d+$')][string]$BaseVersion='1.0.13',
- [switch]$DisposableHostedRunner
+ [switch]$DisposableHostedRunner,
+ [switch]$RestoredConferenceSupplement
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx' -or $env:GITHUB_EVENT_NAME -ne 'workflow_dispatch'){throw 'Only the explicitly disposable owned manually dispatched hosted Windows runner is authorized.'}
@@ -193,6 +194,193 @@ function AssertRestoredServiceActivation([string]$Name){
   throw
  }
 }
+function SafeRestoredConferenceWssChildFields($Record){
+ if($Record -isnot [Array] -or $Record.Count -lt 1 -or $Record.Count -gt 2){return $null}
+ $safe=@();$labels=@();$psTypes=@('RuntimeException','PSInvalidOperationException','InvalidOperationException','CmdletInvocationException','CommandNotFoundException','FileNotFoundException','IOException','UnauthorizedAccessException','TypeLoadException','CryptographicException','WebSocketException','AuthenticationException','TimeoutException','ManagementException','Exception','external_error')
+ foreach($value in $Record){
+  if($null -eq $value -or ($value -isnot [Collections.IDictionary] -and $value -isnot [pscustomobject])){return $null}
+  $keys=if($value -is [Collections.IDictionary]){@($value.Keys)}else{@($value.PSObject.Properties.Name)}
+  if($keys.Count -ne 4 -or @($keys|Where-Object {$_ -cnotin @('schema','label','reason','outcome')}).Count -or ($value.schema -isnot [int] -and $value.schema -isnot [long]) -or $value.schema -ne 1 -or $value.label -isnot [string] -or $value.label -cnotin @('before','after') -or $value.label -cin $labels -or $value.reason -isnot [string] -or $value.reason -cnotin @('report_missing','report_invalid')){return $null}
+  $child=$value.outcome
+  if($null -eq $child -or ($child -isnot [Collections.IDictionary] -and $child -isnot [pscustomobject])){return $null}
+  $keys=if($child -is [Collections.IDictionary]){@($child.Keys)}else{@($child.PSObject.Properties.Name)}
+  if($keys.Count -ne 9 -or @($keys|Where-Object {$_ -cnotin @('exit_code','error_type','code_kind','errno','killed','signal','elapsed_ms','powershell_state','powershell')}).Count){return $null}
+  foreach($item in @(@('exit_code',-2147483648,4294967295),@('errno',-2147483648,2147483647))){$n=$item[0];if($null -ne $child.$n -and (($child.$n -isnot [int] -and $child.$n -isnot [long]) -or $child.$n -lt $item[1] -or $child.$n -gt $item[2])){return $null}}
+  if(($null -ne $child.killed -and $child.killed -isnot [bool]) -or ($child.elapsed_ms -isnot [int] -and $child.elapsed_ms -isnot [long]) -or $child.elapsed_ms -lt 0 -or $child.elapsed_ms -gt 32000 -or $child.error_type -isnot [string] -or $child.error_type -cnotin @('none','Error','TypeError','RangeError','TimeoutError','AbortError','other') -or $child.code_kind -isnot [string] -or $child.code_kind -cnotin @('none','exit','ENOENT','EACCES','EPERM','ETIMEDOUT','ABORT_ERR','ERR_CHILD_PROCESS_STDIO_MAXBUFFER','other') -or $child.signal -isnot [string] -or $child.signal -cnotin @('none','SIGTERM','SIGKILL','other') -or $child.powershell_state -isnot [string] -or $child.powershell_state -cnotin @('absent','invalid','closed')){return $null}
+  $ps=$child.powershell;$closed=$null
+  if($child.powershell_state -ceq 'closed'){
+   if($null -eq $ps -or ($ps -isnot [Collections.IDictionary] -and $ps -isnot [pscustomobject])){return $null}
+   $keys=if($ps -is [Collections.IDictionary]){@($ps.Keys)}else{@($ps.PSObject.Properties.Name)}
+   if($keys.Count -ne 7 -or @($keys|Where-Object {$_ -cnotin @('schema','state','producer','error_type','source_basename','source_line','hresult')}).Count -or ($ps.schema -isnot [int] -and $ps.schema -isnot [long]) -or $ps.schema -ne 1 -or $ps.state -isnot [string] -or $ps.state -cne 'failed' -or $ps.producer -isnot [string] -or $ps.producer -cne 'windows-meet-wss-path.ps1' -or $ps.error_type -isnot [string] -or $ps.error_type -cnotin $psTypes -or $ps.source_basename -isnot [string] -or $ps.source_basename -cnotin @('windows-meet-wss-path.ps1','unavailable') -or ($ps.source_line -isnot [int] -and $ps.source_line -isnot [long]) -or $ps.source_line -lt 0 -or $ps.source_line -ge 1000000 -or ($ps.hresult -isnot [int] -and $ps.hresult -isnot [long]) -or $ps.hresult -lt -2147483648 -or $ps.hresult -gt 2147483647){return $null}
+   if(($ps.source_basename -ceq 'unavailable' -and $ps.source_line -ne 0) -or ($ps.source_basename -cne 'unavailable' -and $ps.source_line -lt 1)){return $null}
+   $closed=@{schema=1;state='failed';producer='windows-meet-wss-path.ps1';error_type=$ps.error_type;source_basename=$ps.source_basename;source_line=$ps.source_line;hresult=$ps.hresult}
+  }elseif($null -ne $ps){return $null}
+  $labels+=@($value.label)
+  $safe+=@(@{schema=1;label=$value.label;reason=$value.reason;outcome=@{exit_code=$child.exit_code;error_type=$child.error_type;code_kind=$child.code_kind;errno=$child.errno;killed=$child.killed;signal=$child.signal;elapsed_ms=$child.elapsed_ms;powershell_state=$child.powershell_state;powershell=$closed}})
+ }
+ return @{meeting_wss_child_failure=$safe}
+}
+
+function SafeRestoredConferenceFailure($Record){
+ if($null -eq $Record -or ($Record -isnot [Collections.IDictionary] -and $Record -isnot [pscustomobject])){return $null}
+ $keys=@('schema','state','producer','error_type','cleanup_verified','source_frames','active_case','owned_process_cleanup_failed','owned_processes_closed')
+ $actual=if($Record -is [Collections.IDictionary]){@($Record.Keys)}else{@($Record.PSObject.Properties.Name)}
+ if($actual.Count -notin 9,10,11,12 -or @($actual|Where-Object {$_ -cnotin ($keys+@('meeting_path','meeting_wss_child_failure','meeting_browser_result'))}).Count -or @($keys|Where-Object {$_ -cnotin $actual}).Count){return $null}
+ if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.state -isnot [string] -or $Record.state -cne 'failed' -or $Record.producer -isnot [string] -or $Record.producer -cne 'windows_restored_meeting.py' -or $Record.cleanup_verified -isnot [bool]){return $null}
+ $types=@('RuntimeError','ValueError','TypeError','KeyError','AttributeError','AssertionError','TimeoutError','TimeoutExpired','OSError','FileNotFoundError','PermissionError','JSONDecodeError','SSLError','HTTPError','URLError','external_error')
+ $cases=@('unavailable','native_windows_meeting_browser_media','native_windows_meeting_dependencies','native_windows_meeting_unknown','native_windows_meeting_browser_start','native_windows_meeting_owner_page','native_windows_meeting_create','native_windows_meeting_host_join','native_windows_meeting_guest_join','native_windows_meeting_admission','native_windows_meeting_decoded_media','native_windows_meeting_mute','native_windows_meeting_unmute','native_windows_meeting_end','native_windows_meeting_cleanup')
+ if($Record.error_type -isnot [string] -or $Record.error_type -cnotin $types -or $Record.active_case -isnot [string] -or $Record.active_case -cnotin $cases -or $Record.source_frames -isnot [Array] -or $Record.source_frames.Count -gt 4){return $null}
+ $frames=@()
+ foreach($frame in $Record.source_frames){
+  if($null -eq $frame -or ($frame -isnot [Collections.IDictionary] -and $frame -isnot [pscustomobject])){return $null}
+  $names=if($frame -is [Collections.IDictionary]){@($frame.Keys)}else{@($frame.PSObject.Properties.Name)}
+  if($names.Count -ne 2 -or @($names|Where-Object {$_ -cnotin @('source_basename','source_line')}).Count -or $frame.source_basename -isnot [string] -or $frame.source_basename -cnotin @('windows_restored_meeting.py','windows-restore-qualification.py','windows-meet-browser.py','windows_meeting_owned_process.py') -or ($frame.source_line -isnot [int] -and $frame.source_line -isnot [long]) -or $frame.source_line -le 0 -or $frame.source_line -ge 1000000){return $null}
+  $frames+=@{source_basename=$frame.source_basename;source_line=$frame.source_line}
+ }
+ foreach($name in 'owned_process_cleanup_failed','owned_processes_closed'){if($null -ne $Record.$name -and $Record.$name -isnot [bool]){return $null}}
+ $safe=@{schema=1;state='failed';producer='windows_restored_meeting.py';error_type=$Record.error_type;cleanup_verified=$Record.cleanup_verified;source_frames=$frames;active_case=$Record.active_case;owned_process_cleanup_failed=$Record.owned_process_cleanup_failed;owned_processes_closed=$Record.owned_processes_closed}
+ if('meeting_path' -cin $actual){
+  if($Record.active_case -cne 'native_windows_meeting_browser_start'){return $null}
+  $paths=SafeRestoredConferencePathFields $Record
+  if($paths -isnot [Collections.IDictionary] -or $paths.Count -ne 1 -or !$paths.Contains('meeting_path')){return $null}
+  $safe.meeting_path=$paths.meeting_path
+ }
+ if('meeting_wss_child_failure' -cin $actual){
+  if($Record.active_case -cne 'native_windows_meeting_browser_start'){return $null}
+  $child=SafeRestoredConferenceWssChildFields $Record.meeting_wss_child_failure
+  if($child -isnot [Collections.IDictionary] -or $child.Count -ne 1 -or !$child.Contains('meeting_wss_child_failure')){return $null}
+  $safe.meeting_wss_child_failure=$child.meeting_wss_child_failure
+ }
+ if('meeting_browser_result' -cin $actual){
+  if($Record.active_case -in @('unavailable','native_windows_meeting_dependencies')){return $null}
+  $result=$Record.meeting_browser_result
+  if($null -eq $result -or ($result -isnot [Collections.IDictionary] -and $result -isnot [pscustomobject])){return $null}
+  $names=if($result -is [Collections.IDictionary]){@($result.Keys)}else{@($result.PSObject.Properties.Name)}
+  if($names.Count -ne 5 -or @($names|Where-Object {$_ -cnotin @('exit_code','report_state','cleanup_error_type','cleanup_source_basename','cleanup_source_line')}).Count -or ($result.exit_code -isnot [int] -and $result.exit_code -isnot [long]) -or $result.exit_code -eq 0 -or $result.exit_code -lt -2147483648L -or $result.exit_code -gt 4294967295L -or $result.report_state -isnot [string] -or $result.report_state -cnotin @('missing','invalid','passed','failed')){return $null}
+  if($null -eq $result.cleanup_error_type){if($null -ne $result.cleanup_source_basename -or $null -ne $result.cleanup_source_line){return $null}}
+  elseif($Record.active_case -cne 'native_windows_meeting_cleanup' -or $result.report_state -cne 'failed' -or $result.cleanup_error_type -isnot [string] -or $result.cleanup_error_type -cnotin @('Error','TypeError','RangeError','ReferenceError','SyntaxError','TimeoutError','other') -or $result.cleanup_source_basename -isnot [string] -or $result.cleanup_source_basename -cnotin @('windows-meet-browser.cjs','unavailable') -or ($result.cleanup_source_line -isnot [int] -and $result.cleanup_source_line -isnot [long]) -or $result.cleanup_source_line -lt 0 -or $result.cleanup_source_line -ge 1000000 -or ($result.cleanup_source_basename -ceq 'unavailable' -and $result.cleanup_source_line -ne 0) -or ($result.cleanup_source_basename -cne 'unavailable' -and $result.cleanup_source_line -lt 1)){return $null}
+  $safe.meeting_browser_result=@{exit_code=$result.exit_code;report_state=$result.report_state;cleanup_error_type=$result.cleanup_error_type;cleanup_source_basename=$result.cleanup_source_basename;cleanup_source_line=$result.cleanup_source_line}
+ }
+ return $safe
+}
+function SafeRestoredConferencePathFields($Record){
+ $safe=@{}
+ if($Record.active_case -isnot [string] -or $Record.active_case -cnotin 'native_windows_meeting_browser_start','native_windows_meeting_owner_page','native_windows_meeting_create','native_windows_meeting_host_join','native_windows_meeting_guest_join','native_windows_meeting_admission','native_windows_meeting_decoded_media','native_windows_meeting_mute','native_windows_meeting_unmute','native_windows_meeting_end'){return $safe}
+ $paths=$Record.meeting_path
+ $keys=if($paths -is [Collections.IDictionary]){@($paths.Keys)}elseif($paths -is [pscustomobject]){@($paths.PSObject.Properties|ForEach-Object Name)}else{return $safe}
+ if($keys.Count -ne 2 -or @($keys|Where-Object {$_ -cnotin 'before','after'}).Count){return $safe}
+ $ws=@{booleans=@('observed','connected','sent','response_received','closed_exact','large_sent','large_response_received');integers=@{status_code=699;large_status_code=699;elapsed_ms=6000};enums=@{phase=@('connect','send','receive','complete','unavailable');error_kind=@('none','timeout','tls','websocket','other','unavailable')}}
+ $pg=@{booleans=@('observed','read_only','query_visible','counts_capped');integers=@{total=512;active=512;idle=512;idle_in_transaction=512;wait_lock=512;meeting_select=512;meeting_update=512;meeting_insert=512;meeting_other=512;meeting_wait_lock=512};enums=@{error_kind=@('none','timeout','database','unavailable')}}
+ $http=@{booleans=@('observed','completed','ok');integers=@{http_status=599;elapsed_ms=5000};enums=@{member_state=@('waiting','admitted','left','removed','unavailable','other');error_kind=@('none','timeout','tls','http','invalid_json','other','unavailable')}}
+ $specs=@{backend=$ws;frontend=$ws;fragmented_backend=$ws;fragmented_frontend=$ws;database=$pg;host_http=$http;guest_http=$http};$stages=@{}
+ foreach($stage in 'before','after'){
+  $row=$paths.$stage;$names=if($row -is [Collections.IDictionary]){@($row.Keys)}elseif($row -is [pscustomobject]){@($row.PSObject.Properties|ForEach-Object Name)}else{return @{}}
+  if($names.Count -ne 7 -or @($names|Where-Object {$_ -cnotin @($specs.Keys)}).Count){return @{}};$closedStage=@{}
+  foreach($kind in $specs.Keys){
+   $peer=$row.$kind;$spec=$specs[$kind];$fields=@($spec.booleans)+@($spec.integers.Keys)+@($spec.enums.Keys)
+   $names=if($peer -is [Collections.IDictionary]){@($peer.Keys)}elseif($peer -is [pscustomobject]){@($peer.PSObject.Properties|ForEach-Object Name)}else{return @{}}
+   if($names.Count -ne $fields.Count -or @($names|Where-Object {$_ -cnotin $fields}).Count){return @{}};$closed=@{}
+   foreach($field in $spec.booleans){if($peer.$field -isnot [bool]){return @{}};$closed[$field]=$peer.$field}
+   foreach($field in $spec.integers.Keys){$value=$peer.$field;if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt $spec.integers[$field]){return @{}};$closed[$field]=[int]$value}
+   foreach($field in $spec.enums.Keys){$value=$peer.$field;if($value -isnot [string] -or $value -cnotin $spec.enums[$field]){return @{}};$closed[$field]=$value}
+   $closedStage[$kind]=$closed
+  }
+  $stages[$stage]=$closedStage
+ }
+ return @{meeting_path=$stages}
+}
+function ReadRestoredConferenceFailure {
+ $child=$script:qualificationFailedChild
+ if($null -eq $child -or $child -isnot [Collections.IDictionary]){return $null}
+ $keys=@($child.Keys)
+ if($keys.Count -ne 4 -or @($keys|Where-Object {$_ -cnotin @('caller','label','completion','exit_code')}).Count -or $child.caller -isnot [string] -or $child.caller -cne 'CheckedProcess' -or $child.label -isnot [string] -or $child.label -cne 'restored-conference-supplement' -or $child.completion -isnot [string] -or $child.completion -cne 'exit' -or ($child.exit_code -isnot [int] -and $child.exit_code -isnot [long]) -or $child.exit_code -eq 0 -or $child.exit_code -lt -2147483648L -or $child.exit_code -gt 4294967295L){return $null}
+ $path=Join-Path $work 'restored-conference-supplement.out'
+ if(!(Test-Path -LiteralPath $path -PathType Leaf)){return $null}
+ $item=Get-Item -LiteralPath $path -Force
+ if($item.Length -le 0 -or $item.Length -gt 8192 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){return $null}
+ $parent=$item.Directory;$depth=0
+ while($null -ne $parent){if(++$depth -gt 32 -or ($parent.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){return $null};$parent=$parent.Parent}
+ $stream=$null;$document=$null
+ try{
+  $stream=[IO.File]::Open($path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+  if($stream.Length -le 0 -or $stream.Length -gt 8192){return $null}
+  $expected=$stream.Length;$buffer=[byte[]]::new(8193);$length=0
+  do{$read=$stream.Read($buffer,$length,$buffer.Length-$length);$length+=$read}while($read -gt 0 -and $length -lt $buffer.Length)
+  if($length -ne $expected -or $stream.Length -ne $expected){return $null}
+  $json=[Text.UTF8Encoding]::new($false,$true).GetString($buffer,0,$length)
+  $options=[Text.Json.JsonDocumentOptions]::new();$options.MaxDepth=8
+  $document=[Text.Json.JsonDocument]::Parse($json,$options)
+  if($document.RootElement.ValueKind -ne [Text.Json.JsonValueKind]::Object){return $null}
+  $frames=[Text.Json.JsonElement]::new()
+  if(!$document.RootElement.TryGetProperty('source_frames',[ref]$frames) -or $frames.ValueKind -ne [Text.Json.JsonValueKind]::Array -or $frames.GetArrayLength() -gt 4){return $null}
+  $pending=[Collections.Generic.Stack[Text.Json.JsonElement]]::new();$pending.Push($document.RootElement);$containers=0
+  while($pending.Count){
+   if(++$containers -gt 64){return $null};$node=$pending.Pop()
+   if($node.ValueKind -eq [Text.Json.JsonValueKind]::Object){
+    $names=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($property in $node.EnumerateObject()){
+     if(!$names.Add($property.Name)){return $null}
+     if($property.Value.ValueKind -in [Text.Json.JsonValueKind]::Object,[Text.Json.JsonValueKind]::Array){$pending.Push($property.Value)}
+    }
+   }elseif($node.ValueKind -eq [Text.Json.JsonValueKind]::Array){
+    foreach($value in $node.EnumerateArray()){if($value.ValueKind -in [Text.Json.JsonValueKind]::Object,[Text.Json.JsonValueKind]::Array){$pending.Push($value)}}
+   }
+  }
+  return SafeRestoredConferenceFailure (ConvertFrom-Json -InputObject $json -AsHashtable)
+ }catch{return $null}finally{if($document){$document.Dispose()};if($stream){$stream.Dispose()}}
+}
+function RestoredMeetingSupplement {
+ Check ($Role -ceq 'Target' -and [version]$BaseVersion -ge [version]'1.0.20') 'The conference supplement requires the restored current target.'
+ $script:phase='restored browser conference supplement'
+ $bindingBefore=Set-SuiteFixtureBinding -Read
+ $adapter=Join-Path $state ('native-qualification/'+[Guid]::NewGuid().ToString('N').Substring(0,24))
+ Check (!(Test-Path -LiteralPath $adapter)) 'A fresh private native adapter is required.'
+ PrivateDirectory $adapter
+ try{CheckedProcess $python @('-I','-B',(Join-Path $PSScriptRoot 'windows_restored_meeting.py'),'--input',$inputFile,'--adapter',$adapter) 'restored-conference-supplement' $source 600000}
+ catch{
+  try{$failure=ReadRestoredConferenceFailure;if($null -ne $failure){$facts.restored_conference_failure=$failure}}catch{}
+  throw
+ }
+ Check (!(Test-Path -LiteralPath $adapter)) 'The owned native adapter scope survived cleanup.'
+ $meeting=Get-Content -LiteralPath (Join-Path (Split-Path $inputFile -Parent) 'restored-conference.safe.json') -Raw|ConvertFrom-Json
+ $keys=@('schema','state','producer','run_id','source_commit','base_suite_run_id','base_archive_sha256','media','original_meetings_and_members_preserved','original_bindings_and_holds_preserved','owned_processes_closed','owned_native_scope_removed','remaining_calls','existing_invitation_continuity','physical_camera','external_nat')
+ Check (@($meeting.PSObject.Properties).Count -eq $keys.Count -and @($meeting.PSObject.Properties.Name|Where-Object {$_ -cnotin $keys}).Count -eq 0) 'One exact closed restored-conference receipt is required.'
+ Check (($meeting.schema -is [long] -or $meeting.schema -is [int]) -and $meeting.schema -eq 1 -and $meeting.state -ceq 'passed' -and $meeting.producer -ceq 'windows_restored_meeting.py') 'The restored media producer did not pass.'
+ Check ($meeting.run_id -ceq $env:GITHUB_RUN_ID -and $meeting.source_commit -ceq $env:GITHUB_SHA -and $meeting.base_suite_run_id -ceq $BaseSuiteRunId -and $meeting.base_archive_sha256 -ceq $facts.base_archive_sha256) 'The restored media receipt changed its run or archive binding.'
+ foreach($name in 'original_meetings_and_members_preserved','original_bindings_and_holds_preserved','owned_processes_closed','owned_native_scope_removed'){Check ($meeting.$name -is [bool] -and $meeting.$name) 'Exact restored conference preservation and cleanup are required.'}
+ Check (($meeting.remaining_calls -is [long] -or $meeting.remaining_calls -is [int]) -and $meeting.remaining_calls -eq 0) 'Restored conference calls survived.'
+ foreach($name in 'existing_invitation_continuity','physical_camera','external_nat'){Check ($meeting.$name -ceq 'unqualified') 'Unobserved conference capabilities cannot be promoted.'}
+ $media=$meeting.media;$mediaKeys=@('checks','wss_roundtrips','host_frames','guest_frames','host_tone_ratio','guest_tone_ratio','physical_camera')
+ Check (@($media.PSObject.Properties).Count -eq $mediaKeys.Count -and @($media.PSObject.Properties.Name|Where-Object {$_ -cnotin $mediaKeys}).Count -eq 0) 'Closed original browser media proof required.'
+ foreach($pair in @(@('checks',9),@('wss_roundtrips',16))){$n=$media.($pair[0]);Check (($n -is [long] -or $n -is [int]) -and $n -eq $pair[1]) 'All original browser and WSS checks are required.'}
+ foreach($name in 'host_frames','guest_frames'){$n=$media.$name;Check (($n -is [long] -or $n -is [int]) -and $n -ge 10 -and $n -le 2147483647) 'Decoded VP8 frames are required.'}
+ foreach($name in 'host_tone_ratio','guest_tone_ratio'){$n=$media.$name;Check (($n -is [double] -or $n -is [long] -or $n -is [int]) -and $n -gt .65 -and $n -le 1) 'Independent decoded audio tones are required.'}
+ Check ($media.physical_camera -ceq 'unqualified') 'Synthetic browser media does not qualify physical cameras.'
+ $bindingAfter=Set-SuiteFixtureBinding -Read
+ Check ([Convert]::ToBase64String($bindingBefore.hash) -ceq [Convert]::ToBase64String($bindingAfter.hash) -and $bindingBefore.store -ceq $bindingAfter.store) 'Restored meeting execution changed the exact target IIS certificate binding.'
+ $facts.qualification_mode='restored_conference_supplement'
+ $facts.restored_conference=$meeting
+ $facts.gates.restored_browser_conference_two_way_decoded_audio_video='passed'
+}
+function SafeRestoreWaitFailure($Record){
+ if($null -eq $Record -or $Record -is [Array]){return $null}
+ $keys=@('schema','wait_kind','timeout_seconds','source_basename','caller_function','caller_line')
+ $actual=@();if($Record -is [Collections.IDictionary]){$actual=@($Record.Keys)}else{$actual=@($Record.PSObject.Properties.Name)}
+ if($actual.Count -notin 6,7 -or @($actual|Where-Object {$_ -cnotin ($keys+@('backup_task'))}).Count -or @($keys|Where-Object {$_ -cnotin $actual}).Count){return $null}
+ $sites=@{native_invite_ack=@('native',120);native_recording_row=@('native',120);native_media_files=@('media',120);manual_backup_request=@('backup_request',120);manual_backup_complete=@('backup_request',600);restored_daily_task_result=@('backup_request',180);daily_backup_request=@('backup_request',180);daily_backup_complete=@('backup_request',600);restored_job_invite_ack=@('job',120);restored_job_completion=@('job',120)}
+ if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.wait_kind -isnot [string] -or $Record.wait_kind -cnotin @($sites.Keys)){return $null}
+ $site=$sites[$Record.wait_kind]
+ if(($Record.timeout_seconds -isnot [int] -and $Record.timeout_seconds -isnot [long]) -or $Record.timeout_seconds -ne $site[1] -or $Record.caller_function -isnot [string] -or $Record.caller_function -cne $site[0] -or $Record.source_basename -isnot [string] -or $Record.source_basename -cne 'windows-restore-qualification.py' -or ($Record.caller_line -isnot [int] -and $Record.caller_line -isnot [long]) -or $Record.caller_line -le 0 -or $Record.caller_line -ge 1000000){return $null}
+ $safe=@{schema=1;wait_kind=$Record.wait_kind;timeout_seconds=$Record.timeout_seconds;source_basename=$Record.source_basename;caller_function=$Record.caller_function;caller_line=$Record.caller_line}
+ if('backup_task' -cin $actual){
+  $task=$Record.backup_task;if($null -eq $task -or $task -is [Array]){return $null}
+  $taskKeys=@();if($task -is [Collections.IDictionary]){$taskKeys=@($task.Keys)}else{$taskKeys=@($task.PSObject.Properties.Name)}
+  if($taskKeys.Count -ne 4 -or @($taskKeys|Where-Object {$_ -cnotin @('state','last_result','expected_system_action','last_run_available')}).Count -or $task.state -isnot [string] -or $task.state -cnotin @('Unknown','Disabled','Queued','Ready','Running') -or ($task.last_result -isnot [int] -and $task.last_result -isnot [long]) -or $task.last_result -lt 0 -or $task.last_result -gt 4294967295 -or $task.expected_system_action -isnot [bool] -or $task.last_run_available -isnot [bool]){return $null}
+  $safe.backup_task=@{state=$task.state;last_result=$task.last_result;expected_system_action=$task.expected_system_action;last_run_available=$task.last_run_available}
+ }
+ return $safe
+}
+
 function NativeFixture([string]$Action){
  $script:phase=$Action
  # The extracted interpreter remains independent of private installed state.
@@ -232,6 +420,12 @@ function NativeFixture([string]$Action){
    if($facts.native_failure -and $safe.state -ceq 'failed' -and $safe.error_type -is [string] -and $safe.error_type -ceq 'RuntimeError' -and $safe.source_basename -is [string] -and $safe.source_basename -ceq 'windows-restore-qualification.py' -and (Test-Path -LiteralPath $privateOutput -PathType Leaf)){
     $phpOutput=Get-Item -LiteralPath $privateOutput -Force
     if($phpOutput.Length -gt 0 -and $phpOutput.Length -le 1048576 -and ($phpOutput.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0){$phpFailure=SafeRestorePhpFailure $safe.php_failure;if($phpFailure){$facts.native_failure.php_failure=$phpFailure}}
+   }
+  }catch{}
+  try{
+   if($Action -cin @('export-source','target-backup','native-source','native-target','job') -and $facts.native_failure -and $safe.state -ceq 'failed' -and $safe.error_type -is [string] -and $safe.error_type -ceq 'TimeoutError' -and $safe.source_basename -is [string] -and $safe.source_basename -ceq 'windows-restore-qualification.py' -and (Test-Path -LiteralPath $privateOutput -PathType Leaf)){
+    $waitOutput=Get-Item -LiteralPath $privateOutput -Force
+    if($waitOutput.Length -gt 0 -and $waitOutput.Length -le 1048576 -and ($waitOutput.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0){$waitFailure=SafeRestoreWaitFailure $safe.wait_failure;if($waitFailure){$facts.native_failure.wait_failure=$waitFailure}}
    }
   }catch{}
   throw
@@ -414,6 +608,7 @@ $r=Get-Content -LiteralPath $InputFile -Raw|ConvertFrom-Json
   HeldServiceRestart
   EnableTargetTls -Prepared;NativeFixture 'activate-calls';NativeFixture 'native-target'
   if([version]$BaseVersion -ge [version]'1.0.20'){NativeFixture 'clock-target'}
+  if($RestoredConferenceSupplement){RestoredMeetingSupplement}
   NativeFixture 'job'
   NativeFixture 'activate-updates-backups';NativeFixture 'target-backup';AssertBackupTask
   $phase='postactivation original task states'

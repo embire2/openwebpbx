@@ -598,6 +598,80 @@ def load_module(name, path):
     return module
 
 
+RESTORE_WAIT_SITES = {
+    ('native', '<lambda>', 120): 'native_invite_ack',
+    ('native', 'recorded_answered_call', 120): 'native_recording_row',
+    ('media', 'finalized', 120): 'native_media_files',
+    ('backup_request', 'requested', 120): 'manual_backup_request',
+    ('backup_request', 'completed', 600): 'manual_backup_complete',
+    ('backup_request', 'fresh_task', 180): 'restored_daily_task_result',
+    ('backup_request', 'scheduled', 180): 'daily_backup_request',
+    ('backup_request', 'scheduled_complete', 600): 'daily_backup_complete',
+    ('job', '<lambda>', 120): 'restored_job_invite_ack',
+    ('job', 'completed', 120): 'restored_job_completion',
+}
+
+
+def restore_wait_failure_fields(record):
+    keys = {'schema', 'wait_kind', 'timeout_seconds', 'source_basename', 'caller_function', 'caller_line'}
+    if type(record) is not dict or not keys <= set(record) <= keys | {'backup_task'}: return {}
+    if (type(record['schema']) is not int or record['schema'] != 1
+            or type(record['wait_kind']) is not str or type(record['timeout_seconds']) is not int
+            or type(record['caller_function']) is not str
+            or (record['wait_kind'], record['timeout_seconds'], record['caller_function']) not in {
+                (kind, seconds, caller) for (caller, _, seconds), kind in RESTORE_WAIT_SITES.items()}
+            or record['source_basename'] != 'windows-restore-qualification.py'
+            or type(record['caller_line']) is not int or not 0 < record['caller_line'] < 1000000): return {}
+    if 'backup_task' in record:
+        task = record['backup_task']
+        if (type(task) is not dict or set(task) != {'state', 'last_result', 'expected_system_action', 'last_run_available'}
+                or task['state'] not in ('Unknown', 'Disabled', 'Queued', 'Ready', 'Running')
+                or type(task['last_result']) is not int or not 0 <= task['last_result'] <= 4294967295
+                or type(task['expected_system_action']) is not bool or type(task['last_run_available']) is not bool): return {}
+    return {key: record[key] for key in sorted(record)}
+
+
+def restore_wait_task(caller):
+    # Failure-only, fixed read-only task metadata. No database call or worker
+    # execution; the existing fixture admission precedes installed observation.
+    if (os.name != 'nt' or os.environ.get('OPENWEB_WINDOWS_RESTORE_TEST') != '1'
+            or os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted'
+            or os.environ.get('GITHUB_REPOSITORY') != 'embire2/openwebpbx'
+            or os.environ.get('GITHUB_EVENT_NAME') != 'workflow_dispatch'): return None
+    owner = caller.f_locals.get('self'); kind = globals().get('Qualification')
+    if not isinstance(kind, type) or not isinstance(owner, kind): return None
+    s = owner.s
+    if (type(s) is not dict or s.get('role') not in ('source', 'target') or s.get('disposable') is not True
+            or s.get('run_id') != os.environ.get('GITHUB_RUN_ID') or s.get('source_commit') != os.environ.get('GITHUB_SHA')
+            or type(s.get('scope')) is not str or not re.fullmatch('[a-f0-9]{24}', s['scope'])): return None
+    expected = Path(os.environ['ProgramData']) / 'OpenWebPBX/restore-qualification' / s['scope']
+    if owner.work != expected or owner.path != expected / 'input.json': return None
+    script = r'''$ErrorActionPreference='Stop';$t=Get-ScheduledTask -TaskName 'OpenWebPBX-Backups' -ErrorAction Stop;$i=Get-ScheduledTaskInfo -InputObject $t -ErrorAction Stop;$n=$i.LastTaskResult;if($null -eq $n -or ($n -isnot [int] -and $n -isnot [long] -and $n -isnot [uint32] -and $n -isnot [uint64]) -or $n -lt 0 -or $n -gt 4294967295 -or $i.LastRunTime -isnot [DateTime]){throw 'Task metadata unavailable.'};$a=@($t.Actions);$expected=($t.Principal.UserId -in @('SYSTEM','S-1-5-18') -and $t.Principal.RunLevel -eq 'Highest' -and $a.Count -eq 1 -and $a[0].Execute -eq 'C:\OpenWebPBX\backup-runtime\python.exe' -and $a[0].Arguments -eq '-I "C:\OpenWebPBX\tools\backups.py" worker');[ordered]@{state=[string]$t.State;last_result=[long]$i.LastTaskResult;expected_system_action=[bool]$expected;last_run_available=[bool]($i.LastRunTime.Year -ge 2000)}|ConvertTo-Json -Compress'''
+    child = subprocess.run([str(Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'),
+        '-NoProfile', '-NonInteractive', '-Command', script], env=owner.backups.native_powershell_environment(),
+        capture_output=True, timeout=8)
+    if child.returncode or len(child.stdout) > 4096 or len(child.stderr) > 4096: return None
+    task = json.loads(child.stdout.decode('utf-8-sig'))
+    probe = {'schema': 1, 'wait_kind': 'native_media_files', 'timeout_seconds': 120,
+             'source_basename': 'windows-restore-qualification.py', 'caller_function': 'media', 'caller_line': 1, 'backup_task': task}
+    return task if restore_wait_failure_fields(probe) else None
+
+
+def observe_restore_wait_timeout(predicate, seconds, caller):
+    if (type(seconds) is not int or not isinstance(predicate, type(lambda: None))
+            or Path(caller.f_code.co_filename).name != 'windows-restore-qualification.py'): return {}
+    kind = RESTORE_WAIT_SITES.get((caller.f_code.co_name, predicate.__code__.co_name, seconds))
+    if not kind: return {}
+    record = {'schema': 1, 'wait_kind': kind, 'timeout_seconds': seconds,
+              'source_basename': 'windows-restore-qualification.py', 'caller_function': caller.f_code.co_name,
+              'caller_line': caller.f_lineno}
+    try:
+        task = restore_wait_task(caller)
+        if task is not None: record['backup_task'] = task
+    except BaseException: pass
+    return restore_wait_failure_fields(record)
+
+
 def wait_for(predicate, seconds=120):
     end = time.monotonic() + seconds
     while time.monotonic() < end:
@@ -605,7 +679,14 @@ def wait_for(predicate, seconds=120):
         if value:
             return value
         time.sleep(.2)
-    raise TimeoutError('A bounded qualification condition did not complete.')
+    try:
+        raise TimeoutError('A bounded qualification condition did not complete.')
+    except TimeoutError as error:
+        try:
+            observation = observe_restore_wait_timeout(predicate, seconds, sys._getframe(1))
+            if observation: error.restore_wait_failure = observation
+        except BaseException: pass
+        raise
 
 
 class Qualification:
@@ -1333,6 +1414,10 @@ if __name__ == '__main__':
         except Exception: pass
         facts.update(restore_identity_failure_fields(error))
         facts.update(restore_query_failure_fields(error))
+        try:
+            observation = restore_wait_failure_fields(getattr(error, 'restore_wait_failure', None))
+            if observation: facts['wait_failure'] = observation
+        except BaseException: pass
         observation = restore_cli_failure_fields(getattr(error, 'cli_failure', None))
         if observation: facts['cli_failure'] = observation
         facts.update(restore_schema_failure_fields(error))

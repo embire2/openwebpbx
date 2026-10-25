@@ -13,6 +13,12 @@ on:
         default: '1.0.20'
         type: string
 
+      restored_conference_supplement:
+        description: Separate restored-target browser media supplement; not standard restore promotion
+        required: false
+        default: false
+        type: boolean
+
 permissions:
   contents: read
   actions: read
@@ -91,8 +97,10 @@ jobs:
           BASE_VERSION: ${{ inputs.base_version }}
           WINDOWS_RESTORE_FIXTURE_PASSPHRASE: ${{ secrets.WINDOWS_RESTORE_FIXTURE_PASSPHRASE }}
           PYTHONDONTWRITEBYTECODE: '1'
+          OPENWEB_RESTORED_CONFERENCE: ${{ inputs.restored_conference_supplement || false }}
         run: |
-          & tests/windows-restore-qualification.ps1 -Role Target -BaseSuiteRunId $env:BASE_SUITE_RUN_ID -BaseVersion $env:BASE_VERSION -DisposableHostedRunner
+          if($env:OPENWEB_RESTORED_CONFERENCE -cnotin @('true','false')){throw 'An explicit raw supplemental mode is required.'}
+          & tests/windows-restore-qualification.ps1 -Role Target -BaseSuiteRunId $env:BASE_SUITE_RUN_ID -BaseVersion $env:BASE_VERSION -DisposableHostedRunner -RestoredConferenceSupplement:($env:OPENWEB_RESTORED_CONFERENCE -ceq 'true')
           if(!$?){throw 'The independent replacement-server restore did not pass.'}
       - name: Preserve only safe replacement qualification facts
         if: always()

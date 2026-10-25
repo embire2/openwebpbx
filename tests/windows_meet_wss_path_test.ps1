@@ -96,3 +96,4 @@ Check ($errorKind.Invoke($null,@([TimeoutException]::new(),$false)) -ceq 'timeou
 Check ($errorKind.Invoke($null,@([InvalidOperationException]::new('PRIVATE_FIXTURE'),$false)) -ceq 'other')
 Check ($errorKind.Invoke($null,@([InvalidOperationException]::new('PRIVATE_FIXTURE'),$true)) -ceq 'timeout')
 Write-Output "PASS $script:checks actual AST WSS path guards/projection/protocol/C# controls; no listener or installed service invoked"
+& (Join-Path $PSScriptRoot 'windows_meet_wss_stock_bootstrap_test.ps1') -SourceRoot $SourceRoot
