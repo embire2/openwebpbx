@@ -71,11 +71,17 @@ cancellation. Root independently repeats nine browser cases, three actual
 PostgreSQL groups and the focused Python/PowerShell checks. Failure reports now
 retain a bounded exit/status summary and closed cleanup error fields. This does
 not identify the historical401610 inner cause. Fresh full40165744505/source14f3650108
-now runs the same published package and original success/media/cleanup gates;
-no target or restored-media pass is inferred while it runs. Earlier component40156307782 has
+passes all9 source and21 target gates against the same published package.
+The strict16-field restored-conference receipt passes:9 media checks,16 WSS
+roundtrips,87 host/10 guest decoded frames, independent two-way tones, exact
+original meetings/members/bindings/holds, owned Job/scope cleanup and zero
+remaining calls. Root independently authenticates both artifacts and logs.
+The tested25 QA paths are integrated into the default branch without a product
+rebuild; its newer8MiB feed controls remain unchanged. Earlier component40156307782 has
 no retained native primary; its separate reserved-variable source bug is
 reproduced and corrected without attributing that historical failure. The published archive is unchanged, and
-restored-meeting media remains unqualified. Earlier supplement
+new restored-meeting audio/video is qualified; existing invitation continuity,
+physical cameras and external NAT remain unqualified. Earlier supplement
 failures retain their original limited evidence. Owner migration, actual OS reboot
 and external access are separate.
 
@@ -452,7 +458,7 @@ original package scope.
 |---|---|---|
 | Phone Health & Recovery | Installed SYSTEM observation, continuous collection and restart pass129 PostgreSQL,49 runtime and18 Defender controls; accepted-package upgrade and separate restore preservation also pass. | Owner-machine registration and recovery checks; broader physical-phone coverage. |
 | Remote phones | Native STUN service and33 installed Binding/Defender/recovery checks pass; media remains anchored by the PBX. | External test-machine STUN, actual phone/app connections and two-way audio. Windows IPv6 remains separate; STUN does not provide TURN. |
-| Conferences | Native TLS/WebSocket transport55 and decoded browser audio/video gates pass in the normal package. | External browser/phone acceptance. Strict native-child module checks pass40157794737. Full40158134593 stops at a busy restore lock before media; fresh40161042899 reaches conference execution but its browser command fails with an unretained inner error. Cleanup passes. The reproduced QA cleanup correction is under fresh full40165744505; restored-media acceptance is pending. Restored-meeting media remains unqualified. |
+| Conferences | Native TLS/WebSocket transport55 and decoded browser audio/video gates pass in the normal package. | New meetings after replacement restore pass actual decoded audio/video in40165744505 (source9/target21), with original data/holds and cleanup preserved. Existing invitation continuity, physical cameras and external NAT/phone acceptance remain open. Earlier failed results retain their recorded scope. |
 | Backups and restore | Scheduled encrypted backups, retention, media/private-key preservation, recovery and activation pass in normal40111566679; restore40123098262 passes nine source and20 clean-target gates on that exact archive, including the default-HTTPS-port correction. | Owner-instance restore checks. Debian instance archives are unsupported on Windows. |
 | Updates | Fresh installation, same-version reapply, direct rollback, restore-startup recovery and both manager reopen gates pass in40111566679. The matched1.0.21 canary archive and existing-key envelopes are fully audited. | Signed40125359325 now passes all9 gates for this exact base/canary pair. Original1.0.6 migration/interrupted recovery and actual OS reboot remain open; earlier40097476201 retains its older-package scope. |
 | PHP runtime | Pinned PHP8.4.27 is installed and exercised by the normal package; native private-copy runtime preservation/rollback checks also pass. | Full legacy owner upgrade and interruption/recovery. Component checks do not substitute for that migration. |

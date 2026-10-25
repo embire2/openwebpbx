@@ -27,7 +27,8 @@ feeds are preserved byte-for-byte.
 Original1.0.6 migration/interrupted recovery, actual Windows reboot and external
 physical phone/carrier/camera checks remain unqualified. The ordinary feed starts
 at1.0.20; an unqualified legacy transition is not published. The separate
-restored-conference test remains unfinished. Full repeat40152289946 stops
+restored-conference test now passes40165744505 (source9/target21). The following
+records explain earlier failures without changing their historical scope. Full repeat40152289946 stops
 before media at its added native-command provenance check; supplemental and
 canonical cleanup and original Health choices pass. A small isolated test
 identifies incompatible PowerShell module metadata inherited through the test
@@ -49,8 +50,14 @@ ended-card cleanup defect in the test. The reviewed correction preserves the
 strict parent ownership/end-state proof, original failure cancellation and all
 media/success gates, and adds bounded failure metadata. The [fresh corrected
 check40165744505](https://github.com/embire2/openwebpbx/actions/runs/40165744505)
-now runs against the unchanged published package. Its result is pending;
-restored-conference media remains unqualified. The local reproduction does not
+passes against the unchanged published package: all9 source and21 target
+gates and the strict16-field conference receipt. New restored meetings have
+9 media checks,16 WSS roundtrips,87/10 decoded host/guest frames and independent
+two-way audio. Exact original meeting/member/binding/hold preservation, owned
+process/scope cleanup, canonical cleanup, Health choices and zero remaining
+calls pass. Root independently authenticates the original artifacts and logs.
+Existing invitation continuity, physical cameras and external NAT remain
+unqualified. The local reproduction does not
 establish the historical401610 failure's inner cause.
 Earlier failed runs below retain
 their original limited evidence and unknown causes; later success assigns none.
@@ -153,7 +160,9 @@ The owner's original1.0.6 installation has retained file/ACL, database/global,
 configuration, IIS, certificate, service/task and firewall recovery copies.
 It has not been upgraded. Migration/interruption/recovery on that installation,
 actual OS reboot, public certificate issuance/renewal and external phone/provider
-access remain open. Restored-meeting media has a separate unfinished qualification.
+access remain open. New restored meetings pass their separate software audio/video
+qualification40165744505; existing invitation continuity, physical cameras and
+external NAT remain open.
 Public delivery of all seven release assets is verified; the Android and Debian
 signed feeds retain their original bytes.
 

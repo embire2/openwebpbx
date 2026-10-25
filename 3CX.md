@@ -2,12 +2,12 @@
 
 Windows Server **1.0.20 is published** for Windows Server 2025 x64 Desktop Experience. Fresh installation, two-way software calling, browser audio/video conferences, Phone Health, encrypted backups, independent replacement restore, signed updates and rollback pass their current checks. Download the [release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.20); the [qualification record](docs/release-1.0.20-qualification.md) gives the evidence and limits.
 
-The remaining Windows acceptance work is:
+Windows acceptance status:
 
-- Finish the conference check after restoring onto a replacement server. A cleanup defect in the test is reproduced and corrected; [the fresh end-to-end check](https://github.com/embire2/openwebpbx/actions/runs/40165744505) is running. Restored-conference media remains unqualified until it passes.
-- Upgrade the original 1.0.6 installation and prove interrupted-upgrade recovery. The test machine needs more free disk space before this can proceed.
-- Prove recovery after an actual Windows reboot.
-- Test external desk phones, commercial providers, real cameras and network traversal.
+- [x] Verify new browser conferences after replacement-server restore. [The complete test](https://github.com/embire2/openwebpbx/actions/runs/40165744505) passes all 9 source and 21 target checks, including decoded audio/video and cleanup.
+- [ ] Upgrade the original 1.0.6 installation and prove interrupted-upgrade recovery. The test machine needs more free disk space before this can proceed.
+- [ ] Prove recovery after an actual Windows reboot.
+- [ ] Test external desk phones, commercial providers, real cameras and network traversal.
 
 Windows 10/11 server installs and Debian-to-Windows instance-backup restores are unsupported. Existing meeting-invitation continuity after restore also remains unqualified. Debian's complete public installer remains **1.0.16**, its admin update **1.0.19**, and Android's mandatory release **1.0.18**. The wider roadmap remains **133 goals / 21 accepted / 72 partial / 40 planned**. See the [Windows work record](docs/windows-parity-1.0.20.md), [installation guide](docs/installing-windows-1.0.20.md) and [backup guide](docs/windows-backups.md). Earlier failed checks retain their recorded scope and unknown causes.
 
@@ -15,7 +15,7 @@ The separate native **OpenWebPBX Free Phone 1.0.0** client is also in developmen
 
 The first Windows-phone source archive has passed a complete file and licence inventory check; rebuilding its third-party SDK and matching the supplied binaries remain open. The calling lab's mistaken external VP8-module requirement is corrected to check the core's actual built-in codec before calls. Signed-package installation/update tests are prepared, with reviewed certificate and helper cleanup. These preparations do not count as successful calls or installs. The public [privacy notice](https://openwebpbx.com/privacy#windows) now describes the Windows preview's data handling.
 
-The client now passes native TLS certificate rejection and successful registration. Correcting encryption on the test route’s second leg gets the call past its previous rejection; the audio-recording check still fails, so successful sound is not yet proved. The signed development package now installs, then its brokered launch fails the test-context check. Packaged startup, update/relaunch and complete cleanup remain unaccepted. The independent Windows-phone update catalogue is also being qualified separately before it can advertise a download.
+The client passes native TLS certificate rejection and registration. Its focused Windows tool-selection check now passes on real Windows; the [full development-package install/update test](https://github.com/embire2/openwebpbx/actions/runs/40168134715) is running. The separate calling test advances past secure connection setup, then fails when reading the recorder’s output; sound and video remain unverified. A matching defect in the pinned recorder source is under correction, with the strict audio check retained. Complete package cleanup, clean-machine distribution, the independent update catalogue and Store publication remain unfinished.
 
 ## Phone Health & Recovery — hosted Debian live, Windows follow-up — 2026-10-22
 
