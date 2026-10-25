@@ -170,6 +170,10 @@ function P.profile(config, number, clock, skip_auto_office)
     if skip_auto_office~=true and status~='Do Not Disturb' and not (temporary and user.profile==temporary.target and tonumber(temporary.expires or 0)>os.time()) and tonumber(user.auto_status or '0')%2==1 then
         local open,break_now=P.office(config,number,clock)
         if not open then status=break_now and 'Away' or 'Out of office' end
+        -- The automatic company schedule must reopen a saved closed status.
+        -- Unassigned/default hours and explicit personal overrides stay intact.
+        if open and status=='Out of office' and P.department(config,number)
+            and type(user.profiles.Available)=='table' then status='Available' end
     end
     return user.profiles[status] or user.profiles[user.profile]
 end

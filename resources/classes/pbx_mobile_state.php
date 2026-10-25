@@ -16,6 +16,7 @@ class pbx_mobile_state {
             if($department!==null){
                 $office=pbx_schedule::office($department,$config['timezone']??'Africa/Johannesburg',$now);
                 if(!$office['open'])$status=$office['break']?'Away':'Out of office';
+                elseif($status==='Out of office'&&is_array($user['profiles']['Available']??null))$status='Available';
             }
         }
         return isset($user['profiles'][$status])?$status:(string)($user['profile']??'Available');
