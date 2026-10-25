@@ -214,6 +214,14 @@ function P.object_destination(config,object,clock)
     if not open then return P.route_string(schedule.outside) end
     return P.route_string(schedule.office)
 end
+function P.user_destination(config,user,clock,internal)
+    local routing=user.office_routing or {}
+    if routing.enabled~=true then return P.object_destination(config,user,clock) end
+    if not P.department(config,user.number) then return nil end
+    local open=P.office(config,user.number,clock)
+    if not open and internal==true and user.internal_after_hours==true then return nil end
+    return P.route_string(open and routing.office or routing.outside)
+end
 local function member_allowed(config,rule,caller)
     if #(rule.ranges or {})==0 and #(rule.departments or {})==0 and #(rule.department_ids or {})==0 then return true end
     for _, range in ipairs(rule.ranges or {}) do

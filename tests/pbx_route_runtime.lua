@@ -422,6 +422,31 @@ local function after_hours(flag)
     value.responses={{cause='SUCCESS',protocol='sip:200'}}
     return value
 end
+-- Explicit company office-hour routes use the same actual run_user entry as ordinary calls.
+local function company_routing(flag)
+    local value=after_hours(flag)
+    value.config.users['1050'].office_routing={enabled=true,
+        office={type='Extension',number='100',external=''},outside={type='None',number='',external=''}}
+    return value
+end
+f=company_routing(false);f.clock='1_09:00_2026-10-19';run(f,'user','1050')
+check(#f.transfers==1 and f.transfers[1].number=='100' and #f.bridges==0,'Open office uses the explicitly selected user destination before normal ringing')
+f=company_routing(false);run(f,'user','1050')
+check(#f.transfers==0 and #f.bridges==0 and f.hangup=='NORMAL_CLEARING','Closed office uses its separate end-call destination')
+f=company_routing(true);run(f,'user','1050')
+check(#f.bridges==1 and f.bridges[1]:find('user/auth1050@',1,true),'Existing authenticated internal after-hours exception still rings with explicit company routing enabled')
+f=company_routing(true);f.variables.openweb_provider_origin='true';run(f,'user','1050')
+check(#f.bridges==0 and f.hangup=='NORMAL_CLEARING','Provider-origin calls cannot bypass explicit closed-office routing')
+f=company_routing(false);f.config.users['1050'].office_routing.enabled=false;run(f,'user','1050')
+check(#f.bridges==0 and f.hangup=='NO_ANSWER','Disabling explicit company routes restores the exact legacy after-hours behavior')
+f=company_routing(false);f.config.departments[1].hours={type='SpecificHours',periods={{day=1,start='22:00',['end']='02:00'}}};f.clock='2_01:30_2026-10-20';run(f,'user','1050')
+check(#f.transfers==1 and f.transfers[1].number=='100','Actual user route follows an overnight company schedule into the next day')
+f=company_routing(false);f.config.departments[1].hours={type='SpecificHours',periods={{day=1,start='22:00',['end']='02:00'}}};f.clock='2_02:00_2026-10-20';run(f,'user','1050')
+check(#f.transfers==0 and f.hangup=='NORMAL_CLEARING','Actual overnight route closes exactly at the end boundary')
+f=company_routing(false);f.config.departments[1].hours={type='AllHours',periods={}};run(f,'user','1050')
+check(#f.transfers==1 and f.transfers[1].number=='100','Deleting company hours to Always Open selects the saved in-office destination')
+f=company_routing(false);f.config.departments={};run(f,'user','1050')
+check(#f.bridges==1 and f.bridges[1]:find('user/auth1050@',1,true),'A removed company membership does not strand an otherwise available user')
 for _,preference in ipairs({{}, {flag=false},{flag='true'},{flag=1}}) do
     f=after_hours(preference.flag);run(f,'user','1050')
     check(#f.bridges==0 and f.hangup=='NO_ANSWER','Default, false or nonboolean preference retains original1050 after-hours voicemail-disabled refusal')

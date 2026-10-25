@@ -76,7 +76,7 @@ class pbx_staff_access {
         foreach(array_merge($department!==''?[$department]:[],$in['departments']??[])as$id)if(!is_string($id)||!in_array($id,$this->departments($cap,$c),true))throw new pbx_staff_denied('You cannot move an item to another department.');
         foreach($in['members']??[]as$n)$this->requireNumber($cap,(string)$n,$c,true);
         foreach($in['options']??[] as$o)if(is_array($o)&&isset($o['destination'])&&is_string($o['destination'])){[$kind,$n]=array_pad(explode(':',$o['destination'],2),2,'');if($n!==''&&!$this->visible($n,$c))throw new pbx_staff_denied('Choose a visible menu destination.');}
-        foreach(['no_answer','busy','not_registered','away','office_closed','office_break','office_holiday','destination','timeout_destination']as$f)if(isset($in[$f])&&is_string($in[$f])){[$kind,$n]=array_pad(explode(':',$in[$f],2),2,'');if($n!==''&&!$this->visible($n,$c))throw new pbx_staff_denied('Choose a visible destination.');}
+        foreach(['no_answer','busy','not_registered','away','office_closed','office_break','office_holiday','office_open_route','office_closed_route','destination','timeout_destination']as$f)if(isset($in[$f])&&is_string($in[$f])){[$kind,$n]=array_pad(explode(':',$in[$f],2),2,'');if($n!==''&&!$this->visible($n,$c))throw new pbx_staff_denied('Choose a visible destination.');}
     }
     public function audit(string $action,string $target,string $result='accepted'): void {
         $this->q('insert into v_pbx_staff_audit(audit_uuid,domain_uuid,actor_uuid,action,target,result) values(?,?,?,?,?,?)',[uuid(),$this->domain,$this->actor,$action,$target,$result]);

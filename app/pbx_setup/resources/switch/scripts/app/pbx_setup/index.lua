@@ -244,7 +244,7 @@ run_user=function(number)
     session:setVariable('openweb_scope_target',tostring(number))
     local room=hotel_room(number)
     if room and (room.do_not_disturb=='t' or room.do_not_disturb=='true') then voicemail(number,false);return end
-    local special=P.object_destination(config,u,clock)
+    local special=P.user_destination(config,u,clock,internal)
     if special then route(special,number);return end
     local profile=P.profile(config,number,clock,internal==true and u.internal_after_hours==true)
     local open=P.office(config,number,clock)

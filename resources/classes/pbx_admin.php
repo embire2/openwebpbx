@@ -188,8 +188,29 @@ class pbx_admin {
         if(isset($in['greeting_id'])){$greeting=$this->text($in,'greeting_id',10);if($greeting!==''&&!in_array($greeting,array_column($u['greetings']??[],'id'),true))throw new InvalidArgumentException('Choose a greeting for this user.');$u['greeting_id']=$greeting;$this->query('update v_voicemails set greeting_id=:g where domain_uuid=:d and voicemail_uuid=:id',['g'=>$greeting===''?null:$greeting,'d'=>$this->domain,'id'=>$u['voicemail_uuid']]);}
         $this->query('update v_voicemails set voicemail_mail_to=:mail,voicemail_enabled=:on,voicemail_description=:name,voicemail_file=:file,voicemail_local_after_email=:keep where domain_uuid=:d and voicemail_uuid=:id',['mail'=>$option==='None'?'':$email,'on'=>$u['voicemail_enabled'],'name'=>$name,'file'=>in_array($option,['Attachment','AttachmentAndDelete'],true)?'attach':'link','keep'=>$option!=='AttachmentAndDelete','d'=>$this->domain,'id'=>$u['voicemail_uuid']]);
         if(array_key_exists('department',$in)){if(isset($in['departments_present'])&&!is_array($in['departments']??[]))throw new InvalidArgumentException('Choose departments from this PBX.');pbx_departments::assign($c,$key,$this->text($in,'department',40),isset($in['departments_present'])?($in['departments']??[]):null);}
+        $this->saveUserOfficeRouting($key,$in,$c);
         if(array_key_exists('app_password',$in)&&$in['app_password']!==''){if($this->scope&&!$this->scope->permits('phones',$key,$c,true))throw new pbx_staff_denied('App-password administration requires phone setup permission.');$this->appRevocations=(new pbx_mobile_password($this->db))->set($this->domain,$u['extension_uuid'],$in['app_password'],$_SESSION['user_uuid']??null);}
         if($new&&!empty($in['send_welcome'])&&$this->scope&&!$this->scope->permits('phones',$key,$c,true))throw new pbx_staff_denied('Welcome invitations require phone setup permission.');return $key;
+    }
+    private function saveUserOfficeRouting(string $key,array $in,array &$c): void {
+        // Older forms never alter restored routing. This explicit section is opt-in.
+        if(!array_key_exists('office_routing_present',$in))return;
+        if(!in_array($in['office_routing_present'],['1',1],true)||
+            (array_key_exists('office_routing_enabled',$in)&&!in_array($in['office_routing_enabled'],['1',1,'0',0],true)))
+            throw new InvalidArgumentException('Choose whether to use company office-hour routing.');
+        $enabled=in_array($in['office_routing_enabled']??'0',['1',1],true);
+        $routing=$c['users'][$key]['office_routing']??[];
+        $routing['enabled']=$enabled;
+        if($enabled){
+            if(!pbx_schedule::department($c,$key))throw new InvalidArgumentException('Choose the user’s company group before using its office hours.');
+            foreach(['office'=>'office_open_route','outside'=>'office_closed_route'] as $slot=>$field){
+                if(!isset($in[$field]))throw new InvalidArgumentException('Choose both in-office and out-of-office destinations.');
+                $route=$in[$field]==='Continue:'?['type'=>'ProceedWithNoExceptions','number'=>'','external'=>'']:$this->destination($in,$field,$c);
+                if($route['type']==='Extension'&&(string)$route['number']===$key)throw new InvalidArgumentException('Choose Keep Existing Call Rules to ring this extension, or choose another destination.');
+                $routing[$slot]=$route;
+            }
+        }
+        $c['users'][$key]['office_routing']=$routing;
     }
     private function saveTrunk(string $key,array $in,array &$c): string {
         $new=$key==='new';
@@ -292,10 +313,21 @@ class pbx_admin {
             if($primary===''&&$keep)$primary=$key;
             pbx_departments::assign($c,$number,$primary,$ids);
         }
+        $hoursAction=$this->text($in,'group_hours_action',16,'keep');
+        if(!in_array($hoursAction,['keep','save','delete'],true))throw new InvalidArgumentException('Choose whether to keep, edit or delete company office hours.');
+        if($hoursAction!=='keep')$this->saveHours($key,array_replace($in,['hours_action'=>$hoursAction]),$c);
         return $key;
     }
     private function saveHours(string $key,array $in,array &$c): string {
-        [$i,$d]=$this->row($c['departments'],$key);$zone=$this->text($in,'timezone',80);if(!in_array($zone,DateTimeZone::listIdentifiers(),true))throw new InvalidArgumentException('Choose a timezone.');
+        [$i,$d]=$this->row($c['departments'],$key);
+        $action=$this->text($in,'hours_action',16,'save');
+        if(!in_array($action,['save','delete'],true))throw new InvalidArgumentException('Choose whether to save or delete company office hours.');
+        if($action==='delete'){
+            $c['departments'][$i]['hours']=['type'=>'AllHours','periods'=>[]];
+            $c['departments'][$i]['breaks']=['type'=>'SpecificHours','periods'=>[]];
+            $c['departments'][$i]['holidays']=[];unset($c['departments'][$i]['office_override']);return $key;
+        }
+        $zone=$this->text($in,'timezone',80);if(!in_array($zone,DateTimeZone::listIdentifiers(),true))throw new InvalidArgumentException('Choose a timezone.');
         $rows=$in['periods']??null;if($rows===null){$rows=[];if(!is_array($in['days']??[]))throw new InvalidArgumentException('Choose office hours.');foreach($in['days']??[] as $day=>$row){if(!is_array($row))throw new InvalidArgumentException('Choose office hours.');$rows[]=array_merge($row,['day'=>$day]);}}
         $periods=pbx_schedule::periods($rows);$hours=!empty($in['always_open'])?['type'=>'AllHours','periods'=>[]]:['type'=>'SpecificHoursExcludingHolidays','periods'=>$periods,'ignore_holidays'=>false];
         $c['departments'][$i]['timezone']=$zone;$c['departments'][$i]['hours']=$hours;

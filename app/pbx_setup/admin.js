@@ -24,7 +24,20 @@
     const update = () => select.closest('form').querySelectorAll('[data-password-auth]').forEach(field => { field.hidden = select.value !== 'password'; });
     select.addEventListener('change', update); update();
   });
+  document.querySelectorAll('[data-group-hours-action],[data-hours-action]').forEach(select => {
+    const group = select.hasAttribute('data-group-hours-action');
+    const fields = select.closest('form').querySelector(group ? '[data-group-hours-fields]' : '[data-hours-fields]');
+    if (!fields) return;
+    const update = () => {
+      const editing = select.value === 'save';
+      fields.hidden = !editing;
+      fields.querySelectorAll('input,select,textarea,button').forEach(input => { input.disabled = !editing; });
+    };
+    select.addEventListener('change', update); update();
+  });
   document.querySelectorAll('form').forEach(form => form.addEventListener('submit', event => {
+    const hours = form.querySelector('[data-group-hours-action],[data-hours-action]');
+    if (hours?.value === 'delete' && !window.confirm('Delete this company’s office hours, breaks, holidays and temporary opening override? The group will remain open at all times.')) { event.preventDefault(); return; }
     const button = event.submitter;
     if (button?.dataset.providerCheck === undefined) return;
     // Keep the submitter enabled so its check action is included in the form data.

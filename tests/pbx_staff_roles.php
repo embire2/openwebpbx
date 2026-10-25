@@ -55,6 +55,15 @@ try{
  $ok(count($sadmin->media('prompts'))===1,'Shared/private prompt visibility differs');
  $queueInput=['name'=>'Sales Queue','number'=>'1102','timeout'=>30,'ring_timeout'=>10,'wrap_up'=>0,'members'=>['1000'],'department'=>$sales,'destination'=>'None:','intro'=>$privatePrompt];$denied(fn()=>$sadmin->save('queue','new',$queueInput),'Private prompt was selected across departments');$sadmin->save('queue','new',array_replace($queueInput,['intro'=>$sharedPrompt]));$beforePrompt=$admin->config()['queues'][0]['intro'];$sadmin->save('queue','1102',array_replace($queueInput,['intro'=>'keep-existing']));$ok($admin->config()['queues'][0]['intro']===$beforePrompt,'Saving a queue cleared its existing audio');
  $number=$sadmin->save('user','new',$input+['department'=>$sales]);$ok($scope->permits('users',$number),'Created user not bound to managed department');
+ foreach(['office_open_route','office_closed_route'] as $field){
+  $before=$admin->config();$denied(fn()=>$sadmin->save('user',$number,$input+['office_routing_present'=>'1','office_routing_enabled'=>'1','office_open_route'=>'Continue:','office_closed_route'=>'Continue:',$field=>'Extension:1006']),'Company office-hour routing cannot target a hidden department');
+  $ok($admin->config()===$before&&!$db->inTransaction(),'Denied company route left the entire configuration unchanged');
+ }
+ $beforeOther=pbx_departments::find($admin->config(),$support);
+ $sadmin->save('hours',$sales,['hours_action'=>'delete']);
+ $ok(pbx_departments::find($admin->config(),$sales)['hours']['type']==='AllHours','Department administrator can delete its own schedule');
+ $ok(pbx_departments::find($admin->config(),$support)===$beforeOther,'Delegated schedule deletion leaves other departments exact');
+ $denied(fn()=>$sadmin->save('hours',$support,['hours_action'=>'delete']),'Department administrator cannot delete another department schedule');
  $denied(fn()=>$sadmin->save('user',$people['owner']['number'],$input),'Department administrator changed a higher staff role');
  $denied(fn()=>$sadmin->save('user',$number,$input+['department'=>$support]),'User was moved outside delegated departments');
  $_SESSION['user_uuid']=$people['user']['id'];$scope=new staff_role_scope($db);$q('update v_pbx_staff_roles set enabled=false where user_uuid=?',[$people['user']['id']]);$ok(!$scope->active(),'Revocation was cached');

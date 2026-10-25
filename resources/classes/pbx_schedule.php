@@ -46,6 +46,16 @@ class pbx_schedule {
         if(!is_string($value)||!preg_match('/^([A-Za-z]+)\.([^.]*)\.(.*)$/D',$value,$m)||$m[1]==='ProceedWithNoExceptions')return null;
         return ['type'=>$m[1],'number'=>$m[2],'external'=>$m[3]];
     }
+    public static function userDestination(array $config,array $user,?int $now=null,bool $internal=false): ?array {
+        $routing=$user['office_routing']??[];
+        if(($routing['enabled']??false)!==true)return self::objectDestination($config,$user,$now);
+        $department=self::department($config,(string)$user['number']);
+        if(!$department)return null;
+        $open=self::office($department,$config['timezone']??'UTC',$now)['open'];
+        // The existing direct-internal exception remains separate from outside/company calls.
+        if(!$open&&$internal&&($user['internal_after_hours']??false)===true)return null;
+        return self::route($routing[$open?'office':'outside']??null);
+    }
     public static function objectDestination(array $config,array $object,?int $now=null): ?array {
         if(!isset($object['hours']))return null;
         $now??=time();$schedule=$object['hours'];$override=$object['office_override']??$schedule['office_override']??[];
