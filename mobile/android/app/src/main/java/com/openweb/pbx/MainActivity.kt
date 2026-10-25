@@ -61,6 +61,7 @@ class MainActivity: ComponentActivity() {
     private val requestProfile=ThreadLocal<String?>()
     private var importedIntent=false
     private var storageUnavailable=false
+    private lateinit var branding:BrandSplash
     private val enteredTenantOrigins=mutableMapOf<String,String>()
     private var playbackGeneration = 0
     private var dialledNumber = ""
@@ -141,8 +142,10 @@ class MainActivity: ComponentActivity() {
         setTheme(if(dark)android.R.style.Theme_Material_NoActionBar else R.style.AppThemeLight)
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        branding=BrandSplash(this)
         store = PhoneStore(this)
         try{store.profiles()}catch(_:Exception){storageUnavailable=true;storageRecovery();return}
+        branding.open(intent,savedInstanceState,PhoneService.instance?.calls?.isNotEmpty()==true || intent.getBooleanExtra("show_updates",false) || updates.isInstalling)
         section = savedInstanceState?.getString("section") ?: preferences.startupPage
         settingsReturnSection=savedInstanceState?.getString("settings_return") ?: "Keypad"
         onBackPressedDispatcher.addCallback(this){if(section=="Settings"){section=settingsReturnSection;draw()}else{isEnabled=false;onBackPressedDispatcher.onBackPressed();isEnabled=true}}
@@ -151,11 +154,16 @@ class MainActivity: ComponentActivity() {
         draw();updates.schedule();updates.check()
         if(store.read()?.let{TenantConnection.ready(it)}==true) { ensurePermissions(); bootstrap() };importIntent()
     }
-    override fun onResume() { super.onResume();if(storageUnavailable)return; updates.foregroundActivity=this; updates.changed={runOnUiThread { if(store.read()!=null && !updates.isInstalling && PhoneService.instance==null && checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startPhone();updatePhone();updateUi() }}; PhoneService.changed = { runOnUiThread { updatePhone();updateUi() } }; if(section=="Settings")draw();updatePhone();updateUi(); if(store.read()!=null && !updates.isInstalling && checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startPhone() }
+    override fun onResume() { super.onResume();if(storageUnavailable)return; updates.foregroundActivity=this; updates.changed={runOnUiThread { if(store.read()!=null && !updates.isInstalling && PhoneService.instance==null && checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startPhone();updatePhone();updateUi() }}; PhoneService.changed = { runOnUiThread { updatePhone();updateUi() } }; if(section=="Settings")draw();updatePhone();updateUi(); if(store.read()!=null && !updates.isInstalling && checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)startPhone();branding.attach() }
     override fun onPause() { if(storageUnavailable){super.onPause();return};PhoneService.changed = null;updates.changed=null;updates.foregroundActivity=null; super.onPause() }
-    override fun onNewIntent(intent:Intent) { super.onNewIntent(intent);setIntent(intent);if(storageUnavailable)return;importedIntent=false;importIntent();if(intent.getBooleanExtra("show_updates",false)){openUpdatesRequested=true;intent.removeExtra("show_updates");updateUi()} }
-    override fun onSaveInstanceState(outState: Bundle) { outState.putString("section", section);outState.putString("settings_return",settingsReturnSection);outState.putStringArrayList("update_prompts",ArrayList(shownUpdatePrompts));super.onSaveInstanceState(outState) }
-    override fun onDestroy() { availabilityDialog?.dismiss();updateDetails?.dismiss();stopPlayback(); worker.shutdown(); super.onDestroy() }
+    override fun onNewIntent(intent:Intent) {
+        super.onNewIntent(intent);setIntent(intent);if(storageUnavailable)return
+        if(!BrandSplash.launcher(intent))branding.dismiss()
+        else branding.reopen(intent,PhoneService.instance?.calls?.isNotEmpty()==true || updates.isInstalling || updateGated)
+        importedIntent=false;importIntent();if(intent.getBooleanExtra("show_updates",false)){branding.dismiss();openUpdatesRequested=true;intent.removeExtra("show_updates");updateUi()}
+    }
+    override fun onSaveInstanceState(outState: Bundle) { outState.putString("section", section);outState.putString("settings_return",settingsReturnSection);outState.putStringArrayList("update_prompts",ArrayList(shownUpdatePrompts));if(::branding.isInitialized)branding.save(outState);super.onSaveInstanceState(outState) }
+    override fun onDestroy() { if(::branding.isInitialized)branding.close();availabilityDialog?.dismiss();updateDetails?.dismiss();stopPlayback(); worker.shutdown(); super.onDestroy() }
     private fun dp(value:Int) = (value * resources.displayMetrics.density).toInt()
     private fun text(value: String, size: Float=16f, color:Int=ink, bold:Boolean=false) = TextView(this).apply { text=value; textSize=size; setTextColor(color); if(bold)setTypeface(typeface,Typeface.BOLD); setPadding(0,dp(5),0,dp(5)) }
     private fun layout(horizontal:Boolean=false) = LinearLayout(this).apply { orientation=if(horizontal)LinearLayout.HORIZONTAL else LinearLayout.VERTICAL }
@@ -183,6 +191,7 @@ class MainActivity: ComponentActivity() {
         root = layout().apply { setBackgroundColor(paper); setPadding(dp(if(compact)16 else 20),dp(if(compact)6 else 12),dp(if(compact)16 else 20),dp(if(compact)6 else 12)) }
         root.setOnApplyWindowInsetsListener { view,insets -> view.setPadding(dp(if(compact)16 else 20),insets.systemWindowInsetTop+dp(if(compact)6 else 12),dp(if(compact)16 else 20),insets.systemWindowInsetBottom+dp(if(compact)6 else 12)); insets }
         setContentView(root)
+        branding.attach()
         window.decorView.systemUiVisibility=if(dark)0 else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         window.statusBarColor=paper;window.navigationBarColor=paper
         val heading=layout(true); heading.gravity=Gravity.CENTER_VERTICAL
@@ -207,6 +216,7 @@ class MainActivity: ComponentActivity() {
         when(section) { "Keypad" -> keypad(); "Contacts" -> contacts(); "Recents" -> recents(); "Voicemail" -> voicemail(); "Settings"->settingsPage() };updateUi()
     }
     private fun storageRecovery(){
+        branding.dismiss()
         root=layout().apply{setPadding(dp(20),dp(40),dp(20),dp(20));setBackgroundColor(paper)};body=layout();root.addView(ScrollView(this).apply{addView(body)});setContentView(root)
         body.addView(text("Saved accounts could not be opened",26f,ink,true))
         body.addView(text("Your encrypted account data has been kept. Try reopening the app. If your phone's security key is unavailable, reset the local accounts and sign in again. Server accounts and records are not deleted; your administrator can revoke old phone connections.",16f,soft))
@@ -376,6 +386,7 @@ class MainActivity: ComponentActivity() {
     }
     private fun startPhone() { if(store.profiles().any{TenantConnection.ready(it)} && PhoneService.instance==null && !updates.isInstalling) startForegroundService(Intent(this,PhoneService::class.java)); updatePhone() }
     private fun updatePhone() {
+        if(PhoneService.instance?.calls?.isNotEmpty()==true)branding.dismiss()
         if(!::status.isInitialized || store.read()==null)return
         val phone=PhoneService.instance; val selected=store.read();val account=selected?.optJSONObject("account")
         val connection=if(selected?.optBoolean("needs_login")==true)"Sign in again in Accounts" else phone?.status ?: if(updates.isInstalling)"Phone paused while Android updates" else "Open the phone to connect"
@@ -741,6 +752,7 @@ class MainActivity: ComponentActivity() {
         val activeCall=PhoneService.instance?.call!=null
         if(activeCall)updateDetails?.dismiss()
         val gate=updates.shouldGate(activeCall,urgentUpdateBypass)
+        if(activeCall || gate || openUpdatesRequested || updates.isInstalling)branding.dismiss()
         if(gate!=updateGated && store.read()!=null){draw();return}
         updatePanel.removeAllViews()
         val state=updates.snapshot;val view=UpdatePresentation.describe(state,activeCall)
@@ -814,6 +826,7 @@ class MainActivity: ComponentActivity() {
         body.addView(button("Connection and account settings"){settings()})
     }
     private fun updateDialog() {
+        branding.dismiss()
         if(isFinishing || isDestroyed)return
         if(PhoneService.instance?.call!=null){openUpdatesRequested=true;return}
         if(updateDetails?.isShowing==true){refreshUpdateDialog();return}

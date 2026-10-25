@@ -7,8 +7,8 @@ android {
         applicationId = "com.openweb.pbx"
         minSdk = 28
         targetSdk = 36
-        versionCode = providers.gradleProperty("openwebPrivateVersionCode").orNull?.toInt() ?: 118
-        versionName = providers.gradleProperty("openwebPrivateVersionName").orNull ?: "1.0.18"
+        versionCode = providers.gradleProperty("openwebPrivateVersionCode").orNull?.toInt() ?: 119
+        versionName = providers.gradleProperty("openwebPrivateVersionName").orNull ?: "1.0.19"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     flavorDimensions += "distribution"
@@ -27,7 +27,7 @@ android {
             }
         }
     }
-    buildTypes { debug { ndk { abiFilters += (providers.gradleProperty("openwebTestAbi").orNull?.let { listOf(it) } ?: listOf("arm64-v8a", "armeabi-v7a", "x86_64")) } }; release { ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }; isMinifyEnabled = false; signingConfig = signingConfigs.getByName("release") } }
+    buildTypes { debug { ndk { abiFilters += (providers.gradleProperty("openwebTestAbi").orNull?.let { listOf(it) } ?: listOf("arm64-v8a", "armeabi-v7a", "x86_64")) } }; release { ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }; isMinifyEnabled = false; signingConfig = if(providers.gradleProperty("openwebUnsignedRelease").orNull=="true") null else signingConfigs.getByName("release") } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
     packaging { jniLibs.useLegacyPackaging = true; resources.excludes += setOf("META-INF/DEPENDENCIES") }

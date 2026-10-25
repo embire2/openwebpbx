@@ -1,0 +1,1 @@
+New five-second OpenWebPBX logo screen when opening the app. Calls, setup links and update actions remain immediately accessible. Existing accounts and calling settings are preserved.

@@ -1,0 +1,100 @@
+name: Android native splash qualification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: android-splash-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      GRADLE_OPTS: -Dorg.gradle.daemon=false
+    steps:
+      - name: Preserve dispatched source bytes
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install official Android build and emulator packages
+        run: |
+          set -euo pipefail
+          sdk="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          set +o pipefail
+          yes | "$sdk" --licenses >/dev/null
+          sdk_status=${PIPESTATUS[1]}
+          set -o pipefail
+          test "$sdk_status" -eq 0
+          "$sdk" 'platforms;android-36' 'build-tools;36.0.0' 'emulator' 'system-images;android-35;google_apis;x86_64'
+          mkdir -p "$RUNNER_TEMP/android-splash-output"
+          printf '%s\n' "ANDROID_OUTPUT=$RUNNER_TEMP/android-splash-output" >> "$GITHUB_ENV"
+      - name: Build unsigned releases and run both JVM/lint checks
+        run: |
+          set -euo pipefail
+          python3 mobile/android/scripts/test-refresh-source.py
+          mobile/android/gradlew -p mobile/android --no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx2048m \
+            -PopenwebUnsignedRelease=true -PopenwebTestAbi=x86_64 \
+            :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest :app:lintDirectRelease :app:lintPlayRelease \
+            :app:assembleDirectRelease :app:bundlePlayRelease :app:assembleDirectDebug :app:assembleDirectDebugAndroidTest :app:writeRuntimeInventory \
+            2>&1 | tee "$ANDROID_OUTPUT/build.log"
+          cp mobile/android/app/build/outputs/apk/direct/release/app-direct-release-unsigned.apk "$ANDROID_OUTPUT/openwebpbx-1.0.19-android-unsigned.apk"
+          cp mobile/android/app/build/outputs/bundle/playRelease/app-play-release.aab "$ANDROID_OUTPUT/openwebpbx-1.0.19-google-play-unsigned.aab"
+          cp mobile/android/app/build/runtime-dependencies.txt "$ANDROID_OUTPUT/"
+          cp -R mobile/android/app/build/test-results "$ANDROID_OUTPUT/jvm-results"
+          cp mobile/android/app/build/reports/lint-results-*.xml "$ANDROID_OUTPUT/"
+          python3 - <<'PY'
+          import hashlib,json,subprocess,os
+          from pathlib import Path
+          files=subprocess.check_output(['git','ls-files','-z','--','mobile/android','ANDROID_VERSION']).split(b'\0')
+          inputs=[{'path':p.decode(),'sha256':hashlib.sha256(Path(p.decode()).read_bytes()).hexdigest()} for p in files if p and Path(p.decode()).is_file()]
+          Path(os.environ['ANDROID_OUTPUT'],'source-inputs.json').write_text(json.dumps({'source_commit':os.environ['GITHUB_SHA'],'android_version':Path('ANDROID_VERSION').read_text().strip(),'inputs':inputs},indent=2)+'\n')
+          PY
+      - name: Exercise the actual native five-second screen and urgent entry paths
+        run: |
+          set -euo pipefail
+          test -c /dev/kvm
+          sudo chmod a+rw /dev/kvm
+          "$ANDROID_HOME/emulator/emulator" -accel-check
+          printf 'no\n' | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n openweb-splash-35 -k 'system-images;android-35;google_apis;x86_64' --force
+          "$ANDROID_HOME/emulator/emulator" -avd openweb-splash-35 -port 5580 -memory 1536 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -feature -Vulkan > "$ANDROID_OUTPUT/emulator.log" 2>&1 &
+          emulator_pid=$!
+          adb="$ANDROID_HOME/platform-tools/adb"
+          trap '"$adb" -s emulator-5580 emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" >/dev/null 2>&1 || true' EXIT
+          timeout 240 "$adb" -s emulator-5580 wait-for-device
+          for attempt in $(seq 1 120); do
+            if [ "$("$adb" -s emulator-5580 shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; then break; fi
+            sleep 2
+          done
+          test "$("$adb" -s emulator-5580 shell getprop sys.boot_completed | tr -d '\r')" = 1
+          "$adb" -s emulator-5580 shell input keyevent 82
+          "$adb" -s emulator-5580 install -r mobile/android/app/build/outputs/apk/direct/debug/app-direct-debug.apk
+          "$adb" -s emulator-5580 install -r mobile/android/app/build/outputs/apk/androidTest/direct/debug/app-direct-debug-androidTest.apk
+          timeout 180 "$adb" -s emulator-5580 shell am instrument -w -r -e class com.openweb.pbx.LaunchSplashTest -e launchSplashFixture true -e splashCapture true com.openweb.pbx.test/androidx.test.runner.AndroidJUnitRunner | tee "$ANDROID_OUTPUT/native-splash.log"
+          grep -q 'OK (6 tests)' "$ANDROID_OUTPUT/native-splash.log"
+          ! grep -qE 'FAILURES|INSTRUMENTATION_FAILED|Process crashed' "$ANDROID_OUTPUT/native-splash.log"
+          "$adb" -s emulator-5580 pull /sdcard/Android/data/com.openweb.pbx/files/splash-review "$ANDROID_OUTPUT/"
+      - name: Package complete corresponding source from authenticated unchanged SDK baseline
+        run: |
+          set -euo pipefail
+          curl --fail --location --proto '=https' --tlsv1.2 --retry 2 \
+            'https://github.com/embire2/openwebpbx/releases/download/v1.0.18/openwebpbx-1.0.18-android-source.tar.gz' -o "$RUNNER_TEMP/android18-source.tar.gz"
+          python3 mobile/android/scripts/refresh-source.py --base-source "$RUNNER_TEMP/android18-source.tar.gz" \
+            --runtime-inventory mobile/android/app/build/runtime-dependencies.txt --output "$ANDROID_OUTPUT/openwebpbx-1.0.19-android-source.tar.gz" \
+            | tee "$ANDROID_OUTPUT/source-package.json"
+          (cd "$ANDROID_OUTPUT" && sha256sum *.apk *.aab *.tar.gz > SHA256SUMS-unsigned)
+      - name: Retain native outputs and exact source evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: openwebpbx-android119-${{ github.run_id }}
+          path: ${{ runner.temp }}/android-splash-output/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 1
