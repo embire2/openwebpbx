@@ -238,7 +238,7 @@ def install():
     # Older installed updaters do not know the newly bundled spoken targets.
     # The candidate helper augments their verified recovery inventory before
     # changing any voice, while the engine remains in the same stopped phase.
-    if (PACKAGE/'voices/1.0.1').is_dir():
+    if (PACKAGE/'voices/1.0.2').is_dir():
         if not migrating and os.environ.get('OPENWEB_FRESH_INSTALL') != '1':
             raise ValueError('Use the recoverable instance updater for existing system voices.')
         if digest(PACKAGE/'install-voices.py') != manifest['files'].get('install-voices.py'):

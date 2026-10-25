@@ -1,0 +1,174 @@
+{
+  "schema": 1,
+  "version": "1.0.3",
+  "name": "Keoma South African English talking clock",
+  "provider": "ElevenLabs",
+  "voice_id": "i8SlcaZfyeP1st7wHsjM",
+  "voice_name": "Keoma",
+  "locale": "en-ZA",
+  "model_id": "eleven_multilingual_v2",
+  "voice_settings": {
+    "stability": 0.65,
+    "similarity_boost": 0.8,
+    "style": 0,
+    "use_speaker_boost": true,
+    "speed": 1
+  },
+  "provider_output_format": "pcm_44100",
+  "stock_source_version": "1.0.53",
+  "stock_source_repository": "https://github.com/freeswitch/freeswitch-sounds/tree/0c9642c28de78728544f3ed988ec450cfddab9e6/en/us/callie",
+  "stock_original_sha256": {},
+  "scope": "Keoma talking-clock phrases for immediate GMT+2 time announcements, seconds and exact signals; frozen dependencies from complete Keoma system voice1.0.2.",
+  "prompts": [
+    {
+      "id": "clock/welcome",
+      "text": "South African time.",
+      "source": "OpenWeb PBX original system script",
+      "targets": [
+        {
+          "path": "openwebpbx/talking-clock-1.0.3-welcome.wav",
+          "rate": 8000
+        },
+        {
+          "path": "openwebpbx/talking-clock-1.0.2-welcome.wav",
+          "rate": 8000
+        }
+      ]
+    },
+    {
+      "id": "clock/hours",
+      "text": "hours",
+      "source": "OpenWeb PBX original system script",
+      "targets": [
+        {
+          "path": "openwebpbx/talking-clock-1.0.3-hours.wav",
+          "rate": 8000
+        },
+        {
+          "path": "openwebpbx/talking-clock-1.0.2-hours.wav",
+          "rate": 8000
+        }
+      ]
+    },
+    {
+      "id": "clock/minutes",
+      "text": "minutes",
+      "source": "OpenWeb PBX original system script",
+      "targets": [
+        {
+          "path": "openwebpbx/talking-clock-1.0.3-minutes.wav",
+          "rate": 8000
+        },
+        {
+          "path": "openwebpbx/talking-clock-1.0.2-minutes.wav",
+          "rate": 8000
+        }
+      ]
+    },
+    {
+      "id": "clock/and",
+      "text": "and",
+      "source": "OpenWeb PBX original system script",
+      "targets": [
+        {
+          "path": "openwebpbx/talking-clock-1.0.3-and.wav",
+          "rate": 8000
+        },
+        {
+          "path": "openwebpbx/talking-clock-1.0.2-and.wav",
+          "rate": 8000
+        }
+      ]
+    },
+    {
+      "id": "clock/seconds",
+      "text": "seconds",
+      "source": "OpenWeb PBX original system script",
+      "targets": [
+        {
+          "path": "openwebpbx/talking-clock-1.0.3-seconds.wav",
+          "rate": 8000
+        },
+        {
+          "path": "openwebpbx/talking-clock-1.0.2-seconds.wav",
+          "rate": 8000
+        }
+      ]
+    },
+    {
+      "id": "clock/hour",
+      "text": "hour",
+      "source": "OpenWeb PBX original system script",
+      "targets": [
+        {
+          "path": "openwebpbx/talking-clock-1.0.3-hour.wav",
+          "rate": 8000
+        },
+        {
+          "path": "openwebpbx/talking-clock-1.0.2-hour.wav",
+          "rate": 8000
+        }
+      ]
+    },
+    {
+      "id": "clock/minute",
+      "text": "minute",
+      "source": "OpenWeb PBX original system script",
+      "targets": [
+        {
+          "path": "openwebpbx/talking-clock-1.0.3-minute.wav",
+          "rate": 8000
+        },
+        {
+          "path": "openwebpbx/talking-clock-1.0.2-minute.wav",
+          "rate": 8000
+        }
+      ]
+    },
+    {
+      "id": "clock/signal",
+      "text": "When you hear the signal, it will be",
+      "source": "OpenWeb PBX original system script",
+      "targets": [
+        {
+          "path": "openwebpbx/talking-clock-1.0.3-signal.wav",
+          "rate": 8000
+        },
+        {
+          "path": "openwebpbx/talking-clock-1.0.1-signal.wav",
+          "rate": 8000
+        }
+      ]
+    },
+    {
+      "id": "clock/exactly",
+      "text": "exactly.",
+      "source": "OpenWeb PBX original system script",
+      "targets": [
+        {
+          "path": "openwebpbx/talking-clock-1.0.3-exactly.wav",
+          "rate": 8000
+        },
+        {
+          "path": "openwebpbx/talking-clock-1.0.1-exactly.wav",
+          "rate": 8000
+        }
+      ]
+    },
+    {
+      "id": "clock/legacy-welcome",
+      "text": "Welcome to the OpenWeb PBX talking clock. The time is South African Standard Time. Please wait for the next time signal.",
+      "source": "OpenWeb PBX original system script",
+      "targets": [
+        {
+          "path": "openwebpbx/talking-clock-1.0.1-welcome.wav",
+          "rate": 8000
+        }
+      ]
+    }
+  ],
+  "voice_labels": {
+    "accent": "en-south-african",
+    "language": "en"
+  }
+}

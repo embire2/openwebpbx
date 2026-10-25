@@ -30,3 +30,11 @@ Stock text is adapted from FreeSWITCH Callie prompts (CC BY 3.0); the new
 performance and professional-wording changes are identified in the catalogue.
 The overlay preserves hold music, tones and customer media. No ElevenLabs
 voice model, API credential or customer recording is distributed.
+
+Releases carrying voices/1.0.2 contain the Keoma South African English system
+voice performance, generated through the owner's authorized paid ElevenLabs
+account. Original stock transcript copyrights/CC BY 3.0 attribution, complete
+scripts, provider identity and output hashes are retained in
+web/app/pbx_setup/resources/voicepacks/1.0.2/ and voices/1.0.2/. No API key or
+voice-model weights are distributed. Custom tenant audio and instrumental hold
+music retain their existing provenance and are excluded from voice synthesis.

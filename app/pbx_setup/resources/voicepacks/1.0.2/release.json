@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "version": "1.0.2",
+  "status": "prepared-not-published",
+  "provider": "ElevenLabs",
+  "voice_id": "i8SlcaZfyeP1st7wHsjM",
+  "voice_name": "Keoma",
+  "locale": "en-ZA",
+  "model_id": "eleven_multilingual_v2",
+  "scripts": 1241,
+  "audio_files": 4915,
+  "unique_final_synthesis_bindings": 1217,
+  "asset": {
+    "name": "openwebpbx-voices-1.0.2.tar.gz",
+    "sha256": "fa5c62d7d29f7dcd6d4fbb1d0618f7e019b56fee043f28775828f016bc9d53e6",
+    "bytes": 325962872
+  },
+  "pack_manifest_sha256": "b7ee5f0794a86e569e73a86647244a6d1de09a6b811dbef9796edf76e53ec558",
+  "catalog_file_sha256": "e67214b0cbd5bb5fb3e49920efda35f95b217604e00c23093a5b8ddd69e53acb",
+  "catalog_binding_sha256": "985b5b46d923df01f0b87349fef962aac042b1008683265485f7aa5d88c8d2bd",
+  "previous_pack_manifest_sha256": "232134ec4dcc6c8f5bee9f1ad3a909cd46609907fa06cc37236f0ec0f017a8e3",
+  "installed_version_marker": "openwebpbx/voice-pack.json",
+  "production_activated": false,
+  "windows_installation_qualified": false,
+  "complete_signed_pbx_upgrade_qualified": false
+}

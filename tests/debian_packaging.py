@@ -32,10 +32,10 @@ class PrivateBuildPackaging(unittest.TestCase):
             with tarfile.open(archive) as packed:
                 prefix=archive.name.removesuffix('.tar.gz')
                 manifest=json.load(packed.extractfile(prefix+'/release-manifest.json'))
-                self.assertIn('voices/1.0.1/pack.json',manifest['files'])
+                self.assertIn('voices/1.0.2/pack.json',manifest['files'])
                 self.assertIn('voice-tools/deployment.py',manifest['files'])
                 self.assertIn('install-voices.py',manifest['files'])
-                self.assertEqual(sum(name.startswith('voices/1.0.1/files/') for name in manifest['files']),4888)
+                self.assertEqual(sum(name.startswith('voices/1.0.2/files/') for name in manifest['files']),4915)
                 for name,executable in [('server','OpenWebPbx.Server'),('updater','OpenWebPbx.Updater')]:
                     self.assertEqual(packed.getmember(prefix+'/'+name).mode,0o755)
                     self.assertEqual(packed.getmember(prefix+'/'+name+'/'+executable).mode,0o755)

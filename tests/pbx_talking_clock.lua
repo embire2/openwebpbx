@@ -14,7 +14,7 @@ for second=0,86399,15 do
     local target=second*1000
     local paths,total,h,m,s=M.sentence(target,durations)
     check(total+300<M.CADENCE_MS,'A spoken time cannot fit its cadence')
-    check(paths[1]=='openwebpbx/talking-clock-1.0.1-signal.wav'and paths[#paths]=='openwebpbx/talking-clock-1.0.1-exactly.wav','Exact-signal statement changed')
+    check(paths[1]=='openwebpbx/talking-clock-1.0.3-signal.wav'and paths[#paths]=='openwebpbx/talking-clock-1.0.3-exactly.wav','Exact-signal statement changed')
     check(M.next_signal(target-1)==target,'Signal boundary changed')
     longest=math.max(longest,total)
 end
@@ -46,7 +46,7 @@ local function run(options)
             if app=='sched_hangup'then check(data=='+1800 NORMAL_CLEARING');scheduled=true;return end
             check(app=='playback','Clock used a non-media wait')
             if data:find('silence_stream://',1,true)==1 then
-                local delay=tonumber(data:match('(%d+)$'));check(delay>=1 and delay<durations['openwebpbx/talking-clock-1.0.2-tick.wav'],'Long silent playback gap');now=now+delay;return
+                local delay=tonumber(data:match('(%d+)$'));check(delay>=1 and delay<durations['openwebpbx/talking-clock-1.0.3-tick.wav'],'Long silent playback gap');now=now+delay;return
             end
             check(data=='tone_stream://%(200,0,1000)','Unexpected exact time signal')
             local target=tonumber(vars.openweb_clock_target_ms)
@@ -68,7 +68,7 @@ local function run(options)
     check(speech[2].path:find('signal.wav',1,true)~=nil and speech[2].at==started+durations[speech[1].path],'First time statement waited after welcome')
     check(speech[3].at-started<4000,'Caller waited too long to hear the hour')
     check(ticks>0,'Wait intervals did not provide audible media')
-    check(vars.openweb_clock_version=='1.0.2','Runtime version absent')
+    check(vars.openweb_clock_version=='1.0.3','Runtime version absent')
     if options.backward or options.backward_speech then check(jumped and tones[1]<backward_target,'A real backward step did not select a fresh earlier target')
     elseif options.step then check(forward_target and tones[1]>forward_target,'A stale pre-forward-step signal was emitted')
     else
@@ -78,11 +78,26 @@ local function run(options)
     if options.first_target then check(tones[1]==options.first_target,'Boundary control selected a different first target')end
 end
 for _,offset in ipairs({0,1,125,999,1345,7234,14999})do run({start=1792245405000+offset})end
+-- Exact last-millisecond admission for the newly sealed Keoma sentence.
+local boundary=1792342215000
+local _,statement=M.sentence(boundary,durations)
+local cutoff=boundary-statement-300
+for _,offset in ipairs({-1,0,1})do
+    run({start=cutoff+offset-durations['openwebpbx/talking-clock-1.0.3-welcome.wav'],first_target=offset<=0 and boundary or boundary+M.CADENCE_MS})
+end
 -- Native fresh17 reproduction: the next-quarter sentence plus 300ms cannot
 -- fit, but the following target initially leaves a legitimate >15s wait.
-for _,case in ipairs({{5300,1792342215000},{5847,1792342230000},{6200,1792342230000}})do
-    run({start=1792342200000+case[1]-durations['openwebpbx/talking-clock-1.0.2-welcome.wav'],first_target=case[2]})
+-- Retain the original timing data independently from the new narrator lengths.
+local current=durations;local legacy=dofile('tests/fixtures/clock-nathaniel102-durations.lua');durations={}
+for path,ms in pairs(legacy)do
+    path=path:gsub('talking%-clock%-1%.0%.2%-','talking-clock-1.0.3-'):gsub('talking%-clock%-1%.0%.1%-','talking-clock-1.0.3-')
+    durations[path]=ms
 end
+package.loaded['app.pbx_services.clock_prompts']=durations
+for _,case in ipairs({{5300,1792342215000},{5847,1792342230000},{6200,1792342230000}})do
+    run({start=1792342200000+case[1]-durations['openwebpbx/talking-clock-1.0.3-welcome.wav'],first_target=case[2]})
+end
+durations=current;package.loaded['app.pbx_services.clock_prompts']=current
 run({step=20000});run({backward=true});run({backward_speech=true});run({early=true});run({fail=true});run({invalid=true});run({expire=true})
 io.open=function()return nil end
 local answered=false;local failure

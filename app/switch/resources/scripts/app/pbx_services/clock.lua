@@ -1,5 +1,5 @@
 -- South African time with immediate speech and a signal every fifteen seconds.
-local M={CADENCE_MS=15000,VERSION='1.0.2'}
+local M={CADENCE_MS=15000,VERSION='1.0.3'}
 function M.next_signal(now_ms)
     return (math.floor(now_ms/M.CADENCE_MS)+1)*M.CADENCE_MS
 end
@@ -9,8 +9,8 @@ function M.time_parts(epoch_ms)
 end
 function M.sentence(target,durations)
     local hour,minute,second=M.time_parts(target)
-    local base='openwebpbx/talking-clock-1.0.2-'
-    local paths={'openwebpbx/talking-clock-1.0.1-signal.wav'}
+    local base='openwebpbx/talking-clock-1.0.3-'
+    local paths={'openwebpbx/talking-clock-1.0.3-signal.wav'}
     local function add(path) paths[#paths+1]=path end
     local function number(value)
         local folder='en/us/callie/digits/8000/'
@@ -19,7 +19,7 @@ function M.sentence(target,durations)
     end
     number(hour);add(base..(hour==1 and 'hour.wav' or 'hours.wav'));number(minute);add(base..(minute==1 and 'minute.wav' or 'minutes.wav'))
     add(base..'and.wav');number(second);add(base..'seconds.wav')
-    add('openwebpbx/talking-clock-1.0.1-exactly.wav')
+    add('openwebpbx/talking-clock-1.0.3-exactly.wav')
     local total=0
     for _,path in ipairs(paths)do total=total+assert(durations[path],'Missing clock duration')end
     return paths,total,hour,minute,second
@@ -27,7 +27,7 @@ end
 function M.run(session,api,root)
     if type(root)~='string' or root=='' then session:hangup('NORMAL_TEMPORARY_FAILURE');return end
     local durations=require 'app.pbx_services.clock_prompts'
-    local base='openwebpbx/talking-clock-1.0.2-'
+    local base='openwebpbx/talking-clock-1.0.3-'
     -- Validate every runtime dependency before answering, including the wait tick.
     for path,duration in pairs(durations)do
         if type(duration)~='number' or duration<=0 then session:hangup('NORMAL_TEMPORARY_FAILURE');return end

@@ -1,23 +1,18 @@
 # Building and installing system voices
 
-System voice **1.0.1** replaces the complete installed English stock/default
-spoken inventory with Nathaniel UK. Its source of truth is
-[`catalog.json`](../../app/pbx_setup/resources/voicepacks/1.0.1/catalog.json).
+System voice **1.0.2** replaces the complete installed English stock/default
+spoken inventory with Keoma (South African English). Its source of truth is
+[`catalog.json`](../../app/pbx_setup/resources/voicepacks/1.0.2/catalog.json).
 The four-rate offline audio archive is built separately from Git source. No
 customer recording, caller ID, South African ID number or PBX backup is sent
 to the speech provider. The generator sends catalogue text only. The optional
 tenant greeting command sends only the administrator-approved tenant display
 name and the fixed greeting script.
 
-The hosted Debian PBX activated this complete pack on **17 October 2026**,
-including default voicemail and spoken extension numbers. Actual extension
-1000 default playback matched Nathaniel; custom playback and complete saved
-media/settings preservation passed. See [the verification record](../../docs/feature-coverage.md#hosted-nathaniel-default-voicemail--2026-10-17).
-This guarded voice-only operational transaction used its own private recovery
-snapshot/journal, the shared updater lock, idle-call checks, temporary call
-pause and the reviewed atomic writers. It does not qualify a complete signed
-PBX upgrade or publish a new core/Android/Windows release. Future general
-release installation must use the normal installer/updater flow below.
+Voice **1.0.2** is generated and sealed, with hosted activation and full Windows
+release qualification tracked separately. The previous Nathaniel 1.0.1 pack
+remains an authenticated upgrade origin. Do not infer activation from this
+source catalogue or from an earlier release's acceptance.
 
 Use an existing paid ElevenLabs account which supports 44.1 kHz PCM. Configure
 `ELEVENLABS_API_KEY` in a private environment or a mode-0600 ignored `.env` file.
@@ -28,14 +23,14 @@ the completed system voice pack.
 ```sh
 python3 packaging/voices/voicepack.py plan
 python3 packaging/voices/voicepack.py generate \
-  --output /private/voice-1.0.1 --cache /private/voice-cache \
+  --output /private/voice-1.0.2 --cache /private/voice-cache \
   --env-file /private/voice.env --execute
-python3 packaging/voices/voicepack.py verify --pack /private/voice-1.0.1
+python3 packaging/voices/voicepack.py verify --pack /private/voice-1.0.2
 python3 packaging/voices/voicepack.py archive \
-  --pack /private/voice-1.0.1 --output /private/openwebpbx-voices-1.0.1.tar.gz
+  --pack /private/voice-1.0.2 --output /private/openwebpbx-voices-1.0.2.tar.gz
 ```
 
-The generator confirms the live voice ID and British label, requires a paid
+The generator confirms the live voice ID, exact name and South African English labels, requires a paid
 plan with sufficient included character balance, and never buys credits. It
 deduplicates identical scripts and keeps a content-bound private provider cache
 so a failed build can resume without regenerating successful items. An active
@@ -71,18 +66,18 @@ sound files:
 
 ```sh
 python3 packaging/voices/deployment.py stage \
-  --archive /private/openwebpbx-voices-1.0.1.tar.gz \
+  --archive /private/openwebpbx-voices-1.0.2.tar.gz \
   --sha256 SHA256_FROM_THE_AUTHENTICATED_RELEASE \
-  --destination /private/verified-voice-1.0.1
+  --destination /private/verified-voice-1.0.2
 python3 packaging/voices/deployment.py plan \
-  --pack /private/verified-voice-1.0.1 \
+  --pack /private/verified-voice-1.0.2 \
   --sounds-root /usr/share/freeswitch/sounds
 ```
 
-New Debian release builds require `--voices /private/verified-voice-1.0.1`.
+New Debian release builds require `--voices /private/verified-voice-1.0.2`.
 The ordinary signed release manifest seals every offline WAV and all voice tools.
 The fresh installer checks the entire pack and installs it after the stock
-engine files, before the call engine starts. The updater adds **all 4,888 spoken
+engine files, before the call engine starts. The updater adds **all 4,915 spoken
 targets and the selected-version marker** to its normal deployment map before
 taking the file snapshot. It pauses calls and stops services through the
 existing update transaction, then installs only verified complete audio.
@@ -107,9 +102,27 @@ greetings**; the complete stock pack and fixed Call Me Back prompts work offline
 The callback worker's private storage is restricted to its explicit systemd
 write path and is covered by the ordinary encrypted media backup.
 
-Windows can carry the same offline PCM pack, but its native installer/recovery
-transaction has not yet been qualified for this overlay. Do not describe the
-existing frozen Windows candidate as containing or accepting these voices.
+Windows stages the same offline PCM archive from a fixed audio-only prerelease
+URL and exact SHA-256. No provider key is required in CI or a published installer.
+Its new native build, full installer, runtime audio and upgrade/restore gates
+must qualify these exact Keoma bytes before a complete Windows release.
+
+Old ready Call Me Back tenant-name greetings are refreshed only when their
+recorded 1.0.1 hash matches the actual fixed file. A bounded three-attempt claim
+prepares Keoma without holding a database row lock during provider requests.
+An immutable `greeting-keoma-<sha256>.wav` is created first; a guarded transaction
+selects it only if the name, version, stored hash, old file hash and claim still
+match. Failed generation or commit leaves the previous ready/enabled service
+and fixed audio untouched. Custom mismatches are preserved with an owner-only
+retry/status action. New generation needs each instance's private provider key;
+missing keys preserve active audio and display an operator message. Provider
+body reads have a 90-second maximum linked deadline. On Windows the original
+maintenance lease spans the entire worker tick, including network/file work.
+
+The active clock is independently versioned **1.0.3**: nine Keoma phrases and
+24 frozen Keoma number dependencies, plus the unchanged non-speech timing tick.
+The complete voice pack also replaces known old speech aliases. Instrumental
+music, tones, voicemail messages and customer recordings are outside synthesis.
 
 Official references: [speech API and formats](https://elevenlabs.io/docs/api-reference/text-to-speech/convert),
 [voice identity API](https://elevenlabs.io/docs/api-reference/voices/get),

@@ -46,7 +46,7 @@ def load_clock(source_root, event_socket):
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             if node.targets[0].id in ('RATE', 'VERSION'):
                 values[node.targets[0].id] = ast.literal_eval(node.value)
-    if values != {'RATE': 8000, 'VERSION': '1.0.2'}:
+    if values != {'RATE': 8000, 'VERSION': '1.0.3'}:
         raise AssertionError('The reviewed native clock constants differ.')
     host, port, password = event_socket['host'], event_socket['port'], event_socket['password']
     if host not in ('127.0.0.1', '::1', 'localhost') or type(port) is not int or not 1 <= port <= 65535:
@@ -55,7 +55,7 @@ def load_clock(source_root, event_socket):
         raise AssertionError('The explicit local event socket credentials are invalid.')
     namespace = {name: globals()[name] for name in ('array', 'hashlib', 'json', 'math', 'os',
                  'Path', 're', 'socket', 'struct', 'sys', 'threading', 'time', 'urllib', 'wave')}
-    namespace.update(REPO=source_root, RATE=8000, VERSION='1.0.2',
+    namespace.update(REPO=source_root, RATE=8000, VERSION='1.0.3',
                      UUID=re.compile(r'^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$'),
                      event_settings=lambda: (host, port, password))
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(path), 'exec'), namespace)
@@ -88,7 +88,7 @@ def verify_bindings(clock, source_root, sound_root, script_root, work):
         clock.check(path.is_file() and not path.is_symlink() and
                     path.resolve().is_relative_to(sound_root.resolve()), 'The installed clock sound is unavailable or unsafe')
         actual[name] = clock.sha(path)
-        clock.check(actual[name] == wanted, 'An installed clock sound differs from the frozen Nathaniel asset')
+        clock.check(actual[name] == wanted, 'An installed clock sound differs from the frozen Keoma asset')
     scripts = {}
     for name in ('clock.lua', 'clock_prompts.lua'):
         installed = script_root / 'app/pbx_services' / name

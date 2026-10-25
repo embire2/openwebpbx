@@ -83,7 +83,7 @@ call_me_back_dropin.chmod(0o644)
 # A complete offline voice overlay is verified before the fresh engine starts.
 # The archive contains spoken files only, preserving music and customer media.
 voice_helper=P('install-voices.py')
-if voice_helper.is_file() and P('voices/1.0.1').is_dir():
+if voice_helper.is_file() and P('voices/1.0.2').is_dir():
  spec=importlib.util.spec_from_file_location('fresh_voices',voice_helper.resolve())
  voices=importlib.util.module_from_spec(spec);spec.loader.exec_module(voices)
  voices.copy_files(voices.payload(P.cwd(),json.loads(P('release-manifest.json').read_text()),fresh=True))

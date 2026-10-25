@@ -81,6 +81,7 @@ class Voices(unittest.TestCase):
         self.small['prompts']=[copy.deepcopy(self.catalog['prompts'][0]),copy.deepcopy(self.catalog['prompts'][-1])]
         names={t['path'] for p in self.small['prompts'] for t in p['targets']}
         self.small['stock_original_sha256']={k:s for k,s in self.catalog['stock_original_sha256'].items() if k in names}
+        self.small['previous_system_sha256']={k:s for k,s in self.catalog.get('previous_system_sha256',{}).items() if k in names}
         self.pack=self.root/'pack';self.pack.mkdir()
         records={}
         for p in self.small['prompts']:
@@ -112,8 +113,8 @@ class Voices(unittest.TestCase):
         stock=[p for p in self.catalog['prompts'] if p['id'].startswith('stock/')]
         self.assertEqual(len(stock),1219)
         self.assertTrue(all({t['rate'] for t in p['targets']}==v.RATES for p in stock))
-        self.assertEqual(len(self.catalog['stock_original_sha256']),4880)
-        self.assertEqual(sum(len(p['targets']) for p in self.catalog['prompts']),4888)
+        self.assertEqual(len(self.catalog['stock_original_sha256']),4890)
+        self.assertEqual(sum(len(p['targets']) for p in self.catalog['prompts']),4915)
         self.assertEqual(len([p for p in self.catalog['prompts'] if p['id'].startswith('call-me-back/')]),8)
 
     def test_all_scripts_are_nonempty_and_tenant_id_not_rendered(self):
@@ -212,11 +213,37 @@ class Voices(unittest.TestCase):
         with self.assertRaises(d.PackError):d.deployment_files(self.pack,self.small,sounds,fresh=True)
         self.assertEqual(target.read_bytes(),b'private customer replacement')
 
+    def test_only_catalogue_authenticated_previous_system_bytes_can_transition(self):
+        sounds=self.root/'sounds';name=self.small['prompts'][0]['targets'][0]['path']
+        target=sounds/name;target.parent.mkdir(parents=True);old=b'owned prior system prompt fixture';target.write_bytes(old)
+        self.small['previous_system_sha256'][name]=v.digest(old)
+        self.seal['catalog_sha256']=v.digest(v.canonical(self.small))
+        (self.pack/'catalog.json').write_bytes(v.canonical(self.small));(self.pack/'pack.json').write_bytes(v.canonical(self.seal))
+        self.assertIn(target,d.deployment_files(self.pack,self.small,sounds,fresh=True))
+        before={str(i.SOUNDS/name):{'exists':True,'sha256':v.digest(old)}}
+        i.verify_original_snapshot({name:self.small['stock_original_sha256'][name]},self.seal['files'],before,
+            previous_system_sha256=self.small['previous_system_sha256'])
+        target.write_bytes(old+b'customer edit')
+        with self.assertRaises(d.PackError):d.deployment_files(self.pack,self.small,sounds,fresh=True)
+        before[str(i.SOUNDS/name)]['sha256']=v.digest(target.read_bytes())
+        with self.assertRaises(ValueError):i.verify_original_snapshot({name:self.small['stock_original_sha256'][name]},self.seal['files'],before,
+            previous_system_sha256=self.small['previous_system_sha256'])
+
+    def test_foreign_previous_voice_requires_exact_prior_pack_identity(self):
+        sounds=self.root/'sounds';prior={'provider':'ElevenLabs','voice_id':'7S3KNdLDL7aRgBVRQb1z','files':{}}
+        with self.assertRaises(d.PackError):d.deployment_files(self.pack,self.small,sounds,fresh=True,previous_manifest=prior)
+        self.small['previous_pack_sha256']=v.digest(v.canonical(prior))
+        self.seal['catalog_sha256']=v.digest(v.canonical(self.small))
+        (self.pack/'catalog.json').write_bytes(v.canonical(self.small));(self.pack/'pack.json').write_bytes(v.canonical(self.seal))
+        self.assertGreater(len(d.deployment_files(self.pack,self.small,sounds,fresh=True,previous_manifest=prior)),1)
+        prior['files']['unexpected']={'sha256':'a'*64}
+        with self.assertRaises(d.PackError):d.deployment_files(self.pack,self.small,sounds,fresh=True,previous_manifest=prior)
+
     def test_installed_missing_stock_refuses(self):
         with self.assertRaises(d.PackError):d.deployment_files(self.pack,self.small,self.root/'sounds')
 
     def sparse_package(self):
-        package=self.root/'package';base=package/'voices/1.0.1';base.parent.mkdir(parents=True);shutil.copytree(self.pack,base)
+        package=self.root/'package';base=package/'voices/1.0.2';base.parent.mkdir(parents=True);shutil.copytree(self.pack,base)
         helper=package/'voice-tools';helper.mkdir()
         for name in ['voicepack.py','deployment.py']:shutil.copyfile(ROOT/'packaging/voices'/name,helper/name)
         name=next(t['path']for t in self.small['prompts'][0]['targets']if t['rate']==8000)
@@ -319,7 +346,7 @@ class Voices(unittest.TestCase):
         i.copy_files(mappings)
         self.assertNotEqual(existing.read_bytes(),b'original stock fixture')
         self.assertEqual(existing.stat().st_mode&0o777,0o600)
-        self.assertEqual(json.loads((sounds/'openwebpbx/voice-pack.json').read_text())['version'],'1.0.1')
+        self.assertEqual(json.loads((sounds/'openwebpbx/voice-pack.json').read_text())['version'],'1.0.2')
         # Execute the actual updater's recovery writer, not a test substitute.
         u.restore_files(backup)
         self.assertEqual(existing.read_bytes(),b'original stock fixture')

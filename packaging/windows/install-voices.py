@@ -35,11 +35,11 @@ def payload(package, sounds):
     manifest = json.loads(ordinary(package/'release-manifest.json').read_text(encoding='utf-8'))
     files = manifest['files']
     required = ['voice-tools/voicepack.py', 'voice-tools/deployment.py',
-                'voices/1.0.1/catalog.json', 'voices/1.0.1/pack.json',
-                'voices/1.0.1/LICENSE-FreeSWITCH.txt']
-    base = package/'voices/1.0.1'
+                'voices/1.0.2/catalog.json', 'voices/1.0.2/pack.json',
+                'voices/1.0.2/LICENSE-FreeSWITCH.txt']
+    base = package/'voices/1.0.2'
     if not base.is_dir():
-        raise ValueError('The complete offline Nathaniel voice pack is required.')
+        raise ValueError('The complete offline Keoma voice pack is required.')
     for name in required:
         if digest(ordinary(package/name)) != files.get(name):
             raise ValueError('A system-voice tool or catalogue differs from its release.')
@@ -93,7 +93,7 @@ def main():
     mappings = payload(args.package, args.sounds)
     if not args.check:
         copy_files(mappings)
-    print(json.dumps({'voice_version': '1.0.1', 'mapped_files': len(mappings),
+    print(json.dumps({'voice_version': '1.0.2', 'mapped_files': len(mappings),
                       'activated': not args.check, 'customer_media_selected': False}))
 
 

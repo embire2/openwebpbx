@@ -150,7 +150,7 @@ class ClockAdapterTests(unittest.TestCase):
         self.assertEqual(proof['frozen_Nathaniel_assets'], 34)
         self.assertEqual(len(proof['scripts']), 2)
         (sounds / next(iter(hashes))).write_bytes(b'changed')
-        with self.assertRaisesRegex(AssertionError, 'frozen Nathaniel'):
+        with self.assertRaisesRegex(AssertionError, 'frozen Keoma'):
             adapter.verify_bindings(bound, source, sounds, scripts, self.root)
     def test_success_restores_media_hangs_up_only_own_call_and_closes_observer(self):
         phone = Phone();summary = self.run_qualifier(phone)

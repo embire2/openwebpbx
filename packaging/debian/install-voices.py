@@ -44,12 +44,15 @@ def required_stock_paths(package, manifest):
     return frozenset(names)
 
 
-def verify_original_snapshot(originals,new,before,required_stock_paths=None):
+def verify_original_snapshot(originals,new,before,required_stock_paths=None,previous_system_sha256=None):
+    previous_system_sha256 = previous_system_sha256 or {}
     for name,original_sha in originals.items():
         row=before.get(str(SOUNDS/name))
         if row is not None and row.get('exists') is False and required_stock_paths is not None and name not in required_stock_paths:
             continue # Explicit absent state was captured before adding a missing historical rate.
-        if row is None or not row.get('exists') or row.get('sha256')not in {original_sha,new[name]['sha256']}:
+        allowed = {original_sha, new[name]['sha256']}
+        if name in previous_system_sha256: allowed.add(previous_system_sha256[name])
+        if row is None or not row.get('exists') or row.get('sha256')not in allowed:
             raise ValueError('A pre-upgrade system prompt was customised or absent. Recover the original installation and review its voice choice.')
 
 
@@ -63,14 +66,14 @@ def voice_module(package):
 
 def payload(package, manifest, *, sounds_root=SOUNDS, fresh=False):
     package = Path(package)
-    base = package/'voices/1.0.1'
+    base = package/'voices/1.0.2'
     if not base.exists():
         # Older immutable release archives have no voice overlay.
         if any(name.startswith('voices/') for name in manifest['files']):
             raise ValueError('The release voice directory is incomplete.')
         return {}
     required = {'voice-tools/voicepack.py','voice-tools/deployment.py',
-                'voices/1.0.1/catalog.json','voices/1.0.1/pack.json','voices/1.0.1/LICENSE-FreeSWITCH.txt'}
+                'voices/1.0.2/catalog.json','voices/1.0.2/pack.json','voices/1.0.2/LICENSE-FreeSWITCH.txt'}
     for name in required:
         path = package/name
         if path.is_symlink() or not path.is_file() or digest(path) != manifest['files'].get(name):
@@ -147,10 +150,11 @@ def main():
     # Legacy updaters already deployed their four original OpenWeb prompt
     # paths. Check the true pre-upgrade snapshot as well as the current files,
     # so an administrator's replacement is not hidden by that older copy step.
-    originals = json.loads((PACKAGE/'voices/1.0.1/catalog.json').read_text())['stock_original_sha256']
-    new = json.loads((PACKAGE/'voices/1.0.1/pack.json').read_text())['files']
+    catalog = json.loads((PACKAGE/'voices/1.0.2/catalog.json').read_text())
+    originals = catalog['stock_original_sha256']
+    new = json.loads((PACKAGE/'voices/1.0.2/pack.json').read_text())['files']
     before = {row['path']:row for row in json.loads((backup/'files.json').read_text())}
-    verify_original_snapshot(originals,new,before,required_stock_paths(PACKAGE,manifest))
+    verify_original_snapshot(originals,new,before,required_stock_paths(PACKAGE,manifest),catalog.get('previous_system_sha256'))
     copy_files(mappings)
 
 

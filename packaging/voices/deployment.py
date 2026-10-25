@@ -82,7 +82,8 @@ def deployment_files(pack_root, catalog, sounds_root, *, previous_manifest=None,
     pack_root, sounds_root = Path(pack_root), Path(sounds_root)
     pack = voicepack.verify(catalog,pack_root)
     if previous_manifest is not None and (previous_manifest.get('provider') != 'ElevenLabs'
-            or previous_manifest.get('voice_id') != catalog['voice_id']):
+            or (previous_manifest.get('voice_id') != catalog['voice_id']
+                and voicepack.digest(voicepack.canonical(previous_manifest)) != catalog.get('previous_pack_sha256'))):
         raise PackError('The previous voice identity is not compatible.')
     required_stock_paths=None if required_stock_paths is None else frozenset(required_stock_paths)
     result = {}
@@ -95,6 +96,8 @@ def deployment_files(pack_root, catalog, sounds_root, *, previous_manifest=None,
             allowed = {metadata['sha256']}
             if name in catalog['stock_original_sha256']:
                 allowed.add(catalog['stock_original_sha256'][name])
+            if name in catalog.get('previous_system_sha256', {}):
+                allowed.add(catalog['previous_system_sha256'][name])
             if previous_manifest:
                 previous = previous_manifest.get('files',{}).get(name,{})
                 if voicepack.HASH.fullmatch(previous.get('sha256','')):

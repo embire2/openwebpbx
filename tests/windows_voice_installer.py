@@ -36,12 +36,13 @@ class WindowsVoices(unittest.TestCase):
         self.package = self.root/'package'
         self.package.mkdir()
         (self.package/'voices').mkdir()
-        base = self.package/'voices/1.0.1'
+        base = self.package/'voices/1.0.2'
         base.mkdir()
         catalog = copy.deepcopy(voices.load_catalog(voices.DEFAULT_CATALOG))
         catalog['prompts'] = [catalog['prompts'][0], catalog['prompts'][-1]]
         names = {t['path'] for p in catalog['prompts'] for t in p['targets']}
         catalog['stock_original_sha256'] = {k:v for k,v in catalog['stock_original_sha256'].items() if k in names}
+        catalog['previous_system_sha256'] = {k:v for k,v in catalog.get('previous_system_sha256',{}).items() if k in names}
         records = {}
         for prompt in catalog['prompts']:
             binding = {k:catalog[k] for k in ['voice_id','model_id','voice_settings','provider_output_format']}
@@ -121,7 +122,7 @@ class WindowsVoices(unittest.TestCase):
             install.payload(self.package, self.sounds)
         self.assertEqual(list(self.sounds.iterdir()), [])
         self.seal()
-        pack = self.package/'voices/1.0.1/pack.json'
+        pack = self.package/'voices/1.0.2/pack.json'
         pack.write_bytes(pack.read_bytes()+b' ')
         with self.assertRaisesRegex(ValueError, 'differs'):
             install.payload(self.package, self.sounds)

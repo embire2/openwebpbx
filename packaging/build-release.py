@@ -30,7 +30,7 @@ parser.add_argument('--acme', type=pathlib.Path)
 parser.add_argument('--music', type=pathlib.Path)
 parser.add_argument('--codec-source', type=pathlib.Path)
 parser.add_argument('--registrar-source', type=pathlib.Path, help='Explicit matching MSI pthread source supplement; 6,215 reviewed codec inputs, including the Windows WebSocket patch, remain separate.')
-parser.add_argument('--voices', type=pathlib.Path, help='Complete, verified Nathaniel UK voice pack 1.0.1 directory (offline audio, no API key).')
+parser.add_argument('--voices', type=pathlib.Path, help='Complete, verified Keoma South African English voice pack 1.0.2 directory (offline audio, no API key).')
 parser.add_argument('--output', type=pathlib.Path, default=root / 'artifacts')
 args = parser.parse_args()
 version = (root / 'VERSION').read_text().strip()
@@ -46,9 +46,9 @@ if args.target == 'windows' and (not args.desktop or not (args.desktop / 'OpenWe
     parser.error('Supply the complete Windows-built manager directory.')
 if args.target == 'debian' and (not args.engine or not args.engine.is_file()):
     parser.error('Supply the clean engine archive built from upstream source.')
-voice_catalog_path = root / 'app/pbx_setup/resources/voicepacks/1.0.1/catalog.json'
+voice_catalog_path = root / 'app/pbx_setup/resources/voicepacks/1.0.2/catalog.json'
 if voice_catalog_path.is_file() and not args.voices:
-    parser.error('Supply --voices with the complete generated Nathaniel 1.0.1 pack; partial prompt releases are refused.')
+    parser.error('Supply --voices with the complete generated Keoma 1.0.2 pack; partial prompt releases are refused.')
 if args.voices:
     voice_spec = importlib.util.spec_from_file_location('release_voicepack', root / 'packaging/voices/voicepack.py')
     voice_module = importlib.util.module_from_spec(voice_spec)

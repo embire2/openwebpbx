@@ -16,7 +16,7 @@ function Run {
 function Step([string]$Name,[string]$Conclusion='success'){[pscustomobject]@{name=$Name;status='completed';conclusion=$Conclusion}}
 function Jobs {
  [pscustomobject]@{total_count=2;jobs=@(
-  [pscustomobject]@{id=[long]111;run_id=[long]12345;run_attempt=1;head_sha=('a'*40);name='music';status='completed';conclusion='success';labels=@('ubuntu-22.04');steps=@((Step 'Stage the immutable public Nathaniel system prompts'),(Step 'Store only canonical prepared audio and build provenance'),(Step 'Post Check out the candidate source'),(Step 'Complete job'))},
+  [pscustomobject]@{id=[long]111;run_id=[long]12345;run_attempt=1;head_sha=('a'*40);name='music';status='completed';conclusion='success';labels=@('ubuntu-22.04');steps=@((Step 'Stage the immutable public Keoma system prompts'),(Step 'Store only canonical prepared audio and build provenance'),(Step 'Post Check out the candidate source'),(Step 'Complete job'))},
   [pscustomobject]@{id=[long]222;run_id=[long]12345;run_attempt=1;head_sha=('a'*40);name='suite';status='completed';conclusion='failure';labels=@('windows-2025');steps=@((Step 'Verify build inputs and qualify the isolated server' 'failure'),(Step 'Store only credential-free acceptance facts'),(Step 'Preserve only the original verified candidate package and checksum'),(Step 'Complete job'))}
  )}
 }

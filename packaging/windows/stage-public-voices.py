@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage only the public, immutable Debian16 Nathaniel pack for Windows CI."""
+"""Stage only the reviewed immutable Keoma1.0.2 audio asset for Windows CI."""
 import argparse
 import contextlib
 import hashlib
@@ -12,8 +12,9 @@ import tarfile
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
-ARCHIVE_SHA256 = '1d9c6f4fa481dbeb0d09938e13481c78ac32fa1a2048e9eed57507e94113b2af'
-PREFIX = 'openwebpbx-1.0.16-debian13-amd64/voices/1.0.1/'
+SOURCE_RELEASE = 'voices-v1.0.2'
+SOURCE_URL = 'https://github.com/embire2/openwebpbx/releases/download/voices-v1.0.2/openwebpbx-voices-1.0.2.tar.gz'
+ARCHIVE_SHA256 = 'fa5c62d7d29f7dcd6d4fbb1d0618f7e019b56fee043f28775828f016bc9d53e6'
 
 
 def stage(archive, destination):
@@ -41,11 +42,7 @@ def stage(archive, destination):
     try:
         with tarfile.open(archive, 'r|gz') as source:
             for member in source:
-                if not member.name.startswith(PREFIX):
-                    continue
-                relative = member.name[len(PREFIX):]
-                if member.isdir():
-                    continue
+                relative = member.name
                 if not member.isfile() or relative not in expected or relative in seen or member.size > 12_000_000:
                     raise ValueError('The public voice inventory is unsafe or ambiguous.')
                 seen.add(relative)
@@ -61,8 +58,8 @@ def stage(archive, destination):
         with contextlib.redirect_stdout(io.StringIO()):
             voices.verify(catalog, temporary)
         temporary.rename(destination)
-        return {'schema': 1, 'source_release': 'v1.0.16', 'source_archive_sha256': ARCHIVE_SHA256,
-                'voice_version': '1.0.1', 'voice_files': len(expected)-3,
+        return {'schema': 1, 'source_release': SOURCE_RELEASE, 'source_archive_sha256': ARCHIVE_SHA256,
+                'voice_version': '1.0.2', 'voice_files': len(expected)-3,
                 'synthesis_requests': 0, 'private_credentials_used': False}
     finally:
         if temporary.exists():

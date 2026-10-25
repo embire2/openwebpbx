@@ -28,7 +28,7 @@ import urllib.request
 import wave
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CATALOG = ROOT / 'app/pbx_setup/resources/voicepacks/1.0.1/catalog.json'
+DEFAULT_CATALOG = ROOT / 'app/pbx_setup/resources/voicepacks/1.0.2/catalog.json'
 API = 'https://api.elevenlabs.io/v1'
 RATES = {8000, 16000, 32000, 48000}
 HASH = re.compile(r'^[a-f0-9]{64}$')
@@ -63,8 +63,8 @@ def load_catalog(path):
     c = json.loads(Path(path).read_text(encoding='utf-8'))
     if c.get('schema') != 1 or not re.fullmatch(r'\d+\.\d+\.\d+', c.get('version', '')):
         raise PackError('Invalid catalogue version.')
-    if c.get('provider') != 'ElevenLabs' or c.get('locale') != 'en-GB':
-        raise PackError('The catalogue must identify its provider and British voice.')
+    if c.get('provider') != 'ElevenLabs' or c.get('locale') not in {'en-GB', 'en-ZA'}:
+        raise PackError('The catalogue must identify its provider and supported English locale.')
     if not re.fullmatch('[A-Za-z0-9]{20}', c.get('voice_id', '')):
         raise PackError('Invalid voice identity.')
     seen, ids = set(), set()
@@ -87,6 +87,15 @@ def load_catalog(path):
         relative(name)
         if not isinstance(sha, str) or not HASH.fullmatch(sha):
             raise PackError('Invalid original voice digest.')
+    previous = c.get('previous_system_sha256', {})
+    if not isinstance(previous, dict) or not set(previous).issubset(seen):
+        raise PackError('Previous system inventory is inconsistent.')
+    for name, sha in previous.items():
+        relative(name)
+        if not isinstance(sha, str) or not HASH.fullmatch(sha):
+            raise PackError('Invalid previous system voice digest.')
+    if previous and (not isinstance(c.get('previous_pack_sha256'), str) or not HASH.fullmatch(c['previous_pack_sha256'])):
+        raise PackError('A previous system inventory requires its authenticated pack identity.')
     return c
 
 
@@ -239,8 +248,11 @@ def generate(c, output, cache, key, workers):
         raise PackError('A completed pack is immutable; choose a new empty output directory.')
     voice = request_json('/voices/' + c['voice_id'], key)
     labels = voice.get('sharing', {}).get('labels', {}) | voice.get('labels', {})
-    if not voice.get('name', '').lower().startswith('nathaniel') or labels.get('accent') != 'british':
-        raise PackError('The live provider voice is not the requested British Nathaniel.')
+    expected_name = c.get('voice_name', '')
+    expected_labels = c.get('voice_labels', {'accent': 'british'})
+    if (voice.get('voice_id') != c['voice_id'] or voice.get('name') != expected_name
+            or any(labels.get(name) != value for name, value in expected_labels.items())):
+        raise PackError('The live provider voice does not match the requested catalogue identity.')
     sub = request_json('/user/subscription', key)
     if sub.get('status') != 'active' or sub.get('tier') not in {'pro', 'scale', 'business', 'enterprise'}:
         raise PackError('An active paid plan supporting 44.1 kHz PCM is required.')

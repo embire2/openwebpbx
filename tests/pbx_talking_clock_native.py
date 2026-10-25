@@ -35,7 +35,7 @@ import xml.etree.ElementTree as ET
 
 REPO = Path(__file__).resolve().parents[1]
 RATE = 8000
-VERSION = '1.0.2'
+VERSION = '1.0.3'
 UUID = re.compile(r'^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$')
 PRIVATE_ROOT = Path('/var/lib/openwebpbx/clock1026-repair-20261017')
 ENGINE_SCRIPTS = Path('/usr/share/freeswitch/scripts')
@@ -355,10 +355,10 @@ def sentence_paths(target):
     def number(value):
         values = [value] if value <= 20 or value % 10 == 0 else [value // 10 * 10, value % 10]
         return ['en/us/callie/digits/8000/' + str(item) + '.wav' for item in values]
-    base = 'openwebpbx/talking-clock-1.0.2-'
-    return (['openwebpbx/talking-clock-1.0.1-signal.wav'] + number(expected.tm_hour) + [base + ('hour.wav' if expected.tm_hour == 1 else 'hours.wav')] +
+    base = 'openwebpbx/talking-clock-1.0.3-'
+    return (['openwebpbx/talking-clock-1.0.3-signal.wav'] + number(expected.tm_hour) + [base + ('hour.wav' if expected.tm_hour == 1 else 'hours.wav')] +
             number(expected.tm_min) + [base + ('minute.wav' if expected.tm_min == 1 else 'minutes.wav'), base + 'and.wav'] + number(expected.tm_sec) +
-            [base + 'seconds.wav', 'openwebpbx/talking-clock-1.0.1-exactly.wav'])
+            [base + 'seconds.wav', 'openwebpbx/talking-clock-1.0.3-exactly.wav'])
 
 
 def analyze(work, events, packets, sound_root, phase):
@@ -376,7 +376,7 @@ def analyze(work, events, packets, sound_root, phase):
         gates.append({'passed':bool(value),'condition':message})
     starts = [event for event in events if event['name'] == 'PLAYBACK_START']
     spoken = [event for event in starts if event['path'].endswith('.wav') and not event['path'].endswith('-tick.wav')]
-    welcome = [event for event in spoken if event['path'].endswith('talking-clock-1.0.2-welcome.wav')]
+    welcome = [event for event in spoken if event['path'].endswith('talking-clock-1.0.3-welcome.wav')]
     check(len(welcome) == 1, 'Short clock welcome was not played exactly once')
     welcome_stop = next(event for event in events if event['name'] == 'PLAYBACK_STOP' and event['path'] == welcome[0]['path'])
     announcements = {}
@@ -449,7 +449,9 @@ def analyze(work, events, packets, sound_root, phase):
 
 
 def dependencies():
-    manifest = json.loads((REPO / 'app/pbx_setup/resources/talking-clock/1.0.2/audio-manifest.json').read_text())
+    manifest = json.loads((REPO / 'app/pbx_setup/resources/talking-clock/1.0.3/audio-manifest.json').read_text())
+    check(manifest.get('version') == '1.0.3' and manifest.get('voice_id') == 'i8SlcaZfyeP1st7wHsjM' and manifest.get('generation_verified') is True,
+          'The clock does not have the reviewed complete Keoma narrator binding')
     hashes = dict(manifest['frozen_dependencies_sha256'])
     hashes.update({name:item['sha256'] for name,item in manifest['files'].items()})
     paths = re.findall(r"\['([^']+)'\]",(REPO / 'app/switch/resources/scripts/app/pbx_services/clock_prompts.lua').read_text())
@@ -750,13 +752,13 @@ def self_test():
                   'Reference matcher missed a nonperiodic waveform sample phase')
     singular = sentence_paths((23 * 60 + 1) * 60000)
     plural = sentence_paths(0)
-    check('openwebpbx/talking-clock-1.0.2-hour.wav' in singular and
-          'openwebpbx/talking-clock-1.0.2-minute.wav' in singular and
-          'openwebpbx/talking-clock-1.0.2-hours.wav' not in singular and
-          'openwebpbx/talking-clock-1.0.2-minutes.wav' not in singular,
+    check('openwebpbx/talking-clock-1.0.3-hour.wav' in singular and
+          'openwebpbx/talking-clock-1.0.3-minute.wav' in singular and
+          'openwebpbx/talking-clock-1.0.3-hours.wav' not in singular and
+          'openwebpbx/talking-clock-1.0.3-minutes.wav' not in singular,
           'Independent GMT+2 clock expectation lost singular hour/minute')
-    check('openwebpbx/talking-clock-1.0.2-hours.wav' in plural and
-          'openwebpbx/talking-clock-1.0.2-minutes.wav' in plural,
+    check('openwebpbx/talking-clock-1.0.3-hours.wav' in plural and
+          'openwebpbx/talking-clock-1.0.3-minutes.wav' in plural,
           'Independent GMT+2 clock expectation lost plural hours/minutes')
     print('PASS clock native harness RTP/reordering/gap/beep/reference controls; no PBX or database contacted')
 
