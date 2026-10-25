@@ -13,13 +13,18 @@ def pairs(rows):
 def decode(raw):return json.loads(raw,object_pairs_hook=pairs,parse_constant=lambda _:need(False))
 def ordinary(p):
  for x in (Path(p),*Path(p).parents):need(not x.is_symlink()and not(x.stat().st_file_attributes&stat.FILE_ATTRIBUTE_REPARSE_POINT))
-ERRORS={'RuntimeException','CommandNotFoundException','FileNotFoundException','IOException','UnauthorizedAccessException','PSInvalidOperationException','InvalidOperationException','CmdletInvocationException','TypeLoadException','other'}
+ERRORS={'RuntimeException','CommandNotFoundException','FileNotFoundException','IOException','UnauthorizedAccessException','PSInvalidOperationException','InvalidOperationException','CmdletInvocationException','TypeLoadException','SessionStateUnauthorizedAccessException','other'}
 def error(value):need(type(value)is dict and set(value)=={'error_type','hresult'}and value['error_type']in ERRORS and type(value['hresult'])is int and -2147483648<=value['hresult']<=2147483647)
 def outcome(value):
  need(type(value)is dict and set(value)=={'exit_code','error_type','code_kind','errno','killed','signal','elapsed_ms','powershell_state','powershell'})
  need(value['error_type']in('none','Error','TypeError','RangeError','TimeoutError','AbortError','other')and value['code_kind']in('none','exit','ENOENT','EACCES','EPERM','ETIMEDOUT','ABORT_ERR','ERR_CHILD_PROCESS_STDIO_MAXBUFFER','other')and value['signal']in('none','SIGTERM','SIGKILL','other')and value['powershell_state']in('absent','invalid')and value['powershell']is None)
  for key,lo,hi in [('exit_code',-2147483648,4294967295),('errno',-2147483648,2147483647)]:need(value[key]is None or type(value[key])is int and lo<=value[key]<=hi)
  need((value['killed']is None or type(value['killed'])is bool)and type(value['elapsed_ms'])is int and 0<=value['elapsed_ms']<=32000)
+def native_refusal(value):
+ if value is None:return
+ need(type(value)is dict and set(value)=={'schema','state','producer','stage','error_type','hresult','source_basename','source_line','caller_line'}and type(value['schema'])is int and value['schema']==1 and value['state']=='failed'and value['producer']=='windows-stock-component.ps1')
+ need(value['stage']in('component_admission','report_guard','read_report','source_pin','helper_load','original_admission','bootstrap','continuation','serialize','unknown')and value['error_type']in ERRORS and type(value['hresult'])is int and -2147483648<=value['hresult']<=2147483647)
+ need(value['source_basename']in('windows-stock-component.ps1','unavailable')and all(type(value[k])is int and 0<=value[k]<1000000 for k in('source_line','caller_line'))and(value['source_line']==0 if value['source_basename']=='unavailable'else value['source_line']>0))
 def validate(row):
  need(type(row)is dict and set(row)=={'schema','state','producer','bootstrap','imports','commands','observer_errors','original_helpers_source_sha256','diagnostic_only','wss_eligible','media_eligible','restore_eligible','release_eligible','owner_eligible'})
  need(type(row['schema'])is int and row['schema']==1 and row['state']=='observed'and row['producer']=='windows-stock-component.ps1'and row['original_helpers_source_sha256']==PINS['windows-meet-wss-path.ps1']and row['diagnostic_only']is True and all(row[k]is False for k in('wss_eligible','media_eligible','restore_eligible','release_eligible','owner_eligible')))
@@ -64,10 +69,13 @@ def execute(pwsh):
    if context=='direct':result=subprocess.run(command,capture_output=True,text=True,timeout=240);lifecycle=None
    else:
     directory=work/'job';directory.mkdir();result=owned.run(command,directory,timeout=240);lifecycle=decode((directory/'process.safe.json').read_bytes());need(set(lifecycle)=={'schema','created_suspended','assigned_before_resume','resumed','owned_job_terminated','exit_code','owned_processes_closed','handles_closed','ordinary_exit'}and lifecycle['schema']==1 and lifecycle['owned_job_terminated']is False and lifecycle['exit_code']==result.returncode and all(lifecycle[k]is True for k in('created_suspended','assigned_before_resume','resumed','owned_processes_closed','handles_closed','ordinary_exit')))
-   need(len(result.stdout.encode())<=16384 and len(result.stderr.encode())<=16384);child=decode(result.stdout);need(set(child)=={'schema','producer','child_outcome'}and child['schema']==1 and child['producer']=='windows-stock-component.cjs');outcome(child['child_outcome']);facts['contexts'][context]=dict(observation=None,node_child=child['child_outcome'],owned_job=lifecycle)
+   need(len(result.stdout.encode())<=16384 and len(result.stderr.encode())<=16384);child=decode(result.stdout);need(set(child)=={'schema','producer','child_outcome','native_refusal'}and child['schema']==1 and child['producer']=='windows-stock-component.cjs');outcome(child['child_outcome']);native_refusal(child['native_refusal']);facts['contexts'][context]=dict(observation=None,node_child=child['child_outcome'],owned_job=lifecycle,native_refusal=child['native_refusal'])
    need(result.returncode==0 and report.is_file()and report.stat().st_size<=131072)
-   parsed=subprocess.run([pwsh,'-NoProfile','-NonInteractive','-File',str(HERE/'windows-stock-component.ps1'),'-ReadReport','-ReportPath',str(report)],capture_output=True,timeout=30);need(parsed.returncode==0 and len(parsed.stdout)<=65536)
-   row=validate(decode(parsed.stdout));facts['contexts'][context]=dict(observation=row,node_child=child['child_outcome'],owned_job=lifecycle)
+   parsed=subprocess.run([pwsh,'-NoProfile','-NonInteractive','-File',str(HERE/'windows-stock-component.ps1'),'-ReadReport','-ReportPath',str(report)],capture_output=True,timeout=30);need(len(parsed.stdout)<=65536)
+   if parsed.returncode:
+    refusal=decode(parsed.stdout);native_refusal(refusal);facts['contexts'][context]['reader_refusal']=refusal
+   need(parsed.returncode==0)
+   row=validate(decode(parsed.stdout));facts['contexts'][context]=dict(observation=row,node_child=child['child_outcome'],owned_job=lifecycle,native_refusal=child['native_refusal'])
   need(dict(os.environ)==before);facts['state']='observed';facts['environment_preserved']=True
  except BaseException as error:facts['failure_type']=type(error).__name__ if type(error).__name__ in ('ValueError','RuntimeError','TimeoutExpired','OSError','FileNotFoundError') else 'other'
  finally:

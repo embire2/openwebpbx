@@ -2,11 +2,26 @@
 [CmdletBinding()]
 param([string]$Hostname,[int]$Port,[string]$ReportPath,[switch]$DisposableHostedRunner,[switch]$ReadReport)
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
+$script:componentStage='component_admission'
+trap {
+ try{
+  $record=$_;$stage=$script:componentStage;if($stage -cnotin @('component_admission','report_guard','read_report','source_pin','helper_load','original_admission','bootstrap','continuation','serialize')){$stage='unknown'}
+  $type=$record.Exception.GetType().Name;if($type -cnotin @('RuntimeException','CommandNotFoundException','FileNotFoundException','IOException','UnauthorizedAccessException','PSInvalidOperationException','InvalidOperationException','CmdletInvocationException','TypeLoadException','SessionStateUnauthorizedAccessException')){$type='other'}
+  $basename=[IO.Path]::GetFileName([string]$record.InvocationInfo.ScriptName);$line=[int]$record.InvocationInfo.ScriptLineNumber;if($basename -cne 'windows-stock-component.ps1' -or $line -lt 1 -or $line -ge 1000000){$basename='unavailable';$line=0}
+  $caller=0;$frames=[regex]::Matches([string]$record.ScriptStackTrace,[regex]::Escape($PSCommandPath)+': line ([0-9]{1,6})');if($frames.Count){$caller=[int]$frames[$frames.Count-1].Groups[1].Value};if($caller -ge 1000000){$caller=0}
+  $culture=[Globalization.CultureInfo]::InvariantCulture
+  [Console]::Out.WriteLine(('{{"schema":1,"state":"failed","producer":"windows-stock-component.ps1","stage":"{0}","error_type":"{1}","hresult":{2},"source_basename":"{3}","source_line":{4},"caller_line":{5}}}' -f $stage,$type,([int]$record.Exception.HResult).ToString($culture),$basename,$line.ToString($culture),$caller.ToString($culture)))
+ }catch{}
+ break
+}
+
 function Need([bool]$Value){if(!$Value){throw 'The isolated stock component guard refused.'}}
 Need ($env:GITHUB_ACTIONS -ceq 'true' -and $env:RUNNER_ENVIRONMENT -ceq 'github-hosted' -and $env:RUNNER_OS -ceq 'Windows' -and $env:GITHUB_REPOSITORY -ceq 'embire2/openwebpbx' -and $env:GITHUB_EVENT_NAME -ceq 'workflow_dispatch' -and $env:OPENWEB_STOCK_COMPONENT -ceq '1')
+$script:componentStage='report_guard'
 $report=[IO.Path]::GetFullPath($ReportPath);$root=[IO.Path]::GetFullPath(([IO.Path]::Combine($env:RUNNER_TEMP,'openwebpbx-stock-component')))
 Need ($report.StartsWith($root.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase) -and $report.Substring($root.TrimEnd('\').Length+1) -cmatch '^[a-f0-9]{24}\\(direct|owned)\.safe\.clixml$')
 if($ReadReport){
+ $script:componentStage='read_report'
  Need ($PSVersionTable.PSEdition -ceq 'Core' -and $PSVersionTable.PSVersion.Major -eq 7)
  $file=[IO.FileInfo]::new($report);Need ($file.Exists -and $file.Length -gt 0 -and $file.Length -le 131072 -and !($file.Attributes -band [IO.FileAttributes]::ReparsePoint))
  $text=[IO.File]::ReadAllText($report);Need (!$text.Contains('<!'))
@@ -14,19 +29,22 @@ if($ReadReport){
  exit 0
 }
 Need ($PSVersionTable.PSEdition -ceq 'Desktop' -and $PSVersionTable.PSVersion.Major -eq 5 -and ![IO.File]::Exists($report))
+$script:componentStage='source_pin'
 $source=[IO.Path]::Combine($PSScriptRoot,'windows-meet-wss-path.ps1');$bytes=[IO.File]::ReadAllBytes($source)
 $hash=[Security.Cryptography.SHA256]::Create();try{$digest=([BitConverter]::ToString($hash.ComputeHash($bytes))).Replace('-','').ToLowerInvariant()}finally{$hash.Dispose()}
 Need ($digest -ceq '1af196ada3620ff909ed2d6d5759f688b351615ace70dffc4cf132688b323062')
+$script:componentStage='helper_load'
 $tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($source,[ref]$tokens,[ref]$errors);Need ($errors.Count -eq 0)
 $names=@('Assert-MeetWssPathRunner','Assert-MeetWssPathTarget','Assert-MeetWssPathStockOrdinary','Get-MeetWssPathStockProvenance','Assert-MeetWssPathStockProvenance','Import-MeetWssPathDesktopModules')
 foreach($name in $names){$nodes=@($ast.FindAll({param($n)$n-is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name},$true));Need ($nodes.Count -eq 1);. ([scriptblock]::Create($nodes[0].Extent.Text))}
 # Execute the exact original target/native/runner admission before its bootstrap.
 $try=@($ast.EndBlock.Statements|Where-Object {$_-is [Management.Automation.Language.TryStatementAst]});Need ($try.Count -eq 1)
 $admission=@();foreach($statement in $try[0].Body.Statements){if($statement.Extent.Text -ceq 'Import-MeetWssPathDesktopModules'){break};$admission+=@($statement.Extent.Text)}
+$script:componentStage='original_admission'
 Need ($admission.Count -eq 6);. ([scriptblock]::Create(($admission -join "`n")))
 $script:proofFields=@('command_type','command_name','module_name','module_path','module_base','module_version','module_guid','source_file','implementation')
 $script:trace=[Collections.Generic.List[object]]::new();$script:continuation=$null;$script:observerErrors=0
-function ClosedError($Record){$type=$Record.Exception.GetType().Name;if($type -cnotin @('RuntimeException','CommandNotFoundException','FileNotFoundException','IOException','UnauthorizedAccessException','PSInvalidOperationException','InvalidOperationException','CmdletInvocationException','TypeLoadException')){$type='other'};return @{error_type=$type;hresult=[int]$Record.Exception.HResult}}
+function ClosedError($Record){$type=$Record.Exception.GetType().Name;if($type -cnotin @('RuntimeException','CommandNotFoundException','FileNotFoundException','IOException','UnauthorizedAccessException','PSInvalidOperationException','InvalidOperationException','CmdletInvocationException','TypeLoadException','SessionStateUnauthorizedAccessException')){$type='other'};return @{error_type=$type;hresult=[int]$Record.Exception.HResult}}
 function StockPath($Value,[string]$NativeHome,[string]$Windows){
  if($Value -isnot [string] -or !$Value.Length){return @{kind='unavailable';value=$null}}
  try{
@@ -61,18 +79,21 @@ function Get-MeetWssPathStockProvenance($Command,[ValidateSet('Get-Acl','Convert
  }catch{$script:observerErrors++}
  return $proof
 }
+$script:componentStage='bootstrap'
 $bootstrap=@{state='passed';error=$null}
 try{Import-MeetWssPathDesktopModules}catch{$bootstrap.state='failed';$bootstrap.error=ClosedError $_}
 # Continue only for diagnosis; never bypass an original qualification assertion.
-$imports=@();$home=[IO.Path]::Combine([Environment]::SystemDirectory,'WindowsPowerShell','v1.0');$windows=[Environment]::GetFolderPath('Windows')
+$script:componentStage='continuation'
+$imports=@();$stockNativeHome=[IO.Path]::Combine([Environment]::SystemDirectory,'WindowsPowerShell','v1.0');$windows=[Environment]::GetFolderPath('Windows')
 foreach($kind in 'Security','Utility'){
- $module='Microsoft.PowerShell.'+$kind;$manifest=[IO.Path]::Combine($home,'Modules',$module,$module+'.psd1');$import=@{module=$kind;state='passed';error=$null}
+ $module='Microsoft.PowerShell.'+$kind;$manifest=[IO.Path]::Combine($stockNativeHome,'Modules',$module,$module+'.psd1');$import=@{module=$kind;state='passed';error=$null}
  try{Assert-MeetWssPathStockOrdinary $manifest;Import-Module -Name $manifest -Global -Force -ErrorAction Stop}catch{$import.state='failed';$import.error=ClosedError $_};$imports+=@($import)
  $required=if($kind -ceq 'Security'){@('Get-Acl')}else{@('ConvertTo-Json','Add-Type')}
  foreach($name in $required){foreach($check in 'qualified','visible'){
   $script:continuation=$check
-  try{$lookup=if($check -ceq 'qualified'){$module+'\'+$name}else{$name};$commands=@(Get-Command -Name $lookup -All -ErrorAction Stop);Need ($commands.Count -eq 1);$null=Get-MeetWssPathStockProvenance $commands[0] $name $home $windows}catch{$script:trace.Add(@{scope='continuation';command=$name;check=$check;proof=$null;all_original_fields_true=$false;metadata=$null;lookup_error=(ClosedError $_)})}
+  try{$lookup=if($check -ceq 'qualified'){$module+'\'+$name}else{$name};$commands=@(Get-Command -Name $lookup -All -ErrorAction Stop);Need ($commands.Count -eq 1);$null=Get-MeetWssPathStockProvenance $commands[0] $name $stockNativeHome $windows}catch{$script:trace.Add(@{scope='continuation';command=$name;check=$check;proof=$null;all_original_fields_true=$false;metadata=$null;lookup_error=(ClosedError $_)})}
  }}
 }
 $reportData=@{schema=1;state='observed';producer='windows-stock-component.ps1';bootstrap=$bootstrap;imports=$imports;commands=@($script:trace.ToArray());observer_errors=$script:observerErrors;original_helpers_source_sha256=$digest;diagnostic_only=$true;wss_eligible=$false;media_eligible=$false;restore_eligible=$false;release_eligible=$false;owner_eligible=$false}
+$script:componentStage='serialize'
 $xml=[Management.Automation.PSSerializer]::Serialize($reportData,12);Need ([Text.Encoding]::UTF8.GetByteCount($xml) -le 131072);[IO.File]::WriteAllText($report,$xml,[Text.UTF8Encoding]::new($false))
