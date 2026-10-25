@@ -37,9 +37,14 @@ LOCK=1191055001
 
 
 def main():
+    global ROOT
     parser=argparse.ArgumentParser();parser.add_argument('--report',type=Path)
+    parser.add_argument('--source-root',type=Path,default=ROOT);parser.add_argument('--helper-overlay',type=Path);parser.add_argument('--lua-fixture',type=Path)
     parser.add_argument('--native-fs',action='store_true',help='Root-reviewed opt-in: own DB-only Lua harness on the installed engine; no calls/configuration changes.')
     args=parser.parse_args()
+    ROOT=args.source_root.resolve()
+    if args.native_fs and args.helper_overlay and args.helper_overlay.name!='voicemail_mail_queue.lua':
+        raise SystemExit('Native helper overlay must use the canonical voicemail_mail_queue.lua module basename; no installed fallback is admitted.')
     if os.name=='nt' or os.geteuid()!=0 or not (PG/'initdb').is_file():raise SystemExit('Requires Linux root, PostgreSQL18, PHP PDO pgsql and Lua; native Windows qualification is separate.')
     work=Path(tempfile.mkdtemp(prefix='openweb-voicemail-durable-'));work.chmod(0o711)
     cluster=work/'cluster';cluster.mkdir(mode=0o700);owner=pwd.getpwnam('postgres');os.chown(cluster,owner.pw_uid,owner.pw_gid)
@@ -104,29 +109,35 @@ CREATE TABLE v_domains(domain_uuid uuid PRIMARY KEY,domain_name text);
 CREATE TABLE v_default_settings(default_setting_category text,default_setting_subcategory text,default_setting_name text,default_setting_value text,default_setting_enabled boolean,default_setting_order integer);
 CREATE FUNCTION pause_attachment() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN PERFORM pg_advisory_xact_lock(1191055001);RETURN NEW;END$$;
 CREATE TRIGGER owned_attachment_boundary BEFORE INSERT ON v_email_queue_attachments FOR EACH ROW EXECUTE FUNCTION pause_attachment();''')
-        cases=json.loads(subprocess.check_output(['lua',str(ROOT/'tests/voicemail_mail_durability.lua'),str(ROOT),str(folder),socket.gethostname()],timeout=15))
+        cases=json.loads(subprocess.check_output(['lua',str(args.lua_fixture or ROOT/'tests/voicemail_mail_durability.lua'),str(ROOT),str(folder),socket.gethostname(),str(args.helper_overlay or ROOT/'app/switch/resources/scripts/resources/functions/voicemail_mail_queue.lua')],timeout=15))
         check(all(cases[n]['refused'] for n in ('missing','empty','oversized','invalid_base64','query_false','query_throw')),'actual Lua producer refuses unavailable audio/database without removing mailbox files')
         check(recording.read_bytes()==audio,'Lua refusal cases preserve original recording')
-        atomic=cases['atomic']['sql'][0];legacy=cases['legacy']['sql']
+        atomic=cases['atomic']['publish'];staging=cases['atomic']['staging'];cleanup=cases['query_false']['cleanup'];legacy=cases['legacy']['sql']
+        check(len(staging)>=1 and len(cleanup)==len(staging),'actual Lua stages hidden chunks and records exact failure cleanup')
+        def stage_atomic():
+            for statement in staging:sql(statement)
+        def cleanup_atomic():
+            for statement in cleanup:sql(statement)
         # Positive control: the old real producer exposes the header while attachment blocks.
         hold=holder();sql(legacy[0]);old=start_sql(legacy[1],'owned-old-voicemail');waiting('owned-old-voicemail')
         check(counts()=='1:0','original two-insert race is reproduced');release(hold);finish(old);sql('truncate v_email_queue cascade')
         # New CTE remains invisible to another real connection until both inserts commit.
-        hold=holder();producer=start_sql(atomic,'owned-new-voicemail');waiting('owned-new-voicemail')
-        check(counts()=='0:0','new waiting header cannot be observed before attachment');release(hold);finish(producer)
+        stage_atomic();hold=holder();producer=start_sql(atomic,'owned-new-voicemail');waiting('owned-new-voicemail')
+        check(counts()=='0:'+str(len(staging)) and sql('select count(*) from v_email_queue_attachments where email_queue_uuid is not null')=='0','new waiting header cannot be observed before attachment; only hidden stages exist');release(hold);finish(producer)
         check(counts()=='1:1','new header and attachment become visible together')
         check(base64.b64decode(sql('select email_attachment_base64 from v_email_queue_attachments'))==audio,'actual PostgreSQL retains exact audio bytes before worker access')
         sql('truncate v_email_queue cascade')
-        hold=holder();producer=start_sql(atomic,'owned-cancelled-voicemail');waiting('owned-cancelled-voicemail')
+        stage_atomic();hold=holder();producer=start_sql(atomic,'owned-cancelled-voicemail');waiting('owned-cancelled-voicemail')
         sql("select pg_cancel_backend(pid) from pg_stat_activity where application_name='owned-cancelled-voicemail'");finish(producer,False);release(hold)
-        check(counts()=='0:0' and recording.read_bytes()==audio,'cancelled producer leaves no partial mail and retains caller recording')
+        check(counts()=='0:'+str(len(staging)) and recording.read_bytes()==audio,'cancelled publication has no header and retains hidden stages plus caller recording');cleanup_atomic()
+        check(counts()=='0:0' and recording.read_bytes()==audio,'exact captured Lua failure cleanup removes own hidden stages and retains caller recording')
         sql('alter table v_email_queue_attachments drop column email_attachment_base64');sql(atomic,False)
         check(counts()=='0:0','missing attachment schema cannot commit header');sql('alter table v_email_queue_attachments add column email_attachment_base64 text')
-        sql("alter table v_email_queue_attachments add constraint controlled_write_failure check(email_attachment_type<>'wav')");sql(atomic,False)
+        stage_atomic();sql("alter table v_email_queue_attachments add constraint controlled_write_failure check(email_attachment_type<>'wav')");sql(atomic,False);cleanup_atomic()
         check(counts()=='0:0' and recording.read_bytes()==audio,'attachment write failure atomically retains original voicemail');sql('alter table v_email_queue_attachments drop constraint controlled_write_failure')
         if args.native_fs:
             native_code=work/'native-sources/resources/functions';native_code.mkdir(parents=True)
-            helper=ROOT/'app/switch/resources/scripts/resources/functions/voicemail_mail_queue.lua'
+            helper=args.helper_overlay or ROOT/'app/switch/resources/scripts/resources/functions/voicemail_mail_queue.lua'
             (native_code/helper.name).write_bytes(helper.read_bytes());(native_code/helper.name).chmod(0o644)
             native=work/'native-mail.lua';native.write_bytes((ROOT/'tests/voicemail_mail_native.lua').read_bytes());native.chmod(0o644)
             native_fixture=work/'native-fixture.json';native_fixture.write_text(json.dumps({'tag':'openweb-owned-voicemail-mail-dbh-v1','socket':str(socket_path),'port':port,'audio':str(recording),'code':str(work/'native-sources')}));native_fixture.chmod(0o644)

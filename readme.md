@@ -34,7 +34,7 @@ There is no OpenWeb software licence fee. You control your server and data; host
 
 Release pages include checksums, signed update metadata and corresponding source. [All releases](https://github.com/embire2/openwebpbx/releases) · [Download catalogue](https://openwebpbx.com/#downloads) · [Updates and recovery](docs/updates.md)
 
-Windows Server **1.0.21 is under qualification**. It adds [five-minute update checks and prominent desktop/web notices](docs/windows-server-updates.md), Greetings, company-group office hours and Keoma system speech. Downloads prepare in advance; postponing installation keeps services running. The matching native workers and desktop notice pass their component checks. A complete new installation, replacement restore and signed upgrade must pass before replacing the public 1.0.20 download. [Current release record](docs/release-1.0.21-qualification.md)
+Windows Server **1.0.21 is under qualification**. It adds [five-minute update checks and prominent desktop/web notices](docs/windows-server-updates.md), Greetings, company-group office hours and Keoma system speech. Downloads prepare in advance; postponing installation keeps services running. The matching native workers and desktop notice pass their component checks. A complete new installation, replacement restore and signed upgrade must pass before replacing the public 1.0.20 download. [Current release record](docs/release-1.0.21-qualification.md) · [Voicemail delivery and retention](docs/voicemail-mail-delivery.md)
 
 ## Get started
 

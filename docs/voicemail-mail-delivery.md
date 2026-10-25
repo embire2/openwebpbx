@@ -1,0 +1,9 @@
+# Voicemail email delivery
+
+The Windows 1.0.21 candidate uses small database writes for unpublished audio chunks. A final transaction checks their order, lengths, SHA256 and owned identifiers, then publishes the email and its complete attachment together. Successful publication removes the chunks in that transaction. Handled errors attempt exact cleanup of unchanged owned chunks and retain the original mailbox recording. The mail worker requires complete audio before delivery and deletes the mailbox copy only after outgoing-server acceptance when the administrator selected attachment-and-delete.
+
+If a producer is killed before publication or cleanup, its unpublished NULL-queue chunk rows can remain indefinitely. The original recording remains in the mailbox, and these chunks cannot be emailed independently. One 32 MiB recording produces at most 44,739,244 base64 characters in 5,462 chunk rows, plus database metadata and storage/WAL overhead. Repeated killed attempts can accumulate. Failed cleanup can also retain staging data for review. Successful publication does not leave those extra copies.
+
+There is no age-only purge: age cannot establish that a producer has stopped. Do not delete arbitrary NULL-queue attachments or custom audio. Automatic cleanup still needs a renewable, database-locked lease, an expiry check before publication, bounded work and platform tests covering termination, reconnects, restarts and clock changes. This remains part of SETUP-05 in [the roadmap](../3CX.md).
+
+The helper also limits combined voicemail header/body/path metadata to 4,096 bytes; larger metadata refuses queueing and retains the mailbox. The existing 32 MiB audio snapshot limit remains. Passing isolated database tests does not qualify a Windows installer or prove receipt in the recipient's inbox; see [release qualification](release-1.0.21-qualification.md).
