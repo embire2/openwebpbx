@@ -95,13 +95,22 @@ jobs:
             sleep 2
           done
           test "$("$adb" -s emulator-5580 shell getprop sys.boot_completed | tr -d '\r')" = 1
+          "$adb" -s emulator-5580 shell settings put system screen_off_timeout 1800000
+          "$adb" -s emulator-5580 shell svc power stayon true
+          "$adb" -s emulator-5580 shell input keyevent 224
+          "$adb" -s emulator-5580 shell wm dismiss-keyguard
           "$adb" -s emulator-5580 shell input keyevent 82
           "$adb" -s emulator-5580 install -r "$RUNNER_TEMP/qualification-release.apk"
           "$adb" -s emulator-5580 install -r "$RUNNER_TEMP/qualification-tests.apk"
+          set +e
           timeout 180 "$adb" -s emulator-5580 shell am instrument -w -r -e class com.openweb.pbx.LaunchSplashTest -e launchSplashFixture true -e splashCapture true com.openweb.pbx.test/androidx.test.runner.AndroidJUnitRunner | tee "$ANDROID_OUTPUT/native-splash.log"
+          native_status=${PIPESTATUS[0]}
+          set -e
+          "$adb" -s emulator-5580 pull /sdcard/Android/data/com.openweb.pbx/files/splash-review "$ANDROID_OUTPUT/" || true
+          "$adb" -s emulator-5580 shell logcat -d -t 1000 ActivityTaskManager:I ActivityManager:I AndroidRuntime:E '*:S' > "$ANDROID_OUTPUT/native-window-events.log" || true
+          test "$native_status" -eq 0
           grep -q 'OK (6 tests)' "$ANDROID_OUTPUT/native-splash.log"
           ! grep -qE 'FAILURES|INSTRUMENTATION_FAILED|Process crashed' "$ANDROID_OUTPUT/native-splash.log"
-          "$adb" -s emulator-5580 pull /sdcard/Android/data/com.openweb.pbx/files/splash-review "$ANDROID_OUTPUT/"
       - name: Package complete corresponding source from authenticated unchanged SDK baseline
         run: |
           set -euo pipefail
