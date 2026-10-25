@@ -31,7 +31,7 @@ Extract the complete archive to a private directory and run **Start-OpenWebPBX.c
 .\Install-OpenWebPBX.ps1 -DomainName 'pbx.example.com' -EnablePublicAccess -AdminEmail 'admin@example.com'
 ```
 
-Setup installs the local PostgreSQL database, IIS/PHP, call engine, background service, updater, backup tooling, offline Nathaniel prompts, secure meeting proxy and the server manager. No separate database server is needed. The call engine starts during setup; provider trunks must be configured and explicitly enabled before provider calls can run. For a clean replacement receiving an encrypted **Windows** instance backup, add `-RestoreServer` and retain the original public hostname and HTTPS port. Debian instance backups are not accepted by the Windows restorer; the 3CX configuration importer is a separate migration path. See [Windows meeting transport](https://github.com/embire2/openwebpbx/blob/customization/docs/windows-meet.md) for the scoped proxy prerequisites and recovery behavior. Preserve existing installations and use the manager/updater's documented upgrade path; never run a fresh installer over an existing PBX. Check [Windows upgrade guidance](https://github.com/embire2/openwebpbx/blob/customization/docs/windows-upgrade.md), the platform's actual release notes and the feature-coverage limits before replacing a production system.
+Setup installs the local PostgreSQL database, IIS/PHP, call engine, background service, updater, backup tooling, offline Keoma prompts, secure meeting proxy and the server manager. No separate database server is needed. The call engine starts during setup; provider trunks must be configured and explicitly enabled before provider calls can run. For a clean replacement receiving an encrypted **Windows** instance backup, add `-RestoreServer` and retain the original public hostname and HTTPS port. Debian instance backups are not accepted by the Windows restorer; the 3CX configuration importer is a separate migration path. See [Windows meeting transport](https://github.com/embire2/openwebpbx/blob/customization/docs/windows-meet.md) for the scoped proxy prerequisites and recovery behavior. Preserve existing installations and use the manager/updater's documented upgrade path; never run a fresh installer over an existing PBX. Check [Windows upgrade guidance](https://github.com/embire2/openwebpbx/blob/customization/docs/windows-upgrade.md), the platform's actual release notes and the feature-coverage limits before replacing a production system.
 
 Before setup, finish any pending Windows restart and use an administrator account. The launcher checks the required Microsoft Visual C++ x64 runtime and verifies Microsoft's signature before installing it; follow a requested restart before continuing. Use built-in Windows PowerShell 5.1 for setup, because its IIS modules are required. The release supplies its application runtimes; installing Visual Studio is not a server prerequisite.
 
@@ -61,7 +61,7 @@ and password. A relay must accept this server's public address and From address.
 Send a controlled welcome email and verify receipt before inviting the team.
 
 For Android, complete tenant-address registration, then connect **OpenWebPBX
-Free Phone 1.0.18** with a QR code, welcome configuration or tenant address,
+Free Phone 1.0.19** with a QR code, welcome configuration or tenant address,
 extension and app password. The Android app requires a registered
 `*.openwebpbx.com` tenant address. Desk-phone addresses have their own setup.
 See [tenant phone accounts](https://github.com/embire2/openwebpbx/blob/customization/docs/tenant-phone-accounts.md).
@@ -82,11 +82,11 @@ backup is not a Windows restore input.
 ## Updates and support
 
 Use the installed update controls for existing installations. The independent
-Windows feed starts at 1.0.21; earlier Windows installations require a separately
+Windows feed requires an installed version of at least 1.0.20; earlier Windows installations require a separately
 qualified legacy transition. Never run fresh setup over an installed PBX.
 
 This Windows release has separate versioning from the complete Debian 13 server
-1.0.16, its administration update 1.0.19 and Android client 1.0.18. Windows 10/11
+1.0.16, its administration update 1.0.19 and Android client 1.0.19. Windows 10/11
 server installation is unsupported. Physical phones, carriers, cameras and
 network conditions need their own deployment checks. Review the release's actual
 qualification scope and [feature roadmap](https://github.com/embire2/openwebpbx/blob/customization/3CX.md).
