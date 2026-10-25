@@ -212,15 +212,17 @@ try{
     try{Resume-HealthQualificationUpdater $updaterOriginal}
     finally{
      $maintenance.Dispose()
-     if($workerProcessExited){Enable-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop|Out-Null;Start-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop}
+     if($workerProcessExited){Enable-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop|Out-Null;$workerRestartRequestedAt=[DateTime]::UtcNow;Start-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop}
     }
    }catch{$workerRecoveryVerified=$false;$workerRecoveryFailure=$_;throw}
   }
   if($workerRecoveryVerified){
+   try{
    $resumed=$null;$deadline=[DateTime]::UtcNow.AddSeconds(90)
    while(!$resumed){$resumed=HealthProcess;if(!$resumed){if([DateTime]::UtcNow -ge $deadline){$workerRecoveryVerified=$false;throw 'The installed observer did not resume after the native worker.'};Start-Sleep -Milliseconds 500}}
    $owned=Get-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\' -ErrorAction Stop;Assert-OpenWebHealthTask $owned
    if(!$owned.Settings.Enabled -or $owned.State -ne 'Running' -or (Export-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\') -cne $initialHealthTaskXml){$workerRecoveryVerified=$false;throw 'The installed observer task did not resume with its exact definition.'}
+   }catch{$primary=$_;try{$report.restart_observation=HealthRestartObservation $workerRestartRequestedAt}catch{};throw $primary}
   }
  }
  $oldPassword=$env:OPENWEB_HEALTH_TEST_PASSWORD;$oldState=$env:OPENWEB_HEALTH_TEST_STATE;$oldSpool=$env:OPENWEB_HEALTH_TEST_SPOOL

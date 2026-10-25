@@ -13,7 +13,7 @@ foreach($source in @(@{Path='tests/windows_phone_health_acceptance.ps1';Name='He
  # Extracted definitions have no source-file automatic variable. Adapt only
  # that path lookup; the PHP action itself remains an explicit read-only double.
  Invoke-Expression ($definitions[$source.Name].Replace('$PSScriptRoot','$script:observerTestsRoot'))
- if($source.Name -ceq 'HealthRestartObservation'){$acceptanceAst=$ast}
+ if($source.Name -ceq 'HealthRestartObservation'){$acceptanceAst=$ast;$acceptanceText=[IO.File]::ReadAllText((Join-Path $SourceRoot $source.Path))}
 }
 function Get-ScheduledTask {
  if($script:mode -ceq 'task_failure'){throw 'PRIVATE_TASK'}
@@ -98,11 +98,21 @@ foreach($errorKind in 'database','runtime','runtime_database'){
 # Observation has no shared-lock acquisition and remains failure-only.
 Check (!$definitions.HealthRestartObservation.Contains('upgrade.lock') -and !$definitions.HealthRestartObservation.Contains('::locked'))
 Check ($definitions.HealthRestartObservation.Contains("@('restart-phase',"))
-$catches=@($acceptanceAst.FindAll({param($node)$node -is [Management.Automation.Language.CatchClauseAst] -and $node.Extent.Text.Contains('$report.restart_observation=HealthRestartObservation')},$true));Check ($catches.Count -eq 1)
-$script:report=@{};$restartRequestedAt=$script:requested;$primary=$null
-try{& ([scriptblock]::Create("try{throw 'PRIVATE_PRIMARY'} "+$catches[0].Extent.Text))}catch{$primary=$_}
-Check ($primary.Exception.Message -ceq 'PRIVATE_PRIMARY');Check ($script:report.restart_observation.matching_heartbeats -eq 1)
-function HealthRestartObservation {throw 'PRIVATE_OBSERVER_FAILURE'}
-$script:report=@{};$primary=$null;try{& ([scriptblock]::Create("try{throw 'PRIVATE_PRIMARY'} "+$catches[0].Extent.Text))}catch{$primary=$_}
-Check ($primary.Exception.Message -ceq 'PRIVATE_PRIMARY');Check (!$script:report.ContainsKey('restart_observation'))
+$catches=@($acceptanceAst.FindAll({param($node)$node -is [Management.Automation.Language.CatchClauseAst] -and $node.Extent.Text.Contains('$report.restart_observation=HealthRestartObservation')},$true));Check ($catches.Count -eq 2)
+# Removing only the second failure hook and its requested-time capture must
+# recover every original wait, task/owner, maintenance and cleanup byte.
+$normalised=$acceptanceText.Replace(';$workerRestartRequestedAt=[DateTime]::UtcNow;Start-ScheduledTask',';Start-ScheduledTask')
+$normalised=$normalised.Replace("  if(`$workerRecoveryVerified){`n   try{`n","  if(`$workerRecoveryVerified){`n")
+$normalised=$normalised.Replace('   }catch{$primary=$_;try{$report.restart_observation=HealthRestartObservation $workerRestartRequestedAt}catch{};throw $primary}'+"`n",'')
+Check ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($normalised))).ToLowerInvariant() -ceq 'f04a50d0032b855a70ff8fe48e35df3e098a200e8b5dd04ded987f58999d5c93')
+foreach($handler in $catches){
+ Invoke-Expression ($definitions.HealthRestartObservation.Replace('$PSScriptRoot','$script:observerTestsRoot'))
+ $script:report=@{};$restartRequestedAt=$script:requested;$workerRestartRequestedAt=$script:requested;$primary=$null
+ $throwPrimary="try{throw 'PRIVATE_PRIMARY'}catch{`$script:expectedPrimary=`$_.Exception;throw}"
+ try{& ([scriptblock]::Create('try{'+$throwPrimary+'} '+$handler.Extent.Text))}catch{$primary=$_}
+ Check ($primary.Exception.Message -ceq 'PRIVATE_PRIMARY');Check ([object]::ReferenceEquals($primary.Exception,$script:expectedPrimary));Check ($script:report.restart_observation.matching_heartbeats -eq 1)
+ function HealthRestartObservation {throw 'PRIVATE_OBSERVER_FAILURE'}
+ $script:report=@{};$primary=$null;try{& ([scriptblock]::Create('try{'+$throwPrimary+'} '+$handler.Extent.Text))}catch{$primary=$_}
+ Check ($primary.Exception.Message -ceq 'PRIVATE_PRIMARY');Check ([object]::ReferenceEquals($primary.Exception,$script:expectedPrimary));Check (!$script:report.ContainsKey('restart_observation'))
+}
 Write-Output "PASS $script:checks actual-source restart diagnostic/primary-preservation controls; native APIs are doubles; no server contacted"
