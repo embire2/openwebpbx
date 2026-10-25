@@ -18,6 +18,8 @@ try{
  $env:OPENWEB_TEST_DATABASE='Host=127.0.0.1;Port='+$port+';Username=postgres;Database=postgres;Timeout=10;Command Timeout=20'
  & dotnet run --project platform/OpenWebPbx.Updater.Checks -c Release -- --windows-server-update-checks 2>&1|Tee-Object -FilePath $Output
  if($LASTEXITCODE -ne 0){throw 'Actual Windows server update worker checks failed.'}
+ & dotnet run --project tests/greetings-worker -c Release 2>&1|Tee-Object -FilePath (Join-Path (Split-Path $Output) 'greetings-worker.log')
+ if($LASTEXITCODE -ne 0){throw 'Windows greeting preparation/dispatch checks failed.'}
 }finally{
  $env:OPENWEB_TEST_DATABASE=$oldConnection
  if($started){Native (Join-Path $pg pg_ctl.exe) @('-D',$data,'-m','fast','-w','stop')}
