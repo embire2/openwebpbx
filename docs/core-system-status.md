@@ -1,5 +1,13 @@
 # OpenWeb PBX core system status
 
+## Hosted core 1.0.21 and Android 1.0.19 — 2026-10-25
+
+Hosted core 1.0.21 now runs Greetings, company-group office hours, optional user In/Out routing and Keoma stock 1.0.2/clock 1.0.3. Custom recordings, customer settings and all seven expected desk phones are preserved. Actual owned calls verify default/custom voicemail and three full clock announcements. No calling-engine restart, admission pause or port changes occurred.
+
+[Android 1.0.19/code119](https://github.com/embire2/openwebpbx/releases/tag/android-v1.0.19) is published with its existing signing identity and mandatory on hosted accounts. The native five-second logo launch yields to calls and updates. Both release lints,46 direct / 50 Play tests and six native launch checks pass; all 39 calling libraries match18. Public APK, Play bundle, source, checksums and all three current platform feeds are verified. The homepage logo, download catalogue and documentation are updated.
+
+Full Windows 1.0.21 qualification runs separately as40212174703, followed by new restore and signed-upgrade checks before publication. The owner will supply a replacement Windows Server test machine. Current public complete Windows 1.0.20 and Debian 1.0.16 downloads and their signed feeds stay unchanged. [Current coverage and limits](feature-coverage.md#hosted-core-1021-and-android-1019--2026-10-25). Roadmap133/21/72/40 remains unchanged; dated entries below retain their historical scope.
+
 ## Windows Server 1.0.20 released — 2026-10-24
 
 [Windows Server 1.0.20](https://github.com/embire2/openwebpbx/releases/tag/v1.0.20) is published for **Windows Server 2025 x64 with Desktop Experience**. The complete implemented suite includes the local database, calling engine, web administration, Phone Health, conferences, backups, background services, updater and native server manager. This is separate from the unfinished Windows calling client.

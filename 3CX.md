@@ -1,5 +1,7 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+**25 October2026 delivery:** hosted core1.0.21 now runs Greetings, company-group office hours and Keoma stock voice1.0.2/clock1.0.3. All4,915 stock speech files are replaced while custom audio, customer settings and seven expected phone registrations are preserved. Actual software calls verify default/custom voicemail and three complete clock announcements. Android1.0.19/code119 is [published](https://github.com/embire2/openwebpbx/releases/tag/android-v1.0.19), signed with the existing identity and mandatory on hosted accounts; its native five-second logo screen immediately yields to calls and updates. Both lint checks,46direct/50Play tests and6native launch tests pass; all39 calling libraries remain exact to18. The website logo/downloads and GitHub documentation are updated. Complete Windows21 run40212174703 is in progress; its independent restore and signed-newer upgrade remain required. Published full Windows20 and Debian16 feeds are preserved. These scoped deliveries do not change the133/21/72/40 broader acceptance counts.
+
 Windows Server **1.0.20 is published** for Windows Server 2025 x64 Desktop Experience. Fresh installation, two-way software calling, browser audio/video conferences, Phone Health, encrypted backups, independent replacement restore, signed updates and rollback pass their current checks. Download the [release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.20); the [qualification record](docs/release-1.0.20-qualification.md) gives the evidence and limits.
 
 Windows acceptance status:

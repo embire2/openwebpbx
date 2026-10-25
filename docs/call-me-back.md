@@ -4,7 +4,7 @@ Status: included in Debian 1.0.16, with earlier isolated native calling qualific
 
 ## Set up a service
 
-Open **Admin → Call Handling → Call Me Back**. Create a service using the company name callers should hear, an existing individual incoming number, and an enabled user whose ordinary outgoing permissions apply. Save it switched off while its named Nathaniel greeting is generated. After the greeting is ready, explicitly confirm the incoming-number handover and enable the service.
+Open **Admin → Call Handling → Call Me Back**. Create a service using the company name callers should hear, an existing individual incoming number, and an enabled user whose ordinary outgoing permissions apply. Save it switched off while its named Keoma greeting is generated. After the greeting is ready, explicitly confirm the incoming-number handover and enable the service.
 
 Create **Call Me Back accounts** with the account holder's name, a valid South African ID number and their total minute allowance. The ID entry is hidden, is never shown again, and is not stored as plaintext. Administrators can change the allowance, disable an account, revoke a saved caller, or delete the account's identity after its active calls finish.
 
@@ -48,7 +48,9 @@ The defaults are 30 requests per hour per service, at most four pending/active r
 
 ## Voice generation and private configuration
 
-Voice-pack **1.0.1** supplies the fixed announcements. The named tenant greeting uses saved British Nathaniel voice `7S3KNdLDL7aRgBVRQb1z` through ElevenLabs, with `eleven_multilingual_v2`. Generation runs in its own hosted worker, so a slow provider never delays callback dispatch.
+Hosted core 1.0.21 uses voice pack **1.0.2** for fixed announcements and the verified South African English Keoma voice `i8SlcaZfyeP1st7wHsjM` for named tenant greetings through ElevenLabs, with `eleven_multilingual_v2`. Generation runs in its own worker, so a slow provider never delays callback dispatch. The immutable Debian 1.0.16 package retains its earlier narrator; the new Windows 1.0.21 package is under qualification.
+
+An existing ready 1.0.1 system greeting refreshes only when its stored hash still matches the original file. A new hash-named Keoma file is prepared while the old service stays available, then selected in one guarded database transaction. Custom or changed audio is preserved. Provider failure, a missing instance key or an interrupted preparation leaves working audio available and reports a retryable status; no customer's API key is borrowed. SQL migration precedes the new worker. Actual PostgreSQL/worker controls cover failures, concurrency and recovery; the final native Windows component passes 69 controls, including maintenance holds.
 
 An instance administrator supplies a licensed ElevenLabs key in the protected runtime configuration as `ElevenLabs:ApiKey`. No key is included in a public package, web form, source file or generated voice archive. Independently installed instances need their own account access to the selected voice. Without a usable key, the greeting remains pending or failed and the service cannot be enabled. Saving a failed service switched off requests generation again. Changing the company name disables the service and requires a newly sealed greeting before re-enabling.
 
