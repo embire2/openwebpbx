@@ -1,0 +1,5 @@
+# Private OpenWebPBX fixture WAV producer candidate
+
+This component derives from Belledonne Communications Mediastreamer2 5.5.23 source, copyright2010–2022 Belledonne Communications SARL, under AGPL-3.0-or-later. Original file notices and the complete upstream licence are retained. The pinned superproject source is348e8de32fb2ac56b7b0a7167968fc1ac707f7b2. Exact Git blobs, SHA256 and lengths accompany the source. Existing source files are copied unchanged except the explicitly reviewable MSFileRec patch; the async writer and WAV-layout header remain byte-exact.
+
+New fixture/plugin/contract/readiness code is AGPL-3.0-or-later. This is private qualification preparation, not a release, SDK binary-equivalence claim or approved replacement. Original officialSDK binaries must remain byte-identical. Native output from this candidate, if later proved, qualifies this distinct fixture producer only; it cannot qualify the original brokenSDK file writer, a physical microphone/speaker/camera, ordinary app binary, carrier access or Store submission.

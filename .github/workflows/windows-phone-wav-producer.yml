@@ -1,0 +1,62 @@
+name: Windows Free Phone fixture WAV producer contract
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Exact reviewed 40-character recorder-contract source commit
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: windows-free-phone-wav-producer
+  cancel-in-progress: false
+jobs:
+  recorder_contract:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PHONE_SOURCE_REF: ${{ inputs.source_ref }}
+      DOTNET_NOLOGO: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      NUGET_XMLDOC_MODE: skip
+    steps:
+      - name: Validate manual contract request
+        run: |
+          if($env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx' -or $env:PHONE_SOURCE_REF -cnotmatch '^[a-f0-9]{40}$'){throw 'The exact reviewed contract source is required.'}
+          git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_ref }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify exact source
+        run: |
+          if((git rev-parse HEAD).Trim() -cne $env:PHONE_SOURCE_REF -or (git status --porcelain)){throw 'Recorder-contract source differs.'}
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: '10.0.401'
+      - name: Select the explicit owned-process interpreter
+        id: python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12.10'
+          architecture: 'x64'
+          check-latest: false
+          update-environment: false
+      - name: Build and test the distinct fixture WAV producer
+        env:
+          OPENWEB_WAV_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          & ./clients/windows/tools/Test-ClientWavProducer.ps1 -SourceCommit $env:PHONE_SOURCE_REF -PythonExecutable $env:OPENWEB_WAV_PYTHON
+      - name: Retain closed contract and preservation evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-phone-wav-producer-${{ github.run_id }}
+          path: ${{ runner.temp }}/phone-wav-evidence/
+          if-no-files-found: error
+          retention-days: 14

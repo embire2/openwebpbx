@@ -1,0 +1,110 @@
+{
+  "schema": 1,
+  "sdk_version": "5.5.23",
+  "sdk_bytes": 315960147,
+  "sdk_sha256": "9cc84037333daca88af24804e20b9d1f5e41ddd901578484b57dcc6720a8d297",
+  "producer_source_sha256": "0e983e50aeedd395a65990ad2ef440f7eb364c43b6a5e6a14490c0ecb0567fbf",
+  "original_audio_proof_sha256": "1aeb2622eed0cdefe86b66a1f448a95ecf0da9321bbbb072ea42a0114e07d3e0",
+  "files": [
+    {
+      "path": "CMakeLists.txt",
+      "bytes": 1998,
+      "sha256": "44c0a8da817a3a054003cd534a7e8f65f5bc4b480b8a00282e55342567a5bcee"
+    },
+    {
+      "path": "component/msfilerec.c",
+      "bytes": 13994,
+      "sha256": "0e983e50aeedd395a65990ad2ef440f7eb364c43b6a5e6a14490c0ecb0567fbf"
+    },
+    {
+      "path": "component/asyncrw.c",
+      "bytes": 5580,
+      "sha256": "66c573778215e91475a1499769269588a63fb4e3d1997b34e8067b0303ab2c55"
+    },
+    {
+      "path": "component/asyncrw.h",
+      "bytes": 1497,
+      "sha256": "b18de230e55dd02b9b709dc5caeef63f9550e38bf05798dcf4181803cb0e082c"
+    },
+    {
+      "path": "component/waveheader.h",
+      "bytes": 3114,
+      "sha256": "22ba1dab62e7228f73a0116459aaa31a0c2f719f74dfb48e102954309444f773"
+    },
+    {
+      "path": "component/fd_portab.h",
+      "bytes": 1730,
+      "sha256": "5737c249af43c52e14443ba09b02228260de5e36ec1bef3b85b71454abeaae40"
+    },
+    {
+      "path": "component/plugin.c",
+      "bytes": 1250,
+      "sha256": "b3176d51f22a379ebae07dd3b29bdd896f08501ebd3234ebd896e75f6f90f27f"
+    },
+    {
+      "path": "component/fixture_recorder.h",
+      "bytes": 597,
+      "sha256": "578ae90c35bf8eba25e83e28a4e8125975445d6fb9307ea91220d01c94b8d992"
+    },
+    {
+      "path": "contract/wav_contract.c",
+      "bytes": 7917,
+      "sha256": "88e6bc5c256445904fb6542f23579d1299fb28365d8009b8665363a5f0fe6e79"
+    },
+    {
+      "path": "readiness/FirstDataReadiness.cs",
+      "bytes": 1563,
+      "sha256": "996c0e5eeb32bcd3476806f212a4c90d1d252028b507396088571451966fa3ff"
+    },
+    {
+      "path": "readiness/AudioProof.original.cs",
+      "bytes": 10784,
+      "sha256": "1aeb2622eed0cdefe86b66a1f448a95ecf0da9321bbbb072ea42a0114e07d3e0"
+    },
+    {
+      "path": "readiness/ReadinessContract.cs",
+      "bytes": 2306,
+      "sha256": "d3aa97e1145d9c4123c050c2823969b5c3caad2b5047a825733ba39816b737f0"
+    },
+    {
+      "path": "readiness/ReadinessContract.csproj",
+      "bytes": 474,
+      "sha256": "9e3095836ec0cbe0b9a90773a0bb9aaefb242e0804286b3d17b303feabae80e2"
+    },
+    {
+      "path": "readiness/capture-first-data.patch",
+      "bytes": 649,
+      "sha256": "9c4a02591bf3547b329fa2387f8e658a0f2ea9ee36344325de91532a7bfde9a1"
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 34523,
+      "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0"
+    },
+    {
+      "path": "NOTICE.md",
+      "bytes": 1053,
+      "sha256": "39cd412dcc8567d18b0410167016383f24554aec371d3fbb9698274ab902c936"
+    },
+    {
+      "path": "producer.patch",
+      "bytes": 9947,
+      "sha256": "d90bcaaf05344153dcb11264e4fec335ac4022514504e4a545e6e6bb2902fd74"
+    },
+    {
+      "path": "original/msfilerec.c",
+      "bytes": 10441,
+      "sha256": "ad7ebbd8af576f09caae0de1d01af3cf5162b0b928a775d3b25cb7c09151dfe7"
+    },
+    {
+      "path": "public-api-source-pins.safe.json",
+      "bytes": 1904,
+      "sha256": "15105dfd4063363ecccaae4b2945549cd3378b25d72b8c9014330c9829afb451"
+    },
+    {
+      "path": "README.md",
+      "bytes": 1781,
+      "sha256": "822da0f450c197666159fb3e8ca63ac030efd3ebf25a9cf376b2f0cbc38f3536"
+    }
+  ]
+}

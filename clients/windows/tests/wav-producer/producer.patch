@@ -1,0 +1,277 @@
+--- a/msfilerec.c
++++ b/msfilerec.c
+@@ -19,6 +19,7 @@
+  */
+ 
+ #include <bctoolbox/defs.h>
++#include <limits.h>
+ 
+ #if defined(HAVE_CONFIG_H)
+ #include "mediastreamer-config.h"
+@@ -32,7 +33,7 @@
+ #include "fd_portab.h" // keep this include at the last of the inclusion sequence!
+ 
+ static int rec_close(MSFilter *f, void *arg);
+-static void write_wav_header(bctbx_vfs_file_t *fp, int rate, int nchannels, int size);
++static int write_wav_header(bctbx_vfs_file_t *fp, int rate, int nchannels, int size);
+ 
+ typedef struct RecState {
+ 	bctbx_vfs_file_t *fp;
+@@ -45,6 +46,7 @@
+ 	MSRecorderState state;
+ 	bool_t swap;
+ 	bool_t is_wav;
++	int io_error;
+ } RecState;
+ 
+ static void rec_init(MSFilter *f) {
+@@ -60,7 +62,17 @@
+ 	f->data = s;
+ }
+ 
+-static void _rec_close(RecState *s);
++static int _rec_close(RecState *s);
++
++/* Only the producer writes its own header. No captured file is repaired. */
++static int rec_refresh_empty_wav(RecState *s) {
++	if (s->fp && s->is_wav && s->size == 0) {
++		if (write_wav_header(s->fp, s->rate, s->nchannels, 0) != 0) {
++			s->io_error = -1; s->state = MSRecorderPaused; return -1;
++		}
++	}
++	return 0;
++}
+ 
+ static void swap_bytes(unsigned char *bytes, int len) {
+ 	int i;
+@@ -86,6 +98,11 @@
+ 				len = s->max_size - s->size;
+ 				max_size_reached = 1;
+ 			}
++			if (len < 0 || len > INT_MAX - s->size) {
++				s->io_error = -1; freemsg(m); _rec_close(s); continue;
++			}
++			/* The queued bytes must equal the bytes counted, including a size limit. */
++			m->b_wptr = m->b_rptr + len;
+ 			if (s->swap) {
+ 				if (dblk_ref_value(m->b_datap) != 1) {
+ 					mblk_t *old = m;
+@@ -106,18 +123,31 @@
+ 	ms_mutex_unlock(&f->lock);
+ }
+ 
+-static int rec_get_length(const char *file, int *length) {
++static int rec_get_length(const char *file, int *length, int *rate, int *channels) {
+ 	wave_header_t header;
+ 	bctbx_vfs_file_t *fp = bctbx_file_open2(bctbx_vfs_get_default(), file, O_RDONLY | O_BINARY);
+-	int ret;
++	ssize_t bytes; int ret; uint32_t count, hz, nch;
+ 	if (!fp) return -1;
+-	ret = ms_read_wav_header_from_fp(&header, fp);
++	bytes = bctbx_file_size(fp);
++	if (bytes == 0) { bctbx_file_close(fp); *length = 0; return 0; }
++	ret = (int)bctbx_file_read2(fp, &header, sizeof(header));
+ 	bctbx_file_close(fp);
+-	if (ret > 0) {
+-		*length = le_uint32(header.data_chunk.len);
+-	} else {
+-		*length = 0;
+-	}
++	if (ret != (int)sizeof(header)) return -1;
++	if (memcmp(header.riff_chunk.riff, "RIFF", 4) != 0 ||
++	    memcmp(header.riff_chunk.wave, "WAVE", 4) != 0 ||
++	    memcmp(header.format_chunk.fmt, "fmt ", 4) != 0 ||
++	    le_uint32(header.format_chunk.len) != 16 ||
++	    memcmp(header.data_chunk.data, "data", 4) != 0) return -1;
++	count = le_uint32(header.data_chunk.len); hz = le_uint32(header.format_chunk.rate);
++	nch = le_uint16(header.format_chunk.channel);
++	/* This fixture producer appends only its canonical PCM16 WAVs. */
++	if (count > INT_MAX || bytes != (ssize_t)sizeof(header) + count ||
++	    le_uint32(header.riff_chunk.len) != count + sizeof(header) - 8 ||
++	    le_uint16(header.format_chunk.type) != 1 || le_uint16(header.format_chunk.bitpspl) != 16 ||
++	    hz == 0 || hz > INT_MAX || nch == 0 || nch > 32767 || hz > UINT_MAX / (2 * nch) ||
++	    le_uint16(header.format_chunk.blockalign) != 2 * nch ||
++	    le_uint32(header.format_chunk.bps) != hz * 2 * nch || count % (2 * nch) != 0) return -1;
++	*length = (int)count; *rate = (int)hz; *channels = (int)nch;
+ 	return ret;
+ }
+ 
+@@ -127,15 +157,21 @@
+ 	int flags;
+ 	ssize_t fsize;
+ 
+-	if (s->fp) rec_close(f, NULL);
++	if (s->fp && rec_close(f, NULL) != 0) return -1;
++	s->size = 0; s->io_error = 0; s->is_wav = FALSE;
+ 
+ 	if (strstr(filename, ".wav") == filename + strlen(filename) - 4) {
++		if (s->swap) return -1; /* WAV is little-endian PCM16, never raw L16. */
+ 		s->is_wav = TRUE;
+ 	}
+ 
+ 	if (access(filename, R_OK | W_OK) == 0) {
+ 		flags = O_WRONLY | O_BINARY;
+-		if (rec_get_length(filename, &s->size) > 0) {
++		if (s->is_wav) {
++			int result = rec_get_length(filename, &s->size, &s->rate, &s->nchannels);
++			if (result < 0) return -1; /* never overwrite an unknown existing WAV */
++		}
++		if (s->is_wav && s->size > 0) {
+ 			ms_message("Opening wav file in append mode, current data size is %i", s->size);
+ 			s->is_wav = TRUE;
+ 		}
+@@ -155,8 +191,15 @@
+ 			if (bctbx_file_seek(s->fp, (off_t)fsize, SEEK_SET) == BCTBX_VFS_ERROR) {
+ 				int err = errno;
+ 				ms_error("Could not lseek to end of file: %s", strerror(err));
++				bctbx_file_close(s->fp); s->fp = NULL; return -1;
+ 			}
+-		} else ms_error("fstat() failed: %s", strerror(errno));
++		} else {
++			ms_error("fstat() failed: %s", strerror(errno));
++			bctbx_file_close(s->fp); s->fp = NULL; return -1;
++		}
++	}
++	if (rec_refresh_empty_wav(s) != 0) {
++		bctbx_file_close(s->fp); s->fp = NULL; return -1;
+ 	}
+ 	ms_message("MSFileRec: recording into %s", filename);
+ 	s->writer = ms_async_writer_new(s->fp);
+@@ -186,10 +229,13 @@
+ 	return 0;
+ }
+ 
+-static void write_wav_header(bctbx_vfs_file_t *fp, int rate, int nchannels, int size) {
++static int write_wav_header(bctbx_vfs_file_t *fp, int rate, int nchannels, int size) {
+ 	wave_header_t header;
++	if (size < 0 || rate <= 0 || nchannels <= 0 || nchannels > 32767 ||
++	    size % (2 * nchannels) != 0 ||
++	    (uint32_t)rate > UINT_MAX / (2u * (uint32_t)nchannels)) return -1;
+ 	memcpy(&header.riff_chunk.riff, "RIFF", 4);
+-	header.riff_chunk.len = le_uint32(size + 32);
++	header.riff_chunk.len = le_uint32((uint32_t)size + sizeof(header) - 8);
+ 	memcpy(&header.riff_chunk.wave, "WAVE", 4);
+ 
+ 	memcpy(&header.format_chunk.fmt, "fmt ", 4);
+@@ -197,38 +243,42 @@
+ 	header.format_chunk.type = le_uint16(0x1);
+ 	header.format_chunk.channel = le_uint16(nchannels);
+ 	header.format_chunk.rate = le_uint32(rate);
+-	header.format_chunk.bps = le_uint32(rate * 2 * nchannels);
++	header.format_chunk.bps = le_uint32((uint32_t)rate * 2u * (uint32_t)nchannels);
+ 	header.format_chunk.blockalign = le_uint16(2 * nchannels);
+ 	header.format_chunk.bitpspl = le_uint16(16);
+ 
+ 	memcpy(&header.data_chunk.data, "data", 4);
+ 	header.data_chunk.len = le_uint32(size);
+-	bctbx_file_seek(fp, 0, SEEK_SET);
+-	if (bctbx_file_write2(fp, &header, sizeof(header)) != sizeof(header)) {
+-		ms_warning("Fail to write wav header.");
+-	}
+-}
+-
+-static void _rec_close(RecState *s) {
++	if (bctbx_file_seek(fp, 0, SEEK_SET) == BCTBX_VFS_ERROR ||
++	    bctbx_file_write2(fp, &header, sizeof(header)) != sizeof(header) ||
++	    bctbx_file_sync(fp) != 0) return -1;
++	return 0;
++}
++
++static int _rec_close(RecState *s) {
+ 	s->state = MSRecorderClosed;
+ 	if (s->fp) {
+ 		ms_async_writer_destroy(s->writer);
+ 		s->writer = NULL;
+ 		if (s->is_wav) {
+-			write_wav_header(s->fp, s->rate, s->nchannels, s->size);
++			/* Drain first; never make a short/failed writer look complete. */
++			if (bctbx_file_size(s->fp) != (ssize_t)sizeof(wave_header_t) + s->size ||
++			    write_wav_header(s->fp, s->rate, s->nchannels, s->size) != 0) s->io_error = -1;
+ 		}
+ 
+-		bctbx_file_close(s->fp);
++		if (bctbx_file_close(s->fp) != 0) s->io_error = -1;
+ 		s->fp = NULL;
+ 	}
++	return s->io_error;
+ }
+ 
+ static int rec_close(MSFilter *f, BCTBX_UNUSED(void *arg)) {
+ 	RecState *s = (RecState *)f->data;
+-	ms_mutex_lock(&f->lock);
+-	_rec_close(s);
+-	ms_mutex_unlock(&f->lock);
+-	return 0;
++	int result;
++	ms_mutex_lock(&f->lock);
++	result = _rec_close(s);
++	ms_mutex_unlock(&f->lock);
++	return result;
+ }
+ 
+ static int rec_get_state(MSFilter *f, void *arg) {
+@@ -240,9 +290,11 @@
+ static int rec_set_sr(MSFilter *f, void *arg) {
+ 	RecState *s = (RecState *)f->data;
+ 	ms_mutex_lock(&f->lock);
++	if (*((int *)arg) <= 0 || (s->is_wav && s->size > 0 && s->rate != *((int *)arg))) { ms_mutex_unlock(&f->lock); return -1; }
+ 	s->rate = *((int *)arg);
+-	ms_mutex_unlock(&f->lock);
+-	return 0;
++	int result = rec_refresh_empty_wav(s);
++	ms_mutex_unlock(&f->lock);
++	return result;
+ }
+ 
+ static int rec_get_sr(MSFilter *f, void *arg) {
+@@ -254,8 +306,11 @@
+ 
+ static int rec_set_nchannels(MSFilter *f, void *arg) {
+ 	RecState *s = (RecState *)f->data;
+-	s->nchannels = *(int *)arg;
+-	return 0;
++	int result;
++	ms_mutex_lock(&f->lock);
++	if (*(int *)arg <= 0 || *(int *)arg > 32767 || (s->is_wav && s->size > 0 && s->nchannels != *(int *)arg)) { ms_mutex_unlock(&f->lock); return -1; }
++	s->nchannels = *(int *)arg; result = rec_refresh_empty_wav(s);
++	ms_mutex_unlock(&f->lock); return result;
+ }
+ 
+ static int rec_get_nchannels(MSFilter *f, void *arg) {
+@@ -282,13 +337,16 @@
+ 	RecState *d = (RecState *)f->data;
+ 	MSPinFormat *pinfmt = (MSPinFormat *)arg;
+ 	ms_filter_lock(f);
++	if (!pinfmt || !pinfmt->fmt || !pinfmt->fmt->encoding || pinfmt->fmt->rate <= 0 || pinfmt->fmt->nchannels <= 0 ||
++	    (d->is_wav && (strcmp(pinfmt->fmt->encoding, "pcm") != 0 ||
++	    (d->size > 0 && (d->rate != pinfmt->fmt->rate || d->nchannels != pinfmt->fmt->nchannels))))) { ms_filter_unlock(f); return -1; }
+ 	d->rate = pinfmt->fmt->rate;
+ 	d->nchannels = pinfmt->fmt->nchannels;
+ 	d->mime = pinfmt->fmt->encoding;
+ 	d->swap = strcmp(d->mime, "L16") == 0;
+ 	if (d->swap) d->is_wav = FALSE;
+-	ms_filter_unlock(f);
+-	return 0;
++	int result = rec_refresh_empty_wav(d);
++	ms_filter_unlock(f); return result;
+ }
+ 
+ static int rec_set_max_size(MSFilter *f, void *arg) {
+@@ -318,7 +376,7 @@
+ #ifdef _WIN32
+ 
+ MSFilterDesc ms_file_rec_desc = {MS_FILE_REC_ID,
+-                                 "MSFileRec",
++                                 "OpenWebPBXFixtureWavRecorder",
+                                  N_("Wav file recorder"),
+                                  MS_FILTER_OTHER,
+                                  NULL,
+@@ -334,7 +392,7 @@
+ #else
+ 
+ MSFilterDesc ms_file_rec_desc = {.id = MS_FILE_REC_ID,
+-                                 .name = "MSFileRec",
++                                 .name = "OpenWebPBXFixtureWavRecorder",
+                                  .text = N_("Wav file recorder"),
+                                  .category = MS_FILTER_OTHER,
+                                  .ninputs = 1,

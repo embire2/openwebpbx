@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "source_seed": "348e8de32fb2ac56b7b0a7167968fc1ac707f7b2",
+  "files": [
+    {
+      "mode": "100644",
+      "blob": "be3f7b28e564e7dd05eaf59d64adba1a4065ac0e",
+      "path": "mediastreamer2/LICENSE.txt",
+      "bytes": 34523,
+      "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0"
+    },
+    {
+      "mode": "100644",
+      "blob": "658a8284bfa20cb477936cef70d958f227c19436",
+      "path": "mediastreamer2/include/mediastreamer2/msfactory.h",
+      "bytes": 15814,
+      "sha256": "e7ad237738828868fd2843a4176d5bf4c97bbc17fecd0339990af3f369d52256"
+    },
+    {
+      "mode": "100644",
+      "blob": "52091651dac434de6da3cbe22c8eec71ee3ccf72",
+      "path": "mediastreamer2/include/mediastreamer2/msfilter.h",
+      "bytes": 27407,
+      "sha256": "953abfe77c62c8433458970674c5cdbf3bb09b05baa42ae82c7b8fef03e1a07c"
+    },
+    {
+      "mode": "100644",
+      "blob": "9ef8c5ef510d7ec65b416e84e60b7279074d83bf",
+      "path": "mediastreamer2/include/mediastreamer2/msqueue.h",
+      "bytes": 9277,
+      "sha256": "e0565c536a836a6683f9ffeefcba941fceb434c64b69c50f8d8b75d3b3fd788f"
+    },
+    {
+      "mode": "100644",
+      "blob": "83f2c25c0b87819d5352ef3010a245a65de5d268",
+      "path": "mediastreamer2/include/mediastreamer2/msasync.h",
+      "bytes": 3813,
+      "sha256": "0fb571e2998d30e847061286a1144790e9a2d726acc0f514dabb9fa37314c253"
+    },
+    {
+      "mode": "100644",
+      "blob": "c4d338a236e0e8ca9d7782331078ec0fb39fcd31",
+      "path": "mediastreamer2/src/base/msfactory.c",
+      "bytes": 38535,
+      "sha256": "7149adc24d2b262dfae559712e7456cb04f75fdce5c28fa970c30641562856f6"
+    },
+    {
+      "mode": "100644",
+      "blob": "5cffdc48c0f45d41e7f2259fe869beb6aa9db217",
+      "path": "mediastreamer2/src/voip/msvoip.c",
+      "bytes": 10367,
+      "sha256": "f3ecba0f23222b23b319322878d51710b9f6ac8c57471cff2dec61521e814850"
+    }
+  ]
+}
