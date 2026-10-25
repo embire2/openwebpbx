@@ -35,14 +35,17 @@ target also passes all20 gates: complete database/media and target identities,
 original-credential decoded two-way calls, voicemail121, Nathaniel1026, scheduled
 jobs/backups and canonical cleanup. All six original Phone Health choices are
 restored. Signed repeat40125359325 passes with the same verified pair and unchanged
-preservation checks. The latest separate restored-conference repeat40141983283
-passes nine source gates, then refuses before a decoded-media result. All four
-before/after WSS observations are unavailable, while its read-only database
-observation succeeds. The inner child cause is unretained; this does not identify
-a TLS, socket or browser-launch failure. Supplemental cleanup, canonical cleanup
-and original Health choices pass. A reviewed failure-only child observer retains
-the original8443 binding, commands, deadlines and media/cleanup checks for one
-separate repeat. Restored-meeting media remains unqualified. Earlier supplement
+preservation checks. Separate restored-conference repeat40147567932 passes nine
+source gates, then stops before media. Both connection-observer children identify
+the standard Get-Acl command as unavailable at line56, without a timeout. This
+identifies the current missing-command refusal; its environment cause remains
+unproven. Supplemental cleanup, canonical cleanup and original Health choices
+pass. Six reviewed QA-only changes explicitly load the stock Windows modules,
+preserving the original ACL,8443, trust, commands, deadlines and media/cleanup
+checks. A separate actual WindowsPowerShell5 component verifies stock command
+provenance and real ACL/JSON calls; it is not a CI-context or media pass.
+Repeat40152289946/source13d691175 is running against the unchanged published
+archive. Restored-meeting media remains unqualified. Earlier supplement
 failures retain their original limited evidence. Owner migration, actual OS reboot
 and external access are separate.
 
@@ -419,7 +422,7 @@ original package scope.
 |---|---|---|
 | Phone Health & Recovery | Installed SYSTEM observation, continuous collection and restart pass129 PostgreSQL,49 runtime and18 Defender controls; accepted-package upgrade and separate restore preservation also pass. | Owner-machine registration and recovery checks; broader physical-phone coverage. |
 | Remote phones | Native STUN service and33 installed Binding/Defender/recovery checks pass; media remains anchored by the PBX. | External test-machine STUN, actual phone/app connections and two-way audio. Windows IPv6 remains separate; STUN does not provide TURN. |
-| Conferences | Native TLS/WebSocket transport55 and decoded browser audio/video gates pass in the normal package. | External browser/phone acceptance. Restored-conference repeat40141983283 failed before media with unavailable connection observations; its inner child cause is unknown and that separate workflow remains unqualified. |
+| Conferences | Native TLS/WebSocket transport55 and decoded browser audio/video gates pass in the normal package. | External browser/phone acceptance. Restored-conference40147567932 stopped at a missing standard test command; the reviewed module bootstrap is under repeat40152289946. Restored-meeting media remains unqualified. |
 | Backups and restore | Scheduled encrypted backups, retention, media/private-key preservation, recovery and activation pass in normal40111566679; restore40123098262 passes nine source and20 clean-target gates on that exact archive, including the default-HTTPS-port correction. | Owner-instance restore checks. Debian instance archives are unsupported on Windows. |
 | Updates | Fresh installation, same-version reapply, direct rollback, restore-startup recovery and both manager reopen gates pass in40111566679. The matched1.0.21 canary archive and existing-key envelopes are fully audited. | Signed40125359325 now passes all9 gates for this exact base/canary pair. Original1.0.6 migration/interrupted recovery and actual OS reboot remain open; earlier40097476201 retains its older-package scope. |
 | PHP runtime | Pinned PHP8.4.27 is installed and exercised by the normal package; native private-copy runtime preservation/rollback checks also pass. | Full legacy owner upgrade and interruption/recovery. Component checks do not substitute for that migration. |

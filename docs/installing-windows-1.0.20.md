@@ -33,6 +33,8 @@ Setup installs the local PostgreSQL database, IIS/PHP, call engine, background s
 
 Before setup, finish any pending Windows restart and use an administrator account. The launcher checks the required Microsoft Visual C++ x64 runtime and verifies Microsoft's signature before installing it; follow a requested restart before continuing. Use built-in Windows PowerShell 5.1 for setup, because its IIS modules are required. The release supplies its application runtimes; installing Visual Studio is not a server prerequisite.
 
+We recommend at least **30 GB free on C:** before setup or an upgrade, plus storage for your recordings and retained backups. Let Windows updates finish and complete their requested restarts first. Microsoft's [Windows Server update guide](https://learn.microsoft.com/en-us/troubleshoot/windows-server/deployment/troubleshoot-windows-server-update-guidance) covers update and pending-restart checks.
+
 For public access, point one public IPv4 DNS record at the server or its forwarding router. The standard network plan uses TCP 80/443 for certificate validation/web access, TCP/UDP 5060 for phones, TCP/UDP 5080 for providers, TCP 5061 for phone TLS, UDP 16384–32768 for call audio and UDP 3478 for STUN. SIP rules follow the actual configured listeners. The installer does not configure an upstream router; STUN is not a TURN relay. See the [Windows network and certificate guide](https://github.com/embire2/openwebpbx/blob/customization/packaging/windows/ACME.md) for the exact checks and renewal behavior. PostgreSQL, the call-engine control socket and the local service API stay local.
 
 After setup, verify all of the following before moving live numbers:
