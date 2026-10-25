@@ -4,8 +4,9 @@ using OpenWebPbx.Server;
 namespace OpenWebPbx.Updater;
 
 public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, ReleaseVerifier verifier, DownloadClient downloads,
-    PlatformInstaller installer, SwitchClient engine, ILogger<Worker> logger) : BackgroundService
+    PlatformInstaller installer, SwitchClient engine, ILogger<Worker> logger, TimeProvider? time = null) : BackgroundService
 {
+    private readonly TimeProvider clock = time ?? TimeProvider.System;
     private UpdateCommand? command;
     private VerifiedRelease? candidate;
     private DateTimeOffset nextCheck = DateTimeOffset.MinValue;
@@ -13,12 +14,16 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
     private bool restartPending;
     private string? verifiedArchive;
     private bool preflightPassed;
+    private bool retryAfterFailure;
     public bool OneShot { get; set; }
     public bool CheckOnly { get; set; }
     public bool SkipRecovery { get; set; }
     private async Task Status(string state, string message, string installed, CancellationToken ct, long bytes = 0)
     {
-        var status = new UpdateStatus(state, message, installed, candidate?.Version, bytes, candidate?.Asset.Bytes ?? 0, DateTimeOffset.UtcNow, lastSuccess);
+        var required = paths.Platform == "windows-x64" && candidate is not null && UpdateJson.Version(candidate.Version) > UpdateJson.Version(installed);
+        var status = new UpdateStatus(state, message, installed, candidate?.Version, bytes, candidate?.Asset.Bytes ?? 0, DateTimeOffset.UtcNow, lastSuccess,
+            paths.Platform, required, required && preflightPassed && verifiedArchive is not null && state is not ("error" or "recovery_required" or "rolled_back"),
+            required ? ServerUpdateBehaviour.Notice(candidate!.Version) : null);
         UpdateJson.Write(paths.Status, status); UpdateJson.Write(paths.PublicStatus, status);
         if (!OperatingSystem.IsWindows()) {
             File.SetUnixFileMode(Path.GetDirectoryName(paths.PublicStatus)!, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
@@ -34,6 +39,13 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
     private async Task<bool> InitializeAttempt(CancellationToken ct)
     {
         paths.Prepare();
+        // Reverify the retained signed offer after a restart; never trust the public status as an installation input.
+        if (paths.Platform == "windows-x64" && File.Exists(paths.Feed)) {
+            try {
+                candidate = verifier.Verify(UpdateJson.ReadBytes(paths.Feed, 262144), paths.Platform,
+                    File.Exists(paths.Trust) ? UpdateJson.Read<TrustState>(paths.Trust) : null, DateTimeOffset.UtcNow);
+            } catch (Exception e) when (e is IOException or InvalidDataException or JsonException or FormatException or System.Security.Cryptography.CryptographicException or KeyNotFoundException) { candidate = null; }
+        }
         WorkerJournal? journal = File.Exists(paths.Journal) ? UpdateJson.Read<WorkerJournal>(paths.Journal) : null;
         if (File.Exists(paths.Status)) { try { lastSuccess = UpdateJson.Read<UpdateStatus>(paths.Status).LastSuccessVersion; } catch (Exception e) when (e is IOException or JsonException) { } }
         if (!SkipRecovery)
@@ -114,10 +126,10 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
                 await Finish(false, "This installation request expired. Request the update again when ready", ct);
                 await Status("error", "This installation request expired. Request the update again when ready", installed, ct); return;
             }
-            var policy = await repository.Policy(ct);
-            var now = DateTimeOffset.UtcNow;
-            if (command is null && now < nextCheck && (candidate is null || policy.Mode == "notify" || policy.Mode == "download" && File.Exists(Path.Combine(paths.Downloads, candidate.Asset.Sha256 + ".archive")))) return;
-            if (newlyClaimed || candidate is null || now >= nextCheck || CheckOnly)
+            var policy = ServerUpdateBehaviour.EffectivePolicy(paths.Platform, await repository.Policy(ct));
+            var now = clock.GetUtcNow();
+            if (command is null && now < nextCheck && (retryAfterFailure || candidate is null || policy.Mode == "notify" || policy.Mode == "download" && preflightPassed)) return;
+            if (newlyClaimed || now >= nextCheck || CheckOnly)
             {
                 Journal("checking"); await Status("checking", "Checking for a signed release", installed, ct);
                 var envelope = await downloads.Feed(paths.Platform, ct);
@@ -127,7 +139,8 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
                 candidate = nextCandidate;
                 UpdateJson.Write(paths.Trust, new TrustState(candidate.Sequence, candidate.PayloadSha256));
                 UpdateJson.WriteBytes(paths.Feed, envelope);
-                nextCheck = now.AddHours(6);
+                nextCheck = now.Add(ServerUpdateBehaviour.CheckInterval(paths.Platform));
+                retryAfterFailure = false;
             }
             var release = candidate!;
             if (UpdateJson.Version(release.Version) <= UpdateJson.Version(installed))
@@ -140,7 +153,7 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
                 await Status("error", "This update previously failed. Automatic retry is paused; an administrator can request installation again", installed, ct);
                 return;
             }
-            if (CheckOnly || command?.Action == "check" || command is null && policy.Mode == "notify")
+            if (CheckOnly || command?.Action == "check" && paths.Platform != "windows-x64" || command is null && policy.Mode == "notify")
             {
                 await Status("available", previousFailure ? "A verified update is available, but its previous installation failed. Review recovery before retrying" : "A verified update is available", installed, ct); await Finish(true, "A verified update is available", ct); return;
             }
@@ -157,7 +170,7 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
             if (preflight != 0) throw new InvalidDataException("The verified update did not pass installation checks. The current server remains available.");
             preflightPassed = true;
             Journal("ready");
-            if (command?.Action == "download" || command is null && policy.Mode == "download")
+            if (command?.Action == "download" || command?.Action == "check" || command is null && policy.Mode == "download")
             {
                 await Status("ready", "The update is downloaded and verified", installed, ct, release.Asset.Bytes); await Finish(true, "The update is downloaded and verified", ct); return;
             }
@@ -179,22 +192,24 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
                 UpdateJson.Write(paths.FailedInstall, new FailedInstall(release.Version, release.Asset.Sha256)); installing = false;
                 var recovered = result == 1 && installer.JournalState() == "rolled_back";
                 await Status(recovered ? "rolled_back" : "recovery_required", recovered ? "The update failed; the previous version was restored" : "The update needs administrator recovery. Check the private update log", paths.InstalledVersion(), ct);
-                await Finish(false, recovered ? "The previous version was restored" : "Administrator recovery is required", ct); candidate = null; nextCheck = now.AddHours(6); return;
+                await Finish(false, recovered ? "The previous version was restored" : "Administrator recovery is required", ct); retryAfterFailure = true; nextCheck = now.Add(ServerUpdateBehaviour.CheckInterval(paths.Platform)); return;
             }
             if (paths.InstalledVersion() != release.Version) throw new IOException("The installer did not report the expected installed version.");
             installing = false; File.Delete(paths.FailedInstall);
             lastSuccess = release.Version; await Status("completed", "The update is installed and the phone system is running", release.Version, ct, release.Asset.Bytes);
-            await Finish(true, "The update completed successfully", ct); candidate = null; nextCheck = now.AddHours(6);
+            await Finish(true, "The update completed successfully", ct); candidate = null; nextCheck = now.Add(ServerUpdateBehaviour.CheckInterval(paths.Platform));
             if (!OneShot) { restartPending = true; installer.RestartUpdater(); }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception e) when (e is IOException or InvalidDataException or JsonException or FormatException or System.Security.Cryptography.CryptographicException or HttpRequestException or OperationCanceledException or Npgsql.NpgsqlException or InvalidOperationException or KeyNotFoundException)
         {
             if (installing && candidate is not null) UpdateJson.Write(paths.FailedInstall, new FailedInstall(candidate.Version, candidate.Asset.Sha256));
+            verifiedArchive = null; preflightPassed = false;
             logger.LogWarning("An update attempt failed during verification, download, or installation. Review the private updater status.");
             var message = e is InvalidDataException ? e.Message : "The update could not finish. Your download can be retried; check the connection and update status";
             try { await Status("error", message, paths.InstalledVersion(), ct); await Finish(false, message, ct); } catch (Exception failure) when (failure is IOException or Npgsql.NpgsqlException) { }
-            candidate = null; nextCheck = DateTimeOffset.UtcNow.AddMinutes(15);
+            verifiedArchive = null; preflightPassed = false; retryAfterFailure = true;
+            nextCheck = clock.GetUtcNow().Add(paths.Platform == "windows-x64" ? TimeSpan.FromMinutes(5) : TimeSpan.FromMinutes(15));
         }
     }
     private async Task Finish(bool success, string message, CancellationToken ct)

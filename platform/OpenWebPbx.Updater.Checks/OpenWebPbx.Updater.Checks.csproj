@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\OpenWebPbx.Updater\OpenWebPbx.Updater.csproj" />
+    <Compile Include="../OpenWebPbx.Desktop/ServerUpdateNotice.cs" Link="ServerUpdateNotice.cs" />
   </ItemGroup>
 
   <PropertyGroup>

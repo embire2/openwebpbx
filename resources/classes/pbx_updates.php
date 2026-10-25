@@ -48,7 +48,11 @@ class pbx_updates {
         return $this->q('select mode,channel,maintenance_hour,maintenance_duration,updated_at,android_minimum_version from v_pbx_update_policies where scope_key=:scope', ['scope'=>$scope])->fetch(PDO::FETCH_ASSOC)
             ?: ['mode'=>'notify','channel'=>'stable','maintenance_hour'=>2,'maintenance_duration'=>2,'updated_at'=>null,'android_minimum_version'=>''];
     }
-    public function instancePolicy(): array { $this->access(true); return $this->policy('instance')+['feed_url'=>self::serverFeedUrl()]; }
+    public function instancePolicy(): array {
+        $this->access(true); $policy = $this->policy('instance');
+        if (PHP_OS_FAMILY === 'Windows') $policy['mode'] = 'download';
+        return $policy+['feed_url'=>self::serverFeedUrl()];
+    }
     public function tenantPolicy(string $tenant): array { $this->tenant($tenant); return $this->policy('tenant:'.$tenant); }
     /** The public release requirement is visible to update administrators, not tenant data. */
     public function clientMinimumVersion(): string { $this->access(); return $this->policy('instance')['android_minimum_version']; }
@@ -63,6 +67,7 @@ class pbx_updates {
         $this->access(true);
         $mode = $input['mode'] ?? null;
         if (!in_array($mode, ['notify','download','automatic'], true)) throw new InvalidArgumentException('Choose a server update option.');
+        if (PHP_OS_FAMILY === 'Windows') $mode = 'download'; // Windows installation always waits for an explicit administrator request.
         $hour = filter_var($input['maintenance_hour'] ?? null, FILTER_VALIDATE_INT, ['options'=>['min_range'=>0,'max_range'=>23]]);
         $duration = filter_var($input['maintenance_duration'] ?? null, FILTER_VALIDATE_INT, ['options'=>['min_range'=>1,'max_range'=>6]]);
         if ($hour === false || $duration === false) throw new InvalidArgumentException('Choose a valid update window in UTC.');
@@ -109,6 +114,26 @@ class pbx_updates {
         $out['service_online'] = !empty($data) && strtotime($row['updated_at'] ?? '') > time()-180;
         $out['recent'] = $this->q('select action,status,left(message,500) message,created_at,finished_at from v_pbx_update_commands order by created_at desc limit 10')->fetchAll(PDO::FETCH_ASSOC);
         return $out;
+    }
+    /** Only the release notice is shared with signed-in users. Installation remains instance-admin only. */
+    public function serverNotice(string $osFamily = PHP_OS_FAMILY): array {
+        $out = ['required'=>false, 'version'=>'', 'message'=>'', 'ready'=>false, 'can_install'=>false];
+        if (empty($_SESSION['authorized']) || !is_uuid($_SESSION['user_uuid'] ?? '') ||
+            !$this->q("select 1 from v_users where user_uuid=:id and user_enabled='true'", ['id'=>$_SESSION['user_uuid']])->fetchColumn())
+            throw new DomainException('Sign in to view server updates.');
+        if ($osFamily !== 'Windows') return $out;
+        $raw = $this->q('select status_json from v_pbx_update_status where singleton=1')->fetchColumn();
+        $data = is_string($raw) ? json_decode($raw, true) : null;
+        $version = $data['available_version'] ?? null;
+        $installed = $data['installed_version'] ?? null;
+        $valid = static fn($v) => is_string($v) && preg_match('/^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$/D', $v);
+        if (!is_array($data) || ($data['platform'] ?? '') !== 'windows-x64' || ($data['update_required'] ?? false) !== true ||
+            !$valid($version) || !$valid($installed) || !version_compare($version, $installed, '>') ||
+            (self::version() !== 'unknown' && !version_compare($version, self::version(), '>'))) return $out;
+        return ['required'=>true, 'version'=>$version,
+            'message'=>'Your Windows Server PBX system has a new update '.$version.' - you must update in order to continue using the service.',
+            'ready'=>($data['download_ready'] ?? false) === true,
+            'can_install'=>$this->instanceAdmin() && $this->canView()];
     }
     /** Called only after pbx_mobile has authenticated the device and its active extension. */
     public function phonePolicy(array $account): array {

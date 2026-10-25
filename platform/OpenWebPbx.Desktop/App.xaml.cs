@@ -22,6 +22,13 @@ namespace OpenWebPbx_Desktop;
 public partial class App : Application
 {
     private Window? _window;
+    internal void ShowUpdateWindow()
+    {
+        if (_window is null) return;
+        if (_window.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter && presenter.State == Microsoft.UI.Windowing.OverlappedPresenterState.Minimized)
+            presenter.Restore();
+        _window.AppWindow.Show(); _window.Activate();
+    }
 
     /// <summary>
     /// Initializes the singleton application object.  This is the first line of authored code

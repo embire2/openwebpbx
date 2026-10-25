@@ -6,6 +6,13 @@ using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using OpenWebPbx.Updater;
 
+if (args.Contains("--windows-server-update-checks", StringComparer.Ordinal))
+{
+    var windowsConnection = Environment.GetEnvironmentVariable("OPENWEB_TEST_DATABASE") ?? throw new InvalidOperationException("An owned PostgreSQL fixture is required.");
+    Console.WriteLine($"PASS: {await WindowsServerUpdateChecks.Run(windowsConnection)} actual Windows five-minute, download, postponement, idle, queue, unattended helper and retry controls");
+    return;
+}
+
 if (args.Contains("--startup-checks", StringComparer.Ordinal))
 {
     var startupConnection = Environment.GetEnvironmentVariable("OPENWEB_TEST_DATABASE") ?? throw new InvalidOperationException("An independently owned PostgreSQL fixture is required.");
@@ -42,6 +49,21 @@ byte[] Envelope(Dictionary<string,object?> fields) { var bytes=JsonSerializer.Se
 payload["assets"]=new[]{Asset(archive)};
 try
 {
+ foreach (var mode in new[]{"notify","download","automatic"}) {
+  var policy=new UpdatePolicy(mode,23,3);
+  Check(ServerUpdateBehaviour.EffectivePolicy("windows-x64",policy)==new UpdatePolicy("download",23,3),"Windows may install without an explicit request");
+  Check(ServerUpdateBehaviour.EffectivePolicy("debian13-amd64",policy)==policy,"Windows policy changed Debian behaviour");
+ }
+ Check(ServerUpdateBehaviour.CheckInterval("windows-x64")==TimeSpan.FromMinutes(5),"Windows does not check every five minutes");
+ Check(ServerUpdateBehaviour.CheckInterval("debian13-amd64")==TimeSpan.FromHours(6),"Debian interval changed");
+ var noticeFields=new Dictionary<string,object?> { ["platform"]="windows-x64",["update_required"]=true,["available_version"]="1.0.21",["installed_version"]="1.0.20",["download_ready"]=false };
+ OpenWebPbx_Desktop.ServerUpdateNotice? Notice(){using var document=JsonDocument.Parse(JsonSerializer.SerializeToUtf8Bytes(noticeFields));return OpenWebPbx_Desktop.ServerUpdateNotice.Read(document.RootElement);}
+ Check(Notice() is {Version:"1.0.21",Ready:false},"Required prompt did not wait for download");
+ noticeFields["download_ready"]=true;
+ Check(Notice() is {Ready:true} && Notice()!.Message==ServerUpdateBehaviour.Notice("1.0.21"),"Desktop notice differs from the service notice");
+ foreach(var (field,value) in new (string,object?)[]{("platform","debian13-amd64"),("platform",null),("update_required","true"),("update_required",false),("available_version","1.0.20"),("available_version","1.0.19"),("available_version","1.0.021"),("available_version","1.0.21\n"),("available_version","<script>"),("available_version",42),("installed_version",null)}) {
+  var previous=noticeFields[field];noticeFields[field]=value;Check(Notice() is null,"Invalid or non-Windows update displayed a mandatory notice");noticeFields[field]=previous;
+ }
  var envelope=Envelope(payload);var release=verifier.Verify(envelope,"windows-x64",null,now);
  Check(release.Version=="1.0.4","signed feed accepted");
  var changed=(byte[])envelope.Clone();changed[^12]^=1;Reject(()=>verifier.Verify(changed,"windows-x64",null,now),"tampered envelope accepted");

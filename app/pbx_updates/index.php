@@ -47,10 +47,15 @@ $document['title'] = 'Updates'; require_once PROJECT_ROOT.'/resources/header.php
 <?php if ($status['recent']): ?><details><summary>Recent requests</summary><?php foreach ($status['recent'] as $request): ?><p><?= $e(ucfirst($request['action']).' · '.$request['status'].' · '.$request['created_at']) ?><?php if ($request['message']): ?><br><?= $e($request['message']) ?><?php endif; ?></p><?php endforeach; ?></details><?php endif; ?>
 </section>
 <section class="setup-card"><h2>Automatic server updates</h2><p>This server hosts every tenant. Only an instance administrator can change these settings.</p>
+<?php if (PHP_OS_FAMILY === 'Windows'): ?>
+<p>Windows checks for a signed release every five minutes and downloads it automatically. The Windows desktop shows a required update prompt, and a red banner appears at the top of the web console. Your PBX keeps running while you postpone installation.</p>
+<p>Choose <strong>Update now</strong> in the banner or on the Windows server. Installation waits for active calls, runs without installer questions and restarts the phone system and Windows manager. Only an instance administrator or Windows administrator can start it.</p>
+<?php else: ?>
 <form method="post" class="setup-form"><?php $csrf(); ?><input type="hidden" name="action" value="save_instance">
 <fieldset class="update-options"><legend>When a new release is available</legend><?php foreach (['notify'=>['Let me choose','I will start the download and installation.'],'download'=>['Download automatically','I will choose when to install.'],'automatic'=>['Install automatically','Download first, then install during the update window.']] as $value=>$option): ?><label class="update-option"><input type="radio" name="mode" value="<?= $e($value) ?>" <?= $serverPolicy['mode']===$value?'checked':'' ?>><span><strong><?= $e($option[0]) ?></strong><small><?= $e($option[1]) ?></small></span></label><?php endforeach; ?></fieldset>
 <div class="form-grid"><label>Update window starts (UTC)<select name="maintenance_hour"><?php for($hour=0;$hour<24;$hour++): ?><option value="<?= $hour ?>" <?= (int)$serverPolicy['maintenance_hour']===$hour?'selected':'' ?>><?= sprintf('%02d:00',$hour) ?></option><?php endfor; ?></select></label><label>Window length<select name="maintenance_duration"><?php for($hours=1;$hours<=6;$hours++): ?><option value="<?= $hours ?>" <?= (int)$serverPolicy['maintenance_duration']===$hours?'selected':'' ?>><?= $hours ?> <?= $hours===1?'hour':'hours' ?></option><?php endfor; ?></select></label></div>
-<p class="setup-hint">Automatic updates wait for an idle period inside this daily window. Downloads do not interrupt calls.</p><button class="setup-button primary">Save server settings</button></form></section>
+<p class="setup-hint">Automatic updates wait for an idle period inside this daily window. Downloads do not interrupt calls.</p><button class="setup-button primary">Save server settings</button></form>
+<?php endif; ?></section>
 <?php endif; ?>
 <section class="setup-card"><h2>Android app updates</h2>
 <p class="setup-hint">Download choices below apply to phones installed from our website or GitHub. Google Play phones use their Play Store download and installation settings.</p>

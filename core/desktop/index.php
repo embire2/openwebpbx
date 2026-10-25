@@ -107,6 +107,7 @@ header('Cache-Control: no-store');
     <script defer src="<?= PROJECT_PATH ?>/core/desktop/desktop.js?v=5"></script>
 </head>
 <body>
+    <?php require_once PROJECT_ROOT.'/resources/windows_update_notice.php'; ?>
     <main id="desktop" aria-label="OpenWeb PBX desktop">
         <header class="desktop-brand"><img src="<?= PROJECT_PATH ?>/themes/default/images/openweb-mark.svg" alt="" width="38" height="38"><div><strong>OpenWeb PBX</strong><span>Communications workspace</span></div></header>
         <nav id="desktop-shortcuts" class="desktop-shortcuts" aria-label="Desktop applications"></nav>

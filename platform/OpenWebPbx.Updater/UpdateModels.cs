@@ -13,7 +13,8 @@ public sealed record UpdatePolicy(string Mode, int MaintenanceHour, int Maintena
 public sealed record UpdateCommand(Guid Id, string Action, DateTimeOffset CreatedAt = default);
 public sealed record WorkerJournal(Guid? CommandId, string? Action, string? TargetVersion, string State, DateTimeOffset UpdatedAt, string? AssetSha256 = null);
 public sealed record UpdateStatus(string State, string Message, string InstalledVersion, string? AvailableVersion = null,
-    long ProgressBytes = 0, long TotalBytes = 0, DateTimeOffset? CheckedAt = null, string? LastSuccessVersion = null);
+    long ProgressBytes = 0, long TotalBytes = 0, DateTimeOffset? CheckedAt = null, string? LastSuccessVersion = null,
+    string? Platform = null, bool UpdateRequired = false, bool DownloadReady = false, string? UpdateNotice = null);
 
 public static partial class UpdateJson
 {

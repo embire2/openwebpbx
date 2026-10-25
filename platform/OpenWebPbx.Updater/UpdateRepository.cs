@@ -6,6 +6,24 @@ namespace OpenWebPbx.Updater;
 
 public sealed class UpdateRepository(NpgsqlDataSource data)
 {
+    // Called only by the elevated Windows CLI. Uses the same queue/lock as authenticated web requests.
+    public async Task RequestInstallation(CancellationToken ct)
+    {
+        await using var connection = await data.OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(ct);
+        await using (var guard = new NpgsqlCommand("select pg_advisory_xact_lock(741103104)", connection, transaction)) await guard.ExecuteNonQueryAsync(ct);
+        await using (var pending = new NpgsqlCommand("select action from v_pbx_update_commands where status in ('pending','running') order by created_at limit 1", connection, transaction)) {
+            var action = await pending.ExecuteScalarAsync(ct) as string;
+            if (action is not null) {
+                if (action != "install") throw new InvalidOperationException("Another update request is running.");
+                await transaction.CommitAsync(ct); return;
+            }
+        }
+        await using (var insert = new NpgsqlCommand("insert into v_pbx_update_commands(command_uuid,action,message) values(@id,'install','Requested by a Windows administrator')", connection, transaction)) {
+            insert.Parameters.AddWithValue("id", Guid.NewGuid()); await insert.ExecuteNonQueryAsync(ct);
+        }
+        await transaction.CommitAsync(ct);
+    }
     public async Task<UpdatePolicy> Policy(CancellationToken ct)
     {
         await using var command = data.CreateCommand("select mode,maintenance_hour,maintenance_duration from v_pbx_update_policies where scope_key='instance'");

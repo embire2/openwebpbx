@@ -128,3 +128,4 @@
 	}
 
 ?>
+<?php require_once __DIR__.'/windows_update_notice.php'; ?>

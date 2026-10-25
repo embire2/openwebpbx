@@ -1,0 +1,9 @@
+#windows-server-update[hidden],#windows-server-update [hidden]{display:none!important}
+#windows-server-update{position:fixed;inset:0 0 auto;z-index:2147483000;display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;padding:14px 20px;background:#d00000;color:#fff;font:600 16px/1.5 system-ui,sans-serif;box-shadow:0 3px 14px #0005;box-sizing:border-box}
+#windows-server-update form{margin:0;display:inline-flex}
+#windows-server-update button{background:#fff;color:#a40000;border:2px solid #fff;padding:7px 16px;border-radius:5px;font:700 15px/1.4 system-ui,sans-serif;cursor:pointer}
+#windows-server-update button:focus-visible{outline:3px solid #fff;outline-offset:4px}
+#windows-server-update button:disabled{opacity:.85;cursor:wait}
+#windows-server-update [data-server-update-detail]{font-weight:400;font-size:14px}
+html.has-server-update{padding-top:var(--server-update-height,100px);box-sizing:border-box}
+html.has-server-update #desktop{top:var(--server-update-height,100px);height:calc(100dvh - var(--server-update-height,100px))}

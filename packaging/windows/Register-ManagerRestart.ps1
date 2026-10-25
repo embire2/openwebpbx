@@ -12,3 +12,6 @@ $principal=New-ScheduledTaskPrincipal -UserId $sid -LogonType Interactive -RunLe
 $action=New-ScheduledTaskAction -Execute $executable -WorkingDirectory (Split-Path $executable)
 $settings=New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 Register-ScheduledTask -TaskName ('OpenWebPBX-Manager-'+$sid) -Action $action -Principal $principal -Settings $settings -Description 'Reopen the OpenWeb PBX manager for this user after a verified update.' -Force|Out-Null
+# Cover the current session too; the machine Run value covers subsequent sign-ins.
+$watch='C:\OpenWebPBX\tools\Watch-ServerUpdates.ps1'
+if(Test-Path -LiteralPath $watch){Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList ('-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "'+$watch+'"') -WindowStyle Hidden|Out-Null}

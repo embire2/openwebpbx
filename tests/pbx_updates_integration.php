@@ -115,5 +115,25 @@ try {
     for($i=0;$i<18;$i++)$q("insert into v_pbx_update_commands(command_uuid,action,status) values(?,'check','completed')",[uuid()]);
     $deny(fn()=>$updates->request('check'),'Request rate limited');
     $check((int)$q("select count(*) from v_group_permissions where group_name='tenant_admin' and permission_name='pbx_update_instance'")->fetchColumn()===0,'Migration never grants tenant global update permission');
-    echo 'PASS: '.$checks." PostgreSQL update policy, ownership, queue and status checks\n";
+    $offer=['platform'=>'windows-x64','update_required'=>true,'download_ready'=>true,'available_version'=>'1.0.999','installed_version'=>'1.0.20'];
+    $offerStatus=static function(array $data) use($q) { $q('update v_pbx_update_status set status_json=? where singleton=1',[json_encode($data)]); };
+    $offerStatus($offer);
+    $notice=$updates->serverNotice('Windows');
+    $check($notice['required']&&$notice['ready']&&$notice['can_install']&&$notice['version']==='1.0.999','Instance administrator receives the required verified Windows notice');
+    $check($notice['message']==='Your Windows Server PBX system has a new update 1.0.999 - you must update in order to continue using the service.','Windows notice uses the requested wording');
+    $check(!$updates->serverNotice('Linux')['required'],'Windows requirement never affects Debian');
+    foreach([['platform'=>'debian13-amd64'],['update_required'=>'true'],['update_required'=>false],['available_version'=>'1.0.20'],['available_version'=>'1.0.0999'],['available_version'=>"1.0.999\n"],['available_version'=>'<script>'],['installed_version'=>null]] as $bad){
+        $offerStatus(array_replace($offer,$bad));$check(!$updates->serverNotice('Windows')['required'],'Malformed or obsolete notice refused');
+    }
+    $offerStatus($offer);
+    $_SESSION['user_uuid']=$outsider;$updates->instance=false;
+    $notice=$updates->serverNotice('Windows');
+    $check($notice['required']&&!$notice['can_install']&&count($notice)===5,'Ordinary signed-in users see only a notice without installation permission or private status');
+    $deny(fn()=>$updates->request('install'),'Banner cannot grant an ordinary user shared server installation access');
+    $_SESSION['user_uuid']=$users[0];
+    $deny(fn()=>$updates->serverNotice('Windows'),'Disabled user cannot view the server notice');
+    $_SESSION['user_uuid']=$admin;$_SESSION['authorized']=false;
+    $deny(fn()=>$updates->serverNotice('Windows'),'Anonymous users cannot view the notice');
+    $_SESSION['authorized']=true;
+    echo 'PASS: '.$checks." PostgreSQL update policy, ownership, queue, Windows notice and status checks\n";
 } finally { if($db->inTransaction())$db->rollBack();$db->exec('set search_path to public');$db->exec('drop schema if exists '.$schema.' cascade'); }

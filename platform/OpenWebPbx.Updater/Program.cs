@@ -2,9 +2,17 @@ using Npgsql;
 using OpenWebPbx.Server;
 using OpenWebPbx.Updater;
 using System.Text.Json;
+using System.Security.Principal;
+
+var requestInstallation = args.Contains("--request-install", StringComparer.Ordinal);
+if (requestInstallation && (args.Length != 1 || !OperatingSystem.IsWindows() ||
+    !new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator)))
+{
+    Console.Error.WriteLine("Windows administrator access is required to request a server update."); return 1;
+}
 
 var builder = Host.CreateApplicationBuilder(Array.Empty<string>());
-var configurationPath = Environment.GetEnvironmentVariable("OPENWEBPBX_CONFIG") ?? (OperatingSystem.IsWindows()
+var configurationPath = (requestInstallation ? null : Environment.GetEnvironmentVariable("OPENWEBPBX_CONFIG")) ?? (OperatingSystem.IsWindows()
     ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "OpenWebPBX", "runtime.json")
     : "/etc/openwebpbx/runtime.json");
 builder.Configuration.AddJsonFile(configurationPath, optional: false, reloadOnChange: false);
@@ -38,6 +46,13 @@ var once = args.Contains("--run-once", StringComparer.Ordinal) || args.Contains(
 builder.Services.AddSingleton<Worker>();
 if (!once) builder.Services.AddHostedService(services => services.GetRequiredService<Worker>());
 using var host = builder.Build();
+if (requestInstallation)
+{
+    using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+    try { await host.Services.GetRequiredService<UpdateRepository>().RequestInstallation(deadline.Token); return 0; }
+    catch (Exception e) when (e is NpgsqlException or OperationCanceledException or InvalidOperationException)
+    { Console.Error.WriteLine("The update request could not be queued. Check the signed-in Updates page."); return 1; }
+}
 if (once)
 {
     paths.Prepare(); using var single = new FileStream(Path.Combine(paths.Data, "worker.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);

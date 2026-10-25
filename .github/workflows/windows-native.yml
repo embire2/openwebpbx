@@ -118,6 +118,11 @@ jobs:
             '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $relative
           } | Set-Content "$env:NATIVE_OUTPUT/SHA256SUMS" -Encoding utf8
           "Built OpenWeb PBX $version from $env:GITHUB_SHA. Manager window verified: $visible." >> $env:GITHUB_STEP_SUMMARY
+          Stop-Process -Id $manager.Id -Force
+      - name: Check real Windows server update worker with isolated PostgreSQL
+        run: ./tests/windows_server_update_worker.ps1 -Output "$env:NATIVE_OUTPUT/server-update-worker.log"
+      - name: Check required modal and postponement on actual native window
+        run: ./tests/windows_update_notice_native.ps1 -DesktopDirectory "$env:NATIVE_OUTPUT/desktop" -Output "$env:NATIVE_OUTPUT/server-update-notice.json"
       - name: Upload native outputs and verification evidence
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

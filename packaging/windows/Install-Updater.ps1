@@ -41,7 +41,7 @@ if(!(Test-Path "$slot\OpenWebPbx.Updater.exe")){
   if(!(Test-Path (Join-Path $slot $relative)) -or (Get-FileHash $file.FullName).Hash -ne (Get-FileHash (Join-Path $slot $relative)).Hash){throw 'An updater slot with different bytes already exists for this version.'}
  }
 }
-foreach($name in 'Upgrade-OpenWebPBX.ps1','Register-ManagerRestart.ps1','Restart-Updater.ps1','Remove-Updater.ps1',
+foreach($name in 'Upgrade-OpenWebPBX.ps1','Register-ManagerRestart.ps1','Restart-Updater.ps1','Remove-Updater.ps1','Request-ServerUpdate.ps1','Watch-ServerUpdates.ps1',
  'Restore-Gates.ps1','Write-PrivateState.ps1','Support-Recovery.ps1','UpgradeRecovery.Common.ps1','CallRecords.Common.ps1','Web-Readiness.ps1','File-Security.ps1','Install-NativeEngine.ps1','Install-LocalCodec.ps1','configure-codec.php','check-call-engine.php','windows-log.php','Configure-PHP.ps1','PhpRuntime.Common.ps1',
  'configure-notifications.ps1','configure-music.php','Install-Dtls.ps1','Dtls.Common.ps1','configure-dtls.php','Enable-PhoneTLS.ps1','phone-tls.php','phone-tls-chain.php',
  'Test-PhoneTLS.ps1','Enable-PublicAccess.ps1','Renew-PhoneCertificate.ps1','PublicAccess.Common.ps1','public-listeners.php','public-listeners-policy.php','public-listeners-esl.php','Enable-Stun.ps1',
@@ -69,6 +69,11 @@ $action=New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\WindowsPowerS
 $principal=New-ScheduledTaskPrincipal -UserId SYSTEM -LogonType ServiceAccount -RunLevel Highest
 Register-ScheduledTask -TaskName OpenWebPBX-Updater-Restart -Action $action -Principal $principal -Settings (New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 3)) -Force|Out-Null
 SaveState "$private\updater-install.json" @{Version=$version;Executable=$executable}
+# Launch the notification monitor in every interactive/RDP session at sign-in.
+# Session 0 is deliberately excluded; this value grants no installation privileges.
+$run='HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+$watch='"'+$env:SystemRoot+'\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\OpenWebPBX\tools\Watch-ServerUpdates.ps1"'
+New-ItemProperty -Path $run -Name OpenWebPBXServerUpdates -PropertyType String -Value $watch -Force|Out-Null
 # The updater checks durable recovery before starting only these owned services.
 foreach($name in 'OpenWebPBX','FreeSWITCH'){Set-Service $name -StartupType Manual}
 Set-ItemProperty IIS:\Sites\OpenWebPBX serverAutoStart $false

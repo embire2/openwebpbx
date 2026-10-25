@@ -18,6 +18,11 @@ public sealed partial class MainPage : Page
     private static readonly string SettingsFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenWebPBX", "manager.json");
     private string address = "";
     private bool loaded;
+    private string? shownUpdateVersion;
+    private string? dialogVersion;
+    private ContentDialog? updateDialog;
+    private bool updateRequestPending;
+    private ServerUpdateNotice? currentNotice;
     private readonly DispatcherTimer updateTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private static readonly string UpdateStatusFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "OpenWebPBX-Status", "updates.json");
     private static readonly string Installer = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "InstallFromManager.ps1"));
@@ -70,10 +75,29 @@ public sealed partial class MainPage : Page
         try
         {
             if (!File.Exists(UpdateStatusFile)) return;
-            var info = new FileInfo(UpdateStatusFile);
-            if (info.Length > 65536) return;
-            using var document = JsonDocument.Parse(File.ReadAllText(UpdateStatusFile));
+            using var file = new FileStream(UpdateStatusFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            if (file.Length > 65536) return;
+            var bytes = new byte[checked((int)file.Length)]; file.ReadExactly(bytes);
+            using var document = JsonDocument.Parse(bytes);
             var root = document.RootElement;
+            currentNotice = ServerUpdateNotice.Read(root);
+            RequiredUpdateBanner.Visibility = currentNotice is null ? Visibility.Collapsed : Visibility.Visible;
+            if (currentNotice is not null) {
+                RequiredUpdateText.Text = currentNotice.Message;
+                InstallUpdateButton.IsEnabled = currentNotice.Ready && !updateRequestPending;
+                InstallUpdateButton.Content = currentNotice.Ready ? "Update now" : "Preparing download…";
+                if (updateDialog is not null) {
+                    if (dialogVersion != currentNotice.Version) {
+                        dialogVersion = currentNotice.Version;
+                        shownUpdateVersion = currentNotice.Version;
+                        updateDialog.Content = UpdateDialogText(currentNotice);
+                    }
+                    updateDialog.IsPrimaryButtonEnabled = currentNotice.Ready && !updateRequestPending;
+                }
+                if (shownUpdateVersion != currentNotice.Version && updateDialog is null && XamlRoot is not null)
+                    _ = ShowUpdateDialog(currentNotice);
+            }
+            else if (updateDialog is not null) updateDialog.Hide();
             var state = root.GetProperty("state").GetString();
             UpdateBanner.Title = state switch { "maintenance" => "Restored services await activation", "available" => "An update is available", "downloading" => "Downloading an update", "ready" => "Update ready", "waiting_calls" => "Waiting for calls to finish", "waiting_window" => "Update scheduled", "installing" => "Installing a verified update", "completed" => "Update complete", "error" or "recovery_required" => "Update needs attention", "rolled_back" => "Previous version restored", "up_to_date" => "Your server is up to date", _ => "Checking for updates" };
             UpdateBanner.Message = root.GetProperty("message").GetString() ?? "";
@@ -84,6 +108,48 @@ public sealed partial class MainPage : Page
             UpdateProgress.Value = total > 0 ? Math.Clamp(100.0 * progress / total, 0, 100) : 0;
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException or KeyNotFoundException or InvalidOperationException) { }
+    }
+    private async Task ShowUpdateDialog(ServerUpdateNotice notice)
+    {
+        shownUpdateVersion = notice.Version;
+        dialogVersion = notice.Version;
+        var dialog = new ContentDialog {
+            XamlRoot = XamlRoot, Title = "Windows Server update required", Content = UpdateDialogText(notice),
+            PrimaryButtonText = "Update now", CloseButtonText = "Later", DefaultButton = ContentDialogButton.Close,
+            IsPrimaryButtonEnabled = notice.Ready && !updateRequestPending
+        };
+        updateDialog = dialog;
+        try {
+            ((App)Application.Current).ShowUpdateWindow();
+            if (await dialog.ShowAsync() == ContentDialogResult.Primary) await RequestUpdate();
+        } catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException) {
+            shownUpdateVersion = null; // Retry after the XAML root becomes available.
+        } finally { updateDialog = null; }
+    }
+    private static string UpdateDialogText(ServerUpdateNotice notice) => notice.Message +
+        "\n\nThe update downloads automatically. Your PBX keeps running if you choose Later. Installation waits for calls to finish, then restarts the server automatically.";
+    private async void InstallUpdate(object sender, RoutedEventArgs args) => await RequestUpdate();
+    private async Task RequestUpdate()
+    {
+        if (currentNotice is not { Ready: true } || updateRequestPending) return;
+        updateRequestPending = true; InstallUpdateButton.IsEnabled = false;
+        try {
+            const string helper = @"C:\OpenWebPBX\tools\Request-ServerUpdate.ps1";
+            if (!File.Exists(helper)) throw new IOException("The local updater is unavailable. Open update details to install from the signed-in Admin page.");
+            var start = new ProcessStartInfo("powershell.exe") {
+                UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden,
+                Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" + helper + "\""
+            };
+            using var process = Process.Start(start) ?? throw new IOException("Windows could not start the update request.");
+            await process.WaitForExitAsync();
+            if (process.ExitCode != 0) throw new IOException("The update request was not accepted. Open update details to review the current request.");
+            UpdateBanner.Title = "Update requested"; UpdateBanner.Message = "Calls will finish before installation. The server and this manager restart automatically.";
+            UpdateBanner.Severity = InfoBarSeverity.Informational;
+        } catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception) {
+            UpdateBanner.Title = "Update not started";
+            UpdateBanner.Message = ex is System.ComponentModel.Win32Exception ? "Windows administrator permission was cancelled or unavailable. Your PBX is still running." : ex.Message;
+            UpdateBanner.Severity = InfoBarSeverity.Warning;
+        } finally { updateRequestPending = false; RefreshUpdateStatus(); }
     }
     private static async Task RegisterRestart()
     {
@@ -163,6 +229,7 @@ public sealed partial class MainPage : Page
             AddressInput.Text = "https://" + InstallDomain.Text + (CertificateChoice.SelectedIndex == 0 ? "" : ":8443"); SaveAddress(sender, args);
             InstallMessage.Severity = InfoBarSeverity.Success; InstallMessage.Title = "Your phone system is ready. Open Admin to sign in.";
             await RefreshStatus();
+            await RegisterRestart();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         { InstallMessage.Severity = InfoBarSeverity.Error; InstallMessage.Title = ex is System.ComponentModel.Win32Exception ? "Windows setup was cancelled or could not start." : ex.Message; }
