@@ -1,5 +1,10 @@
 # OpenWeb PBX workspace
 
+## Company group office hours — 2026-10-25
+
+- User-requested separate agent implements and commits a49d1e6a8: group-local Keep/Set or Edit/Delete Office Hours controls, existing complete periods/breaks/holiday/override editor, and an explicitly enabled user Office Hours Routing tab with separate in/out destinations. Default/imported routes and the prior authorized internal-after-hours bypass remain; self-forwarding is rejected. Group schedule deletion sets only that group Always Open while preserving members and routes. Staff role/tenant guards and route preview are integrated.
+- Root reviews the actual PHP/Lua routing and mutation delta and independently repeats 53 PostgreSQL/render/preservation/refusal, 142 role/isolation, 218 schedule-policy and 209 synthetic runtime controls. No live customer configuration or calls were changed. Guide: docs/company-office-hours.md. These new source bytes still require complete-release packaging/Windows qualification; earlier public package acceptance remains scoped to its original bytes.
+
 ## Windows server update notices — 2026-10-25
 
 - Implemented Windows-only five-minute signed-feed checks and automatic verified predownload. Windows installs only on an explicit administrator request, including when an old automatic policy was saved. Later never stops services. Existing idle, restore hold, signature/archive, transaction/recovery and manager-reopen guards remain in use. Cached signed offers are reverified after restart; failed refreshes retain the verified notice and retry after five minutes.
