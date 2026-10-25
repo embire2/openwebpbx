@@ -108,7 +108,14 @@ internal static class LabCoordinator
     private static void Connected(LabPeer a, LabPeer b, bool video = false, string phase = "initial")
     {
         Wait("incoming_" + phase, () => b.Command().Calls.Any(call => call.Incoming && call.State == "IncomingReceived"), [a, b]); b.Command("answer", call: b.State.Calls.Single(call => call.Incoming && call.State == "IncomingReceived").Id, video: video);
-        Wait("streams_" + phase, () => a.Command().Native.Calls.Any(call => call.State == "StreamsRunning") && b.Command().Native.Calls.Any(call => call.State == "StreamsRunning"), [a, b]); Secure(a.State); Secure(b.State);
+        MediaSecurityObservation Snapshot(LabPeer peer)
+        {
+            var state = peer.Command().Native;
+            return SecurityObservation.Capture(state.TlsCaAndHostname, state.MandatorySrtp, state.Calls.Select(call => SecurityObservation.Call(call.State, call.Encryption, call.SrtpSuite)).ToArray(), "last_connection_wait_argument");
+        }
+        SecurityReadiness.WithinExistingWait(() => [Snapshot(a), Snapshot(b)], index => Secure(index == 0 ? a.State : b.State),
+            predicate => Wait("streams_" + phase, predicate, [a, b]));
+        Secure(a.State); Secure(b.State);
     }
     private static AudioObservation Capture(LabPeer peer, double[] frequencies, string? recording = null)
     {

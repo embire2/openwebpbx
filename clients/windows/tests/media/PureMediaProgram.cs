@@ -188,6 +188,55 @@ try
     File.WriteAllBytes(recordPath, []); Check(RecorderObservation.ReadPrefix(recordRoot, recordPath) is { header_bytes: 0, riff: null, data_declared_bytes: null });
     File.Delete(recordPath); File.CreateSymbolicLink(recordPath, single); Refuse(() => RecorderObservation.ReadPrefix(recordRoot, recordPath)); File.Delete(recordPath);
     intervalClock = 0; var missingPrefix = RecorderObservation.ObserveInitialization(emptyPrimary, pendingRecorder, 0, () => intervalClock, duration => intervalClock += duration); Check(missingPrefix.Interval is { state: "observation_refused", wait_completed: true, requested_ms: 5000, prefix: null });
+    // Real readiness/wait helpers with explicit snapshot and monotonic-clock adapters.
+    MediaSecurityObservation Connection(string state = "StreamsRunning", string suite = "AESCM128HMACSHA180", string encryption = "SRTP", bool tls = true, bool mandatory = true) => SecurityObservation.Capture(tls, mandatory, [SecurityObservation.Call(state, encryption, suite)], "last_connection_wait_argument");
+    Check(Connection().source == "last_connection_wait_argument"); Refuse(() => SecurityObservation.Capture(true, true, [], "PRIVATE"));
+    var refusal = new InvalidDataException("PRIVATE-original-security-refusal"); var refusalCount = 0;
+    void OriginalRefusal(int peer) { Check(peer is 0 or 1); refusalCount++; throw refusal; }
+    Check(SecurityReadiness.Ready(Connection(), () => throw new InvalidOperationException()));
+    Check(!SecurityReadiness.Ready(Connection(suite: "Invalid"), () => throw new InvalidOperationException()));
+    Check(!SecurityReadiness.Ready(Connection(state: "OutgoingProgress"), () => throw new InvalidOperationException()));
+    Check(!SecurityReadiness.Ready(SecurityObservation.Capture(true, true, [], "last_connection_wait_argument"), () => throw new InvalidOperationException()));
+    foreach (var suite in SecurityObservation.Suites.Where(value => value is not ("AESCM128HMACSHA180" or "Invalid")))
+    {
+        try { _ = SecurityReadiness.Ready(Connection(suite: suite), () => OriginalRefusal(0)); throw new InvalidOperationException(); }
+        catch (InvalidDataException actual) { Check(ReferenceEquals(actual, refusal)); }
+    }
+    foreach (var encryption in SecurityObservation.Encryptions.Where(value => value != "SRTP"))
+    {
+        try { _ = SecurityReadiness.Ready(Connection(encryption: encryption, suite: "Invalid"), () => OriginalRefusal(1)); throw new InvalidOperationException(); }
+        catch (InvalidDataException actual) { Check(ReferenceEquals(actual, refusal)); }
+    }
+    foreach (var invalidPolicy in new[] { Connection(tls: false), Connection(mandatory: false), Connection(state: "OutgoingProgress", tls: false) })
+    {
+        try { _ = SecurityReadiness.Ready(invalidPolicy, () => OriginalRefusal(0)); throw new InvalidOperationException(); }
+        catch (InvalidDataException actual) { Check(ReferenceEquals(actual, refusal)); }
+    }
+    Refuse(() => SecurityReadiness.Ready(Connection(tls: false), () => { }));
+    var mixedReadiness = SecurityObservation.Capture(true, true, [SecurityObservation.Call("Paused", "None", "Invalid"), SecurityObservation.Call("StreamsRunning", "SRTP", "AESCM128HMACSHA180")], "last_connection_wait_argument");
+    Check(SecurityReadiness.Ready(mixedReadiness, () => throw new InvalidOperationException()));
+    Check(!SecurityReadiness.Ready(mixedReadiness with { calls = [Connection().calls[0], Connection(suite: "Invalid").calls[0]] }, () => throw new InvalidOperationException()));
+    long connectionClock = 0; var connectionSamples = 0; var waitEntries = 0; var waitObservations = 0;
+    void ExistingConnectionWait(Func<bool> predicate) { waitEntries++; WaitObservation.RunCore("streams_initial", predicate, () => { waitObservations++; return Peers(); }, 20, () => connectionClock, duration => { Check(duration == 100); connectionClock += duration; }); }
+    SecurityReadiness.WithinExistingWait(() => { connectionSamples++; return [Connection(state: connectionClock < 3500 ? "OutgoingProgress" : "StreamsRunning", suite: connectionClock < 5000 ? "Invalid" : "AESCM128HMACSHA180"), Connection()]; }, OriginalRefusal, ExistingConnectionWait);
+    Check(connectionClock == 5000 && connectionSamples == 51 && waitEntries == 1 && waitObservations == 0);
+    connectionClock = 0; connectionSamples = waitEntries = waitObservations = 0; MediaSecurityObservation? lastConnectionArgument = null;
+    try
+    {
+        SecurityReadiness.WithinExistingWait(() => { connectionSamples++; lastConnectionArgument = Connection(state: connectionClock < 3500 ? "OutgoingProgress" : "StreamsRunning", suite: "Invalid"); return [lastConnectionArgument, Connection()]; }, OriginalRefusal, ExistingConnectionWait); throw new InvalidOperationException();
+    }
+    catch (TimeoutException timeout)
+    {
+        Check(connectionClock == 20000 && connectionSamples == 200 && waitEntries == 1 && waitObservations == 1);
+        Check(ReferenceEquals(timeout.Data["media_security_observation"], lastConnectionArgument) && lastConnectionArgument!.calls[0].srtp_suite == "Invalid" && timeout.Data["media_wait_observation"] is MediaWaitObservation);
+    }
+    connectionClock = 0; waitEntries = waitObservations = 0; var beforeRefusal = refusalCount;
+    try { SecurityReadiness.WithinExistingWait(() => [Connection(suite: "Invalid"), Connection(suite: "AESCM128HMACSHA132")], OriginalRefusal, ExistingConnectionWait); throw new InvalidOperationException(); }
+    catch (InvalidDataException actual) { Check(ReferenceEquals(actual, refusal) && connectionClock == 0 && waitEntries == 1 && refusalCount == beforeRefusal + 1); }
+    connectionClock = 19900; waitEntries = waitObservations = 0;
+    try { SecurityReadiness.WithinExistingWait(() => [Connection(suite: "Invalid"), Connection()], OriginalRefusal, ExistingConnectionWait); throw new InvalidOperationException(); }
+    catch (TimeoutException timeout) { Check(connectionClock == 20000 && waitEntries == 1 && timeout.Data["media_security_observation"] is MediaSecurityObservation); }
+    Refuse(() => SecurityReadiness.WithinExistingWait(() => [Connection()], OriginalRefusal, predicate => predicate()));
     var productionAbsence = false;
     if (args.Length != 0)
     {

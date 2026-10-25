@@ -88,6 +88,7 @@ try{
  }
  $failed.failure_observation.security=[ordered]@{source='already_sampled_secure_argument';tls_ca_and_hostname=$true;mandatory_srtp=$true;call_count=1;calls=@([ordered]@{state='StreamsRunning';encryption='SRTP';srtp_suite='Invalid'})}
  $closedSecurity=Validate $failed -AllowFailure;Check ($closedSecurity.failure_observation.security.calls[0].srtp_suite -ceq 'Invalid')
+ $failed.failure_observation.security.source='last_connection_wait_argument';$closedSecurity=Validate $failed -AllowFailure;Check ($closedSecurity.failure_observation.security.source -ceq 'last_connection_wait_argument');$failed.failure_observation.security.source='already_sampled_secure_argument'
  foreach($mutation in @('source','tls_type','mandatory_type','count','state','encryption','suite','identifier')){
   $copy=($failed|ConvertTo-Json -Depth 12)|ConvertFrom-Json -AsHashtable;$o=$copy.failure_observation.security
   switch($mutation){source{$o.source='PRIVATE'}tls_type{$o.tls_ca_and_hostname=1}mandatory_type{$o.mandatory_srtp='true'}count{$o.call_count=3}state{$o.calls[0].state='PRIVATE'}encryption{$o.calls[0].encryption='PRIVATE'}suite{$o.calls[0].srtp_suite='PRIVATE'}identifier{$o.calls[0]['id']='PRIVATE'}}
