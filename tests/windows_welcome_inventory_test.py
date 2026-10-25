@@ -50,14 +50,26 @@ if($mode==='catalog')$db->exec('drop table public.v_users;create table public.pr
 if($mode==='config')file_put_contents($configFile,'changed-private-config');
 if($mode==='oversized')$db->exec("update public.v_users set value=repeat('S',1048577)");
 if($mode==='outer_transaction'){
- $db->beginTransaction();$db->exec("insert into public.v_users values(2,'owned-uncommitted')");$sample=welcome_inventory_sample($db);
- $out=['sample_unavailable'=>$sample===null,'outer_transaction_preserved'=>$db->inTransaction(),'uncommitted_row_preserved'=>(int)$db->query('select count(*) from public.v_users')->fetchColumn()===2];$db->rollBack();
+ $db->beginTransaction();$db->exec("insert into public.v_users values(2,'owned-uncommitted')");$reason=null;$sample=welcome_inventory_sample($db,$reason);
+ $out=['sample_unavailable'=>$sample===null,'outer_transaction_preserved'=>$db->inTransaction(),'uncommitted_row_preserved'=>(int)$db->query('select count(*) from public.v_users')->fetchColumn()===2,'closed_reason'=>$reason==='outer_transaction'];$db->rollBack();
  echo json_encode($out,JSON_THROW_ON_ERROR);exit;
 }
 if($mode==='lock_timeout'){
  $other=new PDO('pgsql:host='.$root.'/socket;port=55484;dbname=postgres','postgres',null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);$other->beginTransaction();$other->exec('lock table public.v_users in access exclusive mode');
- $start=microtime(true);$sample=welcome_inventory_sample($db);$elapsed=microtime(true)-$start;$other->rollBack();
- echo json_encode(['sample_unavailable'=>$sample===null,'bounded'=>$elapsed<3.5,'own_transaction_closed'=>!$db->inTransaction(),'timeouts_restored'=>$timeoutBefore===$db->query('show statement_timeout')->fetchColumn()&&$lockBefore===$db->query('show lock_timeout')->fetchColumn()],JSON_THROW_ON_ERROR);exit;
+ $reason=null;$start=microtime(true);$sample=welcome_inventory_sample($db,$reason);$elapsed=microtime(true)-$start;$other->rollBack();
+ echo json_encode(['sample_unavailable'=>$sample===null,'bounded'=>$elapsed<3.5,'own_transaction_closed'=>!$db->inTransaction(),'timeouts_restored'=>$timeoutBefore===$db->query('show statement_timeout')->fetchColumn()&&$lockBefore===$db->query('show lock_timeout')->fetchColumn(),'closed_reason'=>$reason==='lock_timeout'],JSON_THROW_ON_ERROR);exit;
+}
+if($mode==='table_count'){
+ for($n=0;$n<511;$n++)$db->exec('create table public.owned_empty_'.$n.'(id integer)');
+ $reason=null;$sample=welcome_inventory_sample($db,$reason);
+ echo json_encode(['sample_unavailable'=>$sample===null,'closed_reason'=>$reason==='table_count','own_transaction_closed'=>!$db->inTransaction(),'timeouts_restored'=>$timeoutBefore===$db->query('show statement_timeout')->fetchColumn()&&$lockBefore===$db->query('show lock_timeout')->fetchColumn()],JSON_THROW_ON_ERROR);exit;
+}
+if($mode==='time_budget'){
+ $slow=new class('pgsql:host='.$root.'/socket;port=55484;dbname=postgres','postgres',null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION])extends PDO{
+  public function query(string$query,?int$fetchMode=null,mixed ...$args):PDOStatement|false{if(str_contains($query,'limit 513'))usleep(2100000);return$fetchMode===null?parent::query($query):parent::query($query,$fetchMode,...$args);}
+ };
+ $reason=null;$start=microtime(true);$sample=welcome_inventory_sample($slow,$reason);$elapsed=microtime(true)-$start;
+ echo json_encode(['sample_unavailable'=>$sample===null,'closed_reason'=>$reason==='time_budget','bounded'=>$elapsed<3.5,'own_transaction_closed'=>!$slow->inTransaction(),'timeouts_restored'=>$timeoutBefore===$slow->query('show statement_timeout')->fetchColumn()&&$lockBefore===$slow->query('show lock_timeout')->fetchColumn(),'query_delay_adapter'=>true],JSON_THROW_ON_ERROR);exit;
 }
 $publicAfter=welcome_public_fingerprint($db);$configAfter=$publicAfter===$state['public_before']?hash_file('sha256',$configFile):null;
 if($mode==='failure_unstable')$db->exec("insert into public.v_user_logs values(9,'changed after original check')");
@@ -124,8 +136,13 @@ class InventoryPostgres(unittest.TestCase):
         for mode in ('sample_unavailable','oversized'):
             with self.subTest(mode=mode):
                 r=self.run_case(mode);self.assertEqual('unavailable',r['observation']['sample_state']);self.assertTrue(r['own_transaction_closed'] and r['timeouts_restored'])
+                self.assertEqual({'baseline':'none','sample':'outer_transaction' if mode=='sample_unavailable' else 'row_shape'},r['observation']['sampler_refusal'])
         self.assertTrue(all(self.run_case('lock_timeout').values()))
         self.assertTrue(all(self.run_case('outer_transaction').values()))
+
+    def test_actual_table_cap_and_controlled_total_budget_keep_original_limits(self):
+        self.assertTrue(all(self.run_case('table_count').values()))
+        self.assertTrue(all(self.run_case('time_budget').values()))
 
     def test_success_outputs_only_original_strict_cleanup_receipt(self):
         self.assertEqual(dict(state='cleaned',public_exact=True,config_exact=True,owned_schema_removed=True,only_owned_locks_removed=True),self.run_case('success'))
@@ -207,6 +224,19 @@ class ProjectionAndPrimary(unittest.TestCase):
             self.assertEqual({},w.welcome_inventory_fields(good|{'tables':[good['tables'][0]|change]}))
         self.assertEqual({},w.welcome_inventory_fields(good|{'tables':good['tables']*2,'changed_tables':2}))
         self.assertEqual({},w.welcome_inventory_fields(good|{'sample_state':'unavailable'}))
+
+    def test_closed_optional_sampler_refusal_and_greeting_table_labels(self):
+        good=record()|{'baseline_state':'unavailable','before_tables':0,'changed_tables':0,'tables':[],
+                       'sampler_refusal':{'baseline':'time_budget','sample':'none'}}
+        self.assertEqual(good,w.welcome_inventory_fields(good))
+        for bad in (None,SECRET,{},True,{'baseline':'none','sample':'none'},
+                    {'baseline':'time_budget','sample':'none','message':SECRET},
+                    {'baseline':True,'sample':'none'},{'baseline':SECRET,'sample':'none'},
+                    {'baseline':'time_budget','sample':'lock_timeout'}):
+            with self.subTest(bad=bad):self.assertEqual({},w.welcome_inventory_fields(good|{'sampler_refusal':bad}))
+        for name in ('v_pbx_greeting_status','v_pbx_greeting_uses','v_pbx_greetings'):
+            row=record();row['tables'][0]['name']=name
+            self.assertEqual(row,w.welcome_inventory_fields(row))
 
     def test_actual_final_cleanup_wrap_preserves_primary_and_cause(self):
         tree=ast.parse((HERE/'windows_welcome_native.py').read_text());fn=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='run_fixture')

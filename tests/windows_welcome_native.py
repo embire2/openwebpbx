@@ -71,11 +71,13 @@ def remove_private_config(work):
     path.unlink()
 
 
-WELCOME_INVENTORY_TABLES = ('v_default_settings', 'v_domain_settings', 'v_domains', 'v_email_queue', 'v_email_queue_attachments', 'v_event_guard_logs', 'v_extensions', 'v_gateways', 'v_logs', 'v_pbx_backup_commands', 'v_pbx_backup_settings', 'v_pbx_backup_status', 'v_pbx_backups', 'v_pbx_jobs', 'v_pbx_mobile_devices', 'v_pbx_phone_health_contacts', 'v_pbx_phone_health_issues', 'v_pbx_phone_health_recoveries', 'v_pbx_phone_health_settings', 'v_pbx_phone_health_state', 'v_pbx_restore', 'v_pbx_services', 'v_pbx_tenant_domains', 'v_pbx_tenants', 'v_pbx_update_commands', 'v_pbx_update_policies', 'v_pbx_update_status', 'v_user_logs', 'v_user_settings', 'v_users', 'v_xml_cdr')
+WELCOME_INVENTORY_TABLES = ('v_default_settings', 'v_domain_settings', 'v_domains', 'v_email_queue', 'v_email_queue_attachments', 'v_event_guard_logs', 'v_extensions', 'v_gateways', 'v_logs', 'v_pbx_backup_commands', 'v_pbx_backup_settings', 'v_pbx_backup_status', 'v_pbx_backups', 'v_pbx_greeting_status', 'v_pbx_greeting_uses', 'v_pbx_greetings', 'v_pbx_jobs', 'v_pbx_mobile_devices', 'v_pbx_phone_health_contacts', 'v_pbx_phone_health_issues', 'v_pbx_phone_health_recoveries', 'v_pbx_phone_health_settings', 'v_pbx_phone_health_state', 'v_pbx_restore', 'v_pbx_services', 'v_pbx_tenant_domains', 'v_pbx_tenants', 'v_pbx_update_commands', 'v_pbx_update_policies', 'v_pbx_update_status', 'v_user_logs', 'v_user_settings', 'v_users', 'v_xml_cdr')
 
 def welcome_inventory_fields(record):
     keys = {'schema', 'public_equal', 'config_equal', 'config_check', 'baseline_state', 'sample_state',
             'before_tables', 'after_tables', 'changed_tables', 'added_tables', 'removed_tables', 'unlisted_tables', 'tables'}
+    if type(record) is dict and 'sampler_refusal' in record:
+        keys.add('sampler_refusal')
     if type(record) is not dict or set(record) != keys or type(record['schema']) is not int or record['schema'] != 1:
         return {}
     if any(type(record[k]) is not bool for k in ('public_equal', 'config_equal')):
@@ -87,6 +89,17 @@ def welcome_inventory_fields(record):
     for key in ('baseline_state', 'sample_state'):
         if type(record[key]) is not str or record[key] not in ('matched', 'unstable', 'unavailable'):
             return {}
+    if 'sampler_refusal' in keys:
+        reason = record['sampler_refusal']
+        allowed = {'none', 'not_observed', 'outer_transaction', 'table_count', 'table_name', 'time_budget',
+                   'row_shape', 'row_bytes', 'total_bytes', 'row_count', 'statement_timeout', 'lock_timeout', 'database', 'observer_error'}
+        if (type(reason) is not dict or set(reason) != {'baseline', 'sample'}
+                or all(record[k+'_state'] != 'unavailable' for k in ('baseline', 'sample'))):
+            return {}
+        for key in ('baseline', 'sample'):
+            if (type(reason[key]) is not str or reason[key] not in allowed
+                    or (record[key+'_state'] == 'unavailable') == (reason[key] == 'none')):
+                return {}
     for key in ('before_tables', 'after_tables', 'changed_tables', 'added_tables', 'removed_tables', 'unlisted_tables'):
         if type(record[key]) is not int or not 0 <= record[key] <= (1024 if key in ('changed_tables', 'unlisted_tables') else 512):
             return {}
@@ -118,7 +131,7 @@ def welcome_inventory_fields(record):
         return {}
     if matched and (record['public_equal'] != (record['changed_tables'] == 0)):
         return {}
-    return {key: ([dict(row) for row in record[key]] if key == 'tables' else record[key]) for key in sorted(keys)}
+    return {key: ([dict(row) for row in record[key]] if key == 'tables' else dict(record[key]) if key == 'sampler_refusal' else record[key]) for key in sorted(keys)}
 
 
 def welcome_primary_fields(error):

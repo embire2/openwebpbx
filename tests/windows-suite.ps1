@@ -357,16 +357,22 @@ function SafeWelcomeInventory($Record){
  if($null -eq $Record -or $Record -is [array]){return $null}
  $keys=@('schema','public_equal','config_equal','config_check','baseline_state','sample_state','before_tables','after_tables','changed_tables','added_tables','removed_tables','unlisted_tables','tables')
  $actual=if($Record -is [Collections.IDictionary]){@($Record.Keys)}else{@($Record.PSObject.Properties.Name)}
+ $hasRefusal=$actual -ccontains 'sampler_refusal';if($hasRefusal){$keys+=,'sampler_refusal'}
  if($actual.Count -ne $keys.Count -or @($actual|Where-Object {$_ -cnotin $keys}).Count){return $null}
  if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.public_equal -isnot [bool] -or $Record.config_equal -isnot [bool] -or $Record.config_check -isnot [string] -or $Record.config_check -cnotin @('original','after_refusal','unavailable')){return $null}
  if($Record.config_check -ceq 'unavailable' -and $Record.config_equal){return $null}
  foreach($key in 'baseline_state','sample_state'){if($Record.$key -isnot [string] -or $Record.$key -cnotin @('matched','unstable','unavailable')){return $null}}
+ if($hasRefusal){
+  $reason=$Record.sampler_refusal;$reasonKeys=if($reason -is [Collections.IDictionary]){@($reason.Keys)}elseif($reason -is [pscustomobject]){@($reason.PSObject.Properties.Name)}else{return $null}
+  if($reasonKeys.Count -ne 2 -or @($reasonKeys|Where-Object {$_ -cnotin @('baseline','sample')}).Count -or ($Record.baseline_state -cne 'unavailable' -and $Record.sample_state -cne 'unavailable')){return $null}
+  foreach($key in 'baseline','sample'){if($reason.$key -isnot [string] -or $reason.$key -cnotin @('none','not_observed','outer_transaction','table_count','table_name','time_budget','row_shape','row_bytes','total_bytes','row_count','statement_timeout','lock_timeout','database','observer_error') -or (($Record.($key+'_state') -ceq 'unavailable') -eq ($reason.$key -ceq 'none'))){return $null}}
+ }
  foreach($key in 'before_tables','after_tables','changed_tables','added_tables','removed_tables','unlisted_tables'){
   $limit=if($key -cin @('changed_tables','unlisted_tables')){1024}else{512};$value=$Record.$key
   if(($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt $limit){return $null}
  }
  if($Record.tables -isnot [array] -or $Record.tables.Count -gt 8){return $null}
- $known=@('v_default_settings','v_domain_settings','v_domains','v_email_queue','v_email_queue_attachments','v_event_guard_logs','v_extensions','v_gateways','v_logs','v_pbx_backup_commands','v_pbx_backup_settings','v_pbx_backup_status','v_pbx_backups','v_pbx_jobs','v_pbx_mobile_devices','v_pbx_phone_health_contacts','v_pbx_phone_health_issues','v_pbx_phone_health_recoveries','v_pbx_phone_health_settings','v_pbx_phone_health_state','v_pbx_restore','v_pbx_services','v_pbx_tenant_domains','v_pbx_tenants','v_pbx_update_commands','v_pbx_update_policies','v_pbx_update_status','v_user_logs','v_user_settings','v_users','v_xml_cdr');$rows=@();$names=@()
+ $known=@('v_default_settings','v_domain_settings','v_domains','v_email_queue','v_email_queue_attachments','v_event_guard_logs','v_extensions','v_gateways','v_logs','v_pbx_backup_commands','v_pbx_backup_settings','v_pbx_backup_status','v_pbx_backups','v_pbx_greeting_status','v_pbx_greeting_uses','v_pbx_greetings','v_pbx_jobs','v_pbx_mobile_devices','v_pbx_phone_health_contacts','v_pbx_phone_health_issues','v_pbx_phone_health_recoveries','v_pbx_phone_health_settings','v_pbx_phone_health_state','v_pbx_restore','v_pbx_services','v_pbx_tenant_domains','v_pbx_tenants','v_pbx_update_commands','v_pbx_update_policies','v_pbx_update_status','v_user_logs','v_user_settings','v_users','v_xml_cdr');$rows=@();$names=@()
  foreach($row in $Record.tables){
   if($null -eq $row -or $row -is [array]){return $null};$fields=if($row -is [Collections.IDictionary]){@($row.Keys)}else{@($row.PSObject.Properties.Name)}
   if($fields.Count -ne 4 -or @($fields|Where-Object {$_ -cnotin @('name','before','after','kind')}).Count -or $row.name -isnot [string] -or $row.name -cnotin $known -or $row.kind -isnot [string] -or $row.kind -cnotin @('added','removed','changed')){return $null}
@@ -381,7 +387,7 @@ function SafeWelcomeInventory($Record){
  if(($Record.baseline_state -cne 'matched' -and $Record.before_tables -ne 0) -or ($Record.sample_state -cne 'matched' -and $Record.after_tables -ne 0)){return $null}
  if($matched -and ($Record.after_tables-$Record.before_tables -ne $Record.added_tables-$Record.removed_tables -or $Record.added_tables -gt $Record.after_tables -or $Record.removed_tables -gt $Record.before_tables -or @($rows|Where-Object {$_.kind -ceq 'added'}).Count -gt $Record.added_tables -or @($rows|Where-Object {$_.kind -ceq 'removed'}).Count -gt $Record.removed_tables)){return $null}
  if($matched -and $Record.public_equal -ne ($Record.changed_tables -eq 0)){return $null}
- $safe=@{};foreach($key in $keys){$safe[$key]=$Record.$key};$safe.tables=$rows;return $safe
+ $safe=@{};foreach($key in $keys){$safe[$key]=$Record.$key};$safe.tables=$rows;if($hasRefusal){$safe.sampler_refusal=@{baseline=$reason.baseline;sample=$reason.sample}};return $safe
 }
 function SafeWelcomePrimary($Record){
  if($null -eq $Record -or $Record -is [array]){return $null}
@@ -1613,6 +1619,10 @@ try{
  CheckedPython @((Join-Path $source 'tests/windows_upgrade_restore_holds.py'))
  CheckedPython @((Join-Path $source 'tests/windows_restore_lock_retry.py'))
  CheckedPython @((Join-Path $source 'tests/windows_backup_control_observer_test.py'))
+ & (Join-Path $source 'tests/windows_welcome_quiescence.ps1') -SourceRoot $source *> (Join-Path $work 'welcome-quiescence-controls.private.log')
+ if(!$?){throw 'The exact welcome updater quiescence controls failed.'}
+ & (Join-Path $source 'tests/windows_welcome_inventory_controls.ps1') *> (Join-Path $work 'welcome-inventory-controls.private.log')
+ if(!$?){throw 'The closed welcome inventory observation controls failed.'}
  & (Join-Path $source 'tests/windows_call_records_lifecycle.ps1') -SourceRoot $source *> (Join-Path $work 'call-records-lifecycle.private.log')
  & (Join-Path $source 'tests/windows_recovery_restore_holds.ps1') -SourceRoot $source *> (Join-Path $work 'restore-recovery-holds.private.log')
  if(!$?){throw 'The actual Windows call-record activation and recovery lifecycle controls failed.'}

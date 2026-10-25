@@ -30,6 +30,15 @@ foreach($pair in @(@('windows-native-acceptance.ps1','SmtpFailureFields'),@('win
  $copy=Clone $good;$copy.tables[0].kind='added';$copy.tables[0].before=0;Check ($null -eq (SafeWelcomeInventory $copy))
  $copy=Clone $good;$copy.tables=@();$copy.changed_tables=0;$copy.baseline_state='unavailable';$copy.before_tables=0;Check ($null -ne (SafeWelcomeInventory $copy))
  $copy=Clone $good;$copy.tables=@(@{name='v_users';before=1;after=0;kind='removed'});$copy.changed_tables=2;$copy.added_tables=1;$copy.removed_tables=1;$copy.unlisted_tables=1;Check ($null -ne (SafeWelcomeInventory $copy))
+ $reason=Clone $good;$reason.baseline_state='unavailable';$reason.before_tables=0;$reason.changed_tables=0;$reason.tables=@();$reason.sampler_refusal=@{baseline='time_budget';sample='none'}
+ Check ($null -ne (SafeWelcomeInventory $reason));Check ($null -ne (SafeWelcomeInventory ($reason|ConvertTo-Json -Depth 12|ConvertFrom-Json)))
+ foreach($bad in $null,'PRIVATE_NEVER_COPY',@{},$true,@{baseline='none';sample='none'},@{baseline='time_budget';sample='none';message='PRIVATE_NEVER_COPY'},@{baseline=$true;sample='none'},@{baseline='PRIVATE_NEVER_COPY';sample='none'},@{baseline='time_budget';sample='lock_timeout'}){
+  $copy=Clone $reason;$copy.sampler_refusal=$bad;Check ($null -eq (SafeWelcomeInventory $copy))
+ }
+ foreach($value in 'not_observed','outer_transaction','table_count','table_name','time_budget','row_shape','row_bytes','total_bytes','row_count','statement_timeout','lock_timeout','database','observer_error'){
+  $copy=Clone $reason;$copy.sampler_refusal.baseline=$value;Check ($null -ne (SafeWelcomeInventory $copy))
+ }
+ foreach($name in 'v_pbx_greeting_status','v_pbx_greeting_uses','v_pbx_greetings'){$copy=Clone $good;$copy.tables[0].name=$name;Check ($null -ne (SafeWelcomeInventory $copy))}
  $primary=Primary;Check ($null -ne (SafeWelcomePrimary $primary))
  foreach($key in @($primary.Keys)){
   foreach($bad in $null,$true,'PRIVATE_NEVER_COPY',1.5){$copy=Clone $primary;$copy[$key]=$bad;Check ($null -eq (SafeWelcomePrimary $copy))}
