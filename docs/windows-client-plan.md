@@ -1,6 +1,12 @@
 # Native Windows calling app
 
-This is the implementation plan for roadmap **APP-02**, with **APP-05/06/07** activation, headset and availability dependencies. It is not an available Windows softphone release. The existing Windows manager administers the server and does not make calls. The server release being developed remains Debian 13 only.
+This is the implementation plan for roadmap **APP-02**, with **APP-05/06/07** activation, headset and availability dependencies. It is not an available Windows softphone release. The existing Windows manager administers the server and does not make calls. The PBX server is available separately for Debian 13 and Windows Server 2025; client acceptance is independent of either server release.
+
+## Current verification — 25 October 2026
+
+The Windows client remains unpublished. Its focused native tool-selection check passes on Windows, including the real numeric version case and original access-control/cleanup checks. The full development-package check reaches signed installation and preserves its original certificate, registry and package state after cleanup; its UI/update child fails before complete update/relaunch acceptance. Failure-only diagnostics are being prepared to identify the actual UI step.
+
+Calling remains unqualified. The native test advances through secure setup, then the strict audio reader refuses the recorder output. Source review finds matching defects in the pinned SDK writer. A corrected fixture producer and first-data readiness helper have source review and 41 managed checks; actual native compilation, factory selection and WAV output still need a separate contract test. The original audio parser and its fresh-sample checks remain unchanged. Three observed Windows service-state changes also need resolution before the media test can claim complete preservation.
 
 ## Setup in three steps
 
@@ -26,7 +32,7 @@ Microsoft documents native [file-type activation](https://learn.microsoft.com/en
 
 Use **C#/.NET 10, WinUI 3 and Visual Studio 2026**, with a separately named `OpenWebPbx.Client` project. Use native Fluent controls, Windows themes/high contrast, keyboard navigation and Narrator. No website frame. Keep the existing administration manager separate.
 
-The initial support matrix is Windows 11 and supported Windows 10 editions, with Windows Server 2025 desktop sessions qualified separately. Pin the Windows App SDK only after a clean toolchain/build and OS support audit. Client support does not imply that these desktop operating systems can host the PBX server.
+The initial targets are Windows 11 and Windows Server 2025 with Desktop Experience. Other Windows editions remain unqualified. Pin the Windows App SDK only after a clean toolchain/build and OS support audit. Client support does not imply that these desktop operating systems can host the PBX server.
 
 - **Keypad:** incoming/outgoing calling, caller details, microphone/speaker/Bluetooth selection, mute, hold, digits, blind/attended transfers, call waiting and three-way calls.
 - **Contacts:** company/personal directory, search, availability and click-to-call.
