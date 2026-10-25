@@ -10,3 +10,8 @@ html[data-theme=dark]{color-scheme:dark;--ink:#e4ecf7;--muted:#a4b1c5;--blue:#29
 body.window-maximized{padding:16px 16px 90px}.window-maximized .desktop-shortcuts,.window-maximized .desktop-topline{display:none}
 .floating-chip{color:#152238}.footer-bottom{color:var(--muted)}html[data-theme=dark] .taskbar-community small{color:#a4b1c5}
 @media(prefers-reduced-motion:reduce){:root{scroll-behavior:auto}*,*:before,*:after{animation:none!important;transition:none!important}.feature-card:hover,.button:hover{transform:none}}
+
+/* Supplied OpenWebPBX wordmark: retain original pixels and contrast in both themes. */
+.wordmark .brand-logo{display:block;width:188px;height:auto;max-width:none;object-fit:contain;background:#fff;padding:5px 8px;border-radius:8px;box-sizing:content-box}
+@media(max-width:950px){.wordmark .brand-logo{width:166px;padding:4px 6px}}
+@media(max-width:700px){.wordmark .brand-logo{width:154px;padding:4px 6px}}
