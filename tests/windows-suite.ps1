@@ -407,9 +407,9 @@ function SafeSmtpFailureFields($Record){
   }
   return $safe
  }
- if($Record.active_case -isnot [string] -or $Record.active_case -cne 'global_smtp_trusted_tls_hostname_auth'){return $safe}
+ if($Record.active_case -isnot [string] -or $Record.active_case -cnotin 'global_smtp_trusted_tls_hostname_auth','native_voicemail_global_smtp_ip_attachment'){return $safe}
  foreach($field in 'smtp_connection_check_passed','smtp_queue_observed'){if($Record.$field -is [bool]){$safe[$field]=$Record.$field}}
- foreach($field in 'smtp_delivery_count','smtp_envelope_count','smtp_session_count','smtp_authenticated_session_count','smtp_tls_accepted_count','smtp_tls_handshake_completed_count','smtp_tls_handshake_failed_count','smtp_seed_row_count','smtp_tick_maintenance_deferrals','smtp_tick_retry_count'){$value=$Record.$field;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 64){$safe[$field]=$value}}
+ foreach($field in 'smtp_delivery_count','smtp_envelope_count','smtp_session_count','smtp_authenticated_session_count','smtp_tls_accepted_count','smtp_tls_handshake_completed_count','smtp_tls_handshake_failed_count','smtp_seed_row_count','smtp_tick_maintenance_deferrals','smtp_tick_retry_count','smtp_owned_mail_rows','smtp_owned_waiting_count','smtp_owned_trying_count','smtp_owned_sent_count','smtp_owned_failed_count','smtp_owned_none_count','smtp_owned_configuration_count','smtp_owned_certificate_count','smtp_owned_authentication_count','smtp_owned_connection_count','smtp_owned_other_count'){$value=$Record.$field;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 64){$safe[$field]=$value}}
  foreach($field in 'smtp_tick_selected','smtp_tick_processed'){$value=$Record.$field;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 10){$safe[$field]=$value}}
  $value=$Record.smtp_seed_retry_count;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 100){$safe.smtp_seed_retry_count=$value}
  $value=$Record.smtp_tick_exit;if(($value -is [int] -or $value -is [long]) -and $value -ge [int]::MinValue -and $value -le [int]::MaxValue){$safe.smtp_tick_exit=$value}

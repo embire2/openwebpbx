@@ -1,0 +1,64 @@
+name: Controlled Windows IP mail maintenance preflight
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Admit fresh controlled scope
+        run: |
+          if($env:GITHUB_REPOSITORY-cne 'embire2/openwebpbx'-or $env:GITHUB_REF-cne 'refs/heads/qualification/windows121-smtp-ip-20261026'-or $env:GITHUB_RUN_ATTEMPT-cne '1'){throw 'Exact fresh preflight request required.'}
+          if((Get-CimInstance Win32_OperatingSystem).Caption-notmatch 'Windows Server 2025'){throw 'Actual Windows Server2025 required.'}
+          foreach($path in 'C:\OpenWebPBX',(Join-Path $env:ProgramData 'OpenWebPBX'),'C:\Program Files\FreeSWITCH'){if(Test-Path -LiteralPath $path){throw 'Fresh host required.'}}
+          if(@(Get-Service -Name 'OpenWebPBX*','FreeSWITCH' -ErrorAction SilentlyContinue).Count){throw 'No installed services may be tested.'}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - id: python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12.10'
+          architecture: x64
+          check-latest: false
+          update-environment: false
+      - name: Actual held-lock deferral and separately counted recovery adapter
+        timeout-minutes: 4
+        env:
+          OWNED_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $evidence=Join-Path $env:RUNNER_TEMP 'smtp-ip-preflight-evidence';if(Test-Path -LiteralPath $evidence){throw 'Retain earlier observations.'};New-Item -ItemType Directory -Path $evidence|Out-Null
+          if((& git rev-parse HEAD).Trim()-cne $env:GITHUB_SHA-or $LASTEXITCODE-or (& git status --porcelain)){throw 'Exact clean source required.'}
+          $native=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          $result=& $env:OWNED_PYTHON -I -B tests/windows_smtp_ip_maintenance.py --pwsh $native --require-native
+          if($LASTEXITCODE){throw 'Controlled IP mail preflight failed; no server qualification is implied.'}
+          $row=($result|Out-String)|ConvertFrom-Json
+          $expected=@('schema','state','controlled_cases','actual_native_windows','actual_original_Tick_lock_deferral_branch','original_zero_exit_held_lock_did_not_dispatch','positive_maintenance_only_retry_counted_adapter_dispatch','actual_PHP_SMTP_or_installed_server_qualified','original_Tick_sha256','powershell_sha256','owned_job_source_sha256','native_adapter_Job_timeout_seconds','main_110_plus_15_timing_qualified','native_adapter_total_ms','holder_thread_joined','owned_jobs_count','ordinary_Job_descendant_handle_closure','fresh_exclusive_lock_reacquired','parent_environment_unchanged','owned_temporary_scope_removed');if(@($row.PSObject.Properties.Name).Count-ne $expected.Count-or @($row.PSObject.Properties.Name|Where-Object {$_-cnotin $expected}).Count){throw 'Closed field set required.'}
+          if($row.schema-isnot [long]-or $row.controlled_cases-isnot [long]-or $row.schema-ne 1-or $row.state-cne 'passed_controlled_preflight_only'-or $row.controlled_cases-ne 11-or $row.actual_native_windows-isnot [bool]-or !$row.actual_native_windows-or $row.actual_PHP_SMTP_or_installed_server_qualified-isnot [bool]-or $row.actual_PHP_SMTP_or_installed_server_qualified){throw 'Closed controlled result required.'}
+          foreach($field in 'original_Tick_sha256','powershell_sha256','owned_job_source_sha256'){if($row.$field-isnot [string]-or $row.$field-cnotmatch '^[a-f0-9]{64}$'){throw 'Exact input hash required.'}}
+          foreach($field in 'actual_original_Tick_lock_deferral_branch','original_zero_exit_held_lock_did_not_dispatch','positive_maintenance_only_retry_counted_adapter_dispatch','holder_thread_joined','ordinary_Job_descendant_handle_closure','fresh_exclusive_lock_reacquired','parent_environment_unchanged','owned_temporary_scope_removed'){if($row.$field-isnot [bool]-or !$row.$field){throw 'Original owned proof required.'}}
+          if($row.owned_job_source_sha256-cne '9c2de4d8b96f1769bf0cb5a9985409bb28587dce7f8add77556941bc4ea55448'-or $row.native_adapter_Job_timeout_seconds-isnot [long]-or $row.native_adapter_Job_timeout_seconds-ne 240-or $row.main_110_plus_15_timing_qualified-isnot [bool]-or $row.main_110_plus_15_timing_qualified-or $row.native_adapter_total_ms-isnot [long]-or $row.native_adapter_total_ms-lt 0-or $row.native_adapter_total_ms-gt 125000-or $row.owned_jobs_count-isnot [long]-or $row.owned_jobs_count-lt 5-or $row.owned_jobs_count-gt 64){throw 'Proven Job240 adapter and bounded result required.'}
+          $row|Add-Member NoteProperty source_commit $env:GITHUB_SHA
+          $row|Add-Member NoteProperty run_id $env:GITHUB_RUN_ID
+          $row|Add-Member NoteProperty test_sha256 (Get-FileHash tests/windows_smtp_ip_maintenance.py -Algorithm SHA256).Hash.ToLowerInvariant()
+          $row|Add-Member NoteProperty native_fixture_sha256 (Get-FileHash tests/windows-native-acceptance.py -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $evidence 'preflight.safe.json'),($row|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
+      - name: Preserve controlled receipt only
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-smtp-ip-preflight-${{ github.run_id }}
+          path: ${{ runner.temp }}/smtp-ip-preflight-evidence/preflight.safe.json
+          if-no-files-found: error
+          retention-days: 14

@@ -1302,6 +1302,41 @@ def smtp_tick(f,deadline=None):
         f.smtp_failure['smtp_tick_retry_count']+=1
 
 
+def smtp_ip_dispatch_and_wait(f,sink):
+    """Keep the original first110s and post-Tick15s; repeat only proved deferral."""
+    f.smtp_failure.update(smtp_tick_maintenance_deferrals=0,smtp_tick_retry_count=0)
+    def dispatch(timeout):
+        try:
+            result=subprocess.run([WINPS,'-NoProfile','-NonInteractive','-File','C:/OpenWebPBX/tools/Install-MailQueue.ps1','-Tick'],capture_output=True,check=True,timeout=timeout)
+        except subprocess.TimeoutExpired:
+            f.smtp_failure['smtp_tick_outcome']='command_timeout';raise
+        except subprocess.CalledProcessError as error:
+            f.smtp_failure.update(smtp_tick_fields(error));raise
+        finished=time.monotonic()
+        f.smtp_failure.update(smtp_tick_fields(result))
+        return finished
+    f.smtp_failure['smtp_stage']='dispatch';started=time.monotonic()
+    finished=dispatch(110);deadline=min(started+125,finished+15)
+    while f.smtp_failure['smtp_tick_outcome']=='deferred_maintenance':
+        f.smtp_failure['smtp_tick_maintenance_deferrals']+=1
+        remaining=deadline-time.monotonic()
+        assert remaining>0 and f.smtp_failure['smtp_tick_maintenance_deferrals']<64,'Maintenance consumed the original IP-SMTP observation window'
+        time.sleep(min(.25,remaining));remaining=deadline-time.monotonic()
+        assert remaining>0,'Maintenance consumed the original IP-SMTP observation window'
+        f.smtp_failure['smtp_tick_retry_count']+=1
+        dispatch(min(110,remaining))
+    f.smtp_failure['smtp_stage']='delivery'
+    remaining=deadline-time.monotonic()
+    assert remaining>0,'Mail dispatch consumed the original IP-SMTP observation window'
+    f.wait(lambda:len(sink.deliveries)>=2,remaining)
+
+
+def smtp_capture_failure(error,f,sink,seed):
+    # A failed diagnostic must never replace the real call/mail failure.
+    try:error.smtp_failure=smtp_snapshot(f,sink,seed)
+    except BaseException:pass
+
+
 def smtp_snapshot(f,sink,seed):
     facts=dict(f.smtp_failure)
     with sink.record_lock:
@@ -1312,6 +1347,12 @@ def smtp_snapshot(f,sink,seed):
         if getattr(sink,'handshake_error',None) in ('SSLError','TimeoutError','OSError','external_error'):facts['smtp_tls_error_type']=sink.handshake_error
     try:
         rows=f.cli('status')['mail'];assert type(rows) is list and len(rows)<=64
+        # Fixture status is already limited to this owned tenant; emit enum totals only.
+        facts['smtp_owned_mail_rows']=len(rows)
+        for status in ('waiting','trying','sent','failed'):
+            facts['smtp_owned_'+status+'_count']=sum(row.get('email_status')==status for row in rows)
+        for category in ('none','configuration','certificate','authentication','connection','other'):
+            facts['smtp_owned_'+category+'_count']=sum(row.get('response_class')==category for row in rows)
         owned=[row for row in rows if row.get('email_queue_uuid')==seed]
         facts['smtp_seed_row_count']=len(owned)
         if len(owned)==1:
@@ -1370,21 +1411,23 @@ def smtp_connection_check_passed(body):
 
 
 def smtp_and_queued_voicemail(f):
-    f.active_case='global_smtp_unconfigured_queue_preservation'
+    f.active_case='global_smtp_unconfigured_queue_preservation';f.smtp_failure={};seed=None
     module=load_module('smtp_fixture',f.source/'tests/smtp_transport_integration.py')
     with socketserver.ThreadingTCPServer(('127.0.0.1',0),module.SMTPFixture) as sink:
         sink.deliveries=[];sink.connections=[];sink.envelopes=[];sink.record_lock=threading.Lock();sink.daemon_threads=True
         worker=threading.Thread(target=sink.serve_forever,daemon=True);worker.start()
         try:
-            f.cli('mail-seed');before=f.cli('status')['mail']
+            seed=f.cli('mail-seed')['id'];before=f.cli('status')['mail']
             subprocess.run([WINPS,'-NoProfile','-NonInteractive','-File','C:/OpenWebPBX/tools/Install-MailQueue.ps1','-Tick'],capture_output=True,check=True,timeout=110)
             assert f.cli('status')['mail']==before,'Unconfigured queue consumed retry/status'
             f.record('native_global_smtp_unconfigured_queue_preserves_attempts')
             f.active_case='native_voicemail_global_smtp_ip_attachment'
             values={'smtp_host':'127.0.0.1','smtp_port':str(sink.server_address[1]),'smtp_secure':'none','smtp_from':'pbx@example.invalid','smtp_from_name':'Fictional Windows PBX','smtp_reply_to':'reply@example.invalid','smtp_ip_whitelisted':'1','smtp_username':'','smtp_password':''}
-            f.web.submit('/app/smtp_settings/','save',values)
-            subprocess.run([WINPS,'-NoProfile','-NonInteractive','-File','C:/OpenWebPBX/tools/Install-MailQueue.ps1','-Tick'],capture_output=True,check=True,timeout=110)
-            f.wait(lambda:len(sink.deliveries)>=2,15)
+            try:
+                f.smtp_failure['smtp_stage']='save';f.web.submit('/app/smtp_settings/','save',values)
+                smtp_ip_dispatch_and_wait(f,sink)
+            except BaseException as error:
+                smtp_capture_failure(error,f,sink,seed);raise
             messages=[BytesParser(policy=default).parsebytes(data) for _,data in sink.deliveries]
             assert all(str(m['From'])=='Fictional Windows PBX <pbx@example.invalid>' and str(m['Reply-To'])=='Fictional Windows PBX <reply@example.invalid>' for m in messages),'Global SMTP sender/reply identity not enforced'
             attachments=[part.get_payload(decode=True) for message in messages for part in message.walk() if part.get_content_disposition()=='attachment']
