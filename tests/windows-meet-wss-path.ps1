@@ -58,6 +58,45 @@ function Assert-MeetWssPathPrivate([string]$Directory){
   if($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and $rule.IdentityReference.Value -cnotin $allowed){throw 'Existing private caller-owned observation storage is required.'}
  }
 }
+function Assert-MeetWssPathStockOrdinary([string]$Path){
+ if(![IO.Path]::IsPathRooted($Path) -or (![IO.File]::Exists($Path) -and ![IO.Directory]::Exists($Path))){throw 'An ordinary absolute stock module input is required.'}
+ for($entry=[IO.FileInfo]::new($Path);$null-ne $entry;){if($entry.Attributes-band [IO.FileAttributes]::ReparsePoint){throw 'Stock module ancestry must be ordinary.'};if($entry-is [IO.DirectoryInfo]){$entry=$entry.Parent}else{$entry=$entry.Directory}}
+}
+function Get-MeetWssPathStockProvenance($Command,[ValidateSet('Get-Acl','ConvertTo-Json','Add-Type')][string]$Name,[string]$NativeHome,[string]$WindowsRoot){
+ $proof=[ordered]@{command_type=$false;command_name=$false;module_name=$false;module_path=$false;module_base=$false;module_version=$false;module_guid=$false;source_file=$false;implementation=$false}
+ $proof.command_type=$Command-is [Management.Automation.CmdletInfo];if(!$proof.command_type){return $proof}
+ $utility=$Name-cne 'Get-Acl';$module=if($utility){'Microsoft.PowerShell.Utility'}else{'Microsoft.PowerShell.Security'};$manifest=[IO.Path]::Combine($NativeHome,'Modules',$module,$module+'.psd1')
+ $assembly=$Command.ImplementingType.Assembly;$nameInfo=$assembly.GetName();$location=$assembly.Location
+ $proof.command_name=$Command.Name-ceq $Name;$proof.module_name=$Command.ModuleName-ceq $module;$proof.module_path=$Command.Module.Path-ieq $manifest
+ $proof.module_base=$Command.Module.ModuleBase-ieq $NativeHome -or (!$utility -and $Command.Module.ModuleBase-ieq [IO.Path]::GetDirectoryName($location))
+ $version=if($utility){[version]'3.1.0.0'}else{[version]'3.0.0.0'};$guid=if($utility){[Guid]'1da87e53-152b-403e-98dc-74d7b4d63d59'}else{[Guid]'a94c8c7e-9810-47c0-b8af-65089c13a35a'}
+ $proof.module_version=$Command.Module.Version-eq $version;$proof.module_guid=$Command.Module.Guid-eq $guid
+ $proof.source_file=$location.StartsWith($WindowsRoot.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)
+ $token=([BitConverter]::ToString($nameInfo.GetPublicKeyToken())).Replace('-','').ToLowerInvariant();$assemblyName=if($utility){'Microsoft.PowerShell.Commands.Utility'}else{'Microsoft.PowerShell.Security'}
+ $type=switch($Name){'Get-Acl'{'Microsoft.PowerShell.Commands.GetAclCommand'}'ConvertTo-Json'{'Microsoft.PowerShell.Commands.ConvertToJsonCommand'}'Add-Type'{'Microsoft.PowerShell.Commands.AddTypeCommand'}}
+ $proof.implementation=$Command.ImplementingType.FullName-ceq $type -and $nameInfo.Name-ceq $assemblyName -and $nameInfo.Version-eq [version]'3.0.0.0' -and $token-ceq '31bf3856ad364e35'
+ return $proof
+}
+function Assert-MeetWssPathStockProvenance($Proof){
+ $fields=@('command_type','command_name','module_name','module_path','module_base','module_version','module_guid','source_file','implementation')
+ if($Proof-isnot [Collections.IDictionary] -or $Proof.Count-ne $fields.Count){throw 'The stock command proof differs.'}
+ foreach($field in $fields){if($Proof[$field]-isnot [bool] -or !$Proof[$field]){throw 'The exact stock command provenance differs.'}}
+}
+function Import-MeetWssPathDesktopModules {
+ if([Environment]::OSVersion.Platform-ne [PlatformID]::Win32NT -or $PSVersionTable.PSEdition-cne 'Desktop'){throw 'The stock bootstrap requires Windows PowerShell.'}
+ $nativeHome=[IO.Path]::Combine([Environment]::SystemDirectory,'WindowsPowerShell','v1.0');$windows=[Environment]::GetFolderPath('Windows')
+ if([IO.Path]::GetFullPath($PSHOME) -ine $nativeHome){throw 'The exact native Windows PowerShell home is required.'}
+ foreach($kind in 'Security','Utility'){
+  $module='Microsoft.PowerShell.'+$kind;$manifest=[IO.Path]::Combine($nativeHome,'Modules',$module,$module+'.psd1');Assert-MeetWssPathStockOrdinary $manifest;Import-Module -Name $manifest -Global -Force -ErrorAction Stop
+  $names=if($kind-ceq 'Security'){@('Get-Acl')}else{@('ConvertTo-Json','Add-Type')}
+  foreach($name in $names){
+   $commands=@(Get-Command -Name ($module+'\'+$name) -All -ErrorAction Stop);if($commands.Count-ne 1){throw 'The stock command is absent or ambiguous.'};$command=$commands[0]
+   Assert-MeetWssPathStockProvenance (Get-MeetWssPathStockProvenance $command $name $nativeHome $windows)
+   Assert-MeetWssPathStockOrdinary $command.Module.ModuleBase;Assert-MeetWssPathStockOrdinary $command.Module.Path;Assert-MeetWssPathStockOrdinary $command.ImplementingType.Assembly.Location
+   $visible=Get-Command -Name $name -ErrorAction Stop;Assert-MeetWssPathStockProvenance (Get-MeetWssPathStockProvenance $visible $name $nativeHome $windows)
+  }
+ }
+}
 function Get-MeetWssPathFailure($Record){
  $types=@('RuntimeException','PSInvalidOperationException','InvalidOperationException','CmdletInvocationException','CommandNotFoundException','FileNotFoundException','IOException','UnauthorizedAccessException','TypeLoadException','CryptographicException','WebSocketException','AuthenticationException','TimeoutException','ManagementException','Exception')
  $kind=$Record.Exception.GetType().Name;if($kind -cnotin $types){$kind='external_error'}
@@ -73,6 +112,7 @@ try{
  if(!$DisposableHostedRunner -or $PSVersionTable.PSEdition -cne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5 -or [Environment]::OSVersion.Version.Build -lt 26100 -or $runner.GITHUB_ACTIONS -cne 'true' -or $runner.RUNNER_ENVIRONMENT -cne 'github-hosted' -or $runner.RUNNER_OS -cne 'Windows' -or $runner.GITHUB_REPOSITORY -cne 'embire2/openwebpbx' -or $runner.GITHUB_EVENT_NAME -cne 'workflow_dispatch'){throw 'Explicit native disposable Windows is required.'}
  $os=Get-CimInstance Win32_OperatingSystem -OperationTimeoutSec 2
  Assert-MeetWssPathRunner ([bool]$DisposableHostedRunner) $runner $PSVersionTable.PSEdition $PSVersionTable.PSVersion.Major ([Environment]::OSVersion.Version.Build) ([Environment]::Is64BitProcess) $os
+ Import-MeetWssPathDesktopModules
  $report=[IO.Path]::GetFullPath($ReportPath);$parent=Get-MeetWssPathOrdinary ([IO.Path]::GetDirectoryName($report)) $true
  Assert-MeetWssPathReport $report ([IO.Path]::GetFullPath((Join-Path $env:ProgramData 'OpenWebPBX\native-qualification')))
  if(Test-Path -LiteralPath $report){throw 'A new report beneath existing private native evidence storage is required.'}

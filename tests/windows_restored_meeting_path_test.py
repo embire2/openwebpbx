@@ -153,6 +153,17 @@ class WssChildFailure(unittest.TestCase):
             return ast.get_source_segment(source,node).split('\n',1)[1]
         self.assertEqual(body('windows-meet-browser.py','wss_child_fields'),body('windows_restored_meeting.py','restored_wss_child_fields'))
 
+    def test_stock_bootstrap_reuses_reviewed_client_source_and_exact_previous_wss_reconstructs(self):
+        current=(HERE/'windows-meet-wss-path.ps1').read_text()
+        start=current.index('function Assert-MeetWssPathStockOrdinary');end=current.index('function Get-MeetWssPathFailure',start)
+        bootstrap=current[start:end];call=' Import-MeetWssPathDesktopModules\n'
+        self.assertEqual(current.count(call),1)
+        self.assertEqual(hashlib.sha256(current.replace(bootstrap,'',1).replace(call,'',1).encode()).hexdigest(),'53d31893311d158cc0375c34b66175dead78a67ebb8fdc040d43dab8203ad299')
+        home_guard=" if([IO.Path]::GetFullPath($PSHOME) -ine $nativeHome){throw 'The exact native Windows PowerShell home is required.'}\n"
+        self.assertEqual(bootstrap.count(home_guard),1)
+        previous=bootstrap.replace(home_guard,'',1).replace('MeetWssPath','OpenWebCatalogue').replace('ConvertTo-Json','ConvertFrom-Json').replace('ConvertToJsonCommand','ConvertFromJsonCommand')
+        self.assertEqual(hashlib.sha256(previous.encode()).hexdigest(),'2fde14de1323429ebfd8d7f5babd8cbcdb9c4b3ba00c65786533d114edd6ddab')
+
     def test_actual_node_child_exit_missing_timeout_buffer_and_original_wrapper_contract(self):
         result=subprocess.run([shutil.which('node'),str(HERE/'windows_meet_wss_child_test.cjs')], input=json.dumps({'original':pre_wss_child_source('windows-meet-path-diagnostics.cjs')}),text=True,capture_output=True,timeout=20)
         self.assertEqual(result.returncode,0,result.stderr); report=json.loads(result.stdout)

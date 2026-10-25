@@ -54,7 +54,12 @@ try{
  Assert-MeetWssPathTarget 'windowsqa.example.invalid' 8443;$cases++
  $refused=$false;try{Assert-MeetWssPathTarget 'windowsqa.example.invalid' 443}catch{$refused=$true};Assert $refused;$cases++
  $wssSource=[IO.File]::ReadAllText($wss);$helper=@($wssAst.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Get-MeetWssPathFailure'},$true))[0].Extent.Text
- $oldSource=$wssSource.Replace($helper+"`n",'');$catchStart=$oldSource.LastIndexOf("}catch{`n try{`n  `$failure=Get-MeetWssPathFailure `$_");Assert ($catchStart -ge 0)
+ $withoutStock=$wssSource
+ foreach($name in 'Assert-MeetWssPathStockOrdinary','Get-MeetWssPathStockProvenance','Assert-MeetWssPathStockProvenance','Import-MeetWssPathDesktopModules'){
+  $definition=@($wssAst.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name},$true));Assert ($definition.Count -eq 1);$withoutStock=$withoutStock.Replace($definition[0].Extent.Text+"`n",'')
+ }
+ $withoutStock=$withoutStock.Replace(" Import-MeetWssPathDesktopModules`n",'');$priorHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($withoutStock))).ToLowerInvariant();Assert ($priorHash -ceq '53d31893311d158cc0375c34b66175dead78a67ebb8fdc040d43dab8203ad299')
+ $oldSource=$withoutStock.Replace($helper+"`n",'');$catchStart=$oldSource.LastIndexOf("}catch{`n try{`n  `$failure=Get-MeetWssPathFailure `$_");Assert ($catchStart -ge 0)
  $oldSource=$oldSource.Substring(0,$catchStart)+"}catch{throw 'The owned WSS path observation could not run completely; inspect its closed report if present.'}`n"
  $sha=[Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($oldSource));Assert ([Convert]::ToHexString($sha).ToLowerInvariant() -ceq '20a8a8fbfdecbda40b6a61d5aa23561adbeb6ac350694c6ff6423bec9135ffbd')
  $oldDirectory=Join-Path $owned 'old';$null=New-Item -ItemType Directory -Path $oldDirectory;$oldWss=Join-Path $oldDirectory 'windows-meet-wss-path.ps1';[IO.File]::WriteAllText($oldWss,$oldSource,[Text.UTF8Encoding]::new($false))
