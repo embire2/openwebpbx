@@ -44,8 +44,14 @@ then the browser command fails without retaining the inner error, exit code
 or report status. The busy-lock refusal does not recur; supplemental/canonical
 cleanup and original Health choices pass. Both artifacts, logs and all14
 retained originals are independently authenticated; the unchanged success
-consumer refuses. A test-cleanup mismatch is under reproduction before any
-further full run. Restored-conference media remains unqualified.
+consumer refuses. The actual product template and real Chromium reproduce an
+ended-card cleanup defect in the test. The reviewed correction preserves the
+strict parent ownership/end-state proof, original failure cancellation and all
+media/success gates, and adds bounded failure metadata. The [fresh corrected
+check40165744505](https://github.com/embire2/openwebpbx/actions/runs/40165744505)
+now runs against the unchanged published package. Its result is pending;
+restored-conference media remains unqualified. The local reproduction does not
+establish the historical401610 failure's inner cause.
 Earlier failed runs below retain
 their original limited evidence and unknown causes; later success assigns none.
 
