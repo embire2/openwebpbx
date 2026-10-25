@@ -16,13 +16,15 @@ python3 packaging/build-release.py --target windows \
   --desktop /private/native/desktop --engine /private/engine/engine \
   --codec-source /private/engine/codec-source/source \
   --backup-runtime /private/backup-runtime --acme /private/acme \
-  --music /private/music --voices /private/voices/1.0.1 \
+  --music /private/music --voices /private/voices/1.0.2 \
   --output artifacts/release-1.0.21
 ```
 
 Only tracked source and exact verified runtime inventories are copied. At installation, the local codec recipe downloads its pinned compiler, builds and proves the converter privately, and installs it while the engine is stopped. The installer never distributes a combined converter binary. Native ZIP integrity does not qualify SIP/media, global mail, phone health, STUN, real service permissions, encrypted clean-server restore or rollback; the disposable `windows-suite.yml` workflow exercises those separately. Its final package must include all reviewed runtime corrections; a previous archive does not qualify later changes.
 
-After complete qualification, sign the exact Windows archive with `packaging/updates/sign-feed.py --windows-only --windows <archive> --version 1.0.21 --minimum-version 1.0.20 --sequence <unused-sequence> --private-key <private-key> --output <windows-update-manifest.json>`. The private signing key stays outside the repository and hosted runners. Use a sequence above every preserved platform feed. Keep both published `update-manifest.json` (Android) and `debian-update-manifest.json` byte-for-byte in the new release. Validate all three before publication:
+The sealed Keoma [voice input 1.0.2](https://github.com/embire2/openwebpbx/releases/tag/voices-v1.0.2) supplies 4,915 stock spoken files and matching talking-clock 1.0.3 audio. Verify its complete archive and catalogue before staging; do not install its audio alone over an older clock implementation. No provider key is needed to package the sealed input.
+
+After complete qualification, sign the exact Windows archive with `packaging/updates/sign-feed.py --windows-only --windows <archive> --version 1.0.21 --minimum-version 1.0.20 --sequence <unused-sequence> --private-key <private-key> --output <windows-update-manifest.json>`. The private signing key stays outside the repository and hosted runners. Use a sequence above every preserved platform feed. Keep the then-current published `update-manifest.json` (Android) and `debian-update-manifest.json` byte-for-byte in the new release. A separately verified Android 1.0.19 rollout may replace its own feed first; never revert it to Android 1.0.18 while publishing Windows. Validate all three using the exact current generic version (1.0.18 below, or 1.0.19 after its rollout):
 
 ```sh
 python3 packaging/updates/validate-platform-feeds.py \
