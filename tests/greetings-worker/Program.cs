@@ -8,6 +8,7 @@ using Npgsql;
 using OpenWebPbx.Server;
 
 var connection=Environment.GetEnvironmentVariable("OPENWEB_TEST_DATABASE")??throw new InvalidOperationException("Use an owned PostgreSQL fixture connection.");
+var maintenanceChecks=await WindowsGreetingMaintenanceChecks.Run();
 var schema="greeting_worker_"+Guid.NewGuid().ToString("N");var folder=Path.Combine(Path.GetTempPath(),schema);Directory.CreateDirectory(folder);
 int checks=0;void Check(bool valid,string text){if(!valid)throw new Exception(text);checks++;}
 await using var root=NpgsqlDataSource.Create(connection);await using var db=await root.OpenConnectionAsync();
@@ -28,7 +29,10 @@ try{
  var config=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{
   ["Greetings:MediaRoot"]=folder,["Switch:Host"]="127.0.0.1",["Switch:Port"]=((IPEndPoint)listener.LocalEndpoint).Port.ToString(),["Switch:Password"]="owned-fixture"
  }).Build();
- var requests=new List<(string,string)>();bool wrongVoice=false,providerFailed=false;Func<Task>? duringSynthesis=null;
+ if(OperatingSystem.IsWindows()){
+  var state=Path.Combine(folder,"owned-maintenance-state");Directory.CreateDirectory(state);File.WriteAllText(Path.Combine(state,"upgrade.lock"),"");config["Greetings:StateRoot"]=state;
+ }
+ var requests=new List<(string,string)>();bool wrongVoice=false,providerFailed=false;Func<Task>? duringSynthesis=null;StalledBody? nextBody=null;
  using var client=new HttpClient(new Handler(async request=>{
   var uri=request.RequestUri!.AbsoluteUri;
   Check(request.Headers.GetValues("xi-api-key").Single()=="private-test-provider-key","Provider key was not supplied privately");
@@ -36,9 +40,10 @@ try{
   Check(uri=="https://api.elevenlabs.io/v1/text-to-speech/"+GreetingWorker.Voice+"?output_format=pcm_16000","Speech did not use Keoma exclusively");
   using var body=JsonDocument.Parse(await request.Content!.ReadAsStringAsync());requests.Add((uri,body.RootElement.GetProperty("text").GetString()!));
   if(duringSynthesis is not null){var action=duringSynthesis;duringSynthesis=null;await action();}
+  if(nextBody is not null){var responseBody=nextBody;nextBody=null;return new(HttpStatusCode.OK){Content=new StreamContent(responseBody)};}
   var pcm=new byte[6400];for(var i=0;i<pcm.Length;i+=2){pcm[i]=64;pcm[i+1]=10;}
   return providerFailed?new(HttpStatusCode.TooManyRequests):new(HttpStatusCode.OK){Content=new ByteArrayContent(pcm)};
- }));
+ })){Timeout=Timeout.InfiniteTimeSpan};
  var worker=new GreetingWorker(data,new Factory(client),config,new SwitchClient(config),NullLogger<GreetingWorker>.Instance);
  async Task<Guid> Add(string source,string category="voicemail"){
   var id=Guid.NewGuid();await using var command=new NpgsqlCommand("insert into v_pbx_greetings(greeting_uuid,domain_uuid,created_by,name,category,source,company_name,script,target_number,caller_extension) values($1,$2,$3,'Fixture greeting',$4,$5,'Fixture Company','A test greeting for callers.','1000','1000')",db);command.Parameters.AddWithValue(id);command.Parameters.AddWithValue(domain);command.Parameters.AddWithValue(actor);command.Parameters.AddWithValue(category);command.Parameters.AddWithValue(source);await command.ExecuteNonQueryAsync();return id;
@@ -58,13 +63,41 @@ try{
  providerFailed=true;var refused=await Add("text");await worker.Tick(default);Check(await State(refused)=="failed"&&commands.Count==1,"Provider refusal placed an unprepared recording call");providerFailed=false;
  var cancelled=await Add("text");duringSynthesis=async()=>{await using var cancel=new NpgsqlCommand("update v_pbx_greetings set state='cancelled' where greeting_uuid=$1",db);cancel.Parameters.AddWithValue(cancelled);await cancel.ExecuteNonQueryAsync();};await worker.Tick(default);
  Check(await State(cancelled)=="cancelled"&&!File.Exists(Path.Combine(folder,domain.ToString("D"),"greetings",cancelled.ToString("D"),"audio.wav")),"Cancellation published a stale text greeting");
+ config["Greetings:ProviderTimeoutSeconds"]="1";
+ var timedGreeting=await Add("text");var timedBody=new StalledBody();nextBody=timedBody;var timedTick=worker.Tick(default);
+ await timedBody.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+ if(OperatingSystem.IsWindows()){
+  var sharingRefused=false;try{using var forbidden=new FileStream(Path.Combine(config["Greetings:StateRoot"]!,"upgrade.lock"),FileMode.Open,FileAccess.ReadWrite,FileShare.None);}catch(IOException error)when((error.HResult&0xffff)is 32 or 33){sharingRefused=true;}
+  Check(sharingRefused,"The greeting worker did not retain its native lease while reading provider audio");
+ }
+ await timedTick.WaitAsync(TimeSpan.FromSeconds(10));
+ Check(await State(timedGreeting)=="failed"&&timedBody.Cancelled&&timedBody.Disposed,"A stalled response body escaped the local deadline or retained its stream");
+ Check(!File.Exists(Path.Combine(folder,domain.ToString("D"),"greetings",timedGreeting.ToString("D"),"audio.wav"))&&commands.Count==1,"Timed-out speech published audio or dispatched another call");
+ if(OperatingSystem.IsWindows()){using var released=new FileStream(Path.Combine(config["Greetings:StateRoot"]!,"upgrade.lock"),FileMode.Open,FileAccess.ReadWrite,FileShare.None);Check(released.Length==0,"Provider timeout retained the shared upgrade lease");}
+ config["Greetings:ProviderTimeoutSeconds"]="90";
+ var cancelledGreeting=await Add("text");var cancelledBody=new StalledBody();nextBody=cancelledBody;using var globalStop=new CancellationTokenSource();var cancelledTick=worker.Tick(globalStop.Token);
+ await cancelledBody.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));globalStop.Cancel();var globalCancellation=false;
+ try{await cancelledTick.WaitAsync(TimeSpan.FromSeconds(10));}catch(OperationCanceledException)when(globalStop.IsCancellationRequested){globalCancellation=true;}
+ Check(globalCancellation&&cancelledBody.Cancelled&&cancelledBody.Disposed,"Global service cancellation was swallowed or left the provider body open");
+ Check(await State(cancelledGreeting)=="preparing"&&commands.Count==1,"Global stop was mislabeled as provider failure or dispatched a call");
  await using(var off=new NpgsqlCommand("update v_domains set domain_enabled=false where domain_uuid=$1",db)){off.Parameters.AddWithValue(domain);await off.ExecuteNonQueryAsync();}
  var disabled=await Add("text");var before=requests.Count;await worker.Tick(default);Check(await State(disabled)=="pending"&&requests.Count==before,"Disabled PBX generated audio");
  foreach(var category in new[]{"voicemail","receptionist","queue_intro","queue_wait","hold_music","announcement"})Check(GreetingWorker.Introduction("Fixture",category).Contains("for Fixture - leave your message after the tone then press hash."),"Category prompt is incomplete");
- Console.WriteLine($"PASS: {checks} actual greeting worker PostgreSQL, Keoma HTTP, readiness, WAV, cancellation, dispatch, category and duplicate-call controls");
+ Console.WriteLine($"PASS: {checks} actual greeting worker PostgreSQL, Keoma HTTP, readiness, WAV, cancellation, dispatch, category and duplicate-call controls; {maintenanceChecks} native Windows maintenance controls");
 }finally{
  stop.Cancel();listener.Stop();await engine;
  await new NpgsqlCommand($"set search_path to public;drop schema if exists {schema} cascade",db).ExecuteNonQueryAsync();Directory.Delete(folder,true);
 }
 sealed class Handler(Func<HttpRequestMessage,Task<HttpResponseMessage>> callback):HttpMessageHandler{protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken ct)=>callback(request);}
 sealed class Factory(HttpClient client):IHttpClientFactory{public HttpClient CreateClient(string name)=>client;}
+sealed class StalledBody:Stream
+{
+ public TaskCompletionSource Started{get;}=new(TaskCreationOptions.RunContinuationsAsynchronously);
+ public bool Cancelled{get;private set;}public bool Disposed{get;private set;}
+ public override bool CanRead=>true;public override bool CanSeek=>false;public override bool CanWrite=>false;
+ public override long Length=>throw new NotSupportedException();public override long Position{get=>throw new NotSupportedException();set=>throw new NotSupportedException();}
+ public override async ValueTask<int> ReadAsync(Memory<byte> buffer,CancellationToken ct=default){Started.TrySetResult();try{await Task.Delay(Timeout.InfiniteTimeSpan,ct);}catch(OperationCanceledException){Cancelled=true;throw;}return 0;}
+ public override Task<int> ReadAsync(byte[] buffer,int offset,int count,CancellationToken ct)=>ReadAsync(buffer.AsMemory(offset,count),ct).AsTask();
+ protected override void Dispose(bool disposing){Disposed=true;base.Dispose(disposing);}
+ public override int Read(byte[] buffer,int offset,int count)=>throw new NotSupportedException();public override void Flush()=>throw new NotSupportedException();public override long Seek(long offset,SeekOrigin origin)=>throw new NotSupportedException();public override void SetLength(long length)=>throw new NotSupportedException();public override void Write(byte[] buffer,int offset,int count)=>throw new NotSupportedException();
+}

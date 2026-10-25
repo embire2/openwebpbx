@@ -19,6 +19,15 @@ public sealed class GreetingWorker(NpgsqlDataSource data, IHttpClientFactory cli
     private string Root => settings["Greetings:MediaRoot"] ?? (OperatingSystem.IsWindows()
         ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "OpenWebPBX", "storage", "openwebpbx")
         : "/var/lib/freeswitch/storage/openwebpbx");
+    private CancellationTokenSource ProviderDeadline(CancellationToken ct)
+    {
+        var configured=settings["Greetings:ProviderTimeoutSeconds"];
+        if (configured is not null && (!int.TryParse(configured,out var value) || value is <1 or >90))
+            throw new InvalidDataException("The greeting provider deadline must be between one and ninety seconds.");
+        var timeout=CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(configured is null?90:int.Parse(configured)));
+        return timeout;
+    }
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
@@ -30,6 +39,12 @@ public sealed class GreetingWorker(NpgsqlDataSource data, IHttpClientFactory cli
     }
     public async Task Tick(CancellationToken ct)
     {
+        // Reuse the native shared-read lease and durable maintenance hold. It
+        // must cover heartbeat, preparation and dispatch, before any DB access.
+        using var maintenance=OperatingSystem.IsWindows()
+            ? WindowsCallRecordLease.TryAcquire(settings["Greetings:StateRoot"] ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"OpenWebPBX"))
+            : null;
+        if (OperatingSystem.IsWindows() && maintenance is null) return;
         await using var db = await data.OpenConnectionAsync(ct);
         await using (var installed = new NpgsqlCommand("select to_regclass('v_pbx_greetings') is not null and to_regclass('v_pbx_greeting_uses') is not null and to_regclass('v_pbx_greeting_status') is not null",db))
             if (await installed.ExecuteScalarAsync(ct) is not true) return;
@@ -62,10 +77,11 @@ public sealed class GreetingWorker(NpgsqlDataSource data, IHttpClientFactory cli
                 if ((item.Attributes & FileAttributes.ReparsePoint)!=0) throw new IOException("Greeting storage contains a link.");
             if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(directory,UnixFileMode.UserRead|UnixFileMode.UserWrite|UnixFileMode.UserExecute|UnixFileMode.GroupRead|UnixFileMode.GroupExecute);
             using (var voice=new HttpRequestMessage(HttpMethod.Get,$"https://api.elevenlabs.io/v1/voices/{Voice}")) {
+                using var deadline=ProviderDeadline(ct);
                 voice.Headers.Add("xi-api-key",settings["ElevenLabs:ApiKey"]);
-                using var reply=await clients.CreateClient("voice").SendAsync(voice,ct);
+                using var reply=await clients.CreateClient("voice").SendAsync(voice,deadline.Token);
                 if (!reply.IsSuccessStatusCode) throw new IOException("Keoma voice is unavailable on this instance's provider account.");
-                var metadata=await reply.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(ct);
+                var metadata=await reply.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(deadline.Token);
                 if (!metadata.TryGetProperty("name",out var voiceName)||voiceName.GetString()!="Keoma") throw new IOException("The configured Keoma voice needs review.");
             }
             if (source=="text") {
@@ -98,22 +114,25 @@ public sealed class GreetingWorker(NpgsqlDataSource data, IHttpClientFactory cli
     private async Task Generate(string text,string path,CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(text)||text.Length>3000) throw new InvalidDataException("Greeting text is invalid.");
+        using var deadline=ProviderDeadline(ct);
+        var token=deadline.Token;
         // A bounded provider request can take 90 seconds. Renew readiness between
         // phone instructions so a healthy worker is not reported offline mid-job.
-        await using (var heartbeat=data.CreateCommand("update v_pbx_greeting_status set checked_at=now() where singleton=1")) await heartbeat.ExecuteNonQueryAsync(ct);
+        await using (var heartbeat=data.CreateCommand("update v_pbx_greeting_status set checked_at=now() where singleton=1")) await heartbeat.ExecuteNonQueryAsync(token);
         using var request=new HttpRequestMessage(HttpMethod.Post,$"https://api.elevenlabs.io/v1/text-to-speech/{Voice}?output_format=pcm_16000");
         request.Headers.Add("xi-api-key",settings["ElevenLabs:ApiKey"]);
         request.Content=JsonContent.Create(new{text,model_id="eleven_multilingual_v2",voice_settings=new{stability=0.7,similarity_boost=0.85}});
-        using var response=await clients.CreateClient("voice").SendAsync(request,HttpCompletionOption.ResponseHeadersRead,ct);
+        using var response=await clients.CreateClient("voice").SendAsync(request,HttpCompletionOption.ResponseHeadersRead,token);
         if(!response.IsSuccessStatusCode)throw new IOException("The voice provider could not prepare the greeting.");
-        await using var source=await response.Content.ReadAsStreamAsync(ct);
+        await using var source=await response.Content.ReadAsStreamAsync(token);
         using var pcm=new MemoryStream();var buffer=new byte[16384];int length;
-        while((length=await source.ReadAsync(buffer,ct))>0){if(pcm.Length+length>16000*2*180)throw new IOException("The greeting exceeds three minutes.");pcm.Write(buffer,0,length);}
+        while((length=await source.ReadAsync(buffer,token))>0){if(pcm.Length+length>16000*2*180)throw new IOException("The greeting exceeds three minutes.");pcm.Write(buffer,0,length);}
         if(pcm.Length<3200||pcm.Length%2!=0)throw new IOException("The voice response is incomplete.");
         var wave=CallMeBackPromptWorker.Wave(pcm.ToArray());var temporary=path+"."+Guid.NewGuid().ToString("N")+".tmp";
         try {
-            await File.WriteAllBytesAsync(temporary,wave,ct);
+            await File.WriteAllBytesAsync(temporary,wave,token);
             if(!OperatingSystem.IsWindows())File.SetUnixFileMode(temporary,UnixFileMode.UserRead|UnixFileMode.UserWrite|UnixFileMode.GroupRead);
+            token.ThrowIfCancellationRequested();
             File.Move(temporary,path,true);
         } finally {File.Delete(temporary);}
     }
