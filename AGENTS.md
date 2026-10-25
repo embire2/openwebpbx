@@ -1,5 +1,14 @@
 # OpenWeb PBX workspace
 
+## Windows release and client follow-up — 2026-10-26
+
+- Complete normal40239134531/source71c18 remains in progress with every original normal/native gate and no replay, diagnostic or Health skip. The read-only observer was resumed after its own exit143; CI was untouched and append-only API polls preserve that distinction. No terminal pass, candidate/audio download, signing or publication is inferred.
+- Optional native mail40241965592/sourceb3a8 reaches actual public20 installation and owned database/audio setup, then refuses at the controller’s `return$row` token before a native Lua case. The cleanup child drops its owned database, but the same controller typo keeps aggregate cleanup unverified. Held-engine exit is retained. A one-space QA-only correction passes six actual extracted-Probe controls on each PowerShell version; all original commands, gates and cleanup predicates remain. Earlier installer/reporter failures retain their limited scope and originals.
+- Isolated client fixture40241735286/source04e3b403 is terminal failed. Root authenticates all29 original members through the corrected source/command/inventory-bound collector. CMake reports configuration/generation complete and parent exit0, but owned Job descendants survive; termination and handle closure follow. Native build/factory/WAV/managed cases are unreached. Five service-state-only differences remain unexplained; roots and firewall match. Failure-only observations are being prepared without changing Job core, deadlines, runtime or system equality. The20 client WIP files remain untouched; no calling or Store pass follows.
+- The replacement Server2025 guest remains Off/PreparedNeverBooted. A single later read-only check finds4,954,963,968B available, below the unchanged5GiB guard; plan and administrator/SYSTEM secret ACLs remain exact. No further start or resource polling is needed until actual owner resource change. This lab limitation does not hold hosted release qualification.
+- Global’s live schedule is Monday–Friday07:00–16:30 and Saturday08:00–11:30, Africa/Johannesburg. Its four-member ring group, after-hours/no-answer Keoma voicemail and attachment-and-delete recipient remain deployed. Controlled outgoing-relay delivery/deletion passes; manager-inbox and new physical outside-call observations remain pending. Public versions and roadmap133/21/72/40 remain unchanged.
+
+
 
 ## Windows 1.0.21 and urgent voicemail follow-up — 2026-10-25
 
