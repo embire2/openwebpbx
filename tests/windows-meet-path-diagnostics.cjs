@@ -3,6 +3,7 @@ const fs=require('node:fs');
 const https=require('node:https');
 const path=require('node:path');
 const {execFile}=require('node:child_process');
+const wssFailure=require('./windows-meet-wss-failure.cjs');
 const wsBooleans=['observed','connected','sent','response_received','closed_exact','large_sent','large_response_received'];
 const wsPhases=['connect','send','receive','complete','unavailable'];
 const wsErrors=['none','timeout','tls','websocket','other','unavailable'];
@@ -48,15 +49,18 @@ function statusProbe(origin,ca,token){
  });
 }
 function child(executable,args,timeout){return new Promise(resolve=>{execFile(executable,args,{timeout,maxBuffer:16384,windowsHide:true},(error,stdout)=>{if(error){resolve(null);return;}try{resolve(JSON.parse(stdout.replace(/^\uFEFF/,'')));}catch{resolve(null);}});});}
-async function observe(settings,label,secrets={}){
+function wssChild(executable,args,timeout){const started=performance.now();return new Promise(resolve=>{execFile(executable,args,{timeout,maxBuffer:16384,windowsHide:true},(error,stdout)=>{try{resolve(wssFailure.outcome(error,stdout,performance.now()-started));}catch{resolve(null);}});});}
+async function observe(settings,label,secrets={},onFailure){
  const row=defaults(),probe=settings.pathProbe;
  if(!probe||!['before','after'].includes(label))return row;
  const report=path.join(path.dirname(settings.report),'meeting-wss-'+label+'.safe.json');
  let ca;try{ca=fs.readFileSync(probe.caFile);if(ca.length>65536)return row;}catch{return row;}
  const wss=async()=>{
   if(fs.existsSync(report))return;
-  await child(probe.powershell,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',probe.wssScript,'-Hostname',new URL(settings.origin).hostname,'-Port',new URL(settings.origin).port||'443','-ReportPath',report,'-DisposableHostedRunner'],27000);
-  try{if(!fs.lstatSync(report).isFile()||fs.statSync(report).size>16384)return;const reportRow=JSON.parse(fs.readFileSync(report,'utf8').replace(/^\uFEFF/,''));if(exact(reportRow,['schema','state','backend','frontend','fragmented_backend','fragmented_frontend'])&&reportRow.schema===1&&reportRow.state==='observed'){for(const name of ['backend','frontend','fragmented_backend','fragmented_frontend'])row[name]=validateWs(reportRow[name])||wsDefault();}}catch{}
+  const outcome=await wssChild(probe.powershell,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',probe.wssScript,'-Hostname',new URL(settings.origin).hostname,'-Port',new URL(settings.origin).port||'443','-ReportPath',report,'-DisposableHostedRunner'],27000);
+  let reason='report_missing';
+  try{if(fs.existsSync(report)){reason='report_invalid';if(fs.lstatSync(report).isFile()&&fs.statSync(report).size<=16384){const reportRow=JSON.parse(fs.readFileSync(report,'utf8').replace(/^\uFEFF/,''));if(exact(reportRow,['schema','state','backend','frontend','fragmented_backend','fragmented_frontend'])&&reportRow.schema===1&&reportRow.state==='observed'){for(const name of ['backend','frontend','fragmented_backend','fragmented_frontend'])row[name]=validateWs(reportRow[name])||wsDefault();return;}}}}catch{}
+  try{const failure=wssFailure.record(label,reason,outcome);if(failure&&typeof onFailure==='function')onFailure(failure);}catch{}
  };
  await Promise.allSettled([wss(),child(probe.php,[probe.fixtureScript,'meeting-path-state',probe.fixtureInput],6000).then(value=>{row.database=validatePg(value)||pgDefault();}),statusProbe(settings.origin,ca,secrets.host).then(value=>{row.host_http=value;}),statusProbe(settings.origin,ca,secrets.guest).then(value=>{row.guest_http=value;})]);
  return validate(row)||defaults();

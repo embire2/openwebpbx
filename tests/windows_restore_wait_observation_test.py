@@ -1,5 +1,6 @@
 """Actual timeout/source/projection controls; native task APIs are explicit doubles."""
 import ast,contextlib,copy,hashlib,importlib.util,io,json,os,subprocess,sys,tempfile,types,unittest
+from windows_meet_wss_child_source import pre_wss_child_source
 from pathlib import Path
 from unittest.mock import patch
 
@@ -104,7 +105,7 @@ class WaitSemantics(unittest.TestCase):
         projection="\n        try:\n            observation = restore_wait_failure_fields(getattr(error, 'restore_wait_failure', None))\n            if observation: facts['wait_failure'] = observation\n        except BaseException: pass"
         self.assertEqual(candidate.count(projection),1);candidate=candidate.replace(projection,'',1)
         self.assertEqual(candidate,ORIGINAL_PY)
-        parent=(HERE/'windows-restore-qualification.ps1').read_text()
+        parent=pre_wss_child_source('windows-restore-qualification.ps1')
         begin=parent.index('function SafeRestoreWaitFailure($Record){');end=parent.index('function NativeFixture([string]$Action){',begin)
         parent=parent[:begin]+parent[end:]
         begin=parent.index("  try{\n   if($Action -cin @('export-source','target-backup','native-source','native-target','job')")

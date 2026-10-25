@@ -194,11 +194,38 @@ function AssertRestoredServiceActivation([string]$Name){
   throw
  }
 }
+function SafeRestoredConferenceWssChildFields($Record){
+ if($Record -isnot [Array] -or $Record.Count -lt 1 -or $Record.Count -gt 2){return $null}
+ $safe=@();$labels=@();$psTypes=@('RuntimeException','PSInvalidOperationException','InvalidOperationException','CmdletInvocationException','CommandNotFoundException','FileNotFoundException','IOException','UnauthorizedAccessException','TypeLoadException','CryptographicException','WebSocketException','AuthenticationException','TimeoutException','ManagementException','Exception','external_error')
+ foreach($value in $Record){
+  if($null -eq $value -or ($value -isnot [Collections.IDictionary] -and $value -isnot [pscustomobject])){return $null}
+  $keys=if($value -is [Collections.IDictionary]){@($value.Keys)}else{@($value.PSObject.Properties.Name)}
+  if($keys.Count -ne 4 -or @($keys|Where-Object {$_ -cnotin @('schema','label','reason','outcome')}).Count -or ($value.schema -isnot [int] -and $value.schema -isnot [long]) -or $value.schema -ne 1 -or $value.label -isnot [string] -or $value.label -cnotin @('before','after') -or $value.label -cin $labels -or $value.reason -isnot [string] -or $value.reason -cnotin @('report_missing','report_invalid')){return $null}
+  $child=$value.outcome
+  if($null -eq $child -or ($child -isnot [Collections.IDictionary] -and $child -isnot [pscustomobject])){return $null}
+  $keys=if($child -is [Collections.IDictionary]){@($child.Keys)}else{@($child.PSObject.Properties.Name)}
+  if($keys.Count -ne 9 -or @($keys|Where-Object {$_ -cnotin @('exit_code','error_type','code_kind','errno','killed','signal','elapsed_ms','powershell_state','powershell')}).Count){return $null}
+  foreach($item in @(@('exit_code',-2147483648,4294967295),@('errno',-2147483648,2147483647))){$n=$item[0];if($null -ne $child.$n -and (($child.$n -isnot [int] -and $child.$n -isnot [long]) -or $child.$n -lt $item[1] -or $child.$n -gt $item[2])){return $null}}
+  if(($null -ne $child.killed -and $child.killed -isnot [bool]) -or ($child.elapsed_ms -isnot [int] -and $child.elapsed_ms -isnot [long]) -or $child.elapsed_ms -lt 0 -or $child.elapsed_ms -gt 32000 -or $child.error_type -isnot [string] -or $child.error_type -cnotin @('none','Error','TypeError','RangeError','TimeoutError','AbortError','other') -or $child.code_kind -isnot [string] -or $child.code_kind -cnotin @('none','exit','ENOENT','EACCES','EPERM','ETIMEDOUT','ABORT_ERR','ERR_CHILD_PROCESS_STDIO_MAXBUFFER','other') -or $child.signal -isnot [string] -or $child.signal -cnotin @('none','SIGTERM','SIGKILL','other') -or $child.powershell_state -isnot [string] -or $child.powershell_state -cnotin @('absent','invalid','closed')){return $null}
+  $ps=$child.powershell;$closed=$null
+  if($child.powershell_state -ceq 'closed'){
+   if($null -eq $ps -or ($ps -isnot [Collections.IDictionary] -and $ps -isnot [pscustomobject])){return $null}
+   $keys=if($ps -is [Collections.IDictionary]){@($ps.Keys)}else{@($ps.PSObject.Properties.Name)}
+   if($keys.Count -ne 7 -or @($keys|Where-Object {$_ -cnotin @('schema','state','producer','error_type','source_basename','source_line','hresult')}).Count -or ($ps.schema -isnot [int] -and $ps.schema -isnot [long]) -or $ps.schema -ne 1 -or $ps.state -isnot [string] -or $ps.state -cne 'failed' -or $ps.producer -isnot [string] -or $ps.producer -cne 'windows-meet-wss-path.ps1' -or $ps.error_type -isnot [string] -or $ps.error_type -cnotin $psTypes -or $ps.source_basename -isnot [string] -or $ps.source_basename -cnotin @('windows-meet-wss-path.ps1','unavailable') -or ($ps.source_line -isnot [int] -and $ps.source_line -isnot [long]) -or $ps.source_line -lt 0 -or $ps.source_line -ge 1000000 -or ($ps.hresult -isnot [int] -and $ps.hresult -isnot [long]) -or $ps.hresult -lt -2147483648 -or $ps.hresult -gt 2147483647){return $null}
+   if(($ps.source_basename -ceq 'unavailable' -and $ps.source_line -ne 0) -or ($ps.source_basename -cne 'unavailable' -and $ps.source_line -lt 1)){return $null}
+   $closed=@{schema=1;state='failed';producer='windows-meet-wss-path.ps1';error_type=$ps.error_type;source_basename=$ps.source_basename;source_line=$ps.source_line;hresult=$ps.hresult}
+  }elseif($null -ne $ps){return $null}
+  $labels+=@($value.label)
+  $safe+=@(@{schema=1;label=$value.label;reason=$value.reason;outcome=@{exit_code=$child.exit_code;error_type=$child.error_type;code_kind=$child.code_kind;errno=$child.errno;killed=$child.killed;signal=$child.signal;elapsed_ms=$child.elapsed_ms;powershell_state=$child.powershell_state;powershell=$closed}})
+ }
+ return @{meeting_wss_child_failure=$safe}
+}
+
 function SafeRestoredConferenceFailure($Record){
  if($null -eq $Record -or ($Record -isnot [Collections.IDictionary] -and $Record -isnot [pscustomobject])){return $null}
  $keys=@('schema','state','producer','error_type','cleanup_verified','source_frames','active_case','owned_process_cleanup_failed','owned_processes_closed')
  $actual=if($Record -is [Collections.IDictionary]){@($Record.Keys)}else{@($Record.PSObject.Properties.Name)}
- if($actual.Count -notin 9,10 -or @($actual|Where-Object {$_ -cnotin ($keys+@('meeting_path'))}).Count -or @($keys|Where-Object {$_ -cnotin $actual}).Count){return $null}
+ if($actual.Count -notin 9,10,11 -or @($actual|Where-Object {$_ -cnotin ($keys+@('meeting_path','meeting_wss_child_failure'))}).Count -or @($keys|Where-Object {$_ -cnotin $actual}).Count){return $null}
  if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.state -isnot [string] -or $Record.state -cne 'failed' -or $Record.producer -isnot [string] -or $Record.producer -cne 'windows_restored_meeting.py' -or $Record.cleanup_verified -isnot [bool]){return $null}
  $types=@('RuntimeError','ValueError','TypeError','KeyError','AttributeError','AssertionError','TimeoutError','TimeoutExpired','OSError','FileNotFoundError','PermissionError','JSONDecodeError','SSLError','HTTPError','URLError','external_error')
  $cases=@('unavailable','native_windows_meeting_browser_media','native_windows_meeting_dependencies','native_windows_meeting_unknown','native_windows_meeting_browser_start','native_windows_meeting_owner_page','native_windows_meeting_create','native_windows_meeting_host_join','native_windows_meeting_guest_join','native_windows_meeting_admission','native_windows_meeting_decoded_media','native_windows_meeting_mute','native_windows_meeting_unmute','native_windows_meeting_end')
@@ -217,6 +244,12 @@ function SafeRestoredConferenceFailure($Record){
   $paths=SafeRestoredConferencePathFields $Record
   if($paths -isnot [Collections.IDictionary] -or $paths.Count -ne 1 -or !$paths.Contains('meeting_path')){return $null}
   $safe.meeting_path=$paths.meeting_path
+ }
+ if('meeting_wss_child_failure' -cin $actual){
+  if($Record.active_case -cne 'native_windows_meeting_browser_start'){return $null}
+  $child=SafeRestoredConferenceWssChildFields $Record.meeting_wss_child_failure
+  if($child -isnot [Collections.IDictionary] -or $child.Count -ne 1 -or !$child.Contains('meeting_wss_child_failure')){return $null}
+  $safe.meeting_wss_child_failure=$child.meeting_wss_child_failure
  }
  return $safe
 }

@@ -107,6 +107,33 @@ def path_fields(record):
     return {'meeting_path':safe}
 
 
+def wss_child_fields(record):
+    if type(record) is not list or not 1 <= len(record) <= 2:
+        return {}
+    safe = []; labels = set()
+    ps_types = {'RuntimeException','PSInvalidOperationException','InvalidOperationException','CmdletInvocationException','CommandNotFoundException','FileNotFoundException','IOException','UnauthorizedAccessException','TypeLoadException','CryptographicException','WebSocketException','AuthenticationException','TimeoutException','ManagementException','Exception','external_error'}
+    def integer(value, low, high): return type(value) is int and low <= value <= high
+    for value in record:
+        if type(value) is not dict or set(value) != {'schema','label','reason','outcome'} or type(value['schema']) is not int or value['schema'] != 1 or type(value['label']) is not str or value['label'] not in {'before','after'} or value['label'] in labels or type(value['reason']) is not str or value['reason'] not in {'report_missing','report_invalid'}:
+            return {}
+        child = value['outcome']
+        if type(child) is not dict or set(child) != {'exit_code','error_type','code_kind','errno','killed','signal','elapsed_ms','powershell_state','powershell'}:
+            return {}
+        if child['exit_code'] is not None and not integer(child['exit_code'], -2147483648, 4294967295) or child['errno'] is not None and not integer(child['errno'], -2147483648, 2147483647) or child['killed'] is not None and type(child['killed']) is not bool or not integer(child['elapsed_ms'], 0, 32000):
+            return {}
+        if type(child['error_type']) is not str or child['error_type'] not in {'none','Error','TypeError','RangeError','TimeoutError','AbortError','other'} or type(child['code_kind']) is not str or child['code_kind'] not in {'none','exit','ENOENT','EACCES','EPERM','ETIMEDOUT','ABORT_ERR','ERR_CHILD_PROCESS_STDIO_MAXBUFFER','other'} or type(child['signal']) is not str or child['signal'] not in {'none','SIGTERM','SIGKILL','other'} or type(child['powershell_state']) is not str or child['powershell_state'] not in {'absent','invalid','closed'}:
+            return {}
+        ps = child['powershell']
+        if child['powershell_state'] == 'closed':
+            if type(ps) is not dict or set(ps) != {'schema','state','producer','error_type','source_basename','source_line','hresult'} or type(ps['schema']) is not int or ps['schema'] != 1 or type(ps['state']) is not str or ps['state'] != 'failed' or type(ps['producer']) is not str or ps['producer'] != 'windows-meet-wss-path.ps1' or type(ps['error_type']) is not str or ps['error_type'] not in ps_types or type(ps['source_basename']) is not str or ps['source_basename'] not in {'windows-meet-wss-path.ps1','unavailable'} or not integer(ps['source_line'], 0, 999999) or not integer(ps['hresult'], -2147483648, 2147483647) or (ps['source_line'] != 0 if ps['source_basename'] == 'unavailable' else ps['source_line'] < 1):
+                return {}
+        elif ps is not None:
+            return {}
+        labels.add(value['label'])
+        safe.append(dict(value, outcome=dict(child, powershell=dict(ps) if ps is not None else None)))
+    return {'meeting_wss_child_failure': safe}
+
+
 def completed_paths(record):
     paths = path_fields(record)
     if not paths:
@@ -157,7 +184,7 @@ def run(fixture):
                 owner_fields={}
                 observed_media={}
                 observed_signaling={}
-                observed_path={}
+                observed_path={}; observed_wss_child={}
                 if phase=='browser' and report.is_file():
                     try:
                         failed=json.loads(report.read_text(encoding='utf-8'))
@@ -169,6 +196,7 @@ def run(fixture):
                                 observed_media.update(browser_failure_fields(failed.get('browser_failure')))
                             if stage in {'host_join','guest_join','admission','decoded_media','mute','unmute','end'}:observed_signaling=signaling_fields(failed.get('meeting_signaling'))
                             observed_path=path_fields(failed.get('meeting_path'))
+                            if stage == 'browser_start': observed_wss_child=wss_child_fields(failed.get('meeting_wss_child_failure'))
                     except (ValueError,OSError):pass
                 fixture.active_case='native_windows_meeting_'+stage
                 error=RuntimeError('The actual Windows meeting '+phase+' qualification did not pass')
@@ -176,6 +204,7 @@ def run(fixture):
                 error.meeting_media_failure=observed_media
                 error.meeting_signaling_failure=observed_signaling
                 error.meeting_path_failure=observed_path
+                error.meeting_wss_child_failure=observed_wss_child
                 raise error
         facts = json.loads(report.read_text())
         if facts.get('schema') != 1 or facts.get('state') != 'passed' or len(facts.get('checks', [])) != 9:

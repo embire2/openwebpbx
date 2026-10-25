@@ -58,6 +58,14 @@ function Assert-MeetWssPathPrivate([string]$Directory){
   if($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and $rule.IdentityReference.Value -cnotin $allowed){throw 'Existing private caller-owned observation storage is required.'}
  }
 }
+function Get-MeetWssPathFailure($Record){
+ $types=@('RuntimeException','PSInvalidOperationException','InvalidOperationException','CmdletInvocationException','CommandNotFoundException','FileNotFoundException','IOException','UnauthorizedAccessException','TypeLoadException','CryptographicException','WebSocketException','AuthenticationException','TimeoutException','ManagementException','Exception')
+ $kind=$Record.Exception.GetType().Name;if($kind -cnotin $types){$kind='external_error'}
+ $source=[IO.Path]::GetFileName([string]$Record.InvocationInfo.ScriptName);$line=[int]$Record.InvocationInfo.ScriptLineNumber
+ if($source -cne 'windows-meet-wss-path.ps1' -or $line -lt 1 -or $line -ge 1000000){$source='unavailable';$line=0}
+ $number=[int]$Record.Exception.HResult
+ return @{schema=1;state='failed';producer='windows-meet-wss-path.ps1';error_type=$kind;source_basename=$source;source_line=$line;hresult=$number}
+}
 try{
  Assert-MeetWssPathTarget $Hostname $Port
  $runner=@{};foreach($name in 'GITHUB_ACTIONS','RUNNER_ENVIRONMENT','RUNNER_OS','GITHUB_REPOSITORY','GITHUB_EVENT_NAME'){$runner[$name]=[Environment]::GetEnvironmentVariable($name)}
@@ -214,4 +222,12 @@ public static class OpenWebMeetWssPathProbe {
  try{$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
  if(!$backend.closed_exact -or !$frontend.closed_exact -or !$fragmentedBackend.closed_exact -or !$fragmentedFrontend.closed_exact){throw 'Owned WSS observation cleanup did not complete.'}
  Write-Output 'OBSERVED fixed owned backend and frontend WSS paths; this is diagnostic evidence only'
-}catch{throw 'The owned WSS path observation could not run completely; inspect its closed report if present.'}
+}catch{
+ try{
+  $failure=Get-MeetWssPathFailure $_
+  # Fixed ASCII enums/integers only; avoid module loading and raw error text.
+  $line=$failure.source_line.ToString([Globalization.CultureInfo]::InvariantCulture);$number=$failure.hresult.ToString([Globalization.CultureInfo]::InvariantCulture)
+  [Console]::Out.WriteLine(('{{"schema":1,"state":"failed","producer":"windows-meet-wss-path.ps1","error_type":"{0}","source_basename":"{1}","source_line":{2},"hresult":{3}}}' -f $failure.error_type,$failure.source_basename,$line,$number))
+ }catch{}
+ throw 'The owned WSS path observation could not run completely; inspect its closed report if present.'
+}

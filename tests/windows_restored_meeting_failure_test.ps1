@@ -3,7 +3,7 @@ $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 $tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Source parse refused.'}
 $definitions=@{}
-foreach($name in 'SafeRestoredConferenceFailure','SafeRestoredConferencePathFields','ReadRestoredConferenceFailure','RestoredMeetingSupplement'){
+foreach($name in 'SafeRestoredConferenceWssChildFields','SafeRestoredConferenceFailure','SafeRestoredConferencePathFields','ReadRestoredConferenceFailure','RestoredMeetingSupplement'){
  $nodes=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name},$true))
  if($nodes.Count -ne 1){throw 'One exact observed source function required.'}
  $definitions[$name]=$nodes[0].Extent.Text.Replace('$PSScriptRoot',("'"+$PSScriptRoot.Replace("'","''")+"'"))
@@ -120,4 +120,6 @@ try{
  }
 }finally{Remove-Item -LiteralPath $owned -Recurse -Force}
 if(Test-Path -LiteralPath $owned){throw 'Owned observation controls survived.'}
-@{schema=1;state='passed';cases=$cases;assertions=$checks;actual_parent_source=$true;bounded_real_output_files=$true;original_primary_preserved=$true;original_child_called_once=$true;installed_services_or_browser_called=$false;owned_fixture_removed=$true}|ConvertTo-Json -Compress
+$wssChildControls=& (Join-Path $PSScriptRoot 'windows_meet_wss_child_test.ps1') -Source $ast.Extent.File | ConvertFrom-Json
+Assert ($wssChildControls.state -ceq 'passed')
+@{schema=1;state='passed';cases=$cases;assertions=$checks;wss_child_cases=$wssChildControls.cases;wss_child_checks=$wssChildControls.checks;actual_parent_source=$true;bounded_real_output_files=$true;original_primary_preserved=$true;original_child_called_once=$true;installed_services_or_browser_called=$false;owned_fixture_removed=$true}|ConvertTo-Json -Compress

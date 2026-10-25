@@ -1,5 +1,6 @@
 """Actual owned recovery files and exact core producer pins; no native pass."""
 import ast
+from windows_meet_wss_child_source import pre_wss_child_source
 import copy
 import hashlib
 import importlib.util
@@ -57,7 +58,7 @@ class Fixture:
 
 class RecoveryInventory(unittest.TestCase):
     def test_actual_after_parse_journal_replacement_old_admits_corrected_order_refuses(self):
-        current = (HERE / 'windows_restored_meeting.py').read_text()
+        current = pre_wss_child_source('windows_restored_meeting.py')
         fixed = '    original_journal = digest(journal); value = read_json(journal, 8 * 1024**2)'
         rejected = '    value = read_json(journal, 8 * 1024**2); original_journal = digest(journal)'
         self.assertEqual(current.count(fixed), 1)
@@ -91,9 +92,10 @@ class RecoveryInventory(unittest.TestCase):
                     if refuses:
                         # The final existing journal equality detects the race;
                         # no earlier copy/path policy was weakened or bypassed.
-                        node = next(n for n in ast.walk(ast.parse(current)) if isinstance(n, ast.Call)
+                        actual_current = (HERE / 'windows_restored_meeting.py').read_text()
+                        node = next(n for n in ast.walk(ast.parse(actual_current)) if isinstance(n, ast.Call)
                                     and isinstance(n.func, ast.Name) and n.func.id == 'require'
-                                    and ast.get_source_segment(current, n) == 'require(digest(journal) == original_journal)')
+                                    and ast.get_source_segment(actual_current, n) == 'require(digest(journal) == original_journal)')
                         frames = []
                         try: module.stable_files(f.q)
                         except RuntimeError as error:

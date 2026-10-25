@@ -1,5 +1,6 @@
 """Closed failure-only source controls; no installed Windows or browser claim."""
 import ast
+from windows_meet_wss_child_source import pre_wss_child_source
 import contextlib
 import copy
 import hashlib
@@ -54,7 +55,7 @@ class FailureObservation(unittest.TestCase):
         original = "        print(json.dumps({'schema': 1, 'state': 'failed', 'producer': 'windows_restored_meeting.py',\n                          'error_type': type(error).__name__ if type(error).__name__ in ('RuntimeError', 'ValueError', 'TimeoutExpired', 'OSError') else 'external_error',\n                          'cleanup_verified': getattr(error, 'restored_meeting_cleanup_verified', False) is True}))"
         self.assertEqual(source.count(addition), 1); source = source.replace(addition, original, 1)
         self.assertEqual(hashlib.sha256(source.encode()).hexdigest(), ORIGINAL_PY)
-        parent = (HERE / 'windows-restore-qualification.ps1').read_text()
+        parent = pre_wss_child_source('windows-restore-qualification.ps1')
         begin = parent.index('function SafeRestoredConferenceFailure($Record){'); end = parent.index('function RestoredMeetingSupplement {', begin)
         parent = parent[:begin] + parent[end:]
         call = "CheckedProcess $python @('-I','-B',(Join-Path $PSScriptRoot 'windows_restored_meeting.py'),'--input',$inputFile,'--adapter',$adapter) 'restored-conference-supplement' $source 600000"
@@ -68,7 +69,7 @@ class FailureObservation(unittest.TestCase):
             'windows-meet-browser.py': '0bc45c9e0814e78b5a6fcf7c1f3e36f33bd70e113644b2e737fe208d46bdf7d7',
             'windows-meet-browser.cjs': '13abed3e2063039d0fb311ac75f59a4f506ba46880cb846a0912e1a82c23d2c0',
         }
-        for name, digest in expected.items(): self.assertEqual(hashlib.sha256((HERE / name).read_bytes()).hexdigest(), digest)
+        for name, digest in expected.items(): self.assertEqual(hashlib.sha256((pre_wss_child_source(name) if name in {'windows-meet-browser.py','windows-meet-browser.cjs'} else (HERE / name).read_text()).encode()).hexdigest(), digest)
 
     def test_actual_trace_has_only_four_fixed_sources_and_bounded_lines(self):
         for name in m.FAILURE_SOURCES:
