@@ -1,0 +1,57 @@
+name: Isolated Windows native voicemail DBh diagnostic
+on:
+  workflow_dispatch:
+    inputs:
+      helper_ref:
+        description: Exact reviewed helper source; original cb95 first, any candidate requires a separate approved run
+        required: true
+        default: cb95d91af1ab3c30a294de7b8004329aa0cb985e
+        type: string
+permissions:
+  contents: read
+jobs:
+  native_dbh:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Admit exact owned request
+        env:
+          HELPER_REF: ${{ inputs.helper_ref }}
+        run: |
+          if($env:GITHUB_REPOSITORY-cne 'embire2/openwebpbx'-or $env:HELPER_REF-cnotmatch '^[a-f0-9]{40}$'){throw 'Exact reviewed helper source required.'}
+          git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: probe-source
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.helper_ref }}
+          path: helper-source
+          persist-credentials: false
+          fetch-depth: 1
+      - id: python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12.10'
+          architecture: x64
+          check-latest: false
+          update-environment: false
+      - name: Original accepted20 bootstrap and exact helper DBh probe
+        env:
+          HELPER_REF: ${{ inputs.helper_ref }}
+          OWNED_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          & ./probe-source/tests/windows_mail_dbh_component.ps1 -HelperRoot "$env:GITHUB_WORKSPACE/helper-source" -HelperRef $env:HELPER_REF -PythonExecutable $env:OWNED_PYTHON
+      - name: Preserve only closed observations
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-mail-dbh-diagnostic-${{ github.run_id }}
+          path: ${{ runner.temp }}/mail-dbh-evidence/**/*.safe.json
+          if-no-files-found: error
+          retention-days: 14
