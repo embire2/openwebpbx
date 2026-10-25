@@ -39,10 +39,11 @@ jobs:
         run: |
           set -euo pipefail
           python3 mobile/android/scripts/test-refresh-source.py
+          python3 mobile/android/scripts/test-qualified-apk.py
           mobile/android/gradlew -p mobile/android --no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx2048m \
-            -PopenwebUnsignedRelease=true -PopenwebTestAbi=x86_64 \
+            -PopenwebUnsignedRelease=true -PopenwebTestAbi=x86_64 -PopenwebInstrumentRelease=true \
             :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest :app:lintDirectRelease :app:lintPlayRelease \
-            :app:assembleDirectRelease :app:bundlePlayRelease :app:assembleDirectDebug :app:assembleDirectDebugAndroidTest :app:writeRuntimeInventory \
+            :app:assembleDirectRelease :app:bundlePlayRelease :app:assembleDirectDebug :app:assembleDirectReleaseAndroidTest :app:writeRuntimeInventory \
             2>&1 | tee "$ANDROID_OUTPUT/build.log"
           cp mobile/android/app/build/outputs/apk/direct/release/app-direct-release-unsigned.apk "$ANDROID_OUTPUT/openwebpbx-1.0.19-android-unsigned.apk"
           cp mobile/android/app/build/outputs/bundle/playRelease/app-play-release.aab "$ANDROID_OUTPUT/openwebpbx-1.0.19-google-play-unsigned.aab"
@@ -62,7 +63,28 @@ jobs:
           test -c /dev/kvm
           sudo chmod a+rw /dev/kvm
           "$ANDROID_HOME/emulator/emulator" -accel-check
-          printf 'no\n' | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n openweb-splash-35 -k 'system-images;android-35;google_apis;x86_64' --force
+          # Both tools use the same explicit owned home; do not rely on runner defaults.
+          export ANDROID_USER_HOME="$RUNNER_TEMP/openweb-android-user"
+          export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+          export ANDROID_EMULATOR_HOME="$ANDROID_USER_HOME"
+          mkdir -p "$ANDROID_AVD_HOME"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n openweb-splash-35 -k 'system-images;android-35;google_apis;x86_64' --device pixel_5 --path "$ANDROID_AVD_HOME/openweb-splash-35.avd" --force </dev/null
+          test -s "$ANDROID_AVD_HOME/openweb-splash-35.ini"
+          grep -Fxq "path=$ANDROID_AVD_HOME/openweb-splash-35.avd" "$ANDROID_AVD_HOME/openweb-splash-35.ini"
+          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -Fxq openweb-splash-35
+          # A disposable QA signature installs the exact release payload. The
+          # unsigned publication candidate remains unchanged; no production key enters CI.
+          fixture_key="$RUNNER_TEMP/openweb-qualification-debug.jks"
+          test ! -e "$fixture_key"
+          keytool -genkeypair -noprompt -keystore "$fixture_key" -storetype JKS -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 2 -dname 'CN=Android Debug,O=OpenWebPBX isolated CI,C=ZA'
+          signer="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          "$signer" sign --ks "$fixture_key" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out "$RUNNER_TEMP/qualification-release.apk" "$ANDROID_OUTPUT/openwebpbx-1.0.19-android-unsigned.apk"
+          test_apk=$(python3 -c 'import json;from pathlib import Path;p=Path("mobile/android/app/build/outputs/apk/androidTest/direct/release");print(p/json.loads((p/"output-metadata.json").read_text())["elements"][0]["outputFile"])')
+          "$signer" sign --ks "$fixture_key" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out "$RUNNER_TEMP/qualification-tests.apk" "$test_apk"
+          rm -- "$fixture_key"
+          "$signer" verify --verbose --print-certs "$RUNNER_TEMP/qualification-release.apk" > "$ANDROID_OUTPUT/qualification-certificate.txt"
+          test "$("$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest debuggable "$RUNNER_TEMP/qualification-release.apk")" = false
+          python3 mobile/android/scripts/verify-qualified-apk.py "$ANDROID_OUTPUT/openwebpbx-1.0.19-android-unsigned.apk" "$RUNNER_TEMP/qualification-release.apk" | tee "$ANDROID_OUTPUT/release-payload-equality.json"
           "$ANDROID_HOME/emulator/emulator" -avd openweb-splash-35 -port 5580 -memory 1536 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -feature -Vulkan > "$ANDROID_OUTPUT/emulator.log" 2>&1 &
           emulator_pid=$!
           adb="$ANDROID_HOME/platform-tools/adb"
@@ -74,8 +96,8 @@ jobs:
           done
           test "$("$adb" -s emulator-5580 shell getprop sys.boot_completed | tr -d '\r')" = 1
           "$adb" -s emulator-5580 shell input keyevent 82
-          "$adb" -s emulator-5580 install -r mobile/android/app/build/outputs/apk/direct/debug/app-direct-debug.apk
-          "$adb" -s emulator-5580 install -r mobile/android/app/build/outputs/apk/androidTest/direct/debug/app-direct-debug-androidTest.apk
+          "$adb" -s emulator-5580 install -r "$RUNNER_TEMP/qualification-release.apk"
+          "$adb" -s emulator-5580 install -r "$RUNNER_TEMP/qualification-tests.apk"
           timeout 180 "$adb" -s emulator-5580 shell am instrument -w -r -e class com.openweb.pbx.LaunchSplashTest -e launchSplashFixture true -e splashCapture true com.openweb.pbx.test/androidx.test.runner.AndroidJUnitRunner | tee "$ANDROID_OUTPUT/native-splash.log"
           grep -q 'OK (6 tests)' "$ANDROID_OUTPUT/native-splash.log"
           ! grep -qE 'FAILURES|INSTRUMENTATION_FAILED|Process crashed' "$ANDROID_OUTPUT/native-splash.log"
