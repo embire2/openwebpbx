@@ -10,6 +10,34 @@ CREATE TABLE IF NOT EXISTS v_pbx_cmb_services (
  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
  UNIQUE(domain_uuid,service_uuid), UNIQUE(domain_uuid,incoming_rule_uuid), CHECK(NOT enabled OR prompt_state='ready')
 );
+-- Retain old saved/custom choices while new generated greetings use Keoma1.0.2.
+-- Only the installer-owned original check is replaced; other custom constraints remain.
+DO $$
+DECLARE definition text;
+BEGIN
+ SELECT pg_get_constraintdef(oid) INTO definition FROM pg_constraint
+  WHERE conrelid='v_pbx_cmb_services'::regclass AND conname='v_pbx_cmb_services_prompt_version_check';
+ IF definition IS NOT NULL THEN
+  IF definition <> 'CHECK ((prompt_version = ''1.0.1''::text))' THEN
+   RAISE EXCEPTION 'The callback voice version constraint needs administrator review';
+  END IF;
+  ALTER TABLE v_pbx_cmb_services DROP CONSTRAINT v_pbx_cmb_services_prompt_version_check;
+ END IF;
+ IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='v_pbx_cmb_services'::regclass AND conname='openweb_cmb_prompt_version') THEN
+  ALTER TABLE v_pbx_cmb_services ADD CONSTRAINT openweb_cmb_prompt_version CHECK(prompt_version IN ('1.0.1','1.0.2'));
+ END IF;
+ ALTER TABLE v_pbx_cmb_services ALTER COLUMN prompt_version SET DEFAULT '1.0.2';
+END $$;
+ALTER TABLE v_pbx_cmb_services ADD COLUMN IF NOT EXISTS prompt_refresh_state text NOT NULL DEFAULT 'pending' CHECK(prompt_refresh_state IN ('pending','preparing','complete','blocked'));
+ALTER TABLE v_pbx_cmb_services ADD COLUMN IF NOT EXISTS prompt_refresh_token uuid;
+ALTER TABLE v_pbx_cmb_services ADD COLUMN IF NOT EXISTS prompt_refresh_until timestamptz;
+ALTER TABLE v_pbx_cmb_services ADD COLUMN IF NOT EXISTS prompt_refresh_after timestamptz;
+ALTER TABLE v_pbx_cmb_services ADD COLUMN IF NOT EXISTS prompt_refresh_attempts integer NOT NULL DEFAULT 0 CHECK(prompt_refresh_attempts BETWEEN 0 AND 3);
+ALTER TABLE v_pbx_cmb_services ADD COLUMN IF NOT EXISTS prompt_refresh_message text NOT NULL DEFAULT '';
+-- Immutable narrator refreshes publish only by committing this basename. The
+-- old fixed file remains untouched if generation, commit or the host fails.
+ALTER TABLE v_pbx_cmb_services ADD COLUMN IF NOT EXISTS prompt_audio_file text NOT NULL DEFAULT 'greeting.wav'
+ CHECK(prompt_audio_file='greeting.wav' OR (prompt_version='1.0.2' AND prompt_sha256 IS NOT NULL AND prompt_sha256 ~ '^[a-f0-9]{64}$' AND prompt_audio_file='greeting-keoma-'||prompt_sha256||'.wav'));
 CREATE TABLE IF NOT EXISTS v_pbx_cmb_accounts (
  account_uuid uuid PRIMARY KEY DEFAULT gen_random_uuid(), domain_uuid uuid NOT NULL, service_uuid uuid NOT NULL,
  name text NOT NULL CHECK(length(name) BETWEEN 1 AND 100), id_hmac text CHECK(id_hmac ~ '^[a-f0-9]{64}$'),

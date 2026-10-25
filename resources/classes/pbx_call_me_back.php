@@ -70,9 +70,9 @@ class pbx_call_me_back {
         $base=rtrim(str_replace('\\','/',$root),'/').'/openwebpbx';$marker=$base.'/voice-pack.json';
         if(is_link($marker)||!is_file($marker)||filesize($marker)>4194304)return false;
         try{$pack=json_decode((string)file_get_contents($marker),true,512,JSON_THROW_ON_ERROR);}catch(Throwable){return false;}
-        if(($pack['version']??'')!=='1.0.1'||($pack['voice_id']??'')!=='7S3KNdLDL7aRgBVRQb1z')return false;
+        if(($pack['version']??'')!=='1.0.2'||($pack['voice_id']??'')!=='i8SlcaZfyeP1st7wHsjM')return false;
         foreach(['incoming-new','incoming-known','authenticated','enter-number','invalid-id','unavailable','invalid-number','quota-exhausted']as$name){
-            $relative='openwebpbx/voices/1.0.1/call-me-back/'.$name.'.wav';$file=rtrim($root,'/\\').'/'.$relative;
+            $relative='openwebpbx/voices/1.0.2/call-me-back/'.$name.'.wav';$file=rtrim($root,'/\\').'/'.$relative;
             $hash=$pack['files'][$relative]['sha256']??'';
             if(!is_string($hash)||!preg_match('/^[a-f0-9]{64}$/D',$hash)||is_link($file)||!is_file($file)||!hash_equals($hash,hash_file('sha256',$file)))return false;
         }
@@ -90,7 +90,7 @@ class pbx_call_me_back {
         if(!$this->installed())return ['installed'=>false,'services'=>[],'accounts'=>[],'bindings'=>[],'recent_attempts'=>[]];
         return [
             'installed'=>true,'voice_pack_ready'=>$this->voicePackReady(),
-            'services'=>$this->q('select service_uuid,name,incoming_rule_uuid,route_owner,enabled,prompt_version,prompt_state,max_requests_hour,retention_days,array_to_json(destination_prefixes)::text destination_prefixes from v_pbx_cmb_services where domain_uuid=:d order by name,service_uuid',['d'=>$this->domain])->fetchAll(PDO::FETCH_ASSOC),
+            'services'=>$this->q('select service_uuid,name,incoming_rule_uuid,route_owner,enabled,prompt_version,prompt_state,prompt_refresh_state,prompt_refresh_message,prompt_refresh_attempts,max_requests_hour,retention_days,array_to_json(destination_prefixes)::text destination_prefixes from v_pbx_cmb_services where domain_uuid=:d order by name,service_uuid',['d'=>$this->domain])->fetchAll(PDO::FETCH_ASSOC),
             'accounts'=>$this->q('select a.account_uuid,a.service_uuid,a.name,a.id_last4,a.total_seconds,a.used_seconds,a.reserved_seconds,a.enabled,s.name service_name from v_pbx_cmb_accounts a join v_pbx_cmb_services s on s.service_uuid=a.service_uuid and s.domain_uuid=a.domain_uuid where a.domain_uuid=:d order by a.name,a.account_uuid',['d'=>$this->domain])->fetchAll(PDO::FETCH_ASSOC),
             'bindings'=>$this->q('select b.binding_uuid,b.account_uuid,b.phone_number,b.authenticated_at,b.revoked_at from v_pbx_cmb_bindings b join v_pbx_cmb_accounts a on a.account_uuid=b.account_uuid and a.domain_uuid=b.domain_uuid where b.domain_uuid=:d and b.revoked_at is null order by b.authenticated_at desc limit 300',['d'=>$this->domain])->fetchAll(PDO::FETCH_ASSOC),
             'recent_attempts'=>$this->q('select r.request_uuid,r.service_uuid,r.account_uuid,r.caller_number,r.state,r.used_seconds,r.reserved_seconds,r.created_at,r.last_result,a.name account_name,s.name service_name from v_pbx_cmb_requests r join v_pbx_cmb_services s on s.service_uuid=r.service_uuid and s.domain_uuid=r.domain_uuid left join v_pbx_cmb_accounts a on a.account_uuid=r.account_uuid and a.domain_uuid=r.domain_uuid where r.domain_uuid=:d order by r.created_at desc,r.request_uuid desc limit 100',['d'=>$this->domain])->fetchAll(PDO::FETCH_ASSOC),
@@ -109,6 +109,7 @@ class pbx_call_me_back {
             $c=(new pbx_admin($this->db))->config(true);
             $message=match($action){
                 'save_service'=>$this->saveService($in,$c),
+                'retry_voice'=>$this->retryVoice($in),
                 'save_account'=>$this->saveAccount($in),
                 'revoke_binding'=>$this->revokeBinding($in),
                 'disable_account'=>$this->disableAccount($in),
@@ -156,17 +157,24 @@ class pbx_call_me_back {
         $old=$id!==''?$this->q('select name,prompt_state,prompt_version,prompt_sha256 from v_pbx_cmb_services where domain_uuid=:d and service_uuid=:id for update',['d'=>$this->domain,'id'=>$id])->fetch(PDO::FETCH_ASSOC):null;
         if($id!==''&&!$old)throw new InvalidArgumentException('Choose a Call Me Back service from this PBX.');
         $changed=!$old||$old['name']!==$name;
-        $ready=$old&&!$changed&&$old['prompt_state']==='ready'&&$old['prompt_version']==='1.0.1'&&preg_match('/^[a-f0-9]{64}$/D',(string)$old['prompt_sha256']);
+        $ready=$old&&!$changed&&$old['prompt_state']==='ready'&&in_array($old['prompt_version'],['1.0.1','1.0.2'],true)&&preg_match('/^[a-f0-9]{64}$/D',(string)$old['prompt_sha256']);
         if($enabled){
             if(!$this->checked($in,'confirm_handover'))throw new InvalidArgumentException('Confirm that this incoming number should answer with Call Me Back.');
-            if(!$ready||!$this->voicePackReady())throw new InvalidArgumentException('Save this service switched off first. Enable it when its Nathaniel voice prompts are ready.');
+            if(!$ready||!$this->voicePackReady())throw new InvalidArgumentException('Save this service switched off first. Enable it when its Keoma voice prompts are ready.');
             if(empty($incoming['enabled'])||empty($c['trunks'][$incoming['trunk_id']]['enabled']))throw new InvalidArgumentException('Connect the provider and enable this incoming number before turning on Call Me Back.');
         }
         $args=['d'=>$this->domain,'id'=>$id?:uuid(),'name'=>$name,'rule'=>$rule,'owner'=>$owner,'enabled'=>$enabled,'limit'=>(int)$limit,'retention'=>(int)$retention,'prefixes'=>json_encode(array_values($prefixes),JSON_THROW_ON_ERROR)];
         if($id==='')$this->q("insert into v_pbx_cmb_services(service_uuid,domain_uuid,name,incoming_rule_uuid,route_owner,enabled,max_requests_hour,retention_days,destination_prefixes) values(:id,:d,:name,:rule,:owner,:enabled,:limit,:retention,array(select jsonb_array_elements_text(cast(:prefixes as jsonb))))",$args);
-        else {$args['pending']=$changed||$old['prompt_state']==='failed';$this->q("update v_pbx_cmb_services set name=:name,incoming_rule_uuid=:rule,route_owner=:owner,enabled=:enabled,max_requests_hour=:limit,retention_days=:retention,destination_prefixes=array(select jsonb_array_elements_text(cast(:prefixes as jsonb))),prompt_state=case when :pending then 'pending' else prompt_state end,prompt_sha256=case when :pending then null else prompt_sha256 end,updated_at=now() where domain_uuid=:d and service_uuid=:id",$args);}
+        else {$args['pending']=$changed||$old['prompt_state']==='failed';$this->q("update v_pbx_cmb_services set prompt_version=case when :pending then '1.0.2' else prompt_version end,name=:name,incoming_rule_uuid=:rule,route_owner=:owner,enabled=:enabled,max_requests_hour=:limit,retention_days=:retention,destination_prefixes=array(select jsonb_array_elements_text(cast(:prefixes as jsonb))),prompt_state=case when :pending then 'pending' else prompt_state end,prompt_sha256=case when :pending then null else prompt_sha256 end,prompt_audio_file=case when :pending then 'greeting.wav' else prompt_audio_file end,prompt_refresh_state=case when :pending then 'pending' else prompt_refresh_state end,prompt_refresh_attempts=case when :pending then 0 else prompt_refresh_attempts end,prompt_refresh_token=case when :pending then null else prompt_refresh_token end,prompt_refresh_until=case when :pending then null else prompt_refresh_until end,prompt_refresh_after=case when :pending then null else prompt_refresh_after end,prompt_refresh_message=case when :pending then '' else prompt_refresh_message end,updated_at=now() where domain_uuid=:d and service_uuid=:id",$args);}
         $this->subject=$args['id'];
-        return $enabled?'Call Me Back is enabled for the selected incoming number.':($changed?'Saved switched off. The named Nathaniel greeting is waiting to be generated.':'Call Me Back settings saved switched off.');
+        return $enabled?'Call Me Back is enabled for the selected incoming number.':($changed?'Saved switched off. The named Keoma greeting is waiting to be generated.':'Call Me Back settings saved switched off.');
+    }
+
+    private function retryVoice(array $in): string {
+        $id=$this->id($in,'service_uuid');
+        if(!$this->q("update v_pbx_cmb_services set prompt_refresh_state='pending',prompt_refresh_attempts=0,prompt_refresh_after=null,prompt_refresh_token=null,prompt_refresh_until=null,prompt_refresh_message='Keoma preparation requested. Existing audio remains available.' where domain_uuid=:d and service_uuid=:id and prompt_version='1.0.1' and prompt_state='ready' and prompt_audio_file='greeting.wav' and (prompt_refresh_until is null or prompt_refresh_until<now())",['d'=>$this->domain,'id'=>$id])->rowCount())throw new InvalidArgumentException('This greeting changed or is already being prepared. Refresh the page.');
+        $this->subject=$id;
+        return 'Keoma preparation requested. Existing calls and greeting remain available.';
     }
 
     private function saveAccount(array $in): string {

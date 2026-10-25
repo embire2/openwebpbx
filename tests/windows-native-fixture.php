@@ -254,10 +254,10 @@ if($action==='cmb-setup'){
  $s['cmb_parent_existed']=is_dir(pbx_paths::storage().'/openwebpbx/call-me-back');$save();$dir=pbx_paths::storage().'/openwebpbx/call-me-back/'.$service;
  if(file_exists($dir))throw new RuntimeException('The owned prompt fixture already exists.');
  if(!mkdir($dir,0750,true))throw new RuntimeException('The owned prompt directory could not be created.');
- $sounds=(string)config::load()->get('switch.sounds.dir');if(!pbx_call_me_back::promptPackReady($sounds))throw new RuntimeException('The frozen Nathaniel callback pack is required.');
- // A frozen generic Nathaniel prompt stands in only for this fictional tenant's
+ $sounds=(string)config::load()->get('switch.sounds.dir');if(!pbx_call_me_back::promptPackReady($sounds))throw new RuntimeException('The frozen Keoma callback pack is required.');
+ // A frozen generic Keoma prompt stands in only for this fictional tenant's
  // generated-name greeting; no external voice service or real identity is used.
- if(!copy($sounds.'/openwebpbx/voices/1.0.1/call-me-back/enter-number.wav',$dir.'/greeting.wav'))throw new RuntimeException('The owned greeting could not be staged.');
+ if(!copy($sounds.'/openwebpbx/voices/1.0.2/call-me-back/enter-number.wav',$dir.'/greeting.wav'))throw new RuntimeException('The owned greeting could not be staged.');
  $q("insert into v_pbx_cmb_services(service_uuid,domain_uuid,name,incoming_rule_uuid,route_owner,prompt_state,prompt_sha256,enabled) values(?,?,'Fictional native callback',?,'8100','ready',?,true)",[$service,$domain,$s['provider_incoming'],hash_file('sha256',$dir.'/greeting.wav')]);
  (new pbx_call_me_back($db))->action(['cmb_action'=>'save_account','service_uuid'=>$service,'account_uuid'=>'','account_name'=>'Fictional native account','south_african_id'=>$identity,'total_minutes'=>'60','enabled'=>'1']);
  $row=$q('select account_uuid,id_hmac,id_last4,total_seconds,used_seconds,reserved_seconds from v_pbx_cmb_accounts where domain_uuid=? and service_uuid=?',[$domain,$service])->fetch(PDO::FETCH_ASSOC);

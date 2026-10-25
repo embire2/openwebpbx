@@ -1,8 +1,15 @@
 -- Callback callers may reach only explicitly permitted external destinations.
 local C={}
+function C.greeting_file(service)
+ local file=service.prompt_audio_file
+ if not file or file=='greeting.wav' then return 'greeting.wav' end
+ local hash=service.prompt_sha256
+ if service.prompt_version=='1.0.2' and type(hash)=='string' and #hash==64 and hash:match('^[a-f0-9]+$') and file=='greeting-keoma-'..hash..'.wav' then return file end
+ return nil
+end
 function C.prompts_ready(root)
  for _,name in ipairs({'incoming-new','incoming-known','authenticated','enter-number','invalid-id','unavailable','invalid-number','quota-exhausted'}) do
-  local file=io.open(root..'/openwebpbx/voices/1.0.1/call-me-back/'..name..'.wav','rb');if not file then return false end
+  local file=io.open(root..'/openwebpbx/voices/1.0.2/call-me-back/'..name..'.wav','rb');if not file then return false end
   local header=file:read(12);file:close();if not header or header:sub(1,4)~='RIFF' or header:sub(9,12)~='WAVE' then return false end
  end
  return true

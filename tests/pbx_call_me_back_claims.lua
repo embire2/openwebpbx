@@ -21,3 +21,10 @@ assert(deleted==(mode=='claimed-no-service'and 2 or 0),'Request-claim ownership 
 checks=checks+2
 end
 print('PASS: '..checks..' actual callback claim-ownership and no-call cleanup controls')
+local policy=assert(loadfile(scripts_dir..'/app/pbx_setup/cmb_policy.lua'))()
+local hash=string.rep('a',64)
+assert(policy.greeting_file({prompt_version='1.0.1'})=='greeting.wav')
+assert(policy.greeting_file({prompt_audio_file='greeting.wav'})=='greeting.wav')
+assert(policy.greeting_file({prompt_audio_file='greeting-keoma-'..hash..'.wav',prompt_sha256=hash,prompt_version='1.0.2'})=='greeting-keoma-'..hash..'.wav')
+for _,row in ipairs({{prompt_audio_file='../customer.wav'},{prompt_audio_file='/customer.wav'},{prompt_audio_file='greeting-keoma-'..hash..'.wav',prompt_sha256=hash,prompt_version='1.0.1'},{prompt_audio_file='greeting-keoma-'..hash..'.wav',prompt_sha256=string.rep('b',64),prompt_version='1.0.2'},{prompt_audio_file='greeting-keoma-'..hash..'.wav',prompt_sha256=string.rep('a',63),prompt_version='1.0.2'}})do assert(policy.greeting_file(row)==nil)end
+print('PASS: 8 legacy/default, committed Keoma selection and malformed/path escape controls')

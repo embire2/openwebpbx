@@ -4,7 +4,7 @@ $ErrorActionPreference='Stop'
 if($env:OS -cne 'Windows_NT' -or $env:GITHUB_ACTIONS -cne 'true'){throw 'Run only on an isolated Windows Actions runner.'}
 $work=Join-Path $env:RUNNER_TEMP ('server-update-pg-'+[Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $work|Out-Null
-$started=$false;$oldConnection=$env:OPENWEB_TEST_DATABASE
+$started=$false;$oldConnection=$env:OPENWEB_TEST_DATABASE;$oldCallbackConnection=$env:OPENWEB_CMB_TEST_DATABASE
 function Native([string]$program,[string[]]$arguments){& $program @arguments;if($LASTEXITCODE -ne 0){throw 'Owned PostgreSQL fixture command failed.'}}
 try{
  $zip=Join-Path $work postgresql.zip
@@ -20,8 +20,12 @@ try{
  if($LASTEXITCODE -ne 0){throw 'Actual Windows server update worker checks failed.'}
  & dotnet run --project tests/greetings-worker -c Release 2>&1|Tee-Object -FilePath (Join-Path (Split-Path $Output) 'greetings-worker.log')
  if($LASTEXITCODE -ne 0){throw 'Windows greeting preparation/dispatch checks failed.'}
+ $env:OPENWEB_CMB_TEST_DATABASE=$env:OPENWEB_TEST_DATABASE
+ & dotnet run --project tests/call-me-back-worker -c Release 2>&1|Tee-Object -FilePath (Join-Path (Split-Path $Output) 'call-me-back-worker.log')
+ if($LASTEXITCODE -ne 0){throw 'Windows callback preparation/immutable refresh/maintenance checks failed.'}
 }finally{
  $env:OPENWEB_TEST_DATABASE=$oldConnection
+ $env:OPENWEB_CMB_TEST_DATABASE=$oldCallbackConnection
  if($started){Native (Join-Path $pg pg_ctl.exe) @('-D',$data,'-m','fast','-w','stop')}
  Remove-Item -LiteralPath $work -Recurse -Force
 }

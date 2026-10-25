@@ -9,7 +9,7 @@ function C.run(session,db,config,rule)
  local privacy=(session:getVariable('sip_h_Privacy') or ''):lower()
  local hidden=session:getVariable('privacy_hide_number')=='true' or session:getVariable('caller_privacy_hide_number')=='true' or privacy:match('%f[%a]id%f[%A]')
  local caller=not hidden and P.cli(session:getVariable('caller_id_number')) or nil
- local function sound(name)return sounds_dir..'/openwebpbx/voices/1.0.1/call-me-back/'..name..'.wav'end
+ local function sound(name)return sounds_dir..'/openwebpbx/voices/1.0.2/call-me-back/'..name..'.wav'end
  local request
  if caller then db:query('select * from openweb_cmb_enqueue(:d,:s,:inbound,:cli)',{d=session:getVariable('domain_uuid'),s=service.service_uuid,inbound=session:getVariable('uuid'),cli=caller},function(row)request=row end) end
  if not request then session:answer();session:streamFile(sound('unavailable'));session:hangup('CALL_REJECTED');return true end

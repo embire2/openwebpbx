@@ -7,7 +7,7 @@ local Crypto=loadfile(scripts_dir..'/app/pbx_setup/cmb_crypto.lua')()
 local id=argv and argv[1];if not C.uuid(id) then return end
 local db=Database.new('system');local api=freeswitch.API();local request,config,call,service,destination_call
 local function query(sql,values,fn)return db:query(sql,values,fn)end
-local function sound(name)return sounds_dir..'/openwebpbx/voices/1.0.1/call-me-back/'..name..'.wav'end
+local function sound(name)return sounds_dir..'/openwebpbx/voices/1.0.2/call-me-back/'..name..'.wav'end
 local function finish(result,seconds)
  if seconds~=nil then query('select openweb_cmb_finish(:id,:seconds,:result)',{id=id,seconds=seconds,result=result})
  else query([[select openweb_cmb_finish(request_uuid,case when connected_at is null then 0 else least(reserved_seconds,greatest(0,ceil(extract(epoch from(now()-connected_at))))::integer) end,:result) from v_pbx_cmb_requests where request_uuid=:id]],{id=id,result=result}) end
@@ -50,7 +50,8 @@ local function deliver()
  if not key or #key~=32 then finish('identity_key_unavailable');return end
  local rule,owner,number=allowed(request.caller_number)
  if not rule then finish('caller_route_blocked');return end
- local greeting=storage_dir..'/openwebpbx/call-me-back/'..request.service_uuid..'/greeting.wav'
+ local audio=C.greeting_file(service);if not audio then finish('greeting_missing');return end
+ local greeting=storage_dir..'/openwebpbx/call-me-back/'..request.service_uuid..'/'..audio
  local f=io.open(greeting,'rb');if not f then finish('greeting_missing');return end;f:close()
  for _,route in ipairs(rule.routes) do
   if not active() then finish('cancelled');return end

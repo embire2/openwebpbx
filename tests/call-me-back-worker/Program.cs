@@ -21,7 +21,8 @@ try{
  var domain=Guid.NewGuid();var service=Guid.NewGuid();var request=Guid.NewGuid();
  await Run($"insert into v_domains values('{domain}','true');insert into v_pbx_cmb_services(service_uuid,domain_uuid,name,incoming_rule_uuid,route_owner,enabled,prompt_state,prompt_sha256) values('{service}','{domain}','Fictional',gen_random_uuid(),'1000',true,'ready',repeat('a',64));insert into v_pbx_cmb_requests(request_uuid,domain_uuid,service_uuid,inbound_uuid,caller_number,state) values('{request}','{domain}','{service}',gen_random_uuid(),'+27820000001','queued')");
  await using var data=NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(connection){SearchPath=schema}.ConnectionString);
- var config=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{["Switch:Port"]=((IPEndPoint)listener.LocalEndpoint).Port.ToString(),["Switch:Password"]="fictional-test-password",["CallMeBack:PromptRoot"]=directory,["ElevenLabs:ApiKey"]="fictional-test-key"}).Build();
+ var stateRoot=Path.Combine(directory,"maintenance");Directory.CreateDirectory(stateRoot);File.WriteAllText(Path.Combine(stateRoot,"upgrade.lock"),"");
+ var config=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{["Switch:Port"]=((IPEndPoint)listener.LocalEndpoint).Port.ToString(),["Switch:Password"]="fictional-test-password",["CallMeBack:PromptRoot"]=directory,["CallMeBack:StateRoot"]=stateRoot,["ElevenLabs:ApiKey"]="fictional-test-key"}).Build();
  var worker=new CallMeBackWorker(data,new SwitchClient(config),NullLogger<CallMeBackWorker>.Instance);
  await Task.WhenAll(worker.Tick(default),worker.Tick(default));
  Check(commands.Count(c=>c.Contains("luarun app/pbx_setup/call_me_back.lua"))==1,"Concurrent dispatch launched duplicate callback");
@@ -48,10 +49,11 @@ try{
  var wav=await File.ReadAllBytesAsync(Path.Combine(directory,service.ToString("D"),"greeting.wav"));
  Check(wav.AsSpan(0,4).SequenceEqual("RIFF"u8)&&BitConverter.ToInt32(wav,24)==16000&&wav.Length==3244,"PCM was not wrapped into valid 16kHz mono WAV");
  Check(freshTransport.Body.Contains("Changed fictional company")&&!freshTransport.Body.Contains("2782"),"Provider request contained private caller data");
- Check(freshTransport.Uri=="https://api.elevenlabs.io/v1/text-to-speech/7S3KNdLDL7aRgBVRQb1z?output_format=pcm_16000","Wrong Nathaniel voice or insecure provider target");
+ Check(freshTransport.Uri=="https://api.elevenlabs.io/v1/text-to-speech/i8SlcaZfyeP1st7wHsjM?output_format=pcm_16000","Wrong Keoma voice or insecure provider target");
  await Run("update v_pbx_cmb_services set prompt_state='pending',enabled=false");config["ElevenLabs:ApiKey"]=null;
  await new CallMeBackPromptWorker(data,factory,config,NullLogger<CallMeBackPromptWorker>.Instance).Tick(default);
  Check((string)(await new NpgsqlCommand("select prompt_state from v_pbx_cmb_services",db).ExecuteScalarAsync())! == "pending","Missing owner voice key did not fail closed");
+ await VoiceRefreshChecks.Run(data,db,config,directory,service,Check);
  Console.WriteLine($"PASS: {checks} actual PostgreSQL/.NET callback concurrency, recovery, provider isolation and private greeting controls");
 }finally{stop.Cancel();listener.Stop();await server;await Run($"set search_path to public;drop schema {schema} cascade");if(Directory.Exists(directory))Directory.Delete(directory,true);}
 sealed class Clients(HttpMessageHandler handler):IHttpClientFactory{public HttpClient CreateClient(string name)=>new(handler,false){Timeout=TimeSpan.FromSeconds(10)};}
