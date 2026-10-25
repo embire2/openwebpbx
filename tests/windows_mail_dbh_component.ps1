@@ -58,7 +58,7 @@ function WriteInstallerFailure([object]$Caught,[object[]]$Recent,[string]$InputP
  $rows=[Collections.Generic.List[string]]::new();foreach($item in $Recent){if($rows.Count-ge 8){break};if($item-is [Management.Automation.ErrorRecord]){$rows.Add((ErrorRowJson $item))}}
  $json='{"schema":1,"state":"failed","caught":'+(ErrorRowJson $Caught)+',"recent_errors":['+[String]::Join(',',$rows)+']}'
  $raw=[Text.UTF8Encoding]::new($false).GetBytes($json);if($raw.Length-gt 8192){return}
- $path=[IO.Path]::Combine([IO.Path]::GetDirectoryName($InputPath),'install-error.safe.json');$file=[IO.File]::Open($path,'CreateNew','Write','None');try{$file.Write($raw);$file.Flush($true)}finally{$file.Dispose()}
+ $path=[IO.Path]::Combine([IO.Path]::GetDirectoryName($InputPath),'install-error.safe.json');$file=[IO.File]::Open($path,'CreateNew','Write','None');try{$file.Write($raw,0,$raw.Length);$file.Flush($true)}finally{$file.Dispose()}
 }
 try{
 $record=Get-Content $InputPath -Raw|ConvertFrom-Json
