@@ -1,5 +1,17 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# Observation only. This does not select a tool, execute DUMPBIN or establish trust.
+# Read-only metadata ranking and observation. These functions do not execute a tool or establish trust.
+function GetPackageNativeReaderVersion($VersionInfo){
+ if($null-eq $VersionInfo){throw 'Native reader numeric resource version is missing or invalid.'}
+ $parts=@();foreach($name in @('FileMajorPart','FileMinorPart','FileBuildPart','FilePrivatePart')){if($null-eq $VersionInfo.PSObject.Properties[$name]){throw 'Native reader numeric resource version is missing or invalid.'};$part=$VersionInfo.$name;if($part-isnot [int] -or $part-lt 0 -or $part-gt 65535){throw 'Native reader numeric resource version is missing or invalid.'};$parts+=,$part}
+ if(@($parts|Where-Object {$_-ne 0}).Count-eq 0){throw 'Native reader numeric resource version is missing or invalid.'}
+ [version]::new($parts[0],$parts[1],$parts[2],$parts[3])
+}
+function SelectPackageNativeReader([object[]]$Candidates){
+ if(!$Candidates.Count -or $Candidates.Count-gt 16){throw 'An ordinary bounded installed native dependency reader is required.'}
+ $ranked=@(foreach($candidate in $Candidates){[pscustomobject]@{Candidate=$candidate;Version=(GetPackageNativeReaderVersion $candidate.VersionInfo)}})|Sort-Object Version -Descending
+ $ranked=@($ranked);$highest=$ranked[0].Version;if(@($ranked|Where-Object {$_.Version-eq $highest}).Count-ne 1){throw 'The native dependency reader version is ambiguous.'}
+ $ranked[0].Candidate
+}
 function GetPackageNativeReaderObservation([object[]]$Candidates){
  $rows=@();$count=$Candidates.Count
  if($count-le 16){foreach($candidate in $Candidates){

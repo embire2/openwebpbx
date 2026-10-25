@@ -6,6 +6,7 @@ $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 if(!$IsWindows -or $env:GITHUB_ACTIONS-cne 'true' -or $env:RUNNER_ENVIRONMENT-cne 'github-hosted' -or $env:RUNNER_OS-cne 'Windows' -or $env:GITHUB_REPOSITORY-cne 'embire2/openwebpbx'){throw 'Only the disposable hosted Windows dependency inventory is allowed.'}
 $client=Split-Path $PSScriptRoot -Parent;$repo=Split-Path (Split-Path $client -Parent) -Parent
 . (Join-Path $client 'tests/packaging/NativeImports.ps1')
+. (Join-Path $client 'tests/packaging/NativeReaderSelection.ps1')
 Add-Type -Path (Join-Path $client 'tests/packaging/NativeImportProcess.cs')
 $temp=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\');$AppRoot=[IO.Path]::GetFullPath($AppRoot).TrimEnd('\');$DumpBin=[IO.Path]::GetFullPath($DumpBin);$Report=[IO.Path]::GetFullPath($Report)
 if(!$AppRoot.StartsWith($temp+'\',[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($AppRoot)-cne 'app' -or [IO.Path]::GetFileName([IO.Path]::GetDirectoryName($AppRoot))-cnotmatch '^phone-package-[a-f0-9]{32}$' -or [IO.Path]::GetDirectoryName($Report)-ine $temp -or [IO.Path]::GetFileName($Report)-cnotmatch '^phone-native-imports-[a-f0-9]{32}\.json$' -or (Test-Path $Report)){throw 'The dependency inventory paths differ.'}
@@ -14,7 +15,7 @@ function Ordinary([string]$Path,[bool]$Directory){$item=Get-Item -LiteralPath $P
 $tool=Ordinary $DumpBin $false;$toolRoot=[Environment]::GetFolderPath('ProgramFiles');$toolRoot86=[Environment]::GetFolderPath('ProgramFilesX86')
 if($tool.Name-ine 'dumpbin.exe' -or !($DumpBin.StartsWith((Join-Path $toolRoot 'Microsoft Visual Studio')+'\',[StringComparison]::OrdinalIgnoreCase) -or $DumpBin.StartsWith((Join-Path $toolRoot86 'Microsoft Visual Studio')+'\',[StringComparison]::OrdinalIgnoreCase))){throw 'Use the ordinary installed Microsoft Visual Studio DUMPBIN.'}
 $signature=Get-AuthenticodeSignature -LiteralPath $DumpBin;if($signature.Status-ne 'Valid' -or !$signature.SignerCertificate -or $signature.SignerCertificate.Subject-cnotmatch '(^|, )CN=Microsoft Corporation(,|$)'){throw 'The native dependency reader is not a verified Microsoft tool.'}
-$version=$tool.VersionInfo.FileVersion;if($version-cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'){throw 'The native dependency reader version is unrecognised.'}
+$version=(GetPackageNativeReaderVersion $tool.VersionInfo).ToString()
 Push-Location $repo;try{if((git rev-parse HEAD).Trim()-cne $SourceCommit -or (git status --porcelain)){throw 'Exact clean committed source is required.'}}finally{Pop-Location}
 $result=[ordered]@{schema=1;producer='Test-ClientNativeImports.ps1';source_commit=$SourceCommit;state='failed';payload_kind='development_package';development_managed_binary=$true;production_binary_tested=$false;actual_native_windows=$true;read_only_import_inventory=$true;loader_tested=$false;clean_machine_qualified=$false;dynamic_loads_covered=$false;store_accepted=$false;tool_sha256=(Get-FileHash $DumpBin -Algorithm SHA256).Hash.ToLowerInvariant();tool_version=$version;tool_microsoft_signature=$true;stage='enumeration'}
 $failure=$null;$relative=$null;$started=[DateTime]::UtcNow;$rows=[Collections.Generic.List[object]]::new()
