@@ -87,6 +87,8 @@ Hosted core **1.0.21** also provides Greetings and company-group office hours. D
 
 Hosted system speech now uses **Keoma voice pack1.0.2**, including default voicemail and **clock 1.0.3**. All 4,915 stock spoken files were replaced; custom recordings and music were preserved. Actual software calls verify Keoma default voicemail, an unchanged custom greeting and three complete GMT+2 clock announcements. Android 1.0.19 is published and mandatory on hosted accounts; its signed APK, Play bundle, corresponding source and public download feeds have been verified.
 
+Hosted21 also repairs automatic office reopening and protects voicemail email attachments. A controlled live recording passes outgoing-server acceptance and deletion checks; failed sends retain the message. [Voicemail and email](docs/voicemail-and-clock.md).
+
 These results cover their recorded test scope. Broader physical phone/camera coverage, restrictive networks and TURN, measured meeting capacity, carrier cutovers and Google Play acceptance remain open. [Feature coverage](docs/feature-coverage.md) records evidence and limitations; [release qualification](docs/release-1.0.20-qualification.md) tracks the next installers. Recent development details belong there and in [release notes](https://github.com/embire2/openwebpbx/releases), rather than in the installation steps.
 
 ## Documentation

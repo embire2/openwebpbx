@@ -14,7 +14,7 @@ An administrator can choose an email attachment or an attachment followed by mai
 
 The new hosted21 mail path keeps a durable audio copy while sending. Missing audio or an outgoing-server refusal keeps the voicemail for recovery. With attachment-and-delete selected, cleanup follows successful SMTP acceptance; temporary audio is then removed after mailbox/file cleanup is verified. A successful outgoing-server response does not prove delivery to a recipient's inbox. Existing custom greetings and unrelated messages are preserved.
 
-The actual producer, PostgreSQL concurrency/failure handling, playable MIME attachment, SMTP acceptance/deletion ordering, permission failures and welcome QR/config compatibility have focused tests. The controlled live voicemail/email check and Windows attachment-and-delete qualification are being completed separately. Complete public Debian16/Windows20 packages retain their original mail code until upgraded.
+The actual producer, PostgreSQL concurrency/failure handling, playable MIME attachment, SMTP acceptance/deletion ordering, permission failures and welcome QR/config compatibility have focused tests. A controlled live software voicemail also passes: Google accepts its playable WAV, then the mailbox recording and temporary audio copy are removed. Recipient inbox receipt and physical/carrier calling remain separate observations. Windows attachment-and-delete qualification is being completed in its next full suite. Complete public Debian16/Windows20 packages retain their original mail code until upgraded.
 
 ## Deployment and preservation
 

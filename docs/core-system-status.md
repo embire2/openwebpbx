@@ -2,6 +2,8 @@
 
 ## Hosted core 1.0.21 and Android 1.0.19 — 2026-10-25
 
+Hosted21 now also recovers automatic office availability at opening time while preserving personal overrides. Voicemail attachments are queued atomically; missing audio or SMTP refusal retains messages, and attachment-and-delete removes its temporary snapshot only after confirmed cleanup. Focused concurrency/permission/MIME checks and one controlled live Google-relay delivery/deletion pass. This does not establish recipient-inbox or physical-carrier acceptance. [Voicemail guide](voicemail-and-clock.md).
+
 Hosted core 1.0.21 now runs Greetings, company-group office hours, optional user In/Out routing and Keoma stock 1.0.2/clock 1.0.3. Custom recordings, customer settings and all seven expected desk phones are preserved. Actual owned calls verify default/custom voicemail and three full clock announcements. No calling-engine restart, admission pause or port changes occurred.
 
 [Android 1.0.19/code119](https://github.com/embire2/openwebpbx/releases/tag/android-v1.0.19) is published with its existing signing identity and mandatory on hosted accounts. The native five-second logo launch yields to calls and updates. Both release lints,46 direct / 50 Play tests and six native launch checks pass; all 39 calling libraries match18. Public APK, Play bundle, source, checksums and all three current platform feeds are verified. The homepage logo, download catalogue and documentation are updated.
