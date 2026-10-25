@@ -53,7 +53,7 @@ function AssertBackupControlObserverContext([string]$PackageRoot,[string]$Diagno
  $manifestPath=Join-Path $PackageRoot 'release-manifest.json';$item=Get-Item -LiteralPath $manifestPath -Force
  if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $item.Length -gt 32MB){throw 'The candidate manifest is unavailable.'}
  $manifest=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8|ConvertFrom-Json
- if($manifest.version -cne '1.0.20'){throw 'The exact candidate manifest is required.'}
+ if($manifest.version -isnot [string] -or $manifest.version -cne '1.0.21'){throw 'The exact candidate manifest is required.'}
  foreach($name in 'Backup-Control.ps1','CallRecords.Common.ps1','UpgradeRecovery.Common.ps1','Write-PrivateState.ps1','File-Security.ps1'){
   $path=Join-Path 'C:\OpenWebPBX\tools' $name;$item=Get-Item -LiteralPath $path -Force
   if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $manifest.files.$name -cnotmatch '^[a-f0-9]{64}$' -or (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $manifest.files.$name){throw 'The actual control import closure differs from its candidate manifest.'}

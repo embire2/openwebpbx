@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -37,6 +38,12 @@ def same_ast(left, right):
 
 def expression(text):
     return ast.parse(text, mode='eval').body
+
+def manifest_version_pin(text, source_version):
+    matches = re.findall(r"(?m)^ if\(\$manifest\.version -isnot \[string\] -or \$manifest\.version -cne '([^'\r\n]+)'\)\{throw 'The exact candidate manifest is required\.'\}$", text)
+    if len(matches) != 1 or not re.fullmatch(r'(?:0|[1-9][0-9]{0,5})\.(?:0|[1-9][0-9]{0,5})\.(?:0|[1-9][0-9]{0,5})', source_version) or matches[0] != source_version:
+        raise AssertionError('The actual typed manifest guard must pin exactly the source VERSION.')
+    return matches[0]
 
 def owned_observer_guard(tree):
     """Find the direct observer call, then require its complete original guard.
@@ -136,6 +143,62 @@ class Controls(unittest.TestCase):
         record = observer.closed(facts['observation'], 'plan')
         self.assertEqual(record['phase'], 'bootstrap'); self.assertTrue(record['original_error_observed'])
         self.assertEqual(record['source_basename'], 'Backup-Control.ps1'); self.assertGreater(record['source_line'], 0)
+
+    def test_actual_manifest_version_guard_accepts_only_current_string(self):
+        source = ROOT/'tests/windows-backup-control-observer.ps1'
+        version = (ROOT/'VERSION').read_text().strip()
+        self.assertEqual(manifest_version_pin(source.read_text(), version), version)
+        major, minor, patch = map(int, version.split('.'))
+        adjacent = [f'{major}.{minor}.{patch+offset}' for offset in (-1, 1) if patch+offset >= 0]
+        cases = [{'name': 'current', 'manifest': {'version': version}, 'refused': False},
+                 {'name': 'missing', 'manifest': {}, 'refused': True}]
+        for index, value in enumerate((*adjacent, None, '', 'v'+version, version+'.0',
+                                      f'{major}.{minor}.0{patch}', version+'-preview', version+' ', version+'\n',
+                                      True, False, 21, 1.21, [version], [], {'version': version})):
+            cases.append({'name': 'refusal-'+str(index), 'manifest': {'version': value}, 'refused': True})
+        request = self.work/'versions.json'; request.write_text(json.dumps(cases))
+        harness = self.work/'version-guard.ps1'
+        harness.write_text(r'''
+param([string]$Source,[string]$Cases)
+$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'The actual observation source must parse.'}
+$functions=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'AssertBackupControlObserverContext'},$true))
+if($functions.Count -ne 1){throw 'One actual preflight function is required.'}
+$guards=@($functions[0].FindAll({param($n)$n -is [Management.Automation.Language.IfStatementAst] -and $n.Extent.Text.Contains("throw 'The exact candidate manifest is required.'")},$true))
+if($guards.Count -ne 1){throw 'One actual manifest guard is required.'}
+$actual=[scriptblock]::Create($guards[0].Extent.Text);$rows=@()
+foreach($case in (Get-Content -LiteralPath $Cases -Raw|ConvertFrom-Json)){
+ $manifest=$case.manifest;$refused=$false
+ try{. $actual}catch{$refused=$true}
+ if($refused -ne $case.refused){throw 'The actual manifest version admission differs.'}
+ $rows+=@{name=$case.name;refused=$refused}
+}
+@{actual_source_guard=$true;control_invocations=0;rows=$rows}|ConvertTo-Json -Depth 4 -Compress
+''')
+        result = subprocess.run([PWSH, '-NoProfile', '-NonInteractive', '-File', str(harness),
+            '-Source', str(source), '-Cases', str(request)], capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        facts = json.loads(result.stdout)
+        self.assertTrue(facts['actual_source_guard']); self.assertEqual(facts['control_invocations'], 0)
+        self.assertEqual(facts['rows'], [{'name': row['name'], 'refused': row['refused']} for row in cases])
+
+    def test_manifest_pin_matches_source_version_and_future_mismatch_is_refused(self):
+        text = (ROOT/'tests/windows-backup-control-observer.ps1').read_text()
+        version = (ROOT/'VERSION').read_text().strip()
+        self.assertEqual(manifest_version_pin(text, version), version)
+        major, minor, patch = map(int, version.split('.'))
+        adjacent = [f'{major}.{minor}.{patch+offset}' for offset in (-1, 1) if patch+offset >= 0]
+        for value in (*adjacent, '', 'v'+version, version+'.0'):
+            with self.subTest(source_version=value), self.assertRaises(AssertionError):
+                manifest_version_pin(text, value)
+        guard = " if($manifest.version -isnot [string] -or $manifest.version -cne '"+version+"'){throw 'The exact candidate manifest is required.'}"
+        future_guard = guard.replace("'"+version+"'", "'"+adjacent[-1]+"'")
+        self.assertEqual(manifest_version_pin(text.replace(guard, future_guard), adjacent[-1]), adjacent[-1])
+        for changed in (text.replace(guard, guard+'\n'+guard), text.replace(guard, ''),
+                        text.replace(guard, guard.replace(' -isnot [string] -or $manifest.version', '')),
+                        text.replace(guard, guard.replace("'"+version+"'", "'"+adjacent[-1]+"'"))):
+            with self.assertRaises(AssertionError): manifest_version_pin(changed, version)
 
     def bridge(self, fail=False, malformed=False):
         b = load('actual_backup_control_bridge', ROOT/'packaging/windows/backups.py', stdlib_only=True)
