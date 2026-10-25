@@ -1,5 +1,10 @@
 # OpenWeb PBX workspace
 
+## Windows21 first normal run refused — 2026-10-25
+
+- Full normal40212174703/source7309dae756183c5a1cded54318c82aae345ad608 is terminal FAILED. Fresh19235 payloads, trusted IIS/web29, synthetic V20 import32+4, STUN33, PHP3086 and recovery/commit components pass. Phone Health's initial installed restart and actual native worker pass, then its second post-worker observer-resume check refuses at windows_phone_health_acceptance.ps1:221/RuntimeException. Underlying task/process/heartbeat state and exact cause are unretained; do not call this a scheduler race, timing or product defect without observation. Canonical cleanup passes. Later native calls/clock/providers/callbacks, complete Phone Health, tenant/conference, backup and reapply/rollback gates remain unqualified. Candidateexport exists but root strict consumer refuses before download; no new21 signing, owner upgrade or public Windows/feed change occurs.
+- Original factsZIP12606354845/2765B SHA6251e5b8557f3a999d1df56668805636a0d5f46d37a15fccd4760f5895e7c87f and original job log are retained. All403-derived restore/canary preparations are frozen and marked ineligible. A minimal failure-only observation hook is being prepared for the second resume check, reusing the existing closed observer while preserving the original90-second loop, task/owner/data requirements and exception. Product/native78 inputs remain unchanged; a fresh normal run will be required. Hosted Keoma/core21 and mandatory Android19 deliveries remain valid under their separate receipts.
+
 ## Keoma and Android19 delivered — 2026-10-25
 
 - Root repeats actual public Chromium checks at1440/390/320: both supplied logos load, no horizontal overflow, Android19 APK/source links and current feature dialog work; Windows20/Debian16 links remain. The owned browser is closed afterward. Root repeats all11 follow-up restore/canary/signed-consumer control groups. Actual prepared audio artifact12606401383 is authenticated SHA b15bcca6e2adb818d0cb255642e60f47090fe7b46cb0ced275e9cf5a37181920. A component-based643035728B estimate stays below the unchanged650MB canary bound; only actual exported bytes may qualify.
