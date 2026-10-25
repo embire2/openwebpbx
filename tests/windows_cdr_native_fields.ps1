@@ -49,10 +49,10 @@ function TestFullNativeProofBranch($Node){
   for($i=0;$i -lt $expected.Count;$i++){if($statements[$i].Extent.Text -cne $expected[$i]){return $false}}
  }
  $full=@($Node.ElseClause.Statements)
- $proofs=@('AssertExtendedNativeCases $native.checks','AssertWelcomeNativeCase $native.checks','AssertCdrBackgroundNativeCase $native.checks')
+ $proofs=@('AssertExtendedNativeCases $native.checks','AssertWelcomeNativeCase $native.checks','AssertVoicemailDeleteNativeCase $native.checks','AssertCdrBackgroundNativeCase $native.checks')
  if($full.Count -lt $proofs.Count){return $false}
  for($i=0;$i -lt $proofs.Count;$i++){if($full[$i] -isnot [Management.Automation.Language.PipelineAst] -or $full[$i].Extent.Text -cne $proofs[$i]){return $false}}
- foreach($name in 'AssertWelcomeNativeCase','AssertCdrBackgroundNativeCase'){
+ foreach($name in 'AssertWelcomeNativeCase','AssertVoicemailDeleteNativeCase','AssertCdrBackgroundNativeCase'){
   $calls=@($Node.FindAll({param($n)$n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -ceq $name},$true))
   if($calls.Count -ne 1 -or $calls[0].Parent.Parent -ne $Node.ElseClause){return $false}
  }
@@ -78,6 +78,13 @@ $mutations=@(
  $branchText.Replace("`$facts.gates.hold_diagnostic='passed'","`$facts.gates.native_sip_audio='passed'"),
  $branchText.Replace('AssertCdrBackgroundNativeCase $native.checks',''),
  $branchText.Replace('AssertWelcomeNativeCase $native.checks',''),
+ $branchText.Replace('AssertVoicemailDeleteNativeCase $native.checks',''),
+ $branchText.Replace('AssertVoicemailDeleteNativeCase $native.checks','AssertVoicemailDeleteNativeCase $other.checks'),
+ $branchText.Replace('AssertVoicemailDeleteNativeCase $native.checks','if($optional){AssertVoicemailDeleteNativeCase $native.checks}'),
+ $branchText.Replace('AssertVoicemailDeleteNativeCase $native.checks','try{AssertVoicemailDeleteNativeCase $native.checks}catch{}'),
+ $branchText.Replace('AssertVoicemailDeleteNativeCase $native.checks','AssertVoicemailDeleteNativeCase $native.checks;AssertVoicemailDeleteNativeCase $native.checks'),
+ $branchText.Replace('Assert-NativeThreecxImportReport $native;','Assert-NativeThreecxImportReport $native;AssertVoicemailDeleteNativeCase $native.checks;'),
+ $branchText.Replace('AssertNativeHoldDiagnosticCases $native.checks;','AssertNativeHoldDiagnosticCases $native.checks;AssertVoicemailDeleteNativeCase $native.checks;'),
  $branchText.Replace('AssertCdrBackgroundNativeCase $native.checks','AssertCdrBackgroundNativeCase $other.checks'),
  $branchText.Replace('AssertCdrBackgroundNativeCase $native.checks','if($optional){AssertCdrBackgroundNativeCase $native.checks}'),
  $branchText.Replace('AssertCdrBackgroundNativeCase $native.checks','try{AssertCdrBackgroundNativeCase $native.checks}catch{}'),
