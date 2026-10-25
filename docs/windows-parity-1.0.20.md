@@ -46,9 +46,18 @@ checks. A separate actual WindowsPowerShell5 component verifies stock command
 provenance and real ACL/JSON calls; it is not a CI-context or media pass.
 Repeat40152289946/source13d691175 then refuses the added nine-boolean provenance
 check at line83. Its exact command/check/boolean is unretained. All nine source
-gates, supplemental/canonical cleanup and original Health choices pass. A small
-isolated hosted-Windows component is being prepared to identify that mismatch
-before another full restore run. The published archive is unchanged, and
+gates, supplemental/canonical cleanup and original Health choices pass. The separate small component40157074610 now retains the first mismatch in both
+direct and owned-Job contexts: qualified ConvertTo-Json resolves Utility module
+metadata7.0.0.0 outside Windows while its actual implementation is the stock
+Microsoft-signed assembly3.0.0.0. Only module path/version fail; Get-Acl passes.
+Parent environment and owned fixture/Job cleanup pass. The correction confined
+to the native child process passes strict component40157794737/sourcec50e97f6.
+Both contexts retain six original and six continuation rows, each9/9, with
+native Security3.0.0.0/Utility3.1.0.0, successful imports, no observer faults and
+original cleanup. All provenance checks remain intact. Separate full repeat40158134593/sourcec75ce63e now runs
+from13d691 with exactly three real-bridge/test paths. Earlier component40156307782 has
+no retained native primary; its separate reserved-variable source bug is
+reproduced and corrected without attributing that historical failure. The published archive is unchanged, and
 restored-meeting media remains unqualified. Earlier supplement
 failures retain their original limited evidence. Owner migration, actual OS reboot
 and external access are separate.

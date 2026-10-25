@@ -27,11 +27,16 @@ feeds are preserved byte-for-byte.
 Original1.0.6 migration/interrupted recovery, actual Windows reboot and external
 physical phone/carrier/camera checks remain unqualified. The ordinary feed starts
 at1.0.20; an unqualified legacy transition is not published. The separate
-restored-conference repeat40136954198 passes nine source gates, then refuses
-before a decoded-media result during the original browser child's connection
-preflight/initialization phase. Its exact inner cause is unretained; supplemental
-cleanup, canonical cleanup and original Health choices pass. Closed connection
-diagnostics are under review. No restored-conference media pass is claimed.
+restored-conference test remains unfinished. Full repeat40152289946 stops
+before media at its added native-command provenance check; supplemental and
+canonical cleanup and original Health choices pass. A small isolated test
+identifies incompatible PowerShell module metadata inherited through the test
+process chain. The correction confined to the native child process passes
+[strict component40157794737](https://github.com/embire2/openwebpbx/actions/runs/40157794737):
+both direct and owned-Job contexts retain six original and six continuation
+command checks, each9/9, with original cleanup and the parent environment
+preserved. The [full source/target repeat40158134593](https://github.com/embire2/openwebpbx/actions/runs/40158134593)
+is now running against the same published archive. This component does not qualify restored-conference media.
 Earlier failed runs below retain
 their original limited evidence and unknown causes; later success assigns none.
 
