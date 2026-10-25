@@ -13,8 +13,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 WINPS=str(Path(os.environ.get('SystemRoot','C:/Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe')
-FIXTURE_PHP_SOURCES={'windows_cdr_observation.php','windows-native-fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component'}
-FIXTURE_ACTIONS={'baseline','discover','cleanup','status','cdr-status','queue-state','job','due','voicemail-login','api','mail-seed','meeting-path-state','services-info','providers-create','providers-ingress','cmb-setup','cmb-status','cmb-reset','cmb-quota'}
+FIXTURE_PHP_SOURCES={'windows_cdr_observation.php','windows-native-fixture.php','windows_voicemail_delete_fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component'}
+FIXTURE_ACTIONS={'baseline','discover','cleanup','status','cdr-status','queue-state','job','due','voicemail-login','api','mail-seed','voicemail-delete-prepare','voicemail-delete-status','meeting-path-state','services-info','providers-create','providers-ingress','cmb-setup','cmb-status','cmb-reset','cmb-quota'}
 FIXTURE_STAGES={'initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh'}
 NATIVE_SUBSTAGES={'native_case','g729_regular_unregister','g729_alternate_register','g729_invite','g729_answer_validation',
     'g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister',
@@ -1391,6 +1391,8 @@ def smtp_and_queued_voicemail(f):
             assert any(x[:4]==b'RIFF' and x[8:12]==b'WAVE' and len(x)>4096 for x in attachments),'Actual native voicemail attachment missing'
             assert all(not auth and count==0 for auth,count in sink.connections),'IP SMTP performed AUTH'
             f.record('native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment',messages=len(messages),attachment_sha256=hashlib.sha256(attachments[0]).hexdigest(),no_external_mail=True)
+            deletion=load_module('windows_voicemail_delete_native',f.source/'tests/windows_voicemail_delete_native.py').run(f,sys.modules[__name__],module,values)
+            f.record('native_voicemail_attach_delete_smtp250_durable_purge',**deletion)
             f.active_case='global_smtp_password_auth'
             f.cli('mail-seed');values.update(smtp_ip_whitelisted='0',smtp_username='fixture-user',smtp_password='fixture-password')
             f.web.submit('/app/smtp_settings/','save',values)
@@ -1456,7 +1458,7 @@ def main():
         import traceback
         location=traceback.extract_tb(e.__traceback__)[-1]
         basename=Path(location.filename).name
-        if basename not in ('windows_threecx_https_native.py','windows-native-acceptance.py','windows-meet-browser.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py'):
+        if basename not in ('windows_threecx_https_native.py','windows-native-acceptance.py','windows-meet-browser.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py','windows_voicemail_delete_native.py'):
             basename='external_component'
         failure={'schema':1,'producer':'windows-native-acceptance.py','state':'failed','checks':f.checks,'error_type':type(e).__name__,'error':str(e),'source_basename':basename,'source_line':location.lineno,'active_case':f.active_case}
         if getattr(e,'fixture_failure',None):failure.update(e.fixture_failure)
