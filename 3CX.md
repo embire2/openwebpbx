@@ -4,6 +4,9 @@ Windows Server **1.0.20 is published** for Windows Server 2025 x64 Desktop Exper
 
 Windows acceptance status:
 
+- [x] Implement five-minute Windows update checks, verified automatic downloads and the required native modal/red web banner. Native worker 13 and actual WinUI 10 controls pass in [40198754623](https://github.com/embire2/openwebpbx/actions/runs/40198754623); portable updater 82, PostgreSQL 85 and browser 10 checks pass. Postponing keeps services available. See [Windows update behavior](docs/windows-server-updates.md).
+- [ ] Include those changed updater bytes in a newly qualified complete Windows release. The published 1.0.20 archive and its earlier full upgrade/rollback result remain unchanged.
+
 - [x] Verify new browser conferences after replacement-server restore. [The complete test](https://github.com/embire2/openwebpbx/actions/runs/40165744505) passes all 9 source and 21 target checks, including decoded audio/video and cleanup.
 - [ ] Upgrade the original 1.0.6 installation and prove interrupted-upgrade recovery. The test machine needs more free disk space before this can proceed.
 - [ ] Prove recovery after an actual Windows reboot.

@@ -1,5 +1,7 @@
 # Application updates
 
+**Windows Server:** the next build adds five-minute checks, automatic verified downloads, a native required-update modal and a red web-console banner. Postponing leaves services available; installation starts only after an administrator requests it. See [Windows Server updates](windows-server-updates.md) for behavior and qualification status. The policy options below continue to describe Debian.
+
 The current combined Debian/Android release is **1.0.16**. The hosted OpenWeb instance requires Android **1.0.16/code116** across every tenant. Independent installations start with an inactive minimum; set it under **Minimum direct Android release for every phone** after upgrading the core. Existing tenant policies are retained. Android confirmation/reopening may still be required; active calls defer replacement.
 
 Open **Admin → System → Updates** to check the installed version, review an available release and choose how this instance updates. This setting covers every tenant on the instance; tenants do not install their own server database or application.

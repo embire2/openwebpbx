@@ -34,6 +34,8 @@ There is no OpenWeb software licence fee. You control your server and data; host
 
 Release pages include checksums, signed update metadata and corresponding source. [All releases](https://github.com/embire2/openwebpbx/releases) · [Download catalogue](https://openwebpbx.com/#downloads) · [Updates and recovery](docs/updates.md)
 
+The next Windows Server build adds [five-minute update checks and prominent desktop/web notices](docs/windows-server-updates.md). It downloads updates in advance and keeps services running while administrators postpone installation. Native worker, desktop modal and web-banner checks pass; complete-release qualification is still required. The public 1.0.20 download is unchanged.
+
 ## Get started
 
 ### Windows Server 2025
