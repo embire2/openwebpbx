@@ -2,7 +2,7 @@
 
 ## Windows Server 1.0.21 candidate
 
-The current checkout prepares Windows Server 1.0.21. Its complete package is under qualification; the published Windows release is 1.0.20. Public full Debian remains 1.0.16, with the separate 1.0.19 administration patch, and Android remains 1.0.18. Use each immutable release revision for its matching build. See the [current Windows acceptance record](../docs/release-1.0.21-qualification.md).
+The current checkout prepares Windows Server 1.0.21. Its complete package is under qualification; the published Windows release is 1.0.20. Public full Debian remains 1.0.16, with the separate 1.0.19 administration patch. Android 1.0.19 is published separately. Use each immutable release revision for its matching build. See the [current Windows acceptance record](../docs/release-1.0.21-qualification.md).
 
 The manual `windows-native.yml` workflow uses .NET SDK 10.0.401 and Visual Studio 2026 on Windows Server 2025. It publishes the complete service, updater and WinUI output, immutable source hashes, assembly versions and an actual responsive top-level-window check. Select a successful build whose complete input inventory matches the candidate; a successful compile does not qualify installation or calling.
 
@@ -30,7 +30,7 @@ After complete qualification, sign the exact Windows archive with `packaging/upd
 python3 packaging/updates/validate-platform-feeds.py \
   --generic /private/publication/update-manifest.json \
   --generic-reference /private/published/android-envelope.json \
-  --generic-version 1.0.18 \
+  --generic-version 1.0.19 \
   --debian /private/publication/debian-update-manifest.json \
   --debian-reference /private/published/debian-envelope.json \
   --debian-version 1.0.16 \
