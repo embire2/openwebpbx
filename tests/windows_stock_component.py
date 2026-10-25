@@ -56,6 +56,13 @@ def validate(row):
  continuation={(x['command'],x['check'])for x in row['commands']if x['scope']=='continuation'};need(continuation=={(name,check)for name in('Get-Acl','ConvertTo-Json','Add-Type')for check in('qualified','visible')})
  return row
 
+def strict_bootstrap(row):
+ expected={(name,check)for name in('Get-Acl','ConvertTo-Json','Add-Type')for check in('qualified','visible')}
+ for scope in('original_bootstrap','continuation'):
+  rows=[x for x in row['commands']if x['scope']==scope]
+  if len(rows)!=6 or {(x['command'],x['check'])for x in rows}!=expected or not all(x['all_original_fields_true']and x['proof']is not None and all(x['proof'].values())for x in rows):return False
+ return row['bootstrap']['state']=='passed'and all(x['state']=='passed'for x in row['imports'])and row['observer_errors']==0
+
 def execute(pwsh):
  need(os.name=='nt'and os.environ.get('OPENWEB_STOCK_COMPONENT')=='1'and os.environ.get('GITHUB_ACTIONS')=='true'and os.environ.get('RUNNER_ENVIRONMENT')=='github-hosted'and os.environ.get('RUNNER_OS')=='Windows'and os.environ.get('GITHUB_REPOSITORY')=='embire2/openwebpbx'and os.environ.get('GITHUB_EVENT_NAME')=='workflow_dispatch')
  for name,expected in PINS.items():need(hashlib.sha256((HERE/name).read_bytes()).hexdigest()==expected)
@@ -75,8 +82,8 @@ def execute(pwsh):
    if parsed.returncode:
     refusal=decode(parsed.stdout);native_refusal(refusal);facts['contexts'][context]['reader_refusal']=refusal
    need(parsed.returncode==0)
-   row=validate(decode(parsed.stdout));facts['contexts'][context]=dict(observation=row,node_child=child['child_outcome'],owned_job=lifecycle,native_refusal=child['native_refusal'])
-  need(dict(os.environ)==before);facts['state']='observed';facts['environment_preserved']=True
+   row=validate(decode(parsed.stdout));facts['contexts'][context]=dict(observation=row,node_child=child['child_outcome'],owned_job=lifecycle,native_refusal=child['native_refusal']);facts['contexts'][context]['strict_bootstrap_passed']=strict_bootstrap(row)
+  need(dict(os.environ)==before);facts['environment_preserved']=True;facts['strict_bootstrap_passed']=all(facts['contexts'][x]['strict_bootstrap_passed']for x in('direct','owned'));need(facts['strict_bootstrap_passed']);facts['state']='observed'
  except BaseException as error:facts['failure_type']=type(error).__name__ if type(error).__name__ in ('ValueError','RuntimeError','TimeoutExpired','OSError','FileNotFoundError') else 'other'
  finally:
   paths=list(work.rglob('*'));need(len(paths)<=12 and all(not p.is_symlink()and not(p.stat().st_file_attributes&stat.FILE_ATTRIBUTE_REPARSE_POINT)for p in paths));shutil.rmtree(work);facts['owned_fixture_removed']=not work.exists();output.write_text(json.dumps(facts,indent=2)+'\n')
