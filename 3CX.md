@@ -9,6 +9,8 @@ Windows acceptance status:
 
 Company-group office hours and opt-in extension office routing are implemented in source. Admins can create, edit or delete a group's schedule and select separate In Office / Out of Office destinations for an extension. Existing imported routes and the internal-after-hours exception remain unchanged until explicitly saved. Root repeats 53 PostgreSQL/save/render controls, 142 staff-role controls, 218 schedule-policy controls and 209 synthetic routing controls. [Operator guide](docs/company-office-hours.md). Deployment in a new complete release and physical-phone verification remain separate.
 
+Greetings is implemented in source: Keoma instructions, call-to-record/#/replay/save, typed Keoma narration, categories, reuse, rename/download/unassign/archive and tenant isolation. Root repeats 49 SQL, 39 C# worker/controlled-HTTP and 52 Lua recording controls. The actual Debian recorder-helper loopback passes with generated Keoma prompts and independently decoded saved audio; this is not a complete routed/physical-phone or Windows calling acceptance. [Guide and activation](docs/greetings.md). New service/configuration and a complete qualified package must be deployed before the page can create jobs; the UI reports missing readiness instead of silently queuing work.
+
 - [x] Verify new browser conferences after replacement-server restore. [The complete test](https://github.com/embire2/openwebpbx/actions/runs/40165744505) passes all 9 source and 21 target checks, including decoded audio/video and cleanup.
 - [ ] Upgrade the original 1.0.6 installation and prove interrupted-upgrade recovery. The test machine needs more free disk space before this can proceed.
 - [ ] Prove recovery after an actual Windows reboot.
