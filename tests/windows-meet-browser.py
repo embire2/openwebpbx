@@ -17,6 +17,18 @@ def session_user_agent(opener):
     return values[0]
 
 
+def browser_result_fields(record):
+    keys = {'exit_code', 'report_state', 'cleanup_error_type', 'cleanup_source_basename', 'cleanup_source_line'}
+    if type(record) is not dict or set(record) != keys or type(record['exit_code']) is not int or not -2147483648 <= record['exit_code'] <= 4294967295 or record['exit_code'] == 0 or type(record['report_state']) is not str or record['report_state'] not in {'missing', 'invalid', 'passed', 'failed'}:
+        return {}
+    kind, source, line = (record[name] for name in ('cleanup_error_type', 'cleanup_source_basename', 'cleanup_source_line'))
+    if kind is None:
+        if source is not None or line is not None: return {}
+    elif type(kind) is not str or kind not in {'Error', 'TypeError', 'RangeError', 'ReferenceError', 'SyntaxError', 'TimeoutError', 'other'} or record['report_state'] != 'failed' or type(source) is not str or source not in {'windows-meet-browser.cjs', 'unavailable'} or type(line) is not int or not 0 <= line < 1000000 or (line != 0 if source == 'unavailable' else line < 1):
+        return {}
+    return {'meeting_browser_result': dict(record)}
+
+
 def browser_failure_fields(record):
     kinds = {'timeout', 'type', 'reference', 'range', 'security', 'invalid_state', 'not_supported', 'target_closed', 'other'}
     operations = {'none', 'peer_lookup', 'stats', 'analyser_create', 'analyser_source', 'analyser_connect', 'analyser_output', 'spectrum', 'canvas_create', 'canvas_draw', 'canvas_read', 'complete'}
@@ -185,11 +197,22 @@ def run(fixture):
                 observed_media={}
                 observed_signaling={}
                 observed_path={}; observed_wss_child={}
+                browser_result=dict(exit_code=result.returncode, report_state='missing', cleanup_error_type=None, cleanup_source_basename=None, cleanup_source_line=None)
                 if phase=='browser' and report.is_file():
                     try:
-                        failed=json.loads(report.read_text(encoding='utf-8'))
-                        if failed.get('schema')==1 and failed.get('state')=='failed' and failed.get('phase') in {'browser_start','owner_page','create','host_join','guest_join','admission','decoded_media','mute','unmute','end'}:
+                        browser_result['report_state']='invalid'
+                        with report.open('rb') as stream: raw=stream.read(65537)
+                        if len(raw) > 65536: raise ValueError()
+                        failed=json.loads(raw.decode('utf-8'))
+                        if type(failed) is dict and type(failed.get('schema')) is int and failed['schema']==1 and type(failed.get('state')) is str and failed['state'] in {'passed','failed'}:
+                            browser_result['report_state']=failed['state']
+                        if type(failed) is dict and type(failed.get('schema')) is int and failed['schema']==1 and failed.get('state')=='failed' and type(failed.get('phase')) is str and failed['phase'] in {'browser_start','owner_page','create','host_join','guest_join','admission','decoded_media','mute','unmute','end','cleanup'}:
                             stage=failed['phase']
+                            if stage=='cleanup':
+                                closed=failed.get('cleanup_failure')
+                                if type(closed) is dict and set(closed)=={'error_type','source_basename','source_line'}:
+                                    candidate=dict(browser_result, cleanup_error_type=closed['error_type'], cleanup_source_basename=closed['source_basename'], cleanup_source_line=closed['source_line'])
+                                    if browser_result_fields(candidate): browser_result=candidate
                             if stage=='owner_page':owner_fields=owner_page_fields(failed.get('owner_page'))
                             if stage in {'decoded_media','mute','unmute','end'}:
                                 observed_media=media_fields(failed.get('meeting_media'))
@@ -205,6 +228,9 @@ def run(fixture):
                 error.meeting_signaling_failure=observed_signaling
                 error.meeting_path_failure=observed_path
                 error.meeting_wss_child_failure=observed_wss_child
+                if phase=='browser':
+                    try: error.meeting_browser_result=browser_result_fields(browser_result)
+                    except BaseException: pass
                 raise error
         facts = json.loads(report.read_text())
         if facts.get('schema') != 1 or facts.get('state') != 'passed' or len(facts.get('checks', [])) != 9:

@@ -19,7 +19,7 @@ GATE = 'restored_browser_conference_two_way_decoded_audio_video'
 
 FAILURE_CASES = ('unavailable', 'native_windows_meeting_browser_media', 'native_windows_meeting_dependencies',
                  'native_windows_meeting_unknown', *( 'native_windows_meeting_' + name for name in
-                 ('browser_start', 'owner_page', 'create', 'host_join', 'guest_join', 'admission', 'decoded_media', 'mute', 'unmute', 'end')))
+                 ('browser_start', 'owner_page', 'create', 'host_join', 'guest_join', 'admission', 'decoded_media', 'mute', 'unmute', 'end', 'cleanup')))
 FAILURE_TYPES = ('RuntimeError', 'ValueError', 'TypeError', 'KeyError', 'AttributeError', 'AssertionError',
                  'TimeoutError', 'TimeoutExpired', 'OSError', 'FileNotFoundError', 'PermissionError',
                  'JSONDecodeError', 'SSLError', 'HTTPError', 'URLError', 'external_error')
@@ -59,7 +59,25 @@ def failure_record(error):
             if type(child) is dict and set(child) == {'meeting_wss_child_failure'}:
                 record.update(restored_wss_child_fields(child['meeting_wss_child_failure']))
         except BaseException: pass
+    try:
+        result = getattr(error, 'meeting_browser_result', None)
+        if record['active_case'].startswith('native_windows_meeting_') and record['active_case'] != 'native_windows_meeting_dependencies' and type(result) is dict and set(result) == {'meeting_browser_result'}:
+            closed = browser_result_fields(result['meeting_browser_result'])
+            if closed and (closed['meeting_browser_result']['cleanup_error_type'] is None or record['active_case'] == 'native_windows_meeting_cleanup'): record.update(closed)
+    except BaseException: pass
     return record
+
+
+def browser_result_fields(record):
+    keys = {'exit_code', 'report_state', 'cleanup_error_type', 'cleanup_source_basename', 'cleanup_source_line'}
+    if type(record) is not dict or set(record) != keys or type(record['exit_code']) is not int or not -2147483648 <= record['exit_code'] <= 4294967295 or record['exit_code'] == 0 or type(record['report_state']) is not str or record['report_state'] not in {'missing', 'invalid', 'passed', 'failed'}:
+        return {}
+    kind, source, line = (record[name] for name in ('cleanup_error_type', 'cleanup_source_basename', 'cleanup_source_line'))
+    if kind is None:
+        if source is not None or line is not None: return {}
+    elif type(kind) is not str or kind not in {'Error', 'TypeError', 'RangeError', 'ReferenceError', 'SyntaxError', 'TimeoutError', 'other'} or record['report_state'] != 'failed' or type(source) is not str or source not in {'windows-meet-browser.cjs', 'unavailable'} or type(line) is not int or not 0 <= line < 1000000 or (line != 0 if source == 'unavailable' else line < 1):
+        return {}
+    return {'meeting_browser_result': dict(record)}
 
 
 def observe_failure_case(error, fixture):

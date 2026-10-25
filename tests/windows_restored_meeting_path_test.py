@@ -115,7 +115,8 @@ class ExistingPathHandoff(unittest.TestCase):
             before = self.old.failure_record(primary); after = m.failure_record(primary)
             self.assertNotIn('meeting_path', before); self.assertEqual(after['meeting_path'], self.paths)
             self.assertEqual(after['meeting_wss_child_failure'], wss_record())
-            self.assertEqual({k: v for k, v in after.items() if k not in {'meeting_path','meeting_wss_child_failure'}}, before)
+            self.assertEqual({k: v for k, v in after.items() if k not in {'meeting_path','meeting_wss_child_failure','meeting_browser_result'}}, before)
+            self.assertEqual(after['meeting_browser_result'],dict(exit_code=1,report_state='failed',cleanup_error_type=None,cleanup_source_basename=None,cleanup_source_line=None))
             self.assertNotIn(PRIVATE, json.dumps(after)); self.assertNotIn('https:', json.dumps(after)); self.assertNotIn('Bearer', json.dumps(after))
             after['meeting_path']['before']['backend']['status_code'] = 699
             self.assertEqual(primary.meeting_path_failure['meeting_path']['before']['backend']['status_code'], 200)

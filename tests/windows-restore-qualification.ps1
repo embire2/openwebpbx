@@ -225,10 +225,10 @@ function SafeRestoredConferenceFailure($Record){
  if($null -eq $Record -or ($Record -isnot [Collections.IDictionary] -and $Record -isnot [pscustomobject])){return $null}
  $keys=@('schema','state','producer','error_type','cleanup_verified','source_frames','active_case','owned_process_cleanup_failed','owned_processes_closed')
  $actual=if($Record -is [Collections.IDictionary]){@($Record.Keys)}else{@($Record.PSObject.Properties.Name)}
- if($actual.Count -notin 9,10,11 -or @($actual|Where-Object {$_ -cnotin ($keys+@('meeting_path','meeting_wss_child_failure'))}).Count -or @($keys|Where-Object {$_ -cnotin $actual}).Count){return $null}
+ if($actual.Count -notin 9,10,11,12 -or @($actual|Where-Object {$_ -cnotin ($keys+@('meeting_path','meeting_wss_child_failure','meeting_browser_result'))}).Count -or @($keys|Where-Object {$_ -cnotin $actual}).Count){return $null}
  if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.state -isnot [string] -or $Record.state -cne 'failed' -or $Record.producer -isnot [string] -or $Record.producer -cne 'windows_restored_meeting.py' -or $Record.cleanup_verified -isnot [bool]){return $null}
  $types=@('RuntimeError','ValueError','TypeError','KeyError','AttributeError','AssertionError','TimeoutError','TimeoutExpired','OSError','FileNotFoundError','PermissionError','JSONDecodeError','SSLError','HTTPError','URLError','external_error')
- $cases=@('unavailable','native_windows_meeting_browser_media','native_windows_meeting_dependencies','native_windows_meeting_unknown','native_windows_meeting_browser_start','native_windows_meeting_owner_page','native_windows_meeting_create','native_windows_meeting_host_join','native_windows_meeting_guest_join','native_windows_meeting_admission','native_windows_meeting_decoded_media','native_windows_meeting_mute','native_windows_meeting_unmute','native_windows_meeting_end')
+ $cases=@('unavailable','native_windows_meeting_browser_media','native_windows_meeting_dependencies','native_windows_meeting_unknown','native_windows_meeting_browser_start','native_windows_meeting_owner_page','native_windows_meeting_create','native_windows_meeting_host_join','native_windows_meeting_guest_join','native_windows_meeting_admission','native_windows_meeting_decoded_media','native_windows_meeting_mute','native_windows_meeting_unmute','native_windows_meeting_end','native_windows_meeting_cleanup')
  if($Record.error_type -isnot [string] -or $Record.error_type -cnotin $types -or $Record.active_case -isnot [string] -or $Record.active_case -cnotin $cases -or $Record.source_frames -isnot [Array] -or $Record.source_frames.Count -gt 4){return $null}
  $frames=@()
  foreach($frame in $Record.source_frames){
@@ -250,6 +250,16 @@ function SafeRestoredConferenceFailure($Record){
   $child=SafeRestoredConferenceWssChildFields $Record.meeting_wss_child_failure
   if($child -isnot [Collections.IDictionary] -or $child.Count -ne 1 -or !$child.Contains('meeting_wss_child_failure')){return $null}
   $safe.meeting_wss_child_failure=$child.meeting_wss_child_failure
+ }
+ if('meeting_browser_result' -cin $actual){
+  if($Record.active_case -in @('unavailable','native_windows_meeting_dependencies')){return $null}
+  $result=$Record.meeting_browser_result
+  if($null -eq $result -or ($result -isnot [Collections.IDictionary] -and $result -isnot [pscustomobject])){return $null}
+  $names=if($result -is [Collections.IDictionary]){@($result.Keys)}else{@($result.PSObject.Properties.Name)}
+  if($names.Count -ne 5 -or @($names|Where-Object {$_ -cnotin @('exit_code','report_state','cleanup_error_type','cleanup_source_basename','cleanup_source_line')}).Count -or ($result.exit_code -isnot [int] -and $result.exit_code -isnot [long]) -or $result.exit_code -eq 0 -or $result.exit_code -lt -2147483648L -or $result.exit_code -gt 4294967295L -or $result.report_state -isnot [string] -or $result.report_state -cnotin @('missing','invalid','passed','failed')){return $null}
+  if($null -eq $result.cleanup_error_type){if($null -ne $result.cleanup_source_basename -or $null -ne $result.cleanup_source_line){return $null}}
+  elseif($Record.active_case -cne 'native_windows_meeting_cleanup' -or $result.report_state -cne 'failed' -or $result.cleanup_error_type -isnot [string] -or $result.cleanup_error_type -cnotin @('Error','TypeError','RangeError','ReferenceError','SyntaxError','TimeoutError','other') -or $result.cleanup_source_basename -isnot [string] -or $result.cleanup_source_basename -cnotin @('windows-meet-browser.cjs','unavailable') -or ($result.cleanup_source_line -isnot [int] -and $result.cleanup_source_line -isnot [long]) -or $result.cleanup_source_line -lt 0 -or $result.cleanup_source_line -ge 1000000 -or ($result.cleanup_source_basename -ceq 'unavailable' -and $result.cleanup_source_line -ne 0) -or ($result.cleanup_source_basename -cne 'unavailable' -and $result.cleanup_source_line -lt 1)){return $null}
+  $safe.meeting_browser_result=@{exit_code=$result.exit_code;report_state=$result.report_state;cleanup_error_type=$result.cleanup_error_type;cleanup_source_basename=$result.cleanup_source_basename;cleanup_source_line=$result.cleanup_source_line}
  }
  return $safe
 }
