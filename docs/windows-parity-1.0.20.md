@@ -57,8 +57,15 @@ native Security3.0.0.0/Utility3.1.0.0, successful imports, no observer faults an
 original cleanup. All provenance checks remain intact. Separate full repeat40158134593/sourcec75ce63e passes all nine source checks,
 then stops before conference execution at the restore CLI exclusive lock with
 BackupBusy. Its exact native32/33 code, lock role and holder are unretained;
-cleanup and original Health choices pass. Fresh repeat40161042899 now runs
-the identical source and checks, with no operation-retry or timeout changes. Earlier component40156307782 has
+cleanup and original Health choices pass. Fresh repeat40161042899 passes all nine source checks and reaches the
+restored-conference stage; its browser command then fails with
+`native_windows_meeting_unknown`. The inner Node error, exit code and report
+status are unretained. BackupBusy does not recur. Supplemental/canonical
+cleanup and original Health choices pass. Root authenticates both artifacts,
+logs and all14 retained originals; the unchanged success consumer refuses.
+An ended-card cleanup mismatch in the test is under reproduction, without
+attributing this historical failure. No further full run or QA integration
+follows from that observation. Earlier component40156307782 has
 no retained native primary; its separate reserved-variable source bug is
 reproduced and corrected without attributing that historical failure. The published archive is unchanged, and
 restored-meeting media remains unqualified. Earlier supplement
@@ -438,7 +445,7 @@ original package scope.
 |---|---|---|
 | Phone Health & Recovery | Installed SYSTEM observation, continuous collection and restart pass129 PostgreSQL,49 runtime and18 Defender controls; accepted-package upgrade and separate restore preservation also pass. | Owner-machine registration and recovery checks; broader physical-phone coverage. |
 | Remote phones | Native STUN service and33 installed Binding/Defender/recovery checks pass; media remains anchored by the PBX. | External test-machine STUN, actual phone/app connections and two-way audio. Windows IPv6 remains separate; STUN does not provide TURN. |
-| Conferences | Native TLS/WebSocket transport55 and decoded browser audio/video gates pass in the normal package. | External browser/phone acceptance. Strict native-child module checks pass40157794737. Full40158134593 stops at a busy restore lock before media; fresh40161042899 runs unchanged source/checks. Restored-meeting media remains unqualified. |
+| Conferences | Native TLS/WebSocket transport55 and decoded browser audio/video gates pass in the normal package. | External browser/phone acceptance. Strict native-child module checks pass40157794737. Full40158134593 stops at a busy restore lock before media; fresh40161042899 reaches conference execution but its browser command fails with an unretained inner error. Cleanup passes; diagnostic reproduction is underway. Restored-meeting media remains unqualified. |
 | Backups and restore | Scheduled encrypted backups, retention, media/private-key preservation, recovery and activation pass in normal40111566679; restore40123098262 passes nine source and20 clean-target gates on that exact archive, including the default-HTTPS-port correction. | Owner-instance restore checks. Debian instance archives are unsupported on Windows. |
 | Updates | Fresh installation, same-version reapply, direct rollback, restore-startup recovery and both manager reopen gates pass in40111566679. The matched1.0.21 canary archive and existing-key envelopes are fully audited. | Signed40125359325 now passes all9 gates for this exact base/canary pair. Original1.0.6 migration/interrupted recovery and actual OS reboot remain open; earlier40097476201 retains its older-package scope. |
 | PHP runtime | Pinned PHP8.4.27 is installed and exercised by the normal package; native private-copy runtime preservation/rollback checks also pass. | Full legacy owner upgrade and interruption/recovery. Component checks do not substitute for that migration. |

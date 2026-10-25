@@ -39,7 +39,13 @@ preserved. Full source/target repeat40158134593 passes all nine source checks, t
 before conference execution when the normal restore CLI refuses a busy exclusive
 lock. The exact native32/33 code, lock role and holder are unretained; cleanup
 and original Health restoration pass. The [fresh repeat40161042899](https://github.com/embire2/openwebpbx/actions/runs/40161042899)
-now runs the same source, package and unchanged acceptance checks. This component does not qualify restored-conference media.
+passes its nine source checks and reaches the restored-conference stage,
+then the browser command fails without retaining the inner error, exit code
+or report status. The busy-lock refusal does not recur; supplemental/canonical
+cleanup and original Health choices pass. Both artifacts, logs and all14
+retained originals are independently authenticated; the unchanged success
+consumer refuses. A test-cleanup mismatch is under reproduction before any
+further full run. Restored-conference media remains unqualified.
 Earlier failed runs below retain
 their original limited evidence and unknown causes; later success assigns none.
 
