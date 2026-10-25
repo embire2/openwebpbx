@@ -1,5 +1,11 @@
 # OpenWeb PBX workspace
 
+## Deploying release 1.0.21 — 2026-10-25
+
+- Owner explicitly requests deployment of the updater, Greetings and company-hours changes. Source4f755359d bumps VERSION/native identity to1.0.21 and adds matching draft install guides. Native Windows40204829730 is running on qualification/windows121-deploy-20261025. Full new-package acceptance/publication follows its own gates; original20 receipts cannot qualify21.
+- Greetings agent owns staged hosted Debian deployment/rollback of all new feature paths, private provider configuration, migration and idle service activation, preserving existing hosted patches/customer credentials/routes/audio. Office-hours agent owns fresh Windows qualification orchestration and strict runtime-table review. Signing agent is read-only for original Windows owner capacity and existing publication tools. Root owns public signing/feed/site changes and owner upgrades. No repeated rebuild-verification request is needed. No ports are to be closed.
+- Reclaimed only the two exact temporary native artifact ZIPs40198754623/f3059edb and40200892861/ef397c6f after full digest authentication; selected original reports/receipts remain retained. User ring1.png remains untouched.
+
 ## Greetings library and Keoma recording — 2026-10-25
 
 - Separate user-requested agent commits 5fb1217bb (22 exact files), followed by root-requested PHP-only multiline correction1a7b75a0c. New tenant-owned Greetings supports phone or external-number recording, Keoma category/company instructions, # termination, callback removal before replay, replay-before-save, unique names/UUID audio, typed Keoma narration, compatible assignments, rename/download/unassign/archive. Custom existing files and newer choices survive. No OpenWebPBX fee is imposed; provider allowance/charges are disclosed. Only private configured ElevenLabs credentials are used, with a single verified Keoma voice and bounded jobs/text/audio/retries.
