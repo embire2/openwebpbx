@@ -35,8 +35,11 @@ process chain. The correction confined to the native child process passes
 [strict component40157794737](https://github.com/embire2/openwebpbx/actions/runs/40157794737):
 both direct and owned-Job contexts retain six original and six continuation
 command checks, each9/9, with original cleanup and the parent environment
-preserved. The [full source/target repeat40158134593](https://github.com/embire2/openwebpbx/actions/runs/40158134593)
-is now running against the same published archive. This component does not qualify restored-conference media.
+preserved. Full source/target repeat40158134593 passes all nine source checks, then stops
+before conference execution when the normal restore CLI refuses a busy exclusive
+lock. The exact native32/33 code, lock role and holder are unretained; cleanup
+and original Health restoration pass. The [fresh repeat40161042899](https://github.com/embire2/openwebpbx/actions/runs/40161042899)
+now runs the same source, package and unchanged acceptance checks. This component does not qualify restored-conference media.
 Earlier failed runs below retain
 their original limited evidence and unknown causes; later success assigns none.
 
