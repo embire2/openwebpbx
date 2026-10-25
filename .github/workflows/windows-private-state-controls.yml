@@ -1,91 +1,48 @@
-name: Windows private settings writer controls
-
+name: Windows isolated stock PowerShell component
 on:
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
-  writer:
+  stock-component:
     runs-on: windows-2025
-    timeout-minutes: 5
+    timeout-minutes: 10
     defaults:
       run:
         shell: pwsh
     steps:
-      - name: Preserve source bytes
+      - name: Preserve repository bytes
         run: git config --global core.autocrlf false
-      - name: Check out the writer and fictional file controls
+      - name: Check out exact diagnostic source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
           fetch-depth: 1
-      - name: Test fresh, repeated and refused writes using native Windows PowerShell
+      - name: Select readable x64 Python
+        id: python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12.10'
+          architecture: 'x64'
+          check-latest: false
+          update-environment: false
+      - name: Observe direct and original owned Job stock commands
         env:
+          OPENWEB_STOCK_COMPONENT: '1'
+          OPENWEB_WINDOWS_NATIVE_TEST: '1'
           PYTHONDONTWRITEBYTECODE: '1'
+          OPENWEB_STOCK_PYTHON: ${{ steps.python.outputs.python-path }}
         run: |
           $ErrorActionPreference='Stop'
-          $env:OPENWEB_TEST_PWSH=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
-          python.exe -B tests/windows_private_state.py -v
-          if($LASTEXITCODE){throw 'The actual Windows private-state writer controls failed.'}
-      - name: Test held original process identity and closure using native Windows PowerShell
-        run: |
-          $ErrorActionPreference='Stop'
-          & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_manager_process.ps1
-          if($LASTEXITCODE){throw 'The actual Windows held-process controls failed.'}
-      - name: Test future updater worker and manager lifetimes using native Windows PowerShell
-        run: |
-          $ErrorActionPreference='Stop'
-          & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_updater_process.ps1
-          if($LASTEXITCODE){throw 'The actual Windows updater process controls failed.'}
-      - name: Check out the immutable updater-state baseline
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: 1a1a8eb1386b739719c1869253357906fb9bedce
-          path: baseline-source
-          persist-credentials: false
-          fetch-depth: 1
-          sparse-checkout: |
-            packaging/windows/Install-Updater.ps1
-            packaging/windows/Upgrade-OpenWebPBX.ps1
-            packaging/windows/Support-Recovery.ps1
-          sparse-checkout-cone-mode: false
-      - name: Observe original updater-state ownership across Administrator and SYSTEM
-        run: |
-          $ErrorActionPreference='Stop'
-          $baseline=Join-Path $env:GITHUB_WORKSPACE 'baseline-source'
-          $actual=& git -C $baseline rev-parse HEAD
-          if($LASTEXITCODE -or $actual -cne '1a1a8eb1386b739719c1869253357906fb9bedce'){throw 'The immutable updater-state source binding failed.'}
-          & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_updater_state_ownership.ps1 -OriginalSourceRoot (Join-Path $baseline 'packaging/windows') -DisposableHostedRunner -ExecuteReviewedFictionalControl
-          if($LASTEXITCODE){throw 'The isolated Windows updater-state ownership control failed.'}
-      - name: Test recovery ordering and exact metadata and stock-music restoration
-        run: |
-          $ErrorActionPreference='Stop'
-          $native=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
-          & $native -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_updater_recovery_order.ps1 -BaselineRoot (Join-Path $env:GITHUB_WORKSPACE 'baseline-source/packaging/windows')
-          if($LASTEXITCODE){throw 'The recovery ordering controls failed.'}
-          & $native -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_updater_state_recovery.ps1 -ExecuteReviewedFictionalControl
-          if($LASTEXITCODE){throw 'The native metadata and stock-music recovery controls failed.'}
-      - name: Test successful-upgrade private permissions without reverting content or hardening
-        run: |
-          $ErrorActionPreference='Stop'
-          & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_program_root_policy.ps1
-          if($LASTEXITCODE){throw 'The exact program-root policy controls failed.'}
-          & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_upgrade_permissions.ps1
-          if($LASTEXITCODE){throw 'The native successful-upgrade permission controls failed.'}
-          & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_dtls_support_recovery.ps1
-          if($LASTEXITCODE){throw 'The native DTLS identity and state recovery controls failed.'}
-      - name: Observe PHP file security across exact hardening and replay stages
-        run: |
-          $ErrorActionPreference='Stop'
-          & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_php_permissions_stage.ps1 -DisposableHostedRunner | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'php-permissions-stage.json')
-          if($LASTEXITCODE){throw 'The isolated PHP stage observation failed.'}
-      - name: Preserve only the closed PHP stage observations
+          $python=$env:OPENWEB_STOCK_PYTHON
+          if(![IO.Path]::IsPathFullyQualified($python) -or ![IO.File]::Exists($python)){throw 'The pinned readable interpreter is required.'}
+          & $python -I -B tests/windows_stock_component.py --execute --pwsh (Get-Process -Id $PID).Path
+          if($LASTEXITCODE){throw 'The isolated component did not complete; this never qualifies PBX or media.'}
+      - name: Preserve only bounded public stock observations
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: openwebpbx-php-permissions-stage-${{ github.run_id }}
-          path: ${{ runner.temp }}/php-permissions-stage.json
+          name: openwebpbx-windows-stock-component-${{ github.run_id }}
+          path: ${{ runner.temp }}/stock-module-component.json
           if-no-files-found: warn
           retention-days: 14
