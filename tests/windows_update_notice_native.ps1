@@ -8,7 +8,9 @@ $path=Join-Path $folder 'updates.json'
 if(Test-Path -LiteralPath $path){throw 'An existing server update status must not be replaced.'}
 $created=!(Test-Path -LiteralPath $folder)
 New-Item -ItemType Directory -Path $folder -Force|Out-Null
-$manager=$null;$written=$null;$checks=0
+$installedRoot='C:\OpenWebPBX'
+if(Test-Path -LiteralPath $installedRoot){throw 'An existing server installation must not be used for the notice fixture.'}
+$manager=$null;$watcher=$null;$written=$null;$checks=0;$ownedRoot=$false;$ownedFiles=@{}
 function Assert($condition,[string]$message){if(!$condition){throw $message};$script:checks++}
 function WriteStatus([bool]$required,[bool]$ready){
  $state=@{platform='windows-x64';state=$(if($ready){'ready'}else{'downloading'});message='Isolated native update notice test';installed_version='1.0.20';available_version='1.0.21';update_required=$required;download_ready=$ready;total_bytes=100;progress_bytes=$(if($ready){100}else{25})}
@@ -28,8 +30,21 @@ function WaitUntil([scriptblock]$condition,[string]$failure){
  throw $failure
 }
 try {
+ New-Item -ItemType Directory -Path (Join-Path $installedRoot 'desktop')|Out-Null;$ownedRoot=$true
+ Copy-Item -Path (Join-Path $DesktopDirectory '*') -Destination (Join-Path $installedRoot 'desktop') -Recurse
+ foreach($item in Get-ChildItem -LiteralPath $installedRoot -File -Recurse){$ownedFiles[$item.FullName]=(Get-FileHash -LiteralPath $item.FullName).Hash}
  WriteStatus $true $false
- $manager=Start-Process -FilePath (Join-Path $DesktopDirectory 'OpenWebPbx.Desktop.exe') -WorkingDirectory $env:SystemRoot -PassThru
+ # Exercise the actual notification monitor, rather than opening the manager directly.
+ $watch=Join-Path $PSScriptRoot '..\packaging\windows\Watch-ServerUpdates.ps1'
+ $watcher=Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList ('-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "'+$watch+'"') -WindowStyle Hidden -PassThru
+ $deadline=[DateTime]::UtcNow.AddSeconds(40);$session=(Get-Process -Id $PID).SessionId
+ do {
+  $manager=Get-Process -Name OpenWebPbx.Desktop -ErrorAction SilentlyContinue|Where-Object {$_.SessionId -eq $session -and $_.Path -eq (Join-Path $installedRoot 'desktop\OpenWebPbx.Desktop.exe')}|Select-Object -First 1
+  if($manager){break}
+  $watcher.Refresh();if($watcher.HasExited){throw 'The actual Windows notification monitor exited before opening the manager.'}
+  Start-Sleep -Milliseconds 250
+ }while([DateTime]::UtcNow -lt $deadline)
+ Assert ($null -ne $manager) 'The sign-in notification monitor did not open the actual manager.'
  WaitUntil {$manager.Refresh();$manager.MainWindowHandle -ne 0 -and $manager.Responding} 'Native manager window did not appear.'
  $message='Your Windows Server PBX system has a new update 1.0.21 - you must update in order to continue using the service.'
  WaitUntil {$null -ne (FindName 'Windows Server update required')} 'The actual WinUI update modal did not appear.'
@@ -45,9 +60,14 @@ try {
  # A successful installed status removes the notice. It must not remain stale forever.
  WriteStatus $false $false
  WaitUntil {$null -eq (FindName $message)} 'A completed update did not clear the native requirement.'
- [ordered]@{checks=$checks;window_responsive=$manager.Responding;modal_on_actual_window=$true;postpone_keeps_manager=$true;verified_download_required=$true;persistent_banner=$true;completed_notice_cleared=$true;scope='Native notice only; no server upgrade or service restart performed.'}|ConvertTo-Json|Set-Content -LiteralPath $Output -Encoding utf8
+ [ordered]@{checks=$checks;window_responsive=$manager.Responding;actual_monitor_started_manager=$true;modal_on_actual_window=$true;postpone_keeps_manager=$true;verified_download_required=$true;persistent_banner=$true;completed_notice_cleared=$true;scope='Native monitor/notice only; no server upgrade or service restart performed.'}|ConvertTo-Json|Set-Content -LiteralPath $Output -Encoding utf8
 } finally {
+ if($watcher -and !$watcher.HasExited){Stop-Process -Id $watcher.Id -Force -ErrorAction Stop;$watcher.WaitForExit()}
  if($manager -and !$manager.HasExited){Stop-Process -Id $manager.Id -Force -ErrorAction Stop;$manager.WaitForExit()}
  if(Test-Path -LiteralPath $path){if(!$written -or (Get-FileHash -LiteralPath $path).Hash -cne $written){throw 'Owned status cleanup refused changed bytes.'};Remove-Item -LiteralPath $path -Force}
  if($created -and !(Get-ChildItem -LiteralPath $folder -Force)){Remove-Item -LiteralPath $folder}
+ if($ownedRoot){
+  foreach($item in Get-ChildItem -LiteralPath $installedRoot -File -Recurse){if(!$ownedFiles.ContainsKey($item.FullName) -or (Get-FileHash -LiteralPath $item.FullName).Hash -cne $ownedFiles[$item.FullName]){throw 'Owned manager cleanup refused changed or unexpected files.'}}
+  Remove-Item -LiteralPath $installedRoot -Recurse -Force
+ }
 }
