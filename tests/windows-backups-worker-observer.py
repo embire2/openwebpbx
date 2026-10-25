@@ -26,6 +26,7 @@ WORKFLOW_REFS={
     'embire2/openwebpbx/.github/workflows/windows-suite.yml@refs/heads/customization',
     # Exact root-approved normal qualification branch; no prefix admission.
     'embire2/openwebpbx/.github/workflows/windows-suite.yml@refs/heads/qualification/windows120-https-restore-20261024',
+    'embire2/openwebpbx/.github/workflows/windows-suite.yml@refs/heads/qualification/windows121-deploy-20261025',
     'embire2/openwebpbx/.github/workflows/windows-backups-diagnostics.yml@refs/heads/customization',
     # Root-approved immutable568 replay only. Foreign branches remain refused;
     # this QA permission does not make its diagnostic facts release eligible.

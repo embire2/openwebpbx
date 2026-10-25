@@ -354,6 +354,18 @@ if not key_file.exists():key_file.write_bytes(os.urandom(32))
 key=key_file.read_bytes()
 def digest(value):return hmac.new(key,json.dumps(value,sort_keys=True,separators=(',',':')).encode(),hashlib.sha256).hexdigest()
 def save(value):path.write_text(json.dumps(value,sort_keys=True),encoding='utf-8')
+def greeting_heartbeat_projection(rows):
+ import re
+ from datetime import datetime
+ if type(rows) is not list or len(rows)>1:raise RuntimeError('Greeting heartbeat must retain its exact singleton inventory')
+ result=[]
+ for row in rows:
+  if (type(row) is not dict or set(row)!={'singleton','provider_configured','checked_at'}
+      or type(row['singleton']) is not int or row['singleton']!=1 or type(row['provider_configured']) is not bool
+      or type(row['checked_at']) is not str or re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})',row['checked_at']) is None
+      or datetime.fromisoformat(row['checked_at']).tzinfo is None):raise RuntimeError('Greeting heartbeat schema or values changed')
+  result.append(row|{'checked_at':'__openweb_worker_heartbeat__'})
+ return result
 if action=='database':
  stage='database_installation'
  installation=json.loads((b.STATE/'installation.json').read_text(encoding='utf-8-sig'))
@@ -380,7 +392,7 @@ if action=='database':
   if table in volatile:continue
   quoted='"'+table.replace('"','""')+'"'
   rows=b.query(settings,"select coalesce(json_agg(t order by row_to_json(t)::text),'[]') from "+quoted+' t',json_result=True)
-  values[table]=digest(rows)
+  values[table]=digest(greeting_heartbeat_projection(rows) if table=='v_pbx_greeting_status' else rows)
   # Separate optional diagnostics from the original row-HMAC snapshot. Reuse
   # only already loaded rows/column metadata, with no additional SQL query.
   try:

@@ -27,6 +27,21 @@ def load(name, path):
 
 
 class Controls(unittest.TestCase):
+    def test_new_release_ref_is_exact_without_prefix_or_foreign_admission(self):
+        observer = load('owned_windows121_ref_observer', ROOT/'tests/windows-backups-worker-observer.py')
+        approved = 'embire2/openwebpbx/.github/workflows/windows-suite.yml@refs/heads/qualification/windows121-deploy-20261025'
+        self.assertIn(approved, observer.WORKFLOW_REFS)
+        self.assertIn(REF, observer.WORKFLOW_REFS)
+        for value in (approved+'-other', approved+'/', approved.replace('heads/','tags/'),
+                      approved.replace('embire2/openwebpbx','foreign/openwebpbx'),
+                      approved.replace('windows-suite.yml','windows-native.yml'),
+                      approved.replace('20261025','20261026')):
+            self.assertNotIn(value, observer.WORKFLOW_REFS)
+        actual=self.entry(workflow_ref=approved)
+        self.assertIsNone(actual['caught'])
+        self.assertTrue(actual['entered'])
+        self.assertTrue(actual['report']['action_restored'])
+
     def setUp(self):
         if os.name != 'posix':
             self.skipTest('These POSIX-only Scheduler adapters use synthetic C: path components.')
@@ -36,7 +51,7 @@ class Controls(unittest.TestCase):
         self.pwsh = os.environ.get('OPENWEB_TEST_PWSH') or shutil.which('pwsh')
         self.assertTrue(self.pwsh)
 
-    def entry(self, approved=True, body_error=None, task_change=None):
+    def entry(self, approved=True, body_error=None, task_change=None, workflow_ref=REF):
         if os.name != 'posix':
             raise RuntimeError('The synthetic C: path fixture requires a POSIX host.')
         with tempfile.TemporaryDirectory(prefix='openweb-observer-entry-') as temporary:
@@ -70,7 +85,7 @@ class Controls(unittest.TestCase):
                 atomic_json=lambda path,value:Path(path).write_text(json.dumps(value), encoding='utf-8'))
             environment = os.environ|{'GITHUB_ACTIONS':'true','OPENWEB_WINDOWS_BACKUP_TEST':'1',
                 'GITHUB_RUN_ID':'40100370382','GITHUB_SHA':'b3225ed98f8c0860ac215fa462ae80e894795b0e',
-                'GITHUB_REPOSITORY':'embire2/openwebpbx','GITHUB_WORKFLOW_REF':REF,
+                'GITHUB_REPOSITORY':'embire2/openwebpbx','GITHUB_WORKFLOW_REF':workflow_ref,
                 'ProgramData':str(root/'ProgramData')}
             previous = Path.cwd()
             allowed = self.observer.WORKFLOW_REFS if approved else self.observer.WORKFLOW_REFS-{REF}
@@ -96,7 +111,7 @@ class Controls(unittest.TestCase):
                 os.chdir(previous)
             self.assertEqual(json.loads(state.read_text()), original)
             if config:
-                self.assertEqual(config['workflow_ref'], REF)
+                self.assertEqual(config['workflow_ref'], workflow_ref)
                 self.assertEqual(config['source_sha256'], hashlib.sha256(installed.read_bytes()).hexdigest())
                 self.assertEqual(config['launcher_sha256'], hashlib.sha256(lease.launcher.read_bytes()).hexdigest())
             return {'caught':caught,'entered':entered,'commands':commands,'report':report,'fields':fields,

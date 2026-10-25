@@ -524,6 +524,16 @@ def compare_snapshots(before, after, mode, *, target_baseline=None):
     # are equally protected; tenant-only rows cannot establish full SQL restore.
     a = {k: v for k, v in before['all_table_values'].items() if k not in exclusions}
     b = {k: v for k, v in after['all_table_values'].items() if k not in exclusions}
+    if 'v_pbx_greeting_status' in a or 'v_pbx_greeting_status' in b:
+        # Retain the raw table receipt and all other columns/rows/schema. Only
+        # the validated singleton's execution heartbeat is projected in equality.
+        for snapshot, values in ((before,a),(after,b)):
+            proof=snapshot.get('greeting_heartbeat');raw=values.get('v_pbx_greeting_status')
+            if (type(proof) is not dict or set(proof)!={'rows','hmac','raw_hmac'} or type(raw) is not dict or set(raw)!={'rows','hmac'}
+                    or type(proof['rows']) is not int or not 0<=proof['rows']<=1 or type(raw['rows']) is not int or proof['rows']!=raw['rows']
+                    or proof['raw_hmac']!=raw['hmac'] or any(type(proof[k]) is not str or re.fullmatch('[a-f0-9]{64}',proof[k]) is None for k in ('hmac','raw_hmac'))):
+                raise ValueError('The exact raw-bound greeting heartbeat projection is required.')
+            values['v_pbx_greeting_status']={'rows':proof['rows'],'hmac':proof['hmac']}
     if mode == 'source-restored' and ('v_sip_profile_settings' in a or 'v_sip_profile_settings' in b):
         if not isinstance(target_baseline,dict):
             raise ValueError('The replacement installation baseline is required for meeting rebinding.')

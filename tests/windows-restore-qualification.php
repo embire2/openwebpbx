@@ -120,6 +120,22 @@ function restore_fixture_meeting_rebind(PDO $db,array $rows,string $key): array 
     return ['rows'=>count($rows),'hmac'=>restore_fixture_rows_digest($projected,$key),'binding'=>restore_fixture_digest($expected,$key)];
 }
 
+function restore_fixture_greeting_heartbeat(array $rows,string $key): array {
+    if(count($rows)>1)throw new RuntimeException('Greeting heartbeat must retain its exact singleton inventory.');
+    $projected=[];
+    foreach($rows as $row){
+        if(!$row instanceof stdClass)throw new RuntimeException('Greeting heartbeat row is malformed.');
+        $fields=array_keys(get_object_vars($row));sort($fields,SORT_STRING);
+        if($fields!==['checked_at','provider_configured','singleton']||!is_int($row->singleton)||$row->singleton!==1||!is_bool($row->provider_configured)
+            ||!is_string($row->checked_at)||!preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/D',$row->checked_at))
+            throw new RuntimeException('Greeting heartbeat schema or values changed.');
+        $time=new DateTimeImmutable($row->checked_at);$errors=DateTimeImmutable::getLastErrors();
+        if($errors!==false&&($errors['warning_count']||$errors['error_count']))throw new RuntimeException('Greeting heartbeat time is malformed.');
+        $copy=clone $row;$copy->checked_at='__openweb_worker_heartbeat__';$projected[]=$copy;
+    }
+    return ['rows'=>count($rows),'hmac'=>restore_fixture_rows_digest($projected,$key),'raw_hmac'=>restore_fixture_rows_digest($rows,$key)];
+}
+
 function restore_fixture_snapshot_shape(array $out): void {
     if(($out['schema']??null)!==1||!in_array($out['role']??'', ['source','target'],true)
         ||!preg_match('/^[a-f0-9]{24}$/D',$out['scope']??'')||!preg_match('/^[a-z0-9-]{1,48}$/D',$out['label']??''))throw new RuntimeException('Private snapshot identity is incomplete.');
@@ -152,6 +168,12 @@ function restore_fixture_snapshot_shape(array $out): void {
             ||$proof['rows']!==$out['all_table_values']['v_sip_profile_settings']['rows']
             ||!preg_match('/^[a-f0-9]{64}$/D',$proof['hmac'])||!preg_match('/^[a-f0-9]{64}$/D',$proof['binding']))
             throw new RuntimeException('The complete validated local meeting rebind evidence is required.');
+    }
+    if(isset($out['all_table_values']['v_pbx_greeting_status'])){
+        $proof=$out['greeting_heartbeat']??null;$raw=$out['all_table_values']['v_pbx_greeting_status'];
+        if(!is_array($proof)||array_keys($proof)!==['rows','hmac','raw_hmac']||!is_int($proof['rows'])||$proof['rows']<0||$proof['rows']>1
+            ||$proof['rows']!==$raw['rows']||!preg_match('/^[a-f0-9]{64}$/D',$proof['hmac']??'')||($proof['raw_hmac']??null)!==$raw['hmac'])
+            throw new RuntimeException('The exact raw-bound greeting heartbeat projection is required.');
     }
     if(!array_key_exists('source_phone_tuples',$out)||($out['source_phone_tuples']!==null&&!preg_match('/^[a-f0-9]{64}$/D',$out['source_phone_tuples'])))throw new RuntimeException('Private phone preservation evidence is malformed.');
 }
@@ -375,6 +397,7 @@ function restore_fixture_main(array $argv): void {
             if(!preg_match('/^v_[a-z0-9_]+$/D',$table))throw new RuntimeException('An unexpected public table prevents complete qualification evidence.');
             $sql='select row_to_json(t) from "'.$table.'" t';$rows=array_map(static fn(string $r):mixed=>json_decode($r,false,512,JSON_THROW_ON_ERROR),$q($sql)->fetchAll(PDO::FETCH_COLUMN));
             $out['all_table_values'][$table]=['rows'=>count($rows),'hmac'=>restore_fixture_rows_digest($rows,$key)];
+            if($table==='v_pbx_greeting_status')$out['greeting_heartbeat']=restore_fixture_greeting_heartbeat($rows,$key);
             if($table==='v_sip_profile_settings')$out['meeting_rebind']=restore_fixture_meeting_rebind($db,$rows,$key);
             if($table==='v_pbx_phone_health_recoveries'){
                 // Every column and row is included. Only the documented
