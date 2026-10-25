@@ -43,6 +43,11 @@ try{
  $id=$admin->create($input);$id2=$admin->create($input);$all=$admin->all();$ok(count($all)===2&&$all[0]['name']!==$all[1]['name'],'Blank names produce unique suitable names');
  foreach([['category'=>'invalid'],['source'=>'unknown'],['target_number'=>'not-a-number'],['caller_extension'=>'9999'],['company_name'=>''],['source'=>'text','script'=>''],['source'=>'text','script'=>str_repeat('x',3001)],['name'=>['bad']]]as$bad)$deny(fn()=>$admin->create(array_replace($input,$bad)),'Invalid greeting request refused');
  $outside=$admin->create(array_replace($input,['target_number'=>'+27110000001']));$ok(is_uuid($outside),'Outside number is queued without dialling from HTTP');
+ $script="Hello.\r\nWelcome to our company.\nPlease hold\twhile we connect you.";
+ $multiline=$admin->create(array_replace($input,['source'=>'text','script'=>$script]));
+ $ok($q('select script from v_pbx_greetings where greeting_uuid=?',[$multiline])->fetchColumn()===$script,'Multiline text greeting preserves CRLF, LF and ordinary tab characters');
+ foreach(["\0","\x0b","\x0c","\x1b","\x7f"] as $control)$deny(fn()=>$admin->create(array_replace($input,['source'=>'text','script'=>'Hello'.$control.'caller.'])),'Forbidden controls remain rejected in multiline greeting text');
+ foreach(['name'=>"Office\nGreeting",'company_name'=>"Company\rName",'target_number'=>"1000\n",'caller_extension'=>"1000\t"] as $field=>$value)$deny(fn()=>$admin->create(array_replace($input,[$field=>$value])),'Non-script greeting fields remain single-line');
  $dir=pbx_paths::media().'/'.$a.'/greetings/'.$id;mkdir($dir,0700,true);$path=$dir.'/audio.wav';file_put_contents($path,str_repeat('x',2000));
  $q('insert into v_pbx_media values(?,?,\'prompts\',?,\'Ready fixture\',?,null,now())',[$id,$a,$path,'greetings/'.$id]);
  $q('insert into v_recordings values(?,?,?,\'Ready fixture\')',[uuid(),$a,$path]);$q('update v_pbx_greetings set state=\'ready\',media_uuid=greeting_uuid where greeting_uuid=?',[$id]);

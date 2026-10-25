@@ -15,8 +15,9 @@ class pbx_greetings {
             !(new pbx_staff_access($this->db))->owner())throw new DomainException('PBX administrator access is required for Greetings.');
     }
     private function q(string $sql,array $args=[]): PDOStatement {$s=$this->db->prepare($sql);$s->execute($args);return $s;}
-    private function text(array $in,string $name,int $max=120): string {
-        $s=$in[$name]??'';if(!is_string($s)||mb_strlen($s)>$max||preg_match('/[\x00-\x1f\x7f]/u',$s))throw new InvalidArgumentException('Enter a valid '.str_replace('_',' ',$name).'.');return trim($s);
+    private function text(array $in,string $name,int $max=120,bool $multiline=false): string {
+        $controls=$multiline?'/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/u':'/[\x00-\x1f\x7f]/u';
+        $s=$in[$name]??'';if(!is_string($s)||mb_strlen($s)>$max||preg_match($controls,$s))throw new InvalidArgumentException('Enter a valid '.str_replace('_',' ',$name).'.');return trim($s);
     }
     public function installed(): bool {$this->access();return (bool)$this->q("select to_regclass('v_pbx_greetings') is not null and to_regclass('v_pbx_greeting_uses') is not null and to_regclass('v_pbx_greeting_status') is not null")->fetchColumn();}
     public function readiness(): array {
@@ -42,7 +43,7 @@ class pbx_greetings {
             if(isset($config['users'][$target])) {if(empty($config['users'][$target]['enabled']))throw new InvalidArgumentException('Choose an enabled phone.');}
             elseif(!preg_match('/^\+?[0-9]{7,18}$/D',$target))throw new InvalidArgumentException('Enter an extension from this PBX or an outside telephone number.');
         } else {
-            $script=$this->text($in,'script',3000);if($script==='')throw new InvalidArgumentException('Type the greeting Keoma should record.');
+            $script=$this->text($in,'script',3000,true);if($script==='')throw new InvalidArgumentException('Type the greeting Keoma should record.');
         }
         if(!$this->readiness()['ready'])throw new InvalidArgumentException($this->readiness()['message']);
         $id=uuid();if($name==='')$name=self::CATEGORIES[$category].' '.gmdate('Y-m-d H:i').' '.substr($id,0,8);$this->db->beginTransaction();
