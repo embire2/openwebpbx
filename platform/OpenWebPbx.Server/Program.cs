@@ -26,6 +26,7 @@ if (!string.IsNullOrWhiteSpace(connection))
     builder.Services.AddHostedService<JobWorker>();
     builder.Services.AddHostedService<CallMeBackWorker>();
     builder.Services.AddHostedService<CallMeBackPromptWorker>();
+    builder.Services.AddHostedService<GreetingWorker>();
     builder.Services.AddHostedService<MobileStateWorker>();
     builder.Services.AddHostedService<QueueStateWorker>();
     builder.Services.AddHostedService<CallRecordWorker>();

@@ -79,6 +79,9 @@ if (isset($applications['/app/pbx_setup/']) && !(new pbx_setup)->canManage()) un
 if ((new pbx_tenants)->installed() && (new pbx_tenants)->workspaceOnly() && !permission_exists('domain_all')) {
     $applications = array_filter($applications, fn($app) => str_contains($app['url'], '/app/tenant_services/') || str_contains($app['url'], '/app/pbx_setup/'));
 }
+if ((new pbx_staff_access)->owner() && (new pbx_admin)->restored()) {
+    $applications['/app/pbx_greetings/'] = ['id'=>'greetings','title'=>'Greetings','url'=>PROJECT_PATH.'/app/pbx_greetings/','group'=>'Admin','icon'=>'fa-solid fa-microphone-lines'];
+}
 if (permission_exists('user_edit') || permission_exists('user_view')) {
     $applications['/core/users/user_profile.php'] = ['id' => 'profile', 'title' => 'My Profile',
         'url' => PROJECT_PATH.'/core/users/user_profile.php', 'group' => 'Workspace', 'icon' => 'fa-solid fa-user'];
