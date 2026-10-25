@@ -8,6 +8,14 @@ The PBX identifies your registered phone account, including restored accounts wh
 
 Dial **1026** for Keoma's talking clock. After a short “South African time” welcome, speech starts immediately. The clock announces the upcoming signal every **15 seconds**, using **South African Standard Time, GMT+2**, including seconds: “When you hear the signal, it will be nineteen hours, sixteen minutes and fifteen seconds exactly.” Quiet ticks fill the wait before each beep. It uses 24-hour time independently of the PBX's office-hours timezone. Hang up when finished; a call ends automatically after 30 minutes. Telephone/network delay affects when you hear the signal.
 
+## Email a recording and remove it from the mailbox
+
+An administrator can choose an email attachment or an attachment followed by mailbox deletion in the user's voicemail settings. All notifications use the instance's **Outgoing Mail** server. WAV attachments play in ordinary desktop media players.
+
+The new hosted21 mail path keeps a durable audio copy while sending. Missing audio or an outgoing-server refusal keeps the voicemail for recovery. With attachment-and-delete selected, cleanup follows successful SMTP acceptance; temporary audio is then removed after mailbox/file cleanup is verified. A successful outgoing-server response does not prove delivery to a recipient's inbox. Existing custom greetings and unrelated messages are preserved.
+
+The actual producer, PostgreSQL concurrency/failure handling, playable MIME attachment, SMTP acceptance/deletion ordering, permission failures and welcome QR/config compatibility have focused tests. The controlled live voicemail/email check and Windows attachment-and-delete qualification are being completed separately. Complete public Debian16/Windows20 packages retain their original mail code until upgraded.
+
 ## Deployment and preservation
 
 Both services are active on hosted core **1.0.21**, updated **25 October 2026**. Default voicemail now uses **Keoma stock voice1.0.2** and the talking clock uses **1.0.3**. Its [catalogue](../app/pbx_setup/resources/talking-clock/1.0.3/catalog.json) and [audio manifest](../app/pbx_setup/resources/talking-clock/1.0.3/audio-manifest.json) bind the new phrases, shared digits and exact timing dependencies. All 4,915 stock spoken files use Keoma; custom greetings, music and non-speech ticks are preserved. Playback works offline. Earlier Nathaniel catalogues remain as historical provenance.

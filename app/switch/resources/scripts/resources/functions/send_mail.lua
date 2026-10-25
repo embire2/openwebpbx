@@ -68,6 +68,18 @@ if (email_queue_enabled == 'true') then
 		local email_queue_uuid = api:executeString("create_uuid");
 		local hostname = api:executeString("hostname");
 
+		-- Attach-style voicemail must publish its header and immutable audio together.
+		-- Link-only notices and unrelated mail retain their existing queue behavior.
+		if email_type == 'voicemail' and headers['X-OpenWebPBX-Voicemail-Attachment'] == 'required' then
+			local queued, err = require('resources.functions.voicemail_mail_queue').enqueue(db, {
+				queue=email_queue_uuid, attachment=api:executeString('create_uuid'), domain=domain_uuid,
+				hostname=hostname, sender=email_from, recipient=email_address, subject=email_subject,
+				body=email_body, message=email_uuid, after=email_action_after,
+			}, email_file, email_base64)
+			if not queued then log.err(err) end
+			return queued, err
+		end
+
 		--insert the message into the email queue
 		local sql = "insert into v_email_queue ( ";
 		sql = sql .. "	email_queue_uuid, ";
@@ -80,6 +92,7 @@ if (email_queue_enabled == 'true') then
 		sql = sql .. "	email_body, ";
 		sql = sql .. "	email_status, ";
 		sql = sql .. "	email_uuid, ";
+		sql = sql .. "	email_action_before, ";
 		sql = sql .. "	email_action_after, ";
 		sql = sql .. "	insert_date ";
 		sql = sql .. ") ";
@@ -94,6 +107,7 @@ if (email_queue_enabled == 'true') then
 		sql = sql .. "	:email_body, ";
 		sql = sql .. "	:email_status, ";
 		sql = sql .. "	:email_uuid, ";
+		sql = sql .. "	:email_action_before, ";
 		sql = sql .. "	:email_action_after, ";
 		sql = sql .. "	now() ";
 		sql = sql .. ") ";
@@ -107,6 +121,7 @@ if (email_queue_enabled == 'true') then
 			email_body = email_body;
 			email_status = email_status;
 			email_uuid = email_uuid;
+			email_action_before = email_type == 'voicemail' and headers['X-OpenWebPBX-Voicemail-Attachment'] == 'none' and 'voicemail-link-v1' or '';
 			email_action_after = email_action_after;
 		}
 		db:query(sql, params);

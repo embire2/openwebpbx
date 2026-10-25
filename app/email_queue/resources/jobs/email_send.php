@@ -100,7 +100,7 @@ if (!pbx_mail_dispatch::claim($database->db, $email_queue_uuid)) exit;
 		$email_status = $row["email_status"];
 		$email_retry_count = $row["email_retry_count"];
 		$email_uuid = $row["email_uuid"];
-		//$email_action_before = $row["email_action_before"];
+		$email_action_before = $row["email_action_before"];
 		$email_action_after = $row["email_action_after"];
 	}
 	unset($parameters);
@@ -122,11 +122,13 @@ if (!pbx_mail_dispatch::claim($database->db, $email_queue_uuid)) exit;
 
 //get the voicemail details
 	$sql = "select * from v_voicemails ";
-	$sql .= "where voicemail_uuid in ( ";
+	$sql .= "where domain_uuid = :vm_domain and voicemail_uuid in ( ";
 	$sql .= "	select voicemail_uuid from v_voicemail_messages	";
-	$sql .= "	where voicemail_message_uuid = :voicemail_message_uuid ";
+	$sql .= "	where domain_uuid = :vm_message_domain and voicemail_message_uuid = :voicemail_message_uuid ";
 	$sql .= ") ";
 	$parameters['voicemail_message_uuid'] = $email_uuid;
+	$parameters['vm_domain'] = $domain_uuid;
+	$parameters['vm_message_domain'] = $domain_uuid;
 	$row = $database->select($sql, $parameters, 'row');
 	if (is_array($row)) {
 		//$domain_uuid = $row["domain_uuid"];
@@ -158,6 +160,19 @@ if (!pbx_mail_dispatch::claim($database->db, $email_queue_uuid)) exit;
 	$sql .= "where email_queue_uuid = :email_queue_uuid ";
 	$parameters['email_queue_uuid'] = $email_queue_uuid;
 	$email_queue_attachments = $database->select($sql, $parameters, 'all');
+	$voicemail_attachment_required = $email_action_before === pbx_voicemail_mail::REQUIRED
+		|| (!empty($voicemail_id) && ($email_action_after === 'delete'
+			|| ($email_action_before !== 'voicemail-link-v1' && ($voicemail_file ?? '') === 'attach')));
+	$voicemail_attachment_error = false;
+	if ($voicemail_attachment_required) {
+		try {
+			$email_queue_attachments = pbx_voicemail_mail::stage($database->db, $email_queue_uuid, $domain_uuid, $email_uuid);
+		} catch (Throwable $error) {
+			// No SMTP attempt or mailbox cleanup may follow an unavailable audio snapshot.
+			$voicemail_attachment_error = true;
+			$email_queue_attachments = [];
+		}
+	}
 	if (is_array($email_queue_attachments) && @sizeof($email_queue_attachments) != 0) {
 		foreach($email_queue_attachments as $i => $field) {
 
@@ -263,7 +278,8 @@ if (!pbx_mail_dispatch::claim($database->db, $email_queue_uuid)) exit;
 			$email_attachments[$i]['cid'] = $field['email_attachment_cid'];
 			$email_attachments[$i]['mime_type'] = $email_attachment_mime_type;
 			$email_attachments[$i]['name'] = $email_attachment_name;
-			$email_attachments[$i]['path'] = $email_attachment_path;
+			// A staged voicemail always sends the immutable DB copy, never a later edited file.
+			$email_attachments[$i]['path'] = $voicemail_attachment_required ? '' : $email_attachment_path;
 			$email_attachments[$i]['base64'] = $field['email_attachment_base64'];
 		}
 	}
@@ -304,7 +320,7 @@ if (!pbx_mail_dispatch::claim($database->db, $email_queue_uuid)) exit;
 	}
 
 //clear the array if this is a voicemail and file attachment is not enabled
-	if (!empty($email_uuid) && !empty($voicemail_file) && $voicemail_file !== 'attach') {
+	if (!$voicemail_attachment_required && !empty($email_uuid) && !empty($voicemail_file) && $voicemail_file !== 'attach') {
 	    $email_attachments = '';
 	}
 
@@ -323,7 +339,13 @@ if (!pbx_mail_dispatch::claim($database->db, $email_queue_uuid)) exit;
 	}
 	$email->debug_level = 3;
 	$email->method = 'direct';
-	$email_status = $email->send();
+	if ($voicemail_attachment_error) {
+		$email_status = false;
+		$email->error = 'Required voicemail audio is unavailable. The mailbox message is retained.';
+		$email->response = 'voicemail_attachment_unavailable';
+	} else {
+		$email_status = $email->send();
+	}
 	$email_error = $email->error;
 	$email_response = $email->response;
 	if (preg_match('/^[45][0-9]{2}$/D', $email->delivery_reply_code)) {
@@ -384,12 +406,20 @@ if (!pbx_mail_dispatch::claim($database->db, $email_queue_uuid)) exit;
 
 			//delete the voicemail message from the database
 			$sql = "delete from v_voicemail_messages ";
-			$sql .= "where voicemail_message_uuid = :voicemail_message_uuid; ";
+			$sql .= "where domain_uuid = :delete_domain and voicemail_message_uuid = :voicemail_message_uuid; ";
 			$parameters['voicemail_message_uuid'] = $email_uuid;
+			$parameters['delete_domain'] = $domain_uuid;
 			//echo $sql."\n";
 			//print_r($parameters);
 			$database->execute($sql, $parameters);
 			unset($parameters);
+
+			if ($voicemail_attachment_required && !pbx_voicemail_mail::clearDeleted($database->db, $email_queue_uuid, $domain_uuid, $email_uuid, $email_queue_attachments)) {
+				$database->execute("update v_email_queue set email_response=coalesce(email_response,'')||:notice where email_queue_uuid=:queue and domain_uuid=:domain", [
+					'notice'=>"\nvoicemail_cleanup_incomplete: delivered audio retained until mailbox cleanup completes",
+					'queue'=>$email_queue_uuid,'domain'=>$domain_uuid,
+				]);
+			}
 
 			//get the domain_name
 			$sql = "select domain_name from v_domains ";

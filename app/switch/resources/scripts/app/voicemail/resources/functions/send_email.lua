@@ -224,6 +224,7 @@ function send_email(id, uuid)
 					["X-FusionPBX-Call-UUID"] = uuid;
 					["X-FusionPBX-Email-Type"] = 'voicemail';
 					["X-FusionPBX-local_after_email"] = local_after_email;
+					["X-OpenWebPBX-Voicemail-Attachment"] = voicemail_file == 'attach' and 'required' or 'none';
 				}
 
 			--prepare the voicemail_name_formatted
@@ -343,8 +344,8 @@ function send_email(id, uuid)
 					smtp_from,
 					voicemail_mail_to,
 					{subject, body},
-					voicemail_path,
-					voicemail_base64
+					voicemail_file == 'attach' and voicemail_path or nil,
+					voicemail_file == 'attach' and voicemail_base64 or nil
 				);
 
 		end

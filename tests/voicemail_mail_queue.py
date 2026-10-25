@@ -72,7 +72,7 @@ def main():
         pg('initdb','-D',cluster,'--auth-local=trust','--auth-host=reject','--encoding=UTF8','--locale=C')
         pg('pg_ctl','-D',cluster,'-l',cluster/'server.log','-o',f"-h '' -k {cluster} -p {port}",'-w','start'); started=True
         sql('''CREATE TABLE v_default_settings(default_setting_uuid text,default_setting_category text,default_setting_subcategory text,default_setting_name text,default_setting_value text,default_setting_enabled boolean,default_setting_order integer);
-CREATE TABLE v_email_queue(email_queue_uuid uuid PRIMARY KEY,domain_uuid uuid,hostname text,email_date timestamptz,email_from text NOT NULL,email_to text,email_subject text,email_body text,email_status text,email_uuid uuid,email_action_after text,insert_date timestamptz);
+CREATE TABLE v_email_queue(email_queue_uuid uuid PRIMARY KEY,domain_uuid uuid,hostname text,email_date timestamptz,email_from text NOT NULL,email_to text,email_subject text,email_body text,email_status text,email_uuid uuid,email_action_before text,email_action_after text,insert_date timestamptz);
 CREATE TABLE v_email_queue_attachments(email_queue_attachment_uuid uuid PRIMARY KEY,email_queue_uuid uuid REFERENCES v_email_queue,email_attachment_mime_type text,email_attachment_type text,email_attachment_path text,email_attachment_name text,email_attachment_base64 text,domain_uuid uuid,insert_date timestamptz);''')
         result = subprocess.run(['lua',str(ROOT/'tests/voicemail_mail_queue.lua'),str(ROOT)],capture_output=True,check=True,timeout=20)
         cases=json.loads(result.stdout)['cases']

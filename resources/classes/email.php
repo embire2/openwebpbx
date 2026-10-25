@@ -591,17 +591,36 @@ class email {
 				//add email attachments
 				if (is_array($this->attachments) && sizeof($this->attachments) > 0) {
 					foreach ($this->attachments as $attachment) {
+						$attachment_path = $attachment['path'] ?? '';
+						$attachment_name = $attachment['name'] ?? '';
+						$attachment_mime = $attachment['mime_type'] ?? 'application/octet-stream';
 
 						//add the attachments
-						if (file_exists($attachment['path'] . '/' . $attachment['name'])) {
-							$mail->AddAttachment($attachment['path'] . '/' . $attachment['name'], $attachment['name'], 'base64', $attachment['mime_type']);
+						if ($attachment_path !== '' && is_file($attachment_path . '/' . $attachment_name)) {
+							if (!$mail->AddAttachment($attachment_path . '/' . $attachment_name, $attachment_name, 'base64', $attachment_mime)) {
+								throw new RuntimeException('A requested email attachment is unavailable.');
+							}
 						} else {
-							if ($attachment['base64']) {
-								if ($attachment['cid']) {
-									$mail->addStringEmbeddedImage(base64_decode($attachment['base64']), $attachment['cid'], $attachment['name'], 'base64', $attachment['mime_type']);
+							if (isset($attachment['base64']) && is_string($attachment['base64']) && ($attachment['base64'] !== '' || $attachment_path === '')) {
+								$bytes = base64_decode($attachment['base64'], true);
+								if ($bytes === false) throw new RuntimeException('A requested email attachment is invalid.');
+								if (!empty($attachment['cid'])) {
+									$attached = $mail->addStringEmbeddedImage($bytes, $attachment['cid'], $attachment_name, 'base64', $attachment_mime);
+									if ($attached === false) throw new RuntimeException('A requested inline attachment could not be included.');
 								} else {
-									$mail->AddStringAttachment(base64_decode($attachment['base64']), $attachment['name'], 'base64', $attachment['mime_type']);
+									// This bundled PHPMailer method returns void. Verify its real
+									// attachment inventory instead of mistaking null for failure.
+									$before_count = count($mail->getAttachments());
+									$mail->AddStringAttachment($bytes, $attachment_name, 'base64', $attachment_mime);
+									$inventory = $mail->getAttachments();
+									$expected = [$bytes, $attachment_name, basename($attachment_name), 'base64',
+										$attachment_mime !== '' ? $attachment_mime : PHPMailer::filenameToType($attachment_name), true, 'attachment', 0];
+									if (count($inventory) !== $before_count + 1 || ($inventory[$before_count] ?? null) !== $expected) {
+										throw new RuntimeException('A requested email attachment could not be included.');
+									}
 								}
+							} else {
+								throw new RuntimeException('A requested email attachment is unavailable.');
 							}
 						}
 					}
