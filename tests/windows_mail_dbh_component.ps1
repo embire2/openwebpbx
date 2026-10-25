@@ -30,17 +30,73 @@ try{
  $launcher=Join-Path $work 'install.ps1';$code=@'
 param([string]$InputPath)
 $ErrorActionPreference='Stop'
+function ErrorRowJson([object]$Record) {
+ $types=@('System.Management.Automation.RuntimeException','System.Management.Automation.ActionPreferenceStopException','System.Management.Automation.CommandNotFoundException','System.Management.Automation.ParameterBindingException','System.Management.Automation.MethodInvocationException','System.Management.Automation.PSInvalidCastException','System.Management.Automation.ItemNotFoundException','System.Management.Automation.CmdletInvocationException','System.Management.Automation.PSArgumentException','System.Management.Automation.PSNotSupportedException','System.InvalidOperationException','System.UnauthorizedAccessException','System.IO.IOException','System.ComponentModel.Win32Exception','System.Net.WebException','System.Exception','Microsoft.PowerShell.Commands.WriteErrorException')
+ $sources=@('Backup-Control.ps1','CallRecords.Common.ps1','Configure-PHP.ps1','Dtls.Common.ps1','Enable-PhoneTLS.ps1','Enable-PublicAccess.ps1','Enable-Stun.ps1','Ensure-Runtime.ps1','File-Security.ps1','Install-Backups.ps1','Install-Dtls.ps1','Install-LocalCodec.ps1','Install-MailQueue.ps1','Install-Meet.ps1','Install-NativeEngine.ps1','Install-OpenWebPBX.ps1','Install-PhoneHealth.ps1','Install-TenantDomains.ps1','Install-Updater.ps1','Install-Voices.ps1','InstallFromManager.ps1','Meet-Proxy.ps1','Phone-Health.ps1','PhoneHealth-Firewall.Common.ps1','PhoneHealth-Firewall.ps1','PhoneHealth-Security.ps1','PhpRuntime.Common.ps1','PublicAccess.Common.ps1','Register-ManagerRestart.ps1','Remove-Updater.ps1','Renew-PhoneCertificate.ps1','Restart-Updater.ps1','Restore-Gates.ps1','Support-Recovery.ps1','Tenant-Domains.ps1','Test-PhoneTLS.ps1','Upgrade-LegacyWindows.ps1','Upgrade-OpenWebPBX.ps1','UpgradeRecovery.Common.ps1','Web-Readiness.ps1','Write-PrivateState.ps1','configure-notifications.ps1','external_component','install.ps1')
+ $type='other';$name='external_component';$line=0;$known=$false;$origin='external_component';$originLine=0;$originKnown=$false
+ if($Record-is [Management.Automation.ErrorRecord]){
+  $value=$Record.Exception.GetType().FullName;if($value-cin $types){$type=$value}
+  $value=[IO.Path]::GetFileName([string]$Record.InvocationInfo.ScriptName);if($value-cin $sources-and $value-cne 'external_component'){$name=$value;$known=$true}
+  $value=$Record.InvocationInfo.ScriptLineNumber;if($value-is [int]-and $value-ge 0-and $value-le 100000){$line=$value}
+  $stack=[string]$Record.ScriptStackTrace
+  if($stack.Length-le 8192){$end=$stack.IndexOf("`n");$first=if($end-ge 0){$stack.Substring(0,$end).TrimEnd("`r")}else{$stack};$frame=[regex]::Match($first,'^at [^,
+]{1,200}, (.{1,4096}): line ([0-9]{1,6})$');if($frame.Success){$value=[IO.Path]::GetFileName($frame.Groups[1].Value);if($value-cin $sources-and $value-cne 'external_component'){$origin=$value;$originKnown=$true};$value=[int]$frame.Groups[2].Value;if($value-le 100000){$originLine=$value}}}
+ }
+ $fields=[Collections.Generic.List[string]]::new();$fields.Add('"error_type":"'+$type+'"');$fields.Add('"source_basename":"'+$name+'"');$fields.Add('"source_line":'+$line);$fields.Add('"source_known":'+$known.ToString().ToLowerInvariant())
+ $fields.Add('"origin_basename":"'+$origin+'"');$fields.Add('"origin_line":'+$originLine);$fields.Add('"origin_known":'+$originKnown.ToString().ToLowerInvariant())
+ if($Record-is [Management.Automation.ErrorRecord]){
+  foreach($key in 'command_basename','caller_basename'){
+   if($Record.Exception.Data.Contains($key)){$value=$Record.Exception.Data[$key];$valid=if($key-ceq 'caller_basename'){$value-is [string]-and $value-cin $sources-and $value-cne 'external_component'}else{$value-is [string]-and $value-cin @('dotnet.exe','msiexec.exe','cmd.exe','netsh.exe','icacls.exe','sc.exe','powershell.exe','php.exe','pg_ctl.exe','psql.exe','createdb.exe','initdb.exe','pg_isready.exe','FreeSwitchConsole.exe','certutil.exe','reg.exe','schtasks.exe','wacs.exe')};if($valid){$fields.Add('"'+$key+'":"'+$value+'"')}}
+  }
+  foreach($key in 'command_exit','caller_line'){
+   if($Record.Exception.Data.Contains($key)){$value=$Record.Exception.Data[$key];if(($value-is [int]-or $value-is [long])-and (($key-ceq 'command_exit'-and $value-ge -2147483648-and $value-le 4294967295)-or ($key-ceq 'caller_line'-and $value-ge 0-and $value-le 100000))){$fields.Add('"'+$key+'":'+$value.ToString([Globalization.CultureInfo]::InvariantCulture))}}
+  }
+ }
+ return '{'+[String]::Join(',',$fields)+'}'
+}
+function WriteInstallerFailure([object]$Caught,[object[]]$Recent,[string]$InputPath){
+ $rows=[Collections.Generic.List[string]]::new();foreach($item in $Recent){if($rows.Count-ge 8){break};if($item-is [Management.Automation.ErrorRecord]){$rows.Add((ErrorRowJson $item))}}
+ $json='{"schema":1,"state":"failed","caught":'+(ErrorRowJson $Caught)+',"recent_errors":['+[String]::Join(',',$rows)+']}'
+ $raw=[Text.UTF8Encoding]::new($false).GetBytes($json);if($raw.Length-gt 8192){return}
+ $path=[IO.Path]::Combine([IO.Path]::GetDirectoryName($InputPath),'install-error.safe.json');$file=[IO.File]::Open($path,'CreateNew','Write','None');try{$file.Write($raw);$file.Flush($true)}finally{$file.Dispose()}
+}
+try{
 $record=Get-Content $InputPath -Raw|ConvertFrom-Json
 $password=ConvertTo-SecureString $record.password -AsPlainText -Force
 & (Join-Path $record.package 'Install-OpenWebPBX.ps1') -RestoreServer -LocalCertificate -DomainName $record.domain -PublicAddress '127.0.0.1' -AdminEmail 'fixture@example.invalid' -AdminPassword $password
-if(!$?){exit 1}
+if(!$?){try{WriteInstallerFailure $null @($Error) $InputPath}catch{};exit 1}
+}catch{try{WriteInstallerFailure $_ @($Error) $InputPath}catch{};exit 1}
 '@
  [IO.File]::WriteAllText($launcher,$code,[Text.UTF8Encoding]::new($false));$report.stage='original_installer';$installed=$true
  # Preserve the original suite's40-minute installer boundary. Its services are
  # intentional SCM children; the separate probe uses the original owned Job240.
  $native=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
  $installer=Start-Process -FilePath $native -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$launcher,'-InputPath',$input) -PassThru -RedirectStandardOutput (Join-Path $work 'install.stdout.private.log') -RedirectStandardError (Join-Path $work 'install.stderr.private.log')
- try{if(!$installer.WaitForExit(2400000)){throw 'Original installation remains running; no interruption or cleanup is inferred.'};if($installer.ExitCode){throw 'Original accepted20 installer refused.'}}finally{$installer.Dispose();Remove-Item -LiteralPath $input -Force -ErrorAction SilentlyContinue}
+ try{
+  if(!$installer.WaitForExit(2400000)){throw 'Original installation remains running; no interruption or cleanup is inferred.'}
+  if($installer.ExitCode){
+   $exit=$installer.ExitCode;if(($exit-is [int]-or $exit-is [long])-and $exit-ge -2147483648-and $exit-le 4294967295){$report.installer_exit=$exit}
+   try{
+    $errorPath=Join-Path $work 'install-error.safe.json';$item=Get-Item -LiteralPath $errorPath -Force
+    if($item.PSIsContainer-or ($item.Attributes-band [IO.FileAttributes]::ReparsePoint)-or $item.Length-gt 8192){throw 'Closed installer failure unavailable.'}
+    $closed=Get-Content -LiteralPath $errorPath -Raw|ConvertFrom-Json
+    if($closed.schema-isnot [long]-or $closed.schema-ne 1-or $closed.state-cne 'failed'-or @($closed.recent_errors).Count-gt 8){throw 'Closed installer failure unavailable.'}
+    if(@($closed.PSObject.Properties.Name).Count-ne 4-or @($closed.PSObject.Properties.Name|Where-Object {$_-cnotin @('schema','state','caught','recent_errors')}).Count){throw 'Closed installer failure fields differ.'}
+    $allowedTypes=@('other','System.Management.Automation.RuntimeException','System.Management.Automation.ActionPreferenceStopException','System.Management.Automation.CommandNotFoundException','System.Management.Automation.ParameterBindingException','System.Management.Automation.MethodInvocationException','System.Management.Automation.PSInvalidCastException','System.Management.Automation.ItemNotFoundException','System.Management.Automation.CmdletInvocationException','System.Management.Automation.PSArgumentException','System.Management.Automation.PSNotSupportedException','System.InvalidOperationException','System.UnauthorizedAccessException','System.IO.IOException','System.ComponentModel.Win32Exception','System.Net.WebException','System.Exception','Microsoft.PowerShell.Commands.WriteErrorException');$allowedSources=@('Backup-Control.ps1','CallRecords.Common.ps1','Configure-PHP.ps1','Dtls.Common.ps1','Enable-PhoneTLS.ps1','Enable-PublicAccess.ps1','Enable-Stun.ps1','Ensure-Runtime.ps1','File-Security.ps1','Install-Backups.ps1','Install-Dtls.ps1','Install-LocalCodec.ps1','Install-MailQueue.ps1','Install-Meet.ps1','Install-NativeEngine.ps1','Install-OpenWebPBX.ps1','Install-PhoneHealth.ps1','Install-TenantDomains.ps1','Install-Updater.ps1','Install-Voices.ps1','InstallFromManager.ps1','Meet-Proxy.ps1','Phone-Health.ps1','PhoneHealth-Firewall.Common.ps1','PhoneHealth-Firewall.ps1','PhoneHealth-Security.ps1','PhpRuntime.Common.ps1','PublicAccess.Common.ps1','Register-ManagerRestart.ps1','Remove-Updater.ps1','Renew-PhoneCertificate.ps1','Restart-Updater.ps1','Restore-Gates.ps1','Support-Recovery.ps1','Tenant-Domains.ps1','Test-PhoneTLS.ps1','Upgrade-LegacyWindows.ps1','Upgrade-OpenWebPBX.ps1','UpgradeRecovery.Common.ps1','Web-Readiness.ps1','Write-PrivateState.ps1','configure-notifications.ps1','external_component','install.ps1')
+    foreach($row in @($closed.caught)+@($closed.recent_errors)){
+     $names=@($row.PSObject.Properties.Name);$required=@('error_type','source_basename','source_line','source_known','origin_basename','origin_line','origin_known');$allowed=$required+@('command_basename','command_exit','caller_basename','caller_line')
+     if(@($names|Where-Object {$_-cnotin $allowed}).Count-or @($required|Where-Object {$_-cnotin $names}).Count-or $row.error_type-isnot [string]-or $row.error_type-cnotin $allowedTypes-or $row.source_basename-isnot [string]-or $row.source_basename-cnotin $allowedSources-or $row.source_line-isnot [long]-or $row.source_line-lt 0-or $row.source_line-gt 100000-or $row.source_known-isnot [bool]-or ($row.source_known-ne ($row.source_basename-cne 'external_component'))){throw 'Closed installer row unavailable.'}
+     if($row.origin_basename-isnot [string]-or $row.origin_basename-cnotin $allowedSources-or $row.origin_line-isnot [long]-or $row.origin_line-lt 0-or $row.origin_line-gt 100000-or $row.origin_known-isnot [bool]-or ($row.origin_known-ne ($row.origin_basename-cne 'external_component'))){throw 'Closed origin source unavailable.'}
+     if('caller_basename'-cin $names-and ($row.caller_basename-isnot [string]-or $row.caller_basename-cnotin $allowedSources-or $row.caller_basename-ceq 'external_component')){throw 'Closed caller source unavailable.'}
+     if('command_basename'-cin $names-and ($row.command_basename-isnot [string]-or $row.command_basename-cnotin @('dotnet.exe','msiexec.exe','cmd.exe','netsh.exe','icacls.exe','sc.exe','powershell.exe','php.exe','pg_ctl.exe','psql.exe','createdb.exe','initdb.exe','pg_isready.exe','FreeSwitchConsole.exe','certutil.exe','reg.exe','schtasks.exe','wacs.exe'))){throw 'Closed command source unavailable.'}
+     if('command_exit'-cin $names-and ($row.command_exit-isnot [long]-or $row.command_exit-lt -2147483648-or $row.command_exit-gt 4294967295)){throw 'Closed command exit unavailable.'}
+     if('caller_line'-cin $names-and ($row.caller_line-isnot [long]-or $row.caller_line-lt 0-or $row.caller_line-gt 100000)){throw 'Closed caller line unavailable.'}
+    }
+    $report.installer_failure=$closed
+   }catch{}
+   throw 'Original accepted20 installer refused.'
+  }
+ }finally{$installer.Dispose();Remove-Item -LiteralPath $input -Force -ErrorAction SilentlyContinue}
  $state=Join-Path $env:ProgramData 'OpenWebPBX';$installation=Get-Content (Join-Path $state 'installation.json') -Raw|ConvertFrom-Json
  if(!$installation.Completed-or !$installation.RestoreServer-or $installation.AdminEmail-cne 'fixture@example.invalid'){throw 'An owned empty restore factory is required.'}
  & (Join-Path $package 'Install-NativeEngine.ps1') -PackageRoot $package -Check;if(!$?){throw 'Original native core inventory refused.'}
