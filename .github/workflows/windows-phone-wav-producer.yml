@@ -47,6 +47,10 @@ jobs:
           architecture: 'x64'
           check-latest: false
           update-environment: false
+      - name: Observe read-only hosted readiness
+        timeout-minutes: 4
+        run: |
+          & ./clients/windows/tools/Wait-ClientHostedReadiness.ps1 -SourceCommit $env:PHONE_SOURCE_REF
       - name: Prove failure-only observation on owned native controls
         id: observer_preflight
         timeout-minutes: 2
