@@ -7,3 +7,5 @@ If a producer is killed before publication or cleanup, its unpublished NULL-queu
 There is no age-only purge: age cannot establish that a producer has stopped. Do not delete arbitrary NULL-queue attachments or custom audio. Automatic cleanup still needs a renewable, database-locked lease, an expiry check before publication, bounded work and platform tests covering termination, reconnects, restarts and clock changes. This remains part of SETUP-05 in [the roadmap](../3CX.md).
 
 The helper also limits combined voicemail header/body/path metadata to 4,096 bytes; larger metadata refuses queueing and retains the mailbox. The existing 32 MiB audio snapshot limit remains. Passing isolated database tests does not qualify a Windows installer or prove receipt in the recipient's inbox; see [release qualification](release-1.0.21-qualification.md).
+
+On 26 October2026, the hosted recipient confirmed that the delivery-test email arrived and its WAV attachment played. This is a recipient confirmation for that hosted test. The isolated Windows SMTP acceptance-and-delete result and its release qualification retain their separate scope.

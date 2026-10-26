@@ -85,7 +85,7 @@ Hosted Debian now also provides Phone Health, persistent incident banners and op
 
 Hosted core **1.0.21** also provides Greetings and company-group office hours. Deployment preserves existing extension credentials, provider routes and customer audio; all seven expected desk phones remain registered. A normal administrator sign-in, genuine Keoma text generation and authenticated greeting download pass. This focused hosted deployment does not replace the separately versioned public Debian installer.
 
-Hosted voicemail email now queues complete audio before sending. Failed delivery retains the mailbox recording; attachment-and-delete removes it after outgoing-server acceptance. [Delivery verification and retention limits](docs/voicemail-mail-delivery.md).
+Hosted voicemail email now queues complete audio before sending. Failed delivery retains the mailbox recording; attachment-and-delete removes it after outgoing-server acceptance. The hosted recipient has confirmed test-email receipt and WAV playback. [Delivery verification and retention limits](docs/voicemail-mail-delivery.md).
 
 Hosted system speech now uses **Keoma voice pack1.0.2**, including default voicemail and **clock 1.0.3**. All 4,915 stock spoken files were replaced; custom recordings and music were preserved. Actual software calls verify Keoma default voicemail, an unchanged custom greeting and three complete GMT+2 clock announcements. Android 1.0.19 is published and mandatory on hosted accounts; its signed APK, Play bundle, corresponding source and public download feeds have been verified.
 
