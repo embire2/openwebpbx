@@ -10,7 +10,7 @@ import sys
 import tempfile
 
 SOURCE = '3fbb9c12f9013f82b4350aa9c5f4a2f43f842878'
-PINS = {'tests/windows_trunk_numbers.py': {'bytes': 3605, 'sha256': 'a64c6d4d00671f80522308d45bcbe281eae3f8a2a38add697ba9fcb1f1deb328'}, 'tests/pbx_trunk_numbers.py': {'bytes': 2384, 'sha256': '1e3b132e4f4d6a308a192189b423e98f317d37fda693011ff9aae9d8d77b4f4c'}, 'tests/pbx_trunk_numbers.php': {'bytes': 14003, 'sha256': 'f9d98c157f7712c570a41d0c5357e1b460cbac2771b03afa1ec631e56975fa1e'}, 'tests/windows_meeting_owned_process.py': {'bytes': 9205, 'sha256': '9c2de4d8b96f1769bf0cb5a9985409bb28587dce7f8add77556941bc4ea55448'}}
+PINS = {'tests/windows_trunk_numbers.py': {'bytes': 3911, 'sha256': 'abd31b33fc14b14b8b5779205528aa735e87e6dcae0c83d3475377aab1e9d233'}, 'tests/pbx_trunk_numbers.py': {'bytes': 4432, 'sha256': 'c08c5913a804851f160aa6a73f2c77c2322a0839182748db082c279e4cc70d7c'}, 'tests/pbx_trunk_numbers.php': {'bytes': 14003, 'sha256': 'f9d98c157f7712c570a41d0c5357e1b460cbac2771b03afa1ec631e56975fa1e'}, 'tests/windows_meeting_owned_process.py': {'bytes': 9205, 'sha256': '9c2de4d8b96f1769bf0cb5a9985409bb28587dce7f8add77556941bc4ea55448'}, 'tests/windows_did_seal.ps1': {'bytes': 1633, 'sha256': '1d65d2a07655fcbbf6ce1d683e289becc0455b83aa55e028b62d22fef0674b12'}, 'tests/windows_did_seal.cs': {'bytes': 2253, 'sha256': '008dabbb9674bdd486a1d518cc4ca20505f2dfcd6aa502a753e5dfd0b4cd7e7e'}, 'tests/windows_did_diagnostic_public.pem': {'bytes': 625, 'sha256': '1b26bb05b12379982b68d00e92178159049af959ba04cc483a06d1b0a49e7307'}}
 KNOWN = {'windows_trunk_numbers.py', 'pbx_trunk_numbers.py', 'windows_meeting_owned_process.py', 'windows_did_component.py'}
 JOB_KEYS = set('schema created_suspended assigned_before_resume resumed owned_job_terminated exit_code owned_processes_closed handles_closed ordinary_exit'.split())
 BOOL_KEYS = JOB_KEYS - {'schema', 'exit_code'}
@@ -78,8 +78,8 @@ def project(result, proof, phase_lines):
             short = kind[1].rsplit('.', 1)[-1]
             if short in ERRORS and short not in error_types:
                 error_types.append(short)
-    row = {'schema': 1, 'scope': 'unchanged_DID_validation_entry_observation_only',
-           'tested_driver_source_commit': SOURCE, 'child_exit': result.returncode,
+    row = {'schema': 1, 'scope': 'instrumented_initdb_failure_validation_observation_only',
+           'instrumented_driver_base_source_commit': SOURCE, 'child_exit': result.returncode,
            'original_job_proof': proof_shape(proof),
            'known_source_frames': frames, 'observed_portable_phases': observed[:4],
            'observed_error_types': error_types[:4],
@@ -179,8 +179,8 @@ def main():
                     fallback = project(result, proof, portable_phases)
             with open(sys.executable, 'rb') as executable:
                 executable_sha256 = sha(executable.read())
-            row = {'schema': 1, 'scope': 'exact_original_driver_component_observation_only',
-                   'tested_driver_source_commit': SOURCE, 'source_inputs': PINS,
+            row = {'schema': 1, 'scope': 'instrumented_initdb_failure_driver_component_observation_only',
+                   'instrumented_driver_base_source_commit': SOURCE, 'source_inputs': PINS,
                    'original_sources_unchanged': unchanged,
                    'validation_observation_available': observation.is_file(),
                    'failure_before_validation_observation': fallback,
