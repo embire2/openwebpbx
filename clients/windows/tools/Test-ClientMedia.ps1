@@ -318,8 +318,22 @@ function ReadNativeRecorderObservation($Value){
  }
  $Value
 }
+function ReadNativeToneObservation($Value){
+ ClosedKeys $Value @('source','phase','sample_rate','sample_count','expected_tones','first_frame','candidate_windows','frames_per_window','best_good_frames','minimum_ratio_ppm','maximum_ratio_ppm','minimum_rms','maximum_rms','low_rms_frames','clipped_frames','low_ratio_frames','low_component_frames')
+ if($Value.source -isnot [string] -or $Value.source -cne 'same_failed_decoded_buffer' -or $Value.phase -isnot [string] -or $Value.phase -cnotin @('initial_left','initial_right','held_party','resumed_left','resumed_right','other')){throw 'Closed failed tone scope required.'}
+ foreach($field in @('sample_rate','sample_count','first_frame','candidate_windows','frames_per_window','best_good_frames','minimum_ratio_ppm','maximum_ratio_ppm','minimum_rms','maximum_rms','low_rms_frames','clipped_frames','low_ratio_frames','low_component_frames')){if($Value.$field -isnot [long]){throw 'Integer tone measurements required.'}}
+ if($Value.sample_rate -lt 8000 -or $Value.sample_rate -gt 48000 -or $Value.sample_count -lt [Math]::Ceiling($Value.sample_rate*3.2) -or $Value.sample_count -gt 67108864 -or $Value.first_frame -lt 0 -or $Value.candidate_windows -lt 1 -or $Value.candidate_windows -gt 3 -or $Value.frames_per_window -ne 30 -or $Value.expected_tones -isnot [array] -or $Value.expected_tones.Count -lt 1 -or $Value.expected_tones.Count -gt 3){throw 'Bounded decoded tone sample required.'}
+ foreach($tone in $Value.expected_tones){if($tone -isnot [long] -or $tone -notin @(425,733,1013,1553)){throw 'Fixed owned fixture tones required.'}}
+ if(@($Value.expected_tones|Select-Object -Unique).Count -ne $Value.expected_tones.Count){throw 'Unique fixture tones required.'}
+ $frame=[Math]::Floor($Value.sample_rate/10);$first=[Math]::Ceiling(([Math]::Floor((($Value.sample_count/$Value.sample_rate)-3-.1)*10)/10)*10);$candidates=[Math]::Floor($Value.sample_count/$frame)-$first-30+1
+ if($Value.first_frame -ne $first -or $Value.candidate_windows -ne $candidates){throw 'Exact original tail bounds required.'}
+ foreach($field in @('best_good_frames','low_rms_frames','clipped_frames','low_ratio_frames','low_component_frames')){if($Value.$field -lt 0 -or $Value.$field -gt 30){throw 'Bounded failed frame counts required.'}}
+ if($Value.best_good_frames -ge 30 -or ($Value.low_rms_frames+$Value.clipped_frames+$Value.low_ratio_frames+$Value.low_component_frames+$Value.best_good_frames) -lt 30){throw 'An actual failed decoded window is required.'}
+ if($Value.minimum_ratio_ppm -lt 0 -or $Value.maximum_ratio_ppm -lt $Value.minimum_ratio_ppm -or $Value.maximum_ratio_ppm -gt ($Value.expected_tones.Count*1000000) -or $Value.minimum_rms -lt 0 -or $Value.maximum_rms -lt $Value.minimum_rms -or $Value.maximum_rms -gt 65536 -or ($Value.expected_tones.Count -eq 1 -and $Value.low_component_frames -ne 0)){throw 'Bounded same-buffer tone measurements required.'}
+ $Value
+}
 function ReadNativeFailureObservation($Value){
- ClosedKeys $Value @('operation','source_basename','source_line','peer','wait','wave','security','recorder')
+ ClosedKeys $Value @('operation','source_basename','source_line','peer','wait','wave','security','recorder','tone')
  if($Value.operation -isnot [string] -or $Value.operation -cnotin @('engine_construct','engine_start','case_prepare','wrong_ca_create','wrong_ca_wait','wrong_ca_assert','wrong_ca_dispose','wrong_name_create','wrong_name_wait','wrong_name_assert','wrong_name_dispose','peer_0_create','peer_1_create','peer_2_create','registration_wait','security_assert','case_execute','peers_cleanup','engine_idle','engine_shutdown') -or $Value.source_basename -isnot [string] -or $Value.source_basename -cnotin @('LabCoordinator.cs','LabServer.cs','PeerRunner.cs','PeerProtocol.cs','CoreCodecInventory.cs','ProcessImage.cs','WaitObservation.cs','AudioProof.cs','NativePhone.cs','NativeMediaFixture.cs','external_component') -or $Value.source_line -isnot [long] -or $Value.source_line -lt 0 -or $Value.source_line -gt 100000 -or (($Value.source_basename -ceq 'external_component') -ne ($Value.source_line -eq 0))){throw 'Closed actual failure source differs.'}
  if($null -ne $Value.peer){$peer=$Value.peer;ClosedKeys $peer @('progress','exited_before_cleanup','exit_code_before_cleanup','error_type','stderr_observed')
   if($peer.progress -isnot [string] -or $peer.progress -cnotin @('none','native_runtime_resources','native_logging','native_factory','native_configuration','native_create_core','native_database','native_encryption','native_trusted_roots','native_devices','native_listeners','native_start','native_verify_policy','ready','unrecognised') -or $peer.exited_before_cleanup -isnot [bool] -or $peer.stderr_observed -isnot [bool] -or $peer.error_type -isnot [string] -or $peer.error_type -cnotin @('none','InvalidDataException','InvalidOperationException','JsonException','IOException','FileNotFoundException','DirectoryNotFoundException','UnauthorizedAccessException','TimeoutException','DllNotFoundException','EntryPointNotFoundException','BadImageFormatException','TypeInitializationException','ArgumentException','ArgumentNullException','NullReferenceException','NotSupportedException','AccessViolationException','other','unobserved')){throw 'Closed native peer observation differs.'}
@@ -327,6 +341,10 @@ function ReadNativeFailureObservation($Value){
   if($peer.stderr_observed -eq ($peer.error_type -ceq 'unobserved')){throw 'Native peer stderr scope differs.'}
  }
  if($null -ne $Value.wait){$null=ReadNativeWaitObservation $Value.wait}
+ if($null -ne $Value.tone){
+  if($Value.source_basename -cne 'AudioProof.cs' -or $null -ne $Value.peer -or $null -ne $Value.wait -or $null -ne $Value.wave -or $null -ne $Value.security -or $null -ne $Value.recorder){throw 'Only the original failed tone assertion permits tone observations.'}
+  $null=ReadNativeToneObservation $Value.tone
+ }
  if($null -ne $Value.wave){$null=ReadNativeWaveObservation $Value.wave}
  if($null -ne $Value.security){$null=ReadNativeSecurityObservation $Value.security}
  if($null -ne $Value.recorder){$null=ReadNativeRecorderObservation $Value.recorder

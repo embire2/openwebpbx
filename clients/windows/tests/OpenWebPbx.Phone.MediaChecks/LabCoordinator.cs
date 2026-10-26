@@ -117,7 +117,7 @@ internal static class LabCoordinator
             predicate => Wait("streams_" + phase, predicate, [a, b]));
         Secure(a.State); Secure(b.State);
     }
-    private static AudioObservation Capture(LabPeer peer, double[] frequencies, string? recording = null)
+    private static AudioObservation Capture(LabPeer peer, double[] frequencies, string? recording = null, string phase = "other")
     {
         // The observation is made while this phase is stable. Require at least 3.3
         // seconds of NEW decoded samples, then a completely good current 3 s tail.
@@ -133,7 +133,15 @@ internal static class LabCoordinator
                 var wave = PcmWave.Read(recording ?? peer.Output, true);
                 if (baseline is null || wave.Duration < previous) baseline = wave.Duration;
                 previous = wave.Duration;
-                if (wave.Duration - baseline.Value >= 3.3 && timer.Elapsed.TotalSeconds >= 3.3) return new(wave.Tail(frequencies), wave.Duration - baseline.Value, timer.Elapsed.TotalSeconds);
+                if (wave.Duration - baseline.Value >= 3.3 && timer.Elapsed.TotalSeconds >= 3.3)
+                {
+                    try { return new(wave.Tail(frequencies), wave.Duration - baseline.Value, timer.Elapsed.TotalSeconds); }
+                    catch (InvalidDataException error)
+                    {
+                        try { error.Data["media_tone_observation"] = ToneObservation.Capture(wave, frequencies, phase); } catch { }
+                        throw;
+                    }
+                }
             }
             catch (InvalidDataException error) when (error.Data["media_wave_observation"] is WaveReadObservation)
             {
@@ -157,7 +165,7 @@ internal static class LabCoordinator
     }
     private static void Pair(Dictionary<string, object> facts, string phase, LabPeer a, double[] aTones, LabPeer b, double[] bTones)
     {
-        facts[phase + "_left"] = Capture(a, aTones); facts[phase + "_right"] = Capture(b, bTones); Secure(a.Command()); Secure(b.Command());
+        facts[phase + "_left"] = Capture(a, aTones, phase: ToneObservation.Phase(phase, true)); facts[phase + "_right"] = Capture(b, bTones, phase: ToneObservation.Phase(phase, false)); Secure(a.Command()); Secure(b.Command());
     }
     private static bool StopPeers(List<LabPeer> peers)
     {
@@ -222,7 +230,7 @@ internal static class LabCoordinator
                                 a.Command("update_active_refusal"); facts["active_call_deferred_update"] = true; Pair(facts, "after_update_refusal", a, [733], b, [425]);
                                 foreach (var call in a.Command().Calls) a.Command("hangup", call: call.Id); Wait("update_idle", () => !a.Command().Busy && !b.Command().Busy, [a, b]); a.Command("update_idle_accept"); facts["idle_allows_update"] = true; break;
                             case "hold_music_resume":
-                                a.Command("hold"); Wait("held", () => a.Command().Native.Calls.Any(call => call.State == "Paused"), [a, b]); facts["held_caller_music"] = Capture(b, [1553]);
+                                a.Command("hold"); Wait("held", () => a.Command().Native.Calls.Any(call => call.State == "Paused"), [a, b]); facts["held_caller_music"] = Capture(b, [1553], phase: "held_party");
                                 a.Command("hold"); Wait("resumed", () => a.Command().Native.Calls.Any(call => call.State == "StreamsRunning"), [a, b]); Pair(facts, "resumed", a, [733], b, [425]); break;
                             case "dtmf":
                                 b.Command("clear_dtmf"); foreach (var digit in "578#") { a.Command("dtmf", digit.ToString()); Thread.Sleep(180); } Wait("dtmf_received", () => string.Concat(b.Command().Native.Dtmf) == "578#", [a, b], 8); facts["received_exact_digits"] = true; break;
