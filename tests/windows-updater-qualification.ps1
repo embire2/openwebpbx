@@ -824,6 +824,9 @@ if(!$?){exit 1}
   $phase='laboratory HTTPS PKI preparation';Python 'prepare-pki';$pki=Get-Content (Join-Path $qa 'pki.json') -Raw|ConvertFrom-Json
   $privatePem=Join-Path $state ('phone-tls/updater-'+$scope);PrivateDirectory $privatePem;Copy-Item (Join-Path $qa 'transport-chain.pem'),(Join-Path $qa 'transport-leaf.key') $privatePem;$settings.owned_private_pem=$privatePem
   [IO.File]::WriteAllBytes((Join-Path $qa 'audit.key'),[Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+  # Require empty canary caches before exposing the owned signed endpoint.
+  # The ordinary Windows worker may prefetch after endpoint startup.
+  foreach($modeName in 'fault','normal'){$cache="$state\updates\downloads\$($verified[$modeName].sha256).archive";Check (!(Test-Path $cache) -and !(Test-Path ($cache+'.partial'))) 'The test refuses preseeded or partial canary archives.'}
   $phase='laboratory HTTPS trust import';$transportRoot=Import-Certificate -FilePath (Join-Path $qa 'transport-root.cer') -CertStoreLocation Cert:\LocalMachine\Root;Check ($transportRoot.Thumbprint.ToLowerInvariant() -eq $pki.root_thumbprint) 'The exact owned laboratory trust root was not installed.'
   [IO.File]::AppendAllText($hosts,"127.0.0.1 github.com $marker`r`n",[Text.UTF8Encoding]::new($false));Clear-DnsClientCache
   $phase='laboratory HTTPS worker environment';$serviceKey='HKLM:\SYSTEM\CurrentControlSet\Services\OpenWebPBXUpdater';$environmentProperty=Get-ItemProperty -LiteralPath $serviceKey -Name Environment -ErrorAction SilentlyContinue;$serviceEnvironment=@{exists=($null -ne $environmentProperty);value=if($environmentProperty){$environmentProperty.Environment}else{@()}}
@@ -848,7 +851,6 @@ if(!$?){exit 1}
   $phase='original13 interactive manager startup';$originalManager=BeginManager
   $heldOriginalManager=RetainQualificationProcess $originalManager ([int]$originalManager.Id) "$root\desktop\OpenWebPbx.Desktop.exe" $managerSid $managerSession $managerStarted
   $phase='fault14 full HTTPS download and rollback'
-  foreach($modeName in 'fault','normal'){$cache="$state\updates\downloads\$($verified[$modeName].sha256).archive";Check (!(Test-Path $cache) -and !(Test-Path ($cache+'.partial'))) 'The test refuses preseeded or partial canary archives.'}
   if(Test-Path "$state\updates\trust.json"){$prior=Get-Content "$state\updates\trust.json" -Raw|ConvertFrom-Json;Check ($prior.sequence -le $verified.fault.sequence) 'The private fault sequence must not lower existing trust.'}
   Check ((Fixture 'status').channels -eq 0) 'The actual call engine must be idle.'
   $phase='exact owned Health observer quiescence before all preservation baselines'

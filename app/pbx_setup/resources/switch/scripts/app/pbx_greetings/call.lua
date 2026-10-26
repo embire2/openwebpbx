@@ -60,7 +60,20 @@ local function run()
     call:setVariable('domain_uuid',greeting.domain_uuid);call:setVariable('domain_name',config.realm)
     call:setVariable('recording_follow_transfer','false');call:setVariable('openweb_greeting_recording',id)
     call:setVariable('record_sample_rate','16000')
-    local root=storage_dir..'/openwebpbx/'..greeting.domain_uuid..'/greetings/'..id
+    local legacy=storage_dir..'/openwebpbx/'..greeting.domain_uuid..'/greetings/'..id
+    local root=legacy
+    if package.config:sub(1,1)=='\\' then
+        local state=(os.getenv('ProgramData') or 'C:/ProgramData'):gsub('\\','/')..'/OpenWebPBX'
+        root=state..'/storage/greetings/'..greeting.domain_uuid..'/greetings/'..id
+        local function instructions(directory)
+            for _,name in ipairs({'instruction.wav','replay.wav','saved.wav'}) do
+                local f=io.open(directory..'/'..name,'rb');if not f then return false end;f:close()
+            end
+            return true
+        end
+        -- Requests prepared before this default changed retain their original audio.
+        if not instructions(root) and instructions(legacy) then root=legacy end
+    end
     partial=root..'/recording.partial.wav';local final=root..'/audio.wav'
     local paths={instruction=root..'/instruction.wav',replay=root..'/replay.wav',saved=root..'/saved.wav',partial=partial}
     for _,path in ipairs({paths.instruction,paths.replay,paths.saved}) do local f=io.open(path,'rb');if not f then fail('The Keoma recording instructions are unavailable.');return end;f:close() end

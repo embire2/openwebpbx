@@ -94,7 +94,7 @@ class pbx_greetings {
     public function media(string $id): array {
         $this->access();$r=$this->row($id);if($r['state']!=='ready')throw new InvalidArgumentException('This greeting is not ready.');
         $m=$this->q("select file_path,title from v_pbx_media where domain_uuid=? and media_uuid=? and category='prompts'",[$this->domain,$r['media_uuid']])->fetch(PDO::FETCH_ASSOC);
-        if(!$m||!pbx_paths::contains(pbx_paths::media().'/'.$this->domain.'/greetings',$m['file_path'])||is_link($m['file_path'])||!is_file($m['file_path'])||filesize($m['file_path'])>32000000)throw new RuntimeException('This greeting audio is unavailable.');return $m;
+        if(!$m||!pbx_paths::greetingContains($this->domain,$m['file_path'])||is_link($m['file_path'])||!is_file($m['file_path'])||filesize($m['file_path'])>32000000)throw new RuntimeException('This greeting audio is unavailable.');return $m;
     }
     public function uses(string $id): array {$this->access();$this->row($id);return $this->q('select kind,target_number from v_pbx_greeting_uses where domain_uuid=? and greeting_uuid=? order by kind,target_number',[$this->domain,$id])->fetchAll(PDO::FETCH_ASSOC);}
     public function unassign(string $id,string $kind,string $target): void {

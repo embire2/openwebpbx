@@ -10,6 +10,11 @@ class pbx_paths {
     public static function key(): string {return str_replace('\\','/',dirname(config::find())).'/openweb-template.key';}
     public static function storage(): string {return rtrim(str_replace('\\','/',(string)config::load()->get('switch.storage.dir',PHP_OS_FAMILY==='Windows'?self::state().'/storage':'/var/lib/freeswitch/storage')),'/');}
     public static function media(): string {return self::storage().'/openwebpbx';}
+    public static function greetings(): string {return PHP_OS_FAMILY==='Windows'?self::state().'/storage/greetings':self::media();}
+    public static function greetingContains(string $domain,string $file): bool {
+        return self::contains(self::greetings().'/'.$domain.'/greetings',$file)
+            || self::contains(self::media().'/'.$domain.'/greetings',$file);
+    }
     public static function voicemail(): string {return rtrim(str_replace('\\','/',(string)config::load()->get('switch.voicemail.dir',self::storage().'/voicemail')),'/');}
     public static function uploads(): string {return self::state().'/uploads';}
     public static function contains(string $root,string $file): bool {

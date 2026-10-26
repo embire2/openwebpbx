@@ -160,11 +160,97 @@ function Assert-OpenWebUpdaterSlotsRestored {
  if($before.Count -ne $after.Count){throw 'The original updater-slot inventory did not fully restore; recovery remains required.'}
  foreach($key in $before.Keys){if(!$after.ContainsKey($key) -or $before[$key].Directory -cne $after[$key].Directory -or $before[$key].Hash -cne $after[$key].Hash){throw 'The original updater-slot bytes or types did not fully restore; recovery remains required.'}}
 }
+# Greetings use a dedicated Windows media subtree. The caller owns upgrade.lock;
+# recovery retains media bytes and restores raw pre-grant file security.
+function Assert-OpenWebGreetingDescriptor {
+ param([string]$Sddl)
+ if([string]::IsNullOrWhiteSpace($Sddl) -or $Sddl.Length -gt 131072 -or $Sddl.IndexOf([char]0) -ge 0){throw 'The greeting permission descriptor is invalid.'}
+ $descriptor=[Security.AccessControl.RawSecurityDescriptor]::new($Sddl)
+ if($null -eq $descriptor.Owner -or $null -eq $descriptor.Group -or !($descriptor.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclPresent) -or $descriptor.BinaryLength -gt 262144){throw 'Complete original greeting file security is required.'}
+}
+function Assert-OpenWebGreetingAccessSnapshot {
+ param($Snapshot,[string]$StateRoot)
+ $state=Assert-OpenWebRecoveryOrdinary -Path $StateRoot -Directory
+ $storage=[IO.Path]::GetFullPath((Join-Path $state 'storage'));$root=[IO.Path]::GetFullPath((Join-Path $storage 'greetings'))
+ if(($Snapshot.schema -isnot [int] -and $Snapshot.schema -isnot [long]) -or $Snapshot.schema -ne 1 -or $Snapshot.StateRoot -isnot [string] -or $Snapshot.StateRoot -cne $state -or $Snapshot.RootExists -isnot [bool] -or @($Snapshot.Entries).Count -lt 3){throw 'The greeting access snapshot is invalid.'}
+ $fields=if($Snapshot -is [Collections.IDictionary]){@($Snapshot.Keys)}else{@($Snapshot.PSObject.Properties.Name)}
+ if($fields.Count -ne 4 -or @($fields|Where-Object {$_ -cnotin 'schema','StateRoot','RootExists','Entries'}).Count -or $Snapshot.Entries -isnot [array] -or @($Snapshot.Entries).Count -gt 100000){throw 'The greeting access snapshot fields or bounds are invalid.'}
+ $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+ foreach($entry in $Snapshot.Entries){
+  $fields=if($entry -is [Collections.IDictionary]){@($entry.Keys)}else{@($entry.PSObject.Properties.Name)}
+  if($fields.Count -ne 3 -or @($fields|Where-Object {$_ -cnotin 'Path','Directory','Sddl'}).Count){throw 'The greeting access entry fields are invalid.'}
+  if($entry.Path -isnot [string] -or $entry.Directory -isnot [bool] -or $entry.Sddl -isnot [string]){throw 'The greeting access entry is invalid.'}
+  $path=[IO.Path]::GetFullPath($entry.Path)
+  if($path -cne $entry.Path -or !$seen.Add($path) -or !($path -ieq $state -or $path -ieq $storage -or $path -ieq $root -or $path.StartsWith($root+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase))){throw 'A greeting permission target is outside its dedicated scope.'}
+  Assert-OpenWebGreetingDescriptor $entry.Sddl
+  $null=Assert-OpenWebCallRecordOrdinary -Path $path -Directory:$entry.Directory
+ }
+ foreach($path in $state,$storage,$root){if(!$seen.Contains($path) -or !(@($Snapshot.Entries|Where-Object {$_.Path -ieq $path -and $_.Directory}).Count -eq 1)){throw 'The greeting access ancestors are incomplete.'}}
+ if(!$Snapshot.RootExists -and @($Snapshot.Entries).Count -ne 3){throw 'An absent original greeting root cannot have original descendants.'}
+ # Include nodes created since capture: inherited grants must never encounter
+ # a new junction/link or an unbounded tree before the first security write.
+ $current=@(Get-ChildItem -LiteralPath $root -Recurse -Force -ErrorAction Stop|Select-Object -First 99998)
+ if($current.Count -gt 99997){throw 'The current greeting access inventory exceeds its bound.'}
+ foreach($item in $current){$null=Assert-OpenWebCallRecordOrdinary -Path $item.FullName -Directory:$item.PSIsContainer}
+ return $root
+}
+function Get-OpenWebGreetingAccessSnapshot {
+ param([string]$StateRoot,[IO.FileStream]$MaintenanceLock)
+ Assert-OpenWebRecoveryLock -MaintenanceLock $MaintenanceLock -StateRoot $StateRoot
+ $state=Assert-OpenWebRecoveryOrdinary -Path $StateRoot -Directory
+ $storage=Assert-OpenWebRecoveryOrdinary -Path (Join-Path $state 'storage') -Directory
+ $root=Join-Path $storage 'greetings';$exists=[bool](Test-Path -LiteralPath $root)
+ # Capture the initial inherited descriptor of an owned new empty root before
+ # granting any access. RootExists retains its original absence for rollback.
+ if(!$exists){$null=New-Item -ItemType Directory -Path $root -ErrorAction Stop}
+ try{
+  $null=Assert-OpenWebRecoveryOrdinary -Path $root -Directory
+  $items=@((Get-Item -LiteralPath $state -Force),(Get-Item -LiteralPath $storage -Force),(Get-Item -LiteralPath $root -Force))
+  $items+=@(Get-ChildItem -LiteralPath $root -Recurse -Force -ErrorAction Stop|Select-Object -First 99998)
+  if($items.Count -gt 100000){throw 'The original greeting access inventory exceeds its bound.'}
+  $entries=@(foreach($item in $items){
+   $null=Assert-OpenWebCallRecordOrdinary -Path $item.FullName -Directory:$item.PSIsContainer
+   $sddl=(Get-Acl -LiteralPath $item.FullName -ErrorAction Stop).Sddl;Assert-OpenWebGreetingDescriptor $sddl
+   @{Path=$item.FullName;Directory=[bool]$item.PSIsContainer;Sddl=$sddl}
+  })
+  $snapshot=@{schema=1;StateRoot=$state;RootExists=$exists;Entries=$entries}
+  $null=Assert-OpenWebGreetingAccessSnapshot -Snapshot $snapshot -StateRoot $state
+  return $snapshot
+ }catch{
+  $snapshotFailure=$_
+  try{if(!$exists -and (Test-Path -LiteralPath $root) -and @(Get-ChildItem -LiteralPath $root -Force -ErrorAction Stop).Count -eq 0){[IO.Directory]::Delete($root,$false)}}catch{$snapshotFailure.Exception.Data['greeting_empty_root_cleanup_failed']=$true}
+  throw $snapshotFailure
+ }
+}
+function Install-OpenWebGreetingAccess {
+ param($Snapshot,[string]$StateRoot,[IO.FileStream]$MaintenanceLock)
+ Assert-OpenWebRecoveryLock -MaintenanceLock $MaintenanceLock -StateRoot $StateRoot
+ $root=Assert-OpenWebGreetingAccessSnapshot -Snapshot $Snapshot -StateRoot $StateRoot
+ # No inheritable write permission is added to StateRoot, storage, or tenant media.
+ foreach($entry in $Snapshot.Entries){
+  if($entry.Path -ieq $StateRoot -or $entry.Path -ieq (Join-Path $StateRoot 'storage')){Add-OpenWebCallRecordRight -Path $entry.Path -Rights ReadAndExecute;continue}
+  $inheritance=if($entry.Directory){[Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'}else{[Security.AccessControl.InheritanceFlags]::None}
+  Add-OpenWebCallRecordRight -Path $entry.Path -Rights Modify -Inheritance $inheritance
+ }
+}
+function Restore-OpenWebGreetingAccess {
+ param($Snapshot,[string]$StateRoot,[IO.FileStream]$MaintenanceLock)
+ Assert-OpenWebRecoveryLock -MaintenanceLock $MaintenanceLock -StateRoot $StateRoot
+ $root=Assert-OpenWebGreetingAccessSnapshot -Snapshot $Snapshot -StateRoot $StateRoot
+ # Snapshot validation covers all current nodes before the first security write.
+ # Never delete files or recursively delete directories during recovery.
+ . (Join-Path $PSScriptRoot 'File-Security.ps1')
+ foreach($entry in $Snapshot.Entries|Sort-Object @{Expression={$_.Path.Length}}){Set-OpenWebFileSddl -LiteralPath $entry.Path -Sddl $entry.Sddl}
+ if(!$Snapshot.RootExists -and @(Get-ChildItem -LiteralPath $root -Force -ErrorAction Stop).Count -eq 0){[IO.Directory]::Delete($root,$false)}
+}
+
 function Save-OpenWebSupport {
  param([string]$Backup,[string]$PackageRoot,[string]$Root,[string]$StateRoot,[string]$EngineRoot,[IO.FileStream]$MaintenanceLock)
  $record=[ordered]@{schema=1;Files=@{};Directories=@{};Acls=@{};Tasks=@{};OpenSshClient=(Get-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0).State.ToString()}
  . (Join-Path $PackageRoot 'CallRecords.Common.ps1')
  $record.CallRecordAccess=Get-OpenWebCallRecordAccessSnapshot -PackageRoot $PackageRoot -Root $Root -StateRoot $StateRoot -EngineRoot $EngineRoot -MaintenanceLock $MaintenanceLock
+ $record.GreetingAccess=Get-OpenWebGreetingAccessSnapshot -StateRoot $StateRoot -MaintenanceLock $MaintenanceLock
+ try{
  $certificateDirectory=[IO.Path]::GetFullPath((Join-Path $EngineRoot 'cert'))
  $directoryExists=Test-Path -LiteralPath $certificateDirectory
  if($directoryExists){
@@ -233,6 +319,15 @@ function Save-OpenWebSupport {
   }
  }
  WriteState "$Backup\support-state.json" $record
+ }catch{
+  # Before publication, this local snapshot still owns an absent-before root.
+  # Retain any new media, restore only captured security, and keep the original
+  # support failure primary if permission/empty-root recovery also refuses.
+  $supportFailure=$_
+  try{Restore-OpenWebGreetingAccess -Snapshot $record.GreetingAccess -StateRoot $StateRoot -MaintenanceLock $MaintenanceLock}
+  catch{$supportFailure.Exception.Data['greeting_pregrant_cleanup_failed']=$true}
+  throw $supportFailure
+ }
 }
 function Restore-OpenWebSupport {
  param([string]$Backup,[string]$Root,[string]$StateRoot,[string]$EngineRoot,[IO.FileStream]$MaintenanceLock)
@@ -243,6 +338,7 @@ function Restore-OpenWebSupport {
   . (Join-Path $PSScriptRoot 'CallRecords.Common.ps1')
   Restore-OpenWebCallRecordAccess -Snapshot $record.CallRecordAccess -StateRoot $StateRoot -EngineRoot $EngineRoot -MaintenanceLock $MaintenanceLock
  }
+ if($record.PSObject.Properties.Name -ccontains 'GreetingAccess'){Restore-OpenWebGreetingAccess -Snapshot $record.GreetingAccess -StateRoot $StateRoot -MaintenanceLock $MaintenanceLock}
  if(Test-Path (Join-Path $Backup 'meeting-system.json')){
   . (Join-Path $Backup 'meeting-recovery.ps1')
   Restore-OpenWebMeetSystem -Snapshot (Join-Path $Backup 'meeting-system.json') -StateRoot $StateRoot

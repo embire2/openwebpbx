@@ -516,6 +516,7 @@ try {
  foreach ($part in 'web','server','desktop','acme') { CopyTree "$payload\$part" "$root\$part" }
  CopyTree "$root\web\app\switch\resources\scripts" "$switch\scripts"
  CopyTree "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_setup" "$switch\scripts\app\pbx_setup"
+ CopyTree "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_greetings" "$switch\scripts\app\pbx_greetings"
  & "$payload\Install-NativeEngine.ps1" -PackageRoot $payload
  & "$payload\Install-LocalCodec.ps1" -PackageRoot $payload
  & "$payload\Configure-PHP.ps1" -PackageRoot $payload
@@ -531,6 +532,7 @@ try {
  Install-OpenWebCallRecordAccess -PackageRoot $payload -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock
  CopyTree "$root\web\app\switch\resources\scripts" "$switch\scripts"
  CopyTree "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_setup" "$switch\scripts\app\pbx_setup"
+ CopyTree "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_greetings" "$switch\scripts\app\pbx_greetings"
  Copy-Item "$root\web\app\pbx_setup\resources\prompts\*.wav" "$switch\sounds\openwebpbx" -Force
  Copy-Item "$root\web\app\pbx_setup\resources\prompts\openweb.xml" "$switch\conf\languages\en\ivr\openweb.xml" -Force
  & "$payload\Install-Voices.ps1" -PackageRoot $payload
@@ -546,6 +548,9 @@ try {
  WriteState "$private\installation.json" $state
  SaveJournal 'validating'
  Restore-OpenWebUpgradePermissions -Permissions $upgradePermissions -Root $root -StateRoot $private -EngineRoot $switch
+ # Retain the intentional dedicated Greeting grant after unrelated ACL replay.
+ $support=Get-Content -LiteralPath (Join-Path $backup 'support-state.json') -Raw|ConvertFrom-Json
+ Install-OpenWebGreetingAccess -Snapshot $support.GreetingAccess -StateRoot $private -MaintenanceLock $lock
  StartPbx; ResumeEngine; $stopped = $false; CheckHealth $version
  if(Test-Path "$payload\updater\OpenWebPbx.Updater.exe"){& "$payload\Install-Updater.ps1" -PackageRoot $payload -DeferRestart -DeferServiceSelection}
  Complete-OpenWebUpgradeRecovery -Entry $script:upgradeRecoveryEntry -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock -Outcome Success

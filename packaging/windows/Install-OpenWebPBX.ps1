@@ -31,6 +31,7 @@ if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw 'Install the required Micros
 . "$PSScriptRoot\Restore-Gates.ps1"
 . "$PSScriptRoot\Web-Readiness.ps1"
 . "$PSScriptRoot\CallRecords.Common.ps1"
+. "$PSScriptRoot\Support-Recovery.ps1"
 Assert-OpenWebUpgradeAllowed -StateRoot $private
 if(Test-Path "$private\installation.json"){
  $existingInstallation=Get-Content "$private\installation.json" -Raw | ConvertFrom-Json
@@ -82,6 +83,7 @@ $setupIdentity=[Security.Principal.WindowsIdentity]::GetCurrent().Name
 icacls $private /grant "${setupIdentity}:(OI)(CI)F" | Out-Null
 icacls $configRoot /inheritance:r /grant '*S-1-5-32-544:(OI)(CI)F' /grant '*S-1-5-18:(OI)(CI)F' | Out-Null
 $installationLock=[IO.File]::Open("$private\upgrade.lock",'OpenOrCreate','ReadWrite','None')
+$greetingAccess=$null;$greetingAccessCommitted=$false
 try {
 if (Test-Path "$private\installation.json") {
  $priorState=Get-Content "$private\installation.json" -Raw|ConvertFrom-Json
@@ -256,8 +258,9 @@ foreach($section in 'directory','dialplan','sip_profiles'){
  if(@(Compare-Object $expected $actual).Count){throw 'First-install call configuration still contains stock demonstration files.'}
 }
 Copy-Item "$root\web\app\switch\resources\scripts\*" "$switch\scripts" -Recurse -Force
-New-Item -ItemType Directory -Force "$switch\scripts\app\pbx_setup","$switch\sounds\openwebpbx" | Out-Null
+New-Item -ItemType Directory -Force "$switch\scripts\app\pbx_setup","$switch\scripts\app\pbx_greetings","$switch\sounds\openwebpbx" | Out-Null
 Copy-Item "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_setup\*" "$switch\scripts\app\pbx_setup" -Force
+Copy-Item "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_greetings\*" "$switch\scripts\app\pbx_greetings" -Force
 Copy-Item "$root\web\app\pbx_setup\resources\prompts\*.wav" "$switch\sounds\openwebpbx" -Force
 Copy-Item "$root\web\app\pbx_setup\resources\prompts\openweb.xml" "$switch\conf\languages\en\ivr\openweb.xml" -Force
 & "$PSScriptRoot\Install-Voices.ps1" -PackageRoot $PSScriptRoot
@@ -310,6 +313,15 @@ Run sc.exe @('failure','OpenWebPBX','reset=','86400','actions=','restart/60000/r
 & "$PSScriptRoot\Install-TenantDomains.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
 & "$PSScriptRoot\Install-PhoneHealth.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
 Install-OpenWebCallRecordAccess -PackageRoot $PSScriptRoot -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $installationLock
+# Retain the exact original security across an interrupted fresh setup retry.
+if(($state -is [Collections.IDictionary] -and $state.Contains('GreetingAccess')) -or ($state -isnot [Collections.IDictionary] -and $state.PSObject.Properties['GreetingAccess'])){
+ $greetingAccess=$state.GreetingAccess
+}else{
+ $greetingAccess=Get-OpenWebGreetingAccessSnapshot -StateRoot $private -MaintenanceLock $installationLock
+ if($state -is [Collections.IDictionary]){$state['GreetingAccess']=$greetingAccess}else{$state|Add-Member -NotePropertyName GreetingAccess -NotePropertyValue $greetingAccess}
+ Write-OpenWebPrivateState -Path "$private\installation.json" -Value $state
+}
+Install-OpenWebGreetingAccess -Snapshot $greetingAccess -StateRoot $private -MaintenanceLock $installationLock
 Start-Service FreeSWITCH
 Start-Service OpenWebPBX
 if ((Get-WebAppPoolState OpenWebPBX).Value -ne 'Started') { Start-WebAppPool OpenWebPBX }
@@ -347,6 +359,7 @@ catch {
 if ($state -is [System.Collections.IDictionary]) { $state['Completed']=$true }
 else { $state|Add-Member -NotePropertyName Completed -NotePropertyValue $true -Force }
 Write-OpenWebPrivateState -Path "$private\installation.json" -Value $state
+$greetingAccessCommitted=$true
 Remove-OpenWebCallRecordHold -StateRoot $private -Hold $state.CallRecordHold -MaintenanceLock $installationLock
 Remove-Item "$private\setup-secrets.json" -ErrorAction SilentlyContinue
 Write-Host "OpenWeb PBX $($state.Version) is installed at https://${DomainName}:$HttpsPort"
@@ -354,6 +367,17 @@ Write-Host 'All tenants share this installation''s built-in database. No separat
 Write-Host 'Sign in to Admin, then open Main PBX. Trunks start disabled. Configure your public certificate and firewall before remote use.'
 
 
+} catch {
+ $installationFailure=$_
+ if($greetingAccess -and !$greetingAccessCommitted){
+  try{
+   Restore-OpenWebGreetingAccess -Snapshot $greetingAccess -StateRoot $private -MaintenanceLock $installationLock
+   if($state -is [Collections.IDictionary]){$state.Remove('GreetingAccess')}else{$state.PSObject.Properties.Remove('GreetingAccess')}
+   Write-OpenWebPrivateState -Path "$private\installation.json" -Value $state
+  }
+  catch{$installationFailure.Exception.Data['greeting_permissions_recovery_failed']=$true;Write-Warning 'Greeting storage permissions need private recovery review.'}
+ }
+ throw $installationFailure
 } finally {$installationLock.Dispose()}
 Enable-ScheduledTask -TaskName OpenWebPBX-Backups | Out-Null
 Enable-ScheduledTask -TaskName 'OpenWebPBX Outgoing Mail' | Out-Null

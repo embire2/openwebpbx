@@ -1647,6 +1647,9 @@ try{
  & (Join-Path $source 'tests/windows_welcome_inventory_controls.ps1') *> (Join-Path $work 'welcome-inventory-controls.private.log')
  if(!$?){throw 'The closed welcome inventory observation controls failed.'}
  CheckedPython @((Join-Path $source 'tests/windows_voicemail_delete_test.py'))
+ & (Join-Path $source 'tests/windows_greetings_native_controls.ps1') -SourceRoot $source *> (Join-Path $work 'greetings-native-controls.private.log')
+ if(!$?){throw 'The required installed Windows Greetings receipt controls failed.'}
+ CheckedPython @((Join-Path $source 'tests/windows_greetings_native_test.py'),'-SourceRoot',$source)
  & (Join-Path $source 'tests/windows_voicemail_delete_controls.ps1') *> (Join-Path $work 'voicemail-delete-controls.private.log')
  if(!$?){throw 'The required Windows voicemail delete receipt controls failed.'}
  & (Join-Path $source 'tests/windows_call_records_lifecycle.ps1') -SourceRoot $source *> (Join-Path $work 'call-records-lifecycle.private.log')

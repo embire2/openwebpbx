@@ -13,8 +13,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 WINPS=str(Path(os.environ.get('SystemRoot','C:/Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe')
-FIXTURE_PHP_SOURCES={'windows_cdr_observation.php','windows-native-fixture.php','windows_voicemail_delete_fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component'}
-FIXTURE_ACTIONS={'baseline','discover','cleanup','status','cdr-status','queue-state','job','due','voicemail-login','api','mail-seed','voicemail-delete-prepare','voicemail-delete-status','meeting-path-state','services-info','providers-create','providers-ingress','cmb-setup','cmb-status','cmb-reset','cmb-quota'}
+FIXTURE_PHP_SOURCES={'windows_cdr_observation.php','windows-native-fixture.php','windows_voicemail_delete_fixture.php','windows_greetings_fixture.php','windows_provider_peer.php','permissions.php','database.php','pbx_admin.php','pbx_setup.php','pbx_setup_provisioner.php','pbx_tenants.php','pbx_paths.php','pbx_mapper.php','pbx_schedule.php','pbx_operations.php','pbx_native.php','pbx_phone_auth.php','pbx_sip_domain.php','config.php','event_socket.php','cache.php','external_component'}
+FIXTURE_ACTIONS={'baseline','discover','cleanup','status','cdr-status','queue-state','job','due','voicemail-login','api','mail-seed','greetings-paths','greetings-prepare','greetings-arm','greetings-status','greetings-cleanup','voicemail-delete-prepare','voicemail-delete-status','meeting-path-state','services-info','providers-create','providers-ingress','cmb-setup','cmb-status','cmb-reset','cmb-quota'}
 FIXTURE_STAGES={'initialization','owned_service_lookup','realm_validation','admin_permissions','config_read','users_discovery','extension_update','policy_save','cache_refresh'}
 NATIVE_SUBSTAGES={'native_case','g729_regular_unregister','g729_alternate_register','g729_invite','g729_answer_validation',
     'g729_remote_answer','g729_media','g729_peer_receiver','g729_hangup','g729_alternate_unregister',
@@ -1093,6 +1093,8 @@ def native_calls(f,hold_only=False):
         f.record('native_clock1026_gmt2_three_decoded_announcements',**proof)
         refresh.refresh_owned_peers(f,(caller,a,b),'after_clock')
         f.record('native_tls_signalling_two_way_decoded_rtp',**call_check('8101',background_cdr=True))
+        greeting=load_module('windows_greetings_native',f.source/'tests/windows_greetings_native.py')
+        f.record(greeting.CASE,**greeting.qualify(f,a,original,sys.modules[__name__],NativePlayback))
         f.active_case='independent_g729_pcmu_transcoding'
         (f.evidence/'g729-profile.private.txt').write_text(f.cli('api','sofia status profile internal',json_result=False))
         (f.evidence/'g729-implementations.private.json').write_text(f.cli('api','show codecs as json',json_result=False))
@@ -1527,7 +1529,7 @@ def main():
         import traceback
         location=traceback.extract_tb(e.__traceback__)[-1]
         basename=Path(location.filename).name
-        if basename not in ('windows_threecx_https_native.py','windows-native-acceptance.py','windows-meet-browser.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py','windows_voicemail_delete_native.py'):
+        if basename not in ('windows_threecx_https_native.py','windows-native-acceptance.py','windows-meet-browser.py','pbx_v20_restore_native.py','sip_trunk_live.py','windows_native_services.py','windows_hold_native.py','windows_clock_native.py','pbx_talking_clock_native.py','windows_voicemail_delete_native.py','windows_greetings_native.py'):
             basename='external_component'
         failure={'schema':1,'producer':'windows-native-acceptance.py','state':'failed','checks':f.checks,'error_type':type(e).__name__,'error':str(e),'source_basename':basename,'source_line':location.lineno,'active_case':f.active_case}
         if getattr(e,'fixture_failure',None):failure.update(e.fixture_failure)

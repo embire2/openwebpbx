@@ -12,6 +12,8 @@ class event_socket {public static function api($command): string{return '+OK iso
 class pbx_paths {
  public static string $root;
  public static function media(): string{return self::$root.'/media';}
+ public static function greetings(): string{return self::media();}
+ public static function greetingContains(string $domain,string $file): bool{return self::contains(self::greetings().'/'.$domain.'/greetings',$file);}
  public static function voicemail(): string{return self::$root.'/voicemail';}
  public static function contains(string $root,string $path): bool{$r=realpath($root);$p=realpath($path);return $r!==false&&$p!==false&&str_starts_with($p,rtrim($r,'/').'/');}
 }
