@@ -20,9 +20,9 @@ $os=Get-CimInstance Win32_OperatingSystem
 if($os.ProductType -eq 1 -or $os.Caption -notmatch 'Windows Server 2025' -or [Environment]::OSVersion.Version.Build -lt 26100){throw 'This server release requires Windows Server2025 x64.'}
 if((Test-Path 'C:\Program Files\FreeSWITCH\FreeSwitch.dll') -and !(Test-Path "$private\installation.json")){throw 'An existing call engine is present outside this installation. Preserve it and choose an empty Windows server.'}
 if ($DomainName -notmatch '^[a-zA-Z0-9.-]+$' -or $HttpsPort -lt 1 -or $HttpsPort -gt 65535) { throw 'Enter a valid server name and HTTPS port.' }
-if($EnablePublicAccess -and $DomainName.EndsWith('.openwebpbx.com',[StringComparison]::OrdinalIgnoreCase)){
+if($DomainName.EndsWith('.openwebpbx.com',[StringComparison]::OrdinalIgnoreCase)){
  if($PSBoundParameters.ContainsKey('HttpsPort')){
-  if($HttpsPort -ne 443){throw 'Public setup for a managed tenant address requires HTTPS port 443.'}
+  if($HttpsPort -ne 443){throw 'Setup for a managed tenant address requires HTTPS port 443.'}
  }else{$HttpsPort=443}
 }
 if (!$CertificateThumbprint -and !$LocalCertificate -and !$EnablePublicAccess) { throw 'Supply -CertificateThumbprint for a trusted certificate, or -LocalCertificate for a local test installation.' }

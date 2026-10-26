@@ -28,8 +28,8 @@ foreach($email in 'not-an-email','Display <renewal@sample.org>',"renewal@sample.
 $tokens=$null;$errors=$null
 $installer=[Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'packaging/windows/Install-OpenWebPBX.ps1'),[ref]$tokens,[ref]$errors)
 Check ($errors.Count -eq 0) 'Installer port policy parses'
-$policy=@($installer.EndBlock.Statements|Where-Object {$_.Extent.Text.StartsWith("if(`$EnablePublicAccess -and `$DomainName.EndsWith(")})
-Check ($policy.Count -eq 1) 'Exactly one early managed public-port policy'
+$policy=@($installer.EndBlock.Statements|Where-Object {$_.Extent.Text.StartsWith("if(`$DomainName.EndsWith(")})
+Check ($policy.Count -eq 1) 'Exactly one early managed-host port policy'
 $runtime=@($installer.FindAll({param($n)$n -is [Management.Automation.Language.CommandAst] -and $n.Extent.Text -ceq '& "$PSScriptRoot\Ensure-Runtime.ps1"'},$true))
 Check ($runtime.Count -eq 1 -and $policy[0].Extent.EndOffset -lt $runtime[0].Extent.StartOffset) 'Incompatible managed port refuses before runtime or installation mutations'
 $choosePort=[scriptblock]::Create($installer.ParamBlock.Extent.Text+"`n"+$policy[0].Extent.Text+"`n"+'[pscustomobject]@{port=$HttpsPort;restore=[bool]$RestoreServer}')
@@ -37,7 +37,11 @@ foreach($case in @(
  @{arguments=@{DomainName='qa-setup.openwebpbx.com';EnablePublicAccess=$true};port=443},
  @{arguments=@{DomainName='qa-setup.openwebpbx.com';EnablePublicAccess=$true;HttpsPort=443};port=443},
  @{arguments=@{DomainName='QA-SETUP.OPENWEBPBX.COM';EnablePublicAccess=$true};port=443},
- @{arguments=@{DomainName='qa-setup.openwebpbx.com';LocalCertificate=$true};port=8443},
+ @{arguments=@{DomainName='qa-setup.openwebpbx.com';LocalCertificate=$true};port=443},
+ @{arguments=@{DomainName='QA-SETUP.OPENWEBPBX.COM';LocalCertificate=$true};port=443},
+ @{arguments=@{DomainName='qa-setup.openwebpbx.com';CertificateThumbprint='fixture-certificate'};port=443},
+ @{arguments=@{DomainName='qa-setup.openwebpbx.com';RestoreServer=$true;LocalCertificate=$true};port=443},
+ @{arguments=@{DomainName='pbx.sample.org';CertificateThumbprint='fixture-certificate';HttpsPort=9443};port=9443},
  @{arguments=@{DomainName='pbx.sample.org';EnablePublicAccess=$true};port=8443},
  @{arguments=@{DomainName='pbx.sample.org';EnablePublicAccess=$true;HttpsPort=9443};port=9443},
  @{arguments=@{EnablePublicAccess=$true};port=8443},
@@ -49,6 +53,8 @@ foreach($case in @(
  Check ($selected.port -eq $case.port -and $selected.restore -eq [bool]$arguments['RestoreServer']) 'Actual bound/default port and restore option retained'
 }
 Refused {& $choosePort -DomainName qa-setup.openwebpbx.com -EnablePublicAccess -HttpsPort 8443} 'Explicit incompatible managed port cannot be silently overridden'
+Refused {& $choosePort -DomainName qa-setup.openwebpbx.com -LocalCertificate -HttpsPort 8443} 'Local certificate cannot override the managed-host standard port'
+Refused {& $choosePort -DomainName qa-setup.openwebpbx.com -CertificateThumbprint fixture-certificate -HttpsPort 8443} 'Installed certificate cannot override the managed-host standard port'
 $temporary=Join-Path ([IO.Path]::GetTempPath()) ('openweb public checks '+[Guid]::NewGuid().ToString('N'))
 $null=New-Item -ItemType Directory -Path $temporary
 try {
