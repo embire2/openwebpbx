@@ -197,6 +197,8 @@ public sealed partial class MainPage : Page
         Launch(address + (page switch { "updates" => "/app/pbx_updates/", "mobile" => "/app/pbx_mobile/", "backups" => "/app/pbx_backups/", "smtp" => "/app/smtp_settings/", "admin" => "/app/pbx_setup/", _ => "/app/pbx_setup/?view=" + page }));
     }
     private void OpenFolder(object sender, RoutedEventArgs args) => Launch(AppContext.BaseDirectory);
+    private static string InstalledAddress(string domainName, bool publicAccess) =>
+        "https://" + domainName + (publicAccess || domainName.EndsWith(".openwebpbx.com", StringComparison.OrdinalIgnoreCase) ? "" : ":8443");
     private void CertificateModeChanged(object sender, SelectionChangedEventArgs args)
     { if (InstalledCertificate is not null) InstalledCertificate.Visibility = CertificateChoice.SelectedIndex == 2 ? Visibility.Visible : Visibility.Collapsed; }
     private async void InstallServer(object sender, RoutedEventArgs args)
@@ -226,7 +228,7 @@ public sealed partial class MainPage : Page
             using var process = Process.Start(start) ?? throw new IOException("Windows could not start setup.");
             await process.WaitForExitAsync();
             if (process.ExitCode != 0) throw new IOException("Setup did not finish. Its private log is in " + directory);
-            AddressInput.Text = "https://" + InstallDomain.Text + (CertificateChoice.SelectedIndex == 0 ? "" : ":8443"); SaveAddress(sender, args);
+            AddressInput.Text = InstalledAddress(InstallDomain.Text, CertificateChoice.SelectedIndex == 0); SaveAddress(sender, args);
             InstallMessage.Severity = InfoBarSeverity.Success; InstallMessage.Title = "Your phone system is ready. Open Admin to sign in.";
             await RefreshStatus();
             await RegisterRestart();
