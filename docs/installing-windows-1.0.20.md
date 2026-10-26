@@ -23,11 +23,17 @@ and open the extracted `openwebpbx-1.0.20-windows-x64` folder.
 
 Use the matching `openwebpbx-1.0.20-windows-x64.zip` and its published `SHA256SUMS`. Windows Server 2025 x64 with Desktop Experience is the supported server target. The server installer refuses Windows 10/11; the native Windows calling client is a separate project.
 
-Extract the complete archive to a private directory and run **Start-OpenWebPBX.cmd**. It checks Microsoft's required runtime before opening the WinUI manager. Choose **Setup**, enter the server hostname and administrator email/password, and select **Automatic public certificate**. Approve Windows' administrator prompt to install. The hostname must point at the server, with TCP 80/443 and the documented SIP/audio ports reachable. After setup, use the installed desktop shortcut. The equivalent command in built-in **Windows PowerShell 5.1 as Administrator** is:
+For a fresh installation of the published1.0.20 build, extract the complete archive to a private directory. Open built-in **Windows PowerShell5.1 as Administrator** in that extracted folder and run the commands below, replacing the example hostname and email. Setup asks for the administrator password securely. The hostname must point at this server, with TCP80/443 and the documented SIP/audio ports reachable.
+
+The first command selects the bundled settings for this PowerShell window. Explicit port443 also avoids a setup problem with managed tenant addresses. These two fresh-server issues were confirmed on26October; the1.0.21 candidate includes their automatic corrections. The published1.0.20 ZIP and its checksums remain unchanged.
 
 ```powershell
-.\Install-OpenWebPBX.ps1 -DomainName 'pbx.example.com' -EnablePublicAccess -AdminEmail 'admin@example.com'
+$env:OPENSSL_CONF = Join-Path (Get-Location) 'openssl.cnf'
+.\Install-OpenWebPBX.ps1 -DomainName 'pbx.example.com' -HttpsPort 443 -EnablePublicAccess -AdminEmail 'admin@example.com'
 ```
+
+After setup, use the installed **OpenWeb PBX** desktop shortcut for status,
+administration and updates. The native manager remains part of the complete package.
 
 Setup installs the local PostgreSQL database, IIS/PHP, call engine, background service, updater, backup tooling, offline Nathaniel prompts, secure meeting proxy and the server manager. No separate database server is needed. The call engine starts during setup; provider trunks must be configured and explicitly enabled before provider calls can run. For a clean replacement receiving an encrypted **Windows** instance backup, add `-RestoreServer` and retain the original public hostname and HTTPS port. Debian instance backups are not accepted by the Windows restorer; the 3CX configuration importer is a separate migration path. See [Windows meeting transport](https://github.com/embire2/openwebpbx/blob/customization/docs/windows-meet.md) for the scoped proxy prerequisites and recovery behavior. Preserve existing installations and use the manager/updater's documented upgrade path; never run a fresh installer over an existing PBX. Check [Windows upgrade guidance](https://github.com/embire2/openwebpbx/blob/customization/docs/windows-upgrade.md), the platform's actual release notes and the feature-coverage limits before replacing a production system.
 
