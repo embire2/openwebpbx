@@ -12,6 +12,24 @@ function Assert-HealthUpdaterRestartTask($Task) {
  $args='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$root+'\tools\Restart-Updater.ps1"'
  if(@($Task).Count -ne 1 -or $Task.TaskName -cne 'OpenWebPBX-Updater-Restart' -or $Task.TaskPath -cne '\' -or @($Task.Actions).Count -ne 1 -or $Task.Actions[0].Execute -ine $exe -or $Task.Actions[0].Arguments -cne $args -or $Task.Principal.UserId -cnotin 'SYSTEM','S-1-5-18' -or [string]$Task.Principal.RunLevel -cnotin 'Highest','1' -or [string]$Task.Principal.LogonType -cnotin 'ServiceAccount','5' -or @($Task.Triggers|Where-Object {$null -ne $_}).Count -ne 0 -or $Task.Settings.Enabled -isnot [bool] -or [string]$Task.State -cnotin 'Ready','Disabled'){throw 'The updater qualification refuses a foreign or active restart task.'}
 }
+function Write-HealthUpdaterServiceRefusal($Services,[string]$Expected) {
+ # Closed failure-only projection of the exact original sample; no new query.
+ try {
+  $rows=@($Services);$one=$rows.Count -eq 1
+  $safe=@{schema=1;kind='qualification_service_shape_refusal';count=if(!$rows.Count){'absent'}elseif($one){'single'}else{'multiple'};name_matches=$false;image_matches=$false;account_allowed=$false;startup_allowed=$false;state_allowed=$false;service_state='unavailable'}
+  if($one){
+   $row=$rows[0]
+   $safe.name_matches=$row.Name -ceq 'OpenWebPBXUpdater'
+   $safe.image_matches=$row.PathName -ieq ('"'+$Expected+'"')
+   $safe.account_allowed=$row.StartName -cin 'LocalSystem','NT AUTHORITY\SYSTEM'
+   $safe.startup_allowed=$row.StartMode -cin 'Auto','Manual','Disabled'
+   $safe.state_allowed=$row.State -cin 'Running','Stopped'
+   $safe.service_state=if($row.State -is [string] -and $row.State -cin 'Running','Stopped','Start Pending','Stop Pending','Continue Pending','Pause Pending','Paused','Unknown'){$row.State}else{'other'}
+  }
+  $raw=ConvertTo-Json -InputObject $safe -Depth 3 -Compress
+  if($raw.Length -le 2048){Write-Host ('OPENWEB_UPDATER_SERVICE_REFUSAL '+$raw)}
+ }catch{} # Observation must never replace the original refusal.
+}
 function Get-HealthUpdaterQualificationState {
  $metadata=Join-Path $state 'updater-install.json';$null=Assert-HealthUpdaterOrdinary $metadata $false
  $value=Get-Content -LiteralPath $metadata -Raw|ConvertFrom-Json
@@ -33,7 +51,7 @@ function Get-HealthUpdaterQualificationState {
   else{if($current.Count -ne $manifest.Count){throw 'The installed updater inventory differs.'};foreach($name in $manifest.Keys){if(!$current.ContainsKey($name) -or $current[$name] -cne $manifest[$name]){throw 'The installed updater bytes differ from the candidate.'}}}
  }
  $service=@(Get-CimInstance Win32_Service -Filter "Name='OpenWebPBXUpdater'" -ErrorAction Stop)
- if($service.Count -ne 1 -or $service[0].Name -cne 'OpenWebPBXUpdater' -or $service[0].PathName -ine ('"'+$expected+'"') -or $service[0].StartName -cnotin 'LocalSystem','NT AUTHORITY\SYSTEM' -or $service[0].StartMode -cnotin 'Auto','Manual','Disabled' -or $service[0].State -cnotin 'Running','Stopped'){throw 'The updater qualification refuses an unexpected service.'}
+ if($service.Count -ne 1 -or $service[0].Name -cne 'OpenWebPBXUpdater' -or $service[0].PathName -ine ('"'+$expected+'"') -or $service[0].StartName -cnotin 'LocalSystem','NT AUTHORITY\SYSTEM' -or $service[0].StartMode -cnotin 'Auto','Manual','Disabled' -or $service[0].State -cnotin 'Running','Stopped'){try{Write-HealthUpdaterServiceRefusal $service $expected}catch{};throw 'The updater qualification refuses an unexpected service.'}
  $service=$service[0]
  if($service.State -ceq 'Running' -and $service.StartMode -ceq 'Disabled'){throw 'A running disabled updater cannot be restored without changing startup configuration.'}
  $processes=@(Get-CimInstance Win32_Process -Filter "Name='OpenWebPbx.Updater.exe'" -ErrorAction Stop|Where-Object {$_.ExecutablePath -ieq $expected})

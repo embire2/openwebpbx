@@ -151,12 +151,12 @@ class Controls(unittest.TestCase):
 local path='C:/ProgramData/OpenWebPBX/native-qualification/'..string.rep('a',24)..'/delete-mail-44444444-4444-4444-4444-444444444444.private.json'
 local f={tag='openweb-native-windows-voicemail-delete-v1',scope=string.rep('a',24),domain='11111111-1111-1111-1111-111111111111',mailbox='22222222-2222-2222-2222-222222222222',message='33333333-3333-3333-3333-333333333333',queue='44444444-4444-4444-4444-444444444444',attachment='55555555-5555-5555-5555-555555555555',realm='pbx-aaaaaaaaaaaa.native.invalid',hostname='owned-host',helper='C:/OpenWebPBX/scripts/resources/functions/voicemail_mail_queue.lua'}
 f.service_name='Fictional Native '..f.scope
-f.audio='C:/State/storage/voicemail/default/'..f.realm..'/8103/msg_'..f.message..'.wav'
+f.audio='C:/ProgramData/OpenWebPBX/storage/voicemail/default/'..f.realm..'/8103/msg_'..f.message..'.wav'
 local db={}
 function db:connected()return true end
 function db:backend_name()return 'native' end
 function db:first_row(sql,params)
- if sql:match('current_database')then return{name='fusionpbx',address='127.0.0.1',port='5433'}end
+ if sql:match('current_database')then assert(sql:find('host(inet_server_addr()) as address',1,true));return{name='fusionpbx',address='127.0.0.1',port='5433'}end
  assert(params==f and sql:match('v_voicemail_messages'))
  return{domain_name=f.realm,service_name=f.service_name,voicemail_id='8103',keep='false',voicemail_file='attach'}
 end
@@ -169,12 +169,30 @@ package.preload['resources.functions.voicemail_mail_queue']=function()return{enq
 package.searchpath=function(name)assert(name=='resources.functions.voicemail_mail_queue');return f.helper end
 io.open=function(request,mode)assert(request==path and mode=='rb');return{read=function(_,limit)assert(limit==16385);return'OWNED'end,close=function()end}end
 os.getenv=function(name)assert(name=='ProgramData');return'C:/ProgramData'end
-freeswitch={getGlobalVariable=function(name)return({hostname=f.hostname,storage_dir='C:/State/storage'})[name]end}
+freeswitch={getGlobalVariable=function(name)return({hostname=f.hostname,storage_dir='C:/Program Files/FreeSWITCH/storage'})[name]end}
 stream={write=function(_,out)assert(out=='QUEUED');io.write('owned Lua guards PASS\n')end}
 argv={path};package.config='\\\n/\n;\n?\n!\n-\n'
 assert(loadfile(arg[1]))()
 '''
         result=subprocess.run(['lua','-',str(ROOT/'tests/windows_voicemail_delete_producer.lua')],input=harness,text=True,capture_output=True,timeout=5)
         self.assertEqual(result.returncode,0,result.stderr);self.assertEqual(result.stdout,'owned Lua guards PASS\n')
+        # Exact loopback/port/database and copied-WAV ownership remain strict.
+        # The native engine's own storage root deliberately differs from the
+        # supported installer's ProgramData PBX storage root in the baseline.
+        for label,changed in [
+            ('foreign_address',harness.replace("address='127.0.0.1'","address='127.0.0.2'")),
+            ('ipv6_address',harness.replace("address='127.0.0.1'","address='::1'")),
+            ('wrong_port',harness.replace("port='5433'","port='5432'")),
+            ('wrong_database',harness.replace("name='fusionpbx'","name='foreign'")),
+            ('engine_audio_root',harness.replace("f.audio='C:/ProgramData/OpenWebPBX/storage/voicemail/default/'","f.audio='C:/Program Files/FreeSWITCH/storage/voicemail/default/'")),
+            ('foreign_mailbox_path',harness.replace("..'/8103/msg_'..f.message..'.wav'","..'/8104/msg_'..f.message..'.wav'")),
+            ('wrong_copied_audio',harness.replace("..f.message..'.wav'","..f.queue..'.wav'")),
+        ]:
+            with self.subTest(refusal=label):
+                self.assertNotEqual(changed,harness)
+                rejected=subprocess.run(['lua','-',str(ROOT/'tests/windows_voicemail_delete_producer.lua')],input=changed,text=True,capture_output=True,timeout=5)
+                self.assertNotEqual(rejected.returncode,0)
+                self.assertEqual(rejected.stdout,'')
+
 
 if __name__=='__main__':unittest.main()

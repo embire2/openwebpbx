@@ -10,12 +10,12 @@ local state=norm(assert(os.getenv('ProgramData')))..'/OpenWebPBX/native-qualific
 assert(norm(path):lower()==(state..'/delete-mail-'..f.queue..'.private.json'):lower(),'Owned producer path required')
 local prefix=type(f.realm)=='string' and f.realm:match('^pbx%-(%x+)%.');assert(prefix and #prefix==12)
 assert(f.service_name=='Fictional Native '..f.scope and f.hostname:lower()==assert(freeswitch.getGlobalVariable('hostname')):lower())
-local storage=norm(assert(freeswitch.getGlobalVariable('storage_dir')))
+local storage=norm(assert(os.getenv('ProgramData')))..'/OpenWebPBX/storage'
 assert(norm(f.audio):lower()==(storage..'/voicemail/default/'..f.realm..'/8103/msg_'..f.message..'.wav'):lower(),'Owned copied recording required')
 local helper=assert(package.searchpath('resources.functions.voicemail_mail_queue',package.path))
 assert(norm(helper):lower()==norm(f.helper):lower() and not package.loaded['resources.functions.voicemail_mail_queue'],'Fresh installed atomic helper required')
 local Database=require'resources.functions.database';local db=Database.new('system');assert(db:connected() and db:backend_name()=='native')
-local identity=assert(db:first_row("select current_database() as name,inet_server_addr()::text as address,inet_server_port()::text as port"))
+local identity=assert(db:first_row("select current_database() as name,host(inet_server_addr()) as address,inet_server_port()::text as port"))
 assert(identity.name=='fusionpbx' and identity.address=='127.0.0.1' and identity.port=='5433','Disposable native database required')
 local row=assert(db:first_row([[select d.domain_name,s.service_name,v.voicemail_id,v.voicemail_local_after_email::text as keep,v.voicemail_file
  from v_domains d join v_pbx_services s using(domain_uuid) join v_voicemails v using(domain_uuid)
