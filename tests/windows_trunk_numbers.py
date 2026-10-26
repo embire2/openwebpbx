@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-PINS = {'tests/windows_meeting_owned_process.py': '9c2de4d8b96f1769bf0cb5a9985409bb28587dce7f8add77556941bc4ea55448', 'tests/pbx_trunk_numbers.py': '1e3b132e4f4d6a308a192189b423e98f317d37fda693011ff9aae9d8d77b4f4c', 'tests/pbx_trunk_numbers.php': 'f9d98c157f7712c570a41d0c5357e1b460cbac2771b03afa1ec631e56975fa1e'}
+PINS = {'tests/windows_meeting_owned_process.py': '9c2de4d8b96f1769bf0cb5a9985409bb28587dce7f8add77556941bc4ea55448', 'tests/pbx_trunk_numbers.py': '29702ed82484578483801ff096c5ade66a7fe8370e451b723d08d2ce0299caab', 'tests/pbx_trunk_numbers.php': 'f9d98c157f7712c570a41d0c5357e1b460cbac2771b03afa1ec631e56975fa1e'}
 JOB_KEYS = set('schema created_suspended assigned_before_resume resumed owned_job_terminated exit_code owned_processes_closed handles_closed ordinary_exit'.split())
 JOB_TRUE = 'created_suspended assigned_before_resume resumed owned_processes_closed handles_closed ordinary_exit'.split()
 

@@ -78,6 +78,172 @@ function CompleteCommittedFinalization {
  $script:upgradeFinalizationPhase='complete';$script:upgradeFinalizationFailed=$false
  SaveJournal 'completed'
 }
+function Get-OpenWeb20GreetingCompatibilityPath {
+ param([string]$Backup)
+ $identity=[IO.Path]::GetFullPath($Backup).TrimEnd('\').ToUpperInvariant()+"`n"+(Get-OpenWebRecoveryHash (Read-OpenWebRecoveryBytes (Join-Path $Backup 'backup-manifest.json')))
+ Join-Path $updates ('greetings-upgrade20-'+(Get-OpenWebRecoveryHash ([Text.Encoding]::UTF8.GetBytes($identity)))+'.json')
+}
+function Read-OpenWeb20GreetingCompatibility {
+ param([string]$Backup)
+ $path=Get-OpenWeb20GreetingCompatibilityPath $Backup
+ if(!(Test-Path -LiteralPath $path)){return $null}
+ $null=Assert-OpenWebRecoveryProtected $path -Private
+ $record=[Text.Encoding]::UTF8.GetString((Read-OpenWebRecoveryBytes $path 16777216))|ConvertFrom-Json
+ $fields=@('schema','State','Backup','BackupManifestSha256','BackupCompleteSha256','SourceManifestSha256','Version','PreviousVersion','GreetingAccess','OriginalRootExists','EngineDirectoryExists','EngineDirectorySddl','EngineFiles','Hold')
+ if(@($record.PSObject.Properties).Count -ne $fields.Count -or @($record.PSObject.Properties.Name|Where-Object {$_ -cnotin $fields}).Count -or ($record.schema -isnot [int] -and $record.schema -isnot [long]) -or $record.schema -ne 1 -or $record.State -cnotin 'prepared','completed','rolled_back' -or $record.Backup -isnot [string] -or $record.Backup -ine $Backup -or $record.PreviousVersion -cne '1.0.20' -or $record.Version -isnot [string] -or $record.Version -cnotmatch '^\d+\.\d+\.\d+$' -or [version]$record.Version -lt [version]'1.0.21' -or $record.OriginalRootExists -isnot [bool] -or $record.EngineDirectoryExists -isnot [bool]){throw 'The original20 Greetings compatibility inventory is invalid.'}
+ foreach($field in 'BackupManifestSha256','BackupCompleteSha256','SourceManifestSha256'){if($record.$field -isnot [string] -or $record.$field -cnotmatch '^[a-f0-9]{64}$'){throw 'A compatibility identity pin is invalid.'}}
+ if($record.BackupManifestSha256 -cne (Get-OpenWebRecoveryHash (Read-OpenWebRecoveryBytes (Join-Path $Backup 'backup-manifest.json'))) -or $record.BackupCompleteSha256 -cne (Get-OpenWebRecoveryHash (Read-OpenWebRecoveryBytes (Join-Path $Backup 'complete.json')))){throw 'The original20 compatibility backup changed.'}
+ Assert-OpenWebCallRecordHold $record.Hold
+ if($record.Hold.owner -cne 'upgrade' -or @($record.Hold.PSObject.Properties).Count -ne 3){throw 'The compatibility hold is not upgrade-owned.'}
+ if($record.EngineDirectoryExists){Assert-OpenWebGreetingDescriptor $record.EngineDirectorySddl}elseif($null -ne $record.EngineDirectorySddl){throw 'An absent script directory has an unexpected descriptor.'}
+ if($record.EngineFiles -isnot [array] -or $record.EngineFiles.Count -ne 2 -or @($record.EngineFiles.Name|Sort-Object -Unique).Count -ne 2){throw 'Both fixed Greetings helper snapshots are required.'}
+ foreach($file in $record.EngineFiles){
+  if(@($file.PSObject.Properties).Count -ne 6 -or @($file.PSObject.Properties.Name|Where-Object {$_ -cnotin 'Name','Exists','OldSha256','NewSha256','Bytes','Sddl'}).Count -or $file.Name -cnotin 'call.lua','recording.lua' -or $file.Exists -isnot [bool] -or $file.NewSha256 -isnot [string] -or $file.NewSha256 -cnotmatch '^[a-f0-9]{64}$'){throw 'The fixed Greetings helper snapshot is invalid.'}
+  if($file.Exists){
+   if($file.Bytes -isnot [string] -or $file.Bytes.Length -gt 1398104 -or $file.OldSha256 -isnot [string] -or $file.OldSha256 -cnotmatch '^[a-f0-9]{64}$'){throw 'The original Greetings helper bytes are invalid.'}
+   $bytes=[Convert]::FromBase64String($file.Bytes)
+   if($bytes.Length -gt 1048576 -or [Convert]::ToBase64String($bytes) -cne $file.Bytes -or (Get-OpenWebRecoveryHash $bytes) -cne $file.OldSha256){throw 'The original Greetings helper bytes changed.'}
+   Assert-OpenWebGreetingDescriptor $file.Sddl
+  }elseif($null -ne $file.Bytes -or $null -ne $file.OldSha256 -or $null -ne $file.Sddl){throw 'An absent Greetings helper has an unexpected before-image.'}
+ }
+ return $record
+}
+function Write-OpenWeb20GreetingCompatibility {
+ param($Record)
+ $path=Get-OpenWeb20GreetingCompatibilityPath $Record.Backup
+ $raw=[Text.UTF8Encoding]::new($false).GetBytes(($Record|ConvertTo-Json -Depth 8 -WarningAction Stop))
+ if($raw.Length -gt 16777216){throw 'The bounded compatibility snapshot is too large.'}
+ WriteState $path $Record
+ $null=Assert-OpenWebRecoveryProtected $path -Private
+}
+function Set-OpenWeb20GreetingHelper {
+ param([string]$Path,[byte[]]$Bytes,[string]$Sddl)
+ $parent=Assert-OpenWebCallRecordOrdinary -Path (Split-Path $Path -Parent) -Directory
+ if(Test-Path -LiteralPath $Path){$null=Assert-OpenWebCallRecordOrdinary -Path $Path}
+ $temporary=Join-Path $parent ((Split-Path $Path -Leaf)+'.'+[Guid]::NewGuid().ToString('N')+'.new')
+ $failure=$null
+ try{
+  $file=[IO.File]::Open($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+  try{$file.Write($Bytes,0,$Bytes.Length);$file.Flush($true)}finally{$file.Dispose()}
+  if($Sddl){Set-OpenWebFileSddl -LiteralPath $temporary -Sddl $Sddl}
+  if(![OpenWebUpdateState]::MoveFileEx($temporary,$Path,9)){throw 'The Greetings helper could not be committed durably.'}
+ }catch{$failure=$_;throw}finally{
+  if(Test-Path -LiteralPath $temporary){try{Remove-Item -LiteralPath $temporary -Force -ErrorAction Stop}catch{if($failure){$failure.Exception.Data['greeting_helper_temporary_cleanup_failed']=$true}else{throw}}}
+ }
+}
+function Restore-OpenWeb20GreetingCompatibility {
+ param([string]$Backup,[switch]$OperatorRollback)
+ Assert-OpenWebRecoveryLock -MaintenanceLock $lock -StateRoot $private
+ $record=Read-OpenWeb20GreetingCompatibility $Backup
+ if(!$record -or $record.State -ceq 'rolled_back'){return}
+ # Original20 has no dedicated-root ACL snapshot. Its sealed backup remains
+ # immutable; this separately durable before-image owns only this new grant.
+ $greetingRoot=Join-Path $private 'storage\greetings'
+ if(!(Test-Path -LiteralPath $greetingRoot)){$null=Get-OpenWebGreetingAccessSnapshot -StateRoot $private -MaintenanceLock $lock}
+ $null=Assert-OpenWebGreetingAccessSnapshot -Snapshot $record.GreetingAccess -StateRoot $private
+ $directory=Join-Path $switch 'scripts\app\pbx_greetings'
+ if(!$OperatorRollback -and (Test-Path -LiteralPath $directory)){
+  $null=Assert-OpenWebCallRecordOrdinary -Path $directory -Directory
+  # Validate both current files before restoring either one. Atomic publication
+  # permits only the captured old hash or the verified new hash after a crash.
+  foreach($entry in $record.EngineFiles){$path=Join-Path $directory $entry.Name;if(Test-Path -LiteralPath $path){$null=Assert-OpenWebCallRecordOrdinary -Path $path;$hash=Get-OpenWebRecoveryHash (Read-OpenWebRecoveryBytes $path 1048576);if($hash -cne $entry.NewSha256 -and (!$entry.Exists -or $hash -cne $entry.OldSha256)){throw 'A foreign Greetings helper change prevents compatibility recovery.'}}elseif($entry.Exists){throw 'An original Greetings helper disappeared.'}}
+  foreach($entry in $record.EngineFiles){$path=Join-Path $directory $entry.Name;if($entry.Exists){Set-OpenWeb20GreetingHelper -Path $path -Bytes ([Convert]::FromBase64String($entry.Bytes)) -Sddl $entry.Sddl}elseif(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Force -ErrorAction Stop}}
+ }
+ if(Test-Path -LiteralPath $directory){
+  $null=Assert-OpenWebCallRecordOrdinary -Path $directory -Directory
+  if($record.EngineDirectoryExists){Set-OpenWebFileSddl -LiteralPath $directory -Sddl $record.EngineDirectorySddl}
+  elseif(!$OperatorRollback -and @(Get-ChildItem -LiteralPath $directory -Force -ErrorAction Stop).Count -eq 0){[IO.Directory]::Delete($directory,$false)}
+ }
+ Restore-OpenWebGreetingAccess -Snapshot $record.GreetingAccess -StateRoot $private -MaintenanceLock $lock
+ if(!$record.OriginalRootExists -and (Test-Path -LiteralPath $greetingRoot) -and @(Get-ChildItem -LiteralPath $greetingRoot -Force -ErrorAction Stop).Count -eq 0){$null=Assert-OpenWebCallRecordOrdinary -Path $greetingRoot -Directory;[IO.Directory]::Delete($greetingRoot,$false)}
+ if($OperatorRollback){$record.State='rolled_back';Write-OpenWeb20GreetingCompatibility $record}
+}
+function Complete-OpenWeb20GreetingCompatibility {
+ param($Journal)
+ if($Journal.state -cne 'completed' -or $Journal.previous_version -cne '1.0.20' -or $Journal.version -isnot [string] -or $Journal.version -cnotmatch '^\d+\.\d+\.\d+$' -or [version]$Journal.version -lt [version]'1.0.21'){return}
+ Assert-OpenWebRecoveryLock -MaintenanceLock $lock -StateRoot $private
+ $metadata=Get-OpenWebUpgradeRecoveryMetadata -Entry $Journal.recovery_entry -Root $root -StateRoot $private -EngineRoot $switch -AllowCompleted
+ if($state.Version -cne $metadata.version -or $Journal.version -cne $metadata.version -or $metadata.previous_version -cne '1.0.20' -or (Get-Content -LiteralPath (Join-Path $root 'web\VERSION') -Raw -Encoding UTF8).Trim() -cne $metadata.version){throw 'The original20 deployment has not committed its verified target version.'}
+ $backupManifest=[Text.Encoding]::UTF8.GetString((Read-OpenWebRecoveryBytes (Join-Path $metadata.backup_path 'backup-manifest.json')))|ConvertFrom-Json
+ $supportBytes=Read-OpenWebRecoveryBytes (Join-Path $metadata.backup_path 'support-state.json')
+ if($backupManifest.files.'support-state.json' -cne (Get-OpenWebRecoveryHash $supportBytes)){throw 'The original20 support snapshot differs from its sealed backup.'}
+ $originalSupport=[Text.Encoding]::UTF8.GetString($supportBytes)|ConvertFrom-Json
+ if($originalSupport.PSObject.Properties.Name -ccontains 'GreetingAccess'){return} # Current21 transactions already own the ordinary path.
+ $manifest=[Text.Encoding]::UTF8.GetString((Read-OpenWebRecoveryBytes (Join-Path $Journal.recovery_entry.bundle_path 'release-manifest.json') 4194304))|ConvertFrom-Json
+ if($manifest.version -cne $metadata.version){throw 'The compatibility release manifest differs from its pinned entry.'}
+ $sourceDirectory=Join-Path $root 'web\app\pbx_setup\resources\switch\scripts\app\pbx_greetings'
+ $directory=Join-Path $switch 'scripts\app\pbx_greetings';$sources=@{}
+ foreach($name in 'call.lua','recording.lua'){
+  $path=Join-Path $sourceDirectory $name;$null=Assert-OpenWebCallRecordOrdinary -Path $path;$bytes=Read-OpenWebRecoveryBytes $path 1048576
+  $pin=$manifest.files.('web/app/pbx_setup/resources/switch/scripts/app/pbx_greetings/'+$name)
+  if($pin -isnot [string] -or $pin -cnotmatch '^[a-f0-9]{64}$' -or (Get-OpenWebRecoveryHash $bytes) -cne $pin){throw 'An installed Greetings source helper differs from its signed release.'}
+  $sources[$name]=@{Bytes=$bytes;Sha256=$pin}
+ }
+ $record=Read-OpenWeb20GreetingCompatibility $metadata.backup_path
+ if($record -and ($record.Version -cne $metadata.version -or $record.SourceManifestSha256 -cne $metadata.source_manifest_sha256)){throw 'The compatibility snapshot belongs to another target release.'}
+ if($record){foreach($entry in $record.EngineFiles){if($entry.NewSha256 -cne $sources[$entry.Name].Sha256){throw 'A compatibility helper pin differs from the signed release.'}}}
+ if($record -and $record.State -ceq 'completed'){
+  $null=Assert-OpenWebGreetingAccessSnapshot -Snapshot $record.GreetingAccess -StateRoot $private
+  foreach($entry in $record.EngineFiles){if((Get-OpenWebRecoveryHash (Read-OpenWebRecoveryBytes (Join-Path $directory $entry.Name) 1048576)) -cne $entry.NewSha256){throw 'A completed compatibility helper changed.'}}
+  Remove-OpenWebCallRecordHold -StateRoot $private -Hold $record.Hold -MaintenanceLock $lock;return
+ }
+ if($record -and $record.State -ceq 'rolled_back'){throw 'This compatibility transaction was already rolled back.'}
+ # The exclusive lease fences GreetingWorker before DB access/prepare/dispatch.
+ # Existing dispatched Lua recording calls finish independently. Refuse busy
+ # work before mutations; the unchanged updater retries recovery75 every5s.
+ CheckIdle
+ $probe='<?php require "C:/OpenWebPBX/web/resources/require.php"; $db=new database; $n=$db->select("select count(*) as n from v_pbx_greetings where state=''calling''",null,"column");if(!is_numeric($n))exit(1);if((int)$n!==0)exit(75);'
+ $probePath=Join-Path $private ('upgrade-greeting-idle-'+[Guid]::NewGuid().ToString('N')+'.php')
+ try{
+  [IO.File]::WriteAllText($probePath,$probe,[Text.UTF8Encoding]::new($false));& "$root\php\php.exe" $probePath
+  if($LASTEXITCODE -eq 75){$script:deferred=$true;throw 'An active greeting recording must finish before compatibility finalization.'}
+  if($LASTEXITCODE -ne 0){throw 'The installed greeting recording state is unavailable.'}
+ }finally{Remove-Item -LiteralPath $probePath -Force -ErrorAction SilentlyContinue}
+ if(!$record){
+  VerifyBackup $metadata.backup_path
+  $null=Assert-OpenWebCallRecordOrdinary -Path (Split-Path $directory -Parent) -Directory
+  $exists=Test-Path -LiteralPath $directory
+  if($exists){$null=Assert-OpenWebCallRecordOrdinary -Path $directory -Directory}
+  $entries=@();foreach($name in 'call.lua','recording.lua'){
+   $path=Join-Path $directory $name;$present=Test-Path -LiteralPath $path;$bytes=$null;$sddl=$null;$hash=$null
+   if($present){$null=Assert-OpenWebCallRecordOrdinary -Path $path;$bytes=Read-OpenWebRecoveryBytes $path 1048576;$hash=Get-OpenWebRecoveryHash $bytes;$sddl=(Get-Acl -LiteralPath $path -ErrorAction Stop).Sddl}
+   $entries+=@{Name=$name;Exists=[bool]$present;OldSha256=$hash;NewSha256=$sources[$name].Sha256;Bytes=if($present){[Convert]::ToBase64String($bytes)}else{$null};Sddl=$sddl}
+  }
+  $access=Get-OpenWebGreetingAccessSnapshot -StateRoot $private -MaintenanceLock $lock
+  try{
+   Assert-OpenWebCallRecordHold $Journal.call_records_hold
+   if($Journal.call_records_hold.owner -cne 'upgrade'){throw 'The original20 transaction hold is not upgrade-owned.'}
+   $record=[pscustomobject]@{schema=1;State='prepared';Backup=$metadata.backup_path;BackupManifestSha256=$metadata.backup_manifest_sha256;BackupCompleteSha256=$metadata.backup_complete_sha256;SourceManifestSha256=$metadata.source_manifest_sha256;Version=$metadata.version;PreviousVersion='1.0.20';GreetingAccess=$access;OriginalRootExists=[bool](Test-Path -LiteralPath (Join-Path $metadata.backup_path 'storage\greetings') -PathType Container);EngineDirectoryExists=[bool]$exists;EngineDirectorySddl=if($exists){(Get-Acl -LiteralPath $directory -ErrorAction Stop).Sddl}else{$null};EngineFiles=$entries;Hold=$Journal.call_records_hold}
+   Write-OpenWeb20GreetingCompatibility $record
+  }catch{$failure=$_;try{Restore-OpenWebGreetingAccess -Snapshot $access -StateRoot $private -MaintenanceLock $lock}catch{$failure.Exception.Data['greeting_compatibility_pregrant_cleanup_failed']=$true};throw $failure}
+ }
+ Set-OpenWebCallRecordHold -StateRoot $private -Hold $record.Hold -MaintenanceLock $lock
+ $writingCompletion=$false
+ try{
+  # A previous interrupted attempt has only old/new atomic helper states.
+  Restore-OpenWeb20GreetingCompatibility -Backup $metadata.backup_path
+  if(!(Test-Path -LiteralPath $directory)){$null=[IO.Directory]::CreateDirectory($directory)}
+  $null=Assert-OpenWebCallRecordOrdinary -Path $directory -Directory
+  foreach($entry in $record.EngineFiles){Set-OpenWeb20GreetingHelper -Path (Join-Path $directory $entry.Name) -Bytes $sources[$entry.Name].Bytes -Sddl $entry.Sddl}
+  if(!(Test-Path -LiteralPath (Join-Path $private 'storage\greetings'))){$null=Get-OpenWebGreetingAccessSnapshot -StateRoot $private -MaintenanceLock $lock}
+  Install-OpenWebGreetingAccess -Snapshot $record.GreetingAccess -StateRoot $private -MaintenanceLock $lock
+  foreach($entry in $record.EngineFiles){if((Get-OpenWebRecoveryHash (Read-OpenWebRecoveryBytes (Join-Path $directory $entry.Name) 1048576)) -cne $entry.NewSha256){throw 'The deployed Greetings helper differs from its signed release.'}}
+  $writingCompletion=$true;$record.State='completed';Write-OpenWeb20GreetingCompatibility $record
+  Remove-OpenWebCallRecordHold -StateRoot $private -Hold $record.Hold -MaintenanceLock $lock
+ }catch{
+  $failure=$_
+  $restoreAllowed=!$writingCompletion
+  if($writingCompletion){
+   # A completed marker is the compatibility commit. Hold cleanup may retry,
+   # but must never roll files/ACLs back under that durable success identity.
+   try{$durable=Read-OpenWeb20GreetingCompatibility $metadata.backup_path;$restoreAllowed=$durable -and $durable.State -ceq 'prepared';if(!$durable -or $durable.State -cnotin 'prepared','completed'){$failure.Exception.Data['greeting_compatibility_completion_indeterminate']=$true}}
+   catch{$failure.Exception.Data['greeting_compatibility_completion_indeterminate']=$true}
+  }
+  if($restoreAllowed){try{Restore-OpenWeb20GreetingCompatibility -Backup $metadata.backup_path}catch{$failure.Exception.Data['greeting_compatibility_recovery_failed']=$true}}
+  throw $failure
+ }
+}
+
 function CompleteInstalledCallRecordHold {
  # A successful fresh installation can lose power after Completed commits but
  # before its marker is removed. The ordinary updater's first Recover retries
@@ -263,6 +429,9 @@ function VerifyBackup([string]$Backup) {
 function RestorePbx([string]$Backup) {
  if (!(Test-Path "$Backup\complete.json")) { throw 'The selected backup is incomplete.' }
  VerifyBackup $Backup
+ # Restore the separate original20 compatibility ACL before-image while the
+ # current helper paths still exist; unchanged mirrors restore original bytes.
+ if(($RestoreBackup -or $script:operatorRollback) -and (Get-Content -LiteralPath (Join-Path $Backup 'complete.json') -Raw|ConvertFrom-Json).version -ceq '1.0.20'){Restore-OpenWeb20GreetingCompatibility -Backup $Backup -OperatorRollback}
  # Keep the private boot entry active until every rollback step and health
  # check finishes, including a second interruption while restoring tools/DB.
  if($script:upgradeRecoveryEntry){Ensure-OpenWebUpgradeRecoveryPublished -Entry $script:upgradeRecoveryEntry -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock}
@@ -348,6 +517,7 @@ try {
    $journal=Get-Content $journalPath -Raw|ConvertFrom-Json
    if($journal.PSObject.Properties['call_records_hold']){$script:callRecordsHold=$journal.call_records_hold;Assert-OpenWebCallRecordHold $script:callRecordsHold}
    if($journal.state -ceq 'rolled_back' -and $script:callRecordsHold){Remove-OpenWebCallRecordHold -StateRoot $private -Hold $script:callRecordsHold -MaintenanceLock $lock}
+   Complete-OpenWeb20GreetingCompatibility -Journal $journal
    if($journal.state -ceq 'completed' -and $journal.PSObject.Properties['recovery_entry'] -and !($journal.PSObject.Properties['finalization'] -and $journal.finalization.phase -is [string] -and $journal.finalization.phase -ceq 'complete' -and $journal.finalization.failed -is [bool] -and !$journal.finalization.failed)){
     $backup=$journal.backup_path;$version=$journal.version;$previousVersion=$journal.previous_version
     $script:managerTasks=@($journal.manager_tasks);$script:operatorRollback=[bool]$journal.operator_rollback
