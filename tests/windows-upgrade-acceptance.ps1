@@ -232,6 +232,14 @@ function HelperFailure($Record){
    foreach($frame in $frames){
     if($null -eq $frame -or $frame.source_basename -isnot [string] -or $frame.source_basename -cnotin 'Upgrade-OpenWebPBX.ps1','Support-Recovery.ps1','Restore-Gates.ps1' -or ($frame.source_line -isnot [int] -and $frame.source_line -isnot [long]) -or $frame.source_line -lt 1 -or $frame.source_line -ge 100000 -or $frame.error_type -isnot [string] -or $frame.error_type -cnotin $types){continue}
     $entry=@{source_basename=$frame.source_basename;source_line=[int]$frame.source_line;error_type=$frame.error_type}
+    # Optional projection of the original caught lock-open record, never a new probe.
+    if($frame.source_basename -ceq 'Upgrade-OpenWebPBX.ps1' -and $frame.source_line -eq 340 -and $frame.error_type -ceq 'System.Management.Automation.MethodInvocationException'){
+     $lockTypes=@('System.IO.IOException','System.IO.FileNotFoundException','System.IO.DirectoryNotFoundException','System.IO.DriveNotFoundException','System.IO.PathTooLongException','System.IO.EndOfStreamException')
+     if($frame.lock_open_error_type -is [string] -and $frame.lock_open_error_type -cin $lockTypes -and $frame.lock_open_hresult -is [string] -and $frame.lock_open_hresult -cmatch '^[0-9a-f]{8}$'){
+      $entry.lock_open_error_type=$frame.lock_open_error_type;$entry.lock_open_hresult=$frame.lock_open_hresult
+      $entry.lock_open_result=switch -CaseSensitive ($frame.lock_open_hresult){'80070020'{'sharing_violation'}'80070021'{'lock_violation'}'80070002'{'missing'}'80070003'{'missing'}'80070005'{'access_denied'}default{'other_io'}}
+     }
+    }
     if($frame.caller_basename -is [string] -and $frame.caller_basename -cin 'Upgrade-OpenWebPBX.ps1','Support-Recovery.ps1','Restore-Gates.ps1' -and ($frame.caller_line -is [int] -or $frame.caller_line -is [long]) -and $frame.caller_line -gt 0 -and $frame.caller_line -lt 100000){$entry.caller_basename=$frame.caller_basename;$entry.caller_line=[int]$frame.caller_line}
     if($frame.command_basename -is [string] -and $frame.command_basename -cin $commands -and ($frame.command_exit -is [int] -or $frame.command_exit -is [long]) -and $frame.command_exit -ge [int]::MinValue -and $frame.command_exit -le [int]::MaxValue){$entry.command_basename=$frame.command_basename;$entry.command_exit=[int]$frame.command_exit}
     $observations+=,$entry
@@ -278,6 +286,13 @@ try {
    foreach($prior in $preCallErrors){if([object]::ReferenceEquals($entry,$prior) -or [object]::ReferenceEquals($entry.Exception,$prior.Exception)){$old=$true;break}}
    if($old){continue}
    $frame=@{source_basename=$(if($entry.InvocationInfo.ScriptName){[IO.Path]::GetFileName($entry.InvocationInfo.ScriptName)}else{''});source_line=[int]$entry.InvocationInfo.ScriptLineNumber;error_type=$entry.Exception.GetType().FullName}
+   # Inspect only the same stored original ErrorRecord; no retry, lock probe or holder query.
+   if($frame.source_basename -ceq 'Upgrade-OpenWebPBX.ps1' -and $frame.source_line -eq 340 -and $frame.error_type -ceq 'System.Management.Automation.MethodInvocationException'){
+    try{
+     $lockException=$entry.Exception.GetBaseException()
+     if($lockException -is [IO.IOException]){$frame.lock_open_error_type=$lockException.GetType().FullName;$frame.lock_open_hresult=('{0:x8}' -f ($lockException.HResult -band [long]4294967295))}
+    }catch{} # Observations cannot replace the original primary error.
+   }
    foreach($field in 'command_basename','command_exit','caller_basename','caller_line'){if($entry.Exception.Data.Contains($field)){$frame[$field]=$entry.Exception.Data[$field]}}
    $validated=HelperFailure ([pscustomobject]@{recovery_observations_schema=1;recovery_observations_only=$true;recovery_error_observations=@([pscustomobject]$frame)})
    foreach($clean in @($validated.recovery_error_observations)){

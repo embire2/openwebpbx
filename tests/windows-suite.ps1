@@ -501,6 +501,14 @@ function SafeFailureFields($Record){
    foreach($frame in $frames){
     if($null -eq $frame -or $frame.source_basename -isnot [string] -or $frame.source_basename -cnotin 'Upgrade-OpenWebPBX.ps1','Support-Recovery.ps1','Restore-Gates.ps1' -or ($frame.source_line -isnot [int] -and $frame.source_line -isnot [long]) -or $frame.source_line -lt 1 -or $frame.source_line -ge 100000 -or $frame.error_type -isnot [string] -or $frame.error_type -cnotin $recoveryTypes){continue}
     $entry=@{source_basename=$frame.source_basename;source_line=[int]$frame.source_line;error_type=$frame.error_type}
+    # Optional projection of the original caught lock-open record, never a new probe.
+    if($frame.source_basename -ceq 'Upgrade-OpenWebPBX.ps1' -and $frame.source_line -eq 340 -and $frame.error_type -ceq 'System.Management.Automation.MethodInvocationException'){
+     $lockTypes=@('System.IO.IOException','System.IO.FileNotFoundException','System.IO.DirectoryNotFoundException','System.IO.DriveNotFoundException','System.IO.PathTooLongException','System.IO.EndOfStreamException')
+     if($frame.lock_open_error_type -is [string] -and $frame.lock_open_error_type -cin $lockTypes -and $frame.lock_open_hresult -is [string] -and $frame.lock_open_hresult -cmatch '^[0-9a-f]{8}$'){
+      $entry.lock_open_error_type=$frame.lock_open_error_type;$entry.lock_open_hresult=$frame.lock_open_hresult
+      $entry.lock_open_result=switch -CaseSensitive ($frame.lock_open_hresult){'80070020'{'sharing_violation'}'80070021'{'lock_violation'}'80070002'{'missing'}'80070003'{'missing'}'80070005'{'access_denied'}default{'other_io'}}
+     }
+    }
     if($frame.caller_basename -is [string] -and $frame.caller_basename -cin 'Upgrade-OpenWebPBX.ps1','Support-Recovery.ps1','Restore-Gates.ps1' -and ($frame.caller_line -is [int] -or $frame.caller_line -is [long]) -and $frame.caller_line -gt 0 -and $frame.caller_line -lt 100000){$entry.caller_basename=$frame.caller_basename;$entry.caller_line=[int]$frame.caller_line}
     if($frame.command_basename -is [string] -and $frame.command_basename -cin $recoveryCommands -and ($frame.command_exit -is [int] -or $frame.command_exit -is [long]) -and $frame.command_exit -ge [int]::MinValue -and $frame.command_exit -le [int]::MaxValue){$entry.command_basename=$frame.command_basename;$entry.command_exit=[int]$frame.command_exit}
     $observations+=,$entry
