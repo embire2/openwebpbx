@@ -8,7 +8,12 @@
  
  #if defined(HAVE_CONFIG_H)
  #include "mediastreamer-config.h"
-@@ -32,7 +33,7 @@
+@@ -29,10 +30,12 @@
+ #include "waveheader.h"
+ #include <bctoolbox/vfs.h>
+ 
++#include "fixture_recorder.h"
++
  #include "fd_portab.h" // keep this include at the last of the inclusion sequence!
  
  static int rec_close(MSFilter *f, void *arg);
@@ -17,7 +22,7 @@
  
  typedef struct RecState {
  	bctbx_vfs_file_t *fp;
-@@ -45,6 +46,7 @@
+@@ -45,6 +48,7 @@
  	MSRecorderState state;
  	bool_t swap;
  	bool_t is_wav;
@@ -25,7 +30,7 @@
  } RecState;
  
  static void rec_init(MSFilter *f) {
-@@ -60,7 +62,17 @@
+@@ -60,7 +64,17 @@
  	f->data = s;
  }
  
@@ -44,7 +49,7 @@
  
  static void swap_bytes(unsigned char *bytes, int len) {
  	int i;
-@@ -86,6 +98,11 @@
+@@ -86,6 +100,11 @@
  				len = s->max_size - s->size;
  				max_size_reached = 1;
  			}
@@ -56,7 +61,7 @@
  			if (s->swap) {
  				if (dblk_ref_value(m->b_datap) != 1) {
  					mblk_t *old = m;
-@@ -106,18 +123,31 @@
+@@ -106,18 +125,31 @@
  	ms_mutex_unlock(&f->lock);
  }
  
@@ -96,7 +101,7 @@
  	return ret;
  }
  
-@@ -127,15 +157,21 @@
+@@ -127,15 +159,21 @@
  	int flags;
  	ssize_t fsize;
  
@@ -120,7 +125,7 @@
  			ms_message("Opening wav file in append mode, current data size is %i", s->size);
  			s->is_wav = TRUE;
  		}
-@@ -155,8 +191,15 @@
+@@ -155,8 +193,15 @@
  			if (bctbx_file_seek(s->fp, (off_t)fsize, SEEK_SET) == BCTBX_VFS_ERROR) {
  				int err = errno;
  				ms_error("Could not lseek to end of file: %s", strerror(err));
@@ -137,7 +142,7 @@
  	}
  	ms_message("MSFileRec: recording into %s", filename);
  	s->writer = ms_async_writer_new(s->fp);
-@@ -186,10 +229,13 @@
+@@ -186,10 +231,13 @@
  	return 0;
  }
  
@@ -153,7 +158,7 @@
  	memcpy(&header.riff_chunk.wave, "WAVE", 4);
  
  	memcpy(&header.format_chunk.fmt, "fmt ", 4);
-@@ -197,38 +243,42 @@
+@@ -197,38 +245,42 @@
  	header.format_chunk.type = le_uint16(0x1);
  	header.format_chunk.channel = le_uint16(nchannels);
  	header.format_chunk.rate = le_uint32(rate);
@@ -210,7 +215,7 @@
  }
  
  static int rec_get_state(MSFilter *f, void *arg) {
-@@ -240,9 +290,11 @@
+@@ -240,9 +292,11 @@
  static int rec_set_sr(MSFilter *f, void *arg) {
  	RecState *s = (RecState *)f->data;
  	ms_mutex_lock(&f->lock);
@@ -224,7 +229,7 @@
  }
  
  static int rec_get_sr(MSFilter *f, void *arg) {
-@@ -254,8 +306,11 @@
+@@ -254,8 +308,11 @@
  
  static int rec_set_nchannels(MSFilter *f, void *arg) {
  	RecState *s = (RecState *)f->data;
@@ -238,7 +243,7 @@
  }
  
  static int rec_get_nchannels(MSFilter *f, void *arg) {
-@@ -282,13 +337,16 @@
+@@ -282,13 +339,16 @@
  	RecState *d = (RecState *)f->data;
  	MSPinFormat *pinfmt = (MSPinFormat *)arg;
  	ms_filter_lock(f);
@@ -257,7 +262,7 @@
  }
  
  static int rec_set_max_size(MSFilter *f, void *arg) {
-@@ -318,7 +376,7 @@
+@@ -318,7 +378,7 @@
  #ifdef _WIN32
  
  MSFilterDesc ms_file_rec_desc = {MS_FILE_REC_ID,
@@ -266,7 +271,7 @@
                                   N_("Wav file recorder"),
                                   MS_FILTER_OTHER,
                                   NULL,
-@@ -334,7 +392,7 @@
+@@ -334,7 +394,7 @@
  #else
  
  MSFilterDesc ms_file_rec_desc = {.id = MS_FILE_REC_ID,

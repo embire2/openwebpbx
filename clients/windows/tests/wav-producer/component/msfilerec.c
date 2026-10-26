@@ -30,6 +30,8 @@
 #include "waveheader.h"
 #include <bctoolbox/vfs.h>
 
+#include "fixture_recorder.h"
+
 #include "fd_portab.h" // keep this include at the last of the inclusion sequence!
 
 static int rec_close(MSFilter *f, void *arg);
