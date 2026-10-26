@@ -20,10 +20,16 @@ def check_native_shape(row):
  need(type(row['error_type'])is str and re.fullmatch('[A-Za-z][A-Za-z0-9_]{0,79}',row['error_type'])and all(type(row[x])is bool for x in FLAGS)and row['installed_PBX_or_historical_path_qualified']is False)
  for key in ['new_service_relation','sc_config_relation','explicit_unquoted_relation']:need(row[key]in ('quoted_expected','unquoted_expected','canonical_slash_expected','wrong_known_slot','other','unavailable'))
  if 'failure_observation'in row:
-  v=row['failure_observation'];need(type(v)is dict and set(v)==set('schema operation source_name source_line hresult owned_sample'.split()))
+  v=row['failure_observation'];need(type(v)is dict and set(v)==set('schema operation source_name source_line hresult owned_sample handle_state'.split()))
   need(type(v['schema'])is int and v['schema']==1 and v['operation']in ('absence','copy','new_service','controller_type','service_handle','service_handle_validation','own_row','sc_config','own_row_cleanup','cleanup'))
   need(type(v['source_line'])is int and ((v['source_name']=='unavailable'and v['source_line']==0)or(v['source_name']=='windows_service_image_native.ps1'and 1<=v['source_line']<=10000)))
   need(type(v['hresult'])is int and -2147483648<=v['hresult']<=2147483647)
+  h=v['handle_state']
+  if h is not None:
+   need(type(h)is dict and set(h)==set('present is_safe_handle truthy invalid closed type_category'.split()))
+   need(all(type(h[k])is bool for k in ('present','is_safe_handle','truthy'))and all(h[k]is None or type(h[k])is bool for k in ('invalid','closed')))
+   need(h['type_category']in ('null','safe_handle','array','other')and (h['type_category']=='null')is(not h['present'])and (h['type_category']=='safe_handle')is h['is_safe_handle'])
+   need(h['present']or(not h['truthy']and h['invalid']is None and h['closed']is None))
   v=v['owned_sample']
   if v is not None:
    keys='name_matches description_matches display_matches system_account disabled stopped pid_zero finite_image'.split()

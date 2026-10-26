@@ -25,7 +25,12 @@ function Set-FailedScmObservation($Record) {
   if($null-eq $Record-or $Record.Exception-isnot[Exception]){return}
   $origin='unavailable';$line=0
   if($Record.InvocationInfo.ScriptName-ceq $nativeSourcePath-and $Record.InvocationInfo.ScriptLineNumber-gt 0-and $Record.InvocationInfo.ScriptLineNumber-le 10000){$origin='windows_service_image_native.ps1';$line=[int]$Record.InvocationInfo.ScriptLineNumber}
-  $report.failure_observation=[ordered]@{schema=1;operation=$failureOperation;source_name=$origin;source_line=$line;hresult=[int]$Record.Exception.HResult;owned_sample=$ownedRowObservation}
+  $handleState=$null
+  try{
+   $handleState=[ordered]@{present=[bool]($null-ne $pin);is_safe_handle=[bool]($pin-is[Runtime.InteropServices.SafeHandle]);truthy=[bool]$pin;invalid=$null;closed=$null;type_category='null'}
+   if($null-ne $pin){$handleState.type_category=$(if($pin-is[Runtime.InteropServices.SafeHandle]){'safe_handle'}elseif($pin-is[Array]){'array'}else{'other'});$invalid=$pin.IsInvalid;$closed=$pin.IsClosed;if($invalid-is[bool]){$handleState.invalid=$invalid};if($closed-is[bool]){$handleState.closed=$closed}}
+  }catch{$handleState=$null}
+  $report.failure_observation=[ordered]@{schema=1;operation=$failureOperation;source_name=$origin;source_line=$line;hresult=[int]$Record.Exception.HResult;owned_sample=$ownedRowObservation;handle_state=$handleState}
  }catch{}
 }
 function OwnRow {
