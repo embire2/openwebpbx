@@ -4,6 +4,8 @@ param(
  [Parameter(Mandatory)][string]$SdkZip,
  [Parameter(Mandatory)][string]$CoreMsi,
  [Parameter(Mandatory)][string]$EngineZip,
+ [Parameter(Mandatory)][string]$WavProducer,
+ [Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{64}$')][string]$WavProducerSha256,
  [Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{40}$')][string]$SourceCommit,
  [Parameter(Mandatory)][string]$Report
 )
@@ -21,7 +23,8 @@ function Ordinary([string]$Path,[bool]$Exists=$true){
  if(Test-Path -LiteralPath $full){$item=Get-Item -LiteralPath $full -Force;if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'An ordinary file is required.'}}elseif($Exists){throw 'Required input is absent.'}
  $full
 }
-foreach($inputPath in @($SdkZip,$CoreMsi,$EngineZip)){[void](Ordinary $inputPath)}
+foreach($inputPath in @($SdkZip,$CoreMsi,$EngineZip,$WavProducer)){[void](Ordinary $inputPath)}
+if([IO.Path]::GetFileName($WavProducer) -cne 'libmsopenwebwav.dll' -or (Get-Item -LiteralPath $WavProducer).Length -le 0 -or (Get-Item -LiteralPath $WavProducer).Length -gt 16MB -or (Hash $WavProducer) -cne $WavProducerSha256){throw 'The exact source-built fixture recorder input is required.'}
 $sealedOutput=Ordinary (Join-Path $temp 'client-media-private.sealed.json') $false;if(Test-Path -LiteralPath $sealedOutput){throw 'The encrypted diagnostic output must be new.'}
 $Report=Ordinary $Report $false;if(Test-Path -LiteralPath $Report){throw 'The output must be new.'}
 if((Get-Item $SdkZip).Length -ne 315960147 -or (Hash $SdkZip) -cne '9cc84037333daca88af24804e20b9d1f5e41ddd901578484b57dcc6720a8d297' -or (Get-Item $CoreMsi).Length -ne 168300544 -or (Hash $CoreMsi) -cne 'f5649e33ad46be2ebdb1d98019bd149c86519f0dca9f47fb881207045203a34d' -or (Get-Item $EngineZip).Length -ne 39161015 -or (Hash $EngineZip) -cne '3d4091bd972c1ea82ff9b6899c091dbeebf66416d6d76475add523ebe10a7542'){throw 'Exact previously accepted component inputs are required.'}
@@ -436,10 +439,13 @@ try{
  ObserveServiceBoundary 'after_managed_build'
  foreach($item in Get-ChildItem -LiteralPath $sdk -File -Filter '*.dll'){if(Test-Path (Join-Path $app $item.Name)){throw 'SDK runtime collides with managed output.'};Copy-Item -LiteralPath $item.FullName -Destination (Join-Path $app $item.Name)}
  Copy-Item -LiteralPath (Join-Path $sdk 'native') -Destination (Join-Path $app 'native') -Recurse
+ $recorderTarget=Join-Path $app 'libmsopenwebwav.dll';if(Test-Path -LiteralPath $recorderTarget){throw 'The fixture recorder output must be new.'}
+ Copy-Item -LiteralPath $WavProducer -Destination $recorderTarget
+ if((Hash $recorderTarget) -cne $WavProducerSha256 -or (Hash $WavProducer) -cne $WavProducerSha256){throw 'The staged fixture recorder differs.'}
  Add-Type -AssemblyName System.Drawing
  foreach($n in 1,2){$image=Join-Path $scope ('frame'+$n+'.jpg');$bitmap=[Drawing.Bitmap]::new(640,480);$g=[Drawing.Graphics]::FromImage($bitmap);try{$g.Clear($(if($n -eq 1){[Drawing.Color]::SteelBlue}else{[Drawing.Color]::DarkOrange}));$g.FillRectangle([Drawing.Brushes]::White,40,40,180,120);$g.FillEllipse([Drawing.Brushes]::Black,360,250,120,120);$bitmap.Save($image,[Drawing.Imaging.ImageFormat]::Jpeg)}finally{$g.Dispose();$bitmap.Dispose()}}
  $inputFile=Join-Path $scope 'lab.json';$childReport=Join-Path $scope 'media.json'
- [ordered]@{Schema=1;Root=$scope;EngineRoot=$engine;SourceCommit=$SourceCommit;SdkSha256='9cc84037333daca88af24804e20b9d1f5e41ddd901578484b57dcc6720a8d297';EngineSha256='3d4091bd972c1ea82ff9b6899c091dbeebf66416d6d76475add523ebe10a7542';ImageA=(Join-Path $scope 'frame1.jpg');ImageB=(Join-Path $scope 'frame2.jpg');RunId=$env:GITHUB_RUN_ID}|ConvertTo-Json|Set-Content -LiteralPath $inputFile -Encoding utf8NoBOM
+ [ordered]@{Schema=1;Root=$scope;EngineRoot=$engine;SourceCommit=$SourceCommit;SdkSha256='9cc84037333daca88af24804e20b9d1f5e41ddd901578484b57dcc6720a8d297';EngineSha256='3d4091bd972c1ea82ff9b6899c091dbeebf66416d6d76475add523ebe10a7542';ImageA=(Join-Path $scope 'frame1.jpg');ImageB=(Join-Path $scope 'frame2.jpg');RunId=$env:GITHUB_RUN_ID;RecorderSha256=$WavProducerSha256}|ConvertTo-Json|Set-Content -LiteralPath $inputFile -Encoding utf8NoBOM
  $result.stage='actual_media';$exe=Join-Path $app 'OpenWebPbx.Phone.MediaChecks.exe';ObserveServiceBoundary 'immediately_before_native_media';$result.child_exit=RunChild $exe @('--run',$inputFile,$childReport) ([Environment]::SystemDirectory) 1200;ObserveServiceBoundary 'after_native_media'
  if($result.child_exit -ne 0){
   if(Test-Path -LiteralPath $childReport){$failed=ReadMediaResult $childReport -AllowFailure;$result.native_failure=[ordered]@{stage=$failed.stage;error_type=$failed.error_type;completed_cases=[int]$failed.cases.Count;owned_cleanup=[bool]$failed.exact_owned_cleanup};if($failed.PSObject.Properties.Name -contains 'failure_observation'){$result.native_failure.observation=$failed.failure_observation;$result.native_failure.engine_lifecycle=$failed.engine_lifecycle};if($failed.PSObject.Properties.Name -contains 'engine_observation'){$result.native_failure.engine_observation=$failed.engine_observation};if($failed.PSObject.Properties.Name -contains 'engine_observation' -and $failed.engine_observation.sealed_original){try{$result.sealed_engine_diagnostic=PreserveSealedEngineDiagnostic (Join-Path $scope 'engine-diagnostic.sealed.json') $sealedOutput $failed.stage}catch{$result.sealed_engine_diagnostic_preservation_refused=$true}}}

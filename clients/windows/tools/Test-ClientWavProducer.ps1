@@ -2,7 +2,8 @@
 # A distinct hosted fixture producer contract; never ordinary app/calling proof.
 [CmdletBinding()]
 param([Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{40}$')][string]$SourceCommit,
-      [Parameter(Mandatory)][string]$PythonExecutable)
+      [Parameter(Mandatory)][string]$PythonExecutable,
+      [switch]$RunCoreMedia)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if (!$IsWindows -or $env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx') { throw 'Only the disposable hosted Windows contract is allowed.' }
@@ -238,6 +239,13 @@ try {
     if (@(Compare-Object @($managedReceipt.PSObject.Properties.Name | Sort-Object) @($keys | Sort-Object)).Count -or $managedReceipt.schema -isnot [long] -or $managedReceipt.schema -ne 1 -or $managedReceipt.state -cne 'passed_private_first_data_and_original_parser_contract' -or $managedReceipt.checks -isnot [long] -or $managedReceipt.checks -ne 41 -or $managedReceipt.actual_native_calling -isnot [bool] -or $managedReceipt.actual_native_calling -or $managedReceipt.native_plugin_built -isnot [bool] -or $managedReceipt.native_plugin_built -or $managedReceipt.original_parser_changed -isnot [bool] -or $managedReceipt.original_parser_changed) { throw 'Managed contract receipt differs.' }
     SaveJson 'managed-receipt.json' $managedReceipt
     $result.original_parser_controls = 41
+    if ($RunCoreMedia) {
+        if ($native.checks -ne 281 -or !$result.native_contract_passed -or $result.original_parser_controls -ne 41 -or !$script:childKnownStopped) { throw 'Core media requires the fresh native281/managed41 and complete owned child proofs.' }
+        $built = ReadContractBounded (Join-Path $evidence 'built-images.json') 8192 | ConvertFrom-Json
+        if ((Hash $plugin) -cne $built.plugin_sha256) { throw 'The fresh source-built fixture recorder changed.' }
+        $result.stage = 'core_media'
+        & (Join-Path $PSScriptRoot 'Invoke-ClientCoreMedia.ps1') -SourceCommit $SourceCommit -WorkRoot $work -SdkZip $archive -WavProducer $plugin -WavProducerSha256 $built.plugin_sha256
+    }
     $result.stage = 'sdk_preservation'
     foreach ($row in $sdkRows) { $file = Join-Path $sdk $row.path; if ((Get-Item $file).Length -ne $row.bytes -or (Hash $file) -cne $row.sha256) { throw 'An original SDK file changed.' } }
     if ((Hash $archive) -cne $manifest.sdk_sha256) { throw 'The original SDK archive changed.' }

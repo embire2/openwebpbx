@@ -3,7 +3,7 @@
 using System.Security.AccessControl;
 using System.Security.Principal;
 namespace OpenWebPbx.Phone.Windows;
-internal sealed record NativeMediaFixture(string Root, string CaPem, string InputWav, string OutputWav, string? StaticImage = null)
+internal sealed record NativeMediaFixture(string Root, string CaPem, string InputWav, string OutputWav, string? StaticImage = null, string RecorderSha256 = "")
 {
     internal void Validate()
     {
@@ -15,6 +15,7 @@ internal sealed record NativeMediaFixture(string Root, string CaPem, string Inpu
         var rules = acl.GetAccessRules(true, true, typeof(SecurityIdentifier)).Cast<FileSystemAccessRule>().ToArray();
         if (!acl.AreAccessRulesProtected || rules.Length != 2 || rules.Any(r => r.AccessControlType != AccessControlType.Allow || r.IdentityReference.Value != user && r.IdentityReference.Value != "S-1-5-18" || (r.FileSystemRights & FileSystemRights.FullControl) != FileSystemRights.FullControl)) throw new InvalidOperationException("Fixture root must be private to its user and SYSTEM.");
         if (CaPem.Length is < 100 or > 262144 || !CaPem.Contains("-----BEGIN CERTIFICATE-----", StringComparison.Ordinal) || CaPem.Contains("PRIVATE KEY", StringComparison.Ordinal)) throw new InvalidOperationException("Only a public fixture CA is allowed.");
+        if (!System.Text.RegularExpressions.Regex.IsMatch(RecorderSha256, "^[a-f0-9]{64}$")) throw new InvalidOperationException("A pinned fixture recorder is required.");
         FilePath(InputWav, true); FilePath(OutputWav, false); if (StaticImage is not null) FilePath(StaticImage, true);
     }
     internal void NewOutput(string value)

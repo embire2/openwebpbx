@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 using System.Diagnostics;
 using OpenWebPbx.Phone.Windows;
 namespace OpenWebPbx.Phone.MediaChecks;
-internal sealed record PeerInput(int Schema, string Root, string CaPem, string InputWav, string OutputWav, string StaticImage, string Realm, string Username, string Password, int Port, string Host = "127.0.0.1");
+internal sealed record PeerInput(int Schema, string Root, string CaPem, string InputWav, string OutputWav, string StaticImage, string Realm, string Username, string Password, int Port, string Host = "127.0.0.1", string RecorderSha256 = "");
 internal sealed record PeerCommand(int Sequence, string Action, string Number = "", Guid? Call = null, bool Video = false);
 internal sealed record CallView(Guid Id, string Number, string State, bool Incoming);
 internal sealed record PeerState(bool Ready, bool RegistrationFailed, bool Busy, bool Conferencing, Guid? Current, CallView[] Calls, NativeFixtureSnapshot Native, NativeLocalPlaybackSnapshot Playback);

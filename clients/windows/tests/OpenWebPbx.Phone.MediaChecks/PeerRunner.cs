@@ -26,7 +26,7 @@ internal static partial class PeerRunner
         PeerState Snapshot(bool clear = false, bool recorder = false) => new(phone!.Registrations.Values.SingleOrDefault() == "Ready for calls", phone.Registrations.Values.SingleOrDefault() == "Could not connect. Check your connection or sign in again.", phone.Busy, phone.Conferencing, phone.Current?.Id, phone.Calls.Select(call => new CallView(call.Id, call.Number, call.State.ToString(), call.Incoming)).ToArray(), phone.FixtureSnapshot(clear, recorder), phone.FixturePlaybackSnapshot());
         try
         {
-            var fixture = new NativeMediaFixture(input.Root, input.CaPem, input.InputWav, input.OutputWav, input.StaticImage);
+            var fixture = new NativeMediaFixture(input.Root, input.CaPem, input.InputWav, input.OutputWav, input.StaticImage, input.RecorderSha256);
             phone = new NativePhone(stage => Reply(new(0, "native_" + stage, true, "", null)), fixture);
             // An owned hidden window supplies a valid native sink; rendering is never claimed.
             window = CreateWindowEx(0, "STATIC", "OpenWebPBX owned software media fixture", 0, 0, 0, 640, 480, 0, 0, 0, 0);

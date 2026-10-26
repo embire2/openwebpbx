@@ -74,6 +74,9 @@ public sealed class NativePhone : IDisposable
 #endif
         Factory.Instance.EnableLogCollection(LogCollectionState.Disabled);
         progress?.Invoke("create_core"); core = Factory.Instance.CreateCoreWithConfig(config, IntPtr.Zero);
+#if PHONE_MEDIA_FIXTURE
+        if (mediaFixture is not null) FixtureWavProducer.Attach(core, mediaFixture.RecorderSha256);
+#endif
         progress?.Invoke("database"); core.DatabaseEnabled = false; core.MaxCallLogs = 0; core.LimeX3DhEnabled = false; core.DisableChat(Reason.NotAcceptable);
         core.Config.SetInt("sip", "save_auth_info", 0); core.Config.SetInt("sip", "store_auth_info", 0);
         core.Config.SetInt("sip", "use_rfc2833", 1); core.Config.SetInt("sip", "use_info", 0);

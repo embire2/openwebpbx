@@ -4,7 +4,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.Json;
 namespace OpenWebPbx.Phone.MediaChecks;
-internal sealed record LabInput(int Schema, string Root, string EngineRoot, string SourceCommit, string SdkSha256, string EngineSha256, string ImageA, string ImageB, string RunId);
+internal sealed record LabInput(int Schema, string Root, string EngineRoot, string SourceCommit, string SdkSha256, string EngineSha256, string ImageA, string ImageB, string RunId, string RecorderSha256);
 internal sealed record AudioObservation(AudioWindow Window, double FreshSeconds, double ObservedSeconds);
 internal sealed class LabPeer : IDisposable
 {
@@ -190,7 +190,7 @@ internal static class LabCoordinator
                 LabPeer Create(int index, string? ca = null, string host = "127.0.0.1", bool distinct = false)
                 {
                     var own = distinct ? NewRoot(index) : paths[index];
-                    return new(new(1, own, ca ?? server.CaPem, Path.Combine(own, "input.wav"), Path.Combine(own, "output.wav"), Path.Combine(own, "frame.jpg"), server.Realm, "810" + (index + 1), server.Password, server.TlsPort, host), journal);
+                    return new(new(1, own, ca ?? server.CaPem, Path.Combine(own, "input.wav"), Path.Combine(own, "output.wav"), Path.Combine(own, "frame.jpg"), server.Realm, "810" + (index + 1), server.Password, server.TlsPort, host, input.RecorderSha256), journal);
                 }
                 try
                 {
