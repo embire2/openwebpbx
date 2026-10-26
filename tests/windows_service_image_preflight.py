@@ -14,11 +14,22 @@ def unique(rows):
 def decode(raw):return json.loads(raw,object_pairs_hook=unique,parse_constant=lambda _:need(False))
 def sha(raw):return hashlib.sha256(raw).hexdigest()
 def check_native_shape(row):
- need(type(row)is dict and set(row)==set(FLAGS)|{'schema','state','scope','phase','error_type','native_powershell','new_service_relation','sc_config_relation','explicit_unquoted_relation','installed_PBX_or_historical_path_qualified'})
+ need(type(row)is dict and set(row)-({'failure_observation'}if row.get('state')=='failed'else set())==set(FLAGS)|{'schema','state','scope','phase','error_type','native_powershell','new_service_relation','sc_config_relation','explicit_unquoted_relation','installed_PBX_or_historical_path_qualified'})
  need(type(row['schema'])is int and row['schema']==1 and row['scope']=='owned_disabled_stopped_SCM_image_representation_only' and row['native_powershell']=='5.1')
  need(row['state']in ('passed','failed')and row['phase']in ('absence','copy','new_service','sc_config','explicit_unquoted','cleanup','complete'))
  need(type(row['error_type'])is str and re.fullmatch('[A-Za-z][A-Za-z0-9_]{0,79}',row['error_type'])and all(type(row[x])is bool for x in FLAGS)and row['installed_PBX_or_historical_path_qualified']is False)
  for key in ['new_service_relation','sc_config_relation','explicit_unquoted_relation']:need(row[key]in ('quoted_expected','unquoted_expected','canonical_slash_expected','wrong_known_slot','other','unavailable'))
+ if 'failure_observation'in row:
+  v=row['failure_observation'];need(type(v)is dict and set(v)==set('schema operation source_name source_line hresult owned_sample'.split()))
+  need(type(v['schema'])is int and v['schema']==1 and v['operation']in ('absence','copy','new_service','controller_type','service_handle','service_handle_validation','own_row','sc_config','own_row_cleanup','cleanup'))
+  need(type(v['source_line'])is int and ((v['source_name']=='unavailable'and v['source_line']==0)or(v['source_name']=='windows_service_image_native.ps1'and 1<=v['source_line']<=10000)))
+  need(type(v['hresult'])is int and -2147483648<=v['hresult']<=2147483647)
+  v=v['owned_sample']
+  if v is not None:
+   keys='name_matches description_matches display_matches system_account disabled stopped pid_zero finite_image'.split()
+   need(type(v)is dict and set(v)==set(keys)|{'count','image_relation'}and v['count']in ('none','single','multiple'))
+   need(v['image_relation']in ('quoted_expected','unquoted_expected','canonical_slash_expected','wrong_known_slot','other','unavailable'))
+   need(all(type(v[k])is bool for k in keys)if v['count']=='single'else(v['image_relation']=='unavailable'and all(v[k]is None for k in keys)))
 def check_native(row):
  check_native_shape(row)
  need(row['state']=='passed'and row['phase']=='complete'and row['error_type']=='none'and all(row[x]is True for x in FLAGS))

@@ -19,46 +19,70 @@ if($sourceItem.PSIsContainer-or($sourceItem.Attributes-band[IO.FileAttributes]::
 $sourceHash=(Get-FileHash -LiteralPath $sourceImage -Algorithm SHA256).Hash
 $sc=Join-Path $env:SystemRoot 'System32/sc.exe';$controller=$null;$pin=$null;$created=$false;$primary=$null
 $report=[ordered]@{schema=1;state='failed';scope='owned_disabled_stopped_SCM_image_representation_only';phase='absence';error_type='none';native_powershell='5.1';absence_before=$false;new_service_relation='unavailable';sc_config_relation='unavailable';explicit_unquoted_relation='unavailable';explicit_unquoted_finite_accepted=$false;original_quoted_guard_would_refuse=$false;creation_nonce_and_handle_bound=$false;service_always_disabled_stopped=$false;exact_sc_config_completed=$false;cleanup_definition_rechecked=$false;owned_service_absent_after=$false;service_handle_closed=$false;owned_image_removed=$false;stock_image_unchanged=$false;installed_PBX_or_historical_path_qualified=$false}
+$failureOperation='absence';$ownedRowObservation=$null;$nativeSourcePath=$PSCommandPath
+function Set-FailedScmObservation($Record) {
+ try{
+  if($null-eq $Record-or $Record.Exception-isnot[Exception]){return}
+  $origin='unavailable';$line=0
+  if($Record.InvocationInfo.ScriptName-ceq $nativeSourcePath-and $Record.InvocationInfo.ScriptLineNumber-gt 0-and $Record.InvocationInfo.ScriptLineNumber-le 10000){$origin='windows_service_image_native.ps1';$line=[int]$Record.InvocationInfo.ScriptLineNumber}
+  $report.failure_observation=[ordered]@{schema=1;operation=$failureOperation;source_name=$origin;source_line=$line;hresult=[int]$Record.Exception.HResult;owned_sample=$ownedRowObservation}
+ }catch{}
+}
 function OwnRow {
  if($name-cnotmatch '^OpenWebImageProbe_[a-f0-9]{32}$'){throw 'Owned name required.'}
  $rows=@(Get-CimInstance Win32_Service -Filter "Name='$name'" -ErrorAction Stop)
+ try{
+  $script:ownedRowObservation=[ordered]@{count=$(if($rows.Count-eq 0){'none'}elseif($rows.Count-eq 1){'single'}else{'multiple'});name_matches=$null;description_matches=$null;display_matches=$null;system_account=$null;disabled=$null;stopped=$null;pid_zero=$null;finite_image=$null;image_relation='unavailable'}
+  if($rows.Count-eq 1){$sample=$rows[0];$script:ownedRowObservation=[ordered]@{count='single';name_matches=[bool]($sample.Name-ceq $name);description_matches=[bool]($sample.Description-ceq $description);display_matches=[bool]($sample.DisplayName-ceq $description);system_account=[bool]($sample.StartName-cin 'LocalSystem','NT AUTHORITY\SYSTEM');disabled=[bool]($sample.StartMode-ceq 'Disabled');stopped=[bool]($sample.State-ceq 'Stopped');pid_zero=[bool]($sample.ProcessId-eq 0);finite_image=[bool](Test-HealthUpdaterServiceImage $sample.PathName $expected);image_relation=(Get-HealthUpdaterImageRelation $sample.PathName $expected)}}
+ }catch{$script:ownedRowObservation=$null}
  if($rows.Count-ne 1){throw 'Single owned service required.'};$row=$rows[0]
  if($row.Name-cne $name-or $row.Description-cne $description-or $row.DisplayName-cne $description-or $row.StartName-cnotin 'LocalSystem','NT AUTHORITY\SYSTEM'-or $row.StartMode-cne 'Disabled'-or $row.State-cne 'Stopped'-or $row.ProcessId-ne 0-or !(Test-HealthUpdaterServiceImage $row.PathName $expected)){throw 'Owned stopped definition changed.'}
  return $row
 }
 try{
  if(@(Get-CimInstance Win32_Service -Filter "Name='$name'" -ErrorAction Stop).Count){throw 'Owned service collision; nothing may be adopted.'}
- $report.absence_before=$true;$report.phase='copy'
+ $report.absence_before=$true;$report.phase='copy';$failureOperation='copy'
  Copy-Item -LiteralPath $sourceImage -Destination $expected -ErrorAction Stop
  if((Get-FileHash -LiteralPath $expected -Algorithm SHA256).Hash-cne $sourceHash){throw 'Owned image copy differs.'}
  $report.phase='new_service'
+ $failureOperation='new_service'
  $controller=New-Service -Name $name -BinaryPathName ('"'+$expected+'"') -DisplayName $description -Description $description -StartupType Disabled -ErrorAction Stop
  $created=$true
+ $failureOperation='controller_type'
  if($controller-isnot [ServiceProcess.ServiceController]){throw 'Actual owned service controller required.'}
+ $failureOperation='service_handle'
  $pin=$controller.ServiceHandle
+ $failureOperation='service_handle_validation'
  if(!$pin-or $pin.IsInvalid-or $pin.IsClosed){throw 'Original owned service handle unavailable.'}
+ $failureOperation='own_row'
  $row=OwnRow;$report.creation_nonce_and_handle_bound=$true;$report.new_service_relation=Get-HealthUpdaterImageRelation $row.PathName $expected
  $report.phase='sc_config'
  if($pin.IsInvalid-or $pin.IsClosed){throw 'Original service handle changed before selection.'}
+ $failureOperation='own_row'
  $null=OwnRow
+ $failureOperation='sc_config'
  & $sc config $name binPath= ('"'+$expected+'"')|Out-Null
  if($LASTEXITCODE){throw 'Owned native sc config failed.'}
- $report.exact_sc_config_completed=$true;$row=OwnRow;$report.sc_config_relation=Get-HealthUpdaterImageRelation $row.PathName $expected
+ $report.exact_sc_config_completed=$true;$failureOperation='own_row';$row=OwnRow;$report.sc_config_relation=Get-HealthUpdaterImageRelation $row.PathName $expected
  $report.phase='explicit_unquoted'
  if($pin.IsInvalid-or $pin.IsClosed){throw 'Original handle changed before unquoted selection.'}
+ $failureOperation='own_row'
  $null=OwnRow
+ $failureOperation='sc_config'
  & $sc config $name binPath= $expected|Out-Null
  if($LASTEXITCODE){throw 'Explicit owned unquoted selection failed.'}
+ $failureOperation='own_row'
  $row=OwnRow;$report.explicit_unquoted_relation=Get-HealthUpdaterImageRelation $row.PathName $expected
  if($report.explicit_unquoted_relation-cne 'unquoted_expected'-or !(Test-HealthUpdaterServiceImage $row.PathName $expected)-or $row.PathName-ieq ('"'+$expected+'"')){throw 'Actual finite unquoted distinction was not proved.'}
  $report.explicit_unquoted_finite_accepted=$true;$report.original_quoted_guard_would_refuse=$true
- $report.service_always_disabled_stopped=$true;$report.phase='cleanup'
-}catch{$primary=$_;$report.error_type=$_.Exception.GetType().Name;throw}
+ $report.service_always_disabled_stopped=$true;$report.phase='cleanup';$failureOperation='cleanup'
+}catch{$primary=$_;$report.error_type=$_.Exception.GetType().Name;Set-FailedScmObservation $_;throw}
 finally{
  try{
   if($created){
    if(!$pin-or $pin.IsInvalid-or $pin.IsClosed){throw 'Pinned original ownership required for deletion.'}
-   $null=OwnRow;$report.cleanup_definition_rechecked=$true
+   $failureOperation='own_row_cleanup'
+   $null=OwnRow;$report.cleanup_definition_rechecked=$true;$failureOperation='cleanup'
    & $sc delete $name|Out-Null
    if($LASTEXITCODE){throw 'Owned service deletion failed.'}
    $pin.Dispose()
@@ -71,9 +95,9 @@ finally{
    Remove-Item -LiteralPath $expected -ErrorAction Stop;$report.owned_image_removed=!(Test-Path -LiteralPath $expected)
    $report.stock_image_unchanged=(Get-FileHash -LiteralPath $sourceImage -Algorithm SHA256).Hash-ceq $sourceHash
   }
- }catch{if($null-eq $primary){$primary=$_;$report.error_type=$_.Exception.GetType().Name}else{$primary.Exception.Data['owned_service_cleanup_refused']=$true}}
+ }catch{if($null-eq $primary){$primary=$_;$report.error_type=$_.Exception.GetType().Name;Set-FailedScmObservation $_}else{$primary.Exception.Data['owned_service_cleanup_refused']=$true}}
  finally{
-  try{if($pin-and !$pin.IsClosed){$pin.Dispose()};if($controller){$controller.Dispose()}}catch{if($null-eq $primary){$primary=$_;$report.error_type=$_.Exception.GetType().Name}else{$primary.Exception.Data['owned_handle_close_refused']=$true}}
+  try{if($pin-and !$pin.IsClosed){$pin.Dispose()};if($controller){$controller.Dispose()}}catch{if($null-eq $primary){$primary=$_;$report.error_type=$_.Exception.GetType().Name;Set-FailedScmObservation $_}else{$primary.Exception.Data['owned_handle_close_refused']=$true}}
   if($pin-and$pin.IsClosed){$report.service_handle_closed=$true}
  }
  if($null-eq $primary-and$created-and$report.owned_service_absent_after-and$report.service_handle_closed-and$report.owned_image_removed-and$report.stock_image_unchanged){$report.state='passed';$report.phase='complete'}
