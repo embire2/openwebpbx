@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later
  * Real SDK filter/writer contract with invented PCM input, never a calling proof.
  */
+#include <winsock2.h>
 #include <windows.h>
 #include <stdint.h>
 #include <stdio.h>

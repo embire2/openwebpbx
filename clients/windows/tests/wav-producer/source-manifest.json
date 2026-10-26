@@ -48,8 +48,8 @@
     },
     {
       "path": "contract/wav_contract.c",
-      "bytes": 7917,
-      "sha256": "88e6bc5c256445904fb6542f23579d1299fb28365d8009b8665363a5f0fe6e79"
+      "bytes": 7939,
+      "sha256": "45e6bfc9042b7b0b0db0908c2580772dbee0315052a7c0636b6f5a54308d954a"
     },
     {
       "path": "readiness/FirstDataReadiness.cs",
