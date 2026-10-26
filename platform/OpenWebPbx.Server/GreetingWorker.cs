@@ -17,7 +17,7 @@ public sealed class GreetingWorker(NpgsqlDataSource data, IHttpClientFactory cli
         _ => throw new InvalidDataException("Unknown greeting category.")
     };
     private string Root => settings["Greetings:MediaRoot"] ?? (OperatingSystem.IsWindows()
-        ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "OpenWebPBX", "storage", "openwebpbx")
+        ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "OpenWebPBX", "storage", "greetings")
         : "/var/lib/freeswitch/storage/openwebpbx");
     private CancellationTokenSource ProviderDeadline(CancellationToken ct)
     {
