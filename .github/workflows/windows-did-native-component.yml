@@ -1,0 +1,98 @@
+name: Controlled native Windows DID component
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  component:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    env:
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Admit an empty disposable Windows runner
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY-cne 'embire2/openwebpbx'-or $env:GITHUB_REF-cne 'refs/heads/qualification/windows121-did-native-20261026'-or $env:GITHUB_RUN_ATTEMPT-cne '1'){throw 'Exact fresh component request required.'}
+          if((Get-CimInstance Win32_OperatingSystem).Caption-notmatch 'Windows Server 2025'){throw 'Native Server2025 required.'}
+          foreach($p in 'C:\OpenWebPBX',(Join-Path $env:ProgramData 'OpenWebPBX'),'C:\Program Files\FreeSWITCH'){if(Test-Path -LiteralPath $p){throw 'An empty runner is required.'}}
+          if(@(Get-Service -Name 'OpenWebPBX*','FreeSWITCH' -ErrorAction SilentlyContinue).Count){throw 'Installed PBX services are refused.'}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Stage the same verified PHP and PostgreSQL binaries without services
+        timeout-minutes: 6
+        run: |
+          $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
+          if((& git rev-parse HEAD).Trim()-cne $env:GITHUB_SHA-or $LASTEXITCODE-or (& git status --porcelain)){throw 'Exact clean source required.'}
+          $base='C:\OpenWebPBX';$evidence=Join-Path $env:RUNNER_TEMP 'did-native-component-evidence'
+          if((Test-Path -LiteralPath $base)-or (Test-Path -LiteralPath $evidence)){throw 'Preserve existing work.'}
+          $null=New-Item -ItemType Directory -Path $evidence
+          $owned=[ordered]@{schema=1;source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;root=$base;created=$false}
+          $null=New-Item -ItemType Directory -Path $base;$owned.created=$true
+          [IO.File]::WriteAllText((Join-Path $evidence 'owned-root.private.json'),($owned|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+          . packaging/windows/PhpRuntime.Common.ps1
+          $php=Get-OpenWebPhpRuntimeSource
+          $phpArchive=Join-Path $base 'php.zip';$pgArchive=Join-Path $base 'postgresql.zip'
+          Invoke-WebRequest $php.Url -OutFile $phpArchive
+          Invoke-WebRequest 'https://get.enterprisedb.com/postgresql/postgresql-18.6-5-windows-x64-binaries.zip' -OutFile $pgArchive
+          if((Get-FileHash -LiteralPath $phpArchive -Algorithm SHA256).Hash.ToLowerInvariant()-cne $php.Sha256-or (Get-FileHash -LiteralPath $pgArchive -Algorithm SHA256).Hash.ToLowerInvariant()-cne 'e2246ba91d22345bc3d017586c09ede52d9df180b1eeb480f050445f1cad84e2'){throw 'Runtime archive authentication failed.'}
+          Expand-OpenWebPhpArchive -Archive $phpArchive -Destination (Join-Path $base 'php')
+          & tar.exe -xf $pgArchive -C $base
+          if($LASTEXITCODE){throw 'Verified PostgreSQL archive expansion failed.'}
+          $ini=@"
+          extension_dir="C:\OpenWebPBX\php\ext"
+          extension=pdo_pgsql
+          extension=pgsql
+          extension=mbstring
+          extension=openssl
+          extension=zip
+          extension=sodium
+          memory_limit=512M
+          log_errors=On
+          display_errors=Off
+          error_log="$evidence\php.private.log"
+          "@
+          [IO.File]::WriteAllText((Join-Path $base 'php\php.ini'),$ini,[Text.UTF8Encoding]::new($false))
+          $cmd=Get-Command python -CommandType Application -ErrorAction Stop|Select-Object -First 1
+          if(!$cmd.Source-or $cmd.Source-match '\\WindowsApps\\'-or !(Test-Path -LiteralPath $cmd.Source -PathType Leaf)){throw 'A real existing host Python is required.'}
+          $version=& $cmd.Source -c 'import sys;print(".".join(map(str,sys.version_info[:3])))'
+          if($LASTEXITCODE-or $version-cnotmatch '^3\.[0-9]{1,2}\.[0-9]{1,2}$'){throw 'Python version observation refused.'}
+          [IO.File]::WriteAllText((Join-Path $evidence 'python.private.txt'),$cmd.Source,[Text.UTF8Encoding]::new($false))
+          [ordered]@{schema=1;source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;state='verified_runtime_component_only';php_version=$php.Version;php_archive_sha256=$php.Sha256;postgres_archive_sha256='e2246ba91d22345bc3d017586c09ede52d9df180b1eeb480f050445f1cad84e2';python_version=$version;python_sha256=(Get-FileHash -LiteralPath $cmd.Source -Algorithm SHA256).Hash.ToLowerInvariant();no_service_installation=$true;full_PBX_qualified=$false}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $evidence 'runtime.safe.json') -Encoding UTF8
+      - name: Observe the exact DID driver and its original refusal
+        timeout-minutes: 6
+        run: |
+          $ErrorActionPreference='Stop';$evidence=Join-Path $env:RUNNER_TEMP 'did-native-component-evidence';$python=[IO.File]::ReadAllText((Join-Path $evidence 'python.private.txt'))
+          & $python -B tests/windows_did_component.py --evidence $evidence *> (Join-Path $evidence 'driver.private.log')
+          if($LASTEXITCODE){throw 'DID component failed; no complete PBX acceptance is implied.'}
+      - name: Clean only the owned runtime root
+        if: always()
+        timeout-minutes: 2
+        run: |
+          $ErrorActionPreference='Stop';$evidence=Join-Path $env:RUNNER_TEMP 'did-native-component-evidence';$marker=Join-Path $evidence 'owned-root.private.json'
+          if(!(Test-Path -LiteralPath $marker)){return}
+          $m=Get-Content -LiteralPath $marker -Raw|ConvertFrom-Json
+          $fields=@('schema','source_commit','run_id','root','created')
+          if(@($m.PSObject.Properties).Count-ne 5-or @($m.PSObject.Properties.Name|Where-Object {$_-cnotin $fields}).Count-or ($m.schema-isnot [int]-and $m.schema-isnot [long])-or $m.schema-ne 1-or $m.source_commit-isnot [string]-or $m.source_commit-cne $env:GITHUB_SHA-or $m.run_id-isnot [string]-or $m.run_id-cne $env:GITHUB_RUN_ID-or $m.root-isnot [string]-or $m.root-cne 'C:\OpenWebPBX'-or $m.created-isnot [bool]-or !$m.created){throw 'Owned cleanup identity refused.'}
+          if(@(Get-CimInstance Win32_Process|Where-Object {$_.ExecutablePath-and $_.ExecutablePath.StartsWith('C:\OpenWebPBX\',[StringComparison]::OrdinalIgnoreCase)}).Count){throw 'Owned descendants remain; preserve evidence.'}
+          if((Get-Item -LiteralPath $m.root -Force).Attributes-band [IO.FileAttributes]::ReparsePoint){throw 'Owned root cannot be a link.'}
+          $pending=[Collections.Generic.Stack[string]]::new();$pending.Push($m.root)
+          while($pending.Count){foreach($item in Get-ChildItem -LiteralPath $pending.Pop() -Force){if($item.Attributes-band [IO.FileAttributes]::ReparsePoint){throw 'Owned descendants cannot contain links.'};if($item.PSIsContainer){$pending.Push($item.FullName)}}}
+          Remove-Item -LiteralPath $m.root -Recurse -Force
+          [ordered]@{schema=1;source_commit=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;owned_runtime_removed=!(Test-Path -LiteralPath $m.root);owned_processes_absent=$true;services_installed=$false}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $evidence 'cleanup.safe.json') -Encoding UTF8
+      - name: Preserve only fixed component observations
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-did-native-component-${{ github.run_id }}
+          path: ${{ runner.temp }}/did-native-component-evidence/*.safe.json
+          if-no-files-found: error
+          retention-days: 14
