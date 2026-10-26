@@ -393,16 +393,52 @@ def decode_alaw(value):
     return sample if value & 0x80 else -sample
 
 
+def decoded_tone_failure_metrics(samples, frequency):
+    """Failure-only summary of the same final two-second PCM tail; no RTP history."""
+    if type(samples) is not list or len(samples) > 16000 or any(type(v) is not int or not -32768 <= v <= 32767 for v in samples):
+        raise ValueError('Only the existing bounded PCM tail can be summarized')
+    if type(frequency) not in (int, float) or not math.isfinite(frequency) or not 0 <= frequency <= 4000:
+        raise ValueError('Only a bounded fixture tone can be summarized')
+    def component(values, start):
+        energy = sum(v*v for v in values)
+        if not values or not energy:
+            return 0., 0., False
+        real = sum(v*math.cos(2*math.pi*frequency*(start+i)/8000) for i, v in enumerate(values))
+        imag = sum(v*math.sin(2*math.pi*frequency*(start+i)/8000) for i, v in enumerate(values))
+        return 2*(real*real+imag*imag)/(len(values)*energy), math.atan2(imag, real), True
+    ratio, _, available = component(samples, 0)
+    segments = [component(samples[i:i+800], i) for i in range(0, len(samples)-799, 800)]
+    coherent = [value[2] and value[0] >= .8 for value in segments]
+    jumps = [abs(math.atan2(math.sin(segments[i][1]-segments[i-1][1]), math.cos(segments[i][1]-segments[i-1][1])))
+             for i in range(1, len(segments)) if coherent[i-1] and coherent[i]]
+    ppm = lambda value: int(round(value*1000000))
+    return {'schema': 1, 'sample_count': len(samples), 'frequency_millihz': int(round(frequency*1000)),
+            'mean_square': sum(v*v for v in samples)//len(samples) if samples else 0,
+            'coherence_ppm': ppm(ratio), 'coherence_available': available, 'segment_samples': 800,
+            'segment_count': len(segments), 'segment_min_coherence_ppm': min((ppm(v[0]) for v in segments), default=0),
+            'segment_max_coherence_ppm': max((ppm(v[0]) for v in segments), default=0),
+            'segment_coherent_count': sum(coherent), 'segment_phase_pairs': len(jumps),
+            'segment_max_phase_jump_mdeg': int(round(max(jumps, default=0.)*180000/math.pi)),
+            'rtp_history': 'unavailable'}
+
+
 def decoded_tone_check(state, frequency):
-    samples = list(struct.unpack('<'+'h'*(len(state['decoded_pcm'])//2), state['decoded_pcm']))[-16000:]
-    assert len(samples) >= 4000, 'Decoded remote audio observation was too short'
-    energy = sum(value*value for value in samples)
-    assert energy/len(samples) > 100000, 'Decoded remote audio was silent'
-    real = sum(value*math.cos(2*math.pi*frequency*i/8000) for i, value in enumerate(samples))
-    imag = sum(value*math.sin(2*math.pi*frequency*i/8000) for i, value in enumerate(samples))
-    ratio = 2*(real*real+imag*imag)/(len(samples)*energy)
-    assert ratio >= .8, 'Decoded remote fixture tone did not cross the restored bridge'
-    return round(ratio, 4)
+    try:
+        samples = list(struct.unpack('<'+'h'*(len(state['decoded_pcm'])//2), state['decoded_pcm']))[-16000:]
+        assert len(samples) >= 4000, 'Decoded remote audio observation was too short'
+        energy = sum(value*value for value in samples)
+        assert energy/len(samples) > 100000, 'Decoded remote audio was silent'
+        real = sum(value*math.cos(2*math.pi*frequency*i/8000) for i, value in enumerate(samples))
+        imag = sum(value*math.sin(2*math.pi*frequency*i/8000) for i, value in enumerate(samples))
+        ratio = 2*(real*real+imag*imag)/(len(samples)*energy)
+        assert ratio >= .8, 'Decoded remote fixture tone did not cross the restored bridge'
+        return round(ratio, 4)
+    except AssertionError as error:
+        try:
+            error.decoded_tone_failure = decoded_tone_failure_metrics(samples, frequency)
+        except BaseException:
+            pass
+        raise
 
 
 def selected_music_check(pcm):

@@ -508,12 +508,38 @@ def send_ivr_digit(phone,call,digit,wait):
     assert phone.dtmf(call,digit),'Negotiated IVR key did not leave the peer'
 
 
+def closed_media_tone_failure(value):
+    bounds = {'schema': (1, 1), 'sample_count': (0, 16000), 'frequency_millihz': (0, 4000000),
+              'mean_square': (0, 1073741824), 'coherence_ppm': (0, 2000000), 'segment_samples': (800, 800),
+              'segment_count': (0, 20), 'segment_min_coherence_ppm': (0, 2000000),
+              'segment_max_coherence_ppm': (0, 2000000), 'segment_coherent_count': (0, 20),
+              'segment_phase_pairs': (0, 19), 'segment_max_phase_jump_mdeg': (0, 180000)}
+    if type(value) is not dict or set(value) != set(bounds)|{'coherence_available', 'rtp_history'}:
+        return None
+    if any(type(value[k]) is not int or not lo <= value[k] <= hi for k, (lo, hi) in bounds.items()):
+        return None
+    if type(value['coherence_available']) is not bool or type(value['rtp_history']) is not str or value['rtp_history'] != 'unavailable':
+        return None
+    if value['segment_count'] != value['sample_count']//800 or value['segment_coherent_count'] > value['segment_count'] or value['segment_phase_pairs'] > max(value['segment_coherent_count']-1, 0):
+        return None
+    if value['segment_min_coherence_ppm'] > value['segment_max_coherence_ppm'] or (not value['segment_phase_pairs'] and value['segment_max_phase_jump_mdeg']) or (not value['coherence_available'] and value['coherence_ppm']):
+        return None
+    if not value['segment_count'] and any(value[k] for k in ('segment_min_coherence_ppm', 'segment_max_coherence_ppm', 'segment_coherent_count', 'segment_phase_pairs', 'segment_max_phase_jump_mdeg')):
+        return None
+    return dict(value)
+
+
 def media_failure(error,peer,direction,seconds,view):
     first=view.get(direction+'_first_at');last=view.get(direction+'_last_at')
     span=last-first if first is not None and last is not None else 0
     packets=view[direction];rate=(packets-1)/span if packets>1 and span>0 else 0
     error.media_failure={'media_peer':peer,'media_direction':direction,'media_window_seconds':round(seconds,3),
         'media_span_seconds':round(span,6),'media_packets':packets,'media_rate_pps':round(rate,3)}
+    try:
+        tone=closed_media_tone_failure(getattr(error,'decoded_tone_failure',None))
+        if tone is not None:error.media_failure['media_tone']=tone
+    except BaseException:
+        pass
     return error
 
 

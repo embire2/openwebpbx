@@ -547,6 +547,21 @@ function SafeFailureFields($Record){
    $value=$Record.($bound[0]);if(($value -is [double] -or $value -is [single] -or $value -is [int] -or $value -is [long]) -and ![double]::IsNaN([double]$value) -and ![double]::IsInfinity([double]$value) -and $value -ge $bound[1] -and $value -le $bound[2]){$safe[$bound[0]]=$value}
   }
   if(($Record.media_packets -is [int] -or $Record.media_packets -is [long]) -and $Record.media_packets -ge 0 -and $Record.media_packets -le 1000000){$safe.media_packets=$Record.media_packets}
+  try{
+   $tone=$Record.media_tone
+   if($null-ne $tone){
+    $bounds=@{schema=@(1,1);sample_count=@(0,16000);frequency_millihz=@(0,4000000);mean_square=@(0,1073741824);coherence_ppm=@(0,2000000);segment_samples=@(800,800);segment_count=@(0,20);segment_min_coherence_ppm=@(0,2000000);segment_max_coherence_ppm=@(0,2000000);segment_coherent_count=@(0,20);segment_phase_pairs=@(0,19);segment_max_phase_jump_mdeg=@(0,180000)}
+    $keys=if($tone-is[Collections.IDictionary]){@($tone.Keys)}elseif($tone-is[pscustomobject]){@($tone.PSObject.Properties.Name)}else{@()}
+    $allowed=@($bounds.Keys)+@('coherence_available','rtp_history');$valid=$keys.Count-eq$allowed.Count-and@($keys|Where-Object{$_-isnot[string]-or$_-cnotin$allowed}).Count-eq0;$closed=@{}
+    if($valid){foreach($field in $bounds.Keys){$value=$tone.$field;if(($value-isnot[int]-and$value-isnot[long])-or$value-lt$bounds[$field][0]-or$value-gt$bounds[$field][1]){$valid=$false;break};$closed[$field]=[int]$value}}
+    if($valid){
+     $valid=$tone.coherence_available-is[bool]-and$tone.rtp_history-is[string]-and$tone.rtp_history-ceq'unavailable'-and$tone.segment_count-eq[math]::Floor($tone.sample_count/800)-and$tone.segment_coherent_count-le$tone.segment_count-and$tone.segment_phase_pairs-le[math]::Max($tone.segment_coherent_count-1,0)-and$tone.segment_min_coherence_ppm-le$tone.segment_max_coherence_ppm
+     if((!$tone.segment_phase_pairs-and$tone.segment_max_phase_jump_mdeg)-or(!$tone.coherence_available-and$tone.coherence_ppm)){$valid=$false}
+     if(!$tone.segment_count-and@('segment_min_coherence_ppm','segment_max_coherence_ppm','segment_coherent_count','segment_phase_pairs','segment_max_phase_jump_mdeg'|Where-Object{$tone.$_-ne0}).Count){$valid=$false}
+    }
+    if($valid){$closed.coherence_available=$tone.coherence_available;$closed.rtp_history='unavailable';$safe.media_tone=$closed}
+   }
+  }catch{} # Optional closed observation must never replace the original failure.
  }
  foreach($entry in (SafeQueueFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
  foreach($entry in (SafeVoicemailFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
