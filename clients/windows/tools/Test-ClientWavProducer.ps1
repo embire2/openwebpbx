@@ -14,6 +14,9 @@ $temp = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')
 $prefix = $temp + '\'
 # Reused source-owned primitives are below, byte-pinned by the preparation receipt.
 . (Join-Path $PSScriptRoot 'WavProducerPrimitives.ps1')
+$script:WavToolchainHelperPath=Join-Path $PSScriptRoot 'WavToolchain.ps1'
+if((Hash $script:WavToolchainHelperPath)-cne '146e6fa8ee6e29f2a3572661fc90a46c733583f1527a4603a3198eed0da15315'){throw 'Exact fixture-only toolchain helper required.'}
+. $script:WavToolchainHelperPath
 $evidence = Join-Path $temp 'phone-wav-evidence'
 PrivateDirectory $evidence
 $nonce = [Guid]::NewGuid().ToString('N')
@@ -48,14 +51,19 @@ function ReadContractBounded([string]$Path,[int]$Limit) {
     $stream=[IO.File]::Open($Path,'Open','Read','Read');$buffer=[byte[]]::new($Limit+1)
     try{$offset=0;while($offset-lt $buffer.Length){$read=$stream.Read($buffer,$offset,$buffer.Length-$offset);if(!$read){break};$offset+=$read};if($offset-gt $Limit){throw 'Contract output exceeds its bound.'};return [Text.Encoding]::UTF8.GetString($buffer,0,$offset)}finally{$stream.Dispose()}
 }
-function RunContractChild([string]$Label, [string]$Exe, [string[]]$Arguments, [string]$Directory, [int]$Seconds, [string]$DllPath = '') {
-    $deadlines=@{cmake_version=30;dotnet_version=30;configure=120;native_build=180;native_contract=30;managed_contract=120}
+function RunContractChild([string]$Label, [string]$Exe, [string[]]$Arguments, [string]$Directory, [int]$Seconds, [string]$DllPath = '', $ToolchainEnvironment=$null) {
+    $deadlines=@{cmake_version=30;dotnet_version=30;clang_version=30;lld_version=30;ninja_version=30;configure=120;native_build=180;native_contract=30;managed_contract=120}
     if(!$deadlines.ContainsKey($Label) -or $Seconds-ne $deadlines[$Label]){throw 'Original exact contract child deadline required.'}
     $hash=Hash $Exe;$pythonHash=Hash $PythonExecutable
     $core=Join-Path $PSScriptRoot 'WavProducerOwnedProcess.py';$driver=Join-Path $PSScriptRoot 'WavProducerOwnedChild.py'
     $coreHash=Hash $core;$driverHash=Hash $driver
     $directoryEvidence=Join-Path $evidence ('owned-'+$Label);PrivateDirectory $directoryEvidence
-    $request=[ordered]@{schema=1;label=$Label;command=@($Exe)+@($Arguments);command_sha256=$hash;working_directory=$Directory;evidence_directory=$directoryEvidence;seconds=$Seconds;python_executable=$PythonExecutable;python_sha256=$pythonHash;job_core_sha256=$coreHash}
+    $childEnvironment=[ordered]@{}
+    if($null-ne $ToolchainEnvironment){
+        if($Label-cnotin @('configure','native_build')-or@(Compare-Object @($ToolchainEnvironment.Keys|Sort-Object) @('INCLUDE','LIB')).Count){throw 'Closed compiler-only child environment required.'}
+        foreach($name in @('INCLUDE','LIB')){$value=$ToolchainEnvironment[$name];if($value-isnot[string]-or!$value.Length-or$value.Length-gt32768-or$value.Contains([char]0)-or$value.Contains("`n")-or$value.Contains("`r")){throw 'Bounded compiler child environment required.'};$childEnvironment[$name]=$value}
+    }
+    $request=[ordered]@{schema=1;label=$Label;command=@($Exe)+@($Arguments);command_sha256=$hash;working_directory=$Directory;evidence_directory=$directoryEvidence;seconds=$Seconds;python_executable=$PythonExecutable;python_sha256=$pythonHash;job_core_sha256=$coreHash;toolchain_environment=$childEnvironment}
     $requestPath=Join-Path $directoryEvidence 'request.json';$requestBytes=[Text.UTF8Encoding]::new($false).GetBytes(($request|ConvertTo-Json -Depth 8 -Compress))
     if($requestBytes.Length-gt 65536){throw 'Contract request exceeds its bound.'}
     $requestFile=[IO.File]::Open($requestPath,'CreateNew','Write','None');try{$requestFile.Write($requestBytes);$requestFile.Flush($true)}finally{$requestFile.Dispose()};$requestHash=Hash $requestPath
@@ -64,6 +72,7 @@ function RunContractChild([string]$Label, [string]$Exe, [string[]]$Arguments, [s
     # No redirected pipes: owned command streams are files monitored by the Job core.
     foreach($arg in @('-I','-B',$driver,$requestPath)){[void]$info.ArgumentList.Add($arg)}
     if($DllPath){$info.Environment['PATH']=$DllPath+';'+$info.Environment['PATH']}
+    foreach($name in $childEnvironment.Keys){$info.Environment[$name]=$childEnvironment[$name]}
     $proc=$null;$childFailure=$null;$childResult=$null;$script:childKnownStopped=$false
     try {
         $proc=[Diagnostics.Process]::Start($info);$started=$proc.StartTime.ToUniversalTime()
@@ -160,13 +169,23 @@ try {
     $cmake = Application cmake; $dotnet = Application dotnet
     $cv = RunContractChild cmake_version $cmake @('--version') $source 30
     $dv = RunContractChild dotnet_version $dotnet @('--version') $client 30
-    if ($cv.Exit -ne 0 -or $dv.Exit -ne 0 -or $dv.Out.Trim() -cne '10.0.401') { throw 'Installed contract tool versions differ.' }
+    if ($cv.Exit -ne 0 -or $dv.Exit -ne 0 -or $dv.Out.Trim() -cne '10.0.401' -or $cv.Out -cnotmatch '^cmake version 4\.4\.4(?:\r?\n|$)') { throw 'Installed contract tool versions differ.' }
     SaveJson 'tools.json' ([ordered]@{ cmake_path = $cmake; cmake_sha256 = (Hash $cmake); dotnet_path = $dotnet; dotnet_sha256 = (Hash $dotnet); dotnet_version = '10.0.401'; python_path = $PythonExecutable; python_sha256 = (Hash $PythonExecutable); python_version = '3.12.10'; job_source_sha256 = (Hash (Join-Path $PSScriptRoot 'WavProducerOwnedProcess.py')); job_driver_sha256 = (Hash (Join-Path $PSScriptRoot 'WavProducerOwnedChild.py')) })
     $result.stage = 'baseline'
     $baseline = SystemSnapshot
     [IO.File]::WriteAllText((Join-Path $evidence 'baseline.json'), $baseline, [Text.UTF8Encoding]::new($false))
     $pendingNamespace = $work; PrivateDirectory $work; $owned += $work; $pendingNamespace = $null
     $pendingNamespace = $contractRoot; PrivateDirectory $contractRoot; $owned += $contractRoot; $pendingNamespace = $null
+    $result.stage = 'toolchain'
+    $toolchain=NewWavToolchain
+    foreach($entry in @(@('clang_version','clang','^clang version (20\.1\.8)(?:\s|$)'),@('lld_version','lld','^LLD (20\.1\.8)(?:\s|$)'),@('ninja_version','ninja','^(1\.13\.2)(?:\s|$)'))){
+        $versionResult=RunContractChild $entry[0] $toolchain.tools[$entry[1]].path @('--version') $source 30
+        $match=[regex]::Match($versionResult.Out.Trim(),$entry[2]);if($versionResult.Exit-ne0-or!$match.Success){throw 'Actual recorded tool version differs from the reviewed fixture toolchain.'}
+        $toolchain.tools[$entry[1]].version=$match.Groups[1].Value
+    }
+    $target=[regex]::Match((ReadContractBounded (Join-Path $evidence 'clang_version.stdout.txt') 8MB),'(?m)^Target: (x86_64-pc-windows-msvc)\r?$');if(!$target.Success){throw 'Actual unforced Clang target differs from the original AMD64 SDK ABI.'};$toolchain.target=$target.Groups[1].Value
+    AssertWavToolchainUnchanged $toolchain
+    SaveJson 'compiler-toolchain.json' $toolchain
     $result.stage = 'sdk_download'
     $archive = Join-Path $work 'sdk.zip'
     MediaGet 'https://download.linphone.org/releases/windows/sdk/linphone-sdk-win64-5.5.23.zip' $archive 315960147
@@ -180,16 +199,15 @@ try {
     SaveJson 'after-sdk-extract.json' (SystemSnapshot | ConvertFrom-Json)
     $build = Join-Path $work 'build'
     $result.stage = 'configure'
-    $r = RunContractChild configure $cmake @('-S',$source,'-B',$build,'-A','x64',('-DOPENWEB_PINNED_SDK=' + $sdk)) $source 120
+    $r = RunContractChild configure $cmake @('-S',$source,'-B',$build,'-G','Ninja Multi-Config',('-DOPENWEB_PINNED_SDK='+$sdk),('-DCMAKE_C_COMPILER:FILEPATH='+$toolchain.tools.clang.path),('-DCMAKE_MAKE_PROGRAM:FILEPATH='+$toolchain.tools.ninja.path),'-DCMAKE_LINKER_TYPE:STRING=LLD',('-DCMAKE_LINKER_LLD:FILEPATH='+$toolchain.tools.lld.path),('-DCMAKE_LINKER:FILEPATH='+$toolchain.tools.lld.path)) $source 120 '' $toolchain.environment
     if ($r.Exit -ne 0) { throw 'Native contract configuration refused.' }
-    $cache = Get-Content (Join-Path $build 'CMakeCache.txt')
-    $compilerRows = @($cache | Where-Object { $_ -cmatch '^CMAKE_C_COMPILER:FILEPATH=.+\.exe$' })
-    if ($compilerRows.Count -ne 1) { throw 'One actual MSVC compiler is required.' }
-    $compiler = $compilerRows[0].Substring('CMAKE_C_COMPILER:FILEPATH='.Length)
-    SaveJson 'compiler.json' ([ordered]@{ path = $compiler; sha256 = (Hash $compiler); version = [Diagnostics.FileVersionInfo]::GetVersionInfo($compiler).FileVersion })
+    [void](AssertWavConfigured $build $toolchain)
+    SaveJson 'compiler.json' ([ordered]@{path=$toolchain.tools.clang.path;sha256=$toolchain.tools.clang.sha256;version=$toolchain.tools.clang.version})
     $result.stage = 'native_build'
-    $r = RunContractChild native_build $cmake @('--build',$build,'--config','Release','--parallel','1') $source 180
+    $r = RunContractChild native_build $cmake @('--build',$build,'--config','Release','--parallel','1','--verbose') $source 180 '' $toolchain.environment
     if ($r.Exit -ne 0) { throw 'Native contract build refused.' }
+    SaveJson 'build-commands.json' (GetWavBuildCommands $build $r.Out $toolchain)
+    SaveJson 'dependency-abi.json' (GetWavDependencies $build $sdk $sdkRows $toolchain)
     SaveJson 'after-native-build.json' (SystemSnapshot | ConvertFrom-Json)
     $exe = Join-Path $build 'Release/wav_contract.exe'
     $plugin = Join-Path $build 'Release/libmsopenwebwav.dll'
@@ -223,6 +241,8 @@ try {
     $result.stage = 'sdk_preservation'
     foreach ($row in $sdkRows) { $file = Join-Path $sdk $row.path; if ((Get-Item $file).Length -ne $row.bytes -or (Hash $file) -cne $row.sha256) { throw 'An original SDK file changed.' } }
     if ((Hash $archive) -cne $manifest.sdk_sha256) { throw 'The original SDK archive changed.' }
+    AssertWavToolchainUnchanged $toolchain
+    if((Hash $script:WavToolchainHelperPath)-cne '146e6fa8ee6e29f2a3572661fc90a46c733583f1527a4603a3198eed0da15315'){throw 'Toolchain helper changed during fixture.'}
     $result.sdk_files_unchanged = $true
     $result.stage = 'complete'
 } catch {

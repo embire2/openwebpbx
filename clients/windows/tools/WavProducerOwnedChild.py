@@ -10,7 +10,8 @@ import sys
 
 LIMIT = 8 * 1024**2
 DEADLINES = {'cmake_version': 30, 'dotnet_version': 30, 'configure': 120,
-             'native_build': 180, 'native_contract': 30, 'managed_contract': 120}
+             'native_build': 180, 'native_contract': 30, 'managed_contract': 120,
+             'clang_version': 30, 'lld_version': 30, 'ninja_version': 30}
 
 
 def closed_json(raw):
@@ -38,6 +39,12 @@ def ordinary(path):
     return path
 
 
+def verify_toolchain_environment(label, environment, current):
+    expected_keys = {'INCLUDE', 'LIB'} if label in ('configure', 'native_build') else set()
+    if type(environment) is not dict or set(environment) != expected_keys or any(type(v) is not str or not v or len(v) > 32768 or any(c in v for c in ('\0', '\r', '\n')) or current.get(k) != v for k, v in environment.items()):
+        raise ValueError('Closed exact compiler-only child environment required.')
+
+
 def run_request(path):
     if os.name != 'nt' or os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted' or os.environ.get('GITHUB_REPOSITORY') != 'embire2/openwebpbx':
         raise RuntimeError('Only disposable hosted Windows recorder supervision.')
@@ -51,12 +58,13 @@ def run_request(path):
         raise ValueError('Private request grew beyond bound.')
     request = closed_json(raw)
     keys = {'schema', 'label', 'command', 'command_sha256', 'working_directory',
-            'evidence_directory', 'seconds', 'python_executable', 'python_sha256', 'job_core_sha256'}
+            'evidence_directory', 'seconds', 'python_executable', 'python_sha256', 'job_core_sha256', 'toolchain_environment'}
     if type(request) is not dict or set(request) != keys or type(request['schema']) is not int or request['schema'] != 1:
         raise ValueError('Closed supervisor request required.')
     label = request['label']
     if type(label) is not str or label not in DEADLINES or type(request['seconds']) is not int or request['seconds'] != DEADLINES[label]:
         raise ValueError('Original exact command deadline required.')
+    verify_toolchain_environment(label, request['toolchain_environment'], os.environ)
     command = request['command']
     if type(command) is not list or not 1 <= len(command) <= 64 or any(type(x) is not str or '\0' in x or len(x) > 32768 for x in command):
         raise ValueError('Bounded argument vector required.')
