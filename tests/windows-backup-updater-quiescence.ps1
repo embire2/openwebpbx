@@ -42,16 +42,37 @@ function Assert-BackupUpdaterReceipt($Receipt) {
  $item=Assert-HealthUpdaterOrdinary $Receipt.InputPath $false
  if($item.DirectoryName -ine [IO.Path]::GetFullPath((Join-Path $state 'backup-qualification')) -or $item.Name -cnotmatch '^[a-f0-9]{32}\.json$' -or [long]$item.CreationTimeUtc.Ticks -ne $Receipt.InputCreatedTicks){throw 'The owned backup input was replaced.'}
 }
+function Get-BackupUpdaterEnabledChoice([string]$Raw,[xml]$Document,$Nodes,$Operational) {
+ if($Operational-isnot[bool]-or $Nodes.Count-gt 1-or $null-ne $Document.DocumentType-or @($Document.SelectNodes('//*[local-name()="Enabled"]')).Count-ne $Nodes.Count){throw 'The original restart task definition is unavailable.'}
+ if(!$Nodes.Count){if(!$Operational){throw 'The original restart task definition is unavailable.'};return @{Value='true';Literal=''}}
+ $node=$Nodes[0];$value=$node.InnerXml
+ if($node.Prefix-or $node.Attributes.Count-or $value-cnotin 'true','false'-or $value-cne([string]$Operational).ToLowerInvariant()){throw 'The original restart task definition is unavailable.'}
+ $literal='<Enabled>'+$value+'</Enabled>'
+ # Validation only: comments/CDATA/PI must never supply the owned raw literal.
+ # Raw snapshots themselves are retained and compared byte for byte below.
+ $markup=[regex]::Replace($Raw,'(?s)<!--.*?-->|<!\[CDATA\[.*?\]\]>|<\?.*?\?>','')
+ if([regex]::Matches($Raw,[regex]::Escape($literal)).Count-ne 1-or [regex]::Matches($markup,[regex]::Escape($literal)).Count-ne 1){throw 'The original restart task definition is unavailable.'}
+ return @{Value=$value;Literal=$literal}
+}
+function Test-BackupUpdaterEnabledXml([string]$Old,[string]$Current,[string]$OldLiteral,[string]$CurrentLiteral) {
+ if(!$OldLiteral-and !$CurrentLiteral){return $Current-ceq$Old}
+ if($OldLiteral-and $CurrentLiteral){return $Current.Replace($CurrentLiteral,$OldLiteral)-ceq$Old}
+ $with=if($OldLiteral){$Old}else{$Current};$without=if($OldLiteral){$Current}else{$Old};$literal=if($OldLiteral){$OldLiteral}else{$CurrentLiteral}
+ if($with.Replace($literal,'')-ceq$without){return $true}
+ # The sole extra allowance is that exact Enabled element's dedicated line.
+ $lines=[regex]::Matches($with,'(?m)^[\t ]*'+[regex]::Escape($literal)+'[\t ]*(?:\r?\n|\z)')
+ return $lines.Count-eq 1-and $with.Remove($lines[0].Index,$lines[0].Length)-ceq$without
+}
 function Assert-BackupUpdaterTaskDefinition($Original) {
  $task=Get-ScheduledTask -TaskName 'OpenWebPBX-Updater-Restart' -TaskPath '\' -ErrorAction Stop;Assert-HealthUpdaterRestartTask $task
  $currentXml=Export-ScheduledTask -TaskName 'OpenWebPBX-Updater-Restart' -TaskPath '\'
  $oldXml=[xml]$Original.TaskXml;$pausedXml=[xml]$currentXml
  $oldEnabled=@($oldXml.SelectNodes('/*[local-name()="Task"]/*[local-name()="Settings"]/*[local-name()="Enabled"]'))
  $pausedEnabled=@($pausedXml.SelectNodes('/*[local-name()="Task"]/*[local-name()="Settings"]/*[local-name()="Enabled"]'))
- if($oldEnabled.Count -ne 1 -or $pausedEnabled.Count -ne 1 -or $oldEnabled[0].InnerText -cne ([string]$Original.TaskEnabled).ToLowerInvariant() -or $pausedEnabled[0].InnerText -cnotin 'true','false'){throw 'The original restart task definition is unavailable.'}
- if(!$Original.TaskEnabled -and $pausedEnabled[0].InnerText -cne 'false'){throw 'The originally disabled restart task was re-enabled by another operation.'}
- $oldLiteral='<Enabled>'+$oldEnabled[0].InnerText+'</Enabled>';$pausedLiteral='<Enabled>'+$pausedEnabled[0].InnerText+'</Enabled>'
- if([regex]::Matches($Original.TaskXml,[regex]::Escape($oldLiteral)).Count -ne 1 -or [regex]::Matches($currentXml,[regex]::Escape($pausedLiteral)).Count -ne 1 -or $currentXml.Replace($pausedLiteral,$oldLiteral) -cne $Original.TaskXml){throw 'The restart task changed beyond the owned enabled choice.'}
+ $oldChoice=Get-BackupUpdaterEnabledChoice $Original.TaskXml $oldXml $oldEnabled $Original.TaskEnabled
+ $pausedChoice=Get-BackupUpdaterEnabledChoice $currentXml $pausedXml $pausedEnabled $task.Settings.Enabled
+ if(!$Original.TaskEnabled -and $pausedChoice.Value -cne 'false'){throw 'The originally disabled restart task was re-enabled by another operation.'}
+ if(!(Test-BackupUpdaterEnabledXml $Original.TaskXml $currentXml $oldChoice.Literal $pausedChoice.Literal)){throw 'The restart task changed beyond the owned enabled choice.'}
 }
 function Complete-BackupQualificationUpdater($Original,$Receipt) {
  if($null -eq $Original){return} # The exact Suspend helper refused before mutation.
