@@ -13,7 +13,7 @@ Check ($wrapper.Body.Statements[0].Extent.Text -ceq 'Suspend-HealthQualification
 Check ($wrapper.Body.Statements[1].Extent.Text -ceq "Python 'acceptance'")
 Check ($wrapper.Finally.Statements[0].Extent.Text -ceq 'Resume-HealthQualificationUpdater $welcomeUpdaterOriginal')
 Check ($text.Contains("`$phase='normal HTTPS and native calling';`$welcomeUpdaterOriginal=`$null"))
-Check (((Get-FileHash -LiteralPath (Join-Path $SourceRoot 'tests/windows-health-updater-quiescence.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()) -ceq 'df23b314a54401553bd3807a1728c3268be95ce5906b4cb4dc3a8d0b034bd25a')
+Check (((Get-FileHash -LiteralPath (Join-Path $SourceRoot 'tests/windows-health-updater-quiescence.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()) -ceq 'c9bce34d1c158a146cbca8885edc05339b989483be8e3ed8af92fbfd4447b459')
 $php=[IO.File]::ReadAllText((Join-Path $SourceRoot 'tests/windows_welcome_native.php'))
 $start=$php.IndexOf('function welcome_public_fingerprint(PDO $db):string{');$end=$php.IndexOf("`nif(`$action==='prepare'){",$start)
 Check ($start -ge 0 -and $end -gt $start)
