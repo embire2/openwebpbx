@@ -57,6 +57,9 @@ try{
  $created=$true
  $failureOperation='controller_type'
  if($controller-isnot [ServiceProcess.ServiceController]){throw 'Actual owned service controller required.'}
+ $failureOperation='controller_rebind'
+ $controller.Dispose()
+ $controller=[ServiceProcess.ServiceController]::new($name,'.')
  $failureOperation='service_handle'
  $pin=$controller.get_ServiceHandle()
  $failureOperation='service_handle_validation'

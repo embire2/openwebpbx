@@ -21,7 +21,7 @@ def check_native_shape(row):
  for key in ['new_service_relation','sc_config_relation','explicit_unquoted_relation']:need(row[key]in ('quoted_expected','unquoted_expected','canonical_slash_expected','wrong_known_slot','other','unavailable'))
  if 'failure_observation'in row:
   v=row['failure_observation'];need(type(v)is dict and set(v)==set('schema operation source_name source_line hresult owned_sample handle_state exception_chain exception_chain_truncated'.split()))
-  need(type(v['schema'])is int and v['schema']==1 and v['operation']in ('absence','copy','new_service','controller_type','service_handle','service_handle_validation','own_row','sc_config','own_row_cleanup','cleanup'))
+  need(type(v['schema'])is int and v['schema']==1 and v['operation']in ('absence','copy','new_service','controller_type','controller_rebind','service_handle','service_handle_validation','own_row','sc_config','own_row_cleanup','cleanup'))
   need(type(v['source_line'])is int and ((v['source_name']=='unavailable'and v['source_line']==0)or(v['source_name']=='windows_service_image_native.ps1'and 1<=v['source_line']<=10000)))
   need(type(v['hresult'])is int and -2147483648<=v['hresult']<=2147483647)
   chain=v['exception_chain'];need(type(chain)is list and 1<=len(chain)<=4 and type(v['exception_chain_truncated'])is bool)
