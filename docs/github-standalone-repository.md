@@ -1,6 +1,6 @@
 # Standalone GitHub repository
 
-Checked on 26 October 2026: `embire2/openwebpbx` is public and still belongs to the FusionPBX fork network. GitHub reports one child fork. Its reported repository size is 151,157 KiB.
+Checked on 26 October 2026: `embire2/openwebpbx` is public and still belongs to the FusionPBX fork network. GitHub reports one child fork.
 
 [GitHub's detachment instructions](https://docs.github.com/en/pull-requests/how-tos/work-with-forks/detaching-a-fork) require a public fork below 1 GB with no child forks for the self-service option. They also warn that repository metadata can be lost. The existing child fork therefore needs GitHub's review before detachment can proceed safely.
 
