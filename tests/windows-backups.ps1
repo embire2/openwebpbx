@@ -25,8 +25,23 @@ try{
  }finally{
   if($null -eq $priorProtocolPowerShell){Remove-Item Env:\OPENWEB_TEST_PWSH -ErrorAction SilentlyContinue}else{$env:OPENWEB_TEST_PWSH=$priorProtocolPowerShell}
  }
+ $root='C:\OpenWebPBX';$state=Join-Path $env:ProgramData 'OpenWebPBX'
+ . (Join-Path $PSScriptRoot 'windows-backup-updater-quiescence.ps1')
+ $backupUpdaterReceipt=New-BackupUpdaterQualificationReceipt $input
+ $backupUpdaterOriginal=$null;$backupUpdaterFailure=$null
+ try{
+  Suspend-HealthQualificationUpdater ([ref]$backupUpdaterOriginal)
  & 'C:\OpenWebPBX\backup-runtime\python.exe' -I (Join-Path $PSScriptRoot 'windows_backups_native.py') $input 1>(Join-Path $private 'child-private.out') 2>(Join-Path $private 'child-private.err')
  if($LASTEXITCODE){throw 'Native backup qualification failed; private report retained. No passing hosted result is implied.'}
+ }catch{$backupUpdaterFailure=$_;throw}
+ finally{
+  try{Complete-BackupQualificationUpdater $backupUpdaterOriginal $backupUpdaterReceipt}
+  catch{
+   if($null -eq $backupUpdaterFailure){throw}
+   # Never mask the exact child/Suspend error with a cleanup refusal.
+   $backupUpdaterFailure.Exception.Data['OpenWebBackupUpdaterCleanupRefused']=$true
+  }
+ }
 }finally{
  Remove-Item -LiteralPath $input -Force -ErrorAction SilentlyContinue
  if($null -eq $prior){Remove-Item Env:\OPENWEB_WINDOWS_BACKUP_TEST -ErrorAction SilentlyContinue}else{$env:OPENWEB_WINDOWS_BACKUP_TEST=$prior}
