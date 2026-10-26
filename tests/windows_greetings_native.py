@@ -7,7 +7,7 @@ import hashlib
 import json
 import math
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import re
 import shutil
 import struct
@@ -28,6 +28,15 @@ FLAGS=('actual_windows_native','actual_installed_localservice_worker','backend_p
 def exact(value,keys):
     assert type(value) is dict and set(value)==set(keys),'Closed greeting proof required'
     return value
+
+
+def icacls_path(powershell):
+    """The owned Job uses lpApplicationName; it must not rely on PATH search."""
+    system_root=PureWindowsPath(os.environ.get('SystemRoot','C:/Windows'))
+    assert system_root.is_absolute() and re.fullmatch('[A-Za-z]:',system_root.drive) and '..' not in system_root.parts
+    assert not any(ord(c)<32 for c in str(system_root))
+    assert type(powershell) is str and PureWindowsPath(powershell)==system_root/'System32/WindowsPowerShell/v1.0/powershell.exe'
+    return str(system_root/'System32/icacls.exe')
 
 
 def status_record(value,directory):
@@ -121,7 +130,7 @@ try {
     try:
         for path,grant in ((root,'*S-1-5-19:(RX)'),(local,'*S-1-5-19:(OI)(CI)RX'),(output,'*S-1-5-19:(OI)(CI)M'),(script,'*S-1-5-19:R')):
             full='F' if path==script else '(OI)(CI)F'
-            run(['icacls.exe',str(path),'/inheritance:r','/grant:r','*S-1-5-32-544:'+full,'*S-1-5-18:'+full,grant],'acl-'+path.name)
+            run([icacls_path(main.WINPS),str(path),'/inheritance:r','/grant:r','*S-1-5-32-544:'+full,'*S-1-5-18:'+full,grant],'acl-'+path.name)
         created=exact(task('register'),('schema','created','task_name','task_path','nonce','definition_sha256','script_sha256'))
         assert type(created['schema']) is int and created['schema']==1 and created['created'] is True
         assert created['task_name']==payload['task_name'] and created['task_path']=='\\' and created['nonce']==nonce and created['script_sha256']==payload['script_sha256']

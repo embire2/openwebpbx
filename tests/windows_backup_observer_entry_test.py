@@ -29,13 +29,13 @@ def load(name, path):
 class Controls(unittest.TestCase):
     def test_new_release_ref_is_exact_without_prefix_or_foreign_admission(self):
         observer = load('owned_windows121_ref_observer', ROOT/'tests/windows-backups-worker-observer.py')
-        approved = 'embire2/openwebpbx/.github/workflows/windows-suite.yml@refs/heads/qualification/windows121-deploy-20261025'
+        approved = 'embire2/openwebpbx/.github/workflows/windows-suite.yml@refs/heads/qualification/windows121-greetings-release-20261026'
         self.assertIn(approved, observer.WORKFLOW_REFS)
         self.assertIn(REF, observer.WORKFLOW_REFS)
         for value in (approved+'-other', approved+'/', approved.replace('heads/','tags/'),
                       approved.replace('embire2/openwebpbx','foreign/openwebpbx'),
                       approved.replace('windows-suite.yml','windows-native.yml'),
-                      approved.replace('20261025','20261026')):
+                      approved.replace('20261026','20261027')):
             self.assertNotIn(value, observer.WORKFLOW_REFS)
         actual=self.entry(workflow_ref=approved)
         self.assertIsNone(actual['caught'])

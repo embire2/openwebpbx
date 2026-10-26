@@ -5,7 +5,10 @@ import hashlib
 import importlib.util
 import json
 import math
+import os
 from pathlib import Path
+from pathlib import PureWindowsPath
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -104,10 +107,11 @@ class GreetingControls(unittest.TestCase):
                 fixture=types.SimpleNamespace(source=ROOT,evidence=evidence,s={'private_state_root':str(scope/'State'),'domain':'12345678-1234-4234-a234-123456789abc'})
                 def runner(command,directory,timeout):
                     self.assertEqual(timeout,240);events.append(command)
+                    self.assertTrue(PureWindowsPath(command[0]).is_absolute(),'The unchanged native Job does not search PATH')
                     proof={'schema':1,'created_suspended':True,'assigned_before_resume':True,'resumed':True,
                            'owned_job_terminated':False,'owned_processes_closed':fault!='job','handles_closed':True,'exit_code':0,'ordinary_exit':True}
                     (directory/'process.safe.json').write_text(json.dumps(proof))
-                    if command[0]=='icacls.exe':
+                    if command[0]==r'C:\Windows\System32\icacls.exe':
                         self.assertNotIn('storage',str(command[1]));value=None
                     else:
                         text=command[-1];operation=next(x for x in ('register','start-wait','cleanup')if "-Operation '"+x+"'" in text)
@@ -120,12 +124,67 @@ class GreetingControls(unittest.TestCase):
                             value={'schema':1,'state':'completed','last_run_advanced':True,'last_task_result':0}
                         else:value={'schema':1,'state':'removed','owned_registration_removed':fault!='cleanup'}
                     return subprocess.CompletedProcess(command,0,json.dumps(value).encode(),b'')
-                with patch.dict('os.environ',{'RUNNER_TEMP':str(scope)}):
-                    if fault=='none':self.assertTrue(m.localservice_storage(fixture,types.SimpleNamespace(WINPS='owned-WindowsPowerShell'),runner,str(scope/'State/storage/greetings')))
+                with patch.dict('os.environ',{'RUNNER_TEMP':str(scope),'SystemRoot':r'C:\Windows'}):
+                    if fault=='none':self.assertTrue(m.localservice_storage(fixture,types.SimpleNamespace(WINPS=r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'),runner,str(scope/'State/storage/greetings')))
                     else:
-                        with self.assertRaises(AssertionError):m.localservice_storage(fixture,types.SimpleNamespace(WINPS='owned-WindowsPowerShell'),runner,str(scope/'State/storage/greetings'))
+                        with self.assertRaises(AssertionError):m.localservice_storage(fixture,types.SimpleNamespace(WINPS=r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'),runner,str(scope/'State/storage/greetings'))
                 if fault=='none':self.assertFalse(list(scope.glob('OpenWebPBX-BackupPublication-*')))
                 if fault=='identity':self.assertTrue(any("-Operation 'cleanup'"in c[-1]for c in events))
+
+    def test_icacls_uses_absolute_matching_native_SystemRoot(self):
+        for root in (r'C:\Windows',r'D:\Windows System',r'c:\WINDOWS'):
+            with patch.dict('os.environ',{'SystemRoot':root}):
+                powershell=str(PureWindowsPath(root)/'System32/WindowsPowerShell/v1.0/powershell.exe')
+                actual=m.icacls_path(powershell)
+                self.assertTrue(PureWindowsPath(actual).is_absolute())
+                self.assertEqual(PureWindowsPath(actual),PureWindowsPath(root)/'System32/icacls.exe')
+                for bad in ('powershell.exe',r'C:\Tools\powershell.exe',str(PureWindowsPath(root)/'System32/icacls.exe')):
+                    with self.assertRaises(AssertionError):m.icacls_path(bad)
+        for root in ('Windows',r'C:Windows',r'\\server\share\Windows',r'C:\Windows\..\Other'):
+            with patch.dict('os.environ',{'SystemRoot':root}):
+                with self.assertRaises(AssertionError):m.icacls_path(str(PureWindowsPath(root)/'System32/WindowsPowerShell/v1.0/powershell.exe'))
+        source=(ROOT/'tests/windows_greetings_native.py').read_text()
+        self.assertNotIn("run(['icacls.exe'",source)
+        self.assertIn('run([icacls_path(main.WINPS),',source)
+
+    @unittest.skipUnless(os.name=='nt' and os.environ.get('RUNNER_ENVIRONMENT')=='github-hosted'
+                         and os.environ.get('GITHUB_REPOSITORY')=='embire2/openwebpbx'
+                         and os.environ.get('GITHUB_ACTIONS')=='true',
+                         'Actual owned Job executable resolution requires disposable hosted Windows')
+    def test_native_unchanged_Job_bare_refusal_and_absolute_icacls(self):
+        self.assertEqual(struct.calcsize('P'),8)
+        path=ROOT/'tests/windows_meeting_owned_process.py'
+        self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),'9c2de4d8b96f1769bf0cb5a9985409bb28587dce7f8add77556941bc4ea55448')
+        spec=importlib.util.spec_from_file_location('actual_unchanged_greeting_job',path)
+        job=importlib.util.module_from_spec(spec);spec.loader.exec_module(job)
+        powershell=str(Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/powershell.exe')
+        executable=m.icacls_path(powershell)
+        self.assertTrue(Path(executable).is_file())
+        work=Path(tempfile.mkdtemp(prefix='owned-greeting-executable-',dir=os.environ['RUNNER_TEMP']))
+        previous=Path.cwd();complete=False
+        try:
+            os.chdir(work)
+            self.assertFalse((work/'icacls.exe').exists())
+            self.assertNotEqual(PureWindowsPath(work),PureWindowsPath(executable).parent)
+            refused=work/'bare';refused.mkdir()
+            with self.assertRaises(FileNotFoundError)as caught:job.run(['icacls.exe','/?'],refused,timeout=240)
+            self.assertEqual(caught.exception.winerror,2)
+            self.assertIs(caught.exception.owned_processes_closed,True)
+            proof=m.exact(json.loads((refused/'process.safe.json').read_text()),
+                ('schema','created_suspended','assigned_before_resume','resumed','owned_job_terminated',
+                 'owned_processes_closed','handles_closed','exit_code','ordinary_exit'))
+            self.assertIs(type(proof['schema']),int);self.assertEqual(proof['schema'],1);self.assertIsNone(proof['exit_code'])
+            for key in ('created_suspended','assigned_before_resume','resumed','owned_job_terminated','ordinary_exit'):self.assertIs(proof[key],False)
+            for key in ('owned_processes_closed','handles_closed'):self.assertIs(proof[key],True)
+            accepted=work/'absolute';accepted.mkdir()
+            result=job.run([executable,'/?'],accepted,timeout=240)
+            result.check_returncode();m.job_closed(accepted)
+            complete=True
+        finally:
+            os.chdir(previous)
+            # Preserve any failed/uncertain native evidence. Only both proved
+            # process/handle closures permit deleting this owned test scope.
+            if complete:shutil.rmtree(work)
 
     def test_installed_physical_lua_and_owned_database_guards(self):
         php=(ROOT/'tests/windows_greetings_fixture.php').read_text()
