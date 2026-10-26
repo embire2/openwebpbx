@@ -118,7 +118,21 @@ class pbx_mobile {
     public function bootstrap(array $e): array {
         $passwordsAvailable=$this->appPasswordAvailable();
         $hasPassword=$passwordsAvailable&&(new pbx_mobile_password($this->db))->present($e['domain_uuid'],$e['extension_uuid']);
-        return ['account'=>$this->accountIdentity($e)+['app_password_set'=>$hasPassword,'can_initialize_app_password'=>$passwordsAvailable&&!$hasPassword&&$this->initialPasswordAllowed($e)],'sip'=>['server'=>pbx_paths::host(),'domain'=>$e['domain_name'],'username'=>$e['sip_username'],'auth_username'=>$e['sip_username'],'port'=>5061,'transport'=>'tls','media_encryption'=>'srtp'],'device_id'=>$e['device_uuid'],'push'=>($e['platform']??'android')==='windows'?['enabled'=>false]:(new pbx_mobile_push($this->db))->client(),'features'=>array_merge(['directory','calls','voicemail','presence','queues','transfers','call_waiting','tenant_origin'], $passwordsAvailable?['app_password']:[],pbx_video::ready()?['video_calls']:[])];
+        $result=['account'=>$this->accountIdentity($e)+['app_password_set'=>$hasPassword,'can_initialize_app_password'=>$passwordsAvailable&&!$hasPassword&&$this->initialPasswordAllowed($e)],'sip'=>['server'=>pbx_paths::host(),'domain'=>$e['domain_name'],'username'=>$e['sip_username'],'auth_username'=>$e['sip_username'],'port'=>5061,'transport'=>'tls','media_encryption'=>'srtp'],'device_id'=>$e['device_uuid'],'push'=>($e['platform']??'android')==='windows'?['enabled'=>false]:(new pbx_mobile_push($this->db))->client(),'features'=>array_merge(['directory','calls','voicemail','presence','queues','transfers','call_waiting','tenant_origin'], $passwordsAvailable?['app_password']:[],pbx_video::ready()?['video_calls']:[])];
+        if(($e['platform']??'android')==='android')$result['network']=$this->networkPolicy();
+        return $result;
+    }
+    /** Non-secret app defaults; no phone credentials, dialplan or live engine changes. */
+    protected function networkPolicy(): array {
+        $default='openweb.sip.openwebpbx.com:3478';
+        $endpoint=config::load()->get('openweb.mobile_stun_server',$default);
+        if(!is_string($endpoint)||strlen($endpoint)>260||!preg_match('/^([a-zA-Z0-9.-]+)(?::([0-9]{1,5}))?$/D',$endpoint,$match))$endpoint=$default;
+        else {
+            $host=strtolower($match[1]);$port=isset($match[2])?(int)$match[2]:3478;
+            if($port<1||$port>65535||str_ends_with($host,'.')||!filter_var($host,FILTER_VALIDATE_DOMAIN,FILTER_FLAG_HOSTNAME)||(preg_match('/^[0-9.]+$/D',$host)&&!filter_var($host,FILTER_VALIDATE_IP,FILTER_FLAG_IPV4)))$endpoint=$default;
+            else $endpoint=$host.':'.$port;
+        }
+        return ['schema'=>1,'media'=>'pbx','stun_enabled'=>true,'stun_server'=>$endpoint,'ice_enabled'=>false,'turn_enabled'=>false,'upnp_enabled'=>false];
     }
     /** A token stays scoped to its PBX alias. The canonical instance remains a legacy QR transport. */
     public function assertHost(array $e,array $server): void {

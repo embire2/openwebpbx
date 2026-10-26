@@ -19,6 +19,19 @@ object TenantConnection {
         val origin=Enrollment.server(server)
         put("server",origin);put("tenant_url_confirmed",origin);put("tenant_url_policy",POLICY)
     }
+    /** QR and setup files already carry the URL; successful setup confirms it. */
+    fun bindSetup(profile:JSONObject,proof:JSONObject,expectedExtension:String?=null):JSONObject {
+        require(ready(profile)){"The phone connection has no verified tenant address."}
+        val origin=Enrollment.server(profile.getString("server"))
+        val domain=proof.getString("domainUuid")
+        require(proof.getInt("schema")==1 && proof.getString("hostname")==URI(origin).host && proof.getLong("revision")>0 &&
+            domain.matches(Regex("[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}"))){"This tenant address could not be verified."}
+        val canonical=legacyOrigin(proof.getString("serverOrigin"));val account=profile.getJSONObject("account")
+        require(account.getString("domain_uuid")==domain){"This connection belongs to another tenant."}
+        require(account.getString("extension_uuid").matches(Regex("[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}"))){"The PBX returned an invalid phone account."}
+        require(expectedExtension==null || account.getString("extension")==expectedExtension){"This setup code belongs to a different extension. Ask your administrator for a new QR code."}
+        return profile.put("tenant_instance_origin",canonical).put("tenant_domain_uuid",domain)
+    }
     private fun legacyOrigin(raw:String):String {
         val u=URI(raw)
         require(u.scheme.equals("https",true) && !u.host.isNullOrEmpty() && u.userInfo==null &&
@@ -72,6 +85,7 @@ object TenantConnection {
         candidate.put("account",response.getJSONObject("account"))
         response.optJSONArray("features")?.let{candidate.put("features",it)}
         response.optJSONObject("push")?.let{candidate.put("push",it)}
+        response.optJSONObject("network")?.let{candidate.put("network",PhoneNetworkPolicy.metadata(it))}
         candidate.remove("update_policy")
         return candidate
     }

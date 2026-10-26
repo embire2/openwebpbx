@@ -1,10 +1,15 @@
-name: Android native splash qualification
+name: Android QR and STUN native qualification
 on:
   workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Exact reviewed 40-character source commit
+        required: true
+        type: string
 permissions:
   contents: read
 concurrency:
-  group: android-splash-${{ github.ref }}
+  group: android-qr120-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   android:
@@ -13,12 +18,36 @@ jobs:
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       GRADLE_OPTS: -Dorg.gradle.daemon=false
+      GRADLE_USER_HOME: ${{ runner.temp }}/openweb-android120-gradle
+      WORKFLOW_SOURCE_COMMIT: ${{ github.sha }}
+      EXPECTED_SOURCE_COMMIT: ${{ inputs.source_commit }}
     steps:
       - name: Preserve dispatched source bytes
         run: git config --global core.autocrlf false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          ref: ${{ inputs.source_commit }}
+      - name: Require the exact reviewed source and app version
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBIND'
+          import hashlib,json,os,re,subprocess
+          from pathlib import Path
+          expected=os.environ['EXPECTED_SOURCE_COMMIT']
+          assert expected==os.environ['WORKFLOW_SOURCE_COMMIT'], 'Dispatch workflow and checked-out source must be identical'
+          assert not any(name in os.environ for name in ['OPENWEB_ANDROID_KEYSTORE','OPENWEB_ANDROID_STORE_PASSWORD','OPENWEB_ANDROID_KEY_PASSWORD']), 'Production signing environment is forbidden'
+          assert re.fullmatch('[0-9a-f]{40}',expected)
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==expected
+          subprocess.run(['git','diff','HEAD','--exit-code','--','mobile/android','ANDROID_VERSION','.github/workflows/android-splash.yml','VERSION','docs/android-video.md','docs/android.md','docs/android-tenant-addresses-1.0.18.md','docs/android-push.md','docs/android-availability.md','docs/google-play.md','docs/google-play-review.md','packaging/updates/PROTOCOL.md'],check=True)
+          assert not subprocess.check_output(['git','ls-files','--others','--exclude-standard','--','mobile/android','ANDROID_VERSION','.github/workflows/android-splash.yml','VERSION','docs/android-video.md','docs/android.md','docs/android-tenant-addresses-1.0.18.md','docs/android-push.md','docs/android-availability.md','docs/google-play.md','docs/google-play-review.md','packaging/updates/PROTOCOL.md']).strip()
+          assert Path('ANDROID_VERSION').read_text().strip()=='1.0.20'
+          source=Path('mobile/android/app/build.gradle.kts').read_text()
+          assert '?: 120' in source and '?: "1.0.20"' in source
+          names=subprocess.check_output(['git','ls-files','-z','--','mobile/android','ANDROID_VERSION','.github/workflows/android-splash.yml','VERSION','docs/android-video.md','docs/android.md','docs/android-tenant-addresses-1.0.18.md','docs/android-push.md','docs/android-availability.md','docs/google-play.md','docs/google-play-review.md','packaging/updates/PROTOCOL.md']).split(b'\0')
+          inputs={n.decode():hashlib.sha256(Path(n.decode()).read_bytes()).hexdigest() for n in names if n and Path(n.decode()).is_file()}
+          Path(os.environ['RUNNER_TEMP'],'android120-source-before.json').write_text(json.dumps({'source_commit':expected,'inputs':inputs},sort_keys=True)+'\n')
+          PYBIND
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
@@ -38,25 +67,75 @@ jobs:
       - name: Build unsigned releases and run both JVM/lint checks
         run: |
           set -euo pipefail
+          java -version > "$ANDROID_OUTPUT/java-version.txt" 2>&1
+          mobile/android/gradlew -p mobile/android --version > "$ANDROID_OUTPUT/gradle-version.txt" 2>&1
+          python3 - <<'PYTOOLS'
+          import hashlib,json,os
+          from pathlib import Path
+          sdk=Path(os.environ['ANDROID_HOME']);java=Path(os.environ['JAVA_HOME'])
+          names=[java/'bin/java',java/'bin/javac',sdk/'platforms/android-36/android.jar']
+          tools=sdk/'build-tools/36.0.0'
+          names += [tools/name for name in ['aapt2','apksigner','zipalign','d8','lib/d8.jar']]
+          records={str(file):{'bytes':file.stat().st_size,'sha256':hashlib.sha256(file.read_bytes()).hexdigest()}for file in names}
+          Path(os.environ['ANDROID_OUTPUT'],'toolchain-inputs.json').write_text(json.dumps(records,indent=2)+'\n')
+          PYTOOLS
           python3 mobile/android/scripts/test-refresh-source.py
           python3 mobile/android/scripts/test-qualified-apk.py
           mobile/android/gradlew -p mobile/android --no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx2048m \
+            -I "$GITHUB_WORKSPACE/mobile/android/scripts/android120-ci.init.gradle" \
             -PopenwebUnsignedRelease=true -PopenwebTestAbi=x86_64 -PopenwebInstrumentRelease=true \
-            :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest :app:lintDirectRelease :app:lintPlayRelease \
-            :app:assembleDirectRelease :app:bundlePlayRelease :app:assembleDirectDebug :app:assembleDirectReleaseAndroidTest :app:writeRuntimeInventory \
+            :app:testDirectReleaseUnitTest :app:testPlayReleaseUnitTest :app:lintDirectRelease :app:lintPlayRelease \
+            :app:assembleDirectRelease :app:bundlePlayRelease :app:assembleDirectReleaseAndroidTest :app:writeRuntimeInventory :app:writeCiRuntimeArtifacts \
             2>&1 | tee "$ANDROID_OUTPUT/build.log"
-          cp mobile/android/app/build/outputs/apk/direct/release/app-direct-release-unsigned.apk "$ANDROID_OUTPUT/openwebpbx-1.0.19-android-unsigned.apk"
-          cp mobile/android/app/build/outputs/bundle/playRelease/app-play-release.aab "$ANDROID_OUTPUT/openwebpbx-1.0.19-google-play-unsigned.aab"
-          cp mobile/android/app/build/runtime-dependencies.txt "$ANDROID_OUTPUT/"
+          cp mobile/android/app/build/outputs/apk/direct/release/app-direct-release-unsigned.apk "$ANDROID_OUTPUT/openwebpbx-1.0.20-android-unsigned.apk"
+          cp mobile/android/app/build/outputs/bundle/playRelease/app-play-release.aab "$ANDROID_OUTPUT/openwebpbx-1.0.20-google-play-unsigned.aab"
+          cp mobile/android/app/build/runtime-dependencies.txt mobile/android/app/build/runtime-artifacts.json "$ANDROID_OUTPUT/"
+          cp "$RUNNER_TEMP/android120-source-before.json" "$ANDROID_OUTPUT/"
+          python3 - <<'PYRUNTIME'
+          import hashlib
+          from pathlib import Path
+          actual=Path('mobile/android/app/build/runtime-dependencies.txt').read_bytes()
+          assert hashlib.sha256(actual).hexdigest()=='78bbbc1dc4ff669f7f62a34b153de67a2ef558b2c609059e4c0f0077664f6f21', 'Runtime dependencies changed from accepted119'
+          PYRUNTIME
           cp -R mobile/android/app/build/test-results "$ANDROID_OUTPUT/jvm-results"
           cp mobile/android/app/build/reports/lint-results-*.xml "$ANDROID_OUTPUT/"
           python3 - <<'PY'
           import hashlib,json,subprocess,os
           from pathlib import Path
-          files=subprocess.check_output(['git','ls-files','-z','--','mobile/android','ANDROID_VERSION']).split(b'\0')
+          files=subprocess.check_output(['git','ls-files','-z','--','mobile/android','ANDROID_VERSION','.github/workflows/android-splash.yml','VERSION','docs/android-video.md','docs/android.md','docs/android-tenant-addresses-1.0.18.md','docs/android-push.md','docs/android-availability.md','docs/google-play.md','docs/google-play-review.md','packaging/updates/PROTOCOL.md']).split(b'\0')
           inputs=[{'path':p.decode(),'sha256':hashlib.sha256(Path(p.decode()).read_bytes()).hexdigest()} for p in files if p and Path(p.decode()).is_file()]
-          Path(os.environ['ANDROID_OUTPUT'],'source-inputs.json').write_text(json.dumps({'source_commit':os.environ['GITHUB_SHA'],'android_version':Path('ANDROID_VERSION').read_text().strip(),'inputs':inputs},indent=2)+'\n')
+          Path(os.environ['ANDROID_OUTPUT'],'source-inputs.json').write_text(json.dumps({'source_commit':os.environ['EXPECTED_SOURCE_COMMIT'],'android_version':Path('ANDROID_VERSION').read_text().strip(),'inputs':inputs},indent=2)+'\n')
           PY
+      - name: Require complete unsigned APK and Play bundle gates
+        run: |
+          set -euo pipefail
+          bundletool="$RUNNER_TEMP/bundletool-all-1.18.3.jar"
+          curl --fail --location --proto '=https' --tlsv1.2 --retry 2 \
+            'https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar' -o "$bundletool"
+          printf '%s  %s\n' 'a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29' "$bundletool" | sha256sum --check --strict -
+          python3 mobile/android/scripts/verify-ci-unsigned.py \
+            --apk "$ANDROID_OUTPUT/openwebpbx-1.0.20-android-unsigned.apk" \
+            --aab "$ANDROID_OUTPUT/openwebpbx-1.0.20-google-play-unsigned.aab" \
+            --tools "$ANDROID_HOME/build-tools/36.0.0" --bundletool "$bundletool" \
+            --inventory "$ANDROID_OUTPUT/runtime-dependencies.txt" --runtime-artifacts "$ANDROID_OUTPUT/runtime-artifacts.json" \
+            --output "$ANDROID_OUTPUT/unsigned-artifact-inventory.json"
+          python3 - <<'PYRESULT'
+          import json,os,xml.etree.ElementTree as ET
+          from pathlib import Path
+          output=Path(os.environ['ANDROID_OUTPUT']);result={}
+          for variant,count in [('DirectRelease',58),('PlayRelease',62)]:
+              files=list((output/'jvm-results'/('test'+variant+'UnitTest')).glob('TEST-*.xml'))
+              assert files,variant
+              totals={key:sum(int(ET.parse(f).getroot().get(key,'0'))for f in files)for key in ['tests','failures','errors','skipped']}
+              assert totals=={'tests':count,'failures':0,'errors':0,'skipped':0},totals
+              result[variant]=totals
+          lint={}
+          for variant in ['directRelease','playRelease']:
+              issues=ET.parse(output/('lint-results-'+variant+'.xml')).getroot().findall('issue')
+              assert not any(x.get('severity')in ['Error','Fatal']for x in issues),variant
+              lint[variant]={'errors':0,'warnings':sum(x.get('severity')=='Warning'for x in issues)}
+          (output/'jvm-lint-result.json').write_text(json.dumps({'JVM':result,'lint':lint},indent=2)+'\n')
+          PYRESULT
       - name: Exercise the actual native five-second screen and urgent entry paths
         run: |
           set -euo pipefail
@@ -78,13 +157,13 @@ jobs:
           test ! -e "$fixture_key"
           keytool -genkeypair -noprompt -keystore "$fixture_key" -storetype JKS -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 2 -dname 'CN=Android Debug,O=OpenWebPBX isolated CI,C=ZA'
           signer="$ANDROID_HOME/build-tools/36.0.0/apksigner"
-          "$signer" sign --ks "$fixture_key" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out "$RUNNER_TEMP/qualification-release.apk" "$ANDROID_OUTPUT/openwebpbx-1.0.19-android-unsigned.apk"
+          "$signer" sign --ks "$fixture_key" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out "$RUNNER_TEMP/qualification-release.apk" "$ANDROID_OUTPUT/openwebpbx-1.0.20-android-unsigned.apk"
           test_apk=$(python3 -c 'import json;from pathlib import Path;p=Path("mobile/android/app/build/outputs/apk/androidTest/direct/release");print(p/json.loads((p/"output-metadata.json").read_text())["elements"][0]["outputFile"])')
           "$signer" sign --ks "$fixture_key" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out "$RUNNER_TEMP/qualification-tests.apk" "$test_apk"
           rm -- "$fixture_key"
           "$signer" verify --verbose --print-certs "$RUNNER_TEMP/qualification-release.apk" > "$ANDROID_OUTPUT/qualification-certificate.txt"
           test "$("$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest debuggable "$RUNNER_TEMP/qualification-release.apk")" = false
-          python3 mobile/android/scripts/verify-qualified-apk.py "$ANDROID_OUTPUT/openwebpbx-1.0.19-android-unsigned.apk" "$RUNNER_TEMP/qualification-release.apk" | tee "$ANDROID_OUTPUT/release-payload-equality.json"
+          python3 mobile/android/scripts/verify-qualified-apk.py "$ANDROID_OUTPUT/openwebpbx-1.0.20-android-unsigned.apk" "$RUNNER_TEMP/qualification-release.apk" | tee "$ANDROID_OUTPUT/release-payload-equality.json"
           "$ANDROID_HOME/emulator/emulator" -avd openweb-splash-35 -port 5580 -memory 1536 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -feature -Vulkan > "$ANDROID_OUTPUT/emulator.log" 2>&1 &
           emulator_pid=$!
           adb="$ANDROID_HOME/platform-tools/adb"
@@ -111,20 +190,47 @@ jobs:
           test "$native_status" -eq 0
           grep -q 'OK (6 tests)' "$ANDROID_OUTPUT/native-splash.log"
           ! grep -qE 'FAILURES|INSTRUMENTATION_FAILED|Process crashed' "$ANDROID_OUTPUT/native-splash.log"
+          # Continue on the same owned Android35 instance. Keep the original
+          # six launch gates and single-instance EXIT cleanup exactly as above.
+          run_case() {
+            local class="$1" count="$2" label="$3"
+            set +e
+            timeout 240 "$adb" -s emulator-5580 shell am instrument -w -r -e class "$class" -e qrSetupIsolated true com.openweb.pbx.test/androidx.test.runner.AndroidJUnitRunner | tee "$ANDROID_OUTPUT/$label.log"
+            local status=${PIPESTATUS[0]}
+            set -e
+            test "$status" -eq 0
+            grep -Fq "OK ($count)" "$ANDROID_OUTPUT/$label.log"
+            ! grep -qE 'FAILURES|INSTRUMENTATION_FAILED|Process crashed|AssumptionViolated' "$ANDROID_OUTPUT/$label.log"
+          }
+          run_case com.openweb.pbx.NativeQrRulesTest '8 tests' native-qr-rules
+          run_case com.openweb.pbx.QrSetupUiTest '1 test' native-qr-ui
+          run_case 'com.openweb.pbx.ProfileUiTest#matchingEmailAttachmentOpensNativeConfirmationWithoutConnecting' '1 test' native-qr-attachment
+          run_case 'com.openweb.pbx.DeviceSecurityTest#nativeQrDecoderReadsEnrollmentJson' '1 test' native-qr-decoder
+          run_case com.openweb.pbx.NativeStunPolicyTest '1 test' native-stun-policy
+          python3 - <<'PYBIND'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          original=json.loads(Path(os.environ['RUNNER_TEMP'],'android120-source-before.json').read_text())
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==original['source_commit']
+          subprocess.run(['git','diff','HEAD','--exit-code','--','mobile/android','ANDROID_VERSION','.github/workflows/android-splash.yml','VERSION','docs/android-video.md','docs/android.md','docs/android-tenant-addresses-1.0.18.md','docs/android-push.md','docs/android-availability.md','docs/google-play.md','docs/google-play-review.md','packaging/updates/PROTOCOL.md'],check=True)
+          assert not subprocess.check_output(['git','ls-files','--others','--exclude-standard','--','mobile/android','ANDROID_VERSION','.github/workflows/android-splash.yml','VERSION','docs/android-video.md','docs/android.md','docs/android-tenant-addresses-1.0.18.md','docs/android-push.md','docs/android-availability.md','docs/google-play.md','docs/google-play-review.md','packaging/updates/PROTOCOL.md']).strip()
+          assert {n:hashlib.sha256(Path(n).read_bytes()).hexdigest() for n in original['inputs']}==original['inputs']
+          Path(os.environ['ANDROID_OUTPUT'],'source-after-native.json').write_text(json.dumps(original,sort_keys=True)+'\n')
+          PYBIND
       - name: Package complete corresponding source from authenticated unchanged SDK baseline
         run: |
           set -euo pipefail
           curl --fail --location --proto '=https' --tlsv1.2 --retry 2 \
             'https://github.com/embire2/openwebpbx/releases/download/v1.0.18/openwebpbx-1.0.18-android-source.tar.gz' -o "$RUNNER_TEMP/android18-source.tar.gz"
           python3 mobile/android/scripts/refresh-source.py --base-source "$RUNNER_TEMP/android18-source.tar.gz" \
-            --runtime-inventory mobile/android/app/build/runtime-dependencies.txt --output "$ANDROID_OUTPUT/openwebpbx-1.0.19-android-source.tar.gz" \
+            --runtime-inventory mobile/android/app/build/runtime-dependencies.txt --output "$ANDROID_OUTPUT/openwebpbx-1.0.20-android-source.tar.gz" \
             | tee "$ANDROID_OUTPUT/source-package.json"
           (cd "$ANDROID_OUTPUT" && sha256sum *.apk *.aab *.tar.gz > SHA256SUMS-unsigned)
       - name: Retain native outputs and exact source evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: openwebpbx-android119-${{ github.run_id }}
+          name: openwebpbx-android120-${{ github.run_id }}
           path: ${{ runner.temp }}/android-splash-output/
           if-no-files-found: error
           retention-days: 14

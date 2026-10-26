@@ -115,12 +115,10 @@ class MainActivity: ComponentActivity() {
         try {
             requireProfileIdle()
             val data=ProfileRules.setup(raw);val server=data.getString("server");val code=data.getString("code")
-            if(store.read()?.let{TenantConnection.ready(it)}==true)require(store.profiles().all{TenantConnection.ready(it)}){"Confirm your saved accounts' tenant addresses in Accounts before adding another connection."}
-            store.read()?.takeIf{!TenantConnection.ready(it)}?.let{pending->
-                require(enteredTenantOrigins[pending.getString("profile_id")]==server){"Enter this account's tenant address before scanning its new QR code."}
-            }
+            // The QR/setup file supplies its own tenant URL. The custodian proof,
+            // token and recipient are verified before saving or replacing an account.
             AlertDialog.Builder(this).setTitle("Add this phone account?").setMessage("Connect to ${URI(server).host}${data.optString("extension").takeIf{it.isNotBlank()}?.let{" · Extension $it"} ?: ""}. Only use setup details supplied by your administrator.\n\n$privacySummary")
-                .setNegativeButton("Cancel",null).setPositiveButton("Connect"){_,_->enroll(server,code)}.show()
+                .setNegativeButton("Cancel",null).setPositiveButton("Connect"){_,_->try{enroll(server,code,data.optString("extension").takeIf{it.isNotBlank()})}catch(e:Exception){message(e.message ?: "Finish your calls before connecting an account")}}.show()
         }catch(e:Exception){message(e.message ?: "That setup file or QR code could not be read")}
     }
     private fun importSetup(uri:Uri){
@@ -240,7 +238,7 @@ class MainActivity: ComponentActivity() {
     private fun tenantAddressGate(){
         val profile=store.read() ?: return;val id=profile.getString("profile_id")
         body.addView(text("Enter your tenant address",28f,ink,true))
-        body.addView(text("OpenWebPBX Free Phone now connects only through your tenant's openwebpbx.com address. Every saved account must confirm its address once.",16f,soft))
+        body.addView(text("Scan your administrator's QR code to connect automatically, or enter your tenant's openwebpbx.com address below to keep this saved connection.",16f,soft))
         body.addView(text("${ProfileRules.label(profile)}\nYour saved account and calling settings have been kept.",15f,soft))
         val host=field("https://company.openwebpbx.com",enteredTenantOrigins[id] ?: "",InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
         body.addView(host)
@@ -260,11 +258,9 @@ class MainActivity: ComponentActivity() {
                 },{origin->enteredTenantOrigins[id]=origin;busy=false;bootstrapped=false;store.read(id)?.let{PushConnection.configure(this,it)};draw();ensurePermissions();bootstrap();updates.check()},{busy=false},scope=id,markRevoked=false)
             }catch(e:Exception){host.error=e.message;busy=false}
         })
-        body.addView(button("Enter address and use a new QR code"){
-            try{
-                requireProfileIdle();val server=Enrollment.tenant(host.text.toString());if(busy)return@button;busy=true
-                async({TenantConnection.lookup(server);server},{origin->enteredTenantOrigins[id]=origin;busy=false;scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Scan your tenant's new connection code").setBeepEnabled(false))},{busy=false},scope=id,markRevoked=false)
-            }catch(e:Exception){host.error=e.message;busy=false}
+        body.addView(button("Scan QR code"){
+            requireProfileIdle()
+            scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Scan your administrator's QR code").setBeepEnabled(false))
         })
         if(profile.optJSONArray("features")?.let{list->(0 until list.length()).any{list.optString(it)=="app_password"}}==true)body.addView(button("Enter address and sign in with a password"){
             try{
@@ -292,22 +288,18 @@ class MainActivity: ComponentActivity() {
         check(!busy){"Wait for the current account request to finish."}
         check(ProfileRules.canChange(PhoneService.instance?.calls?.size ?: 0,updates.isInstalling)){"Finish your calls or the app update before changing accounts"}
     }
-    private fun enroll(server:String,code:String)=connectAccount(server,"enroll",JSONObject().put("code",code))
-    private fun connectAccount(server:String,action:String,body:JSONObject){
+    private fun enroll(server:String,code:String,expectedExtension:String?=null)=connectAccount(server,"enroll",JSONObject().put("code",code),expectedExtension)
+    private fun connectAccount(server:String,action:String,body:JSONObject,expectedExtension:String?=null){
         requireProfileIdle();if(busy)return;busy=true;status.text="Connecting your account…"
         async({
             val proof=TenantConnection.lookup(server)
             if(action=="login")require(PhoneApi(server).json("capabilities").optBoolean("app_password")){"Use your administrator's QR code. App-password sign-in needs an updated PBX."}
             val response=ProfileRules.connected(PhoneApi(server).json(action,body.put("device_name","${Build.MANUFACTURER} ${Build.MODEL}").put("platform","android")),server)
-            require(response.getJSONObject("account").getString("domain_uuid")==proof.getString("domainUuid")){"This connection belongs to another tenant."}
-            response.put("tenant_instance_origin",proof.getString("serverOrigin")).put("tenant_domain_uuid",proof.getString("domainUuid"))
             // Persist outside the Activity callback: rotation cannot consume and lose a one-use code.
             try{
-                val duplicates=store.profiles().filter{ProfileRules.sameAccount(it,response) || (!TenantConnection.ready(it) && TenantConnection.sameRestoredAccount(it,response,proof))}
-                require(duplicates.size<=1){"More than one saved account matches. Remove an unused copy in Accounts, then try again."}
-                val duplicate=duplicates.singleOrNull()
-                if(duplicate!=null && !TenantConnection.ready(duplicate))require(enteredTenantOrigins[duplicate.getString("profile_id")]==server){"Select this saved account in Accounts and enter its tenant address before reconnecting it."}
-                if(duplicate!=null && !TenantConnection.ready(duplicate)){
+                TenantConnection.bindSetup(response,proof,expectedExtension)
+                val duplicate=ProfileRules.reconnectTarget(store.profiles(),response,proof)
+                if(duplicate!=null){
                     response.put("profile_id",duplicate.getString("profile_id"));response.put("profile_name",duplicate.optString("profile_name"));duplicate.optJSONArray("pending_calls")?.let{response.put("pending_calls",it)};store.save(response)
                 }else store.add(response,select=false)
             }catch(e:Exception){try{PhoneApi.profile(response).json("revoke",JSONObject())}catch(_:Exception){};throw e}
@@ -854,7 +846,7 @@ class MainActivity: ComponentActivity() {
         dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.apply{text=view.action;isEnabled=view.actionEnabled}
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.visibility=if(updates.isInstalling)View.VISIBLE else View.GONE
     }
-    private val privacySummary = "Your organisation’s PBX receives your device name, connection details and call history. During calls it carries your microphone audio, including while the app is in the background. Your administrator controls recordings and retention. The camera scans your connection QR code and, only when you choose video, shares live pictures through your PBX with the other caller. Leaving the video screen or locking your phone stops the camera; audio can continue. If your administrator enables incoming wake-up, Google Play Services delivers encrypted alerts and an optional Cloudflare relay forwards them. Call audio and phone passwords are not sent through that notification channel."
+    private val privacySummary = "Your organisation’s PBX receives your device name, connection details and call history. Automatic connection checks may send your public network address to OpenWebPBX’s connection service; it does not carry your calls. During calls it carries your microphone audio, including while the app is in the background. Your administrator controls recordings and retention. The camera scans your connection QR code and, only when you choose video, shares live pictures through your PBX with the other caller. Leaving the video screen or locking your phone stops the camera; audio can continue. If your administrator enables incoming wake-up, Google Play Services delivers encrypted alerts and an optional Cloudflare relay forwards them. Call audio and phone passwords are not sent through that notification channel."
     private fun policyLinks(){
         body.addView(button("Terms of use"){openPublicPage("terms")})
         body.addView(button("Privacy policy"){openPublicPage("privacy")})
@@ -882,6 +874,7 @@ class MainActivity: ComponentActivity() {
             response.optJSONObject("push")?.let{saved.put("push",it)}
             saved.put("features",response.optJSONArray("features") ?: org.json.JSONArray())
             response.optJSONObject("account")?.let{saved.put("account",it)}
+            response.optJSONObject("network")?.let{saved.put("network",PhoneNetworkPolicy.metadata(it))}
             response.optJSONObject("sip")?.let{fresh->val old=saved.getJSONObject("sip");for(key in fresh.keys())if(key!="password" || fresh.optString(key).isNotBlank())old.put(key,fresh.get(key))}
             };store.read(profileId)?.let{PushConnection.configure(this,it)};updatePhone()
         })

@@ -71,7 +71,7 @@ def main():
     original_inventory,original_version,sdk_files=scan_baseline(args.base_source)
     require_compatible(original_inventory,original_version,sdk_files,inventory)
     version=(ROOT/'ANDROID_VERSION').read_text().strip()
-    if version!='1.0.19':raise ValueError('This refresh applies only to the matching Android 1.0.19 release')
+    if version!='1.0.20':raise ValueError('This refresh applies only to the matching Android 1.0.20 release')
     commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     subprocess.run(['git','diff','--exit-code','--','mobile/android','ANDROID_VERSION'],cwd=ROOT,check=True,stdout=subprocess.DEVNULL)
     tracked=subprocess.check_output(['git','ls-files','-z','--','mobile/android'],cwd=ROOT).split(b'\0')

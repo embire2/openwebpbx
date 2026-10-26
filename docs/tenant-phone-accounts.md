@@ -8,9 +8,23 @@ The hosted OpenWeb administration portal is now available at **https://openweb.o
 
 Your administrator supplies your company's `name.openwebpbx.com` address. Open **OpenWebPBX Free Phone**, choose manual sign-in, enter that name, your extension and your app password. The app uses HTTPS for sign-in and obtains its secure calling settings automatically.
 
-Alternatively, scan the administrator's QR code, or open the `.openwebpbx` file attached to your welcome message. Confirm the company server shown by the app. If your mail reader does not offer the phone app for an attachment, save it and choose **Import setup file** in the app. Manual sign-in does not require a camera.
+Alternatively, scan the administrator's QR code, or open the `.openwebpbx` file attached to your welcome message. The tenant's complete HTTPS address, extension and one-use setup code are already included. Tap **Connect** to approve the displayed company; you do not need to type the server address or a password. If an older saved account needs to reconnect, **Scan QR code** is available before entering any address. The app verifies the tenant registry and the account returned by that server before saving it. An unrelated or already connected account is not replaced.
+
+If your mail reader does not offer the phone app for an attachment, save it and choose **Import setup file** in the app. Manual sign-in remains available and does not require a camera.
+
+This automatic QR reconnection and network-policy update is a candidate change. It needs the matching Android build; publishing a server-side change alone does not update an installed app.
 
 Screen QR codes last ten minutes. Welcome invitations last 48 hours and work once; a new invitation replaces unused older invitations. Both the inline image and attached file contain a connection secret. Do not forward or publish them. The welcome email does not contain your app password or your desk-phone SIP password.
+
+## Automatic calling connection
+
+The app keeps secure SIP/TLS and SRTP settings supplied by the PBX. The PBX continues carrying call audio; setup does not change restored desk-phone usernames, passwords, SIP domains, providers or call routes.
+
+New account connections use automatic STUN discovery, with ICE, TURN and UPnP disabled for this policy. The default is the existing OpenWebPBX-managed `openweb.sip.openwebpbx.com:3478` UDP service. Instance operators may set `openweb.mobile_stun_server` to a different verified hostname and port. Invalid or unsupported app metadata uses the safe default; users do not need to edit technical network settings.
+
+Refreshed network metadata is saved separately from the SIP credentials. A network-only refresh does not rebuild existing SDK accounts or renegotiate active calls. The settings take effect when an account next connects. Account changes continue waiting until all calls have ended. Physical desk-phone provisioning and registrations are not changed by this app feature.
+
+STUN discovers a public network mapping. It is not a media relay and cannot guarantee connectivity through every symmetric NAT, CGNAT or firewall. The managed connection service can see the requesting public address and port; it does not receive call audio or account passwords. Controlled and physical calling checks remain required before rollout. See [STUN operation and limits](stun.md).
 
 ## More than one company
 
@@ -34,7 +48,7 @@ Queued means waiting for the outgoing server. Accepted means the SMTP server acc
 
 Open ISP cc operates the central name registry and holds the `openwebpbx.com` domain. An installation proves control of its configured public HTTPS hostname using a private instance key. The registry reserves each tenant/service name and configures DNS without giving installations the central DNS credential. A conflicting requested name receives a stable suffix. Additional PBX services receive separate names so overlapping extension numbers remain unambiguous.
 
-Each instance obtains and renews certificates for its assigned names. Names become available only after DNS, the local certificate and exact tenant mapping are ready. During an outage or certificate delay, existing canonical-address QR setup remains available; manual tenant-address login waits for its address to become ready. There is no insecure HTTP or certificate-validation fallback.
+Each instance obtains and renews certificates for its assigned names. Names become available only after DNS, the local certificate and exact tenant mapping are ready. Phone setup waits until its tenant address is ready. A new QR cannot silently substitute the installation hostname. Existing desk-phone settings are preserved. There is no insecure HTTP or certificate-validation fallback.
 
 Tenant aliases change the user-facing HTTPS address. They do not rewrite restored SIP realms, authentication IDs or passwords. Use the phone migration guide for physical desk phones rather than changing their SIP settings from this app guide.
 

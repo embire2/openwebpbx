@@ -18,7 +18,20 @@ object ProfileRules {
         val sameIds=left.optString("domain_uuid").isNotBlank() && left.optString("extension_uuid").isNotBlank() && left.optString("domain_uuid")==right.optString("domain_uuid") && left.optString("extension_uuid")==right.optString("extension_uuid")
         // Also recognise a migrated account whose older server omitted UUIDs.
         val sameSip=a.optJSONObject("sip")?.optString("domain")?.lowercase()==b.optJSONObject("sip")?.optString("domain")?.lowercase() && left.optString("extension")==right.optString("extension")
-        return a.optString("server").equals(b.optString("server"),true) && (sameIds || sameSip)
+        val noConflictingIds=listOf("domain_uuid","extension_uuid").all{key->left.optString(key).isBlank() || right.optString(key).isBlank() || left.optString(key)==right.optString(key)}
+        return a.optString("server").equals(b.optString("server"),true) && noConflictingIds && (sameIds || sameSip)
+    }
+    /** A verified fresh QR can replace only its own disconnected saved account. */
+    fun reconnectTarget(profiles:List<JSONObject>,fresh:JSONObject,proof:JSONObject):JSONObject? {
+        val matches=profiles.filter{
+            val left=it.getJSONObject("account");val right=fresh.getJSONObject("account")
+            val noConflictingIds=listOf("domain_uuid","extension_uuid").all{key->left.optString(key).isBlank() || right.optString(key).isBlank() || left.optString(key)==right.optString(key)}
+            noConflictingIds && (sameAccount(it,fresh) || (!TenantConnection.ready(it) && TenantConnection.sameRestoredAccount(it,fresh,proof)))
+        }
+        require(matches.size<=1){"More than one saved account matches. Remove an unused copy in Accounts, then try again."}
+        val match=matches.singleOrNull()
+        require(match==null || !TenantConnection.ready(match)){"This account is already saved. Open Accounts to edit or reconnect it."}
+        return match
     }
     fun setup(raw:String):JSONObject {
         require(raw.toByteArray(Charsets.UTF_8).size<=MAX_SETUP_BYTES){"That setup file is too large"}
@@ -41,6 +54,7 @@ object ProfileRules {
         // Do not move a bearer token to a response-supplied origin. The user approved
         // this HTTPS host; canonical server identifiers remain account metadata.
         response.remove("tenant_instance_origin");response.remove("tenant_domain_uuid")
+        response.put("network",PhoneNetworkPolicy.metadata(response.optJSONObject("network")))
         return TenantConnection.confirm(response,server)
     }
     fun canChange(activeCalls:Int,installing:Boolean):Boolean=activeCalls==0 && !installing

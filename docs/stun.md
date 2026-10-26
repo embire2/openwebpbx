@@ -8,6 +8,12 @@ This is **STUN only**, with no TURN relay, TCP, TLS/DTLS, CLI, alternate port or
 
 STUN discovers a mapping; it does not guarantee traversal through symmetric NAT/CGNAT or restrictive firewalls. The PBX normally anchors RTP and performs its existing RTP address adjustment. SIP TCP/TLS, a controlled VPN or authenticated TURN would be separate choices when required. This feature does not configure TURN, a VPN, handset line assignment, carrier routing or firewall rules, and does not demonstrate physical handset audio.
 
+## Android app defaults (candidate)
+
+The matching Android update uses a per-account STUN policy automatically. Its default endpoint is the existing OpenWebPBX-managed `openweb.sip.openwebpbx.com:3478`; the server can supply an operator-verified replacement through `openweb.mobile_stun_server`. No TURN, ICE or UPnP setting is enabled by this policy, and the PBX's existing anchored-audio routing remains in place.
+
+The metadata applies when the app creates an account connection. Background refresh only stores the next connection settings, so working SDK registrations and active calls are not replaced. Existing saved profiles receive the default on their next connection. This does not provision, unregister or change any desk phone, and it does not activate a new STUN service on an installation. Self-hosted instances can use the managed endpoint or explicitly deploy their own listener as described below. The current hosted listener was checked read-only during development; native Android/CGNAT calling acceptance and release rollout remain separate.
+
 ## Installation
 
 Ordinary installs and upgrades only deliver the three STUN helper/template files to `/opt/openwebpbx/tools`. They do not install coturn or open a listener. On a new Debian13 server, the fresh installer additionally accepts `--stun --address <local-address>` as an explicit opt-in.

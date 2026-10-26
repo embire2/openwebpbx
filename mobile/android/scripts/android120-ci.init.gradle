@@ -1,0 +1,25 @@
+import groovy.json.JsonOutput
+import java.security.MessageDigest
+
+// Observation only. Do not change dependencies, variants, signing or task inputs.
+gradle.projectsEvaluated {
+    def app = gradle.rootProject.project(':app')
+    app.tasks.register('writeCiRuntimeArtifacts') {
+        doLast {
+            def results = [:]
+            ['directReleaseRuntimeClasspath', 'playReleaseRuntimeClasspath'].each { name ->
+                results[name] = app.configurations.getByName(name).resolvedConfiguration.resolvedArtifacts.collect { artifact ->
+                    def digest = MessageDigest.getInstance('SHA-256')
+                    artifact.file.withInputStream { stream ->
+                        byte[] buffer = new byte[65536]
+                        int count
+                        while ((count = stream.read(buffer)) >= 0) if (count > 0) digest.update(buffer, 0, count)
+                    }
+                    [coordinate: "${artifact.moduleVersion.id.group}:${artifact.name}:${artifact.moduleVersion.id.version}".toString(),
+                     filename: artifact.file.name, bytes: artifact.file.length(), sha256: digest.digest().encodeHex().toString()]
+                }.sort { a, b -> (a.coordinate + '/' + a.filename) <=> (b.coordinate + '/' + b.filename) }
+            }
+            app.layout.buildDirectory.file('runtime-artifacts.json').get().asFile.text = JsonOutput.prettyPrint(JsonOutput.toJson(results)) + '\n'
+        }
+    }
+}

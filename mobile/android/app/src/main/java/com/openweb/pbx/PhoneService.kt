@@ -116,6 +116,9 @@ class PhoneService: Service() {
         val server=factory.createAddress("sip:${sip.getString("server")}:${sip.optInt("port",5061)};transport=tls")!!
         params.serverAddress=server;params.setRoutesAddresses(arrayOf(server));params.isOutboundProxyEnabled=true
         params.isRegisterEnabled=true;params.expires=300;params.isUnregisterAtStopEnabled=true
+        // Set only this new account. Existing accounts and active calls are never
+        // reconfigured by refreshed metadata; syncProfiles already waits for idle.
+        PhoneNetworkPolicy.configure(c,params,data.optJSONObject("network"))
         val a=c.createAccount(params);registeredProfiles[id]=a;profileData[id]=data;profileStates[id]="Connecting…";c.addAccount(a)
     }
     private var wakeLock: PowerManager.WakeLock? = null
