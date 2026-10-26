@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-PINS = {'tests/windows_meeting_owned_process.py': '9c2de4d8b96f1769bf0cb5a9985409bb28587dce7f8add77556941bc4ea55448', 'tests/pbx_trunk_numbers.py': 'fb70bffb06a122352a5c5f9f31dd0b5c5b7826c34267d66fd5a206814a930d30', 'tests/pbx_trunk_numbers.php': 'f9d98c157f7712c570a41d0c5357e1b460cbac2771b03afa1ec631e56975fa1e', 'tests/windows_did_seal.ps1': '1d65d2a07655fcbbf6ce1d683e289becc0455b83aa55e028b62d22fef0674b12', 'tests/windows_did_seal.cs': '008dabbb9674bdd486a1d518cc4ca20505f2dfcd6aa502a753e5dfd0b4cd7e7e', 'tests/windows_did_diagnostic_public.pem': '1b26bb05b12379982b68d00e92178159049af959ba04cc483a06d1b0a49e7307'}
+PINS = {'tests/windows_meeting_owned_process.py': '9c2de4d8b96f1769bf0cb5a9985409bb28587dce7f8add77556941bc4ea55448', 'tests/pbx_trunk_numbers.py': '9eb5866ff548ad53e82a465cc2dc4f65ff19324789ed778aea17c2a375bb78c2', 'tests/pbx_trunk_numbers.php': 'f9d98c157f7712c570a41d0c5357e1b460cbac2771b03afa1ec631e56975fa1e', 'tests/windows_did_seal.ps1': '1d65d2a07655fcbbf6ce1d683e289becc0455b83aa55e028b62d22fef0674b12', 'tests/windows_did_seal.cs': '008dabbb9674bdd486a1d518cc4ca20505f2dfcd6aa502a753e5dfd0b4cd7e7e', 'tests/windows_did_diagnostic_public.pem': '1b26bb05b12379982b68d00e92178159049af959ba04cc483a06d1b0a49e7307'}
 JOB_KEYS = set('schema created_suspended assigned_before_resume resumed owned_job_terminated exit_code owned_processes_closed handles_closed ordinary_exit'.split())
 JOB_TRUE = 'created_suspended assigned_before_resume resumed owned_processes_closed handles_closed ordinary_exit'.split()
 

@@ -99,14 +99,33 @@ def main():
     def pg(name):
         return args.postgres_bin / (name + suffix)
     def run(command):
+        captured = os.name != 'nt'
         try:
-            subprocess.run([*launcher, *map(str, command)], check=True,
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
+            if os.name == 'nt':
+                # Wait for the original control process, not pipe EOF held by a
+                # background child. Both private files stay inside our fixture.
+                with tempfile.TemporaryFile(mode='w+b', dir=base) as output, tempfile.TemporaryFile(mode='w+b', dir=base) as errors:
+                    try:
+                        subprocess.run([*launcher, *map(str, command)], check=True,
+                                       stdout=output, stderr=errors, timeout=45)
+                    except subprocess.CalledProcessError as error:
+                        try:
+                            output.seek(0); errors.seek(0)
+                            out=output.read(1048577); err=errors.read(1048577)
+                            if len(out)+len(err)<=1048576:
+                                error.output=out; error.stderr=err; captured=True
+                        except BaseException:
+                            pass
+                        raise
+            else:
+                subprocess.run([*launcher, *map(str, command)], check=True,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
         except subprocess.CalledProcessError as error:
-            try:
-                seal_initdb_failure(error, command)
-            except BaseException:
-                pass
+            if captured:
+                try:
+                    seal_initdb_failure(error, command)
+                except BaseException:
+                    pass
             raise
     with socket.socket() as sock:
         sock.bind(('127.0.0.1', 0))
