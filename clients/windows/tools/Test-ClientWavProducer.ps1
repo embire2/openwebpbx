@@ -15,7 +15,7 @@ $prefix = $temp + '\'
 # Reused source-owned primitives are below, byte-pinned by the preparation receipt.
 . (Join-Path $PSScriptRoot 'WavProducerPrimitives.ps1')
 $script:WavToolchainHelperPath=Join-Path $PSScriptRoot 'WavToolchain.ps1'
-if((Hash $script:WavToolchainHelperPath)-cne '146e6fa8ee6e29f2a3572661fc90a46c733583f1527a4603a3198eed0da15315'){throw 'Exact fixture-only toolchain helper required.'}
+if((Hash $script:WavToolchainHelperPath)-cne 'ddbf22359965e0d4affa4e76b9d36f956fbbe672ce533ea8230a5184b47fbe08'){throw 'Exact fixture-only toolchain helper required.'}
 . $script:WavToolchainHelperPath
 $evidence = Join-Path $temp 'phone-wav-evidence'
 PrivateDirectory $evidence
@@ -199,7 +199,7 @@ try {
     SaveJson 'after-sdk-extract.json' (SystemSnapshot | ConvertFrom-Json)
     $build = Join-Path $work 'build'
     $result.stage = 'configure'
-    $r = RunContractChild configure $cmake @('-S',$source,'-B',$build,'-G','Ninja Multi-Config',('-DOPENWEB_PINNED_SDK='+$sdk),('-DCMAKE_C_COMPILER:FILEPATH='+$toolchain.tools.clang.path),('-DCMAKE_MAKE_PROGRAM:FILEPATH='+$toolchain.tools.ninja.path),'-DCMAKE_LINKER_TYPE:STRING=LLD',('-DCMAKE_LINKER_LLD:FILEPATH='+$toolchain.tools.lld.path),('-DCMAKE_LINKER:FILEPATH='+$toolchain.tools.lld.path)) $source 120 '' $toolchain.environment
+    $r = RunContractChild configure $cmake @('-S',$source,'-B',$build,'-G','Ninja Multi-Config',('-DOPENWEB_PINNED_SDK='+$sdk),('-DCMAKE_C_COMPILER:FILEPATH='+$toolchain.tools.clang.path),('-DCMAKE_MAKE_PROGRAM:FILEPATH='+$toolchain.tools.ninja.path),'-DCMAKE_LINKER_TYPE:STRING=LLD',('-DCMAKE_LINKER_LLD:FILEPATH='+$toolchain.tools.lld.path),('-DCMAKE_LINKER:FILEPATH='+$toolchain.tools.lld.path),('-DCMAKE_C_COMPILER_ID_FLAGS_ALWAYS:STRING='+(WavCompilerIdFlags $toolchain))) $source 120 '' $toolchain.environment
     if ($r.Exit -ne 0) { throw 'Native contract configuration refused.' }
     [void](AssertWavConfigured $build $toolchain)
     SaveJson 'compiler.json' ([ordered]@{path=$toolchain.tools.clang.path;sha256=$toolchain.tools.clang.sha256;version=$toolchain.tools.clang.version})
@@ -242,11 +242,12 @@ try {
     foreach ($row in $sdkRows) { $file = Join-Path $sdk $row.path; if ((Get-Item $file).Length -ne $row.bytes -or (Hash $file) -cne $row.sha256) { throw 'An original SDK file changed.' } }
     if ((Hash $archive) -cne $manifest.sdk_sha256) { throw 'The original SDK archive changed.' }
     AssertWavToolchainUnchanged $toolchain
-    if((Hash $script:WavToolchainHelperPath)-cne '146e6fa8ee6e29f2a3572661fc90a46c733583f1527a4603a3198eed0da15315'){throw 'Toolchain helper changed during fixture.'}
+    if((Hash $script:WavToolchainHelperPath)-cne 'ddbf22359965e0d4affa4e76b9d36f956fbbe672ce533ea8230a5184b47fbe08'){throw 'Toolchain helper changed during fixture.'}
     $result.sdk_files_unchanged = $true
     $result.stage = 'complete'
 } catch {
     $failure = $_; $result.error_type = $_.Exception.GetType().FullName
+    if($result.stage-ceq'configure'-and$script:childKnownStopped){try{[void](SaveWavConfigureFailureTrace $build $evidence)}catch{}}
 } finally {
     try {
         if ($zipLease) { $zipLease.Dispose(); $zipLease = $null }

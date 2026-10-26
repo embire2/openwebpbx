@@ -66,7 +66,7 @@ function ReadWavCacheValue([string]$Text,[string]$Name){
 function AssertWavConfigured([string]$Build,$Toolchain){
  $cache=ReadContractBounded (Join-Path $Build 'CMakeCache.txt') 1048576
  foreach($pair in @(@('CMAKE_C_COMPILER',$Toolchain.tools.clang.path),@('CMAKE_MAKE_PROGRAM',$Toolchain.tools.ninja.path),@('CMAKE_LINKER_LLD',$Toolchain.tools.lld.path),@('CMAKE_LINKER',$Toolchain.tools.lld.path))){if(!(WavSamePath (ReadWavCacheValue $cache $pair[0]) $pair[1])){throw 'CMake selected a different recorded tool.'}}
- foreach($pair in @(@('CMAKE_GENERATOR','Ninja Multi-Config'),@('CMAKE_LINKER_TYPE','LLD'))){if((ReadWavCacheValue $cache $pair[0])-cne $pair[1]){throw 'CMake ABI/generator/linker configuration differs.'}}
+ foreach($pair in @(@('CMAKE_GENERATOR','Ninja Multi-Config'),@('CMAKE_LINKER_TYPE','LLD'),@('CMAKE_C_COMPILER_ID_FLAGS_ALWAYS',(WavCompilerIdFlags $Toolchain)))){if((ReadWavCacheValue $cache $pair[0])-cne $pair[1]){throw 'CMake ABI/generator/linker configuration differs.'}}
  $compiler=ReadContractBounded (Join-Path $Build 'CMakeFiles\4.4.4\CMakeCCompiler.cmake') 262144
  foreach($pair in @(@('CMAKE_C_COMPILER_ID','Clang'),@('CMAKE_C_SIMULATE_ID','MSVC'),@('CMAKE_C_COMPILER_FRONTEND_VARIANT','MSVC'),@('CMAKE_C_SIZEOF_DATA_PTR','8'))){if(![regex]::IsMatch($compiler,'(?m)^set\('+[regex]::Escape($pair[0])+' "'+[regex]::Escape($pair[1])+'"\)\r?$')){throw 'Actual compiler ABI probe differs.'}}
  return $cache
@@ -95,4 +95,31 @@ function GetWavDependencies([string]$Build,[string]$Sdk,$SdkRows,$Toolchain){
  if(!@($resolved.Keys|Where-Object{$_-ceq'ucrtbase.dll'-or$_-cmatch'^api-ms-win-crt-'}).Count){throw 'Actual dynamic UCRT import evidence required.'}
  AssertWavToolchainUnchanged $Toolchain
  return [ordered]@{schema=1;target=$Toolchain.target;runtime='dynamic_ucrt_observed';outputs=$outputs;resolved_dependencies=@($resolved.Values);original_sdk_runtime_preserved=$true;new_llvm_runtime_dependency=$false;native_loader_and_factory_proof_required=$true}
+}
+
+function WavCompilerIdFlags($Toolchain){return '-v;-fuse-ld='+$Toolchain.tools.lld.path.Replace('\','/')}
+function SaveWavConfigureFailureTrace([string]$Build,[string]$Evidence){
+ $inputStream=$null;$outputStream=$null;$created=$false;$target=$null
+ try {
+  $root=Get-Item -LiteralPath $Build -Force;$dest=Get-Item -LiteralPath $Evidence -Force
+  foreach($directory in @($root,$dest)){
+   if(!$directory.PSIsContainer){throw 'Owned ordinary trace directories required.'}
+   $parent=$directory;$depth=0
+   while($null-ne$parent){if($depth++-gt32-or($parent.Attributes-band[IO.FileAttributes]::ReparsePoint)){throw 'Ordinary bounded trace ancestry required.'};$parent=$parent.Parent}
+  }
+  $source=Get-Item -LiteralPath (Join-Path $root.FullName 'CMakeFiles/CMakeConfigureLog.yaml') -Force
+  if($source.PSIsContainer-or($source.Attributes-band[IO.FileAttributes]::ReparsePoint)-or$source.Length-le0-or$source.Length-gt2097152){throw 'Bounded ordinary configure failure trace required.'}
+  $parent=$source.Directory;$depth=0
+  while($parent.FullName-ine$root.FullName){if($depth++-gt32-or($parent.Attributes-band[IO.FileAttributes]::ReparsePoint)-or$null-eq$parent.Parent){throw 'Trace must remain inside the owned build.'};$parent=$parent.Parent}
+  $inputStream=[IO.File]::Open($source.FullName,'Open','Read','Read');if($inputStream.Length-ne$source.Length){throw 'Trace changed before its read lease.'}
+  $buffer=[byte[]]::new(2097153);$offset=0
+  while($offset-lt$buffer.Length){$n=$inputStream.Read($buffer,$offset,$buffer.Length-$offset);if(!$n){break};$offset+=$n}
+  if($offset-ne$inputStream.Length-or$offset-le0-or$offset-gt2097152){throw 'Complete bounded trace required; no truncation.'}
+  $target=Join-Path $dest.FullName 'configure-failure-log.private.yaml';$outputStream=[IO.File]::Open($target,'CreateNew','Write','None');$created=$true;$outputStream.Write($buffer,0,$offset);$outputStream.Flush($true);$outputStream.Dispose();$outputStream=$null
+  return $true
+ }catch{
+  if($null-ne$outputStream){try{$outputStream.Dispose()}catch{};$outputStream=$null}
+  if($created-and$target){try{[IO.File]::Delete($target)}catch{}}
+  return $false
+ }finally{if($null-ne$inputStream){$inputStream.Dispose()}}
 }

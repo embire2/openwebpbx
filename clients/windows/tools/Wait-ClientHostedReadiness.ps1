@@ -50,7 +50,7 @@ try {
  while(!$state.ready-and$state.observations.Count-lt40){
   $due=[long]$state.observations.Count*15000;$now=$watch.ElapsedMilliseconds
   if($now-ge600000){$stage='deadline_not_ready';throw 'Readiness deadline reached.'}
-  if($now-lt$due){Start-Sleep -Milliseconds ([int]($due-$now))}
+  while($now-lt$due){Start-Sleep -Milliseconds ([int]($due-$now));$now=$watch.ElapsedMilliseconds}
   $stage='snapshot_refused';$started=$watch.ElapsedMilliseconds;if($started-ge600000){$stage='deadline_not_ready';throw 'Readiness deadline reached.'}
   $snapshot=SystemSnapshot
   if($snapshot-isnot[string]){throw 'Complete canonical snapshot string required.'}
