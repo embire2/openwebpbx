@@ -7,10 +7,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <bctoolbox/logging.h>
 #include <mediastreamer2/msfilter.h>
 #include <mediastreamer2/msfactory.h>
 #include <mediastreamer2/msqueue.h>
 #include "fixture_recorder.h"
+static void fixture_log_stderr(const char *domain,BctbxLogLevel level,const char *fmt,va_list args) {
+    int failed;
+    _lock_file(stderr);
+    failed=fprintf(stderr,"%s[%u]: ",domain?domain:"bctoolbox",(unsigned)level)<0;
+    if(vfprintf(stderr,fmt,args)<0)failed=1;
+    if(fputc('\n',stderr)==EOF)failed=1;
+    _unlock_file(stderr);
+    if(failed)exit(EXIT_FAILURE);
+}
 static unsigned checks;
 static void need(int ok) { if (!ok) { fprintf(stderr,"contract assertion %u failed\n",checks+1); exit(1); } checks++; }
 static uint16_t u16(const unsigned char *p) { return (uint16_t)(p[0]|((uint16_t)p[1]<<8)); }
@@ -66,6 +76,7 @@ int main(int argc,char **argv) {
     need(_strnicmp(root,temp,t)==0&&root[t]=='\\'&&strncmp(root+t+1,"phone-wav-contract-",19)==0&&strlen(root+t+20)==32);
     {size_t i;for(i=t+20;root[i];i++)need((root[i]>='0'&&root[i]<='9')||(root[i]>='a'&&root[i]<='f'));}
     need((GetFileAttributesA(root)&FILE_ATTRIBUTE_DIRECTORY)!=0&&(GetFileAttributesA(root)&FILE_ATTRIBUTE_REPARSE_POINT)==0&&GetFileAttributesA("C:\\OpenWebPBX")==INVALID_FILE_ATTRIBUTES&&GetFileAttributesA("C:\\ProgramData\\OpenWebPBX")==INVALID_FILE_ATTRIBUTES);
+    bctbx_set_log_handler(fixture_log_stderr);
     factory=ms_factory_new();need(factory!=NULL);if(!ms_factory_lookup_filter_by_id(factory,MS_FILE_REC_ID))ms_factory_init_voip(factory);
     before=ms_factory_lookup_filter_by_id(factory,MS_FILE_REC_ID);need(before&&strcmp(before->name,"MSFileRec")==0);
     need(openweb_fixture_wav_register(factory)==1&&openweb_fixture_wav_selected(factory)==1&&ms_factory_lookup_filter_by_id(factory,MS_FILE_REC_ID)!=before);
