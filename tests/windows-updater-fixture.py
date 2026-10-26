@@ -343,8 +343,18 @@ def main():
         Web(settings).install()
     elif args.action == 'setup':
         web = Web(settings)
-        # Explicitly keep automatic installation inactive; use genuine admin CSRF.
-        web.submit('/app/pbx_updates/index.php', 'save_instance', {'mode': 'notify', 'maintenance_hour': '2', 'maintenance_duration': '2'})
+        # Observe the fixed Windows update UI without queuing an update request.
+        status, _, text = web.request('/app/pbx_updates/index.php')
+        forms = Forms(text).forms
+        buttons = [{'name': 'action', 'value': action} for action in ('check', 'download', 'install')]
+        update_forms = [form for form in forms if form['method'] == 'post' and form['buttons'] == buttons]
+        if (status != 200 or 'setup-message error' in text or 'role="alert"' in text
+                or 'Windows checks for a signed release every five minutes' not in text
+                or 'Choose <strong>Update now</strong>' not in text
+                or any(form['fields'].get('action') == 'save_instance' for form in forms)
+                or len(update_forms) != 1 or len(update_forms[0]['fields']) != 1
+                or not next(iter(update_forms[0]['fields'].values()))):
+            raise RuntimeError('The current ordinary Windows Updates UI/CSRF form is unavailable.')
         values = {'company_name': settings['company_name'], 'service_name': settings['service_name'], 'timezone': 'UTC',
                   'tenant_uuid': '', 'trunk[host]': '', 'trunk[name]': 'No provider', 'trunk[authentication]': 'ip',
                   'outbound[prefix]': '', 'outbound[strip]': '0', 'outbound[prepend]': '', 'inbound_number': '', 'inbound_destination': ''}
