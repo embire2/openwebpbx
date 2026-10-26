@@ -337,7 +337,7 @@ Import-Module WebAdministration
 $lock = $null; $stopped = $false; $backupReady = $false; $backup = ''; $success = $false
 $priorPgPassword = $env:PGPASSWORD
 try {
- try{$lock = Open-OpenWebUpgradeMaintenance -Path "$private\upgrade.lock"}catch [IO.IOException]{$script:deferred=$true;throw 'Another PBX update is running.'}
+ try{$lock = Open-OpenWebUpgradeMaintenance -Path "$private\upgrade.lock"}catch{if($_.Exception.GetBaseException() -isnot [IO.IOException]){throw};$script:deferred=$true;throw 'Another PBX update is running.'}
  if((Get-Content "$private\installation.json" -Raw) -cne $installationText){$script:deferred=$true;throw 'The installed PBX changed while waiting for maintenance. Retry the update.'}
  New-Item -ItemType Directory -Force $updates|Out-Null
  $env:PGPASSWORD = $state.PostgresPassword

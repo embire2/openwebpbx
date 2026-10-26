@@ -105,9 +105,34 @@ public sealed class OpenWebOwnedMaintenanceReader : IDisposable {
  $reader=[OpenWebOwnedMaintenanceReader]::new($ownedLock)
  try{
   $clock=[Diagnostics.Stopwatch]::StartNew();$failure=$null
-  try{$unexpected=Open-OpenWebUpgradeMaintenance -Path $ownedLock -WaitMilliseconds 100;$unexpected.Dispose()}catch [IO.IOException]{$failure=$_}
-  Assert ($failure -and $failure.Exception.GetBaseException().HResult -eq -2147024864 -and $clock.ElapsedMilliseconds -ge 100 -and $clock.ElapsedMilliseconds -lt 5000)
+  try{$unexpected=Open-OpenWebUpgradeMaintenance -Path $ownedLock -WaitMilliseconds 100;$unexpected.Dispose()}catch{$failure=$_}
+  Assert ($failure -and $failure.Exception.GetBaseException() -is [IO.IOException] -and $failure.Exception.GetBaseException().HResult -eq -2147024864 -and $clock.ElapsedMilliseconds -ge 100 -and $clock.ElapsedMilliseconds -lt 5000)
  }finally{$reader.Dispose()}
+ # Exercise the exact product catch with the actual stored timeout record.
+ # Only this owned-name helper adapter replays it; no second native wait occurs.
+ $ownedTimeoutFailure=$failure;$maintenanceOriginal=${function:Open-OpenWebUpgradeMaintenance}
+ $callerNodes=@($upgradeAst.FindAll({param($n)$n -is [Management.Automation.Language.TryStatementAst] -and $n.Extent.Text.StartsWith('try{$lock = Open-OpenWebUpgradeMaintenance')},$true));Assert ($callerNodes.Count -eq 1)
+ $callerBody=[scriptblock]::Create($callerNodes[0].Extent.Text)
+ $exitNodes=@($upgradeAst.FindAll({param($n)$n -is [Management.Automation.Language.IfStatementAst] -and $n.Extent.Text.StartsWith('if($Archive -or $Recover){') -and $n.Extent.Text.Contains('$exitCode=if($script:deferred)')},$true));Assert ($exitNodes.Count -eq 1)
+ $exitBody=[scriptblock]::Create($exitNodes[0].Extent.Text)
+ try{
+  Set-Item Function:\Open-OpenWebUpgradeMaintenance -Value {param([string]$Path) throw $script:ownedCallerFailure}
+  $private=$handover;$priorPassword=$env:PGPASSWORD
+  foreach($case in @(@{failure=$ownedTimeoutFailure;io=$true},@{failure=[IO.IOException]::new('OWNED_LOCK_MODEL',-2147024863);io=$true},@{failure=[IO.IOException]::new('OWNED_OTHER_IO_MODEL',-2147024894);io=$true},@{failure=[UnauthorizedAccessException]::new('OWNED_ACCESS_MODEL');io=$false},@{failure=[InvalidOperationException]::new('OWNED_NON_IO_MODEL');io=$false})){
+   $script:ownedCallerFailure=$case.failure;$script:deferred=$false;$lock=$null;$caught=$null
+   try{. $callerBody}catch{$caught=$_}
+   Assert ($caught -and !$lock -and $env:PGPASSWORD -ceq $priorPassword -and !(Test-Path (Join-Path $handover 'updates')))
+   if($case.io){
+    Assert ($script:deferred -and $caught.Exception.Message -ceq 'Another PBX update is running.')
+    $failure=$caught;$Archive=$true;$Recover=$false;. $exitBody 3>$null;Assert ($exitCode -eq 75)
+    $Archive=$null;$Recover=$true;. $exitBody 3>$null;Assert ($exitCode -eq 75)
+    $Archive=$null;$Recover=$false;$direct=$null;try{. $exitBody 3>$null}catch{$direct=$_}
+    Assert ($direct -and [object]::ReferenceEquals($direct.Exception,$failure.Exception))
+   }else{
+    Assert (!$script:deferred -and [object]::ReferenceEquals($caught.Exception.GetBaseException(),$case.failure.GetBaseException()))
+   }
+  }
+ }finally{Set-Item Function:\Open-OpenWebUpgradeMaintenance -Value $maintenanceOriginal;Remove-Variable ownedCallerFailure -Scope Script -ErrorAction SilentlyContinue}
  # The earlier shared reader models a previous operation changing the exact
  # installation text before releasing its handle; JSON-equivalent is changed.
  $private=$handover;$installationText=Get-Content $installation -Raw;$priorPassword=$env:PGPASSWORD
