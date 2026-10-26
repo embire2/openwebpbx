@@ -53,6 +53,32 @@ def prepare_windows_fixture_base(base):
                    check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=20)
 
 
+PHASES = {'before_acl','after_acl','before_initdb','after_initdb','before_pg_start','after_pg_start','before_php66','after_php66','before_pg_stop','after_pg_stop','before_cleanup','after_cleanup'}
+
+def observe_phase(phase):
+    # Fixed source/run/phase only. Observation failure never changes execution.
+    try:
+        source=os.environ.get('GITHUB_SHA','');run=os.environ.get('GITHUB_RUN_ID','')
+        if phase not in PHASES or not re.fullmatch('[a-f0-9]{40}',source) or not re.fullmatch('[1-9][0-9]{0,19}',run):
+            return
+        evidence=Path(os.environ['RUNNER_TEMP'])/'did-native-component-evidence'
+        if not evidence.is_absolute() or not evidence.is_dir() or evidence.is_symlink() or getattr(evidence.lstat(),'st_file_attributes',0)&0x400:
+            return
+        target=evidence/'native-phase.safe.json';temporary=evidence/'native-phase.pending'
+        raw=(json.dumps({'schema':1,'source_commit':source,'run_id':run,'phase':phase},separators=(',',':'))+'\n').encode()
+        if len(raw)>512:
+            return
+        descriptor=os.open(temporary,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+        try:
+            with os.fdopen(descriptor,'wb')as stream:
+                stream.write(raw);stream.flush();os.fsync(stream.fileno())
+            os.replace(temporary,target)
+        finally:
+            if temporary.exists():temporary.unlink()
+    except BaseException:
+        pass
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--postgres-bin', type=Path,
@@ -89,19 +115,31 @@ def main():
     env['OPENWEB_TEST_DSN'] = f'pgsql:host=127.0.0.1;port={port};dbname=postgres'
     started = False
     try:
+        observe_phase('before_acl')
         prepare_windows_fixture_base(base)
+        observe_phase('after_acl')
+        observe_phase('before_initdb')
         run([pg('initdb'), '-D', base / 'data', '--auth=trust', '--username=postgres',
              '--no-locale', '--encoding=UTF8'])
+        observe_phase('after_initdb')
         # The private cluster listens only on loopback; no SIP engine exists.
+        observe_phase('before_pg_start')
         run([pg('pg_ctl'), '-D', base / 'data', '-l', base / 'postgres.private.log',
              '-o', f'-h 127.0.0.1 -p {port} -c fsync=off', '-w', 'start'])
+        observe_phase('after_pg_start')
         started = True
+        observe_phase('before_php66')
         subprocess.run([args.php, str(root / 'tests/pbx_trunk_numbers.php')],
                        env=env, check=True, timeout=90)
+        observe_phase('after_php66')
     finally:
         if started:
+            observe_phase('before_pg_stop')
             run([pg('pg_ctl'), '-D', base / 'data', '-m', 'immediate', '-w', 'stop'])
+            observe_phase('after_pg_stop')
+        observe_phase('before_cleanup')
         shutil.rmtree(base)
+        observe_phase('after_cleanup')
 
 
 if __name__ == '__main__':
