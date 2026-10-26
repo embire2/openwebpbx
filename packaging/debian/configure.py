@@ -36,7 +36,7 @@ existing=subprocess.check_output(admin_sql+['-Atc',"select exists(select 1 from 
 if existing!='f':raise RuntimeError('An existing PBX database or account is present. This fresh installer will not overwrite it.')
 for d in [private,cfg,P('/etc/openwebpbx')]:d.mkdir(parents=True,exist_ok=True);d.chmod(0o750);os.chown(d,0,33)
 write(private/'setup-secrets.json',json.dumps({'AdminEmail':a.email,'AdminPassword':password}),0o600,0,0);del password
-run(['tar','-xzf','engine.tar.gz','-C','/']);run(['ldconfig'])
+run(['tar','-xzf','engine.tar.gz','-C','/'],umask=0o022);run(['ldconfig'])
 service_root=P('/opt/openwebpbx');service_root.mkdir(parents=True,exist_ok=True);service_root.chmod(0o755)
 shutil.copytree('web',root,dirs_exist_ok=True)
 root.chmod(0o755)
