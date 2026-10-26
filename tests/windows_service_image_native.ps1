@@ -30,7 +30,9 @@ function Set-FailedScmObservation($Record) {
    $handleState=[ordered]@{present=[bool]($null-ne $pin);is_safe_handle=[bool]($pin-is[Runtime.InteropServices.SafeHandle]);truthy=[bool]$pin;invalid=$null;closed=$null;type_category='null'}
    if($null-ne $pin){$handleState.type_category=$(if($pin-is[Runtime.InteropServices.SafeHandle]){'safe_handle'}elseif($pin-is[Array]){'array'}else{'other'});$invalid=$pin.IsInvalid;$closed=$pin.IsClosed;if($invalid-is[bool]){$handleState.invalid=$invalid};if($closed-is[bool]){$handleState.closed=$closed}}
   }catch{$handleState=$null}
-  $report.failure_observation=[ordered]@{schema=1;operation=$failureOperation;source_name=$origin;source_line=$line;hresult=[int]$Record.Exception.HResult;owned_sample=$ownedRowObservation;handle_state=$handleState}
+  $chain=@();$inner=$Record.Exception
+  while($null-ne $inner-and $chain.Count-lt 4){$win32=$inner-is[ComponentModel.Win32Exception];$nativeCode=$null;if($win32){$nativeCode=[int]$inner.NativeErrorCode};$chain+=,[ordered]@{type=$inner.GetType().Name;hresult=[int]$inner.HResult;win32=[bool]$win32;native_error_code=$nativeCode};$inner=$inner.InnerException}
+  $report.failure_observation=[ordered]@{schema=1;operation=$failureOperation;source_name=$origin;source_line=$line;hresult=[int]$Record.Exception.HResult;owned_sample=$ownedRowObservation;handle_state=$handleState;exception_chain=@($chain);exception_chain_truncated=[bool]($null-ne $inner)}
  }catch{}
 }
 function OwnRow {
@@ -56,7 +58,7 @@ try{
  $failureOperation='controller_type'
  if($controller-isnot [ServiceProcess.ServiceController]){throw 'Actual owned service controller required.'}
  $failureOperation='service_handle'
- $pin=$controller.ServiceHandle
+ $pin=$controller.get_ServiceHandle()
  $failureOperation='service_handle_validation'
  if(!$pin-or $pin.IsInvalid-or $pin.IsClosed){throw 'Original owned service handle unavailable.'}
  $failureOperation='own_row'

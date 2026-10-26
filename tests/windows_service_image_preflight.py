@@ -20,10 +20,16 @@ def check_native_shape(row):
  need(type(row['error_type'])is str and re.fullmatch('[A-Za-z][A-Za-z0-9_]{0,79}',row['error_type'])and all(type(row[x])is bool for x in FLAGS)and row['installed_PBX_or_historical_path_qualified']is False)
  for key in ['new_service_relation','sc_config_relation','explicit_unquoted_relation']:need(row[key]in ('quoted_expected','unquoted_expected','canonical_slash_expected','wrong_known_slot','other','unavailable'))
  if 'failure_observation'in row:
-  v=row['failure_observation'];need(type(v)is dict and set(v)==set('schema operation source_name source_line hresult owned_sample handle_state'.split()))
+  v=row['failure_observation'];need(type(v)is dict and set(v)==set('schema operation source_name source_line hresult owned_sample handle_state exception_chain exception_chain_truncated'.split()))
   need(type(v['schema'])is int and v['schema']==1 and v['operation']in ('absence','copy','new_service','controller_type','service_handle','service_handle_validation','own_row','sc_config','own_row_cleanup','cleanup'))
   need(type(v['source_line'])is int and ((v['source_name']=='unavailable'and v['source_line']==0)or(v['source_name']=='windows_service_image_native.ps1'and 1<=v['source_line']<=10000)))
   need(type(v['hresult'])is int and -2147483648<=v['hresult']<=2147483647)
+  chain=v['exception_chain'];need(type(chain)is list and 1<=len(chain)<=4 and type(v['exception_chain_truncated'])is bool)
+  for item in chain:
+   need(type(item)is dict and set(item)==set('type hresult win32 native_error_code'.split()))
+   need(type(item['type'])is str and re.fullmatch('[A-Za-z][A-Za-z0-9_]{0,79}',item['type'])and type(item['hresult'])is int and -2147483648<=item['hresult']<=2147483647 and type(item['win32'])is bool)
+   need((type(item['native_error_code'])is int and -2147483648<=item['native_error_code']<=2147483647)if item['win32']else item['native_error_code']is None)
+  need(chain[0]['type']==row['error_type']and chain[0]['hresult']==v['hresult']and (not v['exception_chain_truncated']or len(chain)==4))
   h=v['handle_state']
   if h is not None:
    need(type(h)is dict and set(h)==set('present is_safe_handle truthy invalid closed type_category'.split()))
