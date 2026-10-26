@@ -1464,12 +1464,27 @@ def smtp_and_queued_voicemail(f):
             f.record('native_queued_voicemail_global_smtp_ip_auth_actual_loopback_attachment',messages=len(messages),attachment_sha256=hashlib.sha256(attachments[0]).hexdigest(),no_external_mail=True)
             deletion=load_module('windows_voicemail_delete_native',f.source/'tests/windows_voicemail_delete_native.py').run(f,sys.modules[__name__],module,values)
             f.record('native_voicemail_attach_delete_smtp250_durable_purge',**deletion)
-            f.active_case='global_smtp_password_auth'
-            f.cli('mail-seed');values.update(smtp_ip_whitelisted='0',smtp_username='fixture-user',smtp_password='fixture-password')
-            f.web.submit('/app/smtp_settings/','save',values)
-            old=len(sink.deliveries);subprocess.run([WINPS,'-NoProfile','-NonInteractive','-File','C:/OpenWebPBX/tools/Install-MailQueue.ps1','-Tick'],capture_output=True,check=True,timeout=110)
-            f.wait(lambda:len(sink.deliveries)>old,15);assert sink.deliveries[-1][0],'Global SMTP password AUTH failed'
-            f.record('native_global_smtp_password_auth_actual_loopback')
+            f.active_case='global_smtp_password_auth';f.smtp_failure={};seed=None
+            try:
+                f.smtp_failure['smtp_stage']='seed'
+                seeded=f.cli('mail-seed');seed=seeded.get('id') if type(seeded) is dict else None
+                values.update(smtp_ip_whitelisted='0',smtp_username='fixture-user',smtp_password='fixture-password')
+                f.smtp_failure['smtp_stage']='save';f.web.submit('/app/smtp_settings/','save',values)
+                old=len(sink.deliveries);f.smtp_failure['smtp_stage']='dispatch'
+                try:result=subprocess.run([WINPS,'-NoProfile','-NonInteractive','-File','C:/OpenWebPBX/tools/Install-MailQueue.ps1','-Tick'],capture_output=True,check=True,timeout=110)
+                except subprocess.TimeoutExpired:
+                    f.smtp_failure['smtp_tick_outcome']='command_timeout';raise
+                except subprocess.CalledProcessError as tick_error:
+                    try:f.smtp_failure.update(smtp_tick_fields(tick_error))
+                    except BaseException:pass
+                    raise
+                try:f.smtp_failure.update(smtp_tick_fields(result))
+                except BaseException:pass
+                f.smtp_failure['smtp_stage']='delivery'
+                f.wait(lambda:len(sink.deliveries)>old,15);assert sink.deliveries[-1][0],'Global SMTP password AUTH failed'
+                f.record('native_global_smtp_password_auth_actual_loopback')
+            except BaseException as error:
+                smtp_capture_failure(error,f,sink,seed);raise
         finally:sink.shutdown();worker.join(3)
     context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.load_cert_chain(f.evidence/'fixture-leaf.pem',f.evidence/'fixture-key.pem')
     with NativeSMTPTLSSink(('127.0.0.1',0),module.SMTPFixture) as sink:

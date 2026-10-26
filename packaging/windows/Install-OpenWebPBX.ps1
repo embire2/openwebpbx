@@ -20,6 +20,11 @@ $os=Get-CimInstance Win32_OperatingSystem
 if($os.ProductType -eq 1 -or $os.Caption -notmatch 'Windows Server 2025' -or [Environment]::OSVersion.Version.Build -lt 26100){throw 'This server release requires Windows Server2025 x64.'}
 if((Test-Path 'C:\Program Files\FreeSWITCH\FreeSwitch.dll') -and !(Test-Path "$private\installation.json")){throw 'An existing call engine is present outside this installation. Preserve it and choose an empty Windows server.'}
 if ($DomainName -notmatch '^[a-zA-Z0-9.-]+$' -or $HttpsPort -lt 1 -or $HttpsPort -gt 65535) { throw 'Enter a valid server name and HTTPS port.' }
+if($EnablePublicAccess -and $DomainName.EndsWith('.openwebpbx.com',[StringComparison]::OrdinalIgnoreCase)){
+ if($PSBoundParameters.ContainsKey('HttpsPort')){
+  if($HttpsPort -ne 443){throw 'Public setup for a managed tenant address requires HTTPS port 443.'}
+ }else{$HttpsPort=443}
+}
 if (!$CertificateThumbprint -and !$LocalCertificate -and !$EnablePublicAccess) { throw 'Supply -CertificateThumbprint for a trusted certificate, or -LocalCertificate for a local test installation.' }
 if ($CertificateThumbprint) {
  $selectedCertificate=Get-Item -LiteralPath "Cert:\LocalMachine\My\$CertificateThumbprint"
@@ -270,6 +275,10 @@ WriteUtf8 "$switch\conf\autoload_configs\event_socket.conf.xml" ('<configuration
 
 & "$PSScriptRoot\Install-NativeEngine.ps1" -PackageRoot $PSScriptRoot
 & "$PSScriptRoot\Install-LocalCodec.ps1" -PackageRoot $PSScriptRoot
+ConfigurePhpPool 'OpenWebPBX'
+$fastcgi="$root\php\php-cgi.exe"
+if(!(Get-WebConfiguration 'system.webServer/fastCgi/application' | Where-Object fullPath -eq $fastcgi)){Add-WebConfiguration 'system.webServer/fastCgi' -Value @{fullPath=$fastcgi;instanceMaxRequests=10000;maxInstances=4;activityTimeout=900;requestTimeout=900}}
+& "$PSScriptRoot\Configure-PHP.ps1" -PackageRoot $PSScriptRoot
 $env:OPENWEB_SETUP_SECRETS="$private\setup-secrets.json"
 $env:OPENWEB_RESTORE_SERVER=if($RestoreServer){'true'}else{'false'}
 Push-Location "$root\web"
@@ -286,10 +295,6 @@ Push-Location "$root\web"
 try {Run "$root\php\php.exe" @("$PSScriptRoot\bootstrap.php","$root\web",'xml')}finally{Pop-Location}
 $runtime=@{ConnectionStrings=@{Pbx="Host=127.0.0.1;Port=5433;Database=fusionpbx;Username=fusionpbx;Password=$($state.DatabasePassword)"};Switch=@{Host='127.0.0.1';Port=8021;Password=$state.SwitchPassword}}
 WriteUtf8 "$private\runtime.json" ($runtime|ConvertTo-Json -Depth 4)
-ConfigurePhpPool 'OpenWebPBX'
-$fastcgi="$root\php\php-cgi.exe"
-if(!(Get-WebConfiguration 'system.webServer/fastCgi/application' | Where-Object fullPath -eq $fastcgi)){Add-WebConfiguration 'system.webServer/fastCgi' -Value @{fullPath=$fastcgi;instanceMaxRequests=10000;maxInstances=4;activityTimeout=900;requestTimeout=900}}
-& "$PSScriptRoot\Configure-PHP.ps1" -PackageRoot $PSScriptRoot
 if(!(Test-Path IIS:\Sites\OpenWebPBX)){New-Website -Name OpenWebPBX -PhysicalPath "$root\web" -ApplicationPool OpenWebPBX -Port $HttpsPort -HostHeader $DomainName -Ssl | Out-Null}
 Add-Type -Path "$env:windir\System32\inetsrv\Microsoft.Web.Administration.dll"
 $manager=New-Object Microsoft.Web.Administration.ServerManager
