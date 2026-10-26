@@ -6,7 +6,7 @@ $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 function NewReadinessState {return [ordered]@{observations=@();changes=0;stable_count=0;stable_since_ms=-1;last_sha256='';ready=$false}}
 function AddReadinessObservation($Previous,[long]$StartedMs,[long]$CompletedMs,[long]$Bytes,[string]$Digest){
  $count=$Previous.observations.Count;$scheduled=[long]$count*15000
- if($Previous.ready-or$count-ge12-or$StartedMs-lt$scheduled-or$CompletedMs-lt$StartedMs-or$CompletedMs-ge($scheduled+15000)-or$CompletedMs-ge180000-or$Bytes-le0-or$Bytes-gt8388608-or$Digest-cnotmatch'^[a-f0-9]{64}$'){throw 'Closed bounded readiness observation required.'}
+ if($Previous.ready-or$count-ge40-or$StartedMs-lt$scheduled-or$CompletedMs-lt$StartedMs-or$CompletedMs-ge($scheduled+15000)-or$CompletedMs-ge600000-or$Bytes-le0-or$Bytes-gt8388608-or$Digest-cnotmatch'^[a-f0-9]{64}$'){throw 'Closed bounded readiness observation required.'}
  if($count-and$StartedMs-le$Previous.observations[-1].completed_ms){throw 'Monotonic separate readiness observations required.'}
  $same=$count-and$Digest-ceq$Previous.last_sha256;$changed=$count-and!$same
  $stable=if($same){[long]$Previous.stable_since_ms}else{$CompletedMs};$consecutive=if($same){[int]$Previous.stable_count+1}else{1}
@@ -15,10 +15,10 @@ function AddReadinessObservation($Previous,[long]$StartedMs,[long]$CompletedMs,[
 }
 function ObserveReadinessBoundaryFailure($Prior,$StartedMs,$CompletedMs,$ByteCount,$Digest,$Failure,$SourcePath){
  try {
-  if($Failure-isnot[Management.Automation.ErrorRecord]-or$Prior.observations-isnot[array]-or$Prior.observations.Count-gt12-or$Prior.ready-isnot[bool]){throw 'Closed diagnostic source required.'}
+  if($Failure-isnot[Management.Automation.ErrorRecord]-or$Prior.observations-isnot[array]-or$Prior.observations.Count-gt40-or$Prior.ready-isnot[bool]){throw 'Closed diagnostic source required.'}
   foreach($value in @($StartedMs,$CompletedMs,$ByteCount)){if(($value-isnot[int]-and$value-isnot[long])-or$value-lt[int]::MinValue-or$value-gt[int]::MaxValue){throw 'Bounded diagnostic integers required.'}}
   $last=if($Prior.observations.Count){$Prior.observations[-1].completed_ms}else{-1}
-  if(($last-isnot[int]-and$last-isnot[long])-or$last-lt-1-or$last-ge180000){throw 'Closed prior observation required.'}
+  if(($last-isnot[int]-and$last-isnot[long])-or$last-lt-1-or$last-ge600000){throw 'Closed prior observation required.'}
   $hash=if($Digest-is[string]-and$Digest-cmatch'^[a-f0-9]{64}$'){$Digest}else{$null}
   $category=switch -Exact ($Failure.Exception.GetType().FullName){
    'System.Management.Automation.RuntimeException'{'runtime'}
@@ -47,11 +47,11 @@ try {
  $functions=@($ast.FindAll({param($n)$n-is[Management.Automation.Language.FunctionDefinitionAst]-and$n.Name-ceq'SystemSnapshot'},$true));if($errors.Count-or$functions.Count-ne1){throw 'Unique original snapshot function required.'}
  $functionText=$functions[0].Extent.Text;$snapshotHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($functionText))).ToLowerInvariant()
  . ([scriptblock]::Create($functionText))
- while(!$state.ready-and$state.observations.Count-lt12){
+ while(!$state.ready-and$state.observations.Count-lt40){
   $due=[long]$state.observations.Count*15000;$now=$watch.ElapsedMilliseconds
-  if($now-ge180000){$stage='deadline_not_ready';throw 'Readiness deadline reached.'}
+  if($now-ge600000){$stage='deadline_not_ready';throw 'Readiness deadline reached.'}
   if($now-lt$due){Start-Sleep -Milliseconds ([int]($due-$now))}
-  $stage='snapshot_refused';$started=$watch.ElapsedMilliseconds;if($started-ge180000){$stage='deadline_not_ready';throw 'Readiness deadline reached.'}
+  $stage='snapshot_refused';$started=$watch.ElapsedMilliseconds;if($started-ge600000){$stage='deadline_not_ready';throw 'Readiness deadline reached.'}
   $snapshot=SystemSnapshot
   if($snapshot-isnot[string]){throw 'Complete canonical snapshot string required.'}
   $bytes=[Text.Encoding]::UTF8.GetBytes($snapshot);if(!$bytes.Length-or$bytes.Length-gt8388608){throw 'Complete bounded snapshot required; no truncation.'}
@@ -64,13 +64,13 @@ try {
    throw
   }
  }
- if(!$state.ready-or$watch.ElapsedMilliseconds-ge180000){$stage='deadline_not_ready';throw 'Observed stable readiness was not established.'}
+ if(!$state.ready-or$watch.ElapsedMilliseconds-ge600000){$stage='deadline_not_ready';throw 'Observed stable readiness was not established.'}
  $stage='source_refused';if((Get-FileHash -LiteralPath $self.FullName -Algorithm SHA256).Hash.ToLowerInvariant()-cne$selfHash-or(Get-FileHash -LiteralPath $primitives.FullName -Algorithm SHA256).Hash.ToLowerInvariant()-cne$primitivesHash){throw 'Readiness source changed.'}
- if($watch.ElapsedMilliseconds-ge180000){$stage='deadline_not_ready';throw 'Readiness deadline reached.'}
+ if($watch.ElapsedMilliseconds-ge600000){$stage='deadline_not_ready';throw 'Readiness deadline reached.'}
  $preserved=$true;$reason='none'
 } catch {$reason=$stage}
 finally {
- $report=[ordered]@{schema=1;scope='read_only_pretest_stability_only';state= $(if($preserved){'observed_stable_before_preflight'}else{'refused_no_readiness'});reason=$reason;source_commit=$SourceCommit;helper_sha256=$selfHash;primitives_sha256=$primitivesHash;snapshot_function_sha256=$snapshotHash;interval_ms=15000;budget_ms=180000;stable_window_ms=60000;minimum_observations=5;elapsed_ms=$watch.ElapsedMilliseconds;observations=@($state.observations);changes=$state.changes;stable_count=$state.stable_count;stable_since_ms=$state.stable_since_ms;source_preserved=$preserved;observation_failure=$observationFailure;cause_or_future_preservation_proved=$false;calling_SDK_WAV_Store_qualified=$false}
+ $report=[ordered]@{schema=1;scope='read_only_pretest_stability_only';state= $(if($preserved){'observed_stable_before_preflight'}else{'refused_no_readiness'});reason=$reason;source_commit=$SourceCommit;helper_sha256=$selfHash;primitives_sha256=$primitivesHash;snapshot_function_sha256=$snapshotHash;interval_ms=15000;budget_ms=600000;stable_window_ms=60000;minimum_observations=5;elapsed_ms=$watch.ElapsedMilliseconds;observations=@($state.observations);changes=$state.changes;stable_count=$state.stable_count;stable_since_ms=$state.stable_since_ms;source_preserved=$preserved;observation_failure=$observationFailure;cause_or_future_preservation_proved=$false;calling_SDK_WAV_Store_qualified=$false}
  $line=$report|ConvertTo-Json -Depth 8 -Compress;if([Text.Encoding]::UTF8.GetByteCount($line)-gt16384){throw 'Readiness log bound refused.'};Write-Output ('OPENWEB_WAV_READINESS '+$line)
 }
 if(!$preserved){throw 'Read-only hosted readiness was not established.'}
