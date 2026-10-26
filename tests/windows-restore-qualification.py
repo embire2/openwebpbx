@@ -802,7 +802,17 @@ class Qualification:
 
     def setup(self):
         web = self.web()
-        self.submit(web, '/app/pbx_updates/index.php', 'save_instance', {'mode': 'notify', 'maintenance_hour': '2', 'maintenance_duration': '2'})
+        status, _, text = web.request('/app/pbx_updates/index.php')
+        forms = self.helper.Forms(text).forms
+        buttons = [{'name': 'action', 'value': action} for action in ('check', 'download', 'install')]
+        update_forms = [form for form in forms if form['method'] == 'post' and form['buttons'] == buttons]
+        if (status != 200 or 'setup-message error' in text or 'role="alert"' in text
+                or 'Windows checks for a signed release every five minutes' not in text
+                or 'Choose <strong>Update now</strong>' not in text
+                or any(form['fields'].get('action') == 'save_instance' for form in forms)
+                or len(update_forms) != 1 or len(update_forms[0]['fields']) != 1
+                or not next(iter(update_forms[0]['fields'].values()))):
+            raise RuntimeError('The current ordinary Windows Updates UI/CSRF form is unavailable.')
         self.submit(web, '/app/pbx_mobile/push.php', None, {'enabled': '1', 'provider': 'webpush', 'delivery': 'direct', 'relay_url': '', 'relay_token': ''})
         if self.s['role'] == 'source':
             values = {'company_name': 'Fictional restore ' + self.s['scope'], 'service_name': self.s['service_name'], 'timezone': 'UTC',
