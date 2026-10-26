@@ -48,17 +48,20 @@ jobs:
           check-latest: false
           update-environment: false
       - name: Observe read-only hosted readiness
+        id: readiness
         timeout-minutes: 12
         run: |
           & ./clients/windows/tools/Wait-ClientHostedReadiness.ps1 -SourceCommit $env:PHONE_SOURCE_REF
       - name: Prove failure-only observation on owned native controls
         id: observer_preflight
+        if: ${{ !cancelled() && steps.python.outcome == 'success' && (steps.readiness.outcome == 'success' || steps.readiness.outcome == 'failure') }}
         timeout-minutes: 2
         env:
           OPENWEB_WAV_PYTHON: ${{ steps.python.outputs.python-path }}
         run: |
           & ./clients/windows/tools/Invoke-JobFailureObservationPreflight.ps1 -PythonExecutable $env:OPENWEB_WAV_PYTHON
       - name: Build and test the distinct fixture WAV producer
+        if: ${{ !cancelled() && steps.python.outcome == 'success' && (steps.observer_preflight.outcome == 'success' || steps.observer_preflight.outcome == 'failure') }}
         env:
           OPENWEB_WAV_PYTHON: ${{ steps.python.outputs.python-path }}
         run: |
