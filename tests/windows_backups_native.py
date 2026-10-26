@@ -44,6 +44,7 @@ LAST_LOCAL_QUERY_OBSERVATION=None
 LAST_RECOVERY_OBSERVATION=None
 LAST_TLS_PREPARATION=None
 LAST_LOCK_OBSERVATION=None
+LAST_LOCAL_SERVICE_OBSERVATION=None
 
 
 def failed_command_fields(settings,identifier,command):
@@ -97,6 +98,8 @@ def backup_exception_fields(error,phase,checks):
         try:fields['recovery_observation']=LAST_RECOVERY_OBSERVATION.safe_report()
         except BaseException:pass
     if LAST_TLS_PREPARATION is not None:fields['tls_preparation']=LAST_TLS_PREPARATION
+    if globals().get('LAST_LOCAL_SERVICE_OBSERVATION') is not None:
+        fields['local_service_observation']=dict(LAST_LOCAL_SERVICE_OBSERVATION)
     if globals().get('LAST_LOCK_OBSERVATION') is not None:fields['lock_observation']=LAST_LOCK_OBSERVATION
     return fields
 
@@ -210,6 +213,10 @@ def fingerprint(settings,domain,key):
 
 
 def local_service_check(private,archive):
+    global LAST_LOCAL_SERVICE_OBSERVATION
+    observation={'schema':1,'phase':'setup','creation_receipt':False,'fresh_completion':False,
+                 'cleanup':'not_attempted','read_error':'none','primary_preserved':False}
+    LAST_LOCAL_SERVICE_OBSERVATION=observation
     folder=private/'localservice';folder.mkdir(exist_ok=True)
     # This owned result directory is writable by the test identity; the actual
     # notification store and script retain their independent read-only ACLs.
@@ -222,16 +229,61 @@ def local_service_check(private,archive):
     script.write_text("$r=@{runtime=$false;archive=$false;notification_read=$false;notification_write=$false};try{$x=[IO.File]::ReadAllBytes('"+str(b.STATE/'runtime.json').replace("'","''")+"');$r.runtime=$x.Length -gt 0}catch{};try{$x=[IO.File]::ReadAllBytes('"+str(archive).replace("'","''")+"');$r.archive=$true}catch{};try{$x=[IO.File]::ReadAllBytes('"+str(notification).replace("'","''")+"');$r.notification_read=$x.Length -gt 0}catch{};try{$s=[IO.File]::Open('"+str(notification).replace("'","''")+"',[IO.FileMode]::Open,[IO.FileAccess]::Write,[IO.FileShare]::ReadWrite);$s.Dispose();$r.notification_write=$true}catch{};$r|ConvertTo-Json|Set-Content '"+str(report).replace("'","''")+"' -Encoding UTF8",encoding='utf-8')
     b.secure_acl(script,kind='config')
     name='OpenWebPBX-Backup-LocalService-'+uuid.uuid4().hex
+    request=private/('localservice-task-'+uuid.uuid4().hex+'.private.json')
+    payload={'schema':1,'task_name':name,'nonce':uuid.uuid4().hex,'root':str(private),
+             'script_sha256':hashlib.sha256(script.read_bytes()).hexdigest(),'receipt':None}
+    with request.open('x',encoding='utf-8') as target:json.dump(payload,target)
+    ownership=None;primary=None;body_complete=False;removed=False
+    helper=Path(__file__).with_name('windows-backup-localservice-task.ps1')
+    def task_control(operation):
+        payload['receipt']=ownership
+        request.write_text(json.dumps(payload),encoding='utf-8')
+        command="& '"+str(helper).replace("'","''")+"' -Operation '"+operation+"' -Request '"+str(request).replace("'","''")+"'"
+        return json.loads(ps(command))
     try:
-        ps("$a=New-ScheduledTaskAction -Execute ($env:SystemRoot+'/System32/WindowsPowerShell/v1.0/powershell.exe') -Argument '-NoProfile -NonInteractive -File \""+str(script)+"\"';$p=New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\\LOCAL SERVICE' -LogonType ServiceAccount -RunLevel Limited;Register-ScheduledTask -TaskName '"+name+"' -Action $a -Principal $p -Force|Out-Null;Start-ScheduledTask -TaskName '"+name+"'")
-        deadline=time.monotonic()+30
-        while not report.exists() and time.monotonic()<deadline:time.sleep(.2)
+        observation['phase']='register';created=task_control('register')
+        assert (type(created) is dict and set(created)=={'schema','created','task_name','task_path','nonce','definition_sha256','script_sha256'}
+            and type(created['schema']) is int and created['schema']==1 and created['created'] is True
+            and created['task_name']==name and created['task_path']=='\\' and created['nonce']==payload['nonce']
+            and created['script_sha256']==payload['script_sha256'] and isinstance(created['definition_sha256'],str)
+            and re.fullmatch('[a-f0-9]{64}',created['definition_sha256'])),'Positive owned task registration was not proved'
+        ownership=created;observation['creation_receipt']=True
+        observation['phase']='start_wait';completion=task_control('start-wait')
+        assert (type(completion) is dict and set(completion)=={'schema','state','last_run_advanced','last_task_result'}
+            and type(completion['schema']) is int and completion['schema']==1 and completion['state']=='completed'
+            and completion['last_run_advanced'] is True and type(completion['last_task_result']) is int
+            and completion['last_task_result']==0),'The fresh owned LocalService task completion was not proved'
+        observation['fresh_completion']=True;observation['phase']='result_read'
         result=json.loads(report.read_text(encoding='utf-8-sig'))
+        observation['phase']='privacy_assertions'
         assert result['runtime'] is True and result['archive'] is False,'Actual LocalService access exceeded the private backup boundary or cannot read its runtime'
         assert result['notification_read'] is True and result['notification_write'] is False,'Actual LocalService notification permissions are not read-only'
         assert notification.read_bytes()==previous,'The read-only permission probe changed notification identity bytes'
+        body_complete=True
+    except BaseException as error:
+        primary=error
+        if observation['phase']=='result_read':
+            observation['read_error']={5:'access_denied',32:'sharing_violation',33:'lock_violation'}.get(getattr(error,'winerror',None),'other')
+        raise
     finally:
-        ps("Unregister-ScheduledTask -TaskName '"+name+"' -Confirm:$false -ErrorAction SilentlyContinue")
+        if ownership is not None:
+            try:
+                cleanup=task_control('cleanup')
+                assert (type(cleanup) is dict and set(cleanup)=={'schema','state','owned_registration_removed'}
+                    and type(cleanup['schema']) is int and cleanup['schema']==1 and cleanup['state']=='removed'
+                    and cleanup['owned_registration_removed'] is True),'Owned LocalService task cleanup was not proved'
+                observation['cleanup']='removed';removed=True
+            except BaseException:
+                observation['cleanup']='refused'
+                if primary is None:
+                    observation['phase']='cleanup'
+                    raise
+                # Keep the original exception and traceback; this separate fixed
+                # observation cannot turn refused cleanup into a passing result.
+                observation['primary_preserved']=True
+        if body_complete and removed:
+            observation['phase']='complete';request.unlink()
+
 
 
 def main(path):

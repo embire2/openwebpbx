@@ -938,6 +938,14 @@ function BackupFailureReport([string]$Path,[datetime]$StartedAt){
   if($http.target -is [string] -and $http.target -cin @('login','backups','notifications','download','unknown')){$safe.last_http.target=$http.target}
   if($http.method -is [string] -and $http.method -cin @('GET','POST','unknown')){$safe.last_http.method=$http.method}
   if(& $integer $http.status 100 599){$safe.last_http.status=[int]$http.status}
+  $probe=$failure.local_service_observation
+  if($null -ne $probe -and ($probe -is [pscustomobject] -or $probe -is [Collections.IDictionary]) -and $probe -isnot [Array] -and ($probe.schema -is [int] -or $probe.schema -is [long]) -and $probe.schema -eq 1){
+   $safe.local_service_observation=@{schema=1}
+   if($probe.phase -is [string] -and $probe.phase -cin @('setup','register','start_wait','result_read','privacy_assertions','cleanup','complete')){$safe.local_service_observation.phase=$probe.phase}
+   foreach($key in 'creation_receipt','fresh_completion','primary_preserved'){if($probe.$key -is [bool]){$safe.local_service_observation[$key]=$probe.$key}}
+   if($probe.cleanup -is [string] -and $probe.cleanup -cin @('not_attempted','removed','refused')){$safe.local_service_observation.cleanup=$probe.cleanup}
+   if($probe.read_error -is [string] -and $probe.read_error -cin @('none','access_denied','sharing_violation','lock_violation','other')){$safe.local_service_observation.read_error=$probe.read_error}
+  }
   $tls=$failure.tls_preparation
   if((& $integer $tls.schema 1 1) -and $tls.operation -is [string] -and $tls.operation -cin @('prepare_restored_tls','source_trusted_tls') -and $tls.report_status -is [string] -and $tls.report_status -cin @('read','unavailable')){
    $safe.tls_preparation=@{schema=1;operation=$tls.operation;report_status=$tls.report_status;source_frames=@()}

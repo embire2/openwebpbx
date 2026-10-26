@@ -1,0 +1,54 @@
+name: Controlled Windows backup result publication preflight
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Admit exact fresh Windows component scope
+        run: |
+          if($env:GITHUB_REPOSITORY-cne 'embire2/openwebpbx'-or $env:RUNNER_ENVIRONMENT-cne 'github-hosted'-or $env:GITHUB_REF-cne 'refs/heads/qualification/windows121-backup-publication-20261026'-or $env:GITHUB_RUN_ATTEMPT-cne '1'){throw 'Exact fresh component request required.'}
+          if((Get-CimInstance Win32_OperatingSystem).Caption-notmatch 'Windows Server 2025'){throw 'Actual Windows Server2025 required.'}
+          foreach($path in 'C:\OpenWebPBX',(Join-Path $env:ProgramData 'OpenWebPBX'),'C:\Program Files\FreeSWITCH'){if(Test-Path -LiteralPath $path){throw 'Fresh host required.'}}
+          if(@(Get-Service -Name 'OpenWebPBX*','FreeSWITCH' -ErrorAction SilentlyContinue).Count){throw 'Existing services are outside this component.'}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - id: python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12.10'
+          architecture: x64
+          check-latest: false
+          update-environment: false
+      - name: Verify exact checked-out component source
+        run: |
+          if((& git rev-parse HEAD).Trim()-cne $env:GITHUB_SHA-or $LASTEXITCODE-or (& git status --porcelain)){throw 'Exact clean source required.'}
+      - name: Observe LocalService publication and guarded ownership
+        id: native_probe
+        timeout-minutes: 6
+        env:
+          OWNED_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          $ErrorActionPreference='Stop'
+          & $env:OWNED_PYTHON -I -B ./tests/windows_backup_localservice_preflight.py --source-commit $env:GITHUB_SHA
+          if($LASTEXITCODE){throw 'Native publication component refused; no server qualification is implied.'}
+      - name: Retain only the four bounded component records
+        if: always() && steps.native_probe.outputs.evidence_root != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-backup-publication-preflight-${{ github.run_id }}
+          path: ${{ steps.native_probe.outputs.evidence_root }}/*.safe.json
+          if-no-files-found: error
+          retention-days: 14
