@@ -62,12 +62,21 @@ jobs:
         run: |
           & ./clients/windows/tools/Invoke-JobFailureObservationPreflight.ps1 -PythonExecutable $env:OPENWEB_WAV_PYTHON
       - name: Build the fresh recorder and exercise actual client Core media
+        id: core_media
         if: ${{ !cancelled() && steps.python.outcome == 'success' && (steps.observer_preflight.outcome == 'success' || steps.observer_preflight.outcome == 'failure') }}
         env:
           OPENWEB_WAV_PYTHON: ${{ steps.python.outputs.python-path }}
           MEDIA_ACTIONS_TOKEN: ${{ github.token }}
         run: |
           & ./clients/windows/tools/Test-ClientWavProducer.ps1 -SourceCommit $env:PHONE_SOURCE_REF -PythonExecutable $env:OPENWEB_WAV_PYTHON -RunCoreMedia
+      - name: Read existing local system provenance after the failed result
+        id: system_provenance
+        if: ${{ !cancelled() && steps.python.outcome == 'success' && steps.core_media.outcome == 'failure' }}
+        timeout-minutes: 2
+        env:
+          OPENWEB_WAV_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          & ./clients/windows/tools/Observe-ClientSystemProvenance.ps1 -SourceCommit $env:PHONE_SOURCE_REF -PythonExecutable $env:OPENWEB_WAV_PYTHON
       - name: Retain closed contract and preservation evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -99,4 +108,15 @@ jobs:
           name: windows-phone-core-media-private-${{ github.run_id }}
           path: ${{ runner.temp }}/client-media-private.sealed.json
           if-no-files-found: ignore
+          retention-days: 14
+      - name: Retain only closed post-failure system provenance
+        if: always() && steps.system_provenance.outputs.evidence_root != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-phone-system-provenance-${{ github.run_id }}
+          path: |
+            ${{ steps.system_provenance.outputs.evidence_root }}/source.safe.json
+            ${{ steps.system_provenance.outputs.evidence_root }}/report.safe.json
+            ${{ steps.system_provenance.outputs.evidence_root }}/process.safe.json
+          if-no-files-found: error
           retention-days: 14

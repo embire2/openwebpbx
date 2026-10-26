@@ -319,9 +319,9 @@ function ReadNativeRecorderObservation($Value){
  $Value
 }
 function ReadNativeToneObservation($Value){
- ClosedKeys $Value @('source','phase','sample_rate','sample_count','expected_tones','first_frame','candidate_windows','frames_per_window','best_good_frames','minimum_ratio_ppm','maximum_ratio_ppm','minimum_rms','maximum_rms','low_rms_frames','clipped_frames','low_ratio_frames','low_component_frames')
+ ClosedKeys $Value @('source','phase','sample_rate','sample_count','expected_tones','first_frame','candidate_windows','frames_per_window','best_good_frames','minimum_ratio_ppm','maximum_ratio_ppm','minimum_rms','maximum_rms','low_rms_frames','clipped_frames','low_ratio_frames','low_component_frames','best_window_start_frame','good_frame_mask','fixture_tone_masks')
  if($Value.source -isnot [string] -or $Value.source -cne 'same_failed_decoded_buffer' -or $Value.phase -isnot [string] -or $Value.phase -cnotin @('initial_left','initial_right','held_party','resumed_left','resumed_right','other')){throw 'Closed failed tone scope required.'}
- foreach($field in @('sample_rate','sample_count','first_frame','candidate_windows','frames_per_window','best_good_frames','minimum_ratio_ppm','maximum_ratio_ppm','minimum_rms','maximum_rms','low_rms_frames','clipped_frames','low_ratio_frames','low_component_frames')){if($Value.$field -isnot [long]){throw 'Integer tone measurements required.'}}
+ foreach($field in @('sample_rate','sample_count','first_frame','candidate_windows','frames_per_window','best_good_frames','minimum_ratio_ppm','maximum_ratio_ppm','minimum_rms','maximum_rms','low_rms_frames','clipped_frames','low_ratio_frames','low_component_frames','best_window_start_frame','good_frame_mask')){if($Value.$field -isnot [long]){throw 'Integer tone measurements required.'}}
  if($Value.sample_rate -lt 8000 -or $Value.sample_rate -gt 48000 -or $Value.sample_count -lt [Math]::Ceiling($Value.sample_rate*3.2) -or $Value.sample_count -gt 67108864 -or $Value.first_frame -lt 0 -or $Value.candidate_windows -lt 1 -or $Value.candidate_windows -gt 3 -or $Value.frames_per_window -ne 30 -or $Value.expected_tones -isnot [array] -or $Value.expected_tones.Count -lt 1 -or $Value.expected_tones.Count -gt 3){throw 'Bounded decoded tone sample required.'}
  foreach($tone in $Value.expected_tones){if($tone -isnot [long] -or $tone -notin @(425,733,1013,1553)){throw 'Fixed owned fixture tones required.'}}
  if(@($Value.expected_tones|Select-Object -Unique).Count -ne $Value.expected_tones.Count){throw 'Unique fixture tones required.'}
@@ -329,6 +329,15 @@ function ReadNativeToneObservation($Value){
  if($Value.first_frame -ne $first -or $Value.candidate_windows -ne $candidates){throw 'Exact original tail bounds required.'}
  foreach($field in @('best_good_frames','low_rms_frames','clipped_frames','low_ratio_frames','low_component_frames')){if($Value.$field -lt 0 -or $Value.$field -gt 30){throw 'Bounded failed frame counts required.'}}
  if($Value.best_good_frames -ge 30 -or ($Value.low_rms_frames+$Value.clipped_frames+$Value.low_ratio_frames+$Value.low_component_frames+$Value.best_good_frames) -lt 30){throw 'An actual failed decoded window is required.'}
+ if($Value.best_window_start_frame -lt $Value.first_frame -or $Value.best_window_start_frame -ge ($Value.first_frame+$Value.candidate_windows) -or $Value.good_frame_mask -lt 0 -or $Value.good_frame_mask -gt 1073741823 -or $Value.fixture_tone_masks -isnot [array] -or $Value.fixture_tone_masks.Count -ne 4){throw 'Bounded ordered failed-frame masks required.'}
+ foreach($mask in $Value.fixture_tone_masks){if($mask -isnot [long] -or $mask -lt 0 -or $mask -gt 1073741823){throw 'Four fixed fixture-tone masks required.'}}
+ $goodCount=0;for($bit=0;$bit -lt 30;$bit++){if($Value.good_frame_mask -band (1L -shl $bit)){$goodCount++}}
+ if($goodCount -ne $Value.best_good_frames){throw 'Ordered mask differs from the original failed-frame count.'}
+ if($Value.expected_tones.Count -eq 1){
+  $fixedTones=@(425,733,1013,1553);$index=0;while($fixedTones[$index] -ne $Value.expected_tones[0]){$index++}
+  $coherent=$Value.fixture_tone_masks[$index]
+  if(($coherent -band $Value.good_frame_mask) -ne $Value.good_frame_mask -or ($Value.low_rms_frames -eq 0 -and $Value.clipped_frames -eq 0 -and $coherent -ne $Value.good_frame_mask)){throw 'Single-tone coherence mask differs from its actual failed-window facts.'}
+ }
  if($Value.minimum_ratio_ppm -lt 0 -or $Value.maximum_ratio_ppm -lt $Value.minimum_ratio_ppm -or $Value.maximum_ratio_ppm -gt ($Value.expected_tones.Count*1000000) -or $Value.minimum_rms -lt 0 -or $Value.maximum_rms -lt $Value.minimum_rms -or $Value.maximum_rms -gt 65536 -or ($Value.expected_tones.Count -eq 1 -and $Value.low_component_frames -ne 0)){throw 'Bounded same-buffer tone measurements required.'}
  $Value
 }

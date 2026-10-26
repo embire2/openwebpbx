@@ -6,7 +6,8 @@ namespace OpenWebPbx.Phone.MediaChecks;
 internal sealed record ToneFailureObservation(string source, string phase, int sample_rate, int sample_count,
     int[] expected_tones, int first_frame, int candidate_windows, int frames_per_window, int best_good_frames,
     int minimum_ratio_ppm, int maximum_ratio_ppm, int minimum_rms, int maximum_rms,
-    int low_rms_frames, int clipped_frames, int low_ratio_frames, int low_component_frames);
+    int low_rms_frames, int clipped_frames, int low_ratio_frames, int low_component_frames,
+    int best_window_start_frame, int good_frame_mask, int[] fixture_tone_masks);
 internal static class ToneObservation
 {
     internal static string Phase(string phase, bool left) => phase is "initial" or "resumed" ? phase + (left ? "_left" : "_right") : "other";
@@ -20,9 +21,11 @@ internal static class ToneObservation
         var first = checked((int)Math.Ceiling(after * 10)); var total = wave.Samples.Length / frame;
         var candidates = total - first - frames + 1;
         if (first < 0 || candidates is < 1 or > 3) throw new InvalidDataException("Bounded current tail required.");
+        var bestStart = -1; var bestMask = 0; int[] bestFixtureMasks = [0, 0, 0, 0];
         var bestGood = -1; int minRatio = 0, maxRatio = 0, minRms = 0, maxRms = 0, lowRms = 0, clippedFrames = 0, lowRatio = 0, lowComponent = 0;
         for (var start = first; start + frames <= total; start++)
         {
+            var goodMask = 0; int[] fixtureMasks = [0, 0, 0, 0];
             var good = 0; var currentMinRatio = 3000000; var currentMaxRatio = 0; var currentMinRms = 65536; var currentMaxRms = 0;
             int currentLowRms = 0, currentClipped = 0, currentLowRatio = 0, currentLowComponent = 0;
             for (var block = start; block < start + frames; block++)
@@ -43,13 +46,29 @@ internal static class ToneObservation
                 if (clipped > frame / 1000) currentClipped++;
                 if (combined < .65) currentLowRatio++;
                 if (tones.Count != 1 && ratios.Any(value => value < .12)) currentLowComponent++;
-                if (rms >= 500 && clipped <= frame / 1000 && combined >= .65 && (tones.Count == 1 || ratios.All(value => value >= .12))) good++;
+                if (rms >= 500 && clipped <= frame / 1000 && combined >= .65 && (tones.Count == 1 || ratios.All(value => value >= .12))) { good++; goodMask |= 1 << (block - start); }
+                // Thirty fixed bits, earliest block first. The four masks describe
+                // only single-fixture-tone coherence, not a qualification decision.
+                int[] fixtureTones = [425, 733, 1013, 1553];
+                for (var index = 0; index < fixtureTones.Length; index++)
+                {
+                    double ratio = -1;
+                    for (var known = 0; known < tones.Count; known++) if (tones[known] == fixtureTones[index]) ratio = ratios[known];
+                    if (ratio < 0)
+                    {
+                        double sine = 0, cosine = 0;
+                        for (var n = 0; n < frame; n++) { var value = wave.Samples[at + n] - mean; var angle = 2 * Math.PI * fixtureTones[index] * n / wave.Rate; sine += value * Math.Sin(angle); cosine += value * Math.Cos(angle); }
+                        ratio = energy == 0 ? 0 : Math.Min(1, 2 * (sine * sine + cosine * cosine) / (frame * energy));
+                    }
+                    if (!double.IsFinite(ratio)) throw new InvalidDataException("Finite fixed-tone measurement required.");
+                    if (ratio >= .65) fixtureMasks[index] |= 1 << (block - start);
+                }
                 var ratioPpm = checked((int)Math.Round(combined * 1000000)); var rmsUnits = checked((int)Math.Round(rms));
                 currentMinRatio = Math.Min(currentMinRatio, ratioPpm); currentMaxRatio = Math.Max(currentMaxRatio, ratioPpm);
                 currentMinRms = Math.Min(currentMinRms, rmsUnits); currentMaxRms = Math.Max(currentMaxRms, rmsUnits);
             }
-            if (good > bestGood) { bestGood = good; minRatio = currentMinRatio; maxRatio = currentMaxRatio; minRms = currentMinRms; maxRms = currentMaxRms; lowRms = currentLowRms; clippedFrames = currentClipped; lowRatio = currentLowRatio; lowComponent = currentLowComponent; }
+            if (good > bestGood) { bestStart = start; bestMask = goodMask; bestFixtureMasks = fixtureMasks; bestGood = good; minRatio = currentMinRatio; maxRatio = currentMaxRatio; minRms = currentMinRms; maxRms = currentMaxRms; lowRms = currentLowRms; clippedFrames = currentClipped; lowRatio = currentLowRatio; lowComponent = currentLowComponent; }
         }
-        return new("same_failed_decoded_buffer", phase, wave.Rate, wave.Samples.Length, tones.Select(value => checked((int)value)).ToArray(), first, candidates, frames, bestGood, minRatio, maxRatio, minRms, maxRms, lowRms, clippedFrames, lowRatio, lowComponent);
+        return new("same_failed_decoded_buffer", phase, wave.Rate, wave.Samples.Length, tones.Select(value => checked((int)value)).ToArray(), first, candidates, frames, bestGood, minRatio, maxRatio, minRms, maxRms, lowRms, clippedFrames, lowRatio, lowComponent, bestStart, bestMask, bestFixtureMasks);
     }
 }
