@@ -61,6 +61,71 @@ function Child([string]$Executable,[string[]]$Arguments,[string]$Directory,[hash
 }
 function Finish($Child,[int]$Seconds=20){Assert ($Child.Process.WaitForExit($Seconds*1000));[IO.File]::WriteAllText((Join-Path $Child.Directory ($Child.Id+'.private.out')),$Child.Output.GetAwaiter().GetResult());[IO.File]::WriteAllText((Join-Path $Child.Directory ($Child.Id+'.private.err')),$Child.Errors.GetAwaiter().GetResult());return $Child.Process.ExitCode}
 try{
+ # Early owned-handle handover controls. No service, job, installed state or
+ # live maintenance path is used. A typed Timer needs no PowerShell runspace.
+ Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Text;
+using System.Threading;
+public sealed class OpenWebOwnedMaintenanceReader : IDisposable {
+ readonly FileStream stream; readonly ManualResetEvent done=new ManualResetEvent(false);
+ Timer timer; Exception failure;
+ public OpenWebOwnedMaintenanceReader(string path){stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);}
+ public void ReleaseAfter(int milliseconds,string statePath,string stateText){
+  if(timer!=null)throw new InvalidOperationException("The owned release is already scheduled.");
+  timer=new Timer(delegate(object unused){
+   try{if(!String.IsNullOrEmpty(statePath))File.WriteAllText(statePath,stateText,new UTF8Encoding(false));}
+   catch(Exception error){failure=error;}
+   finally{stream.Dispose();done.Set();}
+  },null,milliseconds,Timeout.Infinite);
+ }
+ public bool Wait(){return done.WaitOne(5000);}
+ public void Dispose(){
+  if(timer!=null){using(var ended=new ManualResetEvent(false)){if(!timer.Dispose(ended)||!ended.WaitOne(5000))throw new TimeoutException("The owned release callback did not finish.");}}
+  stream.Dispose();done.Dispose();
+  if(failure!=null)throw new InvalidOperationException("The owned release callback failed.",failure);
+ }
+}
+'@
+ $handover=Join-Path $work 'owned-maintenance-handover';$null=[IO.Directory]::CreateDirectory($handover)
+ $ownedLock=Join-Path $handover 'upgrade.lock';[IO.File]::WriteAllText($ownedLock,'EXACT_OWNED_LOCK')
+ $installation=Join-Path $handover 'installation.json';[IO.File]::WriteAllText($installation,'{"Version":"1.0.21","Completed":true}',[Text.UTF8Encoding]::new($false))
+ $tokens=$null;$parseErrors=$null;$upgradeAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'packaging/windows/Upgrade-OpenWebPBX.ps1'),[ref]$tokens,[ref]$parseErrors)
+ Assert ($parseErrors.Count -eq 0)
+ $guardNodes=@($upgradeAst.FindAll({param($n)$n -is [Management.Automation.Language.IfStatementAst] -and $n.Extent.Text.StartsWith('if((Get-Content "$private\installation.json" -Raw) -cne $installationText)')},$true));Assert ($guardNodes.Count -eq 1)
+ $stateGuard=[scriptblock]::Create($guardNodes[0].Extent.Text)
+ $reader=[OpenWebOwnedMaintenanceReader]::new($ownedLock)
+ try{
+  $blocked=$false;try{$unexpected=[IO.File]::Open($ownedLock,'OpenOrCreate','ReadWrite','None');$unexpected.Dispose()}catch [IO.IOException]{$blocked=$_.Exception.GetBaseException().HResult -eq -2147024864};Assert $blocked
+  $reader.ReleaseAfter(250,$null,$null);$clock=[Diagnostics.Stopwatch]::StartNew()
+  $lease=Open-OpenWebUpgradeMaintenance -Path $ownedLock -WaitMilliseconds 2000
+  try{Assert ($clock.ElapsedMilliseconds -ge 1 -and $clock.ElapsedMilliseconds -lt 5000 -and $reader.Wait());Assert-OpenWebRecoveryLock -MaintenanceLock $lease -StateRoot $handover;Assert ($lease.CanRead -and $lease.CanWrite)}finally{$lease.Dispose()}
+ }finally{$reader.Dispose()}
+ $reader=[OpenWebOwnedMaintenanceReader]::new($ownedLock)
+ try{
+  $clock=[Diagnostics.Stopwatch]::StartNew();$failure=$null
+  try{$unexpected=Open-OpenWebUpgradeMaintenance -Path $ownedLock -WaitMilliseconds 100;$unexpected.Dispose()}catch [IO.IOException]{$failure=$_}
+  Assert ($failure -and $failure.Exception.GetBaseException().HResult -eq -2147024864 -and $clock.ElapsedMilliseconds -ge 100 -and $clock.ElapsedMilliseconds -lt 5000)
+ }finally{$reader.Dispose()}
+ # The earlier shared reader models a previous operation changing the exact
+ # installation text before releasing its handle; JSON-equivalent is changed.
+ $private=$handover;$installationText=Get-Content $installation -Raw;$priorPassword=$env:PGPASSWORD
+ $reader=[OpenWebOwnedMaintenanceReader]::new($ownedLock)
+ try{
+  $reader.ReleaseAfter(250,$installation,$installationText+"`n")
+  $lease=Open-OpenWebUpgradeMaintenance -Path $ownedLock -WaitMilliseconds 2000
+  try{
+   $script:deferred=$false;$mutated=$false;$refused=$false
+   try{. $stateGuard;$mutated=$true}catch{$refused=$true}
+   Assert ($refused -and $script:deferred -and !$mutated -and $reader.Wait())
+   Assert ($env:PGPASSWORD -ceq $priorPassword -and !(Test-Path (Join-Path $handover 'updates')))
+  }finally{$lease.Dispose()}
+ }finally{$reader.Dispose()}
+ $lease=Open-OpenWebUpgradeMaintenance -Path $ownedLock -WaitMilliseconds 0
+ try{$installationText=Get-Content $installation -Raw;$script:deferred=$false;. $stateGuard;Assert (!$script:deferred)}finally{$lease.Dispose()}
+ Assert ([IO.File]::ReadAllText($ownedLock) -ceq 'EXACT_OWNED_LOCK')
+ $after=[IO.File]::Open($ownedLock,'Open','ReadWrite','None');$after.Dispose();Assert $true
  foreach($kind in 'missing_updater','missing_helper','default','date'){
   $c=Case $kind;$before=[IO.File]::ReadAllBytes($c.Runtime);$acl=(Get-Acl -LiteralPath $c.Runtime).Sddl;$attributes=[int](Get-Item -LiteralPath $c.Runtime -Force).Attributes
   $lock=[IO.File]::Open((Join-Path $c.State 'upgrade.lock'),'OpenOrCreate','ReadWrite','None')

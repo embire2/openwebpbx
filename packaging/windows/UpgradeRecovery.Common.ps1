@@ -1,6 +1,23 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # A sealed private boot entry for the interval before installed helpers advance.
 # The caller owns upgrade.lock. No installed program helper is overwritten.
+function Open-OpenWebUpgradeMaintenance {
+ param([Parameter(Mandatory)][string]$Path,[ValidateRange(0,90000)][int]$WaitMilliseconds=90000)
+ # Native shared readers finish normally. Never release a foreign handle or
+ # retry permission/path failures. The original caller owns deferral/recovery.
+ $clock=[Diagnostics.Stopwatch]::StartNew();$lastFailure=$null
+ while($true){
+  if($lastFailure -and $clock.ElapsedMilliseconds -ge $WaitMilliseconds){throw $lastFailure}
+  try{return [IO.File]::Open($Path,'OpenOrCreate','ReadWrite','None')}
+  catch{
+   $native=$_.Exception.GetBaseException()
+   if($native -isnot [IO.IOException] -or $native.HResult -notin -2147024864,-2147024863){throw}
+   $lastFailure=$_;$remaining=$WaitMilliseconds-$clock.ElapsedMilliseconds
+   if($remaining -le 0){throw}
+   Start-Sleep -Milliseconds ([Math]::Min(100,$remaining))
+  }
+ }
+}
 function Initialize-OpenWebUpgradeRecoveryNative {
  if('OpenWebPbx.UpgradeRecoveryNativeV1' -as [type]){return}
  Add-Type -TypeDefinition @'

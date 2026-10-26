@@ -328,16 +328,18 @@ function RestorePbx([string]$Backup) {
 }
 
 if (!(Test-Path "$private\installation.json")) { throw 'Install OpenWeb PBX before applying an update.' }
-$state = Get-Content "$private\installation.json" -Raw | ConvertFrom-Json
+$installationText = Get-Content "$private\installation.json" -Raw
+$state = $installationText | ConvertFrom-Json
 $previousVersion = $state.Version
 $version = $previousVersion
-New-Item -ItemType Directory -Force $updates|Out-Null
 if (!$state.Completed) { throw 'Complete the existing installation before updating it.' }
 Import-Module WebAdministration
 $lock = $null; $stopped = $false; $backupReady = $false; $backup = ''; $success = $false
 $priorPgPassword = $env:PGPASSWORD
 try {
- try{$lock = [IO.File]::Open("$private\upgrade.lock", 'OpenOrCreate', 'ReadWrite', 'None')}catch [IO.IOException]{$script:deferred=$true;throw 'Another PBX update is running.'}
+ try{$lock = Open-OpenWebUpgradeMaintenance -Path "$private\upgrade.lock"}catch [IO.IOException]{$script:deferred=$true;throw 'Another PBX update is running.'}
+ if((Get-Content "$private\installation.json" -Raw) -cne $installationText){$script:deferred=$true;throw 'The installed PBX changed while waiting for maintenance. Retry the update.'}
+ New-Item -ItemType Directory -Force $updates|Out-Null
  $env:PGPASSWORD = $state.PostgresPassword
  if($Recover){
   if(ResumeHeldRestore){return}
