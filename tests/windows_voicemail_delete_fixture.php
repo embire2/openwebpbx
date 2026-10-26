@@ -41,7 +41,7 @@ function windows_voicemail_delete_fixture(string $action,PDO $db,array &$s,array
         $s['delete_mail']=['message'=>$message,'source_message'=>$source['voicemail_message_uuid'],'queue'=>$queue,'attachment'=>$attachment,'sha256'=>hash('sha256',$bytes),'bytes'=>strlen($bytes)];$save();
         $handle=fopen($file,'xb');if(!$handle)throw new RuntimeException('A fresh owned recording is required.');
         try{if(fwrite($handle,$bytes)!==strlen($bytes)||!fflush($handle))throw new RuntimeException('The owned recording copy failed.');}finally{fclose($handle);}
-        $source['voicemail_message_uuid']=$message;$keys=array_keys($source);foreach($keys as$key)if(!preg_match('/^[a-z_]+$/D',$key))throw new RuntimeException('The recording schema needs review.');
+        $source['voicemail_message_uuid']=$message;$keys=array_keys($source);foreach($keys as$key)if(!preg_match('/^[a-z_][a-z0-9_]*$/D',$key))throw new RuntimeException('The recording schema needs review.');
         $q('insert into v_voicemail_messages('.implode(',',$keys).') values('.implode(',',array_fill(0,count($keys),'?')).')',array_values($source));
         $scriptDir=trim((string)event_socket::api('global_getvar script_dir'));$installed=rtrim(str_replace('\\','/',$scriptDir),'/').'/resources/functions/voicemail_mail_queue.lua';
         $reviewed=rtrim(str_replace('\\','/',$s['source_root']),'/').'/app/switch/resources/scripts/resources/functions/voicemail_mail_queue.lua';
