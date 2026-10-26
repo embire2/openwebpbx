@@ -8,8 +8,8 @@
   "files": [
     {
       "path": "CMakeLists.txt",
-      "bytes": 1998,
-      "sha256": "44c0a8da817a3a054003cd534a7e8f65f5bc4b480b8a00282e55342567a5bcee"
+      "bytes": 2054,
+      "sha256": "1bb3254a2e8863a46e963088b4610821a25107390eef188dcc90df21f426569a"
     },
     {
       "path": "component/msfilerec.c",
