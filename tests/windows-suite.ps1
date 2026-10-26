@@ -1700,8 +1700,14 @@ $ErrorActionPreference='Stop';$record=Get-Content -LiteralPath $InputPath -Raw|C
 try{
  if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted'){throw 'Disposable hosted runner required.'}
  $password=ConvertTo-SecureString $record.admin_password -AsPlainText -Force
- & (Join-Path $record.package_root 'Install-OpenWebPBX.ps1') -RestoreServer -LocalCertificate -DomainName $record.domain -PublicAddress '127.0.0.1' -AdminEmail $record.admin_email -AdminPassword $password
- if(!$?){throw 'The installed Windows helper did not finish.'}
+ $opensslBefore=$env:OPENSSL_CONF
+ try{
+  Remove-Item Env:\OPENSSL_CONF -ErrorAction SilentlyContinue
+  & (Join-Path $record.package_root 'Install-OpenWebPBX.ps1') -RestoreServer -LocalCertificate -DomainName $record.domain -PublicAddress '127.0.0.1' -AdminEmail $record.admin_email -AdminPassword $password
+  if(!$?){throw 'The installed Windows helper did not finish.'}
+ }finally{
+  if($null -eq $opensslBefore){Remove-Item Env:\OPENSSL_CONF -ErrorAction SilentlyContinue}else{$env:OPENSSL_CONF=$opensslBefore}
+ }
  exit 0
 }catch{
  $safe=@{error_type=$_.Exception.GetType().FullName;source_basename=(Split-Path -Leaf $_.InvocationInfo.ScriptName);source_line=[int]$_.InvocationInfo.ScriptLineNumber}
