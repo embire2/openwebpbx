@@ -2,6 +2,16 @@
 
 Open **Admin → Voice & Chat → your SIP trunk → Options**. The incoming destination remains under **Incoming Calls** on the same page. These controls belong to the selected PBX; they do not change another tenant or a phone’s username/password.
 
+## Add an incoming number
+
+Open **Admin → Voice & Chat → your SIP trunk → Incoming Calls → Add DID Number**. Enter the number supplied by the provider, an optional friendly name and who should receive its calls. Spaces, brackets and dashes are removed; a leading `00` becomes `+`. Use the form your provider delivers: the PBX does not guess a country code.
+
+**Accept incoming calls now** is selected for a connected trunk. Otherwise save the number switched off and connect the provider before enabling it. New numbers initially use their selected destination all day; configure their office hours in the existing routing controls after saving. The provider must already deliver the number to this trunk.
+
+Select **Set up Call Me Back for this number next** to open its setup form with the new number selected. Until Call Me Back is ready and explicitly enabled, the number keeps the normal destination you chose. A number already assigned to a callback service remains available while editing that service and cannot create a second service.
+
+Adding a number does not change provider passwords, registration, source-address controls, outgoing routes, phone credentials or calls in progress. Duplicate explicit routes are refused; imported overlapping wildcard routes must be reviewed instead of duplicated.
+
 ## Calling permissions and capacity
 
 **Limit Outgoing Use To** chooses System Wide or one department. A department’s primary and secondary members can use the trunk. **Allow Inbound Calls** and **Allow Outbound Calls** control new calls in their respective direction. Disabling incoming permission does not delete the number’s saved route.

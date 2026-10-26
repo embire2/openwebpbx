@@ -139,12 +139,19 @@ class pbx_call_me_back {
         $this->q('insert into v_pbx_cmb_audit(domain_uuid,actor_uuid,action,subject_uuid) values(:d,:actor,:action,:id)',['d'=>$this->domain,'actor'=>$this->actor,'action'=>$enabling?'trunk_route_enable':'trunk_route_disable','id'=>$saved['service_uuid']]);
     }
 
+    /** One explicit DID per callback service; always scoped to this PBX. */
+    public static function incomingChoices(array $c,array $services,string $editing=''): array {
+        $used=[];foreach($services as $service)if(($service['service_uuid']??'')!==$editing)$used[(string)$service['incoming_rule_uuid']]=true;
+        $out=[];foreach($c['inbound_rules']??[] as $rule)if(($rule['condition']??'')==='BasedOnDID'&&!isset($used[$rule['rule_id']])&&isset($c['trunks'][$rule['trunk_id']])&&preg_match('/^\+?[0-9]{3,20}$/D',(string)($rule['number']??'')))$out[$rule['rule_id']]=$rule['number'].' · '.($c['trunks'][$rule['trunk_id']]['name']??'Provider');
+        return $out;
+    }
     private function saveService(array $in,array $c): string {
         $id=$this->id($in,'service_uuid',true);$name=$this->text($in,'service_name',100);
         if($name==='')throw new InvalidArgumentException('Enter the company name callers should hear.');
         $rule=$this->id($in,'incoming_rule_uuid');$owner=$this->text($in,'route_owner',10);$enabled=$this->checked($in,'enabled');
         $incoming=null;foreach($c['inbound_rules']??[]as$r)if(($r['rule_id']??'')===$rule){$incoming=$r;break;}
-        if(!$incoming||($incoming['condition']??'')==='ForwardAll'||!preg_match('/^\+?[0-9]{3,20}$/D',(string)($incoming['number']??'')))throw new InvalidArgumentException('Choose an individual incoming number from this PBX.');
+        if(!isset(self::incomingChoices($c,[])[$rule]))throw new InvalidArgumentException('Choose an individual incoming number from this PBX.');
+        if($this->q('select 1 from v_pbx_cmb_services where domain_uuid=:d and incoming_rule_uuid=:rule and service_uuid<>cast(:id as uuid)',['d'=>$this->domain,'rule'=>$rule,'id'=>$id!==''?$id:'00000000-0000-0000-0000-000000000000'])->fetchColumn())throw new InvalidArgumentException('This incoming number already has a Call Me Back service. Open that service to manage it.');
         if(!isset($c['users'][$owner])||empty($c['users'][$owner]['enabled']))throw new InvalidArgumentException('Choose an enabled user whose calling permissions will apply.');
         $native=$this->q("select 1 from v_extensions where domain_uuid=:d and extension_uuid=:e and enabled='true'",['d'=>$this->domain,'e'=>$c['users'][$owner]['extension_uuid']])->fetchColumn();
         if(!$native)throw new InvalidArgumentException('The selected calling user is disabled or unavailable.');

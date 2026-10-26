@@ -1,5 +1,11 @@
 # OpenWeb PBX feature coverage
 
+## Add DID from a trunk — hosted Debian live —2026-10-26
+
+Admin → Voice & Chat → trunk → Incoming Calls → Add DID Number accepts a number, optional name and destination. The trunk keeps its incoming and outgoing settings. An optional continuation opens Call Me Back with that DID selected; its ordinary destination remains active until the callback greeting is ready and admin enables the service. Existing provider controls and tenant boundaries remain enforced. [Setup guide](trunk-options.md#add-an-incoming-number).
+
+Both exact development and hosted variants pass66 isolated PostgreSQL and23 actual POST/template HTTP checks. Live trusted-HTTPS owner-browser controls, number preselection, missing-CSRF403 refusal and preservation of25 existing customer tables, service identities and seven registered phones pass. There is no schema migration or call-engine restart. Real delivery of a newly assigned carrier number and the Windows installer remain separately unqualified; roadmap totals and broader setup/calling goals remain unchanged.
+
 ## Hosted core 1.0.21 and Android 1.0.19 — 2026-10-25
 
 Hosted Greetings, company-group office hours and optional per-extension In/Out routes are deployed. Normal administrator sign-in, genuine Keoma text generation, authenticated download and the owned recorder-helper call pass. Existing routes, credentials, custom audio and seven expected desk-phone registrations are preserved. The complete routed physical-phone/Windows recording matrix remains separate.
@@ -8,7 +14,7 @@ Keoma stock 1.0.2 replaces all 4,915 system spoken files, with matching talking-
 
 [Android 1.0.19/code119](https://github.com/embire2/openwebpbx/releases/tag/android-v1.0.19) is published and mandatory on hosted accounts. Its native five-second logo screen yields immediately to calls, setup and updates. Both release lint checks,46 direct / 50 Play tests and six native Android 35 launch checks pass against the exact release payload. All 39 calling libraries match18. Root verifies original Actions/source inventories, the existing signing identity, signed APK/Play AAB payload equality and all public downloads. The Play bundle passes bundletool/permission/ELF checks; Play approval and broader physical-device/network behavior remain open. Managed updates require a compatible server 1.0.20+; unsupported older servers retain their current app.
 
-Fresh full Windows 1.0.21 run [40215869316](https://github.com/embire2/openwebpbx/actions/runs/40215869316), source497c3e3db, is in progress using final native40211239889 and sealed Keoma audio. The first run40212174703 failed the post-worker Phone Health resume check; cleanup passed, but its underlying task/process state was unretained. The repeat adds only failure diagnostics and preserves every original requirement. Its new complete installation, independent restore and signed-upgrade gates remain required. Public Windows 1.0.20 and full Debian 1.0.16 feeds are preserved exactly. These scoped deliveries leave the broader133 goals / 21 accepted / 72 partial / 40 planned counts unchanged.
+Current full Windows1.0.21 run [40366008034](https://github.com/embire2/openwebpbx/actions/runs/40366008034), source4310c5ad1, remains in progress with the early shipped-PHP configuration correction. Earlier6fd passes installation, backups and recovery but fails the aggregate native hook during SMTP password authentication; its exact worker/delivery cause is unretained. The separate Windows2025 lab has a completed public20 installation and visible native manager, with the recorded process-scoped configuration workaround. Reviewed managed-public default443 and the new DID feature require a fresh matching full package and restore/signed-update/conference checks. Public Windows20, Android19 and complete Debian16 remain unchanged; broader133/21/72/40 counts are unchanged.
 
 ## Windows Server 1.0.20 released — 2026-10-24
 
