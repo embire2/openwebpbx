@@ -11,6 +11,7 @@ import re
 import os
 import shutil
 import socket
+import stat
 import subprocess
 import tempfile
 
@@ -35,6 +36,21 @@ def seal_initdb_failure(error, command):
     if not script.is_file() or not pwsh:
         return
     subprocess.run([pwsh,'-NoProfile','-NonInteractive','-File',str(script),'-Source',source,'-Run',run,'-Output',str(evidence/'native-initdb.sealed.safe.json')],input=payload,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=True,timeout=20)
+
+
+def prepare_windows_fixture_base(base):
+    if os.name != 'nt':
+        return
+    root=Path(tempfile.gettempdir());info=base.lstat()
+    if not base.is_absolute() or base.parent!=root or not re.fullmatch(r'openweb-did-[a-z0-9_]{8}',base.name) or not stat.S_ISDIR(info.st_mode) or base.is_symlink() or getattr(info,'st_file_attributes',0)&0x400 or any(base.iterdir()):
+        raise ValueError('Only the new ordinary empty owned Windows fixture base is admitted.')
+    helper=Path(os.environ['SystemRoot'])/'System32'/'icacls.exe'
+    if not helper.is_absolute() or not helper.is_file() or helper.is_symlink() or getattr(helper.lstat(),'st_file_attributes',0)&0x400:
+        raise ValueError('Absolute ordinary native ACL helper required.')
+    # Append inherited Modify for fixed BuiltinUsers only to this disposable root.
+    # Existing owner/admin/SYSTEM rules and all foreign/PBX paths remain untouched.
+    subprocess.run([str(helper),str(base),'/grant','*S-1-5-32-545:(OI)(CI)M'],
+                   check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=20)
 
 
 def main():
@@ -73,6 +89,7 @@ def main():
     env['OPENWEB_TEST_DSN'] = f'pgsql:host=127.0.0.1;port={port};dbname=postgres'
     started = False
     try:
+        prepare_windows_fixture_base(base)
         run([pg('initdb'), '-D', base / 'data', '--auth=trust', '--username=postgres',
              '--no-locale', '--encoding=UTF8'])
         # The private cluster listens only on loopback; no SIP engine exists.
