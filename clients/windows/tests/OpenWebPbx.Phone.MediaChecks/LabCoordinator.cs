@@ -128,6 +128,8 @@ internal static class LabCoordinator
         {
             try
             {
+                // Initial producer readiness spends the same12s budget; it never accepts media.
+                if (baseline is null && !FirstDataReadiness.Ready(recording ?? peer.Output)) { Thread.Sleep(100); continue; }
                 var wave = PcmWave.Read(recording ?? peer.Output, true);
                 if (baseline is null || wave.Duration < previous) baseline = wave.Duration;
                 previous = wave.Duration;

@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
 <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0-windows10.0.26100.0</TargetFramework><SupportedOSPlatformVersion>10.0.22000.0</SupportedOSPlatformVersion><AllowUnsafeBlocks>true</AllowUnsafeBlocks><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup>
-<ItemGroup><ProjectReference Include="../../src/OpenWebPbx.Phone.Windows/OpenWebPbx.Phone.Windows.csproj" AdditionalProperties="PhoneMediaFixture=true"/><Compile Include="../media/AudioProof.cs" Link="AudioProof.cs"/></ItemGroup>
+<ItemGroup><ProjectReference Include="../../src/OpenWebPbx.Phone.Windows/OpenWebPbx.Phone.Windows.csproj" AdditionalProperties="PhoneMediaFixture=true"/><Compile Include="../media/AudioProof.cs" Link="AudioProof.cs"/><Compile Include="../wav-producer/readiness/FirstDataReadiness.cs" Link="FirstDataReadiness.cs"/></ItemGroup>
 <ItemGroup><EmbeddedResource Include="MediaDiagnosticPublic.pem"/></ItemGroup>
 </Project>
