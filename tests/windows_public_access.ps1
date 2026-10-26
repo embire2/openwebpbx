@@ -24,6 +24,31 @@ Refused { Resolve-OpenWebPublicAddress '' @('192.168.1.2') } 'Automatic address 
 Refused { Resolve-OpenWebPublicAddress '' @() } 'Missing DNS addresses cannot trigger issuance'
 Check ((Assert-OpenWebPublicEmail 'renewal@sample.org') -eq 'renewal@sample.org') 'Email input is retained'
 foreach($email in 'not-an-email','Display <renewal@sample.org>',"renewal@sample.org`n--force",'renewal@local') { Refused { Assert-OpenWebPublicEmail $email } 'Reject unsafe renewal email input' }
+# Execute only the real installer parameter binder and early port policy.
+$tokens=$null;$errors=$null
+$installer=[Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'packaging/windows/Install-OpenWebPBX.ps1'),[ref]$tokens,[ref]$errors)
+Check ($errors.Count -eq 0) 'Installer port policy parses'
+$policy=@($installer.EndBlock.Statements|Where-Object {$_.Extent.Text.StartsWith("if(`$EnablePublicAccess -and `$DomainName.EndsWith(")})
+Check ($policy.Count -eq 1) 'Exactly one early managed public-port policy'
+$runtime=@($installer.FindAll({param($n)$n -is [Management.Automation.Language.CommandAst] -and $n.Extent.Text -ceq '& "$PSScriptRoot\Ensure-Runtime.ps1"'},$true))
+Check ($runtime.Count -eq 1 -and $policy[0].Extent.EndOffset -lt $runtime[0].Extent.StartOffset) 'Incompatible managed port refuses before runtime or installation mutations'
+$choosePort=[scriptblock]::Create($installer.ParamBlock.Extent.Text+"`n"+$policy[0].Extent.Text+"`n"+'[pscustomobject]@{port=$HttpsPort;restore=[bool]$RestoreServer}')
+foreach($case in @(
+ @{arguments=@{DomainName='qa-setup.openwebpbx.com';EnablePublicAccess=$true};port=443},
+ @{arguments=@{DomainName='qa-setup.openwebpbx.com';EnablePublicAccess=$true;HttpsPort=443};port=443},
+ @{arguments=@{DomainName='QA-SETUP.OPENWEBPBX.COM';EnablePublicAccess=$true};port=443},
+ @{arguments=@{DomainName='qa-setup.openwebpbx.com';LocalCertificate=$true};port=8443},
+ @{arguments=@{DomainName='pbx.sample.org';EnablePublicAccess=$true};port=8443},
+ @{arguments=@{DomainName='pbx.sample.org';EnablePublicAccess=$true;HttpsPort=9443};port=9443},
+ @{arguments=@{EnablePublicAccess=$true};port=8443},
+ @{arguments=@{DomainName='qa-setup.openwebpbx.com.evil.invalid';EnablePublicAccess=$true};port=8443},
+ @{arguments=@{DomainName='windowsqa.example.invalid';RestoreServer=$true;LocalCertificate=$true};port=8443},
+ @{arguments=@{DomainName='qa-setup.openwebpbx.com';RestoreServer=$true;EnablePublicAccess=$true};port=443}
+)){
+ $arguments=$case.arguments;$selected=& $choosePort @arguments
+ Check ($selected.port -eq $case.port -and $selected.restore -eq [bool]$arguments['RestoreServer']) 'Actual bound/default port and restore option retained'
+}
+Refused {& $choosePort -DomainName qa-setup.openwebpbx.com -EnablePublicAccess -HttpsPort 8443} 'Explicit incompatible managed port cannot be silently overridden'
 $temporary=Join-Path ([IO.Path]::GetTempPath()) ('openweb public checks '+[Guid]::NewGuid().ToString('N'))
 $null=New-Item -ItemType Directory -Path $temporary
 try {
@@ -44,5 +69,17 @@ try {
  $after=[IO.File]::ReadAllText($configuration)
  Check ($after.Contains("database.0.password = private-fixture-only`r`ncustom.unchanged = café`r`n")) 'Unrelated configuration remains byte-preserved'
  Check ($after.Contains("openweb.public_url = https://pbx.sample.org`r`n") -and -not $after.Contains('localhost')) 'Only the intended public connection metadata changes'
+ # The exact original saved-state reload remains authoritative on retries.
+ $resumes=@($installer.FindAll({param($n)$n -is [Management.Automation.Language.IfStatementAst] -and $null -ne $n.ElseClause -and $n.ElseClause.Extent.Text.Contains('$state=Get-Content "$private\installation.json" -Raw | ConvertFrom-Json')},$true))
+ Check ($resumes.Count -eq 1) 'Actual saved-state reload remains unique'
+ $resume=[scriptblock]::Create($resumes[0].ElseClause.Extent.Text.Trim().TrimStart('{').TrimEnd('}'))
+ $private=$temporary;$savedPath=Join-Path $private 'installation.json'
+ foreach($savedPort in 8443,9443){
+  $savedState=@{DomainName='saved.openwebpbx.com';HttpsPort=$savedPort;PublicAddress='192.0.2.10';AdminEmail='saved@example.invalid';RestoreServer=$true;DatabasePassword='fictional-preserved';InstanceUuid='00000000-0000-4000-8000-000000000001'}
+  [IO.File]::WriteAllText($savedPath,($savedState|ConvertTo-Json));$beforeState=[IO.File]::ReadAllBytes($savedPath);$HttpsPort=443;$DomainName='new.openwebpbx.com';$RestoreServer=$false
+  . $resume
+  Check ($HttpsPort -eq $savedPort -and $DomainName -ceq 'saved.openwebpbx.com' -and $RestoreServer -and $state.DatabasePassword -ceq $savedState.DatabasePassword -and $state.InstanceUuid -ceq $savedState.InstanceUuid) 'Saved port/identity/credentials remain authoritative'
+  Check ([Convert]::ToBase64String([IO.File]::ReadAllBytes($savedPath)) -ceq [Convert]::ToBase64String($beforeState)) 'Existing installation state is read without rewriting'
+ }
 } finally { Remove-Item -LiteralPath $temporary -Recurse -Force }
 Write-Output "PASS: $checks public-access parse, input and atomic-state checks"

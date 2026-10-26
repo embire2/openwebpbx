@@ -280,7 +280,10 @@ foreach($filter in 'SmtpFailureFields','SafeSmtpFailureFields','SafeFailureField
  }
  foreach($field in 'smtp_stage','smtp_tick_outcome','smtp_tls_error_type','smtp_seed_status','smtp_seed_response_class'){foreach($bad in 'private-never-copy','DELIVERY',1,$true,$null){$copy=$smtp.PSObject.Copy();$copy.$field=$bad;Check (!(& $filter $copy).ContainsKey($field))}}
  foreach($bad in '0',$true,1.5,([long][int]::MinValue-1),([long][int]::MaxValue+1)){$copy=$smtp.PSObject.Copy();$copy.smtp_tick_exit=$bad;Check (!(& $filter $copy).ContainsKey('smtp_tick_exit'))}
- foreach($bad in 'global_smtp_password_auth','GLOBAL_SMTP_TRUSTED_TLS_HOSTNAME_AUTH','private-never-copy',$null){$copy=$smtp.PSObject.Copy();$copy.active_case=$bad;Check (@((& $filter $copy).Keys|Where-Object {$_ -like 'smtp_*'}).Count -eq 0)}
+ foreach($bad in 'global_smtp_password_auth ','GLOBAL_SMTP_PASSWORD_AUTH','GLOBAL_SMTP_TRUSTED_TLS_HOSTNAME_AUTH','private-never-copy',$null){$copy=$smtp.PSObject.Copy();$copy.active_case=$bad;Check (@((& $filter $copy).Keys|Where-Object {$_ -like 'smtp_*'}).Count -eq 0)}
+ $passwordCase=$smtp.PSObject.Copy();$passwordCase.active_case='global_smtp_password_auth';$passwordSafe=& $filter $passwordCase
+ Check ($passwordSafe.smtp_stage -ceq 'delivery' -and $passwordSafe.smtp_tick_processed -eq 1 -and $passwordSafe.smtp_seed_response_class -ceq 'certificate')
+ Check (($passwordSafe|ConvertTo-Json -Depth 8) -notmatch 'private-never-copy|"password"\s*:|smtp_private')
  $roundtrip=$smtp|ConvertTo-Json|ConvertFrom-Json;Check ((& $filter $roundtrip).smtp_tick_processed -eq 1)
 }
 . (Join-Path (Split-Path $PSScriptRoot -Parent) 'packaging/windows/Meet-Proxy.ps1')

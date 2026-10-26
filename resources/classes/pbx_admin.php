@@ -97,6 +97,43 @@ class pbx_admin {
         $this->appRevocations=[];$this->saveNotice='Saved.';$this->db->beginTransaction();try{$c=$this->config(true);$this->scope?->validateEdit($type,$key,$in,$c);$result=match($type){'user'=>$this->saveUser($key,$in,$c),'trunk'=>$this->saveTrunk($key,$in,$c),'department'=>$this->saveDepartment($key,$in,$c),'hours'=>$this->saveHours($key,$in,$c),'queue','ring_group','receptionist'=>$this->saveHandling($type,$key,$in,$c),'outbound'=>$this->saveOutbound($key,$in,$c),'incoming'=>$this->saveIncoming($key,$in,$c),'script'=>$this->saveScript($key,$in,$c),default=>throw new InvalidArgumentException('Choose an admin page.')};if($this->scope&&$type==='trunk'&&$key==='new')pbx_departments::assign($c,$result,(string)$in['department']);$this->scope?->audit('save_'.$type,$result);$this->saveConfig($c);$this->db->commit();}catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}$this->changed($type==='trunk'?$this->config()['trunks'][$result]['gateway_uuid']:null,$type==='queue'?$result:null);if($type==='user')try{$this->engine('lua app/pbx_setup/mobile_state.lua '.$this->domain.' '.$result);}catch(Throwable){error_log('OpenWeb PBX: user saved; queue status refresh will retry.');}if($this->appRevocations&&!(new pbx_mobile($this->db))->revokeFutureConnections($this->appRevocations))$this->saveNotice.=' App password saved; connection cleanup is pending.';
         if($type==='user'&&$key==='new'&&!empty($in['send_welcome'])&&($c['users'][$result]['email']??'')!==''){try{(new pbx_mobile_welcome($this->db))->queue($result);$this->saveNotice.=' Welcome message queued; inbox delivery is not yet confirmed.';}catch(Throwable){$this->saveNotice.=' The user was saved, but the welcome message could not be queued. Open Phone Provisioning to retry.';}}return $result;
     }
+    /** Add one incoming number without touching provider credentials or outgoing rules. */
+    public function addTrunkNumber(string $trunk,array $in): string {
+        if($this->scope||$this->domain!==($_SESSION['domain_uuid']??null)||!(new pbx_staff_access($this->db))->owner()||!$this->query("select 1 from v_domains d join v_users u on u.user_uuid=:u where d.domain_uuid=:d and d.domain_enabled='true' and u.user_enabled='true'",['u'=>$_SESSION['user_uuid']??'','d'=>$this->domain])->fetchColumn())throw new RuntimeException('PBX owner access is required to add incoming numbers.');
+        $number=$this->text($in,'did_number',60);
+        if(!preg_match('/^[+0-9 ()-]+$/D',$number))throw new InvalidArgumentException('Enter a telephone number, for example 0329463085 or +27329463085.');
+        $number=str_replace([' ','(',')','-'],'',$number);if(str_starts_with($number,'00'))$number='+'.substr($number,2);
+        if(!preg_match('/^\+?[0-9]{3,20}$/D',$number))throw new InvalidArgumentException('Enter a telephone number with 3 to 20 digits.');
+        $name=$this->text($in,'did_name',100);if($name==='')$name=$number;
+        foreach(['did_enabled','continue_callback'] as $flag)if(isset($in[$flag])&&$in[$flag]!=='1')throw new InvalidArgumentException('Choose a valid incoming-number option.');
+        $this->db->beginTransaction();try{
+            $c=$this->config(true);$t=$c['trunks'][$trunk]??null;
+            if(!$t||!is_uuid($t['gateway_uuid']??''))throw new InvalidArgumentException('Choose a trunk from this PBX.');
+            $gateway=$this->query('select enabled from v_gateways where domain_uuid=:d and gateway_uuid=:id for update',['d'=>$this->domain,'id'=>$t['gateway_uuid']])->fetch(PDO::FETCH_ASSOC);
+            if(!$gateway)throw new InvalidArgumentException('Choose a trunk from this PBX.');
+            if(count($c['inbound_rules'])>=500)throw new InvalidArgumentException('This PBX has reached its incoming-number limit.');
+            // Keep a single explicit route even while it is switched off. Wildcard routes
+            // are intentional imported routing and need review rather than duplication.
+            foreach($c['inbound_rules'] as $rule){
+                if(($rule['condition']??'')!=='BasedOnDID')continue;
+                $other=ltrim((string)($rule['number']??''),'*+');$digits=ltrim($number,'+');
+                if($other===$digits||(($rule['trunk_id']??null)===$trunk&&str_starts_with((string)$rule['number'],'*')&&str_ends_with($digits,$other)))throw new InvalidArgumentException('This incoming number already has a route. Open DID Numbers to manage it.');
+            }
+            $target=$this->text($in,'did_destination',50);
+            if($target==='None:'||!isset($this->destinations($c)[$target]))throw new InvalidArgumentException('Choose who receives calls to this number.');
+            [$type,$extension]=explode(':',$target,2);
+            if(in_array($type,['Extension','VoiceMail'],true)&&empty($c['users'][$extension]['enabled']))throw new InvalidArgumentException('Choose an enabled user.');
+            $enabled=isset($in['did_enabled']);
+            if($enabled&&!filter_var($gateway['enabled'],FILTER_VALIDATE_BOOLEAN))throw new InvalidArgumentException('Connect this SIP trunk before accepting calls, or save the number switched off.');
+            $id=$this->saveIncoming('new',['trunk_id'=>$trunk,'number'=>$number,'office'=>$target,'office_external'=>$in['did_external']??'','enabled'=>$enabled,'use_outside'=>false],$c);
+            foreach($c['inbound_rules'] as &$rule)if($rule['rule_id']===$id){$rule['name']=$name;$rule['hours']=['type'=>'AllHours','periods'=>[]];}unset($rule);
+            $this->query('update v_destinations set destination_description=:name where domain_uuid=:d and destination_uuid=:id',['name'=>$name,'d'=>$this->domain,'id'=>$id]);
+            $this->saveConfig($c);(new pbx_staff_access($this->db))->audit('add_incoming_number',$id);$this->db->commit();
+        }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
+        // Only new-call dialplan caches are invalidated. Never reload or rescan a provider.
+        $cache=new cache;foreach(['dialplan:'.$c['realm'],'dialplan:ingress@'.$c['realm'],'dialplan:openweb-incoming:'.gethostname()] as $key)$cache->delete($key);
+        return $id;
+    }
     /** Create a reviewed provider, its main number and outgoing rule atomically. */
     public function addProvider(array $in): array {
         if($this->scope)throw new pbx_staff_denied('This action is managed by the PBX owner.');

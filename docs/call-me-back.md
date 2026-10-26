@@ -2,6 +2,12 @@
 
 Status: included in Debian 1.0.16, with earlier isolated native calling qualification and current full-package installation/update/restore checks. No hosted customer number is enabled automatically. Enable only an explicitly selected incoming number after its controlled carrier checks.
 
+### Add a provider number without leaving the trunk
+
+Under **Admin → Voice & Chat → your SIP trunk → Incoming Calls**, choose **Add DID Number**. Select a normal destination and **Set up Call Me Back for this number next**. Saving opens this page with that new number selected. Its provider and outgoing settings stay as they were; normal calls continue to the chosen destination until the callback greeting is ready and you explicitly enable the service.
+
+The incoming-number list contains this PBX's individual numbers and excludes numbers already assigned to another callback service. Editing a service retains its own number. Number setup does not purchase a number or change the provider's delivery settings.
+
 ## Set up a service
 
 Open **Admin → Call Handling → Call Me Back**. Create a service using the company name callers should hear, an existing individual incoming number, and an enabled user whose ordinary outgoing permissions apply. Save it switched off while its named Keoma greeting is generated. After the greeting is ready, explicitly confirm the incoming-number handover and enable the service.

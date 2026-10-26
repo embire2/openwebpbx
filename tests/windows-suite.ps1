@@ -407,7 +407,7 @@ function SafeSmtpFailureFields($Record){
   }
   return $safe
  }
- if($Record.active_case -isnot [string] -or $Record.active_case -cnotin 'global_smtp_trusted_tls_hostname_auth','native_voicemail_global_smtp_ip_attachment'){return $safe}
+ if($Record.active_case -isnot [string] -or $Record.active_case -cnotin 'global_smtp_trusted_tls_hostname_auth','native_voicemail_global_smtp_ip_attachment','global_smtp_password_auth'){return $safe}
  foreach($field in 'smtp_connection_check_passed','smtp_queue_observed'){if($Record.$field -is [bool]){$safe[$field]=$Record.$field}}
  foreach($field in 'smtp_delivery_count','smtp_envelope_count','smtp_session_count','smtp_authenticated_session_count','smtp_tls_accepted_count','smtp_tls_handshake_completed_count','smtp_tls_handshake_failed_count','smtp_seed_row_count','smtp_tick_maintenance_deferrals','smtp_tick_retry_count','smtp_owned_mail_rows','smtp_owned_waiting_count','smtp_owned_trying_count','smtp_owned_sent_count','smtp_owned_failed_count','smtp_owned_none_count','smtp_owned_configuration_count','smtp_owned_certificate_count','smtp_owned_authentication_count','smtp_owned_connection_count','smtp_owned_other_count'){$value=$Record.$field;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 64){$safe[$field]=$value}}
  foreach($field in 'smtp_tick_selected','smtp_tick_processed'){$value=$Record.$field;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 10){$safe[$field]=$value}}
@@ -1606,6 +1606,8 @@ try{
  PrivateDirectory $work;PublishFacts
  if((Test-Path "$configuration\config.conf") -or (Test-Path "$state\installation.json") -or (Get-Service OpenWebPBX -ErrorAction SilentlyContinue)){throw 'The ephemeral machine already contains a PBX; it is not an empty suite target.'}
  CheckedPython @((Join-Path $source 'tests/windows_voice_installer.py'))
+ & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_public_access.ps1') *> (Join-Path $work 'managed-public-source.private.log')
+ if($LASTEXITCODE){throw 'The stock Windows PowerShell managed public-port source controls failed.'}
  & (Join-Path $source 'tests/windows_modern_baseline_gates.ps1') -SourceRoot $source *> (Join-Path $work 'modern-baseline-validator.private.log')
  if(!$?){throw 'Modern native baseline evidence controls failed.'}
  & (Join-Path $source 'tests/windows_public_listener_evidence.ps1') -SourceRoot $source *> (Join-Path $work 'public-listener-evidence.private.log')
@@ -1737,6 +1739,8 @@ try{
  & (Join-Path $PackageRoot 'Install-NativeEngine.ps1') -PackageRoot $PackageRoot -Check
  if(!$?){throw 'The installed native call-engine inventory differs.'}
  $facts.gates.fresh='passed';$facts.checks+=('Real restore-ready fresh installation/services/native engine hash preservation')
+ $phase='installed Windows isolated DID PostgreSQL/PHP controls';CheckedPython @((Join-Path $source 'tests/windows_trunk_numbers.py'),'--evidence',(Join-Path $work 'trunk-number-controls'))
+ $facts.checks+=('Actual Windows installed PostgreSQL/PHP disposable DID controls: 66; zero engine calls')
  $phase='native PHP runtime qualification';PhpRuntimeQualificationHook
  $phase='installed PHP SMTP notice source controls';CheckedPython @((Join-Path $source 'tests/windows_smtp_notice.py'),'--php-executable','C:\OpenWebPBX\php\php.exe','SMTPNoticeControls.test_actual_php_post_notice_and_refusals')
  $phase='installed PHP welcome path source controls';CheckedPython @((Join-Path $source 'tests/windows_welcome_paths.py'),'--php-executable','C:\OpenWebPBX\php\php.exe')

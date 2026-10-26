@@ -60,6 +60,7 @@ For Android, use **Users → Phone Provisioning → Connect Android App · QR Co
 ## What you can build with it
 
 - **Business calling:** SIP providers, extensions, incoming numbers, outbound rules, ring groups, digital receptionists and voicemail. [Calling guide](docs/core-calling.md)
+- **Add numbers from the trunk:** enter a DID and choose who receives its calls, then continue directly into Call Me Back with that number selected. Live on the hosted PBX; the next complete installers are under qualification. [Guide](docs/trunk-options.md#add-an-incoming-number)
 - **A PBX for multiple businesses:** separate tenant workspaces, departments, staff roles and routing, with one local database per installation. [Users and departments](docs/users-and-departments.md) · [Staff permissions](docs/department-staff.md)
 - **Practical call handling:** office hours, breaks, holidays, temporary Open/Closed overrides and a routing preview; receptionist transfer, pickup and parking; queues, callbacks and a wallboard. [Routing](docs/core-calling.md#opening-hours-and-routing) · [Switchboard](docs/core-calling.md#receptionist-switchboard) · [Queues](docs/core-calling.md#queues-callbacks-and-wallboard)
 - **Company schedules:** manage office hours directly inside a company group, with optional separate in-office and out-of-office destinations for each extension. Live on hosted core 1.0.21; inclusion in the next Windows installer is under qualification. [Guide](docs/company-office-hours.md)
