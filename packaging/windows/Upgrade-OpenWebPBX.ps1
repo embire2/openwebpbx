@@ -113,7 +113,16 @@ function Write-OpenWeb20GreetingCompatibility {
  $path=Get-OpenWeb20GreetingCompatibilityPath $Record.Backup
  $raw=[Text.UTF8Encoding]::new($false).GetBytes(($Record|ConvertTo-Json -Depth 8 -WarningAction Stop))
  if($raw.Length -gt 16777216){throw 'The bounded compatibility snapshot is too large.'}
- WriteState $path $Record
+ # Use the existing protected recovery writer before atomic publication. A
+ # generic state file inherits the parent ACL and is not a private snapshot.
+ $temporary=$path+'.'+[Guid]::NewGuid().ToString('N')+'.new';$failure=$null
+ try{
+  Write-OpenWebRecoveryFile -Path $temporary -Bytes $raw
+  Initialize-OpenWebUpgradeRecoveryNative
+  [OpenWebPbx.UpgradeRecoveryNativeV1]::Commit($temporary,$path)
+ }catch{$failure=$_;throw}finally{
+  if(Test-Path -LiteralPath $temporary){try{Remove-Item -LiteralPath $temporary -Force -ErrorAction Stop}catch{if($failure){$failure.Exception.Data['greeting_compatibility_temporary_cleanup_failed']=$true}else{throw}}}
+ }
  $null=Assert-OpenWebRecoveryProtected $path -Private
 }
 function Set-OpenWeb20GreetingHelper {
@@ -429,6 +438,8 @@ function VerifyBackup([string]$Backup) {
 function RestorePbx([string]$Backup) {
  if (!(Test-Path "$Backup\complete.json")) { throw 'The selected backup is incomplete.' }
  VerifyBackup $Backup
+ . (Join-Path $script:recoveryCodeRoot 'PhoneHealth-Security.ps1')
+ Stop-OpenWebHealthTask -MaintenanceLock $lock -Disable
  # Restore the separate original20 compatibility ACL before-image while the
  # current helper paths still exist; unchanged mirrors restore original bytes.
  if(($RestoreBackup -or $script:operatorRollback) -and (Get-Content -LiteralPath (Join-Path $Backup 'complete.json') -Raw|ConvertFrom-Json).version -ceq '1.0.20'){Restore-OpenWeb20GreetingCompatibility -Backup $Backup -OperatorRollback}

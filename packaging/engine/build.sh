@@ -3,6 +3,10 @@
 set -euo pipefail
 build_root=${OPENWEB_ENGINE_BUILD:-/usr/src/openweb-engine}
 script_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+websocket_patch="$script_root/../freeswitch/windows-websocket-fragments.patch"
+if [[ ! -f "$websocket_patch" ]]; then websocket_patch="$script_root/../packaging/freeswitch/windows-websocket-fragments.patch"; fi
+test -f "$websocket_patch"
+printf '%s  %s\n' '7d2a3147d67537f47f57a316044fe4b61f47e060df33fa1f4b16c917958b120b' "$websocket_patch" | sha256sum --check --status
 apt-get update
 apt-get install -y autoconf automake build-essential git patch libtool libtool-bin pkg-config cmake uuid-dev libssl-dev libpcre2-dev libsqlite3-dev libcurl4-openssl-dev libedit-dev libldns-dev libspeex-dev libspeexdsp-dev libopus-dev libsndfile1-dev libtiff-dev libjpeg-dev libpq-dev liblua5.2-dev libmemcached-dev libshout3-dev libmpg123-dev libmp3lame-dev libavformat-dev libswscale-dev libvpx-dev libyuv-dev yasm nasm zlib1g-dev
 mkdir -p "$build_root"
@@ -10,6 +14,13 @@ build_dependency() {
  local name=$1 revision=$2
  git clone "https://github.com/freeswitch/$name.git" "$build_root/$name"
  git -C "$build_root/$name" checkout --detach "$revision"
+ if [[ "$name" == 'sofia-sip' ]]; then
+  (cd "$build_root/$name"
+   printf '%s  %s\n' '7c0b8b55cf4010e4dd3d4dd65dd91be06697e925026d8efc2d1a9425c7a946e7' 'libsofia-sip-ua/tport/ws.c' '34cf6c56abb87886bd909a2cb86f7b812d1f4613066cde490cf913cedfeefb12' 'libsofia-sip-ua/tport/ws.h' | sha256sum --check --status
+   patch --batch --forward --fuzz=0 -p3 < "$websocket_patch"
+   printf '%s  %s\n' '7e7d6a14f5426b6a18054107a4f3353cfb1569838ec88625beaa2b1d42296d55' 'libsofia-sip-ua/tport/ws.c' '98898e83103f7f7f499c58a2d702c5cd8f5dd35291827c6aa4881bb6289791bb' 'libsofia-sip-ua/tport/ws.h' | sha256sum --check --status
+  )
+ fi
  (cd "$build_root/$name"; sh autogen.sh; ./configure --enable-debug; make -j "$(nproc)"; make install)
  ldconfig
 }
