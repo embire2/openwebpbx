@@ -11,7 +11,7 @@ import tarfile
 
 PACKAGE = Path(__file__).resolve().parent
 SOUNDS = Path('/usr/share/freeswitch/sounds')
-KNOWN_ENGINE_SHA256 = '321e0d3ce65399d614107968e2a3a7ff8e0650eefcee68900af000736bb5ea01'
+KNOWN_ENGINE_SHA256 = '6ded7513a66899e0d9413b99a270344a5697944bc38f51c13d58952caa34cccc'
 
 
 def digest(path):
