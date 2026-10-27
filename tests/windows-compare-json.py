@@ -15,7 +15,7 @@ CRITICAL_TABLES = (
     'v_group_permissions', 'v_user_groups', 'v_menu', 'v_menu_items',
     'v_pbx_tenants', 'v_pbx_tenant_users', 'v_pbx_services', 'v_pbx_templates',
     'v_pbx_service_assignments', 'v_pbx_setup_templates', 'v_pbx_restore',
-    'v_pbx_sip_domains',
+    'v_pbx_sip_domains', 'v_pbx_greeting_status',
 )
 LIMIT = 100000
 FILE_FIELDS = ('acl', 'sha256', 'bytes', 'directory', 'added', 'removed', 'shape', 'other')
@@ -69,6 +69,7 @@ PUBLIC_COLUMNS = {
     table: ('insert_date', 'update_date', 'insert_user', 'update_user')
     for table in CRITICAL_TABLES
 }
+PUBLIC_COLUMNS['v_pbx_greeting_status'] = ('singleton', 'provider_configured', 'checked_at')
 PUBLIC_COLUMNS['v_vars'] += ('var_uuid', 'var_category', 'var_name', 'var_value',
                              'var_order', 'var_enabled', 'var_description')
 PUBLIC_COLUMNS['v_default_settings'] += (

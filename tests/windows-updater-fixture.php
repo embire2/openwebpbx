@@ -1,5 +1,22 @@
 <?php
 /** SPDX-License-Identifier: AGPL-3.0-or-later. Private disposable updater audit. */
+
+function updater_fixture_greeting_heartbeat(array $rows): array {
+    if(count($rows)>1)throw new RuntimeException('Greeting heartbeat must retain its exact singleton inventory.');
+    $projected=[];
+    foreach($rows as $row){
+        if(!$row instanceof stdClass)throw new RuntimeException('Greeting heartbeat row is malformed.');
+        $fields=array_keys(get_object_vars($row));sort($fields,SORT_STRING);
+        if($fields!==['checked_at','provider_configured','singleton']||!is_int($row->singleton)||$row->singleton!==1||!is_bool($row->provider_configured)
+            ||!is_string($row->checked_at)||!preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/D',$row->checked_at))
+            throw new RuntimeException('Greeting heartbeat schema or values changed.');
+        $time=new DateTimeImmutable($row->checked_at);$errors=DateTimeImmutable::getLastErrors();
+        if($errors!==false&&($errors['warning_count']||$errors['error_count']))throw new RuntimeException('Greeting heartbeat time is malformed.');
+        $copy=clone $row;$copy->checked_at='__openweb_worker_heartbeat__';$projected[]=$copy;
+    }
+    return $projected;
+}
+
 if (PHP_SAPI !== 'cli' || PHP_OS_FAMILY !== 'Windows' || getenv('OPENWEB_WINDOWS_UPDATER_TEST') !== '1'
     || getenv('GITHUB_ACTIONS') !== 'true' || getenv('RUNNER_ENVIRONMENT') !== 'github-hosted'
     || getenv('GITHUB_REPOSITORY') !== 'embire2/openwebpbx') exit(2);
@@ -66,7 +83,12 @@ if ($action === 'snapshot') {
         if (in_array($table,$volatile,true)) continue;
         $quoted='"'.str_replace('"','""',$table).'"';
         $rows=$db->query('select coalesce(json_agg(t order by row_to_json(t)::text),\'[]\') from '.$quoted.' t')->fetchColumn();
-        $out['values'][$table]=$digest(json_decode($rows,true,512,JSON_THROW_ON_ERROR));
+        // Only the existing worker's validated singleton timestamp is a heartbeat.
+        // Keep this table, provider state, inventory and every schema field exact.
+        $values=$table==='v_pbx_greeting_status'
+            ? updater_fixture_greeting_heartbeat(json_decode($rows,false,512,JSON_THROW_ON_ERROR))
+            : json_decode($rows,true,512,JSON_THROW_ON_ERROR);
+        $out['values'][$table]=$digest($values);
     }
     $label=$s['snapshot_label']??'';if(!preg_match('/^[a-z0-9-]{1,48}$/D',$label))throw new RuntimeException('A fixed audit label is required.');
     file_put_contents($directory.'/'.$label.'-database.json',json_encode($out,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT));
