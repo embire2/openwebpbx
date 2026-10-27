@@ -6,12 +6,92 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import stat
 import tempfile
 import tarfile
 
 PACKAGE = Path(__file__).resolve().parent
 SOUNDS = Path('/usr/share/freeswitch/sounds')
 KNOWN_ENGINE_SHA256 = '6ded7513a66899e0d9413b99a270344a5697944bc38f51c13d58952caa34cccc'
+
+# The immutable16 updater calls candidate payload() before make_backup().
+# Return this one native member through that existing transaction, not bootstrap.
+NATIVE_ENGINE_SHA256 = '6ded7513a66899e0d9413b99a270344a5697944bc38f51c13d58952caa34cccc'
+NATIVE_SOFIA = Path('/usr/local/lib/libsofia-sip-ua.so.0.6.0')
+NATIVE_SOFIA_MEMBER = 'usr/local/lib/libsofia-sip-ua.so.0.6.0'
+NATIVE_SOFIA_BYTES = 2265864
+NATIVE_SOFIA_OLD_SHA256 = '7e7930be0599e5625e27e257476e83b55990dd242bddf0d2e78dd349e3942c53'
+NATIVE_SOFIA_SHA256 = '32873b76e45a6a1b06c8ba39ca15f0d35b25ccc917d364a58a246d698600faca'
+
+
+def native_library_hash():
+    target = NATIVE_SOFIA
+    if any(path.is_symlink() for path in (target, *target.parents)):
+        raise ValueError('The native Sofia destination must be an ordinary installed path.')
+    for parent in target.parents:
+        directory = parent.lstat()
+        if not stat.S_ISDIR(directory.st_mode) or directory.st_uid != 0 or directory.st_mode & 0o022:
+            raise ValueError('The native Sofia directory ancestry must be protected and root-owned.')
+    node = target.lstat()
+    if not stat.S_ISREG(node.st_mode) or node.st_uid != 0 or node.st_gid != 0 or node.st_nlink != 1 or stat.S_IMODE(node.st_mode) not in (0o755, 0o644) or os.listxattr(target):
+        raise ValueError('The native Sofia destination has unsupported ownership, links or attributes.')
+    for name in ('libsofia-sip-ua.so', 'libsofia-sip-ua.so.0'):
+        link = target.with_name(name)
+        link_node = link.lstat()
+        if not stat.S_ISLNK(link_node.st_mode) or link_node.st_uid != 0 or link_node.st_gid != 0 or link_node.st_nlink != 1 or os.readlink(link) != target.name:
+            raise ValueError('The native Sofia loader links differ from the reviewed installation.')
+    return digest(target)
+
+
+def native_payload(package, manifest):
+    if manifest.get('files', {}).get('engine.tar.gz') != NATIVE_ENGINE_SHA256:
+        return {}  # Historical packages retain their original deployment scope.
+    archive = Path(package) / 'engine.tar.gz'
+    if any(path.is_symlink() for path in (archive, *archive.parents)) or not archive.is_file() or digest(archive) != NATIVE_ENGINE_SHA256:
+        raise ValueError('The complete pinned native engine archive is required.')
+    if native_library_hash() not in (NATIVE_SOFIA_OLD_SHA256, NATIVE_SOFIA_SHA256):
+        raise ValueError('The installed native Sofia library is not a reviewed preimage.')
+    parent = Path(package).parent
+    node = parent.stat()
+    if node.st_uid != 0 or node.st_mode & 0o022:
+        raise ValueError('The verified candidate needs a protected root-owned staging parent.')
+    data = None
+    with tarfile.open(archive, 'r|gz') as source:
+        for member in source:
+            if member.name != NATIVE_SOFIA_MEMBER:
+                continue
+            if data is not None or not member.isfile() or member.size != NATIVE_SOFIA_BYTES:
+                raise ValueError('One exact ordinary native Sofia archive member is required.')
+            data = source.extractfile(member).read(NATIVE_SOFIA_BYTES + 1)
+            if len(data) != NATIVE_SOFIA_BYTES or hashlib.sha256(data).hexdigest() != NATIVE_SOFIA_SHA256:
+                raise ValueError('The native Sofia source member differs from the reviewed build.')
+    if data is None:
+        raise ValueError('The reviewed native Sofia member is missing.')
+    # A sibling keeps the unchanged old manifest file-set guard valid. The old
+    # CLI owns this verified parent and removes it in its original finally.
+    descriptor, name = tempfile.mkstemp(prefix='.openweb-sofia-', suffix='.so', dir=parent)
+    with os.fdopen(descriptor, 'wb') as output:
+        output.write(data)
+        output.flush()
+        os.fsync(output.fileno())
+    directory = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+    return {NATIVE_SOFIA: Path(name)}
+
+
+def require_native_snapshot(backup, manifest):
+    if manifest.get('files', {}).get('engine.tar.gz') != NATIVE_ENGINE_SHA256:
+        return
+    rows = [row for row in json.loads((backup / 'files.json').read_text())
+            if row.get('path') == str(NATIVE_SOFIA)]
+    if len(rows) != 1 or rows[0].get('exists') is not True or rows[0].get('sha256') not in (NATIVE_SOFIA_OLD_SHA256, NATIVE_SOFIA_SHA256):
+        raise ValueError('The original updater must snapshot native Sofia before deployment.')
+    saved = backup / 'files' / NATIVE_SOFIA.relative_to('/')
+    if not saved.is_file() or saved.is_symlink() or digest(saved) != rows[0]['sha256'] or native_library_hash() != NATIVE_SOFIA_SHA256:
+        raise ValueError('The pre-deployment native snapshot and deployed library are required.')
 
 
 def digest(path):
@@ -64,14 +144,15 @@ def voice_module(package):
     return module
 
 
-def payload(package, manifest, *, sounds_root=SOUNDS, fresh=False):
+def payload(package, manifest, *, sounds_root=SOUNDS, fresh=False, include_native=True):
     package = Path(package)
+    native = native_payload(package, manifest) if not fresh and include_native else {}
     base = package/'voices/1.0.2'
     if not base.exists():
         # Older immutable release archives have no voice overlay.
         if any(name.startswith('voices/') for name in manifest['files']):
             raise ValueError('The release voice directory is incomplete.')
-        return {}
+        return native
     required = {'voice-tools/voicepack.py','voice-tools/deployment.py',
                 'voices/1.0.2/catalog.json','voices/1.0.2/pack.json','voices/1.0.2/LICENSE-FreeSWITCH.txt'}
     for name in required:
@@ -87,7 +168,9 @@ def payload(package, manifest, *, sounds_root=SOUNDS, fresh=False):
     module = voice_module(package)
     catalog = module.voicepack.load_catalog(base/'catalog.json')
     required=None if fresh else required_stock_paths(package,manifest)
-    return module.deployment_files(base,catalog,sounds_root,fresh=fresh,required_stock_paths=required)
+    result = module.deployment_files(base,catalog,sounds_root,fresh=fresh,required_stock_paths=required)
+    result.update(native)
+    return result
 
 
 def copy_files(mappings):
@@ -133,7 +216,7 @@ def main():
     journal = json.loads(journal_path.read_text())
     if journal.get('state') != 'migrating' or journal.get('version') != manifest['version']:
         raise ValueError('The voice installer is outside its update transaction.')
-    mappings = payload(PACKAGE,manifest)
+    mappings = payload(PACKAGE,manifest,include_native=False)
     spec = importlib.util.spec_from_file_location('voice_support',PACKAGE/'install-support.py')
     support = importlib.util.module_from_spec(spec); spec.loader.exec_module(support)
     backup = Path(journal['backup_path'])
@@ -145,6 +228,7 @@ def main():
     spec = importlib.util.spec_from_file_location('voice_upgrade',PACKAGE/'upgrade.py')
     upgrade = importlib.util.module_from_spec(spec); spec.loader.exec_module(upgrade)
     upgrade.validate_backup(backup)
+    require_native_snapshot(backup,manifest)
     support.augment_snapshot(backup,list(mappings))
     upgrade.validate_backup(backup)
     # Legacy updaters already deployed their four original OpenWeb prompt
