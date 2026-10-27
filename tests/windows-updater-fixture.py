@@ -209,8 +209,11 @@ class Web:
         denied, _, _ = self.request('/app/pbx_updates/index.php', {'action': 'install'})
         if denied != 403: raise RuntimeError('Missing-CSRF installation was not rejected.')
         status, _, text = self.request('/app/pbx_updates/index.php')
-        forms = [f for f in Forms(text).forms if f['method'] == 'post' and {'name': 'action', 'value': 'install'} in f['buttons']]
-        if status != 200 or len(forms) != 1 or not re.search(r'name="action" value="install"', text):
+        buttons = [{'name': 'action', 'value': action} for action in ('check', 'download', 'install')]
+        forms = [f for f in Forms(text).forms if f['method'] == 'post' and f['buttons'] == buttons]
+        if (status != 200 or len(forms) != 1 or len(forms[0]['fields']) != 1
+                or not next(iter(forms[0]['fields'].values()), '')
+                or not re.search(r'name="action" value="install"', text)):
             raise RuntimeError('The normal instance administrator installation form is unavailable.')
         fields = forms[0]['fields'] | {'action': 'install'}
         result = self.request('/app/pbx_updates/index.php', fields)
