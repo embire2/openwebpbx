@@ -18,6 +18,8 @@ param(
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-upgrade-health-quiescence.ps1')
+. (Join-Path $PSScriptRoot 'windows_updater_file_acl_observation.ps1')
+. (Join-Path $PSScriptRoot 'windows_updater_database_observation.ps1')
 if([version]$CanaryVersion -le [version]$BaseVersion){throw 'The canary must be a genuinely newer numeric version.'}
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){throw 'Only the explicitly disposable owned GitHub-hosted Windows runner is authorized.'}
 $os=Get-CimInstance Win32_OperatingSystem
@@ -29,7 +31,7 @@ $work=Join-Path $env:RUNNER_TEMP ('openwebpbx-updater-'+[Guid]::NewGuid().ToStri
 $public=Join-Path $env:RUNNER_TEMP 'openwebpbx-updater-facts';$output=Join-Path $env:RUNNER_TEMP 'openwebpbx-updater-canary'
 $phase='verified baseline artifacts';$installed=$false;$transport=$null;$transportRoot=$null;$ownHosts=$false;$serviceEnvironment=$null;$inputFile=$null;$settings=$null;$scope=$null;$fixtureCreated=$false
 $managerOwned=$false;$managerStarted=$null;$managerName=$null;$managerSid=$null;$managerSession=0
-$qualificationHealthOriginal=$null;$PackageRoot=$null
+$qualificationHealthOriginal=$null;$qualificationTenantOriginal=$null;$PackageRoot=$null
 $retainedProcesses=[Collections.Generic.List[Diagnostics.Process]]::new()
 $script:qualificationFailedChild=$null
 $script:qualificationComparisonFailure=$null
@@ -64,6 +66,8 @@ function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null
    $safe.comparison=$report
    if($Comparison.label -ceq 'normal-task-contract-security' -and $report.comparison_result -ceq 'different' -and $frames.ToArray().function -ccontains 'EqualTaskSnapshots' -and $frames.ToArray().function -ccontains 'NormalTaskPreservation'){try{$task=QualificationTaskDifferenceFields $Comparison.task;if($task){$safe.task_difference=$task}}catch{}}
    if($Comparison.label -ceq 'fault-files' -and $report.comparison_result -ceq 'different'){$capture=QualificationFileCaptureFields $Comparison.capture;if($capture){$safe.file_capture=$capture}}
+   if($Comparison.label -ceq 'normal-database' -and $report.comparison_result -ceq 'different'){try{$database=Read-WindowsUpdaterDatabaseObservation $Comparison.database;if($database){$safe.database_difference=$database}}catch{}}
+   if($Comparison.label -ceq 'normal-protected-files' -and $report.comparison_result -ceq 'different'){try{$security=Read-WindowsUpdaterAclObservation $Comparison.file_security;if($security){$safe.file_security=$security}}catch{}}
   }
  }
  if($frames.ToArray().function -ccontains 'Hash' -and $frames.ToArray().function -ccontains 'SnapshotHash' -and $frames.ToArray().function -ccontains 'FileSnapshot'){$hash=QualificationHashFailureFields $HashFailure;if($hash){$safe.hash_failure=$hash}}
@@ -94,6 +98,7 @@ function QualificationSnapshotPaths {
  $paths=@{}
  foreach($pair in @(@('installation','installation'),@('runtime','runtime'),@('updater-install','updater_install'),@('native-engine','native_engine'),@('local-codec','local_codec'),@('phone-tls','phone_tls_metadata'))){$paths['c:/programdata/openwebpbx/'+$pair[0]+'.json']=$pair[1]}
  $paths+=@{'c:/openwebpbx'='program_root';'c:/openwebpbx/php/php.ini'='php_ini';'c:/openwebpbx/php/extras/ssl/openssl.cnf'='php_openssl';'c:/openwebpbx/php/extras/ssl/cacert.pem'='php_cacert';'c:/programdata/openwebpbx/mobile-notifications'='notification_store';'c:/programdata/openwebpbx/mobile-notifications/config.json'='notification_config';'c:/programdata/openwebpbx/mobile-notifications/config.json.lock'='notification_lock';'c:/programdata/fusionpbx'='fusionpbx_root';'c:/programdata/fusionpbx/config.conf'='fusionpbx_config';'c:/programdata/fusionpbx/openweb-template.key'='fusionpbx_template_key';'c:/programdata/openwebpbx/automatic-backups/worker.lock'='automatic_backups_worker_lock';'c:/programdata/openwebpbx/storage'='storage_root';'c:/programdata/openwebpbx/storage/openweb-music'='stock_music_root';'c:/programdata/openwebpbx/storage/openweb-music/readme.md'='stock_music_readme';'c:/programdata/openwebpbx/storage/openweb-music/manifest.json'='stock_music_manifest';'c:/program files/freeswitch/sounds'='stock_sounds_root';'c:/program files/freeswitch/sounds/openwebpbx'='stock_sounds_openwebpbx'}
+ $paths+=@{'c:/programdata/openwebpbx'='state_root';'c:/programdata/openwebpbx/upgrade.lock'='maintenance_lock';'c:/programdata/openwebpbx/call-records.hold'='call_records_hold';'c:/programdata/openwebpbx/phone-health-instance.json'='phone_health_identity';'c:/programdata/openwebpbx/stun.json'='stun_metadata';'c:/programdata/openwebpbx/meet-ca.pem'='meeting_ca';'c:/programdata/openwebpbx/meet-proxy.json'='meeting_proxy_metadata';'c:/programdata/openwebpbx/mail'='mail_root';'c:/programdata/openwebpbx/meet-proxy'='meeting_proxy_root';'c:/programdata/openwebpbx/tenant-domains'='tenant_domains_root';'c:/programdata/openwebpbx/phone-health-runtime'='phone_health_runtime_root';'c:/programdata/openwebpbx/stun-setup'='stun_setup_root';'c:/programdata/openwebpbx/dtls-setup'='dtls_setup_root'}
  foreach($name in 'phone-tls','public-access','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build'){$paths['c:/programdata/openwebpbx/'+$name]=$name.Replace('-','_')+'_root'}
  foreach($rate in 8000,16000,32000,48000){$base='c:/programdata/openwebpbx/storage/openweb-music/'+$rate;$paths[$base]='stock_music_'+$rate+'_dir';$paths[$base+'/lofi-beat-loop-schmoop.wav']='stock_music_'+$rate+'_track'}
  return $paths
@@ -501,6 +506,8 @@ function QualificationComparisonFields($Record){
  if($stage -cne 'compare'){return $null};if($result -ceq 'equal'){return $safe}
  $tables=@('v_vars','v_default_settings','v_domain_settings','v_domains','v_users','v_extensions','v_gateways','v_dialplans','v_dialplan_details','v_sip_profiles','v_sip_profile_settings','v_permissions','v_groups','v_group_permissions','v_user_groups','v_menu','v_menu_items','v_pbx_tenants','v_pbx_tenant_users','v_pbx_services','v_pbx_templates','v_pbx_service_assignments','v_pbx_setup_templates','v_pbx_restore','v_pbx_sip_domains')
  $columns=@(foreach($table in $tables){foreach($column in 'insert_date','update_date','insert_user','update_user'){$table+'.'+$column};if($table -ceq 'v_vars'){foreach($column in 'var_uuid','var_category','var_name','var_value','var_order','var_enabled','var_description'){$table+'.'+$column}};if($table -ceq 'v_default_settings'){foreach($column in 'default_setting_uuid','default_setting_category','default_setting_subcategory','default_setting_name','default_setting_value','default_setting_order','default_setting_enabled','default_setting_description'){$table+'.'+$column}}})
+ $tables+=,'v_pbx_greeting_status'
+ $columns+=@('v_pbx_greeting_status.singleton','v_pbx_greeting_status.provider_configured','v_pbx_greeting_status.checked_at')
  $arrays=@{comparison_changed_sections=@('identity','roles','memberships','schema','tables','columns','values','table_count');comparison_critical_tables=$tables;comparison_critical_columns=$columns}
  foreach($field in $arrays.Keys){
   $values=$Record.$field;if($values -isnot [Array] -or $values.Count -gt $arrays[$field].Count){return $null}
@@ -537,6 +544,7 @@ function QualificationComparisonFields($Record){
   $labels=@('installation','runtime','updater_install','native_engine','local_codec','phone_tls_metadata','storage_root','stock_music_root','stock_music_readme','stock_music_manifest','stock_sounds_root','stock_sounds_openwebpbx')
   $labels+=@('fusionpbx_root','fusionpbx_config','fusionpbx_template_key','automatic_backups_worker_lock','phone_tls_root','public_access_root','automatic_backups_root','backup_restore_root','backup_control_root','backup_downloads_root','codec_compiler_cache_root','codec_build_root')
   $labels+=@('program_root','php_ini','php_openssl','php_cacert','notification_store','notification_config','notification_lock')
+  $labels+=@('state_root','maintenance_lock','call_records_hold','phone_health_identity','stun_metadata','meeting_ca','meeting_proxy_metadata','mail_root','meeting_proxy_root','tenant_domains_root','phone_health_runtime_root','stun_setup_root','dtls_setup_root')
   foreach($rate in 8000,16000,32000,48000){$labels+=@(('stock_music_'+$rate+'_dir'),('stock_music_'+$rate+'_track'))}
   $nested=@{comparison_file_category_field_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','backup_runtime','acme_runtime','other');comparison_known_file_field_counts=$labels;comparison_config_scope_field_counts=@('fusionpbx','phone_tls','public_access','automatic_backups','backup_restore','backup_control','backup_downloads','codec_compiler_cache','codec_build');comparison_file_category_added_kind_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','backup_runtime','acme_runtime','other');comparison_config_scope_removed_kind_counts=@('fusionpbx','phone_tls','public_access','automatic_backups','backup_restore','backup_control','backup_downloads','codec_compiler_cache','codec_build')}
   foreach($field in $nested.Keys){
@@ -635,7 +643,8 @@ function QualificationFileCapture($Before,$After,[string]$StateRoot,[string]$Con
 }
 function Equal($Before,$After,[string]$Label){
  $script:qualificationComparisonFailure=$null
- $a=Join-Path $work ($Label+'-before.json');$b=Join-Path $work ($Label+'-after.json');WriteJson $a $Before;WriteJson $b $After
+ $comparisonAfter=$After;if($Label -ceq 'normal-protected-files'){$comparisonAfter=Get-WindowsUpdaterProtectedComparisonCopy $Before $After $Label $state}
+ $a=Join-Path $work ($Label+'-before.json');$b=Join-Path $work ($Label+'-after.json');WriteJson $a $Before;WriteJson $b $comparisonAfter
  try{CheckedProcess "$root\backup-runtime\python.exe" @('-I','-B',(Join-Path $PSScriptRoot 'windows-compare-json.py'),$a,$b) ('compare-'+$Label)}catch{
   # The exact predicate still owns refusal. Read only its bounded machine report;
   # private snapshots, arbitrary keys/values and error streams are never exported.
@@ -648,6 +657,8 @@ function Equal($Before,$After,[string]$Label){
    }
   }catch{}
   $script:qualificationComparisonFailure=@{label=$Label;report=$report}
+  if($Label -ceq 'normal-database' -and $report.comparison_result -ceq 'different'){$script:qualificationComparisonFailure.database=@{schema=1;state='unavailable'};try{$database=Get-WindowsUpdaterDatabaseObservation $Before $After (Split-Path $inputFile -Parent);if($database){$script:qualificationComparisonFailure.database=$database}}catch{}}
+  if($Label -ceq 'normal-protected-files' -and $report.comparison_result -ceq 'different' -and $report.comparison_files_observed -eq $true){$script:qualificationComparisonFailure.file_security=@{schema=1;state='unavailable'};try{$security=Get-WindowsUpdaterAclObservation $Before $After;if($security){$script:qualificationComparisonFailure.file_security=$security}}catch{}}
   if($Label -ceq 'normal-task-contract-security' -and $report.comparison_result -ceq 'different'){try{$task=QualificationTaskDifference $Before $After;if($task){$script:qualificationComparisonFailure.task=$task}}catch{}}
   if($Label -ceq 'fault-files' -and $report.comparison_result -ceq 'different' -and $report.comparison_files_observed -eq $true){
    try{$script:qualificationComparisonFailure.capture=QualificationFileCapture $Before $After $state $configuration}catch{$script:qualificationComparisonFailure.capture=@{state='unavailable';paths=@{}}}
@@ -710,6 +721,36 @@ function WaitInstall([string]$ExpectedState,[string]$ExpectedCommand,[DateTime]$
   Start-Sleep -Milliseconds 500
  }while([DateTime]::UtcNow -lt $deadline)
  throw 'The actual installed worker did not complete its bounded signed transaction.'
+}
+function WaitQualificationFaultPrefetch($Packet,[uint32]$WorkerPid,$OriginalWorker,[ValidateRange(1,1200)][int]$Limit=1200){
+ # Let the ordinary Windows download/preflight finish before strict baselines.
+ # No request/Tick/restart/cache write; original transaction bounds stay exact.
+ $clock=[Diagnostics.Stopwatch]::StartNew()
+ do{
+  if($clock.Elapsed.TotalSeconds -ge $Limit){throw [TimeoutException]::new('The ordinary worker did not finish its bounded natural fault prefetch.')}
+  Check ((InstalledVersions $BaseVersion) -eq $WorkerPid) 'Natural prefetch must retain the original installed worker.'
+  AssertOriginalProcessState $OriginalWorker $WorkerPid $false 'Natural prefetch must retain the original ordinary SYSTEM worker.'
+  $probe=Fixture 'status'
+  Check ($probe -is [pscustomobject] -and @($probe.PSObject.Properties).Count -eq 2 -and $probe.PSObject.Properties.Name -ccontains 'commands' -and $probe.PSObject.Properties.Name -ccontains 'channels' -and $probe.commands -is [Array] -and ($probe.channels -is [int] -or $probe.channels -is [long]) -and $probe.channels -eq 0) 'Natural prefetch requires the exact idle fixture status.'
+  foreach($command in $probe.commands){Check ($command.action -is [string] -and $command.action -cin 'check','download' -and $command.status -is [string] -and $command.status -cin 'pending','running','completed','failed') 'No installation request may precede the signed transaction.'}
+  if((Test-Path "$state\updates\status.json") -and (Test-Path "$state\updates\worker-journal.json")){
+   $ready=Get-Content "$state\updates\status.json" -Raw|ConvertFrom-Json -AsHashtable
+   $journal=Get-Content "$state\updates\worker-journal.json" -Raw|ConvertFrom-Json -AsHashtable
+   $statusFields=@('state','message','installed_version','available_version','progress_bytes','total_bytes','checked_at','last_success_version','platform','update_required','download_ready','update_notice')
+   $journalFields=@('command_id','action','target_version','state','updated_at','asset_sha256')
+   Check ($ready -is [Collections.IDictionary] -and $ready.Count -eq $statusFields.Count -and @($ready.Keys|Where-Object {$_ -cnotin $statusFields}).Count -eq 0) 'Natural prefetch requires the exact native status shape.'
+   Check ($journal -is [Collections.IDictionary] -and $journal.Count -eq $journalFields.Count -and @($journal.Keys|Where-Object {$_ -cnotin $journalFields}).Count -eq 0) 'Natural prefetch requires the exact native worker journal.'
+   if($ready.state -is [string] -and $ready.state -ceq 'ready' -and $ready.installed_version -is [string] -and $ready.installed_version -ceq $BaseVersion -and $ready.available_version -is [string] -and $ready.available_version -ceq $CanaryVersion -and $ready.platform -is [string] -and $ready.platform -ceq 'windows-x64' -and $ready.update_required -is [bool] -and $ready.update_required -and $ready.download_ready -is [bool] -and $ready.download_ready -and ($ready.progress_bytes -is [int] -or $ready.progress_bytes -is [long]) -and $ready.progress_bytes -eq $Packet.bytes -and ($ready.total_bytes -is [int] -or $ready.total_bytes -is [long]) -and $ready.total_bytes -eq $Packet.bytes -and $journal.state -is [string] -and $journal.state -ceq 'ready' -and $journal.target_version -is [string] -and $journal.target_version -ceq $CanaryVersion -and $journal.asset_sha256 -is [string] -and $journal.asset_sha256 -ceq $Packet.sha256 -and $null -eq $journal.command_id -and $null -eq $journal.action){
+    Check (@($probe.commands|Where-Object {$_.status -cin 'pending','running'}).Count -eq 0) 'Natural prefetch must finish without an active update command.'
+    DownloadProof 'fault' $Packet
+    Check ((InstalledVersions $BaseVersion) -eq $WorkerPid) 'Readiness must retain the original installed worker.'
+    AssertOriginalProcessState $OriginalWorker $WorkerPid $false 'Readiness must retain the original ordinary SYSTEM worker.'
+    if($clock.Elapsed.TotalSeconds -ge $Limit){throw [TimeoutException]::new('The ordinary worker did not finish its bounded natural fault prefetch.')}
+    return
+   }
+  }
+  Start-Sleep -Milliseconds 500
+ }while($true)
 }
 function DownloadProof([string]$Mode,$Packet){
  $path="$state\updates\downloads\$($Packet.sha256).archive";Check ((Test-Path $path) -and (Get-Item $path).Length -eq $Packet.bytes -and (Hash $path) -eq $Packet.sha256 -and !(Test-Path ($path+'.partial'))) 'The actual worker must retain the complete verified HTTP archive.'
@@ -853,8 +894,10 @@ if(!$?){exit 1}
   $phase='fault14 full HTTPS download and rollback'
   if(Test-Path "$state\updates\trust.json"){$prior=Get-Content "$state\updates\trust.json" -Raw|ConvertFrom-Json;Check ($prior.sequence -le $verified.fault.sequence) 'The private fault sequence must not lower existing trust.'}
   Check ((Fixture 'status').channels -eq 0) 'The actual call engine must be idle.'
+  WaitQualificationFaultPrefetch $verified.fault $initialPid $originalWorker
   $phase='exact owned Health observer quiescence before all preservation baselines'
   Suspend-OpenWebQualificationHealth ([ref]$qualificationHealthOriginal)
+  Suspend-OpenWebQualificationTenant ([ref]$qualificationTenantOriginal)
   $facts.checks+='Exact owned Health task/helper identity and zero native children/runtime files before complete DB/file/task preservation baselines; enabled choice retained privately'
   $phase='ordinary SYSTEM backup worker baseline initialization'
   InitializeQualificationBackupWorker -Root $root -StateRoot $state -PackageRoot $package
@@ -907,6 +950,9 @@ if(!$?){exit 1}
     # Restore the pre-baseline choice only after every strict comparison. The
     # held lock prevents a resumed observer changing the preserved fixture.
     # Disposable shutdown then stops that exact worker and refuses any orphan.
+    # Replay the captured tenant choice under the existing exclusive cleanup lock.
+    # The original shutdown loop below then disables disposable background tasks.
+    Resume-OpenWebQualificationTenant $qualificationTenantOriginal
     Resume-OpenWebQualificationHealth $qualificationHealthOriginal
     $cleanupHealth=$null;Suspend-OpenWebQualificationHealth ([ref]$cleanupHealth)
     foreach($name in 'OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate'){if(Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue){Disable-ScheduledTask -TaskName $name|Out-Null}}

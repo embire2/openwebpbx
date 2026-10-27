@@ -15,7 +15,7 @@ CRITICAL_TABLES = (
     'v_group_permissions', 'v_user_groups', 'v_menu', 'v_menu_items',
     'v_pbx_tenants', 'v_pbx_tenant_users', 'v_pbx_services', 'v_pbx_templates',
     'v_pbx_service_assignments', 'v_pbx_setup_templates', 'v_pbx_restore',
-    'v_pbx_sip_domains',
+    'v_pbx_sip_domains', 'v_pbx_greeting_status',
 )
 LIMIT = 100000
 FILE_FIELDS = ('acl', 'sha256', 'bytes', 'directory', 'added', 'removed', 'shape', 'other')
@@ -50,6 +50,7 @@ KNOWN_FILE_PATHS.update({
     'c:/program files/freeswitch/sounds': 'stock_sounds_root',
     'c:/program files/freeswitch/sounds/openwebpbx': 'stock_sounds_openwebpbx',
 })
+KNOWN_FILE_PATHS.update({'c:/programdata/openwebpbx': 'state_root', 'c:/programdata/openwebpbx/upgrade.lock': 'maintenance_lock', 'c:/programdata/openwebpbx/call-records.hold': 'call_records_hold', 'c:/programdata/openwebpbx/phone-health-instance.json': 'phone_health_identity', 'c:/programdata/openwebpbx/stun.json': 'stun_metadata', 'c:/programdata/openwebpbx/meet-ca.pem': 'meeting_ca', 'c:/programdata/openwebpbx/meet-proxy.json': 'meeting_proxy_metadata', 'c:/programdata/openwebpbx/mail': 'mail_root', 'c:/programdata/openwebpbx/meet-proxy': 'meeting_proxy_root', 'c:/programdata/openwebpbx/tenant-domains': 'tenant_domains_root', 'c:/programdata/openwebpbx/phone-health-runtime': 'phone_health_runtime_root', 'c:/programdata/openwebpbx/stun-setup': 'stun_setup_root', 'c:/programdata/openwebpbx/dtls-setup': 'dtls_setup_root'})
 CONFIG_SCOPES = {
     'c:/programdata/fusionpbx': 'fusionpbx',
     **{'c:/programdata/openwebpbx/' + name: name.replace('-', '_')
@@ -69,6 +70,7 @@ PUBLIC_COLUMNS = {
     table: ('insert_date', 'update_date', 'insert_user', 'update_user')
     for table in CRITICAL_TABLES
 }
+PUBLIC_COLUMNS['v_pbx_greeting_status'] = ('singleton', 'provider_configured', 'checked_at')
 PUBLIC_COLUMNS['v_vars'] += ('var_uuid', 'var_category', 'var_name', 'var_value',
                              'var_order', 'var_enabled', 'var_description')
 PUBLIC_COLUMNS['v_default_settings'] += (

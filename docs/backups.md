@@ -2,9 +2,9 @@
 
 Backups protect **all tenants on one Debian 13 installation**. Only an enabled instance administrator with the **pbx_backup_instance** permission can change settings, request or download a copy. Tenant administrators cannot access another tenant’s data through this page.
 
-Instance backups were introduced in Debian 1.0.9; the earlier 1.0.7 package did not include this worker. The published complete Debian 13 server is 1.0.16, with a separate 1.0.19 administration update. The procedures below describe Debian; use the separate [Windows backup and restore guide](windows-backups.md) for published Windows 1.0.20 and its qualification limits. Debian/Windows cross-platform restores remain unsupported.
+The current complete server release is **1.0.21** for Debian 13 amd64 and Windows Server 2025 Desktop Experience. Installation, encrypted backups and separate replacement restores pass the [current qualification](release-1.0.21-qualification.md). The procedures below describe Debian; use the [Windows backup and restore guide](windows-backups.md) for Windows. Match the backup's platform and release; Debian/Windows cross-platform restores remain unsupported. Instance backups were introduced in Debian 1.0.9; the earlier 1.0.7 package did not include this worker.
 
-## Windows 1.0.20 published qualification
+## Historical Windows 1.0.20 qualification
 
 [Windows Server 1.0.20](https://github.com/embire2/openwebpbx/releases/tag/v1.0.20) is published for Windows Server 2025 x64 with Desktop Experience. Its exact package passes normal40111566679 (17 essential gates), independent replacement restore40123098262 (source9/target20), and signed newer upgrade40125359325 (9 gates plus111 native scheduling/file-sharing controls). See the [qualification record](release-1.0.20-qualification.md) for accepted scope and remaining owner 1.0.6 migration, OS reboot, physical/carrier/external-NAT and restored-conference media checks.
 
@@ -84,7 +84,7 @@ Do not put these directories under the web root or grant tenants filesystem acce
 
 Do this on a **separate fresh installation**, not the running customer PBX.
 
-1. Install the same OpenWeb PBX release as the backup, with the original public server name and a valid certificate. For a future qualified Debian 1.0.20 or later release, add **`--restore-server`** to `./install.sh`; this prepares an empty instance instead of creating sample extensions/tenants. Use the built-in local PostgreSQL instance. Do not move DNS or activate the replacement’s carrier trunks yet. Earlier releases support the same empty-restore bootstrap through `OPENWEB_RESTORE_SERVER=true ./install.sh ...`; use the matching release’s instructions.
+1. Install the same OpenWeb PBX release as the backup, with the original public server name and a valid certificate. For Debian 1.0.21, add **`--restore-server`** to `./install.sh`; this prepares an empty instance instead of creating sample extensions/tenants. Use the built-in local PostgreSQL instance. Do not move DNS or activate the replacement’s carrier trunks yet. Earlier releases support the same empty-restore bootstrap through `OPENWEB_RESTORE_SERVER=true ./install.sh ...`; use the matching release’s instructions.
 2. Copy the encrypted backup to a root-only folder on the replacement. Compare its encrypted SHA-256 with the saved download value.
 3. Verify the entire copy. The tool prompts privately for the original password:
 

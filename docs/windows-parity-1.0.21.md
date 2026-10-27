@@ -1,49 +1,37 @@
-# Windows Server 1.0.21: coverage and release status
+# Windows Server 1.0.21: coverage and release scope
 
-**Candidate — qualification pending.** The supported server target is **Windows Server 2025 x64 with Desktop Experience**. The public Windows release remains [1.0.20](https://github.com/embire2/openwebpbx/releases/tag/v1.0.20); 1.0.21 is not published.
+**Complete Windows and Debian server1.0.21 release**. Supported server: **Windows Server 2025 x64 Desktop Experience**. The native Windows phone client is separate and unreleased.
 
-The latest [complete test40377313091](https://github.com/embire2/openwebpbx/actions/runs/40377313091), [source3fbb9c12f9013f82b4350aa9c5f4a2f43f842878](https://github.com/embire2/openwebpbx/tree/3fbb9c12f9013f82b4350aa9c5f4a2f43f842878), failed in its newly added temporary PostgreSQL DID test before the complete suite; canonical cleanup passed. Separate [component40383982749](https://github.com/embire2/openwebpbx/actions/runs/40383982749) isolates the refusal to initdb, whose original stderr remains unretained. No complete package acceptance follows. The same66 real DID controls pass on the owner’s Windows Server2025 through a separate bounded PowerShell adapter; that result does not qualify the original Python/Job driver. The preceding4310 package passes all17 essential software gates. A correction for tenant-address HTTPS443 across automatic, local and installed certificate modes passes source/binder controls; its new native build40388086310 succeeds, with independent archive admission and a fresh full run pending. Matching restore, signed-update and restored-conference checks remain required.
+Windows [normal40435466441](https://github.com/embire2/openwebpbx/actions/runs/40435466441) passes all 17 essential software gates and package/source/private-data audits for source `cab93`. Matching [replacement restore40446022002](https://github.com/embire2/openwebpbx/actions/runs/40446022002) passes source 9/target 20, and [restored conferences40452374400](https://github.com/embire2/openwebpbx/actions/runs/40452374400) passes source 9/target 21 with decoded audio/video and 16 WebSocket roundtrips; canonical cleanup passes.
 
-## What the Windows server includes
+The authorized Windows Server 2025 owner test passes the ordinary signed 1.0.20→21 upgrade, installed Greetings recording/replay/save, an actual Windows reboot, four running services and two opposite original-credential TLS calls with decoded two-way audio.
 
-These features are implemented; the current package must still complete the release checks below.
+Debian 13 source `89ae` passes its complete fresh-installation, calling/media, clock, Greetings, STUN and encrypted-backup matrix; a genuine 1.0.16 installation with verified signed revision 2 passes rollback and automatic 1.0.21 updater finalization. A separate current-backup restore preserves target database identities/roles, all customer rows and 374 protected files, with only the existing previous-server backup-job status handling. Restored browser audio/VP8 video, mute/unmute/end and all 16 original WebSocket roundtrips pass.
 
-| Area | Windows delivery | Operator guide |
-|---|---|---|
-| Complete local installation | PostgreSQL on the PBX machine, FreeSWITCH, IIS/PHP administration, background service, native server manager and installer | [Install Windows](installing-windows-1.0.21.md) |
-| Tenants, users and calling | Shared instance database with tenant controls; extension accounts, providers, incoming/outgoing routes, groups, queues, callbacks and voicemail | [Current feature roadmap](../3CX.md) |
-| Add a provider number | Add a DID and destination directly from its trunk; optional continuation into Call Me Back with that number selected. Live on hosted Debian; separate owner Windows66 controls pass, final package qualification pending | [Number setup](trunk-options.md#add-an-incoming-number) |
-| Company schedules | Company-group hours, breaks, holidays and overrides; optional separate extension routing during and outside office hours | [Company office hours](company-office-hours.md) |
-| Greetings and system audio | Keoma system speech; reusable phone recordings and configured typed narration, dedicated Windows storage and preservation of existing custom audio | [Greetings](greetings.md) |
-| Mail and onboarding | One outgoing SMTP setup, including IP-whitelisted relays; welcome email, QR/configuration setup and voicemail mail processing | [Tenant phone accounts](tenant-phone-accounts.md) |
-| Phone Health and connectivity | Registration/recovery status, Windows protection integration, configured public listeners and STUN | [Installation and network checks](installing-windows-1.0.21.md) |
-| Conferences | Meeting service, secure browser transport and software audio/video tests; replacement restores have a separate conference gate | [Windows meetings](windows-meet.md) |
-| Backups and recovery | Encrypted scheduled/manual Windows instance backups, retention, media and controlled replacement activation | [Windows backups](windows-backups.md) |
-| Updates | Five-minute signed-feed checks and verified predownload; desktop modal and red web banner. Services continue until an administrator chooses installation. Existing idle, backup/restore and recovery protections remain | [Windows upgrades](windows-upgrade.md) |
+Android remains 1.0.19; Windows Free Phone is unreleased. Broader physical phone/camera/carrier, public ACME delivery and Store approval remain separate. The roadmap stays 133 goals / 21 accepted / 72 partial / 40 planned. Earlier records retain their date/package scope.
 
-The browser administration remains the main PBX administration interface. The native WinUI server manager handles installation, status and update controls; a complete WinUI administration rewrite is unfinished. This coverage is not a claim that every 3CX feature is complete.
+## Current exact-package checks
 
-## Required before publishing 1.0.21
+| Check | Current record |
+|---|---|
+| Fresh/full server, software calling and media, services, backup/update/recovery and cleanup | [40435466441](https://github.com/embire2/openwebpbx/actions/runs/40435466441), all 17 essential gates passed |
+| Original published20 automatic upgrade, installed Greetings, actual Windows reboot, four services and opposite TLS calls | Owner test passed with original credentials and scoped data/pin/cleanup checks |
+| Independent clean replacement restore | passed: [40446022002](https://github.com/embire2/openwebpbx/actions/runs/40446022002), source9/target20 with canonical cleanup |
+| Signed genuinely newer22 upgrade/late rollback/natural restart/manager/preservation | [run40501021425](https://github.com/embire2/openwebpbx/actions/runs/40501021425) passed all9 signed-upgrade gates and117 original Scheduler/file-sharing controls at QA source `8834f96bfc576dbcb5c864e718ac9bb31024dab2`; canonical cleanup and exact-owned temporary-secret removal passed; all nine signed-upgrade gates and117 scheduling/file-sharing controls apply to the unchanged CAB product |
+| Restored browser conferences/audio/video | passed: [40452374400](https://github.com/embire2/openwebpbx/actions/runs/40452374400), source9/target21, decoded audio/video and16 WSS roundtrips |
+| Exact archive/source/native/audio/private-data audits | Currentcab93 package/source audits passed; matching functional records are listed above |
 
-All four functional results must match the same final package. Audit its archive and corresponding source before signing or publication.
+The server includes a local PostgreSQL database, FreeSWITCH, IIS/PHP browser administration, native setup/status/update manager, tenants, routes, queues, callbacks, voicemail, company-group hours, Greetings, Add DID, Phone Health, STUN, encrypted backups and browser meetings. Built-in Keoma prompts are included; typed narration uses a configured provider account and its charges. Windows uses dedicated Greetings storage and preserves working custom/legacy media. The browser is the primary administration interface; a complete native WinUI administration rewrite is unfinished.
 
-| Release requirement | Required evidence | Current status |
-|---|---|---|
-| Complete normal run | Fresh installation and all17 essential calling, service, security, backup, update/recovery and cleanup gates | 40377313091 failed at the added temporary database driver; corrected full repeat pending |
-| Independent replacement restore | Clean target, preserved database/media/credentials, original-credential calling and restored jobs | Pending for the final matching package |
-| Signed newer-version update | Actual verified download, upgrade, failure rollback, natural restart, manager reopen and preservation | Pending for the final matching package |
-| Restored conferences | Actual browser audio/video on the replacement, preserved data and complete cleanup | Pending for the final matching package |
-| Archive and source audits | Exact package inventory, hashes, required native/source inputs and private-data exclusions | Matching3fbb source audit passed; installer audit waits for an accepted fresh package |
+## Historical signed-run record
 
-[Windows1.0.20 qualification](windows-parity-1.0.20.md) remains evidence for that public release. The [older21 results and detailed qualification record](release-1.0.21-qualification.md) retain their original scope, including the earlier7d package and native component tests. They do not substitute for the requirements above.
+**Historical signed-newer attempt:** [40471666785](https://github.com/embire2/openwebpbx/actions/runs/40471666785) failed. This earlier result does not qualify later exact-package repeats.
 
-A separate owner test machine has confirmed Server2025 administrator access,8GB RAM,144GB free storage,UTC+2 and running Microsoft Defender. The corrected standalone recovery fixture passes220 checks on stock Windows PowerShell5.1; this excludes an actual updater binary. The published1.0.20 baseline has completed installation with the recorded process-scoped crypto configuration and standard443 workaround; all four services and its native manager are running. Owner calling, upgrade and reboot checks remain pending.
+## Limits
 
-## Explicit limits
+- Controlled software phones/HTTPS and an owner upgrade/reboot do not establish every physical phone, camera, carrier, NAT or public ACME issuance/renewal.
+- Existing meeting-invitation continuity and legacy Windows1.0.6 migration remain unqualified. The ordinary public upgrade minimum is1.0.20.
+- Windows 10/11 server installation and Debian-to-Windows instance-backup migration are unsupported. The 3CX V20 configuration importer is a separate path requiring its report and actual cutover checks.
+- Android remains1.0.19. Windows Free Phone and Microsoft Store/Google Play approvals remain separate; no full3CX parity is claimed.
 
-- Real Windows reboot, legacy Windows1.0.6 migration and external physical-phone/carrier handover remain unqualified.
-- Public ACME issuance/renewal and continuity of old meeting invitation links remain unqualified; controlled HTTPS and new/restored meeting tests have narrower scope.
-- Debian instance backups are not Windows restore inputs. The supported 3CX configuration importer is a separate migration path requiring its Restore Report and actual deployment checks.
-- Windows10/11 server installation is unsupported. Windows Free Phone is a separate development client; its media, distribution and Microsoft Store acceptance are unfinished.
-
-Use the [installation guide](installing-windows-1.0.21.md) for prerequisites and deployment checks, and the [roadmap](../3CX.md) for remaining product work.
+[Install Windows](installing-windows-1.0.21.md) · [Backup/restore](windows-backups.md) · [Updates](windows-server-updates.md) · [Historical qualification](release-1.0.21-qualification.md) · [Roadmap](../3CX.md)

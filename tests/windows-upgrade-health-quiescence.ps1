@@ -58,3 +58,58 @@ function Resume-OpenWebQualificationHealth($Original) {
   Start-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth'
  }
 }
+
+# QA only: stop new tenant lease ticks and let the exact owned operation finish.
+# Never normalize custody/security rows or terminate a task/native child.
+function Assert-OpenWebQualificationTenantTask($Task) {
+ $execute=$root+'\backup-runtime\python.exe';$arguments='-I -B "'+$root+'\tools\tenant-domains.py"'
+ if(@($Task).Count -ne 1 -or $Task.TaskName -cne 'OpenWebPBX-TenantDomains' -or $Task.TaskPath -cne '\' -or $Task.Description -cne 'OpenWeb PBX owned tenant HTTPS lease worker' -or $Task.Principal.UserId -cnotin 'SYSTEM','S-1-5-18' -or [string]$Task.Principal.RunLevel -cnotin 'Highest','1' -or [string]$Task.Principal.LogonType -cnotin 'ServiceAccount','5' -or @($Task.Actions).Count -ne 1 -or $Task.Actions[0].Execute -ine $execute -or $Task.Actions[0].Arguments -cne $arguments -or $Task.Actions[0].WorkingDirectory -ine ($root+'\tools') -or [string]$Task.Settings.MultipleInstances -cne 'IgnoreNew' -or [string]$Task.Settings.ExecutionTimeLimit -cne 'PT10M' -or $Task.Settings.Enabled -isnot [bool] -or [string]$Task.State -cnotin 'Running','Ready','Disabled','Queued') {
+  throw 'The tenant qualification refuses a foreign or changed task.'
+ }
+ foreach($name in 'tenant-domains.py','tenant-domains.php','Tenant-Domains.ps1','Install-TenantDomains.ps1') {
+  $installed=Join-Path (Join-Path $root 'tools') $name;$packaged=Join-Path $PackageRoot $name
+  foreach($path in $installed,$packaged){$item=Get-Item -LiteralPath $path -Force -ErrorAction Stop;if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'The owned tenant helper must remain ordinary.'}}
+  if((Hash $installed) -cne (Hash $packaged)){throw 'The owned tenant helper differs from the verified candidate.'}
+ }
+}
+function Get-OpenWebQualificationTenantProcesses {
+ $count=0;$nativeRoot=$root.Replace('/','\')
+ foreach($process in Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='php.exe' OR Name='powershell.exe' OR Name='wacs.exe'" -OperationTimeoutSec 3 -ErrorAction Stop) {
+  $exe=([string]$process.ExecutablePath).Replace('/','\');$command=([string]$process.CommandLine).Replace('/','\');$expected=$null
+  foreach($pair in @(@('tenant-domains.py',($nativeRoot+'\backup-runtime\python.exe')),@('tenant-domains.php',($nativeRoot+'\php\php.exe')),@('Tenant-Domains.ps1',($env:SystemRoot+'\System32\WindowsPowerShell\v1.0\powershell.exe')))) {
+   if($command -match ('(?i)(?:^|[\s"])'+[regex]::Escape($nativeRoot+'\tools\'+$pair[0])+'(?=$|[\s"])')){$expected=$pair[1];break}
+  }
+  # The ordinary certificate child can outlive its launching Python/PowerShell.
+  if(!$expected -and $command -match '(?i)(?:^|\s)--friendlyname\s+"?OpenWebPBX-tenants-[a-f0-9]{12}(?=$|[\s"])'){$expected=$nativeRoot+'\acme\wacs.exe'}
+  if(!$expected){continue}
+  $owner=Invoke-CimMethod -InputObject $process -MethodName GetOwnerSid -OperationTimeoutSec 3 -ErrorAction Stop
+  if(!$exe.Equals($expected,[StringComparison]::OrdinalIgnoreCase) -or $owner.ReturnValue -ne 0 -or $owner.Sid -cne 'S-1-5-18'){throw 'The tenant qualification refuses an unexpected worker identity.'}
+  $count++
+ };return $count
+}
+function Suspend-OpenWebQualificationTenant([ref]$Original,[ValidateRange(0,600)][int]$WaitSeconds=600) {
+ $task=Get-ScheduledTask -TaskName 'OpenWebPBX-TenantDomains' -ErrorAction Stop
+ Assert-OpenWebQualificationTenantTask $task
+ $null=Get-OpenWebQualificationTenantProcesses
+ $Original.Value=@{Exists=$true;Enabled=$task.Settings.Enabled}
+ Disable-ScheduledTask -TaskName 'OpenWebPBX-TenantDomains' -ErrorAction Stop|Out-Null
+ $timer=[Diagnostics.Stopwatch]::StartNew()
+ do {
+  $current=Get-ScheduledTask -TaskName 'OpenWebPBX-TenantDomains' -ErrorAction Stop
+  Assert-OpenWebQualificationTenantTask $current
+  if($current.Settings.Enabled){throw 'The tenant task unexpectedly became enabled.'}
+  if([string]$current.State -cnotin 'Running','Queued' -and (Get-OpenWebQualificationTenantProcesses) -eq 0){return}
+  if($timer.Elapsed.TotalSeconds -ge $WaitSeconds){throw 'The owned tenant operation did not finish before the qualification deadline.'}
+  Start-Sleep -Milliseconds 250
+ }while($true)
+}
+function Resume-OpenWebQualificationTenant($Original) {
+ if(!$Original){return}
+ if($Original.Exists -isnot [bool] -or !$Original.Exists -or $Original.Enabled -isnot [bool]){throw 'The original tenant enabled choice is invalid.'}
+ $task=Get-ScheduledTask -TaskName 'OpenWebPBX-TenantDomains' -ErrorAction Stop
+ Assert-OpenWebQualificationTenantTask $task
+ if($Original.Enabled){Enable-ScheduledTask -TaskName 'OpenWebPBX-TenantDomains' -ErrorAction Stop|Out-Null}else{Disable-ScheduledTask -TaskName 'OpenWebPBX-TenantDomains' -ErrorAction Stop|Out-Null}
+ $current=Get-ScheduledTask -TaskName 'OpenWebPBX-TenantDomains' -ErrorAction Stop
+ Assert-OpenWebQualificationTenantTask $current
+ if($current.Settings.Enabled -cne $Original.Enabled){throw 'The original tenant enabled choice did not recover.'}
+}

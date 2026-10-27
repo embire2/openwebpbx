@@ -1,8 +1,8 @@
 # Application updates
 
-**Windows Server:** the next build adds five-minute checks, automatic verified downloads, a native required-update modal and a red web-console banner. Postponing leaves services available; installation starts only after an administrator requests it. See [Windows Server updates](windows-server-updates.md) for behavior and qualification status. The policy options below continue to describe Debian.
+**Windows Server 1.0.21:** five-minute checks, automatic verified downloads, a native required-update modal and a red web-console banner are included. Postponing leaves services available; installation starts only after an administrator requests it. See [Windows Server updates](windows-server-updates.md) for behavior and qualification status. The policy options below continue to describe Debian.
 
-The current combined Debian/Android release is **1.0.16**. The hosted OpenWeb instance requires Android **1.0.16/code116** across every tenant. Independent installations start with an inactive minimum; set it under **Minimum direct Android release for every phone** after upgrading the core. Existing tenant policies are retained. Android confirmation/reopening may still be required; active calls defer replacement.
+The complete Debian 13 and Windows Server 2025 release is **1.0.21**; the Android app is **1.0.19/code119**. The hosted OpenWeb instance requires Android **1.0.19/code119** across every tenant. Independent installations start with an inactive minimum; set it under **Minimum direct Android release for every phone** after upgrading the core. Existing tenant policies are retained. Android confirmation/reopening may still be required; active calls defer replacement.
 
 Open **Admin → System → Updates** to check the installed version, review an available release and choose how this instance updates. This setting covers every tenant on the instance; tenants do not install their own server database or application.
 
@@ -49,7 +49,7 @@ A completed update is not automatically reverted after users have resumed work; 
 
 ## Windows Server
 
-Windows Server1.0.20 uses its own signed **windows-update-manifest.json** and independent C# updater. Its ordinary feed requires installed1.0.20 or newer; earlier Windows installations need a separately qualified legacy transition, which is not published. The Android **update-manifest.json** remains1.0.18 and **debian-update-manifest.json** remains1.0.16, preserved byte-for-byte with the Windows release. See [Windows updates and recovery](windows-upgrade.md) for service names, recovery and manager reopening. Windows Server2025 x64 Desktop Experience is supported; the server installer refuses Windows10/11. The Windows calling client is separate.
+Windows Server 1.0.21 uses its own signed **windows-update-manifest.json** and independent C# updater, supporting installed 1.0.20 or newer. Earlier Windows installations need a separately qualified transition. The Android **update-manifest.json** remains byte-identical at 1.0.19. The separate **debian-update-manifest.json** offers server 1.0.21; original Debian 1.0.16 installations first require the verified signed revision2 compatibility bootstrap in the [Debian guide](installing-debian-1.0.21.md). See [Windows Server updates](windows-server-updates.md) and [current release qualification](release-1.0.21-qualification.md). Windows Server 2025 x64 Desktop Experience is supported; Windows10/11 server installation is refused. The Windows calling client is separate.
 
 ## Android phones
 

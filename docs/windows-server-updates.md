@@ -1,6 +1,6 @@
 # Windows Server updates
 
-The next Windows Server build checks its signed Windows release feed every **five minutes**. It downloads a newer compatible release automatically, verifies its signature, complete archive and installation requirements, and leaves the PBX running until an administrator requests installation. These changes are under native qualification; the published 1.0.20 package is unchanged.
+Windows Server 1.0.21 checks its signed Windows feed every **five minutes**, verifies the complete newer compatible download and leaves the PBX running until an administrator requests installation. **Complete Windows and Debian server1.0.21 release**. See the [current release scope](release-1.0.21-qualification.md) for the exact accepted package.
 
 When an update is available, the Windows manager displays:
 
@@ -23,7 +23,9 @@ Closing or postponing the prompt never requests installation. Update errors keep
 
 The check interval and download requirement apply to the Windows server. Debian's policy options and Android/Windows phone update settings remain separate.
 
-## Validation
+## Current release and historical validation
+
+Current1.0.21 normal40435466441 passes all17 essential gates. Its matching signed-newer result is **[run40501021425](https://github.com/embire2/openwebpbx/actions/runs/40501021425) passed all9 signed-upgrade gates and117 original Scheduler/file-sharing controls at QA source `8834f96bfc576dbcb5c864e718ac9bb31024dab2`; canonical cleanup and exact-owned temporary-secret removal passed**. The component and1.0.20 records below retain their original scope; [current qualification](release-1.0.21-qualification.md) controls the new release.
 
 82 portable updater checks and 85 isolated PostgreSQL authorization/notice checks pass. [Native Windows run 40198754623](https://github.com/embire2/openwebpbx/actions/runs/40198754623) passes 13 actual worker controls with an isolated PostgreSQL database and PowerShell helper: the five-minute boundary, cached-download reuse, postponement under old automatic policies, single queued installation, active-call deferral and failed-feed retry. Its helper fixture does not claim a complete real-server upgrade. Ten UI Automation controls open the actual WinUI manager and test its modal, download readiness, Later, persistent banner and completed-notice removal. All 76 recorded native source inputs and the complete original artifact hash were independently checked against the dispatched commit. Ten Chromium checks exercise the real notice CSS/JavaScript at desktop and mobile sizes, including declined installation, offline retention, ordinary-user restrictions and the installation POST.
 

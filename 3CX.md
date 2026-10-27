@@ -1,5 +1,23 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+## Server 1.0.21 — 2026-10-27 / Complete Windows and Debian server1.0.21 release
+
+Windows [normal40435466441](https://github.com/embire2/openwebpbx/actions/runs/40435466441) passes all 17 essential software gates and package/source/private-data audits for source `cab93`. Matching [replacement restore40446022002](https://github.com/embire2/openwebpbx/actions/runs/40446022002) passes source 9/target 20, and [restored conferences40452374400](https://github.com/embire2/openwebpbx/actions/runs/40452374400) passes source 9/target 21 with decoded audio/video and 16 WebSocket roundtrips; canonical cleanup passes.
+
+The authorized Windows Server 2025 owner test passes the ordinary signed 1.0.20→21 upgrade, installed Greetings recording/replay/save, an actual Windows reboot, four running services and two opposite original-credential TLS calls with decoded two-way audio.
+
+Debian 13 source `89ae` passes its complete fresh-installation, calling/media, clock, Greetings, STUN and encrypted-backup matrix; a genuine 1.0.16 installation with verified signed revision 2 passes rollback and automatic 1.0.21 updater finalization. A separate current-backup restore preserves target database identities/roles, all customer rows and 374 protected files, with only the existing previous-server backup-job status handling. Restored browser audio/VP8 video, mute/unmute/end and all 16 original WebSocket roundtrips pass.
+
+Windows signed-newer qualification: **[run40501021425](https://github.com/embire2/openwebpbx/actions/runs/40501021425) passed all9 signed-upgrade gates and117 original Scheduler/file-sharing controls at QA source `8834f96bfc576dbcb5c864e718ac9bb31024dab2`; canonical cleanup and exact-owned temporary-secret removal passed**.
+
+Android remains 1.0.19; Windows Free Phone is unreleased. Broader physical phone/camera/carrier, public ACME delivery and Store approval remain separate. The roadmap stays 133 goals / 21 accepted / 72 partial / 40 planned. Earlier records retain their date/package scope.
+
+Windows source/tag: [`v1.0.21`](https://github.com/embire2/openwebpbx/tree/cab93b390ba2e8f33c184f2f085740c2862031a6) (`cab93b390ba2e8f33c184f2f085740c2862031a6`). Debian source/tag: [`debian-v1.0.21`](https://github.com/embire2/openwebpbx/tree/89ae4e4ad3947902ceb6332bc21030b3a6ac2dfd) (`89ae4e4ad3947902ceb6332bc21030b3a6ac2dfd`). Public assets/feeds: **11 release assets and three feed envelopes; exact public verification recorded in the release receipt**. Later documentation commits do not change these package snapshots.
+
+## Historical records — original scope retained
+
+**Historical signed-newer attempt:** [40471666785](https://github.com/embire2/openwebpbx/actions/runs/40471666785) failed. This earlier result does not qualify later exact-package repeats.
+
 **Current server release closure —27 October2026:** Windows1.0.21 [full40410701583](https://github.com/embire2/openwebpbx/actions/runs/40410701583) tests the final source, including a repair for Greetings when upgrading from the published1.0.20 updater. Portable review passes; actual original20 upgrade and full-package/restore/update checks remain required. The corrected Debian13 candidate passes complete source/package/private-value audits; isolated two-way calling, voicemail121 and the GMT+2 clock pass. Clean installation, recording, upgrade recovery and replacement restore remain in progress. Public Windows20, Debian16, Android19 and the133/21/72/40 broader roadmap totals remain unchanged. Earlier run records below retain their original scope.
 
 **Hosted Add DID —26 October2026:** Admin → Voice & Chat → trunk → Incoming Calls now adds an individual number and destination, with an optional continuation into Call Me Back using that number. Existing outgoing settings, routes and phone credentials remain unchanged. Both exact development/live variants pass66 PostgreSQL +23 POST/template HTTP controls; the live normal-owner browser, DID preselection, CSRF denial and preservation of25 customer tables/seven registered phones pass. New carrier delivery and Windows installer qualification remain separate; SETUP-01/02 and CALL-01/02 keep their existing broader status and the133/21/72/40 totals remain unchanged. [Number setup](docs/trunk-options.md#add-an-incoming-number).

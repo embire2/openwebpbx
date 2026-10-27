@@ -1,5 +1,23 @@
 # Windows Server 1.0.21 qualification
 
+## Server 1.0.21 — 2026-10-27 / Complete Windows and Debian server1.0.21 release
+
+Windows [normal40435466441](https://github.com/embire2/openwebpbx/actions/runs/40435466441) passes all 17 essential software gates and package/source/private-data audits for source `cab93`. Matching [replacement restore40446022002](https://github.com/embire2/openwebpbx/actions/runs/40446022002) passes source 9/target 20, and [restored conferences40452374400](https://github.com/embire2/openwebpbx/actions/runs/40452374400) passes source 9/target 21 with decoded audio/video and 16 WebSocket roundtrips; canonical cleanup passes.
+
+The authorized Windows Server 2025 owner test passes the ordinary signed 1.0.20→21 upgrade, installed Greetings recording/replay/save, an actual Windows reboot, four running services and two opposite original-credential TLS calls with decoded two-way audio.
+
+Debian 13 source `89ae` passes its complete fresh-installation, calling/media, clock, Greetings, STUN and encrypted-backup matrix; a genuine 1.0.16 installation with verified signed revision 2 passes rollback and automatic 1.0.21 updater finalization. A separate current-backup restore preserves target database identities/roles, all customer rows and 374 protected files, with only the existing previous-server backup-job status handling. Restored browser audio/VP8 video, mute/unmute/end and all 16 original WebSocket roundtrips pass.
+
+Windows signed-newer qualification: **[run40501021425](https://github.com/embire2/openwebpbx/actions/runs/40501021425) passed all9 signed-upgrade gates and117 original Scheduler/file-sharing controls at QA source `8834f96bfc576dbcb5c864e718ac9bb31024dab2`; canonical cleanup and exact-owned temporary-secret removal passed**.
+
+Android remains 1.0.19; Windows Free Phone is unreleased. Broader physical phone/camera/carrier, public ACME delivery and Store approval remain separate. The roadmap stays 133 goals / 21 accepted / 72 partial / 40 planned. Earlier records retain their date/package scope.
+
+Windows source/tag: [`v1.0.21`](https://github.com/embire2/openwebpbx/tree/cab93b390ba2e8f33c184f2f085740c2862031a6) (`cab93b390ba2e8f33c184f2f085740c2862031a6`). Debian source/tag: [`debian-v1.0.21`](https://github.com/embire2/openwebpbx/tree/89ae4e4ad3947902ceb6332bc21030b3a6ac2dfd) (`89ae4e4ad3947902ceb6332bc21030b3a6ac2dfd`). Public assets/feeds: **11 release assets and three feed envelopes; exact public verification recorded in the release receipt**. Later documentation commits do not change these package snapshots.
+
+## Historical records — original scope retained
+
+**Historical signed-newer attempt:** [40471666785](https://github.com/embire2/openwebpbx/actions/runs/40471666785) failed. This earlier result does not qualify later exact-package repeats.
+
 This candidate adds five-minute Windows update checks, native and web required-update notices, Keoma Greetings, group-managed company hours, opt-in extension office routing and Keoma stock speech. Publication and deployment were explicitly requested on 25 October 2026. The public Windows installer remains 1.0.20 until the new package's required checks pass.
 
 **Current candidate —26 October2026:** [Normal40377313091](https://github.com/embire2/openwebpbx/actions/runs/40377313091), exact3fbb9c12f9013f82b4350aa9c5f4a2f43f842878, is terminal failed in its new temporary PostgreSQL DID driver. Fresh installation and canonical cleanup pass; the17 essential aggregate gates are not qualified. Root refuses the terminal consumer before candidate/audio download. Separate [component40383982749](https://github.com/embire2/openwebpbx/actions/runs/40383982749) identifies the initdb phase and CalledProcessError, but its captured native stderr was not retained. Failure-only encrypted observation of those existing buffers is prepared; no native command, deadline, retry or acceptance change is authorized by this result. The same66 real PostgreSQL/PHP DID controls pass separately on the owner’s Windows Server2025 through a PowerShell file-output adapter, with all400 installed file hashes, services and listening endpoints preserved. This does not establish the Python/Job driver’s cause or qualify the complete package.

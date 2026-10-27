@@ -1,10 +1,10 @@
 # Install OpenWeb PBX 1.0.21
 
-The 1.0.21 release prepares a **Windows Server 2025 x64** package and deployment of the same new features on hosted Debian 13. The complete public Debian 13 installer remains **1.0.16**; Debian build/install instructions below do not announce a new public Debian archive. Android **1.0.19/code119** is published and mandatory on hosted accounts; compatible server support is required. Windows 10/11 server installs and Debian-to-Windows instance-backup restores remain unsupported.
+Complete server 1.0.21 packages target **Windows Server 2025 x64 Desktop Experience** and **Debian 13 amd64**. **Complete Windows and Debian server1.0.21 release**. Android stays **1.0.19/code119**; Windows Free Phone remains unreleased. Windows 10/11 server installation and Debian-to-Windows instance-backup migration are unsupported.
 
-**Windows Server1.0.21 and Debian1.0.21 remain under qualification.** Public full installers remain Windows1.0.20 and Debian1.0.16. For the Windows candidate, use the [focused Windows guide](installing-windows-1.0.21.md); its matching assets must pass qualification before publication. This general guide also records the candidate Debian flow. Follow the [release qualification record](release-1.0.21-qualification.md) and [Windows release checks](windows-parity-1.0.21.md); current public downloads are listed in the [README](../readme.md#downloads-and-platforms). Once your platform is published, use its matching archive and `SHA256SUMS`, and extract the complete archive into an empty private folder.
+Use the [Windows guide](installing-windows-1.0.21.md) or [Debian guide](installing-debian-1.0.21.md), matching complete archive and `SHA256SUMS`. Extract into an empty private directory. [Release qualification](release-1.0.21-qualification.md) records separate platform evidence and limits.
 
-**Install only a published package whose release notes record the completed qualification for your platform. Development archives are not stable releases.** Release preparation is authorized; the exact package must finish its functional qualification before publication.
+Use the updater for an installed PBX. For source builds, choose `v1.0.21` for Windows or `debian-v1.0.21` for Debian, with the separately named application archives and Debian engine source.
 
 Version 1.0.21 includes Greetings, company-group office hours, five-minute Windows update notices, admin incoming-route controls and Android tenant-address support, managed tenant addresses, manual extension/app-password sign-in, separate simultaneous phone profiles and inline-QR/setup-file welcome invitations. Read [tenant phone accounts](tenant-phone-accounts.md) and [the Play submission audit](google-play-audit-1.0.17.md). It retains Meet audio/video conferences, Keoma stock voice pack1.0.2 and clock1.0.3, PIN-free own voicemail on **121**, the repaired GMT+2 clock on **1026**, optional Call Me Back and native Android video. It retains the department roles, phone-handover checks and provider evidence delivered in 1.0.15. Read [Meet](meet.md), [Android video](android-video.md), [staff access](department-staff.md), [phone handover](desk-phone-handover.md) and [first calls](core-calling.md). Physical phone/camera and carrier qualification remain separate.
 
@@ -16,12 +16,12 @@ Apply the current PHP security updates before deployment. On 21 October 2026, PH
 
 ## Windows Server installation
 
-Use the matching `openwebpbx-1.0.21-windows-x64.zip` only after publication with its completed Windows qualification recorded. Windows Server 2025 x64 with Desktop Experience is the supported server target. The server installer refuses Windows10/11; the native Windows calling client is a separate project.
+Use the matching `openwebpbx-1.0.21-windows-x64.zip` only after publication with its completed Windows qualification recorded. Windows Server 2025 x64 with Desktop Experience is the supported server target. The server installer refuses Windows 10/11; the native Windows calling client is a separate project.
 
 Extract the complete archive to a private directory and run **Start-OpenWebPBX.cmd**. It checks Microsoft's required runtime before opening the WinUI manager. Choose **Setup**, enter the server hostname and administrator email/password, and select **Automatic public certificate**. Approve Windows' administrator prompt to install. The hostname must point at the server, with TCP80/443 and the documented SIP/audio ports reachable. After setup, use the installed desktop shortcut. The equivalent command in built-in **Windows PowerShell5.1 as Administrator** is:
 
 ```powershell
-.\Install-OpenWebPBX.ps1 -DomainName 'pbx.example.com' -EnablePublicAccess -AdminEmail 'admin@example.com'
+.\Install-OpenWebPBX.ps1 -DomainName 'pbx.example.com' -EnablePublicAccess -HttpsPort 443 -AdminEmail 'admin@example.com'
 ```
 
 Setup installs the local PostgreSQL database, IIS/PHP, call engine, background service, updater, backup tooling, offline Keoma prompts, secure meeting proxy and the server manager. No separate database server is needed. The call engine starts during setup; provider trunks must be configured and explicitly enabled before provider calls can run. For a clean replacement receiving an encrypted **Windows** instance backup, add `-RestoreServer` and retain the original public hostname and HTTPS port. Debian instance backups are not accepted by the Windows restorer; the 3CX configuration importer is a separate migration path. See [Windows meeting transport](windows-meet.md) for the scoped proxy prerequisites and recovery behavior. Preserve existing installations and use the manager/updater's documented upgrade path; never run a fresh installer over an existing PBX. Check [Windows upgrade guidance](windows-upgrade.md), the platform's actual release notes and the feature-coverage limits before replacing a production system.
@@ -36,7 +36,7 @@ After setup, verify all of the following before moving live numbers:
 - Connect two phones and prove ringing, two-way audio, hold/resume and voicemail. Then test the configured provider's incoming/outgoing calls and routes.
 - Verify Phone Health shows the expected registrations, send a controlled welcome email, and test the tenant address/Android connection and any browser meetings you use.
 - Create and verify an encrypted backup. For a replacement, follow the [Windows backup and restore guide](windows-backups.md), including separate activation of calls and jobs.
-- In a planned maintenance window, restart Windows and repeat service, HTTPS and calling checks. This is still an open qualification step, not a claim that a native reboot has passed.
+- In a planned maintenance window, restart Windows and repeat service, HTTPS and calling checks on your deployment before cutover.
 
 ## New Debian server
 
@@ -68,7 +68,7 @@ python3 split-android-feed.py
 python3 split-android-feed.py --apply
 ```
 
-Preflight verifies the signature and exact supported files. Applying takes a recovery copy and restarts only the independent update worker; calling services and phone settings remain unchanged. The hosted instance already has this patch. The generic phone feed now supplies Android1.0.19, while the patched server uses the separate Debian feed, whose current public full server is1.0.16. A Debian1.0.21 feed must not be offered until its new package is qualified and published. Older servers need the documented intermediate upgrade to 1.0.16 first. Do not use the fresh installer over an existing PBX.
+Preflight verifies the signature and exact supported files. Applying takes a recovery copy and restarts only the independent update worker; calling services and phone settings remain unchanged. The hosted instance already has this patch. The generic phone feed supplies Android 1.0.19, while the repaired updater uses the separate signed Debian server feed. Its1.0.21 minimum of1.0.16 requires this revision2 bootstrap; it does not promise direct automatic updating by an unpatched original 16 worker. Older servers need the documented intermediate upgrade to 1.0.16 first. Do not use the fresh installer over an existing PBX.
 
 Open **Admin → System → Updates** and install the new version. The complete signed download is checked before maintenance; active calls defer installation. Migration installs the new backup helpers automatically, including when the previous installed updater does not know those files. A private recovery snapshot covers the application, database, configuration and newly installed helper files. See [updates](updates.md) for policies and recovery.
 

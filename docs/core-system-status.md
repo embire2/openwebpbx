@@ -1,5 +1,12 @@
 # OpenWeb PBX core system status
 
+## Complete server 1.0.21 published — 2026-10-27
+
+[Version 1.0.21](https://github.com/embire2/openwebpbx/releases/tag/v1.0.21) provides complete Debian 13 amd64 and Windows Server 2025 Desktop Experience packages. Windows normal, replacement restore, restored conferences and signed upgrade/rollback pass; the real original20 upgrade, Greetings recording, Windows reboot and two-way TLS software calls also pass. Debian fresh installation, original16 plus verified signed revision2 upgrade/rollback, separate current-backup restore, browser audio/video and encrypted backups pass. All eleven public assets, checksums and signed platform feeds are verified. Android remains 1.0.19; the Windows calling client remains under development. [Current release scope](release-1.0.21-qualification.md) records the exact packages and remaining external deployment checks. Roadmap totals remain 133 / 21 accepted / 72 partial / 40 planned.
+
+The entries below retain their dated historical scope and do not supersede the current release.
+
+
 ## Hosted core 1.0.21 and Android 1.0.19 — 2026-10-25
 
 Hosted21 now also recovers automatic office availability at opening time while preserving personal overrides. Voicemail attachments are queued atomically; missing audio or SMTP refusal retains messages, and attachment-and-delete removes its temporary snapshot only after confirmed cleanup. Focused concurrency/permission/MIME checks and one controlled live Google-relay delivery/deletion pass. This does not establish recipient-inbox or physical-carrier acceptance. [Voicemail guide](voicemail-and-clock.md).
