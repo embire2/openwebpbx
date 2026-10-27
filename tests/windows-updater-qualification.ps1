@@ -711,6 +711,36 @@ function WaitInstall([string]$ExpectedState,[string]$ExpectedCommand,[DateTime]$
  }while([DateTime]::UtcNow -lt $deadline)
  throw 'The actual installed worker did not complete its bounded signed transaction.'
 }
+function WaitQualificationFaultPrefetch($Packet,[uint32]$WorkerPid,$OriginalWorker,[ValidateRange(1,1200)][int]$Limit=1200){
+ # Let the ordinary Windows download/preflight finish before strict baselines.
+ # No request/Tick/restart/cache write; original transaction bounds stay exact.
+ $clock=[Diagnostics.Stopwatch]::StartNew()
+ do{
+  if($clock.Elapsed.TotalSeconds -ge $Limit){throw [TimeoutException]::new('The ordinary worker did not finish its bounded natural fault prefetch.')}
+  Check ((InstalledVersions $BaseVersion) -eq $WorkerPid) 'Natural prefetch must retain the original installed worker.'
+  AssertOriginalProcessState $OriginalWorker $WorkerPid $false 'Natural prefetch must retain the original ordinary SYSTEM worker.'
+  $probe=Fixture 'status'
+  Check ($probe -is [pscustomobject] -and @($probe.PSObject.Properties).Count -eq 2 -and $probe.PSObject.Properties.Name -ccontains 'commands' -and $probe.PSObject.Properties.Name -ccontains 'channels' -and $probe.commands -is [Array] -and ($probe.channels -is [int] -or $probe.channels -is [long]) -and $probe.channels -eq 0) 'Natural prefetch requires the exact idle fixture status.'
+  foreach($command in $probe.commands){Check ($command.action -is [string] -and $command.action -cin 'check','download' -and $command.status -is [string] -and $command.status -cin 'pending','running','completed','failed') 'No installation request may precede the signed transaction.'}
+  if((Test-Path "$state\updates\status.json") -and (Test-Path "$state\updates\worker-journal.json")){
+   $ready=Get-Content "$state\updates\status.json" -Raw|ConvertFrom-Json -AsHashtable
+   $journal=Get-Content "$state\updates\worker-journal.json" -Raw|ConvertFrom-Json -AsHashtable
+   $statusFields=@('state','message','installed_version','available_version','progress_bytes','total_bytes','checked_at','last_success_version','platform','update_required','download_ready','update_notice')
+   $journalFields=@('command_id','action','target_version','state','updated_at','asset_sha256')
+   Check ($ready -is [Collections.IDictionary] -and $ready.Count -eq $statusFields.Count -and @($ready.Keys|Where-Object {$_ -cnotin $statusFields}).Count -eq 0) 'Natural prefetch requires the exact native status shape.'
+   Check ($journal -is [Collections.IDictionary] -and $journal.Count -eq $journalFields.Count -and @($journal.Keys|Where-Object {$_ -cnotin $journalFields}).Count -eq 0) 'Natural prefetch requires the exact native worker journal.'
+   if($ready.state -is [string] -and $ready.state -ceq 'ready' -and $ready.installed_version -is [string] -and $ready.installed_version -ceq $BaseVersion -and $ready.available_version -is [string] -and $ready.available_version -ceq $CanaryVersion -and $ready.platform -is [string] -and $ready.platform -ceq 'windows-x64' -and $ready.update_required -is [bool] -and $ready.update_required -and $ready.download_ready -is [bool] -and $ready.download_ready -and ($ready.progress_bytes -is [int] -or $ready.progress_bytes -is [long]) -and $ready.progress_bytes -eq $Packet.bytes -and ($ready.total_bytes -is [int] -or $ready.total_bytes -is [long]) -and $ready.total_bytes -eq $Packet.bytes -and $journal.state -is [string] -and $journal.state -ceq 'ready' -and $journal.target_version -is [string] -and $journal.target_version -ceq $CanaryVersion -and $journal.asset_sha256 -is [string] -and $journal.asset_sha256 -ceq $Packet.sha256 -and $null -eq $journal.command_id -and $null -eq $journal.action){
+    Check (@($probe.commands|Where-Object {$_.status -cin 'pending','running'}).Count -eq 0) 'Natural prefetch must finish without an active update command.'
+    DownloadProof 'fault' $Packet
+    Check ((InstalledVersions $BaseVersion) -eq $WorkerPid) 'Readiness must retain the original installed worker.'
+    AssertOriginalProcessState $OriginalWorker $WorkerPid $false 'Readiness must retain the original ordinary SYSTEM worker.'
+    if($clock.Elapsed.TotalSeconds -ge $Limit){throw [TimeoutException]::new('The ordinary worker did not finish its bounded natural fault prefetch.')}
+    return
+   }
+  }
+  Start-Sleep -Milliseconds 500
+ }while($true)
+}
 function DownloadProof([string]$Mode,$Packet){
  $path="$state\updates\downloads\$($Packet.sha256).archive";Check ((Test-Path $path) -and (Get-Item $path).Length -eq $Packet.bytes -and (Hash $path) -eq $Packet.sha256 -and !(Test-Path ($path+'.partial'))) 'The actual worker must retain the complete verified HTTP archive.'
  $requests=(Get-Content (Join-Path (Split-Path $inputFile -Parent) 'transport-requests.json') -Raw|ConvertFrom-Json).requests
@@ -853,6 +883,7 @@ if(!$?){exit 1}
   $phase='fault14 full HTTPS download and rollback'
   if(Test-Path "$state\updates\trust.json"){$prior=Get-Content "$state\updates\trust.json" -Raw|ConvertFrom-Json;Check ($prior.sequence -le $verified.fault.sequence) 'The private fault sequence must not lower existing trust.'}
   Check ((Fixture 'status').channels -eq 0) 'The actual call engine must be idle.'
+  WaitQualificationFaultPrefetch $verified.fault $initialPid $originalWorker
   $phase='exact owned Health observer quiescence before all preservation baselines'
   Suspend-OpenWebQualificationHealth ([ref]$qualificationHealthOriginal)
   $facts.checks+='Exact owned Health task/helper identity and zero native children/runtime files before complete DB/file/task preservation baselines; enabled choice retained privately'
