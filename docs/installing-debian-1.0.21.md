@@ -6,6 +6,10 @@ backups and updater. Each installation supports multiple tenants; tenants do
 not configure separate databases. Android remains **1.0.19** and the Windows
 server has its own package and source archive.
 
+The hosted OpenWeb tenant uses this complete release. See its
+[deployment and preservation record](hosted-deployment-1.0.21.md) for the shared
+software and current-template behavior used when creating new tenants.
+
 Download `openwebpbx-1.0.21-debian13-amd64.tar.gz`, this guide and `SHA256SUMS`
 from the same [release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.21).
 Verify the archive's SHA256 against `SHA256SUMS` before extracting the complete
