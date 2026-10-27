@@ -641,7 +641,8 @@ function QualificationFileCapture($Before,$After,[string]$StateRoot,[string]$Con
 }
 function Equal($Before,$After,[string]$Label){
  $script:qualificationComparisonFailure=$null
- $a=Join-Path $work ($Label+'-before.json');$b=Join-Path $work ($Label+'-after.json');WriteJson $a $Before;WriteJson $b $After
+ $comparisonAfter=$After;if($Label -ceq 'normal-protected-files'){$comparisonAfter=Get-WindowsUpdaterProtectedComparisonCopy $Before $After $Label $state}
+ $a=Join-Path $work ($Label+'-before.json');$b=Join-Path $work ($Label+'-after.json');WriteJson $a $Before;WriteJson $b $comparisonAfter
  try{CheckedProcess "$root\backup-runtime\python.exe" @('-I','-B',(Join-Path $PSScriptRoot 'windows-compare-json.py'),$a,$b) ('compare-'+$Label)}catch{
   # The exact predicate still owns refusal. Read only its bounded machine report;
   # private snapshots, arbitrary keys/values and error streams are never exported.

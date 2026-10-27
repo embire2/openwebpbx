@@ -81,3 +81,46 @@ function Get-WindowsUpdaterAclObservation($Before,$After){
   return Read-WindowsUpdaterAclObservation ([ordered]@{schema=1;state='captured';changed_count=[int]$changed.Count;entries=@($entries);encrypted=$sealed})
  }catch{return $null}finally{if($raw){[Array]::Clear($raw,0,$raw.Length)}}
 }
+
+function Test-WindowsUpdaterLockDescriptorOrder($Original,$Current){
+ # Ordinary Allow ACEs accumulate identical rights in any order. No Deny,
+ # callback/object ACE, duplicate or descriptor/control change is admitted.
+ try{
+  if($Original -isnot [Security.AccessControl.RawSecurityDescriptor] -or $Current -isnot [Security.AccessControl.RawSecurityDescriptor]){return $false}
+  if($null -eq $Original.Owner -or $null -eq $Original.Group -or ![object]::Equals($Original.Owner,$Current.Owner) -or ![object]::Equals($Original.Group,$Current.Group) -or $Original.ControlFlags -ne $Current.ControlFlags -or $Original.ResourceManagerControl -ne $Current.ResourceManagerControl -or $Original.BinaryLength -ne $Current.BinaryLength){return $false}
+  if((Get-WindowsUpdaterAclBytes $Original.SystemAcl) -cne (Get-WindowsUpdaterAclBytes $Current.SystemAcl)){return $false}
+  if(!($Original.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclPresent)){return $false}
+  $old=$Original.DiscretionaryAcl;$new=$Current.DiscretionaryAcl
+  if($null -eq $old -or $null -eq $new -or $old.Revision -ne 2 -or $new.Revision -ne $old.Revision -or $old.Count -ne 4 -or $new.Count -ne $old.Count -or $new.BinaryLength -ne $old.BinaryLength){return $false}
+  $entries=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal);$trustees=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  foreach($ace in $old){
+   if($ace -isnot [Security.AccessControl.CommonAce] -or $ace.IsCallback -or $ace.AceType -ne [Security.AccessControl.AceType]::AccessAllowed -or $ace.AceQualifier -ne [Security.AccessControl.AceQualifier]::AccessAllowed -or !$trustees.Add($ace.SecurityIdentifier.Value)){return $false}
+   $bytes=New-Object byte[] $ace.BinaryLength;$ace.GetBinaryForm($bytes,0);if(!$entries.Add([Convert]::ToBase64String($bytes))){return $false}
+  }
+  foreach($ace in $new){
+   if($ace -isnot [Security.AccessControl.CommonAce] -or $ace.IsCallback -or $ace.AceType -ne [Security.AccessControl.AceType]::AccessAllowed -or $ace.AceQualifier -ne [Security.AccessControl.AceQualifier]::AccessAllowed){return $false}
+   $bytes=New-Object byte[] $ace.BinaryLength;$ace.GetBinaryForm($bytes,0);if(!$entries.Remove([Convert]::ToBase64String($bytes))){return $false}
+  }
+  return $entries.Count -eq 0
+ }catch{return $false}
+}
+function Test-WindowsUpdaterLockAclOrder([string]$Original,[string]$Current){
+ if([string]::IsNullOrWhiteSpace($Original) -or [string]::IsNullOrWhiteSpace($Current) -or $Original.Length -gt 131072 -or $Current.Length -gt 131072 -or $Original.IndexOf([char]0) -ge 0 -or $Current.IndexOf([char]0) -ge 0){return $false}
+ try{return Test-WindowsUpdaterLockDescriptorOrder ([Security.AccessControl.RawSecurityDescriptor]::new($Original)) ([Security.AccessControl.RawSecurityDescriptor]::new($Current))}catch{return $false}
+}
+function Get-WindowsUpdaterProtectedComparisonCopy($Before,$After,[string]$Label,[string]$StateRoot){
+ # No I/O or original-map mutation. Only the already-observed empty ordinary
+ # maintenance lock may use this four-Allow order comparison, on success only.
+ try{
+  if($Label -cne 'normal-protected-files' -or $StateRoot -cne 'C:\ProgramData\OpenWebPBX' -or $Before -isnot [Collections.IDictionary] -or $After -isnot [Collections.IDictionary]){return $After}
+  $path='C:\ProgramData\OpenWebPBX\upgrade.lock';$beforeKeys=@($Before.Keys|Where-Object {$_ -is [string] -and $_ -ceq $path});$afterKeys=@($After.Keys|Where-Object {$_ -is [string] -and $_ -ceq $path})
+  if($beforeKeys.Count -ne 1 -or $afterKeys.Count -ne 1){return $After}
+  $left=$Before[$path];$right=$After[$path]
+  foreach($row in @($left,$right)){
+   if(!(Test-WindowsUpdaterAclKeys $row @('directory','acl','sha256','bytes')) -or $row.directory -isnot [bool] -or $row.directory -or $row.acl -isnot [string] -or ($row.bytes -isnot [int] -and $row.bytes -isnot [long]) -or $row.bytes -ne 0 -or $row.sha256 -isnot [string] -or $row.sha256 -cne 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'){return $After}
+  }
+  if($left.acl -ceq $right.acl -or !(Test-WindowsUpdaterLockAclOrder $left.acl $right.acl)){return $After}
+  $copy=@{};foreach($key in $After.Keys){$copy.Add($key,$After[$key])};$lockCopy=@{};foreach($key in $right.Keys){$lockCopy.Add($key,$right[$key])};$lockCopy.acl=$left.acl;$copy[$path]=$lockCopy
+  return $copy
+ }catch{return $After}
+}
