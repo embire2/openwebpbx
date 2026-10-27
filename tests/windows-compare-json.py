@@ -50,6 +50,7 @@ KNOWN_FILE_PATHS.update({
     'c:/program files/freeswitch/sounds': 'stock_sounds_root',
     'c:/program files/freeswitch/sounds/openwebpbx': 'stock_sounds_openwebpbx',
 })
+KNOWN_FILE_PATHS.update({'c:/programdata/openwebpbx': 'state_root', 'c:/programdata/openwebpbx/upgrade.lock': 'maintenance_lock', 'c:/programdata/openwebpbx/call-records.hold': 'call_records_hold', 'c:/programdata/openwebpbx/phone-health-instance.json': 'phone_health_identity', 'c:/programdata/openwebpbx/stun.json': 'stun_metadata', 'c:/programdata/openwebpbx/meet-ca.pem': 'meeting_ca', 'c:/programdata/openwebpbx/meet-proxy.json': 'meeting_proxy_metadata', 'c:/programdata/openwebpbx/mail': 'mail_root', 'c:/programdata/openwebpbx/meet-proxy': 'meeting_proxy_root', 'c:/programdata/openwebpbx/tenant-domains': 'tenant_domains_root', 'c:/programdata/openwebpbx/phone-health-runtime': 'phone_health_runtime_root', 'c:/programdata/openwebpbx/stun-setup': 'stun_setup_root', 'c:/programdata/openwebpbx/dtls-setup': 'dtls_setup_root'})
 CONFIG_SCOPES = {
     'c:/programdata/fusionpbx': 'fusionpbx',
     **{'c:/programdata/openwebpbx/' + name: name.replace('-', '_')

@@ -18,6 +18,7 @@ param(
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-upgrade-health-quiescence.ps1')
+. (Join-Path $PSScriptRoot 'windows_updater_file_acl_observation.ps1')
 if([version]$CanaryVersion -le [version]$BaseVersion){throw 'The canary must be a genuinely newer numeric version.'}
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){throw 'Only the explicitly disposable owned GitHub-hosted Windows runner is authorized.'}
 $os=Get-CimInstance Win32_OperatingSystem
@@ -64,6 +65,7 @@ function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null
    $safe.comparison=$report
    if($Comparison.label -ceq 'normal-task-contract-security' -and $report.comparison_result -ceq 'different' -and $frames.ToArray().function -ccontains 'EqualTaskSnapshots' -and $frames.ToArray().function -ccontains 'NormalTaskPreservation'){try{$task=QualificationTaskDifferenceFields $Comparison.task;if($task){$safe.task_difference=$task}}catch{}}
    if($Comparison.label -ceq 'fault-files' -and $report.comparison_result -ceq 'different'){$capture=QualificationFileCaptureFields $Comparison.capture;if($capture){$safe.file_capture=$capture}}
+   if($Comparison.label -ceq 'normal-protected-files' -and $report.comparison_result -ceq 'different'){try{$security=Read-WindowsUpdaterAclObservation $Comparison.file_security;if($security){$safe.file_security=$security}}catch{}}
   }
  }
  if($frames.ToArray().function -ccontains 'Hash' -and $frames.ToArray().function -ccontains 'SnapshotHash' -and $frames.ToArray().function -ccontains 'FileSnapshot'){$hash=QualificationHashFailureFields $HashFailure;if($hash){$safe.hash_failure=$hash}}
@@ -94,6 +96,7 @@ function QualificationSnapshotPaths {
  $paths=@{}
  foreach($pair in @(@('installation','installation'),@('runtime','runtime'),@('updater-install','updater_install'),@('native-engine','native_engine'),@('local-codec','local_codec'),@('phone-tls','phone_tls_metadata'))){$paths['c:/programdata/openwebpbx/'+$pair[0]+'.json']=$pair[1]}
  $paths+=@{'c:/openwebpbx'='program_root';'c:/openwebpbx/php/php.ini'='php_ini';'c:/openwebpbx/php/extras/ssl/openssl.cnf'='php_openssl';'c:/openwebpbx/php/extras/ssl/cacert.pem'='php_cacert';'c:/programdata/openwebpbx/mobile-notifications'='notification_store';'c:/programdata/openwebpbx/mobile-notifications/config.json'='notification_config';'c:/programdata/openwebpbx/mobile-notifications/config.json.lock'='notification_lock';'c:/programdata/fusionpbx'='fusionpbx_root';'c:/programdata/fusionpbx/config.conf'='fusionpbx_config';'c:/programdata/fusionpbx/openweb-template.key'='fusionpbx_template_key';'c:/programdata/openwebpbx/automatic-backups/worker.lock'='automatic_backups_worker_lock';'c:/programdata/openwebpbx/storage'='storage_root';'c:/programdata/openwebpbx/storage/openweb-music'='stock_music_root';'c:/programdata/openwebpbx/storage/openweb-music/readme.md'='stock_music_readme';'c:/programdata/openwebpbx/storage/openweb-music/manifest.json'='stock_music_manifest';'c:/program files/freeswitch/sounds'='stock_sounds_root';'c:/program files/freeswitch/sounds/openwebpbx'='stock_sounds_openwebpbx'}
+ $paths+=@{'c:/programdata/openwebpbx'='state_root';'c:/programdata/openwebpbx/upgrade.lock'='maintenance_lock';'c:/programdata/openwebpbx/call-records.hold'='call_records_hold';'c:/programdata/openwebpbx/phone-health-instance.json'='phone_health_identity';'c:/programdata/openwebpbx/stun.json'='stun_metadata';'c:/programdata/openwebpbx/meet-ca.pem'='meeting_ca';'c:/programdata/openwebpbx/meet-proxy.json'='meeting_proxy_metadata';'c:/programdata/openwebpbx/mail'='mail_root';'c:/programdata/openwebpbx/meet-proxy'='meeting_proxy_root';'c:/programdata/openwebpbx/tenant-domains'='tenant_domains_root';'c:/programdata/openwebpbx/phone-health-runtime'='phone_health_runtime_root';'c:/programdata/openwebpbx/stun-setup'='stun_setup_root';'c:/programdata/openwebpbx/dtls-setup'='dtls_setup_root'}
  foreach($name in 'phone-tls','public-access','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build'){$paths['c:/programdata/openwebpbx/'+$name]=$name.Replace('-','_')+'_root'}
  foreach($rate in 8000,16000,32000,48000){$base='c:/programdata/openwebpbx/storage/openweb-music/'+$rate;$paths[$base]='stock_music_'+$rate+'_dir';$paths[$base+'/lofi-beat-loop-schmoop.wav']='stock_music_'+$rate+'_track'}
  return $paths
@@ -539,6 +542,7 @@ function QualificationComparisonFields($Record){
   $labels=@('installation','runtime','updater_install','native_engine','local_codec','phone_tls_metadata','storage_root','stock_music_root','stock_music_readme','stock_music_manifest','stock_sounds_root','stock_sounds_openwebpbx')
   $labels+=@('fusionpbx_root','fusionpbx_config','fusionpbx_template_key','automatic_backups_worker_lock','phone_tls_root','public_access_root','automatic_backups_root','backup_restore_root','backup_control_root','backup_downloads_root','codec_compiler_cache_root','codec_build_root')
   $labels+=@('program_root','php_ini','php_openssl','php_cacert','notification_store','notification_config','notification_lock')
+  $labels+=@('state_root','maintenance_lock','call_records_hold','phone_health_identity','stun_metadata','meeting_ca','meeting_proxy_metadata','mail_root','meeting_proxy_root','tenant_domains_root','phone_health_runtime_root','stun_setup_root','dtls_setup_root')
   foreach($rate in 8000,16000,32000,48000){$labels+=@(('stock_music_'+$rate+'_dir'),('stock_music_'+$rate+'_track'))}
   $nested=@{comparison_file_category_field_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','backup_runtime','acme_runtime','other');comparison_known_file_field_counts=$labels;comparison_config_scope_field_counts=@('fusionpbx','phone_tls','public_access','automatic_backups','backup_restore','backup_control','backup_downloads','codec_compiler_cache','codec_build');comparison_file_category_added_kind_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','backup_runtime','acme_runtime','other');comparison_config_scope_removed_kind_counts=@('fusionpbx','phone_tls','public_access','automatic_backups','backup_restore','backup_control','backup_downloads','codec_compiler_cache','codec_build')}
   foreach($field in $nested.Keys){
@@ -650,6 +654,7 @@ function Equal($Before,$After,[string]$Label){
    }
   }catch{}
   $script:qualificationComparisonFailure=@{label=$Label;report=$report}
+  if($Label -ceq 'normal-protected-files' -and $report.comparison_result -ceq 'different' -and $report.comparison_files_observed -eq $true){$script:qualificationComparisonFailure.file_security=@{schema=1;state='unavailable'};try{$security=Get-WindowsUpdaterAclObservation $Before $After;if($security){$script:qualificationComparisonFailure.file_security=$security}}catch{}}
   if($Label -ceq 'normal-task-contract-security' -and $report.comparison_result -ceq 'different'){try{$task=QualificationTaskDifference $Before $After;if($task){$script:qualificationComparisonFailure.task=$task}}catch{}}
   if($Label -ceq 'fault-files' -and $report.comparison_result -ceq 'different' -and $report.comparison_files_observed -eq $true){
    try{$script:qualificationComparisonFailure.capture=QualificationFileCapture $Before $After $state $configuration}catch{$script:qualificationComparisonFailure.capture=@{state='unavailable';paths=@{}}}
