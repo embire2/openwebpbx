@@ -113,7 +113,16 @@ function Write-OpenWeb20GreetingCompatibility {
  $path=Get-OpenWeb20GreetingCompatibilityPath $Record.Backup
  $raw=[Text.UTF8Encoding]::new($false).GetBytes(($Record|ConvertTo-Json -Depth 8 -WarningAction Stop))
  if($raw.Length -gt 16777216){throw 'The bounded compatibility snapshot is too large.'}
- WriteState $path $Record
+ # Use the existing protected recovery writer before atomic publication. A
+ # generic state file inherits the parent ACL and is not a private snapshot.
+ $temporary=$path+'.'+[Guid]::NewGuid().ToString('N')+'.new';$failure=$null
+ try{
+  Write-OpenWebRecoveryFile -Path $temporary -Bytes $raw
+  Initialize-OpenWebUpgradeRecoveryNative
+  [OpenWebPbx.UpgradeRecoveryNativeV1]::Commit($temporary,$path)
+ }catch{$failure=$_;throw}finally{
+  if(Test-Path -LiteralPath $temporary){try{Remove-Item -LiteralPath $temporary -Force -ErrorAction Stop}catch{if($failure){$failure.Exception.Data['greeting_compatibility_temporary_cleanup_failed']=$true}else{throw}}}
+ }
  $null=Assert-OpenWebRecoveryProtected $path -Private
 }
 function Set-OpenWeb20GreetingHelper {
