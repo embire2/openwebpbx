@@ -19,6 +19,7 @@ param(
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-upgrade-health-quiescence.ps1')
 . (Join-Path $PSScriptRoot 'windows_updater_file_acl_observation.ps1')
+. (Join-Path $PSScriptRoot 'windows_updater_database_observation.ps1')
 if([version]$CanaryVersion -le [version]$BaseVersion){throw 'The canary must be a genuinely newer numeric version.'}
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){throw 'Only the explicitly disposable owned GitHub-hosted Windows runner is authorized.'}
 $os=Get-CimInstance Win32_OperatingSystem
@@ -30,7 +31,7 @@ $work=Join-Path $env:RUNNER_TEMP ('openwebpbx-updater-'+[Guid]::NewGuid().ToStri
 $public=Join-Path $env:RUNNER_TEMP 'openwebpbx-updater-facts';$output=Join-Path $env:RUNNER_TEMP 'openwebpbx-updater-canary'
 $phase='verified baseline artifacts';$installed=$false;$transport=$null;$transportRoot=$null;$ownHosts=$false;$serviceEnvironment=$null;$inputFile=$null;$settings=$null;$scope=$null;$fixtureCreated=$false
 $managerOwned=$false;$managerStarted=$null;$managerName=$null;$managerSid=$null;$managerSession=0
-$qualificationHealthOriginal=$null;$PackageRoot=$null
+$qualificationHealthOriginal=$null;$qualificationTenantOriginal=$null;$PackageRoot=$null
 $retainedProcesses=[Collections.Generic.List[Diagnostics.Process]]::new()
 $script:qualificationFailedChild=$null
 $script:qualificationComparisonFailure=$null
@@ -65,6 +66,7 @@ function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null
    $safe.comparison=$report
    if($Comparison.label -ceq 'normal-task-contract-security' -and $report.comparison_result -ceq 'different' -and $frames.ToArray().function -ccontains 'EqualTaskSnapshots' -and $frames.ToArray().function -ccontains 'NormalTaskPreservation'){try{$task=QualificationTaskDifferenceFields $Comparison.task;if($task){$safe.task_difference=$task}}catch{}}
    if($Comparison.label -ceq 'fault-files' -and $report.comparison_result -ceq 'different'){$capture=QualificationFileCaptureFields $Comparison.capture;if($capture){$safe.file_capture=$capture}}
+   if($Comparison.label -ceq 'normal-database' -and $report.comparison_result -ceq 'different'){try{$database=Read-WindowsUpdaterDatabaseObservation $Comparison.database;if($database){$safe.database_difference=$database}}catch{}}
    if($Comparison.label -ceq 'normal-protected-files' -and $report.comparison_result -ceq 'different'){try{$security=Read-WindowsUpdaterAclObservation $Comparison.file_security;if($security){$safe.file_security=$security}}catch{}}
   }
  }
@@ -655,6 +657,7 @@ function Equal($Before,$After,[string]$Label){
    }
   }catch{}
   $script:qualificationComparisonFailure=@{label=$Label;report=$report}
+  if($Label -ceq 'normal-database' -and $report.comparison_result -ceq 'different'){$script:qualificationComparisonFailure.database=@{schema=1;state='unavailable'};try{$database=Get-WindowsUpdaterDatabaseObservation $Before $After (Split-Path $inputFile -Parent);if($database){$script:qualificationComparisonFailure.database=$database}}catch{}}
   if($Label -ceq 'normal-protected-files' -and $report.comparison_result -ceq 'different' -and $report.comparison_files_observed -eq $true){$script:qualificationComparisonFailure.file_security=@{schema=1;state='unavailable'};try{$security=Get-WindowsUpdaterAclObservation $Before $After;if($security){$script:qualificationComparisonFailure.file_security=$security}}catch{}}
   if($Label -ceq 'normal-task-contract-security' -and $report.comparison_result -ceq 'different'){try{$task=QualificationTaskDifference $Before $After;if($task){$script:qualificationComparisonFailure.task=$task}}catch{}}
   if($Label -ceq 'fault-files' -and $report.comparison_result -ceq 'different' -and $report.comparison_files_observed -eq $true){
@@ -894,6 +897,7 @@ if(!$?){exit 1}
   WaitQualificationFaultPrefetch $verified.fault $initialPid $originalWorker
   $phase='exact owned Health observer quiescence before all preservation baselines'
   Suspend-OpenWebQualificationHealth ([ref]$qualificationHealthOriginal)
+  Suspend-OpenWebQualificationTenant ([ref]$qualificationTenantOriginal)
   $facts.checks+='Exact owned Health task/helper identity and zero native children/runtime files before complete DB/file/task preservation baselines; enabled choice retained privately'
   $phase='ordinary SYSTEM backup worker baseline initialization'
   InitializeQualificationBackupWorker -Root $root -StateRoot $state -PackageRoot $package
@@ -946,6 +950,9 @@ if(!$?){exit 1}
     # Restore the pre-baseline choice only after every strict comparison. The
     # held lock prevents a resumed observer changing the preserved fixture.
     # Disposable shutdown then stops that exact worker and refuses any orphan.
+    # Replay the captured tenant choice under the existing exclusive cleanup lock.
+    # The original shutdown loop below then disables disposable background tasks.
+    Resume-OpenWebQualificationTenant $qualificationTenantOriginal
     Resume-OpenWebQualificationHealth $qualificationHealthOriginal
     $cleanupHealth=$null;Suspend-OpenWebQualificationHealth ([ref]$cleanupHealth)
     foreach($name in 'OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate'){if(Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue){Disable-ScheduledTask -TaskName $name|Out-Null}}

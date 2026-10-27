@@ -79,6 +79,7 @@ if ($action === 'snapshot') {
     // Schema and table metadata remain covered. Only updater/heartbeat/session
     // operational values are excluded; customer/security/routing rows stay exact.
     $volatile=['v_pbx_update_status','v_pbx_backup_status','v_pbx_update_commands','v_pbx_job_slots','v_user_logs','v_logs','v_pbx_user_presence','v_pbx_presence'];
+    $diagnostic=[];$diagnosticBytes=0;$diagnosticAvailable=true;
     foreach ($q("select tablename from pg_tables where schemaname='public' order by tablename")->fetchAll(PDO::FETCH_COLUMN) as $table) {
         if (in_array($table,$volatile,true)) continue;
         $quoted='"'.str_replace('"','""',$table).'"';
@@ -89,9 +90,27 @@ if ($action === 'snapshot') {
             ? updater_fixture_greeting_heartbeat(json_decode($rows,false,512,JSON_THROW_ON_ERROR))
             : json_decode($rows,true,512,JSON_THROW_ON_ERROR);
         $out['values'][$table]=$digest($values);
+        // Diagnostic sidecar uses these same canonical values, never another query.
+        try {
+            if($diagnosticAvailable){
+                $canonical=json_encode($values,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES);
+                $diagnosticBytes+=strlen($canonical)+strlen($table)+256;
+                if(count($diagnostic)>=1000||$diagnosticBytes>8388608||!preg_match('/^[a-z_][a-z0-9_]{0,62}$/D',$table)){$diagnosticAvailable=false;$diagnostic=[];}
+                else $diagnostic[$table]=['digest'=>$out['values'][$table],'rows_json'=>$canonical];
+            }
+        } catch (Throwable $ignored) {$diagnosticAvailable=false;$diagnostic=[];}
     }
     $label=$s['snapshot_label']??'';if(!preg_match('/^[a-z0-9-]{1,48}$/D',$label))throw new RuntimeException('A fixed audit label is required.');
     file_put_contents($directory.'/'.$label.'-database.json',json_encode($out,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT));
+    // Best-effort private evidence only. A capture failure cannot change acceptance.
+    try {
+        $capture=['schema'=>1,'state'=>'unavailable'];
+        if($diagnosticAvailable)$capture=['schema'=>1,'state'=>'captured','source_commit'=>getenv('GITHUB_SHA'),'run_id'=>getenv('GITHUB_RUN_ID'),'label'=>$label,'tables'=>$diagnostic];
+        $encoded=json_encode($capture,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES);
+        if(strlen($encoded)>8388608)$encoded='{"schema":1,"state":"unavailable"}';
+        $evidence=@fopen($directory.'/'.$label.'-database-rows.private.json','xb');
+        if($evidence!==false){try{@fwrite($evidence,$encoded);}finally{fclose($evidence);}}
+    } catch (Throwable $ignored) {}
     echo json_encode(['tables'=>count($out['values']),'private_hmac_inventory'=>true],JSON_THROW_ON_ERROR),PHP_EOL;exit;
 }
 if ($action === 'cleanup') {
