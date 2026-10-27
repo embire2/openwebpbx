@@ -1,6 +1,6 @@
 # GitHub repository independence
 
-Checked on 24 October 2026. OpenWeb PBX is maintained at **[embire2/openwebpbx](https://github.com/embire2/openwebpbx)**, with repository ID **1406074259** and default branch **`customization`**. Its GitHub metadata currently identifies it as a fork of `fusionpbx/fusionpbx`.
+Latest check: **27 October 2026**. OpenWeb PBX is maintained at **[embire2/openwebpbx](https://github.com/embire2/openwebpbx)**, with repository ID **1406074259** and default branch **`customization`**. Its GitHub metadata still identifies it as a fork of `fusionpbx/fusionpbx`; the child fork still blocks self-service detachment. Use the [current request and 1.0.21 preservation inventory](github-standalone-repository.md). The detailed 24 October inventory and request below are historical and have not been submitted.
 
 The goal is to make this an independently discoverable repository while preserving its history, attribution and every existing download/update address. Removing GitHub's fork relationship does not remove the project's FusionPBX origins or change any licence obligation.
 

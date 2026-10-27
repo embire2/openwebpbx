@@ -1,5 +1,10 @@
 # OpenWeb PBX workspace
 
+## GitHub fork detachment recheck — 2026-10-27
+
+- Owner requests removing GitHub's `forked from fusionpbx/fusionpbx` relationship. Authenticated owner still has ADMIN on public `embire2/openwebpbx`, ID1406074259/default customization, size148132KB. Its one child `freshy969/openwebpbx` remains attached with only READ access, blocking the documented self-service detach option. Official REST and current GraphQL mutation schema expose no supported detach operation. Do not simulate detachment by deleting attribution or the local upstream remote.
+- Retained all113 refs/21 releases/156 assets and current repository/fork metadata under `/var/lib/openwebpbx/github-detach-20261027-03uex6ix`. Latest release425443430/v1.0.21 has11 assets. Current support request in `docs/github-standalone-repository.md` explicitly preserves repository/release/asset/download/update identities and child-owner work; GitHub does not guarantee such an administrative operation. The current authenticated API connection cannot submit Support tickets. No Support ticket/message, repository recreation, child-fork change or actual detachment has occurred. Owner submission through https://support.github.com/request/fork is the remaining external step. Prior inventory retry corrected a read-only matching-refs pagination assumption without any repository mutation.
+
 ## OpenWeb hosted deployment 1.0.21 — 2026-10-27
 
 - Applied the complete signed Debian 1.0.21 release to the shared installation serving `https://openweb.openwebpbx.com`. Its web/core already reported 21 while its independent updater remained 16; an explicit same-version operator reapplication used the unchanged qualified upgrade transaction, original signature/key, idle-call guard, protected rollback snapshot and normal migrations. No version stamp was lowered and the normal strictly-newer updater policy is unchanged. The 21 updater then started and naturally completed finalisation; the install journal is completed.
