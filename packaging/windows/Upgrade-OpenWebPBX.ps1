@@ -438,6 +438,8 @@ function VerifyBackup([string]$Backup) {
 function RestorePbx([string]$Backup) {
  if (!(Test-Path "$Backup\complete.json")) { throw 'The selected backup is incomplete.' }
  VerifyBackup $Backup
+ . (Join-Path $script:recoveryCodeRoot 'PhoneHealth-Security.ps1')
+ Stop-OpenWebHealthTask -MaintenanceLock $lock -Disable
  # Restore the separate original20 compatibility ACL before-image while the
  # current helper paths still exist; unchanged mirrors restore original bytes.
  if(($RestoreBackup -or $script:operatorRollback) -and (Get-Content -LiteralPath (Join-Path $Backup 'complete.json') -Raw|ConvertFrom-Json).version -ceq '1.0.20'){Restore-OpenWeb20GreetingCompatibility -Backup $Backup -OperatorRollback}
