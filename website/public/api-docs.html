@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#dceafa"><meta name="color-scheme" content="light dark"><title>Tenant API — OpenWeb PBX</title><meta name="description" content="Register a tenant, create an isolated PBX and prepare a managed openwebpbx.com subdomain. Tenant API v1 quick start, security, limits, examples and OpenAPI download."><link rel="canonical" href="https://openwebpbx.com/api-docs"><link rel="icon" href="/assets/mark.svg" type="image/svg+xml"><link rel="stylesheet" href="/assets/site.css?v=20261025-logo"><link rel="stylesheet" href="/assets/api-docs.css?v=20261028"><link rel="stylesheet" href="/assets/privacy.css?v=20261017"><script src="/assets/privacy.js?v=20261017" defer></script><script src="/assets/api-docs.js?v=20261028" defer></script></head>
+<body class="api-desktop"><a class="skip-link" href="#overview">Skip to documentation</a><nav class="desktop-shortcuts" aria-label="Desktop shortcuts"><a class="shortcut" href="/"><span class="shortcut-icon blue" aria-hidden="true">⌂</span><span>OpenWeb PBX</span></a><a class="shortcut" href="/#downloads"><span class="shortcut-icon violet" aria-hidden="true">↓</span><span>Downloads</span></a><a class="shortcut" href="/api-openapi.json" download><span class="shortcut-icon teal" aria-hidden="true">{ }</span><span>OpenAPI file</span></a></nav>
+<main class="app-window api-window"><div class="window-titlebar"><div class="window-title"><img src="/assets/mark.svg" width="19" height="19" alt=""><span>OpenWeb PBX</span><span class="title-divider" aria-hidden="true">/</span><strong>Developer Centre</strong></div><span class="desktop-caption">Open source. Ready to connect.</span></div><nav class="app-navigation" aria-label="Main navigation"><a class="wordmark" href="/"><img class="brand-logo" src="/assets/openwebpbx-logo.png" width="2172" height="724" alt="OpenWebPBX business communications"></a><div class="nav-links"><a href="/#downloads">Downloads</a><a href="/api-docs" aria-current="page">API docs</a><a href="https://github.com/embire2/openwebpbx">GitHub</a></div><button class="api-theme" type="button" data-api-theme hidden>Dark appearance</button></nav>
+<div class="api-shell"><aside class="api-sidebar"><nav aria-label="API contents"><strong>Tenant API v1</strong><a href="#overview">Overview</a><a href="#quick-start">Quick start</a><a href="#authentication">Authentication</a><a href="#tenant-addresses">Tenant addresses</a><a href="#reference">Endpoint reference</a><a href="#retries">Retries and limits</a><a href="#errors">Errors</a><a href="#security">Security and scope</a><a href="#help">Help and downloads</a></nav></aside><div class="api-content">
+<section id="overview" aria-labelledby="api-title"><span class="api-label"><span class="status-dot"></span>Tenant API v1 · Hosted PBX provisioning</span><h1 id="api-title">A new tenant.<br>A working place to call.</h1><p class="api-lead">Register an organisation, verify its administrator and create an isolated PBX with its own managed <strong>openwebpbx.com</strong> address.</p><p>Build onboarding into your own service, reseller portal or internal tools. Each tenant keeps its own PBX configuration while using the shared installation’s current application files.</p><div class="api-actions"><a class="button primary" href="#quick-start">Start building</a><a class="button secondary" href="/api-openapi.json" download>Download OpenAPI 3.1</a></div><div class="api-code"><div class="api-code-label"><span>Hosted API base address</span><button type="button" class="api-copy" data-copy-code="api-example-35" hidden>Copy example</button></div><pre><code id="api-example-35">https://call.openweb.co.za/api/v1</code></pre></div><div class="api-callout"><p><strong>One shared server, separate PBX services.</strong> The API creates a tenant’s PBX inside the hosted installation. It does not create a separate virtual machine, allocate a carrier number or activate a paid provider connection.</p></div></section>
+<section id="quick-start" class="api-section" aria-labelledby="quick-heading"><p class="api-overline">Four steps</p><h2 id="quick-heading">From registration to your tenant portal</h2><div class="api-workflow"><article class="api-step"><span>01 / REGISTER</span><h3>Create the account</h3><p>Send company details and an administrator email.</p></article><article class="api-step"><span>02 / VERIFY</span><h3>Confirm the email</h3><p>Redeem the one-use code and save your API token.</p></article><article class="api-step"><span>03 / CREATE</span><h3>Choose a PBX template</h3><p>Create a service with a unique request key.</p></article><article class="api-step"><span>04 / CONNECT</span><h3>Wait for the address</h3><p>Poll readiness, then open the returned tenant URL.</p></article></div><h3>1. Request a tenant account</h3><p>Present the <a href="/terms">terms</a> and <a href="/privacy">privacy policy</a> in your own onboarding flow before accepting registration. Choose a unique password of <strong>12–72 UTF-8 bytes</strong>, including a letter and a number, and a short company label of <strong>3–40 lower-case letters, numbers or hyphens</strong>.</p><div class="api-code"><div class="api-code-label"><span>Register · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-36" hidden>Copy example</button></div><pre><code id="api-example-36">curl --request POST &#x27;https://call.openweb.co.za/api/v1/registrations&#x27; \
+  --header &#x27;Content-Type: application/json&#x27; \
+  --data &#x27;{
+    &quot;tenant_name&quot;: &quot;Example Company&quot;,
+    &quot;slug&quot;: &quot;example-company&quot;,
+    &quot;email&quot;: &quot;owner@example.com&quot;,
+    &quot;password&quot;: &quot;replace-with-a-long-unique-password-42&quot;,
+    &quot;accept_terms&quot;: true
+  }&#x27;</code></pre></div><p>A valid request returns <strong>202 Accepted</strong> with <code>status: "verification_required"</code>. This generic response protects existing accounts; it does not reveal whether an email or label already exists and does not prove inbox delivery.</p><h3>2. Redeem the email code</h3><p>The global outgoing-mail service sends a code valid for <strong>30 minutes</strong>. Send it with the same password you chose at registration in a POST body. Opening an email or following a link alone never activates a tenant.</p><div class="api-code"><div class="api-code-label"><span>Verify · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-37" hidden>Copy example</button></div><pre><code id="api-example-37">curl --request POST &#x27;https://call.openweb.co.za/api/v1/registrations/verify&#x27; \
+  --header &#x27;Content-Type: application/json&#x27; \
+  --data &#x27;{&quot;token&quot;:&quot;VERIFICATION_CODE_FROM_YOUR_EMAIL&quot;,&quot;password&quot;:&quot;YOUR_ORIGINAL_REGISTRATION_PASSWORD&quot;}&#x27;</code></pre></div><p>Successful verification returns <strong>201 Created</strong> with the tenant, a new <code>access_token</code>, its expiry and token metadata. Store the token securely in your integration’s secret store. Subsequent read endpoints never reveal it.</p><h3>3. Choose a template and create a PBX</h3><p>Read <code>GET /templates</code>, then use a returned template UUID. Send a new UUID in <code>Idempotency-Key</code>. Keep that key for retries of the same intended operation.</p><div class="api-code"><div class="api-code-label"><span>Create a PBX · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-38" hidden>Copy example</button></div><pre><code id="api-example-38">curl --request POST &#x27;https://call.openweb.co.za/api/v1/services&#x27; \
+  --header &quot;Authorization: Bearer $OPENWEB_TOKEN&quot; \
+  --header &#x27;Content-Type: application/json&#x27; \
+  --header &#x27;Idempotency-Key: 9b484c7d-4e6f-48b2-b9fd-c55260d8b563&#x27; \
+  --data &#x27;{
+    &quot;template_uuid&quot;: &quot;TEMPLATE_UUID_FROM_THE_LIST&quot;,
+    &quot;service_name&quot;: &quot;Main Office&quot;,
+    &quot;slug&quot;: &quot;main-office&quot;,
+    &quot;subdomain&quot;: &quot;example-company&quot;
+  }&#x27;</code></pre></div><p>The response contains a new <code>service</code> and its <code>subdomain</code> status. Creation uses the current installed application files and the selected template’s current revision. Provider secrets are not exposed. Only shared published starter templates explicitly approved by the instance administrator are eligible, with no trunks, outbound rules or additional settings. If the list is empty, ask the instance administrator to publish an approved starter template. Configure your own provider after creating the PBX.</p><h3>4. Poll the address until ready</h3><div class="api-code"><div class="api-code-label"><span>Check tenant address · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-39" hidden>Copy example</button></div><pre><code id="api-example-39">curl &#x27;https://call.openweb.co.za/api/v1/services/SERVICE_UUID/subdomain&#x27; \
+  --header &quot;Authorization: Bearer $OPENWEB_TOKEN&quot;</code></pre></div><p>Wait for <code>ready: true</code>, then use the returned <code>url</code> and <code>admin_url</code>. The <a href="#tenant-addresses">address guide</a> explains pending DNS, certificates and collision handling. Set up a provider and test incoming and outgoing calls before moving live numbers.</p></section>
+<section id="authentication" class="api-section"><h2>Authentication that stays with the tenant</h2><p>Already verified? Send <code>POST /auth/token</code> with your owner email and password. Protected operations use <code>Authorization: Bearer TOKEN</code>. Browser sign-in cookies and phone passwords do not authenticate this API.</p><div class="api-code"><div class="api-code-label"><span>Authenticated request · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-40" hidden>Copy example</button></div><pre><code id="api-example-40">curl &#x27;https://call.openweb.co.za/api/v1/me&#x27; \
+  --header &quot;Authorization: Bearer $OPENWEB_TOKEN&quot;</code></pre></div><p>Tokens start with <code>owta_</code>, followed by 64 hexadecimal characters. They expire after at most <strong>90 days</strong>, with a default of 90 days. The server stores hashes, not usable token secrets. Each request checks that the owner and tenant remain active.</p><p>To change your account password, use <code>POST /me/password</code> with <code>current_password</code> and <code>new_password</code>. This revokes <strong>every previous owner API key</strong>, including the key making the request, and returns a replacement. Save that replacement before your next call. SIP, extension and phone-app passwords are unchanged.</p><p>Create a separate named token for each integration with <code>POST /tokens</code>, rotate it when needed and revoke it when no longer used. A tenant may have up to <strong>10 active tokens</strong>. Rotation invalidates the old secret. A token-creation or rotation response is not saved for later secret recovery; if a response is lost, sign in again and review/revoke unused tokens.</p></section>
+<section id="tenant-addresses" class="api-section"><h2>A managed address for each PBX</h2><p>Pass a single label such as <code>example-company</code> when creating the PBX, or use <code>POST /services/{service_uuid}/subdomain</code> for an existing owned service. Labels have 3–40 lower-case letters, numbers or hyphens and must start and end with a letter or number. Reserved names are refused. Omit <code>subdomain</code> during service creation to use the tenant slug.</p><p><code>GET /subdomains/availability?label=example-company</code> is a local, advisory check. Its response has <code>scope: "this_instance"</code> and <code>reservation_confirmed: false</code>. It does not reserve global ownership or make a DNS request.</p><p>The central custodian confirms ownership and may assign a stable suffix for a label held elsewhere. Always use the final assigned hostname from status, rather than constructing it from your requested label. Once an address is queued or leased, it cannot be silently renamed. The initial custodian limit is <strong>50 names per instance</strong>, including existing reserved names.</p><div class="api-code"><div class="api-code-label"><span>Address pending · example response</span><button type="button" class="api-copy" data-copy-code="api-example-41" hidden>Copy example</button></div><pre><code id="api-example-41">{
+  &quot;subdomain&quot;: {
+    &quot;service_uuid&quot;: &quot;0d59d9f6-33a6-4328-8b31-dc63fe96d329&quot;,
+    &quot;requested_label&quot;: &quot;example-company&quot;,
+    &quot;requested_hostname&quot;: &quot;example-company.openwebpbx.com&quot;,
+    &quot;hostname&quot;: null,
+    &quot;url&quot;: null,
+    &quot;admin_url&quot;: null,
+    &quot;state&quot;: &quot;pending_dns&quot;,
+    &quot;ready&quot;: false,
+    &quot;next_attempt&quot;: &quot;2026-10-28T08:06:00+00:00&quot;,
+    &quot;error_category&quot;: &quot;&quot;
+  }
+}</code></pre></div><p><code>url</code> and <code>admin_url</code> remain <code>null</code> until both the certificate and local transport are verified ready. Registration runs asynchronously through the signed domain worker. Your integration never receives DNS credentials, instance signing keys or a wildcard certificate key. Existing SIP realms and desk-phone credentials are preserved.</p><p>After readiness, users can use the tenant portal and administrators its <code>/admin</code> address. Phone setup remains under the tenant’s normal Users workflow, with QR codes or app passwords. API tokens are not Android connection credentials.</p></section>
+<section id="reference" class="api-section"><h2>Endpoint reference</h2><p>Expand an operation for its request, response and example. The <a href="/api-openapi.json">OpenAPI file</a> includes the machine-readable schemas. These examples use fictional data and never run API calls from this page.</p><div class="api-filter" data-api-filter hidden><label for="api-filter">Find an endpoint</label><input id="api-filter" type="search" placeholder="Search services, tokens, subdomains…" autocomplete="off" spellcheck="false"><p data-api-count aria-live="polite">17 of 17 endpoints shown.</p></div><p class="api-empty" data-api-empty hidden>No matching endpoints. Try “service”, “token” or “register”.</p><details class="api-endpoint" id="getHealth" data-api-endpoint><summary><span class="api-method api-method-get">GET</span><span class="api-endpoint-route">/health</span><span class="api-auth">Public</span></summary><div class="api-endpoint-body"><h3>Check the API and registration status</h3><p>Read safe public API/version metadata. No account details or credentials are returned. A disabled or uninstalled API returns 503.</p><div class="api-code"><div class="api-code-label"><span>Example request · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-1" hidden>Copy example</button></div><pre><code id="api-example-1">curl &#x27;https://call.openweb.co.za/api/v1/health&#x27;</code></pre></div><div class="api-code"><div class="api-code-label"><span>HTTP 200 · example response</span><button type="button" class="api-copy" data-copy-code="api-example-2" hidden>Copy example</button></div><pre><code id="api-example-2">{
+  &quot;api&quot;: &quot;OpenWeb PBX Tenant API&quot;,
+  &quot;version&quot;: &quot;1&quot;,
+  &quot;software_version&quot;: &quot;1.0.21&quot;,
+  &quot;registration_enabled&quot;: true,
+  &quot;documentation&quot;: &quot;https://openwebpbx.com/api-docs&quot;
+}</code></pre></div><p>Other responses: <code>403</code>, <code>405</code>, <code>503</code>. See <a href="#errors">errors and retry guidance</a>.</p></div></details>
+<details class="api-endpoint" id="registerTenant" data-api-endpoint><summary><span class="api-method api-method-post">POST</span><span class="api-endpoint-route">/registrations</span><span class="api-auth">Public</span></summary><div class="api-endpoint-body"><h3>Request a tenant account</h3><p>Valid requests return a generic response without confirming whether an email or slug is already registered. No PBX, active owner or API token is created before email verification. The email code expires after 30 minutes. Public signup is enabled according to instance policy.</p><div class="api-table-wrap"><table class="api-table"><thead><tr><th scope="col">Body field</th><th scope="col">Type</th><th scope="col">Presence</th><th scope="col">Rules</th></tr></thead><tbody><tr><td><code>tenant_name</code></td><td>string</td><td>Required</td><td>Maximum 120 UTF-8 bytes. Minimum 1 characters. Maximum 120 characters.</td></tr><tr><td><code>slug</code></td><td>string</td><td>Required</td><td>3–40 letters, numbers or hyphens; starts and ends with a letter or number. Reserved labels are refused. Minimum 3 characters. Maximum 40 characters.</td></tr><tr><td><code>email</code></td><td>email</td><td>Required</td><td>Maximum 254 characters.</td></tr><tr><td><code>password</code></td><td>password</td><td>Required</td><td>12–72 UTF-8 bytes, including a letter and a number. Never logged or returned.</td></tr><tr><td><code>accept_terms</code></td><td>boolean</td><td>Required</td><td>Your client must present the project terms and privacy policy. Must be true.</td></tr></tbody></table></div><div class="api-code"><div class="api-code-label"><span>Example request · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-3" hidden>Copy example</button></div><pre><code id="api-example-3">curl --request POST &#x27;https://call.openweb.co.za/api/v1/registrations&#x27; \
+  --header &#x27;Content-Type: application/json&#x27; \
+  --data &#x27;{
+  &quot;tenant_name&quot;: &quot;Example Company&quot;,
+  &quot;slug&quot;: &quot;example-company&quot;,
+  &quot;email&quot;: &quot;owner@example.com&quot;,
+  &quot;password&quot;: &quot;replace-with-a-long-unique-password-42&quot;,
+  &quot;accept_terms&quot;: true
+}&#x27;</code></pre></div><div class="api-code"><div class="api-code-label"><span>HTTP 202 · example response</span><button type="button" class="api-copy" data-copy-code="api-example-4" hidden>Copy example</button></div><pre><code id="api-example-4">{
+  &quot;status&quot;: &quot;verification_required&quot;,
+  &quot;message&quot;: &quot;If these details can be registered, a verification code will be emailed. Check your inbox and spam folder.&quot;
+}</code></pre></div><p>Other responses: <code>400</code>, <code>403</code>, <code>405</code>, <code>413</code>, <code>415</code>, <code>429</code>, <code>503</code>. See <a href="#errors">errors and retry guidance</a>.</p></div></details>
+<details class="api-endpoint" id="verifyRegistration" data-api-endpoint><summary><span class="api-method api-method-post">POST</span><span class="api-endpoint-route">/registrations/verify</span><span class="api-auth">Public</span></summary><div class="api-endpoint-body"><h3>Verify email and activate the tenant</h3><p>Redeem the single-use email code together with the original registration password. Returns the active tenant and a new bearer token once. Use POST; opening a link or GET request never activates an account.</p><div class="api-table-wrap"><table class="api-table"><thead><tr><th scope="col">Body field</th><th scope="col">Type</th><th scope="col">Presence</th><th scope="col">Rules</th></tr></thead><tbody><tr><td><code>token</code></td><td>string</td><td>Required</td><td>Single-use 30-minute verification code received by email.</td></tr><tr><td><code>password</code></td><td>password</td><td>Required</td><td>The same password supplied when registering. Binds verification to your original registration.</td></tr></tbody></table></div><div class="api-code"><div class="api-code-label"><span>Example request · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-5" hidden>Copy example</button></div><pre><code id="api-example-5">curl --request POST &#x27;https://call.openweb.co.za/api/v1/registrations/verify&#x27; \
+  --header &#x27;Content-Type: application/json&#x27; \
+  --data &#x27;{
+  &quot;token&quot;: &quot;bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb&quot;,
+  &quot;password&quot;: &quot;original-registration-password-42&quot;
+}&#x27;</code></pre></div><div class="api-code"><div class="api-code-label"><span>HTTP 201 · example response</span><button type="button" class="api-copy" data-copy-code="api-example-6" hidden>Copy example</button></div><pre><code id="api-example-6">{
+  &quot;tenant&quot;: {
+    &quot;tenant_uuid&quot;: &quot;d8da1fce-51ac-4e1a-a53a-91a4971e0e3c&quot;,
+    &quot;tenant_name&quot;: &quot;Example Company&quot;,
+    &quot;slug&quot;: &quot;example-company&quot;,
+    &quot;email&quot;: &quot;owner@example.com&quot;,
+    &quot;service_limit&quot;: 1,
+    &quot;service_count&quot;: 0
+  },
+  &quot;access_token&quot;: &quot;owta_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&quot;,
+  &quot;token_type&quot;: &quot;Bearer&quot;,
+  &quot;expires_at&quot;: &quot;2027-01-26T08:00:00+00:00&quot;,
+  &quot;token&quot;: {
+    &quot;token_uuid&quot;: &quot;17eae30b-1965-47ef-91bd-66e623b5ec99&quot;,
+    &quot;name&quot;: &quot;Tenant API&quot;,
+    &quot;created_at&quot;: &quot;2026-10-28T08:00:00+00:00&quot;,
+    &quot;expires_at&quot;: &quot;2027-01-26T08:00:00+00:00&quot;,
+    &quot;revoked_at&quot;: null,
+    &quot;last_used_at&quot;: null
+  }
+}</code></pre></div><p>Other responses: <code>400</code>, <code>401</code>, <code>403</code>, <code>405</code>, <code>409</code>, <code>413</code>, <code>415</code>, <code>429</code>, <code>503</code>. See <a href="#errors">errors and retry guidance</a>.</p></div></details>
+<details class="api-endpoint" id="signInTenant" data-api-endpoint><summary><span class="api-method api-method-post">POST</span><span class="api-endpoint-route">/auth/token</span><span class="api-auth">Public</span></summary><div class="api-endpoint-body"><h3>Sign in as a verified tenant owner</h3><p>A verified, enabled owner can obtain a fresh tenant-scoped token. Invalid credentials are reported generically. At most ten active tokens are allowed.</p><div class="api-table-wrap"><table class="api-table"><thead><tr><th scope="col">Body field</th><th scope="col">Type</th><th scope="col">Presence</th><th scope="col">Rules</th></tr></thead><tbody><tr><td><code>email</code></td><td>email</td><td>Required</td><td>Maximum 254 characters.</td></tr><tr><td><code>password</code></td><td>password</td><td>Required</td><td></td></tr></tbody></table></div><div class="api-code"><div class="api-code-label"><span>Example request · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-7" hidden>Copy example</button></div><pre><code id="api-example-7">curl --request POST &#x27;https://call.openweb.co.za/api/v1/auth/token&#x27; \
+  --header &#x27;Content-Type: application/json&#x27; \
+  --data &#x27;{
+  &quot;email&quot;: &quot;owner@example.com&quot;,
+  &quot;password&quot;: &quot;YOUR_ACCOUNT_PASSWORD&quot;
+}&#x27;</code></pre></div><div class="api-code"><div class="api-code-label"><span>HTTP 200 · example response</span><button type="button" class="api-copy" data-copy-code="api-example-8" hidden>Copy example</button></div><pre><code id="api-example-8">{
+  &quot;tenant&quot;: {
+    &quot;tenant_uuid&quot;: &quot;d8da1fce-51ac-4e1a-a53a-91a4971e0e3c&quot;,
+    &quot;tenant_name&quot;: &quot;Example Company&quot;,
+    &quot;slug&quot;: &quot;example-company&quot;,
+    &quot;email&quot;: &quot;owner@example.com&quot;,
+    &quot;service_limit&quot;: 1,
+    &quot;service_count&quot;: 0
+  },
+  &quot;access_token&quot;: &quot;owta_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&quot;,
+  &quot;token_type&quot;: &quot;Bearer&quot;,
+  &quot;expires_at&quot;: &quot;2027-01-26T08:00:00+00:00&quot;,
+  &quot;token&quot;: {
+    &quot;token_uuid&quot;: &quot;17eae30b-1965-47ef-91bd-66e623b5ec99&quot;,
+    &quot;name&quot;: &quot;Tenant API&quot;,
+    &quot;created_at&quot;: &quot;2026-10-28T08:00:00+00:00&quot;,
+    &quot;expires_at&quot;: &quot;2027-01-26T08:00:00+00:00&quot;,
+    &quot;revoked_at&quot;: null,
+    &quot;last_used_at&quot;: null
+  }
+}</code></pre></div><p>Other responses: <code>400</code>, <code>401</code>, <code>403</code>, <code>405</code>, <code>409</code>, <code>413</code>, <code>415</code>, <code>429</code>, <code>503</code>. See <a href="#errors">errors and retry guidance</a>.</p></div></details>
+<details class="api-endpoint" id="getTenant" data-api-endpoint><summary><span class="api-method api-method-get">GET</span><span class="api-endpoint-route">/me</span><span class="api-auth">Bearer token</span></summary><div class="api-endpoint-body"><h3>Read your tenant and token</h3><p>Returns the current authenticated tenant and current token metadata. Token secrets are never returned by read endpoints.</p><div class="api-code"><div class="api-code-label"><span>Example request · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-9" hidden>Copy example</button></div><pre><code id="api-example-9">curl &#x27;https://call.openweb.co.za/api/v1/me&#x27; \
+  --header &quot;Authorization: Bearer $OPENWEB_TOKEN&quot;</code></pre></div><div class="api-code"><div class="api-code-label"><span>HTTP 200 · example response</span><button type="button" class="api-copy" data-copy-code="api-example-10" hidden>Copy example</button></div><pre><code id="api-example-10">{
+  &quot;tenant&quot;: {
+    &quot;tenant_uuid&quot;: &quot;d8da1fce-51ac-4e1a-a53a-91a4971e0e3c&quot;,
+    &quot;tenant_name&quot;: &quot;Example Company&quot;,
+    &quot;slug&quot;: &quot;example-company&quot;,
+    &quot;email&quot;: &quot;owner@example.com&quot;,
+    &quot;service_limit&quot;: 1,
+    &quot;service_count&quot;: 0
+  },
+  &quot;token&quot;: {
+    &quot;token_uuid&quot;: &quot;17eae30b-1965-47ef-91bd-66e623b5ec99&quot;,
+    &quot;name&quot;: &quot;Tenant API&quot;,
+    &quot;created_at&quot;: &quot;2026-10-28T08:00:00+00:00&quot;,
+    &quot;expires_at&quot;: &quot;2027-01-26T08:00:00+00:00&quot;,
+    &quot;revoked_at&quot;: null,
+    &quot;last_used_at&quot;: null
+  }
+}</code></pre></div><p>Other responses: <code>401</code>, <code>403</code>, <code>405</code>, <code>429</code>, <code>503</code>. See <a href="#errors">errors and retry guidance</a>.</p></div></details>
+<details class="api-endpoint" id="changePassword" data-api-endpoint><summary><span class="api-method api-method-post">POST</span><span class="api-endpoint-route">/me/password</span><span class="api-auth">Bearer token</span></summary><div class="api-endpoint-body"><h3>Change your account password</h3><p>Verify the current account password and choose a new 12–72-byte password with a letter and a number. All previous owner API keys, including the key making this request, are revoked. Store the returned replacement before making another request. Does not change SIP, extension or phone-app passwords. Limit five password-change attempts per owner per ten minutes.</p><div class="api-table-wrap"><table class="api-table"><thead><tr><th scope="col">Body field</th><th scope="col">Type</th><th scope="col">Presence</th><th scope="col">Rules</th></tr></thead><tbody><tr><td><code>current_password</code></td><td>password</td><td>Required</td><td>Current account password; this additional verification is mandatory.</td></tr><tr><td><code>new_password</code></td><td>password</td><td>Required</td><td>New account password: 12–72 UTF-8 bytes, including a letter and a number. Does not change SIP, extension or phone-app passwords.</td></tr></tbody></table></div><div class="api-code"><div class="api-code-label"><span>Example request · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-11" hidden>Copy example</button></div><pre><code id="api-example-11">curl --request POST &#x27;https://call.openweb.co.za/api/v1/me/password&#x27; \
+  --header &quot;Authorization: Bearer $OPENWEB_TOKEN&quot; \
+  --header &#x27;Content-Type: application/json&#x27; \
+  --data &#x27;{
+  &quot;current_password&quot;: &quot;YOUR_CURRENT_ACCOUNT_PASSWORD&quot;,
+  &quot;new_password&quot;: &quot;replace-with-a-new-unique-password-73&quot;
+}&#x27;</code></pre></div><div class="api-code"><div class="api-code-label"><span>HTTP 200 · example response</span><button type="button" class="api-copy" data-copy-code="api-example-12" hidden>Copy example</button></div><pre><code id="api-example-12">{
+  &quot;access_token&quot;: &quot;owta_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&quot;,
+  &quot;token_type&quot;: &quot;Bearer&quot;,
+  &quot;expires_at&quot;: &quot;2027-01-26T08:00:00+00:00&quot;,
+  &quot;token&quot;: {
+    &quot;token_uuid&quot;: &quot;17eae30b-1965-47ef-91bd-66e623b5ec99&quot;,
+    &quot;name&quot;: &quot;Tenant API&quot;,
+    &quot;created_at&quot;: &quot;2026-10-28T08:00:00+00:00&quot;,
+    &quot;expires_at&quot;: &quot;2027-01-26T08:00:00+00:00&quot;,
+    &quot;revoked_at&quot;: null,
+    &quot;last_used_at&quot;: null
+  }
+}</code></pre></div><p>Other responses: <code>400</code>, <code>401</code>, <code>403</code>, <code>404</code>, <code>405</code>, <code>409</code>, <code>413</code>, <code>415</code>, <code>429</code>, <code>503</code>. See <a href="#errors">errors and retry guidance</a>.</p></div></details>
+<details class="api-endpoint" id="listTemplates" data-api-endpoint><summary><span class="api-method api-method-get">GET</span><span class="api-endpoint-route">/templates</span><span class="api-auth">Bearer token</span></summary><div class="api-endpoint-body"><h3>List safe published templates</h3><p>Returns current revisions visible to this tenant, without credentials or encrypted payloads. Only shared, published starter templates explicitly approved by the instance administrator are available. They must have no trunks, outbound rules or additional settings. Configure your own provider after creating the PBX.</p><div class="api-code"><div class="api-code-label"><span>Example request · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-13" hidden>Copy example</button></div><pre><code id="api-example-13">curl &#x27;https://call.openweb.co.za/api/v1/templates&#x27; \
+  --header &quot;Authorization: Bearer $OPENWEB_TOKEN&quot;</code></pre></div><div class="api-code"><div class="api-code-label"><span>HTTP 200 · example response</span><button type="button" class="api-copy" data-copy-code="api-example-14" hidden>Copy example</button></div><pre><code id="api-example-14">{
+  &quot;templates&quot;: [
+    {
+      &quot;template_uuid&quot;: &quot;039b844b-7f52-40c6-a835-3db26a764d3c&quot;,
+      &quot;template_name&quot;: &quot;Starter PBX&quot;,
+      &quot;description&quot;: &quot;A starter office PBX.&quot;,
+      &quot;version&quot;: 1,
+      &quot;timezone&quot;: &quot;Africa/Johannesburg&quot;,
+      &quot;extension_start&quot;: 100,
+      &quot;extension_count&quot;: 2,
+      &quot;extension_limit&quot;: 100
+    }
+  ]
+}</code></pre></div><p>Other responses: <code>401</code>, <code>403</code>, <code>405</code>, <code>429</code>, <code>503</code>. See <a href="#errors">errors and retry guidance</a>.</p></div></details>
+<details class="api-endpoint" id="listServices" data-api-endpoint><summary><span class="api-method api-method-get">GET</span><span class="api-endpoint-route">/services</span><span class="api-auth">Bearer token</span></summary><div class="api-endpoint-body"><h3>List your PBX services</h3><p>Returns only this tenant&#x27;s services. Each service is an isolated PBX on the shared instance, not a separate virtual machine.</p><div class="api-code"><div class="api-code-label"><span>Example request · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-15" hidden>Copy example</button></div><pre><code id="api-example-15">curl &#x27;https://call.openweb.co.za/api/v1/services&#x27; \
+  --header &quot;Authorization: Bearer $OPENWEB_TOKEN&quot;</code></pre></div><div class="api-code"><div class="api-code-label"><span>HTTP 200 · example response</span><button type="button" class="api-copy" data-copy-code="api-example-16" hidden>Copy example</button></div><pre><code id="api-example-16">{
+  &quot;services&quot;: [
+    {
+      &quot;service_uuid&quot;: &quot;0d59d9f6-33a6-4328-8b31-dc63fe96d329&quot;,
+      &quot;tenant_uuid&quot;: &quot;d8da1fce-51ac-4e1a-a53a-91a4971e0e3c&quot;,
+      &quot;domain_uuid&quot;: &quot;80d27531-dbb9-4ecb-8ed7-1c9295c2c6eb&quot;,
+      &quot;service_name&quot;: &quot;Main Office&quot;,
+      &quot;template_uuid&quot;: &quot;039b844b-7f52-40c6-a835-3db26a764d3c&quot;,
+      &quot;template_name&quot;: &quot;Starter PBX&quot;,
+      &quot;template_version&quot;: 1,
+      &quot;sip_domain&quot;: &quot;main-office.example-company.call.openweb.co.za&quot;,
+      &quot;software_version&quot;: &quot;1.0.21&quot;,
+      &quot;created_at&quot;: &quot;2026-10-28T08:05:00+00:00&quot;
+    }
+  ]
+}</code></pre></div><p>Other responses: <code>401</code>, <code>403</code>, <code>405</code>, <code>429</code>, <code>503</code>. See <a href="#errors">errors and retry guidance</a>.</p></div></details>
+<details class="api-endpoint" id="createService" data-api-endpoint><summary><span class="api-method api-method-post">POST</span><span class="api-endpoint-route">/services</span><span class="api-auth">Bearer token</span></summary><div class="api-endpoint-body"><h3>Create a PBX service</h3><p>Creates an isolated PBX from the selected current template and atomically queues its requested managed subdomain. New public tenants start with one service. No paid provider connection or carrier DID is automatically enabled. Retry the exact same request with the same Idempotency-Key after a timeout.</p><div class="api-table-wrap"><table class="api-table"><thead><tr><th scope="col">Parameter</th><th scope="col">Location</th><th scope="col">Required</th><th scope="col">Meaning</th></tr></thead><tbody><tr><td><code>Idempotency-Key</code></td><td>header</td><td>Yes</td><td>A UUID unique to this intended operation. Retry the same JSON request with the same key. A changed request with a reused key is rejected.</td></tr></tbody></table></div><div class="api-table-wrap"><table class="api-table"><thead><tr><th scope="col">Body field</th><th scope="col">Type</th><th scope="col">Presence</th><th scope="col">Rules</th></tr></thead><tbody><tr><td><code>template_uuid</code></td><td>uuid</td><td>Required</td><td>Choose a currently visible published starter template.</td></tr><tr><td><code>service_name</code></td><td>string</td><td>Required</td><td>Maximum 120 UTF-8 bytes. Minimum 1 characters. Maximum 120 characters.</td></tr><tr><td><code>slug</code></td><td>string</td><td>Required</td><td>Minimum 3 characters. Maximum 40 characters.</td></tr><tr><td><code>subdomain</code></td><td>string</td><td>Optional</td><td>Optional single label. Defaults to your tenant slug. No scheme, dots, port or path. Minimum 3 characters. Maximum 40 characters.</td></tr></tbody></table></div><div class="api-code"><div class="api-code-label"><span>Example request · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-17" hidden>Copy example</button></div><pre><code id="api-example-17">curl --request POST &#x27;https://call.openweb.co.za/api/v1/services&#x27; \
+  --header &quot;Authorization: Bearer $OPENWEB_TOKEN&quot; \
+  --header &#x27;Content-Type: application/json&#x27; \
+  --header &#x27;Idempotency-Key: 9b484c7d-4e6f-48b2-b9fd-c55260d8b563&#x27; \
+  --data &#x27;{
+  &quot;template_uuid&quot;: &quot;039b844b-7f52-40c6-a835-3db26a764d3c&quot;,
+  &quot;service_name&quot;: &quot;Main Office&quot;,
+  &quot;slug&quot;: &quot;main-office&quot;,
+  &quot;subdomain&quot;: &quot;example-company&quot;
+}&#x27;</code></pre></div><div class="api-code"><div class="api-code-label"><span>HTTP 201 · example response</span><button type="button" class="api-copy" data-copy-code="api-example-18" hidden>Copy example</button></div><pre><code id="api-example-18">{
+  &quot;service&quot;: {
+    &quot;service_uuid&quot;: &quot;0d59d9f6-33a6-4328-8b31-dc63fe96d329&quot;,
+    &quot;tenant_uuid&quot;: &quot;d8da1fce-51ac-4e1a-a53a-91a4971e0e3c&quot;,
+    &quot;domain_uuid&quot;: &quot;80d27531-dbb9-4ecb-8ed7-1c9295c2c6eb&quot;,
+    &quot;service_name&quot;: &quot;Main Office&quot;,
+    &quot;template_uuid&quot;: &quot;039b844b-7f52-40c6-a835-3db26a764d3c&quot;,
+    &quot;template_name&quot;: &quot;Starter PBX&quot;,
+    &quot;template_version&quot;: 1,
+    &quot;sip_domain&quot;: &quot;main-office.example-company.call.openweb.co.za&quot;,
+    &quot;software_version&quot;: &quot;1.0.21&quot;,
+    &quot;created_at&quot;: &quot;2026-10-28T08:05:00+00:00&quot;
+  },
+  &quot;subdomain&quot;: {
+    &quot;service_uuid&quot;: &quot;0d59d9f6-33a6-4328-8b31-dc63fe96d329&quot;,
+    &quot;requested_label&quot;: &quot;example-company&quot;,
+    &quot;requested_hostname&quot;: &quot;example-company.openwebpbx.com&quot;,
+    &quot;hostname&quot;: null,
+    &quot;url&quot;: null,
+    &quot;admin_url&quot;: null,
+    &quot;state&quot;: &quot;pending_dns&quot;,
+    &quot;ready&quot;: false,
+    &quot;next_attempt&quot;: &quot;2026-10-28T08:06:00+00:00&quot;,
+    &quot;error_category&quot;: &quot;&quot;
+  }
+}</code></pre></div><p>Other responses: <code>400</code>, <code>401</code>, <code>403</code>, <code>404</code>, <code>405</code>, <code>409</code>, <code>413</code>, <code>415</code>, <code>429</code>, <code>503</code>. See <a href="#errors">errors and retry guidance</a>.</p></div></details>
+<details class="api-endpoint" id="getService" data-api-endpoint><summary><span class="api-method api-method-get">GET</span><span class="api-endpoint-route">/services/{service_uuid}</span><span class="api-auth">Bearer token</span></summary><div class="api-endpoint-body"><h3>Read an owned PBX service</h3><p>A valid UUID from another tenant is not disclosed. Existing service settings and the selected template revision remain attached to that service.</p><div class="api-table-wrap"><table class="api-table"><thead><tr><th scope="col">Parameter</th><th scope="col">Location</th><th scope="col">Required</th><th scope="col">Meaning</th></tr></thead><tbody><tr><td><code>service_uuid</code></td><td>path</td><td>Yes</td><td>An owned service UUID. Foreign resources are not disclosed.</td></tr></tbody></table></div><div class="api-code"><div class="api-code-label"><span>Example request · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-19" hidden>Copy example</button></div><pre><code id="api-example-19">curl &#x27;https://call.openweb.co.za/api/v1/services/0d59d9f6-33a6-4328-8b31-dc63fe96d329&#x27; \
+  --header &quot;Authorization: Bearer $OPENWEB_TOKEN&quot;</code></pre></div><div class="api-code"><div class="api-code-label"><span>HTTP 200 · example response</span><button type="button" class="api-copy" data-copy-code="api-example-20" hidden>Copy example</button></div><pre><code id="api-example-20">{
+  &quot;service&quot;: {
+    &quot;service_uuid&quot;: &quot;0d59d9f6-33a6-4328-8b31-dc63fe96d329&quot;,
+    &quot;tenant_uuid&quot;: &quot;d8da1fce-51ac-4e1a-a53a-91a4971e0e3c&quot;,
+    &quot;domain_uuid&quot;: &quot;80d27531-dbb9-4ecb-8ed7-1c9295c2c6eb&quot;,
+    &quot;service_name&quot;: &quot;Main Office&quot;,
+    &quot;template_uuid&quot;: &quot;039b844b-7f52-40c6-a835-3db26a764d3c&quot;,
+    &quot;template_name&quot;: &quot;Starter PBX&quot;,
+    &quot;template_version&quot;: 1,
+    &quot;sip_domain&quot;: &quot;main-office.example-company.call.openweb.co.za&quot;,
+    &quot;software_version&quot;: &quot;1.0.21&quot;,
+    &quot;created_at&quot;: &quot;2026-10-28T08:05:00+00:00&quot;
+  }
+}</code></pre></div><p>Other responses: <code>400</code>, <code>401</code>, <code>403</code>, <code>404</code>, <code>405</code>, <code>429</code>, <code>503</code>. See <a href="#errors">errors and retry guidance</a>.</p></div></details>
+<details class="api-endpoint" id="checkSubdomain" data-api-endpoint><summary><span class="api-method api-method-get">GET</span><span class="api-endpoint-route">/subdomains/availability</span><span class="api-auth">Bearer token</span></summary><div class="api-endpoint-body"><h3>Check a subdomain label</h3><p>Advisory local-instance check only. It does not reserve the name or query central DNS ownership. Reserved labels are refused. The custodian may assign a stable suffix when a requested name is held elsewhere; poll the owned service&#x27;s actual status.</p><div class="api-table-wrap"><table class="api-table"><thead><tr><th scope="col">Parameter</th><th scope="col">Location</th><th scope="col">Required</th><th scope="col">Meaning</th></tr></thead><tbody><tr><td><code>label</code></td><td>query</td><td>Yes</td><td>Single lower-case label, 3–40 letters, numbers or hyphens.</td></tr></tbody></table></div><div class="api-code"><div class="api-code-label"><span>Example request · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-21" hidden>Copy example</button></div><pre><code id="api-example-21">curl &#x27;https://call.openweb.co.za/api/v1/subdomains/availability?label=example-company&#x27; \
+  --header &quot;Authorization: Bearer $OPENWEB_TOKEN&quot;</code></pre></div><div class="api-code"><div class="api-code-label"><span>HTTP 200 · example response</span><button type="button" class="api-copy" data-copy-code="api-example-22" hidden>Copy example</button></div><pre><code id="api-example-22">{
+  &quot;label&quot;: &quot;example-company&quot;,
+  &quot;hostname&quot;: &quot;example-company.openwebpbx.com&quot;,
+  &quot;available&quot;: true,
+  &quot;scope&quot;: &quot;this_instance&quot;,
+  &quot;reservation_confirmed&quot;: false
+}</code></pre></div><p>Other responses: <code>400</code>, <code>401</code>, <code>403</code>, <code>405</code>, <code>429</code>, <code>503</code>. See <a href="#errors">errors and retry guidance</a>.</p></div></details>
+<details class="api-endpoint" id="getSubdomain" data-api-endpoint><summary><span class="api-method api-method-get">GET</span><span class="api-endpoint-route">/services/{service_uuid}/subdomain</span><span class="api-auth">Bearer token</span></summary><div class="api-endpoint-body"><h3>Read subdomain preparation status</h3><p>DNS, trusted HTTPS and local transport preparation run in the background. url/admin_url remain null until the assigned name is verified ready. The requested name is not necessarily the final assigned hostname.</p><div class="api-table-wrap"><table class="api-table"><thead><tr><th scope="col">Parameter</th><th scope="col">Location</th><th scope="col">Required</th><th scope="col">Meaning</th></tr></thead><tbody><tr><td><code>service_uuid</code></td><td>path</td><td>Yes</td><td>An owned service UUID. Foreign resources are not disclosed.</td></tr></tbody></table></div><div class="api-code"><div class="api-code-label"><span>Example request · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-23" hidden>Copy example</button></div><pre><code id="api-example-23">curl &#x27;https://call.openweb.co.za/api/v1/services/0d59d9f6-33a6-4328-8b31-dc63fe96d329/subdomain&#x27; \
+  --header &quot;Authorization: Bearer $OPENWEB_TOKEN&quot;</code></pre></div><div class="api-code"><div class="api-code-label"><span>HTTP 200 · example response</span><button type="button" class="api-copy" data-copy-code="api-example-24" hidden>Copy example</button></div><pre><code id="api-example-24">{
+  &quot;subdomain&quot;: {
+    &quot;service_uuid&quot;: &quot;0d59d9f6-33a6-4328-8b31-dc63fe96d329&quot;,
+    &quot;requested_label&quot;: &quot;example-company&quot;,
+    &quot;requested_hostname&quot;: &quot;example-company.openwebpbx.com&quot;,
+    &quot;hostname&quot;: null,
+    &quot;url&quot;: null,
+    &quot;admin_url&quot;: null,
+    &quot;state&quot;: &quot;pending_dns&quot;,
+    &quot;ready&quot;: false,
+    &quot;next_attempt&quot;: &quot;2026-10-28T08:06:00+00:00&quot;,
+    &quot;error_category&quot;: &quot;&quot;
+  }
+}</code></pre></div><p>Other responses: <code>400</code>, <code>401</code>, <code>403</code>, <code>404</code>, <code>405</code>, <code>429</code>, <code>503</code>. See <a href="#errors">errors and retry guidance</a>.</p></div></details>
+<details class="api-endpoint" id="registerSubdomain" data-api-endpoint><summary><span class="api-method api-method-post">POST</span><span class="api-endpoint-route">/services/{service_uuid}/subdomain</span><span class="api-auth">Bearer token</span></summary><div class="api-endpoint-body"><h3>Register an owned service&#x27;s subdomain</h3><p>Queue a managed subdomain on an owned active PBX service. Use a single label. Once queued or leased, the label cannot be silently renamed; changing it returns a conflict. Existing SIP realms and phone credentials are preserved. The custodian supports fifty names per instance, including reserved existing names.</p><div class="api-table-wrap"><table class="api-table"><thead><tr><th scope="col">Parameter</th><th scope="col">Location</th><th scope="col">Required</th><th scope="col">Meaning</th></tr></thead><tbody><tr><td><code>service_uuid</code></td><td>path</td><td>Yes</td><td>An owned service UUID. Foreign resources are not disclosed.</td></tr><tr><td><code>Idempotency-Key</code></td><td>header</td><td>Yes</td><td>A UUID unique to this intended operation. Retry the same JSON request with the same key. A changed request with a reused key is rejected.</td></tr></tbody></table></div><div class="api-table-wrap"><table class="api-table"><thead><tr><th scope="col">Body field</th><th scope="col">Type</th><th scope="col">Presence</th><th scope="col">Rules</th></tr></thead><tbody><tr><td><code>label</code></td><td>string</td><td>Required</td><td>Minimum 3 characters. Maximum 40 characters.</td></tr></tbody></table></div><div class="api-code"><div class="api-code-label"><span>Example request · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-25" hidden>Copy example</button></div><pre><code id="api-example-25">curl --request POST &#x27;https://call.openweb.co.za/api/v1/services/0d59d9f6-33a6-4328-8b31-dc63fe96d329/subdomain&#x27; \
+  --header &quot;Authorization: Bearer $OPENWEB_TOKEN&quot; \
+  --header &#x27;Content-Type: application/json&#x27; \
+  --header &#x27;Idempotency-Key: 9b484c7d-4e6f-48b2-b9fd-c55260d8b563&#x27; \
+  --data &#x27;{
+  &quot;label&quot;: &quot;example-company&quot;
+}&#x27;</code></pre></div><div class="api-code"><div class="api-code-label"><span>HTTP 200 · example response</span><button type="button" class="api-copy" data-copy-code="api-example-26" hidden>Copy example</button></div><pre><code id="api-example-26">{
+  &quot;subdomain&quot;: {
+    &quot;service_uuid&quot;: &quot;0d59d9f6-33a6-4328-8b31-dc63fe96d329&quot;,
+    &quot;requested_label&quot;: &quot;example-company&quot;,
+    &quot;requested_hostname&quot;: &quot;example-company.openwebpbx.com&quot;,
+    &quot;hostname&quot;: null,
+    &quot;url&quot;: null,
+    &quot;admin_url&quot;: null,
+    &quot;state&quot;: &quot;pending_dns&quot;,
+    &quot;ready&quot;: false,
+    &quot;next_attempt&quot;: &quot;2026-10-28T08:06:00+00:00&quot;,
+    &quot;error_category&quot;: &quot;&quot;
+  }
+}</code></pre></div><p>Other responses: <code>400</code>, <code>401</code>, <code>403</code>, <code>404</code>, <code>405</code>, <code>409</code>, <code>413</code>, <code>415</code>, <code>429</code>, <code>503</code>. See <a href="#errors">errors and retry guidance</a>.</p></div></details>
+<details class="api-endpoint" id="listTokens" data-api-endpoint><summary><span class="api-method api-method-get">GET</span><span class="api-endpoint-route">/tokens</span><span class="api-auth">Bearer token</span></summary><div class="api-endpoint-body"><h3>List integration token metadata</h3><p>Returns up to the most recent 100 token metadata records, including revoked history, never raw token secrets. Use separate named keys for separate integrations.</p><div class="api-code"><div class="api-code-label"><span>Example request · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-27" hidden>Copy example</button></div><pre><code id="api-example-27">curl &#x27;https://call.openweb.co.za/api/v1/tokens&#x27; \
+  --header &quot;Authorization: Bearer $OPENWEB_TOKEN&quot;</code></pre></div><div class="api-code"><div class="api-code-label"><span>HTTP 200 · example response</span><button type="button" class="api-copy" data-copy-code="api-example-28" hidden>Copy example</button></div><pre><code id="api-example-28">{
+  &quot;tokens&quot;: [
+    {
+      &quot;token_uuid&quot;: &quot;17eae30b-1965-47ef-91bd-66e623b5ec99&quot;,
+      &quot;name&quot;: &quot;Tenant API&quot;,
+      &quot;created_at&quot;: &quot;2026-10-28T08:00:00+00:00&quot;,
+      &quot;expires_at&quot;: &quot;2027-01-26T08:00:00+00:00&quot;,
+      &quot;revoked_at&quot;: null,
+      &quot;last_used_at&quot;: null
+    }
+  ]
+}</code></pre></div><p>Other responses: <code>401</code>, <code>403</code>, <code>405</code>, <code>429</code>, <code>503</code>. See <a href="#errors">errors and retry guidance</a>.</p></div></details>
+<details class="api-endpoint" id="createToken" data-api-endpoint><summary><span class="api-method api-method-post">POST</span><span class="api-endpoint-route">/tokens</span><span class="api-auth">Bearer token</span></summary><div class="api-endpoint-body"><h3>Create an integration token</h3><p>Returns the new token secret once. The default and maximum lifetime are ninety days. At most ten active tokens are allowed per tenant. This operation does not retain a replayable copy of the token; avoid blindly retrying it.</p><div class="api-table-wrap"><table class="api-table"><thead><tr><th scope="col">Body field</th><th scope="col">Type</th><th scope="col">Presence</th><th scope="col">Rules</th></tr></thead><tbody><tr><td><code>name</code></td><td>string</td><td>Required</td><td>Maximum 80 UTF-8 bytes. Minimum 1 characters. Maximum 80 characters.</td></tr><tr><td><code>expires_in_days</code></td><td>integer</td><td>Optional</td><td>Minimum 1. Maximum 90.</td></tr></tbody></table></div><div class="api-code"><div class="api-code-label"><span>Example request · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-29" hidden>Copy example</button></div><pre><code id="api-example-29">curl --request POST &#x27;https://call.openweb.co.za/api/v1/tokens&#x27; \
+  --header &quot;Authorization: Bearer $OPENWEB_TOKEN&quot; \
+  --header &#x27;Content-Type: application/json&#x27; \
+  --data &#x27;{
+  &quot;name&quot;: &quot;Billing integration&quot;,
+  &quot;expires_in_days&quot;: 30
+}&#x27;</code></pre></div><div class="api-code"><div class="api-code-label"><span>HTTP 201 · example response</span><button type="button" class="api-copy" data-copy-code="api-example-30" hidden>Copy example</button></div><pre><code id="api-example-30">{
+  &quot;access_token&quot;: &quot;owta_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&quot;,
+  &quot;token_type&quot;: &quot;Bearer&quot;,
+  &quot;expires_at&quot;: &quot;2027-01-26T08:00:00+00:00&quot;,
+  &quot;token&quot;: {
+    &quot;token_uuid&quot;: &quot;17eae30b-1965-47ef-91bd-66e623b5ec99&quot;,
+    &quot;name&quot;: &quot;Tenant API&quot;,
+    &quot;created_at&quot;: &quot;2026-10-28T08:00:00+00:00&quot;,
+    &quot;expires_at&quot;: &quot;2027-01-26T08:00:00+00:00&quot;,
+    &quot;revoked_at&quot;: null,
+    &quot;last_used_at&quot;: null
+  }
+}</code></pre></div><p>Other responses: <code>400</code>, <code>401</code>, <code>403</code>, <code>404</code>, <code>405</code>, <code>409</code>, <code>413</code>, <code>415</code>, <code>429</code>, <code>503</code>. See <a href="#errors">errors and retry guidance</a>.</p></div></details>
+<details class="api-endpoint" id="revokeToken" data-api-endpoint><summary><span class="api-method api-method-delete">DELETE</span><span class="api-endpoint-route">/tokens/{token_uuid}</span><span class="api-auth">Bearer token</span></summary><div class="api-endpoint-body"><h3>Revoke a token</h3><p>Immediately invalidate the selected owned token. The response is 204 with no body. Revoking the current token also ends its ability to make subsequent requests.</p><div class="api-table-wrap"><table class="api-table"><thead><tr><th scope="col">Parameter</th><th scope="col">Location</th><th scope="col">Required</th><th scope="col">Meaning</th></tr></thead><tbody><tr><td><code>token_uuid</code></td><td>path</td><td>Yes</td><td>A token belonging to this tenant.</td></tr></tbody></table></div><div class="api-code"><div class="api-code-label"><span>Example request · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-31" hidden>Copy example</button></div><pre><code id="api-example-31">curl --request DELETE &#x27;https://call.openweb.co.za/api/v1/tokens/17eae30b-1965-47ef-91bd-66e623b5ec99&#x27; \
+  --header &quot;Authorization: Bearer $OPENWEB_TOKEN&quot;</code></pre></div><div class="api-code"><div class="api-code-label"><span>HTTP 204 · example response</span><button type="button" class="api-copy" data-copy-code="api-example-32" hidden>Copy example</button></div><pre><code id="api-example-32">(No response body)</code></pre></div><p>Other responses: <code>400</code>, <code>401</code>, <code>403</code>, <code>404</code>, <code>405</code>, <code>429</code>, <code>503</code>. See <a href="#errors">errors and retry guidance</a>.</p></div></details>
+<details class="api-endpoint" id="rotateToken" data-api-endpoint><summary><span class="api-method api-method-post">POST</span><span class="api-endpoint-route">/tokens/{token_uuid}/rotate</span><span class="api-auth">Bearer token</span></summary><div class="api-endpoint-body"><h3>Rotate an integration token</h3><p>Create a replacement secret and revoke the old secret atomically. Returns the replacement once; later read responses cannot recover it. Update the integration securely. Send an empty JSON object to use the default expiry.</p><div class="api-table-wrap"><table class="api-table"><thead><tr><th scope="col">Parameter</th><th scope="col">Location</th><th scope="col">Required</th><th scope="col">Meaning</th></tr></thead><tbody><tr><td><code>token_uuid</code></td><td>path</td><td>Yes</td><td>A token belonging to this tenant.</td></tr></tbody></table></div><div class="api-table-wrap"><table class="api-table"><thead><tr><th scope="col">Body field</th><th scope="col">Type</th><th scope="col">Presence</th><th scope="col">Rules</th></tr></thead><tbody><tr><td><code>expires_in_days</code></td><td>integer</td><td>Optional</td><td>Minimum 1. Maximum 90.</td></tr></tbody></table></div><div class="api-code"><div class="api-code-label"><span>Example request · cURL</span><button type="button" class="api-copy" data-copy-code="api-example-33" hidden>Copy example</button></div><pre><code id="api-example-33">curl --request POST &#x27;https://call.openweb.co.za/api/v1/tokens/17eae30b-1965-47ef-91bd-66e623b5ec99/rotate&#x27; \
+  --header &quot;Authorization: Bearer $OPENWEB_TOKEN&quot; \
+  --header &#x27;Content-Type: application/json&#x27; \
+  --data &#x27;{
+  &quot;expires_in_days&quot;: 30
+}&#x27;</code></pre></div><div class="api-code"><div class="api-code-label"><span>HTTP 201 · example response</span><button type="button" class="api-copy" data-copy-code="api-example-34" hidden>Copy example</button></div><pre><code id="api-example-34">{
+  &quot;access_token&quot;: &quot;owta_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&quot;,
+  &quot;token_type&quot;: &quot;Bearer&quot;,
+  &quot;expires_at&quot;: &quot;2027-01-26T08:00:00+00:00&quot;,
+  &quot;token&quot;: {
+    &quot;token_uuid&quot;: &quot;17eae30b-1965-47ef-91bd-66e623b5ec99&quot;,
+    &quot;name&quot;: &quot;Tenant API&quot;,
+    &quot;created_at&quot;: &quot;2026-10-28T08:00:00+00:00&quot;,
+    &quot;expires_at&quot;: &quot;2027-01-26T08:00:00+00:00&quot;,
+    &quot;revoked_at&quot;: null,
+    &quot;last_used_at&quot;: null
+  }
+}</code></pre></div><p>Other responses: <code>400</code>, <code>401</code>, <code>403</code>, <code>404</code>, <code>405</code>, <code>409</code>, <code>413</code>, <code>415</code>, <code>429</code>, <code>503</code>. See <a href="#errors">errors and retry guidance</a>.</p></div></details><p class="api-reference-note">Portable front controller: <code>https://call.openweb.co.za/api/v1/index.php?route=/templates</code>. Keep the same method, headers and body. Use <code>&amp;label=example-company</code> when adding a query parameter to that form.</p></section>
+<section id="retries" class="api-section"><h2>Safe retries and clear limits</h2><p>PBX creation and subdomain registration require a UUID <code>Idempotency-Key</code>. Retrying the same JSON request with the same key returns its saved result and <code>Idempotent-Replayed: true</code>. Poll the subdomain resource for its current readiness; the original saved response can still show a pending state. Reusing that key with changed details returns <strong>409</strong>. Use a new key only for a genuinely new intended operation.</p><p>New public tenants begin with <strong>one PBX service</strong>. The instance operator controls admission and quotas; the default public-signup cap is <strong>25 tenants</strong>. This is not an offer of unlimited hosted capacity.</p><div class="api-table-wrap"><table class="api-table"><thead><tr><th scope="col">Operation</th><th scope="col">Default limit</th></tr></thead><tbody><tr><td>Register</td><td>5 per source IP/hour; 3 per email/hour; 100 globally/day.</td></tr><tr><td>Verify</td><td>30 per source IP/10 minutes.</td></tr><tr><td>Sign in</td><td>20 per source IP/10 minutes; 8 per email/10 minutes.</td></tr><tr><td>Change account password</td><td>5 attempts per owner/10 minutes.</td></tr><tr><td>Authenticated API</td><td>120 requests per tenant per minute, shared by its tokens.</td></tr></tbody></table></div><p>On <strong>429</strong>, honor <code>Retry-After</code>. On a timeout or temporary <strong>503</strong>, use bounded exponential backoff and keep the original idempotency key for a write. Correct validation, authentication and conflict errors before retrying. Do not retry forever or repeatedly create new tokens after losing a response.</p></section>
+<section id="errors" class="api-section"><h2>Errors you can act on</h2><p>Use the HTTP status and <code>error.code</code> for application decisions. A <code>request_id</code> is safe to include in a support report; passwords and tokens are not.</p><div class="api-code"><div class="api-code-label"><span>Error envelope</span><button type="button" class="api-copy" data-copy-code="api-example-42" hidden>Copy example</button></div><pre><code id="api-example-42">{
+  &quot;error&quot;: {
+    &quot;code&quot;: &quot;invalid_request&quot;,
+    &quot;message&quot;: &quot;Check the supplied details.&quot;
+  },
+  &quot;request_id&quot;: &quot;example-request-reference&quot;
+}</code></pre></div><div class="api-table-wrap"><table class="api-table"><thead><tr><th scope="col">HTTP status</th><th scope="col">Meaning</th></tr></thead><tbody><tr><td>400</td><td>Invalid request.</td></tr><tr><td>401</td><td>Missing, invalid, expired or revoked bearer token, or invalid owner sign-in.</td></tr><tr><td>403</td><td>Secure transport, request origin, account or tenant restriction.</td></tr><tr><td>404</td><td>Route or owned resource unavailable.</td></tr><tr><td>405</td><td>Incorrect method; inspect Allow.</td></tr><tr><td>409</td><td>Domain, quota, ownership or idempotency conflict.</td></tr><tr><td>413</td><td>Request body exceeds the supported size.</td></tr><tr><td>415</td><td>JSON body requires application/json.</td></tr><tr><td>429</td><td>Rate limit exceeded; honor Retry-After.</td></tr><tr><td>503</td><td>A required dependency is temporarily unavailable.</td></tr></tbody></table></div></section><section id="security" class="api-section"><h2>What your integration can control</h2><p>Public self-service tenants use the modern Desktop and Tenant Services portals. Direct legacy administration pages remain unavailable to these accounts; existing invited tenants keep their current permissions.</p><p>Every protected operation is scoped to its verified tenant owner. Clients cannot choose arbitrary tenant identities, grant platform roles, supply DNS credentials, take another company’s name, read trunk passwords or execute operating-system commands. An unavailable or foreign-owned service is not disclosed.</p><p>Use a server-side integration and normal HTTPS certificate validation. Browser-cookie authentication and cross-origin browser requests are not supported. JSON request bodies are limited to 32 KiB and unknown fields are refused. Keep tokens in a secret store and send them only in the Authorization header, never in URLs.</p><p>There is no destructive tenant-installation or recording-deletion operation in this API. For account or personal-data removal, use the <a href="/delete">deletion procedure</a>. Registering a tenant does not activate paid provider trunks or assign carrier numbers.</p><p>Verification uses the installation’s global outgoing-mail service. A queued message or SMTP acceptance does not prove inbox delivery. DNS and certificate readiness can take time; preserve a working connection while an address is pending.</p></section>
+<section id="help" class="api-section"><h2>Build with the reference beside you</h2><p><strong>For instance administrators:</strong> under <strong>Tenant Services → Templates</strong>, publish a shared starter and select <strong>Allow new tenants to use this starter template through the API</strong>. The template must have no trunks, outbound rules or additional settings. Tenant-owned templates and existing services are not changed.</p><div class="api-actions"><a class="button primary" href="/api-openapi.json" download>Download OpenAPI JSON</a><a class="button secondary" href="https://github.com/embire2/openwebpbx/blob/customization/docs/tenant-api.md">Read the integration guide</a><a class="button secondary" href="https://github.com/embire2/openwebpbx/issues">Report a public issue</a></div><p>For hosted account assistance, contact <a href="mailto:hello@openwebpbx.com">hello@openwebpbx.com</a>. Include the route, approximate time and request reference. Remove tokens, passwords, verification codes, phone numbers and customer records before sharing a report.</p><p class="api-legal">The hosted API is a separately deployed update. Original published 1.0.21 archives are unchanged; self-hosted instances need a build containing this API and operator enablement. API v1 is a separate contract from package versions. Current public server packages remain 1.0.21 and Android remains 1.0.19. Broader physical-phone, carrier and app-store acceptance are separate from this API’s provisioning scope.</p><noscript><p class="api-noscript">The full documentation and endpoint details work without JavaScript. Search, copy buttons and the appearance toggle need JavaScript. Optional appearance storage is not enabled without consent.</p></noscript></section>
+</div></div><footer class="site-footer"><a class="wordmark" href="/"><img class="brand-logo" src="/assets/openwebpbx-logo.png" width="2172" height="724" alt="OpenWebPBX business communications"></a><nav class="api-footer-links" aria-label="Support and privacy"><a href="/">Home</a><a href="/support.html">Support</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/delete">Remove your data</a><a href="/legal">Company</a><a href="/cookies">Cookies</a><a href="/privacy-rights">Privacy requests</a><a href="/paia">PAIA</a><a href="/accessibility">Accessibility</a><button type="button" class="privacy-settings-link" data-privacy-settings>Privacy choices</button></nav><p>A nonprofit, open-source project. Built on FusionPBX and FreeSWITCH.</p></footer></main><p class="api-feedback" role="status" data-api-feedback hidden></p></body></html>

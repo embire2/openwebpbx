@@ -25,9 +25,23 @@ class pbx_tenants {
         $enabled=$this->query('select user_enabled from v_users where user_uuid=:user',['user'=>$_SESSION['user_uuid']])->fetchColumn();
         if (!$enabled || !$t['enabled'] || !$this->canDomain($_SESSION['domain_uuid'])) { http_response_code(403); exit('This tenant account or PBX service is unavailable.'); }
         $path=parse_url($_SERVER['REQUEST_URI']??'',PHP_URL_PATH);
+        if ($this->publicSignup($t) && (!is_string($path) || !self::publicApplicationPath($path))) {
+            http_response_code(403);exit('Use the OpenWeb PBX Desktop to manage this self-service account. Legacy administration pages are unavailable.');
+        }
         if($this->workspaceOnly() && !str_starts_with($path,'/app/tenant_services/') && !str_starts_with($path,'/app/pbx_setup/') && !str_starts_with($path,'/app/pbx_staff/') && !str_starts_with($path,'/app/pbx_updates/') && !str_starts_with($path,'/core/desktop/') && !in_array($path,['/','/index.php','/login.php','/logout.php','/core/users/user_profile.php','/core/dashboard/','/tenantadmin','/tenantadmin/','/tenantadmin/index.php'],true)) {
             http_response_code(403);exit('Create or open a PBX service from Tenant Services to use this application.');
         }
+    }
+    /** Public registrations use the tenant-scoped modern applications only. */
+    public static function publicApplicationPath(string $path): bool {
+        if ($path==='' || str_contains($path,'%') || str_contains($path,'\\') || str_contains($path,'//')
+            || preg_match('~(?:^|/)\.\.?(/|$)|[\x00-\x20\x7f]~',$path)) return false;
+        foreach(['/core/desktop/','/app/tenant_services/','/app/pbx_setup/','/app/pbx_greetings/',
+                 '/app/pbx_mobile/','/app/pbx_phone_health/','/app/pbx_meet/'] as $prefix) {
+            if (str_starts_with($path,$prefix)) return true;
+        }
+        return in_array($path,['/','/index.php','/login.php','/logout.php','/core/dashboard/',
+            '/core/dashboard/index.php','/tenantadmin','/tenantadmin/','/tenantadmin/index.php'],true);
     }
     public function tenants(): array {
         if ($this->platform()) return $this->query('select t.*, (select count(*) from v_pbx_services s where s.tenant_uuid=t.tenant_uuid) service_count from v_pbx_tenants t order by created_at desc')->fetchAll(PDO::FETCH_ASSOC);
@@ -100,14 +114,31 @@ class pbx_tenants {
     public function templates(bool $manage = false): array {
         $t=$this->tenant();$params=['tenant'=>$t['tenant_uuid'] ?? '00000000-0000-0000-0000-000000000000'];
         $filter=$this->platform() ? ($manage ? 'true' : 'published=true') : ($manage ? 'tenant_uuid=:tenant' : 'published=true and (tenant_uuid is null or tenant_uuid=:tenant)');
+        if (!$manage && !$this->platform() && $this->publicSignup($t)) $filter.=' and (tenant_uuid=:tenant or api_enabled=true)';
         if ($this->platform()) $params=[];
-        return $this->query('select template_uuid,tenant_uuid,template_name,description,published,version,updated_at from v_pbx_templates where '.$filter.' order by template_name',$params)->fetchAll(PDO::FETCH_ASSOC);
+        $rows=$this->query('select template_uuid,tenant_uuid,template_name,description,published,version,updated_at from v_pbx_templates where '.$filter.' order by template_name',$params)->fetchAll(PDO::FETCH_ASSOC);
+        if (!$manage && !$this->platform() && $this->publicSignup($t)) {
+            $rows=array_values(array_filter($rows,function(array $row): bool {
+                try {$this->template($row['template_uuid']);return true;} catch (RuntimeException $e) {return false;}
+            }));
+        }
+        return $rows;
     }
     public function template(string $id,bool $manage = false): array {
         $r=$this->query('select * from v_pbx_templates where template_uuid=:id',['id'=>$this->id($id)])->fetch(PDO::FETCH_ASSOC);$t=$this->tenant();
         if (!$r || (!$this->platform() && (($manage && $r['tenant_uuid']!==($t['tenant_uuid']??'')) || (!$manage && (!$r['published'] || ($r['tenant_uuid']!==null && $r['tenant_uuid']!==($t['tenant_uuid']??''))))))) throw new RuntimeException('Template access denied.');
         if (!$manage && !$r['published']) throw new RuntimeException('Choose a published template.');
-        $r['config']=$this->unseal($r['payload_ciphertext']);$r['config']['settings']=array_values(array_filter($r['config']['settings']??[],static fn($s)=>!pbx_voicemail_policy::retiredSetting((string)($s['category']??''),(string)($s['subcategory']??''))));unset($r['payload_ciphertext']);return $r;
+        // Public signups may also enter the normal portal. Opt-in applies at
+        // the shared model, so knowing a template UUID cannot bypass the API.
+        if (!$manage && !$this->platform() && $r['tenant_uuid']===null && $this->publicSignup($t) && empty($r['api_enabled'])) throw new RuntimeException('Template access denied.');
+        $r['config']=$this->unseal($r['payload_ciphertext']);
+        if (!$manage && !$this->platform() && $r['tenant_uuid']===null && $this->publicSignup($t)
+            && (!empty($r['config']['trunks']) || !empty($r['config']['rules']) || !empty($r['config']['settings']))) throw new RuntimeException('Choose a provider-free starter template.');
+        $r['config']['settings']=array_values(array_filter($r['config']['settings']??[],static fn($s)=>!pbx_voicemail_policy::retiredSetting((string)($s['category']??''),(string)($s['subcategory']??''))));unset($r['payload_ciphertext']);return $r;
+    }
+    private function publicSignup(?array $tenant): bool {
+        if (!$tenant || !$this->query("select to_regclass('v_pbx_api_registrations')")->fetchColumn()) return false;
+        return (bool)$this->query('select 1 from v_pbx_api_registrations where tenant_uuid=:tenant and verified_at is not null limit 1',['tenant'=>$tenant['tenant_uuid']])->fetchColumn();
     }
     public static function settingAllowed(string $category,string $subcategory,string $type): bool {
         // Allow domain-level business settings, never authentication, roles, executable paths, or global configuration.
@@ -152,8 +183,13 @@ class pbx_tenants {
         $c=$this->config($input['config']??[],$previous['config']??[]);$tenant=$previous['tenant_uuid']??($this->platform()?null:($this->tenant()['tenant_uuid']??null));if(!$this->platform()&&!$tenant)throw new RuntimeException('A tenant account is required.');
         $name=$this->label($input['template_name']??'');$description=trim($input['description']??'');if(strlen($description)>2000)throw new InvalidArgumentException('Description is too long.');
         $params=['id'=>$id,'tenant'=>$tenant,'name'=>$name,'description'=>$description,'published'=>!empty($input['published'])?'true':'false','payload'=>$this->seal($c)];
-        if($previous){unset($params['tenant']);$this->query('update v_pbx_templates set template_name=:name,description=:description,published=:published,payload_ciphertext=:payload,version=version+1,updated_at=now() where template_uuid=:id',$params);}
-        else $this->query('insert into v_pbx_templates(template_uuid,tenant_uuid,template_name,description,published,payload_ciphertext) values(:id,:tenant,:name,:description,:published,:payload)',$params);
+        $apiSchema=(bool)$this->query("select to_regclass('v_pbx_api_registrations')")->fetchColumn();
+        if(array_key_exists('api_enabled',$input)&&!$this->platform())throw new RuntimeException('Only the platform administrator can publish API starter templates.');
+        $apiEnabled=array_key_exists('api_enabled',$input)?in_array($input['api_enabled'],[true,'true','1',1],true):!empty($previous['api_enabled']);
+        if($apiEnabled&&(!$apiSchema||!$this->platform()||$tenant!==null||$params['published']!=='true'||$c['trunks']||$c['rules']||$c['settings']))throw new InvalidArgumentException('API starter templates must be shared, published and contain no provider connections, outgoing rules or extra settings.');
+        if($apiSchema)$params['api']=$apiEnabled?'true':'false';
+        if($previous){unset($params['tenant']);$this->query('update v_pbx_templates set template_name=:name,description=:description,published=:published,payload_ciphertext=:payload,'.($apiSchema?'api_enabled=:api,':'').'version=version+1,updated_at=now() where template_uuid=:id',$params);}
+        else $this->query('insert into v_pbx_templates(template_uuid,tenant_uuid,template_name,description,published,payload_ciphertext'.($apiSchema?',api_enabled':'').') values(:id,:tenant,:name,:description,:published,:payload'.($apiSchema?',:api':'').')',$params);
         return $id;
     }
     public function services(): array {

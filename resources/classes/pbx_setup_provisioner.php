@@ -215,7 +215,8 @@ class pbx_setup_provisioner {
     }
 
     /** Defaults for a new user; generated SIP credentials stay in the native account. */
-    private function guidedUser(array $user, string $extension, string $mailbox, string $dialplan): array {
+    /** Pure shared projection for guided setup and newly created API services. */
+    public function guidedUser(array $user, string $extension, string $mailbox, string $dialplan): array {
         $destination = ['type'=>'VoiceMail', 'number'=>$user['number'], 'external'=>''];
         $profiles = [];
         foreach (['Available','Away','Out of office','Custom 1','Custom 2'] as $status) {

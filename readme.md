@@ -94,6 +94,12 @@ Hosted21 also repairs automatic office reopening and protects voicemail email at
 
 These results cover their recorded test scope. Broader physical phone/camera coverage, restrictive networks and TURN, measured meeting capacity, carrier cutovers and Google Play acceptance remain open. [Feature coverage](docs/feature-coverage.md) records evidence and limitations; [release qualification](docs/release-1.0.21-qualification.md) records the current packages. Recent development details belong there and in [release notes](https://github.com/embire2/openwebpbx/releases), rather than in the installation steps.
 
+## Automate tenant setup
+
+The hosted [Tenant API](https://openwebpbx.com/api-docs) lets integrations register and verify an account, create an isolated PBX from an approved starter template, and request its managed `*.openwebpbx.com` address. It includes tenant-scoped keys, password changes, quotas, idempotent creation and DNS/certificate readiness polling. See the [integration and operator guide](docs/tenant-api.md) and [OpenAPI 3.1 contract](docs/tenant-api.openapi.json).
+
+The API is live on the hosted installation. This separate source update does not modify the published 1.0.21 server archives; self-hosted packaging and Windows native qualification for the new API belong to the next server release.
+
 ## Documentation
 
 | Start here | Administration and operation | Development |

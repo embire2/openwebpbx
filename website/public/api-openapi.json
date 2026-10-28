@@ -1,0 +1,2354 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "OpenWebPBX Tenant API",
+    "version": "1.0.0",
+    "description": "Email-verified tenant registration, isolated PBX self-provisioning and managed openwebpbx.com subdomains. Hosted services share the latest installed application files and one local instance database. This API does not create VMs or allocate carrier numbers. The hosted API is a separately deployed update; the original published 1.0.21 archives are unchanged. Self-hosted instances need a build containing this API and operator enablement. The API contract version is separate from server and Android package versions.",
+    "termsOfService": "https://openwebpbx.com/terms",
+    "contact": {
+      "name": "OpenWebPBX",
+      "url": "https://openwebpbx.com/support.html",
+      "email": "hello@openwebpbx.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://call.openweb.co.za/api/v1",
+      "description": "OpenWeb hosted instance. Use normal HTTPS certificate verification."
+    }
+  ],
+  "security": [
+    {
+      "TenantBearer": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Registration"
+    },
+    {
+      "name": "Authentication"
+    },
+    {
+      "name": "Tenant"
+    },
+    {
+      "name": "PBX services"
+    },
+    {
+      "name": "Subdomains"
+    },
+    {
+      "name": "Tokens"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Check the API and registration status",
+        "description": "Read safe public API/version metadata. No account details or credentials are returned. A disabled or uninstalled API returns 503.",
+        "tags": [
+          "Tenant"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                },
+                "example": {
+                  "api": "OpenWeb PBX Tenant API",
+                  "version": "1",
+                  "software_version": "1.0.21",
+                  "registration_enabled": true,
+                  "documentation": "https://openwebpbx.com/api-docs"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Request reference for a support report.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "security": []
+      }
+    },
+    "/registrations": {
+      "post": {
+        "operationId": "registerTenant",
+        "summary": "Request a tenant account",
+        "description": "Valid requests return a generic response without confirming whether an email or slug is already registered. No PBX, active owner or API token is created before email verification. The email code expires after 30 minutes. Public signup is enabled according to instance policy.",
+        "tags": [
+          "Registration"
+        ],
+        "responses": {
+          "202": {
+            "description": "Verification required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationAccepted"
+                },
+                "example": {
+                  "status": "verification_required",
+                  "message": "If these details can be registered, a verification code will be emailed. Check your inbox and spam folder."
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Request reference for a support report.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Registration"
+              },
+              "example": {
+                "tenant_name": "Example Company",
+                "slug": "example-company",
+                "email": "owner@example.com",
+                "password": "replace-with-a-long-unique-password-42",
+                "accept_terms": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/registrations/verify": {
+      "post": {
+        "operationId": "verifyRegistration",
+        "summary": "Verify email and activate the tenant",
+        "description": "Redeem the single-use email code together with the original registration password. Returns the active tenant and a new bearer token once. Use POST; opening a link or GET request never activates an account.",
+        "tags": [
+          "Registration"
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Authenticated"
+                },
+                "example": {
+                  "tenant": {
+                    "tenant_uuid": "d8da1fce-51ac-4e1a-a53a-91a4971e0e3c",
+                    "tenant_name": "Example Company",
+                    "slug": "example-company",
+                    "email": "owner@example.com",
+                    "service_limit": 1,
+                    "service_count": 0
+                  },
+                  "access_token": "owta_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "token_type": "Bearer",
+                  "expires_at": "2027-01-26T08:00:00+00:00",
+                  "token": {
+                    "token_uuid": "17eae30b-1965-47ef-91bd-66e623b5ec99",
+                    "name": "Tenant API",
+                    "created_at": "2026-10-28T08:00:00+00:00",
+                    "expires_at": "2027-01-26T08:00:00+00:00",
+                    "revoked_at": null,
+                    "last_used_at": null
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Request reference for a support report.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Verification"
+              },
+              "example": {
+                "token": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "password": "original-registration-password-42"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/token": {
+      "post": {
+        "operationId": "signInTenant",
+        "summary": "Sign in as a verified tenant owner",
+        "description": "A verified, enabled owner can obtain a fresh tenant-scoped token. Invalid credentials are reported generically. At most ten active tokens are allowed.",
+        "tags": [
+          "Authentication"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Authenticated"
+                },
+                "example": {
+                  "tenant": {
+                    "tenant_uuid": "d8da1fce-51ac-4e1a-a53a-91a4971e0e3c",
+                    "tenant_name": "Example Company",
+                    "slug": "example-company",
+                    "email": "owner@example.com",
+                    "service_limit": 1,
+                    "service_count": 0
+                  },
+                  "access_token": "owta_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "token_type": "Bearer",
+                  "expires_at": "2027-01-26T08:00:00+00:00",
+                  "token": {
+                    "token_uuid": "17eae30b-1965-47ef-91bd-66e623b5ec99",
+                    "name": "Tenant API",
+                    "created_at": "2026-10-28T08:00:00+00:00",
+                    "expires_at": "2027-01-26T08:00:00+00:00",
+                    "revoked_at": null,
+                    "last_used_at": null
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Request reference for a support report.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Login"
+              },
+              "example": {
+                "email": "owner@example.com",
+                "password": "YOUR_ACCOUNT_PASSWORD"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me": {
+      "get": {
+        "operationId": "getTenant",
+        "summary": "Read your tenant and token",
+        "description": "Returns the current authenticated tenant and current token metadata. Token secrets are never returned by read endpoints.",
+        "tags": [
+          "Tenant"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                },
+                "example": {
+                  "tenant": {
+                    "tenant_uuid": "d8da1fce-51ac-4e1a-a53a-91a4971e0e3c",
+                    "tenant_name": "Example Company",
+                    "slug": "example-company",
+                    "email": "owner@example.com",
+                    "service_limit": 1,
+                    "service_count": 0
+                  },
+                  "token": {
+                    "token_uuid": "17eae30b-1965-47ef-91bd-66e623b5ec99",
+                    "name": "Tenant API",
+                    "created_at": "2026-10-28T08:00:00+00:00",
+                    "expires_at": "2027-01-26T08:00:00+00:00",
+                    "revoked_at": null,
+                    "last_used_at": null
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Request reference for a support report.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        }
+      }
+    },
+    "/me/password": {
+      "post": {
+        "operationId": "changePassword",
+        "summary": "Change your account password",
+        "description": "Verify the current account password and choose a new 12–72-byte password with a letter and a number. All previous owner API keys, including the key making this request, are revoked. Store the returned replacement before making another request. Does not change SIP, extension or phone-app passwords. Limit five password-change attempts per owner per ten minutes.",
+        "tags": [
+          "Authentication"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenCreated"
+                },
+                "example": {
+                  "access_token": "owta_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "token_type": "Bearer",
+                  "expires_at": "2027-01-26T08:00:00+00:00",
+                  "token": {
+                    "token_uuid": "17eae30b-1965-47ef-91bd-66e623b5ec99",
+                    "name": "Tenant API",
+                    "created_at": "2026-10-28T08:00:00+00:00",
+                    "expires_at": "2027-01-26T08:00:00+00:00",
+                    "revoked_at": null,
+                    "last_used_at": null
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Request reference for a support report.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChange"
+              },
+              "example": {
+                "current_password": "YOUR_CURRENT_ACCOUNT_PASSWORD",
+                "new_password": "replace-with-a-new-unique-password-73"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/templates": {
+      "get": {
+        "operationId": "listTemplates",
+        "summary": "List safe published templates",
+        "description": "Returns current revisions visible to this tenant, without credentials or encrypted payloads. Only shared, published starter templates explicitly approved by the instance administrator are available. They must have no trunks, outbound rules or additional settings. Configure your own provider after creating the PBX.",
+        "tags": [
+          "PBX services"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateList"
+                },
+                "example": {
+                  "templates": [
+                    {
+                      "template_uuid": "039b844b-7f52-40c6-a835-3db26a764d3c",
+                      "template_name": "Starter PBX",
+                      "description": "A starter office PBX.",
+                      "version": 1,
+                      "timezone": "Africa/Johannesburg",
+                      "extension_start": 100,
+                      "extension_count": 2,
+                      "extension_limit": 100
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Request reference for a support report.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        }
+      }
+    },
+    "/services": {
+      "get": {
+        "operationId": "listServices",
+        "summary": "List your PBX services",
+        "description": "Returns only this tenant's services. Each service is an isolated PBX on the shared instance, not a separate virtual machine.",
+        "tags": [
+          "PBX services"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceList"
+                },
+                "example": {
+                  "services": [
+                    {
+                      "service_uuid": "0d59d9f6-33a6-4328-8b31-dc63fe96d329",
+                      "tenant_uuid": "d8da1fce-51ac-4e1a-a53a-91a4971e0e3c",
+                      "domain_uuid": "80d27531-dbb9-4ecb-8ed7-1c9295c2c6eb",
+                      "service_name": "Main Office",
+                      "template_uuid": "039b844b-7f52-40c6-a835-3db26a764d3c",
+                      "template_name": "Starter PBX",
+                      "template_version": 1,
+                      "sip_domain": "main-office.example-company.call.openweb.co.za",
+                      "software_version": "1.0.21",
+                      "created_at": "2026-10-28T08:05:00+00:00"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Request reference for a support report.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createService",
+        "summary": "Create a PBX service",
+        "description": "Creates an isolated PBX from the selected current template and atomically queues its requested managed subdomain. New public tenants start with one service. No paid provider connection or carrier DID is automatically enabled. Retry the exact same request with the same Idempotency-Key after a timeout.",
+        "tags": [
+          "PBX services"
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceCreated"
+                },
+                "example": {
+                  "service": {
+                    "service_uuid": "0d59d9f6-33a6-4328-8b31-dc63fe96d329",
+                    "tenant_uuid": "d8da1fce-51ac-4e1a-a53a-91a4971e0e3c",
+                    "domain_uuid": "80d27531-dbb9-4ecb-8ed7-1c9295c2c6eb",
+                    "service_name": "Main Office",
+                    "template_uuid": "039b844b-7f52-40c6-a835-3db26a764d3c",
+                    "template_name": "Starter PBX",
+                    "template_version": 1,
+                    "sip_domain": "main-office.example-company.call.openweb.co.za",
+                    "software_version": "1.0.21",
+                    "created_at": "2026-10-28T08:05:00+00:00"
+                  },
+                  "subdomain": {
+                    "service_uuid": "0d59d9f6-33a6-4328-8b31-dc63fe96d329",
+                    "requested_label": "example-company",
+                    "requested_hostname": "example-company.openwebpbx.com",
+                    "hostname": null,
+                    "url": null,
+                    "admin_url": null,
+                    "state": "pending_dns",
+                    "ready": false,
+                    "next_attempt": "2026-10-28T08:06:00+00:00",
+                    "error_category": ""
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Request reference for a support report.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Idempotent-Replayed": {
+                "description": "Present with value true when returning the original saved result for an identical idempotent request. Poll subdomain status for current readiness.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceCreate"
+              },
+              "example": {
+                "template_uuid": "039b844b-7f52-40c6-a835-3db26a764d3c",
+                "service_name": "Main Office",
+                "slug": "main-office",
+                "subdomain": "example-company"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/services/{service_uuid}": {
+      "get": {
+        "operationId": "getService",
+        "summary": "Read an owned PBX service",
+        "description": "A valid UUID from another tenant is not disclosed. Existing service settings and the selected template revision remain attached to that service.",
+        "tags": [
+          "PBX services"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceDetail"
+                },
+                "example": {
+                  "service": {
+                    "service_uuid": "0d59d9f6-33a6-4328-8b31-dc63fe96d329",
+                    "tenant_uuid": "d8da1fce-51ac-4e1a-a53a-91a4971e0e3c",
+                    "domain_uuid": "80d27531-dbb9-4ecb-8ed7-1c9295c2c6eb",
+                    "service_name": "Main Office",
+                    "template_uuid": "039b844b-7f52-40c6-a835-3db26a764d3c",
+                    "template_name": "Starter PBX",
+                    "template_version": 1,
+                    "sip_domain": "main-office.example-company.call.openweb.co.za",
+                    "software_version": "1.0.21",
+                    "created_at": "2026-10-28T08:05:00+00:00"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Request reference for a support report.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ServiceId"
+          }
+        ]
+      }
+    },
+    "/subdomains/availability": {
+      "get": {
+        "operationId": "checkSubdomain",
+        "summary": "Check a subdomain label",
+        "description": "Advisory local-instance check only. It does not reserve the name or query central DNS ownership. Reserved labels are refused. The custodian may assign a stable suffix when a requested name is held elsewhere; poll the owned service's actual status.",
+        "tags": [
+          "Subdomains"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Availability"
+                },
+                "example": {
+                  "label": "example-company",
+                  "hostname": "example-company.openwebpbx.com",
+                  "available": true,
+                  "scope": "this_instance",
+                  "reservation_confirmed": false
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Request reference for a support report.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "label",
+            "in": "query",
+            "required": true,
+            "description": "Single lower-case label, 3–40 letters, numbers or hyphens.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$",
+              "minLength": 3,
+              "maxLength": 40
+            },
+            "example": "example-company"
+          }
+        ]
+      }
+    },
+    "/services/{service_uuid}/subdomain": {
+      "get": {
+        "operationId": "getSubdomain",
+        "summary": "Read subdomain preparation status",
+        "description": "DNS, trusted HTTPS and local transport preparation run in the background. url/admin_url remain null until the assigned name is verified ready. The requested name is not necessarily the final assigned hostname.",
+        "tags": [
+          "Subdomains"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubdomainDetail"
+                },
+                "example": {
+                  "subdomain": {
+                    "service_uuid": "0d59d9f6-33a6-4328-8b31-dc63fe96d329",
+                    "requested_label": "example-company",
+                    "requested_hostname": "example-company.openwebpbx.com",
+                    "hostname": null,
+                    "url": null,
+                    "admin_url": null,
+                    "state": "pending_dns",
+                    "ready": false,
+                    "next_attempt": "2026-10-28T08:06:00+00:00",
+                    "error_category": ""
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Request reference for a support report.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ServiceId"
+          }
+        ]
+      },
+      "post": {
+        "operationId": "registerSubdomain",
+        "summary": "Register an owned service's subdomain",
+        "description": "Queue a managed subdomain on an owned active PBX service. Use a single label. Once queued or leased, the label cannot be silently renamed; changing it returns a conflict. Existing SIP realms and phone credentials are preserved. The custodian supports fifty names per instance, including reserved existing names.",
+        "tags": [
+          "Subdomains"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubdomainDetail"
+                },
+                "example": {
+                  "subdomain": {
+                    "service_uuid": "0d59d9f6-33a6-4328-8b31-dc63fe96d329",
+                    "requested_label": "example-company",
+                    "requested_hostname": "example-company.openwebpbx.com",
+                    "hostname": null,
+                    "url": null,
+                    "admin_url": null,
+                    "state": "pending_dns",
+                    "ready": false,
+                    "next_attempt": "2026-10-28T08:06:00+00:00",
+                    "error_category": ""
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Request reference for a support report.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Idempotent-Replayed": {
+                "description": "Present with value true when returning the original saved result for an identical idempotent request. Poll subdomain status for current readiness.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ServiceId"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubdomainRequest"
+              },
+              "example": {
+                "label": "example-company"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tokens": {
+      "get": {
+        "operationId": "listTokens",
+        "summary": "List integration token metadata",
+        "description": "Returns up to the most recent 100 token metadata records, including revoked history, never raw token secrets. Use separate named keys for separate integrations.",
+        "tags": [
+          "Tokens"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenList"
+                },
+                "example": {
+                  "tokens": [
+                    {
+                      "token_uuid": "17eae30b-1965-47ef-91bd-66e623b5ec99",
+                      "name": "Tenant API",
+                      "created_at": "2026-10-28T08:00:00+00:00",
+                      "expires_at": "2027-01-26T08:00:00+00:00",
+                      "revoked_at": null,
+                      "last_used_at": null
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Request reference for a support report.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createToken",
+        "summary": "Create an integration token",
+        "description": "Returns the new token secret once. The default and maximum lifetime are ninety days. At most ten active tokens are allowed per tenant. This operation does not retain a replayable copy of the token; avoid blindly retrying it.",
+        "tags": [
+          "Tokens"
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenCreated"
+                },
+                "example": {
+                  "access_token": "owta_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "token_type": "Bearer",
+                  "expires_at": "2027-01-26T08:00:00+00:00",
+                  "token": {
+                    "token_uuid": "17eae30b-1965-47ef-91bd-66e623b5ec99",
+                    "name": "Tenant API",
+                    "created_at": "2026-10-28T08:00:00+00:00",
+                    "expires_at": "2027-01-26T08:00:00+00:00",
+                    "revoked_at": null,
+                    "last_used_at": null
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Request reference for a support report.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenCreate"
+              },
+              "example": {
+                "name": "Billing integration",
+                "expires_in_days": 30
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tokens/{token_uuid}": {
+      "delete": {
+        "operationId": "revokeToken",
+        "summary": "Revoke a token",
+        "description": "Immediately invalidate the selected owned token. The response is 204 with no body. Revoking the current token also ends its ability to make subsequent requests.",
+        "tags": [
+          "Tokens"
+        ],
+        "responses": {
+          "204": {
+            "description": "Token revoked",
+            "headers": {
+              "X-Request-ID": {
+                "description": "Request reference for a support report.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TokenId"
+          }
+        ]
+      }
+    },
+    "/tokens/{token_uuid}/rotate": {
+      "post": {
+        "operationId": "rotateToken",
+        "summary": "Rotate an integration token",
+        "description": "Create a replacement secret and revoke the old secret atomically. Returns the replacement once; later read responses cannot recover it. Update the integration securely. Send an empty JSON object to use the default expiry.",
+        "tags": [
+          "Tokens"
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenCreated"
+                },
+                "example": {
+                  "access_token": "owta_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "token_type": "Bearer",
+                  "expires_at": "2027-01-26T08:00:00+00:00",
+                  "token": {
+                    "token_uuid": "17eae30b-1965-47ef-91bd-66e623b5ec99",
+                    "name": "Tenant API",
+                    "created_at": "2026-10-28T08:00:00+00:00",
+                    "expires_at": "2027-01-26T08:00:00+00:00",
+                    "revoked_at": null,
+                    "last_used_at": null
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Request-ID": {
+                "description": "Request reference for a support report.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TokenId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRotate"
+              },
+              "example": {
+                "expires_in_days": 30
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Registration": {
+        "type": "object",
+        "properties": {
+          "tenant_name": {
+            "type": "string",
+            "description": "Maximum 120 UTF-8 bytes.",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "slug": {
+            "type": "string",
+            "description": "3–40 letters, numbers or hyphens; starts and ends with a letter or number. Reserved labels are refused.",
+            "pattern": "^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$",
+            "minLength": 3,
+            "maxLength": 40
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "password": {
+            "type": "string",
+            "description": "12–72 UTF-8 bytes, including a letter and a number. Never logged or returned.",
+            "format": "password",
+            "writeOnly": true
+          },
+          "accept_terms": {
+            "type": "boolean",
+            "const": true,
+            "description": "Your client must present the project terms and privacy policy."
+          }
+        },
+        "required": [
+          "tenant_name",
+          "slug",
+          "email",
+          "password",
+          "accept_terms"
+        ],
+        "additionalProperties": false
+      },
+      "RegistrationAccepted": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "verification_required"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "Verification": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Single-use 30-minute verification code received by email.",
+            "writeOnly": true,
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "password": {
+            "type": "string",
+            "description": "The same password supplied when registering. Binds verification to your original registration.",
+            "format": "password",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "token",
+          "password"
+        ],
+        "additionalProperties": false
+      },
+      "Login": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "additionalProperties": false
+      },
+      "PasswordChange": {
+        "type": "object",
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "description": "Current account password; this additional verification is mandatory.",
+            "format": "password",
+            "writeOnly": true
+          },
+          "new_password": {
+            "type": "string",
+            "description": "New account password: 12–72 UTF-8 bytes, including a letter and a number. Does not change SIP, extension or phone-app passwords.",
+            "format": "password",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "additionalProperties": false
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "api": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "software_version": {
+            "type": "string"
+          },
+          "registration_enabled": {
+            "type": "boolean"
+          },
+          "documentation": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "required": [
+          "api",
+          "version",
+          "software_version",
+          "registration_enabled",
+          "documentation"
+        ],
+        "additionalProperties": false
+      },
+      "Tenant": {
+        "type": "object",
+        "properties": {
+          "tenant_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "service_limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "service_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "tenant_uuid",
+          "tenant_name",
+          "slug",
+          "email",
+          "service_limit",
+          "service_count"
+        ],
+        "additionalProperties": false
+      },
+      "TokenMetadata": {
+        "type": "object",
+        "properties": {
+          "token_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "description": "Maximum 80 UTF-8 bytes.",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "token_uuid",
+          "name",
+          "created_at",
+          "expires_at",
+          "revoked_at",
+          "last_used_at"
+        ],
+        "additionalProperties": false
+      },
+      "Authenticated": {
+        "type": "object",
+        "properties": {
+          "tenant": {
+            "$ref": "#/components/schemas/Tenant"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Returned only by the operation which creates it; store securely.",
+            "pattern": "^owta_[a-f0-9]{64}$"
+          },
+          "token_type": {
+            "type": "string",
+            "const": "Bearer"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "token": {
+            "$ref": "#/components/schemas/TokenMetadata"
+          }
+        },
+        "required": [
+          "tenant",
+          "access_token",
+          "token_type",
+          "expires_at",
+          "token"
+        ],
+        "additionalProperties": false
+      },
+      "TokenCreated": {
+        "type": "object",
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "New token secret. The old secret is invalidated when rotating.",
+            "pattern": "^owta_[a-f0-9]{64}$"
+          },
+          "token_type": {
+            "type": "string",
+            "const": "Bearer"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "token": {
+            "$ref": "#/components/schemas/TokenMetadata"
+          }
+        },
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_at",
+          "token"
+        ],
+        "additionalProperties": false
+      },
+      "Me": {
+        "type": "object",
+        "properties": {
+          "tenant": {
+            "$ref": "#/components/schemas/Tenant"
+          },
+          "token": {
+            "$ref": "#/components/schemas/TokenMetadata"
+          }
+        },
+        "required": [
+          "tenant",
+          "token"
+        ],
+        "additionalProperties": false
+      },
+      "Template": {
+        "type": "object",
+        "properties": {
+          "template_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "template_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "extension_start": {
+            "type": "integer",
+            "minimum": 100
+          },
+          "extension_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "extension_limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          }
+        },
+        "required": [
+          "template_uuid",
+          "template_name",
+          "description",
+          "version",
+          "timezone",
+          "extension_start",
+          "extension_count",
+          "extension_limit"
+        ],
+        "additionalProperties": false
+      },
+      "TemplateList": {
+        "type": "object",
+        "properties": {
+          "templates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Template"
+            }
+          }
+        },
+        "required": [
+          "templates"
+        ],
+        "additionalProperties": false
+      },
+      "Service": {
+        "type": "object",
+        "properties": {
+          "service_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "domain_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "service_name": {
+            "type": "string"
+          },
+          "template_uuid": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "template_name": {
+            "type": "string"
+          },
+          "template_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sip_domain": {
+            "type": "string"
+          },
+          "software_version": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "service_uuid",
+          "tenant_uuid",
+          "domain_uuid",
+          "service_name",
+          "template_uuid",
+          "template_name",
+          "template_version",
+          "sip_domain",
+          "software_version",
+          "created_at"
+        ],
+        "additionalProperties": false
+      },
+      "ServiceList": {
+        "type": "object",
+        "properties": {
+          "services": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Service"
+            }
+          }
+        },
+        "required": [
+          "services"
+        ],
+        "additionalProperties": false
+      },
+      "ServiceDetail": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "$ref": "#/components/schemas/Service"
+          }
+        },
+        "required": [
+          "service"
+        ],
+        "additionalProperties": false
+      },
+      "ServiceCreate": {
+        "type": "object",
+        "properties": {
+          "template_uuid": {
+            "type": "string",
+            "description": "Choose a currently visible published starter template.",
+            "format": "uuid"
+          },
+          "service_name": {
+            "type": "string",
+            "description": "Maximum 120 UTF-8 bytes.",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$",
+            "minLength": 3,
+            "maxLength": 40
+          },
+          "subdomain": {
+            "type": "string",
+            "description": "Optional single label. Defaults to your tenant slug. No scheme, dots, port or path.",
+            "pattern": "^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$",
+            "minLength": 3,
+            "maxLength": 40
+          }
+        },
+        "required": [
+          "template_uuid",
+          "service_name",
+          "slug"
+        ],
+        "additionalProperties": false
+      },
+      "SubdomainRequest": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$",
+            "minLength": 3,
+            "maxLength": 40
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "additionalProperties": false
+      },
+      "Subdomain": {
+        "type": "object",
+        "properties": {
+          "service_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requested_label": {
+            "type": "string"
+          },
+          "requested_hostname": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Assigned hostname, which may have a stable collision suffix."
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Trusted ready tenant HTTPS URL. Null until verified ready."
+          },
+          "admin_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Trusted ready tenant administration URL. Null until verified ready."
+          },
+          "state": {
+            "type": "string",
+            "description": "Current asynchronous worker state; inspect ready before advertising this address."
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "next_attempt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Next scheduled worker attempt."
+          },
+          "error_category": {
+            "type": "string",
+            "description": "Safe category only; no DNS credentials or private worker diagnostics."
+          }
+        },
+        "required": [
+          "service_uuid",
+          "requested_label",
+          "requested_hostname",
+          "hostname",
+          "url",
+          "admin_url",
+          "state",
+          "ready",
+          "next_attempt",
+          "error_category"
+        ],
+        "additionalProperties": false
+      },
+      "SubdomainDetail": {
+        "type": "object",
+        "properties": {
+          "subdomain": {
+            "$ref": "#/components/schemas/Subdomain"
+          }
+        },
+        "required": [
+          "subdomain"
+        ],
+        "additionalProperties": false
+      },
+      "ServiceCreated": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "$ref": "#/components/schemas/Service"
+          },
+          "subdomain": {
+            "$ref": "#/components/schemas/Subdomain"
+          }
+        },
+        "required": [
+          "service",
+          "subdomain"
+        ],
+        "additionalProperties": false
+      },
+      "Availability": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "scope": {
+            "type": "string",
+            "const": "this_instance"
+          },
+          "reservation_confirmed": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "required": [
+          "label",
+          "hostname",
+          "available",
+          "scope",
+          "reservation_confirmed"
+        ],
+        "additionalProperties": false
+      },
+      "TokenCreate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Maximum 80 UTF-8 bytes.",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "expires_in_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 90
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "TokenRotate": {
+        "type": "object",
+        "properties": {
+          "expires_in_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 90
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "TokenList": {
+        "type": "object",
+        "properties": {
+          "tokens": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TokenMetadata"
+            }
+          }
+        },
+        "required": [
+          "tokens"
+        ],
+        "additionalProperties": false
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": false
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "request_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "securitySchemes": {
+      "TenantBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "owta_<64 hexadecimal characters>",
+        "description": "A verified active tenant-owner token. Browser cookies do not authorize the API."
+      }
+    },
+    "parameters": {
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "A UUID unique to this intended operation. Retry the same JSON request with the same key. A changed request with a reused key is rejected.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "example": "9b484c7d-4e6f-48b2-b9fd-c55260d8b563"
+      },
+      "ServiceId": {
+        "name": "service_uuid",
+        "in": "path",
+        "required": true,
+        "description": "An owned service UUID. Foreign resources are not disclosed.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "example": "0d59d9f6-33a6-4328-8b31-dc63fe96d329"
+      },
+      "TokenId": {
+        "name": "token_uuid",
+        "in": "path",
+        "required": true,
+        "description": "A token belonging to this tenant.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "example": "17eae30b-1965-47ef-91bd-66e623b5ec99"
+      }
+    },
+    "responses": {
+      "Error400": {
+        "description": "Invalid request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "invalid_request",
+                "message": "Invalid request."
+              },
+              "request_id": "example-request-reference"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Request reference for a support report; no token or password.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Error401": {
+        "description": "Missing, invalid, expired or revoked bearer token, or invalid owner sign-in",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "invalid_token",
+                "message": "Missing, invalid, expired or revoked bearer token, or invalid owner sign-in."
+              },
+              "request_id": "example-request-reference"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Request reference for a support report; no token or password.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Error403": {
+        "description": "Secure transport, request origin, account or tenant restriction",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "https_required",
+                "message": "Secure transport, request origin, account or tenant restriction."
+              },
+              "request_id": "example-request-reference"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Request reference for a support report; no token or password.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Error404": {
+        "description": "Route or owned resource unavailable",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "not_found",
+                "message": "Route or owned resource unavailable."
+              },
+              "request_id": "example-request-reference"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Request reference for a support report; no token or password.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Error405": {
+        "description": "Incorrect method; inspect Allow",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "method_not_allowed",
+                "message": "Incorrect method; inspect Allow."
+              },
+              "request_id": "example-request-reference"
+            }
+          }
+        },
+        "headers": {
+          "Allow": {
+            "description": "HTTP methods accepted for this resource.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          "X-Request-ID": {
+            "description": "Request reference for a support report; no token or password.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Error409": {
+        "description": "Domain, quota, ownership or idempotency conflict",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "idempotency_conflict",
+                "message": "Domain, quota, ownership or idempotency conflict."
+              },
+              "request_id": "example-request-reference"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Request reference for a support report; no token or password.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Error413": {
+        "description": "Request body exceeds the supported size",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "body_too_large",
+                "message": "Request body exceeds the supported size."
+              },
+              "request_id": "example-request-reference"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Request reference for a support report; no token or password.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Error415": {
+        "description": "JSON body requires application/json",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "json_required",
+                "message": "JSON body requires application/json."
+              },
+              "request_id": "example-request-reference"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Request reference for a support report; no token or password.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Error429": {
+        "description": "Rate limit exceeded; honor Retry-After",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "rate_limited",
+                "message": "Rate limit exceeded; honor Retry-After."
+              },
+              "request_id": "example-request-reference"
+            }
+          }
+        },
+        "headers": {
+          "Retry-After": {
+            "description": "Wait this many seconds before retrying.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "X-Request-ID": {
+            "description": "Request reference for a support report; no token or password.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Error503": {
+        "description": "A required dependency is temporarily unavailable",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "temporarily_unavailable",
+                "message": "A required dependency is temporarily unavailable."
+              },
+              "request_id": "example-request-reference"
+            }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "description": "Request reference for a support report; no token or password.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "externalDocs": {
+    "url": "https://openwebpbx.com/api-docs",
+    "description": "Quick start, request examples, limits and full reference."
+  },
+  "x-portable-route": "https://call.openweb.co.za/api/v1/index.php?route={path}"
+}

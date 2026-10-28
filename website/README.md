@@ -1,5 +1,11 @@
 # OpenWeb PBX homepage
 
+## Tenant API documentation — 28 October 2026
+
+The public `/api-docs` page and `/api-openapi.json` describe the hosted tenant API's 17 operations. Static search, copy examples and desktop/mobile light/dark layouts require no external scripts, credential inputs or live API requests. Homepage navigation, Start and footer link to the reference. The two scoped Apache rewrite rules preserve existing canonical redirects and legal/privacy protections. The hosted API is a separate deployment; existing server 1.0.21 and Android 1.0.19 download assets remain unchanged.
+
+Published page, OpenAPI, CSS/JS, homepage and sitemap match source; 14 existing legal/privacy/logo/catalogue resources retain their hashes. Actual trusted-HTTPS browser checks pass 17-operation navigation/search/copy, the source-identical OpenAPI download and four desktop/mobile theme layouts, with no fresh console errors or third-party requests. The documentation never asks users to store bearer credentials in the browser. See [the integration guide](../docs/tenant-api.md).
+
 Public destination: **https://openwebpbx.com/**. Deploy only the contents of `public/` to that domain's document root. The site is static HTML, CSS, JavaScript and SVG; it needs no Node build, database, external fonts or third-party scripts. The PBX application and private account data are separate.
 
 Current deployment: **[https://openwebpbx.com/](https://openwebpbx.com/)**, published to the existing cPanel document root on 2026-10-08 and refreshed to 1.0.15 on 2026-10-16, with Play policy pages updated on 2026-10-17 and the Windows Server1.0.20 download/catalogue published on2026-10-24. The latter changes only index.html, assets/site.js and releases.json; all three are exact over public HTTPS, ten legal/consent resources and hosting rules are preserved, and six desktop/mobile light/dark layouts,13 feature dialogs, Start search and minimize/restore pass with zero browser errors. The catalogue uses actual GitHub asset sizes, SHA256 hashes and publication time. Debian16/admin19/Android18 remain separate releases. HTTP and `www` requests redirect to the HTTPS apex while preserving the path and query. No DNS or mail routing was changed.

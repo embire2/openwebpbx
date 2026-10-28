@@ -1,5 +1,11 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+## Hosted tenant API v1 — 2026-10-28
+
+The [tenant API](docs/tenant-api.md) is live, with [public documentation](https://openwebpbx.com/api-docs) and an OpenAPI 3.1 contract. Its 17 operations support email-verified registration, isolated PBX services, managed subdomain setup/status and tenant credential management. Current shared files and approved starter templates are used; public self-service never supplies another tenant's provider credentials. Public accounts use the modern administration interface, with legacy pages blocked.
+
+Root repeats 103 PostgreSQL and 153 independent HTTP controls, then proves actual trusted-HTTPS activation, PBX creation/replay, signed managed-domain DNS/certificate readiness and tenant portal/100–101 Users access. The disposable tenant is retired and its alias disabled; all 18 original customer-table projections and seven desk-phone registrations remain preserved. SMTP queue behavior is tested; no new inbox-delivery, physical-phone or carrier-call acceptance is implied. The hosted API is a separate source update; published server 1.0.21 and Android 1.0.19 packages remain unchanged. Future Windows API packaging/native qualification remains separate. The existing 133 goals / 21 accepted / 72 partial / 40 planned totals are unchanged.
+
 ## Server 1.0.21 — 2026-10-27 / Complete Windows and Debian server1.0.21 release
 
 Windows [normal40435466441](https://github.com/embire2/openwebpbx/actions/runs/40435466441) passes all 17 essential software gates and package/source/private-data audits for source `cab93`. Matching [replacement restore40446022002](https://github.com/embire2/openwebpbx/actions/runs/40446022002) passes source 9/target 20, and [restored conferences40452374400](https://github.com/embire2/openwebpbx/actions/runs/40452374400) passes source 9/target 21 with decoded audio/video and 16 WebSocket roundtrips; canonical cleanup passes.
