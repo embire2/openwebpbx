@@ -23,6 +23,7 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+import time
 import uuid
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -115,7 +116,9 @@ def sync_directory(path):
 
 
 @contextlib.contextmanager
-def exclusive_guard(path):
+def exclusive_guard(path, *, wait_seconds=0):
+    if type(wait_seconds) not in (int, float) or not 0 <= wait_seconds <= 5:
+        raise ValueError('Operation lock wait must be between zero and five seconds.')
     path = Path(path)
     if path.is_symlink():
         raise BackupError('The operation lock needs administrator review.')
@@ -123,10 +126,16 @@ def exclusive_guard(path):
         lock_path_mode = path.stat().st_mode & 0o777
         if lock_path_mode & 0o022:
             path.chmod(0o600)
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise BackupError('Another backup, restore or release update is running. Retry after it finishes.') from None
+        deadline = time.monotonic() + wait_seconds
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise BackupError('Another backup, restore or release update is running. Retry after it finishes.') from None
+                time.sleep(min(0.05, remaining))
         yield
 
 
@@ -564,7 +573,7 @@ def prune_backups(settings, retention, *, store=STORE, downloads=DOWNLOADS):
 
 
 def worker(settings, **kwargs):
-    with exclusive_guard(UPGRADE_LOCK):
+    with exclusive_guard(UPGRADE_LOCK, wait_seconds=5):
         return _worker(settings, **kwargs)
 
 

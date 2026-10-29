@@ -234,7 +234,8 @@ def main():
     # Registration jobs hold the ordinary maintenance lock. Public certificate
     # setup has its own lock and therefore runs only after this lock is released.
     meta=None
-    with b.exclusive_guard(b.UPGRADE_LOCK):
+    guard=b.exclusive_guard(b.UPGRADE_LOCK)if IS_WINDOWS else b.exclusive_guard(b.UPGRADE_LOCK,wait_seconds=5)
+    with guard:
         if d.blocked(b):return {'state':'deferred','reason':'maintenance_or_restore_hold'}
         result=process_jobs(b,d)
         if result.get('required'):

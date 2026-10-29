@@ -246,7 +246,7 @@ def run(move=False, confirm=None):
                 # Only an exact native sharing/byte-lock conflict defers. ACL,
                 # unsafe-path and guarded-body failures still require review.
                 return {'state':'deferred','reason':'maintenance_or_restore_hold'if blocked(b)else'maintenance_busy'}
-        else:lock.enter_context(b.exclusive_guard(b.UPGRADE_LOCK))
+        else:lock.enter_context(b.exclusive_guard(b.UPGRADE_LOCK,wait_seconds=0 if move else 5))
         if blocked(b):return {'state':'deferred','reason':'maintenance_or_restore_hold'}
         initial=bridge(b,'discover');server=hostname(initial['server_host'])
         if move and confirm!=server:raise ValueError('Confirm the new installed server hostname for an explicit lease move.')
