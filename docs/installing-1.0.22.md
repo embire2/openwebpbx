@@ -61,11 +61,12 @@ registered phones, providers, routes and company settings must be preserved.
 The fresh-install onboarding requirement does not reconfigure an existing
 customer deployment.
 
-The 1.0.22 signed feed requires **1.0.21 or newer**. An original 1.0.16 server
-must first apply the signed revision2 compatibility bootstrap and upgrade using
-the retained [1.0.21 instructions](installing-debian-1.0.21.md) and its release's
-version-specific signed Debian feed. Then check for 1.0.22. Do not bypass the
-minimum-version check or run the fresh installer over an installed server.
+The 1.0.22 signed feed requires **1.0.21 or newer**. Older installations need a
+separately validated migration path; this release does not qualify a direct
+1.0.16-to-1.0.22 upgrade. The retained [1.0.21 instructions](installing-debian-1.0.21.md)
+describe that historical release, rather than a current intermediate-upgrade
+recipe using the latest feed. Do not bypass the minimum-version check or run
+the fresh installer over an installed server.
 Make a verified encrypted backup first and allow the normal updater to finish;
 it waits for active calls, saves a recovery snapshot and restarts services as
 part of installation. Keep the server running throughout the transaction.
