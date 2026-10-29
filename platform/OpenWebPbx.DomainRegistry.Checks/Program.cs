@@ -258,7 +258,7 @@ internalClient.DefaultRequestHeaders.Add("X-Forwarded-For","127.0.0.2");
 foreach(var kind in new[]{"cancel-before-bootstrap","cancel-foreign-ip","cancel-foreign-dns"}){
  using var cancelledKey=ECDsa.Create(ECCurve.NamedCurves.nistP256);var owner=Guid.NewGuid();
  var held=await Internal<LabelReservationReply>("reserve-label",new LabelReservationRequest(owner,Guid.NewGuid(),kind));
- var cancelled=Bootstrap(cancelledKey,kind=="cancel-foreign-ip"?boot.ServerAddress:"9.9.9.13") with{AccountTenantUuid=owner,Label=kind};
+ var cancelled=Bootstrap(cancelledKey,kind=="cancel-foreign-ip"?boot.ServerAddress:kind=="cancel-foreign-dns"?"9.9.9.14":"9.9.9.13") with{AccountTenantUuid=owner,Label=kind};
  cancelled=cancelled with{Signature=Convert.ToBase64String(cancelledKey.SignData(InstanceBootstrap.Message(cancelled),HashAlgorithmName.SHA256,DSASignatureFormat.Rfc3279DerSequence))};
  var canonical="node-"+cancelled.InstallationUuid.ToString("N")+".openwebpbx.com";
  await Internal<JsonElement>("bind-label",new LabelReservationBind(owner,held.ReservationUuid,kind,cancelled.KeyHash,cancelled.DomainUuid,cancelled.LocalTenantUuid,cancelled.InstallationUuid));
@@ -279,7 +279,16 @@ foreach(var kind in new[]{"cancel-before-bootstrap","cancel-foreign-ip","cancel-
   Check(replayed.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Conflict,"Cancelled pre-bootstrap identity cannot replay its original signed registration: "+kind);
   Check(dns.Changes==before,"Cancelled identity replay preserves all provider records: "+kind);
   await using var state=source.CreateCommand("select state from registry_bootstrap where instance_uuid=$1");state.Parameters.AddWithValue(cancelled.InstallationUuid);
-  Check((string)(await state.ExecuteScalarAsync())!==(kind=="cancel-foreign-dns"?"revoked_unregistered":"cleaned"),"Cancellation keeps the precise non-authorizing tombstone: "+kind);
+  Check((string)(await state.ExecuteScalarAsync())! == (kind=="cancel-foreign-dns"?"revoked_unregistered":"cleaned"),"Cancellation keeps the precise non-authorizing tombstone: "+kind);
+  if(kind=="cancel-before-bootstrap"){
+   using var replacementKey=ECDsa.Create(ECCurve.NamedCurves.nistP256);
+   var replacement=Bootstrap(replacementKey,cancelled.ServerAddress);
+   var replacementNode=await Internal<BootstrapReply>("bootstrap-instance",replacement);
+   var afterReuse=dns.Changes;
+   using var oldControl=await internalClient.PostAsJsonAsync("/internal/v1/revoke-instance",new InstanceRevokeRequest(owner,held.ReservationUuid,cancelled.ServerAddress,canonical,cancelled.KeyHash));
+   Check(oldControl.StatusCode==HttpStatusCode.Conflict,"An old cleaned control cannot confirm address release after another instance reuses that IP");
+   Check(dns.Changes==afterReuse&&dns.Record(replacementNode.ServerHost)==("A",cancelled.ServerAddress),"Old cleanup replay preserves the replacement owner's exact canonical DNS");
+  }
  }
 }
 Check(dns.UnrelatedExact,"Pre-bootstrap cancellation preserves both unrelated original DNS records");

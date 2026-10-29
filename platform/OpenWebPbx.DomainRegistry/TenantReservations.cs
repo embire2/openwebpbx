@@ -99,9 +99,9 @@ public sealed class TenantReservations(NpgsqlDataSource data,IRegistryDns dns,In
                 if(rows.GetGuid(0)!=r.AccountTenantUuid||rows.GetString(1)!=hash||rows.GetString(2)!=r.ServerAddress||rows.GetString(3)!=host)throw new Refused("cleanup_binding_changed",409);ownsBootstrap=rows.GetString(4)!="revoked_unregistered";
                 alreadyCleaned=rows.GetString(4)=="cleaned";
             }
-            if(alreadyCleaned){await using var done=Command(db,tx,"update registry_label_reservations set state='released' where reservation_uuid=$1",r.ReservationUuid);await done.ExecuteNonQueryAsync(stop);await tx.CommitAsync(stop);return new(true,"revoked","instance");}
             await using(var other=Command(db,tx,"select exists(select 1 from registry_bootstrap where server_address=$1::inet and key_hash<>$2 and state<>'cleaned')",r.ServerAddress,hash))
                 if(await other.ExecuteScalarAsync(stop)is true)throw new Refused("server_cleanup_unconfirmed",409);
+            if(alreadyCleaned){await using var done=Command(db,tx,"update registry_label_reservations set state='released' where reservation_uuid=$1",r.ReservationUuid);await done.ExecuteNonQueryAsync(stop);await tx.CommitAsync(stop);return new(true,"revoked","instance");}
             if(ownsBootstrap){
                 await using(var c=Command(db,tx,"select label from registry_leases where key_hash=$1 and server_host=$2",hash,host!))await using(var rows=await c.ExecuteReaderAsync(stop))while(await rows.ReadAsync(stop))aliases.Add(rows.GetString(0));
                 await using(var c=Command(db,tx,"update registry_bootstrap set state='revoked' where instance_uuid=$1",bootstrap!.Value))await c.ExecuteNonQueryAsync(stop);
