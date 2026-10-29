@@ -91,7 +91,7 @@ Hosted system speech now uses **Keoma voice pack1.0.2**, including default voice
 
 Hosted21 also repairs automatic office reopening and protects voicemail email attachments. A controlled live recording passes outgoing-server acceptance and deletion checks; failed sends retain the message. [Voicemail and email](docs/voicemail-and-clock.md).
 
-These results cover their recorded test scope. Broader physical phone/camera coverage, restrictive networks and TURN, measured meeting capacity, carrier cutovers and Google Play acceptance remain open. [Feature coverage](docs/feature-coverage.md) records evidence and limitations; [release qualification](docs/release-1.0.21-qualification.md) records the current packages. Recent development details belong there and in [release notes](https://github.com/embire2/openwebpbx/releases), rather than in the installation steps.
+These results cover their recorded test scope. Broader physical phone/camera coverage, restrictive networks and TURN, measured meeting capacity, carrier cutovers and Google Play acceptance remain open. [Feature coverage](docs/feature-coverage.md) records evidence and limitations; [Debian qualification](docs/release-1.0.22-qualification.md) and [Windows qualification](docs/release-1.0.21-qualification.md) record the current packages. Recent development details belong there and in [release notes](https://github.com/embire2/openwebpbx/releases), rather than in the installation steps.
 
 ## Automate tenant setup
 

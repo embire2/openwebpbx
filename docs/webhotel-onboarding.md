@@ -11,11 +11,12 @@ root and registration-account secrets are separate.
 
 The complete Debian **1.0.22** package is published, and its read-only template
 media is rebuilt. The [qualification record](release-1.0.22-qualification.md)
-distinguishes package acceptance from each hosting node. Eight healthy nodes are
-eligible; a location becomes available only after its installation, registration,
-calling, backup and reboot checks. Other nodes remain held for storage health,
-memory or customer-IP availability.
-All224 usable addresses in the sixteen existing OVH blocks have vMACs; no extra
+distinguishes package acceptance from each hosting node. Eight nodes were
+initially eligible for qualification; a location becomes available only after its
+installation, registration, calling, backup and reboot checks. A node that failed
+the installed-file comparison time limit remains unavailable. Other nodes remain
+held for storage health, memory or customer-IP availability.
+All 224 usable addresses in the sixteen existing OVH blocks have vMACs; no extra
 IP purchase or customer-address reassignment is part of this rollout.
 
 Public Windows Server1.0.21 and Android1.0.19 retain their original packages and

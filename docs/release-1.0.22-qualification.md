@@ -49,7 +49,7 @@ must remain byte-identical in the new latest release.
 | Package and source provenance | Accepted: independent audits bind all12,193 payloads,6,708 packaged Git blobs,565 native files and36 native build inputs. The separate source archive passes7,645 exact Git blob/mode checks and contains no supplied live credential. |
 | Central registration authority | Accepted: source and exact deployed native registry each pass326 controls; privileged PHP128 and dispatcher46 also pass. Existing customer projections and calling processes are preserved. |
 | Backup safety and scheduled contention | Accepted components: nineteen real backup/restore controls,132 onboarding controls,21 domain controls,19 Phone Health controls, six native activation checks and eleven calendar/condition checks. Actual restored-server maintenance skip and natural queued backup completion pass without changing schedules or invoking workers manually. |
-| Exact final-package clean installation | Accepted on two healthy nodes: exact ec91 archive, all12,243 installed files, pre-registration refusal with otherwise valid credentials, real owner registration/DNS/ACME/trusted GUI,24 initial/post-reboot UDP/TLS/alias calling cases, natural manual/scheduled encrypted backups and actual reboot. Other nodes have separate gates. Earlier0aaa installations plus exact corrections remain explicitly separate. |
+| Exact final-package clean installation | Accepted directly on two healthy nodes: exact ec91 archive, all12,243 installed files, pre-registration refusal with otherwise valid credentials, real owner registration/DNS/ACME/trusted GUI,24 initial/post-reboot UDP/TLS/alias calling cases, natural manual/scheduled encrypted backups and actual reboot. Two additional nodes completed within the pre-existing production command bound and pass separately declared same-install functional components; their earlier shorter QA observers remain failed. Earlier0aaa installations plus exact corrections remain explicitly separate. |
 | Genuine original21 signed rollback and upgrade | Accepted: genuine original21 cold signed fault/automatic rollback in1,169.916 seconds and normal upgrade/finalization in1,342.509 seconds, both below their original1,800-second bounds. All176 original table sets, roles/cluster,321 private files,12,243 mapped targets and original metadata pass. Raw187 original relation owners/OIDs/ACLs remain exact with only eight source-defined new tables. Natural encrypted backup completes in36.558 seconds, with391 files/20 recordings verified; actual reboot, native22 signed Check and original440/660 two-way calling pass in separately declared components. Failed observers below remain failed. |
 | Independent replacement restore | Accepted with an explicit mixed basis: a distinct clean0aaa factory installation restores the exact source database, local registration identity, voicemail and recordings while preserving target machine/database roles and identities. All changed ec91 payloads are then applied and all12,243 installed targets checked. Maintenance skip, the same queued encrypted backup completing naturally, actual reboot, original-credential UDP/TLS/alias two-way calls and the complete target-map recheck pass. Both temporary servers are stopped, centrally revoked and destroyed; original IP records are restored. |
 | Webhotel checkout and credential access | Accepted components:103 onboarding,34 lifecycle,61 route,12 IP-owner,119 current session-recovery controls with the source-identical prior123 actual-session basis retained, and39 fresh live authenticated browser/API controls. Thirty-two production certificate-admission controls bind the final installer pin. All68 original catalogue rows are preserved. Actual ordinary customer GUI/order/queue-to-VM acceptance remains pending; hosting sales stay gated. |
@@ -89,8 +89,21 @@ collector is relabeled.
 
 Provider nodes that exceed the original installation observation or fail their
 installer remain unavailable while their logs are checked. No failed timed
-attempt is extended retrospectively. Webhotel database readiness and a real
-ordinary customer-order journey remain independent rollout gates.
+attempt is extended retrospectively. Two successful same-install components use
+the unchanged first-boot source's pre-existing1,800-second command bound; they do
+not relabel the earlier1,500-second observers. The node whose installed-file
+comparisons repeatedly exceeded600 seconds remains unqualified and unavailable.
+Its owned test VM, reservation and IP allocation are cleaned up; no partial file
+count is treated as a passed comparison. A separate production-RAW installation
+is still being checked after an earlier external Debian package-fetch failure.
+
+Webhotel database readiness and a real ordinary customer-order journey remain
+independent rollout gates. The ordinary browser test reached a valid reservation
+and authoritative quote, then exposed a Back-navigation defect that discarded
+the client-side setup ID. The minimal correction preserves the setup component
+between steps without changing server authorization or billing checks. Actual
+forward/Back and complete funded-order qualification remain required before the
+normal provider journey is accepted.
 
 Actual software calls use SIP signaling and decoded two-way RTP. They do not
 certify a new physical handset, carrier, Android device, Windows installation or
