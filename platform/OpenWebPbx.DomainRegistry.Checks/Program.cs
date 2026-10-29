@@ -282,8 +282,8 @@ foreach(var kind in new[]{"cancel-before-bootstrap","cancel-foreign-ip","cancel-
   Check((string)(await state.ExecuteScalarAsync())! == (kind=="cancel-foreign-dns"?"revoked_unregistered":"cleaned"),"Cancellation keeps the precise non-authorizing tombstone: "+kind);
   if(kind=="cancel-before-bootstrap"){
    using var replacementKey=ECDsa.Create(ECCurve.NamedCurves.nistP256);
-   var replacement=Bootstrap(replacementKey,cancelled.ServerAddress);
-   var replacementNode=await Internal<BootstrapReply>("bootstrap-instance",replacement);
+   var replacementBootstrap=Bootstrap(replacementKey,cancelled.ServerAddress);
+   var replacementNode=await Internal<BootstrapReply>("bootstrap-instance",replacementBootstrap);
    var afterReuse=dns.Changes;
    using var oldControl=await internalClient.PostAsJsonAsync("/internal/v1/revoke-instance",new InstanceRevokeRequest(owner,held.ReservationUuid,cancelled.ServerAddress,canonical,cancelled.KeyHash));
    Check(oldControl.StatusCode==HttpStatusCode.Conflict,"An old cleaned control cannot confirm address release after another instance reuses that IP");
