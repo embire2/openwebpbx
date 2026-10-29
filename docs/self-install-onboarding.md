@@ -5,11 +5,13 @@ authorizes an installation running on its owner's server; it does not create a
 second PBX on OpenWeb's hosted installation. The normal hosted-service API is
 still available separately.
 
-This document describes the current source integration. Published server
-1.0.21 archives remain unchanged. The final Debian1.0.22 installer and rebuilt
-Webhotel templates are undergoing [package and per-node qualification](release-1.0.22-qualification.md).
-Template staging is not sales certification. Windows onboarding still requires
-its separate native qualification before distribution in a Windows package.
+Debian **1.0.22** includes this registered installation flow. Its complete
+package, signed upgrade and restoration evidence is recorded in the
+[qualification report](release-1.0.22-qualification.md). Older published archives
+remain unchanged. Webhotel locations become available only after their own
+installation, calling, backup and reboot checks; staging an image alone does not
+enable sales. Windows Server stays on1.0.21; distributing the new Windows
+onboarding flow still requires its separate native qualification.
 
 ## Setup experience
 

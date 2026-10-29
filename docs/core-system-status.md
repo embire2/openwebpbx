@@ -1,5 +1,13 @@
 # OpenWeb PBX core system status
 
+## Debian 1.0.22 — registered self-installation and Webhotel
+
+[Debian1.0.22](https://github.com/embire2/openwebpbx/releases/tag/v1.0.22) is published for Debian13 amd64. Fresh installations keep PostgreSQL and calling local, verify ownership and obtain a managed tenant address through the [setup wizard](https://openwebpbx.com/wizard). Existing installations preserve their calling policy and credentials. Signed upgrades require installed1.0.21 or newer. Enabled managed backup/registration timers recover after maintenance while disabled/custom choices remain protected.
+
+Webhotel collects company details and verified email, checks/reserves the tenant address and keeps the initial PBX URL/username/password visible to the owner and explicit credential viewers, encrypted at rest. Each hosting location has separate installation/calling/backup/reboot gates; unqualified locations remain unavailable. Original customer catalogue entries and resource/ownership checks are preserved. See [qualification](release-1.0.22-qualification.md) and [onboarding](webhotel-onboarding.md).
+
+Windows Server remains1.0.21 and Android remains1.0.19, with byte-identical existing compatibility feeds. There is no new Windows/Android/Store or physical-handset/carrier acceptance from this release. Roadmap **133 /21 accepted /72 partial /40 planned** remains unchanged; older dated entries below retain their historical scope.
+
 ## Complete server 1.0.21 published — 2026-10-27
 
 [Version 1.0.21](https://github.com/embire2/openwebpbx/releases/tag/v1.0.21) provides complete Debian 13 amd64 and Windows Server 2025 Desktop Experience packages. Windows normal, replacement restore, restored conferences and signed upgrade/rollback pass; the real original20 upgrade, Greetings recording, Windows reboot and two-way TLS software calls also pass. Debian fresh installation, original16 plus verified signed revision2 upgrade/rollback, separate current-backup restore, browser audio/video and encrypted backups pass. All eleven public assets, checksums and signed platform feeds are verified. Android remains 1.0.19; the Windows calling client remains under development. [Current release scope](release-1.0.21-qualification.md) records the exact packages and remaining external deployment checks. Roadmap totals remain 133 / 21 accepted / 72 partial / 40 planned.

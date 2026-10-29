@@ -9,16 +9,18 @@ shows the initial local PBX address and credentials to its owner or an explicitl
 permitted credential viewer. They are encrypted in provider storage; provider
 root and registration-account secrets are separate.
 
-The final Debian1.0.22 package and rebuilt read-only template media are undergoing
-[qualification](release-1.0.22-qualification.md). Eight healthy eligible nodes are
-in scope for installation, registration, calling, backup and reboot acceptance.
-Other nodes remain held for storage health, memory or customer-IP availability.
+The complete Debian **1.0.22** package is published, and its read-only template
+media is rebuilt. The [qualification record](release-1.0.22-qualification.md)
+distinguishes package acceptance from each hosting node. Eight healthy nodes are
+eligible; a location becomes available only after its installation, registration,
+calling, backup and reboot checks. Other nodes remain held for storage health,
+memory or customer-IP availability.
 All224 usable addresses in the sixteen existing OVH blocks have vMACs; no extra
 IP purchase or customer-address reassignment is part of this rollout.
 
-Public Windows/Debian1.0.21 and Android1.0.19 remain unchanged until the new Debian
-release passes its gates. Earlier protocol-only and source-only records below
-retain their original scope; they do not describe the later fleet acceptance.
+Public Windows Server1.0.21 and Android1.0.19 retain their original packages and
+update-feed bytes. Earlier protocol-only and source-only records below retain
+their original scope; they do not describe later package or fleet acceptance.
 
 ## Pairing protocol
 

@@ -1,8 +1,10 @@
 # Debian 1.0.22 qualification
 
-Status: candidate qualification in progress on 29 October 2026. The public server
-release remains 1.0.21; this document does not announce a published installer.
-Windows Server remains 1.0.21 and Android remains 1.0.19.
+Published on **29 October 2026 at21:36 UTC** as
+[Debian1.0.22](https://github.com/embire2/openwebpbx/releases/tag/v1.0.22).
+Windows Server remains1.0.21 and Android remains1.0.19; their original packages
+and compatibility feed bytes are preserved. Hosting-node and normal
+customer-order qualification continue separately below.
 
 The complete Debian 13 amd64 package uses application source
 `ec91a24fca9268be814f377f4564cbc384acf402`. Its 487,451,837-byte archive has SHA256
@@ -16,8 +18,10 @@ elapsed after maintenance skipped its service. The final package adds a calendar
 trigger and re-arms enabled managed timers after upgrade or restore. It preserves
 disabled/custom choices, waits for maintenance to finish, and starts no backup
 worker directly. Natural maintenance-skip, queued-backup completion and restored
-server reboot/calling checks pass; the genuine original21 signed repeat is still
-required for this rebuilt archive. Earlier candidate results remain historical.
+server reboot/calling checks pass. The genuine original21 signed rollback and
+normal upgrade now pass for this rebuilt archive, followed by natural backup,
+actual OS reboot and original-credential calling. Earlier candidate results
+remain historical.
 
 ## Release scope
 
@@ -45,13 +49,13 @@ must remain byte-identical in the new latest release.
 | Package and source provenance | Accepted: independent audits bind all12,193 payloads,6,708 packaged Git blobs,565 native files and36 native build inputs. The separate source archive passes7,645 exact Git blob/mode checks and contains no supplied live credential. |
 | Central registration authority | Accepted: source and exact deployed native registry each pass326 controls; privileged PHP128 and dispatcher46 also pass. Existing customer projections and calling processes are preserved. |
 | Backup safety and scheduled contention | Accepted components: nineteen real backup/restore controls,132 onboarding controls,21 domain controls,19 Phone Health controls, six native activation checks and eleven calendar/condition checks. Actual restored-server maintenance skip and natural queued backup completion pass without changing schedules or invoking workers manually. |
-| Exact final-package clean installation | New ec91 full installations remain in progress. Earlier0aaa full installations on two healthy nodes are retained separately; their exact six-runtime-file correction is checked against all12,243 installed targets and exercised again. They are not relabeled as fresh installations of the rebuilt archive. |
-| Genuine original21 signed rollback and upgrade | The ec91 cold-download fault/automatic rollback and normal-upgrade repeat is running under prospectively declared1,800-second bounds. Prior0aaa strict rollback passes in1,092.269 seconds; its separate source-defined normal-file comparison passes, but actual post-upgrade backup testing exposed the timer defect corrected above. Neither earlier result qualifies the rebuilt archive. |
+| Exact final-package clean installation | Accepted on two healthy nodes: exact ec91 archive, all12,243 installed files, pre-registration refusal with otherwise valid credentials, real owner registration/DNS/ACME/trusted GUI,24 initial/post-reboot UDP/TLS/alias calling cases, natural manual/scheduled encrypted backups and actual reboot. Other nodes have separate gates. Earlier0aaa installations plus exact corrections remain explicitly separate. |
+| Genuine original21 signed rollback and upgrade | Accepted: genuine original21 cold signed fault/automatic rollback in1,169.916 seconds and normal upgrade/finalization in1,342.509 seconds, both below their original1,800-second bounds. All176 original table sets, roles/cluster,321 private files,12,243 mapped targets and original metadata pass. Raw187 original relation owners/OIDs/ACLs remain exact with only eight source-defined new tables. Natural encrypted backup completes in36.558 seconds, with391 files/20 recordings verified; actual reboot, native22 signed Check and original440/660 two-way calling pass in separately declared components. Failed observers below remain failed. |
 | Independent replacement restore | Accepted with an explicit mixed basis: a distinct clean0aaa factory installation restores the exact source database, local registration identity, voicemail and recordings while preserving target machine/database roles and identities. All changed ec91 payloads are then applied and all12,243 installed targets checked. Maintenance skip, the same queued encrypted backup completing naturally, actual reboot, original-credential UDP/TLS/alias two-way calls and the complete target-map recheck pass. Both temporary servers are stopped, centrally revoked and destroyed; original IP records are restored. |
-| Webhotel checkout and credential access | Accepted:103 onboarding,34 lifecycle,61 route,12 IP-owner,123 session-recovery and39 live authenticated browser/API controls. All68 existing catalogue entries are preserved; temporary UI fixtures are removed. |
+| Webhotel checkout and credential access | Accepted components:103 onboarding,34 lifecycle,61 route,12 IP-owner,119 current session-recovery controls with the source-identical prior123 actual-session basis retained, and39 fresh live authenticated browser/API controls. Thirty-two production certificate-admission controls bind the final installer pin. All68 original catalogue rows are preserved. Actual ordinary customer GUI/order/queue-to-VM acceptance remains pending; hosting sales stay gated. |
 | Per-node image availability | Staging and full node certification are separate. Nodes with storage errors, insufficient resources or no customer-IP pool remain unavailable. |
 
-The final upgrade repeat declares an1,800-second observation bound before starting
+The accepted upgrade repeat declares an1,800-second observation bound before starting
 either phase. It retains signature, resource-floor, idle-call, natural-updater,
 raw database, schema, identity, role, file and late-fault witness checks. The
 disposable fixture quiesces unrelated background writes for its strict snapshots;
@@ -72,6 +76,21 @@ original energy/coherence/rate limits and adds bounded gap/coverage checks.
 Twenty-seven observer controls, replay of four actual captured streams and new
 complete serial call matrices pass. Product signaling, sender, credentials and
 audio configuration are unchanged; earlier failed observations stay failed.
+
+The first post-rollback receiver attempt failed on a retained160-sample RTP
+clock gap; independent replay shows clock-aware coherence0.999833 versus
+flattened0.668216. A new complete two-direction component uses the original
+440/660 tones and accepted observer. The first reboot collector separately
+failed its temporary-feed readiness check: cloud-init restored its original hosts
+file and the check reached the public21 feed. All reboot/data comparisons had
+passed; a guarded restoration of only the owned test line on the same boot,
+followed by a new native-check/calling component, passes. Neither original failed
+collector is relabeled.
+
+Provider nodes that exceed the original installation observation or fail their
+installer remain unavailable while their logs are checked. No failed timed
+attempt is extended retrospectively. Webhotel database readiness and a real
+ordinary customer-order journey remain independent rollout gates.
 
 Actual software calls use SIP signaling and decoded two-way RTP. They do not
 certify a new physical handset, carrier, Android device, Windows installation or

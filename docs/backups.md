@@ -2,7 +2,7 @@
 
 Backups protect **all tenants on one Debian 13 installation**. Only an enabled instance administrator with the **pbx_backup_instance** permission can change settings, request or download a copy. Tenant administrators cannot access another tenant’s data through this page.
 
-The current complete server release is **1.0.21** for Debian 13 amd64 and Windows Server 2025 Desktop Experience. Installation, encrypted backups and separate replacement restores pass the [current qualification](release-1.0.21-qualification.md). The procedures below describe Debian; use the [Windows backup and restore guide](windows-backups.md) for Windows. Match the backup's platform and release; Debian/Windows cross-platform restores remain unsupported. Instance backups were introduced in Debian 1.0.9; the earlier 1.0.7 package did not include this worker.
+The current complete Debian 13 amd64 server is **1.0.22**; Windows Server 2025 Desktop Experience remains **1.0.21**. See the separate [Debian qualification](release-1.0.22-qualification.md) and [Windows qualification](release-1.0.21-qualification.md) for installation, encrypted backup and replacement-restore evidence. The procedures below describe Debian; use the [Windows backup and restore guide](windows-backups.md) for Windows. Match the backup's platform and release; Debian/Windows cross-platform restores remain unsupported. Instance backups were introduced in Debian 1.0.9; the earlier 1.0.7 package did not include this worker.
 
 ## Historical Windows 1.0.20 qualification
 
@@ -23,6 +23,8 @@ Signed newer-version test **38848638287** also passed all nine required gates, o
 Open **Backups**, set a password of at least 12 characters, select whether to include media, and save. Keep this password outside the PBX; a downloaded backup cannot be decrypted without it.
 
 Select **Back up automatically every day**, choose a UTC hour and how many completed local copies to keep (2–90). The worker checks each minute and catches up once when the server returns after downtime. **Back up now** queues an immediate request. Existing requests are coalesced, and only one worker runs at a time.
+
+Debian 1.0.22 retains queued requests during maintenance and checks again automatically afterward. Upgrade and restore re-arm enabled managed timers; they preserve disabled and custom choices and do not invoke a backup worker directly. A minutely calendar trigger prevents a skipped service from leaving automatic backups permanently elapsed. The private shared lock and systemd sandbox still apply.
 
 An **.owpbx** file contains:
 

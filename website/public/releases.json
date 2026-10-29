@@ -1,7 +1,72 @@
 {
-  "reviewed_on": "2026-10-25",
+  "reviewed_on": "2026-10-29",
   "repository": "embire2/openwebpbx",
   "releases": [
+    {
+      "version": "1.0.22",
+      "component": "Debian server",
+      "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.22",
+      "published_at": "2026-10-29T21:36:33Z",
+      "prerelease": false,
+      "scope": "Complete Debian 13 amd64 server with local PostgreSQL, mandatory registration for fresh installations, managed tenant subdomain/DNS/certificates, local owner onboarding and Webhotel first-boot support. Signed update requires installed1.0.21 or newer. Existing deployments preserve phone credentials/settings. Windows remains1.0.21; Android remains1.0.19 with byte-identical compatibility feeds. Physical handset/carrier and inbox delivery remain deployment-specific.",
+      "build_source_commit": "ec91a24fca9268be814f377f4564cbc384acf402",
+      "build_sources": {
+        "debian": "ec91a24fca9268be814f377f4564cbc384acf402"
+      },
+      "source_tags": {
+        "debian": "debian-v1.0.22"
+      },
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "bytes": 688,
+          "sha256": "89090b20779e018a83869142698743d18f09ccc443f9ede09b3eaefe550797b3",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.22/SHA256SUMS"
+        },
+        {
+          "name": "debian-update-manifest.json",
+          "bytes": 1228,
+          "sha256": "2e4abb53705a9c1c244abd5b93f16a40cfb2ad9787dc3791ac59ebed633eb41c",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.22/debian-update-manifest.json"
+        },
+        {
+          "name": "installing-1.0.22.md",
+          "bytes": 4654,
+          "sha256": "50db4cdfaa2053bf31ef27ac5210ff0dd88e5fcf0861682d87b3f3f315cfc421",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.22/installing-1.0.22.md"
+        },
+        {
+          "name": "openwebpbx-1.0.22-debian-source.tar.gz",
+          "bytes": 49911786,
+          "sha256": "99da3ce39cd8c116685357a1079610a45f5f945245213574c1bc715aeef88beb",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.22/openwebpbx-1.0.22-debian-source.tar.gz"
+        },
+        {
+          "name": "openwebpbx-1.0.22-debian13-amd64.tar.gz",
+          "bytes": 487451837,
+          "sha256": "f55bf2f4e63f45fe478027f44d328d3742814d93bb53cb8c86a73a136c00765d",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.22/openwebpbx-1.0.22-debian13-amd64.tar.gz"
+        },
+        {
+          "name": "openwebpbx-1.0.22-debian13-engine-source.tar.gz",
+          "bytes": 38987941,
+          "sha256": "d465db2fa70f934aea5ddb7dfff88abacadc7ce67c1407c2d77c0fb6e1b402c0",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.22/openwebpbx-1.0.22-debian13-engine-source.tar.gz"
+        },
+        {
+          "name": "update-manifest.json",
+          "bytes": 1404,
+          "sha256": "fc096a1524fc6eec7fd79239006f8117b0f5283e5ea5336f1ac2345abed5f8b8",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.22/update-manifest.json"
+        },
+        {
+          "name": "windows-update-manifest.json",
+          "bytes": 1204,
+          "sha256": "0b387f7f3c1d3b5d2b66d9ef618a48fe09b389eb96fd1ef549f02d0129726280",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.22/windows-update-manifest.json"
+        }
+      ]
+    },
     {
       "version": "1.0.21",
       "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.21",
@@ -1005,7 +1070,7 @@
       "name": "Debian 13",
       "architecture": "amd64",
       "status": "tested",
-      "version": "1.0.21"
+      "version": "1.0.22"
     },
     {
       "name": "Windows Server 2025",

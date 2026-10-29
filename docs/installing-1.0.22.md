@@ -1,9 +1,9 @@
 # Install OpenWeb PBX 1.0.22 on Debian 13
 
 Version 1.0.22 adds registered self-install onboarding and the Webhotel Debian 13
-image. This guide describes the candidate until the matching signed package and
-qualification report are published. Windows Server remains on its separately
-qualified 1.0.21 package; Android remains 1.0.19.
+image. Use this guide with the matching signed Debian1.0.22 release package.
+Windows Server remains on its separately qualified1.0.21 package; Android remains
+1.0.19. See the release qualification report for the accepted scope and limits.
 
 ## Webhotel installation
 

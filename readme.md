@@ -22,19 +22,19 @@ There is no OpenWeb software licence fee. You control your server and data; host
 
 | Component | Public download | Platform and status |
 |---|---|---|
-| **PBX server** | [Debian 1.0.21](https://github.com/embire2/openwebpbx/releases/download/v1.0.21/openwebpbx-1.0.21-debian13-amd64.tar.gz) · [Install guide](docs/installing-debian-1.0.21.md) | Complete server for **Debian 13 amd64**. Includes the local database, calling engine, web administration and background services. |
+| **PBX server** | [Debian 1.0.22](https://github.com/embire2/openwebpbx/releases/download/v1.0.22/openwebpbx-1.0.22-debian13-amd64.tar.gz) · [Install guide](docs/installing-1.0.22.md) | Complete server for **Debian 13 amd64**. Includes the local database, calling engine, web administration and background services. |
 | **Earlier administration update** | [Admin 1.0.19](https://github.com/embire2/openwebpbx/releases/tag/v1.0.19) · [Apply guide](docs/incoming-routing-1.0.19.md) | A focused incoming-call-routing update for supported Debian/core 1.0.16 installations. **Not a complete server installer.** |
 | **OpenWebPBX Free Phone — Android** | [Android 1.0.19 APK](https://github.com/embire2/openwebpbx/releases/download/v1.0.19/openwebpbx-1.0.19-android.apk) · [Release notes](https://github.com/embire2/openwebpbx/releases/tag/android-v1.0.19) · [Setup guide](docs/android-tenant-addresses-1.0.18.md) | Native **Android 9+** app with a five-second logo launch screen; calls and updates bypass branding. Registered `*.openwebpbx.com` tenant addresses and compatible APIs are required. Managed updates require server 1.0.20+. Mandatory on the hosted instance. Google Play publication is pending. |
 | **OpenWebPBX Free Phone — Windows** | [Development source](https://github.com/embire2/openwebpbx/tree/feature/windows-free-phone-v1.0.0/clients/windows) · [Client plan](docs/windows-client-plan.md) | Native C# and WinUI 3 client in development for **Windows 11 and Windows Server 2025 Desktop Experience**. Development-package install/update/relaunch checks pass; calling and production distribution remain under qualification. No client download or Microsoft Store listing is available yet. |
 | **Windows Server** | [Windows 1.0.21 ZIP](https://github.com/embire2/openwebpbx/releases/download/v1.0.21/openwebpbx-1.0.21-windows-x64.zip) · [Install guide](docs/installing-windows-1.0.21.md) | Complete implemented server suite for **Windows Server 2025 x64 with Desktop Experience**, including the local database, calling, web administration, Phone Health, conferences, backups, updater and native server manager. |
 
-**Server 1.0.21 — Complete Windows and Debian server1.0.21 release.** Choose the complete Windows Server 2025 Desktop Experience or Debian 13 amd64 package and its matching guide. Both include Greetings, company-group hours, Keoma speech, Add DID and Android19 tenant/QR support. Windows adds five-minute update checks with desktop notices and a red web banner. **Later** keeps services running; chosen installation waits for active calls. Windows 1.0.20 uses its signed updater. Original Debian 1.0.16 first requires the verified signed revision2 feed-compatibility bootstrap. [Release scope](docs/release-1.0.21-qualification.md) records separate platform checks and limits.
+**Debian server 1.0.22 — Registered setup for your own server.** Install the complete Debian 13 PBX, verify your email and choose your `company.openwebpbx.com` address in the [setup wizard](https://openwebpbx.com/wizard). PostgreSQL, calling and administration run locally; managed DNS and certificates are prepared for you. The signed updater requires **Debian 1.0.21 or newer**. Earlier installations need a separately validated migration path. Windows Server remains **1.0.21** and Android remains **1.0.19**, with their original downloads and update feeds. [Debian installation and upgrade guide](docs/installing-1.0.22.md) · [Windows release scope](docs/release-1.0.21-qualification.md).
 
-**Android compatibility:** Android 1.0.19 remains the phone release. Install app updates over the existing app to retain accounts. Server 1.0.21 includes compatible tenant/QR APIs; an app update alone does not add them to a stock Debian 1.0.16 server. Follow the [tenant-address guide](docs/android-tenant-addresses-1.0.18.md) and the Debian server upgrade instructions.
+**Android compatibility:** Android 1.0.19 remains the phone release. Install app updates over the existing app to retain accounts. Debian server 1.0.22 and Windows Server 1.0.21 include compatible tenant/QR APIs; an app update alone does not add them to a stock Debian 1.0.16 server. Follow the [tenant-address guide](docs/android-tenant-addresses-1.0.18.md) and the Debian server upgrade instructions.
 
 Release pages include checksums, signed update metadata and corresponding source. [All releases](https://github.com/embire2/openwebpbx/releases) · [Download catalogue](https://openwebpbx.com/#downloads) · [Updates and recovery](docs/updates.md)
 
-**Build from the matching source.** Windows uses [`v1.0.21`](https://github.com/embire2/openwebpbx/tree/v1.0.21) and its [application source](https://github.com/embire2/openwebpbx/releases/download/v1.0.21/openwebpbx-1.0.21-source.tar.gz). Debian uses [`debian-v1.0.21`](https://github.com/embire2/openwebpbx/tree/debian-v1.0.21), its [application source](https://github.com/embire2/openwebpbx/releases/download/v1.0.21/openwebpbx-1.0.21-debian-source.tar.gz) and [complete Debian engine source](https://github.com/embire2/openwebpbx/releases/download/v1.0.21/openwebpbx-1.0.21-debian13-engine-source.tar.gz). Choose the Debian snapshot for Debian builds. The unchanged Windows engine retains its [corresponding source](https://github.com/embire2/openwebpbx/releases/download/v1.0.16/openwebpbx-1.0.16-engine-source.tar.gz).
+**Build from the matching source.** Windows uses [`v1.0.21`](https://github.com/embire2/openwebpbx/tree/v1.0.21) and its [application source](https://github.com/embire2/openwebpbx/releases/download/v1.0.21/openwebpbx-1.0.21-source.tar.gz). Debian uses [`debian-v1.0.22`](https://github.com/embire2/openwebpbx/tree/debian-v1.0.22), its [application source](https://github.com/embire2/openwebpbx/releases/download/v1.0.22/openwebpbx-1.0.22-debian-source.tar.gz) and [complete Debian engine source](https://github.com/embire2/openwebpbx/releases/download/v1.0.22/openwebpbx-1.0.22-debian13-engine-source.tar.gz). Choose the Debian snapshot for Debian builds. The unchanged Windows engine retains its [corresponding source](https://github.com/embire2/openwebpbx/releases/download/v1.0.16/openwebpbx-1.0.16-engine-source.tar.gz).
 
 ## Get started
 
@@ -44,16 +44,15 @@ Download the Windows ZIP and its `SHA256SUMS`, verify the checksum, extract the 
 
 ### Debian 13
 
-1. **Prepare a Debian 13 amd64 server.** Point your PBX hostname at it and obtain a trusted HTTPS certificate. Download the complete Debian archive above, verify its `SHA256SUMS` entry and extract it into an empty directory.
-2. **Install the server.** Run the command below as root, using your hostname, public IP and certificate paths. Setup prompts for the administrator password and installs PostgreSQL on the same machine; tenants do not configure databases.
-3. **Add your team and test a call.** Sign in at your server's HTTPS address, open **Users**, connect two phones, and call between them. Add your phone provider under **Voice & Chat**, set your incoming destinations and outbound rules, then test an incoming and outgoing call before moving live numbers.
+1. **Prepare a clean Debian 13 amd64 server with a reachable public IP.** Download the complete Debian archive above, verify its `SHA256SUMS` entry and extract it into an empty private directory.
+2. **Install and register the server.** Run the command below as root. Setup prompts for your initial local administrator password and prints a setup link. Follow that link, verify your account email, enter your company details and choose an available `company.openwebpbx.com` address. DNS and a trusted certificate are prepared automatically; calling starts after registration completes.
+3. **Add your team and test a call.** Sign in at your registered address, open **Users**, connect two phones and call between them. Add your provider under **Voice & Chat**, choose incoming destinations and outgoing rules, then test incoming and outgoing calls before moving live numbers.
 
 ```sh
-./install.sh --domain pbx.example.com --address YOUR_SERVER_IP --email admin@example.com \
-  --certificate /path/to/fullchain.pem --certificate-key /path/to/privkey.pem
+./install.sh --bootstrap-registration --address YOUR_PUBLIC_IP --email admin@example.com --stun
 ```
 
-The [installation guide](docs/installing-debian-1.0.21.md) covers certificates, local trials and existing installations. Use the documented updater for an installed PBX; fresh setup protects existing installations from replacement.
+The [installation guide](docs/installing-1.0.22.md) explains registration, network requirements, encrypted backups and upgrades. Use the signed updater on an installed Debian 1.0.21 or newer PBX; fresh setup protects an existing installation from replacement. Earlier versions require a separately validated migration path.
 
 For Android, use **Users → Phone Provisioning → Connect Android App · QR Code** on a compatible server and scan the single-use setup code. Current hosted accounts first confirm their tenant address. Read the [Android guide](docs/android.md) for permissions, supported controls and incoming-call setup.
 
@@ -98,19 +97,19 @@ These results cover their recorded test scope. Broader physical phone/camera cov
 
 The hosted [Tenant API](https://openwebpbx.com/api-docs) lets integrations register and verify an account, create an isolated PBX from an approved starter template, and request its managed `*.openwebpbx.com` address. It includes tenant-scoped keys, password changes, quotas, idempotent creation and DNS/certificate readiness polling. See the [integration and operator guide](docs/tenant-api.md) and [OpenAPI 3.1 contract](docs/tenant-api.openapi.json).
 
-The API is live on the hosted installation. This separate source update does not modify the published 1.0.21 server archives; self-hosted packaging and Windows native qualification for the new API belong to the next server release.
+The API is live on the hosted installation. Debian 1.0.22 includes the local registration and onboarding integration. Windows Server 1.0.21 remains separately versioned; the newer native Windows onboarding path still requires its own qualification and release.
 
 **Installing your own server?** The [public setup wizard](https://openwebpbx.com/wizard) connects a new installation using its setup code, email confirmation and chosen `*.openwebpbx.com` address. The central API now also documents signed installation authorization and a dedicated [Webhotel/first-boot API](https://openwebpbx.com/wizard-openapi.json). Your local PBX and database stay on your server; no second hosted PBX is created. See the [image and onboarding guide](docs/webhotel-onboarding.md).
 
-The [self-install registration guide](docs/self-install-onboarding.md) explains the installer flow, calling rules, accepted checks and remaining package/image release work.
+The [self-install registration guide](docs/self-install-onboarding.md) explains the installer flow, calling rules and accepted checks.
 
-The public wizard and central API overlay are deployed. Mandatory registration gates, the portable first-boot worker and updated Debian/Windows installers are current source for the next packaged build; complete native/package qualification and provider-image publication remain separate. Existing published downloads and working phone settings are unchanged. A controlled central pairing test has completed real DNS, Let’s Encrypt and verified tenant HTTPS readiness; its email code was intercepted privately, so no new inbox-delivery or native-installer pass is implied.
+The public wizard and central API are deployed. New Debian 1.0.22 installations require a registered tenant address; upgrading an existing installation preserves its current phones, credentials, provider routes and company settings. Webhotel integrates company details, email verification and live address reservations into Create Instance. Its owner view permanently shows the local PBX URL, username and initial password, with encrypted storage and owner permissions. Changing that password in the PBX does not change the saved initial password. Provider availability depends on the qualified resources in each location. Physical handsets, carriers and inbox delivery remain deployment-specific checks.
 
 ## Documentation
 
 | Start here | Administration and operation | Development |
 |---|---|---|
-| [Windows installation](docs/installing-windows-1.0.21.md) · [Debian installation](docs/installing-debian-1.0.21.md) | [Provider and first calls](docs/core-calling.md) | [Roadmap](3CX.md) |
+| [Windows installation](docs/installing-windows-1.0.21.md) · [Debian installation](docs/installing-1.0.22.md) | [Provider and first calls](docs/core-calling.md) | [Roadmap](3CX.md) |
 | [Android setup](docs/android.md) | [Desk-phone migration](docs/desk-phone-handover.md) | [Feature coverage](docs/feature-coverage.md) |
 | [Remote Yealink W60B](docs/yealink-w60b-remote.md) | [Phone health and recovery](docs/phone-health.md) · [Backups](docs/backups.md) | [Core system status](docs/core-system-status.md) |
 | [Tenant addresses](docs/tenant-phone-accounts.md) | [Meetings](docs/meet.md) | [Windows calling-client plan](docs/windows-client-plan.md) |
