@@ -5,6 +5,7 @@ ConditionPathExists=!/var/lib/openwebpbx/updates/maintenance
 [Timer]
 OnBootSec=90s
 OnUnitInactiveSec=60s
+OnCalendar=minutely
 AccuracySec=5s
 Persistent=true
 Unit=openwebpbx-backups.service
