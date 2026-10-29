@@ -50,9 +50,11 @@ def install(activate=False):
         for path in [*[TOOLS/n for n in PROGRAMS],*[UNITS/n for n in NAMES]]:
             s=ordinary(path).stat()
             if not stat.S_ISREG(s.st_mode)or s.st_uid!=0 or s.st_mode&0o022:raise ValueError('Protected installed registration files required.')
+        if any(not (UNITS/name).read_bytes().startswith(b'# OpenWeb PBX managed installation registration v1\n')for name in NAMES):
+            return 'custom'
     subprocess.run(['systemctl','daemon-reload'],check=True,timeout=30)
     if first:subprocess.run(['systemctl','enable',NAMES[1]],check=True,timeout=30)
-    if activate and subprocess.run(['systemctl','is-enabled','--quiet',NAMES[1]]).returncode==0:subprocess.run(['systemctl','start',NAMES[1]],check=True,timeout=30)
+    if activate and subprocess.run(['systemctl','is-enabled','--quiet',NAMES[1]]).returncode==0:subprocess.run(['systemctl','restart',NAMES[1]],check=True,timeout=30)
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--activate',action='store_true');args=parser.parse_args();install(args.activate)

@@ -42,6 +42,7 @@ RESTORE = Path('/var/lib/openwebpbx/backup-restore')
 WEB_VERSION = Path('/var/www/fusionpbx/VERSION')
 UPGRADE_LOCK = Path('/run/openwebpbx-upgrade.lock')
 UNIT_ROOT = Path('/etc/systemd/system')
+TOOLS = Path('/opt/openwebpbx/tools')
 CACHE = Path('/var/cache/fusionpbx')
 REGISTRATION_STATE = Path('/var/lib/openwebpbx/tenant-domains')
 REGISTRATION_FILES = ('image-local.json', 'image-onboarding/session.json')
@@ -1090,6 +1091,17 @@ def activate(settings, selections, confirm_server):
             unit = HELD_UNITS[selection]
             (RESTORE/('hold-'+unit)).unlink(missing_ok=True)
             run(['systemctl', 'start', unit], timeout=60)
+        if not any(RESTORE.glob('hold-*')):
+            for name in ('install-phone-health.py', 'install-tenant-domains.py', 'install-onboarding.py'):
+                helper = TOOLS/name
+                if not helper.exists() and not helper.is_symlink():
+                    continue
+                ordinary(helper)
+                for path in (helper, *helper.parents):
+                    info = path.stat()
+                    if info.st_uid != 0 or info.st_mode & 0o022:
+                        raise BackupError('Protected installed activation helpers are required.')
+                run(['/usr/bin/python3', str(helper), '--activate'], timeout=60)
 
 
 def main():

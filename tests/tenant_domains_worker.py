@@ -233,11 +233,11 @@ class Worker(unittest.TestCase):
     os.chown(helper,33,33);calls.clear()
     try:self.assertRaises(ValueError,i.install,True);self.assertEqual(calls,[]);self.assertFalse((self.path/'state').exists())
     finally:os.chown(helper,0,0)
-    calls.clear();i.install(True);self.assertTrue((self.path/'state/proofs/.well-known/openwebpbx-instance').is_dir());self.assertIn(['systemctl','start',i.TIMER.name],calls);self.assertFalse(any(c[:2]==['systemctl','enable']for c in calls));self.assertEqual({p:p.read_bytes()for p in protected},before)
+    calls.clear();i.install(True);self.assertTrue((self.path/'state/proofs/.well-known/openwebpbx-instance').is_dir());self.assertIn(['systemctl','restart',i.TIMER.name],calls);self.assertFalse(any(c[:2]==['systemctl','enable']for c in calls));self.assertEqual({p:p.read_bytes()for p in protected},before)
     calls.clear()
     def disabled(args,**kw):calls.append(args);return subprocess.CompletedProcess(args,1 if args[:2]==['systemctl','is-enabled']else 0)
     with patch.object(i.subprocess,'run',side_effect=disabled):i.install(True)
-    self.assertFalse(any(c[:2]==['systemctl','start']for c in calls));self.assertEqual({p:p.read_bytes()for p in protected},before)
+    self.assertFalse(any(c[:2]in(['systemctl','start'],['systemctl','restart'])for c in calls));self.assertEqual({p:p.read_bytes()for p in protected},before)
    # A missing manifest in an arbitrary directory never selects installed mode.
    (package/'release-manifest.json').unlink();calls.clear();self.assertRaises(FileNotFoundError,i.install,True);self.assertEqual(calls,[])
  def test_actual_stock_template_install_stage_and_activate_with_real_nginx_validation(self):

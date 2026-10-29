@@ -94,7 +94,7 @@ def activate_installed():
  subprocess.run(['nginx','-t'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=20)
  if subprocess.run(['systemctl','is-active','--quiet','nginx']).returncode==0:subprocess.run(['systemctl','reload','nginx'],check=True,timeout=20)
  subprocess.run(['systemctl','daemon-reload'],check=True,timeout=30)
- if subprocess.run(['systemctl','is-enabled','--quiet',TIMER.name]).returncode==0:subprocess.run(['systemctl','start',TIMER.name],check=True,timeout=30)
+ if subprocess.run(['systemctl','is-enabled','--quiet',TIMER.name]).returncode==0:subprocess.run(['systemctl','restart',TIMER.name],check=True,timeout=30)
 
 def install(activate=False):
  if os.geteuid()!=0:raise PermissionError('Tenant domains install requires root.')
@@ -127,6 +127,6 @@ def install(activate=False):
    raise
  subprocess.run(['systemctl','daemon-reload'],check=True,timeout=30)
  if first:subprocess.run(['systemctl','enable',TIMER.name],check=True,timeout=30)
- if activate and subprocess.run(['systemctl','is-enabled','--quiet',TIMER.name]).returncode==0:subprocess.run(['systemctl','start',TIMER.name],check=True,timeout=30)
+ if activate and subprocess.run(['systemctl','is-enabled','--quiet',TIMER.name]).returncode==0:subprocess.run(['systemctl','restart',TIMER.name],check=True,timeout=30)
 if __name__=='__main__':
  parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--activate',action='store_true');args=parser.parse_args();install(args.activate)

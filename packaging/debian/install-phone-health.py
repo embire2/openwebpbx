@@ -124,9 +124,9 @@ def install(activate=False):
     enabled = subprocess.run(['systemctl', 'is-enabled', '--quiet', TIMER.name],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10).returncode == 0
     if activate and enabled and not MAINTENANCE.exists() and not RESTORE_HOLD.exists():
-        # Start the timer only after commit. Its worker independently owns the
+        # Rearm the timer only after commit. Its worker independently owns the
         # upgrade lock, so even a simultaneous restore cannot observe half a DB.
-        subprocess.run(['systemctl', 'start', TIMER.name], check=True, timeout=20)
+        subprocess.run(['systemctl', 'restart', TIMER.name], check=True, timeout=20)
     return 'managed'
 
 

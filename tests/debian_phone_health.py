@@ -92,7 +92,7 @@ class PhoneHealthInstall(unittest.TestCase):
             self.assertEqual((self.tools / name).read_bytes(), (self.package / name).read_bytes())
             self.assertEqual((self.tools / name).stat().st_mode & 0o777, 0o644)
         self.assertTrue(all(link.is_symlink() for link in installer.LINKS))
-        self.assertFalse(any('start' in call for call in self.calls))
+        self.assertFalse(any(action in call for call in self.calls for action in ('start', 'restart')))
         # Rollback removes exactly the new programs, units and links.
         upgrade.restore_files(backup)
         self.assertTrue(all(not path.exists() and not path.is_symlink() for path in targets))
@@ -101,9 +101,9 @@ class PhoneHealthInstall(unittest.TestCase):
         installer.install()
         self.calls.clear()
         installer.install(True)
-        self.assertIn(['systemctl', 'start', installer.TIMER.name], self.calls)
+        self.assertIn(['systemctl', 'restart', installer.TIMER.name], self.calls)
         self.assertFalse(any('enable' in call for call in self.calls))
-        self.assertFalse(any(installer.UNIT.name in call and 'start' in call for call in self.calls))
+        self.assertFalse(any(installer.UNIT.name in call and any(action in call for action in ('start', 'restart')) for call in self.calls))
 
     def test_both_restore_and_update_holds_defer_activation(self):
         installer.install()
@@ -111,7 +111,7 @@ class PhoneHealthInstall(unittest.TestCase):
             hold.touch()
             self.calls.clear()
             installer.install(True)
-            self.assertFalse(any('start' in call for call in self.calls))
+            self.assertFalse(any(action in call for call in self.calls for action in ('start', 'restart')))
             hold.unlink()
 
     def test_disabled_choice_and_idempotent_files_preserved(self):
@@ -122,7 +122,7 @@ class PhoneHealthInstall(unittest.TestCase):
             link.unlink()
         self.calls.clear()
         installer.install(True)
-        self.assertFalse(any('enable' in call or 'start' in call for call in self.calls))
+        self.assertFalse(any(action in call for call in self.calls for action in ('enable', 'start', 'restart')))
         self.assertEqual(before, {path: path.stat().st_mtime_ns for path in before})
 
     def test_custom_etc_unit_preserved_before_any_mutation(self):
@@ -166,7 +166,7 @@ class PhoneHealthInstall(unittest.TestCase):
         self.calls.clear()
         with patch.object(installer, 'PACKAGE', self.tools):
             installer.install(True)
-        self.assertIn(['systemctl', 'start', installer.TIMER.name], self.calls)
+        self.assertIn(['systemctl', 'restart', installer.TIMER.name], self.calls)
         self.assertFalse((self.tools / 'release-manifest.json').exists())
 
     def test_changed_installed_helper_permissions_refused(self):

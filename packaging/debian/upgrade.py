@@ -539,6 +539,20 @@ def reload_web_proxy(run):
         run(['systemctl', 'reload', 'nginx'])
 
 
+def activate_backup_timer(run):
+    timer = Path('/etc/systemd/system/openwebpbx-backups.timer')
+    if not timer.is_file():
+        return
+    enabled = subprocess.run(['systemctl', 'is-enabled', timer.name], capture_output=True, text=True, timeout=30)
+    state = enabled.stdout.strip()
+    if enabled.returncode == 0 and state in ('enabled', 'enabled-runtime'):
+        if MAINTENANCE.exists():
+            raise RecoveryRequired('The backup schedule cannot resume before update maintenance finishes.')
+        run(['systemctl', 'restart', timer.name], timeout=60)
+    elif not (enabled.returncode == 1 and state in ('disabled', 'masked', 'masked-runtime')):
+        raise RecoveryRequired('The backup schedule status needs administrator review.')
+
+
 def finalize_completed(journal):
     """Finish an older updater's committed transaction on the new worker's start.
 
@@ -583,6 +597,7 @@ def finalize_completed(journal):
         health_helper=TOOLS/'install-phone-health.py'
         if health_helper.is_file():
             run(['python3',str(health_helper),'--activate'],timeout=60)
+        activate_backup_timer(run)
         save_journal(journal, 'completed', finalization='completed')
 
 
