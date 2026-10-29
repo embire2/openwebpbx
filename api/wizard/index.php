@@ -19,7 +19,7 @@ try{
  $uri=parse_url($_SERVER['REQUEST_URI']??'',PHP_URL_PATH);
  if(!is_string($uri)||!str_starts_with($uri,'/api/v1/wizard/')||str_contains($uri,'%')||str_contains($uri,'..')||str_contains($uri,'//'))wizard_error(404,'not_found','This setup step is unavailable.');
  $route=substr($uri,14);$method=$_SERVER['REQUEST_METHOD']??'';
- $posts=['/account/register','/account/verify','/account/login','/account/email/request','/account/email/verify','/devices','/devices/lookup','/claim','/devices/poll','/devices/bootstrap','/devices/challenge','/devices/authorize','/devices/complete'];
+ $posts=['/account/register','/account/verify','/account/login','/account/email/request','/account/email/verify','/devices','/devices/lookup','/claim','/devices/poll','/devices/bootstrap','/devices/challenge','/devices/authorize','/devices/complete','/subdomains/availability','/reservations','/reservations/renew','/reservations/release','/servers/revoke'];
  $get=$route==='/health'||preg_match('~^/sessions/[a-f0-9-]{36}$~D',$route);
  if($method==='OPTIONS'){
   if($origin===null||(!in_array($route,$posts,true)&&!$get))wizard_error(404,'not_found','This setup step is unavailable.');
@@ -37,6 +37,7 @@ try{
  require dirname(__DIR__,2).'/resources/require.php';$_SESSION=[];
  $api=new pbx_tenant_api;$api->handle('GET','/health',[],[],(string)($_SERVER['REMOTE_ADDR']??''));
  if($route==='/health')wizard_reply(200,['wizard'=>'OpenWeb PBX server setup','version'=>1,'providers'=>['webhotel','debian'],'verification_uri'=>'https://openwebpbx.com/wizard']);
+ if(in_array($route,['/subdomains/availability','/reservations','/reservations/renew','/reservations/release','/servers/revoke'],true)&&!filter_var(config::load()->get('openweb.provider_onboarding_enabled','false'),FILTER_VALIDATE_BOOLEAN))wizard_error(503,'provider_setup_preparing','Provider setup is being prepared. No payment or server creation should be attempted yet.');
  $authorization=(string)($_SERVER['HTTP_AUTHORIZATION']??'');$ip=(string)($_SERVER['REMOTE_ADDR']??'');
  $facade=['/account/register'=>'/registrations','/account/verify'=>'/registrations/verify','/account/login'=>'/auth/token','/account/email/request'=>'/onboarding/email/request','/account/email/verify'=>'/onboarding/email/verify'];
  if(isset($facade[$route])){[$status,$body,$extra]=$api->handle('POST',$facade[$route],$input,['authorization'=>$authorization],$ip);wizard_reply($status,$body,$extra);}
@@ -48,7 +49,12 @@ try{
  if($route==='/devices/challenge')wizard_reply(201,$wizard->challenge($input));
  if($route==='/devices/authorize')wizard_reply(201,$wizard->authorize($input));
  if($route==='/devices/complete')wizard_reply(200,$wizard->complete($input));
+ if($route==='/subdomains/availability')wizard_reply(200,$wizard->availability($input,$ip));
+ if($route==='/servers/revoke')wizard_reply(200,$wizard->revoke($input,$ip));
  $account=$api->authenticate($authorization);$api->rate('wizard:owner:'.$account['tenant_uuid'],120,60);
+ if($route==='/reservations')wizard_reply(201,$wizard->reserve($account,$input));
+ if($route==='/reservations/renew')wizard_reply(200,$wizard->reservationAction($account,$input,false));
+ if($route==='/reservations/release')wizard_reply(200,$wizard->reservationAction($account,$input,true));
  if($route==='/claim')wizard_reply(202,$wizard->claim($account,$input));
  if(preg_match('~^/sessions/([a-f0-9-]{36})$~D',$route,$m))wizard_reply(200,$wizard->status($account,$m[1]));
  wizard_error(404,'not_found','This setup step is unavailable.');

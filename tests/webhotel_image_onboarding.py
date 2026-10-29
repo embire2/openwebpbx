@@ -150,6 +150,11 @@ try:
     check(agent.cycle() == {'state':'ready','url':'https://'+tenant_host}, 'Final tenant URL incorrect')
     checks = agent.calls.count(('post','/devices/complete'))
     check(agent.cycle()['state'] == 'ready' and agent.calls.count(('post','/devices/complete')) == checks, 'Completed setup is not idempotent')
+    agent.bound = False
+    start = len(agent.calls)
+    check(agent.cycle()['state'] == 'ready' and agent.bound, 'Restored completed session did not recheck canonical TLS')
+    resumed = agent.calls[start:]
+    check(resumed.index(('helper','bind')) < resumed.index(('helper','store')), 'Restored receipt preceded canonical TLS')
     agent.init_changed = True
     refused(agent.cycle)
     agent.init_changed = False

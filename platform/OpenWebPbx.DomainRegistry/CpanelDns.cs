@@ -7,6 +7,7 @@ public interface IRegistryDns {
     Task<IReadOnlySet<string>> Names(CancellationToken stop);
     Task Ensure(string label, string target, string? previous, CancellationToken stop);
     Task EnsureAddress(string label, System.Net.IPAddress address, CancellationToken stop) => throw new Refused("bootstrap_dns_unavailable",503);
+    Task RemoveOwned(string hostname,string type,string value,CancellationToken stop) => throw new Refused("dns_cleanup_unavailable",503);
 }
 public sealed record ZoneRecord(string Name, string Type, string[] Data, int Line);
 public sealed class CpanelDns : IRegistryDns, IDisposable {
@@ -73,5 +74,17 @@ public sealed class CpanelDns : IRegistryDns, IDisposable {
         await Api("mass_edit_zone",[new("zone",RegistryOptions.Zone),new("serial",zone.Serial.ToString(System.Globalization.CultureInfo.InvariantCulture)),new("add",JsonSerializer.Serialize(record))],stop);
         var after=Parse(await Read(stop)).Records.Where(row=>row.Name==name).ToArray();
         if(after.Length!=1||!Exact(after[0]))throw new IOException("dns_readback_pending");
+    }
+    public async Task RemoveOwned(string hostname,string type,string value,CancellationToken stop){
+        if(type=="CNAME"){
+            if(!hostname.EndsWith("."+RegistryOptions.Zone,StringComparison.Ordinal))throw new Refused("invalid_dns_cleanup",400);
+            var label=hostname[..^(RegistryOptions.Zone.Length+1)];Protocol.Label(label);if(Protocol.IsReserved(label))throw new Refused("invalid_dns_cleanup",400);Protocol.Host(value);
+        }else if(type is "A" or "AAAA"){
+            if(!Protocol.IsBootstrapHost(hostname)||!System.Net.IPAddress.TryParse(value,out var address)||!PublicSiteProof.IsPublic(address))throw new Refused("invalid_dns_cleanup",400);
+        }else throw new Refused("invalid_dns_cleanup",400);
+        var zone=Parse(await Read(stop));var same=zone.Records.Where(r=>r.Name==hostname).ToArray();if(same.Length==0)return;
+        if(same.Length!=1||same[0].Type!=type||same[0].Data.Length!=1||!same[0].Data[0].TrimEnd('.').Equals(value.TrimEnd('.'),StringComparison.OrdinalIgnoreCase))throw new Refused("dns_cleanup_conflict",409);
+        await Api("mass_edit_zone",[new("zone",RegistryOptions.Zone),new("serial",zone.Serial.ToString(System.Globalization.CultureInfo.InvariantCulture)),new("remove",same[0].Line.ToString(System.Globalization.CultureInfo.InvariantCulture))],stop);
+        if(Parse(await Read(stop)).Records.Any(r=>r.Name==hostname))throw new IOException("dns_cleanup_pending");
     }
 }

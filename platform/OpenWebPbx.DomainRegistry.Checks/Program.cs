@@ -138,6 +138,152 @@ var privateBootstrap=Bootstrap(ipv6Key,"127.0.0.1");Check((await internalClient.
 var unregisteredHost="node-"+Guid.NewGuid().ToString("N")+".openwebpbx.com";var unregistered=await Request(external,unregisteredHost,externalTenant,Guid.NewGuid(),"unregistered-node");Check((await Send(unregistered with{Authorization=Grant(unregistered)})).Http.StatusCode==HttpStatusCode.Forbidden,"A valid receipt cannot claim an unregistered bootstrap hostname");
 var bootLease=await Request(bootKey,bootReply.ServerHost,boot.LocalTenantUuid,boot.DomainUuid,boot.Label);Check((await Send(bootLease with{Authorization=Grant(bootLease)})).Reply?.State=="dns_ready","A verified bootstrap identity can acquire its receipt-bound tenant CNAME");
 Check(dns.UnrelatedExact,"New activation/bootstrap checks preserve both original unrelated DNS records");
+
+// Global labels are reserved before a provider can charge or start a VM.
+async Task<T> Internal<T>(string path,object body){var response=await internalClient.PostAsJsonAsync("/internal/v1/"+path,body);Check(response.IsSuccessStatusCode,"Internal reservation operation "+path+" returned "+(int)response.StatusCode);return(await response.Content.ReadFromJsonAsync<T>())!;}
+var resOwner=Guid.NewGuid();var resRequest=Guid.NewGuid();var resLabel="reserved-business";
+Check((await Internal<LabelAvailability>("label-availability",new LabelAvailabilityRequest(resLabel))).Available,"Unused label is globally available");
+Check((await internalClient.PostAsJsonAsync("/internal/v1/label-availability",new LabelAvailabilityRequest("node-imposter"))).StatusCode==HttpStatusCode.BadRequest,"Canonical node namespace cannot be requested as a tenant label");
+var reservation=await Internal<LabelReservationReply>("reserve-label",new LabelReservationRequest(resOwner,resRequest,resLabel));
+Check(reservation.State=="reserved"&&reservation.ExpiresAt>DateTimeOffset.UtcNow.AddMinutes(58)&&reservation.ExpiresAt<DateTimeOffset.UtcNow.AddMinutes(61),"Reservation has a real bounded one-hour expiry");
+var repeated=await Internal<LabelReservationReply>("reserve-label",new LabelReservationRequest(resOwner,resRequest,resLabel));Check(repeated==reservation,"Same owner/request recovers exact reservation after a lost reply");
+Check(!(await Internal<LabelAvailability>("label-availability",new LabelAvailabilityRequest(resLabel))).Available,"Active reservation is globally unavailable to other clients");
+Check((await internalClient.PostAsJsonAsync("/internal/v1/reserve-label",new LabelReservationRequest(Guid.NewGuid(),Guid.NewGuid(),resLabel))).StatusCode==HttpStatusCode.Conflict,"Concurrent foreign owner cannot reserve the held label");
+Check((await internalClient.PostAsJsonAsync("/internal/v1/reserve-label",new LabelReservationRequest(resOwner,resRequest,"changed-business"))).StatusCode==HttpStatusCode.Conflict,"Idempotency request cannot change its label");
+Check((await internalClient.PostAsJsonAsync("/internal/v1/release-label",new LabelReservationAction(Guid.NewGuid(),reservation.ReservationUuid))).StatusCode==HttpStatusCode.NotFound,"Other account cannot release a held label");
+var heldLease=await Request(keyA,"server-c.example.test",tenantA,Guid.NewGuid(),resLabel);var heldResult=await Send(heldLease);Check(heldResult.Reply?.Hostname!=reservation.Hostname&&heldResult.Reply?.State=="dns_ready","Existing trusted host cannot take a provider's held name");
+using var reservedKey=ECDsa.Create(ECCurve.NamedCurves.nistP256);var reservedBoot=Bootstrap(reservedKey,"1.0.0.1")with{AccountTenantUuid=resOwner,Label=resLabel};reservedBoot=reservedBoot with{Signature=Convert.ToBase64String(reservedKey.SignData(InstanceBootstrap.Message(reservedBoot),HashAlgorithmName.SHA256,DSASignatureFormat.Rfc3279DerSequence))};
+var reservedNode=await Internal<BootstrapReply>("bootstrap-instance",reservedBoot);var bind=new LabelReservationBind(resOwner,reservation.ReservationUuid,resLabel,reservedBoot.KeyHash,reservedBoot.DomainUuid,reservedBoot.LocalTenantUuid,reservedBoot.InstallationUuid);
+Check((await internalClient.PostAsJsonAsync("/internal/v1/bind-label",bind with{AccountTenantUuid=Guid.NewGuid()})).StatusCode==HttpStatusCode.Conflict,"Only verified reservation owner can bind a server");
+Check((await internalClient.PostAsJsonAsync("/internal/v1/bind-label",bind)).IsSuccessStatusCode,"Exact image identity binds provider reservation");
+Check((await internalClient.PostAsJsonAsync("/internal/v1/bind-label",bind)).IsSuccessStatusCode,"Reservation binding retries are idempotent");
+Check((await internalClient.PostAsJsonAsync("/internal/v1/bind-label",bind with{DomainUuid=Guid.NewGuid()})).StatusCode==HttpStatusCode.Conflict,"Bound reservation cannot change local domain");
+Check((await internalClient.PostAsJsonAsync("/internal/v1/release-label",new LabelReservationAction(resOwner,reservation.ReservationUuid))).StatusCode==HttpStatusCode.Conflict,"Bound server requires confirmed instance cleanup before release");
+var reservedLease=await Request(reservedKey,reservedNode.ServerHost,reservedBoot.LocalTenantUuid,reservedBoot.DomainUuid,resLabel);var reservedGrant=Grant(reservedLease,account:resOwner);var reservedResult=await Send(reservedLease with{Authorization=reservedGrant});
+Check(reservedResult.Reply?.Hostname==reservation.Hostname&&reservedResult.Reply.State=="dns_ready","Owner-bound grant consumes exactly the reserved tenant name");
+await using(var state=source.CreateCommand("select state from registry_label_reservations where reservation_uuid=$1")){state.Parameters.AddWithValue(reservation.ReservationUuid);Check((string)(await state.ExecuteScalarAsync())! =="consumed","Consumption is committed with the exact owned lease");}
+var revoke=new InstanceRevokeRequest(resOwner,reservation.ReservationUuid,reservedBoot.ServerAddress,reservedNode.ServerHost,reservedBoot.KeyHash);
+Check((await internalClient.PostAsJsonAsync("/internal/v1/revoke-instance",revoke with{ServerAddress="1.1.1.1"})).StatusCode==HttpStatusCode.Conflict,"Cleanup cannot retarget a different VM IP");
+Check((await internalClient.PostAsJsonAsync("/internal/v1/revoke-instance",revoke with{ExpectedKeyHash=new string('f',64)})).StatusCode==HttpStatusCode.Conflict,"Cleanup refuses a changed instance key");
+dns.Foreign(reservation.Hostname);writes=dns.Changes;
+Check((await internalClient.PostAsJsonAsync("/internal/v1/revoke-instance",revoke)).StatusCode==HttpStatusCode.Conflict&&dns.Changes==writes,"Foreign DNS record prevents cleanup confirmation and is preserved");
+await using(var state=source.CreateCommand("select not enabled and state='disabled' from registry_leases where domain_uuid=$1")){state.Parameters.AddWithValue(reservedBoot.DomainUuid);Check(await state.ExecuteScalarAsync()is true,"Calling origin lease is disabled before uncertain DNS cleanup");}
+dns.RestoreOwned(reservation.Hostname,"CNAME",reservedNode.ServerHost+".");var revoked=await Internal<InstanceRevokeReply>("revoke-instance",revoke);
+Check(revoked.CleanupConfirmed&&revoked.Scope=="instance"&&dns.Record(reservation.Hostname)is null&&dns.Record(reservedNode.ServerHost)is null,"Actual provider adapter removes owned CNAME and A before IP release");
+await using(var interrupted=source.CreateCommand("update registry_label_reservations set state='revoking' where reservation_uuid=$1")){interrupted.Parameters.AddWithValue(reservation.ReservationUuid);await interrupted.ExecuteNonQueryAsync();}
+writes=dns.Changes;Check((await Internal<InstanceRevokeReply>("revoke-instance",revoke)).CleanupConfirmed&&dns.Changes==writes,"Completed instance cleanup is idempotent without new DNS writes");
+await using(var recovered=source.CreateCommand("select state from registry_label_reservations where reservation_uuid=$1")){recovered.Parameters.AddWithValue(reservation.ReservationUuid);Check((string)(await recovered.ExecuteScalarAsync())! =="released","Cleanup recovers the durable reservation marker after DNS was already cleaned");}
+var afterRevoke=await Request(reservedKey,reservedNode.ServerHost,reservedBoot.LocalTenantUuid,reservedBoot.DomainUuid,resLabel,1);Check((await Send(afterRevoke with{Authorization=Grant(afterRevoke,2,account:resOwner)})).Http.StatusCode==HttpStatusCode.Forbidden,"A revoked bootstrap cannot renew an old still-signed authorization");
+Check(!(await Internal<LabelAvailability>("label-availability",new LabelAvailabilityRequest(resLabel))).Available,"Retired tenant name retains its ownership tombstone");
+var unbound=await Internal<LabelReservationReply>("reserve-label",new LabelReservationRequest(resOwner,Guid.NewGuid(),"unbound-fixture"));
+Check((await internalClient.PostAsJsonAsync("/internal/v1/revoke-instance",new InstanceRevokeRequest(resOwner,unbound.ReservationUuid,boot.ServerAddress))).StatusCode==HttpStatusCode.Conflict,"An unbound token cannot claim cleanup of another active instance IP");
+Check((await Internal<InstanceRevokeReply>("revoke-instance",new InstanceRevokeRequest(resOwner,unbound.ReservationUuid,"9.9.9.10"))).CleanupConfirmed,"Unbound unused address can release only its reservation");
+var expire=await Internal<LabelReservationReply>("reserve-label",new LabelReservationRequest(resOwner,Guid.NewGuid(),"expiring-fixture"));
+await using(var c=source.CreateCommand("update registry_label_reservations set expires_at=now()-interval '1 second' where reservation_uuid=$1")){c.Parameters.AddWithValue(expire.ReservationUuid);await c.ExecuteNonQueryAsync();}
+Check((await Internal<LabelAvailability>("label-availability",new LabelAvailabilityRequest(expire.Label))).Available,"Actual expiry releases a never-bound name");
+var replacement=await Internal<LabelReservationReply>("reserve-label",new LabelReservationRequest(Guid.NewGuid(),Guid.NewGuid(),expire.Label));Check(replacement.ReservationUuid!=expire.ReservationUuid,"Expired name receives a separate new reservation identity");
+var quotaOwner=Guid.NewGuid();for(var i=0;i<3;i++)await Internal<LabelReservationReply>("reserve-label",new LabelReservationRequest(quotaOwner,Guid.NewGuid(),"quota-fixture-"+i));
+Check((await internalClient.PostAsJsonAsync("/internal/v1/reserve-label",new LabelReservationRequest(quotaOwner,Guid.NewGuid(),"quota-fixture-four"))).StatusCode==HttpStatusCode.Conflict,"Verified account cannot hoard more than three held labels");
+using(var hostileReservation=new HttpRequestMessage(HttpMethod.Post,"/internal/v1/reserve-label"){Content=JsonContent.Create(new LabelReservationRequest(Guid.NewGuid(),Guid.NewGuid(),"untrusted-reservation"))}){hostileReservation.Headers.Host="domains.openwebpbx.com";Check((await internalClient.SendAsync(hostileReservation)).StatusCode==HttpStatusCode.NotFound,"Public host cannot reach reservation ownership RPC");}
+Check(dns.UnrelatedExact,"Reservation and cleanup operations preserve unrelated provider records");
+
+// Actual transport barriers and independent PG lock witnesses protect cleanup
+// against requests that already passed their original signature/proof checks.
+async Task AdvisoryWaiter(){
+ var deadline=DateTime.UtcNow.AddSeconds(5);
+ while(DateTime.UtcNow<deadline){
+  await using var c=source.CreateCommand("select exists(select 1 from pg_locks l join pg_stat_activity a using(pid) where l.locktype='advisory' and not l.granted and a.datname=current_database())");
+  if(await c.ExecuteScalarAsync() is true)return;
+  await Task.Delay(20);
+ }
+ throw new Exception("Concurrent cleanup did not wait on the real per-instance PostgreSQL advisory guard");
+}
+async Task CleanupRace(bool pauseBootstrap){
+ using var raceKey=ECDsa.Create(ECCurve.NamedCurves.nistP256);
+ var owner=Guid.NewGuid();var label=pauseBootstrap?"bootstrap-cleanup-race":"lease-cleanup-race";
+ var hold=await Internal<LabelReservationReply>("reserve-label",new LabelReservationRequest(owner,Guid.NewGuid(),label));
+ var bootRace=Bootstrap(raceKey,pauseBootstrap?"9.9.9.11":"9.9.9.12") with{AccountTenantUuid=owner,Label=label};
+ bootRace=bootRace with{Signature=Convert.ToBase64String(raceKey.SignData(InstanceBootstrap.Message(bootRace),HashAlgorithmName.SHA256,DSASignatureFormat.Rfc3279DerSequence))};
+ var canonical="node-"+bootRace.InstallationUuid.ToString("N")+".openwebpbx.com";
+ await Internal<JsonElement>("bind-label",new LabelReservationBind(owner,hold.ReservationUuid,label,bootRace.KeyHash,bootRace.DomainUuid,bootRace.LocalTenantUuid,bootRace.InstallationUuid));
+ if(!pauseBootstrap)await Internal<BootstrapReply>("bootstrap-instance",bootRace);
+ var entered=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+ var release=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);int reads=0;
+ Task<HttpResponseMessage> writer;
+ if(pauseBootstrap){
+  dns.BeforeMutation=async name=>{if(name==canonical){entered.TrySetResult();await release.Task.WaitAsync(TimeSpan.FromSeconds(12));}};
+  writer=internalClient.PostAsJsonAsync("/internal/v1/bootstrap-instance",bootRace);
+ }else{
+  var pending=await Request(raceKey,canonical,bootRace.LocalTenantUuid,bootRace.DomainUuid,label);
+  pending=pending with{Authorization=Grant(pending,account:owner)};
+  // Names is deliberately after Matches(active) and before the lease transaction.
+  dns.BeforeRead=async()=>{if(Interlocked.Increment(ref reads)==1){entered.TrySetResult();await release.Task.WaitAsync(TimeSpan.FromSeconds(12));}};
+  writer=client.PostAsJsonAsync("/v1/leases",pending);
+ }
+ Task<HttpResponseMessage>? cleanup=null;
+ try{
+  await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+  var cleanupRequest=new InstanceRevokeRequest(owner,hold.ReservationUuid,bootRace.ServerAddress,canonical,bootRace.KeyHash);
+  cleanup=internalClient.PostAsJsonAsync("/internal/v1/revoke-instance",cleanupRequest);
+  await AdvisoryWaiter();Check(!cleanup.IsCompleted,"Cleanup waits behind the actual in-flight instance writer: "+label);
+  // A waiter must acquire its instance guard before the global transaction gate.
+  var unrelated=await internalClient.PostAsJsonAsync("/internal/v1/label-availability",new LabelAvailabilityRequest("unrelated-"+label)).WaitAsync(TimeSpan.FromSeconds(3));
+  Check(unrelated.IsSuccessStatusCode,"An instance waiter does not monopolise the global ownership gate: "+label);
+  release.TrySetResult();
+  using var written=await writer.WaitAsync(TimeSpan.FromSeconds(8));
+  Check(written.IsSuccessStatusCode,"The original signed in-flight writer finishes before cleanup: "+label);
+  using var cleaned=await cleanup.WaitAsync(TimeSpan.FromSeconds(8));
+  var reply=cleaned.IsSuccessStatusCode?await cleaned.Content.ReadFromJsonAsync<InstanceRevokeReply>():null;
+  Check(reply?.CleanupConfirmed==true&&dns.Record(canonical)is null&&dns.Record(hold.Hostname)is null,"Confirmed cleanup follows all canonical and tenant DNS writers: "+label);
+  await using(var state=source.CreateCommand("select state='cleaned' from registry_bootstrap where instance_uuid=$1")){state.Parameters.AddWithValue(bootRace.InstallationUuid);Check(await state.ExecuteScalarAsync()is true,"Bootstrap tombstone remains cleaned: "+label);}
+  var beforeReplay=dns.Changes;
+  using var replayed=await internalClient.PostAsJsonAsync("/internal/v1/bootstrap-instance",bootRace);
+  Check(replayed.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Conflict,"Original signed bootstrap replay cannot resurrect a cleaned instance: "+label);
+  Check(dns.Changes==beforeReplay&&dns.Record(canonical)is null,"Refused bootstrap replay makes no DNS mutation: "+label);
+  var repeatedCleanup=await Internal<InstanceRevokeReply>("revoke-instance",cleanupRequest);
+  Check(repeatedCleanup.CleanupConfirmed&&dns.Record(canonical)is null&&dns.Record(hold.Hostname)is null,"Repeated positive cleanup leaves no dangling owned DNS: "+label);
+ }finally{
+  release.TrySetResult();dns.BeforeRead=null;dns.BeforeMutation=null;
+  try{using var settled=await writer.WaitAsync(TimeSpan.FromSeconds(15));}catch{}
+  if(cleanup is not null)try{using var settled=await cleanup.WaitAsync(TimeSpan.FromSeconds(15));}catch{}
+ }
+}
+await CleanupRace(true);
+await CleanupRace(false);
+Check(dns.UnrelatedExact,"Concurrent cleanup guards preserve unrelated provider records");
+
+// A cancellation may reach the custodian before its first bootstrap HTTP call.
+// Use a separate loopback limiter bucket without weakening the internal boundary.
+internalClient.DefaultRequestHeaders.Add("X-Forwarded-For","127.0.0.2");
+foreach(var kind in new[]{"cancel-before-bootstrap","cancel-foreign-ip","cancel-foreign-dns"}){
+ using var cancelledKey=ECDsa.Create(ECCurve.NamedCurves.nistP256);var owner=Guid.NewGuid();
+ var held=await Internal<LabelReservationReply>("reserve-label",new LabelReservationRequest(owner,Guid.NewGuid(),kind));
+ var cancelled=Bootstrap(cancelledKey,kind=="cancel-foreign-ip"?boot.ServerAddress:"9.9.9.13") with{AccountTenantUuid=owner,Label=kind};
+ cancelled=cancelled with{Signature=Convert.ToBase64String(cancelledKey.SignData(InstanceBootstrap.Message(cancelled),HashAlgorithmName.SHA256,DSASignatureFormat.Rfc3279DerSequence))};
+ var canonical="node-"+cancelled.InstallationUuid.ToString("N")+".openwebpbx.com";
+ await Internal<JsonElement>("bind-label",new LabelReservationBind(owner,held.ReservationUuid,kind,cancelled.KeyHash,cancelled.DomainUuid,cancelled.LocalTenantUuid,cancelled.InstallationUuid));
+ if(kind=="cancel-foreign-dns")dns.Foreign(canonical);
+ var before=dns.Changes;
+ using var cleanup=await internalClient.PostAsJsonAsync("/internal/v1/revoke-instance",new InstanceRevokeRequest(owner,held.ReservationUuid,cancelled.ServerAddress,canonical,cancelled.KeyHash));
+ if(kind=="cancel-before-bootstrap"){
+  var reply=cleanup.IsSuccessStatusCode?await cleanup.Content.ReadFromJsonAsync<InstanceRevokeReply>():null;
+  Check(reply?.CleanupConfirmed==true&&reply.Scope=="bound_without_dns","Bound pre-bootstrap cancellation confirms only DNS-free cleanup");
+  Check(dns.Record(canonical)is null&&dns.Changes==before,"Pre-bootstrap cancellation creates no DNS");
+ }else{
+  Check(cleanup.StatusCode==HttpStatusCode.Conflict&&dns.Changes==before,"A foreign IP/DNS dependency prevents cleanup confirmation: "+kind);
+  if(kind=="cancel-foreign-ip")Check(dns.Record(bootReply.ServerHost)==("A",boot.ServerAddress),"A different key cannot claim or remove the active instance sharing its proposed IP");
+  else Check(dns.Record(canonical)==("A","203.0.113.20"),"A never-registered bootstrap tombstone does not claim a foreign canonical record");
+ }
+ if(kind!="cancel-foreign-ip"){
+  using var replayed=await internalClient.PostAsJsonAsync("/internal/v1/bootstrap-instance",cancelled);
+  Check(replayed.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Conflict,"Cancelled pre-bootstrap identity cannot replay its original signed registration: "+kind);
+  Check(dns.Changes==before,"Cancelled identity replay preserves all provider records: "+kind);
+  await using var state=source.CreateCommand("select state from registry_bootstrap where instance_uuid=$1");state.Parameters.AddWithValue(cancelled.InstallationUuid);
+  Check((string)(await state.ExecuteScalarAsync())!==(kind=="cancel-foreign-dns"?"revoked_unregistered":"cleaned"),"Cancellation keeps the precise non-authorizing tombstone: "+kind);
+ }
+}
+Check(dns.UnrelatedExact,"Pre-bootstrap cancellation preserves both unrelated original DNS records");
+
 client.DefaultRequestHeaders.Remove("X-Forwarded-For");authorityChecks=false;
 for(int i=0;i<121;i++){using var r=new HttpRequestMessage(HttpMethod.Get,"/health");r.Headers.Add("X-Forwarded-For","203.0.113.99");using var response=await client.SendAsync(r);if(i==120)Check((int)response.StatusCode==429&&response.Headers.RetryAfter?.Delta==TimeSpan.FromSeconds(60),"Trusted loopback forwarded client is capped with retry");}
 using(var other=new HttpRequestMessage(HttpMethod.Get,"/health")){other.Headers.Add("X-Forwarded-For","203.0.113.100");using var response=await client.SendAsync(other);Check(response.IsSuccessStatusCode,"Independent forwarded client has independent limiter");}
@@ -155,13 +301,28 @@ sealed class DnsFixture{
  public bool UnrelatedExact=>rows["mail.openwebpbx.com"]==("A","203.0.113.10")&&rows["www.openwebpbx.com"]==("CNAME","example.test.");
  public void Foreign(string name)=>rows[name]=("A","203.0.113.20");
  public void SeedLegacy(string name,string target)=>rows.Add(name,("CNAME",target));
+ public void RestoreOwned(string name,string type,string value)=>rows[name]=(type,value);
  public (string Type,string Value)? Record(string name)=>rows.TryGetValue(name,out var value)?value:null;
- public Microsoft.AspNetCore.Http.IResult Handle(string operation,Microsoft.AspNetCore.Http.HttpRequest request){
+ public Func<Task>? BeforeRead{get;set;}
+ public Func<string,Task>? BeforeMutation{get;set;}
+ public async Task<Microsoft.AspNetCore.Http.IResult> Handle(string operation,Microsoft.AspNetCore.Http.HttpRequest request){
   if(request.Headers.Authorization!="cpanel fictional:not-a-provider-credential"||request.Query["zone"]!="openwebpbx.com")throw new Exception("Provider binding");
   string B(string value)=>Convert.ToBase64String(Encoding.ASCII.GetBytes(value));
-  if(operation=="parse_zone")return Microsoft.AspNetCore.Http.Results.Json(new{status=1,data=new[]{new{type="record",record_type="SOA",dname_b64=B("openwebpbx.com."),data_b64=new[]{B("ns.example.test."),B("hostmaster.example.test."),B(serial.ToString()),B("3600"),B("600"),B("86400"),B("300")},line_index=0}}.Cast<object>().Concat(rows.Select((pair,index)=>(object)new{type="record",record_type=pair.Value.Type,dname_b64=B(pair.Key+"."),data_b64=new[]{B(pair.Value.Value)},line_index=index+1})).ToArray(),errors=(object?)null});
+  if(operation=="parse_zone"){
+   if(BeforeRead is{} beforeRead)await beforeRead();
+   return Microsoft.AspNetCore.Http.Results.Json(new{status=1,data=new[]{new{type="record",record_type="SOA",dname_b64=B("openwebpbx.com."),data_b64=new[]{B("ns.example.test."),B("hostmaster.example.test."),B(serial.ToString()),B("3600"),B("600"),B("86400"),B("300")},line_index=0}}.Cast<object>().Concat(rows.Select((pair,index)=>(object)new{type="record",record_type=pair.Value.Type,dname_b64=B(pair.Key+"."),data_b64=new[]{B(pair.Value.Value)},line_index=index+1})).ToArray(),errors=(object?)null});
+  }
   if(operation!="mass_edit_zone")throw new Exception("Unexpected provider function");
+  if(BeforeMutation is{} beforeMutation&&!request.Query.ContainsKey("remove")){
+   using var before=JsonDocument.Parse(request.Query[request.Query.ContainsKey("edit")?"edit":"add"].ToString());
+   await beforeMutation(before.RootElement.GetProperty("dname").GetString()!.TrimEnd('.'));
+  }
   if(!long.TryParse(request.Query["serial"],out var expected)||expected!=serial)return Microsoft.AspNetCore.Http.Results.Json(new{status=0,data=new{},errors=new[]{"fictional serial conflict"}});
+  if(request.Query.ContainsKey("remove")){
+   if(!int.TryParse(request.Query["remove"],out var line)||line<1||line>rows.Count)throw new Exception("Invalid exact remove line");
+   var owned=rows.ElementAt(line-1);if(owned.Key is "mail.openwebpbx.com" or "www.openwebpbx.com")throw new Exception("Unrelated DNS deletion");
+   rows.Remove(owned.Key);serial++;Changes++;return Microsoft.AspNetCore.Http.Results.Json(new{status=1,data=new{new_serial=serial},errors=(object?)null});
+  }
   var edit=request.Query.ContainsKey("edit");using var j=JsonDocument.Parse(request.Query[edit?"edit":"add"].ToString());var root=j.RootElement;var name=root.GetProperty("dname").GetString()!.TrimEnd('.');var type=root.GetProperty("record_type").GetString()!;var bootstrap=Protocol.IsBootstrapHost(name)&&type is "A" or "AAAA";
   if(!name.EndsWith(".openwebpbx.com")||name is "mail.openwebpbx.com" or "www.openwebpbx.com"||(!bootstrap&&type!="CNAME")||root.GetProperty("ttl").GetInt32()!=300)throw new Exception("Foreign DNS mutation");
   if(bootstrap&&(!IPAddress.TryParse(root.GetProperty("data")[0].GetString(),out var address)||!PublicSiteProof.IsPublic(address)||(type=="A")!=(address.AddressFamily==System.Net.Sockets.AddressFamily.InterNetwork)))throw new Exception("Foreign bootstrap DNS destination");

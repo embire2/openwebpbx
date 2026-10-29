@@ -136,6 +136,53 @@ tests alone do not establish that pass.
 
 ## Dedicated API routes
 
+### Verified checkout before the VM exists (API1.1)
+
+Webhotel collects company details and verifies the owner's OpenWeb account before
+charging or creating a VM. It uses these additional JSON operations:
+
+| Method / route | Caller | Purpose |
+|---|---|---|
+| `POST /subdomains/availability` | Any | Coarse **global** name/DNS check with `{label}`; this is not a reservation. |
+| `POST /reservations` | Verified owner bearer | Reserve `{label,request_uuid}` before checkout; return the exact reservation and cleanup control. |
+| `POST /reservations/renew` | Original owner bearer | Renew `{reservation_uuid}` during provisioning. |
+| `POST /reservations/release` | Original owner bearer | Cancel a never-bound reservation. |
+| `POST /servers/revoke` | Scoped secret control | Confirm exact server/DNS cleanup before a provider releases its IP. |
+
+`POST /reservations` returns `reservation_uuid`, `label`, `hostname`, `state`,
+UTC `expires_at` and secret `control_token` (`owpc_` plus64hex digits). Identical
+account/request/label retries recover the same control. Store it encrypted in
+the provider backend. It is never a guest credential or a browser-facing field.
+There are at most three pending reservations per verified account; initial
+expiry is60minutes and queued renewals are bounded by24hours. Checkout and its
+financial idempotency remain the provider's responsibility.
+
+Once the fresh image publishes its setup code, the provider checks the actual
+observed server address and adds `reservation_uuid` to the ordinary `/claim`
+request. This binds the reserved label to that exact account, P256 key, local
+tenant/domain and bootstrap UUID. The later signed lease consumes the reservation
+atomically. Another installation cannot take the held name; a foreign DNS record
+causes a conflict instead of silently changing a reserved customer's name.
+
+Cleanup accepts `{reservation_uuid,control_token,expected_server_address}` with
+optional `expected_server_host` and `expected_key_hash`. It does not require an
+unexpired owner bearer. Its positive response is exactly
+`{cleanup_confirmed:true,state:"revoked",scope:"instance"}` for a registered
+server; `reservation_only` and `bound_without_dns` are possible only when the
+custodian confirms no other active bootstrap ownership at that address.
+Revocation disables calling authority before removing the exact owned CNAME
+and canonical A/AAAA records, verifies deletion, and retains ownership tombstones.
+Foreign records or uncertain network results retain the checkpoint and return
+an error. The provider must keep VM/IP resources reserved until confirmation.
+It must never substitute direct cPanel deletion or interpret a timeout as success.
+
+The guest receives only local initial administrator credentials/company details
+through protected first-boot input. The owner bearer and cleanup control remain
+on Webhotel. The provider may persistently show the **local PBX** GUI URL, user
+and initial password in its authenticated owner/explicitly authorised credential
+view, as requested by the project owner; these values stay encrypted at rest,
+out of logs/email and out of other owners' caches.
+
 Base: `https://call.openweb.co.za/api/v1/wizard`.
 All POST bodies are JSON objects, at most 16 KiB. TLS and canonical host are
 required. Browser cookie sessions grant no authority. Only exact browser Origin

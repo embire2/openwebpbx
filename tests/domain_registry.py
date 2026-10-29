@@ -31,10 +31,18 @@ def main():
             subprocess.run(['/opt/dotnet/dotnet','build',str(project),'--no-restore','--artifacts-path',str(artifacts),'-c','Release'],cwd=ROOT,env=env,stdout=out,stderr=err,timeout=180,check=True)
         binaries=list((artifacts/'bin/OpenWebPbx.DomainRegistry.Checks').glob('*/OpenWebPbx.DomainRegistry.Checks.dll'))
         if len(binaries)!=1:raise RuntimeError('The exact isolated checks binary was not produced.')
+        override=os.environ.get('OPENWEB_REGISTRY_TEST_PRODUCT_DLL')
+        override_hash=None
+        if override:
+            product=Path(override)
+            if product.is_symlink()or not product.is_file()or product.name!='OpenWebPbx.DomainRegistry.dll':raise RuntimeError('An exact ordinary published product DLL is required.')
+            raw=product.read_bytes();override_hash=hashlib.sha256(raw).hexdigest()
+            (binaries[0].parent/'OpenWebPbx.DomainRegistry.dll').write_bytes(raw)
+
         with(evidence/'stdout.private').open('wb')as out,(evidence/'stderr.private').open('wb')as err:
             result=subprocess.run(['/opt/dotnet/dotnet',str(binaries[0])],cwd=ROOT,env=env,stdout=out,stderr=err,timeout=180)
         if source_hashes!={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest()for p in inputs}:raise RuntimeError('Registry source changed during qualification; results retained without acceptance.')
-        safe={'exit_code':result.returncode,'elapsed_seconds':round(time.monotonic()-begin,3),'actual_new_private_postgresql_cluster':True,'actual_loopback_http_and_dns_adapter':True,'no_production_database_or_dns_mutation':True,'source_hashes':source_hashes,'binary_sha256':hashlib.sha256(binaries[0].read_bytes()).hexdigest(),'stdout_sha256':hashlib.sha256((evidence/'stdout.private').read_bytes()).hexdigest(),'stderr_sha256':hashlib.sha256((evidence/'stderr.private').read_bytes()).hexdigest()}
+        safe={'exit_code':result.returncode,'elapsed_seconds':round(time.monotonic()-begin,3),'actual_new_private_postgresql_cluster':True,'actual_loopback_http_and_dns_adapter':True,'no_production_database_or_dns_mutation':True,'source_hashes':source_hashes,'binary_sha256':hashlib.sha256(binaries[0].read_bytes()).hexdigest(),'published_product_override_sha256':override_hash,'stdout_sha256':hashlib.sha256((evidence/'stdout.private').read_bytes()).hexdigest(),'stderr_sha256':hashlib.sha256((evidence/'stderr.private').read_bytes()).hexdigest()}
         (evidence/'qualification.safe.json').write_text(json.dumps(safe,indent=2)+'\n')
         if result.returncode:raise RuntimeError('Isolated registry controls failed; original output retained privately.')
         print((evidence/'stdout.private').read_text().strip());print(json.dumps(safe))

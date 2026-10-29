@@ -32,6 +32,9 @@ public sealed class RegistryStore(NpgsqlDataSource data, RegistryOptions options
         alter table registry_leases add column if not exists authorization_installation uuid;
         alter table registry_leases add column if not exists authorization_account uuid;
         create table if not exists registry_bootstrap(instance_uuid uuid primary key,account_tenant_uuid uuid not null,key_hash text not null unique,local_tenant_uuid uuid not null,domain_uuid uuid not null,server_address inet not null,label text not null,server_host text not null unique,created_at timestamptz not null default now());
+        alter table registry_bootstrap add column if not exists state text not null default 'active';
+        create table if not exists registry_label_reservations(reservation_uuid uuid primary key,account_tenant_uuid uuid not null,request_uuid uuid not null,label text not null,state text not null check(state in ('held','bound','consumed','released','expired','revoking')),key_hash text,domain_uuid uuid,local_tenant_uuid uuid,bootstrap_uuid uuid,created_at timestamptz not null default now(),expires_at timestamptz not null,unique(account_tenant_uuid,request_uuid));
+        create unique index if not exists registry_label_reservation_active on registry_label_reservations(label) where state in ('held','bound');
         """);
         await command.ExecuteNonQueryAsync(stop);
     }
@@ -53,6 +56,8 @@ public sealed class RegistryStore(NpgsqlDataSource data, RegistryOptions options
         // One central ownership transaction serializes name selection, key/host
         // registration and moves. DNS itself additionally uses the provider SOA CAS.
         await Scalar("select pg_advisory_xact_lock(650146123)");
+        if(await Scalar("select exists(select 1 from registry_bootstrap where key_hash=$1 and state<>'active')",hash)is true)throw new Refused("bootstrap_revoked",403);
+        await Scalar("update registry_label_reservations set state='expired' where state in ('held','bound') and expires_at<=now() returning reservation_uuid");
         if (await Scalar("update registry_challenges set used=true where nonce=$1 and key_hash=$2 and server_host=$3 and expires_at>now() and not used returning nonce", request.Challenge, hash, request.ServerHost) is null) throw new Refused("challenge_expired_or_used", 403);
         var other = await Scalar("select key_hash from registry_instances where server_host=$1", request.ServerHost);
         if (other is string owner && owner != hash) throw new Refused("hostname_owned_by_another_instance", 409);
@@ -91,15 +96,23 @@ public sealed class RegistryStore(NpgsqlDataSource data, RegistryOptions options
             // and old instances with the same key cannot silently move it back.
             if (!request.Move || oldHost is null) throw new Refused("explicit_host_move_revision_required", 409);
         }
+        Guid? reservation=null;
         if (oldHost is null) {
             if ((long)(await Scalar("select count(*) from registry_leases where key_hash=$1", hash))! >= options.MaximumLeasesPerInstance) throw new Refused("instance_alias_limit", 409);
             var taken = await Scalar("select exists(select 1 from registry_leases where label=$1)", label);
-            if (Protocol.IsReserved(label) || dnsNames.Contains(label + "." + RegistryOptions.Zone) || (bool)taken!) label = Protocol.CollisionLabel(label, hash, request.DomainUuid);
-            if (Protocol.IsReserved(label) || dnsNames.Contains(label + "." + RegistryOptions.Zone) || (bool)(await Scalar("select exists(select 1 from registry_leases where label=$1)", label))!) throw new Refused("alias_collision_needs_review", 409);
+            var held=false;
+            await using(var c=new NpgsqlCommand("select reservation_uuid,account_tenant_uuid,key_hash,domain_uuid,local_tenant_uuid,state from registry_label_reservations where label=$1 and state in ('held','bound')",db,tx)){
+                c.Parameters.AddWithValue(label);await using var rows=await c.ExecuteReaderAsync(stop);
+                if(await rows.ReadAsync(stop)){held=true;if(rows.GetString(5)=="bound"&&authorization is not null&&rows.GetGuid(1)==authorization.AccountTenantUuid&&!rows.IsDBNull(2)&&rows.GetString(2)==hash&&rows.GetGuid(3)==request.DomainUuid&&rows.GetGuid(4)==request.TenantUuid)reservation=rows.GetGuid(0);}
+            }
+            if(reservation is not null&&((bool)taken!||dnsNames.Contains(label+"."+RegistryOptions.Zone)))throw new Refused("reservation_dns_conflict",409);
+            if (Protocol.IsReserved(label) || dnsNames.Contains(label + "." + RegistryOptions.Zone) || (bool)taken! ||(held&&reservation is null)) label = Protocol.CollisionLabel(label, hash, request.DomainUuid);
+            if (Protocol.IsReserved(label) || dnsNames.Contains(label + "." + RegistryOptions.Zone) || (bool)(await Scalar("select exists(select 1 from registry_leases where label=$1) or exists(select 1 from registry_label_reservations where label=$1 and state in ('held','bound') and reservation_uuid<>$2)", label,(object?)reservation??Guid.Empty))!) throw new Refused("alias_collision_needs_review", 409);
         }
         await Scalar("insert into registry_instances values($1,$2,$3,now()) on conflict(key_hash) do update set server_host=excluded.server_host,verified_at=now() returning key_hash", hash, request.PublicKey, request.ServerHost);
         await Scalar("insert into registry_leases(key_hash,domain_uuid,tenant_uuid,label,server_host,enabled,state,revision) values($1,$2,$3,$4,$5,$6,$7,$8) on conflict(key_hash,domain_uuid) do update set server_host=excluded.server_host,enabled=excluded.enabled,state=excluded.state,revision=excluded.revision,updated_at=now() returning label", hash, request.DomainUuid, request.TenantUuid, label, request.ServerHost, request.Enabled, request.Enabled ? "pending_dns" : "disabled", revision);
         await Scalar("update registry_leases set authorization_required=$3,authorization_generation=$4,authorization_installation=$5,authorization_account=$6 where key_hash=$1 and domain_uuid=$2 returning label",hash,request.DomainUuid,authorizationRequired,authorizationGeneration,(object?)authorizationInstallation??DBNull.Value,(object?)authorizationAccount??DBNull.Value);
+        if(reservation is not null)await Scalar("update registry_label_reservations set state='consumed' where reservation_uuid=$1 returning reservation_uuid",reservation.Value);
         await tx.CommitAsync(stop); return new(label, dnsHost, revision);
     }
     public async Task<bool> TenantReadyBinding(TenantReadyRequest request,CancellationToken stop){

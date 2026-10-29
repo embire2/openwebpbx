@@ -37,6 +37,7 @@ def main():
     state.mkdir(mode=0o700)
     (state/'template.key').write_bytes(os.urandom(32))
     env = os.environ | {'OPENWEB_TENANT_HTTP_DSN':f'pgsql:host=127.0.0.1;port={pg_port};dbname=postgres',
+                        'OPENWEB_PROVIDER_HTTP_FIXTURE':'1',
                         'OPENWEB_TENANT_HTTP_STATE':str(state)}
     cases = []
     web = None
@@ -72,7 +73,8 @@ def main():
         setup=base/'setup.php'
         setup.write_text('<?php require '+json.dumps(str(root/'tests/tenant_api_http_fixture.php'))+';'
                          '$db->exec(file_get_contents('+json.dumps(str(root/'app/tenant_api/resources/onboarding.sql'))+'));'
-                         '$db->exec(file_get_contents('+json.dumps(str(root/'app/tenant_api/resources/wizard.sql'))+'));')
+                         '$db->exec(file_get_contents('+json.dumps(str(root/'app/tenant_api/resources/wizard.sql'))+'));'
+                         '$db->exec(file_get_contents('+json.dumps(str(root/'app/tenant_api/resources/wizard-reservations.sql'))+'));')
         subprocess.run(['php',str(setup),'setup'],check=True,capture_output=True,env=env,timeout=45)
         tree=state/'http'
         (tree/'api/wizard').mkdir(parents=True)
@@ -81,7 +83,7 @@ def main():
         digest=hashlib.sha256(source.read_bytes()).hexdigest()
         shutil.copyfile(source,tree/'api/wizard/index.php')
         bootstrap='<?php require_once '+json.dumps(str(root/'tests/tenant_api_http_fixture.php'))+';'
-        for name in ['pbx_installation_authority','pbx_wizard_api']:
+        for name in ['pbx_installation_authority','pbx_wizard_reservations','pbx_wizard_api']:
             bootstrap+='require_once '+json.dumps(str(root/'resources/classes'/f'{name}.php'))+';'
         (tree/'resources/require.php').write_text(bootstrap)
         (tree/'resources/classes/config.php').write_text(bootstrap)
@@ -97,6 +99,14 @@ def main():
             time.sleep(.02)
         else:
             raise AssertionError('Owned HTTP fixture did not listen')
+        for route in ['/reservations','/reservations/renew','/reservations/release']:
+            check(request('POST',route,{})[0]==401,'Reservation mutation requires an authenticated owner: '+route)
+        check(request('POST','/subdomains/availability',{})[0]==400,'Global address check requires an exact label')
+        check(request('POST','/subdomains/availability',{'label':'node-imposter'})[0]==400,'Canonical node namespace is not a selectable tenant label')
+        check(request('POST','/servers/revoke',{'reservation_uuid':str(uuid.uuid4()),'control_token':'invalid','expected_server_address':'8.8.8.8'})[0]==401,'Cleanup control must have its exact format')
+        check(request('POST','/servers/revoke',{'reservation_uuid':str(uuid.uuid4()),'control_token':'owpc_'+'a'*64,'expected_server_address':'8.8.8.8'})[0]==401,'An invented cleanup credential cannot revoke a server')
+        check(request('GET','/servers/revoke')[0]==405,'Server cleanup is never a GET action')
+        check(request('POST','/servers/revoke',{'reservation_uuid':str(uuid.uuid4()),'control_token':'owpc_'+'a'*64,'expected_server_address':'8.8.8.8'},headers={'Origin':'https://webhotel.cloud'})[0]==403,'Webhotel browser cannot send provider controls directly to custodian')
         origin={'Origin':'https://openwebpbx.com'}
         status,body,headers=request('GET','/health',headers=origin)
         check(status==200 and body['version']==1,'Dedicated wizard is available over fixture HTTPS')

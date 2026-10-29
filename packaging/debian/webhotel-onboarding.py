@@ -341,6 +341,10 @@ class Agent:
             return {'state': 'authorized'}
         if phase not in ('authorized', 'complete'):
             raise Pending('The server setup is waiting for the next registration check.')
+        # A clean replacement restores the original encrypted pairing session,
+        # key and grant. Its canonical web/SIP certificate still belongs to the
+        # fresh target, so re-establish trusted transport before marking ready.
+        self.helper('bind', {'server_host': server_host})
         # The helper independently validates the pinned RSA signature and every local identity binding.
         self.helper('store', {'activation': poll['activation']})
         local = self.helper('status')

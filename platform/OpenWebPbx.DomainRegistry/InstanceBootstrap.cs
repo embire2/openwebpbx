@@ -28,7 +28,7 @@ public sealed class BootstrapProof : IBootstrapProof {
         if(response.StatusCode!=HttpStatusCode.OK || !CryptographicOperations.FixedTimeEquals(actual,expected)) throw new Refused("bootstrap_public_proof_failed",403);
     }
 }
-public sealed class InstanceBootstrap(NpgsqlDataSource data,IRegistryDns dns,IBootstrapProof proof) {
+public sealed class InstanceBootstrap(NpgsqlDataSource data,IRegistryDns dns,IBootstrapProof proof,InstanceOperations operations) {
     public static byte[] Message(BootstrapRequest r)=>Encoding.ASCII.GetBytes($"openwebpbx-bootstrap-v1\n{r.Nonce}\n{r.ServerAddress}\n{r.KeyHash}\n{r.InstallationUuid:D}\n{r.AccountTenantUuid:D}\n{r.LocalTenantUuid:D}\n{r.DomainUuid:D}\n{r.Label}\n");
     public async Task<BootstrapReply> Register(BootstrapRequest request,CancellationToken stop) {
         if (request.InstallationUuid==Guid.Empty || request.AccountTenantUuid==Guid.Empty || request.LocalTenantUuid==Guid.Empty || request.DomainUuid==Guid.Empty
@@ -39,15 +39,18 @@ public sealed class InstanceBootstrap(NpgsqlDataSource data,IRegistryDns dns,IBo
             using var key=ECDsa.Create();key.ImportSubjectPublicKeyInfo(Convert.FromBase64String(request.PublicKey),out _);
             if(request.Signature is null || request.Signature.Length>200 || !key.VerifyData(Message(request),Convert.FromBase64String(request.Signature),HashAlgorithmName.SHA256,DSASignatureFormat.Rfc3279DerSequence)) throw new Refused("bootstrap_signature_invalid",403);
         }catch(FormatException){throw new Refused("bootstrap_signature_invalid",403);}
+        await using var addressGuard=await operations.Address(request.ServerAddress,stop);
+        await using var instanceGuard=await operations.Key(request.KeyHash,stop);
         await proof.Verify(address,request.Nonce,request.KeyHash,stop);
         var host="node-"+request.InstallationUuid.ToString("N")+"."+RegistryOptions.Zone;
         await using(var db=await data.OpenConnectionAsync(stop)) {
             await using var tx=await db.BeginTransactionAsync(stop);
             await using(var gate=new NpgsqlCommand("select pg_advisory_xact_lock(650146123)",db,tx))await gate.ExecuteNonQueryAsync(stop);
-            await using var select=new NpgsqlCommand("select instance_uuid,account_tenant_uuid,host(server_address),label,server_host,local_tenant_uuid,domain_uuid,key_hash from registry_bootstrap where instance_uuid=$1 or key_hash=$2 for update",db,tx);
+            await using var select=new NpgsqlCommand("select instance_uuid,account_tenant_uuid,host(server_address),label,server_host,local_tenant_uuid,domain_uuid,key_hash,state from registry_bootstrap where instance_uuid=$1 or key_hash=$2 for update",db,tx);
             select.Parameters.AddWithValue(request.InstallationUuid);select.Parameters.AddWithValue(request.KeyHash);
             await using(var rows=await select.ExecuteReaderAsync(stop)) {
                 while(await rows.ReadAsync(stop)) {
+                    if(rows.GetString(8)!="active")throw new Refused("bootstrap_revoked",403);
                     if(rows.GetGuid(0)!=request.InstallationUuid || rows.GetGuid(1)!=request.AccountTenantUuid || rows.GetString(2)!=request.ServerAddress
                         || rows.GetString(3)!=request.Label || rows.GetString(4)!=host || rows.GetGuid(5)!=request.LocalTenantUuid || rows.GetGuid(6)!=request.DomainUuid || rows.GetString(7)!=request.KeyHash)
                         throw new Refused("bootstrap_ownership_conflict",409);
@@ -64,7 +67,7 @@ public sealed class InstanceBootstrap(NpgsqlDataSource data,IRegistryDns dns,IBo
         if(!Protocol.IsBootstrapHost(r.ServerHost))return true;
         // Additional local tenants have their own signed receipts on the same
         // operator-controlled installation key and canonical bootstrap host.
-        await using var command=data.CreateCommand("select exists(select 1 from registry_bootstrap where key_hash=$1 and server_host=$2)");
+        await using var command=data.CreateCommand("select exists(select 1 from registry_bootstrap where key_hash=$1 and server_host=$2 and state='active')");
         foreach(var item in new object[]{hash,r.ServerHost})command.Parameters.AddWithValue(item);
         return await command.ExecuteScalarAsync(stop)is true;
     }

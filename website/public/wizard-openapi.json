@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "OpenWeb PBX first-boot and Webhotel wizard API",
-    "version": "1.0.0",
-    "description": "Companion API for https://openwebpbx.com/wizard. Separate from the existing hosted tenant API. Only this route family permits exact Origin https://openwebpbx.com; no cookie authority or credentialed CORS. All JSON responses are no-store. POST bodies must be JSON objects <=16 KiB. See docs/webhotel-onboarding.md for exact P256 message bytes and image integration. Source implementation; provider template deployment and native qualification are separate."
+    "version": "1.1.0",
+    "description": "Companion API for https://openwebpbx.com/wizard and verified provider onboarding. Dedicated origin policy, no cookie authority, no-store JSON and16KiB request limit. Owner accounts register/verify before reserving a subdomain or creating a provider instance. Guest images never receive owner bearers or provider cleanup controls. See docs/webhotel-onboarding.md and docs/self-install-onboarding.md."
   },
   "servers": [
     {
@@ -721,6 +721,10 @@
                   },
                   "accept_terms": {
                     "const": true
+                  },
+                  "reservation_uuid": {
+                    "type": "string",
+                    "format": "uuid"
                   }
                 }
               }
@@ -1140,6 +1144,472 @@
             }
           }
         ]
+      }
+    },
+    "/subdomains/availability": {
+      "post": {
+        "summary": "Check global tenant subdomain availability",
+        "description": "Checks the global custodian, DNS and pending names. A coarse availability result is not a reservation. Webhotel proxies this server-side; its browser origin is not admitted directly.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 40,
+                    "pattern": "^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$"
+                  }
+                },
+                "required": [
+                  "label"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation completed; responses are no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 40,
+                      "pattern": "^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$"
+                    },
+                    "hostname": {
+                      "type": "string"
+                    },
+                    "available": {
+                      "type": "boolean"
+                    },
+                    "scope": {
+                      "const": "global"
+                    },
+                    "reservation_confirmed": {
+                      "const": false
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "hostname",
+                    "available",
+                    "scope",
+                    "reservation_confirmed"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid or missing authority"
+          },
+          "403": {
+            "description": "Confirm the current account email first"
+          },
+          "409": {
+            "description": "Reserved name or identity changed; no blind write retry"
+          },
+          "503": {
+            "description": "Retry safely; cleanup is not confirmed and resources must remain reserved"
+          }
+        }
+      }
+    },
+    "/reservations": {
+      "post": {
+        "summary": "Reserve a verified owner’s name before provider checkout",
+        "description": "Email-verified owner only. Same immutable account/request/label recovers the same reservation and control token. Maximum three pending reservations; expiry60minutes. Reserve before debit or VM creation.",
+        "security": [
+          {
+            "ownerBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 40,
+                    "pattern": "^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$"
+                  },
+                  "request_uuid": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "label",
+                  "request_uuid"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Operation completed; responses are no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "reservation_uuid": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 40,
+                      "pattern": "^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$"
+                    },
+                    "hostname": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "enum": [
+                        "reserved",
+                        "consumed",
+                        "released"
+                      ]
+                    },
+                    "expires_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "control_token": {
+                      "type": "string",
+                      "pattern": "^owpc_[a-f0-9]{64}$",
+                      "description": "Secret cleanup-only provider control. Encrypt at rest. Never send to a guest, email, log or public client DTO."
+                    }
+                  },
+                  "required": [
+                    "reservation_uuid",
+                    "label",
+                    "hostname",
+                    "state",
+                    "expires_at",
+                    "control_token"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid or missing authority"
+          },
+          "403": {
+            "description": "Confirm the current account email first"
+          },
+          "409": {
+            "description": "Reserved name or identity changed; no blind write retry"
+          },
+          "503": {
+            "description": "Retry safely; cleanup is not confirmed and resources must remain reserved"
+          }
+        }
+      }
+    },
+    "/reservations/renew": {
+      "post": {
+        "summary": "Renew a held provider reservation",
+        "description": "Owner only. Renew during queued provisioning before expiry; renewal is bounded by the original24-hour reservation window. Already-consumed reservations remain consumed.",
+        "security": [
+          {
+            "ownerBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "reservation_uuid": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "reservation_uuid"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation completed; responses are no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "reservation_uuid": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 40,
+                      "pattern": "^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$"
+                    },
+                    "hostname": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "enum": [
+                        "reserved",
+                        "consumed",
+                        "released"
+                      ]
+                    },
+                    "expires_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "reservation_uuid",
+                    "label",
+                    "hostname",
+                    "state",
+                    "expires_at"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid or missing authority"
+          },
+          "403": {
+            "description": "Confirm the current account email first"
+          },
+          "409": {
+            "description": "Reserved name or identity changed; no blind write retry"
+          },
+          "503": {
+            "description": "Retry safely; cleanup is not confirmed and resources must remain reserved"
+          }
+        }
+      }
+    },
+    "/reservations/release": {
+      "post": {
+        "summary": "Release a never-bound provider reservation",
+        "description": "Owner only. A bound or consumed server requires confirmed /servers/revoke cleanup, not simple name release.",
+        "security": [
+          {
+            "ownerBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "reservation_uuid": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "reservation_uuid"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation completed; responses are no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "reservation_uuid": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 40,
+                      "pattern": "^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$"
+                    },
+                    "hostname": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "enum": [
+                        "reserved",
+                        "consumed",
+                        "released"
+                      ]
+                    },
+                    "expires_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "reservation_uuid",
+                    "label",
+                    "hostname",
+                    "state",
+                    "expires_at"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid or missing authority"
+          },
+          "403": {
+            "description": "Confirm the current account email first"
+          },
+          "409": {
+            "description": "Reserved name or identity changed; no blind write retry"
+          },
+          "503": {
+            "description": "Retry safely; cleanup is not confirmed and resources must remain reserved"
+          }
+        }
+      }
+    },
+    "/servers/revoke": {
+      "post": {
+        "summary": "Revoke exact server ownership and confirm DNS cleanup",
+        "description": "Uses only the secret cleanup control; owner bearer expiry cannot strand the provider. It can revoke only its reserved/bound server. Disables device/authorization/leases first, removes exactly owned A/AAAA/CNAME records with readback and retains ownership tombstones. Foreign DNS, changed identities and uncertain results refuse confirmation. Hold IP/VM resources until cleanup_confirmed=true. Repeated completed cleanup is idempotent; it never re-enables a server.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "reservation_uuid": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "control_token": {
+                    "type": "string",
+                    "pattern": "^owpc_[a-f0-9]{64}$",
+                    "description": "Secret cleanup-only provider control. Encrypt at rest. Never send to a guest, email, log or public client DTO."
+                  },
+                  "expected_server_address": {
+                    "type": "string",
+                    "description": "Actual original observed public IPv4/IPv6 address."
+                  },
+                  "expected_server_host": {
+                    "type": "string"
+                  },
+                  "expected_key_hash": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "reservation_uuid",
+                  "control_token",
+                  "expected_server_address"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation completed; responses are no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "cleanup_confirmed": {
+                      "const": true
+                    },
+                    "state": {
+                      "const": "revoked"
+                    },
+                    "scope": {
+                      "enum": [
+                        "instance",
+                        "reservation_only",
+                        "bound_without_dns"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "cleanup_confirmed",
+                    "state",
+                    "scope"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid or missing authority"
+          },
+          "403": {
+            "description": "Confirm the current account email first"
+          },
+          "409": {
+            "description": "Reserved name or identity changed; no blind write retry"
+          },
+          "503": {
+            "description": "Retry safely; cleanup is not confirmed and resources must remain reserved"
+          }
+        }
       }
     }
   },

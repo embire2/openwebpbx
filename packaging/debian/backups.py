@@ -42,6 +42,8 @@ WEB_VERSION = Path('/var/www/fusionpbx/VERSION')
 UPGRADE_LOCK = Path('/run/openwebpbx-upgrade.lock')
 UNIT_ROOT = Path('/etc/systemd/system')
 CACHE = Path('/var/cache/fusionpbx')
+REGISTRATION_STATE = Path('/var/lib/openwebpbx/tenant-domains')
+REGISTRATION_FILES = ('image-local.json', 'image-onboarding/session.json')
 HELD_UNITS = {'calls': 'freeswitch.service', 'jobs': 'openwebpbx.service',
               'updates': 'openwebpbx-updater.service', 'backups': 'openwebpbx-backups.timer',
               'mail': 'email_queue.service'}
@@ -52,6 +54,7 @@ ROOTS = {
     'mobile-notifications': Path('/var/lib/openwebpbx/mobile-notifications'),
     'mobile-push': Path('/var/lib/openwebpbx/mobile-push.json'),
     'mobile-push-settings': Path('/var/lib/openwebpbx/mobile-push-settings.json'),
+    'registration-state': REGISTRATION_STATE / 'private',
 }
 MEDIA = {
     'storage': Path('/var/lib/freeswitch/storage'),
@@ -267,7 +270,8 @@ def file_inventory(roots):
         root = Path(root)
         if not root.exists():
             continue
-        paths = sorted(root.rglob('*')) if root.is_dir() else [root]
+        paths = ([root / name for name in REGISTRATION_FILES if (root / name).exists() or (root / name).is_symlink()]
+                 if label == 'registration-state' else sorted(root.rglob('*')) if root.is_dir() else [root])
         for path in paths:
             if path.is_dir() and not path.is_symlink():
                 continue
@@ -275,6 +279,8 @@ def file_inventory(roots):
             info = path.stat()
             if not stat.S_ISREG(info.st_mode) or info.st_nlink > 1:
                 raise BackupError('Backup files must be ordinary files without links.')
+            if label == 'registration-state' and (info.st_uid != 0 or info.st_mode & 0o077):
+                raise BackupError('Registration recovery files must remain root-private.')
             relative = path.relative_to(root).as_posix() if root.is_dir() else 'file'
             name = label + '/' + relative
             total += info.st_size
@@ -305,7 +311,43 @@ def snapshot_database(settings, destination):
     run(['pg_restore', '--list', str(destination)], timeout=60)
 
 
+@contextlib.contextmanager
+def registration_guard(roots):
+    root = roots.get('registration-state')
+    if root is not None and any(part.is_symlink() for part in [Path(root), *Path(root).parents]):
+        raise BackupError('Linked registration recovery directory refused.')
+    directory = Path(root) / 'image-onboarding' if root is not None else None
+    if directory is None or not directory.exists():
+        yield
+        return
+    if any(part.is_symlink() for part in [directory, *directory.parents]):
+        raise BackupError('Linked registration recovery directory refused.')
+    info = directory.stat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077:
+        raise BackupError('The registration recovery directory must remain root-private.')
+    lock = directory / 'worker.lock'
+    if lock.exists() or lock.is_symlink():ordinary(lock)
+    descriptor = os.open(lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != 0 or info.st_mode & 0o077:
+            raise BackupError('The registration recovery lock needs administrator review.')
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise BackupError('Server registration is being refreshed. Retry the backup shortly.') from None
+        yield
+    finally:
+        os.close(descriptor)
+
+
 def create_archive(settings, destination, password, *, include_media=True, roots=None, version=None):
+    selected = roots if roots is not None else ROOTS | (MEDIA if include_media else {})
+    with registration_guard(selected):
+        return _create_archive(settings, destination, password, include_media=include_media, roots=roots, version=version)
+
+
+def _create_archive(settings, destination, password, *, include_media=True, roots=None, version=None):
     if roots is None:
         standard = {'switch.conf.dir': '/etc/freeswitch', 'switch.storage.dir': '/var/lib/freeswitch/storage',
                     'switch.voicemail.dir': '/var/lib/freeswitch/storage/voicemail',
@@ -367,6 +409,8 @@ def safe_member(name):
             raise BackupError('The backup contains an unknown private-data location.')
         if path.parts[0] == 'mobile-notifications' and name not in ('mobile-notifications/config.json', 'mobile-notifications/config.json.lock'):
             raise BackupError('The backup contains an unknown private-data location.')
+        if path.parts[0] == 'registration-state' and name not in tuple('registration-state/' + item for item in REGISTRATION_FILES):
+            raise BackupError('The backup contains an unknown registration recovery file.')
     return path
 
 
@@ -718,6 +762,18 @@ def restore_targets(manifest):
     return mapping
 
 
+def registration_restore_files():
+    """Fixed machine-local caches; authority/key material is restored separately."""
+    private = ROOTS.get('registration-state')
+    if private is None:return ()
+    root = Path(private).parent
+    return tuple(root / name for name in (
+        'instance-public.json', 'ready.json', 'setup.json',
+        'private/image-local.json', 'private/certificate-backoff.json',
+        'private/image-onboarding/session.json', 'private/image-onboarding/setup.txt',
+        'private/image-onboarding/retry.json'))
+
+
 def notification_directory(directory, *, create=False):
     spec = importlib.util.spec_from_file_location('backup_notification_storage', Path(__file__).with_name('install-mobile-notifications.py'))
     helper = importlib.util.module_from_spec(spec)
@@ -833,7 +889,7 @@ def remove_service_holds(gates):
 
 def restore(source, password, settings, **kwargs):
     safe_private_directory(STORE)
-    with exclusive_guard(UPGRADE_LOCK), exclusive_guard(STORE/'worker.lock'):
+    with exclusive_guard(UPGRADE_LOCK), exclusive_guard(STORE/'worker.lock'), registration_guard(ROOTS):
         return _restore(source, password, settings, **kwargs)
 
 
@@ -879,8 +935,12 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
         recovery_files = RESTORE / 'factory-files'
         recovery_files.mkdir(mode=0o700)
         original = {}
-        recovery_targets = list(mapping.values()) + ([notification_fallback] if notification_fallback is not None else [])
+        registration_files = registration_restore_files()
+        recovery_targets = list(dict.fromkeys(list(mapping.values()) +
+            ([notification_fallback] if notification_fallback is not None else []) + list(registration_files)))
         for index, target in enumerate(recovery_targets):
+            if any(part.is_symlink() for part in [target, *target.parents]):
+                raise BackupError('Restore refused a linked target recovery path.')
             if target.exists() and not target.is_file():
                 raise BackupError('Restore refused a nonordinary target private-data file.')
             original[str(target)] = {'exists': target.is_file()}
@@ -893,6 +953,7 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
                 original[str(target)].update({'copy': str(index), 'mode': stat.S_IMODE(st.st_mode), 'uid': st.st_uid, 'gid': st.st_gid})
         journal = {'schema': 1, 'database': settings['database.0.name'], 'user': settings['database.0.username'],
                    'services': services, 'gates': plan_service_holds(), 'source_host': manifest['source_host'],
+                   'registration_files': [str(path) for path in registration_files],
                    'files': original, 'meeting_proxy': meeting_proxy, 'state': 'prepared'}
         atomic_json(RESTORE / 'journal.json', journal)
         try:
@@ -902,13 +963,21 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
             journal['state'] = 'restoring'
             atomic_json(RESTORE / 'journal.json', journal)
             restore_database(settings, extracted / 'database.dump', RESTORE)
+            # A replacement machine's pairing session and readiness must never
+            # authenticate the restored customer identities. Only the original
+            # encrypted source session is restored below; proof/readiness are
+            # rebuilt by the root worker after explicit service activation.
+            for path in registration_files:path.unlink(missing_ok=True)
             for name, target in mapping.items():
                 mode = manifest['files'][name]['mode'] & 0o750
                 if name.endswith(('config.conf', '.key', 'runtime.json')) or name.startswith('mobile-push'):
                     mode = 0o640
                 if name.startswith(('mobile-push', 'mobile-notifications/')):
                     mode = 0o600
-                atomic_copy(extracted / name, target, mode=mode or 0o640)
+                if name.startswith('registration-state/'):
+                    mode = 0o600
+                atomic_copy(extracted / name, target, mode=mode or 0o640,
+                            group=0 if name.startswith('registration-state/') else 33)
             if notification_fallback is not None:
                 # Older archive labels keep their original copy and also seed
                 # the current PHP/C# location with the identical VAPID bytes.
@@ -941,7 +1010,7 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
 
 def recover(settings):
     safe_private_directory(STORE)
-    with exclusive_guard(UPGRADE_LOCK), exclusive_guard(STORE/'worker.lock'):
+    with exclusive_guard(UPGRADE_LOCK), exclusive_guard(STORE/'worker.lock'), registration_guard(ROOTS):
         return _recover(settings)
 
 
@@ -956,8 +1025,11 @@ def _recover(settings):
         raise BackupError('Recovery service inventory is invalid.')
     mapping = journal.get('files', {})
     allowed_roots = tuple(str(root) for root in ROOTS.values()) + tuple(str(root) for root in MEDIA.values())
+    registration_files = journal.get('registration_files', [])
+    if registration_files and registration_files != [str(path) for path in registration_restore_files()]:
+        raise BackupError('Recovery registration cache inventory is invalid.')
     for target_name, entry in mapping.items():
-        if not any(target_name == root or target_name.startswith(root + '/') for root in allowed_roots):
+        if target_name not in registration_files and not any(target_name == root or target_name.startswith(root + '/') for root in allowed_roots):
             raise BackupError('Recovery refused an unknown file location.')
         target = Path(target_name)
         for item in [target, *target.parents]:

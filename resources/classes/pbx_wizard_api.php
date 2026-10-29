@@ -44,6 +44,11 @@ class pbx_wizard_api {
         if(!in_array($ok,[true,'t','1',1],true))$this->fail(403,'verified_account_required','Confirm your account email before connecting this server.');
     }
     protected function authority(): pbx_installation_authority {return new pbx_installation_authority($this->db);}
+    protected function reservations():pbx_wizard_reservations{return new pbx_wizard_reservations($this->db,$this->api);}
+    public function availability(array $input,string $ip):array{return $this->reservations()->availability($input,$ip);}
+    public function reserve(array $account,array $input):array{$this->verified($account);return $this->reservations()->reserve($account,$input);}
+    public function reservationAction(array $account,array $input,bool $release):array{$this->verified($account);return $this->reservations()->action($account,$input,$release);}
+    public function revoke(array $input,string $ip):array{return $this->reservations()->revoke($input,$ip);}
     protected function rpc(string $operation,array $value): array {
         if(!in_array($operation,['bootstrap-instance','verify-tenant-ready'],true))throw new LogicException('Unknown enrollment operation.');
         $c=curl_init('http://127.0.0.1:5095/internal/v1/'.$operation);$raw='';
@@ -102,14 +107,17 @@ class pbx_wizard_api {
         return array_intersect_key($this->view($r),array_flip(['pairing_uuid','state','provider','image_version','server_address','expires_at']));
     }
     public function claim(array $account,array $input): array {
-        $this->fields($input,['user_code','label','confirm_server','accept_terms']);if($input['confirm_server']!==true||$input['accept_terms']!==true)$this->fail(400,'confirmation_required','Confirm the server and accept the terms before continuing.');
+        $this->fields($input,['user_code','label','confirm_server','accept_terms'],['reservation_uuid']);if($input['confirm_server']!==true||$input['accept_terms']!==true)$this->fail(400,'confirmation_required','Confirm the server and accept the terms before continuing.');
         $label=is_string($input['label'])?pbx_tenant_api_domains::label($input['label']):'';if($label==='')$this->fail(400,'invalid_subdomain','Choose your OpenWeb PBX address.');
         $this->verified($account);$code=$this->userCode($input['user_code']);$this->api->rate('wizard:claim:'.$account['tenant_uuid'],10,3600);
         $this->db->beginTransaction();try{
             $r=$this->q("select * from v_pbx_wizard_devices where user_code_hash=? and expires_at>now() and state<>'revoked' for update",[hash('sha256',$code)])->fetch(PDO::FETCH_ASSOC);
             if(!$r)$this->fail(404,'pairing_unavailable','This setup code is unavailable or expired. Check the code shown on your server.');
             if($r['account_tenant_uuid']!==null){if($r['account_tenant_uuid']!==$account['tenant_uuid']||$r['account_user_uuid']!==$account['user_uuid']||$r['label']!==$label)$this->fail(409,'server_already_claimed','This server has already been connected to another setup.');}
-            else{
+            // Device ownership and the local cleanup binding commit together.
+            // The lock also prevents a competing owner taking this code during RPC.
+            if(isset($input['reservation_uuid']))$this->reservations()->bind($account,$r,$this->id($input['reservation_uuid']),$label);
+            if($r['account_tenant_uuid']===null){
                 $this->q('select pg_advisory_xact_lock(hashtextextended(?,0))',['wizard:owner:'.$account['tenant_uuid']]);
                 if((int)$this->q("select count(*) from v_pbx_wizard_devices where account_tenant_uuid=? and state<>'revoked'",[$account['tenant_uuid']])->fetchColumn()>=50)$this->fail(409,'installation_limit','This account has reached its server setup limit.');
                 $this->q("update v_pbx_wizard_devices set account_tenant_uuid=?,account_user_uuid=?,label=?,claimed_at=now(),terms_version='2026-10-29',state='claimed',updated_at=now() where pairing_uuid=?",[$account['tenant_uuid'],$account['user_uuid'],$label,$r['pairing_uuid']]);$r['account_tenant_uuid']=$account['tenant_uuid'];$r['account_user_uuid']=$account['user_uuid'];$r['label']=$label;$r['state']='claimed';
@@ -130,13 +138,15 @@ class pbx_wizard_api {
     }
     public function bootstrap(array $input): array {
         $this->fields($input,['device_code','signature']);$r=$this->device($input['device_code']);$account=$this->account($r);$this->verified($account);
+        if(!in_array($r['state'],['claimed','bootstrap_pending','dns_ready'],true))$this->fail(409,'setup_changed','This server has moved to another setup step. Reopen its setup status.');
         $message="openwebpbx-bootstrap-v1\n".$r['bootstrap_nonce']."\n".$r['server_address']."\n".$r['key_hash']."\n".$r['bootstrap_uuid']."\n".$r['account_tenant_uuid']."\n".$r['local_tenant_uuid']."\n".$r['domain_uuid']."\n".$r['label']."\n";
         $signature=$this->signature($r,$input['signature'],$message);$this->api->rate('wizard:bootstrap:'.$r['pairing_uuid'],10,600);
         $reply=$this->rpc('bootstrap-instance',['installationUuid'=>$r['bootstrap_uuid'],'accountTenantUuid'=>$r['account_tenant_uuid'],'serverAddress'=>$r['server_address'],'nonce'=>$r['bootstrap_nonce'],'keyHash'=>$r['key_hash'],'localTenantUuid'=>$r['local_tenant_uuid'],'domainUuid'=>$r['domain_uuid'],'label'=>$r['label'],'signature'=>$signature,'publicKey'=>$r['public_key']]);
         $expected='node-'.str_replace('-','',$r['bootstrap_uuid']).'.openwebpbx.com';
         if(($reply['serverHost']??'')!==$expected||($reply['address']??'')!==$r['server_address']||!in_array($reply['state']??'',['dns_ready','pending_dns'],true))throw new RuntimeException('The registered server address differs from this installation.');
         $state=$reply['state']==='dns_ready'?'dns_ready':'bootstrap_pending';
-        $this->q("update v_pbx_wizard_devices set server_host=?,state=?,updated_at=now() where pairing_uuid=? and account_tenant_uuid=? and state in ('claimed','bootstrap_pending','dns_ready')",[$expected,$state,$r['pairing_uuid'],$r['account_tenant_uuid']]);
+        $changed=$this->q("update v_pbx_wizard_devices set server_host=?,state=?,updated_at=now() where pairing_uuid=? and account_tenant_uuid=? and account_user_uuid=? and key_hash=? and state=?",[$expected,$state,$r['pairing_uuid'],$r['account_tenant_uuid'],$r['account_user_uuid'],$r['key_hash'],$r['state']]);
+        if($changed->rowCount()!==1)$this->fail(409,'setup_changed','This setup changed while the server was checked. Reopen its setup status.');
         $r['server_host']=$expected;$r['state']=$state;return $this->view($r);
     }
     public function challenge(array $input): array {
@@ -144,17 +154,27 @@ class pbx_wizard_api {
         if(!in_array($r['state'],['dns_ready','authorized','complete'],true)||!is_string($r['server_host']))$this->fail(409,'server_preparing','Your server address is still being prepared.');
         $this->api->rate('wizard:challenge:'.$r['pairing_uuid'],10,600);
         $reply=$this->authority()->challenge($account,['server_host'=>$r['server_host'],'public_key'=>$r['public_key'],'local_tenant_uuid'=>$r['local_tenant_uuid'],'domain_uuid'=>$r['domain_uuid'],'label'=>$r['label']]);
-        $this->q('update v_pbx_wizard_devices set challenge_uuid=?,updated_at=now() where pairing_uuid=?',[$reply['challenge_uuid'],$r['pairing_uuid']]);return $reply;
+        $changed=$this->q("update v_pbx_wizard_devices set challenge_uuid=?,updated_at=now() where pairing_uuid=? and account_tenant_uuid=? and account_user_uuid=? and key_hash=? and state=? and challenge_uuid is not distinct from ?::uuid",[$reply['challenge_uuid'],$r['pairing_uuid'],$r['account_tenant_uuid'],$r['account_user_uuid'],$r['key_hash'],$r['state'],$r['challenge_uuid']]);
+        if($changed->rowCount()!==1)$this->fail(409,'setup_changed','This setup changed while its check was prepared. Reopen its setup status.');return $reply;
     }
     public function authorize(array $input): array {
-        $this->fields($input,['device_code','challenge_uuid','signature']);$r=$this->device($input['device_code']);$account=$this->account($r);
+        $this->fields($input,['device_code','challenge_uuid','signature']);$r=$this->device($input['device_code']);
+        $guard=pbx_wizard_reservations::lockDevice($this->db,$r['bootstrap_uuid']);try{
+        $r=$this->device($input['device_code']);$account=$this->account($r);
         if(($r['challenge_uuid']??'')!==$this->id($input['challenge_uuid']))$this->fail(409,'challenge_changed','Ask the server to request a new setup check.');
         $this->api->rate('wizard:authorize:'.$r['pairing_uuid'],10,600);
         $reply=$this->authority()->authorize($account,['challenge_uuid'=>$r['challenge_uuid'],'signature'=>$input['signature']]);
         $a=$reply['activation']??null;$raw=is_array($a)?base64_decode(strtr($a['payload']??'','-_','+/'),true):false;$payload=$raw?json_decode($raw,true,8,JSON_THROW_ON_ERROR):null;
         if(!is_array($payload))throw new RuntimeException('The installation authorization is unavailable.');
         foreach(['account_tenant_uuid','local_tenant_uuid','domain_uuid','key_hash','server_host','label']as$field)if(($payload[$field]??null)!==$r[$field])throw new RuntimeException('The installation authorization belongs to a different server.');
-        $this->q("update v_pbx_wizard_devices set activation=cast(? as jsonb),activation_expires_at=?,installation_uuid=?,state='authorized',complete_nonce=?,updated_at=now() where pairing_uuid=?",[json_encode($a,JSON_THROW_ON_ERROR),$payload['expires_at'],$payload['installation_uuid'],bin2hex(random_bytes(32)),$r['pairing_uuid']]);return $reply;
+        $changed=$this->q("update v_pbx_wizard_devices set activation=cast(? as jsonb),activation_expires_at=?,installation_uuid=?,state='authorized',complete_nonce=?,updated_at=now() where pairing_uuid=? and account_tenant_uuid=? and account_user_uuid=? and key_hash=? and state=? and challenge_uuid=?",[json_encode($a,JSON_THROW_ON_ERROR),$payload['expires_at'],$payload['installation_uuid'],bin2hex(random_bytes(32)),$r['pairing_uuid'],$r['account_tenant_uuid'],$r['account_user_uuid'],$r['key_hash'],$r['state'],$r['challenge_uuid']]);
+        if($changed->rowCount()!==1){
+            // An independently committed revocation may have won before the
+            // authority's new grant existed. Never leave that late receipt active.
+            $this->q("update v_pbx_installation_authorizations set state='revoked',updated_at=now() where key_hash=? and domain_uuid=? and account_tenant_uuid=? and exists(select 1 from v_pbx_wizard_devices where bootstrap_uuid=? and key_hash=? and state='revoked')",[$r['key_hash'],$r['domain_uuid'],$r['account_tenant_uuid'],$r['bootstrap_uuid'],$r['key_hash']]);
+            $this->fail(409,'setup_changed','This setup changed while authorization was prepared. Reopen its setup status.');
+        }return $reply;
+        }finally{pbx_wizard_reservations::unlockDevice($this->db,$guard);}
     }
     public function complete(array $input): array {
         $this->fields($input,['device_code','hostname','signature']);$r=$this->device($input['device_code']);$account=$this->account($r);$this->verified($account);
@@ -164,7 +184,8 @@ class pbx_wizard_api {
         $this->api->rate('wizard:complete:'.$r['pairing_uuid'],10,600);
         $reply=$this->rpc('verify-tenant-ready',['hostname'=>$host,'serverHost'=>$r['server_host'],'keyHash'=>$r['key_hash'],'domainUuid'=>$r['domain_uuid'],'nonce'=>$r['complete_nonce']]);
         if(($reply['verified']??false)!==true)$this->fail(503,'server_preparing','Your tenant address is still being checked.');
-        $this->q("update v_pbx_wizard_devices set tenant_hostname=?,state='complete',updated_at=now() where pairing_uuid=?",[$host,$r['pairing_uuid']]);$r['tenant_hostname']=$host;$r['state']='complete';return $this->view($r);
+        $changed=$this->q("update v_pbx_wizard_devices set tenant_hostname=?,state='complete',updated_at=now() where pairing_uuid=? and account_tenant_uuid=? and account_user_uuid=? and key_hash=? and state=? and complete_nonce=?",[$host,$r['pairing_uuid'],$r['account_tenant_uuid'],$r['account_user_uuid'],$r['key_hash'],$r['state'],$r['complete_nonce']]);
+        if($changed->rowCount()!==1)$this->fail(409,'setup_changed','This setup changed while readiness was checked. Reopen its setup status.');$r['tenant_hostname']=$host;$r['state']='complete';return $this->view($r);
     }
     public function status(array $account,string $id): array {
         $r=$this->q('select * from v_pbx_wizard_devices where pairing_uuid=? and account_tenant_uuid=? and account_user_uuid=?',[$this->id($id),$account['tenant_uuid'],$account['user_uuid']])->fetch(PDO::FETCH_ASSOC);

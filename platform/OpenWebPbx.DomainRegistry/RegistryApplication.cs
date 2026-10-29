@@ -15,6 +15,8 @@ public static class RegistryApplication {
         builder.Services.AddSingleton(options); builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(options.ConnectionString));
         builder.Services.AddSingleton<RegistryStore>(); builder.Services.AddSingleton<ISiteProof, PublicSiteProof>(); builder.Services.AddSingleton<IRegistryDns, CpanelDns>();
         builder.Services.AddSingleton<InstallationAuthorization>();builder.Services.AddSingleton<IBootstrapProof,BootstrapProof>();builder.Services.AddSingleton<InstanceBootstrap>();
+        builder.Services.AddSingleton<TenantReservations>();
+        builder.Services.AddSingleton<InstanceOperations>();
         builder.Services.Configure<ForwardedHeadersOptions>(value => {
             value.ForwardedHeaders = ForwardedHeaders.XForwardedFor; value.ForwardLimit = 1;
             value.KnownIPNetworks.Clear(); value.KnownProxies.Clear();
@@ -49,6 +51,12 @@ public static class RegistryApplication {
             await proof.Verify(value.ServerHost,nonce,hash,stop);return new{verified=true};
         });
         app.MapPost("/internal/v1/bootstrap-instance",async(BootstrapRequest value,HttpContext context,InstanceBootstrap bootstrap,CancellationToken stop)=>{Internal(context);return await bootstrap.Register(value,stop);});
+        app.MapPost("/internal/v1/label-availability",async(LabelAvailabilityRequest value,HttpContext context,TenantReservations reservations,CancellationToken stop)=>{Internal(context);return await reservations.Availability(value.Label,stop);});
+        app.MapPost("/internal/v1/reserve-label",async(LabelReservationRequest value,HttpContext context,TenantReservations reservations,CancellationToken stop)=>{Internal(context);return await reservations.Reserve(value,stop);});
+        app.MapPost("/internal/v1/renew-label",async(LabelReservationAction value,HttpContext context,TenantReservations reservations,CancellationToken stop)=>{Internal(context);return await reservations.Action(value,false,stop);});
+        app.MapPost("/internal/v1/release-label",async(LabelReservationAction value,HttpContext context,TenantReservations reservations,CancellationToken stop)=>{Internal(context);return await reservations.Action(value,true,stop);});
+        app.MapPost("/internal/v1/bind-label",async(LabelReservationBind value,HttpContext context,TenantReservations reservations,CancellationToken stop)=>{Internal(context);return await reservations.Bind(value,stop);});
+        app.MapPost("/internal/v1/revoke-instance",async(InstanceRevokeRequest value,HttpContext context,TenantReservations reservations,CancellationToken stop)=>{Internal(context);return await reservations.Revoke(value,stop);});
         app.MapPost("/internal/v1/verify-tenant-ready",async(TenantReadyRequest value,HttpContext context,RegistryStore store,ISiteProof proof,CancellationToken stop)=>{
             Internal(context);if(value.Nonce is not { Length:64 } nonce || value.KeyHash is not { Length:64 } hash || !System.Text.RegularExpressions.Regex.IsMatch(nonce,"^[0-9a-f]{64}$")||!System.Text.RegularExpressions.Regex.IsMatch(hash,"^[0-9a-f]{64}$")||value.DomainUuid==Guid.Empty||!await store.TenantReadyBinding(value,stop))throw new Refused("tenant_readiness_unavailable",403);
             await proof.VerifyTenantAlias(value.Hostname,value.ServerHost,nonce,hash,stop);return new{verified=true};
@@ -58,9 +66,13 @@ public static class RegistryApplication {
         app.MapGet("/v1/tenant-addresses/{hostname}", async (string hostname, RegistryStore store, CancellationToken stop) =>
             await store.TenantAddress(hostname, stop));
         app.MapPost("/v1/challenges", async (ChallengeRequest request, RegistryStore store, CancellationToken stop) => await store.Challenge(Protocol.KeyHash(request.PublicKey), Protocol.Host(request.ServerHost), stop));
-        app.MapPost("/v1/leases", async (LeaseRequest request, RegistryStore store, ISiteProof proof, IRegistryDns dns, HttpRequest http,InstallationAuthorization verifier,InstanceBootstrap bootstrap, CancellationToken stop) => {
+        app.MapPost("/v1/leases", async (LeaseRequest request, RegistryStore store, ISiteProof proof, IRegistryDns dns, HttpRequest http,InstallationAuthorization verifier,InstanceBootstrap bootstrap,InstanceOperations operations, CancellationToken stop) => {
             if (request.Move && http.Headers.IfMatch.ToString() != "\"" + request.Revision + "\"") throw new Refused("host_move_if_match_required", 409);
-            var hash = Protocol.Verify(request); await store.CheckChallenge(request.Challenge, hash, request.ServerHost, stop);
+            var hash = Protocol.Verify(request);
+            var address=await operations.AddressFor(hash,request.ServerHost,stop);
+            await using var addressGuard=address is null?null:await operations.Address(address,stop);
+            await using var instanceGuard=await operations.Key(hash,stop);
+            await store.CheckChallenge(request.Challenge, hash, request.ServerHost, stop);
             await proof.Verify(request.ServerHost, request.Challenge, hash, stop);
             var activation=request.Authorization is null?null:verifier.Verify(request.Authorization,request,hash);
             if(activation is not null&&!await bootstrap.Matches(request,hash,activation,stop))throw new Refused("bootstrap_instance_binding",403);

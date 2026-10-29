@@ -493,6 +493,69 @@ class Backups(unittest.TestCase):
             for key,value in old.items():setattr(b,key,value)
 
 
+    def test_17_registration_session_encrypted_restore_and_exact_recovery(self):
+        work=self.workspace/'registration-recovery';work.mkdir(mode=0o700)
+        source=work/'source-private';source.mkdir(mode=0o700)
+        (source/'image-onboarding').mkdir(mode=0o700)
+        session=b'{"device_code":"owpd_1111111111111111111111111111111111111111111111111111111111111111","identity":{"domain_uuid":"fixture"}}'
+        image=b'{"service_uuid":"source-service","domain_uuid":"source-domain"}'
+        for name,data in [('image-local.json',image),('image-onboarding/session.json',session),('image-onboarding/setup.txt',b'not recovery data'),('unrelated-private.key',b'never included')]:
+            path=source/name;path.write_bytes(data);path.chmod(0o600)
+        lock=source/'image-onboarding/worker.lock';lock.touch(mode=0o600)
+        roots=self.source_roots|{'registration-state':source};archive=work/'registration.owpbx'
+        descriptor=os.open(lock,os.O_RDWR)
+        try:
+            b.fcntl.flock(descriptor,b.fcntl.LOCK_EX|b.fcntl.LOCK_NB)
+            with self.assertRaisesRegex(b.BackupError,'registration is being refreshed'):
+                b.create_archive(self.source,archive,self.archive_password,roots=roots,version='1.0.9')
+            self.assertFalse(archive.exists())
+        finally:os.close(descriptor)
+        manifest=b.create_archive(self.source,archive,self.archive_password,roots=roots,version='1.0.9')
+        self.assertEqual(sorted(n for n in manifest['files']if n.startswith('registration-state/')),
+                         ['registration-state/image-local.json','registration-state/image-onboarding/session.json'])
+        self.assertNotIn(session,archive.read_bytes())
+        for name in ['registration-state/setup.json','registration-state/../private.key','registration-state/image-onboarding/setup.txt']:
+            with self.assertRaises(b.BackupError):b.safe_member(name)
+        old={key:getattr(b,key)for key in ('ROOTS','MEDIA','RESTORE','WEB_VERSION','running_services','UNIT_ROOT','STORE','CACHE')}
+        try:
+            target=work/'target';target.mkdir(mode=0o700)
+            target_roots={label:target/label for label in self.source_roots}
+            for path in target_roots.values():path.mkdir(mode=0o700)
+            private=target/'transport/private';private.mkdir(parents=True,mode=0o700)
+            (private/'image-onboarding').mkdir(mode=0o700)
+            target_roots['registration-state']=private
+            config=target_roots['fusionpbx-config']/'config.conf'
+            config.write_text(''.join(k+' = '+v+'\n'for k,v in self.target.items()))
+            (target_roots['fusionpbx-config']/'openweb-template.key').write_bytes(os.urandom(32))
+            (target_roots['runtime-config']/'runtime.json').write_text('{}')
+            b.ROOTS={k:v for k,v in target_roots.items()if k not in self.original_media}
+            b.MEDIA={k:v for k,v in target_roots.items()if k in self.original_media}
+            b.RESTORE=work/'journal';b.STORE=work/'store';b.UNIT_ROOT=work/'units';b.UNIT_ROOT.mkdir()
+            b.running_services=lambda:[];b.CACHE=work/'cache';b.WEB_VERSION=work/'VERSION';b.WEB_VERSION.write_text('1.0.9')
+            self.install_voicemail_policy(b.WEB_VERSION)
+            baseline={}
+            for path in b.registration_restore_files():
+                path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+                data=b'target-only '+path.name.encode();path.write_bytes(data);path.chmod(0o600)
+                baseline[str(path)]=(data,path.stat().st_mode&0o777,path.stat().st_uid,path.stat().st_gid)
+            untouched=private/'unrelated-owned-secret';untouched.write_bytes(b'exact untouched target')
+            b.restore(archive,self.archive_password,self.target,confirm_database=self.target_name)
+            self.assertEqual((private/'image-local.json').read_bytes(),image)
+            restored=private/'image-onboarding/session.json';self.assertEqual(restored.read_bytes(),session)
+            self.assertEqual((restored.stat().st_mode&0o777,restored.stat().st_uid,restored.stat().st_gid),(0o600,0,0))
+            for path in b.registration_restore_files():
+                if path not in (private/'image-local.json',restored):self.assertFalse(path.exists())
+            self.assertEqual(untouched.read_bytes(),b'exact untouched target')
+            journal=json.loads((b.RESTORE/'journal.json').read_text());journal['state']='restoring';b.atomic_json(b.RESTORE/'journal.json',journal)
+            b.recover(self.target)
+            for name,expected in baseline.items():
+                path=Path(name);self.assertEqual((path.read_bytes(),path.stat().st_mode&0o777,path.stat().st_uid,path.stat().st_gid),expected)
+            self.assertEqual(untouched.read_bytes(),b'exact untouched target')
+            self.assertEqual(b.query(self.target,'select count(*)from fixture_objects'),'0')
+        finally:
+            for key,value in old.items():setattr(b,key,value)
+
+
 if __name__ == '__main__':
     if os.geteuid() != 0:
         raise SystemExit('Run fixture checks as root; only independent databases and loopback services are used.')

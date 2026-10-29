@@ -16,6 +16,7 @@ function permission_exists(string $name): bool {return !empty($_SESSION['permiss
 class config {
     public static function load(): self {return new self;}
     public function get(string $key, mixed $default = ''): mixed {
+        if ($key === 'openweb.provider_onboarding_enabled') return getenv('OPENWEB_PROVIDER_HTTP_FIXTURE') === '1' ? 'true' : $default;
         $values = ['openweb.public_host'=>'server.example.test', 'openweb.public_url'=>'https://server.example.test',
             'openweb.tenant_api_enabled'=>'true', 'openweb.tenant_api_registration_enabled'=>'true',
             'openweb.tenant_api.enabled'=>'true', 'openweb.tenant_api.registration_enabled'=>'true'];

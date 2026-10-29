@@ -91,12 +91,12 @@ $tenant=sql('select tenant_uuid from v_pbx_tenants where owner_user_uuid=?',[$us
 if(!$tenant){$tenant=uuid();$home=uuid();$slug='company-'.substr(str_replace('-','',$tenant),0,12);sql('insert into v_domains(domain_uuid,domain_name,domain_description,domain_enabled) values(?,?,?,true)',[$home,$slug.'.'.pbx_paths::host(),'My company']);sql('insert into v_pbx_tenants(tenant_uuid,tenant_name,slug,home_domain_uuid,owner_user_uuid,invite_email) values(?,?,?,?,?,?)',[$tenant,'My company',$slug,$home,$user,$email]);}
 $service=sql('select domain_uuid from v_pbx_services where tenant_uuid=? limit 1',[$tenant])->fetchColumn();
 if(!$service){
- $manager=new pbx_tenants($db);$template=$manager->saveTemplate(['template_name'=>'Business PBX','published'=>'1','description'=>'An empty PBX, ready for users and a provider.','config'=>['timezone'=>'UTC','extension_start'=>100,'extension_count'=>0,'extension_limit'=>100,'trunks'=>[],'rules'=>[],'settings'=>[]]]);
+ $manager=new pbx_tenants($db);$template=$manager->saveTemplate(['template_name'=>'Business PBX','published'=>'1','description'=>'An empty PBX, ready for users and a provider.','config'=>['timezone'=>'Africa/Johannesburg','extension_start'=>100,'extension_count'=>0,'extension_limit'=>100,'trunks'=>[],'rules'=>[],'settings'=>[]]]);
  $id=$manager->provision(['tenant_uuid'=>$tenant,'template_uuid'=>$template,'service_name'=>'Main PBX','slug'=>'main','request_uuid'=>uuid()]);$service=sql('select domain_uuid from v_pbx_services where service_uuid=?',[$id])->fetchColumn();
 }
 $realm=sql('select domain_name from v_domains where domain_uuid=?',[$service])->fetchColumn();
 $_SESSION['domain_uuid']=$service;$_SESSION['domain_name']=$realm;$admin=new pbx_admin($db);
-if(!$admin->restored()){$db->beginTransaction();try{$admin->initialize($realm,'UTC');$db->commit();}catch(Throwable $e){$db->rollBack();throw $e;}}
+if(!$admin->restored()){$db->beginTransaction();try{$admin->initialize($realm,'Africa/Johannesburg');$db->commit();}catch(Throwable $e){$db->rollBack();throw $e;}}
 if(!$admin->config()['users'])foreach(['100'=>'Reception','101'=>'Office'] as $number=>$name)$admin->save('user','new',['number'=>(string)$number,'name'=>$name,'profile'=>'Available','timeout'=>'20','enabled'=>'1','voicemail_enabled'=>'1','voicemail_email'=>'None']);
 if(PHP_OS_FAMILY==='Linux')pbx_music::install($db);
 settings::clear_cache();

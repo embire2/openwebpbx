@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import ssl
+import stat
 import subprocess
 import sys
 import time
@@ -46,6 +47,18 @@ def ipc(b,operation,value=None):
     return json.loads(result.stdout)
 
 def state_root(b):return (b.STATE if IS_WINDOWS else Path('/var/lib/openwebpbx'))/'tenant-domains'
+
+def image_provider(marker=None):
+    """Only an installer-owned local marker selects the hosting integration."""
+    if IS_WINDOWS:return 'debian'
+    marker=Path('/etc/openwebpbx/image-onboarding-enabled')if marker is None else Path(marker)
+    for parent in [marker,*marker.parents]:
+        if parent.is_symlink():raise ValueError('Linked image provider configuration needs review.')
+    try:value=marker.stat()
+    except FileNotFoundError:return 'debian'
+    if not stat.S_ISREG(value.st_mode)or value.st_uid!=0 or value.st_nlink!=1 or value.st_mode&0o077 or value.st_size>64:raise ValueError('Protected image provider configuration required.')
+    if marker.read_bytes()not in [b'',b'webhotel-image-onboarding-v1\n']:raise ValueError('Unknown image provider configuration.')
+    return 'webhotel'
 
 def initialize(b,d):
     if not ipc(b,'policy').get('required'):return None,None,None,None,{'required':False}
@@ -230,7 +243,7 @@ def main():
     if meta is not None:
         try:
             consumer=load('onboarding_image_consumer',ROOT/'webhotel-onboarding.py')
-            result['image']=consumer.run_once(provider='debian',metadata=meta)
+            result['image']=consumer.run_once(provider=image_provider(),metadata=meta)
         except (ValueError,RuntimeError,OSError,subprocess.SubprocessError)as error:
             result['image']={'state':'pending','error_type':type(error).__name__}
     return result
