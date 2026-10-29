@@ -1,5 +1,27 @@
 # Webhotel.cloud and Debian image onboarding
 
+## Current rollout status — 29 October 2026
+
+The provider integration now runs in Webhotel: Create Instance collects company
+details, verifies the owner's email, checks the requested tenant address live and
+reserves it before provisioning. The authenticated instance view permanently
+shows the initial local PBX address and credentials to its owner or an explicitly
+permitted credential viewer. They are encrypted in provider storage; provider
+root and registration-account secrets are separate.
+
+The final Debian1.0.22 package and rebuilt read-only template media are undergoing
+[qualification](release-1.0.22-qualification.md). Eight healthy eligible nodes are
+in scope for installation, registration, calling, backup and reboot acceptance.
+Other nodes remain held for storage health, memory or customer-IP availability.
+All224 usable addresses in the sixteen existing OVH blocks have vMACs; no extra
+IP purchase or customer-address reassignment is part of this rollout.
+
+Public Windows/Debian1.0.21 and Android1.0.19 remain unchanged until the new Debian
+release passes its gates. Earlier protocol-only and source-only records below
+retain their original scope; they do not describe the later fleet acceptance.
+
+## Pairing protocol
+
 OpenWeb PBX supplies a first-boot pairing API, a browser wizard at
 `https://openwebpbx.com/wizard`, and a portable image consumer with installed
 Debian/Windows bridge adapters. The PBX and its data
@@ -43,9 +65,9 @@ Neither the owner password nor owner API bearer is sent to the image. The user
 does not enter a DNS provider key, custom hostname or certificate. Existing SIP
 phones and hosted customer configuration are outside this first-boot flow.
 
-## Provider integration and its current limits
+## Provider integration
 
-Read-only provider research used the official [Webhotel documentation](https://www.webhotel.cloud/docs)
+Initial provider research used the official [Webhotel documentation](https://www.webhotel.cloud/docs)
 and [Webhotel OpenAPI document](https://webhotel.cloud/openapi.json), retrieved
 2026-10-29. The documented service-template endpoints describe saved blueprints;
 `POST /api/compute/order` includes provider-image, region, chosen user/password
@@ -53,12 +75,13 @@ and SSH-key fields. That document does not expose a guaranteed `userData` or
 cloud-init hook for a Debian image. Do not assume a metadata hostname already
 has trusted HTTPS or that an undocumented guest-metadata service exists.
 
-The supported integration is therefore an image containing the installed
-first-boot worker and local onboarding helper, with the opt-in marker below.
-A provider can expose the resulting non-secret setup link in its own console
-or service details. No Webhotel API credential, provider template ID or image
-upload has been supplied or changed by this implementation. Publishing/baking
-the provider image remains an explicit integration task.
+The implemented integration uses a clean Debian13 template, read-only complete
+installer media and an owned first-boot worker, with the opt-in marker below.
+Webhotel binds the deployment to its service, generation and allocated IP, then
+reads the non-secret setup link from the owned guest through its guest agent.
+Company details, email verification and reservations are handled outside the
+guest. Provider access was supplied later in the rollout; template/media uploads
+and package qualification are now tracked separately in the release report.
 
 ## Image preparation
 

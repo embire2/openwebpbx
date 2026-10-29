@@ -6,9 +6,10 @@ second PBX on OpenWeb's hosted installation. The normal hosted-service API is
 still available separately.
 
 This document describes the current source integration. Published server
-1.0.21 archives remain unchanged. Complete current installer qualification and
-the Webhotel image rebuild/upload are still required before distributing a new
-server package or advertising a newly updated provider image.
+1.0.21 archives remain unchanged. The final Debian1.0.22 installer and rebuilt
+Webhotel templates are undergoing [package and per-node qualification](release-1.0.22-qualification.md).
+Template staging is not sales certification. Windows onboarding still requires
+its separate native qualification before distribution in a Windows package.
 
 ## Setup experience
 
@@ -111,11 +112,11 @@ The owned test account, DNS, proofs, virtual host and certificate were removed;
 the disabled custodian ownership reservation remains. Customer-table projections
 and all seven expected working desk-phone registrations were preserved.
 
-Still required for a new distributable: complete Debian/Windows installer and
-upgrade/restore qualification with this integration; actual native Windows
-IIS/ACL/task/manager acceptance; provider image generalization, rebuild and
-publication; and a real newly deployed Webhotel image check. A generalized image
-must create fresh database/installation/key identities at first boot and must
-never contain customer data, administrator passwords, saved pairing credentials
-or an existing activation. No provider image upload is claimed without the
-provider's actual image access and identifiers.
+Still required for Debian1.0.22 distribution: final exact-package installer,
+upgrade/rollback and replacement-restore acceptance, plus fresh deployment checks
+and certification on eligible Webhotel nodes. Provider access was subsequently
+supplied and the generalized Debian templates and read-only installer media are
+staged; that does not qualify every node for orders. The image creates fresh
+database/installation/key identities at first boot and contains no customer data,
+administrator password, saved pairing credential or existing activation.
+Windows IIS/ACL/task/manager acceptance remains a separate future Windows gate.
