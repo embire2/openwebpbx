@@ -29,6 +29,25 @@ Verify its published checksum and signature, then follow the commands in the
 archive's README. Keep the installation directory private. Do not run a fresh
 installer over an existing PBX.
 
+Download `openwebpbx-1.0.22-debian13-amd64.tar.gz` and `SHA256SUMS` from the
+same release. Verify the archive before extracting it. As root, in an empty
+private directory:
+
+```sh
+sha256sum openwebpbx-1.0.22-debian13-amd64.tar.gz
+tar -xzf openwebpbx-1.0.22-debian13-amd64.tar.gz
+cd openwebpbx-1.0.22-debian13-amd64
+./install.sh --bootstrap-registration --address YOUR_PUBLIC_IP --email admin@example.com --stun
+```
+
+The installer prompts for the initial local administrator password. It creates
+a unique managed server hostname and prints a setup link and code. You do not
+need to choose a separate hostname, manage DNS or obtain a certificate yourself.
+`--stun` enables the included UDP3478 STUN binding service on the supplied local
+public address; it is not a TURN relay. A firewall or router must forward the
+documented web, SIP and audio ports to this instance. A dedicated, reachable
+public address is required for ownership verification and certificate issuance.
+
 Open the setup address shown by the installer and follow the account, email
 verification, company and tenant-address steps at
 [the onboarding wizard](https://openwebpbx.com/wizard). The server needs its own
@@ -41,6 +60,15 @@ Use the signed Debian updater for an existing supported installation. Existing
 registered phones, providers, routes and company settings must be preserved.
 The fresh-install onboarding requirement does not reconfigure an existing
 customer deployment.
+
+The 1.0.22 signed feed requires **1.0.21 or newer**. An original 1.0.16 server
+must first apply the signed revision2 compatibility bootstrap and upgrade using
+the retained [1.0.21 instructions](installing-debian-1.0.21.md) and its release's
+version-specific signed Debian feed. Then check for 1.0.22. Do not bypass the
+minimum-version check or run the fresh installer over an installed server.
+Make a verified encrypted backup first and allow the normal updater to finish;
+it waits for active calls, saves a recovery snapshot and restarts services as
+part of installation. Keep the server running throughout the transaction.
 
 Encrypted Debian backups include the source instance's protected registration
 identity and onboarding session. Restore onto a clean Debian installation of the
