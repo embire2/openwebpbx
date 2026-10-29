@@ -14,3 +14,4 @@ apt-get install -y nginx postgresql php8.4-fpm php8.4-cli php8.4-pgsql php8.4-sq
 python3 ./configure.py "$@"
 echo "OpenWeb PBX $(cat VERSION) installation finished."
 echo 'All tenants share this installation’s built-in database. No separate database server is required.'
+echo 'Finish the registration wizard to activate this server. Phones and calling stay unavailable until registration and its secure tenant address are ready.'

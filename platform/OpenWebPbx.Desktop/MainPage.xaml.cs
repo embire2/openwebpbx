@@ -18,6 +18,8 @@ public sealed partial class MainPage : Page
     private static readonly string SettingsFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenWebPBX", "manager.json");
     private string address = "";
     private bool loaded;
+    private bool registrationRequired;
+    private string? registrationSetupUrl;
     private string? shownUpdateVersion;
     private string? dialogVersion;
     private ContentDialog? updateDialog;
@@ -48,7 +50,7 @@ public sealed partial class MainPage : Page
         }
         catch (CryptographicException) { }
         Loaded += async (_, _) => { loaded = true; await RefreshStatus(); RefreshUpdateStatus(); updateTimer.Start(); await RegisterRestart(); };
-        updateTimer.Tick += (_, _) => RefreshUpdateStatus();
+        updateTimer.Tick += async (_, _) => { RefreshUpdateStatus(); if (registrationRequired) await RefreshStatus(); };
         Unloaded += (_, _) => updateTimer.Stop();
     }
     private async Task RefreshStatus()
@@ -57,7 +59,15 @@ public sealed partial class MainPage : Page
         {
             var status = await client.GetFromJsonAsync<ServerHealth>("http://127.0.0.1:8087/health");
             StatusBanner.Title = status?.State ?? "Unavailable";
-            StatusBanner.Message = status?.State == "Running" ? "The call engine and background call services are running on this server." : "Complete the server installation to enable background calls.";
+            registrationRequired = status?.State == "Registration required";
+            registrationSetupUrl = status?.SetupCode is string code && Regex.IsMatch(code, "^[A-F0-9]{5}-[A-F0-9]{5}$")
+                && status.SetupUrl == "https://openwebpbx.com/wizard#code=" + code ? status.SetupUrl : null;
+            RegistrationButton.Visibility = registrationRequired ? Visibility.Visible : Visibility.Collapsed;
+            RegistrationDetails.Visibility = registrationRequired ? Visibility.Visible : Visibility.Collapsed;
+            RegistrationDetails.Text = registrationSetupUrl is not null ? "Setup code: " + status!.SetupCode + " · Open the registration wizard to connect your account."
+                : "Registration is required. Your secure setup link is being prepared; you can also open the local registration wizard.";
+            StatusBanner.Message = registrationRequired ? "Finish registration and choose your secure OpenWeb PBX address before connecting phones or making calls. Updates, backups and repair remain available."
+                : status?.State == "Running" ? "The call engine and background call services are running on this server." : "Complete the server installation to enable background calls.";
             StatusBanner.Severity = status?.State == "Running" ? InfoBarSeverity.Success : InfoBarSeverity.Warning;
             ServiceDetails.Text = $"Service version {status?.Version} · {status?.OperatingSystem}";
         }
@@ -187,25 +197,31 @@ public sealed partial class MainPage : Page
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { SetupMessage.Title = "The address could not be saved. Check your profile folder."; SetupMessage.Severity = InfoBarSeverity.Error; }
         SetupMessage.IsOpen = true;
     }
-    private void OpenAdmin(object sender, RoutedEventArgs args) => OpenConsole("admin");
+    private void OpenAdmin(object sender, RoutedEventArgs args) { if (registrationRequired) OpenRegistration(sender, args); else OpenConsole("admin"); }
+    private void OpenRegistration(object sender, RoutedEventArgs args) { if (registrationSetupUrl is not null) Launch(registrationSetupUrl); else OpenConsole("registration"); }
     private void OpenConsole(string page)
     {
         if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Scheme != "https")
         {
             DashboardPanel.Visibility = Visibility.Collapsed; SetupPanel.Visibility = Visibility.Visible; Navigation.SelectedItem = Navigation.MenuItems.OfType<NavigationViewItem>().First(item => item.Tag?.ToString() == "setup"); return;
         }
-        Launch(address + (page switch { "updates" => "/app/pbx_updates/", "mobile" => "/app/pbx_mobile/", "backups" => "/app/pbx_backups/", "smtp" => "/app/smtp_settings/", "admin" => "/app/pbx_setup/", _ => "/app/pbx_setup/?view=" + page }));
+        Launch(address + (page switch { "registration" => "/app/pbx_onboarding/", "updates" => "/app/pbx_updates/", "mobile" => "/app/pbx_mobile/", "backups" => "/app/pbx_backups/", "smtp" => "/app/smtp_settings/", "admin" => "/app/pbx_setup/", _ => "/app/pbx_setup/?view=" + page }));
     }
     private void OpenFolder(object sender, RoutedEventArgs args) => Launch(AppContext.BaseDirectory);
     private static string InstalledAddress(string domainName, bool publicAccess) =>
         "https://" + domainName + (publicAccess || domainName.EndsWith(".openwebpbx.com", StringComparison.OrdinalIgnoreCase) ? "" : ":8443");
     private void CertificateModeChanged(object sender, SelectionChangedEventArgs args)
-    { if (InstalledCertificate is not null) InstalledCertificate.Visibility = CertificateChoice.SelectedIndex == 2 ? Visibility.Visible : Visibility.Collapsed; }
+    {
+        if (InstalledCertificate is not null) InstalledCertificate.Visibility = CertificateChoice.SelectedIndex == 2 ? Visibility.Visible : Visibility.Collapsed;
+        if (InstallDomain is not null) InstallDomain.Visibility = CertificateChoice.SelectedIndex == 3 ? Visibility.Collapsed : Visibility.Visible;
+        if (InstallPublicAddress is not null) InstallPublicAddress.Visibility = CertificateChoice.SelectedIndex == 3 ? Visibility.Collapsed : Visibility.Visible;
+    }
     private async void InstallServer(object sender, RoutedEventArgs args)
     {
         InstallMessage.IsOpen = true; InstallMessage.Severity = InfoBarSeverity.Error;
-        if (!Regex.IsMatch(InstallDomain.Text, "^[a-zA-Z0-9.-]+$") || !System.Net.Mail.MailAddress.TryCreate(InstallEmail.Text, out var email) || email.Address != InstallEmail.Text || InstallPassword.Password.Length < 8)
-        { InstallMessage.Title = "Enter a server name, email and password of at least eight characters."; return; }
+        var managed = CertificateChoice.SelectedIndex == 3;
+        if ((!managed && !Regex.IsMatch(InstallDomain.Text, "^[a-zA-Z0-9.-]+$")) || !System.Net.Mail.MailAddress.TryCreate(InstallEmail.Text, out var email) || email.Address != InstallEmail.Text || InstallPassword.Password.Length < 8)
+        { InstallMessage.Title = managed ? "Enter your administrator email and a password of at least eight characters." : "Enter a server name, email and password of at least eight characters."; return; }
         var certificate = InstalledCertificate.SelectedItem as CertificateOption;
         if (CertificateChoice.SelectedIndex == 2 && certificate is null)
         { InstallMessage.Title = "Choose a certificate installed on this server, or use a local setup certificate."; return; }
@@ -220,7 +236,7 @@ public sealed partial class MainPage : Page
                 security.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
             new DirectoryInfo(directory).SetAccessControl(security);
             requestFile = Path.Combine(directory, "request.json");
-            File.WriteAllText(requestFile, JsonSerializer.Serialize(new { DomainName = InstallDomain.Text, AdminEmail = InstallEmail.Text, AdminPassword = InstallPassword.Password, RestoreServer = RestoreServerChoice.IsChecked == true, PublicAddress = InstallPublicAddress.Text.Trim(), EnablePublicAccess = CertificateChoice.SelectedIndex == 0, LocalCertificate = CertificateChoice.SelectedIndex == 1, CertificateThumbprint = CertificateChoice.SelectedIndex == 2 ? certificate!.Thumbprint : "" }));
+            File.WriteAllText(requestFile, JsonSerializer.Serialize(new { BootstrapRegistration = managed, DomainName = managed ? "" : InstallDomain.Text, AdminEmail = InstallEmail.Text, AdminPassword = InstallPassword.Password, RestoreServer = RestoreServerChoice.IsChecked == true, PublicAddress = managed ? "" : InstallPublicAddress.Text.Trim(), EnablePublicAccess = CertificateChoice.SelectedIndex == 0, LocalCertificate = CertificateChoice.SelectedIndex == 1, CertificateThumbprint = CertificateChoice.SelectedIndex == 2 ? certificate!.Thumbprint : "" }));
             InstallPassword.Password = "";
             var start = new ProcessStartInfo("powershell.exe") { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden, WorkingDirectory = Path.GetDirectoryName(Installer)! };
             start.Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{Installer}\" -RequestFile \"{requestFile}\"";
@@ -228,8 +244,16 @@ public sealed partial class MainPage : Page
             using var process = Process.Start(start) ?? throw new IOException("Windows could not start setup.");
             await process.WaitForExitAsync();
             if (process.ExitCode != 0) throw new IOException("Setup did not finish. Its private log is in " + directory);
-            AddressInput.Text = InstalledAddress(InstallDomain.Text, CertificateChoice.SelectedIndex == 0); SaveAddress(sender, args);
-            InstallMessage.Severity = InfoBarSeverity.Success; InstallMessage.Title = "Your phone system is ready. Open Admin to sign in.";
+            if (managed)
+            {
+                var installed = JsonSerializer.Deserialize<ManagerSettings>(File.ReadAllText(@"C:\OpenWebPBX\desktop\server.json"));
+                if (installed is null || !Uri.TryCreate(installed.Address,UriKind.Absolute,out var ready) || ready.Scheme != "https" || !Regex.IsMatch(ready.Host,"^node-[a-f0-9]{32}\\.openwebpbx\\.com$"))
+                    throw new IOException("Setup completed; open the installed manager to finish registration.");
+                AddressInput.Text = installed.Address;
+            }
+            else AddressInput.Text = InstalledAddress(InstallDomain.Text, CertificateChoice.SelectedIndex == 0);
+            SaveAddress(sender, args);
+            InstallMessage.Severity = InfoBarSeverity.Success; InstallMessage.Title = "Server installed. Finish registration before connecting phones or making calls.";
             await RefreshStatus();
             await RegisterRestart();
         }
@@ -249,5 +273,5 @@ public sealed partial class MainPage : Page
     }
     private sealed record ManagerSettings(string Address);
     private sealed record CertificateOption(string Label, string Thumbprint);
-    private sealed record ServerHealth(string Version, string State, string OperatingSystem);
+    private sealed record ServerHealth(string Version, string State, string OperatingSystem, string? SetupUrl = null, string? SetupCode = null);
 }

@@ -1,0 +1,12 @@
+# OpenWeb PBX managed installation registration v1
+[Unit]
+Description=Check OpenWeb PBX installation registration
+
+[Timer]
+OnBootSec=20s
+OnUnitInactiveSec=60s
+AccuracySec=5s
+Unit=openwebpbx-onboarding.service
+
+[Install]
+WantedBy=timers.target

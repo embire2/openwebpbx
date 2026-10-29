@@ -1,0 +1,289 @@
+# Webhotel.cloud and Debian image onboarding
+
+OpenWeb PBX supplies a first-boot pairing API, a browser wizard at
+`https://openwebpbx.com/wizard`, and a portable image consumer with installed
+Debian/Windows bridge adapters. The PBX and its data
+stay on the installed server. This flow does **not** create another PBX service
+on OpenWeb's hosted installation.
+
+The machine-readable companion contract is
+[`website/public/wizard-openapi.json`](../website/public/wizard-openapi.json),
+served as `/wizard-openapi.json`. Its version identifies this API contract and
+does not change a published server release.
+
+The central API and public wizard are deployed. A controlled public test passed
+ten end-to-end checks: owner confirmation (the verification mail was intercepted
+privately for the test), IPv4 device pairing, owner claim, signed public HTTP
+bootstrap, real custodian A record, canonical Let's Encrypt HTTPS, fresh HTTPS
+challenge and RSA3072 authorization, signed tenant CNAME lease, expanded tenant
+certificate and exact tenant HTTPS completion/browser readiness. Cleanup removed
+only the test account, two owned DNS records, proofs, temporary virtual host and
+test certificate; the disabled ownership tombstone remains reserved. Evidence:
+`/var/lib/openwebpbx/selfinstall-onboarding-inrzsxty/public-pairing/`.
+This proves the central public protocol. It does not establish inbox delivery,
+a clean native Windows/Debian installer run or a published Webhotel provider
+image. Published server1.0.21 archives remain unchanged.
+
+## User experience
+
+1. Install the qualified OpenWeb PBX Debian image and open its console or setup
+   details. Follow the displayed setup link, or enter its code at `/wizard`.
+2. Create an OpenWeb account and confirm the emailed code, or sign in to an
+   existing account. An invited owner must also confirm the current email.
+3. Choose a business name such as `example.openwebpbx.com`, confirm that the
+   displayed server is theirs, and accept the terms.
+4. Keep the server running. The image proves its ownership, receives its
+   canonical server address, obtains HTTPS, installs its signed authorization
+   and requests its tenant address through the normal custodian worker.
+5. The browser offers **Open my PBX** only after the actual tenant HTTPS
+   connection has passed a fresh ownership check. Sign in with the administrator
+   account chosen during the local PBX installation.
+
+Neither the owner password nor owner API bearer is sent to the image. The user
+does not enter a DNS provider key, custom hostname or certificate. Existing SIP
+phones and hosted customer configuration are outside this first-boot flow.
+
+## Provider integration and its current limits
+
+Read-only provider research used the official [Webhotel documentation](https://www.webhotel.cloud/docs)
+and [Webhotel OpenAPI document](https://webhotel.cloud/openapi.json), retrieved
+2026-10-29. The documented service-template endpoints describe saved blueprints;
+`POST /api/compute/order` includes provider-image, region, chosen user/password
+and SSH-key fields. That document does not expose a guaranteed `userData` or
+cloud-init hook for a Debian image. Do not assume a metadata hostname already
+has trusted HTTPS or that an undocumented guest-metadata service exists.
+
+The supported integration is therefore an image containing the installed
+first-boot worker and local onboarding helper, with the opt-in marker below.
+A provider can expose the resulting non-secret setup link in its own console
+or service details. No Webhotel API credential, provider template ID or image
+upload has been supplied or changed by this implementation. Publishing/baking
+the provider image remains an explicit integration task.
+
+## Image preparation
+
+Use a newly installed, supported Debian 13 instance with its own database,
+local tenant/domain UUIDs, root-owned P256 identity and a canonical host in the
+form `node-<new-v4-uuid-without-hyphens>.openwebpbx.com`. The installed helper
+returns that same bootstrap UUID. Never distribute a live customer's database,
+private instance key, saved session, signed activation, administrator password,
+SSH host keys or ACME private material as a template. Image generalization must
+create new local identities at first boot using the installer-owned procedure.
+
+Install these source-controlled leaves through the normal package mapping:
+
+| Source | Installed destination |
+|---|---|
+| `packaging/debian/webhotel-onboarding.py` | `/opt/openwebpbx/tools/webhotel-onboarding.py` |
+| `packaging/debian/openwebpbx-image-onboarding.service` | `/etc/systemd/system/openwebpbx-image-onboarding.service` |
+| `packaging/debian/openwebpbx-image-onboarding.timer` | `/etc/systemd/system/openwebpbx-image-onboarding.timer` |
+
+The installed root-only `/opt/openwebpbx/tools/onboarding.py` must implement:
+
+| Operation | Input | Result / responsibility |
+|---|---|---|
+| `--image-init` | None | Return `local_tenant_uuid`, `domain_uuid`, `bootstrap_uuid`, `key_path`, base64 SPKI `public_key`, `proof_root`, `image_version`; refuse another customer's identity or a non-image setup. Remain safe to query after this image stores its own authorization. |
+| `--image-bind` | `{"server_host":"node-…openwebpbx.com"}` on stdin | Accept only the already-installed canonical hostname; obtain/activate its trusted certificate idempotently. Do not rename existing tenant domains or phone credentials. |
+| `--image-store` | `{"activation":{…}}` on stdin | Independently validate the pinned RSA signature, issuer/audience, expiry, generation and local bindings, then atomically persist/queue normal onboarding. Repeated identical input is idempotent. |
+| `--image-status` | None | Return `ready`, the actual assigned `hostname`, and optional `url`; readiness requires the trusted, enabled tenant lease. |
+| `--image-display` | `user_code`, `verification_uri_complete`, `pairing_uuid`, `expires_at` | Publish only these non-secret setup details to the installer-controlled manager snapshot. Idempotent; never accept a device credential. |
+| `--image-sign` | `{"message":"…"}` | Windows: validate the installed private key ACL and return its base64 DER P256 signature. Never accept an arbitrary key path. |
+| `--image-proof` | `{"nonce":"…","body":"…"}` | Windows: atomically publish the bounded proof in the fixed IIS-served proof root, using installer-defined ACLs. Never accept an arbitrary destination. |
+
+The root-owned key is `/etc/fusionpbx/tenant-domains-instance-key.pem`.
+The existing proof root is
+`/var/lib/openwebpbx/tenant-domains/proofs/.well-known/openwebpbx-instance`.
+Its existing root:www-data directories must permit Nginx traversal; proof leaves
+are atomically written root:www-data `0640`. The canonical HTTP80 and HTTPS443
+virtual hosts and generated tenant HTTPS hosts must serve this exact well-known
+path before dot-file denial. Keep the existing rate/TLS/body protections.
+
+For a deliberately generalized image, enable only this owned feature:
+
+```sh
+install -d -m 0755 /etc/openwebpbx
+install -m 0600 /dev/null /etc/openwebpbx/image-onboarding-enabled
+systemctl daemon-reload
+systemctl enable --now openwebpbx-image-onboarding.timer
+journalctl -u openwebpbx-image-onboarding.service --no-pager -n 20
+```
+
+The service retries one bounded cycle 30 seconds after each completed cycle and
+honours API retry delays. Its root-only session and setup-link file live under
+the helper's validated `private_root/image-onboarding/` (legacy Debian default
+`/var/lib/openwebpbx/image-onboarding/`); a file lock prevents overlapping cycles.
+Only the short-lived user code is printed to the console. No owner credentials
+are accepted or stored by this worker. Proofs use the actual P256 private key;
+HTTPS uses the platform trust store, with redirects and environment proxies
+disabled. The worker renews an active device authorization before expiry using
+a fresh signed proof. It never stops current calls or modifies phone settings.
+
+The same source uses an elevated Windows guard and `msvcrt` lock adapter on
+Windows. Its session files inherit the installed helper's validated
+SYSTEM/Administrators-only private directory; reparse points and hardlinks are
+refused. Windows signing/proof publication goes through the bridge above rather
+than an OpenSSL executable. The native Windows scheduled task invokes the
+installed helper, which delegates a single consumer cycle. Root entry points
+are `main(argv=None)` or `run_once(provider='debian', metadata=None)`; `metadata`, when
+supplied, must be the actual freshly validated `--image-init` result. Do not let
+an unprivileged web request provide it. The scheduler must use `run_once`, which
+owns the lock and retry schedule; `Agent.cycle` is the internal test step.
+The fixed authority transport uses IPv4 consistently with installer IP proofs,
+while retaining normal TLS hostname/CA validation and SNI. This does not change
+SIP, the operating-system resolver or other applications. Native Windows ACL, task, first-boot and
+ACME acceptance still require actual Windows qualification; portable bridge
+tests alone do not establish that pass.
+
+## Dedicated API routes
+
+Base: `https://call.openweb.co.za/api/v1/wizard`.
+All POST bodies are JSON objects, at most 16 KiB. TLS and canonical host are
+required. Browser cookie sessions grant no authority. Only exact browser Origin
+`https://openwebpbx.com` receives CORS permission, without credentialed cookies;
+images omit Origin. The original hosted `/api/v1` Origin refusal is unchanged.
+
+| Method / route | Caller | Purpose |
+|---|---|---|
+| `GET /health` | Any | Availability and supported providers |
+| `POST /account/register` | Browser | Queue email-verified registration; no hosted service creation |
+| `POST /account/verify` | Browser | Verify emailed code and original password; return owner bearer |
+| `POST /account/login` | Browser | Sign in to an active owner account |
+| `POST /account/email/request` | Owner bearer | Request confirmation of an existing owner's current email |
+| `POST /account/email/verify` | Owner bearer | Confirm that email using its code and current password |
+| `POST /devices` | Image | Start with provider/version/public P256/local IDs; optional installed `bootstrap_uuid` |
+| `POST /devices/lookup` | Browser | Read limited server details using `user_code` |
+| `POST /claim` | Owner bearer | Bind code to this verified owner and immutable chosen label |
+| `POST /devices/poll` | Device credential | Read only this image's progress, proof material and signed grant |
+| `POST /devices/bootstrap` | Device credential + P256 signature | Prove public HTTP80 ownership and obtain canonical DNS |
+| `POST /devices/challenge` | Device credential | Request a fresh canonical trusted-HTTPS proof |
+| `POST /devices/authorize` | Device credential + P256 signature | Obtain RSA-signed installation authorization |
+| `POST /devices/complete` | Device credential + P256 signature | Prove the actual tenant HTTPS address is ready |
+| `GET /sessions/{pairing_uuid}` | Original owner bearer | Browser-safe progress and final connection URL |
+
+`POST /devices` accepts `provider` (`webhotel` or `debian`), `image_version`,
+`public_key` (base64 SPKI DER, P256), `local_tenant_uuid`, `domain_uuid`, and
+optional v4 `bootstrap_uuid`. The observed public TCP peer address is used;
+body fields or forwarded headers cannot select another target address. It
+returns `pairing_uuid`, private `device_code`, display `user_code`,
+`verification_uri`, `verification_uri_complete`, `expires_at` and
+`poll_interval:5`. The completed link uses a URL fragment, not a server query.
+
+`POST /claim` requires `user_code`, `label`, `confirm_server:true` and
+`accept_terms:true`. A repeated same-owner/same-label claim is idempotent;
+another owner or label is refused. It receives no private device secret.
+
+Image operations use `device_code` in the JSON body. `authorize` additionally
+takes the exact returned `challenge_uuid` and `signature`; `complete` takes the
+actual assigned `hostname` and `signature`. Neither browser status nor public
+lookup returns a device secret, owner bearer, challenge or activation envelope.
+Errors are redacted `{error:{code,message},request_id}` with `no-store`.
+
+User codes contain 40 random bits and expire after 30 minutes. Root device
+credentials contain 256 random bits and are hashed at rest. Anonymous starts,
+lookups, owner claims, device operations and existing account operations have
+independent limits. A completed unexpired grant permits renewal with the device
+credential and a fresh private-key proof. If an unfinished same-image setup
+expires, a fresh code rotates the old secrets while retaining any claimed owner,
+chosen label and immutable DNS binding. Cross-key/local-ID/address reuse is
+refused. A suspended owner cannot continue using a device session.
+
+## Exact proof bytes
+
+Every value below is its canonical ASCII form. UUIDs are lowercase dashed UUIDs.
+The signature is ECDSA P256 SHA256 over UTF-8 bytes, returned as base64 DER.
+Every listed message ends with a final newline. Do not sign JSON serialization.
+
+Bootstrap signature:
+
+```text
+openwebpbx-bootstrap-v1
+{nonce}
+{serverAddress}
+{keyHash}
+{bootstrapUuid}
+{accountTenantUuid}
+{localTenantUuid}
+{domainUuid}
+{label}
+```
+
+The public HTTP80 proof at
+`/.well-known/openwebpbx-instance/{nonce}` is:
+
+```text
+openwebpbx-bootstrap-v1
+{nonce}
+{keyHash}
+{serverAddress}
+```
+
+Only the fixed internal custodian endpoint receives these values. It verifies
+the P256 signature and nonce proof before creating
+`node-{bootstrapUuidWithoutHyphens}.openwebpbx.com`. The proof destination is
+pinned to the validated public IP, with no redirects or private-network targets.
+The local image then obtains trusted HTTPS on this already-installed canonical
+hostname; no administrator-chosen certificate is needed first.
+
+The normal authority challenge supplies its own nonce and exact HTTPS proof
+body. The P256 signature for that challenge is:
+
+```text
+openwebpbx-installation-v1
+{nonce}
+{canonicalServerHost}
+{keyHash}
+{accountTenantUuid}
+{localTenantUuid}
+{domainUuid}
+{label}
+```
+
+Completion signature:
+
+```text
+openwebpbx-complete-v1
+{completeNonce}
+{keyHash}
+{canonicalServerHost}
+{actualTenantHostname}
+{domainUuid}
+```
+
+For completion, publish the normal HTTPS proof body using that same fresh
+completion nonce. The custodian must verify actual tenant TLS, proof bytes and
+the exact enabled hostname/server/key/domain ownership tuple before `ready:true`.
+An allocated DNS name or valid RSA authorization alone is insufficient.
+
+## Deployment and verification
+
+Apply `app/tenant_api/resources/wizard.sql` **after** the tenant API installation
+and `onboarding.sql` migrations. Deploy `api/wizard/index.php` and
+`resources/classes/pbx_wizard_api.php`. Route the more specific
+`/api/v1/wizard/` prefix to that controller before the original API front
+controller. Preserve the existing original API Origin guard.
+
+On the public static website, publish `wizard.html`, `assets/wizard.css`,
+`assets/wizard.js` and `wizard-openapi.json`, and map `/wizard` and `/wizard/`
+to `wizard.html`. Permit only `https://call.openweb.co.za` in this page's
+`connect-src`; retain `connect-src 'none'` on existing static/legal pages.
+No remote third-party script, analytics or iframe is required. Tokens and
+passwords remain in memory; optional appearance persistence uses the existing
+privacy-choice controls.
+
+Run the isolated source checks:
+
+```sh
+php tests/webhotel_wizard_api.php
+python3 -I -B tests/webhotel_wizard_http.py
+python3 -I -B tests/webhotel_image_onboarding.py
+python3 -I -B tests/webhotel_transport.py
+```
+
+The PostgreSQL test exercises actual P256 signatures and RSA receipts while
+explicitly isolating network proof/DNS. The independent HTTP test runs the exact
+dispatcher against a disposable PostgreSQL cluster. The image-consumer check
+uses actual POSIX protected files and OpenSSL signatures plus portable Windows
+sign/proof/private-path bridge contracts, with helper/HTTP boundaries explicitly
+mocked. Browser QA covers registration/confirmation/claim/progress,
+mobile and desktop layouts, storage choices and unsafe ready-address refusal
+with isolated API responses. These isolated source checks do not themselves establish provider publication, inbox delivery, public DNS/ACME, physical calling or a native Windows image pass. The separate controlled public protocol acceptance above records its actual DNS/ACME scope.

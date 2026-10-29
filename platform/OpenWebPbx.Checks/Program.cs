@@ -9,6 +9,7 @@ using System.Text;
 int checks = 0;
 void Check(bool condition, string message) { if (!condition) throw new Exception(message); checks++; }
 checks += CallRecordMaintenanceChecks.Run();
+checks += OnboardingChecks.Pure();
 var frame = await SwitchClient.ReadFrame(new MemoryStream(Encoding.UTF8.GetBytes("Content-Type: api/response\nContent-Length: 7\n\nUP test")), default);
 Check(frame["Body"] == "UP test", "Length-delimited body");
 try { await SwitchClient.ReadFrame(new MemoryStream("Content-Length: 9999999\n\n"u8.ToArray()), default); throw new Exception("Oversized frame accepted"); } catch (IOException) { checks++; }
@@ -49,7 +50,16 @@ try {
     var cs = new NpgsqlConnectionStringBuilder(connection) { SearchPath = schema + ",public" };
     await using var data = NpgsqlDataSource.Create(cs.ConnectionString);
     var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["Switch:Port"] = ((IPEndPoint)server.LocalEndpoint).Port.ToString(), ["Switch:Password"] = "test-only" }).Build();
+    checks += await OnboardingChecks.Database(connection, new SwitchClient(configuration), commands);
+    commands.Clear();
     var worker = new JobWorker(data, new SwitchClient(configuration), new ServiceStatus(), NullLogger<JobWorker>.Instance);
+    var requiredConfiguration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["Onboarding:Required"]="true" }).Build();
+    var registrationGate = new OnboardingGate(requiredConfiguration);
+    var blockedWorker = new JobWorker(data, new SwitchClient(configuration), new ServiceStatus(), NullLogger<JobWorker>.Instance, registrationGate);
+    await blockedWorker.Tick(default);
+    Check(!commands.Any(x => x.Contains("luarun")), "Unregistered fresh server launched a background call");
+    Check((string)(await new NpgsqlCommand("select state from v_pbx_jobs", db).ExecuteScalarAsync())! == "waiting", "Unregistered call was incorrectly leased");
+    Check(registrationGate.RegistrationRequired, "Missing registration was not reported to the manager");
     await Task.WhenAll(worker.Tick(default), worker.Tick(default));
     Check(commands.Count(x => x.Contains("luarun")) == 1, "Concurrent workers started the same request twice");
     Check((string)(await new NpgsqlCommand("select state from v_pbx_jobs", db).ExecuteScalarAsync())! == "starting", "Job was not leased");

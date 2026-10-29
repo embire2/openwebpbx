@@ -14,6 +14,12 @@ PACKAGE = Path(__file__).resolve().parent
 UPDATES = Path('/var/lib/openwebpbx/updates')
 BACKUPS = Path('/var/backups/openwebpbx')
 SUPPORT = {'tenant-domains.py': Path('/opt/openwebpbx/tools/tenant-domains.py'),
+           'onboarding.py': Path('/opt/openwebpbx/tools/onboarding.py'),
+           'onboarding.php': Path('/opt/openwebpbx/tools/onboarding.php'),
+           'webhotel-onboarding.py': Path('/opt/openwebpbx/tools/webhotel-onboarding.py'),
+           'install-onboarding.py': Path('/opt/openwebpbx/tools/install-onboarding.py'),
+           'openwebpbx-onboarding.service': Path('/etc/systemd/system/openwebpbx-onboarding.service'),
+           'openwebpbx-onboarding.timer': Path('/etc/systemd/system/openwebpbx-onboarding.timer'),
            'tenant-domains.php': Path('/opt/openwebpbx/tools/tenant-domains.php'),
            'tenant-domains-nginx.conf': Path('/opt/openwebpbx/tools/tenant-domains-nginx.conf'),
            'install-tenant-domains.py': Path('/opt/openwebpbx/tools/install-tenant-domains.py'),
@@ -194,9 +200,12 @@ def install():
             mail=importlib.util.module_from_spec(mail_spec);mail_spec.loader.exec_module(mail)
             domain_spec=importlib.util.spec_from_file_location('candidate_domains',PACKAGE/'install-tenant-domains.py')
             domain_helper=importlib.util.module_from_spec(domain_spec);domain_spec.loader.exec_module(domain_helper)
+            onboarding_spec=importlib.util.spec_from_file_location('candidate_onboarding',PACKAGE/'install-onboarding.py')
+            onboarding_helper=importlib.util.module_from_spec(onboarding_spec);onboarding_spec.loader.exec_module(onboarding_helper)
             health_spec=importlib.util.spec_from_file_location('candidate_health',PACKAGE/'install-phone-health.py')
             health=importlib.util.module_from_spec(health_spec);health_spec.loader.exec_module(health)
             targets = list(SUPPORT.values()) + NOTIFICATION_FILES + [registrar.TARGET] + meeting.targets() + mail.targets() + domain_helper.targets()
+            targets.extend(path for path in onboarding_helper.targets() if path not in targets)
             targets.extend(path for path in health.targets() if path not in targets)
             # Existing systemd enablement is preserved. A newly created link is
             # included as an absent target so older rollback code removes it.
@@ -209,7 +218,7 @@ def install():
         raise ValueError('An existing registrar must be updated through the recoverable instance updater.')
     registrar.install(native_content)
     ensure_dependencies()
-    for name in ['install-phone-health.py','phone-health.py','phone-health.php','install-mail.py','call-diagnostics.py','openwebpbx-call-diagnostics.service','install-stun.py','openwebpbx-stun.service','openwebpbx-stun.conf','install-meet.py','meet-nginx.conf','install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py']:
+    for name in ['install-phone-health.py','phone-health.py','phone-health.php','install-mail.py','call-diagnostics.py','openwebpbx-call-diagnostics.service','install-stun.py','openwebpbx-stun.service','openwebpbx-stun.conf','install-meet.py','meet-nginx.conf','install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py','onboarding.py','onboarding.php','webhotel-onboarding.py','install-onboarding.py']:
         target = SUPPORT[name]
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
         with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.support-helper-', delete=False) as stream:
@@ -234,6 +243,7 @@ def install():
                    env=os.environ | ({'OPENWEB_BACKUP_START': '0'} if migrating else {}), timeout=60)
     subprocess.run(['python3',str(PACKAGE/'install-mail.py')],check=True,cwd=PACKAGE,timeout=60)
     subprocess.run(['python3',str(PACKAGE/'install-tenant-domains.py')],check=True,cwd=PACKAGE,timeout=60)
+    subprocess.run(['python3',str(PACKAGE/'install-onboarding.py')],check=True,cwd=PACKAGE,timeout=60)
     subprocess.run(['python3',str(PACKAGE/'install-phone-health.py')],check=True,cwd=PACKAGE,timeout=60)
     # Older installed updaters do not know the newly bundled spoken targets.
     # The candidate helper augments their verified recovery inventory before

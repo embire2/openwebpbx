@@ -9,17 +9,24 @@ param(
  [SecureString]$AdminPassword,
  [switch]$LocalCertificate,
  [switch]$EnablePublicAccess,
- [switch]$RestoreServer
+ [switch]$RestoreServer,
+ [switch]$BootstrapRegistration
 )
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
 if($PSVersionTable.PSEdition -eq 'Core'){throw 'Open Windows PowerShell (powershell.exe) as administrator to install this server. It provides native IIS management.'}
 $env:PSModulePath=$PSHOME+'\Modules;'+[Environment]::GetFolderPath('ProgramFiles')+'\WindowsPowerShell\Modules'
 $root='C:\OpenWebPBX'; $private=Join-Path $env:ProgramData 'OpenWebPBX'; $configRoot=Join-Path $env:ProgramData 'fusionpbx'
+if(!$PSBoundParameters.ContainsKey('DomainName') -and !$PSBoundParameters.ContainsKey('BootstrapRegistration') -and !$CertificateThumbprint -and !$LocalCertificate -and !$EnablePublicAccess){$BootstrapRegistration=$true}
+if($BootstrapRegistration){
+ if($PSBoundParameters.ContainsKey('DomainName') -or $CertificateThumbprint -or $EnablePublicAccess){throw 'Bootstrap registration chooses its own managed address and initial setup certificate. Do not combine it with a hostname, certificate or public-access setup.'}
+ $DomainName='node-'+[Guid]::NewGuid().ToString('N')+'.openwebpbx.com';$LocalCertificate=$true
+}
 $os=Get-CimInstance Win32_OperatingSystem
 if($os.ProductType -eq 1 -or $os.Caption -notmatch 'Windows Server 2025' -or [Environment]::OSVersion.Version.Build -lt 26100){throw 'This server release requires Windows Server2025 x64.'}
 if((Test-Path 'C:\Program Files\FreeSWITCH\FreeSwitch.dll') -and !(Test-Path "$private\installation.json")){throw 'An existing call engine is present outside this installation. Preserve it and choose an empty Windows server.'}
 if ($DomainName -notmatch '^[a-zA-Z0-9.-]+$' -or $HttpsPort -lt 1 -or $HttpsPort -gt 65535) { throw 'Enter a valid server name and HTTPS port.' }
+$DomainName=$DomainName.ToLowerInvariant()
 if($DomainName.EndsWith('.openwebpbx.com',[StringComparison]::OrdinalIgnoreCase)){
  if($PSBoundParameters.ContainsKey('HttpsPort')){
   if($HttpsPort -ne 443){throw 'Setup for a managed tenant address requires HTTPS port 443.'}
@@ -61,6 +68,40 @@ function Download([string]$Url,[string]$Path,[string]$Hash) {
  if ((Get-FileHash $Path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Hash) { throw "Download verification failed: $(Split-Path $Path -Leaf)" }
 }
 function WriteUtf8([string]$Path,[string]$Text) { [IO.File]::WriteAllText($Path,$Text,(New-Object Text.UTF8Encoding($false))) }
+function Install-OpenWebOnboardingRequirement {
+ # Outside the PBX backup/restore roots: restoring an old runtime or database
+ # cannot turn a newly installed server into a registration-free installation.
+ $directory=Join-Path $env:ProgramData 'OpenWebPBX-Installation'
+ foreach($path in @($directory,(Split-Path $directory -Parent))){if(Test-Path -LiteralPath $path){$item=Get-Item -LiteralPath $path -Force;if(!$item.PSIsContainer -or $item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'The registration-policy directory needs administrator review.'}}}
+ if(!(Test-Path -LiteralPath $directory)){
+  New-Item -ItemType Directory -Path $directory|Out-Null
+  $acl=[Security.AccessControl.DirectorySecurity]::new();$acl.SetAccessRuleProtection($true,$false)
+  $acl.SetOwner([Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'))
+  foreach($sid in 'S-1-5-18','S-1-5-32-544'){$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid),'FullControl','ContainerInherit,ObjectInherit','None','Allow'))}
+  foreach($sid in 'S-1-5-19','S-1-5-20','S-1-5-32-545','S-1-5-32-568'){$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid),'ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow'))}
+  Set-Acl -LiteralPath $directory -AclObject $acl
+ }
+ $acl=Get-Acl -LiteralPath $directory
+ if(!$acl.AreAccessRulesProtected -or $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -notin 'S-1-5-18','S-1-5-32-544'){throw 'The registration-policy directory must remain administrator-controlled.'}
+ $write=[int64]([Security.AccessControl.FileSystemRights]::Write -bor [Security.AccessControl.FileSystemRights]::Delete -bor [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor [Security.AccessControl.FileSystemRights]::ChangePermissions -bor [Security.AccessControl.FileSystemRights]::TakeOwnership)
+ foreach($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])){
+  if($rule.AccessControlType -eq 'Allow' -and ([int64]$rule.FileSystemRights -band $write) -ne 0 -and $rule.IdentityReference.Value -notin 'S-1-5-18','S-1-5-32-544'){throw 'The registration-policy directory grants untrusted write access.'}
+ }
+ $marker=Join-Path $directory 'onboarding-required';$bytes=[Text.UTF8Encoding]::new($false).GetBytes("openwebpbx-onboarding-required-v1`n")
+ if(Test-Path -LiteralPath $marker){
+  $null=Assert-OpenWebCallRecordOrdinary $marker
+  if([Convert]::ToBase64String([IO.File]::ReadAllBytes($marker)) -cne [Convert]::ToBase64String($bytes)){throw 'The registration-policy marker needs administrator review.'}
+ }else{
+  $stream=[IO.FileStream]::new($marker,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None,4096,[IO.FileOptions]::WriteThrough)
+  try{$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
+ }
+ $fileAcl=[Security.AccessControl.FileSecurity]::new();$fileAcl.SetAccessRuleProtection($true,$false);$fileAcl.SetOwner([Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'))
+ foreach($sid in 'S-1-5-18','S-1-5-32-544'){$fileAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid),'FullControl','Allow'))}
+ foreach($sid in 'S-1-5-19','S-1-5-20','S-1-5-32-545','S-1-5-32-568'){$fileAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid),'ReadAndExecute','Allow'))}
+ Set-Acl -LiteralPath $marker -AclObject $fileAcl
+ $actual=Get-Acl -LiteralPath $marker
+ if(!$actual.AreAccessRulesProtected -or $actual.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne 'S-1-5-32-544' -or $actual.Access.Count -ne $fileAcl.Access.Count){throw 'The registration-policy marker permissions could not be verified.'}
+}
 function ConfigurePhpPool([string]$Name) {
  # Create and configure the same pool in one IIS configuration transaction.
  # A fresh reader verifies persisted state without an IIS provider item lookup.
@@ -104,6 +145,7 @@ if (!(Test-Path "$private\installation.json")) {
  $state=@{Version=(Get-Content "$PSScriptRoot\VERSION" -Raw).Trim();DomainName=$DomainName;AdminEmail=$AdminEmail;RestoreServer=[bool]$RestoreServer;PublicAddress=$PublicAddress;HttpsPort=$HttpsPort;DatabasePassword=(Secret);PostgresPassword=(Secret);SwitchPassword=(Secret)}
  WriteUtf8 "$private\installation.json" ($state|ConvertTo-Json)
 } else { $state=Get-Content "$private\installation.json" -Raw | ConvertFrom-Json; $DomainName=$state.DomainName;$HttpsPort=$state.HttpsPort;$PublicAddress=$state.PublicAddress;if($state.AdminEmail){$AdminEmail=$state.AdminEmail};$RestoreServer=[bool]$state.RestoreServer }
+Install-OpenWebOnboardingRequirement
 if(($state -is [Collections.IDictionary] -and !$state.Contains('CallRecordHold')) -or ($state -isnot [Collections.IDictionary] -and !$state.PSObject.Properties['CallRecordHold'])){
  $installHold=@{schema=1;owner='install';transaction=[Guid]::NewGuid().ToString('N')}
  if($state -is [Collections.IDictionary]){$state['CallRecordHold']=$installHold}else{$state|Add-Member -NotePropertyName CallRecordHold -NotePropertyValue $installHold -Force}
@@ -129,6 +171,12 @@ foreach($service in 'OpenWebPBX','FreeSWITCH'){Stop-Service $service -ErrorActio
 Set-Service FreeSWITCH -StartupType Manual
 if(Get-Service OpenWebPBX -ErrorAction SilentlyContinue){Set-Service OpenWebPBX -StartupType Manual}
 Import-Module WebAdministration
+if($BootstrapRegistration){
+ $bootstrapProof=& "$PSScriptRoot\Install-BootstrapProof.ps1" -PublicAddress $PublicAddress
+ $PublicAddress=[string]$bootstrapProof.PublicAddress
+ if($state -is [Collections.IDictionary]){$state['PublicAddress']=$PublicAddress}else{$state.PublicAddress=$PublicAddress}
+ Write-OpenWebPrivateState -Path "$private\installation.json" -Value $state
+}
 if(Test-Path IIS:\Sites\OpenWebPBX){Stop-Website OpenWebPBX}
 New-Item -ItemType Directory -Force "$root\web","$root\server","$root\desktop","$private\cache","$private\sessions","$private\uploads","$private\temp","$private\storage","$private\logs" | Out-Null
 foreach($component in 'web','server','desktop','acme'){
@@ -242,6 +290,7 @@ xml_handler.number_as_presence_id = true
 openweb.public_host = $DomainName
 openweb.public_url = https://${DomainName}:$HttpsPort
 openweb.public_ip = $PublicAddress
+openweb.onboarding_required = true
 "@
 WriteUtf8 "$configRoot\config.conf" $config
 if(!(Test-Path "$configRoot\openweb-template.key")){$key=New-Object byte[] 32;$rng=[Security.Cryptography.RandomNumberGenerator]::Create();$rng.GetBytes($key);$rng.Dispose();[IO.File]::WriteAllBytes("$configRoot\openweb-template.key",$key)}
@@ -281,6 +330,7 @@ if(!(Get-WebConfiguration 'system.webServer/fastCgi/application' | Where-Object 
 & "$PSScriptRoot\Configure-PHP.ps1" -PackageRoot $PSScriptRoot
 $env:OPENWEB_SETUP_SECRETS="$private\setup-secrets.json"
 $env:OPENWEB_RESTORE_SERVER=if($RestoreServer){'true'}else{'false'}
+$env:OPENWEB_FRESH_ONBOARDING_REQUIRED='true'
 Push-Location "$root\web"
 try {
  Run "$root\php\php.exe" @('core\upgrade\upgrade_schema.php')
@@ -288,12 +338,12 @@ try {
  foreach($step in '--defaults','--group','--menu'){Run "$root\php\php.exe" @('core\upgrade\upgrade.php',$step)}
  Run "$root\php\php.exe" @("$PSScriptRoot\bootstrap.php","$root\web",'migrate')
  if(Test-Path $env:OPENWEB_SETUP_SECRETS){Run "$root\php\php.exe" @("$PSScriptRoot\bootstrap.php","$root\web",'admin')}
-}finally{Pop-Location;Remove-Item Env:\OPENWEB_SETUP_SECRETS;Remove-Item Env:\OPENWEB_RESTORE_SERVER}
+}finally{Pop-Location;Remove-Item Env:\OPENWEB_SETUP_SECRETS;Remove-Item Env:\OPENWEB_RESTORE_SERVER;Remove-Item Env:\OPENWEB_FRESH_ONBOARDING_REQUIRED}
 Run "$root\php\php.exe" @("$PSScriptRoot\configure-codec.php","$root\web")
 Run "$root\php\php.exe" @("$PSScriptRoot\configure-music.php","$PSScriptRoot\music","$root\web")
 Push-Location "$root\web"
 try {Run "$root\php\php.exe" @("$PSScriptRoot\bootstrap.php","$root\web",'xml')}finally{Pop-Location}
-$runtime=@{ConnectionStrings=@{Pbx="Host=127.0.0.1;Port=5433;Database=fusionpbx;Username=fusionpbx;Password=$($state.DatabasePassword)"};Switch=@{Host='127.0.0.1';Port=8021;Password=$state.SwitchPassword}}
+$runtime=@{ConnectionStrings=@{Pbx="Host=127.0.0.1;Port=5433;Database=fusionpbx;Username=fusionpbx;Password=$($state.DatabasePassword)"};Switch=@{Host='127.0.0.1';Port=8021;Password=$state.SwitchPassword};Onboarding=@{Required=$true;WebRoot="$root\web";StateRoot=$private}}
 WriteUtf8 "$private\runtime.json" ($runtime|ConvertTo-Json -Depth 4)
 if(!(Test-Path IIS:\Sites\OpenWebPBX)){New-Website -Name OpenWebPBX -PhysicalPath "$root\web" -ApplicationPool OpenWebPBX -Port $HttpsPort -HostHeader $DomainName -Ssl | Out-Null}
 Add-Type -Path "$env:windir\System32\inetsrv\Microsoft.Web.Administration.dll"
@@ -316,6 +366,7 @@ Run sc.exe @('failure','OpenWebPBX','reset=','86400','actions=','restart/60000/r
 & "$PSScriptRoot\Install-Backups.ps1" -PackageRoot $PSScriptRoot -DeferRestart -UpgradeLockHeld
 & "$PSScriptRoot\Install-MailQueue.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
 & "$PSScriptRoot\Install-TenantDomains.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
+& "$PSScriptRoot\Install-Onboarding.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
 & "$PSScriptRoot\Install-PhoneHealth.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
 Install-OpenWebCallRecordAccess -PackageRoot $PSScriptRoot -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $installationLock
 # Retain the exact original security across an interrupted fresh setup retry.
@@ -335,7 +386,7 @@ $ready=$false
 for($attempt=0;$attempt -lt 30;$attempt++){
  try{
   $health=Invoke-RestMethod 'http://127.0.0.1:8087/health' -TimeoutSec 3
-  $ready=$health.state -ceq 'Running' -and $health.version -ceq $state.Version
+  $ready=$health.state -cin @('Running','Registration required') -and $health.version -ceq $state.Version
   if($ready){& "$root\php\php.exe" "$PSScriptRoot\check-call-engine.php" "$root\web";$ready=$LASTEXITCODE -eq 0}
   if($ready){$ready=Test-OpenWebTrustedLogin $DomainName $HttpsPort}
  }catch{$ready=$false}
@@ -369,7 +420,8 @@ Remove-OpenWebCallRecordHold -StateRoot $private -Hold $state.CallRecordHold -Ma
 Remove-Item "$private\setup-secrets.json" -ErrorAction SilentlyContinue
 Write-Host "OpenWeb PBX $($state.Version) is installed at https://${DomainName}:$HttpsPort"
 Write-Host 'All tenants share this installation''s built-in database. No separate database server is required.'
-Write-Host 'Sign in to Admin, then open Main PBX. Trunks start disabled. Configure your public certificate and firewall before remote use.'
+Write-Host "Finish registration at https://${DomainName}:$HttpsPort/app/pbx_onboarding/"
+Write-Host 'Registration and the secure managed tenant address are required before phones and calling can be used. Updates, backups and repair remain available.'
 
 
 } catch {
@@ -387,6 +439,23 @@ Write-Host 'Sign in to Admin, then open Main PBX. Trunks start disabled. Configu
 Enable-ScheduledTask -TaskName OpenWebPBX-Backups | Out-Null
 Enable-ScheduledTask -TaskName 'OpenWebPBX Outgoing Mail' | Out-Null
 Enable-ScheduledTask -TaskName 'OpenWebPBX-TenantDomains' | Out-Null
+Enable-ScheduledTask -TaskName 'OpenWebPBX-Onboarding' | Out-Null
+Start-ScheduledTask -TaskName 'OpenWebPBX-Onboarding'
+if($BootstrapRegistration){
+ $setupReady=$false;$setupPath=Join-Path $private 'tenant-domains\setup.json'
+ for($attempt=0;$attempt -lt 30;$attempt++){
+  try{
+   $null=Assert-OpenWebCallRecordOrdinary $setupPath
+   if((Get-Item -LiteralPath $setupPath).Length -gt 8192){throw 'Bounded setup state required.'}
+   $notice=Get-Content -LiteralPath $setupPath -Raw|ConvertFrom-Json;$until=[DateTimeOffset]::MinValue
+   if($notice.user_code -cmatch '^[A-F0-9]{5}-[A-F0-9]{5}$' -and $notice.verification_uri_complete -ceq ('https://openwebpbx.com/wizard#code='+$notice.user_code) -and [DateTimeOffset]::TryParse($notice.expires_at,[ref]$until) -and $until -gt [DateTimeOffset]::UtcNow){
+    Write-Host ('Finish setup: '+$notice.verification_uri_complete);Write-Host ('Your setup code: '+$notice.user_code);$setupReady=$true;break
+   }
+  }catch{}
+  Start-Sleep -Seconds 1
+ }
+ if(!$setupReady){Write-Host 'Your setup code is still being prepared. Open the installed OpenWeb PBX manager and choose Finish registration.'}
+}
 Enable-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' | Out-Null
 Start-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth'
 Start-Service OpenWebPBXUpdater

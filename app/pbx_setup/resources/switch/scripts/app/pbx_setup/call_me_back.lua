@@ -37,6 +37,7 @@ local function deliver()
  query([[update v_pbx_cmb_requests set state='authenticating',lease_until=now()+interval '3 minutes',updated_at=now()
  where request_uuid=:id and state='starting' and created_at>now()-interval '2 minutes' returning *]],{id=id},function(r)request=r end)
  if not request or not C.uuid(request.call_uuid) then return end
+ if not dofile(scripts_dir..'/app/pbx_onboarding/gate.lua').allowed(db,request.domain_uuid)then finish('registration_required',0);return end
  query([[select r.config,s.* from v_pbx_restore r join v_pbx_cmb_services s using(domain_uuid) join v_domains d using(domain_uuid)
  where s.domain_uuid=:d and s.service_uuid=:s and s.enabled and s.prompt_state='ready' and d.domain_enabled='true'
  and not exists(select 1 from v_pbx_services p join v_pbx_tenants t using(tenant_uuid) where p.domain_uuid=s.domain_uuid and not t.enabled)]],{d=request.domain_uuid,s=request.service_uuid},function(r)service=r;config=json.decode(r.config)end)

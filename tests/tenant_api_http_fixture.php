@@ -42,7 +42,7 @@ class pbx_paths {
     public static function key(): string {return self::state().'/template.key';}
 }
 $database = database::new(); $db = $database->db;
-foreach (['pbx_service_codes','pbx_voicemail_policy','pbx_sip_domain','pbx_tenants','pbx_tenant_domains','pbx_tenant_api_domains','pbx_updates','pbx_setup_provisioner','pbx_tenant_api_setup','pbx_tenant_api','outgoing_mail'] as $class) {
+foreach (['pbx_service_codes','pbx_voicemail_policy','pbx_sip_domain','pbx_tenants','pbx_tenant_domains','pbx_tenant_api_domains','pbx_updates','pbx_setup_provisioner','pbx_tenant_api_setup','pbx_tenant_api','pbx_onboarding','outgoing_mail'] as $class) {
     require_once PROJECT_ROOT.'/resources/classes/'.$class.'.php';
 }
 if (PHP_SAPI !== 'cli') return;

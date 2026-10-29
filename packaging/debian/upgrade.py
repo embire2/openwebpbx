@@ -100,7 +100,7 @@ def deployment_files(package, manifest):
         # Include stock originals and the version marker before make_backup().
         # Existing strict file/mode/owner recovery covers every replaced voice.
         result.update(voices.payload(package,manifest))
-    for helper in ['configure-sip-tls.py', 'configure-sip-tls.php', 'upgrade.py', 'verify_feed.py', 'release-public.pem', 'backups.py', 'install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py','install-meet.py','meet-nginx.conf','install-mail.py','install-phone-health.py','phone-health.py','phone-health.php','call-diagnostics.py','openwebpbx-call-diagnostics.service','install-stun.py','openwebpbx-stun.service','openwebpbx-stun.conf','install-tenant-domains.py','tenant-domains.py','tenant-domains.php','tenant-domains-nginx.conf']:
+    for helper in ['configure-sip-tls.py', 'configure-sip-tls.php', 'upgrade.py', 'verify_feed.py', 'release-public.pem', 'backups.py', 'install-backups.sh', 'install-support.py', 'install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py','install-meet.py','meet-nginx.conf','install-mail.py','install-phone-health.py','phone-health.py','phone-health.php','call-diagnostics.py','openwebpbx-call-diagnostics.service','install-stun.py','openwebpbx-stun.service','openwebpbx-stun.conf','install-tenant-domains.py','tenant-domains.py','tenant-domains.php','tenant-domains-nginx.conf','onboarding.py','onboarding.php','webhotel-onboarding.py','install-onboarding.py','openwebpbx-onboarding.service','openwebpbx-onboarding.timer']:
         if helper in manifest['files']:
             result[TOOLS / helper] = package / helper
     for service in ['openwebpbx-updater.service', 'openwebpbx-update-recovery.service', 'openwebpbx-backups.service', 'openwebpbx-backups.timer']:
@@ -520,7 +520,7 @@ def start_and_health(version, settings, run):
     for attempt in range(30):
         try:
             with urllib.request.urlopen('http://127.0.0.1:8087/health', timeout=3) as response: health=json.load(response)
-            if health.get('state')=='Running' and health.get('version')==version: break
+            if health.get('state')in('Running','Registration required') and health.get('version')==version: break
         except (OSError,ValueError): pass
         time.sleep(2)
     else: raise RuntimeError('The updated background service did not become ready.')
@@ -553,7 +553,7 @@ def finalize_completed(journal):
         raise RecoveryRequired('The committed update and installed version differ.')
     with urllib.request.urlopen('http://127.0.0.1:8087/health', timeout=5) as response:
         health = json.load(response)
-    if health.get('state') != 'Running' or health.get('version') != version:
+    if health.get('state') not in ('Running','Registration required') or health.get('version') != version:
         raise RecoveryRequired('The committed background service is not ready.')
     backup = Path(journal['backup_path'])
     if backup.parent != BACKUPS or backup.is_symlink():
@@ -577,6 +577,9 @@ def finalize_completed(journal):
         domains_helper=TOOLS/'install-tenant-domains.py'
         if domains_helper.is_file():
             run(['python3',str(domains_helper),'--activate'],timeout=60)
+        onboarding_helper=TOOLS/'install-onboarding.py'
+        if onboarding_helper.is_file():
+            run(['python3',str(onboarding_helper),'--activate'],timeout=60)
         health_helper=TOOLS/'install-phone-health.py'
         if health_helper.is_file():
             run(['python3',str(health_helper),'--activate'],timeout=60)

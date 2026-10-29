@@ -9,6 +9,8 @@ public sealed record RegistryOptions(string ConnectionString, string CpanelEndpo
     public const string Zone = "openwebpbx.com";
     public string ListenUrl { get; init; } = "http://127.0.0.1:5095";
     public int MaximumLeasesPerInstance { get; init; } = 50;
+    public string InstallationAuthorityPublicKey { get; init; } = "/etc/openwebpbx-domain-registry/installation-authority.pem";
+    public string[] TrustedManagedInstanceKeyHashes { get; init; } = [];
     public static RegistryOptions Read(string path) {
         for (var item = Path.GetFullPath(path); item is not null; item = Path.GetDirectoryName(item))
             if ((File.GetAttributes(item) & FileAttributes.ReparsePoint) != 0) throw new InvalidOperationException("Linked registry configuration refused.");
@@ -26,7 +28,7 @@ public static class Json {
     public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow, MaxDepth = 8 };
 }
 public sealed record ChallengeRequest(string PublicKey, string ServerHost);
-public sealed record LeaseRequest(string Challenge, string PublicKey, string ServerHost, Guid TenantUuid, Guid DomainUuid, string Label, bool Enabled, long Revision, bool Move, string Signature);
+public sealed record LeaseRequest(string Challenge, string PublicKey, string ServerHost, Guid TenantUuid, Guid DomainUuid, string Label, bool Enabled, long Revision, bool Move, string Signature, string? Authorization = null);
 public sealed record ChallengeReply(string Challenge, DateTimeOffset ExpiresAt);
 public sealed record LeaseReply(string Hostname, string ServerHost, string State, bool Enabled, long Revision);
 public sealed record TenantAddressReply(int Schema, string Hostname, string ServerOrigin, Guid DomainUuid, long Revision);
@@ -40,10 +42,11 @@ public static partial class Protocol {
     private static partial Regex NoncePattern();
     private static readonly HashSet<string> Reserved = new("www mail smtp imap pop ftp cpcontacts cpcalendars webmail cpanel whm autodiscover autoconfig domains api admin portal status updates releases download downloads support legal privacy terms delete ns ns1 ns2 localhost test staging dev beta call pbx acme".Split(' '), StringComparer.Ordinal);
     public static string Host(string host) {
-        if (string.IsNullOrEmpty(host) || System.Net.IPAddress.TryParse(host, out _) || host != host.ToLowerInvariant() || host.Length > 253 || !HostPattern().IsMatch(host) || host.EndsWith(".local") || host.EndsWith(".localhost") || host.EndsWith(".invalid") || host == RegistryOptions.Zone || host.EndsWith("." + RegistryOptions.Zone))
+        if (string.IsNullOrEmpty(host) || System.Net.IPAddress.TryParse(host, out _) || host != host.ToLowerInvariant() || host.Length > 253 || !HostPattern().IsMatch(host) || host.EndsWith(".local") || host.EndsWith(".localhost") || host.EndsWith(".invalid") || host == RegistryOptions.Zone || (host.EndsWith("." + RegistryOptions.Zone) && !IsBootstrapHost(host)))
             throw new Refused("invalid_server_hostname");
         return host;
     }
+    public static bool IsBootstrapHost(string host) => Regex.IsMatch(host,"^node-[0-9a-f]{32}\\.openwebpbx\\.com$",RegexOptions.CultureInvariant);
     public static string Label(string label) { if (label is null || !LabelPattern().IsMatch(label)) throw new Refused("invalid_tenant_label"); return label; }
     public static bool IsReserved(string label) => Reserved.Contains(label) || label.StartsWith("xn--", StringComparison.Ordinal);
     public static string KeyHash(string encoded) {

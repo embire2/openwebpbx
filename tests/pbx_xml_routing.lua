@@ -29,8 +29,9 @@ local function run(kind,options)
             if type(params)=='function' then callback=params;params={} end
             records.queries[#records.queries+1]={sql=sql,params=params}
             local rows={}
-            if sql:find('to_regclass',1,true) then rows={{installed=options.uninstalled and 'false' or 'true'}}
-            elseif sql:find('select plan.dialplan_xml',1,true) then
+            if sql:find("to_regclass('v_pbx_onboarding_policy')",1,true) then rows={{installed='false'}}
+            elseif sql:find('to_regclass',1,true) then rows={{installed=options.uninstalled and 'false' or 'true'}}
+            elseif sql:find('select plan.domain_uuid,plan.dialplan_xml',1,true) then
                 assert(params.hostname=='fixture-host','Fragment reused a missing or stale hostname')
                 rows=options.empty and {} or selected.incoming_rows
             elseif sql:find('provider_ip',1,true) then rows=selected.provider_rows
@@ -43,7 +44,7 @@ local function run(kind,options)
         end
         return db
     end}
-    local env=setmetatable({api={execute=function(_,command)assert(command=='hostname');return 'fixture-host\n' end},
+    local env=setmetatable({scripts_dir='app/pbx_setup/resources/switch/scripts',api={execute=function(_,command)assert(command=='hostname');return 'fixture-host\n' end},
         trim=function(value)return value:match('^%s*(.-)%s*$')end,call_context=context,destination_number='contact-alias',
         hostname=options.stale_hostname,expire={dialplan=60,acl=60},debug={},temp_dir='/nonexistent-fixture',
         freeswitch={consoleLog=function()end}}, {__index=_G})

@@ -191,7 +191,7 @@ with tempfile.TemporaryDirectory(prefix='openweb-release-') as temporary:
     if args.target == 'windows':
         # One portable instance protocol implementation; provider credentials
         # and the central registry configuration never belong in an installer.
-        for shared_name in ('tenant-domains.py','tenant-domains.php'):
+        for shared_name in ('tenant-domains.py','tenant-domains.php','onboarding.py','onboarding.php','webhotel-onboarding.py'):
             shared=root/'packaging/debian'/shared_name
             if shared.is_symlink() or not shared.is_file() or shared.relative_to(root).as_posix() not in files:
                 raise ValueError('The reviewed portable tenant-domain source is missing.')

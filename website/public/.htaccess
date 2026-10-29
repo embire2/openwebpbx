@@ -11,6 +11,8 @@ DirectoryIndex index.html
   RewriteRule ^tenantadmin(?:/(?:index\.php)?)?$ https://call.openweb.co.za/tenantadmin/ [R=302,L,NE]
   RewriteRule ^api-docs/$ /api-docs [R=301,L,NE]
   RewriteRule ^api-docs$ api-docs.html [L]
+  RewriteRule ^wizard/$ /wizard [R=301,L,NE]
+  RewriteRule ^wizard$ wizard.html [L]
   RewriteRule ^(terms|delete|privacy|cookies|privacy-rights|legal|paia|accessibility)/$ /$1 [R=301,L,NE]
   RewriteRule ^terms$ terms.html [L]
   RewriteRule ^delete$ data-removal.html [L]
@@ -24,6 +26,10 @@ DirectoryIndex index.html
   Header always set X-Frame-Options "DENY"
   Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
   Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests"
+  <Files "wizard.html">
+    Header always unset Content-Security-Policy
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src https://call.openweb.co.za; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests"
+  </Files>
   <FilesMatch "\.(?:html|css|js|json)$">
     Header set Cache-Control "no-cache"
   </FilesMatch>

@@ -20,6 +20,14 @@ class pbx_tenants {
         return $domain === $t['home_domain_uuid'] || (bool)$this->query('select 1 from v_pbx_services where tenant_uuid=:tenant and domain_uuid=:domain',['tenant'=>$t['tenant_uuid'],'domain'=>$domain])->fetchColumn();
     }
     public function guard(): void {
+        // Authentication can restore the owner's original platform domain.
+        // Reapply an already verified tenant host before checking fresh setup.
+        if(!empty($_SESSION['authorized'])&&pbx_onboarding::required($this->db))pbx_tenant_domains::guardRequest($this->db);
+        if(!empty($_SESSION['authorized'])&&pbx_onboarding::required($this->db)&&!pbx_onboarding::allowsDomain($this->db,(string)($_SESSION['domain_uuid']??''))){
+            $path=parse_url($_SERVER['REQUEST_URI']??'',PHP_URL_PATH);$repair=false;
+            foreach(['/app/pbx_onboarding/','/app/pbx_updates/','/app/pbx_backups/','/app/tenant_services/','/core/users/user_profile.php']as $prefix)if(is_string($path)&&str_starts_with($path,$prefix))$repair=true;
+            if(!in_array($path,['/login.php','/logout.php'],true)&&!$repair){header('Location: /app/pbx_onboarding/',true,303);exit;}
+        }
         if (!$this->installed() || empty($_SESSION['authorized']) || $this->allowed('domain_all')) return;
         $t=$this->tenant(); if (!$t) return;
         $enabled=$this->query('select user_enabled from v_users where user_uuid=:user',['user'=>$_SESSION['user_uuid']])->fetchColumn();
@@ -36,7 +44,7 @@ class pbx_tenants {
     public static function publicApplicationPath(string $path): bool {
         if ($path==='' || str_contains($path,'%') || str_contains($path,'\\') || str_contains($path,'//')
             || preg_match('~(?:^|/)\.\.?(/|$)|[\x00-\x20\x7f]~',$path)) return false;
-        foreach(['/core/desktop/','/app/tenant_services/','/app/pbx_setup/','/app/pbx_greetings/',
+        foreach(['/core/desktop/','/app/tenant_services/','/app/pbx_onboarding/','/app/pbx_setup/','/app/pbx_greetings/',
                  '/app/pbx_mobile/','/app/pbx_phone_health/','/app/pbx_meet/'] as $prefix) {
             if (str_starts_with($path,$prefix)) return true;
         }

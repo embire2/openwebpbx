@@ -1,0 +1,11 @@
+[Unit]
+Description=Retry OpenWeb PBX image registration safely
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=30s
+RandomizedDelaySec=5s
+Unit=openwebpbx-image-onboarding.service
+
+[Install]
+WantedBy=timers.target

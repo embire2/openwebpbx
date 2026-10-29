@@ -100,6 +100,12 @@ The hosted [Tenant API](https://openwebpbx.com/api-docs) lets integrations regis
 
 The API is live on the hosted installation. This separate source update does not modify the published 1.0.21 server archives; self-hosted packaging and Windows native qualification for the new API belong to the next server release.
 
+**Installing your own server?** The [public setup wizard](https://openwebpbx.com/wizard) connects a new installation using its setup code, email confirmation and chosen `*.openwebpbx.com` address. The central API now also documents signed installation authorization and a dedicated [Webhotel/first-boot API](https://openwebpbx.com/wizard-openapi.json). Your local PBX and database stay on your server; no second hosted PBX is created. See the [image and onboarding guide](docs/webhotel-onboarding.md).
+
+The [self-install registration guide](docs/self-install-onboarding.md) explains the installer flow, calling rules, accepted checks and remaining package/image release work.
+
+The public wizard and central API overlay are deployed. Mandatory registration gates, the portable first-boot worker and updated Debian/Windows installers are current source for the next packaged build; complete native/package qualification and provider-image publication remain separate. Existing published downloads and working phone settings are unchanged. A controlled central pairing test has completed real DNS, Let’s Encrypt and verified tenant HTTPS readiness; its email code was intercepted privately, so no new inbox-delivery or native-installer pass is implied.
+
 ## Documentation
 
 | Start here | Administration and operation | Development |

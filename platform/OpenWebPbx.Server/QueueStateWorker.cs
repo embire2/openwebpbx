@@ -5,7 +5,7 @@ namespace OpenWebPbx.Server;
 
 // Reconcile effective hours and supervisor preferences without unloading a queue
 // or resetting a native agent's current bridge, wrap-up or ready time.
-public sealed class QueueStateWorker(NpgsqlDataSource data, SwitchClient engine, ILogger<QueueStateWorker> log) : BackgroundService
+public sealed class QueueStateWorker(NpgsqlDataSource data, SwitchClient engine, ILogger<QueueStateWorker> log, OnboardingGate? onboarding = null) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
@@ -46,6 +46,7 @@ public sealed class QueueStateWorker(NpgsqlDataSource data, SwitchClient engine,
         foreach (var (domain, number) in targets)
         {
             ct.ThrowIfCancellationRequested();
+            if(onboarding is not null && !await onboarding.Allows(domain,data,ct))continue;
             await engine.Execute($"lua app/pbx_setup/mobile_state.lua {domain} {number}", ct);
         }
         await using var reconcile = data.CreateCommand("""

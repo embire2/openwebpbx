@@ -6,7 +6,7 @@ namespace OpenWebPbx.Server;
 // Expiry remains effective in Lua even while this reconciler is unavailable.
 // Keep an expiry row until native synchronization succeeds so an engine outage
 // cannot leave an agent permanently paused after the stored profile was restored.
-public sealed class MobileStateWorker(NpgsqlDataSource data, SwitchClient engine, ILogger<MobileStateWorker> log) : BackgroundService
+public sealed class MobileStateWorker(NpgsqlDataSource data, SwitchClient engine, ILogger<MobileStateWorker> log, OnboardingGate? onboarding = null) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
@@ -27,6 +27,7 @@ public sealed class MobileStateWorker(NpgsqlDataSource data, SwitchClient engine
         foreach (var row in rows)
         {
             if (!System.Text.RegularExpressions.Regex.IsMatch(row.Number, "^[0-9]{2,10}$")) continue;
+            if(onboarding is not null && !await onboarding.Allows(row.Domain,data,ct))continue;
             long epoch;
             await using (var connection = await data.OpenConnectionAsync(ct))
             await using (var tx = await connection.BeginTransactionAsync(ct))

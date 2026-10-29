@@ -6,6 +6,7 @@ namespace OpenWebPbx.DomainRegistry;
 public interface IRegistryDns {
     Task<IReadOnlySet<string>> Names(CancellationToken stop);
     Task Ensure(string label, string target, string? previous, CancellationToken stop);
+    Task EnsureAddress(string label, System.Net.IPAddress address, CancellationToken stop) => throw new Refused("bootstrap_dns_unavailable",503);
 }
 public sealed record ZoneRecord(string Name, string Type, string[] Data, int Line);
 public sealed class CpanelDns : IRegistryDns, IDisposable {
@@ -61,5 +62,16 @@ public sealed class CpanelDns : IRegistryDns, IDisposable {
         await Api("mass_edit_zone", [new("zone", RegistryOptions.Zone), new("serial", zone.Serial.ToString(System.Globalization.CultureInfo.InvariantCulture)), new(same.Length == 0 ? "add" : "edit", JsonSerializer.Serialize(record))], stop);
         var verify = Parse(await Read(stop)).Records.Where(row => row.Name == name).ToArray();
         if (verify.Length != 1 || verify[0].Type != "CNAME" || verify[0].Data.Length != 1 || !verify[0].Data[0].TrimEnd('.').Equals(target, StringComparison.OrdinalIgnoreCase)) throw new IOException("dns_readback_pending");
+    }
+    public async Task EnsureAddress(string label, System.Net.IPAddress address, CancellationToken stop) {
+        if(!Protocol.IsBootstrapHost(label+"."+RegistryOptions.Zone) || !PublicSiteProof.IsPublic(address))throw new Refused("invalid_bootstrap_dns",403);
+        var name=label+"."+RegistryOptions.Zone;var type=address.AddressFamily==System.Net.Sockets.AddressFamily.InterNetwork?"A":"AAAA";
+        var zone=Parse(await Read(stop));var same=zone.Records.Where(row=>row.Name==name).ToArray();
+        bool Exact(ZoneRecord row)=>row.Type==type&&row.Data.Length==1&&System.Net.IPAddress.TryParse(row.Data[0],out var parsed)&&parsed.Equals(address);
+        if(same.Length>0){if(same.Length==1&&Exact(same[0]))return;throw new Refused("dns_conflict",409);}
+        var record=new Dictionary<string,object>{{"dname",name+"."},{"record_type",type},{"ttl",300},{"data",new[]{address.ToString()}}};
+        await Api("mass_edit_zone",[new("zone",RegistryOptions.Zone),new("serial",zone.Serial.ToString(System.Globalization.CultureInfo.InvariantCulture)),new("add",JsonSerializer.Serialize(record))],stop);
+        var after=Parse(await Read(stop)).Records.Where(row=>row.Name==name).ToArray();
+        if(after.Length!=1||!Exact(after[0]))throw new IOException("dns_readback_pending");
     }
 }

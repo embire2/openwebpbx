@@ -143,6 +143,7 @@
 							end
 							x = 0;
 							dbh:query(sql, params, function(field)
+                                if not dofile(scripts_dir..'/app/pbx_onboarding/gate.lua').allowed(dbh,field.domain_uuid)then return end
 								xml:append([[						<gateway name="]] .. xml.sanitize(string.lower(field.gateway_uuid)) .. [[">]]);
 
 								if (string.len(field.username) > 0) then

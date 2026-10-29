@@ -34,12 +34,13 @@
      <TextBlock Text="Your phone system" Style="{StaticResource TitleTextBlockStyle}"/>
      <TextBlock x:Name="VersionLabel" Style="{StaticResource SubtitleTextBlockStyle}"/>
      <InfoBar x:Name="StatusBanner" IsOpen="True" IsClosable="False" Title="Checking this server" Message="Connecting to the OpenWeb PBX service." Severity="Informational"/>
+     <TextBlock x:Name="RegistrationDetails" TextWrapping="Wrap" Visibility="Collapsed"/>
      <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="24">
       <StackPanel Spacing="12">
        <TextBlock Text="Server" Style="{StaticResource SubtitleTextBlockStyle}"/>
        <TextBlock x:Name="ServerAddress" Text="Choose your PBX address in Setup." TextWrapping="Wrap"/>
        <TextBlock x:Name="ServiceDetails" TextWrapping="Wrap"/>
-       <StackPanel Orientation="Horizontal" Spacing="10"><Button Content="Open Admin" Click="OpenAdmin" Style="{StaticResource AccentButtonStyle}"/><Button Content="Refresh" Click="Refresh"/></StackPanel>
+       <StackPanel Orientation="Horizontal" Spacing="10"><Button Content="Open Admin" Click="OpenAdmin" Style="{StaticResource AccentButtonStyle}"/><Button x:Name="RegistrationButton" Content="Finish registration" Click="OpenRegistration" Visibility="Collapsed"/><Button Content="Refresh" Click="Refresh"/></StackPanel>
       </StackPanel>
      </Border>
      <InfoBar x:Name="UpdateBanner" IsOpen="True" IsClosable="False" Title="Updates on this Windows server" Message="Update status appears after the updater is installed." Severity="Informational"/>
@@ -67,13 +68,14 @@
       <TextBox x:Name="InstallPublicAddress" Header="Public IP address (optional)" PlaceholderText="Use the address your server name points to"/>
       <TextBox x:Name="InstallEmail" Header="Administrator email" InputScope="EmailSmtpAddress"/>
       <PasswordBox x:Name="InstallPassword" Header="Administrator password" PasswordRevealMode="Peek"/>
-      <ComboBox x:Name="CertificateChoice" Header="Secure connection" SelectedIndex="0" SelectionChanged="CertificateModeChanged" HorizontalAlignment="Stretch">
+      <ComboBox x:Name="CertificateChoice" Header="Secure connection" SelectedIndex="3" SelectionChanged="CertificateModeChanged" HorizontalAlignment="Stretch">
        <ComboBoxItem Content="Automatic certificate (public server)"/>
        <ComboBoxItem Content="Local setup certificate (this server only)"/>
        <ComboBoxItem Content="Use a certificate installed on this server"/>
+       <ComboBoxItem Content="Managed OpenWeb PBX setup (recommended)"/>
       </ComboBox>
       <ComboBox x:Name="InstalledCertificate" Header="Installed certificate" DisplayMemberPath="Label" HorizontalAlignment="Stretch" Visibility="Collapsed"/>
-      <TextBlock Text="For a public server, point the server name to this computer and allow ports 80 and 443 through your router. Setup obtains a free certificate, connects secure phones and renews it automatically. Use localhost with a local certificate for a private test." TextWrapping="Wrap"/>
+      <TextBlock Text="Managed setup gives this server its own address. Finish account registration in the browser and choose your tenant address; no manual DNS changes are needed. Your server still needs a reachable public IPv4 address and ports 80 and 443. Advanced certificate choices keep your existing custom-domain setup." TextWrapping="Wrap"/>
       <CheckBox x:Name="RestoreServerChoice" Content="Prepare a replacement server for restoring an OpenWeb PBX backup"/>
       <Button x:Name="InstallButton" Content="Install OpenWeb PBX" Click="InstallServer" Style="{StaticResource AccentButtonStyle}"/>
       <ProgressRing x:Name="InstallProgress" IsActive="False" Visibility="Collapsed" HorizontalAlignment="Left" Width="28" Height="28"/>

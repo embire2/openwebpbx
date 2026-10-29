@@ -61,7 +61,7 @@ function CompleteCommittedFinalization {
  Complete-OpenWebCommittedUpgrade -Entry $script:upgradeRecoveryEntry -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock
  $script:upgradeFinalizationPhase='background_tasks'
  $originalSupport=Get-Content "$backup\support-state.json" -Raw|ConvertFrom-Json
- foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth'){
+ foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Onboarding'){
   $originalTask=$originalSupport.Tasks.PSObject.Properties[$name]
   if($originalTask -and ($originalTask.Value.Exists -isnot [bool] -or $originalTask.Value.Enabled -isnot [bool])){throw 'The original background-task enabled choice is invalid.'}
   if(!$originalTask -or !$originalTask.Value.Exists -or $originalTask.Value.Enabled){Enable-ScheduledTask -TaskName $name|Out-Null}
@@ -360,7 +360,7 @@ function CheckHealth([string]$ExpectedVersion) {
  for ($attempt = 0; $attempt -lt 30; $attempt++) {
   try {
    $health = Invoke-RestMethod 'http://127.0.0.1:8087/health' -TimeoutSec 3
-   if ($health.state -eq 'Running' -and $health.version -eq $ExpectedVersion) {
+   if ($health.state -in 'Running','Registration required' -and $health.version -eq $ExpectedVersion) {
     if(Test-OpenWebTrustedLogin $state.DomainName $state.HttpsPort){
      if([version]$ExpectedVersion -lt [version]'1.0.13'){return}
      & "$root\php\php.exe" (Join-Path $script:recoveryCodeRoot 'check-call-engine.php') "$root\web"
@@ -725,6 +725,7 @@ try {
  & "$payload\Install-Backups.ps1" -PackageRoot $payload -DeferRestart -UpgradeLockHeld
  & "$payload\Install-MailQueue.ps1" -PackageRoot $payload -DeferStart -MaintenanceLock $lock
  & "$payload\Install-TenantDomains.ps1" -PackageRoot $payload -DeferStart -MaintenanceLock $lock
+ & "$payload\Install-Onboarding.ps1" -PackageRoot $payload -DeferStart -MaintenanceLock $lock
  & "$payload\Install-PhoneHealth.ps1" -PackageRoot $payload -DeferStart -MaintenanceLock $lock
  Remove-Item "$private\cache\*" -Recurse -Force -ErrorAction SilentlyContinue
  $state.Version = $version

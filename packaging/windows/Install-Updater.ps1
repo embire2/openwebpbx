@@ -48,7 +48,7 @@ foreach($name in 'Upgrade-OpenWebPBX.ps1','Register-ManagerRestart.ps1','Restart
  'Install-Backups.ps1','Backup-Control.ps1','configure-backups.php','backups.py','cacert.pem','openssl.cnf'){
  Copy-Item (Join-Path $PackageRoot $name) (Join-Path "$root\tools" $name) -Force
 }
-foreach($name in 'Install-MailQueue.ps1','process-mail.php','Upgrade-LegacyWindows.ps1','Tenant-Domains.ps1','Install-TenantDomains.ps1','tenant-domains.py','tenant-domains.php'){Copy-Item (Join-Path $PackageRoot $name) (Join-Path "$root\tools" $name) -Force}
+foreach($name in 'Install-MailQueue.ps1','process-mail.php','Upgrade-LegacyWindows.ps1','Tenant-Domains.ps1','Install-TenantDomains.ps1','tenant-domains.py','tenant-domains.php','Install-Onboarding.ps1','onboarding.py','onboarding.php','webhotel-onboarding.py'){Copy-Item (Join-Path $PackageRoot $name) (Join-Path "$root\tools" $name) -Force}
 Import-Module WebAdministration
 $startup="$private\updater-original-startup.json"
 if(!(Test-Path $startup)){

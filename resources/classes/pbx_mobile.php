@@ -13,6 +13,7 @@ class pbx_mobile {
     }
     protected function extension(string $domain,string $id): array {
         $this->id($domain);$this->id($id);
+        if(!pbx_onboarding::allowsDomain($this->db,$domain))throw new RuntimeException('Your administrator must finish registering this PBX before phones can connect.');
         $r=$this->q("select e.extension_uuid,e.extension,e.number_alias,e.effective_caller_id_name,d.domain_uuid,d.domain_name,r.config from v_extensions e join v_domains d using(domain_uuid) join v_pbx_restore r using(domain_uuid) where e.extension_uuid=:id and e.domain_uuid=:d and e.enabled='true' and d.domain_enabled='true' and not exists(select 1 from v_pbx_services s join v_pbx_tenants t using(tenant_uuid) where s.domain_uuid=d.domain_uuid and not t.enabled)",['id'=>$id,'d'=>$domain])->fetch(PDO::FETCH_ASSOC);
         if(!$r)throw new RuntimeException('This user is unavailable.');
         $config=json_decode($r['config'],true,512,JSON_THROW_ON_ERROR);unset($r['config']);$u=null;

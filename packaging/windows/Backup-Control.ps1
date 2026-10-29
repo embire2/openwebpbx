@@ -9,7 +9,7 @@ $root='C:\OpenWebPBX';$private=Join-Path $env:ProgramData 'OpenWebPBX';$config=J
 $control=Join-Path $private 'backup-control';$restore=Join-Path $private 'backup-restore'
 $services=@{calls='FreeSWITCH';jobs='OpenWebPBX';updates='OpenWebPBXUpdater'}
 $certificateTasks=@('OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate')
-$additionalTasks=@('OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth')
+$additionalTasks=@('OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Onboarding')
 . (Join-Path $PSScriptRoot 'CallRecords.Common.ps1')
 function RestoreCallRecordHold([string[]]$States){
  $journalPath=OrdinaryPath (Join-Path $restore 'journal.json')

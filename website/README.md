@@ -1,5 +1,15 @@
 # OpenWeb PBX homepage
 
+## Public setup wizard and installation API — 29 October 2026
+
+Published [the setup wizard](https://openwebpbx.com/wizard), its 15-operation `/wizard-openapi.json`, and an expanded `/api-docs`/`api-openapi.json` with 24 operations: the original17 hosted operations retained exactly plus7 current-email/installation-authority operations. New self-installed/Webhotel images pair using a short-lived code; the owner's password and bearer are never handed to the guest. No hosted `/services` entry is created for the remote PBX.
+
+Only `wizard.html` permits `connect-src https://call.openweb.co.za`; the original static documentation/legal policies retain `connect-src 'none'`. The hosting block adds two exact wizard rewrites and preserves the original cPanel suffix. Eight published public files match source, including the homepage setup link, with18 unrelated existing legal/privacy/logo/catalogue/site assets unchanged. Central public trusted-HTTPS route/CORS/authority/denial checks pass; no live signup, mail or tenant DNS was requested by this deployment. Exact backups and receipts: `/var/lib/openwebpbx/selfinstall-onboarding-inrzsxty/{api-deployment,website-deployment}`.
+
+The central overlay and public wizard are deployed; mandatory local registration gates, the portable consumer and next native packages remain separately qualified source work. A separate controlled central test passes actual public DNS/Let’s Encrypt/tenant HTTPS completion with private test-mail interception and owned cleanup. Fresh native installation through that protocol and provider image upload/publication remain separate acceptance gates. Existing server1.0.21 and Android1.0.19 packages, feeds, homepage downloads and legal texts are unchanged. See [the first-boot guide](../docs/webhotel-onboarding.md).
+
+Actual public browser checks pass20 width/theme layouts: wizard8, documentation4 and homepage8. The setup link remains visible on320px screens and opens the live wizard. Actual browser CORS/CSP health succeeds; original/new endpoint search, copy and the byte-identical24-operation OpenAPI download pass with no fresh warnings/errors or optional credential storage. The Fileman editor normalizes homepage meta-charset placement in its read response; the exact pre-change homepage is instead authenticated by matching prior Git/public-HTTPS bytes and retained alongside the separate editor response. Removing the new setup link and its scoped navigation-wrapping attribute recovers that original exactly.
+
 ## Tenant API documentation — 28 October 2026
 
 The public `/api-docs` page and `/api-openapi.json` describe the hosted tenant API's 17 operations. Static search, copy examples and desktop/mobile light/dark layouts require no external scripts, credential inputs or live API requests. Homepage navigation, Start and footer link to the reference. The two scoped Apache rewrite rules preserve existing canonical redirects and legal/privacy protections. The hosted API is a separate deployment; existing server 1.0.21 and Android 1.0.19 download assets remain unchanged.

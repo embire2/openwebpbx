@@ -1,0 +1,16 @@
+[Unit]
+Description=OpenWeb PBX first-boot image registration
+After=network-online.target postgresql.service nginx.service
+Wants=network-online.target
+ConditionPathExists=/etc/openwebpbx/image-onboarding-enabled
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/openwebpbx/tools/webhotel-onboarding.py --provider webhotel
+TimeoutStartSec=20min
+StandardOutput=journal+console
+StandardError=journal
+NoNewPrivileges=true
+PrivateTmp=true

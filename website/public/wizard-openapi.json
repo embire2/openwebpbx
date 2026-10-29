@@ -1,0 +1,1317 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "OpenWeb PBX first-boot and Webhotel wizard API",
+    "version": "1.0.0",
+    "description": "Companion API for https://openwebpbx.com/wizard. Separate from the existing hosted tenant API. Only this route family permits exact Origin https://openwebpbx.com; no cookie authority or credentialed CORS. All JSON responses are no-store. POST bodies must be JSON objects <=16 KiB. See docs/webhotel-onboarding.md for exact P256 message bytes and image integration. Source implementation; provider template deployment and native qualification are separate."
+  },
+  "servers": [
+    {
+      "url": "https://call.openweb.co.za/api/v1/wizard"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Account"
+    },
+    {
+      "name": "Image setup"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "wizardHealth",
+        "summary": "Check setup availability",
+        "description": "",
+        "tags": [
+          "Image setup"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Successful setup step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "wizard",
+                    "version",
+                    "providers",
+                    "verification_uri"
+                  ],
+                  "properties": {
+                    "wizard": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": 1
+                    },
+                    "providers": {
+                      "type": "array",
+                      "items": {
+                        "enum": [
+                          "webhotel",
+                          "debian"
+                        ]
+                      }
+                    },
+                    "verification_uri": {
+                      "const": "https://openwebpbx.com/wizard"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Setup refusal, including rate limits. No tokens or verification codes are returned in errors.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/account/register": {
+      "post": {
+        "operationId": "wizardRegister",
+        "summary": "Create an email-verified owner account",
+        "description": "Queues a one-use email code through global SMTP. No PBX service is created by this route.",
+        "tags": [
+          "Account"
+        ],
+        "security": [],
+        "responses": {
+          "202": {
+            "description": "Successful setup step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Setup refusal, including rate limits. No tokens or verification codes are returned in errors.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "tenant_name",
+                  "slug",
+                  "email",
+                  "password",
+                  "accept_terms"
+                ],
+                "properties": {
+                  "tenant_name": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 120
+                  },
+                  "slug": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 40
+                  },
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 12,
+                    "maxLength": 72,
+                    "format": "password"
+                  },
+                  "accept_terms": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/account/verify": {
+      "post": {
+        "operationId": "wizardVerify",
+        "summary": "Confirm registration and obtain an owner token",
+        "description": "Requires the emailed code and the original chosen password.",
+        "tags": [
+          "Account"
+        ],
+        "security": [],
+        "responses": {
+          "default": {
+            "description": "Setup refusal, including rate limits. No tokens or verification codes are returned in errors.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Successful setup step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountToken"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "token",
+                  "password"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "password": {
+                    "type": "string",
+                    "format": "password",
+                    "maxLength": 72
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/account/login": {
+      "post": {
+        "operationId": "wizardLogin",
+        "summary": "Sign in to an existing owner account",
+        "description": "",
+        "tags": [
+          "Account"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Successful setup step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountToken"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Setup refusal, including rate limits. No tokens or verification codes are returned in errors.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "email",
+                  "password"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "password": {
+                    "type": "string",
+                    "format": "password",
+                    "maxLength": 72
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/account/email/request": {
+      "post": {
+        "operationId": "wizardRequestEmail",
+        "summary": "Confirm an existing invited owner email",
+        "description": "Queues a generic confirmation response. Does not change whether an account was invited or publicly registered.",
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "ownerBearer": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful setup step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Setup refusal, including rate limits. No tokens or verification codes are returned in errors.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [],
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/account/email/verify": {
+      "post": {
+        "operationId": "wizardVerifyEmail",
+        "summary": "Verify the current owner email",
+        "description": "",
+        "tags": [
+          "Account"
+        ],
+        "security": [
+          {
+            "ownerBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful setup step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Setup refusal, including rate limits. No tokens or verification codes are returned in errors.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "token",
+                  "password"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "password": {
+                    "type": "string",
+                    "format": "password",
+                    "maxLength": 72
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/devices": {
+      "post": {
+        "operationId": "wizardStartImage",
+        "summary": "Start a Webhotel or Debian first-boot session",
+        "description": "Use the image public peer address; no proxy header or supplied address is trusted. Codes expire after30 minutes. An expired same-image code can rotate while preserving its claimed owner and DNS binding. Never include device_code in the browser link.",
+        "tags": [
+          "Image setup"
+        ],
+        "security": [],
+        "responses": {
+          "201": {
+            "description": "Successful setup step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "pairing_uuid",
+                    "device_code",
+                    "user_code",
+                    "verification_uri",
+                    "verification_uri_complete",
+                    "expires_at",
+                    "poll_interval"
+                  ],
+                  "properties": {
+                    "pairing_uuid": {
+                      "$ref": "#/components/schemas/Id"
+                    },
+                    "device_code": {
+                      "$ref": "#/components/schemas/DeviceCode"
+                    },
+                    "user_code": {
+                      "$ref": "#/components/schemas/UserCode"
+                    },
+                    "verification_uri": {
+                      "const": "https://openwebpbx.com/wizard"
+                    },
+                    "verification_uri_complete": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "expires_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "poll_interval": {
+                      "const": 5
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Setup refusal, including rate limits. No tokens or verification codes are returned in errors.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "provider",
+                  "image_version",
+                  "public_key",
+                  "local_tenant_uuid",
+                  "domain_uuid"
+                ],
+                "properties": {
+                  "provider": {
+                    "enum": [
+                      "webhotel",
+                      "debian"
+                    ]
+                  },
+                  "image_version": {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "public_key": {
+                    "type": "string",
+                    "description": "Base64 SPKI DER P-256 public key."
+                  },
+                  "local_tenant_uuid": {
+                    "$ref": "#/components/schemas/Id"
+                  },
+                  "domain_uuid": {
+                    "$ref": "#/components/schemas/Id"
+                  },
+                  "bootstrap_uuid": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "Optional installed v4 UUID. Defines the immutable node-UUID.openwebpbx.com canonical hostname."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/devices/lookup": {
+      "post": {
+        "operationId": "wizardLookupImage",
+        "summary": "Find a server using its user-facing setup code",
+        "description": "Returns only pairing UUID, state, provider, version, public address and expiry. No private device/owner data.",
+        "tags": [
+          "Image setup"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Successful setup step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Setup refusal, including rate limits. No tokens or verification codes are returned in errors.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "user_code"
+                ],
+                "properties": {
+                  "user_code": {
+                    "$ref": "#/components/schemas/UserCode"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/claim": {
+      "post": {
+        "operationId": "wizardClaimImage",
+        "summary": "Connect the image to the verified owner and chosen tenant name",
+        "description": "Owner and label are immutable after claim. Requires a confirmed current account email. Creates no hosted PBX service on the central server.",
+        "tags": [
+          "Image setup"
+        ],
+        "security": [
+          {
+            "ownerBearer": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful setup step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Setup refusal, including rate limits. No tokens or verification codes are returned in errors.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "user_code",
+                  "label",
+                  "confirm_server",
+                  "accept_terms"
+                ],
+                "properties": {
+                  "user_code": {
+                    "$ref": "#/components/schemas/UserCode"
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 40
+                  },
+                  "confirm_server": {
+                    "const": true
+                  },
+                  "accept_terms": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/devices/poll": {
+      "post": {
+        "operationId": "wizardPollImage",
+        "summary": "Poll only from the image with its private device credential",
+        "description": "Before claim returns state only. After claim includes bootstrap owner UUID/nonce/proof bytes; after authorization includes the signed activation and completion nonce. Completed, unexpired grants permit device-based renewal without retaining owner credentials.",
+        "tags": [
+          "Image setup"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Successful setup step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Setup refusal, including rate limits. No tokens or verification codes are returned in errors.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "device_code"
+                ],
+                "properties": {
+                  "device_code": {
+                    "$ref": "#/components/schemas/DeviceCode"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/devices/bootstrap": {
+      "post": {
+        "operationId": "wizardBootstrapImage",
+        "summary": "Prove the image identity and allocate its canonical DNS hostname",
+        "description": "The custodian checks the P256 signature and exact public HTTP80 nonce proof before creating the immutable node DNS record. No provider secret is supplied by the user.",
+        "tags": [
+          "Image setup"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Successful setup step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Setup refusal, including rate limits. No tokens or verification codes are returned in errors.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "device_code",
+                  "signature"
+                ],
+                "properties": {
+                  "device_code": {
+                    "$ref": "#/components/schemas/DeviceCode"
+                  },
+                  "signature": {
+                    "$ref": "#/components/schemas/Signature"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/devices/challenge": {
+      "post": {
+        "operationId": "wizardChallengeImage",
+        "summary": "Request fresh trusted HTTPS authorization proof",
+        "description": "Allowed only after canonical DNS is ready. Returns challenge_uuid, nonce, key_hash, proof_path, proof_body, account_tenant_uuid and expiry. The image publishes the exact proof bytes on its trusted canonical hostname.",
+        "tags": [
+          "Image setup"
+        ],
+        "security": [],
+        "responses": {
+          "201": {
+            "description": "Successful setup step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Setup refusal, including rate limits. No tokens or verification codes are returned in errors.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "device_code"
+                ],
+                "properties": {
+                  "device_code": {
+                    "$ref": "#/components/schemas/DeviceCode"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/devices/authorize": {
+      "post": {
+        "operationId": "wizardAuthorizeImage",
+        "summary": "Sign the challenge and obtain a local-instance activation",
+        "description": "The challenge must belong to this pairing. Authority rechecks owner/email status, signature, exact HTTPS proof, local IDs, key, hostname and requested label. The installed PBX independently verifies the pinned RSA receipt before storing it.",
+        "tags": [
+          "Image setup"
+        ],
+        "security": [],
+        "responses": {
+          "201": {
+            "description": "Successful setup step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "installation",
+                    "activation"
+                  ],
+                  "properties": {
+                    "installation": {
+                      "type": "object"
+                    },
+                    "activation": {
+                      "$ref": "#/components/schemas/Activation"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Setup refusal, including rate limits. No tokens or verification codes are returned in errors.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "device_code",
+                  "challenge_uuid",
+                  "signature"
+                ],
+                "properties": {
+                  "device_code": {
+                    "$ref": "#/components/schemas/DeviceCode"
+                  },
+                  "challenge_uuid": {
+                    "$ref": "#/components/schemas/Id"
+                  },
+                  "signature": {
+                    "$ref": "#/components/schemas/Signature"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/devices/complete": {
+      "post": {
+        "operationId": "wizardCompleteImage",
+        "summary": "Confirm the actual tenant HTTPS address is usable",
+        "description": "Requires the fresh completion signature, matching custodian ownership tuple and trusted tenant HTTPS nonce proof. Authorization alone never makes the browser ready.",
+        "tags": [
+          "Image setup"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Successful setup step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Setup refusal, including rate limits. No tokens or verification codes are returned in errors.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "device_code",
+                  "hostname",
+                  "signature"
+                ],
+                "properties": {
+                  "device_code": {
+                    "$ref": "#/components/schemas/DeviceCode"
+                  },
+                  "hostname": {
+                    "type": "string",
+                    "description": "Exact hostname assigned by the installed tenant-domain worker; collision suffixes must be preserved."
+                  },
+                  "signature": {
+                    "$ref": "#/components/schemas/Signature"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sessions/{pairing_uuid}": {
+      "get": {
+        "operationId": "wizardSetupStatus",
+        "summary": "Check progress as the original owner",
+        "description": "Owner-scoped, read-only progress without the private device credential, signed activation, challenge nonce or public key.",
+        "tags": [
+          "Image setup"
+        ],
+        "security": [
+          {
+            "ownerBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful setup step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Setup refusal, including rate limits. No tokens or verification codes are returned in errors.",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "pairing_uuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ownerBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Owner token obtained from email verification or login. Browser memory only. Never pass this to a guest image."
+      }
+    },
+    "schemas": {
+      "Id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "DeviceCode": {
+        "type": "string",
+        "pattern": "^owpd_[a-f0-9]{64}$",
+        "description": "Private image credential. Keep only in root-owned state; never put it in a browser URL or send it to an owner."
+      },
+      "UserCode": {
+        "type": "string",
+        "pattern": "^[A-Fa-f0-9]{5}-?[A-Fa-f0-9]{5}$",
+        "example": "ABCDE-12345"
+      },
+      "Signature": {
+        "type": "string",
+        "description": "Base64 DER ECDSA P-256 SHA256 signature. The exact signed bytes are documented in docs/webhotel-onboarding.md."
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "error",
+          "request_id"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "Session": {
+        "type": "object",
+        "properties": {
+          "pairing_uuid": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "claimed",
+              "bootstrap_pending",
+              "dns_ready",
+              "authorized",
+              "complete",
+              "revoked"
+            ]
+          },
+          "provider": {
+            "enum": [
+              "webhotel",
+              "debian"
+            ]
+          },
+          "image_version": {
+            "type": "string"
+          },
+          "server_address": {
+            "type": "string",
+            "description": "Public peer IP observed by the authority; forwarded headers are ignored."
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "server_host": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "tenant_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Present only after the fresh trusted tenant HTTPS proof passes."
+          },
+          "admin_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Activation": {
+        "type": "object",
+        "required": [
+          "key_id",
+          "algorithm",
+          "payload",
+          "signature"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "key_id": {
+            "const": "installation-2026-a"
+          },
+          "algorithm": {
+            "const": "RS256"
+          },
+          "payload": {
+            "type": "string",
+            "description": "Base64url original signed JSON; do not reserialize before verifying."
+          },
+          "signature": {
+            "type": "string",
+            "description": "Base64url RSA3072 SHA256 signature."
+          }
+        }
+      },
+      "AccountToken": {
+        "type": "object",
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Owner bearer credential. Browser memory only; do not pass to the server image."
+          },
+          "token_type": {
+            "const": "Bearer"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tenant": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  },
+  "x-proof-protocol": {
+    "encoding": "UTF-8; every message ends with a final newline; UUIDs lowercase and dashed; key hash SHA256 lowercase hex; ECDSA P256 SHA256 signature base64 DER",
+    "bootstrap_signature": "openwebpbx-bootstrap-v1\n{nonce}\n{serverAddress}\n{keyHash}\n{bootstrapUuid}\n{accountTenantUuid}\n{localTenantUuid}\n{domainUuid}\n{label}\n",
+    "bootstrap_http80_body": "openwebpbx-bootstrap-v1\n{nonce}\n{keyHash}\n{serverAddress}\n",
+    "authority_signature": "openwebpbx-installation-v1\n{nonce}\n{canonicalServerHost}\n{keyHash}\n{accountTenantUuid}\n{localTenantUuid}\n{domainUuid}\n{label}\n",
+    "canonical_or_tenant_https_body": "openwebpbx-instance-v1\n{nonce}\n{keyHash}\n{canonicalServerHost}\n",
+    "completion_signature": "openwebpbx-complete-v1\n{completeNonce}\n{keyHash}\n{canonicalServerHost}\n{actualTenantHostname}\n{domainUuid}\n",
+    "ownership_rule": "Publish only the fixed nonce path /.well-known/openwebpbx-instance/{nonce}. Authority is required before alias creation; completed browser readiness also requires a fresh tenant TLS proof and matching enabled registry ownership. No guest receives owner credentials."
+  }
+}

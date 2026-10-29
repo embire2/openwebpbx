@@ -3,6 +3,8 @@
 if(PHP_SAPI!=='cli')exit(2);
 $db=new PDO($argv[1],'postgres',null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);$state=$argv[2];
 class pbx_paths {public static string $state;public static function state(){return self::$state;}public static function host(){return 'server.example.test';}}
+class config {public static bool $required=false;public static function load(){return new self;}public function get($key,$default=null){return $key==='openweb.onboarding_required'&&self::$required?'true':$default;}}
+require dirname(__DIR__).'/resources/classes/pbx_onboarding.php';
 pbx_paths::$state=$state;require dirname(__DIR__).'/resources/classes/pbx_tenant_domains.php';
 function is_uuid($value): bool {return is_string($value)&&preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/D',$value)===1;}
 require dirname(__DIR__).'/resources/classes/pbx_departments.php';require dirname(__DIR__).'/resources/classes/pbx_staff_access.php';
@@ -31,6 +33,14 @@ $_SESSION=[];$_GET=[];pbx_tenant_domains::guardRequest($db,['HTTP_HOST'=>$hosts[
 foreach([$hosts[$a].':444',$hosts[$a].'.',$hosts[$a].'.:443']as$badHost)refuse(fn()=>pbx_tenant_domains::guardRequest($db,['HTTP_HOST'=>$badHost]),'Malformed leased host cannot bypass guard');
 $_SESSION=['authorized'=>true,'user_uuid'=>$owner];pbx_tenant_domains::guardRequest($db,['HTTP_HOST'=>$hosts[$a]]);check($_SESSION['domain_uuid']===$a,'Assigned tenant administrator allowed');
 $_SESSION=['authorized'=>true,'user_uuid'=>$foreign];refuse(fn()=>pbx_tenant_domains::guardRequest($db,['HTTP_HOST'=>$hosts[$a]]),'Foreign administrator cannot cross host');
+// Fresh instance owners use their actual global group and exact owned service.
+$db->exec('create table v_groups(group_uuid uuid primary key,group_name text,domain_uuid uuid);alter table v_user_groups add column group_uuid uuid');$global=$uuid('global-superadmin');$db->prepare("insert into v_groups values(?,'superadmin',null)")->execute([$global]);
+$db->prepare("update v_user_groups set group_name='superadmin',group_uuid=? where user_uuid in (?,?)")->execute([$global,$owner,$foreign]);config::$required=true;
+$_SESSION=['authorized'=>true,'user_uuid'=>$owner];pbx_tenant_domains::guardRequest($db,['HTTP_HOST'=>$hosts[$a]]);check($_SESSION['domain_uuid']===$a,'Fresh global owner enters its exact ready service alias');
+$_SESSION=['authorized'=>true,'user_uuid'=>$foreign];refuse(fn()=>pbx_tenant_domains::guardRequest($db,['HTTP_HOST'=>$hosts[$a]]),'Foreign global administrator cannot enter another owner alias');
+$db->prepare('update v_user_groups set group_uuid=? where user_uuid=?')->execute([$uuid('fake-global'),$owner]);$_SESSION=['authorized'=>true,'user_uuid'=>$owner];refuse(fn()=>pbx_tenant_domains::guardRequest($db,['HTTP_HOST'=>$hosts[$a]]),'A superadmin group name without its real group cannot grant alias access');
+$db->prepare('update v_user_groups set group_uuid=? where user_uuid=?')->execute([$global,$owner]);$db->exec("update v_groups set group_name='invented-admin'");refuse(fn()=>pbx_tenant_domains::guardRequest($db,['HTTP_HOST'=>$hosts[$a]]),'Altered global group refuses fresh alias owner access');
+config::$required=false;$db->exec("update v_user_groups set group_name='tenant_admin';alter table v_user_groups drop column group_uuid");
 // Existing department staff use their actual grant validator, without tenant_admin membership.
 $config=['users'=>[],'departments'=>[['number'=>'sales','members'=>[]]]];$staff=[];
 foreach(['user','receptionist','supervisor','department_admin','manager','owner']as$i=>$role){$id=$uuid('staff'.$role);$ext=$uuid('staff-extension'.$role);$number=(string)(100+$i);$staff[$role]=[$id,$ext,$number];$config['users'][$number]=['extension_uuid'=>$ext,'enabled'=>true];$config['departments'][0]['members'][]=['number'=>$number];$db->prepare("insert into v_users values(?,?,'true')")->execute([$id,$a]);$db->prepare("insert into v_user_groups values(?,'openweb_staff')")->execute([$id]);$db->prepare("insert into v_extensions values(?,?,?,'true')")->execute([$ext,$a,$number]);$db->prepare("insert into v_pbx_staff_roles values(?,?,?,?,'sales',?,true)")->execute([$uuid('grant'.$role),$a,$id,$ext,$role]);}

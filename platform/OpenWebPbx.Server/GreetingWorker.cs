@@ -6,7 +6,7 @@ namespace OpenWebPbx.Server;
 
 /// <summary>Tenant greeting preparation is separate from live calling and never exposes provider credentials to the web UI.</summary>
 public sealed class GreetingWorker(NpgsqlDataSource data, IHttpClientFactory clients, IConfiguration settings,
-    SwitchClient engine, ILogger<GreetingWorker> log) : BackgroundService
+    SwitchClient engine, ILogger<GreetingWorker> log, OnboardingGate? onboarding = null) : BackgroundService
 {
     public const string Voice = "i8SlcaZfyeP1st7wHsjM";
     public static string Introduction(string company, string category) =>
@@ -57,19 +57,24 @@ public sealed class GreetingWorker(NpgsqlDataSource data, IHttpClientFactory cli
     }
     private async Task Prepare(NpgsqlConnection db, CancellationToken ct)
     {
+        var access = onboarding is null ? null : await onboarding.Read(db, ct);
         Guid id, domain; string source, company, category, script, name;
         await using (var claim = new NpgsqlCommand("""
             with chosen as(select g.greeting_uuid from v_pbx_greetings g join v_domains d using(domain_uuid)
              join v_users u on u.user_uuid=g.created_by where g.state='pending' and g.attempts<3 and d.domain_enabled='true' and u.user_enabled='true'
              and not exists(select 1 from v_pbx_services s join v_pbx_tenants t using(tenant_uuid) where s.domain_uuid=g.domain_uuid and not t.enabled)
+             and (not $1 or g.domain_uuid=any($2))
              order by g.created_at for update of g skip locked limit 1)
             update v_pbx_greetings g set state='preparing',attempts=attempts+1,lease_until=now()+interval '10 minutes',updated_at=now()
              from chosen where g.greeting_uuid=chosen.greeting_uuid returning g.greeting_uuid,g.domain_uuid,g.source,g.company_name,g.category,g.script,g.name
-            """,db))
+            """,db)) {
+        claim.Parameters.AddWithValue(access?.Required ?? false);claim.Parameters.AddWithValue(access?.Identifiers ?? Array.Empty<Guid>());
         await using (var reader=await claim.ExecuteReaderAsync(ct)) {
             if (!await reader.ReadAsync(ct)) return;
             id=reader.GetGuid(0);domain=reader.GetGuid(1);source=reader.GetString(2);company=reader.GetString(3);category=reader.GetString(4);script=reader.GetString(5);name=reader.GetString(6);
         }
+        }
+        if(onboarding is not null && !(await onboarding.Read(db,ct)).Allows(domain))return;
         var directory=Path.Combine(Root,domain.ToString("D"),"greetings",id.ToString("D"));
         try {
             Directory.CreateDirectory(directory);
@@ -138,6 +143,7 @@ public sealed class GreetingWorker(NpgsqlDataSource data, IHttpClientFactory cli
     }
     private async Task Dispatch(NpgsqlConnection db,CancellationToken ct)
     {
+        var access = onboarding is null ? null : await onboarding.Read(db, ct);
         // A call is never automatically redialled. An administrator must retry a failed recording.
         await using(var stale=new NpgsqlCommand("select greeting_uuid,call_uuid from v_pbx_greetings where state='calling' and lease_until<now() limit 10",db)) {
             var rows=new List<(Guid,Guid?)>();await using(var reader=await stale.ExecuteReaderAsync(ct))while(await reader.ReadAsync(ct))rows.Add((reader.GetGuid(0),reader.IsDBNull(1)?null:reader.GetGuid(1)));
@@ -151,12 +157,16 @@ public sealed class GreetingWorker(NpgsqlDataSource data, IHttpClientFactory cli
           with chosen as(select g.greeting_uuid from v_pbx_greetings g join v_domains d using(domain_uuid)
            join v_users u on u.user_uuid=g.created_by where g.state='ready_to_call' and d.domain_enabled='true' and u.user_enabled='true'
            and not exists(select 1 from v_pbx_services s join v_pbx_tenants t using(tenant_uuid) where s.domain_uuid=g.domain_uuid and not t.enabled)
+           and (not $1 or g.domain_uuid=any($2))
            order by g.created_at for update of g skip locked limit 1)
           update v_pbx_greetings g set state='calling',call_uuid=gen_random_uuid(),lease_until=now()+interval '10 minutes',updated_at=now()
-           from chosen where g.greeting_uuid=chosen.greeting_uuid returning g.greeting_uuid
+           from chosen where g.greeting_uuid=chosen.greeting_uuid returning g.greeting_uuid,g.domain_uuid
           """,db);
-        var claimed=await claim.ExecuteScalarAsync(ct);
+        claim.Parameters.AddWithValue(access?.Required ?? false);claim.Parameters.AddWithValue(access?.Identifiers ?? Array.Empty<Guid>());
+        Guid? claimed=null;Guid domain=default;
+        await using(var reader=await claim.ExecuteReaderAsync(ct))if(await reader.ReadAsync(ct)){claimed=reader.GetGuid(0);domain=reader.GetGuid(1);}
         if(claimed is Guid greeting) {
+            if(onboarding is not null && !(await onboarding.Read(db,ct)).Allows(domain))return;
             var answer=await engine.Execute("luarun app/pbx_greetings/call.lua "+greeting.ToString("D"),ct);
             if(!answer.StartsWith("+OK",StringComparison.Ordinal))throw new IOException("The recording call could not be dispatched.");
         }

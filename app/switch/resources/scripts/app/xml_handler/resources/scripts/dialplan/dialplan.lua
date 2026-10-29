@@ -34,6 +34,8 @@
 --connect to the database
 	local Database = require "resources.functions.database";
 	dbh = Database.new('system');
+	local onboarding=dofile(scripts_dir..'/app/pbx_onboarding/gate.lua');
+	if not onboarding.context(dbh,call_context or 'public',params and params:getHeader('variable_domain_uuid'))then XML_STRING='<document type="freeswitch/xml"><section name="result"><result status="not found"/></section></document>';dbh:release();return;end
 
 --needed for cli-command xml_locate dialplan
 	if (call_context == nil) then
@@ -217,6 +219,7 @@
 					freeswitch.consoleLog("notice", "[dialplan] SQL: " .. sql .. "; params:" .. json.encode(params) .. "\n");
 				end
 				dbh:query(sql, params, function(row)
+                    if row.domain_uuid and not onboarding.allowed(dbh,row.domain_uuid)then return end
 					dialplan_found = true;
 					if (row.domain_uuid ~= nil) then
 						domain_name = row.domain_name;
@@ -276,6 +279,7 @@
 					freeswitch.consoleLog("notice", "[dialplan] SQL: " .. sql .. "; params:" .. json.encode(params) .. "\n");
 				end
 				dbh:query(sql, params, function(row)
+                    if row.domain_uuid and not onboarding.allowed(dbh,row.domain_uuid)then return end
 					dialplan_found = true;
 					xml:append(row.dialplan_xml);
 				end);
@@ -341,7 +345,7 @@ if context_name == 'public' then
         local fragments = {}
         if installed then
             incoming_db:query([[
-                select plan.dialplan_xml from v_dialplans plan
+                select plan.domain_uuid,plan.dialplan_xml from v_dialplans plan
                 join v_pbx_restore restored on restored.domain_uuid=plan.domain_uuid
                 cross join lateral jsonb_array_elements(case when jsonb_typeof(restored.config->'inbound_rules')='array' then restored.config->'inbound_rules' else '[]'::jsonb end) incoming
                 join lateral jsonb_each(case when jsonb_typeof(restored.config->'trunks')='object' then restored.config->'trunks' else '{}'::jsonb end) trunk
@@ -359,7 +363,7 @@ if context_name == 'public' then
                         where service.domain_uuid=plan.domain_uuid and tenant.enabled=false)
                 order by plan.dialplan_order,plan.dialplan_uuid
             ]], {hostname=hostname}, function(row)
-                fragments[#fragments+1] = row.dialplan_xml
+                if onboarding.allowed(incoming_db,row.domain_uuid) then fragments[#fragments+1] = row.dialplan_xml end
             end)
         end
         incoming_db:release()

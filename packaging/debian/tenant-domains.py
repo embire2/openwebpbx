@@ -114,6 +114,7 @@ class Broker:
         try:
             request={'challenge':nonce,'publicKey':public,'serverHost':server,'tenantUuid':row['tenant_uuid'],'domainUuid':row['domain_uuid'],'label':row['requested_label'],'enabled':row['desired_enabled']in(True,'t','1',1),'revision':int(row['revision']),'move':move}
             request['signature']=base64.b64encode(key.sign(message(request,key_hash),ec.ECDSA(hashes.SHA256()))).decode()
+            if row.get('authorization'):request['authorization']=row['authorization']
             reply=self.post('/v1/leases',request,request['revision']if move else None)
             if not isinstance(reply,dict)or set(reply)!={'hostname','serverHost','state','enabled','revision'}or reply['serverHost']!=server or type(reply['enabled'])is not bool or reply['enabled']!=request['enabled']or reply['state']not in['dns_ready','pending_dns','dns_conflict','disabled']or type(reply['revision'])is not int or reply['revision']!=(int(row['revision'])+(1 if move or not row['revision']else 0)):raise Pending('network')
             hostname(reply['hostname'],tenant=True)
@@ -126,6 +127,14 @@ def bridge(b, operation, value=None):
     helper=Path(__file__).with_name('tenant-domains.php')
     result=subprocess.run([php,str(ordinary(helper)),str(b.WEB_VERSION.parent),operation],input=None if value is None else json.dumps(value).encode(),stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=35)
     if result.returncode or len(result.stdout)>256*1024:raise Pending('local_configuration')
+    return json.loads(result.stdout)
+
+def onboarding(b,operation):
+    helper=Path(__file__).with_name('onboarding.php')
+    if not helper.is_file():return {}
+    php=str(b.APP/'php/php.exe')if IS_WINDOWS else'/usr/bin/php'
+    result=subprocess.run([php,str(helper),str(b.WEB_VERSION.parent),operation],input=b'{}',capture_output=True,timeout=40)
+    if result.returncode or len(result.stdout)>65536:raise Pending('local_configuration')
     return json.loads(result.stdout)
 
 def windows(b, operation, value):
@@ -265,7 +274,8 @@ def run(move=False, confirm=None):
                 backoff=private/'certificate-backoff.json'
                 if backoff.exists()and json.loads(ordinary(backoff).read_text()).get('until',0)>time.time():raise Pending('certificate_pending',int(json.loads(backoff.read_text())['until']-time.time()))
                 until=certify([row['hostname']for row in active],key_hash,private,initial['contact_email'],b);backoff.unlink(missing_ok=True)
-                atomic(state/'ready.json',json.dumps({'schema':1,'server_host':server,'key_hash':key_hash,'aliases':{row['hostname']:until for row in active}}).encode(),True)
+                grants=onboarding(b,'grants')
+                atomic(state/'ready.json',json.dumps({'schema':1,'server_host':server,'key_hash':key_hash,'aliases':{row['hostname']:until for row in active},'authorizations':grants}).encode(),True)
             except (Pending,OSError,ValueError,subprocess.SubprocessError)as error:
                 cert_error=error if isinstance(error,Pending)else Pending('certificate_pending',3600);atomic(private/'certificate-backoff.json',json.dumps({'until':time.time()+cert_error.seconds,'category':cert_error.category}).encode())
         else:atomic(state/'ready.json',json.dumps({'schema':1,'server_host':server,'key_hash':key_hash,'aliases':{}}).encode(),True)
@@ -274,6 +284,9 @@ def run(move=False, confirm=None):
             elif cert_error and row in active:
                 row['state']='ready'if row['hostname']in old_ready and dt.datetime.fromisoformat(old_ready[row['hostname']]).timestamp()>time.time()else'pending_tls';error=cert_error.category;delay=cert_error.seconds
             bridge(b,'record',{k:row[k]for k in ['domain_uuid','hostname','server_host','key_hash','revision','state','certificate_not_after']}|{'error_category':error,'retry_seconds':delay})
+        # Reconcile only after the real DNS/certificate publication and local
+        # ready marker, so authorization alone never enables calling.
+        onboarding(b,'reconcile')
         return {'state':'complete','processed':len(changed),'ready':len(active)if until else 0,'pending':sum(row['state']!='ready'for row,_,_ in changed)}
 
 if __name__=='__main__':

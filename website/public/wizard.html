@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#dceafa"><meta name="color-scheme" content="light dark">
+  <title>Set up your server — OpenWeb PBX</title>
+  <meta name="description" content="Connect your OpenWeb PBX Debian or Webhotel.cloud server, verify your account and choose its free openwebpbx.com address.">
+  <link rel="canonical" href="https://openwebpbx.com/wizard"><link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/site.css?v=20261025-logo"><link rel="stylesheet" href="/assets/wizard.css?v=20261029">
+  <link rel="stylesheet" href="/assets/privacy.css?v=20261017">
+  <script src="/assets/privacy.js?v=20261017" defer></script><script src="/assets/wizard.js?v=20261029" defer></script>
+</head>
+<body class="wizard-desktop">
+<a class="skip-link" href="#wizard-main">Skip to setup</a>
+<div class="wizard-topline"><a href="/">OpenWeb PBX</a><span>Free software. Your own server.</span></div>
+<main class="app-window wizard-window" id="wizard-main">
+  <div class="window-titlebar"><div class="window-title"><img src="/assets/mark.svg" width="19" height="19" alt=""><strong>Set up OpenWeb PBX</strong></div><span class="wizard-caption">A few simple steps</span></div>
+  <nav class="app-navigation" aria-label="Main navigation">
+    <a class="wordmark" href="/"><img class="brand-logo" src="/assets/openwebpbx-logo.png" width="2172" height="724" alt="OpenWebPBX"></a>
+    <div class="nav-links"><a href="/api-docs">API docs</a><a href="/support.html">Help</a></div>
+    <button class="wizard-theme" type="button" data-wizard-theme hidden>Dark appearance</button>
+  </nav>
+  <div class="wizard-shell">
+    <aside class="wizard-sidebar">
+      <span class="wizard-eyebrow">Your server, connected</span><h1>Let's get you calling.</h1>
+      <p>We'll connect the server you installed and prepare its OpenWeb PBX address.</p>
+      <ol class="wizard-steps" aria-label="Setup progress">
+        <li data-step="server" aria-current="step"><span>1</span><div><strong>Find your server</strong><small>Use its setup code</small></div></li>
+        <li data-step="account"><span>2</span><div><strong>Your account</strong><small>Sign in or register</small></div></li>
+        <li data-step="address"><span>3</span><div><strong>Choose your address</strong><small>A name for your PBX</small></div></li>
+        <li data-step="progress"><span>4</span><div><strong>Ready to use</strong><small>We prepare the connection</small></div></li>
+      </ol>
+      <div class="wizard-note"><strong>Installing on Webhotel.cloud?</strong><p>Open your new server's console or setup details and use the OpenWeb PBX setup link shown there.</p></div>
+    </aside>
+    <div class="wizard-content">
+      <div class="wizard-message" role="alert" data-wizard-error hidden></div>
+      <div class="wizard-message wizard-info" role="status" data-wizard-notice hidden></div>
+      <noscript><div class="wizard-message">This guided setup needs JavaScript. You can also use the <a href="/api-docs">documented API</a> or the setup wizard installed on your PBX.</div></noscript>
+      <section data-panel="server" aria-labelledby="server-title">
+        <span class="wizard-section-icon" aria-hidden="true">⌘</span><h2 id="server-title" tabindex="-1">Find your new server</h2>
+        <p>Enter the setup code displayed by your OpenWeb PBX installation. If you opened its setup link, the code is already here.</p>
+        <form id="server-form" method="post" action="/wizard">
+          <label for="server-code">Server setup code</label><input id="server-code" name="user_code" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="24" placeholder="ABCDE-12345" required aria-describedby="server-help">
+          <small id="server-help">This code connects only the server you just installed. Codes expire after 30 minutes.</small>
+          <button class="button primary" type="submit">Find my server <span aria-hidden="true">→</span></button>
+        </form>
+        <details class="wizard-help"><summary>Where do I find my setup code?</summary><p>For a Webhotel.cloud installation, open the new server's console or setup details. For another Debian installation, use the setup link displayed after installation. Keep that server running while you finish these steps.</p></details>
+      </section>
+      <section data-panel="account" hidden aria-labelledby="account-title">
+        <span class="wizard-section-icon" aria-hidden="true">☺</span><h2 id="account-title" tabindex="-1">Connect your account</h2>
+        <div class="wizard-server-card" data-server-summary></div>
+        <div class="wizard-tabs" role="group" aria-label="Account options"><button type="button" data-account-mode="register" aria-pressed="true">Create an account</button><button type="button" data-account-mode="login" aria-pressed="false">I already have an account</button></div>
+        <form id="account-form" method="post" action="/wizard">
+          <div data-registration-fields><label for="company-name">Company or organisation</label><input id="company-name" name="tenant_name" autocomplete="organization" maxlength="120" placeholder="Your company" required></div>
+          <label for="account-email">Your email</label><input id="account-email" name="email" type="email" autocomplete="username" maxlength="254" required placeholder="you@example.com">
+          <label for="account-password">Password</label><input id="account-password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="72" required aria-describedby="password-help">
+          <small id="password-help">Use at least 12 characters, including a letter and a number.</small>
+          <label class="wizard-check" data-registration-fields><input id="account-terms" type="checkbox" required><span>I accept the <a href="/terms" target="_blank" rel="noopener noreferrer">terms</a> and have read the <a href="/privacy" target="_blank" rel="noopener noreferrer">privacy policy</a>.</span></label>
+          <button class="button primary" type="submit" data-account-submit>Create my account <span aria-hidden="true">→</span></button>
+        </form>
+      </section>
+      <section data-panel="verify" hidden aria-labelledby="verify-title">
+        <span class="wizard-section-icon" aria-hidden="true">✉</span><h2 id="verify-title" tabindex="-1">Check your email</h2>
+        <p>We've requested a confirmation code for <strong data-email-label></strong>. Copy the code from the latest email into the box below.</p>
+        <form id="verify-form" method="post" action="/wizard">
+          <label for="verification-code">Email confirmation code</label><input id="verification-code" name="token" autocomplete="one-time-code" maxlength="64" pattern="[a-f0-9]{64}" spellcheck="false" required>
+          <div data-verification-password hidden><label for="verification-password">Your account password</label><input id="verification-password" type="password" autocomplete="current-password" maxlength="72"></div>
+          <small>The code is valid for 30 minutes. Check your spam folder if the email hasn't arrived.</small>
+          <button class="button primary" type="submit">Confirm my email <span aria-hidden="true">→</span></button>
+        </form>
+        <button type="button" class="wizard-text-button" data-restart-account>Use another account or request a new code</button>
+      </section>
+      <section data-panel="address" hidden aria-labelledby="address-title">
+        <span class="wizard-section-icon" aria-hidden="true">⌂</span><h2 id="address-title" tabindex="-1">Choose your PBX address</h2>
+        <p>Your team will use this address to open the portal and connect their OpenWeb PBX phone apps.</p>
+        <form id="address-form" method="post" action="/wizard">
+          <label for="tenant-label">Your business name</label><div class="wizard-address"><input id="tenant-label" name="label" type="text" autocomplete="off" spellcheck="false" maxlength="40" pattern="[a-z0-9][a-z0-9\-]{1,38}[a-z0-9]" required placeholder="your-company"><span>.openwebpbx.com</span></div>
+          <small>Use 3–40 lowercase letters, numbers or hyphens. An address is confirmed only after setup finishes.</small>
+          <label class="wizard-check"><input id="confirm-server" type="checkbox" required><span>This is the server I just installed. I obtained its setup code from my own server or hosting control panel.</span></label>
+          <label class="wizard-check"><input id="address-terms" type="checkbox" required><span>I accept the <a href="/terms" target="_blank" rel="noopener noreferrer">terms</a> and have read the <a href="/privacy" target="_blank" rel="noopener noreferrer">privacy policy</a>.</span></label>
+          <button class="button primary" type="submit">Prepare my PBX <span aria-hidden="true">→</span></button>
+        </form>
+      </section>
+      <section data-panel="progress" hidden aria-labelledby="progress-title">
+        <span class="wizard-section-icon wizard-spinner" aria-hidden="true">◌</span><h2 id="progress-title" tabindex="-1">Preparing your server</h2>
+        <p data-progress-message>Keep your server running. We are preparing its address and secure connection.</p>
+        <ol class="wizard-checklist" aria-label="Connection checks">
+          <li data-check="claimed">Account connected</li><li data-check="dns_ready">Server address created</li><li data-check="authorized">Server authorized</li><li data-check="complete">Tenant address and secure connection checked</li>
+        </ol>
+        <p class="wizard-progress-note">This can take a few minutes. You do not need to add DNS records or enter provider API credentials.</p>
+        <button class="button secondary" type="button" data-check-again>Check progress now</button>
+        <details class="wizard-help"><summary>Taking longer than expected?</summary><p>Make sure the server is still running and has internet access. If your hosting panel reports a blocked connection, use its support option. Your setup can safely retry without creating a second PBX.</p></details>
+      </section>
+      <section data-panel="ready" hidden aria-labelledby="ready-title">
+        <span class="wizard-section-icon wizard-success" aria-hidden="true">✓</span><h2 id="ready-title" tabindex="-1">Your PBX is ready</h2>
+        <p>Your server is registered and its secure tenant address has been checked.</p><div class="wizard-ready-address" data-ready-address></div>
+        <a class="button primary" data-open-admin href="#">Open my PBX <span aria-hidden="true">↗</span></a>
+        <p class="wizard-progress-note">Sign in using the administrator account configured on your installed PBX. Your OpenWeb registration account manages server authorization.</p>
+      </section>
+    </div>
+  </div>
+  <footer class="wizard-footer"><p>OpenWeb PBX is a free, open-source project. Your calls and PBX data stay on your installed server.</p><div><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/delete">Account removal</a><button type="button" data-privacy-settings>Privacy settings</button><a href="/api-docs">API documentation</a><a href="/wizard-openapi.json" download>Wizard API specification</a></div></footer>
+</main>
+</body></html>

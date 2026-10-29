@@ -13,6 +13,7 @@ local ok=pcall(function()
         and u.value->>'auth_id'=e.extension and u.value->>'enabled'='true' and r.config->>'realm'=d.domain_name
         and not exists(select 1 from v_pbx_services s join v_pbx_tenants t using(tenant_uuid) where s.domain_uuid=d.domain_uuid and not t.enabled)]],
         {user=user,domain=domain_name},function(r) record=r end)
+    if record and not dofile(scripts_dir..'/app/pbx_onboarding/gate.lua').allowed(db,record.domain_uuid)then record=nil end
 end)
 db:release()
 local method=tostring(params:getHeader('sip_auth_method') or ''):upper()

@@ -32,6 +32,7 @@ local mobile_contact=loadfile(scripts_dir..'/app/pbx_setup/mobile_contact.lua')(
 local db=Database.new('system')
 local api=freeswitch.API()
 local domain=session:getVariable('domain_uuid') or ''
+if not dofile(scripts_dir..'/app/pbx_onboarding/gate.lua').allowed(db,domain)then db:release();session:hangup('CALL_REJECTED');return end
 local config
 db:query([[select r.config from v_pbx_restore r join v_domains d using(domain_uuid)
     where r.domain_uuid=:domain and d.domain_enabled='true' and not exists

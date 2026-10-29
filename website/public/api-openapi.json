@@ -3,7 +3,7 @@
   "info": {
     "title": "OpenWebPBX Tenant API",
     "version": "1.0.0",
-    "description": "Email-verified tenant registration, isolated PBX self-provisioning and managed openwebpbx.com subdomains. Hosted services share the latest installed application files and one local instance database. This API does not create VMs or allocate carrier numbers. The hosted API is a separately deployed update; the original published 1.0.21 archives are unchanged. Self-hosted instances need a build containing this API and operator enablement. The API contract version is separate from server and Android package versions.",
+    "description": "Email-verified tenant registration, isolated PBX self-provisioning and managed openwebpbx.com subdomains. Hosted services share the latest installed application files and one local instance database. This API does not create VMs or allocate carrier numbers. The hosted API is a separately deployed update; the original published 1.0.21 archives are unchanged. Self-hosted instances need a build containing this API and operator enablement. The API contract version is separate from server and Android package versions. The central self-install authority adds seven installation/email operations. The browser and Webhotel image pairing API uses a separate /wizard route family; see https://openwebpbx.com/wizard-openapi.json and https://openwebpbx.com/api-docs#self-install. Remote installation authorization never creates a hosted PBX service.",
     "termsOfService": "https://openwebpbx.com/terms",
     "contact": {
       "name": "OpenWebPBX",
@@ -40,6 +40,9 @@
     },
     {
       "name": "Tokens"
+    },
+    {
+      "name": "Installation authorization"
     }
   ],
   "paths": {
@@ -1326,6 +1329,423 @@
           }
         }
       }
+    },
+    "/onboarding/authority": {
+      "get": {
+        "operationId": "getInstallationAuthority",
+        "summary": "Read the installation authority public identity",
+        "description": "Public read-only metadata. Packages pin their own independent copy of this RSA3072 key; never replace that trust solely from an unauthenticated response.",
+        "tags": [
+          "Installation authorization"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstallationAuthority"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "security": []
+      }
+    },
+    "/onboarding/email/request": {
+      "post": {
+        "operationId": "requestInstallationOwnerEmail",
+        "summary": "Request confirmation for an existing owner email",
+        "description": "Invited owners may sign in normally, then confirm their current administrator email before authorizing a remote installation. Queues a one-use code through global outgoing mail; no installation is activated.",
+        "tags": [
+          "Installation authorization"
+        ],
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [],
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/onboarding/email/verify": {
+      "post": {
+        "operationId": "verifyInstallationOwnerEmail",
+        "summary": "Confirm the existing owner email",
+        "description": "Requires the emailed code and current owner password. Keeps invitation/public-signup classification unchanged.",
+        "tags": [
+          "Installation authorization"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstallationEmailVerified"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallationEmailVerify"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/installations/challenge": {
+      "post": {
+        "operationId": "challengeInstallation",
+        "summary": "Request a server ownership challenge",
+        "description": "Requires an active, email-confirmed tenant owner. Binds canonical hostname, P256 public key, local tenant/domain UUIDs and desired label. Expires after five minutes. Does not create a hosted PBX service.",
+        "tags": [
+          "Installation authorization"
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstallationChallenge"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallationChallengeRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/installations": {
+      "get": {
+        "operationId": "listInstallations",
+        "summary": "List this owner’s authorized installations",
+        "description": "Returns only this verified owner’s installation metadata, without private keys or another account’s grants.",
+        "tags": [
+          "Installation authorization"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstallationList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        }
+      },
+      "post": {
+        "operationId": "authorizeInstallation",
+        "summary": "Authorize or renew an independently hosted PBX",
+        "description": "Verifies the exact challenge signature and fresh trusted canonical HTTPS nonce proof, then issues a signed one-year RSA authorization bound to owner/local IDs/key/hostname/label. The installed server independently verifies it before activation. Renewal increments generation and keeps bindings immutable. No central hosted PBX is created.",
+        "tags": [
+          "Installation authorization"
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstallationDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallationAuthorize"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/installations/{installation_uuid}": {
+      "get": {
+        "operationId": "getInstallation",
+        "summary": "Read one owned authorization and its signed receipt",
+        "description": "Owner-scoped. The signed receipt is usable only by the exact local instance identity. Tenant address DNS and trusted HTTPS readiness are separate from authorization.",
+        "tags": [
+          "Installation authorization"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstallationDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error405"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503"
+          }
+        },
+        "parameters": [
+          {
+            "name": "installation_uuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -2035,6 +2455,294 @@
           "request_id"
         ],
         "additionalProperties": false
+      },
+      "InstallationAuthority": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "issuer",
+          "key_id",
+          "algorithm",
+          "public_key_pem"
+        ],
+        "properties": {
+          "schema": {
+            "const": 1
+          },
+          "issuer": {
+            "const": "https://call.openweb.co.za/api/v1"
+          },
+          "key_id": {
+            "const": "installation-2026-a"
+          },
+          "algorithm": {
+            "const": "RS256"
+          },
+          "public_key_pem": {
+            "type": "string",
+            "description": "RSA3072 public identity. Installed clients verify against the independent public key pinned in their package."
+          }
+        }
+      },
+      "InstallationChallengeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "server_host",
+          "public_key",
+          "local_tenant_uuid",
+          "domain_uuid",
+          "label"
+        ],
+        "properties": {
+          "server_host": {
+            "type": "string",
+            "description": "Trusted public canonical hostname, or assigned immutable node-UUID.openwebpbx.com hostname."
+          },
+          "public_key": {
+            "type": "string",
+            "description": "Base64 SPKI DER P256 public key; never send the private key."
+          },
+          "local_tenant_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "domain_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 40
+          }
+        }
+      },
+      "InstallationChallenge": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "challenge_uuid",
+          "nonce",
+          "expires_at",
+          "proof_path",
+          "proof_body",
+          "key_hash",
+          "account_tenant_uuid"
+        ],
+        "properties": {
+          "challenge_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nonce": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "proof_path": {
+            "type": "string"
+          },
+          "proof_body": {
+            "type": "string",
+            "description": "Exact body to publish on the trusted canonical HTTPS hostname."
+          },
+          "key_hash": {
+            "type": "string"
+          },
+          "account_tenant_uuid": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "InstallationAuthorize": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "challenge_uuid",
+          "signature"
+        ],
+        "properties": {
+          "challenge_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "signature": {
+            "type": "string",
+            "description": "Base64 DER ECDSA P256 SHA256 signature over exact documented newline-delimited bytes."
+          }
+        }
+      },
+      "InstallationActivation": {
+        "type": "object",
+        "required": [
+          "key_id",
+          "algorithm",
+          "payload",
+          "signature"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "key_id": {
+            "const": "installation-2026-a"
+          },
+          "algorithm": {
+            "const": "RS256"
+          },
+          "payload": {
+            "type": "string",
+            "description": "Base64url original signed JSON; do not reserialize before verifying."
+          },
+          "signature": {
+            "type": "string",
+            "description": "Base64url RSA3072 SHA256 signature."
+          }
+        }
+      },
+      "Installation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "installation_uuid",
+          "account_tenant_uuid",
+          "local_tenant_uuid",
+          "domain_uuid",
+          "key_hash",
+          "server_host",
+          "label",
+          "state",
+          "generation",
+          "issued_at",
+          "expires_at",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "installation_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "account_tenant_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "local_tenant_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "domain_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key_hash": {
+            "type": "string"
+          },
+          "server_host": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "authorized",
+              "revoked"
+            ]
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "InstallationDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "installation",
+          "activation"
+        ],
+        "properties": {
+          "installation": {
+            "$ref": "#/components/schemas/Installation"
+          },
+          "activation": {
+            "$ref": "#/components/schemas/InstallationActivation"
+          }
+        }
+      },
+      "InstallationList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "installations"
+        ],
+        "properties": {
+          "installations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Installation"
+            }
+          }
+        }
+      },
+      "InstallationEmailVerify": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "token",
+          "password"
+        ],
+        "properties": {
+          "token": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 1,
+            "maxLength": 72
+          }
+        }
+      },
+      "InstallationEmailVerified": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "verified",
+          "email"
+        ],
+        "properties": {
+          "verified": {
+            "const": true
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          }
+        }
       }
     },
     "securitySchemes": {
@@ -2350,5 +3058,7 @@
     "url": "https://openwebpbx.com/api-docs",
     "description": "Quick start, request examples, limits and full reference."
   },
-  "x-portable-route": "https://call.openweb.co.za/api/v1/index.php?route={path}"
+  "x-portable-route": "https://call.openweb.co.za/api/v1/index.php?route={path}",
+  "x-wizard-openapi": "https://openwebpbx.com/wizard-openapi.json",
+  "x-setup-wizard": "https://openwebpbx.com/wizard"
 }

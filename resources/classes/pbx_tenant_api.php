@@ -83,6 +83,7 @@ class pbx_tenant_api {
         }
     }
     protected function domains(): pbx_tenant_api_domains { return new pbx_tenant_api_domains($this->db); }
+    protected function installationAuthority(): pbx_installation_authority {return new pbx_installation_authority($this->db);}
     /** Existing mail queue dispatches through the instance-wide SMTP service. */
     protected function queueVerification(array $registration,string $token): void {
         $platform=$this->q('select domain_uuid from v_domains where domain_name=:host',['host'=>pbx_paths::host()])->fetchColumn();
@@ -323,10 +324,25 @@ class pbx_tenant_api {
         if(!$this->q("select to_regclass('v_pbx_api_tokens')")->fetchColumn())$this->fail(503,'api_unavailable','The tenant API needs installation.');
         $headers=array_change_key_case($headers,CASE_LOWER);$route=rtrim($route,'/')?:'/';
         if($method==='GET'&&$route==='/health')return [200,['api'=>'OpenWeb PBX Tenant API','version'=>'1','software_version'=>pbx_updates::version(),'registration_enabled'=>$this->policy['registration_enabled'],'documentation'=>'https://openwebpbx.com/api-docs'],[]];
+        if($method==='GET'&&$route==='/onboarding/authority')return [200,$this->installationAuthority()->authority(),[]];
         if($method==='POST'&&$route==='/registrations')return [202,$this->register($input,$ip),[]];
         if($method==='POST'&&$route==='/registrations/verify')return [201,$this->verify($input,$ip),[]];
         if($method==='POST'&&$route==='/auth/token')return [200,$this->login($input,$ip),[]];
         $account=$this->authenticate($headers['authorization']??'');$this->rate('request:'.$account['tenant_uuid'],120,60);
+        if($route==='/onboarding/email/request'&&$method==='POST'){
+            $this->rate('installation-email-request:'.$account['tenant_uuid'],3,3600);return [202,$this->installationAuthority()->requestEmail($account,$input),[]];
+        }
+        if($route==='/onboarding/email/verify'&&$method==='POST'){
+            $this->rate('installation-email-verify:'.$account['tenant_uuid'],10,600);return [200,$this->installationAuthority()->verifyEmail($account,$input),[]];
+        }
+        if($route==='/installations/challenge'&&$method==='POST'){
+            $this->rate('installation-challenge:'.$account['tenant_uuid'],20,600);return [201,$this->installationAuthority()->challenge($account,$input),[]];
+        }
+        if($route==='/installations'){
+            if($method==='GET')return [200,$this->installationAuthority()->list($account),[]];
+            if($method==='POST'){$this->rate('installation-authorize:'.$account['tenant_uuid'],20,600);return [201,$this->installationAuthority()->authorize($account,$input),[]];}
+        }
+        if($method==='GET'&&preg_match('~^/installations/([0-9a-fA-F-]{36})$~D',$route,$installation))return [200,$this->installationAuthority()->get($account,$installation[1]),[]];
         if($method==='GET'&&$route==='/me')return [200,['tenant'=>$this->tenantView($account),'token'=>$account['token']],[]];
         if($method==='POST'&&$route==='/me/password')return $this->changePassword($account,$input);
         if($method==='GET'&&$route==='/templates')return [200,$this->templates($account),[]];
@@ -359,7 +375,8 @@ class pbx_tenant_api {
             if(empty($m[2])&&$method==='DELETE')return $this->tokenChange($account,'revoke',$m[1],$input);
             if(!empty($m[2])&&$method==='POST')return $this->tokenChange($account,'rotate',$m[1],$input);
         }
-        $known=['/health'=>['GET'],'/registrations'=>['POST'],'/registrations/verify'=>['POST'],'/auth/token'=>['POST'],'/me'=>['GET'],'/me/password'=>['POST'],'/templates'=>['GET'],'/services'=>['GET','POST'],'/subdomains/availability'=>['GET'],'/tokens'=>['GET','POST']];
+        $known=['/health'=>['GET'],'/onboarding/authority'=>['GET'],'/onboarding/email/request'=>['POST'],'/onboarding/email/verify'=>['POST'],'/installations/challenge'=>['POST'],'/installations'=>['GET','POST'],'/registrations'=>['POST'],'/registrations/verify'=>['POST'],'/auth/token'=>['POST'],'/me'=>['GET'],'/me/password'=>['POST'],'/templates'=>['GET'],'/services'=>['GET','POST'],'/subdomains/availability'=>['GET'],'/tokens'=>['GET','POST']];
+        if(preg_match('~^/installations/[0-9a-fA-F-]{36}$~D',$route))$this->fail(405,'method_not_allowed','This method is unavailable.',['Allow'=>'GET']);
         $allow=$known[$route]??(preg_match('~^/services/[0-9a-fA-F-]{36}/subdomain$~D',$route)?['GET','POST']:(preg_match('~^/services/[0-9a-fA-F-]{36}$~D',$route)?['GET']:(preg_match('~^/tokens/[0-9a-fA-F-]{36}/rotate$~D',$route)?['POST']:(preg_match('~^/tokens/[0-9a-fA-F-]{36}$~D',$route)?['DELETE']:null))));
         if($allow)$this->fail(405,'method_not_allowed','This method is unavailable.',['Allow'=>implode(', ',$allow)]);
         $this->fail(404,'not_found','This API endpoint is unavailable.');

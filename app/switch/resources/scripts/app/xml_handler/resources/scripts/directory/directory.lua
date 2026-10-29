@@ -91,6 +91,7 @@
 				to_domain=params:getHeader('sip_to_host'),
 				alias_enabled=xml_handler and xml_handler['reg_as_number_alias']=='true'
 			});
+			if auth_binding and not dofile(scripts_dir..'/app/pbx_onboarding/gate.lua').allowed(binding_db,auth_binding.domain_uuid) then auth_binding=nil end
 		end);
 		binding_db:release();
 		if not ok or not auth_binding then
@@ -102,7 +103,7 @@
 
     if user_lookup then
         local Database=require 'resources.functions.database';local scope_db=Database.new('system');local owner;
-        local ok=pcall(function() owner=contact_realms.owner(scope_db,domain_name);end);scope_db:release();
+        local ok=pcall(function() owner=contact_realms.owner(scope_db,domain_name);if owner and not dofile(scripts_dir..'/app/pbx_onboarding/gate.lua').allowed(scope_db,owner.domain_uuid)then owner=nil end;end);scope_db:release();
         if not ok or not owner or domain_uuid and domain_uuid~='' and domain_uuid~=owner.domain_uuid then
             XML_STRING='<document type="freeswitch/xml"><section name="result"><result status="not found"/></section></document>';return;
         end

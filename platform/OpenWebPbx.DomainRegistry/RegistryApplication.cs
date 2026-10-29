@@ -14,6 +14,7 @@ public static class RegistryApplication {
         builder.Services.ConfigureHttpJsonOptions(value => { value.SerializerOptions.UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow; value.SerializerOptions.MaxDepth = 8; });
         builder.Services.AddSingleton(options); builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(options.ConnectionString));
         builder.Services.AddSingleton<RegistryStore>(); builder.Services.AddSingleton<ISiteProof, PublicSiteProof>(); builder.Services.AddSingleton<IRegistryDns, CpanelDns>();
+        builder.Services.AddSingleton<InstallationAuthorization>();builder.Services.AddSingleton<IBootstrapProof,BootstrapProof>();builder.Services.AddSingleton<InstanceBootstrap>();
         builder.Services.Configure<ForwardedHeadersOptions>(value => {
             value.ForwardedHeaders = ForwardedHeaders.XForwardedFor; value.ForwardLimit = 1;
             value.KnownIPNetworks.Clear(); value.KnownProxies.Clear();
@@ -39,16 +40,31 @@ public static class RegistryApplication {
             finally { context.RequestAborted = callerStop; }
         });
         app.UseRateLimiter(); app.MapGet("/health", () => new { service = "openwebpbx-domain-registry", protocol = 1 });
+        static void Internal(HttpContext context){
+            if(context.Connection.RemoteIpAddress is null || !IPAddress.IsLoopback(context.Connection.RemoteIpAddress)
+                || context.Request.Host.Host!="127.0.0.1" || context.Request.Host.Port!=context.Connection.LocalPort)throw new Refused("internal_route_unavailable",404);
+        }
+        app.MapPost("/internal/v1/verify-instance-proof",async(InstanceProofRequest value,HttpContext context,ISiteProof proof,CancellationToken stop)=>{
+            Internal(context);if(value.Nonce is not { Length:64 } nonce || value.KeyHash is not { Length:64 } hash || !System.Text.RegularExpressions.Regex.IsMatch(nonce,"^[0-9a-f]{64}$")||!System.Text.RegularExpressions.Regex.IsMatch(hash,"^[0-9a-f]{64}$"))throw new Refused("invalid_proof_request");
+            await proof.Verify(value.ServerHost,nonce,hash,stop);return new{verified=true};
+        });
+        app.MapPost("/internal/v1/bootstrap-instance",async(BootstrapRequest value,HttpContext context,InstanceBootstrap bootstrap,CancellationToken stop)=>{Internal(context);return await bootstrap.Register(value,stop);});
+        app.MapPost("/internal/v1/verify-tenant-ready",async(TenantReadyRequest value,HttpContext context,RegistryStore store,ISiteProof proof,CancellationToken stop)=>{
+            Internal(context);if(value.Nonce is not { Length:64 } nonce || value.KeyHash is not { Length:64 } hash || !System.Text.RegularExpressions.Regex.IsMatch(nonce,"^[0-9a-f]{64}$")||!System.Text.RegularExpressions.Regex.IsMatch(hash,"^[0-9a-f]{64}$")||value.DomainUuid==Guid.Empty||!await store.TenantReadyBinding(value,stop))throw new Refused("tenant_readiness_unavailable",403);
+            await proof.VerifyTenantAlias(value.Hostname,value.ServerHost,nonce,hash,stop);return new{verified=true};
+        });
         // Public ownership lookup contains no keys or credentials. Android uses
         // this trusted origin before moving an existing bearer to a tenant URL.
         app.MapGet("/v1/tenant-addresses/{hostname}", async (string hostname, RegistryStore store, CancellationToken stop) =>
             await store.TenantAddress(hostname, stop));
         app.MapPost("/v1/challenges", async (ChallengeRequest request, RegistryStore store, CancellationToken stop) => await store.Challenge(Protocol.KeyHash(request.PublicKey), Protocol.Host(request.ServerHost), stop));
-        app.MapPost("/v1/leases", async (LeaseRequest request, RegistryStore store, ISiteProof proof, IRegistryDns dns, HttpRequest http, CancellationToken stop) => {
+        app.MapPost("/v1/leases", async (LeaseRequest request, RegistryStore store, ISiteProof proof, IRegistryDns dns, HttpRequest http,InstallationAuthorization verifier,InstanceBootstrap bootstrap, CancellationToken stop) => {
             if (request.Move && http.Headers.IfMatch.ToString() != "\"" + request.Revision + "\"") throw new Refused("host_move_if_match_required", 409);
             var hash = Protocol.Verify(request); await store.CheckChallenge(request.Challenge, hash, request.ServerHost, stop);
             await proof.Verify(request.ServerHost, request.Challenge, hash, stop);
-            var existing = await dns.Names(stop); var lease = await store.Reserve(request, hash, existing, stop);
+            var activation=request.Authorization is null?null:verifier.Verify(request.Authorization,request,hash);
+            if(activation is not null&&!await bootstrap.Matches(request,hash,activation,stop))throw new Refused("bootstrap_instance_binding",403);
+            var existing = await dns.Names(stop); var lease = await store.Reserve(request, hash, existing, stop,activation);
             LeaseReply Reply(string state) => new(lease.Label + "." + RegistryOptions.Zone, request.ServerHost, state, request.Enabled, lease.Revision);
             if (!request.Enabled) return Reply("disabled");
             try { await dns.Ensure(lease.Label, request.ServerHost, lease.DnsHost, stop); await store.Ready(hash, request.DomainUuid, request.ServerHost, lease.Revision, stop); return Reply("dns_ready"); }

@@ -11,6 +11,13 @@ if(PHP_OS_FAMILY==='Windows'&&in_array($stage,['migrate','admin'],true)){
  echo json_encode(['windows_log'=>$log],JSON_THROW_ON_ERROR)."\n";
 }
 function sql(string $q,array $p=[]): PDOStatement {global $db;$s=$db->prepare($q);$s->execute($p);return $s;}
+function openweb_install_onboarding_policy(): void {
+ // Only the fresh installer sets this process-scoped flag. Ordinary upgrades
+ // must preserve every existing installation's registration choice and state.
+ if(getenv('OPENWEB_FRESH_ONBOARDING_REQUIRED')!=='true')return;
+ if(!filter_var(config::load()->get('openweb.onboarding_required','false'),FILTER_VALIDATE_BOOLEAN))throw new RuntimeException('Fresh registration policy is missing.');
+ sql('update v_pbx_onboarding_policy set required=true,canonical_host=? where singleton=true',[pbx_paths::host()]);
+}
 if($stage==='domain'){
  if(!sql('select domain_uuid from v_domains where domain_name=?',[pbx_paths::host()])->fetchColumn())sql('insert into v_domains(domain_uuid,domain_name,domain_description,domain_enabled) values(?,?,?,true)',[uuid(),pbx_paths::host(),'OpenWeb PBX platform']);
  echo "Platform domain initialized.\n";exit;
@@ -38,7 +45,8 @@ if($stage==='migrate'){
   $codecSettingsChanged=openweb_normalize_codec_module_settings($db);
   if($codecXmlChanged||$codecSettingsChanged)echo "Conflicting passthrough audio module disabled.\n";
  }
- foreach(['tenant_services/resources/install.sql','pbx_tenant_domains/resources/install.sql','tenant_api/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql','pbx_setup/resources/call_me_back.sql','pbx_greetings/resources/install.sql','pbx_mobile/resources/install.sql', 'pbx_updates/resources/install.sql','pbx_backups/resources/install.sql','voicemails/resources/voicemail_without_pins.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
+ foreach(['tenant_services/resources/install.sql','pbx_tenant_domains/resources/install.sql','tenant_api/resources/install.sql','pbx_onboarding/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql','pbx_setup/resources/call_me_back.sql','pbx_greetings/resources/install.sql','pbx_mobile/resources/install.sql', 'pbx_updates/resources/install.sql','pbx_backups/resources/install.sql','voicemails/resources/voicemail_without_pins.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
+ openweb_install_onboarding_policy();
 $db->exec(file_get_contents($web.'/app/pbx_setup/resources/phone_health.sql'));
  if(PHP_OS_FAMILY==='Linux'&&is_file(__DIR__.'/install-support.py')){
   $command='python3 '.escapeshellarg(__DIR__.'/install-support.py');passthru($command,$result);
@@ -72,7 +80,8 @@ if(!$user){
  }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
 }
 unset($input,$password);
-foreach(['tenant_services/resources/install.sql','pbx_tenant_domains/resources/install.sql','tenant_api/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql','pbx_setup/resources/call_me_back.sql','pbx_greetings/resources/install.sql','pbx_mobile/resources/install.sql', 'pbx_updates/resources/install.sql','pbx_backups/resources/install.sql','voicemails/resources/voicemail_without_pins.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
+foreach(['tenant_services/resources/install.sql','pbx_tenant_domains/resources/install.sql','tenant_api/resources/install.sql','pbx_onboarding/resources/install.sql','smtp_settings/resources/install.sql','pbx_setup/resources/install.sql','pbx_setup/resources/restore.sql','pbx_setup/resources/jobs.sql','pbx_setup/resources/call_me_back.sql','pbx_greetings/resources/install.sql','pbx_mobile/resources/install.sql', 'pbx_updates/resources/install.sql','pbx_backups/resources/install.sql','voicemails/resources/voicemail_without_pins.sql'] as $file)$db->exec(file_get_contents($web.'/app/'.$file));
+openweb_install_onboarding_policy();
 $db->exec(file_get_contents($web.'/app/pbx_setup/resources/phone_health.sql'));
 pbx_meet_install::apply($db);
 pbx_meet_install::tls();

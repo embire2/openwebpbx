@@ -6,7 +6,7 @@ using Npgsql;
 namespace OpenWebPbx.Server;
 
 /// <summary>Durable, tenant-owned callback dispatch. It never handles SA identity numbers.</summary>
-public sealed class CallMeBackWorker(NpgsqlDataSource data, SwitchClient engine, ILogger<CallMeBackWorker> log) : BackgroundService
+public sealed class CallMeBackWorker(NpgsqlDataSource data, SwitchClient engine, ILogger<CallMeBackWorker> log, OnboardingGate? onboarding = null) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -22,6 +22,7 @@ public sealed class CallMeBackWorker(NpgsqlDataSource data, SwitchClient engine,
     public async Task Tick(CancellationToken ct)
     {
         await using var db = await data.OpenConnectionAsync(ct);
+        var access = onboarding is null ? null : await onboarding.Read(db, ct);
         if (!(await engine.Execute("status", ct)).Contains("UP", StringComparison.Ordinal)) return;
 
         var stale = new List<(Guid Request, Guid? Call, Guid? Bridge, DateTime Created, bool Answered)>();
@@ -63,21 +64,26 @@ public sealed class CallMeBackWorker(NpgsqlDataSource data, SwitchClient engine,
               and b.revoked_at<now()-s.retention_days*interval '1 day';
             delete from v_pbx_cmb_audit where created_at<now()-interval '365 days'
             """, db)) await clean.ExecuteNonQueryAsync(ct);
-        var requests = new List<Guid>();
+        var requests = new List<(Guid Id, Guid Domain)>();
         await using (var claim = new NpgsqlCommand("""
             with chosen as (
               select r.request_uuid from v_pbx_cmb_requests r join v_pbx_cmb_services s using(domain_uuid,service_uuid)
               join v_domains d using(domain_uuid)
               where r.state='queued' and r.created_at>now()-interval '2 minutes' and s.enabled and s.prompt_state='ready' and d.domain_enabled='true'
                 and not exists(select 1 from v_pbx_services p join v_pbx_tenants t using(tenant_uuid) where p.domain_uuid=r.domain_uuid and not t.enabled)
+                and (not $1 or r.domain_uuid=any($2))
               order by r.created_at for update of r skip locked limit 4
             ) update v_pbx_cmb_requests r set state='starting',call_uuid=gen_random_uuid(),lease_until=now()+interval '2 minutes',updated_at=now()
-              from chosen where r.request_uuid=chosen.request_uuid returning r.request_uuid
+              from chosen where r.request_uuid=chosen.request_uuid returning r.request_uuid,r.domain_uuid
             """, db))
-        await using (var reader = await claim.ExecuteReaderAsync(ct))
-            while (await reader.ReadAsync(ct)) requests.Add(reader.GetGuid(0));
-        foreach (var id in requests)
         {
+            claim.Parameters.AddWithValue(access?.Required ?? false); claim.Parameters.AddWithValue(access?.Identifiers ?? Array.Empty<Guid>());
+            await using var reader = await claim.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct)) requests.Add((reader.GetGuid(0), reader.GetGuid(1)));
+        }
+        foreach (var (id, domain) in requests)
+        {
+            if (onboarding is not null && !(await onboarding.Read(db, ct)).Allows(domain)) continue;
             // The exact original call UUID is retained on launch ambiguity. Recovery checks it;
             // callbacks are never silently redialled after an uncertain launch or a restart.
             var result = await engine.Execute($"luarun app/pbx_setup/call_me_back.lua {id:D}", ct);

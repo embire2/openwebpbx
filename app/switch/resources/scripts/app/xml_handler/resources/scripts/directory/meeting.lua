@@ -11,6 +11,7 @@ local ok=pcall(function()
  and p.started_at is not null and now() between p.starts_at-interval '15 minutes' and p.ends_at
  and d.domain_enabled='true' and not exists(select 1 from v_pbx_services s join v_pbx_tenants t using(tenant_uuid) where s.domain_uuid=d.domain_uuid and not t.enabled)]],
  {user=user,domain=domain_name},function(row)record=row end)
+ if record and not dofile(scripts_dir..'/app/pbx_onboarding/gate.lua').allowed(db,record.domain_uuid)then record=nil end
 end);db:release()
 XML_STRING='<document type="freeswitch/xml"><section name="result"><result status="not found"/></section></document>'
 if not ok or not record then return end

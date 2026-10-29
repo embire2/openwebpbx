@@ -8,6 +8,15 @@ This hosted API is a separately deployed update. The original published
 1.0.21 archives remain unchanged. A self-hosted instance needs a build
 containing the tenant API and its operator must enable it before use.
 
+The central API now adds seven installation-authorization operations to the
+original 17 hosted-service operations. The [public setup wizard](https://openwebpbx.com/wizard)
+and its separate [15-operation pairing API](https://openwebpbx.com/wizard-openapi.json)
+support new self-installed/Webhotel images. These routes authorize the PBX on
+the user's own server; they do not create a second hosted `/services` record.
+See the [first-boot integration guide](webhotel-onboarding.md). The central
+overlay and public wizard are deployed; new native packages and provider-image
+publication still require their own qualification and delivery.
+
 The hosted API registers an organisation, verifies its administrator's email,
 and creates isolated PBX services on OpenWeb's shared server. Each service has
 its own domain, extensions, call routes and managed `*.openwebpbx.com` address.
@@ -200,7 +209,7 @@ access tokens are not phone passwords.
 
 ## Endpoint reference
 
-Health, registration, verification and sign-in are public. For every other
+Health, authority metadata, registration, verification and sign-in are public. For every other
 operation, send `Authorization: Bearer TOKEN`.
 
 | Method | Path | Purpose |
@@ -222,6 +231,13 @@ operation, send `Authorization: Bearer TOKEN`.
 | POST | `/tokens` | Create a named integration token. |
 | DELETE | `/tokens/{token_uuid}` | Revoke a token immediately; success is HTTP 204. |
 | POST | `/tokens/{token_uuid}/rotate` | Replace a token and invalidate its old secret. |
+| GET | `/onboarding/authority` | Read public RSA authority identity; installed clients retain their independently pinned key. |
+| POST | `/onboarding/email/request` | Queue current-email confirmation for an existing invited owner; authenticated body `{}`. |
+| POST | `/onboarding/email/verify` | Confirm that email with the one-use code and current owner password. |
+| POST | `/installations/challenge` | Bind a five-minute ownership challenge to hostname, P256 key, local tenant/domain IDs and label. |
+| GET | `/installations` | List only this verified owner's remote installation metadata. |
+| POST | `/installations` | Verify the fresh signature/HTTPS proof and return the bound RSA activation receipt. |
+| GET | `/installations/{installation_uuid}` | Read one owned installation and its signed receipt. |
 
 Tokens can be created with `{"name":"Billing integration","expires_in_days":30}`.
 The expiry is at most **90 days**; at most **10 active tokens** are allowed per
@@ -229,6 +245,40 @@ tenant. Rotation optionally accepts `expires_in_days`. Save the newly returned
 secret before replacing it in your integration. A lost verification/sign-in
 response can be recovered by signing in again; never keep retrying a consumed
 verification code.
+
+## Self-installed servers and Webhotel images
+
+The central installation authority requires an active owner with a confirmed
+current email. Existing invited owners can sign in first and use the dedicated
+email confirmation routes without changing their invitation/public-signup
+classification. The challenge includes `server_host`, base64 SPKI P256
+`public_key`, `local_tenant_uuid`, `domain_uuid` and chosen `label`. The
+root-owned installed worker publishes the exact returned proof and signs the
+documented newline-delimited bytes. Send only `challenge_uuid` and the base64
+DER P256 `signature` to `POST /installations`.
+
+The returned one-year RSA3072 receipt binds the central owner, local tenant,
+domain, key hash, hostname, label, expiry and generation. The local server
+verifies the original signed bytes against its packaged independent public key;
+renewal preserves those bindings and increments generation. No private key or
+DNS provider credential is accepted from the owner or returned by the API.
+Authorization alone does not prove that tenant DNS/HTTPS is ready.
+
+For the public browser/Webhotel path use `/api/v1/wizard`, the separate contract
+and [integration guide](webhotel-onboarding.md). Its setup code pairs the image
+with the owner; only the image receives its private device credential. The
+owner bearer/password never leave the browser for the guest. The image receives
+an automatic immutable canonical node hostname, obtains trusted HTTPS, installs
+the signed receipt and lets the existing domain worker prepare its tenant
+address. Browser readiness requires a fresh trusted tenant HTTPS proof and the
+exact enabled custodian ownership tuple. This flow performs no hosted PBX
+service creation.
+
+Only the dedicated wizard controller permits exact Origin
+`https://openwebpbx.com`; it accepts no browser-cookie authority and no other
+browser origin. The original `/api/v1` controller continues to reject browser
+Origin headers. The ordinary API documentation remains static with
+`connect-src 'none'`; only the setup page can contact the fixed API host.
 
 ## Idempotency, limits and retries
 

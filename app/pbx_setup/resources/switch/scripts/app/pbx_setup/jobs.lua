@@ -77,6 +77,7 @@ local function deliver()
       join v_domains d using(domain_uuid) where j.job_uuid=:id and j.state='starting' and j.expires_at>now() and d.domain_enabled='true'
       and not exists(select 1 from v_pbx_services s join v_pbx_tenants t using(tenant_uuid) where s.domain_uuid=j.domain_uuid and not t.enabled)]],{id=id},function(r) job=r;config=json.decode(r.config) end)
     if not job then return end
+    if not dofile(scripts_dir..'/app/pbx_onboarding/gate.lua').allowed(db,job.domain_uuid)then finish('waiting','Tenant registration is required',300);return end
     owned_realms=contact_realms.realms(db,job.domain_uuid,config.realm)
     if not P.realm_config(config,owned_realms) then finish('cancelled','PBX phone domain is unavailable');return end
     local q,agent,routes

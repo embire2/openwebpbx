@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 
 namespace OpenWebPbx.Server;
 
-public sealed class MobilePushWorker(NpgsqlDataSource data, SwitchClient engine, AndroidPushSender sender, ILogger<MobilePushWorker> log) : BackgroundService
+public sealed class MobilePushWorker(NpgsqlDataSource data, SwitchClient engine, AndroidPushSender sender, ILogger<MobilePushWorker> log, OnboardingGate? onboarding = null) : BackgroundService
 {
     private sealed record Item(Guid Request, Guid Call, Guid Device, Guid Domain, Guid Extension, string Token, Guid Lease, DateTimeOffset Expires);
     private long nextCleanup;
@@ -135,6 +135,7 @@ public sealed class MobilePushWorker(NpgsqlDataSource data, SwitchClient engine,
     }
     private async Task<bool> Ready(Item row, JsonNode config, CancellationToken ct)
     {
+        if(onboarding is not null && !await onboarding.Allows(row.Domain,data,ct))return false;
         await using var check = data.CreateCommand("""
             select 1 from v_pbx_mobile_devices m join v_domains d using(domain_uuid)
             join v_extensions e on e.extension_uuid=m.extension_uuid and e.domain_uuid=m.domain_uuid

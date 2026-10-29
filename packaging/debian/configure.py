@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Fresh Debian configuration. Never prints credentials or overwrites another PBX."""
-import argparse,getpass,importlib.util,json,os,pathlib,re,secrets,shutil,subprocess,time
+import argparse,datetime,getpass,importlib.util,json,os,pathlib,re,secrets,shutil,subprocess,time,uuid
 P=pathlib.Path
 parser=argparse.ArgumentParser()
-parser.add_argument('--domain',required=True)
+parser.add_argument('--domain')
+parser.add_argument('--bootstrap-registration',action='store_true',help='Choose this installation\'s managed server address and finish registration in the browser')
 parser.add_argument('--address',default='')
 parser.add_argument('--email',required=True)
 parser.add_argument('--certificate');parser.add_argument('--certificate-key')
@@ -12,7 +13,13 @@ parser.add_argument('--restore-server',action='store_true',help='Prepare an empt
 parser.add_argument('--stun',action='store_true',help='Explicitly install UDP3478 STUN binding only on --address (no TURN relay)')
 parser.add_argument('--secrets-file',help='Private JSON containing AdminPassword; otherwise prompt securely')
 a=parser.parse_args()
+if not a.domain and not(a.certificate or a.certificate_key):a.bootstrap_registration=True
+if a.bootstrap_registration:
+ if a.domain or a.certificate or a.certificate_key:parser.error('--bootstrap-registration chooses its own managed address and local setup certificate.')
+ a.domain='node-'+uuid.uuid4().hex+'.openwebpbx.com';a.local_certificate=True
+if not a.domain:parser.error('Choose --bootstrap-registration, or supply --domain and a setup certificate.')
 if not re.fullmatch(r'[a-zA-Z0-9.-]+',a.domain) or not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+',a.email):parser.error('Enter a valid server name and email.')
+a.domain=a.domain.lower()
 if not a.local_certificate and not(a.certificate and a.certificate_key):parser.error('Supply a certificate and key, or choose --local-certificate for testing.')
 if a.stun and not a.address:parser.error('--stun requires an explicit local --address.')
 if P('/etc/fusionpbx/config.conf').exists():parser.error('An existing PBX configuration is present.')
@@ -34,6 +41,17 @@ else:raise RuntimeError('The built-in database did not become ready. Setup has n
 admin_sql=['runuser','-u','postgres','--','psql','-h','/var/run/postgresql','-p',dbport,'-U','postgres','-d','postgres','-X','-w','-v','ON_ERROR_STOP=1']
 existing=subprocess.check_output(admin_sql+['-Atc',"select exists(select 1 from pg_roles where rolname='fusionpbx') or exists(select 1 from pg_database where datname='fusionpbx')"],text=True).strip()
 if existing!='f':raise RuntimeError('An existing PBX database or account is present. This fresh installer will not overwrite it.')
+policy_root=P('/etc/openwebpbx-installation')
+if policy_root.is_symlink() or (policy_root.exists() and not policy_root.is_dir()):raise RuntimeError('The registration policy directory needs administrator review.')
+if not policy_root.exists():policy_root.mkdir(mode=0o750);os.chown(policy_root,0,33)
+if policy_root.stat().st_uid!=0 or policy_root.stat().st_mode&0o022:raise RuntimeError('The registration policy directory must remain root-controlled.')
+marker=policy_root/'onboarding-required';marker_bytes=b'openwebpbx-onboarding-required-v1\n'
+try:
+ descriptor=os.open(marker,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o640)
+except FileExistsError:
+ if marker.is_symlink() or not marker.is_file() or marker.read_bytes()!=marker_bytes or marker.stat().st_uid!=0 or marker.stat().st_mode&0o022:raise RuntimeError('The registration policy marker needs administrator review.')
+else:
+ with os.fdopen(descriptor,'wb') as output:output.write(marker_bytes);output.flush();os.fsync(output.fileno());os.fchown(output.fileno(),0,33)
 for d in [private,cfg,P('/etc/openwebpbx')]:d.mkdir(parents=True,exist_ok=True);d.chmod(0o750);os.chown(d,0,33)
 write(private/'setup-secrets.json',json.dumps({'AdminEmail':a.email,'AdminPassword':password}),0o600,0,0);del password
 run(['tar','-xzf','engine.tar.gz','-C','/'],umask=0o022);run(['ldconfig'])
@@ -53,11 +71,13 @@ run(admin_sql+['-q'],input=f"CREATE ROLE fusionpbx LOGIN PASSWORD '{dbpass}';\nC
 connected=subprocess.check_output(['psql','-h','127.0.0.1','-p',dbport,'-U','fusionpbx','-d','fusionpbx','-X','-w','-v','ON_ERROR_STOP=1','-Atc','select current_database()'],env=os.environ|{'PGPASSWORD':dbpass},text=True).strip()
 if connected!='fusionpbx':raise RuntimeError('The application could not connect to its built-in database. Setup has not completed.')
 settings={'database.0.type':'pgsql','database.0.host':'127.0.0.1','database.0.port':dbport,'database.0.name':'fusionpbx','database.0.username':'fusionpbx','database.0.password':dbpass,'database.1.type':'sqlite','database.1.name':'core.db','database.1.path':'/var/lib/freeswitch/db','document.root':str(root),'project.path':'','temp.dir':'/var/tmp','php.dir':'/usr/bin','php.bin':'php','cache.method':'file','cache.location':'/var/cache/fusionpbx','cache.settings':'true','session.cookie_secure':'true','session.cookie_httponly':'true','session.cookie_samesite':'Lax','switch.conf.dir':'/etc/freeswitch','switch.sounds.dir':'/usr/share/freeswitch/sounds','switch.database.dir':'/var/lib/freeswitch/db','switch.storage.dir':'/var/lib/freeswitch/storage','switch.voicemail.dir':'/var/lib/freeswitch/storage/voicemail','switch.recordings.dir':'/var/lib/freeswitch/recordings','switch.scripts.dir':'/usr/share/freeswitch/scripts','switch.event_socket.host':'127.0.0.1','switch.event_socket.port':'8021','switch.event_socket.password':switchpass,'xml_handler.fs_path':'false','xml_handler.reg_as_number_alias':'false','xml_handler.number_as_presence_id':'true','openweb.public_host':a.domain,'openweb.public_url':'https://'+a.domain,'openweb.public_ip':a.address}
+settings['openweb.onboarding_required']='true'
 write(cfg/'config.conf','\n'.join(f'{k} = {v}' for k,v in settings.items())+'\n')
 key=cfg/'openweb-template.key';key.write_bytes(secrets.token_bytes(32));key.chmod(0o640);os.chown(key,0,33)
 for path in ['/usr/share/freeswitch/scripts','/etc/freeswitch/languages','/var/cache/fusionpbx','/var/lib/freeswitch/db','/var/lib/freeswitch/storage/voicemail','/var/lib/freeswitch/recordings','/var/log/freeswitch','/var/run/freeswitch',str(private/'uploads')]:
  p=P(path);p.mkdir(parents=True,exist_ok=True);p.chmod(0o750);os.chown(p,33,33)
 env=os.environ|{'OPENWEB_SETUP_SECRETS':str(private/'setup-secrets.json'),'OPENWEB_FRESH_INSTALL':'1'}
+env['OPENWEB_FRESH_ONBOARDING_REQUIRED']='true'
 if a.restore_server:env['OPENWEB_RESTORE_SERVER']='true'
 bootstrap=str(P('bootstrap.php').resolve())
 # Install the stricter tenant/account guard before the profile migration can
@@ -96,7 +116,7 @@ modules=P('/etc/freeswitch/autoload_configs/modules.conf.xml');doc=ET.parse(modu
 if not any(n.get('module')=='mod_pgsql' for n in doc.findall('./modules/load')):doc.find('./modules').insert(0,ET.Element('load',{'module':'mod_pgsql'}))
 doc.write(modules)
 write('/etc/freeswitch/autoload_configs/event_socket.conf.xml',f'<configuration name="event_socket.conf"><settings><param name="listen-ip" value="127.0.0.1"/><param name="listen-port" value="8021"/><param name="password" value="{switchpass}"/></settings></configuration>')
-write('/etc/openwebpbx/runtime.json',json.dumps({'ConnectionStrings':{'Pbx':f'Host=127.0.0.1;Port={dbport};Database=fusionpbx;Username=fusionpbx;Password={dbpass}'},'Switch':{'Host':'127.0.0.1','Port':8021,'Password':switchpass}}))
+write('/etc/openwebpbx/runtime.json',json.dumps({'ConnectionStrings':{'Pbx':f'Host=127.0.0.1;Port={dbport};Database=fusionpbx;Username=fusionpbx;Password={dbpass}'},'Switch':{'Host':'127.0.0.1','Port':8021,'Password':switchpass},'Onboarding':{'Required':True,'WebRoot':str(root),'StateRoot':str(private)}}))
 for d in ['/etc/freeswitch','/usr/share/freeswitch','/var/lib/freeswitch']:run(['chown','-R','www-data:www-data',d])
 if a.local_certificate:
  a.certificate=str(cfg/'local-test.crt');a.certificate_key=str(cfg/'local-test.key')
@@ -106,6 +126,21 @@ for path in [a.certificate,a.certificate_key]:
  if not P(path).is_file():raise RuntimeError('Certificate file is unavailable')
  if any(c in str(path) for c in ['\n','\r',';','"']):raise RuntimeError('Invalid certificate path')
 nginx=P('nginx.conf').read_text().replace('@DOMAIN@',a.domain).replace('@CERT@',str(a.certificate)).replace('@KEY@',str(a.certificate_key))
+# The managed canonical name carries a full random installation UUID. Debian's
+# default hash bucket can be too small for that name once the tenant alias is
+# added. Preserve larger operator values and refuse ambiguous global settings.
+def managed_nginx_configuration(global_text):
+ hash_pattern=r'(?m)^([ \t]*server_names_hash_bucket_size[ \t]+)([0-9]+)([ \t]*;)'
+ hash_settings=list(re.finditer(hash_pattern,global_text))
+ if len(hash_settings)>1:raise RuntimeError('Review the Nginx server name hash configuration.')
+ if hash_settings:
+  if int(hash_settings[0][2])<128:global_text=re.sub(hash_pattern,lambda m:m[1]+'128'+m[3],global_text)
+ else:
+  global_text,count=re.subn(r'(?m)^([ \t]*http[ \t]*\{)',r'\1\n server_names_hash_bucket_size 128;',global_text)
+  if count!=1:raise RuntimeError('Review the Nginx HTTP configuration before continuing setup.')
+ return global_text
+global_nginx=P('/etc/nginx/nginx.conf');global_text=managed_nginx_configuration(global_nginx.read_text())
+write(global_nginx,global_text,0o644,0,0)
 write('/etc/nginx/snippets/openweb-meet.conf',P('meet-nginx.conf').read_text(),0o644)
 write('/etc/nginx/sites-available/openwebpbx',nginx,0o644)
 P('/etc/nginx/sites-enabled/default').unlink(missing_ok=True)
@@ -119,7 +154,7 @@ import urllib.request
 for attempt in range(30):
  try:
   with urllib.request.urlopen('http://127.0.0.1:8087/health',timeout=3) as response:
-   if json.load(response).get('state')=='Running':break
+   if json.load(response).get('state') in ('Running','Registration required'):break
  except (OSError,ValueError):pass
  time.sleep(2)
 else:raise RuntimeError('The background call service is not ready. Check journalctl -u openwebpbx.')
@@ -129,7 +164,7 @@ if not a.local_certificate:
 # current trusted helper while a candidate is staged and verified.
 release=P('VERSION').read_text().strip()
 tools=P('/opt/openwebpbx/tools');tools.mkdir(parents=True,exist_ok=True,mode=0o755)
-for name in ['upgrade.py','verify_feed.py','release-public.pem','configure-sip-tls.py','configure-sip-tls.php','backups.py','install-backups.sh','install-support.py','install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py','install-meet.py','meet-nginx.conf','install-mail.py','install-phone-health.py','phone-health.py','phone-health.php','call-diagnostics.py','openwebpbx-call-diagnostics.service','install-stun.py','openwebpbx-stun.service','openwebpbx-stun.conf']:
+for name in ['upgrade.py','verify_feed.py','release-public.pem','configure-sip-tls.py','configure-sip-tls.php','backups.py','install-backups.sh','install-support.py','install-mobile-notifications.py','cpanel-acme-hook.py','restore-sofia.py','install-meet.py','meet-nginx.conf','install-mail.py','install-phone-health.py','phone-health.py','phone-health.php','call-diagnostics.py','openwebpbx-call-diagnostics.service','install-stun.py','openwebpbx-stun.service','openwebpbx-stun.conf','onboarding.py','onboarding.php','webhotel-onboarding.py','install-onboarding.py']:
  shutil.copy(name,tools/name);(tools/name).chmod(0o644)
 slot=P('/opt/openwebpbx/updater/slots')/release
 shutil.copytree('updater',slot)
@@ -145,7 +180,24 @@ upgrade.ensure_recovery_integration()
 run(['systemctl','daemon-reload']);run(['systemctl','enable','--now','openwebpbx-updater'])
 run(['bash','install-backups.sh'])
 run(['python3','install-tenant-domains.py','--activate'])
+run(['python3','install-onboarding.py','--activate'])
 run(['python3','install-mail.py','--activate'])
 run(['python3','install-phone-health.py','--activate'])
 if a.stun:run(['python3','install-stun.py','--install-package','--listen-ip',a.address,'--activate'])
-print('Admin is ready at https://'+a.domain)
+print('Open the registration wizard at https://'+a.domain+'/app/pbx_onboarding/')
+print('Registration and a secure managed tenant address are required before phones or calling can be used.')
+if a.bootstrap_registration:
+ run(['systemctl','start','--no-block','openwebpbx-onboarding.service'])
+ for attempt in range(30):
+  try:
+   setup=private/'tenant-domains/setup.json'
+   if any(p.is_symlink() for p in [setup,*setup.parents]) or setup.stat().st_uid!=0 or setup.stat().st_nlink!=1 or setup.stat().st_mode&0o022 or setup.stat().st_size>8192:raise ValueError('Protected setup state required.')
+   notice=json.loads(setup.read_text())
+   if not isinstance(notice,dict) or not isinstance(notice.get('expires_at'),str):raise ValueError('Setup notice is being prepared.')
+   code=notice.get('user_code','');link=notice.get('verification_uri_complete','')
+   until=datetime.datetime.fromisoformat(notice['expires_at'].replace('Z','+00:00'))
+   if re.fullmatch('[A-F0-9]{5}-[A-F0-9]{5}',code) and link=='https://openwebpbx.com/wizard#code='+code and until>datetime.datetime.now(datetime.timezone.utc):
+    print('Finish setup: '+link);print('Your setup code: '+code);break
+  except (OSError,ValueError,TypeError):pass
+  time.sleep(1)
+ else:print('Setup is still preparing your code. Open https://openwebpbx.com/wizard and view the code with: journalctl -u openwebpbx-onboarding.service --no-pager -n 10')

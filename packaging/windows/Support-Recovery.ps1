@@ -304,7 +304,7 @@ function Save-OpenWebSupport {
    }
   }
  }
- foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){
+ foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Onboarding','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){
   $task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
   $record.Tasks[$name]=@{Exists=[bool]$task;Enabled=if($task){[bool]$task.Settings.Enabled}else{$false}}
   if($task){
@@ -315,7 +315,7 @@ function Save-OpenWebSupport {
    if($name -eq 'OpenWebPBX-PhoneHealth'){
     . (Join-Path $PackageRoot 'PhoneHealth-Security.ps1')
     Stop-OpenWebHealthTask -MaintenanceLock $MaintenanceLock -Disable
-   }elseif($name -in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-Cleanup'){Disable-ScheduledTask -TaskName $name | Out-Null}
+   }elseif($name -in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-Onboarding','OpenWebPBX-Cleanup'){Disable-ScheduledTask -TaskName $name | Out-Null}
   }
  }
  WriteState "$Backup\support-state.json" $record
@@ -447,7 +447,7 @@ function Restore-OpenWebSupport {
   Set-OpenWebFileSddl -LiteralPath $permission.Path -Sddl $permission.Sddl
  }
  foreach($entry in $record.Tasks.PSObject.Properties){
-  if($entry.Name -notin 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){throw 'The support recovery task inventory is invalid.'}
+  if($entry.Name -notin 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Onboarding','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){throw 'The support recovery task inventory is invalid.'}
   if($entry.Value.Exists){
    Register-ScheduledTask -TaskName $entry.Name -Xml (Get-Content "$Backup\$($entry.Name).xml" -Raw) -Force | Out-Null
    if($entry.Value.Enabled){Enable-ScheduledTask -TaskName $entry.Name | Out-Null}else{Disable-ScheduledTask -TaskName $entry.Name | Out-Null}

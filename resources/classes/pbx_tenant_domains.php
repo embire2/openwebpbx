@@ -54,6 +54,11 @@ class pbx_tenant_domains {
         if(!empty($_SESSION['authorized'])) {
             $q=$db->prepare("select u.user_uuid from v_users u join v_user_groups g on g.user_uuid=u.user_uuid and g.group_name='tenant_admin' join v_pbx_tenants t on t.tenant_uuid=(select tenant_uuid from v_pbx_tenant_domains where domain_uuid=?) where u.user_uuid=? and u.user_enabled='true' and t.enabled and (t.owner_user_uuid=u.user_uuid or u.domain_uuid=?) limit 1");$q->execute([$domain,$_SESSION['user_uuid']??'',$domain]);
             $allowed=(bool)$q->fetchColumn();
+            if(!$allowed&&pbx_onboarding::required($db)){
+                // A self-installed instance owner starts as global administrator.
+                // Its own ready alias does not grant access to anyone else's PBX.
+                $q=$db->prepare("select 1 from v_users u join v_user_groups ug on ug.user_uuid=u.user_uuid join v_groups g on g.group_uuid=ug.group_uuid and g.group_name='superadmin' and g.domain_uuid is null join v_pbx_tenants t on t.owner_user_uuid=u.user_uuid join v_pbx_services s using(tenant_uuid) where u.user_uuid=? and u.user_enabled='true' and t.enabled and s.domain_uuid=? limit 1");$q->execute([$_SESSION['user_uuid']??'',$domain]);$allowed=(bool)$q->fetchColumn();
+            }
             if(!$allowed) {
                 // Department staff retain their existing capabilities; the alias
                 // itself never creates a grant or promotes them to tenant admin.
@@ -71,10 +76,11 @@ class pbx_tenant_domains {
     public static function discover(PDO $db): array {
         if(!self::installed($db))return [];
         $rows=$db->query("select s.domain_uuid,s.tenant_uuid,s.service_uuid,t.slug,(t.enabled and d.domain_enabled='true') desired_enabled,row_number()over(partition by s.tenant_uuid order by s.created_at,s.service_uuid) ordinal from v_pbx_services s join v_pbx_tenants t using(tenant_uuid) join v_domains d using(domain_uuid)")->fetchAll(PDO::FETCH_ASSOC);
-        foreach($rows as $r){$slug=strtolower($r['slug']);if(!preg_match('/^[a-z0-9][a-z0-9-]{1,46}[a-z0-9]$/D',$slug))$slug='tenant-'.substr(str_replace('-','',$r['tenant_uuid']),0,12);if((int)$r['ordinal']>1)$slug=substr($slug,0,36).'-'.substr(str_replace('-','',$r['service_uuid']),0,10);
+        foreach($rows as $r){if(pbx_onboarding::required($db)&&!pbx_onboarding::authorizedDomain($db,$r['domain_uuid']))continue;$slug=strtolower($r['slug']);if(!preg_match('/^[a-z0-9][a-z0-9-]{1,46}[a-z0-9]$/D',$slug))$slug='tenant-'.substr(str_replace('-','',$r['tenant_uuid']),0,12);if((int)$r['ordinal']>1)$slug=substr($slug,0,36).'-'.substr(str_replace('-','',$r['service_uuid']),0,10);
             $q=$db->prepare("insert into v_pbx_tenant_domains(domain_uuid,tenant_uuid,service_uuid,requested_label,desired_enabled)values(?,?,?,?,?) on conflict(domain_uuid)do update set desired_enabled=excluded.desired_enabled where v_pbx_tenant_domains.tenant_uuid=excluded.tenant_uuid and v_pbx_tenant_domains.service_uuid=excluded.service_uuid");$q->bindValue(1,$r['domain_uuid']);$q->bindValue(2,$r['tenant_uuid']);$q->bindValue(3,$r['service_uuid']);$q->bindValue(4,$slug);$q->bindValue(5,in_array($r['desired_enabled'],[true,'t','1',1],true),PDO::PARAM_BOOL);$q->execute();}
         $db->exec('update v_pbx_tenant_domains a set desired_enabled=false where not exists(select 1 from v_pbx_services s where s.service_uuid=a.service_uuid and s.domain_uuid=a.domain_uuid and s.tenant_uuid=a.tenant_uuid)');
-        return $db->query('select * from v_pbx_tenant_domains where next_attempt<=now() order by updated_at,domain_uuid limit 50')->fetchAll(PDO::FETCH_ASSOC);
+        $due=$db->query('select * from v_pbx_tenant_domains where next_attempt<=now() order by updated_at,domain_uuid limit 50')->fetchAll(PDO::FETCH_ASSOC);
+        if(pbx_onboarding::required($db)){$out=[];foreach($due as $row){if(!$row['desired_enabled']||pbx_onboarding::authorizedDomain($db,$row['domain_uuid'])){$q=$db->prepare('select activation from v_pbx_onboarding where domain_uuid=?');$q->execute([$row['domain_uuid']]);$activation=$q->fetchColumn();$row['authorization']=is_string($activation)?$activation:null;$out[]=$row;}}return $out;}return $due;
     }
     public static function record(PDO $db,array $value): void {
         $keys=['domain_uuid','hostname','server_host','key_hash','revision','state','error_category','certificate_not_after','retry_seconds'];sort($keys);$actual=array_keys($value);sort($actual);if($actual!==$keys)throw new InvalidArgumentException('Invalid tenant address worker result.');

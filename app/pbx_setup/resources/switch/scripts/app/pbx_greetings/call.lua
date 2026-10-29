@@ -24,6 +24,7 @@ local function run()
       and not exists(select 1 from v_pbx_services s join v_pbx_tenants t using(tenant_uuid) where s.domain_uuid=g.domain_uuid and not t.enabled)]],
       {id=id},function(row)greeting=row;config=json.decode(row.config)end)
     if not greeting or not uuid(greeting.domain_uuid) or not uuid(greeting.call_uuid) then return end
+    if not dofile(scripts_dir..'/app/pbx_onboarding/gate.lua').allowed(db,greeting.domain_uuid)then fail('Tenant registration is required.');return end
     if not P.realm_config(config,realms.realms(db,greeting.domain_uuid,config.realm)) then fail('The PBX address needs review.');return end
     local target=greeting.target_number;local owner=config.users[greeting.caller_extension]
     if not owner or not owner.enabled then fail('The calling extension is unavailable.');return end

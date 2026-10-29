@@ -1,5 +1,15 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+## Self-install and Webhotel onboarding — 2026-10-29
+
+The public [setup wizard](https://openwebpbx.com/wizard), dedicated15-operation image/browser API and seven central installation/email-authority operations are deployed. The main API reference now describes24 operations while retaining the original17 hosted operations. Pairing keeps owner passwords/tokens out of the guest, automatically binds a canonical node identity and returns a tenant connection link only after fresh trusted HTTPS/ownership verification. Remote setup creates no second hosted PBX service.
+
+Source qualification passes originalAPI103 PostgreSQL/153 HTTP controls, imageAPI76 PostgreSQL/P256/RSA controls, wizardHTTP37, portable consumer59 (actual POSIX files/OpenSSL plus Windows bridge contracts) and actual isolated IPv4/TLS7. The old HTTP fixture needed only the newly referenced onboarding class added to its explicit dependency list; all153 original predicates are unchanged. Live deployment passes13 public HTTPS route/CORS/authority/denial controls; all18 captured customer-table projections remain exact and phone/core/updater PIDs/restart counts are unchanged. No live registration, mail or tenant DNS was exercised by this overlay deployment.
+
+Separate controlled central protocol acceptance passes10 actual public checks through P256 bootstrap, custodian A/CNAME records, canonical/tenant Let’s Encrypt certificates, RSA authorization and exact tenant HTTPS/browser-ready completion. Verification mail was intercepted privately; the disposable account, exact owned DNS/proofs/vhost/certificate are cleaned up with a disabled ownership tombstone retained.
+
+Remaining release gates: complete current Debian/Windows installer qualification, fresh native installation through this already-accepted public protocol, native Windows ACL/task behavior, and Webhotel provider-image publication. A portable source/bridge pass is not a native Windows or provider deployment claim. The existing published1.0.21 server/Android1.0.19 assets and roadmap133 goals /21 accepted /72 partial /40 planned remain unchanged. [Integration details](docs/webhotel-onboarding.md).
+
 ## Hosted tenant API v1 — 2026-10-28
 
 The [tenant API](docs/tenant-api.md) is live, with [public documentation](https://openwebpbx.com/api-docs) and an OpenAPI 3.1 contract. Its 17 operations support email-verified registration, isolated PBX services, managed subdomain setup/status and tenant credential management. Current shared files and approved starter templates are used; public self-service never supplies another tenant's provider credentials. Public accounts use the modern administration interface, with legacy pages blocked.
