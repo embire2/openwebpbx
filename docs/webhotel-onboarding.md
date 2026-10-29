@@ -334,3 +334,8 @@ sign/proof/private-path bridge contracts, with helper/HTTP boundaries explicitly
 mocked. Browser QA covers registration/confirmation/claim/progress,
 mobile and desktop layouts, storage choices and unsafe ready-address refusal
 with isolated API responses. These isolated source checks do not themselves establish provider publication, inbox delivery, public DNS/ACME, physical calling or a native Windows image pass. The separate controlled public protocol acceptance above records its actual DNS/ACME scope.
+
+The hosted authority explicitly enables provider reservation/cleanup routes with
+`openweb.provider_onboarding_enabled = true`. Other installations default to a
+503 preparation response for those provider routes. This switch does not disable
+the existing owner wizard, installation registration or hosted tenant API.
