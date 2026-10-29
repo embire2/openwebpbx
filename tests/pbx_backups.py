@@ -556,6 +556,41 @@ class Backups(unittest.TestCase):
             for key,value in old.items():setattr(b,key,value)
 
 
+    def test_18_registration_restore_creates_private_consumer_directories(self):
+        root=self.workspace/'new-private-registration';source=self.workspace/'private-source';source.write_bytes(b'original protected session')
+        old=b.ROOTS
+        try:
+            private=root/'transport/private';b.ROOTS={'registration-state':private}
+            target=private/'image-onboarding/session.json';b.atomic_copy(source,target,mode=0o600,group=0)
+            self.assertEqual(target.read_bytes(),source.read_bytes())
+            for directory in [private,private/'image-onboarding']:
+                value=directory.stat();self.assertEqual((value.st_mode&0o777,value.st_uid,value.st_gid),(0o700,0,0))
+            with b.registration_guard(b.ROOTS):pass
+            unrelated=root/'public/nested/file';b.atomic_copy(source,unrelated,mode=0o640)
+            self.assertEqual(unrelated.parent.stat().st_mode&0o777,0o750)
+        finally:b.ROOTS=old
+
+    def test_19_existing_consumer_lock_works_in_actual_readonly_systemd_sandbox(self):
+        root=self.workspace/'readonly-lock';root.mkdir(mode=0o700);private=root/'private';private.mkdir(mode=0o700);directory=private/'image-onboarding';directory.mkdir(mode=0o700);lock=directory/'worker.lock';lock.touch(mode=0o600)
+        module=root/'backups.py';module.write_bytes(Path(b.__file__).read_bytes());module.chmod(0o600)
+        program="""import importlib.util,json,os,errno
+s=importlib.util.spec_from_file_location('backup',MODULE);b=importlib.util.module_from_spec(s);s.loader.exec_module(b)
+try:os.open(LOCK,os.O_RDWR);raise AssertionError('Fixture is not read-only')
+except OSError as error:assert error.errno==errno.EROFS
+try:
+ with b.registration_guard({'registration-state':b.Path(PRIVATE)}):print(json.dumps({'acquired':True}))
+except b.BackupError as error:
+ assert 'registration is being refreshed'in str(error);print(json.dumps({'acquired':False,'busy':True}))
+"""
+        program='MODULE='+repr(str(module))+'\nLOCK='+repr(str(lock))+'\nPRIVATE='+repr(str(private))+'\n'+program
+        def probe():
+            result=subprocess.run(['systemd-run','--quiet','--wait','--pipe','--collect','--unit=openweb-backup-readonly-'+secrets.token_hex(6),'-p','ProtectSystem=strict','-p','ProtectHome=true','-p','PrivateTmp=true','-p','NoNewPrivileges=true','-p','ReadWritePaths=/run','/usr/bin/python3','-c',program],capture_output=True,text=True,timeout=45)
+            self.assertEqual(result.returncode,0,result.stderr);return json.loads(result.stdout)
+        self.assertEqual(probe(),{'acquired':True});descriptor=os.open(lock,os.O_RDWR)
+        try:
+            b.fcntl.flock(descriptor,b.fcntl.LOCK_EX|b.fcntl.LOCK_NB);self.assertEqual(probe(),{'acquired':False,'busy':True})
+        finally:os.close(descriptor)
+
 if __name__ == '__main__':
     if os.geteuid() != 0:
         raise SystemExit('Run fixture checks as root; only independent databases and loopback services are used.')

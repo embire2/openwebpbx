@@ -327,7 +327,11 @@ def registration_guard(roots):
         raise BackupError('The registration recovery directory must remain root-private.')
     lock = directory / 'worker.lock'
     if lock.exists() or lock.is_symlink():ordinary(lock)
-    descriptor = os.open(lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    # Linux flock() does not require write access. Existing consumer locks are
+    # read-only inside the hardened backup unit; share the same inode without
+    # widening its filesystem sandbox. First creation retains the private mode.
+    flags = os.O_RDONLY if lock.exists() else os.O_CREAT | os.O_RDWR
+    descriptor = os.open(lock, flags | os.O_NOFOLLOW, 0o600)
     try:
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != 0 or info.st_mode & 0o077:
@@ -790,15 +794,18 @@ def atomic_copy(source, target, mode=0o640, group=33):
     owner = 33 if notification or legacy_push or str(target).startswith(('/var/lib/freeswitch/', '/etc/freeswitch/', '/usr/share/freeswitch/')) else 0
     if notification:
         notification_directory(target.parent, create=True)
+    private_root = ROOTS.get('registration-state')
+    registration_private = private_root is not None and Path(private_root) in target.parents
     absent = []
     directory = target.parent
     while not directory.exists():
         absent.append(directory)
         directory = directory.parent
     for directory in reversed(absent):
-        directory.mkdir(mode=0o750)
+        private_directory = registration_private and (directory == Path(private_root) or Path(private_root) in directory.parents)
+        directory.mkdir(mode=0o700 if private_directory else 0o750)
         if os.geteuid() == 0:
-            os.chown(directory, owner, group)
+            os.chown(directory, 0 if private_directory else owner, 0 if private_directory else group)
     with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.backup-restore-', delete=False) as stream:
         temporary = Path(stream.name)
         try:
