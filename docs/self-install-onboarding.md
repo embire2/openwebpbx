@@ -114,11 +114,14 @@ The owned test account, DNS, proofs, virtual host and certificate were removed;
 the disabled custodian ownership reservation remains. Customer-table projections
 and all seven expected working desk-phone registrations were preserved.
 
-Still required for Debian1.0.22 distribution: final exact-package installer,
-upgrade/rollback and replacement-restore acceptance, plus fresh deployment checks
-and certification on eligible Webhotel nodes. Provider access was subsequently
-supplied and the generalized Debian templates and read-only installer media are
-staged; that does not qualify every node for orders. The image creates fresh
+Debian1.0.22 is published after exact-package installation, genuine original21
+signed upgrade/rollback and separately qualified replacement-restore checks.
+See the [release report](release-1.0.22-qualification.md) for their precise scope.
+Six Webhotel locations complete their recorded node checks, while six remain
+held. Automatic provider orders remain unavailable until the corrected ordinary
+customer order and cleanup path passes; published downloads and the public
+setup wizard remain available. Staged media does not qualify every node for
+orders. The image creates fresh
 database/installation/key identities at first boot and contains no customer data,
 administrator password, saved pairing credential or existing activation.
 Windows IIS/ACL/task/manager acceptance remains a separate future Windows gate.

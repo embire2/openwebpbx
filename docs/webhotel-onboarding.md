@@ -18,9 +18,17 @@ without a customer-IP pool, one after its installed-file comparisons timed out,
 and one after installation/readiness failed. No failed attempt is relabeled.
 The corrected wizard passes real forward/Back reservation preservation. The
 first funded ordinary order exposes a company-field handoff mismatch and a late
-cleanup race; its charge is refunded once. All12 new PBX plans are temporarily
-inactive while the provider corrections and a fresh ordinary order are
-qualified. Existing products/services and the standalone Debian download remain
+cleanup race. The deployed corrections close that failed history through the
+normal owner action. A second ordinary order completes native installation,
+tenant HTTPS and SSH, then fails a generic hostname finalizer that accepts only
+Webhotel hostnames. Automatic cleanup completes correctly. Both failed orders
+retain their history and each charge is refunded exactly once.
+
+The narrow PBX finalizer correction, appropriate boot observation threshold and
+wallet refresh pass their affected database/type checks and a combined build.
+Backup verification and deployment precede a third distinct ordinary order.
+All12 new PBX plans remain temporarily inactive until that full customer path
+passes. Existing products/services and the standalone Debian download remain
 available.
 All 224 usable addresses in the sixteen existing OVH blocks have vMACs; no extra
 IP purchase or customer-address reassignment is part of this rollout.

@@ -14,9 +14,13 @@ Provider rollout on30 October: six locations complete their recorded node checks
 six remain unavailable for resource, storage, installation or verification limits.
 The wizard's Back-navigation reservation defect is fixed and passes an actual
 browser round-trip. The first ordinary funded order exposes a company-field
-handoff mismatch and a late cleanup race. Its charge is refunded once; the new
-PBX plans remain held while the provider corrections and a fresh ordinary order
-are qualified. Debian downloads remain available. These deployment checks do not
+handoff mismatch and a late cleanup race. Those deployed corrections close the
+failed history. A second ordinary order reaches native tenant HTTPS, then fails
+the generic hostname finalizer; automatic cleanup and its single refund pass.
+The narrow finalizer, boot observation and wallet corrections pass their affected
+checks and combined build; deployment and a third distinct ordinary order remain
+required. Each failed charge is refunded once, and all12 new PBX plans remain
+held. Debian downloads remain available. These deployment checks do not
 close additional3CX feature IDs.
 
 ## Hosted tenant API v1 — 2026-10-28
