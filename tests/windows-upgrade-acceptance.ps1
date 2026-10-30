@@ -200,7 +200,7 @@ function ProbeFailure($Record){
 function Python([string[]]$Arguments){
  $failurePath=Join-Path $work 'probe-failure.json';Remove-Item -LiteralPath $failurePath -Force -ErrorAction SilentlyContinue
  if($Arguments.Count -eq 3 -and $Arguments[0] -ceq $probe -and $Arguments[1] -cin 'holds','release'){if(!$controlEvidence){$script:controlEvidence=NewBackupControlObservationDirectory $work};$Arguments+=@((Split-Path $PSScriptRoot -Parent),$PackageRoot,$controlEvidence)}
- & $python -I @Arguments 1>(Join-Path $work 'probe-private.out') 2>(Join-Path $work 'probe-private.err');$code=$LASTEXITCODE
+ & $python -I -B @Arguments 1>(Join-Path $work 'probe-private.out') 2>(Join-Path $work 'probe-private.err');$code=$LASTEXITCODE
  if($code){
   $script:probeFailure=$null
   if(Test-Path -LiteralPath $failurePath -PathType Leaf){
