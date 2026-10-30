@@ -37,6 +37,7 @@ $copy=Clone $failure;$copy.refusal_child.stdout_shape='empty';Check (!(SafeThree
 $copy=Clone $failure;$copy.refusal_child.stderr_shape='php_fatal';Check (!(SafeThreecxImportFailure $copy).ContainsKey('refusal_child'))
 $copy=Clone $failure;$copy.cleanup='unverified';Check ((SafeThreecxImportFailure $copy).cleanup -ceq 'unverified')
 # Actual hook's replay branch must refuse qualification before any producer/file access.
+$Public21ToCandidate22=$false
 $ReplaySuiteRunId='39881454549';$facts=@{};ThreecxImportQualificationHook;Check ($facts.threecx_import_qualification -ceq 'unqualified_historical_candidate' -and $facts.Count -eq 1)
 $text=[IO.File]::ReadAllText($path);$ready=$text.IndexOf("`$phase='native web readiness qualification';WebReadinessHook");$import=$text.IndexOf("`$phase='native synthetic V20 import qualification';ThreecxImportQualificationHook");$health=$text.IndexOf("`$phase='native STUN qualification';StunHook");Check ($ready -ge 0 -and $import -gt $ready -and $health -gt $import)
 [ordered]@{schema=1;state='passed';checks=$checks;actual_suite_consumer=$true;server_actions=$false}|ConvertTo-Json -Compress

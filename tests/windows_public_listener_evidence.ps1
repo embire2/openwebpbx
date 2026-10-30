@@ -43,6 +43,7 @@ foreach($kind in 'native_defender','installed_collector'){
 }
 foreach($bad in '', 'Native_Defender','installed_collector ','foreign'){Refuse {Read-PublicListenerQualificationReport (Proof 'native_defender') $bad 0}}
 # Historical replay cannot borrow new source acceptance for old installed bytes.
+$Public21ToCandidate22=$false
 $ReplaySuiteRunId='123';$facts=[ordered]@{};PublicListenerQualificationHook 'native_defender';Check ($facts.public_listener_qualification -ceq 'unqualified_historical_candidate')
 PublicListenerQualificationHook 'installed_collector';Check ($facts.public_listener_qualification -ceq 'unqualified_historical_candidate')
 $ReplaySuiteRunId='';$facts=[ordered]@{gates=@{fresh='passed';web_readiness='passed'}}
