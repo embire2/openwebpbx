@@ -88,4 +88,9 @@ try {
   Check ([Convert]::ToBase64String([IO.File]::ReadAllBytes($savedPath)) -ceq [Convert]::ToBase64String($beforeState)) 'Existing installation state is read without rewriting'
  }
 } finally { Remove-Item -LiteralPath $temporary -Recurse -Force }
+if([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT){
+ & (Join-Path $env:windir 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'windows_acme_exit_scope.ps1') -SourceRoot $root
+ if(!$? -or $LASTEXITCODE){throw 'The actual Windows PowerShell5 ACME exit-scope controls failed.'}
+ $checks++
+}
 Write-Output "PASS: $checks public-access parse, input and atomic-state checks"

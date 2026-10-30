@@ -234,9 +234,9 @@ function Invoke-OpenWebAcme($Context,[string]$Executable,[string[]]$Arguments) {
  try {
   # The client may print renewal/account details. Keep its output in the private
   # directory rather than a desktop response or public qualification summary.
-  $ErrorActionPreference='Continue';$LASTEXITCODE=$null
+  $ErrorActionPreference='Continue';$global:LASTEXITCODE=$null
   & $Executable @Arguments 2>&1 | Out-File -LiteralPath $log -Encoding UTF8
-  $code=$LASTEXITCODE
+  $code=$global:LASTEXITCODE
  } finally { $ErrorActionPreference=$previousPreference }
  if($null -eq $code -or $code -ne 0) { throw 'Certificate issuance or renewal failed. Check public DNS/TCP 80 forwarding and the private ACME log, then retry.' }
 }
