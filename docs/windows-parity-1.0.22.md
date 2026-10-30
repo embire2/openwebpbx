@@ -25,7 +25,7 @@ allowing automatic public certificate setup to proceed.
 | Public wizard | Windows wording is live; desktop/mobile layout, required links and browser console checks passed |
 | Protection of the existing test server | Full encrypted 1.0.21 backup verified, including media, with a protected off-server copy; original backup settings restored |
 | Windows registration data in backups | Corrected in `d0382f67a`; encrypted archive/PG restore, private-file ACL and real consumer-lock controls pass. The next package and native replacement flow remain unqualified |
-| Genuine public 1.0.21 to actual candidate 1.0.22 | Manual-helper component still unqualified after a post-rollback database comparison failure; next test captures the normal-upgrade baseline after rollback |
+| Genuine public 1.0.21 to actual candidate 1.0.22 | Still unqualified. The normal database baseline now follows rollback; a later run exposed the test observer writing two Python cache entries after its file baseline. Explicit bytecode suppression passes 14 differential controls; strict preservation checks remain unchanged |
 | Original 1.0.21 signed updater | Compatibility correction committed as `31e93c155`; 262 local and 255 Windows adapter/file/security checks pass. Actual signed upgrade remains pending; a manual-helper test does not establish this path |
 | Fresh Windows registration | Account email verified; actual installation, managed DNS, public HTTPS and calling checks remain pending |
 | Reboot and final publication | Pending |
