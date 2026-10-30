@@ -47,19 +47,30 @@ $branch=$assignments[0].Parent
 while($branch -and $branch -isnot [Management.Automation.Language.IfStatementAst]){$branch=$branch.Parent}
 $expected='$NativeDiagnosticsOnly','$UpgradeDiagnosticsOnly','$BackupsDiagnosticsOnly','$ReplaySuiteRunId','$SkipPhoneHealthForNativeDiagnostics','$HoldDiagnosticsOnly'
 $actual=$branch.Clauses[0].Item1.Extent.Text
-Check (($actual -replace '\s','') -ceq (($expected|ForEach-Object {'!'+$_}) -join '-and')) 'only normal full without diagnostic/replay flags can publish receipt'
+$expectedCondition='!$NativeDiagnosticsOnly-and!$UpgradeDiagnosticsOnly-and!$BackupsDiagnosticsOnly-and(!$ReplaySuiteRunId-or$Public21ToCandidate22)-and!$SkipPhoneHealthForNativeDiagnostics-and!$HoldDiagnosticsOnly'
+Check (($actual -replace '\s','') -ceq $expectedCondition) 'only normal full or strict public21 replay without diagnostic flags can publish receipt'
 Check ($assignments[0].Right.Extent.Text -ceq 'ReadSuiteCdrBackgroundImport $native.checks') 'assignment receives only freshly validated actual native checks'
 # Execute only the actual pure projection branch, never the surrounding suite.
 $publish=[scriptblock]::Create($branch.Extent.Text)
-foreach($disabled in @('normal')+@($expected)){
+foreach($disabled in @('normal','strict public21 replay')+@($expected)){
  foreach($flag in $expected){Set-Variable -Name $flag.Substring(1) -Value $false}
- if($disabled -cne 'normal'){Set-Variable -Name $disabled.Substring(1) -Value $true}
+ $Public21ToCandidate22=$false
+ if($disabled -ceq 'strict public21 replay'){$Public21ToCandidate22=$true;$ReplaySuiteRunId='41103840154'}
+ elseif($disabled -cne 'normal'){Set-Variable -Name $disabled.Substring(1) -Value $true}
  $facts=@{gates=@{native_sip_audio='unqualified'}};$native=@{checks=@($row)}
  & $publish
- Check ($facts.ContainsKey('native_cdr_background_import') -eq ($disabled -ceq 'normal')) ('actual branch receipt presence '+$disabled)
+ Check ($facts.ContainsKey('native_cdr_background_import') -eq ($disabled -cin 'normal','strict public21 replay')) ('actual branch receipt presence '+$disabled)
  Check ($facts.gates.native_sip_audio -ceq 'unqualified') 'projection branch cannot promote calling gates'
 }
+foreach($flag in @($expected|Where-Object {$_ -cne '$ReplaySuiteRunId'})){
+ foreach($item in $expected){Set-Variable -Name $item.Substring(1) -Value $false}
+ $Public21ToCandidate22=$true;$ReplaySuiteRunId='41103840154';Set-Variable -Name $flag.Substring(1) -Value $true
+ $facts=@{gates=@{native_sip_audio='unqualified'}};$native=@{checks=@($row)}
+ & $publish
+ Check (!$facts.ContainsKey('native_cdr_background_import') -and $facts.gates.native_sip_audio -ceq 'unqualified') ('strict public21 replay still denies diagnostic '+$flag)
+}
 foreach($flag in $expected){Set-Variable -Name $flag.Substring(1) -Value $false}
+$Public21ToCandidate22=$false
 $facts=@{gates=@{native_sip_audio='unqualified'}};$native=@{checks=@()};$refused=$false
 try{& $publish}catch{$refused=$true}
 Check ($refused -and !$facts.ContainsKey('native_cdr_background_import') -and $facts.gates.native_sip_audio -ceq 'unqualified') 'missing normal proof refuses before receipt or gate assignment'
