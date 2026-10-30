@@ -1718,7 +1718,9 @@ try{
  $mapped=VerifyInventory $PackageRoot $release.files;$facts.checks+=('Exact candidate package inventory: '+$mapped+' files')
  if($ThreecxImportOnly){AssertThreecxImportAcceptedReplay $facts}else{$phase='original candidate export';ExportOriginalCandidate $release}
  $phase='native public-listener firewall qualification';PublicListenerQualificationHook 'native_defender'
- $phase=if($Public21ToCandidate22){'genuine public21 baseline installation'}else{'fresh installation'};$admin='windowsqa-'+[Guid]::NewGuid().ToString('N').Substring(0,12)+'@example.invalid';$password=ConvertTo-SecureString (RandomSecret) -AsPlainText -Force
+ $phase='fresh installation';
+ if($Public21ToCandidate22){$phase='genuine public21 baseline installation'}
+ $admin='windowsqa-'+[Guid]::NewGuid().ToString('N').Substring(0,12)+'@example.invalid';$password=ConvertTo-SecureString (RandomSecret) -AsPlainText -Force
  $hosts=Join-Path $env:SystemRoot 'System32/drivers/etc/hosts';$marker='# OpenWebPBX-WindowsSuite-'+$env:GITHUB_RUN_ID
  if([IO.File]::ReadAllText($hosts) -match '(?im)^\s*[^#\r\n]+\s+windowsqa\.example\.invalid(?:\s|$)'){throw 'The suite hostname already has an unrelated hosts entry.'}
  [IO.File]::AppendAllText($hosts,"`r`n127.0.0.1 $domain $marker`r`n",[Text.UTF8Encoding]::new($false));$hostAdded=$true
