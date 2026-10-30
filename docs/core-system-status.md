@@ -6,6 +6,14 @@
 
 Webhotel collects company details and verified email, checks/reserves the tenant address and keeps the initial PBX URL/username/password visible to the owner and explicit credential viewers, encrypted at rest. Each hosting location has separate installation/calling/backup/reboot gates; unqualified locations remain unavailable. Original customer catalogue entries and resource/ownership checks are preserved. See [qualification](release-1.0.22-qualification.md) and [onboarding](webhotel-onboarding.md).
 
+On 30 October, six qualified Webhotel locations are enabled; six remain held.
+The ordinary paid deployment has accepted current owner-card, actual PBX login
+and cleanup checks. Its original 40-minute queue observation remains failed by
+5.323130 seconds; this is a functional acceptance with a recorded timing limit.
+All original customer projections across 18 main-PBX tables are preserved, with
+exactly 12 known test rows retained separately. The main hosted PBX remains 1.0.21,
+with all seven expected desk phones registered and its calling services unchanged.
+
 Windows Server remains1.0.21 and Android remains1.0.19, with byte-identical existing compatibility feeds. There is no new Windows/Android/Store or physical-handset/carrier acceptance from this release. Roadmap **133 /21 accepted /72 partial /40 planned** remains unchanged; older dated entries below retain their historical scope.
 
 ## Complete server 1.0.21 published — 2026-10-27

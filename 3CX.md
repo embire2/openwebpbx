@@ -10,18 +10,18 @@ Separate controlled central protocol acceptance passes10 actual public checks th
 
 Debian **1.0.22** is published with registered setup, local PostgreSQL, managed tenant addresses and backup maintenance recovery. The [release report](docs/release-1.0.22-qualification.md) distinguishes exact new-archive installation, genuine original21 signed rollback/upgrade and a separately verified replacement restore with its explicit correction basis. Webhotel uses the final image and enables only individually qualified locations. Windows Server1.0.21 and Android1.0.19 retain their original downloads and update feeds; new native Windows onboarding/ACL/task qualification belongs to a later Windows package. Roadmap **133 goals /21 accepted /72 partial /40 planned** remains unchanged. [Integration details](docs/webhotel-onboarding.md).
 
-Provider rollout on30 October: six locations complete their recorded node checks;
-six remain unavailable for resource, storage, installation or verification limits.
-The wizard's Back-navigation reservation defect is fixed and passes an actual
-browser round-trip. The first ordinary funded order exposes a company-field
-handoff mismatch and a late cleanup race. Those deployed corrections close the
-failed history. A second ordinary order reaches native tenant HTTPS, then fails
-the generic hostname finalizer; automatic cleanup and its single refund pass.
-The narrow finalizer, boot observation, wallet and completed-history corrections
-are deployed after backup and exact stopped-app database checks. A third distinct
-ordinary order remains required before broader hosting admission. Each failed
-charge is refunded once. Debian downloads remain available. These deployment checks do not
-close additional3CX feature IDs.
+Provider rollout on 30 October: six qualified locations are enabled after fresh
+media, template and capacity checks; six remain unavailable. Current functional
+qualification covers the ordinary paid deployment, owner-visible connection
+card, actual tenant PBX login and paid-instance cleanup. Its original 40-minute
+whole-order observation remains **failed**, with queue completion 5.323130 seconds
+late. Both earlier failed orders and the failed follow-up observers remain
+recorded; the two failed charges were refunded once each. Exactly five plan
+active flags change; all other fields across 237 plans, including prices are preserved.
+Original customer projections across 18 main-PBX tables are unchanged, plus 12
+known retained test rows. Debian 22, Windows 21, Android 19 and main hosted 21 keep
+their separate versions. These deployment checks do not close additional 3CX
+feature IDs. See [qualification](docs/release-1.0.22-qualification.md).
 
 ## Hosted tenant API v1 — 2026-10-28
 

@@ -17,20 +17,37 @@ checks. Six remain held: two for available memory, one for storage health, one
 without a customer-IP pool, one after its installed-file comparisons timed out,
 and one after installation/readiness failed. No failed attempt is relabeled.
 The corrected wizard passes real forward/Back reservation preservation. The
-first funded ordinary order exposes a company-field handoff mismatch and a late
-cleanup race. The deployed corrections close that failed history through the
-normal owner action. A second ordinary order completes native installation,
-tenant HTTPS and SSH, then fails a generic hostname finalizer that accepts only
-Webhotel hostnames. Automatic cleanup completes correctly. Both failed orders
-retain their history and each charge is refunded exactly once.
+first two ordinary orders exposed a company-field mismatch, cleanup race and
+hostname-finalization defect. The deployed provider corrections address those
+failures. Each failed order was refunded once; their failed outcomes remain
+recorded. The existing housekeeping job had already pruned their terminal service
+rows; immutable qualification records and billing history are retained separately.
 
-The PBX finalizer correction, appropriate boot observation threshold, wallet
-refresh and retention of completed PBX history are now deployed. A complete
-database backup is verified, and all218,750 rows across26 protected tables pass
-the final stopped-app preservation check. Hosting admission remains limited to
-the separately authorized test location while a third distinct ordinary order
-completes the full customer path. Broader hosting sales remain held. Existing
-products/services and the standalone Debian download remain available.
+The third ordinary paid order completes installation and registration. Its owner
+can see the permanent connection card and sign in to the actual tenant PBX using
+the initial credentials shown there. Its ordinary paid-instance destruction then
+completes with physical resources and DNS removed, setup revoked and the IP freed.
+The successful service's terminal history and charge remain; no refund is issued.
+This is a separately accepted **current functional result**. Its original
+40-minute whole-order observation **fails**: the service becomes ready before the
+deadline, but queue completion is **5.323130 seconds late**. The failed timed and
+postpatch observers remain recorded; later functional checks do not rewrite them.
+
+On 30 October at 13:47 UTC, six qualified plans are enabled following fresh
+installer-media, template, memory, storage, active-task and IP-headroom checks.
+The other six remain unavailable. A locked catalogue comparison proves exactly
+five additional active flags change, preserving every other field across 237
+plans, including prices. Production order-readiness checks pass for all six.
+The [release report](release-1.0.22-qualification.md) records their different
+qualification bases and remaining timing limitation. The standalone Debian
+download and public setup wizard remain available.
+
+A complete provider database backup is verified. The final stopped-app deployment
+preserves all 218,750 rows across 26 protected tables. Original customer projections
+across 18 main-PBX tables are unchanged, plus exactly 12 known retained test rows;
+this is not whole-table equality. Existing calling services are not upgraded or
+restarted by this provider rollout.
+
 All 224 usable addresses in the sixteen existing OVH blocks have vMACs; no extra
 IP purchase or customer-address reassignment is part of this rollout.
 
