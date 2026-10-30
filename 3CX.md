@@ -10,6 +10,13 @@ Separate controlled central protocol acceptance passes10 actual public checks th
 
 Debian **1.0.22** is published with registered setup, local PostgreSQL, managed tenant addresses and backup maintenance recovery. The [release report](docs/release-1.0.22-qualification.md) distinguishes exact new-archive installation, genuine original21 signed rollback/upgrade and a separately verified replacement restore with its explicit correction basis. Webhotel uses the final image and enables only individually qualified locations. Windows Server1.0.21 and Android1.0.19 retain their original downloads and update feeds; new native Windows onboarding/ACL/task qualification belongs to a later Windows package. Roadmap **133 goals /21 accepted /72 partial /40 planned** remains unchanged. [Integration details](docs/webhotel-onboarding.md).
 
+Provider rollout on30 October: six locations complete their recorded node checks;
+six remain unavailable for resource, storage, installation or verification limits.
+The wizard's Back-navigation reservation defect is fixed and passes an actual
+browser round-trip. One ordinary funded order is accepted and installing through
+the normal worker; complete tenant readiness/credential delivery and cleanup
+remain open. These deployment checks do not close additional3CX feature IDs.
+
 ## Hosted tenant API v1 — 2026-10-28
 
 The [tenant API](docs/tenant-api.md) is live, with [public documentation](https://openwebpbx.com/api-docs) and an OpenAPI 3.1 contract. Its 17 operations support email-verified registration, isolated PBX services, managed subdomain setup/status and tenant credential management. Current shared files and approved starter templates are used; public self-service never supplies another tenant's provider credentials. Public accounts use the modern administration interface, with legacy pages blocked.

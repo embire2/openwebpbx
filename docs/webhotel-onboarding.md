@@ -1,6 +1,6 @@
 # Webhotel.cloud and Debian image onboarding
 
-## Current rollout status — 29 October 2026
+## Current rollout status — 30 October 2026
 
 The provider integration now runs in Webhotel: Create Instance collects company
 details, verifies the owner's email, checks the requested tenant address live and
@@ -11,11 +11,15 @@ root and registration-account secrets are separate.
 
 The complete Debian **1.0.22** package is published, and its read-only template
 media is rebuilt. The [qualification record](release-1.0.22-qualification.md)
-distinguishes package acceptance from each hosting node. Eight nodes were
-initially eligible for qualification; a location becomes available only after its
-installation, registration, calling, backup and reboot checks. A node that failed
-the installed-file comparison time limit remains unavailable. Other nodes remain
-held for storage health, memory or customer-IP availability.
+distinguishes package acceptance from each hosting node. Six locations have
+completed the recorded installation, registration, calling, backup and reboot
+checks. Six remain held: two for available memory, one for storage health, one
+without a customer-IP pool, one after its installed-file comparisons timed out,
+and one after installation/readiness failed. No failed attempt is relabeled.
+The corrected wizard passes real forward/Back reservation preservation. One
+funded ordinary browser order is accepted with HTTP202 and its worker starts
+immediately; guest readiness and cleanup are being checked separately before the
+remaining qualified plans are activated.
 All 224 usable addresses in the sixteen existing OVH blocks have vMACs; no extra
 IP purchase or customer-address reassignment is part of this rollout.
 
