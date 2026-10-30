@@ -1,5 +1,16 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+## Windows registered setup — 2026-10-30
+
+Windows Server1.0.22 is being qualified with the same public onboarding wizard
+as Debian: account verification, a managed tenant subdomain and automatic HTTPS.
+The native build and manager launch pass. A real Windows temporary-certificate
+issue is corrected, and the existing test installation has a verified encrypted
+backup. Actual package upgrade/rollback, fresh registration, calling and reboot
+checks remain required before publication. Windows1.0.21 remains the public
+download; no additional feature-roadmap goals are marked complete.
+[Current Windows evidence](docs/windows-parity-1.0.22.md).
+
 ## Self-install and Webhotel onboarding — 2026-10-29
 
 The public [setup wizard](https://openwebpbx.com/wizard), dedicated20-operation image/browser/provider API and seven central installation/email-authority operations are deployed. The main API reference describes24 operations while retaining the original17 hosted operations. Verified-owner reservations, deployment binding, bounded renewal and scoped revocation support provider setup and safe cancellation. Pairing keeps owner passwords/tokens out of the guest, automatically binds a canonical node identity and returns a tenant connection link only after fresh trusted HTTPS/ownership verification. Remote setup creates no second hosted PBX service.
