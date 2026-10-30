@@ -1,6 +1,24 @@
 # Updating Windows Server
 
-## Current Windows 1.0.20 work
+## Windows 1.0.22 candidate — qualification pending
+
+Windows Server 1.0.22 is being tested; the public Windows download remains
+**1.0.21**. Do not treat the candidate guide or source checks as a published
+update. Follow the [candidate status](windows-parity-1.0.22.md) and
+[Windows 1.0.22 setup guide](installing-windows-1.0.22.md).
+
+The candidate's signed Windows update requires **installed 1.0.21 or newer**.
+Earlier installations need their separately supported intermediate upgrade.
+Fresh installation uses the managed registration wizard; upgrading a legacy
+installation preserves its existing registration policy, phones and settings.
+Original 1.0.21 signed-updater qualification is separate from running the new
+helper manually. A deliberately disabled original TenantDomains task stays
+disabled and delays its natural post-commit onboarding-task migration.
+
+For the published package, use the [Windows 1.0.21 release scope](release-1.0.21-qualification.md)
+and its [installation guide](installing-windows-1.0.21.md).
+
+## Historical Windows 1.0.20 work
 
 The complete native Windows Server2025 fresh-server package passes normal,
 independent restore and signed newer-upgrade/recovery qualification. Follow the

@@ -1,7 +1,10 @@
 # Install OpenWeb PBX 1.0.22 on Windows Server 2025
 
+Windows 1.0.22 is a candidate under qualification. The public Windows download
+remains **1.0.21**.
+
 These instructions apply to the Windows Server 1.0.22 package. Check the
-[download table](../readme.md) and [qualification status](windows-parity-1.0.22.md)
+[download table](https://github.com/embire2/openwebpbx#downloads-and-platforms) and [qualification status](windows-parity-1.0.22.md)
 for availability and the recorded test scope. The Windows calling client is a
 separate application.
 
@@ -17,7 +20,7 @@ The server needs a reachable public IPv4 address. Make TCP 80/443 available for
 registration, certificates and web access. The standard calling ports are
 TCP/UDP 5060, TCP 5061 for secure phones, TCP/UDP 5080 for providers,
 UDP 16384–32768 for audio and UDP 3478 for STUN. Follow the actual configured
-listeners and [network guide](../packaging/windows/ACME.md). Configure any
+listeners and [network guide](https://github.com/embire2/openwebpbx/blob/0abd22441ff459b0fa6dcbc114c2e593c07712f2/packaging/windows/ACME.md). Configure any
 upstream router or firewall; the installer cannot configure that equipment.
 STUN is not a TURN relay. PostgreSQL and internal control services stay local.
 

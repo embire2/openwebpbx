@@ -1,6 +1,25 @@
 # Windows Server backups and replacement restore
 
-**Server 1.0.21 — Complete Windows and Debian server1.0.21 release.** Use the matching platform release and [current release scope](release-1.0.21-qualification.md). Target certificates and separate restored calling/jobs holds below remain required. The following1.0.20 test record is historical and does not substitute for current-package restore acceptance.
+## Windows 1.0.22 candidate — qualification pending
+
+The public Windows download remains **1.0.21**. Windows 1.0.22 registration and
+replacement-restore work is under qualification; use the [candidate status](windows-parity-1.0.22.md)
+and [candidate installation guide](installing-windows-1.0.22.md) to check its scope.
+Its signed update requires installed Windows 1.0.21 or newer. A replacement must
+still match the backup's application version; an upgrade does not turn a
+1.0.21 archive into a 1.0.22 archive.
+
+The candidate adds the private registration service binding and pairing session
+to encrypted backups alongside the instance key and signed database grants.
+Restore imports those source credentials while preserving the target database,
+operating-system identity and installation registration requirement. Target
+readiness/setup caches are rebuilt after activation. These changes have source,
+file/security and isolated database checks; actual candidate replacement
+qualification remains separate.
+
+## Published and historical qualification
+
+**Published Windows Server 1.0.21.** Use the matching platform release and [release scope](release-1.0.21-qualification.md). Target certificates and separate restored calling/jobs holds below remain required. The following1.0.20 test record is historical and does not substitute for current-package restore acceptance.
 
 **Historical 1.0.20 qualification:** Its exact package passes normal40111566679 (17 essential gates), independent replacement restore40123098262 (source9/target20), and signed newer upgrade40125359325 (9 gates plus111 native scheduling/file-sharing controls). Its [historical release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.20) and [historical qualification record](windows-parity-1.0.20.md#windows-release-gates) remain available. For a current replacement, use the [1.0.21 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.21) and its [installation guide](installing-windows-1.0.21.md), matching the version of your backup. The separate restored-conference check40165744505 also passes (source9/target21), including new browser meetings with decoded audio/video and preserved original data/holds. Original 1.0.6 migration/recovery, actual OS reboot, physical phones/carriers/cameras, external NAT and continuity of existing meeting invitations remain unqualified.
 
@@ -21,7 +40,7 @@ The Windows scheduled worker runs as SYSTEM. Its private backup files live under
    .\Install-OpenWebPBX.ps1 -DomainName 'pbx.example.com' -HttpsPort 443 -CertificateThumbprint 'TARGET_CERTIFICATE_THUMBPRINT' -AdminEmail 'admin@example.com' -RestoreServer
    ```
 
-   This example uses standard HTTPS port443. Use the source's actual hostname/port and the target certificate's thumbprint. Published Windows 1.0.20 accepts `https://host` and `https://host:443` as equivalent root HTTPS addresses while still refusing a different hostname, port or path. Use the matching published package for this behavior. The certificate must be current, trusted for that hostname, in Local Computer → Personal, and have an exportable private key for phone/meeting setup. See [public certificates and network setup](../packaging/windows/ACME.md) and [meeting transport](windows-meet.md). Do not switch public DNS or register carrier trunks merely to test a replacement.
+   This example uses standard HTTPS port443. Use the source's actual hostname/port and the target certificate's thumbprint. Published Windows 1.0.20 accepts `https://host` and `https://host:443` as equivalent root HTTPS addresses while still refusing a different hostname, port or path. Use the matching published package for this behavior. The certificate must be current, trusted for that hostname, in Local Computer → Personal, and have an exportable private key for phone/meeting setup. See [public certificates and network setup](https://github.com/embire2/openwebpbx/blob/0abd22441ff459b0fa6dcbc114c2e593c07712f2/packaging/windows/ACME.md) and [meeting transport](windows-meet.md). Do not switch public DNS or register carrier trunks merely to test a replacement.
 3. Copy the encrypted file to an existing folder accessible only to Administrators and SYSTEM. Compare its SHA256 with the original download before continuing:
 
    ```powershell
