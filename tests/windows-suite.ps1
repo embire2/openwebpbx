@@ -1772,14 +1772,22 @@ try{
  if(!$?){throw 'The installed native call-engine inventory differs.'}
  if($Public21ToCandidate22){
   if($completed.Version -cne '1.0.21'){throw 'The genuine baseline was not actually installed.'}
+  # The genuine local-test21 installer has a self-signed certificate. Keep
+  # the existing parent-owned CA/CRL fixture alive through the whole suite;
+  # the calling matrix restores this binding after its separate fixture.
+  $phase='public21 trusted phone TLS prerequisite'
+  $recoveryPki=Start-SuiteRecoveryPki -PackageRoot $baselinePackage -SourceRoot $source -Work $work
   $phase='public21 to actual candidate22 upgrade and rollback'
   $transitionInput=Join-Path $work 'public21-transition-input.json';$transitionReport=Join-Path $work 'public21-transition-report.json'
   [IO.File]::WriteAllText($transitionInput,([ordered]@{schema=1;run_id=$env:GITHUB_RUN_ID;restore_server=$true;admin_email=$admin;source_root=$source;public21_baseline=$facts.public21_baseline;candidate_sha256=$facts.candidate_artifact.sha256;candidate_source_commit=$env:GITHUB_SHA;candidate_archive=$candidateArchive;public21_archive=(Join-Path $work $facts.public21_baseline.name);public21_package=$baselinePackage;package_root=$PackageRoot}|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
-  & (Join-Path $PSScriptRoot 'windows-upgrade-acceptance.ps1') -PackageRoot $PackageRoot -InputPath $transitionInput -ReportPath $transitionReport -Public21ToCandidate22 -DisposableHostedRunner
-  if(!$?){throw 'The genuine public21 to exact candidate22 product upgrade component failed.'}
-  $transition=Get-Content $transitionReport -Raw|ConvertFrom-Json
+  $transitionFailure=$null
+  try{& (Join-Path $PSScriptRoot 'windows-upgrade-acceptance.ps1') -PackageRoot $PackageRoot -InputPath $transitionInput -ReportPath $transitionReport -Public21ToCandidate22 -DisposableHostedRunner}catch{$transitionFailure=$_}
+  if(!(Test-Path -LiteralPath $transitionReport)){if($transitionFailure){throw $transitionFailure};throw 'The transition did not retain its required report.'}
+  $transition=Get-Content -LiteralPath $transitionReport -Raw|ConvertFrom-Json
+  if($transition.state -cne 'passed'){RememberHookFailure $transition}
+  if($transitionFailure){throw $transitionFailure}
   if($transition.state -cne 'passed' -or $transition.gates.public21_to_candidate22 -cne 'passed' -or $transition.gates.public21_rollback -cne 'passed'){throw 'The actual version transition and original21 rollback must both pass.'}
-  $facts.mode='public21_to_actual_candidate22';$facts.qualification_scope='Actual immutable public21 installation, exact candidate22 ordinary helper upgrade and rollback, then full unchanged22 software gates. Fresh22 registration remains separately unqualified.'
+  $facts.mode='public21_to_actual_candidate22';$facts.qualification_scope='Actual immutable public21 installation, exact candidate22 manual helper upgrade and rollback, then full unchanged22 software gates. Fresh22 registration remains separately unqualified.'
   $facts.fresh_installed_version='1.0.21';$facts.fresh22_registration='unqualified';$facts.gates.public21_to_candidate22='passed';$facts.gates.public21_rollback='passed';$facts.public21_transition=$transition
  }
  $facts.gates.fresh='passed';$facts.checks+=('Real restore-ready installation/services/native engine hash preservation; initial version '+$(if($Public21ToCandidate22){'public21 upgraded to actual22'}else{$release.version}))
@@ -1823,7 +1831,9 @@ try{
   }
  }
  if(!$NativeDiagnosticsOnly){
- $phase='independent trusted recovery fixture';$recoveryPki=Start-SuiteRecoveryPki -PackageRoot $PackageRoot -SourceRoot $source -Work $work
+ $phase='independent trusted recovery fixture'
+ if(!$recoveryPki){$recoveryPki=Start-SuiteRecoveryPki -PackageRoot $PackageRoot -SourceRoot $source -Work $work}
+ elseif(!$Public21ToCandidate22 -or !$recoveryPki.process -or $recoveryPki.process.HasExited){throw 'The original parent-owned transition CA/CRL fixture is unavailable.'}
  if(!$BackupsDiagnosticsOnly){
   $phase='upgrade acceptance hook';$upgrade=AcceptanceHook 'windows-upgrade-acceptance.ps1' (Join-Path $work 'upgrade-acceptance.json')
   if($upgrade){foreach($gate in 'direct_113_helper_reapply','direct_failure_rollback','restore_gate_startup','manager_reopen_success','manager_reopen_rollback','installed_upgrade','failure_rollback','legacy_106_upgrade'){if($upgrade.gates.$gate -eq 'passed'){$facts.gates[$gate]='passed'}}}

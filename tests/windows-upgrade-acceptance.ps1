@@ -819,22 +819,9 @@ function SignedChecks {
 }
 
 try{
- if(!$Public21ToCandidate22){Check ((Hash $helper) -eq (Hash (Join-Path $PackageRoot 'Upgrade-OpenWebPBX.ps1'))) 'Direct reapply requires the identical installed helper, not an unqualified replacement.'}
- if($installed.Version -eq '1.0.12'){$report.baseline='private laboratory service 1.0.12 built from candidate source; not a historical public Windows 1.0.12 release'}
- if(!(Test-Path "$state\phone-tls.json")){
-  Import-Module WebAdministration;$binding=Get-WebBinding -Name OpenWebPBX -Protocol https|Select-Object -First 1
-  $thumbprint=if($binding.certificateHash -is [string]){$binding.certificateHash}else{([BitConverter]::ToString($binding.certificateHash)).Replace('-','')}
-  Check ($thumbprint -match '^[a-fA-F0-9]{40,64}$') 'The trusted fixture HTTPS certificate is unavailable.'
-  $result=InvokeHelper "$root\tools\Enable-PhoneTLS.ps1" @('-CertificateThumbprint',$thumbprint) 'source-phone-tls';Check ($result -eq 0 -and (Test-Path "$state\phone-tls.json")) 'Source private phone TLS material did not prepare.'
- }
- $fixtureDirectory=Join-Path $state 'backup-qualification';New-Item -ItemType Directory -Force $fixtureDirectory|Out-Null
- $fixture=Join-Path $fixtureDirectory ('upgrade-'+[Guid]::NewGuid().ToString('N')+'.json');Copy-Item -LiteralPath $InputPath -Destination $fixture
- $prior=$env:OPENWEB_WINDOWS_BACKUP_TEST;$env:OPENWEB_WINDOWS_BACKUP_TEST='1'
- Push-Location "$root\web"
- try{& "$root\php\php.exe" (Join-Path $PSScriptRoot 'windows-backups-fixture.php') create $fixture;Check ($LASTEXITCODE -eq 0) 'The owned preservation PBX fixture failed.'}finally{Pop-Location}
- Suspend-OpenWebQualificationHealth ([ref]$healthOriginal)
- StopUpdater
  if($Public21ToCandidate22){
+  $phase='legacy fixture input validation'
+  Check (($fixtureInput.schema -is [int] -or $fixtureInput.schema -is [long]) -and $fixtureInput.schema -eq 1 -and $fixtureInput.restore_server -is [bool] -and $fixtureInput.restore_server -and $fixtureInput.run_id -ceq $env:GITHUB_RUN_ID -and $fixtureInput.admin_email -ceq $installed.AdminEmail -and $fixtureInput.source_root -is [string] -and [IO.Path]::GetFullPath($fixtureInput.source_root) -ceq [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent)) -and $fixtureInput.package_root -is [string] -and [IO.Path]::GetFullPath($fixtureInput.package_root) -ceq [IO.Path]::GetFullPath($PackageRoot)) 'The complete source-owned legacy transition fixture input is required.'
   $phase='immutable public21 to actual22 provenance'
   $pin=$fixtureInput.public21_baseline
   Check ($installed.Version -ceq '1.0.21' -and (Get-Content (Join-Path $PackageRoot 'VERSION') -Raw).Trim() -ceq '1.0.22' -and $fixtureInput.candidate_source_commit -ceq $env:GITHUB_SHA -and $fixtureInput.candidate_sha256 -cmatch '^[a-f0-9]{64}$' -and (Hash $fixtureInput.candidate_archive) -ceq $fixtureInput.candidate_sha256 -and $pin.source -ceq 'cab93b390ba2e8f33c184f2f085740c2862031a6' -and $pin.release -eq 425443430 -and $pin.asset -eq 681566377 -and $pin.bytes -eq 643070428 -and $pin.sha256 -ceq 'ce811ae1eaeb17b46f81bdfc0f12b0baa13409bded8f4df6788f8772d0ea855d' -and (Hash $fixtureInput.public21_archive) -ceq $pin.sha256) 'The actual public21/candidate22 artifacts or source identities differ.'
@@ -843,6 +830,28 @@ try{
    Check ((Hash $installedPath) -ceq (Hash (Join-Path $fixtureInput.public21_package $component))) 'An installed baseline assembly differs from the genuine public21 package.'
   }
   foreach($sql in 'app/tenant_api/resources/install.sql','app/pbx_onboarding/resources/install.sql'){Check ((Hash (Join-Path "$PackageRoot/web" $sql)) -ceq (Hash (Join-Path $fixtureInput.source_root $sql))) 'The candidate schema model differs from this exact source.'}
+ }
+ if(!$Public21ToCandidate22){Check ((Hash $helper) -eq (Hash (Join-Path $PackageRoot 'Upgrade-OpenWebPBX.ps1'))) 'Direct reapply requires the identical installed helper, not an unqualified replacement.'}
+ if($installed.Version -eq '1.0.12'){$report.baseline='private laboratory service 1.0.12 built from candidate source; not a historical public Windows 1.0.12 release'}
+ $phase='phone TLS prerequisite'
+ if(!(Test-Path "$state\phone-tls.json")){
+  Import-Module WebAdministration;$binding=Get-WebBinding -Name OpenWebPBX -Protocol https|Select-Object -First 1
+  $thumbprint=if($binding.certificateHash -is [string]){$binding.certificateHash}else{([BitConverter]::ToString($binding.certificateHash)).Replace('-','')}
+  Check ($thumbprint -match '^[a-fA-F0-9]{40,64}$') 'The trusted fixture HTTPS certificate is unavailable.'
+  $result=InvokeHelper "$root\tools\Enable-PhoneTLS.ps1" @('-CertificateThumbprint',$thumbprint) 'source-phone-tls';Check ($result -eq 0 -and (Test-Path "$state\phone-tls.json")) 'Source private phone TLS material did not prepare.'
+ }
+ $phase='owned preservation fixture'
+ $fixtureDirectory=Join-Path $state 'backup-qualification';New-Item -ItemType Directory -Force $fixtureDirectory|Out-Null
+ $fixture=Join-Path $fixtureDirectory ('upgrade-'+[Guid]::NewGuid().ToString('N')+'.json');Copy-Item -LiteralPath $InputPath -Destination $fixture
+ $prior=$env:OPENWEB_WINDOWS_BACKUP_TEST;$env:OPENWEB_WINDOWS_BACKUP_TEST='1'
+ Push-Location "$root\web"
+ try{& "$root\php\php.exe" (Join-Path $PSScriptRoot 'windows-backups-fixture.php') create $fixture;Check ($LASTEXITCODE -eq 0) 'The owned preservation PBX fixture failed.'}finally{Pop-Location}
+ $phase='original health observer quiescence'
+ Suspend-OpenWebQualificationHealth ([ref]$healthOriginal)
+ $phase='original updater quiescence'
+ StopUpdater
+ if($Public21ToCandidate22){
+  $phase='legacy policy and private media baseline'
   $taskTokens=$null;$taskErrors=$null;$taskAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'windows-updater-qualification.ps1'),[ref]$taskTokens,[ref]$taskErrors)
   Check (!$taskErrors.Count) 'The existing native preservation functions must parse.'
   foreach($name in 'SnapshotHash','FileSnapshot','AssertNewOnboardingTaskSnapshot','NormalTaskPreservation'){
@@ -925,7 +934,7 @@ try{
   Equal $private21 $privateComparison 'Original21 private/config/key/recording/custom-media files and ACLs changed across the actual22 upgrade.'
   $BaseVersion='1.0.21';$CanaryVersion='1.0.22'
   NormalTaskPreservation $tasks21 (TaskSnapshot) $normalStarted
-  $report.mode='public21_to_actual_candidate22';$report.baseline='immutable public Windows21, not a version-overlay canary';$report.candidate_source_commit=$env:GITHUB_SHA;$report.candidate_sha256=$fixtureInput.candidate_sha256;$report.public21_sha256=$pin.sha256;$report.preservation=$model;$report.gates.public21_to_candidate22='passed';$report.fresh22_registration='unqualified';$report.state='passed'
+  $report.mode='public21_to_actual_candidate22';$report.upgrade_mechanism='candidate22_manual_helper';$report.original21_signed_wrapper='unqualified';$report.baseline='immutable public Windows21, not a version-overlay canary';$report.candidate_source_commit=$env:GITHUB_SHA;$report.candidate_sha256=$fixtureInput.candidate_sha256;$report.public21_sha256=$pin.sha256;$report.preservation=$model;$report.gates.public21_to_candidate22='passed';$report.fresh22_registration='unqualified';$report.state='passed'
   return
  }
  SignedChecks
