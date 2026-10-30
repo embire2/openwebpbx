@@ -10,10 +10,13 @@ try{
  . (Join-Path $PSScriptRoot 'PublicAccess.Common.ps1')
  $null=Assert-OpenWebOrdinaryPath (Join-Path $root 'tools') $true
  $manifest=Get-Content -LiteralPath (Join-Path $PackageRoot 'release-manifest.json') -Raw|ConvertFrom-Json
- foreach($name in 'tenant-domains.py','tenant-domains.php','Tenant-Domains.ps1','Install-TenantDomains.ps1'){
+ # The original signed21 helper already calls this installer. Stage the new
+ # verified closure only; its existing worker installs the task after commit.
+ foreach($name in 'tenant-domains.py','tenant-domains.php','Tenant-Domains.ps1','Install-TenantDomains.ps1','Install-Onboarding.ps1','Ensure-OnboardingUpgrade.ps1','Onboarding-Upgrade.Common.ps1','onboarding.py','onboarding.php','webhotel-onboarding.py'){
   $source=Join-Path $PackageRoot $name;$null=Assert-OpenWebOrdinaryPath $source
   if((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant() -ne $manifest.files.$name){throw 'A tenant-domain helper differs from the verified release.'}
-  Copy-Item -LiteralPath $source -Destination (Join-Path "$root\tools" $name) -Force
+  $target=Join-Path "$root\tools" $name;if(Test-Path -LiteralPath $target){$null=Assert-OpenWebOrdinaryPath $target}
+  Copy-Item -LiteralPath $source -Destination $target -Force
  }
  $name='OpenWebPBX-TenantDomains';$description='OpenWeb PBX owned tenant HTTPS lease worker'
  $existing=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue

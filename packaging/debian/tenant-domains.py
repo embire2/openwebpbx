@@ -148,6 +148,16 @@ def windows(b, operation, value):
         raise Pending('certificate_pending',3600)
     return json.loads(result.stdout)
 
+def ensure_windows_onboarding(b):
+    # The immutable21 helper stages this verified closure through its existing
+    # tenant installer. Ensure owns/relinquishes upgrade.lock BEFORE this worker.
+    program=Path(os.environ.get('SystemRoot','C:/Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe'
+    result=subprocess.run([str(program),'-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',str(b.APP/'tools/Ensure-OnboardingUpgrade.ps1')],capture_output=True,env=b.native_powershell_environment(),timeout=60)
+    if result.returncode or len(result.stdout)>8192:raise Pending('local_configuration',300)
+    reply=json.loads(result.stdout)
+    if not isinstance(reply,dict)or reply.get('state')not in ['existing','created','not_needed','deferred']:raise Pending('local_configuration',300)
+    return reply
+
 def certificate_info(cert, key, names):
     cert=x509.load_pem_x509_certificate(Path(cert).read_bytes());private=serialization.load_pem_private_key(Path(key).read_bytes(),None)
     if cert.public_key().public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo)!=private.public_key().public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo):raise ValueError('Certificate key mismatch.')
@@ -238,7 +248,10 @@ def run(move=False, confirm=None):
     global WINDOWS_ACL
     spec=importlib.util.spec_from_file_location('tenant_local_backup',Path(__file__).with_name('backups.py'));b=importlib.util.module_from_spec(spec);spec.loader.exec_module(b)
     if not IS_WINDOWS and os.geteuid()!=0:raise PermissionError('Run the installed tenant domain worker as root.')
-    if IS_WINDOWS:WINDOWS_ACL=lambda operation,path:windows(b,operation,path)
+    if IS_WINDOWS:
+        WINDOWS_ACL=lambda operation,path:windows(b,operation,path)
+        ensured=ensure_windows_onboarding(b)
+        if ensured['state']=='deferred':return {'state':'deferred','reason':'onboarding_upgrade_pending'}
     with contextlib.ExitStack() as lock:
         if IS_WINDOWS:
             try:lock.enter_context(b.exclusive_guard(b.UPGRADE_LOCK))

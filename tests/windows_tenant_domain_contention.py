@@ -16,9 +16,9 @@ def forbidden(*args):raise AssertionError('Network/certificate operation forbidd
 def check(value):
  global checks
  assert value,'Actual tenant contention control failed.';checks+=1
-def run(b):
+def run(b,ensure=None):
  spec=types.SimpleNamespace(loader=types.SimpleNamespace(exec_module=lambda *a:None))
- with patch.object(tenant.importlib.util,'spec_from_file_location',return_value=spec),patch.object(tenant.importlib.util,'module_from_spec',return_value=b),patch.object(tenant,'bridge',side_effect=bridge),patch.object(tenant,'Broker',side_effect=forbidden),patch.object(tenant,'certify',side_effect=forbidden):return tenant.run()
+ with patch.object(tenant.importlib.util,'spec_from_file_location',return_value=spec),patch.object(tenant.importlib.util,'module_from_spec',return_value=b),patch.object(tenant,'ensure_windows_onboarding',side_effect=ensure or (lambda b:{'state':'not_needed'})),patch.object(tenant,'bridge',side_effect=bridge),patch.object(tenant,'Broker',side_effect=forbidden),patch.object(tenant,'certify',side_effect=forbidden):return tenant.run()
 def refuses(b,kind):
  calls.clear()
  try:run(b)
@@ -54,10 +54,38 @@ with tempfile.TemporaryDirectory(prefix='openweb-tenant-contention-')as work:
  with patch.object(tenant,'blocked',side_effect=backup.BackupBusy('Body failure')):
   refuses(backup,backup.BackupBusy)
  with original_guard(ordinary):check(True)
+ # A busy/deferred postcommit ensure returns BEFORE the normal tenant lock;
+ # existing/created paths release their own native lock before entering it.
+ backup.exclusive_guard=forbidden;calls.clear()
+ check(run(backup,lambda b:{'state':'deferred'})=={'state':'deferred','reason':'onboarding_upgrade_pending'});check(not calls)
+ backup.exclusive_guard=original_guard
+ def ensure_before_lock(b):calls.append('ensure');return {'state':'existing'}
+ @contextlib.contextmanager
+ def ordered_guard(path):
+  calls.append('lock')
+  with original_guard(path):yield
+ backup.exclusive_guard=ordered_guard;calls.clear()
+ try:run(backup,ensure_before_lock)
+ except ReachedBridge:check(calls==['ensure','lock','bridge'])
+ else:raise AssertionError('Actual guarded orchestration did not run.')
+ backup.exclusive_guard=original_guard
+ # The source native adapter invokes only the dedicated ensure helper, with
+ # the normal native environment; protocol failures cannot become success.
+ native=types.SimpleNamespace(APP=base,native_powershell_environment=lambda:{'OWNED':'fixture'})
+ for state in ('existing','created','not_needed','deferred'):
+  with patch.object(tenant.subprocess,'run',return_value=types.SimpleNamespace(returncode=0,stdout=json.dumps({'state':state}).encode()))as proc:
+   check(tenant.ensure_windows_onboarding(native)['state']==state)
+   check(proc.call_args.args[0][-1]==str(base/'tools/Ensure-OnboardingUpgrade.ps1')and proc.call_args.kwargs['env']=={'OWNED':'fixture'}and proc.call_args.kwargs['timeout']==60)
+ for code,body in ((1,b'{}'),(0,b'x'*8193),(0,b'[]'),(0,b'{"state":"unknown"}')):
+  with patch.object(tenant.subprocess,'run',return_value=types.SimpleNamespace(returncode=code,stdout=body)):
+   try:tenant.ensure_windows_onboarding(native)
+   except tenant.Pending:check(True)
+   else:raise AssertionError('Invalid native ensure result was admitted.')
  # The Debian branch neither looks up BackupBusy nor changes its error result.
  if os.name!='nt':
   tenant.IS_WINDOWS=False;hold.write_text('owned')
-  debian=types.SimpleNamespace(UPGRADE_LOCK=ordinary,RESTORE=backup.RESTORE,STATE=base,exclusive_guard=original_guard)
+  debian_backup=load('tenant_contention_debian_backup',root/'packaging/debian/backups.py')
+  debian=types.SimpleNamespace(UPGRADE_LOCK=ordinary,RESTORE=backup.RESTORE,STATE=base,exclusive_guard=debian_backup.exclusive_guard)
   calls.clear();check(run(debian)=={'state':'deferred','reason':'maintenance_or_restore_hold'});check(not calls)
-  with original_guard(ordinary):refuses(debian,backup.BackupBusy)
+  with original_guard(ordinary):refuses(debian,debian_backup.BackupError)
 print(json.dumps({'state':'passed','checks':checks,'actual_source_orchestration':True,'actual_posix_locks':os.name!='nt','actual_native_windows_guard':os.name=='nt','network_sql_certificate_calls_during_defer':0}))

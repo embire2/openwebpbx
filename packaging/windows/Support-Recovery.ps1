@@ -334,6 +334,10 @@ function Restore-OpenWebSupport {
  if(!(Test-Path "$Backup\support-state.json")){return} # Old immutable backups.
  $record=Get-Content "$Backup\support-state.json" -Raw | ConvertFrom-Json
  if($record.schema -ne 1){throw 'The support recovery inventory is invalid.'}
+ # Original21 support inventories predate this task. Delete only a task whose
+ # atomic provenance authenticates this exact sealed original21 before-image.
+ $onboardingCompatibility=Join-Path $PSScriptRoot 'Onboarding-Upgrade.Common.ps1'
+ if(Test-Path -LiteralPath $onboardingCompatibility){. $onboardingCompatibility;Remove-OpenWebLegacyOnboardingTask -Backup $Backup -Record $record -Root $Root -StateRoot $StateRoot -EngineRoot $EngineRoot -MaintenanceLock $MaintenanceLock}
  if($record.PSObject.Properties.Name -ccontains 'CallRecordAccess'){
   . (Join-Path $PSScriptRoot 'CallRecords.Common.ps1')
   Restore-OpenWebCallRecordAccess -Snapshot $record.CallRecordAccess -StateRoot $StateRoot -EngineRoot $EngineRoot -MaintenanceLock $MaintenanceLock
@@ -463,7 +467,7 @@ function Restore-OpenWebSupport {
     if((Get-Acl -LiteralPath $taskFile).Sddl -ne $entry.Value.FileAcl){throw 'The original scheduled-task file permissions did not restore.'}
     if($entry.Value.Security -and !(Test-OpenWebTaskSecurityEquivalent ([string]$entry.Value.Security) ($nativeTask.GetSecurityDescriptor(7)))){throw 'Scheduled-task file restoration changed its original security.'}
    }
-  }else{Unregister-ScheduledTask -TaskName $entry.Name -Confirm:$false -ErrorAction SilentlyContinue}
+  }else{Unregister-ScheduledTask -TaskName $entry.Name -TaskPath '\' -Confirm:$false -ErrorAction SilentlyContinue}
  }
  $filter="system.webServer/fastCgi/application[@fullPath='$Root\php\php-cgi.exe']/environmentVariables"
  if($record.PhpEnvironment.Exists){
