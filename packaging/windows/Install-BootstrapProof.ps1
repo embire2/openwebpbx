@@ -49,6 +49,8 @@ try{
   $site=$manager.Sites.Add($name,'http',$binding,$physical);$site.Applications['/'].ApplicationPoolName=$name
   $null=$site.Applications['/'].VirtualDirectories.Add('/.well-known/openwebpbx-instance',$proof)
  }
+ $section=$manager.GetApplicationHostConfiguration().GetSection('system.webServer/handlers',$name)
+ $section.OverrideMode=[Microsoft.Web.Administration.OverrideMode]::Allow
  $site.ServerAutoStart=$true;$pool.AutoStart=$true;$manager.CommitChanges()
  if($pool.State -ne 'Started'){$null=$pool.Start()};if($site.State -ne 'Started'){$null=$site.Start()}
 }finally{$manager.Dispose()}
