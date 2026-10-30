@@ -418,9 +418,9 @@ Write-OpenWebPrivateState -Path "$private\installation.json" -Value $state
 $greetingAccessCommitted=$true
 Remove-OpenWebCallRecordHold -StateRoot $private -Hold $state.CallRecordHold -MaintenanceLock $installationLock
 Remove-Item "$private\setup-secrets.json" -ErrorAction SilentlyContinue
-Write-Host "OpenWeb PBX $($state.Version) is installed at https://${DomainName}:$HttpsPort"
+Write-Host "OpenWeb PBX $($state.Version) is installed on this Windows server."
 Write-Host 'All tenants share this installation''s built-in database. No separate database server is required.'
-Write-Host "Finish registration at https://${DomainName}:$HttpsPort/app/pbx_onboarding/"
+if(!$BootstrapRegistration){Write-Host "Finish registration at https://${DomainName}:$HttpsPort/app/pbx_onboarding/"}
 Write-Host 'Registration and the secure managed tenant address are required before phones and calling can be used. Updates, backups and repair remain available.'
 
 
@@ -442,6 +442,7 @@ Enable-ScheduledTask -TaskName 'OpenWebPBX-TenantDomains' | Out-Null
 Enable-ScheduledTask -TaskName 'OpenWebPBX-Onboarding' | Out-Null
 Start-ScheduledTask -TaskName 'OpenWebPBX-Onboarding'
 if($BootstrapRegistration){
+ Write-Host 'Continue in the public setup wizard to sign in or create an account, enter company details, verify your email and choose your tenant address.'
  $setupReady=$false;$setupPath=Join-Path $private 'tenant-domains\setup.json'
  for($attempt=0;$attempt -lt 30;$attempt++){
   try{

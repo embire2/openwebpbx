@@ -20,6 +20,7 @@ public sealed partial class MainPage : Page
     private bool loaded;
     private bool registrationRequired;
     private string? registrationSetupUrl;
+    private bool openRegistrationWhenReady;
     private string? shownUpdateVersion;
     private string? dialogVersion;
     private ContentDialog? updateDialog;
@@ -50,7 +51,7 @@ public sealed partial class MainPage : Page
         }
         catch (CryptographicException) { }
         Loaded += async (_, _) => { loaded = true; await RefreshStatus(); RefreshUpdateStatus(); updateTimer.Start(); await RegisterRestart(); };
-        updateTimer.Tick += async (_, _) => { RefreshUpdateStatus(); if (registrationRequired) await RefreshStatus(); };
+        updateTimer.Tick += async (_, _) => { RefreshUpdateStatus(); if (registrationRequired || openRegistrationWhenReady) await RefreshStatus(); };
         Unloaded += (_, _) => updateTimer.Stop();
     }
     private async Task RefreshStatus()
@@ -60,19 +61,30 @@ public sealed partial class MainPage : Page
             var status = await client.GetFromJsonAsync<ServerHealth>("http://127.0.0.1:8087/health");
             StatusBanner.Title = status?.State ?? "Unavailable";
             registrationRequired = status?.State == "Registration required";
-            registrationSetupUrl = status?.SetupCode is string code && Regex.IsMatch(code, "^[A-F0-9]{5}-[A-F0-9]{5}$")
-                && status.SetupUrl == "https://openwebpbx.com/wizard#code=" + code ? status.SetupUrl : null;
+            registrationSetupUrl = ManagedSetupLink.VerifiedWizard(status?.SetupUrl, status?.SetupCode);
             RegistrationButton.Visibility = registrationRequired ? Visibility.Visible : Visibility.Collapsed;
             RegistrationDetails.Visibility = registrationRequired ? Visibility.Visible : Visibility.Collapsed;
-            RegistrationDetails.Text = registrationSetupUrl is not null ? "Setup code: " + status!.SetupCode + " · Open the registration wizard to connect your account."
-                : "Registration is required. Your secure setup link is being prepared; you can also open the local registration wizard.";
+            RegistrationDetails.Text = registrationSetupUrl is not null ? "Setup code: " + status!.SetupCode + " · Continue in your browser to sign in or create an account, enter company details, verify your email and choose your tenant address."
+                : "Your secure setup link is being prepared. Keep this manager open; it will check again automatically.";
             StatusBanner.Message = registrationRequired ? "Finish registration and choose your secure OpenWeb PBX address before connecting phones or making calls. Updates, backups and repair remain available."
                 : status?.State == "Running" ? "The call engine and background call services are running on this server." : "Complete the server installation to enable background calls.";
             StatusBanner.Severity = status?.State == "Running" ? InfoBarSeverity.Success : InfoBarSeverity.Warning;
             ServiceDetails.Text = $"Service version {status?.Version} · {status?.OperatingSystem}";
+            if (!registrationRequired) openRegistrationWhenReady = false;
+            else if (openRegistrationWhenReady && registrationSetupUrl is not null)
+            {
+                openRegistrationWhenReady = false;
+                Launch(registrationSetupUrl);
+            }
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
+            registrationSetupUrl = null;
+            if (registrationRequired || openRegistrationWhenReady)
+            {
+                RegistrationDetails.Visibility = Visibility.Visible;
+                RegistrationDetails.Text = "The local setup service is not responding yet. Keep this manager open; it will retry automatically.";
+            }
             StatusBanner.Title = "Service is not running on this computer";
             StatusBanner.Message = "You can still open and manage a PBX at the address saved in Setup.";
             StatusBanner.Severity = InfoBarSeverity.Warning; ServiceDetails.Text = "";
@@ -198,7 +210,18 @@ public sealed partial class MainPage : Page
         SetupMessage.IsOpen = true;
     }
     private void OpenAdmin(object sender, RoutedEventArgs args) { if (registrationRequired) OpenRegistration(sender, args); else OpenConsole("admin"); }
-    private void OpenRegistration(object sender, RoutedEventArgs args) { if (registrationSetupUrl is not null) Launch(registrationSetupUrl); else OpenConsole("registration"); }
+    private async void OpenRegistration(object sender, RoutedEventArgs args)
+    {
+        // Refresh first: an earlier setup code may have expired while this window
+        // was idle. A fresh managed name has no DNS until the public wizard runs.
+        openRegistrationWhenReady = true;
+        await RefreshStatus();
+        if (openRegistrationWhenReady && !ManagedSetupLink.IsCanonicalAddress(address))
+        {
+            openRegistrationWhenReady = false;
+            OpenConsole("registration");
+        }
+    }
     private void OpenConsole(string page)
     {
         if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Scheme != "https")
@@ -247,13 +270,14 @@ public sealed partial class MainPage : Page
             if (managed)
             {
                 var installed = JsonSerializer.Deserialize<ManagerSettings>(File.ReadAllText(@"C:\OpenWebPBX\desktop\server.json"));
-                if (installed is null || !Uri.TryCreate(installed.Address,UriKind.Absolute,out var ready) || ready.Scheme != "https" || !Regex.IsMatch(ready.Host,"^node-[a-f0-9]{32}\\.openwebpbx\\.com$"))
+                if (installed is null || !ManagedSetupLink.IsCanonicalAddress(installed.Address))
                     throw new IOException("Setup completed; open the installed manager to finish registration.");
                 AddressInput.Text = installed.Address;
             }
             else AddressInput.Text = InstalledAddress(InstallDomain.Text, CertificateChoice.SelectedIndex == 0);
             SaveAddress(sender, args);
             InstallMessage.Severity = InfoBarSeverity.Success; InstallMessage.Title = "Server installed. Finish registration before connecting phones or making calls.";
+            openRegistrationWhenReady = managed;
             await RefreshStatus();
             await RegisterRestart();
         }
