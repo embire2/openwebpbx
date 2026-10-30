@@ -4,7 +4,7 @@
 param(
  [string]$NativeRunId,[string]$EngineRunId,[string]$PackageRoot,[string]$ReplaySuiteRunId,
  [string]$ReplayCandidateArtifactId,[string]$ReplayCandidateSha256,
- [switch]$DisposableHostedRunner,[switch]$UpgradeDiagnosticsOnly,[switch]$BackupsDiagnosticsOnly,[switch]$ReplayTerminalProducers,[switch]$NativeDiagnosticsOnly,[switch]$SkipPhoneHealthForNativeDiagnostics,[switch]$HoldDiagnosticsOnly,[switch]$ThreecxImportOnly
+ [switch]$Public21ToCandidate22,[switch]$DisposableHostedRunner,[switch]$UpgradeDiagnosticsOnly,[switch]$BackupsDiagnosticsOnly,[switch]$ReplayTerminalProducers,[switch]$NativeDiagnosticsOnly,[switch]$SkipPhoneHealthForNativeDiagnostics,[switch]$HoldDiagnosticsOnly,[switch]$ThreecxImportOnly
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-threecx-suite-mode.ps1')
@@ -48,6 +48,11 @@ function AssertSuiteReplayMode([string]$OriginalRunId,[string]$ProvidedPackage,[
  }elseif($ExpectedArtifactId -or $ExpectedZipSha256){throw 'Explicit diagnostic artifact pins cannot change normal qualification replay.'}
 }
 AssertSuiteReplayMode $ReplaySuiteRunId $PackageRoot $UpgradeDiagnosticsOnly $BackupsDiagnosticsOnly $ReplayTerminalProducers $ReplayCandidateArtifactId $ReplayCandidateSha256
+function AssertPublic21CandidateMode([bool]$Enabled,[string]$CandidateVersion){
+ if(!$Enabled){return}
+ if($CandidateVersion -cne '1.0.22' -or $PackageRoot -or $ReplaySuiteRunId -or $UpgradeDiagnosticsOnly -or $BackupsDiagnosticsOnly -or $NativeDiagnosticsOnly -or $ReplayTerminalProducers -or $SkipPhoneHealthForNativeDiagnostics -or $HoldDiagnosticsOnly -or $ThreecxImportOnly -or !$NativeRunId -or !$EngineRunId){throw 'The public21-to-actual22 mode requires exact freshly built candidate22 inputs and all ordinary qualification gates.'}
+}
+AssertPublic21CandidateMode $Public21ToCandidate22 (Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'VERSION') -Raw).Trim()
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){
  throw 'Run only on the explicitly disposable Windows hosted runner of this repository.'
 }
@@ -807,6 +812,30 @@ function Artifact([string]$RunId,[string]$Kind){
  if((Get-Item $archive).Length -ne $artifact.size_in_bytes -or (Hash $archive) -ne $artifact.digest.Substring(7)){throw 'The GitHub artifact archive digest differs.'}
  $destination=Join-Path $work $Kind;PrivateDirectory $destination;ExpandSafe $archive $destination
  return @{directory=$destination;run=$run;artifact=$artifact;producer_proof=$producerProof}
+}
+function PreparePublic21Baseline {
+ # Immutable public artifact pins are independent of mutable latest releases or
+ # a version-only laboratory canary. The download client receives no GH token.
+ $expected=@{release=425443430;asset=681566377;source='cab93b390ba2e8f33c184f2f085740c2862031a6';bytes=643070428L;sha256='ce811ae1eaeb17b46f81bdfc0f12b0baa13409bded8f4df6788f8772d0ea855d';name='openwebpbx-1.0.21-windows-x64.zip'}
+ $release=Api 'releases/tags/v1.0.21'
+ $assets=@($release.assets|Where-Object {$_.name -ceq $expected.name})
+ if($release.id -ne $expected.release -or $release.tag_name -cne 'v1.0.21' -or $release.target_commitish -cne $expected.source -or $release.draft -isnot [bool] -or $release.draft -or $release.prerelease -isnot [bool] -or $release.prerelease -or $assets.Count -ne 1){throw 'The genuine public21 baseline release identity changed.'}
+ $asset=$assets[0];$url='https://github.com/embire2/openwebpbx/releases/download/v1.0.21/'+$expected.name
+ if($asset.id -ne $expected.asset -or $asset.size -ne $expected.bytes -or $asset.digest -cne ('sha256:'+$expected.sha256) -or $asset.browser_download_url -cne $url){throw 'The immutable public21 baseline asset differs.'}
+ $archive=Join-Path $work $expected.name
+ Invoke-WebRequest -Uri $url -OutFile $archive -TimeoutSec 600
+ if((Get-Item -LiteralPath $archive).Length -ne $expected.bytes -or (Hash $archive) -cne $expected.sha256){throw 'The complete anonymous public21 download failed its immutable pin.'}
+ CheckedPython @((Join-Path $source 'tests/windows_candidate_archive.py'),'--archive',$archive,'--version','1.0.21','--sha256',$expected.sha256)
+ $destination=Join-Path $work 'public21';PrivateDirectory $destination;ExpandSafe $archive $destination
+ $package=Join-Path $destination 'openwebpbx-1.0.21-windows-x64'
+ $manifest=Get-Content (Join-Path $package 'release-manifest.json') -Raw|ConvertFrom-Json
+ if($manifest.version -cne '1.0.21'){throw 'The public baseline manifest version differs.'}
+ $null=VerifyInventory $package $manifest.files
+ foreach($component in 'server/OpenWebPbx.Server.dll','desktop/OpenWebPbx.Desktop.dll','updater/OpenWebPbx.Updater.dll'){
+  if([Reflection.AssemblyName]::GetAssemblyName((Join-Path $package $component)).Version -ne [version]'1.0.21.0'){throw 'The public21 baseline contains different native assemblies.'}
+ }
+ $facts.public21_baseline=$expected
+ return $package
 }
 function VerifyInventory([string]$Directory,$Files){
  $count=0;$seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -1682,20 +1711,21 @@ try{
  & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_stun_setup_transaction.ps1') -SourceRoot $source -OutputDirectory (Join-Path $work 'stun-transaction-controls') *> (Join-Path $work 'stun-transactions.private.log')
  if($LASTEXITCODE){throw 'The native Windows STUN transaction boundary controls failed.'}
  if($ReplaySuiteRunId){$PackageRoot=PrepareReplayCandidate}elseif(!$PackageRoot){$PackageRoot=PreparePackage}
+ $baselinePackage=if($Public21ToCandidate22){PreparePublic21Baseline}else{$null}
  Remove-Item Env:\GH_TOKEN -ErrorAction SilentlyContinue
  $PackageRoot=[IO.Path]::GetFullPath($PackageRoot);$release=Get-Content (Join-Path $PackageRoot 'release-manifest.json') -Raw|ConvertFrom-Json
  if($release.version -ne (Get-Content (Join-Path $source 'VERSION') -Raw).Trim()){throw 'The candidate package release differs from source.'}
  $mapped=VerifyInventory $PackageRoot $release.files;$facts.checks+=('Exact candidate package inventory: '+$mapped+' files')
  if($ThreecxImportOnly){AssertThreecxImportAcceptedReplay $facts}else{$phase='original candidate export';ExportOriginalCandidate $release}
  $phase='native public-listener firewall qualification';PublicListenerQualificationHook 'native_defender'
- $phase='fresh installation';$admin='windowsqa-'+[Guid]::NewGuid().ToString('N').Substring(0,12)+'@example.invalid';$password=ConvertTo-SecureString (RandomSecret) -AsPlainText -Force
+ $phase=if($Public21ToCandidate22){'genuine public21 baseline installation'}else{'fresh installation'};$admin='windowsqa-'+[Guid]::NewGuid().ToString('N').Substring(0,12)+'@example.invalid';$password=ConvertTo-SecureString (RandomSecret) -AsPlainText -Force
  $hosts=Join-Path $env:SystemRoot 'System32/drivers/etc/hosts';$marker='# OpenWebPBX-WindowsSuite-'+$env:GITHUB_RUN_ID
  if([IO.File]::ReadAllText($hosts) -match '(?im)^\s*[^#\r\n]+\s+windowsqa\.example\.invalid(?:\s|$)'){throw 'The suite hostname already has an unrelated hosts entry.'}
  [IO.File]::AppendAllText($hosts,"`r`n127.0.0.1 $domain $marker`r`n",[Text.UTF8Encoding]::new($false));$hostAdded=$true
  $installed=$true
  $installInput=Join-Path $work 'install-input.json';$ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
  try{$plain=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)}finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
- [IO.File]::WriteAllText($installInput,(@{package_root=$PackageRoot;admin_email=$admin;admin_password=$plain;domain=$domain;error_path=(Join-Path $work 'install-failure.json')}|ConvertTo-Json),[Text.UTF8Encoding]::new($false));$plain=$null
+ [IO.File]::WriteAllText($installInput,(@{package_root=$(if($Public21ToCandidate22){$baselinePackage}else{$PackageRoot});admin_email=$admin;admin_password=$plain;domain=$domain;error_path=(Join-Path $work 'install-failure.json')}|ConvertTo-Json),[Text.UTF8Encoding]::new($false));$plain=$null
  $launcher=Join-Path $work 'install.ps1';$launchCode=@'
 param([string]$InputPath)
 $ErrorActionPreference='Stop';$record=Get-Content -LiteralPath $InputPath -Raw|ConvertFrom-Json
@@ -1736,9 +1766,21 @@ try{
  $completed=Get-Content "$state\installation.json" -Raw|ConvertFrom-Json
  if(!$completed.Completed -or !$completed.RestoreServer -or $completed.AdminEmail -ne $admin){throw 'The candidate factory identity or completed state is invalid.'}
  foreach($service in 'OpenWebPBX-Database','OpenWebPBX','OpenWebPBXUpdater','FreeSWITCH'){if((Get-Service $service).Status -ne 'Running'){throw 'A candidate native service is not running.'}}
- & (Join-Path $PackageRoot 'Install-NativeEngine.ps1') -PackageRoot $PackageRoot -Check
+ & (Join-Path $(if($Public21ToCandidate22){$baselinePackage}else{$PackageRoot}) 'Install-NativeEngine.ps1') -PackageRoot $(if($Public21ToCandidate22){$baselinePackage}else{$PackageRoot}) -Check
  if(!$?){throw 'The installed native call-engine inventory differs.'}
- $facts.gates.fresh='passed';$facts.checks+=('Real restore-ready fresh installation/services/native engine hash preservation')
+ if($Public21ToCandidate22){
+  if($completed.Version -cne '1.0.21'){throw 'The genuine baseline was not actually installed.'}
+  $phase='public21 to actual candidate22 upgrade and rollback'
+  $transitionInput=Join-Path $work 'public21-transition-input.json';$transitionReport=Join-Path $work 'public21-transition-report.json'
+  [IO.File]::WriteAllText($transitionInput,([ordered]@{schema=1;run_id=$env:GITHUB_RUN_ID;restore_server=$true;admin_email=$admin;source_root=$source;public21_baseline=$facts.public21_baseline;candidate_sha256=$facts.candidate_artifact.sha256;candidate_source_commit=$env:GITHUB_SHA;candidate_archive=$candidateArchive;public21_archive=(Join-Path $work $facts.public21_baseline.name);public21_package=$baselinePackage;package_root=$PackageRoot}|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
+  & (Join-Path $PSScriptRoot 'windows-upgrade-acceptance.ps1') -PackageRoot $PackageRoot -InputPath $transitionInput -ReportPath $transitionReport -Public21ToCandidate22 -DisposableHostedRunner
+  if(!$?){throw 'The genuine public21 to exact candidate22 product upgrade component failed.'}
+  $transition=Get-Content $transitionReport -Raw|ConvertFrom-Json
+  if($transition.state -cne 'passed' -or $transition.gates.public21_to_candidate22 -cne 'passed' -or $transition.gates.public21_rollback -cne 'passed'){throw 'The actual version transition and original21 rollback must both pass.'}
+  $facts.mode='public21_to_actual_candidate22';$facts.qualification_scope='Actual immutable public21 installation, exact candidate22 ordinary helper upgrade and rollback, then full unchanged22 software gates. Fresh22 registration remains separately unqualified.'
+  $facts.fresh_installed_version='1.0.21';$facts.fresh22_registration='unqualified';$facts.gates.public21_to_candidate22='passed';$facts.gates.public21_rollback='passed';$facts.public21_transition=$transition
+ }
+ $facts.gates.fresh='passed';$facts.checks+=('Real restore-ready installation/services/native engine hash preservation; initial version '+$(if($Public21ToCandidate22){'public21 upgraded to actual22'}else{$release.version}))
  $phase='installed Windows isolated DID PostgreSQL/PHP controls';CheckedPython @((Join-Path $source 'tests/windows_trunk_numbers.py'),'--evidence',(Join-Path $work 'trunk-number-controls'))
  $facts.checks+=('Actual Windows installed PostgreSQL/PHP disposable DID controls: 66; zero engine calls')
  $phase='native PHP runtime qualification';PhpRuntimeQualificationHook

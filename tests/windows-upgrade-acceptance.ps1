@@ -1,7 +1,7 @@
 #Requires -RunAsAdministrator
 #Requires -Version 7.4
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$PackageRoot,[switch]$DisposableHostedRunner,[Parameter(Mandatory)][string]$InputPath,[Parameter(Mandatory)][string]$ReportPath)
+param([Parameter(Mandatory)][string]$PackageRoot,[switch]$Public21ToCandidate22,[switch]$DisposableHostedRunner,[Parameter(Mandatory)][string]$InputPath,[Parameter(Mandatory)][string]$ReportPath)
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-upgrade-lock-observer.ps1')
 . (Join-Path $PSScriptRoot 'windows-upgrade-health-quiescence.ps1')
@@ -25,7 +25,7 @@ $managerSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;$manag
 $managerName='OpenWebPBX-Manager-'+$managerSid;$managerExe="$root\desktop\OpenWebPbx.Desktop.exe";$managerOriginal=$null;$managerOwned=$false;$managerStarted=$null;$managerAvailable=$false
 $managerHeldProcess=$null;$managerHeldHandles=[Collections.Generic.List[Diagnostics.Process]]::new();$managerClosureFailure=$null
 $report=[ordered]@{schema=1;state='running';checks=@();gates=[ordered]@{direct_113_helper_reapply='pending';direct_failure_rollback='pending';restore_gate_startup='pending';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified'};signed_fixtures='absent';baseline='installed candidate; same-version direct reapply is not a newer signed update'}
-$databaseSidecars=@();$healthOriginal=$null
+$databaseSidecars=@();$healthOriginal=$null;$legacyMedia=@{};$legacyMediaFolders=@()
 function Hash([string]$Path){
  try{return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}catch{
   $primary=$_
@@ -381,6 +381,68 @@ def greeting_heartbeat_projection(rows):
       or datetime.fromisoformat(row['checked_at']).tzinfo is None):raise RuntimeError('Greeting heartbeat schema or values changed')
   result.append(row|{'checked_at':'__openweb_worker_heartbeat__'})
  return result
+if action in ('legacy-before','legacy-after'):
+ # This separate cross-version component preserves every original projected
+ # customer row/column and models ONLY the exact two candidate SQL inputs.
+ # The original same-version/rollback snapshot below is left unchanged.
+ import re
+ volatile={'v_pbx_update_status','v_pbx_backup_status','v_pbx_update_commands','v_pbx_job_slots','v_user_logs','v_logs','v_pbx_user_presence','v_pbx_presence'}
+ installation=json.loads((b.STATE/'installation.json').read_text(encoding='utf-8-sig'))
+ admin=settings|{'database.0.username':'postgres','database.0.password':installation['PostgresPassword']}
+ security={
+  'cluster_system_identifier':b.query(admin,"select system_identifier::text from pg_control_system()"),
+  'identity':b.query(admin,"select jsonb_build_object('name',datname,'oid',oid,'owner',datdba,'acl',datacl::text) from pg_database where datname=current_database()",json_result=True),
+  'roles':b.query(admin,"select json_agg(t order by oid) from (select oid,rolname,rolsuper,rolinherit,rolcreaterole,rolcreatedb,rolcanlogin,rolreplication,rolbypassrls,rolconnlimit,rolpassword,rolvaliduntil,(select coalesce(json_agg(s order by setdatabase),'[]') from (select setdatabase,setconfig from pg_db_role_setting where setrole=a.oid) s) role_config from pg_authid a) t",json_result=True),
+  'memberships':b.query(admin,"select coalesce(json_agg(t order by roleid,member,grantor),'[]') from pg_auth_members t",json_result=True),
+  'schema':b.query(admin,"select coalesce(json_agg(t order by oid),'[]') from (select oid,nspname,nspowner,nspacl::text from pg_namespace where nspname='public') t",json_result=True)}
+ tables=b.query(settings,"select coalesce(json_agg(t order by name),'[]') from (select c.oid,c.relname name,c.relowner owner,c.relacl::text acl from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind in ('r','p')) t",json_result=True)
+ columns=b.query(settings,"select coalesce(json_agg(t order by table_name,ordinal_position),'[]') from (select table_name,column_name,ordinal_position,data_type,udt_name,is_nullable,column_default from information_schema.columns where table_schema='public') t",json_result=True)
+ previous=None if action=='legacy-before' else json.loads(Path(sys.argv[3]).read_text())
+ old_columns=columns if previous is None else previous['columns']
+ values={}
+ for entry in (tables if previous is None else previous['tables']):
+  table=entry['name']
+  if table in volatile:continue
+  names=[c['column_name'] for c in old_columns if c['table_name']==table]
+  projection=','.join('"'+n.replace('"','""')+'"' for n in names)
+  rows=b.query(settings,'select coalesce(json_agg(t order by row_to_json(t)::text),\'[]\') from (select '+projection+' from "'+table.replace('"','""')+'") t',json_result=True)
+  values[table]=digest(greeting_heartbeat_projection(rows) if table=='v_pbx_greeting_status' else rows)
+ snapshot={'security':digest(security),'tables':tables,'columns':columns,'values':values}
+ if previous is None:save(snapshot)
+ else:
+  if digest(security)!=previous['security'] or values!=previous['values']:raise RuntimeError('Original database identities, security or customer rows changed')
+  old_names={t['name'] for t in previous['tables']};new_names={t['name'] for t in tables}-old_names
+  expected={'v_pbx_api_registrations','v_pbx_api_tokens','v_pbx_api_idempotency','v_pbx_api_rate','v_pbx_api_audit','v_pbx_onboarding_policy','v_pbx_onboarding','v_pbx_onboarding_jobs'}
+  if new_names!=expected or [t for t in tables if t['name'] in old_names]!=previous['tables']:raise RuntimeError('Original relation OID/owner/ACL or new table inventory changed')
+  old_projection=[c for c in columns if c['table_name'] in old_names and not(c['table_name']=='v_pbx_templates' and c['column_name']=='api_enabled')]
+  if old_projection!=previous['columns']:raise RuntimeError('Original column definitions changed')
+  package=Path(sys.argv[4]);ddl=[];source_hashes={}
+  for relative in ['web/app/tenant_api/resources/install.sql','web/app/pbx_onboarding/resources/install.sql']:
+   raw=(package/relative).read_bytes();source_hashes[relative]=hashlib.sha256(raw).hexdigest();text=raw.decode()
+   if len(re.findall(r'CREATE TABLE IF NOT EXISTS ',text))!=(5 if 'tenant_api' in relative else 3):raise RuntimeError('Candidate SQL model shape changed')
+   text=text.replace('CREATE TABLE IF NOT EXISTS ','CREATE TEMP TABLE IF NOT EXISTS ')
+   text=re.sub(r'(?m)^(?:BEGIN|COMMIT);\s*$','',text);ddl.append(text)
+  def schema_query(namespace):
+   # Source model uses temporary parent stubs; only the eight new tables and
+   # the single api_enabled column are inspected. No customer table is altered.
+   selected=','.join(b.literal(n) for n in sorted(expected))
+   return "select jsonb_build_object('relations',(select json_agg(t order by relname) from(select c.relname,c.relowner,c.relacl::text from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname="+namespace+" and c.relname in ("+selected+"))t),'columns',(select json_agg(t order by table_name,ordinal_position) from (select table_name,column_name,ordinal_position,data_type,udt_name,is_nullable,column_default from information_schema.columns where table_schema="+namespace+" and (table_name in ("+selected+") or(table_name='v_pbx_templates' and column_name='api_enabled'))) t),'constraints',(select json_agg(t order by relname,conname) from(select c.relname,k.conname,k.contype,pg_get_constraintdef(k.oid) definition from pg_constraint k join pg_class c on c.oid=k.conrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname="+namespace+" and c.relname in ("+selected+"))t),'indexes',(select json_agg(t order by relname,indexname) from(select c.relname,ic.relname indexname,i.indisunique,i.indisprimary,i.indkey::text,pg_get_expr(i.indexprs,i.indrelid) expression,pg_get_expr(i.indpred,i.indrelid) predicate from pg_index i join pg_class c on c.oid=i.indrelid join pg_class ic on ic.oid=i.indexrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname="+namespace+" and c.relname in ("+selected+"))t))"
+  stubs='CREATE TEMP TABLE v_domains(domain_uuid uuid PRIMARY KEY);CREATE TEMP TABLE v_pbx_tenants(tenant_uuid uuid PRIMARY KEY);CREATE TEMP TABLE v_users(user_uuid uuid PRIMARY KEY);CREATE TEMP TABLE v_pbx_services(service_uuid uuid PRIMARY KEY);CREATE TEMP TABLE v_pbx_templates(template_uuid uuid);SET search_path=pg_temp,public;'
+  model=b.query(settings,stubs+'\n'+'\n'.join(ddl)+'\n'+schema_query("(select nspname from pg_namespace where oid=pg_my_temp_schema())"),json_result=True)
+  actual=b.query(settings,schema_query("'public'"),json_result=True)
+  # The model stub has one old column; the real appended column ordinal is
+  # source-defined by its exact original column count, not ignored wholesale.
+  template_count=sum(c['table_name']=='v_pbx_templates' for c in previous['columns'])
+  for c in model['columns']:
+   if c['table_name']=='v_pbx_templates':c['ordinal_position']=template_count+1
+  if actual!=model:raise RuntimeError('New table/column/default/constraint/index definitions differ from candidate source model')
+  if b.query(settings,'select count(*) from v_pbx_templates where api_enabled is distinct from false')!='0':raise RuntimeError('Existing templates became API enabled')
+  for name in sorted(expected):
+   rows=b.query(settings,'select coalesce(json_agg(t),\'[]\') from "'+name+'" t',json_result=True)
+   target=[{'singleton':True,'required':False,'canonical_host':'','instance_key_hash':''}] if name=='v_pbx_onboarding_policy' else []
+   if rows!=target:raise RuntimeError('New registration tables must preserve legacy unregistered policy and contain only their exact source default')
+  save({'schema':1,'state':'passed','original_tables':len(old_names),'original_customer_rows_exact':True,'runtime_value_exclusions':sorted(volatile),'greeting_heartbeat_projection':'existing bounded singleton checked_at only','original_roles_cluster_schema_exact':True,'new_source_model_tables':len(expected),'source_sql_sha256':source_hashes,'schema_model_sha256':hashlib.sha256(json.dumps(model,sort_keys=True).encode()).hexdigest()})
+ sys.exit(0)
 if action=='database':
  stage='database_installation'
  installation=json.loads((b.STATE/'installation.json').read_text(encoding='utf-8-sig'))
@@ -505,7 +567,7 @@ function FilesSnapshot([switch]$BackupControlOnly) {
 function TaskSnapshot {
  $tasks=@{}
  $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect()
- foreach($name in 'OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate'){
+ foreach($name in 'OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-Onboarding','OpenWebPBX-PhoneHealth','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate'){
   $task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
   if(!$task){$tasks[$name]=@{exists=$false};continue}
   $xml=[xml](Export-ScheduledTask -TaskName $name);$xml.PreserveWhitespace=$false
@@ -677,7 +739,7 @@ function ClearManager {
  }elseif($task){Unregister-ScheduledTask -TaskName $managerName -Confirm:$false}
  $script:managerOwned=$false;$script:managerAvailable=$false
 }
-function FaultPayload {
+function FaultPayload([switch]$AfterOnboarding) {
  $payload=Join-Path $work 'forced-payload'
  & robocopy.exe $PackageRoot $payload /E /COPY:DAT /DCOPY:T /R:1 /W:1 /NFL /NDL /NJH /NJS /NP|Out-Null
  if($LASTEXITCODE -ge 8){throw 'The private forced-failure payload could not be prepared.'}
@@ -719,10 +781,23 @@ $native.SetSecurityDescriptor($security.GetSddlForm(([Security.AccessControl.Acc
 if($native.GetSecurityDescriptor(7) -eq $before){throw 'The owned task security fault did not take effect.'}
 [IO.File]::WriteAllText((Join-Path $PSScriptRoot 'fault-witness.json'),'{"database_and_customer_mutated":true,"notification_mutated":true,"native_metadata_mutated":true,"new_file_created":true,"task_changed":true,"task_security_changed":true}')
 '@
- [IO.File]::WriteAllText((Join-Path $payload 'bootstrap.php'),$fault,[Text.UTF8Encoding]::new($false))
+ $faultName=if($AfterOnboarding){'forced-failure.php'}else{'bootstrap.php'}
+ if($AfterOnboarding){
+  # A late cross-version fault must actually reach the new task/schema before
+  # rollback. Keep the original bootstrap/migrations; inject only this owned
+  # throw into a separately inventoried private helper, never product source.
+  $upgrade=Join-Path $payload 'Upgrade-OpenWebPBX.ps1';$original=[IO.File]::ReadAllText($upgrade)
+  $needle=' StartPbx; ResumeEngine; $stopped = $false; CheckHealth $version'
+  Check ([regex]::Matches($original,[regex]::Escape($needle)).Count -eq 1) 'One exact late upgrade fault callsite is required.'
+  $extra=' Run "$root\php\php.exe" @("$payload\forced-failure.php","$root\web")'
+  [IO.File]::WriteAllText($upgrade,$original.Replace($needle,$needle+"`n"+$extra),[Text.UTF8Encoding]::new($false))
+  $faultPs=$faultPs.Replace("[IO.File]::WriteAllText((Join-Path `$PSScriptRoot 'fault-witness.json')", "if(!(Get-ScheduledTask -TaskName 'OpenWebPBX-Onboarding' -ErrorAction SilentlyContinue)){throw 'The late fault did not reach the new onboarding task.'};[IO.File]::WriteAllText((Join-Path `$PSScriptRoot 'fault-witness.json')")
+ }
+ [IO.File]::WriteAllText((Join-Path $payload $faultName),$fault,[Text.UTF8Encoding]::new($false))
  [IO.File]::WriteAllText((Join-Path $payload 'forced-failure.ps1'),$faultPs,[Text.UTF8Encoding]::new($false))
  $manifest=Get-Content (Join-Path $payload 'release-manifest.json') -Raw|ConvertFrom-Json -AsHashtable
- $manifest.files['bootstrap.php']=Hash (Join-Path $payload 'bootstrap.php');$manifest.files['forced-failure.ps1']=Hash (Join-Path $payload 'forced-failure.ps1')
+ $manifest.files[$faultName]=Hash (Join-Path $payload $faultName);$manifest.files['forced-failure.ps1']=Hash (Join-Path $payload 'forced-failure.ps1')
+ if($AfterOnboarding){$manifest.files['Upgrade-OpenWebPBX.ps1']=Hash (Join-Path $payload 'Upgrade-OpenWebPBX.ps1')}
  WriteJson (Join-Path $payload 'release-manifest.json') $manifest
  return $payload
 }
@@ -744,7 +819,7 @@ function SignedChecks {
 }
 
 try{
- Check ((Hash $helper) -eq (Hash (Join-Path $PackageRoot 'Upgrade-OpenWebPBX.ps1'))) 'Direct reapply requires the identical installed helper, not an unqualified replacement.'
+ if(!$Public21ToCandidate22){Check ((Hash $helper) -eq (Hash (Join-Path $PackageRoot 'Upgrade-OpenWebPBX.ps1'))) 'Direct reapply requires the identical installed helper, not an unqualified replacement.'}
  if($installed.Version -eq '1.0.12'){$report.baseline='private laboratory service 1.0.12 built from candidate source; not a historical public Windows 1.0.12 release'}
  if(!(Test-Path "$state\phone-tls.json")){
   Import-Module WebAdministration;$binding=Get-WebBinding -Name OpenWebPBX -Protocol https|Select-Object -First 1
@@ -758,7 +833,102 @@ try{
  Push-Location "$root\web"
  try{& "$root\php\php.exe" (Join-Path $PSScriptRoot 'windows-backups-fixture.php') create $fixture;Check ($LASTEXITCODE -eq 0) 'The owned preservation PBX fixture failed.'}finally{Pop-Location}
  Suspend-OpenWebQualificationHealth ([ref]$healthOriginal)
- StopUpdater;SignedChecks
+ StopUpdater
+ if($Public21ToCandidate22){
+  $phase='immutable public21 to actual22 provenance'
+  $pin=$fixtureInput.public21_baseline
+  Check ($installed.Version -ceq '1.0.21' -and (Get-Content (Join-Path $PackageRoot 'VERSION') -Raw).Trim() -ceq '1.0.22' -and $fixtureInput.candidate_source_commit -ceq $env:GITHUB_SHA -and $fixtureInput.candidate_sha256 -cmatch '^[a-f0-9]{64}$' -and (Hash $fixtureInput.candidate_archive) -ceq $fixtureInput.candidate_sha256 -and $pin.source -ceq 'cab93b390ba2e8f33c184f2f085740c2862031a6' -and $pin.release -eq 425443430 -and $pin.asset -eq 681566377 -and $pin.bytes -eq 643070428 -and $pin.sha256 -ceq 'ce811ae1eaeb17b46f81bdfc0f12b0baa13409bded8f4df6788f8772d0ea855d' -and (Hash $fixtureInput.public21_archive) -ceq $pin.sha256) 'The actual public21/candidate22 artifacts or source identities differ.'
+  foreach($component in 'server/OpenWebPbx.Server.dll','desktop/OpenWebPbx.Desktop.dll','updater/OpenWebPbx.Updater.dll'){
+   $installedPath=if($component.StartsWith('updater/')){Join-Path "$root/updater/slots/1.0.21" ([IO.Path]::GetFileName($component))}else{Join-Path $root $component}
+   Check ((Hash $installedPath) -ceq (Hash (Join-Path $fixtureInput.public21_package $component))) 'An installed baseline assembly differs from the genuine public21 package.'
+  }
+  foreach($sql in 'app/tenant_api/resources/install.sql','app/pbx_onboarding/resources/install.sql'){Check ((Hash (Join-Path "$PackageRoot/web" $sql)) -ceq (Hash (Join-Path $fixtureInput.source_root $sql))) 'The candidate schema model differs from this exact source.'}
+  $taskTokens=$null;$taskErrors=$null;$taskAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'windows-updater-qualification.ps1'),[ref]$taskTokens,[ref]$taskErrors)
+  Check (!$taskErrors.Count) 'The existing native preservation functions must parse.'
+  foreach($name in 'SnapshotHash','FileSnapshot','AssertNewOnboardingTaskSnapshot','NormalTaskPreservation'){
+   $function=@($taskAst.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
+   Check ($function.Count -eq 1) 'One exact existing native preservation function is required.';Invoke-Expression $function[0].Extent.Text
+  }
+  . (Join-Path $PSScriptRoot 'windows_updater_file_acl_observation.ps1')
+  $engine=$switch;$source=$fixtureInput.source_root
+  function LegacyPrivateMediaSnapshot {
+   $entries=FileSnapshot -Protected
+   # Existing protected inventory includes every storage/recording/config/key
+   # tree. Add the entire custom-sound tree, including its directory metadata.
+   $soundRoot="$switch\sounds\openwebpbx"
+   foreach($item in @(Get-Item -LiteralPath $soundRoot -Force)+@(Get-ChildItem -LiteralPath $soundRoot -Recurse -Force)){
+    Check (!($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) 'Linked custom media is refused.'
+    $entry=@{directory=[bool]$item.PSIsContainer;acl=(Get-Acl $item.FullName).Sddl}
+    if(!$item.PSIsContainer){$entry.sha256=Hash $item.FullName;$entry.bytes=$item.Length};$entries[$item.FullName]=$entry
+   }
+   return $entries
+  }
+  $baselineManifest=Get-Content (Join-Path $fixtureInput.public21_package 'release-manifest.json') -Raw|ConvertFrom-Json -AsHashtable
+  $candidateManifest=Get-Content (Join-Path $PackageRoot 'release-manifest.json') -Raw|ConvertFrom-Json -AsHashtable
+  $voiceBefore=@{};$voiceAfter=@{}
+  foreach($pair in @(@{manifest=$baselineManifest;target=$voiceBefore},@{manifest=$candidateManifest;target=$voiceAfter})){
+   foreach($key in $pair.manifest.files.Keys){if($key.StartsWith('voices/') -or $key.StartsWith('web/app/pbx_setup/resources/prompts/')){$pair.target[$key]=$pair.manifest.files[$key]}}
+  }
+  Check ($voiceBefore.Count -gt 1) 'The genuine baseline system media inventory is required.'
+  Equal $voiceBefore $voiceAfter 'This focused21-to22 mode requires unchanged packaged system media; custom media must remain exact.'
+  $owned=Get-Content -LiteralPath $fixture -Raw|ConvertFrom-Json
+  $mediaName='public21-'+[Guid]::NewGuid().ToString('N')+'.wav'
+  $wave=@(Get-ChildItem (Join-Path $PackageRoot 'web/app/pbx_setup/resources/prompts') -Filter '*.wav' -File|Sort-Object Name)[0]
+  Check ($null -ne $wave) 'An actual valid packaged wave is required for owned custom-media sentinels.'
+  foreach($file in @((Join-Path "$state/storage/openwebpbx/$($owned.fixture_domain)" $mediaName),(Join-Path "$state/storage/recordings" $mediaName),(Join-Path "$switch/sounds/openwebpbx" $mediaName))){
+   Check (!(Test-Path -LiteralPath $file)) 'The unique owned media sentinel must be absent.'
+   $parent=Split-Path $file -Parent;if(!(Test-Path $parent)){New-Item -ItemType Directory -Force $parent|Out-Null;$legacyMediaFolders+=,$parent}
+   Copy-Item -LiteralPath $wave.FullName -Destination $file;$legacyMedia[$file]=Hash $file
+  }
+  $private21=LegacyPrivateMediaSnapshot
+  WriteJson (Join-Path $work 'public21-before-private-media.private.json') $private21
+  $policyMarker=Join-Path $env:ProgramData 'OpenWebPBX-Installation/onboarding-required'
+  Check (!(Test-Path $policyMarker)) 'The legacy baseline unexpectedly has a new-installation registration marker.'
+  $policyBefore=Get-Content "$state/runtime.json" -Raw|ConvertFrom-Json
+  Check (!$policyBefore.Onboarding.Required) 'The genuine public21 baseline requires an unexpected registration policy.'
+  $legacyDatabase=Join-Path $work 'public21-original-customer.private.json';Python @($probe,'legacy-before',$legacyDatabase)
+  $protected21=@{};foreach($path in "$configuration/config.conf","$configuration/openweb-template.key","$state/runtime.json","$state/mobile-notifications/config.json","$state/phone-tls.json"){if(Test-Path $path){$protected21[$path]=@{sha256=(Hash $path);sddl=(Get-Acl $path).Sddl}}}
+  $files21=FilesSnapshot;$tasks21=TaskSnapshot;$database21=DatabaseSnapshot 'public21-before-fault'
+  Check (!$tasks21['OpenWebPBX-Onboarding'].exists) 'A genuine public21 baseline must not already contain the new onboarding task.'
+  $phase='actual candidate22 fault with automatic public21 rollback';$payload=FaultPayload -AfterOnboarding
+  BeginManager;$oldManager=CurrentManagerPid;$managerInvocation=[DateTime]::UtcNow
+  $result=InvokeHelper (Join-Path $payload 'Upgrade-OpenWebPBX.ps1') @() 'public21-candidate22-fault'
+  Check ($result -ne 0 -and (Journal).state -ceq 'rolled_back' -and (Journal).version -ceq '1.0.22' -and (Journal).previous_version -ceq '1.0.21') 'The real candidate22 fault did not automatically restore public21.'
+  AssertManagerReopened $oldManager $managerInvocation 'manager_reopen_rollback';StopUpdater
+  $witness=Get-Content (Join-Path $payload 'fault-witness.json') -Raw|ConvertFrom-Json
+  foreach($field in 'database_and_customer_mutated','notification_mutated','native_metadata_mutated','new_file_created','task_changed','task_security_changed'){Check ($witness.$field -is [bool] -and $witness.$field) 'The cross-version fault did not reach every original mutation gate.'}
+  Equal $database21 (DatabaseSnapshot 'public21-after-fault') 'Cross-version rollback changed original21 database roles/schema/customer rows.'
+  Equal $files21 (FilesSnapshot) 'Cross-version rollback changed original21 files/ACLs or retained candidate22 additions.'
+  EqualTaskSnapshots $tasks21 (TaskSnapshot) 'Cross-version rollback changed original21 task inventory/security or retained a new onboarding task.'
+  Check (!(Test-Path $policyMarker)) 'Rollback added a legacy registration marker.'
+  $report.gates.public21_rollback='passed'
+  $normalStarted=[DateTime]::UtcNow
+  $phase='ordinary exact candidate22 upgrade';$oldManager=CurrentManagerPid;$managerInvocation=[DateTime]::UtcNow
+  $result=InvokeHelper (Join-Path $PackageRoot 'Upgrade-OpenWebPBX.ps1') @() 'public21-candidate22-normal'
+  Check ($result -eq 0 -and (Journal).state -ceq 'completed' -and (Journal).previous_version -ceq '1.0.21' -and (Journal).version -ceq '1.0.22') 'The ordinary candidate22 upgrade did not complete from genuine public21.'
+  AssertManagerReopened $oldManager $managerInvocation 'manager_reopen_success';StopUpdater
+  $installed22=Get-Content "$state/installation.json" -Raw|ConvertFrom-Json
+  Check ($installed22.Version -ceq '1.0.22' -and !(Test-Path $policyMarker)) 'The actual22 install version or legacy registration-marker policy changed.'
+  foreach($component in 'server/OpenWebPbx.Server.dll','desktop/OpenWebPbx.Desktop.dll','updater/OpenWebPbx.Updater.dll'){
+   $installedPath=if($component.StartsWith('updater/')){Join-Path "$root/updater/slots/1.0.22" ([IO.Path]::GetFileName($component))}else{Join-Path $root $component}
+   Check ((Hash $installedPath) -ceq (Hash (Join-Path $PackageRoot $component)) -and [Reflection.AssemblyName]::GetAssemblyName($installedPath).Version -eq [version]'1.0.22.0') 'Actual upgraded assemblies differ from the candidate22 payload.'
+  }
+  foreach($path in $protected21.Keys){Check ((Hash $path) -ceq $protected21[$path].sha256 -and (Get-Acl $path).Sddl -ceq $protected21[$path].sddl) 'The actual upgrade changed original credentials/TLS/runtime or private ACLs.'}
+  $modelReport=Join-Path $work 'public21-original-customer-after.private.json';Python @($probe,'legacy-after',$modelReport,$legacyDatabase,$PackageRoot)
+  $model=Get-Content $modelReport -Raw|ConvertFrom-Json
+  Check ($model.state -ceq 'passed') 'The source-bound original customer/schema preservation component failed.'
+  $onboarding=Get-ScheduledTask -TaskName 'OpenWebPBX-Onboarding'
+  Check ($onboarding.Settings.Enabled -and $onboarding.Principal.UserId -in 'SYSTEM','S-1-5-18' -and $onboarding.Principal.LogonType -eq 'ServiceAccount' -and $onboarding.Principal.RunLevel -eq 'Highest' -and $onboarding.Description -ceq 'OpenWeb PBX owned installation registration and activation worker' -and @($onboarding.Actions).Count -eq 1 -and $onboarding.Actions[0].Execute -ceq "$root/backup-runtime/python.exe".Replace('/','\') -and $onboarding.Actions[0].Arguments -ceq '-I -B "C:\OpenWebPBX\tools\onboarding.py" --tick' -and $onboarding.Actions[0].WorkingDirectory -ceq "$root\tools" -and $onboarding.Settings.MultipleInstances -eq 'IgnoreNew' -and $onboarding.Settings.ExecutionTimeLimit -ceq 'PT20M') 'The new enabled SYSTEM onboarding task does not match its exact installed source contract.'
+  $private22=LegacyPrivateMediaSnapshot
+  WriteJson (Join-Path $work 'public21-after-private-media.private.json') $private22
+  $privateComparison=Get-WindowsUpdaterProtectedComparisonCopy $private21 $private22 'normal-protected-files' $state
+  Equal $private21 $privateComparison 'Original21 private/config/key/recording/custom-media files and ACLs changed across the actual22 upgrade.'
+  $BaseVersion='1.0.21';$CanaryVersion='1.0.22'
+  NormalTaskPreservation $tasks21 (TaskSnapshot) $normalStarted
+  $report.mode='public21_to_actual_candidate22';$report.baseline='immutable public Windows21, not a version-overlay canary';$report.candidate_source_commit=$env:GITHUB_SHA;$report.candidate_sha256=$fixtureInput.candidate_sha256;$report.public21_sha256=$pin.sha256;$report.preservation=$model;$report.gates.public21_to_candidate22='passed';$report.fresh22_registration='unqualified';$report.state='passed'
+  return
+ }
+ SignedChecks
  $before=DatabaseSnapshot 'before-reapply'
  $protected=@{};foreach($path in "$configuration\config.conf","$configuration\openweb-template.key","$state\runtime.json","$state\mobile-notifications\config.json","$state\phone-tls.json"){if(Test-Path $path){$protected[$path]=@{hash=(Hash $path);acl=(Get-Acl $path).Sddl}}}
  $phase='actual direct helper reapply';$payloadInventory=PayloadInventory $PackageRoot (Join-Path $work 'payload-inventory-private.json')
@@ -838,6 +1008,10 @@ try{
 }finally{
  try{ClearManager}catch{Record-OpenWebUpgradeCleanupFailure 'owned manager cleanup'}finally{foreach($heldProcess in $managerHeldHandles){$heldProcess.Dispose()}}
  if($gatePlan){try{StopUpdater;Python @($probe,'release',$gatePlan)}catch{Record-OpenWebUpgradeCleanupFailure 'restore hold cleanup'}}
+ foreach($file in @($legacyMedia.Keys)){
+  try{Check ((Test-Path -LiteralPath $file) -and (Hash $file) -ceq $legacyMedia[$file]) 'An owned media sentinel changed; preserve it for review.';Remove-Item -LiteralPath $file -Force}catch{Record-OpenWebUpgradeCleanupFailure 'owned fixture cleanup'}
+ }
+ foreach($folder in $legacyMediaFolders|Sort-Object Length -Descending){if((Test-Path $folder) -and @(Get-ChildItem -LiteralPath $folder -Force).Count -eq 0){Remove-Item -LiteralPath $folder}}
  if($fixture -and (Test-Path $fixture)){
   try{Push-Location "$root\web";try{& "$root\php\php.exe" (Join-Path $PSScriptRoot 'windows-backups-fixture.php') clear $fixture;Check ($LASTEXITCODE -eq 0) 'Owned upgrade PBX cleanup failed.'}finally{Pop-Location}}catch{Record-OpenWebUpgradeCleanupFailure 'owned fixture cleanup'}
   Remove-Item -LiteralPath $fixture -Force -ErrorAction SilentlyContinue
@@ -846,6 +1020,7 @@ try{
  try{Resume-OpenWebQualificationHealth $healthOriginal}catch{Record-OpenWebUpgradeCleanupFailure 'owned health observer cleanup'}
  if($report.state -eq 'passed' -and (Get-Service OpenWebPBXUpdater).Status -ne 'Running'){Start-Service OpenWebPBXUpdater}
  WriteJson $ReportPath $report
+ if($Public21ToCandidate22 -and $report.state -ne 'passed'){throw 'The public21-to-candidate22 component or its owned cleanup failed.'}
 }
 if($report.state -ne 'passed'){throw 'The actual upgrade acceptance hook failed; no passing qualification is implied.'}
 Write-Output 'Direct helper reapply, exact forced rollback and restore startup gates passed. Signed/historical gates are recorded separately.'

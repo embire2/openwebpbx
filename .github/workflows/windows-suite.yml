@@ -11,6 +11,11 @@ on:
         description: Successful pinned Windows engine build run from this repository
         required: true
         type: string
+      public21_to_candidate22:
+        description: Genuine immutable public Windows21 installation then actual candidate22 upgrade/rollback and full legacy-policy software suite; fresh22 registration is separate
+        required: false
+        default: false
+        type: boolean
       replay_suite_run_id:
         description: Optional original full-suite run; reuses its untouched ZIP only when Windows runtime sources are identical
         required: false
@@ -114,6 +119,7 @@ jobs:
       - name: Verify build inputs and qualify the isolated server
         env:
           GH_TOKEN: ${{ github.token }}
+          PUBLIC21_TO_CANDIDATE22: ${{ inputs.public21_to_candidate22 }}
           NATIVE_RUN_ID: ${{ inputs.native_run_id }}
           ENGINE_RUN_ID: ${{ inputs.engine_run_id }}
           REPLAY_SUITE_RUN_ID: ${{ inputs.replay_suite_run_id }}
@@ -130,6 +136,7 @@ jobs:
           if($LASTEXITCODE){throw 'Native task security controls failed before server qualification.'}
           if($env:THREECX_IMPORT_ONLY -and $env:THREECX_IMPORT_ONLY -cnotin 'true','false'){throw 'The import diagnostic input must be a boolean.'}
           $producerOptions=@{}
+          if($env:PUBLIC21_TO_CANDIDATE22 -ceq 'true'){$producerOptions.Public21ToCandidate22=$true}
           if($env:THREECX_IMPORT_ONLY -ceq 'true'){$producerOptions.ThreecxImportOnly=$true}
           if($env:NATIVE_DIAGNOSTICS_ONLY -ceq 'true'){$producerOptions.NativeDiagnosticsOnly=$true}
           if($env:HOLD_DIAGNOSTICS_ONLY -ceq 'true'){$producerOptions.HoldDiagnosticsOnly=$true}

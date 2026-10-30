@@ -362,7 +362,7 @@ function TaskSnapshot {
  # The owned interactive manager re-registers its task when each new window
  # loads. Its exact user/action/security contract is checked separately; static
  # service tasks must preserve their complete XML/COM/file security inventory.
- $names=@('OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate')
+ $names=@('OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-Onboarding','OpenWebPBX-PhoneHealth','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate')
  foreach($name in $names){
   $task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue;if(!$task){$result[$name]=@{exists=$false};continue};$xml=[xml](Export-ScheduledTask -TaskName $name);$xml.PreserveWhitespace=$false
   $result[$name]=@{exists=$true;enabled=[bool]$task.Settings.Enabled;xml=$xml.OuterXml;acl=(Get-Acl -LiteralPath (Join-Path $env:SystemRoot ('System32/Tasks/'+$name))).Sddl;security=$scheduler.GetFolder('\').GetTask($name).GetSecurityDescriptor(7)}
@@ -452,7 +452,7 @@ function QualificationTaskDifferenceFields($Record){
  foreach($key in $Record.Keys){if($key -isnot [string] -or $key -cnotin $fields){return $null}}
  if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1){return $null}
  foreach($name in 'before_tasks','after_tasks','changed_tasks','unknown_tasks'){$n=$Record[$name];if(($n -isnot [int] -and $n -isnot [long]) -or $n -lt 0 -or $n -gt 64){return $null}}
- $names=@('OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate')
+ $names=@('OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-Onboarding','OpenWebPBX-PhoneHealth','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate')
  $allowed=@('exists','enabled','xml','acl','added','removed');$rows=$Record.known_tasks
  if($rows -isnot [Collections.IDictionary] -or $rows.Count -gt $names.Count -or $Record.changed_tasks -lt 1 -or $Record.changed_tasks -gt ($Record.before_tasks+$Record.after_tasks) -or ($rows.Count+$Record.unknown_tasks) -ne $Record.changed_tasks){return $null}
  $copy=@{}
@@ -480,7 +480,7 @@ function QualificationTaskDifference($Before,$After){
   }
  }
  $names=@(@($Before.Keys)+@($After.Keys)|Sort-Object -CaseSensitive -Unique);if($names.Count -gt 64){return $null}
- $known=@('OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate')
+ $known=@('OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-Onboarding','OpenWebPBX-PhoneHealth','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate')
  $rows=@{};$changed=0;$unknown=0
  foreach($name in $names){
   $fields=@()
@@ -679,11 +679,39 @@ function OpenQualificationCleanupLock([string]$Path,[ValidateRange(0,30000)][int
   }
  }
 }
+function AssertNewOnboardingTaskSnapshot($Record,[DateTime]$Started){
+ Check ($Record.exists -is [bool] -and $Record.exists -and $Record.enabled -is [bool] -and $Record.enabled) 'The newly installed onboarding task must be enabled.'
+ [xml]$xml=$Record.xml;$ns=[Xml.XmlNamespaceManager]::new($xml.NameTable);$ns.AddNamespace('t','http://schemas.microsoft.com/windows/2004/02/mit/task')
+ function Value([string]$Path){$node=$xml.SelectSingleNode('/t:Task/'+$Path,$ns);if($node){return $node.InnerText};return ''}
+ Check ((Value 't:RegistrationInfo/t:Description') -ceq 'OpenWeb PBX owned installation registration and activation worker' -and (Value 't:Principals/t:Principal/t:UserId') -in 'SYSTEM','S-1-5-18' -and (Value 't:Principals/t:Principal/t:LogonType') -ceq 'ServiceAccount' -and (Value 't:Principals/t:Principal/t:RunLevel') -ceq 'HighestAvailable') 'The new onboarding principal or ownership differs.'
+ Check (@($xml.SelectNodes('/t:Task/t:Actions/*',$ns)).Count -eq 1 -and (Value 't:Actions/t:Exec/t:Command') -ceq 'C:\OpenWebPBX\backup-runtime\python.exe' -and (Value 't:Actions/t:Exec/t:Arguments') -ceq '-I -B "C:\OpenWebPBX\tools\onboarding.py" --tick' -and (Value 't:Actions/t:Exec/t:WorkingDirectory') -ceq 'C:\OpenWebPBX\tools') 'The new onboarding executable contract differs.'
+ Check (@($xml.SelectNodes('/t:Task/t:Triggers/*',$ns)).Count -eq 2 -and @($xml.SelectNodes('/t:Task/t:Triggers/t:BootTrigger',$ns)).Count -eq 1 -and @($xml.SelectNodes('/t:Task/t:Triggers/t:TimeTrigger',$ns)).Count -eq 1 -and (Value 't:Triggers/t:TimeTrigger/t:Repetition/t:Interval') -ceq 'PT1M' -and (Value 't:Settings/t:MultipleInstancesPolicy') -ceq 'IgnoreNew' -and (Value 't:Settings/t:ExecutionTimeLimit') -ceq 'PT20M' -and (Value 't:Settings/t:StartWhenAvailable') -ceq 'true') 'The new onboarding bounded schedule differs.'
+ $boundary=[DateTime]::Parse((Value 't:Triggers/t:TimeTrigger/t:StartBoundary')).ToUniversalTime()
+ Check ($boundary -ge $Started.ToUniversalTime().AddSeconds(-5) -and $boundary -le [DateTime]::UtcNow.AddMinutes(2)) 'The new onboarding schedule was not created by this upgrade.'
+ foreach($text in $Record.acl,$Record.security){
+  $descriptor=[Security.AccessControl.RawSecurityDescriptor]::new($text)
+  Check ($descriptor.Owner.Value -in 'S-1-5-18','S-1-5-32-544' -and $null -ne $descriptor.DiscretionaryAcl -and ($descriptor.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclPresent)) 'The new onboarding task requires a privileged owner and a present DACL.'
+  foreach($ace in $descriptor.DiscretionaryAcl){
+   Check ($ace -is [Security.AccessControl.CommonAce] -and !$ace.IsCallback) 'An unknown new task ACE is refused.'
+   if($ace.AceQualifier -eq [Security.AccessControl.AceQualifier]::AccessAllowed -and $ace.SecurityIdentifier.Value -notin 'S-1-5-18','S-1-5-32-544'){
+    # File/task write, delete, ownership/DACL changes and generic write/all.
+    Check (($ace.AccessMask -band 0x500D0156) -eq 0) 'The new onboarding task grants unprivileged mutation rights.'
+   }
+  }
+ }
+}
 function NormalTaskPreservation($Before,$After,[DateTime]$Started){
  WriteJson (Join-Path $work 'normal-tasks-exact-before.json') $Before;WriteJson (Join-Path $work 'normal-tasks-exact-after.json') $After
  $normalizedBefore=@{};$normalizedAfter=@{}
  foreach($name in $Before.Keys){
-  Check ($After.ContainsKey($name) -and $Before[$name].exists -eq $After[$name].exists) 'Normal update changed the owned task inventory.'
+  Check ($After.ContainsKey($name)) 'Normal update changed the owned task inventory.'
+  if(!$Before[$name].exists -and $After[$name].exists -and $name -ceq 'OpenWebPBX-Onboarding' -and $BaseVersion -ceq '1.0.21' -and $CanaryVersion -ceq '1.0.22'){
+   AssertNewOnboardingTaskSnapshot $After[$name] $Started
+   # This exact source-defined new task has no prior ACL/XML to preserve. Its
+   # complete raw after record remains retained above and is checked separately.
+   $normalizedBefore[$name]=@{exists=$false};$normalizedAfter[$name]=@{exists=$false};continue
+  }
+  Check ($Before[$name].exists -eq $After[$name].exists) 'Normal update changed the owned task inventory.'
   foreach($pair in @(@{source=$Before;target=$normalizedBefore},@{source=$After;target=$normalizedAfter})){
    $record=@{};foreach($key in $pair.source[$name].Keys){$record[$key]=$pair.source[$name][$key]}
    if($record.exists){
@@ -691,7 +719,7 @@ function NormalTaskPreservation($Before,$After,[DateTime]$Started){
     # Re-registration records the actual current operator/date. These two
     # descriptive fields may change; executable/principal/settings/security may not.
     foreach($node in @($xml.SelectNodes('/t:Task/t:RegistrationInfo/t:Date|/t:Task/t:RegistrationInfo/t:Author',$namespaces))){$node.ParentNode.RemoveChild($node)|Out-Null}
-    if($name -in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth'){
+    if($name -in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-Onboarding','OpenWebPBX-PhoneHealth'){
      $nodes=@($xml.SelectNodes('/t:Task/t:Triggers/t:TimeTrigger/t:StartBoundary',$namespaces));Check ($nodes.Count -eq 1) 'The owned repeating task must retain one bounded schedule.'
      if([object]::ReferenceEquals($pair.source,$After)){$time=[DateTime]::Parse($nodes[0].InnerText).ToUniversalTime();Check ($time -ge $Started.ToUniversalTime().AddSeconds(-5) -and $time -le [DateTime]::UtcNow.AddMinutes(2)) 'The renewed owned schedule must be created during this real normal update.'}
      $nodes[0].InnerText='QUALIFIED_ONCE_TRIGGER_TIME'
@@ -955,7 +983,7 @@ if(!$?){exit 1}
     Resume-OpenWebQualificationTenant $qualificationTenantOriginal
     Resume-OpenWebQualificationHealth $qualificationHealthOriginal
     $cleanupHealth=$null;Suspend-OpenWebQualificationHealth ([ref]$cleanupHealth)
-    foreach($name in 'OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate'){if(Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue){Disable-ScheduledTask -TaskName $name|Out-Null}}
+    foreach($name in 'OpenWebPBX-Backups','OpenWebPBX-Cleanup','OpenWebPBX-Updater-Restart','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-Onboarding','OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate'){if(Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue){Disable-ScheduledTask -TaskName $name|Out-Null}}
     if(Get-Service OpenWebPBXUpdater -ErrorAction SilentlyContinue){Stop-Service OpenWebPBXUpdater -Force}
     if($managerOwned){foreach($process in @(OwnedManagers)){Stop-Process -Id $process.Id -Force};if(Get-ScheduledTask -TaskName $managerName -ErrorAction SilentlyContinue){Check (ManagerTaskValid) 'Cleanup refused a modified task outside the exact owned interactive contract.';Stop-ScheduledTask -TaskName $managerName;Unregister-ScheduledTask -TaskName $managerName -Confirm:$false};$managerOwned=$false}
     if($fixtureCreated){Fixture 'cleanup'|Out-Null}
