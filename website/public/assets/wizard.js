@@ -94,7 +94,7 @@
     try {
       userCode = document.querySelector('#server-code').value.trim().toUpperCase();
       const server = await request('/devices/lookup', {user_code: userCode});
-      const provider = server.provider === 'webhotel' ? 'Webhotel.cloud' : 'Debian';
+      const provider = server.provider === 'webhotel' ? 'Webhotel.cloud' : 'Self-installed';
       document.querySelector('[data-server-summary]').textContent = provider + ' server · ' + server.server_address + ' · OpenWeb PBX ' + server.image_version;
       panel('account');
     } catch (error) { showError(error); } finally { setBusy(false); }
