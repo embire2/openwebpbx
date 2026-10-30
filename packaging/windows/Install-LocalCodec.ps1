@@ -39,8 +39,15 @@ New-Item -ItemType Directory -Force $work|Out-Null
 if($LASTEXITCODE){throw 'The local audio build directory could not be protected.'}
 $output=Join-Path $work 'output'
 Write-Host 'Preparing the local audio codec. The first installation downloads its verified compiler.'
-& $python -I -B "$recipeRoot\build-windows-local.py" --source "$PackageRoot\codec-source" --source-manifest-sha256 $recipe.source_manifest_sha256 --engine-root $EngineRoot --core-sha256 $recipe.core_sha256 --apr-sha256 $recipe.apr_sha256 --core-export-helper "$recipeRoot\core-exports.py" --build "$work\build" --output $output --compiler-cache "$StateRoot\codec-compiler-cache"
-if($LASTEXITCODE){throw 'The local audio codec did not build or pass its native ownership tests. Keep calling stopped.'}
+# Windows PowerShell5 merged logging turns native warnings into error records.
+# Keep diagnostics; the actual exit code and verified manifest decide success.
+$codecBuildPreference=$ErrorActionPreference;$codecBuildExitCode=$null
+try {
+ $ErrorActionPreference='Continue';$global:LASTEXITCODE=$null
+ & $python -I -B "$recipeRoot\build-windows-local.py" --source "$PackageRoot\codec-source" --source-manifest-sha256 $recipe.source_manifest_sha256 --engine-root $EngineRoot --core-sha256 $recipe.core_sha256 --apr-sha256 $recipe.apr_sha256 --core-export-helper "$recipeRoot\core-exports.py" --build "$work\build" --output $output --compiler-cache "$StateRoot\codec-compiler-cache"
+ $codecBuildExitCode=$global:LASTEXITCODE
+} finally {$ErrorActionPreference=$codecBuildPreference}
+if($null -eq $codecBuildExitCode -or $codecBuildExitCode -ne 0){throw 'The local audio codec did not build or pass its native ownership tests. Keep calling stopped.'}
 $built=Get-Content "$output\local-codec-manifest.json" -Raw|ConvertFrom-Json
 if($built.schema -ne 1 -or $built.codec_distribution_status -ne 'local-source-build-only' -or $built.callbacks -ne 'passed' -or $built.data_imports_and_heap_ownership -ne 'passed' -or $built.source_manifest_sha256 -ne $recipe.source_manifest_sha256 -or $built.core_sha256 -ne $recipe.core_sha256 -or $built.apr_sha256 -ne $recipe.apr_sha256){throw 'The local codec proof is incomplete.'}
 if((Get-Service FreeSWITCH).Status -ne 'Stopped'){throw 'The call engine started during the local codec build. No codec was installed.'}

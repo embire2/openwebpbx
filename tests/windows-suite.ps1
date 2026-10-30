@@ -1638,6 +1638,8 @@ try{
  PrivateDirectory $work;PublishFacts
  if((Test-Path "$configuration\config.conf") -or (Test-Path "$state\installation.json") -or (Get-Service OpenWebPBX -ErrorAction SilentlyContinue)){throw 'The ephemeral machine already contains a PBX; it is not an empty suite target.'}
  CheckedPython @((Join-Path $source 'tests/windows_voice_installer.py'))
+ & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_codec_logged_launcher.ps1') -SourceRoot $source *> (Join-Path $work 'codec-logged-launcher.private.log')
+ if($LASTEXITCODE){throw 'The actual Windows PowerShell5 logged native compiler boundary controls failed.'}
  & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $source 'tests/windows_public_access.ps1') *> (Join-Path $work 'managed-public-source.private.log')
  if($LASTEXITCODE){throw 'The stock Windows PowerShell managed public-port source controls failed.'}
  & (Join-Path $source 'tests/windows_modern_baseline_gates.ps1') -SourceRoot $source *> (Join-Path $work 'modern-baseline-validator.private.log')
