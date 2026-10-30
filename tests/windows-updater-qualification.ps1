@@ -48,7 +48,7 @@ function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null
  # Project only known source callsites and fixed child identities. Messages,
  # process arguments, private streams and the paths in the trace stay private.
  $frames=[Collections.Generic.List[object]]::new();$seen=@{}
- $functions=@('Check','Hash','SnapshotHash','WriteJson','PrivateDirectory','SecureCanaryFaultContract','Api','SafeRelative','ExpandSafe','Artifact','CheckedProcess','NativeVersions','StopQualificationIis','PrepareCanary','GetActualCandidateTarget','PrepareActualCandidate','NewActualSchemaProbe','WaitActualOnboardingMigration','WaitActualTenantIdle','ReadActualSchemaFailure','Fixture','Python','InitializeQualificationBackupWorker','DatabaseSnapshot','FileSnapshot','TaskSnapshot','ManagerTaskValid','OwnedManagers','WaitManager','BeginManager','OriginalProcessProofSource','RetainQualificationProcess','AssertOriginalProcessState','ManagerReopened','EqualTaskSnapshots','Equal','NormalTaskPreservation','InstalledVersions','WaitInstall','DownloadProof','GetManagerOriginalExitProof','<ScriptBlock>')
+ $functions=@('Check','Hash','SnapshotHash','WriteJson','PrivateDirectory','SecureCanaryFaultContract','Api','SafeRelative','ExpandSafe','Artifact','CheckedProcess','NativeVersions','StopQualificationIis','PrepareCanary','GetActualCandidateTarget','PrepareActualCandidate','NewActualSchemaProbe','WaitActualOnboardingMigration','WaitActualTenantIdle','ReadActualSchemaFailure','ActualOperatorRollback','Fixture','Python','InitializeQualificationBackupWorker','DatabaseSnapshot','FileSnapshot','TaskSnapshot','ManagerTaskValid','OwnedManagers','WaitManager','BeginManager','OriginalProcessProofSource','RetainQualificationProcess','AssertOriginalProcessState','ManagerReopened','EqualTaskSnapshots','Equal','NormalTaskPreservation','InstalledVersions','WaitInstall','DownloadProof','GetManagerOriginalExitProof','<ScriptBlock>')
  if($Trace -and $Trace.Length -le 16384){
   $lines=[regex]::Split($Trace,'\r?\n')
   for($i=0;$i -lt [Math]::Min($lines.Count,64) -and $frames.Count -lt 6;$i++){
@@ -59,14 +59,14 @@ function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null
    if(!$seen.ContainsKey($key)){$seen[$key]=$true;$frames.Add(@{source_basename=$sourceName;source_line=$line;function=$name})}
   }
  }
- $labels=@('fetch-immutable-source','source-worktree','server-14-build','updater-14-build','desktop-14-build','OpenWebPbx.Checks-checks','OpenWebPbx.Updater.Checks-checks','prepare-audited-canary','fetch-actual-candidate-source','verify-actual-candidate','prepare-actual-candidate-pair','actual-original-schema-before','actual-original-schema-after','verify-qualified-base','verify-fault','verify-normal','verify-private-signatures','actual-fresh13','python-setup','python-prepare-pki','python-request','compare-fault-database','compare-fault-files','compare-fault-tasks','compare-normal-tasks','compare-normal-task-contract-security','compare-normal-database','compare-normal-protected-files','compare-normal-installation-secrets','fixture-baseline','fixture-discover','fixture-status','fixture-snapshot','fixture-cleanup')
+ $labels=@('fetch-immutable-source','source-worktree','server-14-build','updater-14-build','desktop-14-build','OpenWebPbx.Checks-checks','OpenWebPbx.Updater.Checks-checks','prepare-audited-canary','fetch-actual-candidate-source','verify-actual-candidate','prepare-actual-candidate-pair','actual-original-schema-before','actual-original-schema-after','operator-policy-before','operator-policy-after','operator-rollback-native','compare-operator-database','compare-operator-files','compare-operator-tasks','verify-qualified-base','verify-fault','verify-normal','verify-private-signatures','actual-fresh13','python-setup','python-prepare-pki','python-request','compare-fault-database','compare-fault-files','compare-fault-tasks','compare-normal-tasks','compare-normal-task-contract-security','compare-normal-database','compare-normal-protected-files','compare-normal-installation-secrets','fixture-baseline','fixture-discover','fixture-status','fixture-snapshot','fixture-cleanup')
  $childReport=$null
  if($Child -is [Collections.IDictionary] -and $Child.label -is [string] -and $Child.label -cin $labels -and $Child.caller -cin @('CheckedProcess','Fixture') -and $Child.caller -cin $frames.ToArray().function){
   if($Child.completion -ceq 'exit' -and $Child.exit_code -is [int] -and $Child.exit_code -ne 0){$childReport=@{label=$Child.label;completion='exit';exit_code=$Child.exit_code}}
   elseif($Child.completion -ceq 'deadline' -and $null -eq $Child.exit_code){$childReport=@{label=$Child.label;completion='deadline';exit_code=$null}}
  }
  $safe=@{schema=1;callsites=$frames.ToArray();child=$childReport}
- if($childReport -and $frames.ToArray().function -ccontains 'Equal' -and $Comparison -is [Collections.IDictionary] -and $Comparison.label -is [string] -and $Comparison.label -cin @('fault-database','fault-files','fault-tasks','normal-database','normal-protected-files','normal-installation-secrets','normal-tasks','normal-task-contract-security') -and $childReport.label -ceq ('compare-'+$Comparison.label)){
+ if($childReport -and $frames.ToArray().function -ccontains 'Equal' -and $Comparison -is [Collections.IDictionary] -and $Comparison.label -is [string] -and $Comparison.label -cin @('fault-database','fault-files','fault-tasks','normal-database','normal-protected-files','normal-installation-secrets','normal-tasks','normal-task-contract-security','operator-database','operator-files','operator-tasks') -and $childReport.label -ceq ('compare-'+$Comparison.label)){
   $report=QualificationComparisonDetails $Comparison.report
   if($report -and (($report.comparison_result -ceq 'different' -and $childReport.completion -ceq 'exit' -and $childReport.exit_code -eq 1) -or ($report.comparison_result -ceq 'error' -and $childReport.completion -ceq 'exit' -and $childReport.exit_code -eq 2) -or $report.comparison_result -ceq 'unavailable')){
    $safe.comparison=$report
@@ -112,7 +112,7 @@ function QualificationSnapshotPaths {
 function QualificationHashFailureFields($Record){
  if($Record -isnot [Collections.IDictionary] -or $Record.Count -ne 7){return $null}
  foreach($key in $Record.Keys){if($key -isnot [string] -or $key -cnotin @('stage','file_label','category','config_scope','exception_type','hresult','win32_code')){return $null}}
- $sets=@{stage=@('unobserved','before_fault_full','before_fault_protected','after_fault_full','after_normal_protected');file_label=@('unknown')+@((QualificationSnapshotPaths).Values);category=@('web','server','desktop','tools','updater','config','notifications','media','native','other');config_scope=@('none','fusionpbx','phone_tls','public_access','automatic_backups','backup_restore','backup_control','backup_downloads','codec_compiler_cache','codec_build');exception_type=@('IOException','UnauthorizedAccessException','FileNotFoundException','DirectoryNotFoundException','PathTooLongException','NotSupportedException','ArgumentException','SecurityException','ItemNotFoundException','ProviderInvocationException','RuntimeException','Win32Exception','OtherError')}
+ $sets=@{stage=@('unobserved','before_fault_full','before_fault_protected','after_fault_full','after_normal_protected','after_operator_full');file_label=@('unknown')+@((QualificationSnapshotPaths).Values);category=@('web','server','desktop','tools','updater','config','notifications','media','native','other');config_scope=@('none','fusionpbx','phone_tls','public_access','automatic_backups','backup_restore','backup_control','backup_downloads','codec_compiler_cache','codec_build');exception_type=@('IOException','UnauthorizedAccessException','FileNotFoundException','DirectoryNotFoundException','PathTooLongException','NotSupportedException','ArgumentException','SecurityException','ItemNotFoundException','ProviderInvocationException','RuntimeException','Win32Exception','OtherError')}
  $safe=@{}
  foreach($name in $sets.Keys){if($Record[$name] -isnot [string] -or $Record[$name] -cnotin $sets[$name]){return $null};$safe[$name]=$Record[$name]}
  if($Record.hresult -isnot [int] -or ($null -ne $Record.win32_code -and ($Record.win32_code -isnot [int] -or $Record.win32_code -lt 0 -or $Record.win32_code -gt 65535))){return $null}
@@ -338,6 +338,47 @@ function WaitActualOnboardingMigration([DateTime]$Started){
  $info=Get-ScheduledTaskInfo -TaskName 'OpenWebPBX-TenantDomains';Check ($info.LastRunTime.ToUniversalTime() -ge $Started.ToUniversalTime()) 'No natural original worker execution was observed after the real normal request.'
  $facts.onboarding_migration=@{state='created_naturally_postcommit';sealed_original21_origin=$true;original_worker_last_run_observed=$true;manual_start_or_migration=$false;source_tag_sha256=([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($tag))).ToLowerInvariant())}
 }
+function ActualOperatorRollback($BeforeDb,$BeforeFiles,$BeforeTasks,$PolicyBefore,[Diagnostics.Process]$Manager,[int]$CurrentPid){
+ $script:phase='actual installed22 operator rollback provenance'
+ $facts.gates.operator_rollback='running'
+ $helper=Join-Path "$root/tools" 'Upgrade-OpenWebPBX.ps1';$helperSha=$actualManifest.files.'Upgrade-OpenWebPBX.ps1'
+ Check ((Hash $helper) -ceq $helperSha) 'Operator rollback must execute the actual installed signed22 helper.'
+ foreach($name in 'UpgradeRecovery.Common.ps1','Onboarding-Upgrade.Common.ps1'){$path=Join-Path "$root/tools" $name;Check ((Hash $path) -ceq $actualManifest.files.$name) 'Operator origin validators differ from the signed22 payload.';. $path}
+ $j=Get-Content "$state/updates/install-journal.json" -Raw|ConvertFrom-Json
+ Check ($j.state -ceq 'completed' -and $j.version -ceq $CanaryVersion -and $j.previous_version -ceq $BaseVersion -and $j.finalization.phase -ceq 'complete' -and $j.finalization.failed -is [bool] -and !$j.finalization.failed -and !$j.operator_rollback) 'The exact normal21-to22 transaction must be finalized before operator rollback.'
+ $origin=Get-OpenWebOnboardingUpgradeOrigin -Entry $j.recovery_entry -Root $root -StateRoot $state -EngineRoot $engine -Backup $j.backup_path
+ Check ($origin.backup_path -ceq $j.backup_path -and $origin.version -ceq $CanaryVersion -and $origin.previous_version -ceq $BaseVersion) 'Operator rollback must select that exact sealed original21 before-image.'
+ $task=Get-OpenWebOnboardingTaskSnapshot
+ if($OriginalTenantDomainsDisabled){Check (!$task) 'The preserved disabled worker must still have no migration task.'}
+ else{
+  $tag=Assert-OpenWebOnboardingTaskSnapshot $task $root;$entry=Get-OpenWebOnboardingSourceEntry $tag $state
+  Check ($entry.bundle_path -ceq $j.recovery_entry.bundle_path -and $entry.metadata_sha256 -ceq $j.recovery_entry.metadata_sha256 -and $entry.launcher_sha256 -ceq $j.recovery_entry.launcher_sha256) 'The actual migrated task must bind the precise normal transaction being rolled back.'
+ }
+ $heldWorker=RetainQualificationProcess ([Diagnostics.Process]::GetProcessById($CurrentPid)) $CurrentPid "$root\updater\slots\$CanaryVersion\OpenWebPbx.Updater.exe" 'S-1-5-18' 0 ([DateTime]::MinValue)
+ $heldManager=RetainQualificationProcess $Manager ([int]$Manager.Id) "$root\desktop\OpenWebPbx.Desktop.exe" $managerSid $managerSession ([DateTime]::MinValue)
+ $started=[DateTime]::UtcNow;$script:phase='actual installed22 operator restore of exact sealed21 backup'
+ CheckedProcess "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$helper,'-RestoreBackup',$j.backup_path) 'operator-rollback-native' -Timeout 1200000
+ $deadline=[DateTime]::UtcNow.AddSeconds(120);$restoredPid=0
+ do{try{$restoredPid=InstalledVersions $BaseVersion}catch{$restoredPid=0};if(!$restoredPid){Start-Sleep -Milliseconds 500}}while(!$restoredPid -and [DateTime]::UtcNow -lt $deadline)
+ Check ($restoredPid -gt 0 -and $restoredPid -ne $CurrentPid) 'The operator helper must naturally restart the original21 updater and services.'
+ AssertOriginalProcessState $heldWorker $CurrentPid $true 'The newer updater did not exit during ordinary operator rollback.'
+ $null=ManagerReopened $BaseVersion $heldManager $started
+ $afterJournal=Get-Content "$state/updates/install-journal.json" -Raw|ConvertFrom-Json
+ Check ($afterJournal.state -ceq 'rolled_back' -and $afterJournal.operator_rollback -is [bool] -and $afterJournal.operator_rollback -and $afterJournal.backup_path -ceq $j.backup_path -and $afterJournal.version -ceq $BaseVersion) 'The real native helper did not finish that exact operator rollback.'
+ Check (!(Get-ScheduledTask -TaskName 'OpenWebPBX-Onboarding' -TaskPath '\' -ErrorAction SilentlyContinue)) 'Operator rollback retained the owned postcommit onboarding task.'
+ $script:phase='actual operator rollback original data and task preservation'
+ $after=DatabaseSnapshot 'after-operator';$policyAfter=Join-Path $qa 'actual-operator-policy-after.json';$finished=[DateTime]::UtcNow
+ CheckedProcess "$root/backup-runtime/python.exe" @('-I','-B',(Join-Path $PSScriptRoot 'windows-operator-rollback-policy.py'),'after','--baseline',$PolicyBefore,'--output',$policyAfter,'--helper-source',(Join-Path $actualPackage 'Upgrade-OpenWebPBX.ps1'),'--helper-sha256',$helperSha,'--started',$started.ToString('o'),'--finished',$finished.ToString('o')) 'operator-policy-after'
+ $policy=Get-Content $policyAfter -Raw|ConvertFrom-Json
+ Check ($policy.state -ceq 'passed' -and $policy.helper_sha256 -ceq $helperSha -and $policy.original_hmac -ceq $BeforeDb.values.v_pbx_update_policies -and $policy.raw_hmac -ceq $after.values.v_pbx_update_policies -and $policy.normalized_after_hmac -ceq $BeforeDb.values.v_pbx_update_policies) 'The narrowly source-modeled instance reset differs from the original raw snapshots.'
+ $projected=($after|ConvertTo-Json -Depth 64)|ConvertFrom-Json -AsHashtable
+ $projected.values.v_pbx_update_policies=$policy.normalized_after_hmac
+ Equal $BeforeDb $projected 'operator-database'
+ Equal $BeforeFiles (FileSnapshot -Stage 'after_operator_full') 'operator-files'
+ EqualTaskSnapshots $BeforeTasks (TaskSnapshot) 'operator-tasks'
+ $facts.gates.operator_rollback='passed'
+ $facts.operator_rollback=@{state='passed';from_version=$CanaryVersion;restored_version=$BaseVersion;actual_installed_helper=$true;helper_sha256=$helperSha;exact_original21_sealed_backup=$true;original_customer_security_preserved=$true;source_modeled_instance_policy_reset=$true;raw_original_files_acl_tasks_exact=$true;tagged_task_removed=(!$OriginalTenantDomainsDisabled);new_task_absent=$true;original_worker_disabled=[bool]$OriginalTenantDomainsDisabled;updater_and_manager_restarted_naturally=$true;final_installed_version=$BaseVersion}
+}
 function Fixture([string]$Action){
  $script:qualificationFailedChild=$null
  $start=[Diagnostics.ProcessStartInfo]::new("$root\php\php.exe");$start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.WorkingDirectory="$root\web";$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
@@ -409,7 +450,7 @@ function InitializeQualificationBackupWorker([string]$Root,[string]$StateRoot,[s
  foreach($field in 'exists','enabled','xml','acl','security'){Check ($after[$field] -ceq $definition[$field]) 'Backup warm-up changed the normal task definition or security.'}
 }
 function DatabaseSnapshot([string]$Label){$settings.snapshot_label=$Label;WriteJson $inputFile $settings;Fixture 'snapshot'|Out-Null;return Get-Content (Join-Path (Split-Path $inputFile -Parent) ($Label+'-database.json')) -Raw|ConvertFrom-Json -AsHashtable}
-function FileSnapshot([switch]$Protected,[ValidateSet('unobserved','before_fault_full','before_fault_protected','after_fault_full','after_normal_protected')][string]$Stage='unobserved'){
+function FileSnapshot([switch]$Protected,[ValidateSet('unobserved','before_fault_full','before_fault_protected','after_fault_full','after_normal_protected','after_operator_full')][string]$Stage='unobserved'){
  $script:qualificationFailedHash=$null
  # The canary is the exact baseline payload with only native version overlays.
  # Its PHP vendor files therefore remain exact on success as well as rollback.
@@ -1030,6 +1071,12 @@ if(!$?){exit 1}
   $beforeDb=DatabaseSnapshot 'before-fault';$beforeFiles=FileSnapshot -Stage 'before_fault_full';$beforeTasks=TaskSnapshot;$protected=FileSnapshot -Protected -Stage 'before_fault_protected'
   $installationProtected=Get-Content "$state\installation.json" -Raw|ConvertFrom-Json -AsHashtable;$installationProtected.Remove('Version')|Out-Null
   if($actualCandidate){$actualSchemaProbe=NewActualSchemaProbe;$actualSchemaBefore=Join-Path $qa 'actual-original-schema-before.json';Check (!(Get-ScheduledTask -TaskName 'OpenWebPBX-Onboarding' -ErrorAction SilentlyContinue)) 'Actual public21 must not already contain onboarding.'}
+  if($actualCandidate){
+   $facts.gates.operator_rollback='pending';$actualPolicyBefore=Join-Path $qa 'actual-original-policy-before.json'
+   CheckedProcess "$root/backup-runtime/python.exe" @('-I','-B',(Join-Path $PSScriptRoot 'windows-operator-rollback-policy.py'),'before','--baseline',$actualPolicyBefore,'--helper-source',(Join-Path $actualPackage 'Upgrade-OpenWebPBX.ps1'),'--helper-sha256',$actualManifest.files.'Upgrade-OpenWebPBX.ps1') 'operator-policy-before'
+   $policy=Get-Content $actualPolicyBefore -Raw|ConvertFrom-Json;Check ($policy.raw_hmac -ceq $beforeDb.values.v_pbx_update_policies) 'The original policy capture must match the strict original database baseline.'
+  }
+
   $script:priorCommands=@((Fixture 'status').commands|ForEach-Object command_uuid);$requestStarted=[DateTime]::UtcNow;Python 'request';$failure=WaitInstall 'rolled_back' 'failed' $requestStarted
   DownloadProof 'fault' $verified.fault;Check ((InstalledVersions $BaseVersion) -eq $initialPid) 'The original ordinary installed13 worker must remain running after rollback.'
   AssertOriginalProcessState $originalWorker $initialPid $false 'The original ordinary installed13 worker must remain running after rollback.'
@@ -1067,7 +1114,12 @@ if(!$?){exit 1}
   $status=Get-Content "$state\updates\status.json" -Raw|ConvertFrom-Json;Check ($status.last_success_version -eq $CanaryVersion -and $status.installed_version -eq $CanaryVersion) 'The naturally restarted real14 worker must retain last-success and current-version state.'
   Check ((Fixture 'status').channels -eq 0) 'The standalone updater must not create a native call.'
   $facts.gates.canary_build='passed';$facts.gates.normal_https_download='passed';$facts.gates.newer_upgrade='passed';$facts.gates.natural_updater_restart='passed';$facts.gates.protected_data='passed';$facts.checks+=('Same installed'+$BaseVersion+' worker higher-sequence full HTTPS normal'+$CanaryVersion+' transfer, real candidate service/desktop/updater, completed command and natural SCM slot/PID restart; protected fictional data/private configuration/media/task security preserved')
-  if($actualCandidate){$facts.actual_candidate=@{target_suite_run_id=$TargetSuiteRunId;target_source_commit=$actualTarget.source_commit;normal_zip_untouched=$true;original21_signed_wrapper=$true;native_rebuild=$false;version_overlays=$false;original_tenant_domains_disabled=[bool]$OriginalTenantDomainsDisabled};$facts.scope='Actual immutable public21 SYSTEM updater and installed21 signed wrapper to exact qualified22; fictional tenant/trusted laboratory HTTPS; fresh/public/carrier qualification separate'}
+  if($actualCandidate){
+   # Keep already-completed signed components even if the later operator test fails.
+   $facts.signed_normal_component=@{state='passed';installed_version=$CanaryVersion;target_suite_run_id=$TargetSuiteRunId;target_source_commit=$actualTarget.source_commit;normal_archive_sha256=$verified.normal.sha256;fault_archive_sha256=$verified.fault.sha256;normal_zip_untouched=$true;original21_signed_wrapper=$true}
+   ActualOperatorRollback $beforeDb $beforeFiles $beforeTasks $actualPolicyBefore $upgradedManager $newPid
+  }
+  if($actualCandidate){$facts.actual_candidate=@{target_suite_run_id=$TargetSuiteRunId;target_source_commit=$actualTarget.source_commit;normal_zip_untouched=$true;original21_signed_wrapper=$true;native_rebuild=$false;version_overlays=$false;original_tenant_domains_disabled=[bool]$OriginalTenantDomainsDisabled;normal_installed_version=$CanaryVersion;final_installed_version=$BaseVersion};$facts.scope='Actual immutable public21 SYSTEM updater and installed21 signed wrapper to exact qualified22; fictional tenant/trusted laboratory HTTPS; fresh/public/carrier qualification separate; final native operator rollback restores exact original21'}
   $facts.private_sequences=@($verified.fault.sequence,$verified.normal.sequence);$facts.canary_run_id=$CanaryRunId;$facts.fault_archive_sha256=$verified.fault.sha256;$facts.normal_archive_sha256=$verified.normal.sha256;$facts.state='passed'
  }
 }catch{
