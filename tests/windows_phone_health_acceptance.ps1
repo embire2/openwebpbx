@@ -107,18 +107,24 @@ try{
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
 $result='__RESULT__'
+$observerPhase='system_identity';$observerAttempt=0;$observerExit=$null;$observedState='unavailable';$observedAvailable=$null
 try{
  . 'C:\OpenWebPBX\tools\PhoneHealth-Security.ps1';Assert-OpenWebHealthSystem
  $parsed=$null
  for($attempt=0;$attempt -lt 3;$attempt++){
+  $observerAttempt=$attempt+1;$observerPhase='installed_invocation';$observerExit=$null;$observedState='unavailable';$observedAvailable=$null
   $output=& 'C:\OpenWebPBX\tools\Phone-Health.ps1' -Once
-  if(!$? -or $LASTEXITCODE){throw 'The installed SYSTEM observer failed.'}
+  if(!$? -or $LASTEXITCODE){$observerPhase='invocation_exit';$observerExit=$LASTEXITCODE;throw 'The installed SYSTEM observer failed.'}
+  $observerExit=$LASTEXITCODE;$observerPhase='json_parse'
   $parsed=($output -join "`n")|ConvertFrom-Json
+  $observedState=if($parsed.state -is [string] -and $parsed.state -cin 'observed','deferred'){$parsed.state}else{'other'}
+  $observedAvailable=if($parsed.available -is [bool]){$parsed.available}else{$null}
   if($parsed.state -ne 'deferred'){break};Start-Sleep -Seconds 2
  }
+ $observerPhase='availability'
  if($parsed.state -ne 'observed' -or $parsed.available -isnot [bool] -or !$parsed.available){throw 'The installed SYSTEM observer is unavailable.'}
  [IO.File]::WriteAllText($result,(@{state='passed';actual_system=$true;actual_installed_observer=$true}|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
-}catch{[IO.File]::WriteAllText($result,(@{state='failed';error_type=$_.Exception.GetType().Name}|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false));exit 1}
+}catch{[IO.File]::WriteAllText($result,(@{schema=1;state='failed';phase=$observerPhase;attempt=$observerAttempt;native_exit=$observerExit;observed_state=$observedState;available=$observedAvailable;error_type=$_.Exception.GetType().Name}|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false));exit 1}
 '@
  [IO.File]::WriteAllText($systemFile,$system.Replace('__RESULT__',$systemResult),[Text.UTF8Encoding]::new($false))
  $execute=Join-Path $env:windir 'System32\WindowsPowerShell\v1.0\powershell.exe';$arguments='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$systemFile+'"'
@@ -127,7 +133,7 @@ try{
  Register-ScheduledTask -TaskName $taskName -TaskPath '\' -Action $action -Principal $principal -Settings $settings -Description 'OpenWeb PBX isolated phone health qualification'|Out-Null;$created=$true;Start-ScheduledTask -TaskName $taskName -TaskPath '\'
  $deadline=[DateTime]::UtcNow.AddMinutes(4);while(!(Test-Path -LiteralPath $systemResult)){if([DateTime]::UtcNow -ge $deadline){throw 'The native SYSTEM health observer timed out.'};Start-Sleep -Milliseconds 250}
  $result=Get-Content -LiteralPath $systemResult -Raw|ConvertFrom-Json
- if($result.state -ne 'passed' -or $result.actual_system -ne $true -or $result.actual_installed_observer -ne $true){throw 'The native SYSTEM health observer did not pass.'};$report.gates.installed_system_observer='passed'
+ if($result.state -ne 'passed' -or $result.actual_system -ne $true -or $result.actual_installed_observer -ne $true){$report.system_observer_failure=$result;throw 'The native SYSTEM health observer did not pass.'};$report.gates.installed_system_observer='passed'
  $native=Php (Join-Path $PSScriptRoot 'windows_phone_health_installed.php') @();if($native.state -ne 'passed' -or $native.actual_installed_collector -ne $true){throw 'The installed native collector failed.'};$report.gates.installed_collector='passed'
  $first=$null;$deadline=[DateTime]::UtcNow.AddSeconds(90);while(!$first){$first=HealthProcess;if(!$first){if([DateTime]::UtcNow -ge $deadline){throw 'The persistent health worker has no native PostgreSQL scan evidence.'};Start-Sleep -Milliseconds 500}}
  $second=$null;$deadline=[DateTime]::UtcNow.AddSeconds(75)

@@ -1586,6 +1586,14 @@ function StunHook {
 function SafePhoneHealthFailure($Record){
  $safe=@{}
  if($Record.schema -ne 1 -or $Record.producer -cne 'windows_phone_health_acceptance.ps1' -or $Record.state -cne 'failed'){return $safe}
+ $system=$Record.system_observer_failure
+ $systemKeys=if($system-is [Collections.IDictionary]){@($system.Keys)}elseif($system-is [pscustomobject]){@($system.PSObject.Properties.Name)}else{@()}
+ $systemFields=@('schema','state','phase','attempt','native_exit','observed_state','available','error_type')
+ if($systemKeys.Count-eq 8 -and @($systemKeys|Where-Object {$_-cnotin $systemFields}).Count-eq 0){
+  $valid=($system.schema-is [int] -or $system.schema-is [long]) -and $system.schema-eq 1 -and $system.state-is [string] -and $system.state-ceq 'failed' -and $system.phase-is [string] -and $system.phase-cin 'system_identity','installed_invocation','invocation_exit','json_parse','availability' -and ($system.attempt-is [int] -or $system.attempt-is [long]) -and $system.attempt-ge 0 -and $system.attempt-le 3 -and $system.observed_state-is [string] -and $system.observed_state-cin 'unavailable','observed','deferred','other' -and ($null-eq $system.available -or $system.available-is [bool]) -and $system.error_type-is [string] -and $system.error_type-cin 'RuntimeException','MethodInvocationException','ActionPreferenceStopException','ParameterBindingException','ItemNotFoundException','UnauthorizedAccessException','ArgumentException','FormatException','Win32Exception','Exception','CommandNotFoundException','ParseException'
+  if($null-ne $system.native_exit -and (($system.native_exit-isnot [int] -and $system.native_exit-isnot [long]) -or $system.native_exit-lt -2147483648L -or $system.native_exit-gt 4294967295L)){$valid=$false}
+  if($valid){$safe.system_observer_failure=@{};foreach($field in $systemFields){$safe.system_observer_failure[$field]=$system.$field}}
+ }
  $restart=$Record.restart_observation
  $restartKeys=if($restart -is [pscustomobject]){@($restart.PSObject.Properties.Name)}elseif($restart -is [Collections.IDictionary]){@($restart.Keys)}else{@()}
  $flags=@('task_observed','task_enabled','task_info_observed','fresh_start','processes_observed','system_verified','connections_observed','heartbeat_observed')
@@ -1703,6 +1711,8 @@ try{
  CheckedPython @((Join-Path $source 'tests/windows_legacy_column_projection_test.py'))
  & (Join-Path $source 'tests/windows_private_probe_no_bytecode.ps1') -SourceRoot $source *> (Join-Path $work 'private-probe-no-bytecode.private.log')
  if(!$?){throw 'The exact private snapshot no-bytecode observer controls failed.'}
+ & (Join-Path $source 'tests/windows_health_system_observation.ps1') -SourceRoot $source *> (Join-Path $work 'health-system-observation.private.log')
+ if(!$?){throw 'The closed SYSTEM health observer diagnostics controls failed.'}
  & (Join-Path $source 'tests/windows_task_principal_contract.ps1') -SourceRoot $source *> (Join-Path $work 'task-principal-contract.private.log')
  if(!$?){throw 'The actual task principal and closed failure-stage controls failed.'}
  & (Join-Path $source 'tests/windows_qualification_comparison.ps1') -SourceRoot $source *> (Join-Path $work 'closed-comparison-contract.private.log')
