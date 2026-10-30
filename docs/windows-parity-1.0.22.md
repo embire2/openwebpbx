@@ -21,6 +21,7 @@ allowing automatic public certificate setup to proceed.
 | Native protocol checks | 41 installation-grant, 57 protocol, 82 updater and 20,050 STUN checks passed |
 | Manager setup-link validation | 31 C# controls passed |
 | Temporary-certificate correction | Six real loopback TLS checks and 132 isolated registration-worker controls passed; the actual Windows test server confirms that the correction rejects its locally trusted self-signed leaf |
+| Tenant certificate expiry | Windows now emits whole-second UTC accepted by the unchanged registration gate; 26 actual Windows checks pass, including preservation of the certificate's expiry instant across three cultures |
 | Public wizard | Windows wording is live; desktop/mobile layout, required links and browser console checks passed |
 | Protection of the existing test server | Full encrypted 1.0.21 backup verified, including media, with a protected off-server copy; original backup settings restored |
 | Genuine public 1.0.21 to actual candidate 1.0.22 | Full installer, upgrade, rollback and software suite in progress |
@@ -37,9 +38,14 @@ cannot satisfy the new installation authorization requirement.
 Earlier runs remain failed: 41079281740 stopped at an outdated task-security
 source contract; 41081098365 at a changed test phase anchor; and 41082501822 at
 a backup-observer version pin. All stopped before server installation. Their
-corrections retain the original protections. The current run is
+corrections retain the original protections. The next run,
 [41083933798](https://github.com/embire2/openwebpbx/actions/runs/41083933798),
-source `f4b8f7e996004dec2abd31b5aec5faa44d88bab7`.
+source `f4b8f7e996004dec2abd31b5aec5faa44d88bab7`, installed the genuine public
+1.0.21 baseline but failed while preparing the upgrade checks, before the
+version transition. Its nested diagnostic report was not retained by that
+caller; the underlying cause remains unconfirmed. This is not an upgrade or
+rollback pass. The subsequent certificate-expiry correction is committed as
+`82fcdf57b` and requires a new package.
 
 These checks do not establish physical-phone, carrier, camera or Store
 approval coverage. Windows 10/11 server installation and cross-platform
