@@ -18,6 +18,7 @@ import time
 import urllib.request
 import urllib.error
 import uuid
+from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 
@@ -147,8 +148,15 @@ def process_jobs(b,d):
 def trusted_web(host):
     try:
         with __import__('socket').create_connection(('127.0.0.1',443),timeout=5)as raw:
-            with ssl.create_default_context().wrap_socket(raw,server_hostname=host):return True
-    except OSError:return False
+            with ssl.create_default_context().wrap_socket(raw,server_hostname=host)as secure:
+                if IS_WINDOWS:
+                    # Windows trusts its temporary setup certificate locally.
+                    # That does not make it usable by the public custodian; the
+                    # ordinary public-certificate helper must replace it first.
+                    certificate=x509.load_der_x509_certificate(secure.getpeercert(binary_form=True))
+                    if certificate.subject==certificate.issuer:return False
+                return True
+    except (OSError,ValueError):return False
 
 def bind(b,d,meta,host):
     if IS_WINDOWS:return bind_locked(b,d,meta,host)
