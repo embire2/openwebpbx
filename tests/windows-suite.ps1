@@ -8,6 +8,12 @@ param(
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-threecx-suite-mode.ps1')
+. (Join-Path $PSScriptRoot 'windows_updater_file_acl_observation.ps1')
+$aclPathTokens=$null;$aclPathErrors=$null
+$aclPathAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'windows-updater-qualification.ps1'),[ref]$aclPathTokens,[ref]$aclPathErrors)
+$aclPathFunctions=@($aclPathAst.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'QualificationSnapshotPaths'},$true))
+if($aclPathErrors.Count -or $aclPathFunctions.Count -ne 1){throw 'The exact closed ACL diagnostic path classifier is required.'}
+Invoke-Expression $aclPathFunctions[0].Extent.Text
 function SuiteMusicWorkflow([bool]$DiagnosticOnly,[bool]$BackupDiagnosticOnly=$false){
  if($DiagnosticOnly -and $BackupDiagnosticOnly){throw 'Diagnostic modes are mutually exclusive.'}
  if($BackupDiagnosticOnly){return '.github/workflows/windows-backups-diagnostics.yml'}
@@ -214,6 +220,8 @@ function SafeComparisonFields($Record){
  if($stage -cne 'compare'){return $null};if($result -ceq 'equal'){return $safe}
  $tables=@('v_vars','v_default_settings','v_domain_settings','v_domains','v_users','v_extensions','v_gateways','v_dialplans','v_dialplan_details','v_sip_profiles','v_sip_profile_settings','v_permissions','v_groups','v_group_permissions','v_user_groups','v_menu','v_menu_items','v_pbx_tenants','v_pbx_tenant_users','v_pbx_services','v_pbx_templates','v_pbx_service_assignments','v_pbx_setup_templates','v_pbx_restore','v_pbx_sip_domains')
  $columns=@(foreach($table in $tables){foreach($column in 'insert_date','update_date','insert_user','update_user'){$table+'.'+$column};if($table -ceq 'v_vars'){foreach($column in 'var_uuid','var_category','var_name','var_value','var_order','var_enabled','var_description'){$table+'.'+$column}};if($table -ceq 'v_default_settings'){foreach($column in 'default_setting_uuid','default_setting_category','default_setting_subcategory','default_setting_name','default_setting_value','default_setting_order','default_setting_enabled','default_setting_description'){$table+'.'+$column}}})
+ $tables+=,'v_pbx_greeting_status'
+ $columns+=@('v_pbx_greeting_status.singleton','v_pbx_greeting_status.provider_configured','v_pbx_greeting_status.checked_at')
  $arrays=@{comparison_changed_sections=@('identity','roles','memberships','schema','tables','columns','values','table_count');comparison_critical_tables=$tables;comparison_critical_columns=$columns}
  foreach($field in $arrays.Keys){
   $values=$Record.$field;if($values -isnot [Array] -or $values.Count -gt $arrays[$field].Count){return $null}
@@ -250,6 +258,7 @@ function SafeComparisonFields($Record){
   $labels=@('installation','runtime','updater_install','native_engine','local_codec','phone_tls_metadata','storage_root','stock_music_root','stock_music_readme','stock_music_manifest','stock_sounds_root','stock_sounds_openwebpbx')
   $labels+=@('fusionpbx_root','fusionpbx_config','fusionpbx_template_key','automatic_backups_worker_lock','phone_tls_root','public_access_root','automatic_backups_root','backup_restore_root','backup_control_root','backup_downloads_root','codec_compiler_cache_root','codec_build_root')
   $labels+=@('program_root','php_ini','php_openssl','php_cacert','notification_store','notification_config','notification_lock')
+  $labels+=@('state_root','maintenance_lock','call_records_hold','phone_health_identity','stun_metadata','meeting_ca','meeting_proxy_metadata','mail_root','meeting_proxy_root','tenant_domains_root','phone_health_runtime_root','stun_setup_root','dtls_setup_root')
   foreach($rate in 8000,16000,32000,48000){$labels+=@(('stock_music_'+$rate+'_dir'),('stock_music_'+$rate+'_track'))}
   $nested=@{comparison_file_category_field_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','backup_runtime','acme_runtime','other');comparison_known_file_field_counts=$labels;comparison_config_scope_field_counts=@('fusionpbx','phone_tls','public_access','automatic_backups','backup_restore','backup_control','backup_downloads','codec_compiler_cache','codec_build');comparison_file_category_added_kind_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','backup_runtime','acme_runtime','other');comparison_config_scope_removed_kind_counts=@('fusionpbx','phone_tls','public_access','automatic_backups','backup_restore','backup_control','backup_downloads','codec_compiler_cache','codec_build')}
   foreach($field in $nested.Keys){
@@ -526,6 +535,12 @@ function SafeFailureFields($Record){
  if($Record.command_basename -ceq 'windows-compare-json.py'){
   $comparison=SafeComparisonFields $Record
   if($comparison){foreach($entry in $comparison.GetEnumerator()){$safe[$entry.Key]=$entry.Value}}
+ }
+ if($Record.source_basename -ceq 'windows-upgrade-acceptance.ps1' -and $Record.failed_phase -ceq 'original21 normal private-files comparison' -and $Record.command_basename -ceq 'windows-compare-json.py' -and $Record.comparison_result -cin 'different','unavailable' -and $Record.file_security){
+  try{
+   $encodedSecurity=ConvertTo-Json -InputObject $Record.file_security -Depth 12 -Compress -WarningAction SilentlyContinue
+   if([Text.UTF8Encoding]::new($false).GetByteCount($encodedSecurity) -le 2097152){$security=Read-WindowsUpdaterAclObservation (ConvertFrom-Json -InputObject $encodedSecurity -AsHashtable -NoEnumerate);if($security){$safe.file_security=$security}}
+  }catch{}
  }
  if($Record.active_case -is [string] -and $Record.active_case -ceq 'direct_reapply_complete' -and $Record.command_basename -ceq 'php.exe' -and ($Record.command_exit -is [int] -or $Record.command_exit -is [long]) -and $Record.command_exit -eq 255 -and $Record.music_stage -is [string] -and $Record.music_stage -cin 'initialization','bootstrap','music_install','native_default','completion'){$safe.music_stage=$Record.music_stage}
  if($Record.active_case -is [string] -and $Record.active_case -ceq 'direct_reapply_preflight'){
@@ -1686,6 +1701,10 @@ try{
  CheckedPython @((Join-Path $source 'tests/windows_legacy_column_projection_test.py'))
  & (Join-Path $source 'tests/windows_private_probe_no_bytecode.ps1') -SourceRoot $source *> (Join-Path $work 'private-probe-no-bytecode.private.log')
  if(!$?){throw 'The exact private snapshot no-bytecode observer controls failed.'}
+ & (Join-Path $source 'tests/windows_qualification_comparison.ps1') -SourceRoot $source *> (Join-Path $work 'closed-comparison-contract.private.log')
+ if(!$?){throw 'The strict producer and closed comparison-diagnostic consumer controls failed.'}
+ & (Join-Path $source 'tests/windows_manual_acl_observation.ps1') -SourceRoot $source *> (Join-Path $work 'manual-encrypted-acl-observation.private.log')
+ if(!$?){throw 'The normal-private primary-failure and encrypted observation propagation controls failed.'}
  CheckedPython @((Join-Path $source 'tests/windows_upgrade_restore_holds.py'))
  CheckedPython @((Join-Path $source 'tests/windows_restore_lock_retry.py'))
  CheckedPython @((Join-Path $source 'tests/windows_backup_control_observer_test.py'))

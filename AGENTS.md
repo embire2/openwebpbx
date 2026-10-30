@@ -1,5 +1,11 @@
 # OpenWeb PBX workspace
 
+## Windows22 fresh rebuild and diagnostic qualification — 2026-10-30
+
+- The actual native codec launcher correction is committed as a31e7f0efe72e40612045ae1865a1984a5eff9dc. The old de5/910 package remains superseded. A new standard package and new complete Windows qualification are required; no public release/feed has changed.
+- Original full-suite run41119788857 remains FAILED with its actual changed fields unknown. The manual and outer diagnostic consumers omitted thirteen existing fixed file labels and the greeting-status table/three columns. The prospective correction synchronizes the closed consumers, identifies private-file versus task comparison phases, and reuses the existing bounded encrypted ACL observer only after the normal private-file comparison fails. The exact original exception and strict comparison remain unchanged; diagnostic failure cannot turn a mismatch into a pass. All514 producer/consumer controls with21 real Python children and32 encryption/JSON/exception controls pass. Independent review accepts packet SHA0c0f2a986a6135e6f290b4772d008d8966439691998cad5f5c9e0489c8e9e8f9; the comparer, observer and public key are byte-exact. This does not explain or qualify the earlier actual mismatch.
+- Incomplete native22 operation59347d48-7692-4646-a64d-4e0df7fc2897 began once under its original1,800-second bound ending21:14:11.909144UTC. At20:53:19UTC its phase20 confirms all four cold copies and original security were preserved before retirement. Final retirement is still pending. Original21 C:\W562, private backups, both failed GUI attempts and their evidence stay retained; no central account, claim or DNS mutation occurs.
+
 ## Windows22 isolated fresh-test preparation — 2026-10-30
 
 - CEO inbox verification succeeded through the ordinary public endpoint at17:46UTC; no user code or email input remains pending. Private candidate de5d43a7555c98bb5f6eb704aebd29637a537b02 / ZIP SHA91019dac1cecb5086b8cdb52ef3c4aa7bb890a4b956f67437f287220ee10adb1 was fully inventoried and staged/extracted on149 for isolated testing. It is now SUPERSEDED by the proved codec-logging correction below; retain its original bytes/results, but do not publish it as the final Windows22 package.

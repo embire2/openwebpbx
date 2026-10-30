@@ -25,7 +25,7 @@ $managerSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;$manag
 $managerName='OpenWebPBX-Manager-'+$managerSid;$managerExe="$root\desktop\OpenWebPbx.Desktop.exe";$managerOriginal=$null;$managerOwned=$false;$managerStarted=$null;$managerAvailable=$false
 $managerHeldProcess=$null;$managerHeldHandles=[Collections.Generic.List[Diagnostics.Process]]::new();$managerClosureFailure=$null
 $report=[ordered]@{schema=1;state='running';checks=@();gates=[ordered]@{direct_113_helper_reapply='pending';direct_failure_rollback='pending';restore_gate_startup='pending';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified'};signed_fixtures='absent';baseline='installed candidate; same-version direct reapply is not a newer signed update'}
-$databaseSidecars=@();$healthOriginal=$null;$legacyMedia=@{};$legacyMediaFolders=@()
+$databaseSidecars=@();$healthOriginal=$null;$legacyMedia=@{};$legacyMediaFolders=@();$privateSecurityObservation=$null
 function Hash([string]$Path){
  try{return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}catch{
   $primary=$_
@@ -120,6 +120,8 @@ function ComparisonFields($Record){
  if($stage -cne 'compare'){return $null};if($result -ceq 'equal'){return $safe}
  $tables=@('v_vars','v_default_settings','v_domain_settings','v_domains','v_users','v_extensions','v_gateways','v_dialplans','v_dialplan_details','v_sip_profiles','v_sip_profile_settings','v_permissions','v_groups','v_group_permissions','v_user_groups','v_menu','v_menu_items','v_pbx_tenants','v_pbx_tenant_users','v_pbx_services','v_pbx_templates','v_pbx_service_assignments','v_pbx_setup_templates','v_pbx_restore','v_pbx_sip_domains')
  $columns=@(foreach($table in $tables){foreach($column in 'insert_date','update_date','insert_user','update_user'){$table+'.'+$column};if($table -ceq 'v_vars'){foreach($column in 'var_uuid','var_category','var_name','var_value','var_order','var_enabled','var_description'){$table+'.'+$column}};if($table -ceq 'v_default_settings'){foreach($column in 'default_setting_uuid','default_setting_category','default_setting_subcategory','default_setting_name','default_setting_value','default_setting_order','default_setting_enabled','default_setting_description'){$table+'.'+$column}}})
+ $tables+=,'v_pbx_greeting_status'
+ $columns+=@('v_pbx_greeting_status.singleton','v_pbx_greeting_status.provider_configured','v_pbx_greeting_status.checked_at')
  $arrays=@{comparison_changed_sections=@('identity','roles','memberships','schema','tables','columns','values','table_count');comparison_critical_tables=$tables;comparison_critical_columns=$columns}
  foreach($field in $arrays.Keys){
   $values=$Record.$field;if($values -isnot [Array] -or $values.Count -gt $arrays[$field].Count){return $null}
@@ -156,6 +158,7 @@ function ComparisonFields($Record){
   $labels=@('installation','runtime','updater_install','native_engine','local_codec','phone_tls_metadata','storage_root','stock_music_root','stock_music_readme','stock_music_manifest','stock_sounds_root','stock_sounds_openwebpbx')
   $labels+=@('fusionpbx_root','fusionpbx_config','fusionpbx_template_key','automatic_backups_worker_lock','phone_tls_root','public_access_root','automatic_backups_root','backup_restore_root','backup_control_root','backup_downloads_root','codec_compiler_cache_root','codec_build_root')
   $labels+=@('program_root','php_ini','php_openssl','php_cacert','notification_store','notification_config','notification_lock')
+  $labels+=@('state_root','maintenance_lock','call_records_hold','phone_health_identity','stun_metadata','meeting_ca','meeting_proxy_metadata','mail_root','meeting_proxy_root','tenant_domains_root','phone_health_runtime_root','stun_setup_root','dtls_setup_root')
   foreach($rate in 8000,16000,32000,48000){$labels+=@(('stock_music_'+$rate+'_dir'),('stock_music_'+$rate+'_track'))}
   $nested=@{comparison_file_category_field_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','backup_runtime','acme_runtime','other');comparison_known_file_field_counts=$labels;comparison_config_scope_field_counts=@('fusionpbx','phone_tls','public_access','automatic_backups','backup_restore','backup_control','backup_downloads','codec_compiler_cache','codec_build');comparison_file_category_added_kind_counts=@('web','server','desktop','tools','updater','config','notifications','media','native','backup_runtime','acme_runtime','other');comparison_config_scope_removed_kind_counts=@('fusionpbx','phone_tls','public_access','automatic_backups','backup_restore','backup_control','backup_downloads','codec_compiler_cache','codec_build')}
   foreach($field in $nested.Keys){
@@ -875,7 +878,7 @@ try{
   $phase='legacy policy and private media baseline'
   $taskTokens=$null;$taskErrors=$null;$taskAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'windows-updater-qualification.ps1'),[ref]$taskTokens,[ref]$taskErrors)
   Check (!$taskErrors.Count) 'The existing native preservation functions must parse.'
-  foreach($name in 'SnapshotHash','FileSnapshot','AssertNewOnboardingTaskSnapshot','NormalTaskPreservation','QualificationBackupWorkerFailureFields','ObserveQualificationBackupWorkerFailure','InitializeQualificationBackupWorker'){
+  foreach($name in 'SnapshotHash','FileSnapshot','AssertNewOnboardingTaskSnapshot','NormalTaskPreservation','QualificationBackupWorkerFailureFields','ObserveQualificationBackupWorkerFailure','InitializeQualificationBackupWorker','QualificationSnapshotPaths'){
    $function=@($taskAst.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
    Check ($function.Count -eq 1) 'One exact existing native preservation function is required.';Invoke-Expression $function[0].Extent.Text
   }
@@ -959,8 +962,16 @@ try{
   $private22=LegacyPrivateMediaSnapshot
   WriteJson (Join-Path $work 'public21-after-private-media.private.json') $private22
   $privateComparison=Get-WindowsUpdaterProtectedComparisonCopy $private21 $private22 'normal-protected-files' $state
-  Equal $private21 $privateComparison 'Original21 private/config/key/recording/custom-media files and ACLs changed across the actual22 upgrade.'
+  $phase='original21 normal private-files comparison'
+  try{
+   Equal $private21 $privateComparison 'Original21 private/config/key/recording/custom-media files and ACLs changed across the actual22 upgrade.'
+  }catch{
+   $comparisonPrimary=$_
+   try{$security=Get-WindowsUpdaterAclObservation $private21 $private22;if($security){$script:privateSecurityObservation=Read-WindowsUpdaterAclObservation $security}}catch{}
+   throw $comparisonPrimary
+  }
   $BaseVersion='1.0.21';$CanaryVersion='1.0.22'
+  $phase='original21 normal task comparison'
   NormalTaskPreservation $tasks21 (TaskSnapshot) $normalStarted
   $report.mode='public21_to_actual_candidate22';$report.upgrade_mechanism='candidate22_manual_helper';$report.original21_signed_wrapper='unqualified';$report.baseline='immutable public Windows21, not a version-overlay canary';$report.candidate_source_commit=$fixtureInput.candidate_source_commit;$report.candidate_qualification_source_commit=$env:GITHUB_SHA;$report.candidate_sha256=$fixtureInput.candidate_sha256;$report.public21_sha256=$pin.sha256;$report.preservation=$model;$report.gates.public21_to_candidate22='passed';$report.fresh22_registration='unqualified';$report.state='passed'
   return
@@ -1041,6 +1052,7 @@ try{
  if($checkFailure.active_case -ceq 'direct_reapply_complete' -and $musicFailure){foreach($entry in $musicFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
  if($checkFailure.active_case -ceq 'manager_original_closed' -and $managerClosureFailure){foreach($entry in $managerClosureFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
  if($comparisonFailure -and $checkFailure){foreach($entry in $comparisonFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
+ if($privateSecurityObservation){try{$security=Read-WindowsUpdaterAclObservation $privateSecurityObservation;if($security){$report.file_security=$security}}catch{}}
  Write-Error ('Windows upgrade acceptance failed in '+$phase+'. Private recovery evidence retained.') -ErrorAction Continue
 }finally{
  try{ClearManager}catch{Record-OpenWebUpgradeCleanupFailure 'owned manager cleanup'}finally{foreach($heldProcess in $managerHeldHandles){$heldProcess.Dispose()}}

@@ -4,6 +4,7 @@
 # snapshots only. No installed product, Windows service, task or network access.
 $ErrorActionPreference='Stop';$checks=0;$children=0
 if(!$SourceRoot){$SourceRoot=Split-Path $PSScriptRoot -Parent}
+. (Join-Path $SourceRoot 'tests/windows_updater_file_acl_observation.ps1')
 function Verify([bool]$Value){$script:checks++;if(!$Value){throw ('Qualification comparison control failed at '+(Get-PSCallStack)[1].ScriptLineNumber)}}
 $pythonCommand=if($env:OPENWEB_TEST_PYTHON){Get-Command $env:OPENWEB_TEST_PYTHON -ErrorAction Stop}else{Get-Command python3,python -CommandType Application -ErrorAction SilentlyContinue|Select-Object -First 1}
 if(!$pythonCommand){@{schema=1;state='skipped';reason='Python runtime unavailable'}|ConvertTo-Json -Compress;exit 0}
@@ -20,6 +21,14 @@ $other=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot
 Verify (@($errors).Count -eq 0)
 $original=@($other.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'ComparisonFields'},$true))
 Verify ($original.Count -eq 1 -and $definitions.QualificationComparisonFields -ceq $original[0].Extent.Text.Replace('function ComparisonFields(','function QualificationComparisonFields('))
+Invoke-Expression $original[0].Extent.Text
+$outer=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-suite.ps1'),[ref]$tokens,[ref]$errors)
+Verify (@($errors).Count -eq 0)
+$outerFields=@($outer.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'SafeComparisonFields'},$true))
+Verify ($outerFields.Count -eq 1 -and $definitions.QualificationComparisonFields -ceq $outerFields[0].Extent.Text.Replace('function SafeComparisonFields(','function QualificationComparisonFields('))
+Invoke-Expression $outerFields[0].Extent.Text
+Verify ($other.Extent.Text.Contains("`$phase='original21 normal private-files comparison'"))
+Verify ($other.Extent.Text.Contains("`$phase='original21 normal task comparison'"))
 Verify ($definitions.Equal.Contains("@('-I','-B',(Join-Path `$PSScriptRoot 'windows-compare-json.py'),`$a,`$b)"))
 Verify (!$definitions.Equal.Contains("'-c'") -and !$definitions.Equal.Contains('Remove(') -and !$definitions.Equal.Contains('Normalize'))
 Verify ($definitions.CheckedProcess.Contains('$process.WaitForExit($Timeout)') -and $definitions.CheckedProcess.Contains('[int]$Timeout=2400000') -and !$definitions.CheckedProcess.Contains('.Kill('))
@@ -39,6 +48,7 @@ function Observe($Caught){
 }
 try{
  $script:work=Join-Path $temporary 'private-streams';$null=New-Item -ItemType Directory -Path $work
+ $script:state=Join-Path $temporary 'unused-state';$script:configuration=Join-Path $temporary 'unused-configuration'
  $script:source=$temporary
  Copy-Item -LiteralPath (Join-Path $SourceRoot 'tests/windows-compare-json.py') -Destination (Join-Path $temporary 'windows-compare-json.py')
  Verify ((Get-FileHash (Join-Path $temporary 'windows-compare-json.py')).Hash -ceq (Get-FileHash (Join-Path $SourceRoot 'tests/windows-compare-json.py')).Hash)
@@ -107,17 +117,37 @@ try{
  foreach($path in @('C:\ProgramData\OpenWebPBX\storage','C:\ProgramData\OpenWebPBX\storage\openweb-music','C:\ProgramData\OpenWebPBX\storage\openweb-music\README.md','C:\ProgramData\OpenWebPBX\storage\openweb-music\manifest.json','C:\Program Files\FreeSWITCH\sounds','C:\Program Files\FreeSWITCH\sounds\openwebpbx')+$tracks+@(8000,16000,32000,48000|ForEach-Object {'C:\ProgramData\OpenWebPBX\storage\openweb-music\'+$_})){$known[$path]=Record}
  foreach($path in @('C:\ProgramData\fusionpbx','C:\ProgramData\fusionpbx\config.conf','C:\ProgramData\fusionpbx\openweb-template.key','C:\ProgramData\OpenWebPBX\automatic-backups\worker.lock')+@('phone-tls','public-access','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build'|ForEach-Object {'C:\ProgramData\OpenWebPBX\'+$_})){$known[$path]=Record}
  foreach($path in 'C:\OpenWebPBX','C:\OpenWebPBX\php\php.ini','C:\OpenWebPBX\php\extras\ssl\openssl.cnf','C:\OpenWebPBX\php\extras\ssl\cacert.pem','C:\ProgramData\OpenWebPBX\mobile-notifications','C:\ProgramData\OpenWebPBX\mobile-notifications\config.json','C:\ProgramData\OpenWebPBX\mobile-notifications\config.json.lock'){$known[$path]=Record}
+ foreach($path in 'C:\ProgramData\OpenWebPBX','C:\ProgramData\OpenWebPBX\upgrade.lock','C:\ProgramData\OpenWebPBX\call-records.hold','C:\ProgramData\OpenWebPBX\phone-health-instance.json','C:\ProgramData\OpenWebPBX\stun.json','C:\ProgramData\OpenWebPBX\meet-ca.pem','C:\ProgramData\OpenWebPBX\meet-proxy.json','C:\ProgramData\OpenWebPBX\mail','C:\ProgramData\OpenWebPBX\meet-proxy','C:\ProgramData\OpenWebPBX\tenant-domains','C:\ProgramData\OpenWebPBX\phone-health-runtime','C:\ProgramData\OpenWebPBX\stun-setup','C:\ProgramData\OpenWebPBX\dtls-setup'){$known[$path]=Record}
  $changed=JsonCopy $known;foreach($path in @($changed.Keys)){$changed[$path].acl='changed'}
  $caught=$null;try{Equal $known $changed 'fault-files'}catch{$caught=$_};$children++
  $detail=(Observe $caught).comparison
- Verify ($detail.comparison_known_file_field_counts.Count -eq 39 -and $detail.comparison_unknown_file_entry_count -eq 0)
+ Verify ($detail.comparison_known_file_field_counts.Count -eq 52 -and $detail.comparison_unknown_file_entry_count -eq 0)
  Verify ($detail.comparison_config_scope_field_counts.Count -eq 9 -and $detail.comparison_config_scope_field_counts.automatic_backups.acl -eq 2)
  foreach($row in $detail.comparison_known_file_field_counts.Values){Verify ($row.Count -eq 1 -and $row.acl -eq 1)}
  $rawDetail=Get-Content -LiteralPath (Join-Path $work 'compare-fault-files.out') -Raw|ConvertFrom-Json -AsHashtable
- foreach($label in 'program_root','php_ini','php_openssl','php_cacert','notification_store','notification_config','notification_lock'){
+ foreach($consumer in 'QualificationComparisonFields','ComparisonFields','SafeComparisonFields'){
+  $accepted=& $consumer ([pscustomobject]$rawDetail)
+  Verify ($accepted.Count+2 -eq $rawDetail.Count -and $accepted.comparison_known_file_field_counts.Count -eq 52)
+ }
+ foreach($label in @($detail.comparison_known_file_field_counts.Keys)){
   Verify ($detail.comparison_known_file_field_counts[$label].acl -eq 1)
   $invalid=JsonCopy $rawDetail;$invalid.comparison_known_file_field_counts.Remove($label);$invalid.comparison_known_file_field_counts[$label+'_'+$sensitive]=@{acl=1}
   Verify ($null -eq (QualificationComparisonDetails $invalid))
+  foreach($consumer in 'ComparisonFields','SafeComparisonFields'){Verify ($null -eq (& $consumer ([pscustomobject]$invalid)))}
+ }
+ # Actual producer sidecars classify only the three fixed greeting-status
+ # columns; every consumer must retain them without admitting private names.
+ $greetingBefore=@{values=@{v_pbx_greeting_status='before'}};$greetingAfter=@{values=@{v_pbx_greeting_status='after'}}
+ $greetingPaths=@('greeting-before.json','greeting-after.json','greeting-before-columns.json','greeting-after-columns.json'|ForEach-Object {Join-Path $temporary $_})
+ WriteJson $greetingPaths[0] $greetingBefore;WriteJson $greetingPaths[1] $greetingAfter
+ foreach($side in 0,1){$columnValues=@{};foreach($column in 'singleton','provider_configured','checked_at'){$columnValues[$column]=('ab'[$side].ToString()*64)};WriteJson $greetingPaths[2+$side] @{schema=1;producer='windows-private-column-hmac';tables=@{v_pbx_greeting_status=$columnValues}}}
+ & $testPython -I -B (Join-Path $temporary 'windows-compare-json.py') @greetingPaths 1>(Join-Path $temporary 'greeting-report.private.json') 2>(Join-Path $temporary 'greeting-report.private.err');$children++
+ Verify ($LASTEXITCODE -eq 1)
+ $greeting=Get-Content -LiteralPath (Join-Path $temporary 'greeting-report.private.json') -Raw|ConvertFrom-Json
+ foreach($consumer in 'QualificationComparisonFields','ComparisonFields','SafeComparisonFields'){
+  $accepted=& $consumer $greeting
+  Verify ($accepted.Count+2 -eq @($greeting.PSObject.Properties).Count -and $accepted.comparison_critical_tables.Count -eq 1 -and $accepted.comparison_critical_tables[0] -ceq 'v_pbx_greeting_status' -and $accepted.comparison_critical_columns.Count -eq 3)
+  foreach($field in 'comparison_critical_tables','comparison_critical_columns'){$invalid=$greeting|ConvertTo-Json -Depth 16|ConvertFrom-Json;$invalid.$field=@($sensitive);Verify ($null -eq (& $consumer $invalid))}
  }
  foreach($mutation in 'category','label','field','row_type','map_type','negative','string','boolean','large','unknown_count','partial','private_scope','scope_type','scope_count'){
   $invalid=JsonCopy $rawDetail
