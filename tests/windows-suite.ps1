@@ -9,6 +9,7 @@ param(
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-threecx-suite-mode.ps1')
 . (Join-Path $PSScriptRoot 'windows_updater_file_acl_observation.ps1')
+. (Join-Path $PSScriptRoot 'windows-task-preservation-diagnostics.ps1')
 $aclPathTokens=$null;$aclPathErrors=$null
 $aclPathAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'windows-updater-qualification.ps1'),[ref]$aclPathTokens,[ref]$aclPathErrors)
 $aclPathFunctions=@($aclPathAst.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'QualificationSnapshotPaths'},$true))
@@ -436,6 +437,7 @@ function SafeSmtpFailureFields($Record){
 . (Join-Path $PSScriptRoot 'windows-upgrade-hash-observer.ps1')
 function SafeFailureFields($Record){
  $safe=@{}
+ if($Record.task_failure){$taskFailure=Read-QualificationTaskFailure $Record.task_failure;if($taskFailure){$safe.task_failure=$taskFailure}}
  if($Record.source_basename -ceq 'windows-upgrade-acceptance.ps1' -and $Record.error_type -is [string]){try{$observed=UpgradeHashFailureFields $Record.hash_failure;if($observed -and $Record.error_type.Split('.')[-1] -ceq $observed.error_type){$safe.hash_failure=$observed}}catch{}}
  if($Record.backup_control_failure){$control=BackupControlObservationFields $Record.backup_control_failure;if($control){$safe.backup_control_failure=$control}}
  foreach($entry in (HoldFailureFields $Record).GetEnumerator()){$safe[$entry.Key]=$entry.Value}
@@ -1701,6 +1703,8 @@ try{
  CheckedPython @((Join-Path $source 'tests/windows_legacy_column_projection_test.py'))
  & (Join-Path $source 'tests/windows_private_probe_no_bytecode.ps1') -SourceRoot $source *> (Join-Path $work 'private-probe-no-bytecode.private.log')
  if(!$?){throw 'The exact private snapshot no-bytecode observer controls failed.'}
+ & (Join-Path $source 'tests/windows_task_principal_contract.ps1') -SourceRoot $source *> (Join-Path $work 'task-principal-contract.private.log')
+ if(!$?){throw 'The actual task principal and closed failure-stage controls failed.'}
  & (Join-Path $source 'tests/windows_qualification_comparison.ps1') -SourceRoot $source *> (Join-Path $work 'closed-comparison-contract.private.log')
  if(!$?){throw 'The strict producer and closed comparison-diagnostic consumer controls failed.'}
  & (Join-Path $source 'tests/windows_manual_acl_observation.ps1') -SourceRoot $source *> (Join-Path $work 'manual-encrypted-acl-observation.private.log')

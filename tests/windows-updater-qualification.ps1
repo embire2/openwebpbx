@@ -20,6 +20,7 @@ param(
  [switch]$DisposableHostedRunner
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
+. (Join-Path $PSScriptRoot 'windows-task-preservation-diagnostics.ps1')
 . (Join-Path $PSScriptRoot 'windows-upgrade-health-quiescence.ps1')
 . (Join-Path $PSScriptRoot 'windows_updater_file_acl_observation.ps1')
 . (Join-Path $PSScriptRoot 'windows_updater_database_observation.ps1')
@@ -44,11 +45,11 @@ $script:qualificationComparisonFailure=$null
 $script:qualificationFailedHash=$null
 $facts=[ordered]@{schema=1;mode=$Mode;run_id=$env:GITHUB_RUN_ID;source_commit=$env:GITHUB_SHA;state='running';scope='disposable Windows Server 2025, fictional PBX, laboratory trusted HTTPS';checks=@();gates=[ordered]@{canary_build='pending';fault_https_download='unqualified';fault_rollback='unqualified';normal_https_download='unqualified';newer_upgrade='unqualified';natural_updater_restart='unqualified';manager_reopen_rollback='unqualified';manager_reopen_success='unqualified';protected_data='unqualified';public_github_delivery='unqualified';owner_106_upgrade='unqualified';carrier='unqualified'};cleanup='pending'}
 function Check([bool]$Value,[string]$Message){if(!$Value){throw $Message}}
-function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null,$HashFailure=$null,$BackupWorker=$null){
+function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null,$HashFailure=$null,$BackupWorker=$null,$TaskFailure=$null){
  # Project only known source callsites and fixed child identities. Messages,
  # process arguments, private streams and the paths in the trace stay private.
  $frames=[Collections.Generic.List[object]]::new();$seen=@{}
- $functions=@('Check','Hash','SnapshotHash','WriteJson','PrivateDirectory','SecureCanaryFaultContract','Api','SafeRelative','ExpandSafe','Artifact','CheckedProcess','NativeVersions','StopQualificationIis','PrepareCanary','GetActualCandidateTarget','PrepareActualCandidate','NewActualSchemaProbe','WaitActualOnboardingMigration','WaitActualTenantIdle','ReadActualSchemaFailure','ActualOperatorRollback','Fixture','Python','InitializeQualificationBackupWorker','DatabaseSnapshot','FileSnapshot','TaskSnapshot','ManagerTaskValid','OwnedManagers','WaitManager','BeginManager','OriginalProcessProofSource','RetainQualificationProcess','AssertOriginalProcessState','ManagerReopened','EqualTaskSnapshots','Equal','NormalTaskPreservation','InstalledVersions','WaitInstall','DownloadProof','GetManagerOriginalExitProof','<ScriptBlock>')
+ $functions=@('Check','Hash','SnapshotHash','WriteJson','PrivateDirectory','SecureCanaryFaultContract','Api','SafeRelative','ExpandSafe','Artifact','CheckedProcess','NativeVersions','StopQualificationIis','PrepareCanary','GetActualCandidateTarget','PrepareActualCandidate','NewActualSchemaProbe','WaitActualOnboardingMigration','WaitActualTenantIdle','ReadActualSchemaFailure','ActualOperatorRollback','Fixture','Python','InitializeQualificationBackupWorker','DatabaseSnapshot','FileSnapshot','TaskSnapshot','ManagerTaskValid','OwnedManagers','WaitManager','BeginManager','OriginalProcessProofSource','RetainQualificationProcess','AssertOriginalProcessState','ManagerReopened','EqualTaskSnapshots','Equal','AssertNewOnboardingTaskSnapshot','NormalTaskPreservation','InstalledVersions','WaitInstall','DownloadProof','GetManagerOriginalExitProof','<ScriptBlock>')
  if($Trace -and $Trace.Length -le 16384){
   $lines=[regex]::Split($Trace,'\r?\n')
   for($i=0;$i -lt [Math]::Min($lines.Count,64) -and $frames.Count -lt 6;$i++){
@@ -66,6 +67,7 @@ function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null
   elseif($Child.completion -ceq 'deadline' -and $null -eq $Child.exit_code){$childReport=@{label=$Child.label;completion='deadline';exit_code=$null}}
  }
  $safe=@{schema=1;callsites=$frames.ToArray();child=$childReport}
+ if($TaskFailure){$taskDetail=Read-QualificationTaskFailure $TaskFailure;if($taskDetail){$safe.task_failure=$taskDetail}}
  if($childReport -and $frames.ToArray().function -ccontains 'Equal' -and $Comparison -is [Collections.IDictionary] -and $Comparison.label -is [string] -and $Comparison.label -cin @('fault-database','fault-files','fault-tasks','normal-database','normal-protected-files','normal-installation-secrets','normal-tasks','normal-task-contract-security','operator-database','operator-files','operator-tasks') -and $childReport.label -ceq ('compare-'+$Comparison.label)){
   $report=QualificationComparisonDetails $Comparison.report
   if($report -and (($report.comparison_result -ceq 'different' -and $childReport.completion -ceq 'exit' -and $childReport.exit_code -eq 1) -or ($report.comparison_result -ceq 'error' -and $childReport.completion -ceq 'exit' -and $childReport.exit_code -eq 2) -or $report.comparison_result -ceq 'unavailable')){
@@ -503,6 +505,7 @@ function TaskSnapshot {
  foreach($name in $names){
   $task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue;if(!$task){$result[$name]=@{exists=$false};continue};$xml=[xml](Export-ScheduledTask -TaskName $name);$xml.PreserveWhitespace=$false
   $result[$name]=@{exists=$true;enabled=[bool]$task.Settings.Enabled;xml=$xml.OuterXml;acl=(Get-Acl -LiteralPath (Join-Path $env:SystemRoot ('System32/Tasks/'+$name))).Sddl;security=$scheduler.GetFolder('\').GetTask($name).GetSecurityDescriptor(7)}
+  if($name-ceq 'OpenWebPBX-Onboarding'){$result[$name].native_principal=@{user=[string]$task.Principal.UserId;logon=[string]$task.Principal.LogonType;level=[string]$task.Principal.RunLevel}}
  };return $result
 }
 function ManagerTaskValid {
@@ -817,22 +820,26 @@ function OpenQualificationCleanupLock([string]$Path,[ValidateRange(0,30000)][int
  }
 }
 function AssertNewOnboardingTaskSnapshot($Record,[DateTime]$Started){
- Check ($Record.exists -is [bool] -and $Record.exists -and $Record.enabled -is [bool] -and $Record.enabled) 'The newly installed onboarding task must be enabled.'
+ Assert-QualificationTaskRequirement ($Record.exists -is [bool] -and $Record.exists -and $Record.enabled -is [bool] -and $Record.enabled) 'The newly installed onboarding task must be enabled.' 'new_enabled' 'OpenWebPBX-Onboarding'
  [xml]$xml=$Record.xml;$ns=[Xml.XmlNamespaceManager]::new($xml.NameTable);$ns.AddNamespace('t','http://schemas.microsoft.com/windows/2004/02/mit/task')
+ $native=$Record.native_principal;$nativeKeys=if($native-is [Collections.IDictionary]){@($native.Keys)}elseif($native-is [pscustomobject]){@($native.PSObject.Properties.Name)}else{@()}
+ Assert-QualificationTaskRequirement ($nativeKeys.Count-eq 3 -and @($nativeKeys|Where-Object {$_-cnotin 'user','logon','level'}).Count-eq 0 -and $native.user-is [string] -and $native.user-cin 'SYSTEM','S-1-5-18' -and $native.logon-is [string] -and $native.logon-ceq 'ServiceAccount' -and $native.level-is [string] -and $native.level-ceq 'Highest') 'The new onboarding native principal differs.' 'native_principal' 'OpenWebPBX-Onboarding'
+ $principals=@($xml.SelectNodes('/t:Task/t:Principals/t:Principal',$ns));$users=@($xml.SelectNodes('/t:Task/t:Principals/t:Principal/t:UserId',$ns));$logons=@($xml.SelectNodes('/t:Task/t:Principals/t:Principal/t:LogonType',$ns))
+ Assert-QualificationTaskRequirement ($principals.Count-eq 1 -and $users.Count-eq 1 -and @($xml.SelectNodes('/t:Task/t:Principals/t:Principal/t:GroupId',$ns)).Count-eq 0 -and ($logons.Count-eq 0 -or ($logons.Count-eq 1 -and $logons[0].InnerText-ceq 'ServiceAccount'))) 'The new onboarding serialized principal differs.' 'xml_principal' 'OpenWebPBX-Onboarding'
  function Value([string]$Path){$node=$xml.SelectSingleNode('/t:Task/'+$Path,$ns);if($node){return $node.InnerText};return ''}
- Check ((Value 't:RegistrationInfo/t:Description') -ceq 'OpenWeb PBX owned installation registration and activation worker' -and (Value 't:Principals/t:Principal/t:UserId') -in 'SYSTEM','S-1-5-18' -and (Value 't:Principals/t:Principal/t:LogonType') -ceq 'ServiceAccount' -and (Value 't:Principals/t:Principal/t:RunLevel') -ceq 'HighestAvailable') 'The new onboarding principal or ownership differs.'
- Check (@($xml.SelectNodes('/t:Task/t:Actions/*',$ns)).Count -eq 1 -and (Value 't:Actions/t:Exec/t:Command') -ceq 'C:\OpenWebPBX\backup-runtime\python.exe' -and (Value 't:Actions/t:Exec/t:Arguments') -ceq '-I -B "C:\OpenWebPBX\tools\onboarding.py" --tick' -and (Value 't:Actions/t:Exec/t:WorkingDirectory') -ceq 'C:\OpenWebPBX\tools') 'The new onboarding executable contract differs.'
- Check (@($xml.SelectNodes('/t:Task/t:Triggers/*',$ns)).Count -eq 2 -and @($xml.SelectNodes('/t:Task/t:Triggers/t:BootTrigger',$ns)).Count -eq 1 -and @($xml.SelectNodes('/t:Task/t:Triggers/t:TimeTrigger',$ns)).Count -eq 1 -and (Value 't:Triggers/t:TimeTrigger/t:Repetition/t:Interval') -ceq 'PT1M' -and (Value 't:Settings/t:MultipleInstancesPolicy') -ceq 'IgnoreNew' -and (Value 't:Settings/t:ExecutionTimeLimit') -ceq 'PT20M' -and (Value 't:Settings/t:StartWhenAvailable') -ceq 'true') 'The new onboarding bounded schedule differs.'
+ Assert-QualificationTaskRequirement ((Value 't:RegistrationInfo/t:Description') -ceq 'OpenWeb PBX owned installation registration and activation worker' -and (Value 't:Principals/t:Principal/t:UserId') -in 'SYSTEM','S-1-5-18' -and (Value 't:Principals/t:Principal/t:RunLevel') -ceq 'HighestAvailable') 'The new onboarding principal or ownership differs.' 'xml_principal' 'OpenWebPBX-Onboarding'
+ Assert-QualificationTaskRequirement (@($xml.SelectNodes('/t:Task/t:Actions/*',$ns)).Count -eq 1 -and (Value 't:Actions/t:Exec/t:Command') -ceq 'C:\OpenWebPBX\backup-runtime\python.exe' -and (Value 't:Actions/t:Exec/t:Arguments') -ceq '-I -B "C:\OpenWebPBX\tools\onboarding.py" --tick' -and (Value 't:Actions/t:Exec/t:WorkingDirectory') -ceq 'C:\OpenWebPBX\tools') 'The new onboarding executable contract differs.' 'new_action' 'OpenWebPBX-Onboarding'
+ Assert-QualificationTaskRequirement (@($xml.SelectNodes('/t:Task/t:Triggers/*',$ns)).Count -eq 2 -and @($xml.SelectNodes('/t:Task/t:Triggers/t:BootTrigger',$ns)).Count -eq 1 -and @($xml.SelectNodes('/t:Task/t:Triggers/t:TimeTrigger',$ns)).Count -eq 1 -and (Value 't:Triggers/t:TimeTrigger/t:Repetition/t:Interval') -ceq 'PT1M' -and (Value 't:Settings/t:MultipleInstancesPolicy') -ceq 'IgnoreNew' -and (Value 't:Settings/t:ExecutionTimeLimit') -ceq 'PT20M' -and (Value 't:Settings/t:StartWhenAvailable') -ceq 'true') 'The new onboarding bounded schedule differs.' 'new_schedule' 'OpenWebPBX-Onboarding'
  $boundary=[DateTime]::Parse((Value 't:Triggers/t:TimeTrigger/t:StartBoundary')).ToUniversalTime()
- Check ($boundary -ge $Started.ToUniversalTime().AddSeconds(-5) -and $boundary -le [DateTime]::UtcNow.AddMinutes(2)) 'The new onboarding schedule was not created by this upgrade.'
+ Assert-QualificationTaskRequirement ($boundary -ge $Started.ToUniversalTime().AddSeconds(-5) -and $boundary -le [DateTime]::UtcNow.AddMinutes(2)) 'The new onboarding schedule was not created by this upgrade.' 'new_boundary' 'OpenWebPBX-Onboarding'
  foreach($text in $Record.acl,$Record.security){
   $descriptor=[Security.AccessControl.RawSecurityDescriptor]::new($text)
-  Check ($descriptor.Owner.Value -in 'S-1-5-18','S-1-5-32-544' -and $null -ne $descriptor.DiscretionaryAcl -and ($descriptor.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclPresent)) 'The new onboarding task requires a privileged owner and a present DACL.'
+  Assert-QualificationTaskRequirement ($descriptor.Owner.Value -in 'S-1-5-18','S-1-5-32-544' -and $null -ne $descriptor.DiscretionaryAcl -and ($descriptor.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclPresent)) 'The new onboarding task requires a privileged owner and a present DACL.' 'new_owner' 'OpenWebPBX-Onboarding'
   foreach($ace in $descriptor.DiscretionaryAcl){
-   Check ($ace -is [Security.AccessControl.CommonAce] -and !$ace.IsCallback) 'An unknown new task ACE is refused.'
+   Assert-QualificationTaskRequirement ($ace -is [Security.AccessControl.CommonAce] -and !$ace.IsCallback) 'An unknown new task ACE is refused.' 'new_ace_kind' 'OpenWebPBX-Onboarding'
    if($ace.AceQualifier -eq [Security.AccessControl.AceQualifier]::AccessAllowed -and $ace.SecurityIdentifier.Value -notin 'S-1-5-18','S-1-5-32-544'){
     # File/task write, delete, ownership/DACL changes and generic write/all.
-    Check (($ace.AccessMask -band 0x500D0156) -eq 0) 'The new onboarding task grants unprivileged mutation rights.'
+    Assert-QualificationTaskRequirement (($ace.AccessMask -band 0x500D0156) -eq 0) 'The new onboarding task grants unprivileged mutation rights.' 'new_mutation_rights' 'OpenWebPBX-Onboarding'
    }
   }
  }
@@ -841,14 +848,14 @@ function NormalTaskPreservation($Before,$After,[DateTime]$Started){
  WriteJson (Join-Path $work 'normal-tasks-exact-before.json') $Before;WriteJson (Join-Path $work 'normal-tasks-exact-after.json') $After
  $normalizedBefore=@{};$normalizedAfter=@{}
  foreach($name in $Before.Keys){
-  Check ($After.ContainsKey($name)) 'Normal update changed the owned task inventory.'
+  Assert-QualificationTaskRequirement ($After.ContainsKey($name)) 'Normal update changed the owned task inventory.' 'inventory' $name
   if(!$Before[$name].exists -and $After[$name].exists -and $name -ceq 'OpenWebPBX-Onboarding' -and $BaseVersion -ceq '1.0.21' -and $CanaryVersion -ceq '1.0.22'){
    AssertNewOnboardingTaskSnapshot $After[$name] $Started
    # This exact source-defined new task has no prior ACL/XML to preserve. Its
    # complete raw after record remains retained above and is checked separately.
    $normalizedBefore[$name]=@{exists=$false};$normalizedAfter[$name]=@{exists=$false};continue
   }
-  Check ($Before[$name].exists -eq $After[$name].exists) 'Normal update changed the owned task inventory.'
+  Assert-QualificationTaskRequirement ($Before[$name].exists -eq $After[$name].exists) 'Normal update changed the owned task inventory.' 'existence' $name
   foreach($pair in @(@{source=$Before;target=$normalizedBefore},@{source=$After;target=$normalizedAfter})){
    $record=@{};foreach($key in $pair.source[$name].Keys){$record[$key]=$pair.source[$name][$key]}
    if($record.exists){
@@ -857,15 +864,15 @@ function NormalTaskPreservation($Before,$After,[DateTime]$Started){
     # descriptive fields may change; executable/principal/settings/security may not.
     foreach($node in @($xml.SelectNodes('/t:Task/t:RegistrationInfo/t:Date|/t:Task/t:RegistrationInfo/t:Author',$namespaces))){$node.ParentNode.RemoveChild($node)|Out-Null}
     if($name -in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-Onboarding','OpenWebPBX-PhoneHealth'){
-     $nodes=@($xml.SelectNodes('/t:Task/t:Triggers/t:TimeTrigger/t:StartBoundary',$namespaces));Check ($nodes.Count -eq 1) 'The owned repeating task must retain one bounded schedule.'
-     if([object]::ReferenceEquals($pair.source,$After)){$time=[DateTime]::Parse($nodes[0].InnerText).ToUniversalTime();Check ($time -ge $Started.ToUniversalTime().AddSeconds(-5) -and $time -le [DateTime]::UtcNow.AddMinutes(2)) 'The renewed owned schedule must be created during this real normal update.'}
+     $nodes=@($xml.SelectNodes('/t:Task/t:Triggers/t:TimeTrigger/t:StartBoundary',$namespaces));Assert-QualificationTaskRequirement ($nodes.Count -eq 1) 'The owned repeating task must retain one bounded schedule.' 'schedule_count' $name
+     if([object]::ReferenceEquals($pair.source,$After)){$time=[DateTime]::Parse($nodes[0].InnerText).ToUniversalTime();Assert-QualificationTaskRequirement ($time -ge $Started.ToUniversalTime().AddSeconds(-5) -and $time -le [DateTime]::UtcNow.AddMinutes(2)) 'The renewed owned schedule must be created during this real normal update.' 'schedule_boundary' $name}
      $nodes[0].InnerText='QUALIFIED_ONCE_TRIGGER_TIME'
     }
     $record.xml=$xml.OuterXml
    };$pair.target[$name]=$record
   }
  }
- EqualTaskSnapshots $normalizedBefore $normalizedAfter 'normal-task-contract-security'
+ try{EqualTaskSnapshots $normalizedBefore $normalizedAfter 'normal-task-contract-security'}catch{$primary=$_;Set-QualificationTaskFailure $primary 'original_contract' 'inventory';throw $primary}
 }
 function InstalledVersions([string]$Version){
  $installation=Get-Content "$state\installation.json" -Raw|ConvertFrom-Json;Check ($installation.Completed -and $installation.RestoreServer -and $installation.Version -eq $Version) 'The real installation version is invalid.'
@@ -1131,7 +1138,7 @@ if(!$?){exit 1}
  }
 }catch{
  $facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$_.Exception.GetType().Name;$facts.source_basename=if($_.InvocationInfo.ScriptName){Split-Path -Leaf $_.InvocationInfo.ScriptName}else{'external_component'};$facts.source_line=[int]$_.InvocationInfo.ScriptLineNumber
- $facts.failure_observation=QualificationFailureObservation $_.ScriptStackTrace $script:qualificationFailedChild $script:qualificationComparisonFailure $script:qualificationFailedHash $_.Exception.Data['openweb_qa_backup_worker']
+ $facts.failure_observation=QualificationFailureObservation $_.ScriptStackTrace $script:qualificationFailedChild $script:qualificationComparisonFailure $script:qualificationFailedHash $_.Exception.Data['openweb_qa_backup_worker'] $_.Exception.Data['openweb_qa_task_failure']
  if($actualCandidate -and $qa){$actualFailure=ReadActualSchemaFailure;if($actualFailure){$facts.actual_schema_failure=$actualFailure}}
  Write-Error ('Disposable updater qualification failed in '+$phase+'. Private streams are not published.') -ErrorAction Continue
 }finally{

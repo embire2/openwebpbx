@@ -7,6 +7,7 @@ $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-upgrade-health-quiescence.ps1')
 . (Join-Path $PSScriptRoot 'windows-upgrade-hash-observer.ps1')
 . (Join-Path $PSScriptRoot 'windows-backup-control-observation-fields.ps1')
+. (Join-Path $PSScriptRoot 'windows-task-preservation-diagnostics.ps1')
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){throw 'Only the owned disposable hosted Windows instance may run this hook.'}
 . (Join-Path $PackageRoot 'Support-Recovery.ps1')
 $fixtureInput=Get-Content -LiteralPath $InputPath -Raw|ConvertFrom-Json
@@ -591,6 +592,7 @@ function TaskSnapshot {
   if(!$task){$tasks[$name]=@{exists=$false};continue}
   $xml=[xml](Export-ScheduledTask -TaskName $name);$xml.PreserveWhitespace=$false
   $tasks[$name]=@{exists=$true;enabled=[bool]$task.Settings.Enabled;xml=$xml.OuterXml;acl=(Get-Acl -LiteralPath (Join-Path $env:SystemRoot ('System32/Tasks/'+$name))).Sddl;security=$scheduler.GetFolder('\').GetTask($name).GetSecurityDescriptor(7)}
+  if($name-ceq 'OpenWebPBX-Onboarding'){$tasks[$name].native_principal=@{user=[string]$task.Principal.UserId;logon=[string]$task.Principal.LogonType;level=[string]$task.Principal.RunLevel}}
  }
  return $tasks
 }
@@ -1053,6 +1055,7 @@ try{
  if($checkFailure.active_case -ceq 'manager_original_closed' -and $managerClosureFailure){foreach($entry in $managerClosureFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
  if($comparisonFailure -and $checkFailure){foreach($entry in $comparisonFailure.GetEnumerator()){$report[$entry.Key]=$entry.Value}}
  if($privateSecurityObservation){try{$security=Read-WindowsUpdaterAclObservation $privateSecurityObservation;if($security){$report.file_security=$security}}catch{}}
+ if($_.Exception.Data.Contains('openweb_qa_task_failure')){try{$taskFailure=Read-QualificationTaskFailure $_.Exception.Data['openweb_qa_task_failure'];if($taskFailure){$report.task_failure=$taskFailure}}catch{}}
  Write-Error ('Windows upgrade acceptance failed in '+$phase+'. Private recovery evidence retained.') -ErrorAction Continue
 }finally{
  try{ClearManager}catch{Record-OpenWebUpgradeCleanupFailure 'owned manager cleanup'}finally{foreach($heldProcess in $managerHeldHandles){$heldProcess.Dispose()}}
