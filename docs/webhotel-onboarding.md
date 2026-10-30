@@ -24,12 +24,13 @@ tenant HTTPS and SSH, then fails a generic hostname finalizer that accepts only
 Webhotel hostnames. Automatic cleanup completes correctly. Both failed orders
 retain their history and each charge is refunded exactly once.
 
-The narrow PBX finalizer correction, appropriate boot observation threshold and
-wallet refresh pass their affected database/type checks and a combined build.
-Backup verification and deployment precede a third distinct ordinary order.
-All12 new PBX plans remain temporarily inactive until that full customer path
-passes. Existing products/services and the standalone Debian download remain
-available.
+The PBX finalizer correction, appropriate boot observation threshold, wallet
+refresh and retention of completed PBX history are now deployed. A complete
+database backup is verified, and all218,750 rows across26 protected tables pass
+the final stopped-app preservation check. Hosting admission remains limited to
+the separately authorized test location while a third distinct ordinary order
+completes the full customer path. Broader hosting sales remain held. Existing
+products/services and the standalone Debian download remain available.
 All 224 usable addresses in the sixteen existing OVH blocks have vMACs; no extra
 IP purchase or customer-address reassignment is part of this rollout.
 

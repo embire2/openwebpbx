@@ -17,10 +17,10 @@ browser round-trip. The first ordinary funded order exposes a company-field
 handoff mismatch and a late cleanup race. Those deployed corrections close the
 failed history. A second ordinary order reaches native tenant HTTPS, then fails
 the generic hostname finalizer; automatic cleanup and its single refund pass.
-The narrow finalizer, boot observation and wallet corrections pass their affected
-checks and combined build; deployment and a third distinct ordinary order remain
-required. Each failed charge is refunded once, and all12 new PBX plans remain
-held. Debian downloads remain available. These deployment checks do not
+The narrow finalizer, boot observation, wallet and completed-history corrections
+are deployed after backup and exact stopped-app database checks. A third distinct
+ordinary order remains required before broader hosting admission. Each failed
+charge is refunded once. Debian downloads remain available. These deployment checks do not
 close additional3CX feature IDs.
 
 ## Hosted tenant API v1 — 2026-10-28
