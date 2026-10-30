@@ -58,11 +58,27 @@ def inventory(path):
         return {entry.filename: hashlib.sha256(archive.read(entry)).hexdigest()
                 for entry in archive.infolist() if not entry.is_dir()}
 
+def source_identity(facts):
+    """Keep the artifact's build source distinct from this qualification run."""
+    qualification = facts.get('source_commit')
+    product = facts.get('product_source_commit', qualification)
+    if any(re.fullmatch(r'[a-f0-9]{40}', str(v)) is None for v in (qualification, product)):
+        raise ValueError('Immutable product and qualification sources are required.')
+    if 'product_source_commit' in facts or 'replay' in facts:
+        replay = facts.get('replay', {})
+        if (replay.get('schema') != 1 or replay.get('original_product_source') != product or
+                replay.get('qualification_source') != qualification or
+                re.fullmatch(r'[1-9][0-9]{0,19}', str(replay.get('original_run',''))) is None or
+                replay.get('exact_zip_sha256') != facts.get('artifacts',{}).get('candidate_sha256') or
+                facts.get('candidate_artifact',{}).get('product_source_commit') != product or
+                replay.get('windows_runtime_source_identical') is not True or replay.get('runtime_overlays') is not False):
+            raise ValueError('Untouched replay product provenance differs from the qualification source.')
+    return product, qualification
+
 def eligible(facts, version):
     if facts.get('schema') != 1 or facts.get('state') not in ('passed', 'partial'):
         raise ValueError('The actual full-suite facts are not eligible.')
-    if not re.fullmatch(r'[a-f0-9]{40}', str(facts.get('source_commit', ''))):
-        raise ValueError('An immutable full-suite source is required.')
+    product, qualification = source_identity(facts)
     for gate in (*legacy.ESSENTIAL_GATES, *MODERN):
         if facts.get('gates', {}).get(gate) != 'passed':
             raise ValueError('Every original full software gate must pass.')
@@ -77,15 +93,17 @@ def eligible(facts, version):
         transition = facts.get('public21_transition', {})
         if (facts.get('mode') != 'public21_to_actual_candidate22' or
                 transition.get('state') != 'passed' or transition.get('upgrade_mechanism') != 'candidate22_manual_helper' or
-                transition.get('candidate_source_commit') != facts['source_commit'] or transition.get('candidate_sha256') != checksum or
+                transition.get('candidate_source_commit') != product or
+                transition.get('candidate_qualification_source_commit') != qualification or transition.get('candidate_sha256') != checksum or
                 any(transition.get('gates', {}).get(g) != 'passed' for g in ('public21_to_candidate22','public21_rollback'))):
             raise ValueError('The actual22 archive needs its separately scoped real21 manual transition/full suite.')
     return checksum
 
 def verify_pair(normal, fault, target_facts, provenance):
     checksum = eligible(target_facts, TARGET)
+    product, qualification = source_identity(target_facts)
     if (provenance.get('kind') != 'actual_candidate' or provenance.get('target_version') != TARGET or
-            provenance.get('base_version') != BASE or provenance.get('target_source_commit') != target_facts['source_commit'] or
+            provenance.get('base_version') != BASE or provenance.get('target_source_commit') != product or provenance.get('target_qualification_source_commit') != qualification or
             provenance.get('normal', {}).get('sha256') != checksum or provenance.get('no_native_rebuild') is not True or
             provenance.get('no_version_overlay') is not True):
         raise ValueError('The actual candidate/source identity differs.')
@@ -113,6 +131,7 @@ def prepare(base_archive, base_facts_path, target_archive, target_facts_path, ou
         raise ValueError('Only the genuine immutable public21 baseline is eligible.')
     base_result = candidate.verify(base_archive, BASE, PUBLIC21['sha256'])
     target_sha = eligible(target_facts, TARGET)
+    target_product, target_qualification = source_identity(target_facts)
     target_result = candidate.verify(target_archive, TARGET, target_sha)
     if output.is_symlink() or output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise ValueError('A new empty private output is required.')
@@ -141,7 +160,7 @@ def prepare(base_archive, base_facts_path, target_archive, target_facts_path, ou
         (fault_dir/NAME).mkdir();shutil.copyfile(fault_root/'release-manifest.json', fault_dir/NAME/'release-manifest.json')
         provenance = {'schema':1,'kind':'actual_candidate','state':'prepared_unsigned','private_laboratory_only':True,
                       'base_version':BASE,'target_version':TARGET,'source_commit':base_facts['source_commit'],
-                      'target_source_commit':target_facts['source_commit'],'target_suite_run_id':str(target_facts['run_id']),
+                      'target_source_commit':target_product,'target_qualification_source_commit':target_qualification,'target_suite_run_id':str(target_facts['run_id']),
                       'preparation_source_commit':source_commit,'preparation_run_id':str(run_id),
                       'base_archive_sha256':base_result['sha256'],'base_facts_sha256':legacy.digest(base_facts_path),
                       'target_facts_sha256':legacy.digest(target_facts_path),'target_archive_sha256':target_sha,

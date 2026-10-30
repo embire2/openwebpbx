@@ -195,6 +195,7 @@ function ProbeFailure($Record){
  if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.active_case -isnot [string] -or $Record.active_case -cnotin $stages -or $Record.error_type -isnot [string] -or $Record.error_type -cnotin $types -or $Record.source_basename -isnot [string] -or $Record.source_basename -cnotin 'private-probe.py','backups.py' -or ($Record.source_line -isnot [int] -and $Record.source_line -isnot [long]) -or $Record.source_line -lt 1 -or $Record.source_line -ge 100000){return $null}
  $safe=@{active_case=$Record.active_case;error_type=$Record.error_type;source_basename=$Record.source_basename;source_line=[int]$Record.source_line}
  if($Record.active_case -clike 'legacy_*'){foreach($key in 'original_table_count','changed_table_count'){$value=$Record.$key;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 5000){$safe[$key]=[int]$value}}}
+ if($Record.active_case -ceq 'legacy_column_definitions'){foreach($key in 'original_column_count','actual_projected_column_count','column_added','column_removed','column_modified'){$value=$Record.$key;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 50000){$safe[$key]=[int]$value}}}
  if($Record.PSObject.Properties['backup_control_failure']){$control=BackupControlObservationFields $Record.backup_control_failure;if($control){$safe.backup_control_failure=$control}};return $safe
 }
 function Python([string[]]$Arguments){
@@ -353,6 +354,9 @@ def failure(kind,value,tb):
  if stage.startswith('legacy_') and isinstance(globals().get('values'),dict):
   safe['original_table_count']=len(values)
   if isinstance(globals().get('previous'),dict):safe['changed_table_count']=sum(values.get(k)!=previous['values'].get(k) for k in set(values)|set(previous['values']))
+ if stage=='legacy_column_definitions' and isinstance(globals().get('old_projection'),list):
+  old={(c['table_name'],c['column_name']):c for c in previous['columns']};new={(c['table_name'],c['column_name']):c for c in old_projection}
+  safe.update(original_column_count=len(previous['columns']),actual_projected_column_count=len(old_projection),column_added=len(new.keys()-old.keys()),column_removed=len(old.keys()-new.keys()),column_modified=sum(old[k]!=new[k] for k in old.keys()&new.keys()))
  try:(path.parent/'probe-failure.json').write_text(json.dumps(safe),encoding='utf-8')
  except OSError:pass
  sys.__excepthook__(kind,value,tb)
@@ -423,7 +427,9 @@ if action in ('legacy-before','legacy-after'):
   expected={'v_pbx_api_registrations','v_pbx_api_tokens','v_pbx_api_idempotency','v_pbx_api_rate','v_pbx_api_audit','v_pbx_onboarding_policy','v_pbx_onboarding','v_pbx_onboarding_jobs'}
   if new_names!=expected or [t for t in tables if t['name'] in old_names]!=previous['tables']:raise RuntimeError('Original relation OID/owner/ACL or new table inventory changed')
   stage='legacy_column_definitions'
-  old_projection=[c for c in columns if c['table_name'] in old_names and not(c['table_name']=='v_pbx_templates' and c['column_name']=='api_enabled')]
+  # Baseline includes views as well as tables. Remove only the exact newly
+  # modeled tables/column; retain all original and unexpected view columns.
+  old_projection=[c for c in columns if c['table_name'] not in expected and not(c['table_name']=='v_pbx_templates' and c['column_name']=='api_enabled')]
   if old_projection!=previous['columns']:raise RuntimeError('Original column definitions changed')
   stage='legacy_source_ddl_model'
   package=Path(sys.argv[4]);ddl=[];source_hashes={}
@@ -834,7 +840,12 @@ try{
   Check (($fixtureInput.schema -is [int] -or $fixtureInput.schema -is [long]) -and $fixtureInput.schema -eq 1 -and $fixtureInput.restore_server -is [bool] -and $fixtureInput.restore_server -and $fixtureInput.run_id -ceq $env:GITHUB_RUN_ID -and $fixtureInput.admin_email -ceq $installed.AdminEmail -and $fixtureInput.source_root -is [string] -and [IO.Path]::GetFullPath($fixtureInput.source_root) -ceq [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent)) -and $fixtureInput.package_root -is [string] -and [IO.Path]::GetFullPath($fixtureInput.package_root) -ceq [IO.Path]::GetFullPath($PackageRoot)) 'The complete source-owned legacy transition fixture input is required.'
   $phase='immutable public21 to actual22 provenance'
   $pin=$fixtureInput.public21_baseline
-  Check ($installed.Version -ceq '1.0.21' -and (Get-Content (Join-Path $PackageRoot 'VERSION') -Raw).Trim() -ceq '1.0.22' -and $fixtureInput.candidate_source_commit -ceq $env:GITHUB_SHA -and $fixtureInput.candidate_sha256 -cmatch '^[a-f0-9]{64}$' -and (Hash $fixtureInput.candidate_archive) -ceq $fixtureInput.candidate_sha256 -and $pin.source -ceq 'cab93b390ba2e8f33c184f2f085740c2862031a6' -and $pin.release -eq 425443430 -and $pin.asset -eq 681566377 -and $pin.bytes -eq 643070428 -and $pin.sha256 -ceq 'ce811ae1eaeb17b46f81bdfc0f12b0baa13409bded8f4df6788f8772d0ea855d' -and (Hash $fixtureInput.public21_archive) -ceq $pin.sha256) 'The actual public21/candidate22 artifacts or source identities differ.'
+  Check ($fixtureInput.candidate_qualification_source_commit -ceq $env:GITHUB_SHA -and $fixtureInput.candidate_source_commit -cmatch '^[a-f0-9]{40}$') 'The actual qualifier and frozen product source must be identified separately.'
+  if($fixtureInput.candidate_source_commit -cne $env:GITHUB_SHA){
+   $replay=$fixtureInput.candidate_replay
+   Check ($replay.schema -eq 1 -and $replay.original_run -cmatch '^[1-9][0-9]{0,19}$' -and $replay.original_product_source -ceq $fixtureInput.candidate_source_commit -and $replay.qualification_source -ceq $env:GITHUB_SHA -and $replay.exact_zip_sha256 -ceq $fixtureInput.candidate_sha256 -and $replay.windows_runtime_source_identical -is [bool] -and $replay.windows_runtime_source_identical -and $replay.runtime_overlays -is [bool] -and !$replay.runtime_overlays) 'The untouched replay product source and current qualification evidence differ.'
+  }
+  Check ($installed.Version -ceq '1.0.21' -and (Get-Content (Join-Path $PackageRoot 'VERSION') -Raw).Trim() -ceq '1.0.22' -and $fixtureInput.candidate_qualification_source_commit -ceq $env:GITHUB_SHA -and $fixtureInput.candidate_sha256 -cmatch '^[a-f0-9]{64}$' -and (Hash $fixtureInput.candidate_archive) -ceq $fixtureInput.candidate_sha256 -and $pin.source -ceq 'cab93b390ba2e8f33c184f2f085740c2862031a6' -and $pin.release -eq 425443430 -and $pin.asset -eq 681566377 -and $pin.bytes -eq 643070428 -and $pin.sha256 -ceq 'ce811ae1eaeb17b46f81bdfc0f12b0baa13409bded8f4df6788f8772d0ea855d' -and (Hash $fixtureInput.public21_archive) -ceq $pin.sha256) 'The actual public21/candidate22 artifacts or source identities differ.'
   foreach($component in 'server/OpenWebPbx.Server.dll','desktop/OpenWebPbx.Desktop.dll','updater/OpenWebPbx.Updater.dll'){
    $installedPath=if($component.StartsWith('updater/')){Join-Path "$root/updater/slots/1.0.21" ([IO.Path]::GetFileName($component))}else{Join-Path $root $component}
    Check ((Hash $installedPath) -ceq (Hash (Join-Path $fixtureInput.public21_package $component))) 'An installed baseline assembly differs from the genuine public21 package.'
@@ -947,7 +958,7 @@ try{
   Equal $private21 $privateComparison 'Original21 private/config/key/recording/custom-media files and ACLs changed across the actual22 upgrade.'
   $BaseVersion='1.0.21';$CanaryVersion='1.0.22'
   NormalTaskPreservation $tasks21 (TaskSnapshot) $normalStarted
-  $report.mode='public21_to_actual_candidate22';$report.upgrade_mechanism='candidate22_manual_helper';$report.original21_signed_wrapper='unqualified';$report.baseline='immutable public Windows21, not a version-overlay canary';$report.candidate_source_commit=$env:GITHUB_SHA;$report.candidate_sha256=$fixtureInput.candidate_sha256;$report.public21_sha256=$pin.sha256;$report.preservation=$model;$report.gates.public21_to_candidate22='passed';$report.fresh22_registration='unqualified';$report.state='passed'
+  $report.mode='public21_to_actual_candidate22';$report.upgrade_mechanism='candidate22_manual_helper';$report.original21_signed_wrapper='unqualified';$report.baseline='immutable public Windows21, not a version-overlay canary';$report.candidate_source_commit=$fixtureInput.candidate_source_commit;$report.candidate_qualification_source_commit=$env:GITHUB_SHA;$report.candidate_sha256=$fixtureInput.candidate_sha256;$report.public21_sha256=$pin.sha256;$report.preservation=$model;$report.gates.public21_to_candidate22='passed';$report.fresh22_registration='unqualified';$report.state='passed'
   return
  }
  SignedChecks

@@ -103,8 +103,10 @@ def verify_packets(packet, base_facts, provenance, archives, public_key, *, now=
             raise ValueError('Only the genuine public21 baseline is eligible.')
         if (not isinstance(target_facts, dict) or packet.get('target_suite_run_id') != str(target_facts.get('run_id')) or
                 packet.get('target_suite_run_id') != provenance.get('target_suite_run_id') or
-                packet.get('target_source_commit') != target_facts.get('source_commit') or
+                packet.get('target_source_commit') != target_facts.get('product_source_commit', target_facts.get('source_commit')) or
                 packet.get('target_source_commit') != provenance.get('target_source_commit') or
+                packet.get('target_qualification_source_commit') != target_facts.get('source_commit') or
+                packet.get('target_qualification_source_commit') != provenance.get('target_qualification_source_commit') or
                 packet.get('target_facts_sha256') != provenance.get('target_facts_sha256')):
             raise ValueError('The actual full-suite candidate source/run/facts differ.')
         spec = importlib.util.spec_from_file_location('actual_signed_pair_verifier', ROOT/'tests/windows-actual-candidate-preparation.py')

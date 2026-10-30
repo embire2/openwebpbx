@@ -260,12 +260,18 @@ function GetActualCandidateTarget([bool]$DownloadArchive){
  $factsPath=Join-Path $report.directory 'qualification.json';$record=Get-Content $factsPath -Raw|ConvertFrom-Json
  Check ($record.schema -eq 1 -and $record.run_id -ceq $TargetSuiteRunId -and $record.source_commit -ceq $report.run.head_sha -and $record.state -cin 'passed','partial' -and $record.mode -ceq 'public21_to_actual_candidate22') 'An actual eligible target22 full-suite/manual-transition record is required.'
  foreach($gate in 'fresh','native_sip_audio','backups','direct_113_helper_reapply','direct_failure_rollback','restore_gate_startup','web_readiness','tenant_domains','meeting_transport','meeting_browser','phone_health','stun','native_clock','native_providers','native_call_me_back','public21_to_candidate22','public21_rollback'){Check ($record.gates.$gate -ceq 'passed') 'The actual final target archive must pass every full software/manual-transition gate.'}
+ $productSource=if($record.PSObject.Properties['product_source_commit']){$record.product_source_commit}else{$record.source_commit}
+ Check ($productSource -is [string] -and $productSource -cmatch '^[a-f0-9]{40}$') 'The immutable archive product source is required.'
+ if($record.PSObject.Properties['product_source_commit'] -or $record.PSObject.Properties['replay']){
+  $rp=$record.replay
+  Check ($rp.schema -eq 1 -and $rp.original_run -cmatch '^[1-9][0-9]{0,19}$' -and $rp.original_product_source -ceq $productSource -and $rp.qualification_source -ceq $record.source_commit -and $rp.exact_zip_sha256 -ceq $record.artifacts.candidate_sha256 -and $record.candidate_artifact.product_source_commit -ceq $productSource -and $rp.windows_runtime_source_identical -is [bool] -and $rp.windows_runtime_source_identical -and $rp.runtime_overlays -is [bool] -and !$rp.runtime_overlays) 'The replay archive product provenance differs from the actual qualification source.'
+ }
  $name='openwebpbx-1.0.22-windows-x64.zip';$sha=$record.candidate_artifact.sha256
- Check ($record.candidate_artifact.filename -ceq $name -and $record.candidate_artifact.private_exclusions -ceq 'passed' -and $sha -cmatch '^[a-f0-9]{64}$' -and $record.artifacts.candidate_sha256 -ceq $sha -and $record.public21_transition.candidate_source_commit -ceq $record.source_commit -and $record.public21_transition.candidate_sha256 -ceq $sha -and $record.public21_transition.upgrade_mechanism -ceq 'candidate22_manual_helper') 'The untouched target archive/source/manual scope binding differs.'
+ Check ($record.candidate_artifact.filename -ceq $name -and $record.candidate_artifact.private_exclusions -ceq 'passed' -and $sha -cmatch '^[a-f0-9]{64}$' -and $record.artifacts.candidate_sha256 -ceq $sha -and $record.public21_transition.candidate_source_commit -ceq $productSource -and $record.public21_transition.candidate_qualification_source_commit -ceq $record.source_commit -and $record.public21_transition.candidate_sha256 -ceq $sha -and $record.public21_transition.upgrade_mechanism -ceq 'candidate22_manual_helper') 'The untouched target archive/source/manual scope binding differs.'
  # Preparation/qualification changes may be QA/docs only. A product change
  # requires a new target full suite, never a retrospective archive exemption.
- CheckedProcess 'git.exe' @('fetch','--no-tags','https://github.com/embire2/openwebpbx.git',$record.source_commit) 'fetch-actual-candidate-source'
- $changed=@(& git.exe -C $source diff --name-only $record.source_commit $env:GITHUB_SHA);Check ($LASTEXITCODE -eq 0) 'Actual candidate source comparison failed.'
+ CheckedProcess 'git.exe' @('fetch','--no-tags','https://github.com/embire2/openwebpbx.git',$productSource) 'fetch-actual-candidate-source'
+ $changed=@(& git.exe -C $source diff --name-only $productSource $env:GITHUB_SHA);Check ($LASTEXITCODE -eq 0) 'Actual candidate source comparison failed.'
  foreach($path in $changed){$null=SafeRelative $path;Check ($path.StartsWith('tests/') -or $path.StartsWith('docs/') -or $path -cin 'AGENTS.md','readme.md','README.md','3CX.md','packaging/BUILDING.md','.github/workflows/windows-updater-qualification.yml','.github/workflows/windows-suite.yml') 'Product source changed after target qualification; rebuild/requalify the actual candidate.'}
  $archive=$null
  if($DownloadArchive){
@@ -276,13 +282,13 @@ function GetActualCandidateTarget([bool]$DownloadArchive){
   $expanded=Join-Path $work 'actual-candidate-versions';PrivateDirectory $expanded;ExpandSafe $archive $expanded
   NativeVersions (Join-Path $expanded 'openwebpbx-1.0.22-windows-x64') '1.0.22'|Out-Null
  }
- return @{facts=$record;facts_path=$factsPath;archive=$archive;source_commit=$record.source_commit;sha256=$sha}
+ return @{facts=$record;facts_path=$factsPath;archive=$archive;source_commit=$productSource;qualification_source_commit=$record.source_commit;sha256=$sha}
 }
 function PrepareActualCandidate([string]$Base,$BaseFacts){
  Check ($BaseFacts.source_commit -ceq 'cab93b390ba2e8f33c184f2f085740c2862031a6' -and (Hash $Base) -ceq 'ce811ae1eaeb17b46f81bdfc0f12b0baa13409bded8f4df6788f8772d0ea855d' -and (Get-Item $Base).Length -eq 643070428) 'Only the genuine immutable public21 package is eligible.'
  $target=GetActualCandidateTarget $true
  CheckedProcess 'python.exe' @((Join-Path $PSScriptRoot 'windows-actual-candidate-preparation.py'),'--base-archive',$Base,'--base-facts',(Join-Path $work 'baseline-facts.json'),'--target-archive',$target.archive,'--target-facts',$target.facts_path,'--output-dir',$output) 'prepare-actual-candidate-pair'
- $facts.actual_candidate=@{target_suite_run_id=$TargetSuiteRunId;target_source_commit=$target.source_commit;target_archive_sha256=$target.sha256;normal_zip_untouched=$true;native_rebuild=$false;version_overlays=$false;late_fault_hook='Install-PhoneHealth.ps1'}
+ $facts.actual_candidate=@{target_suite_run_id=$TargetSuiteRunId;target_source_commit=$target.source_commit;target_qualification_source_commit=$target.qualification_source_commit;target_archive_sha256=$target.sha256;normal_zip_untouched=$true;native_rebuild=$false;version_overlays=$false;late_fault_hook='Install-PhoneHealth.ps1'}
  $facts.gates.canary_build='passed';$facts.state='prepared';$facts.checks+='Untouched actual qualified22 archive plus a bounded last-payload-installer fault; no compiler/version overlays/signing/installation performed'
 }
 function NewActualSchemaProbe {
@@ -310,7 +316,8 @@ function ReadActualSchemaFailure {
   $r=Get-Content -LiteralPath $path -Raw|ConvertFrom-Json
   if($r.schema -ne 1 -or $r.active_case -cnotin 'legacy_security_identity','legacy_original_customer_data','legacy_relation_inventory','legacy_column_definitions','legacy_source_ddl_model' -or $r.error_type -cnotin 'RuntimeError','ValueError','TypeError','KeyError','OSError' -or $r.source_basename -cne 'private-probe.py' -or ($r.source_line -isnot [int] -and $r.source_line -isnot [long]) -or $r.source_line -lt 1 -or $r.source_line -gt 99999){return $null}
   $safe=@{schema=1;active_case=$r.active_case;error_type=$r.error_type;source_basename=$r.source_basename;source_line=[int]$r.source_line}
-  foreach($key in 'original_table_count','changed_table_count'){$v=$r.$key;if(($v -is [int] -or $v -is [long]) -and $v -ge 0 -and $v -le 5000){$safe[$key]=[int]$v}};return $safe
+  foreach($key in 'original_table_count','changed_table_count'){$v=$r.$key;if(($v -is [int] -or $v -is [long]) -and $v -ge 0 -and $v -le 5000){$safe[$key]=[int]$v}}
+  if($r.active_case -ceq 'legacy_column_definitions'){foreach($key in 'original_column_count','actual_projected_column_count','column_added','column_removed','column_modified'){$v=$r.$key;if(($v -is [int] -or $v -is [long]) -and $v -ge 0 -and $v -le 50000){$safe[$key]=[int]$v}}};return $safe
  }catch{return $null}
 }
 function WaitActualOnboardingMigration([DateTime]$Started){
@@ -985,7 +992,7 @@ try{
   $provenance=Join-Path $canary.directory 'provenance.json';$archives=@{fault=(Join-Path $canary.directory ('fault/openwebpbx-'+$CanaryVersion+'-windows-x64.zip'));normal=(Join-Path $canary.directory ('normal/openwebpbx-'+$CanaryVersion+'-windows-x64.zip'))}
   $packetPath=Join-Path $work 'root-reviewed-packets.json';$packetBytes=[Convert]::FromBase64String($env:WINDOWS_UPDATER_SIGNED_PACKETS_B64);Check ($packetBytes.Length -le 65536) 'Root-reviewed private envelope packet exceeds its bound.';[IO.File]::WriteAllBytes($packetPath,$packetBytes);Remove-Item Env:\WINDOWS_UPDATER_SIGNED_PACKETS_B64
   $packet=Get-Content $packetPath -Raw|ConvertFrom-Json;Check ($packet.canary_run_id -eq $CanaryRunId -and $packet.base_suite_run_id -eq $BaseSuiteRunId -and $packet.canary_preparation_source_commit -eq $canary.run.head_sha -and $packet.canary_provenance_sha256 -eq (Hash $provenance)) 'Root-reviewed exact canary build/run/provenance identities differ.'
-  if($actualCandidate){Check ($packet.qualification_kind -ceq 'actual_candidate' -and $packet.target_suite_run_id -ceq $TargetSuiteRunId -and $packet.target_source_commit -ceq $actualTarget.source_commit -and $packet.target_facts_sha256 -ceq (Hash $actualTarget.facts_path) -and $packet.normal.archive_sha256 -ceq $actualTarget.sha256) 'The Root-signed actual candidate target/run/raw-facts identity differs.'}
+  if($actualCandidate){Check ($packet.qualification_kind -ceq 'actual_candidate' -and $packet.target_suite_run_id -ceq $TargetSuiteRunId -and $packet.target_source_commit -ceq $actualTarget.source_commit -and $packet.target_qualification_source_commit -ceq $actualTarget.qualification_source_commit -and $packet.target_facts_sha256 -ceq (Hash $actualTarget.facts_path) -and $packet.normal.archive_sha256 -ceq $actualTarget.sha256) 'The Root-signed actual candidate target/run/raw-facts identity differs.'}
   foreach($modeName in 'fault','normal'){CheckedProcess 'python.exe' @((Join-Path $PSScriptRoot 'windows_candidate_archive.py'),'--archive',$archives[$modeName],'--version',$CanaryVersion,'--sha256',$packet.$modeName.archive_sha256) ('verify-'+$modeName)}
   Check (!(Test-Path $root) -and !(Test-Path "$state\installation.json") -and !(Test-Path "$configuration\config.conf") -and !(Get-Service FreeSWITCH -ErrorAction SilentlyContinue)) 'A completely separate empty runner is required; never reuse an owner or installed factory.'
   $packageDirectory=Join-Path $work 'baseline-package';PrivateDirectory $packageDirectory;ExpandSafe $base $packageDirectory;$package=Join-Path $packageDirectory ('openwebpbx-'+$BaseVersion+'-windows-x64');NativeVersions $package $BaseVersion|Out-Null
@@ -1116,10 +1123,10 @@ if(!$?){exit 1}
   $facts.gates.canary_build='passed';$facts.gates.normal_https_download='passed';$facts.gates.newer_upgrade='passed';$facts.gates.natural_updater_restart='passed';$facts.gates.protected_data='passed';$facts.checks+=('Same installed'+$BaseVersion+' worker higher-sequence full HTTPS normal'+$CanaryVersion+' transfer, real candidate service/desktop/updater, completed command and natural SCM slot/PID restart; protected fictional data/private configuration/media/task security preserved')
   if($actualCandidate){
    # Keep already-completed signed components even if the later operator test fails.
-   $facts.signed_normal_component=@{state='passed';installed_version=$CanaryVersion;target_suite_run_id=$TargetSuiteRunId;target_source_commit=$actualTarget.source_commit;normal_archive_sha256=$verified.normal.sha256;fault_archive_sha256=$verified.fault.sha256;normal_zip_untouched=$true;original21_signed_wrapper=$true}
+   $facts.signed_normal_component=@{state='passed';installed_version=$CanaryVersion;target_suite_run_id=$TargetSuiteRunId;target_source_commit=$actualTarget.source_commit;target_qualification_source_commit=$actualTarget.qualification_source_commit;normal_archive_sha256=$verified.normal.sha256;fault_archive_sha256=$verified.fault.sha256;normal_zip_untouched=$true;original21_signed_wrapper=$true}
    ActualOperatorRollback $beforeDb $beforeFiles $beforeTasks $actualPolicyBefore $upgradedManager $newPid
   }
-  if($actualCandidate){$facts.actual_candidate=@{target_suite_run_id=$TargetSuiteRunId;target_source_commit=$actualTarget.source_commit;normal_zip_untouched=$true;original21_signed_wrapper=$true;native_rebuild=$false;version_overlays=$false;original_tenant_domains_disabled=[bool]$OriginalTenantDomainsDisabled;normal_installed_version=$CanaryVersion;final_installed_version=$BaseVersion};$facts.scope='Actual immutable public21 SYSTEM updater and installed21 signed wrapper to exact qualified22; fictional tenant/trusted laboratory HTTPS; fresh/public/carrier qualification separate; final native operator rollback restores exact original21'}
+  if($actualCandidate){$facts.actual_candidate=@{target_suite_run_id=$TargetSuiteRunId;target_source_commit=$actualTarget.source_commit;target_qualification_source_commit=$actualTarget.qualification_source_commit;normal_zip_untouched=$true;original21_signed_wrapper=$true;native_rebuild=$false;version_overlays=$false;original_tenant_domains_disabled=[bool]$OriginalTenantDomainsDisabled;normal_installed_version=$CanaryVersion;final_installed_version=$BaseVersion};$facts.scope='Actual immutable public21 SYSTEM updater and installed21 signed wrapper to exact qualified22; fictional tenant/trusted laboratory HTTPS; fresh/public/carrier qualification separate; final native operator rollback restores exact original21'}
   $facts.private_sequences=@($verified.fault.sequence,$verified.normal.sequence);$facts.canary_run_id=$CanaryRunId;$facts.fault_archive_sha256=$verified.fault.sha256;$facts.normal_archive_sha256=$verified.normal.sha256;$facts.state='passed'
  }
 }catch{

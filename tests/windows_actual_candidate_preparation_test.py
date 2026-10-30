@@ -53,11 +53,11 @@ class ActualCandidatePair(unittest.TestCase):
         sha = p.legacy.digest(archive)
         value = {'schema':1,'state':'partial','source_commit':commit,'run_id':run,
             'gates':{gate:'passed' for gate in (*p.legacy.ESSENTIAL_GATES,*p.MODERN)},
-            'candidate_artifact':{'filename':f'openwebpbx-{version}-windows-x64.zip','sha256':sha,'private_exclusions':'passed'},
+            'candidate_artifact':{'filename':f'openwebpbx-{version}-windows-x64.zip','sha256':sha,'product_source_commit':commit,'private_exclusions':'passed'},
             'artifacts':{'candidate_sha256':sha}}
         if version == p.TARGET:
             value.update(mode='public21_to_actual_candidate22',public21_transition={'state':'passed',
-                'candidate_source_commit':commit,'candidate_sha256':sha,'upgrade_mechanism':'candidate22_manual_helper',
+                'candidate_source_commit':commit,'candidate_qualification_source_commit':commit,'candidate_sha256':sha,'upgrade_mechanism':'candidate22_manual_helper',
                 'gates':{'public21_to_candidate22':'passed','public21_rollback':'passed'}})
         return value
 
@@ -123,6 +123,22 @@ class ActualCandidatePair(unittest.TestCase):
         self.assertEqual((self.output/'keep').read_bytes(),b'preserve')
         with self.assertRaises(ValueError):p.prepare(self.base,self.base_path,self.target,self.target_path,self.output,source_commit='main',run_id='103')
 
+    def test_replay_retains_product_and_distinct_qualification_source(self):
+        self.target_facts['source_commit']='c'*40
+        self.target_facts['product_source_commit']='a'*40
+        self.target_facts['public21_transition']['candidate_qualification_source_commit']='c'*40
+        self.target_facts['replay']={'schema':1,'original_run':'99','original_product_source':'a'*40,
+            'qualification_source':'c'*40,'exact_zip_sha256':p.legacy.digest(self.target),
+            'windows_runtime_source_identical':True,'runtime_overlays':False}
+        self.assertEqual(p.eligible(self.target_facts,p.TARGET),p.legacy.digest(self.target))
+        provenance=self.prepare()
+        self.assertEqual(provenance['target_source_commit'],'a'*40)
+        self.assertEqual(provenance['target_qualification_source_commit'],'c'*40)
+        self.assertEqual((self.output/'normal'/(p.NAME+'.zip')).read_bytes(),self.target.read_bytes())
+        for field,value in [('original_product_source','d'*40),('qualification_source','d'*40),('runtime_overlays',True),('exact_zip_sha256','d'*64)]:
+            facts=copy.deepcopy(self.target_facts);facts['replay'][field]=value
+            with self.subTest(field=field),self.assertRaises(ValueError):p.eligible(facts,p.TARGET)
+
     def test_actual_signed_packets_preserve_crypto_and_target_binding(self):
         provenance=self.prepare();archives={k:self.output/k/(p.NAME+'.zip') for k in ('normal','fault')}
         key=rsa.generate_private_key(public_exponent=65537,key_size=2048);public=self.root/'public.pem'
@@ -130,7 +146,7 @@ class ActualCandidatePair(unittest.TestCase):
         now=datetime.now(timezone.utc)
         packet={'schema':1,'repository':'embire2/openwebpbx','base_suite_run_id':'101','canary_run_id':'103',
             'base_source_commit':p.PUBLIC21['source'],'base_archive_sha256':p.PUBLIC21['sha256'],'qualification_kind':'actual_candidate',
-            'target_suite_run_id':'102','target_source_commit':'a'*40,'target_facts_sha256':provenance['target_facts_sha256']}
+            'target_suite_run_id':'102','target_source_commit':'a'*40,'target_qualification_source_commit':'a'*40,'target_facts_sha256':provenance['target_facts_sha256']}
         # This test's tiny baseline is explicit; the packet verifier still pins
         # the genuine public21 digest, independently of the pair test fixture.
         provenance['base_archive_sha256']=p.PUBLIC21['sha256']
@@ -144,7 +160,18 @@ class ActualCandidatePair(unittest.TestCase):
                 'payload':base64.b64encode(raw).decode(),'signature':base64.b64encode(key.sign(raw,padding.PKCS1v15(),hashes.SHA256())).decode()}}
         def verify():return f.verify_packets(packet,self.base_facts,provenance,archives,public,now=now,base_version=p.BASE,target_version=p.TARGET,actual_candidate=True,target_facts=self.target_facts)
         self.assertEqual(len(verify()),2)
-        for keyname,value in [('target_source_commit','c'*40),('target_facts_sha256','c'*64),('qualification_kind','canary')]:
+        # Same real signed ZIPs, new actual qualification identity: the original
+        # product source remains a. Both distinct identities must be bound.
+        self.target_facts['source_commit']='c'*40;self.target_facts['product_source_commit']='a'*40
+        self.target_facts['public21_transition']['candidate_qualification_source_commit']='c'*40
+        self.target_facts['replay']={'schema':1,'original_run':'99','original_product_source':'a'*40,
+            'qualification_source':'c'*40,'exact_zip_sha256':p.legacy.digest(self.target),
+            'windows_runtime_source_identical':True,'runtime_overlays':False}
+        self.target_path.write_text(json.dumps(self.target_facts))
+        provenance.update(target_qualification_source_commit='c'*40,target_facts_sha256=p.legacy.digest(self.target_path))
+        packet.update(target_qualification_source_commit='c'*40,target_facts_sha256=p.legacy.digest(self.target_path))
+        self.assertEqual(len(verify()),2)
+        for keyname,value in [('target_source_commit','d'*40),('target_qualification_source_commit','d'*40),('target_facts_sha256','d'*64),('qualification_kind','canary')]:
             original=packet[keyname];packet[keyname]=value
             with self.subTest(key=keyname),self.assertRaises(ValueError):verify()
             packet[keyname]=original

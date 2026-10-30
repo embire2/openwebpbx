@@ -50,7 +50,7 @@ function AssertSuiteReplayMode([string]$OriginalRunId,[string]$ProvidedPackage,[
 AssertSuiteReplayMode $ReplaySuiteRunId $PackageRoot $UpgradeDiagnosticsOnly $BackupsDiagnosticsOnly $ReplayTerminalProducers $ReplayCandidateArtifactId $ReplayCandidateSha256
 function AssertPublic21CandidateMode([bool]$Enabled,[string]$CandidateVersion){
  if(!$Enabled){return}
- if($CandidateVersion -cne '1.0.22' -or $PackageRoot -or $ReplaySuiteRunId -or $UpgradeDiagnosticsOnly -or $BackupsDiagnosticsOnly -or $NativeDiagnosticsOnly -or $ReplayTerminalProducers -or $SkipPhoneHealthForNativeDiagnostics -or $HoldDiagnosticsOnly -or $ThreecxImportOnly -or !$NativeRunId -or !$EngineRunId){throw 'The public21-to-actual22 mode requires exact freshly built candidate22 inputs and all ordinary qualification gates.'}
+ if($CandidateVersion -cne '1.0.22' -or $PackageRoot -or $UpgradeDiagnosticsOnly -or $BackupsDiagnosticsOnly -or $NativeDiagnosticsOnly -or $ReplayTerminalProducers -or $SkipPhoneHealthForNativeDiagnostics -or $HoldDiagnosticsOnly -or $ThreecxImportOnly -or !$NativeRunId -or !$EngineRunId){throw 'The public21-to-actual22 mode requires exact verified candidate22 inputs and all ordinary qualification gates.'}
 }
 AssertPublic21CandidateMode $Public21ToCandidate22 (Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'VERSION') -Raw).Trim()
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){
@@ -489,6 +489,7 @@ function SafeFailureFields($Record){
   if($value -is [string] -and $value.Length -le 160 -and $value -match $pattern){$safe[$field]=$value}
  }
  if($Record.active_case -is [string] -and $Record.active_case -cin 'legacy_security_identity','legacy_original_customer_data','legacy_relation_inventory','legacy_column_definitions','legacy_source_ddl_model'){foreach($key in 'original_table_count','changed_table_count'){$value=$Record.$key;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 5000){$safe[$key]=[int]$value}}}
+ if($Record.active_case -is [string] -and $Record.active_case -ceq 'legacy_column_definitions'){foreach($key in 'original_column_count','actual_projected_column_count','column_added','column_removed','column_modified'){$value=$Record.$key;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 50000){$safe[$key]=[int]$value}}}
  if(($Record.source_line -is [int] -or $Record.source_line -is [long]) -and $Record.source_line -gt 0 -and $Record.source_line -lt 100000){$safe.source_line=[int]$Record.source_line}
  if(($Record.caller_line -is [int] -or $Record.caller_line -is [long]) -and $Record.caller_line -gt 0 -and $Record.caller_line -lt 100000){$safe.caller_line=[int]$Record.caller_line}
  if($Record.active_case -is [string] -and $Record.active_case -cmatch '^phone_tls_[a-z_]+$'){
@@ -888,7 +889,7 @@ function AssertReplaySourcePaths([string[]]$Paths){
  foreach($path in $Paths){
   $null=SafeRelative $path
   if($path -cin 'tests/pbx_bcg729_codec.c','tests/pbx_windows_pthread.c'){throw 'Pinned native-engine recipe inputs changed; rebuild the candidate.'}
-  $nonWindows=$path.StartsWith('packaging/debian/',[StringComparison]::Ordinal) -and $path -cnotin 'packaging/debian/tenant-domains.py','packaging/debian/tenant-domains.php'
+  $nonWindows=$path.StartsWith('packaging/debian/',[StringComparison]::Ordinal) -and $path -cnotin 'packaging/debian/tenant-domains.py','packaging/debian/tenant-domains.php','packaging/debian/onboarding.py','packaging/debian/onboarding.php','packaging/debian/webhotel-onboarding.py'
   if($path.StartsWith('tests/',[StringComparison]::Ordinal) -or $path.StartsWith('docs/',[StringComparison]::Ordinal) -or $nonWindows -or $path -cin 'AGENTS.md','README.md','readme.md','3CX.md','packaging/BUILDING.md','.github/workflows/windows-suite.yml','.github/workflows/windows-updater-qualification.yml','.github/workflows/windows-upgrade-diagnostics.yml','.github/workflows/windows-backups-diagnostics.yml','.github/workflows/windows-voicemail-diagnostics.yml','.github/workflows/windows-phone.yml'){continue}
   throw 'Windows runtime, native input or package source changed; rebuild the candidate instead of replaying it.'
  }
@@ -911,6 +912,7 @@ function PrepareReplayCandidate {
  if($report.Length -gt 1MB -or ($report.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Bounded original build facts are required.'}
  $record=Get-Content -LiteralPath $reportPath -Raw|ConvertFrom-Json;$version=(Get-Content (Join-Path $source 'VERSION') -Raw).Trim()
  $provenance=ReplayFacts $record $candidate.run $version $ReplaySuiteRunId
+ if($Public21ToCandidate22 -and ($NativeRunId -cne $provenance.native_run -or $EngineRunId -cne $provenance.engine_run)){throw 'The full public21 replay must retain the exact original native and engine build identities.'}
  if($ReplayCandidateSha256 -and $provenance.candidate_sha256 -cne $ReplayCandidateSha256){throw 'The authenticated original candidate facts differ from the explicit diagnostic ZIP hash.'}
  $producerProof=$null
  if($candidate.producer_proof -or $original.producer_proof){
@@ -945,7 +947,7 @@ function ExportOriginalCandidate($Release){
  [IO.File]::WriteAllText((Join-Path $staging 'SHA256SUMS'),($checksum+'  '+$filename+"`n"),[Text.UTF8Encoding]::new($false))
  # Only a complete verified pair becomes visible to the upload allowlist.
  [IO.Directory]::Move($staging,$candidatePublic)
- $facts.candidate_artifact=@{filename=$filename;sha256=$checksum;verified_before_credentials=$true;private_exclusions='passed';qualification='reported separately'}
+ $facts.candidate_artifact=@{filename=$filename;sha256=$checksum;product_source_commit=$(if($ReplaySuiteRunId){$facts.product_source_commit}else{$env:GITHUB_SHA});verified_before_credentials=$true;private_exclusions='passed';qualification='reported separately'}
 }
 function Acquire-SuiteCleanupLock([string]$StateRoot,[string]$PrivateDirectory){
  $timer=[Diagnostics.Stopwatch]::StartNew();$attempts=0;$contended=$false
@@ -1257,7 +1259,7 @@ function Read-PublicListenerQualificationReport($Record,[string]$Kind,$ChildExit
  return $safe
 }
 function PublicListenerQualificationHook([string]$Kind) {
- if($ReplaySuiteRunId){$facts.public_listener_qualification='unqualified_historical_candidate';return}
+ if($ReplaySuiteRunId -and !$Public21ToCandidate22){$facts.public_listener_qualification='unqualified_historical_candidate';return}
  if($Kind -cnotin 'native_defender','installed_collector'){throw 'The public-listener qualification stage is invalid.'}
  if(!$facts.Contains('public_listener_qualification')){$facts.public_listener_qualification=@{state='partial';native_defender='pending';installed_collector='pending';outside_acme='unqualified'}}
  if($Kind -ceq 'installed_collector'){
@@ -1361,7 +1363,7 @@ function TenantDomainsHook {
 }
 function DtlsQualificationHook {
  if(!(Test-Path -LiteralPath (Join-Path $PackageRoot 'Install-Dtls.ps1'))){
-  if($ReplaySuiteRunId){$facts.dtls_qualification='unqualified_historical_candidate';return}
+  if($ReplaySuiteRunId -and !$Public21ToCandidate22){$facts.dtls_qualification='unqualified_historical_candidate';return}
   throw 'The current complete candidate is missing its private DTLS provisioner.'
  }
  $reportPath=Join-Path $work 'dtls-qualification.json'
@@ -1406,7 +1408,7 @@ function SafeThreecxImportFailure($Record){
  return $safe
 }
 function ThreecxImportQualificationHook {
- if($ReplaySuiteRunId){$facts.threecx_import_qualification='unqualified_historical_candidate';return}
+ if($ReplaySuiteRunId -and !$Public21ToCandidate22){$facts.threecx_import_qualification='unqualified_historical_candidate';return}
  $path=Join-Path $work 'threecx-import-native.json';$started=[DateTime]::UtcNow
  if(Test-Path -LiteralPath $path){throw 'Retain the prior actual V20 import evidence.'}
  try{
@@ -1423,7 +1425,7 @@ function ThreecxImportQualificationHook {
  }
 }
 function PhpRuntimeQualificationHook {
- if($ReplaySuiteRunId){$facts.php_runtime_qualification='unqualified_historical_candidate';return}
+ if($ReplaySuiteRunId -and !$Public21ToCandidate22){$facts.php_runtime_qualification='unqualified_historical_candidate';return}
  $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'))
  $start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
  $start.Environment['PSModulePath']=(Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell/Modules')
@@ -1466,7 +1468,7 @@ function SafeUpgradeRecoveryQualificationFailure($Record) {
  return @{schema=1;producer='windows-upgrade-recovery-qualification.ps1';state='failed';stage=$Record.stage;source_basename=$Record.source_basename;source_line=[int]$Record.source_line;error_type=$Record.error_type}
 }
 function UpgradeRecoveryQualificationHook {
- if($ReplaySuiteRunId){$facts.upgrade_recovery_qualification='unqualified_historical_candidate';return}
+ if($ReplaySuiteRunId -and !$Public21ToCandidate22){$facts.upgrade_recovery_qualification='unqualified_historical_candidate';return}
  $reportPath=Join-Path $work 'upgrade-recovery-qualification.json'
  $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'))
  $start.UseShellExecute=$false;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
@@ -1679,6 +1681,9 @@ try{
  if(!$?){throw 'The strict public native background CDR receipt controls failed.'}
  & (Join-Path $source 'tests/windows_recovery_localaccounts.ps1') -SourceRoot $source *> (Join-Path $work 'recovery-localaccounts.private.log')
  if(!$?){throw 'The native PowerShell recovery module provenance controls failed.'}
+ CheckedPython @((Join-Path $source 'tests/windows_legacy_column_projection_test.py'))
+ & (Join-Path $source 'tests/windows_private_probe_no_bytecode.ps1') -SourceRoot $source *> (Join-Path $work 'private-probe-no-bytecode.private.log')
+ if(!$?){throw 'The exact private snapshot no-bytecode observer controls failed.'}
  CheckedPython @((Join-Path $source 'tests/windows_upgrade_restore_holds.py'))
  CheckedPython @((Join-Path $source 'tests/windows_restore_lock_retry.py'))
  CheckedPython @((Join-Path $source 'tests/windows_backup_control_observer_test.py'))
@@ -1780,7 +1785,7 @@ try{
   $recoveryPki=Start-SuiteRecoveryPki -PackageRoot $baselinePackage -SourceRoot $source -Work $work
   $phase='public21 to actual candidate22 upgrade and rollback'
   $transitionInput=Join-Path $work 'public21-transition-input.json';$transitionReport=Join-Path $work 'public21-transition-report.json'
-  [IO.File]::WriteAllText($transitionInput,([ordered]@{schema=1;run_id=$env:GITHUB_RUN_ID;restore_server=$true;admin_email=$admin;source_root=$source;public21_baseline=$facts.public21_baseline;candidate_sha256=$facts.candidate_artifact.sha256;candidate_source_commit=$env:GITHUB_SHA;candidate_archive=$candidateArchive;public21_archive=(Join-Path $work $facts.public21_baseline.name);public21_package=$baselinePackage;package_root=$PackageRoot}|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
+  [IO.File]::WriteAllText($transitionInput,([ordered]@{schema=1;run_id=$env:GITHUB_RUN_ID;restore_server=$true;admin_email=$admin;source_root=$source;public21_baseline=$facts.public21_baseline;candidate_sha256=$facts.candidate_artifact.sha256;candidate_source_commit=$(if($ReplaySuiteRunId){$facts.product_source_commit}else{$env:GITHUB_SHA});candidate_qualification_source_commit=$env:GITHUB_SHA;candidate_replay=$(if($ReplaySuiteRunId){$facts.replay}else{$null});candidate_archive=$candidateArchive;public21_archive=(Join-Path $work $facts.public21_baseline.name);public21_package=$baselinePackage;package_root=$PackageRoot}|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
   $transitionFailure=$null
   try{& (Join-Path $PSScriptRoot 'windows-upgrade-acceptance.ps1') -PackageRoot $PackageRoot -InputPath $transitionInput -ReportPath $transitionReport -Public21ToCandidate22 -DisposableHostedRunner}catch{$transitionFailure=$_}
   if(!(Test-Path -LiteralPath $transitionReport)){if($transitionFailure){throw $transitionFailure};throw 'The transition did not retain its required report.'}
@@ -1824,7 +1829,7 @@ try{
    }else{
    if($native.gates.meeting_browser -cne 'passed'){throw 'The actual Windows meeting browser media gate is required.'}
    foreach($gate in 'native_clock','native_providers','native_call_me_back'){if($native.gates.$gate -cne 'passed'){throw 'The actual native clock, local providers and Call Me Back gates are required.'};$facts.gates.$gate='passed'}
-   if(!$NativeDiagnosticsOnly -and !$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly -and !$ReplaySuiteRunId -and !$SkipPhoneHealthForNativeDiagnostics -and !$HoldDiagnosticsOnly){
+   if(!$NativeDiagnosticsOnly -and !$UpgradeDiagnosticsOnly -and !$BackupsDiagnosticsOnly -and (!$ReplaySuiteRunId -or $Public21ToCandidate22) -and !$SkipPhoneHealthForNativeDiagnostics -and !$HoldDiagnosticsOnly){
     $facts.native_cdr_background_import=ReadSuiteCdrBackgroundImport $native.checks
    }
    $facts.gates.native_sip_audio='passed';$facts.gates.meeting_browser='passed'
