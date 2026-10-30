@@ -105,6 +105,8 @@ The [self-install registration guide](docs/self-install-onboarding.md) explains 
 
 The public wizard and central API are deployed. New Debian 1.0.22 installations require a registered tenant address; upgrading an existing installation preserves its current phones, credentials, provider routes and company settings. Webhotel integrates company details, email verification and live address reservations into Create Instance. Its owner view permanently shows the local PBX URL, username and initial password, with encrypted storage and owner permissions. Changing that password in the PBX does not change the saved initial password. Provider availability depends on the qualified resources in each location. Physical handsets, carriers and inbox delivery remain deployment-specific checks.
 
+**Webhotel rollout:** automatic Cloud Phone orders are temporarily held while the normal installation and cleanup path completes qualification. The standalone Debian download and public setup wizard remain available. [Current rollout checks](docs/webhotel-onboarding.md).
+
 ## Documentation
 
 | Start here | Administration and operation | Development |

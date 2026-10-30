@@ -110,9 +110,21 @@ TypeScript check,61 provider contracts, independent source review and staged
 build pass. The frontend-only deployment preserves the running backend, its
 bundles, existing catalogue and prices. The actual browser forward/Back check
 passes, preserving its ready reservation and hiding the inactive step's controls.
-One funded normal browser order is accepted with HTTP202 on30 October; its worker
-starts immediately. Automatic guest installation, tenant HTTPS/credentials and
-owned cleanup remain required before the complete provider journey is accepted.
+The first funded normal browser order is accepted with HTTP202 on30 October,
+then fails before its installer checkpoint: Webhotel sends contact_name in a
+seven-field guest company contract. A narrow projection retains the full central
+record while sending exactly the supported guest fields; TypeScript,63 provider
+contracts and the actual rendered-input/frozen-validator test pass.
+
+Normal destruction succeeds and the job refunds its charge once, but its late
+failure handler retries completed cleanup and overwrites newer lifecycle state.
+A second terminal cleanup refuses changed IP ownership; fresh readback shows
+the address already free/unassigned, with the physical VM and DNS gone. The
+provider correction must preserve current teardown intent and ownership rather
+than replay stale work. All12 new PBX plans are inactive pending that correction,
+a fresh ordinary ready-server/credential test and scoped cleanup. The failed
+order and cleanup attempts remain failed records; they do not change the frozen
+Debian package or constitute complete provider acceptance.
 
 Actual software calls use SIP signaling and decoded two-way RTP. They do not
 certify a new physical handset, carrier, Android device, Windows installation or

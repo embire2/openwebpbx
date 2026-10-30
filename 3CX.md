@@ -13,9 +13,11 @@ Debian **1.0.22** is published with registered setup, local PostgreSQL, managed 
 Provider rollout on30 October: six locations complete their recorded node checks;
 six remain unavailable for resource, storage, installation or verification limits.
 The wizard's Back-navigation reservation defect is fixed and passes an actual
-browser round-trip. One ordinary funded order is accepted and installing through
-the normal worker; complete tenant readiness/credential delivery and cleanup
-remain open. These deployment checks do not close additional3CX feature IDs.
+browser round-trip. The first ordinary funded order exposes a company-field
+handoff mismatch and a late cleanup race. Its charge is refunded once; the new
+PBX plans remain held while the provider corrections and a fresh ordinary order
+are qualified. Debian downloads remain available. These deployment checks do not
+close additional3CX feature IDs.
 
 ## Hosted tenant API v1 — 2026-10-28
 

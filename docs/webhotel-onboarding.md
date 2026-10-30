@@ -16,10 +16,12 @@ completed the recorded installation, registration, calling, backup and reboot
 checks. Six remain held: two for available memory, one for storage health, one
 without a customer-IP pool, one after its installed-file comparisons timed out,
 and one after installation/readiness failed. No failed attempt is relabeled.
-The corrected wizard passes real forward/Back reservation preservation. One
-funded ordinary browser order is accepted with HTTP202 and its worker starts
-immediately; guest readiness and cleanup are being checked separately before the
-remaining qualified plans are activated.
+The corrected wizard passes real forward/Back reservation preservation. The
+first funded ordinary order exposes a company-field handoff mismatch and a late
+cleanup race; its charge is refunded once. All12 new PBX plans are temporarily
+inactive while the provider corrections and a fresh ordinary order are
+qualified. Existing products/services and the standalone Debian download remain
+available.
 All 224 usable addresses in the sixteen existing OVH blocks have vMACs; no extra
 IP purchase or customer-address reassignment is part of this rollout.
 
