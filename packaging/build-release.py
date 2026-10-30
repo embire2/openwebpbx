@@ -180,7 +180,8 @@ with tempfile.TemporaryDirectory(prefix='openweb-release-') as temporary:
     shutil.copy2(root / '3CX.md', stage / '3CX.md')
     shutil.copy2(root / 'packaging/windows/bootstrap.php', stage / 'bootstrap.php')
     shutil.copy2(root / 'VERSION', stage / 'VERSION')
-    (stage / 'README.txt').write_text(f'OpenWeb PBX {version}\n\nStart with docs/installing-{version}.md.\nFeature coverage and remaining work: docs/feature-coverage.md.\nSource: https://github.com/embire2/openwebpbx\n')
+    installation_guide = f'installing-windows-{version}.md' if args.target == 'windows' else f'installing-{version}.md'
+    (stage / 'README.txt').write_text(f'OpenWeb PBX {version}\n\nStart with docs/{installation_guide}.\nFeature coverage and remaining work: docs/feature-coverage.md.\nSource: https://github.com/embire2/openwebpbx\n')
     installer_prefix='packaging/'+args.target+'/'
     for filename in files:
         if filename.startswith(installer_prefix) and len(pathlib.PurePosixPath(filename).parts)==3:

@@ -24,9 +24,10 @@ allowing automatic public certificate setup to proceed.
 | Tenant certificate expiry | Windows now emits whole-second UTC accepted by the unchanged registration gate; 26 actual Windows checks pass, including preservation of the certificate's expiry instant across three cultures |
 | Public wizard | Windows wording is live; desktop/mobile layout, required links and browser console checks passed |
 | Protection of the existing test server | Full encrypted 1.0.21 backup verified, including media, with a protected off-server copy; original backup settings restored |
+| Windows registration data in backups | Corrected in `d0382f67a`; encrypted archive/PG restore, private-file ACL and real consumer-lock controls pass. The next package and native replacement flow remain unqualified |
 | Genuine public 1.0.21 to actual candidate 1.0.22 | Manual-helper component still unqualified after a post-rollback database comparison failure; next test captures the normal-upgrade baseline after rollback |
 | Original 1.0.21 signed updater | Compatibility correction committed as `31e93c155`; 262 local and 255 Windows adapter/file/security checks pass. Actual signed upgrade remains pending; a manual-helper test does not establish this path |
-| Fresh Windows registration | Pending actual installation, account verification, managed DNS, public HTTPS and calling checks |
+| Fresh Windows registration | Account email verified; actual installation, managed DNS, public HTTPS and calling checks remain pending |
 | Reboot and final publication | Pending |
 
 The upgrade fixture installs the immutable public 1.0.21 ZIP, then uses the
@@ -42,6 +43,18 @@ the existing tenant-domain installer, then creates the registration task only
 after the upgrade commits. Existing disabled tasks remain disabled. Rollback
 must remove only a task bound to that exact original backup. These source
 changes still require the real signed-updater test.
+
+The backup review found that Windows did not archive the private registration
+session needed by a replacement. The correction includes the same two authority
+files as Debian, preserves the replacement's local installation requirement,
+and clears rebuildable registration caches with recovery snapshots. Tests cover
+failed restore recovery and native Windows permissions/lock contention. This
+does not establish a successful fresh native replacement installation.
+
+The actual CEO account email verification is complete. Run
+[41098161832](https://github.com/embire2/openwebpbx/actions/runs/41098161832)
+predates the backup correction and is an intermediate component. The corrected
+package must be rebuilt and qualified before publication.
 
 Earlier runs remain failed: 41079281740 stopped at an outdated task-security
 source contract; 41081098365 at a changed test phase anchor; and 41082501822 at
