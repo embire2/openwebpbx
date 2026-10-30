@@ -88,7 +88,7 @@ function Invoke-OpenWebTenantOperation {
  }
  foreach($name in $request.names){$certificate=Get-OpenWebPublicCertificate $thumb $name;$null=Get-OpenWebPublicSite $name $root;$null=Set-OpenWebPublicBinding $name 'https' $thumb $root;Test-OpenWebPublicHttps $name $thumb}
  Write-OpenWebPublicJson $cache @{thumbprint=$thumb;key_hash=$request.key_hash;names=@($request.names)};Set-OpenWebTenantAcl $cache $false $false
- return @{not_after=$certificate.NotAfter.ToUniversalTime().ToString('o')}
+ return @{not_after=$certificate.NotAfter.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'",[Globalization.CultureInfo]::InvariantCulture)}
 }
 try{
  if([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT){throw 'Windows is required.'}
