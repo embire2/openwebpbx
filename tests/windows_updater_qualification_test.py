@@ -276,7 +276,7 @@ class AdminFormChecks(unittest.TestCase):
                 if fields == {'action': 'install'}: return 403, path, 'Denied'
                 if fields is None:
                     return 200, path, ('<form method="get"><select name="tenant"><option value="owned" selected>Tenant</option></select></form>'
-                        '<form method="post"><input type="hidden" name="csrf_owned" value="current"><button name="action" value="install">Install</button></form>')
+                        '<form method="post"><input type="hidden" name="csrf_owned" value="current"><button name="action" value="check">Check</button><button name="action" value="download">Download</button><button name="action" value="install">Install</button></form>')
                 return 200, path, 'Request queued.'
         web = OriginFixture(); web.install()
         self.assertEqual(web.calls[-1][1], {'csrf_owned': 'current', 'action': 'install'})

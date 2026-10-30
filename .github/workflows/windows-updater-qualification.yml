@@ -10,6 +10,8 @@ on:
         options:
           - prepare-canary
           - qualify-signed
+          - prepare-actual-candidate
+          - qualify-actual-candidate
       base_suite_run_id:
         description: Exact successful qualified Windows full-suite run
         required: true
@@ -18,6 +20,16 @@ on:
         description: Exact successful prepare-canary run (required only for qualify-signed)
         required: false
         type: string
+
+      target_suite_run_id:
+        description: Exact eligible actual22 full-suite run; required only for actual-candidate modes
+        required: false
+        type: string
+      original_tenant_domains_disabled:
+        description: Separate actual-signed case preserving an administrator-disabled original worker; no manual migration
+        required: false
+        default: false
+        type: boolean
 
       base_version:
         description: Exact qualified baseline version
@@ -64,7 +76,7 @@ jobs:
         with:
           dotnet-version: '10.0.401'
       - name: Prove actual Scheduler renewal and CDR cleanup exclusion
-        if: inputs.mode == 'qualify-signed'
+        if: inputs.mode == 'qualify-signed' || inputs.mode == 'qualify-actual-candidate'
         run: |
           & tests/windows_updater_runtime_controls.ps1 -DisposableHostedRunner
           if(!$?){throw 'The actual updater runtime controls did not pass.'}
@@ -73,12 +85,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           QUALIFICATION_MODE: ${{ inputs.mode }}
           BASE_SUITE_RUN_ID: ${{ inputs.base_suite_run_id }}
+          TARGET_SUITE_RUN_ID: ${{ inputs.target_suite_run_id }}
+          ORIGINAL_TENANT_DOMAINS_DISABLED: ${{ inputs.original_tenant_domains_disabled }}
           CANARY_RUN_ID: ${{ inputs.canary_run_id }}
           BASE_VERSION: ${{ inputs.base_version }}
           CANARY_VERSION: ${{ inputs.canary_version }}
           # Root signs offline and temporarily supplies ONLY envelopes/reviewed
           # run IDs/hashes. No signer, key, customer backup or owner input enters CI.
-          WINDOWS_UPDATER_SIGNED_PACKETS_B64: ${{ inputs.mode == 'qualify-signed' && secrets.WINDOWS_UPDATER_SIGNED_PACKETS_B64 || '' }}
+          WINDOWS_UPDATER_SIGNED_PACKETS_B64: ${{ (inputs.mode == 'qualify-signed' || inputs.mode == 'qualify-actual-candidate') && secrets.WINDOWS_UPDATER_SIGNED_PACKETS_B64 || '' }}
         run: |
           $ErrorActionPreference='Stop'
           if($env:BASE_SUITE_RUN_ID -notmatch '^[0-9]+$'){throw 'The qualified base run must be numeric.'}
@@ -90,10 +104,17 @@ jobs:
           }elseif($env:QUALIFICATION_MODE -eq 'qualify-signed'){
             if($env:CANARY_RUN_ID -notmatch '^[0-9]+$' -or !$env:WINDOWS_UPDATER_SIGNED_PACKETS_B64){throw 'Root-reviewed private envelopes and exact canary run are required.'}
             & tests/windows-updater-qualification.ps1 -Mode QualifySigned -BaseSuiteRunId $env:BASE_SUITE_RUN_ID -CanaryRunId $env:CANARY_RUN_ID -BaseVersion $env:BASE_VERSION -CanaryVersion $env:CANARY_VERSION -DisposableHostedRunner
+          }elseif($env:QUALIFICATION_MODE -eq 'prepare-actual-candidate'){
+            if($env:CANARY_RUN_ID -or $env:TARGET_SUITE_RUN_ID -notmatch '^[0-9]+$'){throw 'Actual preparation requires the exact target suite and no signed preparation run.'}
+            & tests/windows-updater-qualification.ps1 -Mode PrepareActualCandidate -BaseSuiteRunId $env:BASE_SUITE_RUN_ID -TargetSuiteRunId $env:TARGET_SUITE_RUN_ID -BaseVersion $env:BASE_VERSION -CanaryVersion $env:CANARY_VERSION -DisposableHostedRunner
+          }elseif($env:QUALIFICATION_MODE -eq 'qualify-actual-candidate'){
+            if($env:CANARY_RUN_ID -notmatch '^[0-9]+$' -or $env:TARGET_SUITE_RUN_ID -notmatch '^[0-9]+$' -or !$env:WINDOWS_UPDATER_SIGNED_PACKETS_B64){throw 'Actual qualification requires exact prepared/target runs and Root-reviewed envelopes.'}
+            $actualOptions=@{};if($env:ORIGINAL_TENANT_DOMAINS_DISABLED -ceq 'true'){$actualOptions.OriginalTenantDomainsDisabled=$true}
+            & tests/windows-updater-qualification.ps1 -Mode QualifyActualCandidate -BaseSuiteRunId $env:BASE_SUITE_RUN_ID -TargetSuiteRunId $env:TARGET_SUITE_RUN_ID -CanaryRunId $env:CANARY_RUN_ID -BaseVersion $env:BASE_VERSION -CanaryVersion $env:CANARY_VERSION @actualOptions -DisposableHostedRunner
           }else{throw 'An explicit supported stage is required.'}
           if(!$?){throw 'The selected updater qualification stage did not finish.'}
       - name: Preserve only unsigned canary packages and source/hash evidence
-        if: success() && inputs.mode == 'prepare-canary'
+        if: success() && (inputs.mode == 'prepare-canary' || inputs.mode == 'prepare-actual-candidate')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: openwebpbx-windows-updater-canary-${{ github.run_id }}
@@ -105,12 +126,14 @@ jobs:
             ${{ runner.temp }}/openwebpbx-updater-canary/normal/*/release-manifest.json
             ${{ runner.temp }}/openwebpbx-updater-canary/fault/*/release-manifest.json
             ${{ runner.temp }}/openwebpbx-updater-canary/provenance.json
+            ${{ runner.temp }}/openwebpbx-updater-canary/target-facts.json
+            ${{ runner.temp }}/openwebpbx-updater-canary/baseline-facts.json
             ${{ runner.temp }}/openwebpbx-updater-canary/evidence/
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
       - name: Preserve bounded native component facts
-        if: always() && inputs.mode == 'qualify-signed'
+        if: always() && (inputs.mode == 'qualify-signed' || inputs.mode == 'qualify-actual-candidate')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: openwebpbx-windows-updater-runtime-${{ github.run_id }}

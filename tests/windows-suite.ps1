@@ -488,6 +488,7 @@ function SafeFailureFields($Record){
   $pattern=if($field -in 'source_basename','command_basename','caller_basename'){'^[A-Za-z0-9_.-]+$'}else{'^[A-Za-z0-9_.+ /()-]+$'}
   if($value -is [string] -and $value.Length -le 160 -and $value -match $pattern){$safe[$field]=$value}
  }
+ if($Record.active_case -is [string] -and $Record.active_case -cin 'legacy_security_identity','legacy_original_customer_data','legacy_relation_inventory','legacy_column_definitions','legacy_source_ddl_model'){foreach($key in 'original_table_count','changed_table_count'){$value=$Record.$key;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 5000){$safe[$key]=[int]$value}}}
  if(($Record.source_line -is [int] -or $Record.source_line -is [long]) -and $Record.source_line -gt 0 -and $Record.source_line -lt 100000){$safe.source_line=[int]$Record.source_line}
  if(($Record.caller_line -is [int] -or $Record.caller_line -is [long]) -and $Record.caller_line -gt 0 -and $Record.caller_line -lt 100000){$safe.caller_line=[int]$Record.caller_line}
  if($Record.active_case -is [string] -and $Record.active_case -cmatch '^phone_tls_[a-z_]+$'){

@@ -13,6 +13,7 @@ import http.cookiejar
 import http.server
 from html.parser import HTMLParser
 import ipaddress
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+ROOT = Path(__file__).resolve().parents[1]
 
 FEED_PATH = '/embire2/openwebpbx/releases/latest/download/windows-update-manifest.json'
 ASSET_PATH = '/embire2/openwebpbx/releases/download/v1.0.14/openwebpbx-1.0.14-windows-x64.zip'
@@ -71,7 +74,7 @@ def date(value):
 
 
 def verify_packets(packet, base_facts, provenance, archives, public_key, *, now=None,
-                   base_version='1.0.13', target_version='1.0.14'):
+                   base_version='1.0.13', target_version='1.0.14', actual_candidate=False, target_facts=None):
     """Independent review checks; installed C# verifier still verifies both feeds."""
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -93,6 +96,22 @@ def verify_packets(packet, base_facts, provenance, archives, public_key, *, now=
         raise ValueError('The current Windows tenant addresses, web, meeting, phone health, STUN, clock, provider and callback gates must all be qualified.')
     if provenance.get('source_commit') != base_facts['source_commit'] or provenance.get('base_archive_sha256') != packet.get('base_archive_sha256'):
         raise ValueError('Reviewed canary provenance differs from the baseline.')
+    if actual_candidate:
+        if (base_version, target_version) != ('1.0.21', '1.0.22') or packet.get('qualification_kind') != 'actual_candidate' or provenance.get('kind') != 'actual_candidate':
+            raise ValueError('The explicit actual21 signed-wrapper mode is required.')
+        if (base_facts.get('source_commit') != 'cab93b390ba2e8f33c184f2f085740c2862031a6' or packet.get('base_archive_sha256') != 'ce811ae1eaeb17b46f81bdfc0f12b0baa13409bded8f4df6788f8772d0ea855d'):
+            raise ValueError('Only the genuine public21 baseline is eligible.')
+        if (not isinstance(target_facts, dict) or packet.get('target_suite_run_id') != str(target_facts.get('run_id')) or
+                packet.get('target_suite_run_id') != provenance.get('target_suite_run_id') or
+                packet.get('target_source_commit') != target_facts.get('source_commit') or
+                packet.get('target_source_commit') != provenance.get('target_source_commit') or
+                packet.get('target_facts_sha256') != provenance.get('target_facts_sha256')):
+            raise ValueError('The actual full-suite candidate source/run/facts differ.')
+        spec = importlib.util.spec_from_file_location('actual_signed_pair_verifier', ROOT/'tests/windows-actual-candidate-preparation.py')
+        pair = importlib.util.module_from_spec(spec); spec.loader.exec_module(pair)
+        pair.verify_pair(archives['normal'], archives['fault'], target_facts, provenance)
+    elif packet.get('qualification_kind') == 'actual_candidate' or provenance.get('kind') == 'actual_candidate':
+        raise ValueError('An actual candidate cannot masquerade as a version-overlay canary.')
     key = serialization.load_pem_public_key(Path(public_key).read_bytes())
     if not isinstance(key, rsa.RSAPublicKey) or key.key_size < 2048:
         raise ValueError('The fixed RSA release public key is required.')
@@ -339,8 +358,14 @@ def main():
         provenance = read_json(settings['provenance_file'], 32 * 1024**2)
         if digest(settings['provenance_file']) != packet.get('canary_provenance_sha256'):
             raise RuntimeError('Root-reviewed canary provenance bytes differ.')
+        target_facts = None
+        if settings.get('actual_candidate') is True:
+            if digest(settings['target_facts']) != packet.get('target_facts_sha256'):
+                raise RuntimeError('The independently captured actual target facts differ from Root review.')
+            target_facts = read_json(settings['target_facts'], 32 * 1024**2)
         packets = verify_packets(packet, read_json(settings['base_facts']), provenance, settings['archives'], settings['public_key'],
-                                 base_version=settings.get('base_version','1.0.13'),target_version=settings.get('target_version','1.0.14'))
+                                 base_version=settings.get('base_version','1.0.13'),target_version=settings.get('target_version','1.0.14'),
+                                 actual_candidate=settings.get('actual_candidate') is True,target_facts=target_facts)
         write_json(work / 'verified-packets.json', packets)
     elif args.action == 'request':
         Web(settings).install()

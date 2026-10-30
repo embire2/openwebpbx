@@ -190,10 +190,11 @@ function MusicFailure([string]$Text){
  return @{music_stage=$row.stage;error_type=$row.error_type;source_basename=$row.source_basename;source_line=[int]$row.source_line}
 }
 function ProbeFailure($Record){
- $stages=@('probe_import','probe_settings','database_installation','database_identity','database_roles','database_memberships','database_schema','database_tables','database_columns','database_values','database_save','restore_holds','restore_release','pending_create','pending_check','pending_remove')
+ $stages=@('probe_import','probe_settings','database_installation','database_identity','database_roles','database_memberships','database_schema','database_tables','database_columns','database_values','database_save','restore_holds','restore_release','pending_create','pending_check','pending_remove','legacy_security_identity','legacy_original_customer_data','legacy_relation_inventory','legacy_column_definitions','legacy_source_ddl_model')
  $types=@('BackupError','BackupBusy','JSONDecodeError','KeyError','FileNotFoundError','PermissionError','ImportError','ModuleNotFoundError','RuntimeError','ValueError','TypeError','OSError','TimeoutError','AssertionError','UnicodeDecodeError','ExternalFailure')
  if(($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.active_case -isnot [string] -or $Record.active_case -cnotin $stages -or $Record.error_type -isnot [string] -or $Record.error_type -cnotin $types -or $Record.source_basename -isnot [string] -or $Record.source_basename -cnotin 'private-probe.py','backups.py' -or ($Record.source_line -isnot [int] -and $Record.source_line -isnot [long]) -or $Record.source_line -lt 1 -or $Record.source_line -ge 100000){return $null}
  $safe=@{active_case=$Record.active_case;error_type=$Record.error_type;source_basename=$Record.source_basename;source_line=[int]$Record.source_line}
+ if($Record.active_case -clike 'legacy_*'){foreach($key in 'original_table_count','changed_table_count'){$value=$Record.$key;if(($value -is [int] -or $value -is [long]) -and $value -ge 0 -and $value -le 5000){$safe[$key]=[int]$value}}}
  if($Record.PSObject.Properties['backup_control_failure']){$control=BackupControlObservationFields $Record.backup_control_failure;if($control){$safe.backup_control_failure=$control}};return $safe
 }
 function Python([string[]]$Arguments){
@@ -349,6 +350,9 @@ def failure(kind,value,tb):
  safe={'schema':1,'active_case':stage,'error_type':kind.__name__ if kind.__name__ in allowed_types else 'ExternalFailure','source_basename':Path(frame.filename).name if frame else 'private-probe.py','source_line':frame.lineno if frame else 1}
  observation=getattr(globals().get('b'),'qa_backup_control_failure',None)
  if isinstance(observation,dict):safe['backup_control_failure']=observation
+ if stage.startswith('legacy_') and isinstance(globals().get('values'),dict):
+  safe['original_table_count']=len(values)
+  if isinstance(globals().get('previous'),dict):safe['changed_table_count']=sum(values.get(k)!=previous['values'].get(k) for k in set(values)|set(previous['values']))
  try:(path.parent/'probe-failure.json').write_text(json.dumps(safe),encoding='utf-8')
  except OSError:pass
  sys.__excepthook__(kind,value,tb)
@@ -391,7 +395,7 @@ if action in ('legacy-before','legacy-after'):
  admin=settings|{'database.0.username':'postgres','database.0.password':installation['PostgresPassword']}
  security={
   'cluster_system_identifier':b.query(admin,"select system_identifier::text from pg_control_system()"),
-  'identity':b.query(admin,"select jsonb_build_object('name',datname,'oid',oid,'owner',datdba,'acl',datacl::text) from pg_database where datname=current_database()",json_result=True),
+  'identity':b.query(admin,"select jsonb_build_object('name',datname,'oid',oid,'owner',datdba,'acl',datacl::text,'system_identifier',(select system_identifier::text from pg_control_system())) from pg_database where datname=current_database()",json_result=True),
   'roles':b.query(admin,"select json_agg(t order by oid) from (select oid,rolname,rolsuper,rolinherit,rolcreaterole,rolcreatedb,rolcanlogin,rolreplication,rolbypassrls,rolconnlimit,rolpassword,rolvaliduntil,(select coalesce(json_agg(s order by setdatabase),'[]') from (select setdatabase,setconfig from pg_db_role_setting where setrole=a.oid) s) role_config from pg_authid a) t",json_result=True),
   'memberships':b.query(admin,"select coalesce(json_agg(t order by roleid,member,grantor),'[]') from pg_auth_members t",json_result=True),
   'schema':b.query(admin,"select coalesce(json_agg(t order by oid),'[]') from (select oid,nspname,nspowner,nspacl::text from pg_namespace where nspname='public') t",json_result=True)}
@@ -410,12 +414,18 @@ if action in ('legacy-before','legacy-after'):
  snapshot={'security':digest(security),'tables':tables,'columns':columns,'values':values}
  if previous is None:save(snapshot)
  else:
-  if digest(security)!=previous['security'] or values!=previous['values']:raise RuntimeError('Original database identities, security or customer rows changed')
+  stage='legacy_security_identity'
+  if digest(security)!=previous['security']:raise RuntimeError('Original database security/cluster identity changed')
+  stage='legacy_original_customer_data'
+  if values!=previous['values']:raise RuntimeError('Original projected customer rows changed')
+  stage='legacy_relation_inventory'
   old_names={t['name'] for t in previous['tables']};new_names={t['name'] for t in tables}-old_names
   expected={'v_pbx_api_registrations','v_pbx_api_tokens','v_pbx_api_idempotency','v_pbx_api_rate','v_pbx_api_audit','v_pbx_onboarding_policy','v_pbx_onboarding','v_pbx_onboarding_jobs'}
   if new_names!=expected or [t for t in tables if t['name'] in old_names]!=previous['tables']:raise RuntimeError('Original relation OID/owner/ACL or new table inventory changed')
+  stage='legacy_column_definitions'
   old_projection=[c for c in columns if c['table_name'] in old_names and not(c['table_name']=='v_pbx_templates' and c['column_name']=='api_enabled')]
   if old_projection!=previous['columns']:raise RuntimeError('Original column definitions changed')
+  stage='legacy_source_ddl_model'
   package=Path(sys.argv[4]);ddl=[];source_hashes={}
   for relative in ['web/app/tenant_api/resources/install.sql','web/app/pbx_onboarding/resources/install.sql']:
    raw=(package/relative).read_bytes();source_hashes[relative]=hashlib.sha256(raw).hexdigest();text=raw.decode()
@@ -448,7 +458,7 @@ if action=='database':
  installation=json.loads((b.STATE/'installation.json').read_text(encoding='utf-8-sig'))
  admin=settings|{'database.0.username':'postgres','database.0.password':installation['PostgresPassword']}
  stage='database_identity'
- identity=b.query(admin,"select jsonb_build_object('name',datname,'oid',oid,'owner',datdba,'acl',datacl::text) from pg_database where datname=current_database()",json_result=True)
+ identity=b.query(admin,"select jsonb_build_object('name',datname,'oid',oid,'owner',datdba,'acl',datacl::text,'system_identifier',(select system_identifier::text from pg_control_system())) from pg_database where datname=current_database()",json_result=True)
  stage='database_roles'
  roles=b.query(admin,"select json_agg(t order by oid) from (select oid,rolname,rolsuper,rolinherit,rolcreaterole,rolcreatedb,rolcanlogin,rolreplication,rolbypassrls,rolconnlimit,rolpassword,rolvaliduntil,(select coalesce(json_agg(s order by setdatabase),'[]') from (select setdatabase,setconfig from pg_db_role_setting where setrole=a.oid) s) role_config from pg_authid a) t",json_result=True)
  stage='database_memberships'
@@ -895,7 +905,6 @@ try{
   Check (!(Test-Path $policyMarker)) 'The legacy baseline unexpectedly has a new-installation registration marker.'
   $policyBefore=Get-Content "$state/runtime.json" -Raw|ConvertFrom-Json
   Check (!$policyBefore.Onboarding.Required) 'The genuine public21 baseline requires an unexpected registration policy.'
-  $legacyDatabase=Join-Path $work 'public21-original-customer.private.json';Python @($probe,'legacy-before',$legacyDatabase)
   $protected21=@{};foreach($path in "$configuration/config.conf","$configuration/openweb-template.key","$state/runtime.json","$state/mobile-notifications/config.json","$state/phone-tls.json"){if(Test-Path $path){$protected21[$path]=@{sha256=(Hash $path);sddl=(Get-Acl $path).Sddl}}}
   $files21=FilesSnapshot;$tasks21=TaskSnapshot;$database21=DatabaseSnapshot 'public21-before-fault'
   Check (!$tasks21['OpenWebPBX-Onboarding'].exists) 'A genuine public21 baseline must not already contain the new onboarding task.'
@@ -911,6 +920,10 @@ try{
   EqualTaskSnapshots $tasks21 (TaskSnapshot) 'Cross-version rollback changed original21 task inventory/security or retained a new onboarding task.'
   Check (!(Test-Path $policyMarker)) 'Rollback added a legacy registration marker.'
   $report.gates.public21_rollback='passed'
+  # Immutable21 rollback intentionally recreates public schema/OIDs. The
+  # strict original rollback comparison above owns preservation across that
+  # transaction; normal upgrade receives its own prospective21 OID baseline.
+  $legacyDatabase=Join-Path $work 'public21-normal-before.private.json';Python @($probe,'legacy-before',$legacyDatabase)
   $normalStarted=[DateTime]::UtcNow
   $phase='ordinary exact candidate22 upgrade';$oldManager=CurrentManagerPid;$managerInvocation=[DateTime]::UtcNow
   $result=InvokeHelper (Join-Path $PackageRoot 'Upgrade-OpenWebPBX.ps1') @() 'public21-candidate22-normal'
