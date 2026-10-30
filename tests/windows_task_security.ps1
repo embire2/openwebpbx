@@ -38,7 +38,14 @@ foreach($path in $upgrade,$updater){
  AssertControl (Test-GenericEqualTaskSecurityBoundary $genericEqual ($path -ceq $updater))
 }
 # Preserve the old refusal, then exercise the narrow actual-AST exception.
-$actualEqual=SourceFunction $updater 'Equal';$actualText=$actualEqual.Extent.Text
+$actualEqual=SourceFunction $updater 'Equal';$actualText=$actualEqual.Extent.Text.Replace("`r`n","`n")
+# Explicit source-line-ending compatibility only. Mutation strings use LF so
+# their newline anchors still alter the real body on a CRLF checkout.
+$crlfTokens=$null;$crlfErrors=$null;$crlfAst=[Management.Automation.Language.Parser]::ParseInput($actualText.Replace("`n","`r`n"),[ref]$crlfTokens,[ref]$crlfErrors)
+AssertControl ($crlfErrors.Count -eq 0)
+$crlfEqual=@($crlfAst.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Equal'},$true))
+AssertControl ($crlfEqual.Count -eq 1 -and (Test-GenericEqualTaskSecurityBoundary $crlfEqual[0] $true))
+AssertControl (!(Test-GenericEqualTaskSecurityBoundary $crlfEqual[0]))
 AssertControl ($actualText -match 'TaskSecurity|TaskSnapshot|security')
 AssertControl (!(Test-GenericEqualTaskSecurityBoundary $actualEqual))
 $observer='if($Label -ceq ''normal-task-contract-security'' -and $report.comparison_result -ceq ''different''){try{$task=QualificationTaskDifference $Before $After;if($task){$script:qualificationComparisonFailure.task=$task}}catch{}}'
@@ -57,7 +64,7 @@ $mutations=@(
  $actualText.Replace("@('-I','-B',","@('-I',"),
  $actualText.Replace('backup-runtime\python.exe','backup-runtime\pythonw.exe'),
  $actualText.Replace('WriteJson $a $Before','WriteJson $a (Normalize $Before)'),
- $actualText.Replace('WriteJson $b $After','WriteJson $b $Before'),
+ $actualText.Replace('WriteJson $b $comparisonAfter','WriteJson $b $Before'),
  $actualText.Replace('WriteJson $a $Before','WriteJson $a (Test-OpenWebTaskSecurityEquivalent $Before $After)'),
  $actualText.Replace("`n  throw`n","`n  return`n"),
  $actualText.Replace("`n  throw`n","`n  throw 'replacement failure'`n"),
@@ -65,6 +72,10 @@ $mutations=@(
  $actualText.Replace("`n  throw`n","`n  break`n"),
  $actualText.Replace("`n  throw`n","`n  continue`n"),
  $actualText.Replace("`n  throw`n","`n  `$Before.Remove('acl');throw`n"),
+ $actualText.Replace("`$Label -ceq 'normal-protected-files'","`$Label -ceq 'normal-task-contract-security'"),
+ $actualText.Replace('Get-WindowsUpdaterProtectedComparisonCopy $Before $After $Label $state','Get-WindowsUpdaterProtectedComparisonCopy $After $Before $Label $state'),
+ $actualText.Replace('$comparisonAfter=$After;','$comparisonAfter=(Normalize $After);'),
+ $actualText.Replace('WriteJson $b $comparisonAfter','WriteJson $b (Normalize $After)'),
  $actualText.Replace('$path=Join-Path $work','return;$path=Join-Path $work'),
  $actualText.Replace("('compare-'+`$Label)}catch{","('compare-'+`$Label)}catch [IO.IOException]{"),
  $actualText.Replace("`n }`n}","`n }finally{Write-Output UNEXPECTED}`n}"),

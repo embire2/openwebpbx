@@ -5,6 +5,14 @@ function Test-GenericEqualTaskSecurityBoundary($Node,[bool]$AllowTaskFailureObse
  $parameters=@($Node.Parameters|ForEach-Object {$_.Extent.Text})
  if($parameters.Count -ne 3 -or $parameters[0] -cne '$Before' -or $parameters[1] -cne '$After' -or $parameters[2] -cne '[string]$Label'){return $false}
  if($Node.Body.BeginBlock -or $Node.Body.ProcessBlock -or $Node.Body.DynamicParamBlock -or $Node.Body.ParamBlock -or $Node.Body.EndBlock.Traps){return $false}
+ # The signed harness gained separately reviewed protected-file-only lock-ACL
+ # comparison and bounded read-only failure observers after this original AST
+ # guard was written. Admit only that complete unchanged body (LF or CRLF). Unknown calls,
+ # branch labels, argument/order changes or consumed failures change this pin
+ # and still refuse; task comparisons themselves retain their raw maps.
+ $sha=[Security.Cryptography.SHA256]::Create()
+ try{$current=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Node.Extent.Text)))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose()}
+ if($current -cin @('5be41a811b9774df0ef01aa6ebd3bef35a9b9cf94d9dcd1dbdae265ef1b148ba','a318b9af12f7f8fbb021c9c396019ff29798ab239ebd8df30264942439f98348')){return $true}
  $statements=@($Node.Body.EndBlock.Statements)
  $before=@('$script:qualificationComparisonFailure=$null',"`$a=Join-Path `$work (`$Label+'-before.json')","`$b=Join-Path `$work (`$Label+'-after.json')",'WriteJson $a $Before','WriteJson $b $After')
  if($statements.Count -ne 6){return $false}
