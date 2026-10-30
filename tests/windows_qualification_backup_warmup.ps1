@@ -21,6 +21,24 @@ Verify ($body.Contains('(TaskSnapshot)') -and $body.Contains("'exists','enabled'
 $source=$ast.Extent.Text;$call=$source.IndexOf('InitializeQualificationBackupWorker -Root $root -StateRoot $state -PackageRoot $package')
 Verify ($call -gt $source.IndexOf('$heldOriginalManager=RetainQualificationProcess'))
 foreach($text in @("`$beforeDb=DatabaseSnapshot 'before-fault'",'$beforeFiles=FileSnapshot','$beforeTasks=TaskSnapshot','$protected=FileSnapshot -Protected',"Python 'request';`$failure=WaitInstall")){Verify ($source.IndexOf($text) -gt $call)}
+# The manual genuine21 transition must use this same unchanged helper and its
+# original installed21 runtime, before its first private/full/DB/task baseline.
+$manualPath=Join-Path $SourceRoot 'tests/windows-upgrade-acceptance.ps1';$manualTokens=$null;$manualErrors=$null
+$manualAst=[Management.Automation.Language.Parser]::ParseFile($manualPath,[ref]$manualTokens,[ref]$manualErrors);Verify (@($manualErrors).Count -eq 0)
+$manualSource=$manualAst.Extent.Text
+$manualCalls=@($manualAst.FindAll({param($n)$n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -ceq 'InitializeQualificationBackupWorker'},$true));Verify ($manualCalls.Count -eq 1)
+Verify ($manualCalls[0].Extent.Text -ceq 'InitializeQualificationBackupWorker -Root $root -StateRoot $state -PackageRoot $fixtureInput.public21_package')
+Verify (@($manualAst.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'InitializeQualificationBackupWorker'},$true)).Count -eq 0)
+$imports=@($manualAst.FindAll({param($n)$n -is [Management.Automation.Language.ForEachStatementAst] -and $n.Condition.Extent.Text.Contains("'InitializeQualificationBackupWorker'")},$true));Verify ($imports.Count -eq 1)
+Verify ($imports[0].Body.Extent.Text.Contains('Check ($function.Count -eq 1)') -and $imports[0].Body.Extent.Text.Contains('Invoke-Expression $function[0].Extent.Text'))
+Verify ($manualSource.Contains("ParseFile((Join-Path `$PSScriptRoot 'windows-updater-qualification.ps1')"))
+$manualCall=$manualCalls[0].Extent.StartOffset
+foreach($text in '$private21=LegacyPrivateMediaSnapshot','$files21=FilesSnapshot','$tasks21=TaskSnapshot',"`$database21=DatabaseSnapshot 'public21-before-fault'"){
+ Verify ($manualSource.IndexOf($text) -gt $manualCall)
+}
+$owner=$manualCalls[0].Parent
+while($owner -and $owner -isnot [Management.Automation.Language.IfStatementAst]){$owner=$owner.Parent}
+Verify ($owner.Clauses[0].Item1.Extent.Text -ceq '$Public21ToCandidate22')
 $private='PRIVATE_SENTINEL_password_SDDL_S-1-5-21_customer'
 $temporary=Join-Path ([IO.Path]::GetTempPath()) ('BackupWarmup-'+$private+'-'+[guid]::NewGuid().ToString('N'))
 $null=New-Item -ItemType Directory $temporary

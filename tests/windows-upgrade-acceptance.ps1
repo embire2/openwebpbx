@@ -875,12 +875,16 @@ try{
   $phase='legacy policy and private media baseline'
   $taskTokens=$null;$taskErrors=$null;$taskAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'windows-updater-qualification.ps1'),[ref]$taskTokens,[ref]$taskErrors)
   Check (!$taskErrors.Count) 'The existing native preservation functions must parse.'
-  foreach($name in 'SnapshotHash','FileSnapshot','AssertNewOnboardingTaskSnapshot','NormalTaskPreservation'){
+  foreach($name in 'SnapshotHash','FileSnapshot','AssertNewOnboardingTaskSnapshot','NormalTaskPreservation','QualificationBackupWorkerFailureFields','ObserveQualificationBackupWorkerFailure','InitializeQualificationBackupWorker'){
    $function=@($taskAst.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
    Check ($function.Count -eq 1) 'One exact existing native preservation function is required.';Invoke-Expression $function[0].Extent.Text
   }
   . (Join-Path $PSScriptRoot 'windows_updater_file_acl_observation.ps1')
   $engine=$switch;$source=$fixtureInput.source_root
+  $phase='ordinary SYSTEM backup worker baseline initialization'
+  InitializeQualificationBackupWorker -Root $root -StateRoot $state -PackageRoot $fixtureInput.public21_package
+  $report.checks+='Actual unchanged installed21 SYSTEM backup task completed normally and initialized its persistent worker lock before all preservation baselines'
+  $phase='legacy policy and private media baseline'
   function LegacyPrivateMediaSnapshot {
    $entries=FileSnapshot -Protected
    # Existing protected inventory includes every storage/recording/config/key
