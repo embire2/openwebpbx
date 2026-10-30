@@ -54,6 +54,7 @@ SSH_BIN = Path(os.environ.get('SystemRoot', 'C:/Windows')) / 'System32/OpenSSH'
 HELD_UNITS = {'calls': 'FreeSWITCH', 'jobs': 'OpenWebPBX',
               'updates': 'OpenWebPBXUpdater', 'backups': 'OpenWebPBX-Backups'}
 RUNTIME_FILES = {'runtime.json', 'installation.json', 'phone-tls.json', 'meet-ca.pem'}
+REGISTRATION_FILES = ('image-local.json', 'image-onboarding/session.json')
 ROOTS = {
     'fusionpbx-config': CONFIG_ROOT,
     'runtime-config': STATE,
@@ -63,6 +64,7 @@ ROOTS = {
     'mobile-notifications': STATE / 'mobile-notifications',
     'mobile-push': STATE / 'mobile-push.json',
     'mobile-push-settings': STATE / 'mobile-push-settings.json',
+    'registration-state': STATE / 'tenant-domains/private',
 }
 MEDIA = {
     'storage': STATE / 'storage',
@@ -471,7 +473,10 @@ def file_inventory(roots):
         root = Path(root)
         if not root.exists():
             continue
-        paths = [root / name for name in sorted(RUNTIME_FILES) if (root / name).exists()] if label == 'runtime-config' and root.is_dir() else sorted(root.rglob('*')) if root.is_dir() else [root]
+        if label == 'registration-state':
+            paths = [root / name for name in REGISTRATION_FILES if (root / name).exists() or reparse(root / name)]
+        else:
+            paths = [root / name for name in sorted(RUNTIME_FILES) if (root / name).exists()] if label == 'runtime-config' and root.is_dir() else sorted(root.rglob('*')) if root.is_dir() else [root]
         for path in paths:
             if label == 'storage' and root.is_dir() and path.relative_to(root).parts[0] == 'recordings':
                 continue  # The separate recordings root is inside Windows storage.
@@ -521,7 +526,81 @@ def installation_layout():
             {'app': APP, 'state': STATE, 'config': CONFIG_ROOT, 'switch': SWITCH}.items()}
 
 
+def registration_private(paths, root):
+    """Read-only verification; never repair source registration permissions."""
+    for path in paths:
+        if any(reparse(item) for item in [path, *path.parents]):
+            raise BackupError('Linked registration recovery data refused.')
+    if os.name != 'nt':
+        if any(path.stat().st_mode & 0o077 for path in paths):
+            raise BackupError('Registration recovery data must remain private.')
+        return
+    code = r"""$ErrorActionPreference='Stop';$v=[Console]::In.ReadToEnd()|ConvertFrom-Json
+foreach($p in $v.paths){
+ $a=Get-Acl -LiteralPath $p;$owner=$a.GetOwner([Security.Principal.SecurityIdentifier]).Value
+ if($owner -notin 'S-1-5-18','S-1-5-32-544' -or ($p -eq $v.root -and !$a.AreAccessRulesProtected)){throw 'Private registration owner/protection required.'}
+ $raw=[Security.AccessControl.RawSecurityDescriptor]::new($a.Sddl)
+ if(!$raw.DiscretionaryAcl -or !($raw.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclPresent)){throw 'Private registration DACL required.'}
+ foreach($ace in $raw.DiscretionaryAcl){if($ace -isnot [Security.AccessControl.CommonAce] -or $ace.IsCallback){throw 'Unknown registration ACE refused.'};if($ace.AceQualifier -eq [Security.AccessControl.AceQualifier]::AccessAllowed -and $ace.SecurityIdentifier.Value -notin 'S-1-5-18','S-1-5-32-544'){throw 'Private registration access required.'}}
+};Write-Output 'PRIVATE_REGISTRATION'
+"""
+    result = run([str(Path(os.environ.get('SystemRoot', 'C:/Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe'),
+                  '-NoProfile', '-NonInteractive', '-Command', code], input=json.dumps({'paths': [str(path) for path in paths], 'root': str(root)}).encode(),
+                 env=native_powershell_environment(), timeout=30)
+    if result.decode('utf-8-sig').strip() != 'PRIVATE_REGISTRATION':
+        raise BackupError('The registration recovery permissions could not be verified.')
+
+
+@contextlib.contextmanager
+def registration_guard(roots):
+    private = roots.get('registration-state')
+    if private is None:
+        yield
+        return
+    private = Path(private)
+    if any(reparse(item) for item in [private, *private.parents]):
+        raise BackupError('Linked registration recovery directory refused.')
+    if not private.exists():
+        yield
+        return
+    if not private.is_dir():
+        raise BackupError('The registration recovery directory is unavailable.')
+    directory = private / 'image-onboarding'
+    paths = [private] + [private / name for name in REGISTRATION_FILES if (private / name).exists() or reparse(private / name)]
+    for authority in paths[1:]:
+        ordinary(authority)
+    if directory.exists() or reparse(directory):
+        paths.append(directory)
+    registration_private(paths, private)
+    # Metadata is returned before the consumer creates its directory. Establish
+    # its persistent lock location first, so an already prepared consumer cannot
+    # race snapshot/import even when no session directory existed at entry.
+    if not directory.exists() and not reparse(directory) and (private / 'image-local.json').exists():
+        try:
+            directory.mkdir(mode=0o700)
+        except FileExistsError:
+            pass
+        else:
+            secure_acl(directory, kind='private')
+        registration_private(paths + [directory], private)
+    if not directory.exists():
+        yield
+        return
+    if not directory.is_dir():
+        raise BackupError('The registration recovery directory is unavailable.')
+    # Same byte/inode as the consumer's CRT lock. Native sharing/byte-lock
+    # conflicts defer without changing the original device/session state.
+    with exclusive_guard(directory / 'worker.lock'):
+        yield
+
+
 def create_archive(settings, destination, password, *, include_media=True, roots=None, version=None):
+    selected = roots if roots is not None else ROOTS | (MEDIA if include_media else {})
+    with registration_guard(selected):
+        return _create_archive(settings, destination, password, include_media=include_media, roots=roots, version=version)
+
+
+def _create_archive(settings, destination, password, *, include_media=True, roots=None, version=None):
     if roots is None:
         standard = {'switch.conf.dir': str(SWITCH / 'conf'), 'switch.storage.dir': str(STATE / 'storage'),
                     'switch.voicemail.dir': str(STATE / 'storage/voicemail'),
@@ -590,6 +669,8 @@ def safe_member(name):
             raise BackupError('The backup contains an unknown private-data location.')
         if path.parts[0] == 'runtime-config' and (len(path.parts) != 2 or path.parts[1] not in RUNTIME_FILES):
             raise BackupError('The backup contains an unknown runtime file.')
+        if path.parts[0] == 'registration-state' and name not in tuple('registration-state/' + item for item in REGISTRATION_FILES):
+            raise BackupError('The backup contains an unknown registration recovery file.')
     return path
 
 
@@ -1058,6 +1139,19 @@ def restore_targets(manifest):
     return mapping
 
 
+def registration_restore_files():
+    """Rebuildable target caches; only the two source authority files are imported."""
+    private = ROOTS.get('registration-state')
+    if private is None:
+        return ()
+    root = Path(private).parent
+    return tuple(root / name for name in (
+        'instance-public.json', 'ready.json', 'setup.json',
+        'private/image-local.json', 'private/certificate-backoff.json',
+        'private/image-onboarding/session.json', 'private/image-onboarding/setup.txt',
+        'private/image-onboarding/retry.json'))
+
+
 def notification_directory(directory, *, create=False):
     for path in [directory, *directory.parents]:
         if reparse(path):
@@ -1069,6 +1163,9 @@ def notification_directory(directory, *, create=False):
 
 def acl_kind(target):
     target = Path(target)
+    private = ROOTS.get('registration-state')
+    if private is not None and (target == Path(private) or Path(private) in target.parents):
+        return 'private'
     if target == ROOTS['fusionpbx-config'] / 'tenant-domains-instance-key.pem':
         return 'private'
     if STATE / 'restored-source' == target or STATE / 'restored-source' in target.parents:
@@ -1130,6 +1227,9 @@ def atomic_copy(source, target, mode=0o640, group=33):
     try:
         with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.backup-restore-', delete=False) as stream:
             temporary = Path(stream.name)
+            if kind == 'private':
+                # Close an inherited broad DACL while the new file is empty.
+                secure_acl(temporary, kind=kind)
             with source.open('rb') as incoming:
                 shutil.copyfileobj(incoming, stream, CHUNK)
             stream.flush()
@@ -1137,6 +1237,8 @@ def atomic_copy(source, target, mode=0o640, group=33):
         temporary.chmod(mode)
         secure_acl(temporary, kind=kind)
         replace_file(temporary, target)
+        if target == ROOTS['fusionpbx-config'] / 'tenant-domains-instance-key.pem':
+            secure_acl(target, kind='private')
         sync_directory(target.parent)
     finally:
         # Close the stream before removal on Windows, including failures in
@@ -1207,7 +1309,7 @@ def refuse_restored_phone_recoveries(settings):
 
 def restore(source, password, settings, **kwargs):
     safe_private_directory(STORE)
-    with exclusive_guard(UPGRADE_LOCK), exclusive_guard(STORE/'worker.lock'):
+    with exclusive_guard(UPGRADE_LOCK), exclusive_guard(STORE/'worker.lock'), registration_guard(ROOTS):
         return _restore(source, password, settings, **kwargs)
 
 
@@ -1286,7 +1388,9 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
             raise BackupError('An application update is running. Finish it before restoring.')
         gates = plan_service_holds()
         services = gates['running']
-        recovery_targets = list(mapping.values()) + ([notification_fallback] if notification_fallback is not None else [])
+        registration_files = registration_restore_files()
+        recovery_targets = list(dict.fromkeys(list(mapping.values()) +
+            ([notification_fallback] if notification_fallback is not None else []) + list(registration_files)))
         parent_paths = recovery_parent_paths(recovery_targets)
         # Create durable recovery material before stopping any service or changing a file.
         administrator = local_database_administrator(settings, original_installation)
@@ -1320,6 +1424,7 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
                    'services': services, 'gates': gates, 'source_host': manifest['source_host'],
                    'factory_dump_sha256': checksum(RESTORE / 'factory.dump'), 'factory_security_version': 1, 'files': original,
                    'directories': directories, 'meeting_proxy': meeting_proxy,
+                   'registration_files': [str(path) for path in registration_files],
                    'call_records_hold': {'schema': 1, 'owner': 'restore', 'transaction': uuid.uuid4().hex}, 'state': 'prepared'}
         atomic_json(RESTORE / 'journal.json', journal)
         try:
@@ -1328,6 +1433,11 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
             atomic_json(RESTORE / 'journal.json', journal)
             restore_database(settings, extracted / 'database.dump', RESTORE,
                              factory_dump=RESTORE / 'factory.dump', administrator=administrator)
+            # Factory pairing/proof/readiness must not authenticate restored
+            # customer identities. Source session/key/grant are imported;
+            # native workers rebuild public transport after explicit activation.
+            for path in registration_files:
+                path.unlink(missing_ok=True)
             for name, target in mapping.items():
                 mode = manifest['files'][name]['mode'] & 0o750
                 if name.endswith(('config.conf', '.key', 'runtime.json')) or name.startswith('mobile-push'):
@@ -1372,7 +1482,7 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
 
 def recover(settings):
     safe_private_directory(STORE)
-    with exclusive_guard(UPGRADE_LOCK), exclusive_guard(STORE/'worker.lock'):
+    with exclusive_guard(UPGRADE_LOCK), exclusive_guard(STORE/'worker.lock'), registration_guard(ROOTS):
         return _recover(settings)
 
 
@@ -1388,6 +1498,10 @@ def _recover(settings):
     mapping = journal.get('files', {})
     if not isinstance(mapping, dict) or len(mapping) > MAX_FILES:
         raise BackupError('The factory file recovery inventory is invalid.')
+    if 'registration_files' in journal:
+        registration_files = journal['registration_files']
+        if registration_files != [str(path) for path in registration_restore_files()] or any(path not in mapping for path in registration_files):
+            raise BackupError('The factory registration recovery inventory is invalid.')
     allowed_roots = tuple(ROOTS.values()) + tuple(MEDIA.values())
     for target_name, entry in mapping.items():
         target = Path(target_name)

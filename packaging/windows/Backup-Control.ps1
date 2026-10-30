@@ -41,6 +41,8 @@ function PrivateAcl([string]$Path,[string]$Kind){
  $item=Get-Item -LiteralPath $path -Force
  $acl=if($item.PSIsContainer){New-Object Security.AccessControl.DirectorySecurity}else{New-Object Security.AccessControl.FileSecurity}
  $acl.SetAccessRuleProtection($true,$false)
+ $registration=Join-Path $private 'tenant-domains\private';$instanceKey=Join-Path $config 'tenant-domains-instance-key.pem'
+ if($Kind -eq 'private' -and ($path.Equals($registration,[StringComparison]::OrdinalIgnoreCase) -or $path.StartsWith($registration+'\',[StringComparison]::OrdinalIgnoreCase) -or $path.Equals($instanceKey,[StringComparison]::OrdinalIgnoreCase))){$acl.SetOwner([Security.Principal.SecurityIdentifier]'S-1-5-32-544')}
  $inherit=if($item.PSIsContainer){[Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'}else{[Security.AccessControl.InheritanceFlags]::None}
  $propagation=[Security.AccessControl.PropagationFlags]::None
  $allow=[Security.AccessControl.AccessControlType]::Allow

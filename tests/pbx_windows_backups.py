@@ -23,6 +23,8 @@ import uuid
 from unittest.mock import patch
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('windows_backups', ROOT / 'packaging/windows/backups.py')
@@ -198,6 +200,7 @@ class WindowsBackups(unittest.TestCase):
         roots = {'fusionpbx-config':state/'config','runtime-config':state,
                  'freeswitch-config':state/'switch-conf','phone-tls':state/'phone-tls',
                  'public-access':state/'public-access',
+                 'registration-state':state/'tenant-domains/private',
                  'mobile-notifications':state/'mobile-notifications','mobile-push':state/'mobile-push.json',
                  'mobile-push-settings':state/'mobile-push-settings.json','storage':state/'storage',
                  'recordings':state/'storage/recordings','custom-sounds':state/'sounds'}
@@ -230,6 +233,15 @@ class WindowsBackups(unittest.TestCase):
         # Runtime/database/uploads must never be traversed through the runtime-config label.
         (roots['runtime-config']/'do-not-backup.txt').write_text('unrelated runtime data')
         (roots['runtime-config']/'phone-health-instance.json').write_text(json.dumps({'schema':1,'instance_id':('a' if source else 'b')*64}))
+        # Original source authority and a distinct factory pairing must never mix.
+        private=roots['registration-state'];(private/'image-onboarding').mkdir(mode=0o700)
+        identity='source-service' if source else 'factory-service'
+        for name in b.REGISTRATION_FILES:
+            path=private/name;path.write_text(json.dumps({'identity':identity,'opaque_private_value':'source-session' if source else 'factory-session'}));path.chmod(0o600)
+        instance_key=ec.generate_private_key(ec.SECP256R1())
+        (roots['fusionpbx-config']/'tenant-domains-instance-key.pem').write_bytes(instance_key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
+        for path in (private.parent/'instance-public.json',private.parent/'ready.json',private.parent/'setup.json',private/'certificate-backoff.json',private/'image-onboarding/setup.txt',private/'image-onboarding/retry.json'):
+            path.write_text(identity+' rebuildable cache');path.chmod(0o600)
 
     @classmethod
     def tearDownClass(cls):
@@ -287,6 +299,10 @@ class WindowsBackups(unittest.TestCase):
             self.assertNotIn('storage/recordings/recording.wav',manifest['files'])
             self.assertNotIn('runtime-config/do-not-backup.txt',manifest['files'])
             self.assertNotIn('runtime-config/phone-health-instance.json',manifest['files'])
+            self.assertEqual({name for name in manifest['files'] if name.startswith('registration-state/')}, {'registration-state/'+name for name in b.REGISTRATION_FILES})
+            for name in b.REGISTRATION_FILES:
+                self.assertEqual((files/'registration-state'/name).read_bytes(),(self.source_roots['registration-state']/name).read_bytes())
+            self.assertNotIn(b'source-session',self.archive.read_bytes())
 
     def test_02_password_tamper_and_key_envelope(self):
         with self.assertRaises(b.BackupError):
@@ -297,7 +313,7 @@ class WindowsBackups(unittest.TestCase):
             with b.verify_archive(damaged,self.password):pass
 
     def test_03_windows_names_and_case_collisions(self):
-        for name in ('storage/NUL.wav','storage/a:stream','storage/a.','storage/a ','storage/../x','C:/x','storage/a\\b','runtime-config/database/file','runtime-config/phone-health-instance.json'):
+        for name in ('storage/NUL.wav','storage/a:stream','storage/a.','storage/a ','storage/../x','C:/x','storage/a\\b','runtime-config/database/file','runtime-config/phone-health-instance.json','registration-state/ready.json','registration-state/image-onboarding/device.json','registration-state/image-onboarding/session.json/extra','runtime-config/tenant-domains/private/image-local.json'):
             with self.assertRaises(b.BackupError):b.safe_member(name)
         payload=self.target_state/'collision.tar.gz'
         entries={'database.dump':b'', 'storage/A.wav':b'a','storage/a.wav':b'b'}
@@ -357,6 +373,16 @@ class WindowsBackups(unittest.TestCase):
         self.assertEqual(json.loads((b.RESTORE/'journal.json').read_text())['state'],'restored')
         self.assertEqual(b.query(self.target,'select enabled or sftp_enabled from v_pbx_backup_settings'),'f')
         self.assertEqual([op for op,_ in self.native_calls].count('start-web'),1)
+        for name in b.REGISTRATION_FILES:
+            self.assertEqual((self.target_roots['registration-state']/name).read_bytes(),(self.source_roots['registration-state']/name).read_bytes())
+            self.assertEqual(b.acl_kind(self.target_roots['registration-state']/name),'private')
+        self.assertEqual((self.target_roots['fusionpbx-config']/'tenant-domains-instance-key.pem').read_bytes(),(self.source_roots['fusionpbx-config']/'tenant-domains-instance-key.pem').read_bytes())
+        self.assertEqual(serialization.load_pem_private_key((self.target_roots['fusionpbx-config']/'tenant-domains-instance-key.pem').read_bytes(),None).curve.name,'secp256r1')
+        for path in b.registration_restore_files():
+            if path not in [self.target_roots['registration-state']/name for name in b.REGISTRATION_FILES]:self.assertFalse(path.exists(),str(path))
+        journal=json.loads((b.RESTORE/'journal.json').read_text())
+        self.assertEqual(journal['registration_files'],[str(path) for path in b.registration_restore_files()])
+        self.assertTrue(all(str(path) in journal['files'] for path in b.registration_restore_files()))
 
     def test_07_restore_failure_recovers_database_files_and_acl_plan(self):
         mailbox_before=b.query(self.target,'select jsonb_agg(to_jsonb(v) order by voicemail_uuid)::text from v_voicemails v')
@@ -723,6 +749,58 @@ class WindowsBackups(unittest.TestCase):
         self.assertEqual(identity.read_bytes(),identity_before)
         self.assertEqual(json.loads((b.RESTORE/'journal.json').read_text())['state'],'recovered')
         self.assertFalse(any(b.held(selection) for selection in b.HELD_UNITS))
+
+    def test_28_late_registration_import_recovers_all_factory_caches_and_keeps_target_marker(self):
+        marker=self.target_state/'installation-policy/onboarding-required'
+        marker.parent.mkdir();marker.write_bytes(b'owned target installation requirement')
+        before={path:path.read_bytes() for path in self.target_state.rglob('*') if path.is_file()}
+        security=self.database_security_state();original=b.atomic_copy;injected=False
+        archive_sha=b.checksum(self.archive)
+        def fail_after_session(source,target,**kwargs):
+            nonlocal injected
+            original(source,target,**kwargs)
+            if target==self.target_roots['registration-state']/'image-onboarding/session.json' and not injected:
+                injected=True
+                self.assertEqual(target.read_bytes(),(self.source_roots['registration-state']/'image-onboarding/session.json').read_bytes())
+                self.assertEqual((self.target_roots['fusionpbx-config']/'tenant-domains-instance-key.pem').read_bytes(),(self.source_roots['fusionpbx-config']/'tenant-domains-instance-key.pem').read_bytes())
+                self.assertEqual(b.query(self.target,'select count(*) from fixture_objects'),'3')
+                raise b.BackupError('Injected after actual source session and P256 import')
+        with patch.object(b,'atomic_copy',fail_after_session):
+            with self.assertRaisesRegex(b.BackupError,'Injected after actual source session'):
+                b.restore(self.archive,self.password,self.target,confirm_database=self.target_name)
+        self.assertTrue(injected)
+        for path,data in before.items():self.assertEqual(path.read_bytes(),data,str(path))
+        self.assertEqual(self.database_security_state(),security)
+        self.assertEqual(b.checksum(self.archive),archive_sha)
+        journal_file=b.RESTORE/'journal.json';journal=json.loads(journal_file.read_text())
+        self.assertEqual(journal['state'],'recovered')
+        self.assertEqual(len(journal['registration_files']),8)
+        self.assertFalse(any(b.held(selection) for selection in b.HELD_UNITS))
+        tampered=json.loads(json.dumps(journal));tampered['registration_files'].append(str(marker));b.atomic_json(journal_file,tampered)
+        with patch.object(b,'restore_database') as restore:
+            with self.assertRaisesRegex(b.BackupError,'registration recovery inventory'):b._recover(self.target)
+            restore.assert_not_called()
+        b.atomic_json(journal_file,journal)
+
+    def test_29_initially_absent_consumer_directory_keeps_only_persistent_coordination_after_recovery(self):
+        private=self.target_roots['registration-state'];directory=private/'image-onboarding'
+        shutil.rmtree(directory)
+        before={path:path.read_bytes() for path in private.rglob('*') if path.is_file()}
+        original=b.atomic_copy;failed=False;inode=[]
+        def once(source,target,**kwargs):
+            nonlocal failed
+            if not failed:
+                failed=True;inode.append((directory/'worker.lock').stat().st_ino)
+                raise b.BackupError('Injected after persistent registration guard establishment')
+            return original(source,target,**kwargs)
+        with patch.object(b,'atomic_copy',once):
+            with self.assertRaisesRegex(b.BackupError,'Injected after persistent registration'):
+                b.restore(self.archive,self.password,self.target,confirm_database=self.target_name)
+        for path,value in before.items():self.assertEqual(path.read_bytes(),value)
+        self.assertEqual({path for path in private.rglob('*') if path.is_file()}-set(before),{directory/'worker.lock'})
+        self.assertEqual((directory/'worker.lock').stat().st_ino,inode[0])
+        self.assertEqual(json.loads((b.RESTORE/'journal.json').read_text())['state'],'recovered')
+        self.assertEqual(b.query(self.target,'select count(*) from fixture_objects'),'0')
 
 
 if __name__=='__main__':
