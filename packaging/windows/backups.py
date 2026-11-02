@@ -21,6 +21,7 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+import time
 import uuid
 import ntpath
 if os.name == 'nt':
@@ -848,10 +849,33 @@ def prune_backups(settings, retention, *, store=STORE, downloads=DOWNLOADS):
         query(settings, 'delete from v_pbx_backups where backup_uuid=' + literal(row['backup_uuid']) + "::uuid and status='ready'")
 
 
+@contextlib.contextmanager
+def backup_worker_guard(path):
+    if os.name != 'nt':
+        with exclusive_guard(path):
+            yield
+        return
+    deadline = time.monotonic() + 30
+    with contextlib.ExitStack() as stack:
+        while True:
+            try:
+                stack.enter_context(exclusive_guard(path))
+                break
+            except BackupBusy:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise
+                time.sleep(min(0.25, remaining))
+        # Only acquisition retries. The worker body and its errors run once.
+        yield
+
+
 def worker(settings, **kwargs):
     if restore_pending() or (STATE / 'updates/maintenance').exists():
         return  # Never consume pending requests during a restore or update hold.
-    with exclusive_guard(UPGRADE_LOCK):
+    with backup_worker_guard(UPGRADE_LOCK):
+        if restore_pending() or (STATE / 'updates/maintenance').exists():
+            return
         return _worker(settings, **kwargs)
 
 
