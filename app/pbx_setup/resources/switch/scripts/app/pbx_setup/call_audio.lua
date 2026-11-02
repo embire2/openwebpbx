@@ -21,6 +21,9 @@ function M.apply(session,domain)
     for _,name in ipairs({'bypass_media','bypass_media_after_bridge','proxy_media'}) do
         session:execute('export',name..'=false')
     end
+    -- Own the outbound audio clock across locally generated silence and bridged RTP.
+    -- Apply to this caller and every new leg; address learning stays enabled.
+    session:execute('export','rtp_rewrite_timestamps=true')
     session:setVariable('disable_rtp_auto_adjust','false')
     session:setVariable('openweb_pbx_delivers_audio','true')
     -- Generate audible ringback when the destination signals ringing. Keep
