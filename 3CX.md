@@ -15,9 +15,12 @@ download; no additional feature-roadmap goals are marked complete.
 included in the private Windows22 candidate. Windows and CI builds contain the
 same 19,276 application files. The new full run failed its old schema comparison
 at the intended QR migration; a narrowly scoped correction passes actual
-PostgreSQL checks and [full replay41449724380](https://github.com/embire2/openwebpbx/actions/runs/41449724380)
-is running against the same package. This does not
-close the remaining installation, calling, restore or signed-update gates.
+PostgreSQL checks. [Full replay41449724380](https://github.com/embire2/openwebpbx/actions/runs/41449724380)
+advanced past that check, then failed on eight additional configuration entries;
+their qualification remains open. The actual Windows tenant-address readiness
+check also failed, and a separate diagnostic confirmed a maintenance-lock
+conflict before registration processing. Neither result closes the remaining
+installation, calling, restore or signed-update gates.
 Windows1.0.21 and Android1.0.19 remain the public downloads.
 
 ## Self-install and Webhotel onboarding — 2026-10-29
