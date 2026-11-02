@@ -4,6 +4,55 @@ Windows 1.0.22 is being qualified. The downloadable Windows release remains
 [1.0.21](https://github.com/embire2/openwebpbx/releases/tag/v1.0.21).
 Debian 1.0.22 and Android 1.0.19 retain their existing packages and feeds.
 
+## Release action plan — 2 November 2026
+
+Objective: publish Windows Server 1.0.22 with the registered setup wizard,
+existing PBX services, stable phone QR setup, verified recovery and a working
+signed updater. Additional feature development is deferred until this release
+is published. The release target is Windows Server 2025 with Desktop Experience.
+
+Current state: the native standard package from source `f2d755560` builds on
+the supplied Windows Server 2025 machine. All 19,276 payload hashes and sizes
+match the prospective manifest. This is a successful package build, not a
+completed release qualification. Its private ZIP SHA256 is
+`714486c49552c9fe2f7d629cc9008d5c6fe00e36e671b6ac3857b47f7bc61ae8`.
+Full-suite [41462303601](https://github.com/embire2/openwebpbx/actions/runs/41462303601)
+failed before packaging at a Python-version-sensitive AST test. Three attempts
+to exchange the registration helpers on the test server encountered sharing
+conflicts before writing anything. Registration recovery remains untested.
+
+| Order | Action | Completion requirement |
+|---|---|---|
+| 1 — parallel with 2 | Correct the narrowly identified test portability problem. Run affected controls with the relevant Python versions before another full run. Bind one candidate and its native/engine inputs. | Portable control passes while preserving the exact subprocess arguments and deadlines; any runtime change creates a new candidate. |
+| 2 — parallel with 1 | Resolve the test server's update-lock contention through a controlled maintenance window. Identify current owners, preserve data and original schedule choices, pause only owned conflicting work as needed, apply the reviewed registration correction and restore the original choices. | Exact new helpers, preserved data/security/identity and automatic worker recovery; ordinary tenant DNS, trusted HTTPS and registration reach ready. No manually fabricated ready state. |
+| 3 | Run one complete CI suite and the actual Windows installation/setup checks in parallel once their prerequisites pass. Reuse already-qualified native and engine builds; authenticate the final package and source. | Genuine public21 upgrade/rollback plus the unchanged software suite pass. Actual final-package setup follows the public wizard, enforces registration and supports stable QR provisioning, software SIP calls with decoded two-way audio, voicemail, routing, media and Phone Health within their declared scope. |
+| 4 | Complete recovery on the supplied Windows machine after functional acceptance: natural encrypted backup, protected off-server copy, actual reboot and clean replacement restore. Prepare the signed-update fixture independently while this runs. | Original extension credentials, tenant authority, configuration, voicemail and recordings survive; restored services and calls work. Restore qualification uses the final package. |
+| 5 | Qualify the real installed public21 signed updater against the final candidate, including late failure/automatic rollback and normal completion. Check the installed22 operator path. | Five-minute checking, downloaded-and-verified package before shutdown, mandatory notice on Windows, red web banner, continued service while update is deferred, unattended install and automatic service restart. Failed install recovers the prior version/data. |
+| 6 | Sign and publish after the required gates pass. Create windows-v1.0.22, add the byte-identical Windows ZIP mirror needed by the existing updater, publish the Windows feed and update the website, README and release documentation. | Unauthenticated public downloads match the signed metadata; the native updater accepts the actual public feed; download buttons and docs agree on the supported Windows release. Existing Debian/Android assets and feeds retain their separate versions. |
+
+Execution rules for the quickest reliable release:
+
+- Keep the two immediate blockers parallel, then run CI and actual-server
+  qualification independently. Prepare publication text and recovery inputs
+  while tests are running.
+- Run focused checks before long suites. Repeat a passing gate only when the
+  candidate, relevant environment or an unresolved failure warrants it.
+- A test-only correction reuses valid runtime/build evidence. A runtime change
+  requires the affected integration checks and a newly bound final package.
+- Capture a specific failing boundary, fix it and rerun the affected work;
+  avoid repeated blind lock attempts, package rebuilds or longer observation
+  windows. Keep original failed attempts as failed.
+- Give progress at blocker resolution, full-suite completion, recovery/update
+  completion and publication. Establish a launch estimate after steps 1 and 2
+  pass; the full CI job has a two-hour upper bound, not a promised release time.
+
+Execution has started with steps 1 and 2 in parallel. Automated qualification,
+actual-server registration and recovery/publication preparation have separate
+owners. No additional user decision is currently required.
+Publication closes only after the final required checks
+and actual public delivery succeed. Physical-phone, carrier and camera tests
+retain their explicit evidence limits.
+
 The new Windows installer uses the same [public setup wizard](https://openwebpbx.com/wizard)
 as Debian: connect an account, verify its email, choose the tenant address,
 and let the server obtain its managed DNS, HTTPS certificates and installation
