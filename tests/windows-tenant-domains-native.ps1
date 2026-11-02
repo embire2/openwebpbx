@@ -58,9 +58,9 @@ function Operation([string]$Name,[string]$Thumb='',[string]$InputPath=''){
  if($LASTEXITCODE){throw 'The packaged tenant-domain operation refused.'};return (($raw -join "`n")|ConvertFrom-Json)
 }
 function PrivateAcl([string]$Path,[bool]$Public){
- $acl=Get-Acl -LiteralPath $Path;$allowed=@('S-1-5-18','S-1-5-32-544');if($Public){$allowed+=@('S-1-5-32-568','S-1-5-17')}
+ $acl=Get-Acl -LiteralPath $Path;$allowed=@('S-1-5-18','S-1-5-32-544');if($Public){$allowed+=@('S-1-5-32-568','S-1-5-17','S-1-5-19')}
  Check ($acl.AreAccessRulesProtected -and $acl.Access.Count -eq $allowed.Count -and $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ceq 'S-1-5-32-544') 'Actual protected ACL has only expected principals'
- foreach($rule in $acl.Access){$sid=$rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value;Check ($sid -in $allowed -and $rule.AccessControlType -eq 'Allow') 'Actual ACL principal and access type';if($sid -in 'S-1-5-32-568','S-1-5-17'){Check (([int]$rule.FileSystemRights -band [int][Security.AccessControl.FileSystemRights]::Write) -eq 0) 'IIS can read but cannot write public proof state'}}
+ foreach($rule in $acl.Access){$sid=$rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value;Check ($sid -in $allowed -and $rule.AccessControlType -eq 'Allow') 'Actual ACL principal and access type';if($sid -in 'S-1-5-32-568','S-1-5-17','S-1-5-19'){Check (([int]$rule.FileSystemRights -band [int][Security.AccessControl.FileSystemRights]::Write) -eq 0) 'IIS can read but cannot write public proof state'}}
 }
 function Https([string]$HostName,[string]$Path,[string]$Method='GET'){
  $client=[Net.Sockets.TcpClient]::new();$stream=$null

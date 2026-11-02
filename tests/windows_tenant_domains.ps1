@@ -23,11 +23,11 @@ Check ($baseAllowed.Count -eq 1 -and $publicAllowed.Count -eq 1 -and $membership
 $makeAllowed=[scriptblock]::Create(('param([bool]$Public)' + "`n" + $baseAllowed[0].Extent.Text + "`n" + $publicAllowed[0].Extent.Text + "`n" + 'return ,$allowed'))
 $refusedSid=[scriptblock]::Create(('param($sid,$allowed)' + "`n" + $membership[0].Extent.Text))
 $publicPrincipals=& $makeAllowed $true;$privatePrincipals=& $makeAllowed $false
-Check ($publicPrincipals.Count -eq 4 -and @($publicPrincipals|Where-Object {$_ -isnot [string]}).Count -eq 0) 'Public ACL verification uses four flat SID strings'
+Check ($publicPrincipals.Count -eq 5 -and @($publicPrincipals|Where-Object {$_ -isnot [string]}).Count -eq 0) 'Public ACL verification uses five flat SID strings'
 Check ($privatePrincipals.Count -eq 2 -and @($privatePrincipals|Where-Object {$_ -isnot [string]}).Count -eq 0) 'Private ACL verification retains two flat privileged SIDs'
-foreach($sid in 'S-1-5-18','S-1-5-32-544','S-1-5-32-568','S-1-5-17'){Check (!(& $refusedSid $sid $publicPrincipals)) 'Actual public membership expression accepts each intended principal'}
+foreach($sid in 'S-1-5-18','S-1-5-32-544','S-1-5-32-568','S-1-5-17','S-1-5-19'){Check (!(& $refusedSid $sid $publicPrincipals)) 'Actual public membership expression accepts each intended principal'}
 foreach($sid in 'S-1-5-18','S-1-5-32-544'){Check (!(& $refusedSid $sid $privatePrincipals)) 'Actual private membership expression accepts each privileged principal'}
-foreach($sid in 'S-1-5-32-568','S-1-5-17'){Check (& $refusedSid $sid $privatePrincipals) 'Actual private membership expression refuses both web principals'}
+foreach($sid in 'S-1-5-32-568','S-1-5-17','S-1-5-19'){Check (& $refusedSid $sid $privatePrincipals) 'Actual private membership expression refuses all public readers'}
 Check ((& $refusedSid 'S-1-1-0' $publicPrincipals) -and (& $refusedSid 'S-1-1-0' $privatePrincipals)) 'Actual verification refuses an unintended principal'
 foreach($name in 'abc.openwebpbx.com','company-123.openwebpbx.com'){Check ((Assert-OpenWebTenantName $name) -ceq $name) 'Exact leased name'}
 foreach($name in 'domains.openwebpbx.com.evil.invalid','a.openwebpbx.com','abc.def.openwebpbx.com','Abc.openwebpbx.com','*.openwebpbx.com','abc.openwebpbx.com:443',"abc.openwebpbx.com`n",'abc.openwebpbx.com/path'){Refuses {Assert-OpenWebTenantName $name} 'Non-lease hostname refused'}
@@ -52,7 +52,7 @@ try{
   foreach($rule in $acl.Access){Check ($rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -in 'S-1-5-18','S-1-5-32-544') 'No web-user key access'}
   Refuses {Set-OpenWebTenantAcl $key $false $true} 'Private key cannot become web-readable'
   Set-OpenWebTenantAcl $private $true $false;$marker=Join-Path $state 'ready.json';[IO.File]::WriteAllText($marker,'{}');Set-OpenWebTenantAcl $marker $false $true
-  $rules=(Get-Acl -LiteralPath $marker).Access;Check ($rules.Count -eq 4) 'Public ready marker has bounded IIS and IUSR read rules';Check (@($rules|Where-Object {$_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -in 'S-1-5-32-568','S-1-5-17' -and ([int]$_.FileSystemRights -band [int][Security.AccessControl.FileSystemRights]::Write) -ne 0}).Count -eq 0) 'IIS cannot write ready marker'
+  $rules=(Get-Acl -LiteralPath $marker).Access;Check ($rules.Count -eq 5) 'Public ready marker has bounded IIS, IUSR and LocalService read rules';Check (@($rules|Where-Object {$_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -in 'S-1-5-32-568','S-1-5-17','S-1-5-19' -and ([int]$_.FileSystemRights -band [int][Security.AccessControl.FileSystemRights]::Write) -ne 0}).Count -eq 0) 'Public readers cannot write ready marker'
   $outside=Join-Path $fixture 'outside';[IO.File]::WriteAllText($outside,'original');$outsideAcl=(Get-Acl -LiteralPath $outside).Sddl;Refuses {Set-OpenWebTenantAcl $outside $false $false} 'Outside target refused';Check ((Get-Acl -LiteralPath $outside).Sddl -ceq $outsideAcl) 'Outside security exact';Check ((Get-Acl -LiteralPath $fixture).Sddl -ceq $before) 'Containing security exact';Check ([IO.File]::ReadAllText($key) -ceq 'fictional-private-key') 'Key bytes exact'
  }else{Write-Output 'Windows actual ACL/IIS/ACME execution not qualified on this platform.'}
 }finally{
