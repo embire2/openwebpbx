@@ -23,6 +23,8 @@ $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-task-preservation-diagnostics.ps1')
 . (Join-Path $PSScriptRoot 'windows-upgrade-health-quiescence.ps1')
 . (Join-Path $PSScriptRoot 'windows_updater_file_acl_observation.ps1')
+. (Join-Path $PSScriptRoot 'windows-empty-tenant-private-files.ps1')
+. (Join-Path $PSScriptRoot 'windows-signed-empty-tenant.ps1')
 . (Join-Path $PSScriptRoot 'windows_updater_database_observation.ps1')
 $actualCandidate=$Mode -in 'PrepareActualCandidate','QualifyActualCandidate'
 if($actualCandidate -and ($BaseVersion -cne '1.0.21' -or $CanaryVersion -cne '1.0.22' -or !$TargetSuiteRunId)){throw 'Actual-candidate qualification requires public21, actual22 and an exact eligible target full-suite run.'}
@@ -306,7 +308,9 @@ function WaitActualTenantIdle {
  do{
   $tenant=Get-ScheduledTask -TaskName 'OpenWebPBX-TenantDomains';Assert-OpenWebQualificationTenantTask $tenant
   Check $tenant.Settings.Enabled 'The actual natural-migration case needs the genuinely enabled original worker.'
-  if([string]$tenant.State -cnotin 'Running','Queued' -and (Get-OpenWebQualificationTenantProcesses) -eq 0){return}
+  $info=Get-ScheduledTaskInfo -TaskName 'OpenWebPBX-TenantDomains' -TaskPath '\'
+  $initialized=@((Get-WindowsEmptyTenantPaths).Keys|Where-Object {!(Test-Path -LiteralPath $_)})
+  if([string]$tenant.State -cnotin 'Running','Queued' -and (Get-OpenWebQualificationTenantProcesses) -eq 0 -and $info.LastTaskResult-eq 0 -and $info.LastRunTime-gt [DateTime]::MinValue -and !$initialized.Count){return}
   Check ([DateTime]::UtcNow -lt $deadline) 'The enabled owned tenant worker did not become idle before the preservation baseline.'
   Start-Sleep -Milliseconds 250
  }while($true)
@@ -1122,7 +1126,17 @@ if(!$?){exit 1}
    foreach($key in 'identity','cluster','roles','memberships','role_settings','schema'){Check ($beforeDb.$key -ceq $afterDb.$key) 'Original21 database/cluster/security identity changed.'}
    WaitActualOnboardingMigration $requestStarted
   }else{Equal $beforeDb $afterDb 'normal-database'}
-  Equal $protected (FileSnapshot -Protected -Stage 'after_normal_protected') 'normal-protected-files'
+  $afterProtectedFiles=FileSnapshot -Protected -Stage 'after_normal_protected';$normalProtectedFiles=$afterProtectedFiles;$signedTenantProjection=$false
+  if($actualCandidate){
+   # Retain the full raw difference encrypted before any source projection and
+   # before later task/operator assertions, including when admission refuses.
+   $observation=Get-WindowsUpdaterAclObservation $protected $afterProtectedFiles
+   if($observation){$validated=Read-WindowsUpdaterAclObservation $observation;Check ($validated.state-ceq 'captured') 'The exact signed-file observation is unavailable.';$facts.signed_empty_tenant_file_security=$validated}
+   $normalProtectedFiles=Get-WindowsSignedTenantComparisonCopy $protected $afterProtectedFiles $package $actualPackage 'windowsqa.example.invalid' (Join-Path $qa 'signed-empty-tenant-content.safe.json')
+   if(![object]::ReferenceEquals($normalProtectedFiles,$afterProtectedFiles)){$signedTenantProjection=$true;Check ($facts.signed_empty_tenant_file_security.state-ceq 'captured') 'Source projection requires retained encrypted raw records.'}
+  }
+  Equal $protected $normalProtectedFiles 'normal-protected-files'
+  if($actualCandidate -and $signedTenantProjection){$facts.signed_empty_tenant_component=@{schema=1;state='passed';source_model='empty-tenant-source-contract';branch=if($protected.Contains('C:\ProgramData\OpenWebPBX\tenant-domains')){'existing-public-acl4-to5'}else{'all-eight-absent'};original_private_bytes_exact=$true;other_original_metadata='unchanged original comparator and its existing owned-lock contract';empty_ready_bytes_exact=$true;prior_failed_CI_paths_known=$false}}
   $afterProtected=Get-Content "$state\installation.json" -Raw|ConvertFrom-Json -AsHashtable;$afterProtected.Remove('Version')|Out-Null;Equal $installationProtected $afterProtected 'normal-installation-secrets'
   NormalTaskPreservation $beforeTasks (TaskSnapshot) $requestStarted;Check (!(Test-Path "$state\updates\failed-install.json")) 'Success must clear the exact failed-install marker.'
   $status=Get-Content "$state\updates\status.json" -Raw|ConvertFrom-Json;Check ($status.last_success_version -eq $CanaryVersion -and $status.installed_version -eq $CanaryVersion) 'The naturally restarted real14 worker must retain last-success and current-version state.'
