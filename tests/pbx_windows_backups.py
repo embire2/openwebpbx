@@ -169,7 +169,9 @@ class WindowsBackups(unittest.TestCase):
     def schema(cls, settings, source=False):
         b.query(settings, '''CREATE TABLE v_users(user_uuid uuid PRIMARY KEY,username text,user_enabled text);
           CREATE TABLE v_domains(domain_uuid uuid PRIMARY KEY,domain_name text);
-          CREATE TABLE v_extensions(id uuid PRIMARY KEY);
+          CREATE TABLE v_extensions(extension_uuid uuid PRIMARY KEY);
+          CREATE TABLE v_email_queue(email_queue_uuid uuid PRIMARY KEY,email_status text,
+            update_date timestamptz,email_retry_count integer NOT NULL DEFAULT 0,email_response text);
           CREATE TABLE v_pbx_tenants(id uuid PRIMARY KEY);CREATE TABLE v_pbx_services(id uuid PRIMARY KEY);
           CREATE TABLE v_pbx_restore(id uuid PRIMARY KEY);CREATE TABLE v_recordings(id uuid PRIMARY KEY);
           CREATE TABLE v_voicemail_messages(id uuid PRIMARY KEY);
@@ -245,7 +247,7 @@ class WindowsBackups(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        try:cls.pg_run('pg_ctl','-D',str(cls.cluster),'-m','immediate','-w','stop')
+        try:cls.pg_run('pg_ctl','-D',str(cls.cluster),'-m','fast','-w','stop')
         finally:shutil.rmtree(cls.work)
 
     def setUp(self):
@@ -273,6 +275,11 @@ class WindowsBackups(unittest.TestCase):
         policy = b.WEB_VERSION.parent/'app/voicemails/resources/voicemail_without_pins.sql'
         policy.parent.mkdir(parents=True)
         shutil.copyfile(ROOT/'app/voicemails/resources/voicemail_without_pins.sql',policy)
+        # Real foreign-key prerequisites above and the exact installed component
+        # let restore run its actual mobile migration; no migration stub is used.
+        mobile = b.WEB_VERSION.parent/'app/pbx_mobile/resources/install.sql'
+        mobile.parent.mkdir(parents=True)
+        shutil.copyfile(ROOT/'app/pbx_mobile/resources/install.sql',mobile)
 
     def tearDown(self):
         for p in reversed(self.patches):p.stop()
@@ -336,7 +343,9 @@ class WindowsBackups(unittest.TestCase):
 
     def test_05_restore_dry_run_and_identity(self):
         original=(self.target_roots['fusionpbx-config']/'openweb-template.key').read_bytes()
-        result=b.restore(self.archive,self.password,self.target,dry_run=True)
+        with patch.object(b,'apply_mobile_schema',wraps=b.apply_mobile_schema) as migrate:
+            result=b.restore(self.archive,self.password,self.target,dry_run=True)
+            migrate.assert_not_called()
         self.assertEqual(result['version'],'1.0.13')
         self.assertEqual((self.target_roots['fusionpbx-config']/'openweb-template.key').read_bytes(),original)
         self.assertFalse((b.RESTORE/'journal.json').exists())
@@ -801,6 +810,141 @@ class WindowsBackups(unittest.TestCase):
         self.assertEqual((directory/'worker.lock').stat().st_ino,inode[0])
         self.assertEqual(json.loads((b.RESTORE/'journal.json').read_text())['state'],'recovered')
         self.assertEqual(b.query(self.target,'select count(*) from fixture_objects'),'0')
+
+    def mobile_schema(self, settings, legacy=False):
+        path=ROOT/'tests/fixtures/pbx_mobile_public21.sql' if legacy else ROOT/'app/pbx_mobile/resources/install.sql'
+        if legacy:
+            # Exact immutable cab93 public21 component, not a reduced migration model.
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),'e4f01ec5e0e610f781a59bb065b47dbf10af7d87da92f9777655b91f1d48f89e')
+        b.query(settings,path.read_text())
+
+    def public_rows(self, settings):
+        names=b.query(settings,"select json_agg(tablename order by tablename) from pg_tables where schemaname='public'",json_result=True)
+        return {name:b.query(settings,'select coalesce(jsonb_agg(to_jsonb(t) order by to_jsonb(t)::text),\'[]\'::jsonb)::text from "'+name+'" t') for name in names}
+
+    def mobile_snapshot(self, settings, projection=None):
+        if projection is None:
+            names=b.query(settings,"select coalesce(json_agg(tablename order by tablename),'[]'::json) from pg_tables where schemaname='public' and (tablename like 'v_pbx_mobile_%' or tablename='v_pbx_windows_phone_policies')",json_result=True)
+            projection={name:b.query(settings,"select json_agg(attname order by attnum) from pg_attribute where attrelid="+b.literal(name)+"::regclass and attnum>0 and not attisdropped",json_result=True) for name in names}
+        rows={}
+        for name,columns in projection.items():
+            selected=','.join('"'+column.replace('"','""')+'"' for column in columns)
+            rows[name]=b.query(settings,'select coalesce(jsonb_agg(to_jsonb(t) order by to_jsonb(t)::text),\'[]\'::jsonb)::text from (select '+selected+' from "'+name+'") t')
+        return projection,rows
+
+    def mobile_crypto(self, settings, ids, key, action):
+        # Actual seal/open methods and actual protected-key bytes; only the
+        # filesystem key locator is redirected to this owned fixture.
+        code=r'''$v=json_decode(stream_get_contents(STDIN),true,8,JSON_THROW_ON_ERROR);
+class pbx_paths {public static string $path;public static function key():string{return self::$path;}}
+pbx_paths::$path=$v['key'];require $argv[1];$db=new PDO($v['dsn'],$v['user'],$v['password'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);$mobile=new pbx_mobile($db);
+if($v['action']==='seal'){$m=new ReflectionMethod(pbx_mobile::class,'sealSetup');$out=$m->invoke($mobile,$v['code'],['domain_uuid'=>$v['domain'],'extension_uuid'=>$v['extension'],'number'=>'1000'],$v['origin']);}
+else{$q=$db->prepare('select * from v_pbx_mobile_enrollments where enrollment_uuid=?');$q->execute([$v['enrollment']]);$m=new ReflectionMethod(pbx_mobile::class,'openSetup');$out=$m->invoke($mobile,$q->fetch(PDO::FETCH_ASSOC));}
+echo json_encode($out,JSON_THROW_ON_ERROR);'''
+        values={'dsn':f"pgsql:host=127.0.0.1;port={self.port};dbname={settings['database.0.name']}",'user':settings['database.0.username'],'password':settings['database.0.password'],
+                'key':str(key),'action':action,'code':ids['code'],'domain':ids['domain'],'extension':ids['extension'],'enrollment':ids['enrollment'],'origin':'https://owned-mobile.fixture.invalid'}
+        result=subprocess.run(['php','-d','display_errors=stderr','-d','log_errors=0','-r',code,str(ROOT/'resources/classes/pbx_mobile.php')],input=json.dumps(values).encode(),capture_output=True,timeout=15)
+        self.assertEqual(result.returncode,0,'Actual fixture mobile cryptography failed');self.assertEqual(result.stderr,b'')
+        return json.loads(result.stdout)
+
+    def seed_mobile(self, settings, key, stable=False):
+        ids={name:str(uuid.uuid4()) for name in ('extension','enrollment','device','welcome','queue')}
+        ids.update(domain=b.query(settings,'select domain_uuid from v_domains limit 1'),user=b.query(settings,'select user_uuid from v_users limit 1'),code=secrets.token_hex(32))
+        def execute(sql,*values):b.query(settings,sql.format(*[b.literal(value) for value in values]))
+        execute('insert into v_extensions values({})',ids['extension'])
+        execute("insert into v_email_queue(email_queue_uuid,email_status)values({},'waiting')",ids['queue'])
+        execute("insert into v_pbx_mobile_enrollments(enrollment_uuid,domain_uuid,extension_uuid,code_hash,created_by,expires_at,purpose)values({},{},{},{},{},'2030-01-01T00:00:00Z','screen')",ids['enrollment'],ids['domain'],ids['extension'],hashlib.sha256(ids['code'].encode()).hexdigest(),ids['user'])
+        execute("insert into v_pbx_mobile_devices(device_uuid,domain_uuid,extension_uuid,device_name,platform,token_hash,sip_username,sip_a1_hash,expires_at)values({},{},{},'owned phone','android',{}, {}, {},'2030-01-01T00:00:00Z')",ids['device'],ids['domain'],ids['extension'],'b'*64,'owm-'+uuid.uuid4().hex,'c'*32)
+        execute("insert into v_pbx_mobile_accounts(extension_uuid,domain_uuid,password_hash,generation,updated_by)values({},{},{},7,{})",ids['extension'],ids['domain'],'$argon2id$fixture-byte-preservation-only',ids['user'])
+        execute("insert into v_pbx_mobile_welcome(welcome_uuid,domain_uuid,extension_uuid,email_queue_uuid,enrollment_uuid,recipient,created_by,expires_at)values({},{},{},{},{},'owned@example.invalid',{},'2030-01-01T00:00:00Z')",ids['welcome'],ids['domain'],ids['extension'],ids['queue'],ids['enrollment'],ids['user'])
+        if stable:
+            cipher=self.mobile_crypto(settings,ids,key,'seal')
+            execute('update v_pbx_mobile_enrollments set code_ciphertext={},server_origin={},expires_at=null where enrollment_uuid={}',cipher,'https://owned-mobile.fixture.invalid',ids['enrollment'])
+            execute('update v_pbx_mobile_welcome set expires_at=null where welcome_uuid={}',ids['welcome'])
+            b.query(settings,"update v_pbx_windows_phone_policies set mode='required',minimum_version='1.2.3'")
+        return ids
+
+    def mobile_welcome_lookup(self, settings, ids):
+        # The current production welcome SQL runs unchanged. Authorization/user
+        # selection alone is an explicit adapter; this is not a browser gate.
+        code=r'''$v=json_decode(stream_get_contents(STDIN),true,8,JSON_THROW_ON_ERROR);
+class pbx_mobile {public function __construct(PDO $db){}public function adminExtension(string $number):array{return $GLOBALS['owned_extension'];}}
+$GLOBALS['owned_extension']=['domain_uuid'=>$v['domain'],'extension_uuid'=>$v['extension']];require $argv[1];
+$db=new PDO($v['dsn'],$v['user'],$v['password'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+try{$r=(new pbx_mobile_welcome($db))->latest('1000');echo json_encode(['state'=>'observed','resultState'=>$r['state'],'nullableExpiry'=>$r['expires_at']===null],JSON_THROW_ON_ERROR);}catch(PDOException $e){echo json_encode(['state'=>'refused','sqlstate'=>$e->getCode()],JSON_THROW_ON_ERROR);}'''
+        values={'dsn':f"pgsql:host=127.0.0.1;port={self.port};dbname={settings['database.0.name']}",'user':settings['database.0.username'],'password':settings['database.0.password'],'domain':ids['domain'],'extension':ids['extension']}
+        result=subprocess.run(['php','-d','display_errors=stderr','-d','log_errors=0','-r',code,str(ROOT/'resources/classes/pbx_mobile_welcome.php')],input=json.dumps(values).encode(),capture_output=True,timeout=15)
+        self.assertEqual(result.returncode,0,'Actual fixture welcome query failed');self.assertEqual(result.stderr,b'')
+        return json.loads(result.stdout)
+
+    def test_30_mobile_public21_schema_and_welcome_lookup_migrate_without_changing_rows(self):
+        self.mobile_schema(self.target,legacy=True)
+        ids=self.seed_mobile(self.target,self.target_roots['fusionpbx-config']/'openweb-template.key')
+        projection,before=self.mobile_snapshot(self.target)
+        self.assertEqual(self.mobile_welcome_lookup(self.target,ids),{'state':'refused','sqlstate':'42703'})
+        b.apply_mobile_schema(self.target)
+        self.assertEqual(self.mobile_snapshot(self.target,projection)[1],before)
+        self.assertEqual(self.mobile_welcome_lookup(self.target,ids),{'state':'observed','resultState':'waiting','nullableExpiry':False})
+        self.assertEqual(b.query(self.target,"select count(*) from pg_attribute where attrelid='v_pbx_mobile_enrollments'::regclass and attname in('code_ciphertext','server_origin','revoked_at') and not attisdropped"),'3')
+        self.assertEqual(b.query(self.target,"select count(*) from pg_attribute where attrelid in('v_pbx_mobile_enrollments'::regclass,'v_pbx_mobile_welcome'::regclass) and attname='expires_at' and not attnotnull"),'2')
+        self.assertEqual(b.query(self.target,"select confdeltype from pg_constraint where conrelid='v_pbx_mobile_enrollments'::regclass and conname='v_pbx_mobile_enrollments_created_by_fkey'"),'n')
+        migrated=self.mobile_snapshot(self.target)
+        b.apply_mobile_schema(self.target)
+        self.assertEqual(self.mobile_snapshot(self.target),migrated)
+
+    def test_31_stable_mobile_restore_preserves_ciphertext_accounts_credentials_and_keys(self):
+        name='mobile_source_'+secrets.token_hex(6);self.admin_sql('create database '+name+' template source_pbx owner source_app')
+        settings=self.source|{'database.0.name':name}
+        try:
+            self.mobile_schema(settings)
+            ids=self.seed_mobile(settings,self.source_roots['fusionpbx-config']/'openweb-template.key',stable=True)
+            before=self.mobile_snapshot(settings);plain=self.mobile_crypto(settings,ids,self.source_roots['fusionpbx-config']/'openweb-template.key','open')
+            archive=self.private/(str(uuid.uuid4())+'.owpbx');b.create_archive(settings,archive,self.password,roots=self.source_roots,version='1.0.13')
+            with patch.object(b,'apply_mobile_schema',wraps=b.apply_mobile_schema) as migrate:
+                b.restore(archive,self.password,self.target,confirm_database=self.target_name)
+                self.assertEqual(migrate.call_count,1)
+            self.assertEqual(self.mobile_snapshot(self.target),before)
+            self.assertEqual(self.mobile_crypto(self.target,ids,self.target_roots['fusionpbx-config']/'openweb-template.key','open'),plain)
+            self.assertEqual(self.mobile_welcome_lookup(self.target,ids),{'state':'observed','resultState':'waiting','nullableExpiry':True})
+            for key in ('tenant-domains-instance-key.pem','openweb-template.key'):
+                self.assertEqual((self.target_roots['fusionpbx-config']/key).read_bytes(),(self.source_roots['fusionpbx-config']/key).read_bytes())
+            for key in b.REGISTRATION_FILES:self.assertEqual((self.target_roots['registration-state']/key).read_bytes(),(self.source_roots['registration-state']/key).read_bytes())
+            self.assertEqual(b.query(self.target,'select current_user'),'target_app')
+            self.assertEqual(json.loads((self.target_state/'installation.json').read_text())['PostgresPassword'],'target-admin-only')
+            self.assertTrue(all(b.held(key) for key in b.HELD_UNITS))
+        finally:self.admin_sql('drop database '+name+' with (force)')
+
+    def test_32_mobile_migration_sql_failure_recovers_exact_factory_database_files_and_security(self):
+        before=self.database_security_state();rows=self.public_rows(self.target);files={p:p.read_bytes() for p in self.target_state.rglob('*') if p.is_file()}
+        schema=b.WEB_VERSION.parent/'app/pbx_mobile/resources/install.sql';sql=schema.read_text();self.assertTrue(sql.endswith('COMMIT;\n'))
+        schema.write_text(sql[:-len('COMMIT;\n')]+'select missing_owned_mobile_migration_fixture();\nCOMMIT;\n')
+        with patch.object(b,'apply_mobile_schema',wraps=b.apply_mobile_schema) as migrate:
+            with self.assertRaises(b.BackupError):b.restore(self.archive,self.password,self.target,confirm_database=self.target_name)
+            self.assertEqual(migrate.call_count,1)
+        self.assertEqual(self.database_security_state(),before)
+        self.assertEqual(self.public_rows(self.target),rows)
+        self.assertEqual(b.query(self.target,"select to_regclass('v_pbx_mobile_enrollments') is null"),'t')
+        for path,data in files.items():
+            if path!=schema:self.assertEqual(path.read_bytes(),data)
+        self.assertEqual(json.loads((b.RESTORE/'journal.json').read_text())['state'],'recovered')
+        self.assertFalse(any(b.held(key) for key in b.HELD_UNITS))
+        self.assertFalse(any(op=='start-web' for op,_ in self.native_calls))
+
+    def test_33_failure_after_committed_mobile_migration_recovers_factory_without_migrating_recovery(self):
+        before=self.database_security_state();rows=self.public_rows(self.target);files={p:p.read_bytes() for p in self.target_state.rglob('*') if p.is_file()};seen=[]
+        def fail_after_mobile(settings):
+            seen.append(b.query(settings,"select count(*) from pg_attribute where attrelid='v_pbx_mobile_enrollments'::regclass and attname='code_ciphertext' and not attisdropped"))
+            raise b.BackupError('Injected after actual committed mobile migration')
+        with patch.object(b,'apply_mobile_schema',wraps=b.apply_mobile_schema) as migrate,patch.object(b,'restore_meeting',side_effect=fail_after_mobile):
+            with self.assertRaisesRegex(b.BackupError,'Injected after actual committed mobile'):
+                b.restore(self.archive,self.password,self.target,confirm_database=self.target_name)
+            self.assertEqual(migrate.call_count,1)
+        self.assertEqual(seen,['1']);self.assertEqual(self.database_security_state(),before)
+        self.assertEqual(self.public_rows(self.target),rows)
+        for path,data in files.items():self.assertEqual(path.read_bytes(),data)
+        self.assertEqual(b.query(self.target,"select to_regclass('v_pbx_mobile_enrollments') is null"),'t')
+        self.assertEqual(json.loads((b.RESTORE/'journal.json').read_text())['state'],'recovered')
+        self.assertFalse(any(b.held(key) for key in b.HELD_UNITS))
 
 
 if __name__=='__main__':

@@ -1073,6 +1073,13 @@ def apply_voicemail_policy(settings):
     query(settings, policy.read_text(encoding='utf-8'))
 
 
+def apply_mobile_schema(settings):
+    # An accepted same-version backup can predate the installed phone schema.
+    # Use only this installed component, while restore holds/recovery remain active.
+    schema = ordinary(WEB_VERSION.parent / 'app/pbx_mobile/resources/install.sql')
+    query(settings, schema.read_text(encoding='utf-8'))
+
+
 def meeting_transport_files(manifest):
     pair = {'runtime-config/meet-ca.pem', 'freeswitch-config/tls/openweb-meet/wss.pem'}
     present = pair.intersection(manifest['files'])
@@ -1483,6 +1490,7 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
                 # the current PHP/C# location with the identical VAPID bytes.
                 atomic_copy(extracted / 'mobile-push/file', notification_fallback, mode=0o600)
             apply_voicemail_policy(settings)
+            apply_mobile_schema(settings)
             restore_meeting(settings)
             if meeting_proxy:
                 reload_meeting_proxy()
