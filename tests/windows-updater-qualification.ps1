@@ -1105,7 +1105,7 @@ if(!$?){exit 1}
   Equal $beforeDb (DatabaseSnapshot 'after-fault') 'fault-database';Equal $beforeFiles (FileSnapshot -Stage 'after_fault_full') 'fault-files';EqualTaskSnapshots $beforeTasks (TaskSnapshot) 'fault-tasks'
   $failed=Get-Content "$state\updates\failed-install.json" -Raw|ConvertFrom-Json;Check ($failed.version -eq $CanaryVersion -and $failed.asset_sha256 -eq $verified.fault.sha256) 'The worker did not record the exact failed signed package.'
   $facts.gates.fault_https_download='passed';$facts.gates.fault_rollback='passed';$facts.checks+=('Actual installed'+$BaseVersion+' SYSTEM worker full trusted HTTPS fault'+$CanaryVersion+' transfer, original key/URLs, late real candidate witness and exact DB/roles/credentials/files/ACL/task rollback')
-  if($actualCandidate){CheckedProcess "$root\backup-runtime\python.exe" @('-I','-B',$actualSchemaProbe,'legacy-before',$actualSchemaBefore) 'actual-original-schema-before'}
+  if($actualCandidate){CheckedProcess "$root\backup-runtime\python.exe" @('-I','-B',$actualSchemaProbe,'legacy-before',$actualSchemaBefore,$package) 'actual-original-schema-before'}
   $phase='higher-sequence normal14 full HTTPS download and natural restart'
   WriteJson (Join-Path $qa 'mode.json') @{mode='normal'};$script:priorCommands=@((Fixture 'status').commands|ForEach-Object command_uuid);$requestStarted=[DateTime]::UtcNow;Python 'request';$success=WaitInstall 'completed' 'completed' $requestStarted
   $restartDeadline=[DateTime]::UtcNow.AddSeconds(120);$newPid=0

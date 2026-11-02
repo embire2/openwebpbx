@@ -393,9 +393,101 @@ def greeting_heartbeat_projection(rows):
       or datetime.fromisoformat(row['checked_at']).tzinfo is None):raise RuntimeError('Greeting heartbeat schema or values changed')
   result.append(row|{'checked_at':'__openweb_worker_heartbeat__'})
  return result
+"""Public21 to the pinned Windows22 QR schema qualification component.
+
+The original same-version and automatic rollback comparers remain unchanged.
+Existing security, original data, relation, and eight-new-table checks remain
+separate and mandatory. Constraints/indexes here cover only the two QR tables. This component never executes SQL or mutates input.
+"""
+import copy
+import hashlib
+import re
+
+PUBLIC21_MOBILE_SQL_SHA256 = 'e4f01ec5e0e610f781a59bb065b47dbf10af7d87da92f9777655b91f1d48f89e'
+CANDIDATE_MOBILE_SQL_SHA256 = '92b7774527459aa74e1b1760247d1cb883ec202c7d866ba43f1c7732810da22e'
+COLUMN_KEYS = {'table_name', 'column_name', 'ordinal_position', 'data_type', 'udt_name', 'is_nullable', 'column_default'}
+NEW_TABLES = {'v_pbx_api_registrations','v_pbx_api_tokens','v_pbx_api_idempotency','v_pbx_api_rate','v_pbx_api_audit','v_pbx_onboarding_policy','v_pbx_onboarding','v_pbx_onboarding_jobs'}
+
+def _require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+def _index(rows):
+    _require(type(rows) is list, 'Column inventory must be a list')
+    result = {}
+    for row in rows:
+        _require(type(row) is dict and set(row) == COLUMN_KEYS, 'Column metadata shape changed')
+        _require(type(row['table_name']) is str and type(row['column_name']) is str, 'Column identifiers must be scalar strings')
+        _require(type(row['ordinal_position']) is int and row['ordinal_position'] > 0, 'Column ordinal must be positive')
+        key = row['table_name'], row['column_name']
+        _require(key not in result, 'Duplicate column inventory')
+        result[key] = row
+    return result
+
+def expected_qr_columns(before, candidate_sql):
+    _require(type(candidate_sql) is bytes and hashlib.sha256(candidate_sql).hexdigest() == CANDIDATE_MOBILE_SQL_SHA256, 'Candidate QR DDL differs from the reviewed source')
+    original = _index(before)
+    expected = copy.deepcopy(before)
+    target = _index(expected)
+    for table in ('v_pbx_mobile_enrollments', 'v_pbx_mobile_welcome'):
+        key = table, 'expires_at'
+        _require(key in original, 'Original public21 QR expiry column is missing')
+        row = target[key]
+        _require(row['data_type'] == 'timestamp with time zone' and row['udt_name'] == 'timestamptz' and row['is_nullable'] == 'NO' and row['column_default'] is None, 'Original public21 QR expiry definition differs')
+        row['is_nullable'] = 'YES'
+    table = 'v_pbx_mobile_enrollments'
+    ordinal = max(row['ordinal_position'] for row in before if row['table_name'] == table)
+    for offset, (name, data_type, udt_name) in enumerate((('code_ciphertext', 'text', 'text'), ('server_origin', 'text', 'text'), ('revoked_at', 'timestamp with time zone', 'timestamptz')), 1):
+        _require((table, name) not in original, 'Public21 baseline already contains candidate QR metadata')
+        expected.append({'table_name':table,'column_name':name,'ordinal_position':ordinal+offset,'data_type':data_type,'udt_name':udt_name,'is_nullable':'YES','column_default':None})
+    return sorted(expected, key=lambda row:(row['table_name'],row['ordinal_position']))
+
+def project_legacy_columns(before, after, expected_new_tables, candidate_sql):
+    _require(type(expected_new_tables) is set and expected_new_tables == NEW_TABLES, 'New table model inventory changed')
+    _index(after)
+    projected = [row for row in after if row['table_name'] not in expected_new_tables and not(row['table_name']=='v_pbx_templates' and row['column_name']=='api_enabled')]
+    _require(projected == expected_qr_columns(before,candidate_sql), 'Original column definitions or exact QR migration differ')
+    # After full exact validation, restore only the two admitted metadata flags
+    # and remove only the three exact new fields for the original equality gate.
+    old_keys = set(_index(before))
+    result = copy.deepcopy([row for row in projected if (row['table_name'],row['column_name']) in old_keys])
+    for row in result:
+        if row['table_name'] in ('v_pbx_mobile_enrollments','v_pbx_mobile_welcome') and row['column_name']=='expires_at':
+            row['is_nullable']='NO'
+    _require(result == before, 'Original column projection must remain exact')
+    return result
+
+def validate_qr_constraints_and_indexes(before, after, before_columns, candidate_sql):
+    expected_qr_columns(before_columns,candidate_sql)
+    _require(type(before) is dict and type(after) is dict and set(before)==set(after)=={'constraints','indexes'}, 'QR schema metadata shape changed')
+    expected = copy.deepcopy(before)
+    # PostgreSQL18 represents each source-dropped NOT NULL as a named native
+    # constraint. Remove exactly these two; preserve all other raw records.
+    for table in ('v_pbx_mobile_enrollments','v_pbx_mobile_welcome'):
+        nullable = [row for row in expected['constraints'] if row['relname']==table and row['conname']==table+'_expires_at_not_null']
+        _require(len(nullable)==1 and nullable[0]['contype']=='n' and nullable[0]['convalidated'] is True and nullable[0]['definition']=='NOT NULL expires_at', 'Original PostgreSQL18 expiry NOT NULL constraint differs')
+        expected['constraints'].remove(nullable[0])
+    issuer = [row for row in expected['constraints'] if row['relname']=='v_pbx_mobile_enrollments' and row['conname']=='v_pbx_mobile_enrollments_created_by_fkey']
+    current = [row for row in after['constraints'] if row['relname']=='v_pbx_mobile_enrollments' and row['conname']=='v_pbx_mobile_enrollments_created_by_fkey']
+    _require(len(issuer)==len(current)==1, 'The exact issuer foreign key is required')
+    _require(issuer[0]['definition']=='FOREIGN KEY (created_by) REFERENCES v_users(user_uuid) ON DELETE CASCADE' and issuer[0]['contype']=='f' and issuer[0]['convalidated'] is True, 'Original issuer foreign key differs')
+    _require(type(current[0]['oid']) is str and re.fullmatch(r'[1-9][0-9]{0,9}',current[0]['oid']) is not None and int(current[0]['oid'])<=4294967295 and current[0]['oid']!=issuer[0]['oid'], 'Source-replaced issuer constraint identity is required')
+    issuer[0]['oid']=current[0]['oid']
+    issuer[0]['definition']='FOREIGN KEY (created_by) REFERENCES v_users(user_uuid) ON DELETE SET NULL'
+    added = [row for row in after['indexes'] if row['relname']=='v_pbx_mobile_enrollments' and row['indexname']=='openweb_mobile_stable_setup']
+    _require(not any(row['relname']=='v_pbx_mobile_enrollments' and row['indexname']=='openweb_mobile_stable_setup' for row in before['indexes']) and len(added)==1, 'Exactly one new stable setup index is required')
+    _require(type(added[0]['oid']) is str and re.fullmatch(r'[1-9][0-9]{0,9}',added[0]['oid']) is not None and int(added[0]['oid'])<=4294967295, 'The new index identity is required')
+    extension = _index(before_columns)[('v_pbx_mobile_enrollments','extension_uuid')]['ordinal_position']
+    target={'relname':'v_pbx_mobile_enrollments','oid':added[0]['oid'],'indexname':'openweb_mobile_stable_setup','indisunique':True,'indisprimary':False,'indkey':str(extension),'expression':None,'predicate':'((code_ciphertext IS NOT NULL) AND (revoked_at IS NULL))'}
+    _require(added[0]==target, 'Stable setup unique index differs from the reviewed source')
+    expected['indexes'].append(target)
+    expected['indexes'].sort(key=lambda row:(row['relname'],row['indexname']))
+    _require(expected==after, 'Original constraints/indexes or exact QR DDL changed')
+    return True
+
 if action in ('legacy-before','legacy-after'):
  # This separate cross-version component preserves every original projected
- # customer row/column and models ONLY the exact two candidate SQL inputs.
+ # customer row/column and models ONLY the reviewed API/onboarding/QR DDL.
  # The original same-version/rollback snapshot below is left unchanged.
  import re
  volatile={'v_pbx_update_status','v_pbx_backup_status','v_pbx_update_commands','v_pbx_job_slots','v_user_logs','v_logs','v_pbx_user_presence','v_pbx_presence'}
@@ -411,6 +503,16 @@ if action in ('legacy-before','legacy-after'):
  columns=b.query(settings,"select coalesce(json_agg(t order by table_name,ordinal_position),'[]') from (select table_name,column_name,ordinal_position,data_type,udt_name,is_nullable,column_default from information_schema.columns where table_schema='public') t",json_result=True)
  previous=None if action=='legacy-before' else json.loads(Path(sys.argv[3]).read_text())
  old_columns=columns if previous is None else previous['columns']
+ # The immutable public21 mobile SQL is captured BEFORE upgrade. The new
+ # metadata guard covers ONLY these two QR tables; the existing eight-table
+ # and api_enabled source model below retains its original independent scope.
+ if previous is None:
+  mobile_sql_sha256=hashlib.sha256((Path(sys.argv[3])/'web/app/pbx_mobile/resources/install.sql').read_bytes()).hexdigest()
+  if mobile_sql_sha256!=PUBLIC21_MOBILE_SQL_SHA256:raise RuntimeError('Original mobile SQL differs from immutable public21')
+ else:
+  mobile_sql_sha256=previous['public21_mobile_sql_sha256']
+  if mobile_sql_sha256!=PUBLIC21_MOBILE_SQL_SHA256:raise RuntimeError('Original mobile SQL provenance changed')
+ qr_schema=b.query(settings,"select jsonb_build_object('constraints',(select coalesce(json_agg(t order by relname,conname),'[]') from(select c.relname,k.oid,k.conname,k.contype,k.convalidated,pg_get_constraintdef(k.oid) definition from pg_constraint k join pg_class c on c.oid=k.conrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in('v_pbx_mobile_enrollments','v_pbx_mobile_welcome'))t),'indexes',(select coalesce(json_agg(t order by relname,indexname),'[]') from(select c.relname,ic.oid,ic.relname indexname,i.indisunique,i.indisprimary,i.indkey::text,pg_get_expr(i.indexprs,i.indrelid) expression,pg_get_expr(i.indpred,i.indrelid) predicate from pg_index i join pg_class c on c.oid=i.indrelid join pg_class ic on ic.oid=i.indexrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in('v_pbx_mobile_enrollments','v_pbx_mobile_welcome'))t))",json_result=True)
  values={}
  for entry in (tables if previous is None else previous['tables']):
   table=entry['name']
@@ -419,7 +521,7 @@ if action in ('legacy-before','legacy-after'):
   projection=','.join('"'+n.replace('"','""')+'"' for n in names)
   rows=b.query(settings,'select coalesce(json_agg(t order by row_to_json(t)::text),\'[]\') from (select '+projection+' from "'+table.replace('"','""')+'") t',json_result=True)
   values[table]=digest(greeting_heartbeat_projection(rows) if table=='v_pbx_greeting_status' else rows)
- snapshot={'security':digest(security),'tables':tables,'columns':columns,'values':values}
+ snapshot={'security':digest(security),'tables':tables,'columns':columns,'values':values,'public21_mobile_sql_sha256':mobile_sql_sha256,'qr_schema':qr_schema}
  if previous is None:save(snapshot)
  else:
   stage='legacy_security_identity'
@@ -434,9 +536,16 @@ if action in ('legacy-before','legacy-after'):
   # Baseline includes views as well as tables. Remove only the exact newly
   # modeled tables/column; retain all original and unexpected view columns.
   old_projection=[c for c in columns if c['table_name'] not in expected and not(c['table_name']=='v_pbx_templates' and c['column_name']=='api_enabled')]
+  package=Path(sys.argv[4]);qr_sql=(package/'web/app/pbx_mobile/resources/install.sql').read_bytes()
+  # Keep raw projected metadata available to the existing closed failure
+  # counter if the precise source-defined QR comparison refuses.
+  qr_projection=project_legacy_columns(previous['columns'],columns,expected,qr_sql)
+  old_projection=qr_projection
   if old_projection!=previous['columns']:raise RuntimeError('Original column definitions changed')
   stage='legacy_source_ddl_model'
-  package=Path(sys.argv[4]);ddl=[];source_hashes={}
+  validate_qr_constraints_and_indexes(previous['qr_schema'],qr_schema,previous['columns'],qr_sql)
+  if b.query(settings,'select count(*) from v_pbx_mobile_enrollments where code_ciphertext is not null or server_origin is not null or revoked_at is not null')!='0':raise RuntimeError('New QR metadata must preserve original legacy invitations as null')
+  ddl=[];source_hashes={'web/app/pbx_mobile/resources/install.sql':hashlib.sha256(qr_sql).hexdigest()}
   for relative in ['web/app/tenant_api/resources/install.sql','web/app/pbx_onboarding/resources/install.sql']:
    raw=(package/relative).read_bytes();source_hashes[relative]=hashlib.sha256(raw).hexdigest();text=raw.decode()
    if len(re.findall(r'CREATE TABLE IF NOT EXISTS ',text))!=(5 if 'tenant_api' in relative else 3):raise RuntimeError('Candidate SQL model shape changed')
@@ -461,7 +570,7 @@ if action in ('legacy-before','legacy-after'):
    rows=b.query(settings,'select coalesce(json_agg(t),\'[]\') from "'+name+'" t',json_result=True)
    target=[{'singleton':True,'required':False,'canonical_host':'','instance_key_hash':''}] if name=='v_pbx_onboarding_policy' else []
    if rows!=target:raise RuntimeError('New registration tables must preserve legacy unregistered policy and contain only their exact source default')
-  save({'schema':1,'state':'passed','original_tables':len(old_names),'original_customer_rows_exact':True,'runtime_value_exclusions':sorted(volatile),'greeting_heartbeat_projection':'existing bounded singleton checked_at only','original_roles_cluster_schema_exact':True,'new_source_model_tables':len(expected),'source_sql_sha256':source_hashes,'schema_model_sha256':hashlib.sha256(json.dumps(model,sort_keys=True).encode()).hexdigest()})
+  save({'schema':1,'state':'passed','original_tables':len(old_names),'original_customer_rows_exact':True,'runtime_value_exclusions':sorted(volatile),'greeting_heartbeat_projection':'existing bounded singleton checked_at only','original_roles_cluster_schema_exact':True,'new_source_model_tables':len(expected),'qr_schema_scope':'v_pbx_mobile_enrollments and v_pbx_mobile_welcome only','qr_source_column_additions':3,'qr_source_nullable_expiry_changes':2,'original_mobile_sql_sha256':mobile_sql_sha256,'source_sql_sha256':source_hashes,'schema_model_sha256':hashlib.sha256(json.dumps(model,sort_keys=True).encode()).hexdigest()})
  sys.exit(0)
 if action=='database':
  stage='database_installation'
@@ -855,7 +964,7 @@ try{
    $installedPath=if($component.StartsWith('updater/')){Join-Path "$root/updater/slots/1.0.21" ([IO.Path]::GetFileName($component))}else{Join-Path $root $component}
    Check ((Hash $installedPath) -ceq (Hash (Join-Path $fixtureInput.public21_package $component))) 'An installed baseline assembly differs from the genuine public21 package.'
   }
-  foreach($sql in 'app/tenant_api/resources/install.sql','app/pbx_onboarding/resources/install.sql'){Check ((Hash (Join-Path "$PackageRoot/web" $sql)) -ceq (Hash (Join-Path $fixtureInput.source_root $sql))) 'The candidate schema model differs from this exact source.'}
+  foreach($sql in 'app/tenant_api/resources/install.sql','app/pbx_onboarding/resources/install.sql','app/pbx_mobile/resources/install.sql'){Check ((Hash (Join-Path "$PackageRoot/web" $sql)) -ceq (Hash (Join-Path $fixtureInput.source_root $sql))) 'The candidate schema model differs from this exact source.'}
  }
  if(!$Public21ToCandidate22){Check ((Hash $helper) -eq (Hash (Join-Path $PackageRoot 'Upgrade-OpenWebPBX.ps1'))) 'Direct reapply requires the identical installed helper, not an unqualified replacement.'}
  if($installed.Version -eq '1.0.12'){$report.baseline='private laboratory service 1.0.12 built from candidate source; not a historical public Windows 1.0.12 release'}
@@ -943,7 +1052,7 @@ try{
   # Immutable21 rollback intentionally recreates public schema/OIDs. The
   # strict original rollback comparison above owns preservation across that
   # transaction; normal upgrade receives its own prospective21 OID baseline.
-  $legacyDatabase=Join-Path $work 'public21-normal-before.private.json';Python @($probe,'legacy-before',$legacyDatabase)
+  $legacyDatabase=Join-Path $work 'public21-normal-before.private.json';Python @($probe,'legacy-before',$legacyDatabase,$fixtureInput.public21_package)
   $normalStarted=[DateTime]::UtcNow
   $phase='ordinary exact candidate22 upgrade';$oldManager=CurrentManagerPid;$managerInvocation=[DateTime]::UtcNow
   $result=InvokeHelper (Join-Path $PackageRoot 'Upgrade-OpenWebPBX.ps1') @() 'public21-candidate22-normal'
