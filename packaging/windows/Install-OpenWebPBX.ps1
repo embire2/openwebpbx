@@ -312,9 +312,10 @@ foreach($section in 'directory','dialplan','sip_profiles'){
  if(@(Compare-Object $expected $actual).Count){throw 'First-install call configuration still contains stock demonstration files.'}
 }
 Copy-Item "$root\web\app\switch\resources\scripts\*" "$switch\scripts" -Recurse -Force
-New-Item -ItemType Directory -Force "$switch\scripts\app\pbx_setup","$switch\scripts\app\pbx_greetings","$switch\sounds\openwebpbx" | Out-Null
+New-Item -ItemType Directory -Force "$switch\scripts\app\pbx_setup","$switch\scripts\app\pbx_greetings","$switch\scripts\app\pbx_onboarding","$switch\sounds\openwebpbx" | Out-Null
 Copy-Item "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_setup\*" "$switch\scripts\app\pbx_setup" -Force
 Copy-Item "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_greetings\*" "$switch\scripts\app\pbx_greetings" -Force
+Copy-Item "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_onboarding\gate.lua" "$switch\scripts\app\pbx_onboarding\gate.lua" -Force
 Copy-Item "$root\web\app\pbx_setup\resources\prompts\*.wav" "$switch\sounds\openwebpbx" -Force
 Copy-Item "$root\web\app\pbx_setup\resources\prompts\openweb.xml" "$switch\conf\languages\en\ivr\openweb.xml" -Force
 & "$PSScriptRoot\Install-Voices.ps1" -PackageRoot $PSScriptRoot

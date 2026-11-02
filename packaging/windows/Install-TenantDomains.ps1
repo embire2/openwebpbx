@@ -3,6 +3,22 @@
 [CmdletBinding()]
 param([Parameter(Mandatory=$true)][string]$PackageRoot,[switch]$DeferStart,[IO.FileStream]$MaintenanceLock)
 $ErrorActionPreference='Stop';$root='C:\OpenWebPBX';$state=Join-Path $env:ProgramData 'OpenWebPBX';$lockPath=Join-Path $state 'upgrade.lock'
+function Install-OpenWebOnboardingCallGate([string]$PackageRoot,[string]$EngineRoot,$Manifest){
+ # Immutable21 already calls this payload installer after sealing switch-scripts.
+ # Install only this verified code leaf; its original mirror restores absence
+ # on rollback. Existing/custom siblings and directory permissions stay intact.
+ $relative='web/app/pbx_setup/resources/switch/scripts/app/pbx_onboarding/gate.lua'
+ $source=Join-Path $PackageRoot $relative;$null=Assert-OpenWebOrdinaryPath $source
+ $pin=$Manifest.files.$relative
+ if($pin-isnot [string] -or $pin-cnotmatch '^[a-f0-9]{64}$' -or (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()-cne $pin){throw 'The onboarding call gate differs from the verified Windows release.'}
+ $parent=Join-Path $EngineRoot 'scripts/app';$null=Assert-OpenWebOrdinaryPath $parent $true
+ $directory=Join-Path $parent 'pbx_onboarding';$target=Join-Path $directory 'gate.lua'
+ if(Test-Path -LiteralPath $directory){$null=Assert-OpenWebOrdinaryPath $directory $true}
+ if(Test-Path -LiteralPath $target){$null=Assert-OpenWebOrdinaryPath $target}
+ if(!(Test-Path -LiteralPath $directory)){New-Item -ItemType Directory -Path $directory|Out-Null}
+ Copy-Item -LiteralPath $source -Destination $target -Force
+ if((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()-cne $pin){throw 'The deployed onboarding call gate differs from the verified Windows release.'}
+}
 $owned=$null -eq $MaintenanceLock;$lock=$MaintenanceLock
 if($owned){$lock=[IO.File]::Open($lockPath,'OpenOrCreate','ReadWrite','None')}
 try{
@@ -18,6 +34,7 @@ try{
   $target=Join-Path "$root\tools" $name;if(Test-Path -LiteralPath $target){$null=Assert-OpenWebOrdinaryPath $target}
   Copy-Item -LiteralPath $source -Destination $target -Force
  }
+ Install-OpenWebOnboardingCallGate -PackageRoot $PackageRoot -EngineRoot 'C:\Program Files\FreeSWITCH' -Manifest $manifest
  $name='OpenWebPBX-TenantDomains';$description='OpenWeb PBX owned tenant HTTPS lease worker'
  $existing=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
  if($existing -and ($existing.Description -ne $description -or $existing.Principal.UserId -notin 'SYSTEM','S-1-5-18' -or @($existing.Actions).Count -ne 1 -or $existing.Actions[0].Execute -ne "$root\backup-runtime\python.exe" -or $existing.Actions[0].Arguments -cnotin @('-I "C:\OpenWebPBX\tools\tenant-domains.py"','-I -B "C:\OpenWebPBX\tools\tenant-domains.py"') -or $existing.Actions[0].WorkingDirectory -ne "$root\tools")){throw 'The tenant-domain task belongs to another configuration.'}

@@ -700,6 +700,7 @@ try {
  CopyTree "$root\web\app\switch\resources\scripts" "$switch\scripts"
  CopyTree "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_setup" "$switch\scripts\app\pbx_setup"
  CopyTree "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_greetings" "$switch\scripts\app\pbx_greetings"
+ CopyTree "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_onboarding" "$switch\scripts\app\pbx_onboarding"
  & "$payload\Install-NativeEngine.ps1" -PackageRoot $payload
  & "$payload\Install-LocalCodec.ps1" -PackageRoot $payload
  & "$payload\Configure-PHP.ps1" -PackageRoot $payload
@@ -716,6 +717,7 @@ try {
  CopyTree "$root\web\app\switch\resources\scripts" "$switch\scripts"
  CopyTree "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_setup" "$switch\scripts\app\pbx_setup"
  CopyTree "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_greetings" "$switch\scripts\app\pbx_greetings"
+ CopyTree "$root\web\app\pbx_setup\resources\switch\scripts\app\pbx_onboarding" "$switch\scripts\app\pbx_onboarding"
  Copy-Item "$root\web\app\pbx_setup\resources\prompts\*.wav" "$switch\sounds\openwebpbx" -Force
  Copy-Item "$root\web\app\pbx_setup\resources\prompts\openweb.xml" "$switch\conf\languages\en\ivr\openweb.xml" -Force
  & "$payload\Install-Voices.ps1" -PackageRoot $payload
