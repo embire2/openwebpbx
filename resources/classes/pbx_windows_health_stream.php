@@ -4,23 +4,23 @@ final class pbx_windows_health_stream {
     private mixed $socket=null;private string $buffer='';private array $pending=[];
     public function close():void {if(is_resource($this->socket))fclose($this->socket);$this->socket=null;$this->buffer='';$this->pending=[];}
     public function __destruct(){$this->close();}
-    public function connect(bool $subscribe=true):void {
+    public function connect(bool $subscribe=true,?float $deadline=null):void {
         $this->close();$c=config::load();$host=$c->get('switch.event_socket.host',null)??$c->get('event_socket.ip_address',null)??'127.0.0.1';
         $port=(int)($c->get('switch.event_socket.port',null)??$c->get('event_socket.port',null)??8021);$password=$c->get('switch.event_socket.password',null)??$c->get('event_socket.password',null);
         if(!in_array($host,['127.0.0.1','::1','localhost'],true)||$port<1||$port>65535||!is_string($password)||$password===''||preg_match('/[\r\n\x00]/',$password))throw new RuntimeException('Private local event settings required.');
-        $errno=0;$error='';$this->socket=@stream_socket_client('tcp://'.($host==='::1'?'[::1]':$host).':'.$port,$errno,$error,3);
+        $errno=0;$error='';$this->socket=@stream_socket_client('tcp://'.($host==='::1'?'[::1]':$host).':'.$port,$errno,$error,self::allowance(3,$deadline));
         if(!is_resource($this->socket))throw new RuntimeException('The local event service is unavailable.');stream_set_blocking($this->socket,false);
-        if(($this->readPacket(3)['Content-Type']??null)!=='auth/request')throw new RuntimeException('The local event service is unavailable.');
-        $this->send('auth '.$password);if(($this->readPacket(3)['Reply-Text']??null)!=='+OK accepted')throw new RuntimeException('The local event service is unavailable.');
+        if(($this->readPacket(self::allowance(3,$deadline))['Content-Type']??null)!=='auth/request')throw new RuntimeException('The local event service is unavailable.');
+        $this->send('auth '.$password,$deadline);if(($this->readPacket(self::allowance(3,$deadline))['Reply-Text']??null)!=='+OK accepted')throw new RuntimeException('The local event service is unavailable.');
         if(!$subscribe)return;
         // CUSTOM alone does not subscribe to the subclass producers. Filters
         // narrow subscribed events; they cannot create those subscriptions.
         $this->send('event json CUSTOM sofia::register_failure sofia::pre_register event_guard:phone_health_unblock');$this->reply();
         foreach(['sofia::register_failure','sofia::pre_register','event_guard:phone_health_unblock']as$event){$this->send('filter Event-Subclass '.$event);$this->reply();}
     }
-    public static function api(string $command):string {
-        if(!in_array($command,['show registrations as json','sofia xmlstatus'],true)&&!preg_match('/^sofia xmlstatus gateway [a-fA-F0-9-]{36}$/D',$command))throw new RuntimeException('An allowed phone health command is required.');
-        $client=new self();try{$client->connect(false);$client->send('api '.$command);$r=$client->readPacket(4);if(($r['Content-Type']??null)!=='api/response')throw new RuntimeException('The local phone response is unavailable.');return $r['body'];}finally{$client->close();}
+    public static function api(string $command,?float $deadline=null):string {
+        if(!in_array($command,['show registrations as json','sofia xmlstatus'],true)&&!preg_match('/^sofia xmlstatus gateway [a-fA-F0-9-]{36}$/D',$command)&&!preg_match('/^sofia status profile [A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/D',$command))throw new RuntimeException('An allowed phone health command is required.');
+        $client=new self();try{$client->connect(false,$deadline);$client->send('api '.$command,$deadline);$r=$client->readPacket(self::allowance(4,$deadline));if(($r['Content-Type']??null)!=='api/response')throw new RuntimeException('The local phone response is unavailable.');return $r['body'];}finally{$client->close();}
     }
     public static function recovery(string $block,string $recovery):bool {
         if(!is_uuid($block)||!is_uuid($recovery))return false;
@@ -32,7 +32,8 @@ final class pbx_windows_health_stream {
             if(($r['Content-Type']??null)==='command/reply'&&str_starts_with($r['Reply-Text']??'','+OK'))return;break;
         }while(microtime(true)<$deadline);throw new RuntimeException('The local event subscription is unavailable.');
     }
-    private function send(string $command):void {$raw=$command."\n\n";$deadline=microtime(true)+3;while($raw!==''){$n=fwrite($this->socket,$raw);if($n===false||microtime(true)>$deadline)throw new RuntimeException('The local event service is unavailable.');if($n===0){usleep(10000);continue;}$raw=substr($raw,$n);}}
+    private static function allowance(float $maximum,?float $deadline):float {$remaining=$deadline===null?$maximum:min($maximum,$deadline-microtime(true));if($remaining<=0)throw new RuntimeException('The native profile inventory timed out.');return $remaining;}
+    private function send(string $command,?float $deadline=null):void {$raw=$command."\n\n";$deadline=microtime(true)+self::allowance(3,$deadline);while($raw!==''){$n=fwrite($this->socket,$raw);if($n===false||microtime(true)>$deadline)throw new RuntimeException('The local event service is unavailable.');if($n===0){usleep(10000);continue;}$raw=substr($raw,$n);}}
     public function packet(float $wait=1):?array {
         if($this->pending)return array_shift($this->pending);return $this->readPacket($wait);
     }

@@ -28,9 +28,7 @@ try{
  $stream->close();
  foreach(["Content-Type: x\nContent-Type: y\n\n","Bad header\n\n","Content-Length: -1\n\n","Content-Length: 4194305\n\n",str_repeat('x',16385)]as$bad){[$stream,$peer]=$pair();fwrite($peer,$bad);$no(fn()=>$stream->packet(.1),'Malformed frame accepted');$stream->close();}
  [$stream,$peer]=$pair();fwrite($peer,"Content-Type: text/event-json\nContent-Length: 2\n\n{}Content-Type: command/reply\nReply-Text: +OK filter added\n\n");(new ReflectionMethod($stream,'reply'))->invoke($stream);$ok($stream->packet(.1)['body']==='{}','Event arriving during subscription was lost');$stream->close();
- $xml='<profiles><profile><name>internal</name><type>profile</type><data>sip:mod_sofia@192.0.2.10:5090</data><state>RUNNING (0)</state></profile><profile><type>profile</type><data>sips:mod_sofia@[2001:db8::1]:5091</data><state>RUNNING (0)</state></profile><profile><type>profile</type><data>sip:mod_sofia@127.0.0.1:5078</data><state>RUNNING (0)</state></profile><profile><type>profile</type><data>sips:mod_sofia@192.0.2.10:7443;transport=wss</data><state>RUNNING (0)</state></profile><gateway><data>sip:user@carrier.example.invalid:7777</data></gateway></profiles>';
- $ok(event_guard_windows::ports($xml)===['tcp'=>[5090,5091],'udp'=>[5090]],'Running profile listener scope wrong');
- foreach(['bad','<!DOCTYPE x><profiles/>',str_replace(':5090',':3389',$xml),str_replace(':5090',':22',$xml),'<profiles/>']as$bad)$no(fn()=>event_guard_windows::ports($bad),'Unsafe listener status accepted');
+ require __DIR__.'/windows_phone_health_listeners.php';$checks+=windows_phone_health_listener_checks();
  class runtime_health_adapter_fixture extends event_guard_windows {public string $spool;protected function spoolDirectory():string{return $this->spool;}}
  $adapter=(new ReflectionClass(runtime_health_adapter_fixture::class))->newInstanceWithoutConstructor();$adapter->spool=getenv('OPENWEB_HEALTH_TEST_SPOOL')?:$dir;$run=new ReflectionMethod($adapter,'run');
  $ok($run->invoke($adapter,[PHP_BINARY,'-n','-r','echo "{\"state\":\"absent\"}";'])==='{"state":"absent"}','Temporary-handle subprocess response lost');
