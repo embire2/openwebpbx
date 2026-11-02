@@ -96,6 +96,7 @@ if($action==='cleanup'){
 // This narrow test double models only the custody/HTTPS precondition. Alias
 // worker/IIS and external Android acceptance remain independently required.
 final class pbx_tenant_domains {
+ public static function instanceUrl():string{return pbx_paths::url();}
  public static function url(PDO$db,string$domain):string{global$state;if($db->query('select current_schema()')->fetchColumn()!==$state['schema']||$domain!==$state['domain'])throw new RuntimeException('The modelled alias escaped its fixture.');return$state['alias'];}
  public static function requestDomain(PDO$db,array$server):string{global$state;return($server['HTTP_HOST']??'')===parse_url(self::url($db,$state['domain']),PHP_URL_HOST)?$state['domain']:'';}
 }
@@ -108,6 +109,7 @@ if($action==='prepare'){
  $sent=(new pbx_mobile_welcome($db))->queue('8100');$state['queues'][]=$sent['queue_uuid'];
  $parts=$q('select email_attachment_type,email_attachment_base64 from v_email_queue_attachments where email_queue_uuid=?',[$sent['queue_uuid']])->fetchAll(PDO::FETCH_ASSOC);$expected=[];foreach($parts as$part)$expected[$part['email_attachment_type']]=base64_decode($part['email_attachment_base64'],true);
  if(!is_string($expected['png']??null)||!is_string($expected['openwebpbx']??null))throw new RuntimeException('The actual welcome attachments are unavailable.');
+ $state['setup_payload_sha256']=hash('sha256',$expected['openwebpbx']);
  file_put_contents($work.'/expected.private.json',json_encode(['payload'=>json_decode($expected['openwebpbx'],true,32,JSON_THROW_ON_ERROR),'png_sha256'=>hash('sha256',$expected['png'])],JSON_THROW_ON_ERROR));
  file_put_contents($work.'/state.private.json',json_encode($state,JSON_THROW_ON_ERROR));
  echo json_encode(['state'=>'prepared','queue_uuid'=>$sent['queue_uuid'],'schema_isolated'=>true,'same_framework_backend'=>true,'alias_custody_modelled'=>true,'tls_readiness_modelled'=>true,'actual_windows_native'=>PHP_OS_FAMILY==='Windows'],JSON_THROW_ON_ERROR),PHP_EOL;
@@ -121,6 +123,12 @@ if($action==='prepare'){
  echo json_encode(['state'=>'observed','delivery_state'=>$view['state'],'inbox_claim_refused'=>str_contains($view['message'],'Inbox delivery is not confirmed'),'queue_states'=>$q('select email_status from v_email_queue order by email_date,email_queue_uuid')->fetchAll(PDO::FETCH_COLUMN),'public_exact'=>welcome_public_fingerprint($db)===$state['public_before'],'config_exact'=>hash_file('sha256',$configFile)===$state['original_config_sha256'],'same_framework_backend'=>true],JSON_THROW_ON_ERROR),PHP_EOL;
 }elseif($action==='suppress'){
  $phase='suppress';$sent=(new pbx_mobile_welcome($db))->queue('8100');$state['queues'][]=$sent['queue_uuid'];
- $q('update v_pbx_mobile_enrollments set used_at=now() where enrollment_uuid=(select enrollment_uuid from v_pbx_mobile_welcome where email_queue_uuid=?)',[$sent['queue_uuid']]);
- file_put_contents($stateFile,json_encode($state,JSON_THROW_ON_ERROR));echo json_encode(['state'=>'prepared','queue_uuid'=>$sent['queue_uuid']],JSON_THROW_ON_ERROR),PHP_EOL;
+ $mobile=new pbx_mobile($db);$setup=$mobile->createCode('8100');
+ if(hash('sha256',$setup['payload'])!==$state['setup_payload_sha256']||$setup['expires_at']!==null||$mobile->welcomeCode('8100')['payload']!==$setup['payload'])throw new RuntimeException('Viewing or resending changed the reusable setup.');
+ $payload=json_decode($setup['payload'],true,16,JSON_THROW_ON_ERROR);$host=['HTTP_HOST'=>parse_url($state['alias'],PHP_URL_HOST)];
+ $first=$mobile->enroll(['code'=>$payload['code'],'device_name'=>'First native fixture'],'fixture-one',$host);$second=$mobile->enroll(['code'=>$payload['code'],'device_name'=>'Second native fixture'],'fixture-two',$host);
+ if($first['device_id']===$second['device_id']||$first['token']===$second['token']||$first['sip']['username']===$second['sip']['username']||$mobile->createCode('8100')['payload']!==$setup['payload'])throw new RuntimeException('Repeated setup did not preserve independent phone credentials.');
+ $mobile->resetCode('8100');$refused=false;try{$mobile->enroll(['code'=>$payload['code'],'device_name'=>'Old native fixture'],'fixture-old',$host);}catch(InvalidArgumentException){$refused=true;}
+ if(!$refused||pbx_mobile_welcome::beforeDelivery($db,$sent['queue_uuid'])||$mobile->authenticate($first['token'])['device_uuid']!==$first['device_id'])throw new RuntimeException('Explicit reset did not revoke only setup access.');
+ file_put_contents($stateFile,json_encode($state,JSON_THROW_ON_ERROR));echo json_encode(['state'=>'prepared','queue_uuid'=>$sent['queue_uuid'],'stable_payload_exact'=>true,'repeated_enrollment_independent'=>true,'explicit_reset_revoked'=>true],JSON_THROW_ON_ERROR),PHP_EOL;
 }

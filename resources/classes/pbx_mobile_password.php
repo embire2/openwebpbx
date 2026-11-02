@@ -30,8 +30,8 @@ final class pbx_mobile_password {
         $hash=password_hash($password,PASSWORD_ARGON2ID,self::OPTIONS);
         $saved=$this->q('insert into v_pbx_mobile_accounts(extension_uuid,domain_uuid,password_hash,updated_by) values(?,?,?,?) on conflict(extension_uuid)do update set password_hash=excluded.password_hash,generation=v_pbx_mobile_accounts.generation+1,updated_at=now(),updated_by=excluded.updated_by where v_pbx_mobile_accounts.domain_uuid=excluded.domain_uuid',[$extension,$domain,$hash,is_uuid($actor??'')?$actor:null]);
         if($saved->rowCount()!==1)throw new RuntimeException('App-password ownership needs review.');
-        $this->q("update v_email_queue q set email_status='cancelled',update_date=now() from v_pbx_mobile_welcome w where w.email_queue_uuid=q.email_queue_uuid and w.domain_uuid=? and w.extension_uuid=? and q.email_status in('waiting','trying')",[$domain,$extension]);
-        $this->q('delete from v_pbx_mobile_enrollments where domain_uuid=? and extension_uuid=? and used_at is null',[$domain,$extension]);
+        // App passwords and QR setup are independent credentials. Only an
+        // explicit QR reset replaces setup codes; password changes revoke devices.
         $devices=$this->q('update v_pbx_mobile_devices set revoked_at=now() where domain_uuid=? and extension_uuid=? and revoked_at is null'.($keepDevice!==null?' and device_uuid<>?':'').' returning device_uuid,sip_username,domain_uuid,extension_uuid',$keepDevice!==null?[$domain,$extension,$keepDevice]:[$domain,$extension])->fetchAll(PDO::FETCH_ASSOC);
         return $devices;
     }

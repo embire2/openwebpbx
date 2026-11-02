@@ -12,15 +12,15 @@ Calling remains unqualified. The native test advances through secure setup, then
 
 1. The administrator opens **Users → Phone Provisioning → Send Windows setup**. The PBX sends the organisation's standard welcome email through the instance's global outgoing mail server, with the signed Windows app installer link and a small `OpenWeb-phone.openwebpbx` attachment.
 2. The user installs the native app once, then opens the attachment. Windows opens OpenWeb PBX automatically. If the app is already installed, the user only opens the attachment.
-3. The app shows the organisation/server and intended extension, with one **Connect** button. It exchanges the one-use invitation for private device credentials, then displays **Ready for calls**. No camera, QR code, phone password or server settings are needed.
+3. The app shows the organisation/server and intended extension, with one **Connect** button. It exchanges the reusable private setup code for private device credentials, then displays **Ready for calls**. No camera, QR code, phone password or server settings are needed.
 
-The email also contains an HTTPS setup link and a **Open setup file** action for mail clients that block attachments. Mail delivery failure stays visible to the administrator. Resending replaces the previous invitation. Revoking the device removes both API and calling access without disconnecting the user's other phones.
+The email also contains an HTTPS setup link and a **Open setup file** action for mail clients that block attachments. Mail delivery failure stays visible to the administrator. Resending retains the same setup code. Only an explicit QR/setup reset replaces it and revokes old files. Revoking the device removes both API and calling access without disconnecting the user's other phones.
 
 ## Setup-file contract
 
 - A bounded JSON document (maximum 16 KiB) associated only with `.openwebpbx`; it is configuration data, never an executable or script.
 - Version, application identifier, HTTPS server address, invitation identifier, opaque single-use code, intended extension/name, expiry and issuer/signature metadata. No SIP password, durable account token, service-account key or carrier credential.
-- A configurable short invitation lifetime, initially 24 hours for emailed setup. QR invitations retain their existing ten-minute lifetime. Expired/used invitations show **Ask your administrator to send a new setup email**.
+- One stable private setup code per extension, shared by QR, email and setup file. It has no time limit and supports multiple phones. Viewing, resending and scanning do not rotate it; only an explicit confirmed reset revokes previous codes and files.
 - The app validates schema, expiry, HTTPS certificate, issuer and signature before offering Connect. Self-hosted instances use their own issuer identity, shown clearly to the user; a signature alone does not establish trust in an unknown organisation.
 - Enrollment remains atomic and idempotent. The server authorizes the extension and tenant, checks suspension and device limits, and consumes the invitation once. The client saves returned credentials before marking activation complete, so restart does not lose a consumed code.
 - Windows DPAPI/Credential Locker protects local credentials. No credential-bearing URLs, command-line values, screenshots, diagnostic logs or email attachments.
@@ -54,7 +54,7 @@ Reuse the signed release feed and tenant update policy. Download and verify the 
 
 | Stage | Complete when |
 | --- | --- |
-| W1 — Activation | Signed installer/file association; emailed file and HTTPS-link activation; one-use/expiry/resend; restart during enrollment; tenant/device removal and malicious-file refusal pass. SMTP is exercised with a local test sink before an owner-approved real email. |
+| W1 — Activation | Signed installer/file association; emailed file and HTTPS-link activation; stable setup/repeated enrollment/explicit reset/resend; restart during enrollment; tenant/device removal and malicious-file refusal pass. SMTP is exercised with a local test sink before an owner-approved real email. |
 | W2 — Voice | Actual local/remote internal and provider-approved outside calls have sustained audio both ways, secure registration/media, menu digits and correct independent history. |
 | W3 — Call controls | Transfers and their failure recovery, waiting/switching, three-way audio, participant removal, pickup/parking through the core server and headset controls pass with actual endpoints. |
 | W4 — Daily use | Directory, voicemail, status/queues, tray, notification answering, lock/unlock, audio-device changes and sleep/network recovery pass on the published OS/device matrix. |

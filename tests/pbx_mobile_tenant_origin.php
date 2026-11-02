@@ -8,13 +8,14 @@ function permission_exists($s):bool{return true;}
 class config{static function load(){return new self;}function get($key,$default=''){return $key==='openweb.mobile_tls_ready'?'true':$default;}}
 class cache{function delete($s){}}
 class event_socket{static array $commands=[];static function api($s){self::$commands[]=$s;return '+OK';}}
-class pbx_paths{static function host(){return 'original.example.invalid';}static function url(){return 'https://'.self::host();}static function state(){return $GLOBALS['state'];}}
+class pbx_paths{static function host(){return 'original.example.invalid';}static function url(){return 'https://'.self::host();}static function state(){return $GLOBALS['state'];}static function key(){return self::state().'/template.key';}}
 class pbx_mobile_push{function __construct($db){}function client(){return ['enabled'=>false];}}
 class pbx_video{static function ready(){return false;}}
 class pbx_setup{function __construct($db){}function canManage(){return true;}}
 class pbx_tenants{function __construct($db){}function canDomain($d){return true;}}
 class pbx_admin{function __construct(private PDO $db,$staff=null){}function config(){return json_decode($this->db->query("select config from v_pbx_restore where domain_uuid='".$_SESSION['domain_uuid']."'")->fetchColumn(),true);}}
 class database{static function new(){return(object)['db'=>$GLOBALS['httpDb']];}}
+require PROJECT_ROOT.'/resources/classes/pbx_onboarding.php';
 require PROJECT_ROOT.'/resources/classes/pbx_tenant_domains.php';
 require PROJECT_ROOT.'/resources/classes/pbx_mobile_password.php';
 require getenv('OPENWEB_MOBILE_TEST_SOURCE')?:PROJECT_ROOT.'/resources/classes/pbx_mobile.php';
@@ -23,7 +24,7 @@ $db=new PDO($dsn,'postgres',null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
 if(defined('OPENWEB_ORIGIN_HTTP_BOOT')) {
     $db->exec('set search_path to '.$GLOBALS['httpFixture']['schema']);$GLOBALS['state']=$GLOBALS['httpFixture']['state'];$GLOBALS['httpDb']=$db;return;
 }
-$schema='mobile_origin_'.bin2hex(random_bytes(6));$state=sys_get_temp_dir().'/'.$schema;mkdir($state,0700);$GLOBALS['state']=$state;
+$schema='mobile_origin_'.bin2hex(random_bytes(6));$state=sys_get_temp_dir().'/'.$schema;mkdir($state,0700);$GLOBALS['state']=$state;file_put_contents(pbx_paths::key(),random_bytes(32));chmod(pbx_paths::key(),0600);
 $minimal=getenv('OPENWEB_MOBILE_MINIMAL')==='1';$n=0;$process=null;
 $q=function($sql,$args=[])use($db){$s=$db->prepare($sql);$s->execute($args);return$s;};
 $check=function($ok,$why)use(&$n){if(!$ok)throw new RuntimeException($why);$n++;};
@@ -52,7 +53,7 @@ try {
     $caps=$mobile->capabilities(['HTTP_HOST'=>$hosts[0]],'cap-ip');
     $check($caps['schema']===1&&$caps['app_password']===!$minimal,'Capabilities reflect complete optional schema');
     $check($caps['tenant_uuid']===$tenants[0]&&$caps['domain_uuid']===$domains[0]&&$caps['server']==='https://'.$hosts[0]&&$caps['canonical_origin']===pbx_paths::url(),'Public capabilities bind exact tenant and canonical origin');
-    $check(array_keys($caps)===['schema','tenant_uuid','domain_uuid','server','canonical_origin','app_password'],'Public capabilities contain no token, device or SIP material');
+    $check(array_keys($caps)===['schema','tenant_uuid','domain_uuid','server','canonical_origin','app_password','windows_phone'],'Public capabilities contain no token, device or SIP material');
     foreach([pbx_paths::host(),'unknown.openwebpbx.com','openwebpbx.com',$hosts[0].'.evil.invalid',$hosts[0].':444',$hosts[0].'.',$hosts[0].'@evil.invalid']as$bad)$reject(fn()=>$mobile->capabilities(['HTTP_HOST'=>$bad],'cap-ip'),'Unowned/ambiguous/canonical capability origin refused');
     $check($mobile->capabilities(['HTTP_HOST'=>strtoupper($hosts[0]).':443'],'cap-ip')['server']==='https://'.$hosts[0],'Case and standard port normalize');
     $code=json_decode($mobile->createCode('100')['payload'],true);$check($code['server']==='https://'.$hosts[0],'QR selects ready alias');
@@ -69,7 +70,7 @@ try {
     foreach([$hosts[1],'unknown.openwebpbx.com',$hosts[0].':444',$hosts[0].'.','evil.invalid']as$bad)$reject(fn()=>$mobile->assertHost($account,['HTTP_HOST'=>$bad]),'Foreign/invalid bearer recipient refused');
     foreach([pbx_paths::host(),pbx_paths::host().':443',$hosts[0],strtoupper($hosts[0]).':443']as$good){$mobile->assertHost($account,['HTTP_HOST'=>$good]);$check(true,'Owned alias and existing canonical callers remain compatible');}
     $check(!isset($mobile->bootstrap($account)['sip']['password']),'Bootstrap never returns SIP password');
-    $reject(fn()=>$mobile->enroll(['code'=>$code['code'],'device_name'=>'Replay'],'enroll-ip',['HTTP_HOST'=>$hosts[0]]),'Used code replay refused');
+    $another=$mobile->enroll(['code'=>$code['code'],'device_name'=>'Another phone'],'enroll-ip',['HTTP_HOST'=>$hosts[0]]);$check($another['device_id']!==$a['device_id'],'Same QR enrolls another independent phone');
     $q("update v_pbx_tenant_domains set state='pending_tls' where domain_uuid=?",[$domains[0]]);
     $reject(fn()=>$mobile->createCode('100'),'No canonical QR fallback during pending TLS');
     $reject(fn()=>$mobile->capabilities(['HTTP_HOST'=>$hosts[0]],'cap-ip'),'Pending alias capabilities refuse');
@@ -82,7 +83,7 @@ try {
     $reject(fn()=>$mobile->capabilities(['HTTP_HOST'=>$hosts[0]],'cap-ip'),'Disabled tenant refuses capabilities');
     $reject(fn()=>$mobile->authenticate($a['token']),'Disabled tenant refuses token');$q('update v_pbx_tenants set enabled=true where tenant_uuid=?',[$tenants[0]]);
     if(!$minimal) {
-        foreach(["alter table v_pbx_mobile_accounts drop column generation","drop table v_pbx_mobile_accounts","drop table v_pbx_mobile_welcome","alter table v_pbx_mobile_enrollments drop column purpose"]as$ddl) {
+        foreach(["alter table v_pbx_mobile_accounts drop column generation","drop table v_pbx_mobile_accounts","drop table v_pbx_mobile_welcome","alter table v_pbx_mobile_enrollments drop column purpose","alter table v_pbx_mobile_enrollments drop column code_ciphertext","alter table v_pbx_mobile_enrollments drop column server_origin","alter table v_pbx_mobile_enrollments drop column revoked_at"]as$ddl) {
             $db->beginTransaction();$db->exec($ddl);
             $check(!$mobile->appPasswordAvailable()&&!in_array('app_password',$mobile->bootstrap($account)['features'],true),'Incomplete optional schema is not advertised');
             $reject(fn()=>$mobile->passwordPrincipal(['extension'=>'100','password'=>'NotARealPassword118'],'login-ip',['HTTP_HOST'=>$hosts[0]]),'Incomplete schema rejects password sign-in before queries');
@@ -96,8 +97,9 @@ try {
     // injected by this fixture router; this checks dispatch, not TLS transport.
     $tree=$state.'/http';mkdir($tree.'/app/pbx_mobile',0700,true);mkdir($tree.'/resources',0700);
     copy(getenv('OPENWEB_MOBILE_API_SOURCE')?:PROJECT_ROOT.'/app/pbx_mobile/api.php',$tree.'/app/pbx_mobile/api.php');
+    copy(PROJECT_ROOT.'/app/pbx_mobile/user.php',$tree.'/app/pbx_mobile/user.php');
     $fixture=['schema'=>$schema,'state'=>$state];
-    file_put_contents($tree.'/resources/require.php','<?php define("OPENWEB_ORIGIN_HTTP_BOOT",true); $GLOBALS["httpFixture"]='.var_export($fixture,true).';require '.var_export(__FILE__,true).';');
+    file_put_contents($tree.'/resources/require.php','<?php define("OPENWEB_ORIGIN_HTTP_BOOT",true); $GLOBALS["httpFixture"]='.var_export($fixture,true).';require '.var_export(__FILE__,true).';if(str_ends_with($_SERVER["SCRIPT_NAME"],"/user.php")){session_save_path('.var_export($state,true).');session_start();}');
     file_put_contents($tree.'/router.php','<?php $_SERVER["HTTPS"]="on";return false;');
     $socket=stream_socket_server('tcp://127.0.0.1:0');$port=(int)substr(strrchr(stream_socket_get_name($socket,false),':'),1);fclose($socket);
     $process=proc_open([PHP_BINARY,'-S','127.0.0.1:'.$port,'-t',$tree,$tree.'/router.php'],[0=>['file','/dev/null','r'],1=>['file',$state.'/http.private.log','a'],2=>['file',$state.'/http.private.log','a']],$pipes);
@@ -114,6 +116,25 @@ try {
     [$status]=$request($hosts[1],'enroll',null,['code'=>$next['code'],'device_name'=>'Foreign']);$check($status===401,'Exact API passes request origin to enrollment');
     [$status,$value]=$request($hosts[0],'enroll',null,['code'=>$next['code'],'device_name'=>'Owned']);$check($status===200&&$value['account']['domain_uuid']===$domains[0],'Exact API correct alias redeems unconsumed code');
     if($minimal){[$status]=$request($hosts[0],'login',null,['extension'=>'100','password'=>'NotARealPassword118']);$check($status===404,'Minimal hosted overlay does not enable password endpoint');}
+    if(!$minimal){
+        $pw='Portal Fixture Password 123';$q('insert into v_pbx_mobile_accounts(extension_uuid,domain_uuid,password_hash) values(?,?,?)',[$extensions[0],$domains[0],password_hash($pw,PASSWORD_ARGON2ID)]);
+        $cookie='';$portal=function($host,$body=null)use($port,&$cookie){$headers="Host: $host\r\nConnection: close\r\n";if($cookie!=='')$headers.="Cookie: $cookie\r\n";if($body!==null)$headers.="Content-Type: application/x-www-form-urlencoded\r\n";$ctx=stream_context_create(['http'=>['method'=>$body===null?'GET':'POST','header'=>$headers,'content'=>$body===null?'':http_build_query($body),'ignore_errors'=>true,'timeout'=>8]]);$raw=file_get_contents('http://127.0.0.1:'.$port.'/app/pbx_mobile/user.php',false,$ctx);preg_match('~HTTP/1\.[01] ([0-9]+)~',$http_response_header[0],$m);foreach($http_response_header as$h)if(preg_match('/^Set-Cookie: ([^;]+)/i',$h,$c))$cookie=$c[1];return[(int)$m[1],$raw];};
+        $csrf=function($html){if(!preg_match('/name="csrf" value="([a-f0-9]{64})"/',$html,$m))throw new RuntimeException('Private portal CSRF input missing');return $m[1];};
+        [$status,$html]=$portal($hosts[0]);$check($status===200,'Actual personal portal login form');$token=$csrf($html);
+        [$status]=$portal($hosts[0],['action'=>'login','csrf'=>'incorrect','extension'=>'100','password'=>$pw]);$check($status===403,'Portal rejects invalid CSRF before authentication');
+        [$status,$html]=$portal($hosts[0],['action'=>'login','csrf'=>$token,'extension'=>'100','password'=>$pw]);$check($status===200&&str_contains($html,'Sign out'),'Actual personal password login');$token=$csrf($html);
+        [$status,$html]=$portal($hosts[0],['action'=>'code','csrf'=>$token]);$check($status===200&&str_contains($html,'Private reusable phone setup QR code'),'Actual portal displays reusable QR');
+        [$status,$raw]=$portal($hosts[0],['action'=>'export','csrf'=>$token]);$check($status===200&&$raw===$mobile->createCode('100')['payload'],'Actual exported setup matches administrator QR exactly');$old=json_decode($raw,true);
+        [$status]=$portal($hosts[0],['action'=>'reset','csrf'=>'incorrect','confirm_reset'=>'yes']);$check($status===403,'Portal QR reset rejects invalid CSRF');$check($mobile->createCode('100')['payload']===$raw,'Rejected CSRF leaves code byte-exact');
+        [$status]=$portal($hosts[0],['action'=>'reset','csrf'=>$token]);$check($status===400,'Portal requires explicit reset confirmation');
+        [$status]=$portal($hosts[1],['action'=>'reset','csrf'=>$token,'confirm_reset'=>'yes']);$check($status===401,'Personal session cannot reset another tenant');
+        // A rejected foreign request clears the domain-scoped portal session.
+        [$status,$html]=$portal($hosts[0],['action'=>'login','csrf'=>$token,'extension'=>'100','password'=>$pw]);$check($status===200&&str_contains($html,'Sign out'),'Ordinary owner reauthentication after foreign-host refusal');$token=$csrf($html);
+        [$status,$html]=$portal($hosts[0],['action'=>'reset','csrf'=>$token,'confirm_reset'=>'yes']);$check($status===200&&str_contains($html,'Earlier codes and setup files'),'Actual confirmed QR reset succeeds');
+        [$status,$raw]=$portal($hosts[0],['action'=>'export','csrf'=>$token]);$check($status===200&&$raw!==json_encode($old,JSON_UNESCAPED_SLASHES),'Export observes current reset rather than cached payload');
+        [$status]=$request($hosts[0],'enroll',null,['code'=>$old['code'],'device_name'=>'Old export']);$check($status===400,'Old exported setup cannot enroll after explicit reset');
+        $current=json_decode($raw,true);[$status,$firstDevice]=$request($hosts[0],'enroll',null,['code'=>$current['code'],'device_name'=>'New export']);[$status2,$secondDevice]=$request($hosts[0],'enroll',null,['code'=>$current['code'],'device_name'=>'Repeat export']);$check($status===200&&$status2===200&&$firstDevice['device_id']!==$secondDevice['device_id'],'Actual API enrolls independent phones from same exported setup');
+    }
     $check($before===$q('select * from v_pbx_mobile_devices where device_uuid=?',[$a['device_id']])->fetch(PDO::FETCH_ASSOC),'Existing device row/token/SIP tuple remains exact');
     $check($original===$db->query('select * from v_extensions order by extension_uuid')->fetchAll(PDO::FETCH_ASSOC),'Every original phone row/password remains exact');
     $check($restore===$db->query('select * from v_pbx_restore order by domain_uuid')->fetchAll(PDO::FETCH_ASSOC),'All restored routing/config remains exact');

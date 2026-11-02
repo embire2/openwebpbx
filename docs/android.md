@@ -13,19 +13,21 @@ See [video calls and the known brief camera-restart interruption](android-video.
 3. Open the Android app, choose **Scan QR code** and point your camera at it. Confirm the server name before connecting.
 4. Allow the microphone and notifications so you can make calls and see incoming calls.
 
-A code expires after ten minutes and works once. It contains the HTTPS tenant address and a random enrollment code, never the SIP password. If the camera is unavailable, choose **Enter a connection code instead** and enter the tenant address and code shown by your administrator. The app accepts registered `*.openwebpbx.com` tenant origins with trusted certificates and refuses redirects during enrollment or authenticated API calls.
+A QR code stays unchanged and can be scanned on multiple phones until the extension’s administrator or signed-in user explicitly chooses **Reset QR code**. It has no time limit. Viewing, exporting, emailing, or scanning it does not replace it. It contains the HTTPS tenant address and a random enrollment code, never the SIP password. If the camera is unavailable, choose **Enter a connection code instead** and enter the tenant address and code shown by your administrator. The app accepts registered `*.openwebpbx.com` tenant origins with trusted certificates and refuses redirects during enrollment or authenticated API calls.
 
-Each phone receives its own revocable credentials, valid for 180 days. Create a new QR code when they expire. They are encrypted with an Android Keystore key and excluded from device backup. The SIP connection uses TLS, validates the server certificate and requires SRTP media encryption. The server certificate must match the public SIP hostname. Account and calling permissions remain scoped to the tenant and extension.
+The PBX encrypts its recoverable setup token with the protected instance key. Keep the QR image, email and setup file private, like a password. Welcome emails and the personal **My Phone** download use the same code. Changing an app password does not change the QR code. Older hash-only invitations retain their original validity until used or explicitly reset; an expired legacy invitation is never revived.
+
+Each phone receives its own revocable credentials, valid for 180 days. Scan the same QR code to reconnect when device credentials expire. They are encrypted with an Android Keystore key and excluded from device backup. The SIP connection uses TLS, validates the server certificate and requires SRTP media encryption. The server certificate must match the public SIP hostname. Account and calling permissions remain scoped to the tenant and extension.
 
 ## Five phone features
 
-1. **Connect by QR code.** Native camera scanning, confirmation, one-time enrollment, encrypted account storage and device revocation.
+1. **Connect by QR code.** Native camera scanning, confirmation, reusable private setup, encrypted account storage and device revocation.
 2. **Make and receive calls.** Dial an extension or permitted outside number. Incoming calls ring and show a notification. Open the notification and choose **Answer**, or decline it. A persistent connection notification indicates that the phone is running.
 3. **Call controls.** Mute/unmute, speaker/earpiece, hold/resume and keypad tones for phone menus. Available audio devices can be selected in **Settings → Audio device**; Bluetooth requires the nearby-device permission.
 4. **Contacts and Recents.** Search the company directory and tap to call. Recents is phone-reported history, not the billing call record. It includes incoming, outgoing and missed calls; tap a record to call back. Completed phone calls are queued privately when offline. Upload retries are idempotent and run when the phone starts, another call ends or Recents is refreshed.
 5. **Voicemail.** List your mailbox, play messages, mark them read and delete them after confirmation. Audio downloads are authenticated and kept in the app's private cache only while needed.
 
-Use **Settings → Disconnect this phone** to revoke this phone and remove its saved connection. An administrator can also revoke a lost phone in the PBX. A new QR code is required to reconnect.
+Use **Settings → Disconnect this phone** to revoke this phone and remove its saved connection. An administrator can also revoke a lost phone in the PBX. The same QR code can reconnect a phone. Reset the QR code as well if it was shared incorrectly; a reset invalidates previous codes and setup files while leaving connected phones unchanged.
 
 ## New calling controls in 1.0.9
 

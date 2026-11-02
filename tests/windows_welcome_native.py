@@ -339,16 +339,18 @@ def run_fixture(input_path, source, php, evidence, *, portable=False, wheel_inpu
                 inspected = operation('inspect')
                 check(inspected['delivery_state'] == 'sent' and inspected['inbox_claim_refused'] is True, 'SMTP acceptance was not honestly reported.')
                 check(inspected['public_exact'] is True and inspected['config_exact'] is True, 'Original public rows/configuration changed.')
-                used = operation('suppress')
-                operation('dispatch', used['queue_uuid'], json_result=False)
+                reset = operation('suppress')
+                check(reset.get('stable_payload_exact') is True and reset.get('repeated_enrollment_independent') is True
+                      and reset.get('explicit_reset_revoked') is True, 'Actual reusable setup/reset assertions did not complete.')
+                operation('dispatch', reset['queue_uuid'], json_result=False)
                 inspected = operation('inspect')
-                check(inspected['delivery_state'] == 'used' and inspected['queue_states'].count('cancelled') == 1, 'The used setup invitation was not cancelled.')
-                check(len(sink.deliveries) == 1, 'A used invitation was delivered.')
+                check(inspected['delivery_state'] == 'cancelled' and inspected['queue_states'].count('cancelled') == 1, 'The explicitly reset setup invitation was not cancelled.')
+                check(len(sink.deliveries) == 1, 'An explicitly reset invitation was delivered.')
                 result = {'state': 'passed', 'actual_php_postgresql_dispatcher': True,
                           'two_concurrent_dispatchers': True, 'one_actual_loopback_delivery': True,
                           'inline_qr_cid_exact': True, 'independent_qr_decoded': True,
-                          'qr_and_attached_config_exact': True, 'password_free_one_use_setup': True,
-                          'used_invitation_suppressed': True, 'same_framework_backend': True,
+                          'qr_and_attached_config_exact': True, 'password_free_reusable_setup': True, 'repeated_enrollment_independent': True,
+                          'explicit_reset_invitation_suppressed': True, 'same_framework_backend': True,
                           'no_php_ini_or_gd_renderer': True,
                           'alias_custody_modelled': True, 'tls_readiness_modelled': True,
                           'gd_required': False, 'no_external_mail': True,

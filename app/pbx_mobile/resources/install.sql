@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS v_pbx_mobile_enrollments (
  enrollment_uuid uuid PRIMARY KEY, domain_uuid uuid NOT NULL REFERENCES v_domains ON DELETE CASCADE,
  extension_uuid uuid NOT NULL REFERENCES v_extensions ON DELETE CASCADE,
  code_hash text UNIQUE NOT NULL CHECK(length(code_hash)=64),
- created_by uuid NOT NULL REFERENCES v_users ON DELETE CASCADE,
+ created_by uuid REFERENCES v_users ON DELETE SET NULL,
  created_at timestamptz NOT NULL DEFAULT now(), expires_at timestamptz NOT NULL,
  used_at timestamptz
 );
@@ -101,6 +101,26 @@ CREATE TABLE IF NOT EXISTS v_pbx_mobile_reviewers (
  enabled boolean NOT NULL DEFAULT true,
  created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE v_pbx_mobile_enrollments ALTER COLUMN created_by DROP NOT NULL;
+-- Removing an unrelated issuing administrator must not rotate an extension QR.
+DO $openweb_mobile_issuer$
+BEGIN
+ IF EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='v_pbx_mobile_enrollments'::regclass
+   AND conname='v_pbx_mobile_enrollments_created_by_fkey' AND confdeltype='c') THEN
+  ALTER TABLE v_pbx_mobile_enrollments DROP CONSTRAINT v_pbx_mobile_enrollments_created_by_fkey;
+  ALTER TABLE v_pbx_mobile_enrollments ADD CONSTRAINT v_pbx_mobile_enrollments_created_by_fkey
+   FOREIGN KEY(created_by) REFERENCES v_users(user_uuid) ON DELETE SET NULL;
+ END IF;
+END $openweb_mobile_issuer$;
+ALTER TABLE v_pbx_mobile_enrollments ADD COLUMN IF NOT EXISTS purpose text NOT NULL DEFAULT 'screen';
+-- Reusable setup secrets are encrypted with the protected instance key. Older
+-- hash-only invitations keep their existing expiry and one-use semantics.
+ALTER TABLE v_pbx_mobile_enrollments ADD COLUMN IF NOT EXISTS code_ciphertext text;
+ALTER TABLE v_pbx_mobile_enrollments ADD COLUMN IF NOT EXISTS server_origin text;
+ALTER TABLE v_pbx_mobile_enrollments ADD COLUMN IF NOT EXISTS revoked_at timestamptz;
+ALTER TABLE v_pbx_mobile_enrollments ALTER COLUMN expires_at DROP NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS openweb_mobile_stable_setup ON v_pbx_mobile_enrollments(extension_uuid)
+ WHERE code_ciphertext IS NOT NULL AND revoked_at IS NULL;
 -- App sign-in is independent of the extension's original SIP password.
 CREATE TABLE IF NOT EXISTS v_pbx_mobile_accounts (
  extension_uuid uuid PRIMARY KEY REFERENCES v_extensions ON DELETE CASCADE,
@@ -110,8 +130,6 @@ CREATE TABLE IF NOT EXISTS v_pbx_mobile_accounts (
  updated_at timestamptz NOT NULL DEFAULT now(), updated_by uuid REFERENCES v_users ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS openweb_mobile_account_domain ON v_pbx_mobile_accounts(domain_uuid);
-ALTER TABLE v_pbx_mobile_enrollments ALTER COLUMN created_by DROP NOT NULL;
-ALTER TABLE v_pbx_mobile_enrollments ADD COLUMN IF NOT EXISTS purpose text NOT NULL DEFAULT 'screen';
 CREATE TABLE IF NOT EXISTS v_pbx_mobile_welcome (
  welcome_uuid uuid PRIMARY KEY, domain_uuid uuid NOT NULL REFERENCES v_domains ON DELETE CASCADE,
  extension_uuid uuid NOT NULL REFERENCES v_extensions ON DELETE CASCADE,
@@ -121,6 +139,7 @@ CREATE TABLE IF NOT EXISTS v_pbx_mobile_welcome (
  created_at timestamptz NOT NULL DEFAULT now(), expires_at timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS openweb_mobile_welcome_extension ON v_pbx_mobile_welcome(domain_uuid,extension_uuid,created_at DESC);
+ALTER TABLE v_pbx_mobile_welcome ALTER COLUMN expires_at DROP NOT NULL;
 -- Do not leave a queued setup invitation behind after its user is deleted.
 CREATE OR REPLACE FUNCTION openweb_mobile_cancel_welcome() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN

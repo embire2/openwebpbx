@@ -54,7 +54,7 @@ Download the Windows ZIP and its `SHA256SUMS`, verify the checksum, extract the 
 
 The [installation guide](docs/installing-1.0.22.md) explains registration, network requirements, encrypted backups and upgrades. Use the signed updater on an installed Debian 1.0.21 or newer PBX; fresh setup protects an existing installation from replacement. Earlier versions require a separately validated migration path.
 
-For Android, use **Users → Phone Provisioning → Connect Android App · QR Code** on a compatible server and scan the single-use setup code. Current hosted accounts first confirm their tenant address. Read the [Android guide](docs/android.md) for permissions, supported controls and incoming-call setup.
+For Android, use **Users → Phone Provisioning → Connect Android App · QR Code** on a compatible server. Hosted accounts now receive a reusable code that includes their tenant address and changes only after an administrator or user explicitly resets it. The same code appears in welcome emails and setup files. This hosted correction is also in the development source; older published server packages retain their original invitation behavior. Read the [Android guide](docs/android.md) for permissions, supported controls and incoming-call setup.
 
 ## What you can build with it
 

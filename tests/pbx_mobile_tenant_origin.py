@@ -15,6 +15,7 @@ def main():
     parser.add_argument("--api-source", type=Path)
     parser.add_argument("--minimal", action="store_true")
     parser.add_argument("--password-regression", action="store_true")
+    parser.add_argument("--stable-qr", action="store_true")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     base = Path(tempfile.mkdtemp(prefix="openweb-mobile-origin-"))
@@ -52,6 +53,10 @@ def main():
         if args.password_regression:
             assert not args.minimal
             subprocess.run(["php", str(root / "tests/pbx_mobile_password.php")],
+                           env=env, check=True, timeout=90)
+        if args.stable_qr:
+            assert not args.minimal
+            subprocess.run(["php", str(root / "tests/pbx_mobile_stable_qr.php")],
                            env=env, check=True, timeout=90)
     finally:
         if started:

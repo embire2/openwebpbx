@@ -2,7 +2,7 @@
 
 The Android app needs a real PBX account. Give Google the permanent review portal URL and its reusable English login through Play Console’s **App access** form. Do not upload credentials, connection codes or reviewer screenshots containing a QR code to the public repository or store listing.
 
-The review portal uses the regular PBX login, a dedicated `pbx_mobile_review` permission and an explicit user-to-demo-extension assignment. It cannot choose an arbitrary extension or access PBX administration. Fresh QR codes still expire after ten minutes and work once; the portal URL and login remain reusable.
+The review portal uses the regular PBX login, a dedicated `pbx_mobile_review` permission and an explicit user-to-demo-extension assignment. It cannot choose an arbitrary extension or access PBX administration. The review QR code is reusable and has no time limit. Viewing it or connecting another review phone leaves it unchanged. Only **Reset QR code**, with explicit confirmation, invalidates older codes and setup files; connected phones remain unchanged. Keep the QR image private, like the review login.
 
 Android **1.0.17/code117** is the current submission candidate with tenant/profile/password features. Its signed116→117 replacement and two-tenant software media workflow passed. The [video guide](android-video.md) records earlier video-media evidence, the known brief camera-restart interruption and device limitations. Before submitting, test a second isolated video-capable reviewer phone/extension, record camera permission and explicit video/audio choices, and complete real Play-track and physical-camera checks. Two117 Settings screenshots are current; other screenshots retain their earlier qualified fictional views. The historical video and complete permanent-portal/media workflow below belong to1.0.7. They do not qualify current camera/idle/Play behavior. Recheck the exact private reviewer access before Console submission.
 
@@ -25,7 +25,7 @@ The installation must have working public HTTPS, secure phone connections and th
 ## Reviewer instructions
 
 1. Visit the portal URL from the private output file and sign in with its supplied username and password.
-2. Select **Show a fresh QR code**. Open the Android app and scan it, or select **Enter a connection code instead** and copy the displayed server address and code.
+2. Select **Show QR code**. Open the Android app and scan it, or select **Enter a connection code instead** and copy the displayed server address and code.
 3. Allow microphone access for calls and notifications for incoming calls. Your demo extension is **7001**.
 4. Dial **7000** to hear your voice returned. Try Mute, Speaker, Hold and End call.
 5. Select **Ring my demo phone** on the portal to receive a call on that same phone. Answer it to hear your voice returned. Requests are limited to one per two and a half minutes; ringing lasts up to 25 seconds and an answered test ends after two minutes.

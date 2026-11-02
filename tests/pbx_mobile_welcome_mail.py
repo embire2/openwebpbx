@@ -26,6 +26,6 @@ if __name__=='__main__':
    assert json.loads(config[0].get_payload(decode=True))==expected['payload']
    assert config[0].get_filename()=='OpenWebPBX-100.openwebpbx'and'password'not in expected['payload']
    assert fixture.connections==[(False,0),(False,0)]and fixture.envelopes==['MAIL FROM:<welcome@example.invalid>']*2
-   safe={'one_actual_delivery':True,'two_concurrent_dispatchers':True,'inline_png_content_id_matches':True,'png_exact':True,'setup_json_exact':True,'one_use_password_free_payload':True,'global_sender_no_auth':True,'real_550_marks_failed_and_ui_reports_failure':True,'no_external_mail':True}
+   safe={'one_actual_delivery':True,'two_concurrent_dispatchers':True,'inline_png_content_id_matches':True,'png_exact':True,'setup_json_exact':True,'reusable_password_free_payload':True,'global_sender_no_auth':True,'real_550_marks_failed_and_ui_reports_failure':True,'no_external_mail':True}
    (out/'mime.safe.json').write_text(json.dumps(safe,indent=2)+'\n');print('PASS: actual SMTP MIME/CID/PNG/setup attachment, concurrent dispatcher and obsolete invitation suppression')
   finally:fixture.shutdown();worker.join(timeout=2)
