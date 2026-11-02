@@ -1611,15 +1611,43 @@ function StunHook {
 }
 . (Join-Path $PSScriptRoot 'windows-health-restart-phase.ps1')
 function SafePhoneHealthFailure($Record){
+ function ClosedAvailabilityLayers($r){
+  if($r-isnot [pscustomobject] -and $r-isnot [Collections.IDictionary]){return $null}
+  $keys=if($r-is [Collections.IDictionary]){@($r.Keys)}else{@($r.PSObject.Properties.Name)}
+  $flags=@('runtime_ready','esl_subscription','registrations_api','registrations_parser','sofia_api','sofia_listener_parser','phone_health_schema_installed','contacts_insert_privilege','contacts_update_privilege','reconcile_readonly_precondition','sql_readonly_rolled_back','phone_health_identity','original_state_query','instrumented_state_query','neutral_transport_call','neutral_transport_exact','read_only_diagnostic_completed','no_monitor_collect_reconcile_called','no_add_remove_or_worker_invocation')
+  $allowed=@('schema','scope','started_at','finished_at','errors','outer_error_type','registration_count','pending_intents','original_state_elapsed_ms','listener_counts','last_state_counts','original_firewall_state','instrumented_firewall_state','state_transport','neutral_transport','sofia_profile_summary')+$flags
+  if(@($keys|Where-Object {$_-cnotin $allowed}).Count -or ($r.schema-isnot [int] -and $r.schema-isnot [long]) -or $r.schema-ne 1 -or $r.no_monitor_collect_reconcile_called-isnot [bool] -or !$r.no_monitor_collect_reconcile_called -or $r.no_add_remove_or_worker_invocation-isnot [bool] -or !$r.no_add_remove_or_worker_invocation){return $null}
+  $out=@{schema=1};$integer={param($v,$lo,$hi)return (($v-is [int] -or $v-is [long]) -and $v-ge $lo -and $v-le $hi)}
+  foreach($k in $flags){if($keys-ccontains $k){if($r.$k-isnot [bool]){return $null};$out[$k]=$r.$k}}
+  foreach($k in 'registration_count','pending_intents'){if($keys-ccontains $k){$limit=if($k-ceq 'registration_count'){20000}else{2000000};if($null-eq $r.$k){$out[$k]=$null}elseif(& $integer $r.$k 0 $limit){$out[$k]=$r.$k}else{return $null}}}
+  if($keys-ccontains 'original_state_elapsed_ms'){if(!(& $integer $r.original_state_elapsed_ms 0 90000)){return $null};$out.original_state_elapsed_ms=$r.original_state_elapsed_ms}
+  foreach($k in 'original_firewall_state','instrumented_firewall_state'){if($keys-ccontains $k){if($null-eq $r.$k){$out[$k]=$null}elseif($r.$k-is [string] -and $r.$k-cin 'present','absent','unknown'){$out[$k]=$r.$k}else{return $null}}}
+  if($keys-ccontains 'listener_counts'){
+   if($null-eq $r.listener_counts){$out.listener_counts=$null}else{$v=$r.listener_counts;$vk=if($v-is [Collections.IDictionary]){@($v.Keys)}elseif($v-is [pscustomobject]){@($v.PSObject.Properties.Name)}else{@()};if($vk.Count-ne 2 -or @($vk|Where-Object {$_-cnotin 'tcp','udp'}).Count -or !(& $integer $v.tcp 0 32) -or !(& $integer $v.udp 0 32)){return $null};$out.listener_counts=@{tcp=$v.tcp;udp=$v.udp}}
+  }
+  if($keys-ccontains 'sofia_profile_summary'){
+   $v=$r.sofia_profile_summary;$vk=if($v-is [Collections.IDictionary]){@($v.Keys)}elseif($v-is [pscustomobject]){@($v.PSObject.Properties.Name)}else{@()};$expected=@('valid','running','loopback','non_loopback','unparseable','loopback_only');if($vk.Count-ne 6 -or @($vk|Where-Object {$_-cnotin $expected}).Count -or $v.valid-isnot [bool] -or $v.loopback_only-isnot [bool]){return $null};$part=@{valid=$v.valid;loopback_only=$v.loopback_only};foreach($k in 'running','loopback','non_loopback','unparseable'){if(!(& $integer $v.$k 0 2049)){return $null};$part[$k]=$v.$k};$out.sofia_profile_summary=$part
+  }
+  foreach($name in 'state_transport','neutral_transport'){
+   if($keys-cnotcontains $name){continue};$v=$r.$name
+   if($v-is [array] -and $v.Count-eq 0){$out[$name]=@{observed=$false};continue}
+   $vk=if($v-is [Collections.IDictionary]){@($v.Keys)}elseif($v-is [pscustomobject]){@($v.PSObject.Properties.Name)}else{@()};$expected=@('started','process_created','cutoff','native_exit','close_exit','last_running','output_bytes','raw_returned','json_state','elapsed_ms')
+   if($vk.Count-ne 10 -or @($vk|Where-Object {$_-cnotin $expected}).Count -or $v.cutoff-isnot [string] -or $v.cutoff-cnotin 'none','spool_directory','spool_open','proc_open','output_size','15s_deadline','native_exit' -or $v.json_state-isnot [string] -or $v.json_state-cnotin 'unobserved','other','invalid','present','absent','unknown'){return $null}
+   $part=@{observed=$true;cutoff=$v.cutoff;json_state=$v.json_state};foreach($k in 'started','process_created','raw_returned'){if($v.$k-isnot [bool]){return $null};$part[$k]=$v.$k}
+   if($null-ne $v.last_running -and $v.last_running-isnot [bool]){return $null};$part.last_running=$v.last_running
+   foreach($k in 'native_exit','close_exit','output_bytes','elapsed_ms'){$lo=if($k-cin 'native_exit','close_exit'){-2147483648L}else{0};$hi=if($k-cin 'native_exit','close_exit'){4294967295L}elseif($k-ceq 'output_bytes'){8193}else{90000};if($null-ne $v.$k -and !(& $integer $v.$k $lo $hi)){return $null};$part[$k]=$v.$k};$out[$name]=$part
+  }
+  return $out
+ }
  $safe=@{}
  if($Record.schema -ne 1 -or $Record.producer -cne 'windows_phone_health_acceptance.ps1' -or $Record.state -cne 'failed'){return $safe}
  $system=$Record.system_observer_failure
  $systemKeys=if($system-is [Collections.IDictionary]){@($system.Keys)}elseif($system-is [pscustomobject]){@($system.PSObject.Properties.Name)}else{@()}
  $systemFields=@('schema','state','phase','attempt','native_exit','observed_state','available','error_type')
- if($systemKeys.Count-eq 8 -and @($systemKeys|Where-Object {$_-cnotin $systemFields}).Count-eq 0){
+ if($systemKeys.Count-in 8,9 -and @($systemKeys|Where-Object {$_-cnotin ($systemFields+@('layers'))}).Count-eq 0 -and @($systemFields|Where-Object {$_-cnotin $systemKeys}).Count-eq 0){
   $valid=($system.schema-is [int] -or $system.schema-is [long]) -and $system.schema-eq 1 -and $system.state-is [string] -and $system.state-ceq 'failed' -and $system.phase-is [string] -and $system.phase-cin 'system_identity','installed_invocation','invocation_exit','json_parse','availability' -and ($system.attempt-is [int] -or $system.attempt-is [long]) -and $system.attempt-ge 0 -and $system.attempt-le 3 -and $system.observed_state-is [string] -and $system.observed_state-cin 'unavailable','observed','deferred','other' -and ($null-eq $system.available -or $system.available-is [bool]) -and $system.error_type-is [string] -and $system.error_type-cin 'RuntimeException','MethodInvocationException','ActionPreferenceStopException','ParameterBindingException','ItemNotFoundException','UnauthorizedAccessException','ArgumentException','FormatException','Win32Exception','Exception','CommandNotFoundException','ParseException'
   if($null-ne $system.native_exit -and (($system.native_exit-isnot [int] -and $system.native_exit-isnot [long]) -or $system.native_exit-lt -2147483648L -or $system.native_exit-gt 4294967295L)){$valid=$false}
-  if($valid){$safe.system_observer_failure=@{};foreach($field in $systemFields){$safe.system_observer_failure[$field]=$system.$field}}
+  if($valid){$safe.system_observer_failure=@{};foreach($field in $systemFields){$safe.system_observer_failure[$field]=$system.$field};if($systemKeys-ccontains 'layers'){$layers=ClosedAvailabilityLayers $system.layers;if($null-ne $layers){$safe.system_observer_failure.layers=$layers}}}
  }
  $restart=$Record.restart_observation
  $restartKeys=if($restart -is [pscustomobject]){@($restart.PSObject.Properties.Name)}elseif($restart -is [Collections.IDictionary]){@($restart.Keys)}else{@()}

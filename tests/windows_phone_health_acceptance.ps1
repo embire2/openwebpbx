@@ -103,6 +103,7 @@ try{
  if(!$task.Settings.Enabled -or $task.State -ne 'Running'){throw 'The installed persistent health task is not running.'};$report.gates.installed_task='passed'
  $initialHealthTaskXml=Export-ScheduledTask -TaskName 'OpenWebPBX-PhoneHealth' -TaskPath '\'
  $systemFile=Join-Path $work 'system-observer.ps1';$systemResult=Join-Path $work 'system-result.json'
+ $layerFiles=@{};foreach($name in 'windows_phone_health_layers.php','windows_phone_health_state_adapter.php'){$from=Join-Path $PSScriptRoot $name;$to=Join-Path $work $name;Copy-Item -LiteralPath $from -Destination $to -ErrorAction Stop;$hash=(Get-FileHash -LiteralPath $from -Algorithm SHA256).Hash.ToLowerInvariant();if((Get-FileHash -LiteralPath $to -Algorithm SHA256).Hash.ToLowerInvariant()-cne $hash){throw 'The private diagnostic source copy differs.'};$layerFiles[$name]=@{path=$to;sha256=$hash}}
  $system=@'
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
@@ -124,9 +125,22 @@ try{
  $observerPhase='availability'
  if($parsed.state -ne 'observed' -or $parsed.available -isnot [bool] -or !$parsed.available){throw 'The installed SYSTEM observer is unavailable.'}
  [IO.File]::WriteAllText($result,(@{state='passed';actual_system=$true;actual_installed_observer=$true}|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
-}catch{[IO.File]::WriteAllText($result,(@{schema=1;state='failed';phase=$observerPhase;attempt=$observerAttempt;native_exit=$observerExit;observed_state=$observedState;available=$observedAvailable;error_type=$_.Exception.GetType().Name}|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false));exit 1}
+}catch{
+ $primary=$_;$failure=@{schema=1;state='failed';phase=$observerPhase;attempt=$observerAttempt;native_exit=$observerExit;observed_state=$observedState;available=$observedAvailable;error_type=$primary.Exception.GetType().Name}
+ # Failure-only read-only layers. The original availability throw and exit stay.
+ if($observerPhase-ceq 'availability' -and $observedState-ceq 'observed' -and $observedAvailable-is [bool] -and !$observedAvailable){
+  try{
+   if((Get-FileHash -LiteralPath '__LAYER__' -Algorithm SHA256).Hash.ToLowerInvariant()-cne '__LAYER_HASH__' -or (Get-FileHash -LiteralPath '__ADAPTER__' -Algorithm SHA256).Hash.ToLowerInvariant()-cne '__ADAPTER_HASH__'){throw 'Private diagnostic source differs.'}
+   $global:LASTEXITCODE=$null;$layers=& 'C:\OpenWebPBX\php\php.exe' -d memory_limit=128M -d display_errors=0 -d log_errors=0 '__LAYER__' 2> '__LAYER_ERROR__';$layerExit=$global:LASTEXITCODE
+   [IO.File]::WriteAllText('__LAYER_OUTPUT__',($layers-join "`n"),[Text.UTF8Encoding]::new($false))
+   if($layerExit-eq 0){$failure.layers=($layers-join "`n")|ConvertFrom-Json}
+  }catch{}
+ }
+ [IO.File]::WriteAllText($result,($failure|ConvertTo-Json -Depth 12 -Compress),[Text.UTF8Encoding]::new($false));exit 1
+}
 '@
- [IO.File]::WriteAllText($systemFile,$system.Replace('__RESULT__',$systemResult),[Text.UTF8Encoding]::new($false))
+ $systemPrepared=$system.Replace('__RESULT__',$systemResult).Replace('__LAYER__',$layerFiles['windows_phone_health_layers.php'].path).Replace('__LAYER_HASH__',$layerFiles['windows_phone_health_layers.php'].sha256).Replace('__ADAPTER__',$layerFiles['windows_phone_health_state_adapter.php'].path).Replace('__ADAPTER_HASH__',$layerFiles['windows_phone_health_state_adapter.php'].sha256).Replace('__LAYER_OUTPUT__',(Join-Path $work 'layers.stdout.private')).Replace('__LAYER_ERROR__',(Join-Path $work 'layers.stderr.private'))
+ [IO.File]::WriteAllText($systemFile,$systemPrepared,[Text.UTF8Encoding]::new($false))
  $execute=Join-Path $env:windir 'System32\WindowsPowerShell\v1.0\powershell.exe';$arguments='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$systemFile+'"'
  if(Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue){throw 'The isolated SYSTEM task name is occupied.'}
  $action=New-ScheduledTaskAction -Execute $execute -Argument $arguments -WorkingDirectory $work;$principal=New-ScheduledTaskPrincipal -UserId SYSTEM -LogonType ServiceAccount -RunLevel Highest;$settings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::FromMinutes(5))

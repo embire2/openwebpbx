@@ -101,11 +101,11 @@ Check ($definitions.HealthRestartObservation.Contains("@('restart-phase',"))
 $catches=@($acceptanceAst.FindAll({param($node)$node -is [Management.Automation.Language.CatchClauseAst] -and $node.Extent.Text.Contains('$report.restart_observation=HealthRestartObservation')},$true));Check ($catches.Count -eq 2)
 # Removing only the second failure hook and its requested-time capture must
 # recover the reviewed baseline including the separately qualified SYSTEM
-# failure metadata, while pinning every wait/task/owner/maintenance/cleanup byte.
+# failure metadata/read-only layers, while pinning every wait/task/owner/maintenance/cleanup byte.
 $normalised=$acceptanceText.Replace(';$workerRestartRequestedAt=[DateTime]::UtcNow;Start-ScheduledTask',';Start-ScheduledTask')
 $normalised=$normalised.Replace("  if(`$workerRecoveryVerified){`n   try{`n","  if(`$workerRecoveryVerified){`n")
 $normalised=$normalised.Replace('   }catch{$primary=$_;try{$report.restart_observation=HealthRestartObservation $workerRestartRequestedAt}catch{};throw $primary}'+"`n",'')
-Check ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($normalised))).ToLowerInvariant() -ceq 'e440282112865e5ec334b4225a9e31cb5e0f65bf60ed7805fe8fd25167357e19')
+Check ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($normalised))).ToLowerInvariant() -ceq '1ad99e4643ec5a881b489f8e201e53055ec0831f54ab25a03c890a015ce39665')
 foreach($handler in $catches){
  Invoke-Expression ($definitions.HealthRestartObservation.Replace('$PSScriptRoot','$script:observerTestsRoot'))
  $script:report=@{};$restartRequestedAt=$script:requested;$workerRestartRequestedAt=$script:requested;$primary=$null
