@@ -55,7 +55,33 @@ try{
  $held=$true;Check ((Ensure-OpenWebCommittedOnboardingTask $root $state $engine $lock).state -ceq 'deferred' -and !$task) 'Restore hold defers without task';$held=$false
  $completePath=Join-Path $backup 'complete.json';$saved=[IO.File]::ReadAllBytes($completePath);WriteJson $completePath @{version='1.0.20'};Refuses {Ensure-OpenWebCommittedOnboardingTask $root $state $engine $lock} 'Stale backup seal refused';WriteBytes $completePath $saved
  $result=Ensure-OpenWebCommittedOnboardingTask $root $state $engine $lock;Check ($result.state -ceq 'created' -and $registrations -eq 1) 'Postcommit creates once';$tag=Assert-OpenWebOnboardingTaskSnapshot $task $root
- Check ($task.Count -eq 4 -and !$task.ContainsKey('source') -and $actualSnapshot.ToString().Contains('return @{xml=')) 'Model uses the actual getter four-field shape, never an invented source property'
+ Check ($task.Count -eq 4 -and !$task.ContainsKey('source') -and $actualSnapshot.ToString().Contains('return @{xml=') -and $actualSnapshot.ToString().Contains('native_principal=@{user=[string]$task.Principal.UserId;logon=[string]$task.Principal.LogonType;level=[string]$task.Principal.RunLevel}')) 'Legacy four-field metadata stays valid; live getter records the actual CIM principal'
+ $omitted=Snapshot $tag;$omitted.xml=$omitted.xml.Replace('<LogonType>ServiceAccount</LogonType>','')
+ Refuses {Assert-OpenWebOnboardingTaskSnapshot $omitted $root} 'Omitted XML logon cannot invent native evidence'
+ $omitted.native_principal=@{user='SYSTEM';logon='ServiceAccount';level='Highest'}
+ Check ((Assert-OpenWebOnboardingTaskSnapshot $omitted $root) -ceq $tag) 'Native SYSTEM proof admits ordinary omitted XML logon'
+ $omitted.native_principal.user='S-1-5-18';Check ((Assert-OpenWebOnboardingTaskSnapshot $omitted $root) -ceq $tag) 'Native SYSTEM SID proof accepted'
+ $saved=$omitted|ConvertTo-Json -Depth 8|ConvertFrom-Json;Check ((Assert-OpenWebOnboardingTaskSnapshot $saved $root) -ceq $tag) 'Captured JSON proof validates without a native lookup'
+ foreach($proof in $null,$false,@{},@{user='SYSTEM';logon='Password';level='Highest'},@{user='S-1-5-20';logon='ServiceAccount';level='Highest'},@{user='SYSTEM';logon=5;level='Highest'},@{user='SYSTEM';logon='ServiceAccount';level='Limited'},@{user='SYSTEM';logon='ServiceAccount';level='Highest';extra='unproved'}){
+  foreach($explicit in $false,$true){$bad=Snapshot $tag;if(!$explicit){$bad.xml=$bad.xml.Replace('<LogonType>ServiceAccount</LogonType>','')};$bad.native_principal=$proof;Refuses {Assert-OpenWebOnboardingTaskSnapshot $bad $root} 'Malformed native evidence refused for both XML representations'}
+ }
+ foreach($change in @(
+  @('<LogonType>ServiceAccount</LogonType>','<LogonType/>'),
+  @('<LogonType>ServiceAccount</LogonType>','<LogonType>ServiceAccount</LogonType><LogonType>ServiceAccount</LogonType>'),
+  @('<UserId>SYSTEM</UserId>','<UserId>SYSTEM</UserId><UserId>SYSTEM</UserId>'),
+  @('<UserId>SYSTEM</UserId>','<UserId>SYSTEM</UserId><GroupId>S-1-5-32-544</GroupId>'),
+  @('<RunLevel>HighestAvailable</RunLevel>','<RunLevel>HighestAvailable</RunLevel><RunLevel>HighestAvailable</RunLevel>'),
+  @('</Principals>','<Principal><UserId>SYSTEM</UserId></Principal></Principals>')
+ )){$bad=Snapshot $tag;$bad.native_principal=@{user='SYSTEM';logon='ServiceAccount';level='Highest'};$bad.xml=$bad.xml.Replace($change[0],$change[1]);Refuses {Assert-OpenWebOnboardingTaskSnapshot $bad $root} 'Duplicate or explicit-empty XML principal refused despite valid native evidence'}
+ $defaultEnabled=Snapshot $tag;$defaultEnabled.xml=$defaultEnabled.xml.Replace('<Enabled>true</Enabled>','');Check ((Assert-OpenWebOnboardingTaskSnapshot $defaultEnabled $root) -ceq $tag) 'Native omitted Enabled=true matches its captured Boolean'
+ foreach($v in $null,'true',1,@{}){$bad=Snapshot $tag;$bad.enabled=$v;Refuses {Assert-OpenWebOnboardingTaskSnapshot $bad $root} 'Untyped or absent Enabled evidence refused'}
+ foreach($change in @(
+  @('<Enabled>true</Enabled>','<Enabled/>'),
+  @('<Enabled>true</Enabled>','<Enabled>false</Enabled>'),
+  @('<Enabled>true</Enabled>','<Enabled>TRUE</Enabled>'),
+  @('<Enabled>true</Enabled>','<Enabled>true</Enabled><Enabled>true</Enabled>')
+ )){$bad=Snapshot $tag;$bad.xml=$bad.xml.Replace($change[0],$change[1]);Refuses {Assert-OpenWebOnboardingTaskSnapshot $bad $root} 'Explicit empty/duplicate/mismatched enabled state refused'}
+ $bad=$defaultEnabled.Clone();$bad.enabled=$false;Refuses {Assert-OpenWebOnboardingTaskSnapshot $bad $root} 'Omitted XML cannot hide a disabled native task'
  foreach($change in @(
   @('<BootTrigger/>','<BootTrigger><Enabled>false</Enabled></BootTrigger>'),
   @('<TimeTrigger>','<TimeTrigger><Enabled>false</Enabled>'),

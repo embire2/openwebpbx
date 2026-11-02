@@ -5,7 +5,7 @@ function Get-OpenWebOnboardingTaskSnapshot {
  if(!$tasks.Count){return $null};if($tasks.Count -ne 1){throw 'One exact root onboarding task is required.'};$task=$tasks[0]
  $scheduler=New-Object -ComObject Schedule.Service;$scheduler.Connect()
  $registered=$scheduler.GetFolder('\').GetTask('OpenWebPBX-Onboarding')
- return @{xml=(Export-ScheduledTask -TaskName 'OpenWebPBX-Onboarding' -TaskPath '\');security=$registered.GetSecurityDescriptor(7);fileAcl=(Get-Acl -LiteralPath (Join-Path $env:SystemRoot 'System32\Tasks\OpenWebPBX-Onboarding')).Sddl;enabled=[bool]$task.Settings.Enabled}
+ return @{xml=(Export-ScheduledTask -TaskName 'OpenWebPBX-Onboarding' -TaskPath '\');security=$registered.GetSecurityDescriptor(7);fileAcl=(Get-Acl -LiteralPath (Join-Path $env:SystemRoot 'System32\Tasks\OpenWebPBX-Onboarding')).Sddl;enabled=[bool]$task.Settings.Enabled;native_principal=@{user=[string]$task.Principal.UserId;logon=[string]$task.Principal.LogonType;level=[string]$task.Principal.RunLevel}}
 }
 function Assert-OpenWebOnboardingTaskSecurity {
  param([string[]]$Descriptors)
@@ -20,9 +20,24 @@ function Assert-OpenWebOnboardingTaskSnapshot {
  if(!$Snapshot -or $Snapshot.xml -isnot [string] -or $Snapshot.xml.Length -gt 65536 -or $Snapshot.xml -match '<!DOCTYPE'){throw 'The onboarding task requires review.'}
  [xml]$xml=$Snapshot.xml;$ns=[Xml.XmlNamespaceManager]::new($xml.NameTable);$ns.AddNamespace('t','http://schemas.microsoft.com/windows/2004/02/mit/task')
  function Value([string]$Path){$n=$xml.SelectSingleNode('/t:Task/'+$Path,$ns);if($n){return $n.InnerText};return ''}
- if((Value 't:RegistrationInfo/t:Description') -cne 'OpenWeb PBX owned installation registration and activation worker' -or @($xml.SelectNodes('/t:Task/t:Principals/t:Principal',$ns)).Count -ne 1 -or (Value 't:Principals/t:Principal/t:UserId') -cnotin 'SYSTEM','S-1-5-18' -or (Value 't:Principals/t:Principal/t:LogonType') -cne 'ServiceAccount' -or (Value 't:Principals/t:Principal/t:RunLevel') -cne 'HighestAvailable'){throw 'The onboarding principal differs.'}
+ $principal='/t:Task/t:Principals/t:Principal';$logons=@($xml.SelectNodes(($principal+'/t:LogonType'),$ns))
+ if((Value 't:RegistrationInfo/t:Description') -cne 'OpenWeb PBX owned installation registration and activation worker' -or @($xml.SelectNodes($principal,$ns)).Count -ne 1 -or @($xml.SelectNodes(($principal+'/t:UserId'),$ns)).Count -ne 1 -or @($xml.SelectNodes(($principal+'/t:RunLevel'),$ns)).Count -ne 1 -or @($xml.SelectNodes(($principal+'/t:GroupId'),$ns)).Count -ne 0 -or $logons.Count -gt 1 -or (Value 't:Principals/t:Principal/t:UserId') -cnotin 'SYSTEM','S-1-5-18' -or ($logons.Count -eq 1 -and (Value 't:Principals/t:Principal/t:LogonType') -cne 'ServiceAccount') -or (Value 't:Principals/t:Principal/t:RunLevel') -cne 'HighestAvailable'){throw 'The onboarding principal differs.'}
+ # Task Scheduler omits LogonType when exporting a native LocalSystem task.
+ # Only the live CIM observation can justify that omission. Older saved
+ # snapshots retain their explicit ServiceAccount XML without fabricated data.
+ $hasNative=if($Snapshot -is [Collections.IDictionary]){$Snapshot.Contains('native_principal')}else{$null -ne $Snapshot.PSObject.Properties['native_principal']}
+ if($hasNative -or $logons.Count -eq 0){
+  $native=if($hasNative){$Snapshot.native_principal}else{$null}
+  if($native -isnot [Collections.IDictionary] -and $native -isnot [pscustomobject]){throw 'The onboarding native principal differs.'}
+  $keys=@($(if($native -is [Collections.IDictionary]){$native.Keys}else{$native.PSObject.Properties.Name})|Sort-Object)
+  if(($keys -join ',') -cne 'level,logon,user' -or $native.user -isnot [string] -or $native.logon -isnot [string] -or $native.level -isnot [string] -or $native.user -cnotin 'SYSTEM','S-1-5-18' -or $native.logon -cne 'ServiceAccount' -or $native.level -cne 'Highest'){throw 'The onboarding native principal differs.'}
+ }
  if(@($xml.SelectNodes('/t:Task/t:Actions/*',$ns)).Count -ne 1 -or (Value 't:Actions/t:Exec/t:Command') -cne (Join-Path $Root 'backup-runtime\python.exe') -or (Value 't:Actions/t:Exec/t:Arguments') -cne ('-I -B "'+(Join-Path $Root 'tools\onboarding.py')+'" --tick') -or (Value 't:Actions/t:Exec/t:WorkingDirectory') -cne (Join-Path $Root 'tools')){throw 'The onboarding action differs.'}
- if(@($xml.SelectNodes('/t:Task/t:Triggers/*',$ns)).Count -ne 2 -or @($xml.SelectNodes('/t:Task/t:Triggers/t:BootTrigger',$ns)).Count -ne 1 -or @($xml.SelectNodes('/t:Task/t:Triggers/t:TimeTrigger',$ns)).Count -ne 1 -or (Value 't:Triggers/t:TimeTrigger/t:Repetition/t:Interval') -cne 'PT1M' -or (Value 't:Settings/t:MultipleInstancesPolicy') -cne 'IgnoreNew' -or (Value 't:Settings/t:ExecutionTimeLimit') -cne 'PT20M' -or (Value 't:Settings/t:StartWhenAvailable') -cne 'true' -or (Value 't:Settings/t:Enabled') -cnotin 'true','false'){throw 'The onboarding schedule differs.'}
+ if(@($xml.SelectNodes('/t:Task/t:Triggers/*',$ns)).Count -ne 2 -or @($xml.SelectNodes('/t:Task/t:Triggers/t:BootTrigger',$ns)).Count -ne 1 -or @($xml.SelectNodes('/t:Task/t:Triggers/t:TimeTrigger',$ns)).Count -ne 1 -or (Value 't:Triggers/t:TimeTrigger/t:Repetition/t:Interval') -cne 'PT1M' -or (Value 't:Settings/t:MultipleInstancesPolicy') -cne 'IgnoreNew' -or (Value 't:Settings/t:ExecutionTimeLimit') -cne 'PT20M' -or (Value 't:Settings/t:StartWhenAvailable') -cne 'true'){throw 'The onboarding schedule differs.'}
+ # Omitted Enabled is the native true default. The existing captured Boolean
+ # remains authoritative, including explicit disabled administrator choices.
+ $enabledNodes=@($xml.SelectNodes('/t:Task/t:Settings/t:Enabled',$ns))
+ if($Snapshot.enabled -isnot [bool] -or $enabledNodes.Count -gt 1 -or ($enabledNodes.Count -eq 0 -and !$Snapshot.enabled) -or ($enabledNodes.Count -eq 1 -and (Value 't:Settings/t:Enabled') -cne $Snapshot.enabled.ToString().ToLowerInvariant())){throw 'The onboarding enabled choice differs.'}
  foreach($kind in 'BootTrigger','TimeTrigger'){
   if((Value ('t:Triggers/t:'+$kind+'/t:Enabled')) -cnotin '','true' -or (Value ('t:Triggers/t:'+$kind+'/t:EndBoundary')) -cne '' -or (Value ('t:Triggers/t:'+$kind+'/t:ExecutionTimeLimit')) -cnotin '','PT20M'){throw 'The onboarding trigger is disabled, expires or overrides its execution bound.'}
  }
