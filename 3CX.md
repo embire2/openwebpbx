@@ -11,6 +11,15 @@ checks remain required before publication. Windows1.0.21 remains the public
 download; no additional feature-roadmap goals are marked complete.
 [Current Windows evidence](docs/windows-parity-1.0.22.md).
 
+2 November update: reusable phone QR setup is deployed on the hosted PBX and
+included in the private Windows22 candidate. Windows and CI builds contain the
+same 19,276 application files. The new full run failed its old schema comparison
+at the intended QR migration; a narrowly scoped correction passes actual
+PostgreSQL checks and [full replay41449724380](https://github.com/embire2/openwebpbx/actions/runs/41449724380)
+is running against the same package. This does not
+close the remaining installation, calling, restore or signed-update gates.
+Windows1.0.21 and Android1.0.19 remain the public downloads.
+
 ## Self-install and Webhotel onboarding — 2026-10-29
 
 The public [setup wizard](https://openwebpbx.com/wizard), dedicated20-operation image/browser/provider API and seven central installation/email-authority operations are deployed. The main API reference describes24 operations while retaining the original17 hosted operations. Verified-owner reservations, deployment binding, bounded renewal and scoped revocation support provider setup and safe cancellation. Pairing keeps owner passwords/tokens out of the guest, automatically binds a canonical node identity and returns a tenant connection link only after fresh trusted HTTPS/ownership verification. Remote setup creates no second hosted PBX service.
