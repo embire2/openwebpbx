@@ -541,7 +541,16 @@ foreach($p in $v.paths){
  if($owner -notin 'S-1-5-18','S-1-5-32-544' -or ($p -eq $v.root -and !$a.AreAccessRulesProtected)){throw 'Private registration owner/protection required.'}
  $raw=[Security.AccessControl.RawSecurityDescriptor]::new($a.Sddl)
  if(!$raw.DiscretionaryAcl -or !($raw.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclPresent)){throw 'Private registration DACL required.'}
- foreach($ace in $raw.DiscretionaryAcl){if($ace -isnot [Security.AccessControl.CommonAce] -or $ace.IsCallback){throw 'Unknown registration ACE refused.'};if($ace.AceQualifier -eq [Security.AccessControl.AceQualifier]::AccessAllowed -and $ace.SecurityIdentifier.Value -notin 'S-1-5-18','S-1-5-32-544'){throw 'Private registration access required.'}}
+ # CPython3.13 mkdir(mode0700) adds FullControl OWNER_RIGHTS. It grants only
+ # the already-validated SYSTEM/Administrators owner, never another principal.
+ $ownerRights=0
+ foreach($ace in $raw.DiscretionaryAcl){
+  if($ace -isnot [Security.AccessControl.CommonAce] -or $ace.IsCallback){throw 'Unknown registration ACE refused.'}
+  if($ace.AceQualifier -eq [Security.AccessControl.AceQualifier]::AccessAllowed -and $ace.SecurityIdentifier.Value -notin 'S-1-5-18','S-1-5-32-544'){
+   $flags=[int]$ace.AceFlags;$allowedFlags=if($a -is [Security.AccessControl.DirectorySecurity]){@(3,19)}else{@(16)}
+   if($ace.SecurityIdentifier.Value -cne 'S-1-3-4' -or $ace.AccessMask -ne 2032127 -or $flags -notin $allowedFlags -or (++$ownerRights) -ne 1){throw 'Private registration access required.'}
+  }
+ }
 };Write-Output 'PRIVATE_REGISTRATION'
 """
     result = run([str(Path(os.environ.get('SystemRoot', 'C:/Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe'),
