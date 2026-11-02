@@ -232,7 +232,8 @@ def main():
         raw=sys.stdin.buffer.read(65537)
         if len(raw)>65536:raise ValueError('Bounded setup input required.')
         value=json.loads(raw or b'{}')
-        with b.exclusive_guard(b.UPGRADE_LOCK):
+        guard=d.windows_registration_guard(b)if IS_WINDOWS else b.exclusive_guard(b.UPGRADE_LOCK)
+        with guard:
             if d.blocked(b):raise RuntimeError('A restore or update is in progress.')
             if action!='image-bind':return image(action[6:],value,b,d)
             meta=metadata(b,d)
@@ -242,7 +243,7 @@ def main():
     # Registration jobs hold the ordinary maintenance lock. Public certificate
     # setup has its own lock and therefore runs only after this lock is released.
     meta=None
-    guard=b.exclusive_guard(b.UPGRADE_LOCK)if IS_WINDOWS else b.exclusive_guard(b.UPGRADE_LOCK,wait_seconds=5)
+    guard=d.windows_registration_guard(b)if IS_WINDOWS else b.exclusive_guard(b.UPGRADE_LOCK,wait_seconds=5)
     with guard:
         if d.blocked(b):return {'state':'deferred','reason':'maintenance_or_restore_hold'}
         result=process_jobs(b,d)

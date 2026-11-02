@@ -1709,6 +1709,8 @@ try{
  & (Join-Path $source 'tests/windows_recovery_localaccounts.ps1') -SourceRoot $source *> (Join-Path $work 'recovery-localaccounts.private.log')
  if(!$?){throw 'The native PowerShell recovery module provenance controls failed.'}
  CheckedPython @((Join-Path $source 'tests/windows_legacy_column_projection_test.py'))
+ CheckedPython @((Join-Path $source 'tests/windows_registration_lock_wait.py'))
+ CheckedPython @((Join-Path $source 'tests/windows_registration_lock_wait_native.py'))
  & (Join-Path $source 'tests/windows_private_probe_no_bytecode.ps1') -SourceRoot $source *> (Join-Path $work 'private-probe-no-bytecode.private.log')
  if(!$?){throw 'The exact private snapshot no-bytecode observer controls failed.'}
  & (Join-Path $source 'tests/windows_health_system_observation.ps1') -SourceRoot $source *> (Join-Path $work 'health-system-observation.private.log')

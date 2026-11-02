@@ -23,6 +23,11 @@ conflict before registration processing. Neither result closes the remaining
 installation, calling, restore or signed-update gates.
 Windows1.0.21 and Android1.0.19 remain the public downloads.
 
+The Windows registration correction now passes source and actual Windows lock
+contention tests. It waits briefly for competing maintenance work without
+repeating registration actions. Deployment and a new bounded readiness check
+are underway; this does not yet establish a successful Windows installation.
+
 ## Self-install and Webhotel onboarding — 2026-10-29
 
 The public [setup wizard](https://openwebpbx.com/wizard), dedicated20-operation image/browser/provider API and seven central installation/email-authority operations are deployed. The main API reference describes24 operations while retaining the original17 hosted operations. Verified-owner reservations, deployment binding, bounded renewal and scoped revocation support provider setup and safe cancellation. Pairing keeps owner passwords/tokens out of the guest, automatically binds a canonical node identity and returns a tenant connection link only after fresh trusted HTTPS/ownership verification. Remote setup creates no second hosted PBX service.

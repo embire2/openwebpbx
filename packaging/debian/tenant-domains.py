@@ -35,6 +35,38 @@ class Pending(RuntimeError):
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs): return None
 
+@contextlib.contextmanager
+def windows_registration_guard(b):
+    """Wait at most five seconds for acquisition; never repeat its body."""
+    if not IS_WINDOWS:raise RuntimeError('Windows registration guard required.')
+    deadline=time.monotonic()+5
+    last_busy=None;last_traceback=None
+    while True:
+        if last_busy is not None and time.monotonic()>=deadline:
+            raise last_busy.with_traceback(last_traceback)
+        stack=contextlib.ExitStack()
+        try:
+            # The signed Windows guard emits BackupBusy only for native32/33.
+            # Its path/ACL validation and every original native flag remain.
+            stack.enter_context(b.exclusive_guard(b.UPGRADE_LOCK))
+        except b.BackupBusy as error:
+            stack.close();last_busy=error;last_traceback=error.__traceback__
+            remaining=deadline-time.monotonic()
+            if remaining<=0:raise
+            time.sleep(min(0.05,remaining))
+        except BaseException:
+            stack.close();raise
+        else:
+            if time.monotonic()>=deadline:
+                stack.close()
+                if last_busy is not None:raise last_busy.with_traceback(last_traceback)
+                raise TimeoutError('Registration acquisition deadline expired before its body.')
+            break
+    # Acquisition catch ends above. Guarded-body errors, including BackupBusy,
+    # propagate once and can never trigger another action or acquisition.
+    with stack:
+        yield
+
 def ordinary(path):
     path=Path(path)
     for item in [path,*path.parents]:
@@ -254,7 +286,7 @@ def run(move=False, confirm=None):
         if ensured['state']=='deferred':return {'state':'deferred','reason':'onboarding_upgrade_pending'}
     with contextlib.ExitStack() as lock:
         if IS_WINDOWS:
-            try:lock.enter_context(b.exclusive_guard(b.UPGRADE_LOCK))
+            try:lock.enter_context(windows_registration_guard(b))
             except b.BackupBusy:
                 # Only an exact native sharing/byte-lock conflict defers. ACL,
                 # unsafe-path and guarded-body failures still require review.
