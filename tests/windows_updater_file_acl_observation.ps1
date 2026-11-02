@@ -29,7 +29,7 @@ function Read-WindowsUpdaterAclObservation($Record){
  # Closed public metadata only. No arbitrary supplied path/SDL/hash may escape.
  try{
   if((Test-WindowsUpdaterAclKeys $Record @('schema','state')) -and ($Record.schema -is [int] -or $Record.schema -is [long]) -and $Record.schema -eq 1 -and $Record.state -ceq 'unavailable'){return @{schema=1;state='unavailable'}}
-  if(!(Test-WindowsUpdaterAclKeys $Record @('schema','state','changed_count','entries','encrypted')) -or ($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.state -cne 'captured' -or ($Record.changed_count -isnot [int] -and $Record.changed_count -isnot [long]) -or $Record.changed_count -lt 1 -or $Record.changed_count -gt 8 -or $Record.entries -isnot [Array] -or $Record.entries.Count -ne $Record.changed_count){return $null}
+  if(!(Test-WindowsUpdaterAclKeys $Record @('schema','state','changed_count','entries','encrypted')) -or ($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $Record.state -cne 'captured' -or ($Record.changed_count -isnot [int] -and $Record.changed_count -isnot [long]) -or $Record.changed_count -lt 1 -or $Record.changed_count -gt 9 -or $Record.entries -isnot [Array] -or $Record.entries.Count -ne $Record.changed_count){return $null}
   $labels=@('unknown')+@((QualificationSnapshotPaths).Values)
   foreach($entry in $Record.entries){
    if(!(Test-WindowsUpdaterAclKeys $entry @('file_label','entry_kind','descriptor_state','descriptor')) -or $entry.file_label -isnot [string] -or $entry.file_label -cnotin $labels -or $entry.entry_kind -cnotin 'file','directory','shape' -or $entry.descriptor_state -cnotin 'observed','unavailable'){return $null}
@@ -64,7 +64,7 @@ function Get-WindowsUpdaterAclObservation($Before,$After){
    $left=if($Before.Contains($key)){$Before[$key]}else{$null};$right=if($After.Contains($key)){$After[$key]}else{$null}
    $same=$null -ne $left -and $null -ne $right -and $left -is [Collections.IDictionary] -and $right -is [Collections.IDictionary] -and $left.Count -eq $right.Count
    if($same){foreach($field in $left.Keys){if(!$right.Contains($field) -or ![object]::Equals($left[$field],$right[$field])){$same=$false;break}}}
-   if($same){continue};if($changed.Count -ge 8){return $null}
+   if($same){continue};if($changed.Count -ge 9){return $null}
    $changed+=,[ordered]@{path=$key;before=$left;after=$right}
    $folded=$key.Replace('\','/').ToLowerInvariant();$label=if($labels.ContainsKey($folded)){$labels[$folded]}else{'unknown'}
    $kind=if($left -is [Collections.IDictionary] -and $right -is [Collections.IDictionary] -and $left.directory -is [bool] -and $right.directory -is [bool] -and $left.directory -eq $right.directory){if($left.directory){'directory'}else{'file'}}else{'shape'}

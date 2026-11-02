@@ -994,6 +994,7 @@ try{
    Check ($function.Count -eq 1) 'One exact existing native preservation function is required.';Invoke-Expression $function[0].Extent.Text
   }
   . (Join-Path $PSScriptRoot 'windows_updater_file_acl_observation.ps1')
+  . (Join-Path $PSScriptRoot 'windows-empty-tenant-private-files.ps1')
   $engine=$switch;$source=$fixtureInput.source_root
   $phase='ordinary SYSTEM backup worker baseline initialization'
   InitializeQualificationBackupWorker -Root $root -StateRoot $state -PackageRoot $fixtureInput.public21_package
@@ -1074,12 +1075,35 @@ try{
   WriteJson (Join-Path $work 'public21-after-private-media.private.json') $private22
   $privateComparison=Get-WindowsUpdaterProtectedComparisonCopy $private21 $private22 'normal-protected-files' $state
   $phase='original21 normal private-files comparison'
+  $emptyTenantAdmitted=$false
+  if(@($private22.Keys|Where-Object {!$private21.Contains($_)}).Count){
+   # Preserve actual RAW additions (and an eligible raw lock reorder) encrypted
+   # before any new-entry projection. No evidence means no admission.
+   try{
+    $security=Get-WindowsUpdaterAclObservation $private21 $private22
+    if(!$security){throw 'The bounded actual private delta could not be retained.'}
+    $script:privateSecurityObservation=Read-WindowsUpdaterAclObservation $security
+    if(!$privateSecurityObservation -or $privateSecurityObservation.state-cne 'captured'){throw 'Actual private delta encryption is required.'}
+    $contentProof=Join-Path $work 'public21-empty-tenant-content.safe.json'
+    $privateComparison=Get-WindowsEmptyTenantComparisonCopy $private21 $privateComparison $PackageRoot $installed.DomainName $contentProof
+    $emptyTenantAdmitted=$true
+   }catch{
+    # Any unknown path/content/ACL/policy still reaches the original strict
+    # comparator with its original map; never turn a model refusal into a pass.
+    $privateComparison=Get-WindowsUpdaterProtectedComparisonCopy $private21 $private22 'normal-protected-files' $state
+    if(!$privateSecurityObservation){$script:privateSecurityObservation=@{schema=1;state='unavailable'}}
+   }
+  }
   try{
    Equal $private21 $privateComparison 'Original21 private/config/key/recording/custom-media files and ACLs changed across the actual22 upgrade.'
   }catch{
    $comparisonPrimary=$_
    try{$security=Get-WindowsUpdaterAclObservation $private21 $private22;if($security){$script:privateSecurityObservation=Read-WindowsUpdaterAclObservation $security}}catch{}
    throw $comparisonPrimary
+  }
+  if($emptyTenantAdmitted){
+   $report.empty_tenant_initialization=@{schema=1;source_model='first-empty-tenant-worker';new_directories=5;new_files=3;original_private_entries_exact=$true;group_policy='valid SID metadata; no group-relative grants';prior_failed_CI_paths_known=$false}
+   $report.file_security=$privateSecurityObservation
   }
   $BaseVersion='1.0.21';$CanaryVersion='1.0.22'
   $phase='original21 normal task comparison'

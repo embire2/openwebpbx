@@ -1459,6 +1459,33 @@ function PhpRuntimeQualificationHook {
   $facts.php_runtime_qualification=@{state='passed';actual_native=$true;checks=$report.checks;vendor_files=$report.vendor_files;installed_server_changed=$false;version=$report.new_version}
  }finally{$process.Dispose()}
 }
+function Read-EmptyTenantInitializationComponent($Record){
+ try{
+  $model=$Record.empty_tenant_initialization
+  if($null-eq $model){return $null}
+  $encoded=ConvertTo-Json -InputObject $model -Depth 4 -Compress -WarningAction SilentlyContinue
+  if([Text.UTF8Encoding]::new($false).GetByteCount($encoded)-gt 2048){return $null}
+  $m=ConvertFrom-Json -InputObject $encoded -AsHashtable -NoEnumerate
+  $keys=@('schema','source_model','new_directories','new_files','original_private_entries_exact','group_policy','prior_failed_CI_paths_known')
+  if(!(Test-WindowsUpdaterAclKeys $m $keys) -or ($m.schema-isnot [int] -and $m.schema-isnot [long]) -or $m.schema-ne 1 -or $m.source_model-isnot [string] -or $m.source_model-cne 'first-empty-tenant-worker' -or ($m.new_directories-isnot [int] -and $m.new_directories-isnot [long]) -or $m.new_directories-ne 5 -or ($m.new_files-isnot [int] -and $m.new_files-isnot [long]) -or $m.new_files-ne 3 -or $m.original_private_entries_exact-isnot [bool] -or !$m.original_private_entries_exact -or $m.group_policy-isnot [string] -or $m.group_policy-cne 'valid SID metadata; no group-relative grants' -or $m.prior_failed_CI_paths_known-isnot [bool] -or $m.prior_failed_CI_paths_known){return $null}
+  $encoded=ConvertTo-Json -InputObject $Record.file_security -Depth 12 -Compress -WarningAction SilentlyContinue
+  if([Text.UTF8Encoding]::new($false).GetByteCount($encoded)-gt 2097152){return $null}
+  $security=Read-WindowsUpdaterAclObservation (ConvertFrom-Json -InputObject $encoded -AsHashtable -NoEnumerate)
+  if(!$security -or $security.state-cne 'captured' -or $security.changed_count-cnotin 8,9){return $null}
+  $unknown=0;$root=0;$lock=0
+  foreach($entry in $security.entries){
+   if($entry.file_label-cin 'unknown','tenant_domains_root'){
+    if($entry.entry_kind-cne 'shape' -or $entry.descriptor_state-cne 'unavailable' -or $null-ne $entry.descriptor){return $null}
+    if($entry.file_label-ceq 'unknown'){$unknown++}else{$root++}
+   }elseif($entry.file_label-ceq 'maintenance_lock'){
+    $lock++;$d=$entry.descriptor
+    if($entry.entry_kind-cne 'file' -or $entry.descriptor_state-cne 'observed' -or !$d -or $d.text_equal -or !$d.owner_equal -or !$d.group_equal -or $d.control_flags_xor-ne 0 -or !$d.sacl_binary_equal -or $d.dacl_ace_count_before-ne 4 -or $d.dacl_ace_count_after-ne 4 -or !$d.dacl_ace_multiset_equal){return $null}
+   }else{return $null}
+  }
+  if($unknown-ne 7 -or $root-ne 1 -or $lock-ne ($security.changed_count-8)){return $null}
+  return @{schema=1;state='passed';model=$m;file_security=$security}
+ }catch{return $null}
+}
 function Read-UpgradeRecoveryQualificationReport($Record,[string]$ExpectedVersion) {
  if(($Record -isnot [pscustomobject] -and $Record -isnot [Collections.IDictionary]) -or ($Record.schema -isnot [int] -and $Record.schema -isnot [long]) -or $Record.schema -ne 1 -or $ExpectedVersion -cnotmatch '^\d+\.\d+\.\d+$'){throw 'The native recovery proof schema or candidate version is invalid.'}
  foreach($entry in @(@('producer','windows-upgrade-recovery-qualification.ps1'),@('state','passed'),@('updater_version',$ExpectedVersion),@('updater_scope','candidate_component'))){if($Record.($entry[0]) -isnot [string] -or $Record.($entry[0]) -cne $entry[1]){throw 'The native recovery proof has an invalid scope or version.'}}
@@ -1760,6 +1787,12 @@ try{
  if($release.version -ne (Get-Content (Join-Path $source 'VERSION') -Raw).Trim()){throw 'The candidate package release differs from source.'}
  $mapped=VerifyInventory $PackageRoot $release.files;$facts.checks+=('Exact candidate package inventory: '+$mapped+' files')
  if($ThreecxImportOnly){AssertThreecxImportAcceptedReplay $facts}else{$phase='original candidate export';ExportOriginalCandidate $release}
+ if($Public21ToCandidate22){
+  & (Join-Path $PackageRoot 'backup-runtime/python.exe') -I -B (Join-Path $source 'tests/windows_empty_tenant_private_files_test.py') *> (Join-Path $work 'empty-tenant-content-controls.private.log')
+  if($LASTEXITCODE){throw 'The source-owned empty tenant content controls failed.'}
+  & (Join-Path $source 'tests/windows_empty_tenant_private_files_test.ps1') -SourceRoot $source -PythonExe (Join-Path $PackageRoot 'backup-runtime/python.exe') *> (Join-Path $work 'empty-tenant-map-controls.private.log')
+  if(!$?){throw 'The source-owned empty tenant map controls failed.'}
+ }
  $phase='native public-listener firewall qualification';PublicListenerQualificationHook 'native_defender'
  $phase='fresh installation';
  if($Public21ToCandidate22){$phase='genuine public21 baseline installation'}
@@ -1827,8 +1860,12 @@ try{
   try{& (Join-Path $PSScriptRoot 'windows-upgrade-acceptance.ps1') -PackageRoot $PackageRoot -InputPath $transitionInput -ReportPath $transitionReport -Public21ToCandidate22 -DisposableHostedRunner}catch{$transitionFailure=$_}
   if(!(Test-Path -LiteralPath $transitionReport)){if($transitionFailure){throw $transitionFailure};throw 'The transition did not retain its required report.'}
   $transition=Get-Content -LiteralPath $transitionReport -Raw|ConvertFrom-Json
+  # Retain this closed component before a later task/transition failure throws.
+  $emptyTenantComponent=Read-EmptyTenantInitializationComponent $transition
+  if($emptyTenantComponent){$facts.public21_empty_tenant_initialization=$emptyTenantComponent}
   if($transition.state -cne 'passed'){RememberHookFailure $transition}
   if($transitionFailure){throw $transitionFailure}
+  if($transition.PSObject.Properties['empty_tenant_initialization'] -and !$emptyTenantComponent){throw 'The exact encrypted empty tenant initialization component is invalid.'}
   if($transition.state -cne 'passed' -or $transition.gates.public21_to_candidate22 -cne 'passed' -or $transition.gates.public21_rollback -cne 'passed'){throw 'The actual version transition and original21 rollback must both pass.'}
   $facts.mode='public21_to_actual_candidate22';$facts.qualification_scope='Actual immutable public21 installation, exact candidate22 manual helper upgrade and rollback, then full unchanged22 software gates. Fresh22 registration remains separately unqualified.'
   $facts.fresh_installed_version='1.0.21';$facts.fresh22_registration='unqualified';$facts.gates.public21_to_candidate22='passed';$facts.gates.public21_rollback='passed';$facts.public21_transition=$transition
