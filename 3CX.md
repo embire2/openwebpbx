@@ -27,6 +27,9 @@ The Windows registration correction now passes source and actual Windows lock
 contention tests. It waits briefly for competing maintenance work without
 repeating registration actions. Deployment and a new bounded readiness check
 are underway; this does not yet establish a successful Windows installation.
+The upgrade comparison now recognizes only the exact source-generated empty
+tenant configuration, with strict content/security checks and encrypted
+diagnostics. Both corrections are committed for a new full installer run.
 
 ## Self-install and Webhotel onboarding — 2026-10-29
 
