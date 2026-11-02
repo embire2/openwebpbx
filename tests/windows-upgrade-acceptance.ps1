@@ -28,8 +28,17 @@ $managerHeldProcess=$null;$managerHeldHandles=[Collections.Generic.List[Diagnost
 $report=[ordered]@{schema=1;state='running';checks=@();gates=[ordered]@{direct_113_helper_reapply='pending';direct_failure_rollback='pending';restore_gate_startup='pending';manager_reopen_success='unqualified';manager_reopen_rollback='unqualified';installed_upgrade='unqualified';failure_rollback='unqualified';legacy_106_upgrade='unqualified'};signed_fixtures='absent';baseline='installed candidate; same-version direct reapply is not a newer signed update'}
 $databaseSidecars=@();$healthOriginal=$null;$legacyMedia=@{};$legacyMediaFolders=@();$privateSecurityObservation=$null
 function Hash([string]$Path){
+ $sharingWait=$null
+ while($true){
  try{return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}catch{
   $primary=$_
+  # A natural worker may briefly own this exact coordination file. Observe
+  # its original bytes after release; all other paths/errors still fail once.
+  $base=$primary.Exception.GetBaseException()
+  if($base -is [IO.IOException] -and ($base.HResult -band 65535) -eq 32 -and [string]::Equals([IO.Path]::GetFullPath($Path),[IO.Path]::GetFullPath(([IO.Path]::Combine($state,'upgrade.lock'))),[StringComparison]::OrdinalIgnoreCase)){
+   if($null -eq $sharingWait){$sharingWait=[Diagnostics.Stopwatch]::StartNew()}
+   if($sharingWait.ElapsedMilliseconds -lt 30000){Start-Sleep -Milliseconds 50;continue}
+  }
   try{
    $primary.Exception.Data.Remove('openweb_qa_hash_failure')
    $observed=ObserveUpgradeHashFailure $Path $primary @(Get-PSCallStack) @{root=$root;state=$state;configuration=$configuration;engine=$switch;work=$work;package=$PackageRoot}
@@ -37,6 +46,7 @@ function Hash([string]$Path){
   }catch{}
   throw
  }
+}
 }
 function WriteJson([string]$Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 10),[Text.UTF8Encoding]::new($false))}
 function Record-OpenWebUpgradeCleanupFailure([string]$Phase){
