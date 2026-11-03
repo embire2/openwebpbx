@@ -56,19 +56,19 @@ try{
   $script:qualificationFailedChild='DIAGNOSTIC_CHILD_MARKER';$script:qualificationComparisonFailure='DIAGNOSTIC_COMPARISON_MARKER';$script:qualificationFailedHash='DIAGNOSTIC_HASH_MARKER'
  }
  function InitializeQualificationBackupWorker {param($Root,$StateRoot,$PackageRoot)$script:workerCalls++;if($script:mode-cne 'warmup_success'){throw $script:originalFailure}}
- foreach($script:mode in 'observed','ineligible','not_disabled','other_base','budget','future','throw','child_exit','malformed','late','warmup_success'){
+ foreach($script:mode in 'observed','ineligible','enabled','other_base','budget','future','throw','child_exit','malformed','late','warmup_success'){
   $actualCandidate=$true;$OriginalTenantDomainsDisabled=$true;$BaseVersion='1.0.21';$BaseSuiteRunId='40435466441';$facts=@{};$script:workerCalls=0;$script:diagnosticCalls=0
   $exception=[InvalidOperationException]::new('ORIGINAL_PRIVATE_WARMUP_FAILURE');$script:originalFailure=[Management.Automation.ErrorRecord]::new($exception,'original',[Management.Automation.ErrorCategory]::NotSpecified,$null)
   $exception.Data['openweb_qa_backup_warmup']=@{schema=1;stage='worker_result';runtime_component='unknown';mismatches=@()};$exception.Data['openweb_qa_backup_worker']=@{schema=1;last_task_result=1;task_state='Ready';last_run_advanced=$true;last_run_not_future=$true;prior_run_not_future=$true}
-  switch($mode){ineligible{$exception.Data['openweb_qa_backup_worker'].last_run_advanced=$false}not_disabled{$OriginalTenantDomainsDisabled=$false}other_base{$BaseVersion='1.0.20'}}
+  switch($mode){ineligible{$exception.Data['openweb_qa_backup_worker'].last_run_advanced=$false}enabled{$OriginalTenantDomainsDisabled=$false}other_base{$BaseVersion='1.0.20'}}
   $childBefore=@{original='child'};$compareBefore=@{original='comparison'};$hashBefore=@{original='hash'};$script:qualificationFailedChild=$childBefore;$script:qualificationComparisonFailure=$compareBefore;$script:qualificationFailedHash=$hashBefore;$caught=$null
   try{. $caller}catch{$caught=$_}
   Verify ($workerCalls-eq 1)
   if($mode-ceq 'warmup_success'){Verify ($null-eq $caught-and $diagnosticCalls-eq 0-and !$facts.ContainsKey('original21_preamble_observation'));continue}
   Verify ($null-ne $caught-and [object]::ReferenceEquals($caught.Exception,$exception)-and $caught.Exception.Message-ceq 'ORIGINAL_PRIVATE_WARMUP_FAILURE')
   Verify ([object]::ReferenceEquals($script:qualificationFailedChild,$childBefore)-and [object]::ReferenceEquals($script:qualificationComparisonFailure,$compareBefore)-and [object]::ReferenceEquals($script:qualificationFailedHash,$hashBefore))
-  if($mode-cin 'ineligible','not_disabled','other_base'){Verify ($diagnosticCalls-eq 0-and !$facts.ContainsKey('original21_preamble_observation'))}
-  elseif($mode-ceq 'observed'){Verify ($diagnosticCalls-eq 1-and $facts.original21_preamble_observation.state-ceq 'observed'-and !$facts.original21_preamble_observation.observation.production_worker_success_claim)}
+  if($mode-cin 'ineligible','other_base'){Verify ($diagnosticCalls-eq 0-and !$facts.ContainsKey('original21_preamble_observation'))}
+  elseif($mode-cin 'observed','enabled'){Verify ($diagnosticCalls-eq 1-and $facts.original21_preamble_observation.state-ceq 'observed'-and !$facts.original21_preamble_observation.observation.production_worker_success_claim)}
   else{Verify ($facts.original21_preamble_observation.state-ceq 'unavailable');if($mode-cin 'budget','future'){Verify ($diagnosticCalls-eq 0)}}
   Verify (($facts|ConvertTo-Json -Depth 20 -Compress)-cnotmatch 'PRIVATE_EXCEPTION_MARKER|DIAGNOSTIC_CHILD_MARKER|PRIVATE_FIELD')
  }

@@ -515,7 +515,7 @@ function ReadQualificationOriginal21Preamble($Record){
 }
 function InvokeQualificationOriginal21Preamble($Primary,[string]$PackageRoot){
  $warmup=BackupWarmupFailureFields $Primary.Exception.Data['openweb_qa_backup_warmup'];$worker=QualificationBackupWorkerFailureFields $Primary.Exception.Data['openweb_qa_backup_worker']
- if(!$actualCandidate-or !$OriginalTenantDomainsDisabled-or $BaseVersion-cne '1.0.21'-or $BaseSuiteRunId-cne '40435466441'-or !$warmup-or $warmup.stage-cne 'worker_result'-or !$worker-or $worker.last_task_result-ne 1-or $worker.task_state-cne 'Ready'-or !$worker.last_run_advanced-or !$worker.last_run_not_future-or !$worker.prior_run_not_future){return $null}
+ if(!$actualCandidate-or $BaseVersion-cne '1.0.21'-or $BaseSuiteRunId-cne '40435466441'-or !$warmup-or $warmup.stage-cne 'worker_result'-or !$worker-or $worker.last_task_result-ne 1-or $worker.task_state-cne 'Ready'-or !$worker.last_run_advanced-or !$worker.last_run_not_future-or !$worker.prior_run_not_future){return $null}
  $reason='source_or_context_guard'
  try{
   Check ($env:GITHUB_ACTIONS-ceq 'true'-and $env:RUNNER_ENVIRONMENT-ceq 'github-hosted'-and $env:GITHUB_REPOSITORY-ceq 'embire2/openwebpbx'-and $env:GITHUB_RUN_ID-cmatch '^[1-9][0-9]+$'-and $env:GITHUB_SHA-cmatch '^[a-f0-9]{40}$') 'Read-only diagnostic requires the actual current disposable CI run.'
