@@ -85,7 +85,7 @@ function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null
    if(!$seen.ContainsKey($key)){$seen[$key]=$true;$frames.Add(@{source_basename=$sourceName;source_line=$line;function=$name})}
   }
  }
- $labels=@('fetch-immutable-source','source-worktree','server-14-build','updater-14-build','desktop-14-build','OpenWebPbx.Checks-checks','OpenWebPbx.Updater.Checks-checks','prepare-audited-canary','fetch-actual-candidate-source','verify-actual-candidate','prepare-actual-candidate-pair','actual-original-schema-before','actual-original-schema-after','operator-policy-before','operator-policy-after','operator-rollback-native','compare-operator-database','compare-operator-files','compare-operator-tasks','verify-qualified-base','verify-fault','verify-normal','verify-private-signatures','actual-fresh13','python-setup','python-prepare-pki','python-request','compare-fault-database','compare-fault-files','compare-fault-tasks','compare-normal-tasks','compare-normal-task-contract-security','compare-normal-database','compare-normal-protected-files','compare-normal-installation-secrets','fixture-baseline','fixture-discover','fixture-status','fixture-snapshot','fixture-cleanup')
+ $labels=@('fetch-immutable-source','source-worktree','server-14-build','updater-14-build','desktop-14-build','OpenWebPbx.Checks-checks','OpenWebPbx.Updater.Checks-checks','prepare-audited-canary','fetch-actual-candidate-source','verify-actual-candidate','prepare-actual-candidate-pair','actual-original-schema-before','actual-original-schema-after','operator-policy-before','operator-policy-after','operator-rollback-native','compare-operator-database','compare-operator-files','compare-operator-tasks','verify-qualified-base','verify-fault','verify-normal','verify-private-signatures','actual-fresh13','python-setup','python-prepare-pki','python-request','signed-empty-tenant-content','compare-fault-database','compare-fault-files','compare-fault-tasks','compare-normal-tasks','compare-normal-task-contract-security','compare-normal-database','compare-normal-protected-files','compare-normal-installation-secrets','fixture-baseline','fixture-discover','fixture-status','fixture-snapshot','fixture-cleanup')
  $childReport=$null
  if($Child -is [Collections.IDictionary] -and $Child.label -is [string] -and $Child.label -cin $labels -and $Child.caller -cin @('CheckedProcess','Fixture') -and $Child.caller -cin $frames.ToArray().function){
   if($Child.completion -ceq 'exit' -and $Child.exit_code -is [int] -and $Child.exit_code -ne 0){$childReport=@{label=$Child.label;completion='exit';exit_code=$Child.exit_code}}
@@ -429,7 +429,20 @@ function Fixture([string]$Action){
  foreach($argument in @((Join-Path $PSScriptRoot 'windows-updater-fixture.php'),$Action,$inputFile)){$start.ArgumentList.Add($argument)}
  $process=[Diagnostics.Process]::Start($start);$out=$process.StandardOutput.ReadToEndAsync();$err=$process.StandardError.ReadToEndAsync();$finished=$process.WaitForExit(90000);if(!$finished){$script:qualificationFailedChild=@{caller='Fixture';label=('fixture-'+$Action);completion='deadline';exit_code=$null}};Check $finished 'The private scoped audit exceeded its deadline.';$text=$out.GetAwaiter().GetResult();[IO.File]::WriteAllText((Join-Path $work ($Action+'-private.err')),$err.GetAwaiter().GetResult());$exit=$process.ExitCode;$process.Dispose();if($exit -ne 0){$script:qualificationFailedChild=@{caller='Fixture';label=('fixture-'+$Action);completion='exit';exit_code=$exit}};Check ($exit -eq 0) 'The private scoped audit failed.';return $text|ConvertFrom-Json
 }
-function Python([string]$Action){CheckedProcess "$root\backup-runtime\python.exe" @('-I','-B',(Join-Path $PSScriptRoot 'windows-updater-fixture.py'),'--input',$inputFile,'--action',$Action) ('python-'+$Action)}
+function Python($Action){
+ Check ($args.Count-eq 0) 'The qualification Python route refuses extra arguments.'
+ if($Action-is [string]){
+  Check ($Action-cin 'setup','prepare-pki','request','serve','validate') 'The qualification fixture action is unknown.'
+  CheckedProcess "$root\backup-runtime\python.exe" @('-I','-B',(Join-Path $PSScriptRoot 'windows-updater-fixture.py'),'--input',$inputFile,'--action',$Action) ('python-'+$Action)
+  return
+ }
+ Check ($Action-is [Array]-and $Action.Count-eq 3-and @($Action|Where-Object {$_-isnot [string]}).Count-eq 0) 'The source-bound tenant content proof needs exactly three string arguments.'
+ $proofScript=Join-Path $PSScriptRoot 'windows_empty_tenant_private_files.py'
+ Check ($Action[0]-ceq $proofScript-and $Action[1]-cin (Join-Path $qa 'signed-empty-tenant-content-context.private.json'),(Join-Path $qa 'empty-tenant-content-context.private.json')-and $Action[2]-ceq (Join-Path $qa 'signed-empty-tenant-content.safe.json')) 'The tenant proof script/context/output route differs.'
+ foreach($path in @($proofScript,$Action[1])){$item=Get-Item -LiteralPath $path -Force;Check (!$item.PSIsContainer-and !($item.Attributes-band [IO.FileAttributes]::ReparsePoint)) 'The tenant content proof requires ordinary source and context files.'}
+ Check ((Hash $proofScript)-ceq '3cba78e4e8976f57bee5605f6d84940fc709c2342fbcbb2df7406c7cf8507d1b'-and !(Test-Path -LiteralPath $Action[2])) 'The pinned tenant content proof or one-use output differs.'
+ CheckedProcess "$root\backup-runtime\python.exe" @('-I','-B',$proofScript,$Action[1],$Action[2]) 'signed-empty-tenant-content'
+}
 function InitializeQualificationBackupWorker([string]$Root,[string]$StateRoot,[string]$PackageRoot){
  try{
  # Let the real normal SYSTEM task initialize its own persistent runtime files

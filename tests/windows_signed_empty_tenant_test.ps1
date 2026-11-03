@@ -118,6 +118,48 @@ try{
    if(!$later){Verify ($facts.signed_empty_tenant_component.branch-ceq 'existing-public-acl4-to5' -and $facts.signed_empty_tenant_component.empty_ready_bytes_exact)}else{Verify (!$facts.signed_empty_tenant_component)}
   }
  }finally{$env:GITHUB_SHA=$priorSHA;$env:GITHUB_RUN_ID=$priorRun}
+ # Route both real shared proof callsites through the actual signed helper.
+ # Only the child launch is adapted; no Python worker or installed path is used.
+ & {
+  $router=@($ast.FindAll({param($x)$x-is [Management.Automation.Language.FunctionDefinitionAst]-and $x.Name-ceq 'Python'},$true));Verify ($router.Count-eq 1)
+  $qa=Join-Path $work 'content-router';New-Item -ItemType Directory $qa|Out-Null;$root=Join-Path $work 'installed';$inputFile=Join-Path $qa 'fixture-input.json'
+  $routeRoot=Join-Path $work 'router-source';New-Item -ItemType Directory $routeRoot|Out-Null
+  $routerFile=Join-Path $routeRoot 'windows-updater-qualification.ps1';[IO.File]::WriteAllText($routerFile,$router[0].Extent.Text);. $routerFile
+  [IO.File]::WriteAllBytes((Join-Path $routeRoot 'windows_empty_tenant_private_files.py'),[IO.File]::ReadAllBytes((Join-Path $SourceRoot 'tests/windows_empty_tenant_private_files.py')))
+  $script:routeCalls=@();$script:badRouterHash=$false;$script:linkedRouterContext=$false
+  function CheckedProcess([string]$Executable,[string[]]$Arguments,[string]$Label){$script:routeCalls+=@{exe=$Executable;arguments=$Arguments;label=$Label}}
+  function Hash([string]$Path){if($script:badRouterHash){return '0'*64};return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
+  function Get-Item {param([string]$LiteralPath,[switch]$Force)
+   if($script:linkedRouterContext-and $LiteralPath-ceq $script:routerContext){return @{PSIsContainer=$false;Attributes=[IO.FileAttributes]::ReparsePoint}}
+   return Microsoft.PowerShell.Management\Get-Item -LiteralPath $LiteralPath -Force:$Force
+  }
+  foreach($action in 'setup','prepare-pki','request','serve','validate'){
+   $script:routeCalls=@();Python $action;Verify ($routeCalls.Count-eq 1)
+   $call=$routeCalls[0];Verify ($call.exe-ceq "$root\backup-runtime\python.exe"-and $call.label-ceq ('python-'+$action)-and ($call.arguments-join '|')-ceq (@('-I','-B',(Join-Path $routeRoot 'windows-updater-fixture.py'),'--input',$inputFile,'--action',$action)-join '|'))
+  }
+  $fixtureCalls=@($ast.FindAll({param($x)$x-is [Management.Automation.Language.CommandAst]-and $x.GetCommandName()-ceq 'Python'},$true));Verify ($fixtureCalls.Count-eq 4)
+  foreach($call in $fixtureCalls){$script:routeCalls=@();Invoke-Expression $call.Extent.Text;Verify ($routeCalls.Count-eq 1-and $routeCalls[0].label-cin 'python-setup','python-prepare-pki','python-request')}
+  $output=Join-Path $qa 'signed-empty-tenant-content.safe.json'
+  foreach($leaf in 'windows-signed-empty-tenant.ps1','windows-empty-tenant-private-files.ps1'){
+   $shared=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot ('tests/'+$leaf)),[ref]$tokens,[ref]$errors);Verify (!$errors.Count)
+   $calls=@($shared.FindAll({param($x)$x-is [Management.Automation.Language.CommandAst]-and $x.GetCommandName()-ceq 'Python'},$true));Verify ($calls.Count-eq 1)
+   $context=Join-Path $qa $(if($leaf-ceq 'windows-signed-empty-tenant.ps1'){'signed-empty-tenant-content-context.private.json'}else{'empty-tenant-content-context.private.json'});[IO.File]::WriteAllText($context,'{}');$ContentProofPath=$output;$script:routeCalls=@()
+   $callFile=Join-Path $routeRoot $leaf;[IO.File]::WriteAllText($callFile,$calls[0].Extent.Text);. $callFile
+   Verify ($routeCalls.Count-eq 1);$call=$routeCalls[0]
+   Verify ($call.exe-ceq "$root\backup-runtime\python.exe"-and $call.label-ceq 'signed-empty-tenant-content'-and ($call.arguments-join '|')-ceq (@('-I','-B',(Join-Path $routeRoot 'windows_empty_tenant_private_files.py'),$context,$output)-join '|'))
+  }
+  $proofScript=Join-Path $routeRoot 'windows_empty_tenant_private_files.py';$script:routerContext=$context
+  foreach($case in 'missing','unknown_action','extra_positional','scalar','empty','one','two','four','nested','foreign_script','foreign_context','foreign_output','occupied_output','script_hash','linked_context'){
+   $value=@($proofScript,$context,$output);$script:routeCalls=@();$script:badRouterHash=$false;$script:linkedRouterContext=$false
+   switch($case){missing{$value=$null}unknown_action{$value='PRIVATE_ACTION'}scalar{$value=1}empty{$value=@()}one{$value=@($proofScript)}two{$value=@($proofScript,$context)}four{$value+=@('PRIVATE_EXTRA')}nested{$value=@(@($proofScript),$context,$output)}foreign_script{$value[0]=Join-Path $PSScriptRoot 'windows-updater-fixture.py'}foreign_context{$value[1]=Join-Path $qa 'PRIVATE_CONTEXT'}foreign_output{$value[2]=Join-Path $qa 'PRIVATE_OUTPUT'}occupied_output{[IO.File]::WriteAllText($output,'occupied')}script_hash{$script:badRouterHash=$true}linked_context{$script:linkedRouterContext=$true}}
+   $caught=$null;try{if($case-ceq 'extra_positional'){Python 'setup' 'PRIVATE_EXTRA'}else{Python $value}}catch{$caught=$_}
+   Verify ($null-ne $caught-and $routeCalls.Count-eq 0)
+   if($case-ceq 'occupied_output'){Remove-Item -LiteralPath $output}
+  }
+  $trace='at CheckedProcess, C:\private\windows-updater-qualification.ps1: line 231'+"`n"+'at Python, C:\private\windows-updater-qualification.ps1: line 432'
+  $safe=QualificationFailureObservation $trace @{caller='CheckedProcess';label='signed-empty-tenant-content';completion='exit';exit_code=7}
+  Verify ($safe.child.label-ceq 'signed-empty-tenant-content'-and $safe.child.exit_code-eq 7)
+ }
  $nativeChecks=0
  if($NativeDescriptors){
   Verify ([Environment]::OSVersion.Platform-eq [PlatformID]::Win32NT)
