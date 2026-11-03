@@ -20,7 +20,8 @@ Verify ($body.Contains('(Get-Date) -le $prior.LastRunTime.AddSeconds(1)'))
 Verify ($body -notmatch '(?:New|Set|Remove|Disable|Enable|Stop|Unregister)-ScheduledTask|\[IO\.File\]::(?:Write|Create|Open)|New-Item|Remove-Item')
 Verify ($body.Contains('(TaskSnapshot)') -and $body.Contains("'exists','enabled','xml','acl','security'"))
 $source=$ast.Extent.Text;$call=$source.IndexOf('InitializeQualificationBackupWorker -Root $root -StateRoot $state -PackageRoot $package')
-Verify ($call -gt $source.IndexOf('$heldOriginalManager=RetainQualificationProcess'))
+Verify ($call -gt $source.IndexOf("`$phase='laboratory HTTPS PKI preparation'"))
+Verify ($call -lt $source.IndexOf("`$phase='laboratory HTTPS trust import'") -and $call -lt $source.IndexOf('$heldOriginalManager=RetainQualificationProcess'))
 foreach($text in @("`$beforeDb=DatabaseSnapshot 'before-fault'",'$beforeFiles=FileSnapshot','$beforeTasks=TaskSnapshot','$protected=FileSnapshot -Protected',"Python 'request';`$failure=WaitInstall")){Verify ($source.IndexOf($text) -gt $call)}
 # The manual genuine21 transition must use this same unchanged helper and its
 # original installed21 runtime, before its first private/full/DB/task baseline.

@@ -27,6 +27,8 @@ $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-empty-tenant-private-files.ps1')
 . (Join-Path $PSScriptRoot 'windows-signed-empty-tenant.ps1')
 . (Join-Path $PSScriptRoot 'windows_updater_database_observation.ps1')
+. (Join-Path $PSScriptRoot 'windows_updater_failure_snapshot.ps1')
+. (Join-Path $PSScriptRoot 'windows-original21-prebaseline-core.ps1')
 $actualCandidate=$Mode -in 'PrepareActualCandidate','QualifyActualCandidate'
 if($actualCandidate -and ($BaseVersion -cne '1.0.21' -or $CanaryVersion -cne '1.0.22' -or !$TargetSuiteRunId)){throw 'Actual-candidate qualification requires public21, actual22 and an exact eligible target full-suite run.'}
 if(!$actualCandidate -and ($TargetSuiteRunId -or $OriginalTenantDomainsDisabled)){throw 'Actual-candidate inputs cannot change the original canary modes.'}
@@ -459,7 +461,7 @@ function Fixture([string]$Action){
  $script:qualificationFailedChild=$null
  $start=[Diagnostics.ProcessStartInfo]::new("$root\php\php.exe");$start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.WorkingDirectory="$root\web";$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
  foreach($argument in @((Join-Path $PSScriptRoot 'windows-updater-fixture.php'),$Action,$inputFile)){$start.ArgumentList.Add($argument)}
- $process=[Diagnostics.Process]::Start($start);$out=$process.StandardOutput.ReadToEndAsync();$err=$process.StandardError.ReadToEndAsync();$finished=$process.WaitForExit(90000);if(!$finished){$script:qualificationFailedChild=@{caller='Fixture';label=('fixture-'+$Action);completion='deadline';exit_code=$null}};Check $finished 'The private scoped audit exceeded its deadline.';$text=$out.GetAwaiter().GetResult();[IO.File]::WriteAllText((Join-Path $work ($Action+'-private.err')),$err.GetAwaiter().GetResult());$exit=$process.ExitCode;$process.Dispose();if($exit -ne 0){$script:qualificationFailedChild=@{caller='Fixture';label=('fixture-'+$Action);completion='exit';exit_code=$exit}};Check ($exit -eq 0) 'The private scoped audit failed.';return $text|ConvertFrom-Json
+ $process=[Diagnostics.Process]::Start($start);$out=$process.StandardOutput.ReadToEndAsync();$err=$process.StandardError.ReadToEndAsync();$finished=$process.WaitForExit(90000);if(!$finished){$script:qualificationFailedChild=@{caller='Fixture';label=('fixture-'+$Action);completion='deadline';exit_code=$null}};Check $finished 'The private scoped audit exceeded its deadline.';$text=$out.GetAwaiter().GetResult();if($Action-ceq 'status'){try{[IO.File]::WriteAllText((Join-Path $work 'status-private.out'),$text)}catch{}};[IO.File]::WriteAllText((Join-Path $work ($Action+'-private.err')),$err.GetAwaiter().GetResult());$exit=$process.ExitCode;$process.Dispose();if($exit -ne 0){$script:qualificationFailedChild=@{caller='Fixture';label=('fixture-'+$Action);completion='exit';exit_code=$exit}};Check ($exit -eq 0) 'The private scoped audit failed.';return $text|ConvertFrom-Json
 }
 function Python($Action){
  Check ($args.Count-eq 0) 'The qualification Python route refuses extra arguments.'
@@ -474,6 +476,21 @@ function Python($Action){
  foreach($path in @($proofScript,$Action[1])){$item=Get-Item -LiteralPath $path -Force;Check (!$item.PSIsContainer-and !($item.Attributes-band [IO.FileAttributes]::ReparsePoint)) 'The tenant content proof requires ordinary source and context files.'}
  Check ((Hash $proofScript)-ceq '3cba78e4e8976f57bee5605f6d84940fc709c2342fbcbb2df7406c7cf8507d1b'-and !(Test-Path -LiteralPath $Action[2])) 'The pinned tenant content proof or one-use output differs.'
  CheckedProcess "$root\backup-runtime\python.exe" @('-I','-B',$proofScript,$Action[1],$Action[2]) 'signed-empty-tenant-content'
+}
+function GetQualificationFailureSnapshot([Management.Automation.ErrorRecord]$PrimaryFailure){
+ $priorChild=$script:qualificationFailedChild;$priorComparison=$script:qualificationComparisonFailure;$priorHash=$script:qualificationFailedHash;$reason='metadata_unavailable'
+ try{
+  if(!$installed){return @{record=@{schema=1;state='unavailable';reason='context_guard'};reason='fixture_not_installed'}}
+  Check ($env:GITHUB_ACTIONS-ceq 'true'-and $env:RUNNER_ENVIRONMENT-ceq 'github-hosted'-and $env:GITHUB_REPOSITORY-ceq 'embire2/openwebpbx'-and $env:GITHUB_RUN_ID-cmatch '^[1-9][0-9]+$'-and $env:GITHUB_SHA-cmatch '^[a-f0-9]{40}$') 'Failure capture requires the actual current disposable CI run.'
+  $jobs=Invoke-RestMethod ('https://api.github.com/repos/embire2/openwebpbx/actions/runs/'+$env:GITHUB_RUN_ID+'/jobs?per_page=100') -TimeoutSec 10 -Headers @{Authorization=('Bearer '+$env:GH_TOKEN);Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+  $job=@($jobs.jobs|Where-Object {[string]$_.run_id-ceq $env:GITHUB_RUN_ID-and $_.head_sha-ceq $env:GITHUB_SHA-and $_.name-ceq $env:GITHUB_JOB-and $_.status-ceq 'in_progress'})
+  Check ($job.Count-eq 1-and $job[0].started_at) 'Exactly one current active CI job start is required.'
+  $jobStart=[DateTimeOffset]::Parse($job[0].started_at);Check ($jobStart-le [DateTimeOffset]::UtcNow) 'A future job start cannot extend the original budget.';$jobDeadline=$jobStart.AddMinutes(120)
+  $reason='current_job_budget';Check ([DateTimeOffset]::UtcNow.AddSeconds(30)-lt $jobDeadline) 'The original job must retain the complete failure-capture budget.'
+  $reason='collector_unavailable';$record=Read-WindowsUpdaterFailureSnapshot (Get-WindowsUpdaterFailureSnapshot -StateRoot $state -WorkRoot $work -JobDeadline $jobDeadline -PrimaryFailure $PrimaryFailure)
+  if($record){return @{record=$record;reason=if($record.state-ceq 'captured'){'captured'}else{'collector_unavailable'}}}
+ }catch{}finally{$script:qualificationFailedChild=$priorChild;$script:qualificationComparisonFailure=$priorComparison;$script:qualificationFailedHash=$priorHash}
+ return @{record=@{schema=1;state='unavailable';reason='context_guard'};reason=$reason}
 }
 function ReadQualificationOriginal21Preamble($Record){
  try{
@@ -1203,11 +1220,38 @@ if(!$?){exit 1}
   [IO.File]::WriteAllBytes((Join-Path $qa 'audit.key'),[Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
   $phase='exact owned Health observer quiescence before all preservation baselines'
   Suspend-OpenWebQualificationHealth ([ref]$qualificationHealthOriginal)
+  if($actualCandidate){
+  $prebaselineCore=$null;$prebaselinePrimary=$null
+  try{
+   $phase='exact original21 Core quiescence before fixture initialization'
+   $prebaselineCore=Suspend-Original21PrebaselineCore -PackageRoot $package
   if(!$actualCandidate){Suspend-OpenWebQualificationTenant ([ref]$qualificationTenantOriginal)}
   elseif($OriginalTenantDomainsDisabled){Suspend-OpenWebQualificationTenant ([ref]$qualificationTenantOriginal);$qualificationTenantOriginal.Enabled=$false}
   else{$phase='natural original tenant initialization before preservation baselines';WaitActualTenantIdle}
 
   $facts.checks+='Exact owned Health task/helper identity and zero native children/runtime files before complete DB/file/task preservation baselines; enabled choice retained privately'
+  $phase='ordinary SYSTEM backup worker baseline initialization'
+  try{InitializeQualificationBackupWorker -Root $root -StateRoot $state -PackageRoot $package}catch{
+   $primary=$_;$priorChild=$script:qualificationFailedChild;$priorComparison=$script:qualificationComparisonFailure;$priorHash=$script:qualificationFailedHash
+   try{$observation=InvokeQualificationOriginal21Preamble $primary $package;if($observation){$facts.original21_preamble_observation=$observation}}catch{}
+   finally{$script:qualificationFailedChild=$priorChild;$script:qualificationComparisonFailure=$priorComparison;$script:qualificationFailedHash=$priorHash}
+   throw $primary
+  }
+  $facts.checks+='Actual unchanged installed SYSTEM backup task completed normally and initialized its regular worker lock before every acceptance baseline'
+  }catch{$prebaselinePrimary=$_;throw}finally{
+   if($prebaselineCore){
+    $prebaselinePhase=$phase;$phase='exact original21 Core restoration before signed fixture exposure'
+    try{Resume-Original21PrebaselineCore -Token $prebaselineCore|Out-Null}catch{
+     $facts.prebaseline_core_restore_failed=$true
+     if($prebaselinePrimary){$phase=$prebaselinePhase;throw $prebaselinePrimary};throw
+    }
+    $phase=$prebaselinePhase
+   }
+  }
+  }else{
+   Suspend-OpenWebQualificationTenant ([ref]$qualificationTenantOriginal)
+   $facts.checks+='Exact owned Health task/helper identity and zero native children/runtime files before complete DB/file/task preservation baselines; enabled choice retained privately'
+  }
   # Require empty canary caches before exposing the owned signed endpoint.
   # The ordinary Windows worker may prefetch after endpoint startup.
   foreach($modeName in 'fault','normal'){$cache="$state\updates\downloads\$($verified[$modeName].sha256).archive";Check (!(Test-Path $cache) -and !(Test-Path ($cache+'.partial'))) 'The test refuses preseeded or partial canary archives.'}
@@ -1239,6 +1283,7 @@ if(!$?){exit 1}
   Check ((Fixture 'status').channels -eq 0) 'The actual call engine must be idle.'
   WaitQualificationFaultPrefetch $verified.fault $initialPid $originalWorker
 
+  if(!$actualCandidate){
   $phase='ordinary SYSTEM backup worker baseline initialization'
   try{InitializeQualificationBackupWorker -Root $root -StateRoot $state -PackageRoot $package}catch{
    $primary=$_;$priorChild=$script:qualificationFailedChild;$priorComparison=$script:qualificationComparisonFailure;$priorHash=$script:qualificationFailedHash
@@ -1247,6 +1292,7 @@ if(!$?){exit 1}
    throw $primary
   }
   $facts.checks+='Actual unchanged installed SYSTEM backup task completed normally and initialized its regular worker lock before every acceptance baseline'
+  }
   $phase='fault14 full HTTPS download and rollback'
   $beforeDb=DatabaseSnapshot 'before-fault';$beforeFiles=FileSnapshot -Stage 'before_fault_full';$beforeTasks=TaskSnapshot;$protected=FileSnapshot -Protected -Stage 'before_fault_protected'
   $installationProtected=Get-Content "$state\installation.json" -Raw|ConvertFrom-Json -AsHashtable;$installationProtected.Remove('Version')|Out-Null
@@ -1313,6 +1359,7 @@ if(!$?){exit 1}
   $facts.private_sequences=@($verified.fault.sequence,$verified.normal.sequence);$facts.canary_run_id=$CanaryRunId;$facts.fault_archive_sha256=$verified.fault.sha256;$facts.normal_archive_sha256=$verified.normal.sha256;$facts.state='passed'
  }
 }catch{
+ $primaryFailure=$_
  $facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$_.Exception.GetType().Name;$facts.source_basename=if($_.InvocationInfo.ScriptName){Split-Path -Leaf $_.InvocationInfo.ScriptName}else{'external_component'};$facts.source_line=[int]$_.InvocationInfo.ScriptLineNumber
  $facts.failure_observation=QualificationFailureObservation $_.ScriptStackTrace $script:qualificationFailedChild $script:qualificationComparisonFailure $script:qualificationFailedHash $_.Exception.Data['openweb_qa_backup_worker'] $_.Exception.Data['openweb_qa_task_failure'] $_.Exception.Data['openweb_qa_backup_warmup'] $script:qualificationTenantIdleObservation
  if($script:qualificationFailedChild.label-ceq 'operator-rollback-native'-and $script:qualificationFailedChild.completion-ceq 'exit'-and $script:qualificationFailedChild.exit_code-is [int]-and $script:qualificationFailedChild.exit_code-ne 0){try{
@@ -1320,6 +1367,7 @@ if(!$?){exit 1}
   if(!$item.PSIsContainer-and !($item.Attributes-band [IO.FileAttributes]::ReparsePoint)-and $item.Length-gt 0-and $item.Length-le 4096){$record=ReadQualificationOperatorRestoreError (Get-Content -LiteralPath $path -Raw|ConvertFrom-Json);if($record){$facts.operator_restore_failure=$record}}
  }catch{}}
  if($actualCandidate -and $qa){$actualFailure=ReadActualSchemaFailure;if($actualFailure){$facts.actual_schema_failure=$actualFailure}}
+ $snapshot=GetQualificationFailureSnapshot -PrimaryFailure $primaryFailure;$facts.failure_snapshot=$snapshot.record;$facts.failure_snapshot_reason=$snapshot.reason
  Write-Error ('Disposable updater qualification failed in '+$phase+'. Private streams are not published.') -ErrorAction Continue
 }finally{
  Remove-Item Env:\GH_TOKEN,Env:\WINDOWS_UPDATER_SIGNED_PACKETS_B64 -ErrorAction SilentlyContinue
