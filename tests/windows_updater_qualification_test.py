@@ -5,6 +5,7 @@ This is not Windows service/updater acceptance. Keys, archives and identities
 below are synthetic and ephemeral. No installed machine state is accessed.
 """
 import base64
+import ast
 import copy
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -15,8 +16,10 @@ from pathlib import Path
 import socket
 import ssl
 import subprocess
+import sys
 import tempfile
 import threading
+import types
 import unittest
 
 from cryptography.hazmat.primitives import hashes, serialization
@@ -24,6 +27,8 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 SPEC = importlib.util.spec_from_file_location('updater_fixture', Path(__file__).with_name('windows-updater-fixture.py'))
 fixture = importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(fixture)
+DIAGNOSTIC_SPEC = importlib.util.spec_from_file_location('signature_diagnostic', Path(__file__).with_name('windows-private-signature-diagnostic.py'))
+signature_diagnostic = importlib.util.module_from_spec(DIAGNOSTIC_SPEC); DIAGNOSTIC_SPEC.loader.exec_module(signature_diagnostic)
 
 
 class PacketChecks(unittest.TestCase):
@@ -206,6 +211,127 @@ class TransportChecks(unittest.TestCase):
         with self.assertRaises(ssl.SSLCertVerificationError):
             context.wrap_socket(raw, server_hostname='wrong.example.invalid')
         raw.close()
+
+
+class SignatureFailureChecks(unittest.TestCase):
+    def test_actual_pair_call_normalizes_json_paths_and_rejects_malformed_values(self):
+        tree = ast.parse(Path(fixture.__file__).read_text())
+        calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Attribute) and node.func.attr == 'verify_pair']
+        self.assertEqual(len(calls), 1)
+        expression = compile(ast.Expression(calls[0]), str(Path(fixture.__file__)), 'eval')
+        observed = []
+        pair = types.SimpleNamespace(verify_pair=lambda *args: observed.append(args))
+        facts, provenance = {}, {}
+        for normal, fault in [('normal.zip', 'fault.zip'), (Path('normal.zip'), Path('fault.zip')),
+                              ('normal.zip', Path('fault.zip'))]:
+            observed.clear()
+            eval(expression, {'Path': Path, 'pair': pair, 'archives': {'normal': normal, 'fault': fault},
+                              'target_facts': facts, 'provenance': provenance})
+            self.assertEqual(observed, [(Path('normal.zip'), Path('fault.zip'), facts, provenance)])
+        for mode in ('normal', 'fault'):
+            for value in (None, 1, [], {}):
+                observed.clear()
+                with self.assertRaises(TypeError):
+                    eval(expression, {'Path': Path, 'pair': pair,
+                                      'archives': {'normal': 'normal.zip', 'fault': 'fault.zip'} | {mode: value},
+                                      'target_facts': facts, 'provenance': provenance})
+                self.assertEqual(observed, [])
+
+    def test_closed_exception_classification_never_exports_values(self):
+        class PrivateException(Exception):
+            pass
+        cases = [(RuntimeError('PRIVATE_TOKEN_PATH'), 'RuntimeError', 'unknown'),
+                 (ModuleNotFoundError('PRIVATE_TOKEN_PATH'), 'ModuleNotFoundError', 'dependency_import'),
+                 (FileNotFoundError('PRIVATE_TOKEN_PATH'), 'FileNotFoundError', 'input_io'),
+                 (AttributeError('PRIVATE_TOKEN_PATH'), 'AttributeError', 'python_shape'),
+                 (ValueError('The private signed feed is not current.'), 'ValueError', 'feed_time'),
+                 (PrivateException('PRIVATE_TOKEN_PATH'), 'OtherError', 'unknown')]
+        for error, kind, reason in cases:
+            with self.subTest(kind=kind):
+                result = signature_diagnostic.signature_failure(error)
+                self.assertEqual(set(result), {'schema', 'producer', 'state', 'exception_type', 'reason', 'source_basename', 'source_line'})
+                self.assertEqual((result['exception_type'], result['reason']), (kind, reason))
+                self.assertEqual((result['source_basename'], result['source_line']), ('external_component', 0))
+                self.assertNotIn('PRIVATE_TOKEN_PATH', json.dumps(result))
+        try:
+            exec(compile("raise RuntimeError('PRIVATE_TOKEN_PATH')", '/PRIVATE_TOKEN_PATH/windows-updater-fixture.py', 'exec'))
+        except RuntimeError as error:
+            result = signature_diagnostic.signature_failure(error)
+        self.assertEqual((result['source_basename'], result['source_line']), ('windows-updater-fixture.py', 1))
+        self.assertNotIn('PRIVATE_TOKEN_PATH', json.dumps(result))
+
+    def test_actual_cli_refuses_guard_with_closed_validate_only_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'input.json'
+            path.write_text(json.dumps({'schema': 1, 'password': 'PRIVATE_TOKEN_PATH'}))
+            for action in ('validate', 'setup'):
+                result = subprocess.run([sys.executable, '-I', '-B', str(Path(signature_diagnostic.__file__)), '--input', str(path), '--action', action],
+                                        capture_output=True, timeout=20)
+                self.assertEqual(result.returncode, 1)
+                if action == 'validate':
+                    record = json.loads(result.stdout)
+                    self.assertIn(record['reason'], ('runner_guard', 'input_guard'))
+                    self.assertEqual(record['exception_type'], 'RuntimeError')
+                    self.assertEqual(record['source_basename'], 'windows-updater-fixture.py')
+                    self.assertNotIn(b'PRIVATE_TOKEN_PATH', result.stdout)
+                    self.assertLess(len(result.stdout), 4096)
+                else:
+                    record = json.loads(result.stdout)
+                    self.assertEqual(record['exception_type'], 'ValueError')
+                    self.assertEqual(record['reason'], 'unknown')
+
+    def test_actual_powershell_caller_retains_only_closed_record_and_primary_failure(self):
+        pwsh = Path('/var/lib/openwebpbx/tools/powershell/runtime/pwsh')
+        if not pwsh.exists():
+            self.skipTest('Private local PowerShell parser/runtime is unavailable.')
+        valid = signature_diagnostic.signature_failure(ModuleNotFoundError('PRIVATE_TOKEN_PATH'))
+        rows = [{'wire': json.dumps(valid), 'accepted': True},
+                {'wire': json.dumps(signature_diagnostic.signature_failure(AttributeError('PRIVATE_TOKEN_PATH'))), 'accepted': True}]
+        for field, value in [('schema', True), ('producer', ['windows-private-signature-validation']),
+                             ('state', ['failed']), ('exception_type', ['ModuleNotFoundError']),
+                             ('reason', ['dependency_import']), ('source_basename', 'PRIVATE_TOKEN_PATH'),
+                             ('source_line', True), ('source_line', -1), ('source_line', 100001),
+                             ('source_line', '1'), ('source_line', 1), ('reason', 'PRIVATE_TOKEN_PATH')]:
+            record = valid | {field: value}
+            rows.append({'wire': json.dumps(record), 'accepted': False})
+        rows += [{'wire': json.dumps(valid | {'private': 'PRIVATE_TOKEN_PATH'}), 'accepted': False},
+                 {'wire': '{', 'accepted': False}, {'wire': 'X' * 4097, 'accepted': False}]
+        script = r'''
+param([string]$Source,[string]$Work,[string]$Cases)
+$ErrorActionPreference='Stop';$work=$Work;$package=$Work;$inputFile=$Cases
+$tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Actual signed caller source parse refused'}
+$reader=@($ast.FindAll({param($n)$n-is [Management.Automation.Language.FunctionDefinitionAst]-and $n.Name-ceq 'ReadQualificationSignatureFailure'},$true));if($reader.Count-ne 1){throw 'Unique closed reader required'}
+. ([scriptblock]::Create($reader[0].Extent.Text))
+$wrapper=@($ast.FindAll({param($n)$n-is [Management.Automation.Language.TryStatementAst]-and $n.Body.Statements.Count-eq 1-and $n.Body.Extent.Text.Contains("'verify-private-signatures'")-and @($n.Body.FindAll({param($c)$c-is [Management.Automation.Language.CommandAst]-and $c.GetCommandName()-ceq 'CheckedProcess'},$true)).Count-eq 1},$true))
+if($wrapper.Count-ne 1){throw 'Unique unchanged-call wrapper required'}
+$caller=Join-Path $work 'signature-callsite.ps1';[IO.File]::WriteAllText($caller,$wrapper[0].Extent.Text)
+function CheckedProcess($Executable,$Arguments,$Label){
+ $script:qualificationFailedChild=@{label=$Label;completion='exit';exit_code=7}
+ [IO.File]::WriteAllText((Join-Path $work ($Label+'.out')),$script:wire)
+ throw [InvalidOperationException]::new('ORIGINAL_PRIVATE_CHILD_FAILURE')
+}
+$rows=Get-Content -LiteralPath $Cases -Raw|ConvertFrom-Json;$count=0
+foreach($case in $rows){
+ $facts=@{};$script:wire=$case.wire;$caught=$null
+ try{. $caller}catch{$caught=$_}
+ if(!$caught-or $caught.Exception.Message-cne 'ORIGINAL_PRIVATE_CHILD_FAILURE'){throw 'Original primary failure changed'}
+ if($facts.ContainsKey('signature_validation')-ne $case.accepted){throw 'Closed observation admission differs'}
+ if($facts.ContainsKey('signature_validation')-and ($facts|ConvertTo-Json -Depth 8 -Compress).Contains('PRIVATE_TOKEN_PATH')){throw 'Private value escaped'}
+ $count++
+}
+@{passed=$true;cases=$count;primaryFailurePreserved=$true;noNativeOrHostAction=$true}|ConvertTo-Json -Compress
+'''
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary); ps = work / 'caller.ps1'; ps.write_text(script)
+            cases = work / 'cases.json'; cases.write_text(json.dumps(rows))
+            result = subprocess.run([str(pwsh), '-NoProfile', '-File', str(ps),
+                                     str(Path(__file__).with_name('windows-updater-qualification.ps1')), temporary, str(cases)],
+                                    capture_output=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertEqual(result.stderr, b'')
+            self.assertEqual(json.loads(result.stdout)['cases'], len(rows))
 
 
 class TaskNormalizationChecks(unittest.TestCase):

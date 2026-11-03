@@ -111,7 +111,7 @@ def verify_packets(packet, base_facts, provenance, archives, public_key, *, now=
             raise ValueError('The actual full-suite candidate source/run/facts differ.')
         spec = importlib.util.spec_from_file_location('actual_signed_pair_verifier', ROOT/'tests/windows-actual-candidate-preparation.py')
         pair = importlib.util.module_from_spec(spec); spec.loader.exec_module(pair)
-        pair.verify_pair(archives['normal'], archives['fault'], target_facts, provenance)
+        pair.verify_pair(Path(archives['normal']), Path(archives['fault']), target_facts, provenance)
     elif packet.get('qualification_kind') == 'actual_candidate' or provenance.get('kind') == 'actual_candidate':
         raise ValueError('An actual candidate cannot masquerade as a version-overlay canary.')
     key = serialization.load_pem_public_key(Path(public_key).read_bytes())

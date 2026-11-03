@@ -48,6 +48,14 @@ $script:qualificationComparisonFailure=$null
 $script:qualificationFailedHash=$null
 $facts=[ordered]@{schema=1;mode=$Mode;run_id=$env:GITHUB_RUN_ID;source_commit=$env:GITHUB_SHA;state='running';scope='disposable Windows Server 2025, fictional PBX, laboratory trusted HTTPS';checks=@();gates=[ordered]@{canary_build='pending';fault_https_download='unqualified';fault_rollback='unqualified';normal_https_download='unqualified';newer_upgrade='unqualified';natural_updater_restart='unqualified';manager_reopen_rollback='unqualified';manager_reopen_success='unqualified';protected_data='unqualified';public_github_delivery='unqualified';owner_106_upgrade='unqualified';carrier='unqualified'};cleanup='pending'}
 function Check([bool]$Value,[string]$Message){if(!$Value){throw $Message}}
+function ReadQualificationSignatureFailure($Record){
+ if($Record-is [Collections.IDictionary]){$keys=@($Record.Keys)}elseif($Record-is [pscustomobject]){$keys=@($Record.PSObject.Properties.Name)}else{return $null}
+ if($keys.Count-ne 7 -or @($keys|Where-Object {$_-cnotin 'schema','producer','state','exception_type','reason','source_basename','source_line'}).Count -or ($Record.schema-isnot [int]-and $Record.schema-isnot [long])-or $Record.schema-ne 1 -or $Record.producer-isnot [string]-or $Record.producer-cne 'windows-private-signature-validation'-or $Record.state-isnot [string]-or $Record.state-cne 'failed'){return $null}
+ if($Record.exception_type-isnot [string]-or $Record.exception_type-cnotin @('ValueError','RuntimeError','ImportError','ModuleNotFoundError','FileNotFoundError','PermissionError','IsADirectoryError','NotADirectoryError','OSError','UnicodeDecodeError','JSONDecodeError','KeyError','TypeError','AttributeError','InvalidSignature','Error','OtherError')){return $null}
+ if($Record.reason-isnot [string]-or $Record.reason-cnotin @('unknown','dependency_import','signature_invalid','metadata_json','metadata_encoding','python_shape','input_io','runner_guard','input_guard','provenance_bytes','target_facts_bytes','target_identity','feed_time','asset_contract','archive_integrity')){return $null}
+ if($Record.source_basename-isnot [string]-or $Record.source_basename-cnotin @('windows-updater-fixture.py','windows-actual-candidate-preparation.py','windows-canary-preparation.py','windows_candidate_archive.py','external_component')-or ($Record.source_line-isnot [int]-and $Record.source_line-isnot [long])-or $Record.source_line-lt 0-or $Record.source_line-gt 100000-or (($Record.source_basename-ceq 'external_component')-ne ($Record.source_line-eq 0))){return $null}
+ return @{schema=1;producer='windows-private-signature-validation';state='failed';exception_type=$Record.exception_type;reason=$Record.reason;source_basename=$Record.source_basename;source_line=[int]$Record.source_line}
+}
 function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null,$HashFailure=$null,$BackupWorker=$null,$TaskFailure=$null,$BackupWarmup=$null){
  # Project only known source callsites and fixed child identities. Messages,
  # process arguments, private streams and the paths in the trace stay private.
@@ -1022,7 +1030,16 @@ try{
   $env:OPENWEB_WINDOWS_UPDATER_TEST='1'
   # Verify signatures independently before installation. The later worker still
   # verifies them with its unchanged embedded original signing key.
-  CheckedProcess (Join-Path $package 'backup-runtime/python.exe') @('-I','-B',(Join-Path $PSScriptRoot 'windows-updater-fixture.py'),'--input',$inputFile,'--action','validate') 'verify-private-signatures'
+  try{CheckedProcess (Join-Path $package 'backup-runtime/python.exe') @('-I','-B',(Join-Path $PSScriptRoot 'windows-private-signature-diagnostic.py'),'--input',$inputFile,'--action','validate') 'verify-private-signatures'}catch{
+   $primary=$_
+   try{
+    if($script:qualificationFailedChild.label-ceq 'verify-private-signatures'-and $script:qualificationFailedChild.completion-ceq 'exit'-and $script:qualificationFailedChild.exit_code-is [int]-and $script:qualificationFailedChild.exit_code-ne 0){
+     $signaturePath=Join-Path $work 'verify-private-signatures.out';$item=Get-Item -LiteralPath $signaturePath -Force
+     if(!$item.PSIsContainer-and !($item.Attributes-band [IO.FileAttributes]::ReparsePoint)-and $item.Length-gt 0-and $item.Length-le 4096){$observed=Get-Content -LiteralPath $signaturePath -Raw|ConvertFrom-Json -AsHashtable -NoEnumerate;$safe=ReadQualificationSignatureFailure $observed;if($safe){$facts.signature_validation=$safe}}
+    }
+   }catch{}
+   throw $primary
+  }
   $verified=Get-Content (Join-Path $qa 'verified-packets.json') -Raw|ConvertFrom-Json -AsHashtable;$settings.packets=$verified;WriteJson $inputFile $settings
   if($actualCandidate){$actualPackageDirectory=Join-Path $work 'signed-actual-model';PrivateDirectory $actualPackageDirectory;ExpandSafe $archives.normal $actualPackageDirectory;$actualPackage=Join-Path $actualPackageDirectory ('openwebpbx-'+$CanaryVersion+'-windows-x64');$actualManifest=Get-Content (Join-Path $actualPackage 'release-manifest.json') -Raw|ConvertFrom-Json}
   $hosts=Join-Path $env:SystemRoot 'System32/drivers/etc/hosts';$hostOriginal=[IO.File]::ReadAllBytes($hosts);$hostAcl=(Get-Acl $hosts).Sddl;$marker='# OpenWebPBX disposable updater '+$scope
