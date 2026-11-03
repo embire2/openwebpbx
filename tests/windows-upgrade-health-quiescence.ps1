@@ -82,8 +82,17 @@ function Get-OpenWebQualificationTenantProcesses {
   # The ordinary certificate child can outlive its launching Python/PowerShell.
   if(!$expected -and $command -match '(?i)(?:^|\s)--friendlyname\s+"?OpenWebPBX-tenants-[a-f0-9]{12}(?=$|[\s"])'){$expected=$nativeRoot+'\acme\wacs.exe'}
   if(!$expected){continue}
-  $owner=Invoke-CimMethod -InputObject $process -MethodName GetOwnerSid -OperationTimeoutSec 3 -ErrorAction Stop
-  if(!$exe.Equals($expected,[StringComparison]::OrdinalIgnoreCase) -or $owner.ReturnValue -ne 0 -or $owner.Sid -cne 'S-1-5-18'){throw 'The tenant qualification refuses an unexpected worker identity.'}
+  if(!$exe.Equals($expected,[StringComparison]::OrdinalIgnoreCase)){throw 'The tenant qualification refuses an unexpected worker identity.'}
+  try{$owner=Invoke-CimMethod -InputObject $process -MethodName GetOwnerSid -OperationTimeoutSec 3 -ErrorAction Stop}
+  catch [Microsoft.Management.Infrastructure.CimException]{
+   $ownerFailure=$_
+   if($_.Exception.NativeErrorCode -ne [Microsoft.Management.Infrastructure.NativeErrorCode]::NotFound -or $process.ProcessId -isnot [uint32] -or $process.ProcessId -eq 0){throw $ownerFailure}
+   try{$remaining=@(Get-CimInstance Win32_Process -Filter ('ProcessId='+$process.ProcessId) -OperationTimeoutSec 3 -ErrorAction Stop)}catch{throw $ownerFailure}
+   if($remaining.Count -ne 0){throw $ownerFailure}
+   # A vanished owned row is busy for this observation, never evidence of idle.
+   $count++;continue
+  }
+  if($owner.ReturnValue -ne 0 -or $owner.Sid -cne 'S-1-5-18'){throw 'The tenant qualification refuses an unexpected worker identity.'}
   $count++
  };return $count
 }
