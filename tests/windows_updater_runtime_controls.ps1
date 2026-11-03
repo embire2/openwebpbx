@@ -55,6 +55,7 @@ try{
  [IO.File]::WriteAllText($fixture,((@($names|ForEach-Object {$defs[$_]})+@($equal)) -join "`n"))
  $comparator=Join-Path $PSScriptRoot 'windows-compare-json.py';$copied=Join-Path $work 'windows-compare-json.py';Copy-Item -LiteralPath $comparator -Destination $copied
  Must ((Get-FileHash -LiteralPath $comparator).Hash -ceq (Get-FileHash -LiteralPath $copied).Hash);. $fixture
+ . (Join-Path $PSScriptRoot 'windows-task-preservation-diagnostics.ps1')
  $security=Definitions (Join-Path $source 'packaging/windows/Support-Recovery.ps1');. ([scriptblock]::Create($security['Test-OpenWebTaskSecurityEquivalent']))
  $tokens=$null;$errors=$null;$installer=[Management.Automation.Language.Parser]::ParseFile((Join-Path $source 'packaging/windows/Install-PhoneHealth.ps1'),[ref]$tokens,[ref]$errors);Must (@($errors).Count -eq 0)
  $trigger=@($installer.FindAll({param($n)$n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -ceq '$triggers'},$true));Must ($trigger.Count -eq 1)
@@ -69,7 +70,7 @@ try{
  . ([scriptblock]::Create($trigger[0].Extent.Text))
  Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Trigger $triggers -Force|Out-Null
  $after=Snapshot;Must ($before['OpenWebPBX-PhoneHealth'].xml -cne $after['OpenWebPBX-PhoneHealth'].xml)
- $old=$defs.NormalTaskPreservation.Replace(",'OpenWebPBX-PhoneHealth')",')');Must ($old -cne $defs.NormalTaskPreservation -and $old.Replace("'OpenWebPBX-TenantDomains')","'OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth')") -ceq $defs.NormalTaskPreservation)
+ $old=$defs.NormalTaskPreservation.Replace("'OpenWebPBX-Onboarding','OpenWebPBX-PhoneHealth')","'OpenWebPBX-Onboarding')");Must ($old -cne $defs.NormalTaskPreservation -and $old.Replace("'OpenWebPBX-Onboarding')","'OpenWebPBX-Onboarding','OpenWebPBX-PhoneHealth')") -ceq $defs.NormalTaskPreservation)
  $phase='native_scheduler_old_comparator'
  . ([scriptblock]::Create($old));$caught=$null;try{NormalTaskPreservation $before $after $started}catch{$caught=$_}
  Must ($null -ne $caught -and $script:qualificationComparisonFailure.report.comparison_result -ceq 'different' -and $script:qualificationComparisonFailure.task.known_tasks['OpenWebPBX-PhoneHealth'][0] -ceq 'xml')
