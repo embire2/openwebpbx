@@ -16,7 +16,7 @@ function Reset([string]$Mode='success'){
  $script:mode=$Mode;$script:runs=0;$script:registered=0;$script:deleted=0;$script:reads=0;$script:exists=($Mode-ceq 'preexisting');$script:id=[guid]::NewGuid();$script:full=Join-Path $temporary $id.ToString('N');$null=[IO.Directory]::CreateDirectory($full)
  $script:Context=Join-Path $full 'operator-restore-context.private.json';$script:PSCommandPath=$path;$script:ps='C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe';$script:issued=[DateTimeOffset]::UtcNow.AddMilliseconds(-100);$script:deadline=$issued.AddSeconds(1200)
  $script:result=Join-Path $full 'operator-task-result.private.json';$script:nativeOut=Join-Path $full 'operator-task-native.out';$script:nativeErr=Join-Path $full 'operator-task-native.err';$script:p=@{operation_uuid=$id.ToString();run_id='123456';source_commit=('a'*40);computer_name='OWNED';operator_deadline_utc=$deadline.ToString('o')}
- $script:task=[pscustomobject]@{Name=('OpenWebPBX-QA-IndependentOperator-'+$id.ToString('N'));Definition=$null;Xml='<owned-nonce-task/>';Security='O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;BA)';State=3;LastRunTime=[DateTime]'1899-12-30';LastTaskResult=0}
+ $script:task=[pscustomobject]@{Name=('OpenWebPBX-QA-IndependentOperator-'+$id.ToString('N'));Definition=$null;Xml='<owned-nonce-task/>';Security='O:BAG:BAD:PAI(A;;FA;;;SY)(A;;FA;;;BA)';State=3;LastRunTime=[DateTime]'1899-12-30';LastTaskResult=0}
  $task|Add-Member ScriptMethod GetSecurityDescriptor {param($section);Verify ($section-eq 7);return $this.Security}
  $task|Add-Member ScriptMethod Run {
   param($arguments);Verify ($null-eq $arguments);$script:runs++
@@ -32,7 +32,7 @@ function Reset([string]$Mode='success'){
  $script:folder=[pscustomobject]@{}
  $folder|Add-Member ScriptMethod RegisterTaskDefinition {
   param($name,$definition,$flags,$user,$password,$logon,$security)
-  Verify ($name-ceq $script:task.Name-and $flags-eq 2-and $user-ceq 'SYSTEM'-and $null-eq $password-and $logon-eq 5-and $security-ceq $script:task.Security);$script:registered++
+  Verify ($name-ceq $script:task.Name-and $flags-eq 18-and $user-ceq 'SYSTEM'-and $null-eq $password-and $logon-eq 5-and $security-ceq 'O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)');$script:registered++
   if($script:mode-ceq 'registration_ambiguous'){throw 'Owned registration ambiguity'}
   $script:task.Definition=$definition;$script:exists=$true
   if($script:mode-ceq 'foreign_initial_security'){$script:task.Security='D:(A;;FA;;;WD)'}
@@ -68,10 +68,10 @@ try{
   Verify ($capturedOut.ToString().Contains('PRIVATE_NATIVE_OUT')-and $capturedErr.ToString().Contains('PRIVATE_NATIVE_ERR')-and $deleted-eq 0-and (Test-Path (Join-Path $full 'operator-task-unfinished.private.json')))
   if($mode-ceq 'wrong_nonce'){Verify ($capturedOut.ToString().Contains('OPERATOR_TASK_RESULT_PRIVATE='))};$capturedOut.Dispose();$capturedErr.Dispose()
  }
- foreach($sddl in 'O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;BA)','O:SYG:SYD:P(A;;FA;;;BA)(A;;FA;;;SY)'){AssertOperatorTaskSecurity $sddl;Verify $true}
- foreach($sddl in 'D:(A;;FA;;;WD)','O:SYG:SYD:(A;;FA;;;SY)(A;;FA;;;BA)','O:SYG:SYD:P(A;;FR;;;SY)(A;;FA;;;BA)'){Refuses {AssertOperatorTaskSecurity $sddl}}
+ foreach($flags in 'P','PAI'){foreach($aces in '(A;;FA;;;SY)(A;;FA;;;BA)','(A;;FA;;;BA)(A;;FA;;;SY)'){AssertOperatorTaskSecurity ('O:BAG:BAD:'+$flags+$aces);Verify $true}}
+ foreach($sddl in 'D:(A;;FA;;;WD)','O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;BA)','O:BAG:SYD:P(A;;FA;;;SY)(A;;FA;;;BA)','O:BAG:BAD:(A;;FA;;;SY)(A;;FA;;;BA)','O:BAG:BAD:AI(A;;FA;;;SY)(A;;FA;;;BA)','O:BAG:BAD:PAR(A;;FA;;;SY)(A;;FA;;;BA)','O:BAG:BAD:PAI(A;;FA;;;SY)(A;;FA;;;BA)(A;;FR;;;SY)','O:BAG:BAD:P(A;;FR;;;SY)(A;;FA;;;BA)','O:BAG:BAD:P(A;CI;FA;;;SY)(A;;FA;;;BA)','O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;SY)','O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;WD)','O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)S:(AU;SA;FA;;;WD)'){Refuses {AssertOperatorTaskSecurity $sddl}}
  $raw=[IO.File]::ReadAllText($path);Verify ($raw.Contains("ExecutionTimeLimit='PT0S'")-and !$raw.Contains('Stop-ScheduledTask')-and !$raw.Contains('.Kill(')-and !$raw.Contains('PT20M'))
- Verify (([regex]::Matches($raw,'\$task\.Run\(\$null\)')).Count-eq 1-and $raw.Contains('RegisterTaskDefinition($name,$definition,2,'))
+ Verify (([regex]::Matches($raw,'\$task\.Run\(\$null\)')).Count-eq 1-and $raw.Contains('RegisterTaskDefinition($name,$definition,18,'))
  Verify (!$raw.Contains('$env:GH_TOKEN=')-and !$raw.Contains('$env:WINDOWS_UPDATER_SIGNED_PACKETS_B64='))
  $main=[IO.File]::ReadAllText((Join-Path $SourceRoot 'tests/windows-updater-qualification.ps1'));Verify ($main.Contains("'operator-rollback-native' -Timeout 1200000")-and $main.IndexOf('operator-task-unfinished.private.json',$main.IndexOf('}finally{') )-lt $main.LastIndexOf('OpenQualificationCleanupLock'))
  $wrapper=[IO.File]::ReadAllText((Join-Path $SourceRoot 'tests/windows-operator-restore-diagnostic.ps1'));Verify (([regex]::Matches($wrapper,[regex]::Escape('& $helper -RestoreBackup $backup'))).Count-eq 1)

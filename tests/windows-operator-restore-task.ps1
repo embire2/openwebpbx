@@ -7,7 +7,7 @@ function AssertOperatorTask($Task,[string]$Name,[string]$Executable,[string]$Arg
  $d=$Task.Definition;Need ($d.Actions.Count-eq 1) 'The independent operator requires exactly one action.';$a=$d.Actions.Item(1)
  Need ($Task.Name-ceq $Name-and $d.Principal.UserId-cin 'SYSTEM','S-1-5-18'-and [int]$d.Principal.LogonType-eq 5-and [int]$d.Principal.RunLevel-eq 1-and $d.Triggers.Count-eq 0-and [int]$a.Type-eq 0-and $a.Path-ceq $Executable-and $a.Arguments-ceq $Arguments-and $a.WorkingDirectory-ceq $Directory-and $d.Settings.Enabled-is [bool]-and $d.Settings.Enabled-and [int]$d.Settings.MultipleInstances-eq 2-and $d.Settings.ExecutionTimeLimit-ceq 'PT0S'-and [int]$d.Settings.RestartCount-eq 0) 'The independent operator task differs from its exact owned action.'
 }
-function AssertOperatorTaskSecurity([string]$Value){Need ($Value-ceq 'O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;BA)'-or $Value-ceq 'O:SYG:SYD:P(A;;FA;;;BA)(A;;FA;;;SY)') 'The owned SYSTEM/Admin-only operator task security differs.'}
+function AssertOperatorTaskSecurity([string]$Value){Need ($Value-cmatch '^O:BAG:BAD:P(?:AI)?(?:\(A;;FA;;;SY\)\(A;;FA;;;BA\)|\(A;;FA;;;BA\)\(A;;FA;;;SY\))$') 'The owned BA-owner, protected two-Full-Allow SYSTEM/Admin task security differs.'}
 function WriteNew([string]$Path,$Value){
  $bytes=[Text.UTF8Encoding]::new($false).GetBytes(($Value|ConvertTo-Json -Depth 8 -Compress));$f=[IO.File]::Open($Path,'CreateNew','Write','None');try{$f.Write($bytes,0,$bytes.Length);$f.Flush($true)}finally{$f.Dispose()}
 }
@@ -71,7 +71,7 @@ $definition=$scheduler.NewTask(0);$definition.Principal.UserId='SYSTEM';$definit
 $arguments='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$PSCommandPath+'" -Context "'+$Context+'" -Child';$action=$definition.Actions.Create(0);$action.Path=$ps;$action.Arguments=$arguments;$action.WorkingDirectory=$full
 $retained=Join-Path $full 'operator-task-unfinished.private.json';WriteNew $retained @{schema=1;operation_uuid=$p.operation_uuid;task_name=$name;original_deadline_utc=$p.operator_deadline_utc;one_run=$true;no_kill_or_replay=$true}
 Need ([DateTimeOffset]::UtcNow-lt $deadline) 'The original fence expired before task registration.'
-$null=$folder.RegisterTaskDefinition($name,$definition,2,'SYSTEM',$null,5,'O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;BA)');$task=$folder.GetTask($name);AssertOperatorTask $task $name $ps $arguments $full;$xml=$task.Xml;$security=$task.GetSecurityDescriptor(7);AssertOperatorTaskSecurity $security;$priorLastRun=[DateTime]$task.LastRunTime
+$null=$folder.RegisterTaskDefinition($name,$definition,18,'SYSTEM',$null,5,'O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)');$task=$folder.GetTask($name);AssertOperatorTask $task $name $ps $arguments $full;$xml=$task.Xml;$security=$task.GetSecurityDescriptor(7);AssertOperatorTaskSecurity $security;$priorLastRun=[DateTime]$task.LastRunTime
 WriteNew (Join-Path $full 'operator-task-intent.private.json') @{schema=1;operation_uuid=$p.operation_uuid;task_name=$name;original_deadline_utc=$p.operator_deadline_utc;one_run=$true;no_kill_or_replay=$true};Need ([DateTimeOffset]::UtcNow-lt $deadline) 'The original fence expired before the single task Run.';$null=$task.Run($null)
 do{
  Need ([DateTimeOffset]::UtcNow-lt $deadline) 'Original operator20-minute fence expired; retain unfinished task and transaction without kill or replay.'
