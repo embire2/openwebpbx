@@ -1,5 +1,22 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+## Windows 1.0.22 final checks — 2026-11-03
+
+The final Windows candidate passes its full software suite and actual recovery
+of an older backup, including automatic QR-schema migration, Users edits,
+original extension credentials, calling before and after reboot, and all
+recordings. A separate genuinely fresh Windows Server 2025 installation now
+passes the public registration wizard, eight software calling cases, 34 stable
+QR checks and its first natural scheduled encrypted backup with an off-server
+copy. Signed updater installation/rollback and public delivery are the remaining
+release gates. Public Windows remains 1.0.21 until those finish; Debian 1.0.22
+and Android 1.0.19 remain unchanged.
+
+These checks do not close broader 3CX-parity goals or establish physical-phone,
+carrier, camera, mobile SRTP or Microsoft Store acceptance. Roadmap totals remain
+**133 goals / 21 accepted / 72 partial / 40 planned**.
+[Windows evidence and remaining gates](docs/windows-parity-1.0.22.md).
+
 ## Windows registered setup — 2026-10-30
 
 Windows Server1.0.22 is being qualified with the same public onboarding wizard

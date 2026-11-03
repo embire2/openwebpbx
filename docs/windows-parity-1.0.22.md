@@ -4,6 +4,18 @@ Windows 1.0.22 is being qualified. The downloadable Windows release remains
 [1.0.21](https://github.com/embire2/openwebpbx/releases/tag/v1.0.21).
 Debian 1.0.22 and Android 1.0.19 retain their existing packages and feeds.
 
+## Latest qualification — 3 November 2026
+
+The Windows candidate passes its full software qualification suite, clean native RestoreServer installation, original-backup import, restored Users/QR pages and eight original-credential calling cases over UDP and TLS. Independent inspection of all 16 audio streams, including call endings, finds no packet-clock errors. The matching source archive retains all tracked licences and notices.
+
+The supplied server's first ten-minute readiness observation failed. Normal workers later made the tenant ready without a repair, and a separately declared current-state check passed; the earlier failure remains recorded. The restored final package now passes an actual reboot, all eight calling cases afterward, complete audio inspection and an encrypted backup containing all 22 recordings, registration state and the instance key, verified off-server.
+
+A separate stock managed installation completes successfully on Windows Server 2025 in 12 minutes, generating a new installation identity and key. Ordinary owner-setup gating passes. The public wizard accepts its lookup, verified-account login and single tenant claim, then reaches Ready through normal background tasks. The fresh server passes eight software calling checks, all 16 audio streams and 34 stable-QR portal/enrollment/bootstrap checks. Its first natural scheduled encrypted backup verifies 471 files, all four fresh call recordings, registration state and the instance key; its off-server copy completes within 69 seconds. The complete wizard-to-backup flow takes 17 minutes 34 seconds, inside its original 40-minute limit.
+
+The signed updater's native Scheduler/CDR checks pass. Earlier signature-child failures remain recorded. A separately reproduced QA path-type defect is corrected, and verification of the exact signed archives passes. [Actual signed run41660031813](https://github.com/embire2/openwebpbx/actions/runs/41660031813) is running on the unchanged product and signed package, with its original two-hour limit. Signed install/rollback acceptance and public delivery remain required.
+
+[Full run 41627350841](https://github.com/embire2/openwebpbx/actions/runs/41627350841) completed successfully in 78 minutes 35 seconds, using the unchanged authenticated release package. [Actual update-pair preparation 41638726340](https://github.com/embire2/openwebpbx/actions/runs/41638726340) also succeeds; this prepares unsigned test inputs and does not qualify a signed upgrade. Windows 1.0.22 is not published yet. Public Windows 1.0.21, Android 1.0.19 and Debian 1.0.22 remain available.
+
 ## Release action plan — 2 November 2026
 
 Objective: publish Windows Server 1.0.22 with the registered setup wizard,
@@ -11,15 +23,42 @@ existing PBX services, stable phone QR setup, verified recovery and a working
 signed updater. Additional feature development is deferred until this release
 is published. The release target is Windows Server 2025 with Desktop Experience.
 
-Current state: the native standard package from source `f2d755560` builds on
-the supplied Windows Server 2025 machine. All 19,276 payload hashes and sizes
-match the prospective manifest. This is a successful package build, not a
-completed release qualification. Its private ZIP SHA256 is
-`714486c49552c9fe2f7d629cc9008d5c6fe00e36e671b6ac3857b47f7bc61ae8`.
-Full-suite [41462303601](https://github.com/embire2/openwebpbx/actions/runs/41462303601)
-failed before packaging at a Python-version-sensitive AST test. Three attempts
-to exchange the registration helpers on the test server encountered sharing
-conflicts before writing anything. Registration recovery remains untested.
+Original intermediate-installation evidence: registration reaches ready naturally, with managed DNS,
+trusted HTTPS and preserved tenant authority. The supplied Windows Server
+2025 machine passes eight software registration/calling cases before and
+after an actual reboot. An encrypted backup has been verified, including
+recordings, registration state and the instance key, with an off-server copy.
+These actual-server checks use the earlier installation plus explicitly
+reviewed fixes; they do not establish a fresh final-package installation.
+
+The current candidate is `8f4256e4e`, including the Health correction and
+automatic mobile-schema migration during restore. Full run41627350841 now
+passes with the authenticated candidate and unchanged native/engine inputs.
+Earlier run41535856855 failed; its result and the separate intermediate c5
+run remain recorded without relabelling.
+
+Earlier full runs remain failed. Diagnostics isolated a real Health defect:
+it read advertised addresses rather than actual listeners. The correction
+passes 133 focused checks on the Windows server and 176 portable runtime
+controls, including the 133 focused cases. Ownership, firewall and existing
+operation deadlines are preserved.
+
+Clean recovery of the unchanged `dd073793f` code now passes: factory install
+549 seconds, actual restore 465 seconds, exact tenant/extension model and all
+14 recordings, source registration/private keys and the new target database
+identity. The first verification failed with an unretained inner cause; a
+diagnostic and one declared unchanged ordinary repeat passed. Original failed
+results remain recorded. The original installation copies and encrypted
+off-server backup remain intact. Secure phone preparation, ordinary activation, an actual reboot and
+original-credential UDP/TLS calls before and after reboot pass. A broader
+observer refused a normal task-state transition; the requested preservation
+checks and full audio captures pass separately. Extension settings exposed
+a missing QR-schema migration; that fix passes 14 PostgreSQL controls and
+an isolated Windows migration test, but is not yet deployed here. This is a
+recovery component, separate from the final corrected fresh managed setup.
+
+Final managed setup, actual signed public21 update/recovery and public delivery
+remain required. No public Windows 1.0.22 package has been promoted.
 
 | Order | Action | Completion requirement |
 |---|---|---|
@@ -46,9 +85,9 @@ Execution rules for the quickest reliable release:
   completion and publication. Establish a launch estimate after steps 1 and 2
   pass; the full CI job has a two-hour upper bound, not a promised release time.
 
-Execution has started with steps 1 and 2 in parallel. Automated qualification,
-actual-server registration and recovery/publication preparation have separate
-owners. No additional user decision is currently required.
+Steps 1 and 2 have passed their focused controls and actual registration
+recovery. Steps 3 and 4 are active in parallel; signed-update and publication
+inputs are prepared. No additional user decision is currently required.
 Publication closes only after the final required checks
 and actual public delivery succeed. Physical-phone, carrier and camera tests
 retain their explicit evidence limits.
@@ -73,11 +112,11 @@ allowing automatic public certificate setup to proceed.
 | Tenant certificate expiry | Windows now emits whole-second UTC accepted by the unchanged registration gate; 26 actual Windows checks pass, including preservation of the certificate's expiry instant across three cultures |
 | Public wizard | Windows wording is live; desktop/mobile layout, required links and browser console checks passed |
 | Protection of the existing test server | Full encrypted 1.0.21 backup verified, including media, with a protected off-server copy; original backup settings restored |
-| Windows registration data in backups | Corrected in `d0382f67a`; encrypted archive/PG restore, private-file ACL and real consumer-lock controls pass. The next package and native replacement flow remain unqualified |
-| Genuine public 1.0.21 to actual candidate 1.0.22 | Still unqualified. The normal database baseline now follows rollback; a later run exposed the test observer writing two Python cache entries after its file baseline. Explicit bytecode suppression passes 14 differential controls; strict preservation checks remain unchanged |
+| Windows registration data in backups | Current post-reboot encrypted backup verifies 482 files and all 14 recordings, both registration members and the instance key; encrypted off-server bytes match. The native OWNER_RIGHTS validator and backup-worker acquisition fixes pass focused Windows controls. Final-package replacement remains pending |
+| Genuine public 1.0.21 to actual candidate 1.0.22 | The latest run passes its manual-helper upgrade, automatic rollback and original database/schema/customer preservation, then fails at Phone Health. This does not qualify the whole release or original signed updater |
 | Original 1.0.21 signed updater | Compatibility correction committed as `31e93c155`; 262 local and 255 Windows adapter/file/security checks pass. Actual signed upgrade remains pending; a manual-helper test does not establish this path |
-| Fresh Windows registration | Account email verified; actual installation, managed DNS, public HTTPS and calling checks remain pending |
-| Reboot and final publication | Pending |
+| Actual Windows registration and calls | Ready through normal workers; trusted canonical GUI and tenant API work. Two unchanged extension credentials pass four registrations and four decoded two-way calls over UDP/TLS before and after reboot. Basis: earlier installed package plus reviewed runtime fixes; final fresh package remains separate |
+| Reboot and final publication | One actual reboot preserves tenant/database identities, private keys, registration and extension credentials; all four services start and eight software cases pass. An initial 300-second probe failed its API assertion and remains failed. Final replacement, signed update and publication are pending |
 
 The upgrade fixture installs the immutable public 1.0.21 ZIP, then uses the
 actual candidate 1.0.22 helper. It checks the original database, credentials,

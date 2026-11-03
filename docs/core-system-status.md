@@ -1,5 +1,21 @@
 # OpenWeb PBX core system status
 
+## Windows 1.0.22 final checks — 2026-11-03
+
+The final Windows package passes the full software suite, original-backup
+recovery with automatic mobile-schema migration, ordinary Users/QR access,
+original-credential calling, actual reboot recovery and verified encrypted
+backup. A separate stock managed installation passes the public wizard, eight
+software calling cases, complete audio inspection, 34 stable QR checks and a
+natural scheduled backup copied off-server in 69 seconds. Signed updater and
+publication checks remain. Windows 1.0.21 is still the public download;
+Debian 1.0.22 and Android 1.0.19 remain unchanged.
+[Current Windows qualification](windows-parity-1.0.22.md).
+
+Broader roadmap totals remain 133 / 21 accepted / 72 partial / 40 planned.
+Physical phones, providers, cameras, mobile SRTP and Store distribution retain
+their separate deployment and qualification requirements.
+
 ## Debian 1.0.22 — registered self-installation and Webhotel
 
 [Debian1.0.22](https://github.com/embire2/openwebpbx/releases/tag/v1.0.22) is published for Debian13 amd64. Fresh installations keep PostgreSQL and calling local, verify ownership and obtain a managed tenant address through the [setup wizard](https://openwebpbx.com/wizard). Existing installations preserve their calling policy and credentials. Signed upgrades require installed1.0.21 or newer. Enabled managed backup/registration timers recover after maintenance while disabled/custom choices remain protected.
