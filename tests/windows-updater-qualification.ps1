@@ -46,6 +46,7 @@ $retainedProcesses=[Collections.Generic.List[Diagnostics.Process]]::new()
 $script:qualificationFailedChild=$null
 $script:qualificationComparisonFailure=$null
 $script:qualificationFailedHash=$null
+$script:qualificationTenantIdleObservation=$null
 $facts=[ordered]@{schema=1;mode=$Mode;run_id=$env:GITHUB_RUN_ID;source_commit=$env:GITHUB_SHA;state='running';scope='disposable Windows Server 2025, fictional PBX, laboratory trusted HTTPS';checks=@();gates=[ordered]@{canary_build='pending';fault_https_download='unqualified';fault_rollback='unqualified';normal_https_download='unqualified';newer_upgrade='unqualified';natural_updater_restart='unqualified';manager_reopen_rollback='unqualified';manager_reopen_success='unqualified';protected_data='unqualified';public_github_delivery='unqualified';owner_106_upgrade='unqualified';carrier='unqualified'};cleanup='pending'}
 function Check([bool]$Value,[string]$Message){if(!$Value){throw $Message}}
 function ReadQualificationSignatureFailure($Record){
@@ -56,7 +57,20 @@ function ReadQualificationSignatureFailure($Record){
  if($Record.source_basename-isnot [string]-or $Record.source_basename-cnotin @('windows-updater-fixture.py','windows-actual-candidate-preparation.py','windows-canary-preparation.py','windows_candidate_archive.py','external_component')-or ($Record.source_line-isnot [int]-and $Record.source_line-isnot [long])-or $Record.source_line-lt 0-or $Record.source_line-gt 100000-or (($Record.source_basename-ceq 'external_component')-ne ($Record.source_line-eq 0))){return $null}
  return @{schema=1;producer='windows-private-signature-validation';state='failed';exception_type=$Record.exception_type;reason=$Record.reason;source_basename=$Record.source_basename;source_line=[int]$Record.source_line}
 }
-function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null,$HashFailure=$null,$BackupWorker=$null,$TaskFailure=$null,$BackupWarmup=$null){
+function ReadQualificationTenantIdleObservation($Record){
+ if($Record-is [Collections.IDictionary]){$keys=@($Record.Keys)}elseif($Record-is [pscustomobject]){$keys=@($Record.PSObject.Properties.Name)}else{return $null}
+ if($keys.Count-ne 7-or @($keys|Where-Object {$_-cnotin 'schema','task_enabled','task_state','native_process_count','last_task_result','last_run_observed','path_presence'}).Count-or ($Record.schema-isnot [int]-and $Record.schema-isnot [long])-or $Record.schema-ne 1){return $null}
+ if($Record.task_enabled-isnot [bool]-or $Record.task_state-isnot [string]-or $Record.task_state-cnotin 'Ready','Running','Queued','Disabled','Unknown','other'-or $Record.last_run_observed-isnot [bool]){return $null}
+ if($null-ne $Record.native_process_count-and (($Record.native_process_count-isnot [int]-and $Record.native_process_count-isnot [long])-or $Record.native_process_count-lt 0-or $Record.native_process_count-gt 1000000)){return $null}
+ if(($Record.last_task_result-isnot [int]-and $Record.last_task_result-isnot [long]-and $Record.last_task_result-isnot [uint32])-or $Record.last_task_result-lt 0-or $Record.last_task_result-gt [uint32]::MaxValue){return $null}
+ $paths=$Record.path_presence
+ if($paths-is [Collections.IDictionary]){$pathKeys=@($paths.Keys)}elseif($paths-is [pscustomobject]){$pathKeys=@($paths.PSObject.Properties.Name)}else{return $null}
+ $labels=@('tenant_root','private_root','proofs_root','well_known_root','proof_root','instance_key','ready_json','proof_config')
+ if($pathKeys.Count-ne 8-or @($pathKeys|Where-Object {$_-cnotin $labels}).Count){return $null}
+ $safePaths=[ordered]@{};foreach($label in $labels){if($paths.$label-isnot [bool]){return $null};$safePaths[$label]=$paths.$label}
+ return @{schema=1;task_enabled=$Record.task_enabled;task_state=$Record.task_state;native_process_count=$Record.native_process_count;last_task_result=[long]$Record.last_task_result;last_run_observed=$Record.last_run_observed;path_presence=$safePaths}
+}
+function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null,$HashFailure=$null,$BackupWorker=$null,$TaskFailure=$null,$BackupWarmup=$null,$TenantIdle=$null){
  # Project only known source callsites and fixed child identities. Messages,
  # process arguments, private streams and the paths in the trace stay private.
  $frames=[Collections.Generic.List[object]]::new();$seen=@{}
@@ -92,6 +106,7 @@ function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null
  if($frames.ToArray().function -ccontains 'Hash' -and $frames.ToArray().function -ccontains 'SnapshotHash' -and $frames.ToArray().function -ccontains 'FileSnapshot'){$hash=QualificationHashFailureFields $HashFailure;if($hash){$safe.hash_failure=$hash}}
  if($frames.ToArray().function -ccontains 'Check' -and $frames.ToArray().function -ccontains 'InitializeQualificationBackupWorker'){try{$worker=QualificationBackupWorkerFailureFields $BackupWorker;if($worker){$safe.backup_worker=$worker}}catch{}}
  if($frames.ToArray().function -ccontains 'InitializeQualificationBackupWorker'){try{$warmup=BackupWarmupFailureFields $BackupWarmup;if($warmup){$safe.backup_warmup=$warmup}}catch{}}
+ if($frames.ToArray().function -ccontains 'WaitActualTenantIdle'){try{$idle=ReadQualificationTenantIdleObservation $TenantIdle;if($idle){$safe.tenant_idle=$idle}}catch{}}
  return $safe
 }
 function QualificationBackupWorkerFailureFields($Record){
@@ -316,11 +331,17 @@ function NewActualSchemaProbe {
 function WaitActualTenantIdle {
  $deadline=[DateTime]::UtcNow.AddSeconds(600)
  do{
+  $script:qualificationTenantIdleObservation=$null
   $tenant=Get-ScheduledTask -TaskName 'OpenWebPBX-TenantDomains';Assert-OpenWebQualificationTenantTask $tenant
   Check $tenant.Settings.Enabled 'The actual natural-migration case needs the genuinely enabled original worker.'
   $info=Get-ScheduledTaskInfo -TaskName 'OpenWebPBX-TenantDomains' -TaskPath '\'
-  $initialized=@((Get-WindowsEmptyTenantPaths).Keys|Where-Object {!(Test-Path -LiteralPath $_)})
-  if([string]$tenant.State -cnotin 'Running','Queued' -and (Get-OpenWebQualificationTenantProcesses) -eq 0 -and $info.LastTaskResult-eq 0 -and $info.LastRunTime-gt [DateTime]::MinValue -and !$initialized.Count){return}
+  $pathLabels=@('tenant_root','private_root','proofs_root','well_known_root','proof_root','instance_key','ready_json','proof_config');$pathPresence=[ordered]@{};$pathIndex=0
+  $initialized=@((Get-WindowsEmptyTenantPaths).Keys|Where-Object {$present=Test-Path -LiteralPath $_;$pathPresence[$pathLabels[$pathIndex++]]=[bool]$present;!$present})
+  $nativeProcessCount=$null
+  $ready=[string]$tenant.State -cnotin 'Running','Queued' -and ($nativeProcessCount=Get-OpenWebQualificationTenantProcesses) -eq 0 -and $info.LastTaskResult-eq 0 -and $info.LastRunTime-gt [DateTime]::MinValue -and !$initialized.Count
+  $taskState=if([string]$tenant.State-cin 'Ready','Running','Queued','Disabled','Unknown'){[string]$tenant.State}else{'other'}
+  $script:qualificationTenantIdleObservation=ReadQualificationTenantIdleObservation @{schema=1;task_enabled=$tenant.Settings.Enabled;task_state=$taskState;native_process_count=$nativeProcessCount;last_task_result=$info.LastTaskResult;last_run_observed=($info.LastRunTime-gt [DateTime]::MinValue);path_presence=$pathPresence}
+  if($ready){return}
   Check ([DateTime]::UtcNow -lt $deadline) 'The enabled owned tenant worker did not become idle before the preservation baseline.'
   Start-Sleep -Milliseconds 250
  }while($true)
@@ -1104,7 +1125,7 @@ if(!$?){exit 1}
   Suspend-OpenWebQualificationHealth ([ref]$qualificationHealthOriginal)
   if(!$actualCandidate){Suspend-OpenWebQualificationTenant ([ref]$qualificationTenantOriginal)}
   elseif($OriginalTenantDomainsDisabled){Suspend-OpenWebQualificationTenant ([ref]$qualificationTenantOriginal);$qualificationTenantOriginal.Enabled=$false}
-  else{WaitActualTenantIdle}
+  else{$phase='natural original tenant initialization before preservation baselines';WaitActualTenantIdle}
 
   $facts.checks+='Exact owned Health task/helper identity and zero native children/runtime files before complete DB/file/task preservation baselines; enabled choice retained privately'
   $phase='ordinary SYSTEM backup worker baseline initialization'
@@ -1177,7 +1198,7 @@ if(!$?){exit 1}
  }
 }catch{
  $facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$_.Exception.GetType().Name;$facts.source_basename=if($_.InvocationInfo.ScriptName){Split-Path -Leaf $_.InvocationInfo.ScriptName}else{'external_component'};$facts.source_line=[int]$_.InvocationInfo.ScriptLineNumber
- $facts.failure_observation=QualificationFailureObservation $_.ScriptStackTrace $script:qualificationFailedChild $script:qualificationComparisonFailure $script:qualificationFailedHash $_.Exception.Data['openweb_qa_backup_worker'] $_.Exception.Data['openweb_qa_task_failure'] $_.Exception.Data['openweb_qa_backup_warmup']
+ $facts.failure_observation=QualificationFailureObservation $_.ScriptStackTrace $script:qualificationFailedChild $script:qualificationComparisonFailure $script:qualificationFailedHash $_.Exception.Data['openweb_qa_backup_worker'] $_.Exception.Data['openweb_qa_task_failure'] $_.Exception.Data['openweb_qa_backup_warmup'] $script:qualificationTenantIdleObservation
  if($actualCandidate -and $qa){$actualFailure=ReadActualSchemaFailure;if($actualFailure){$facts.actual_schema_failure=$actualFailure}}
  Write-Error ('Disposable updater qualification failed in '+$phase+'. Private streams are not published.') -ErrorAction Continue
 }finally{

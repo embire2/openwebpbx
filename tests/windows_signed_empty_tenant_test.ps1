@@ -50,22 +50,57 @@ try{
  }
  # Import the actual wait and exact caller block, not hand-copied equivalents.
  $tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-updater-qualification.ps1'),[ref]$tokens,[ref]$errors);Verify (!$errors.Count)
- foreach($name in 'WaitActualTenantIdle','QualificationSnapshotPaths'){$n=@($ast.FindAll({param($x)$x-is [Management.Automation.Language.FunctionDefinitionAst] -and $x.Name-ceq $name},$true));Verify ($n.Count-eq 1);Invoke-Expression $n[0].Extent.Text}
+ foreach($name in 'ReadQualificationTenantIdleObservation','QualificationFailureObservation','WaitActualTenantIdle','QualificationSnapshotPaths'){$n=@($ast.FindAll({param($x)$x-is [Management.Automation.Language.FunctionDefinitionAst] -and $x.Name-ceq $name},$true));Verify ($n.Count-eq 1);Invoke-Expression $n[0].Extent.Text}
  $script:enabled=$true;$script:taskState='Ready';$script:processCount=0;$script:taskResult=0;$script:runTime=[DateTime]::UtcNow;$script:missing=$false;$script:polls=0
  function Get-ScheduledTask {return @{Settings=@{Enabled=$script:enabled};State=$script:taskState}}
  function Assert-OpenWebQualificationTenantTask($Task){Verify ($null-ne $Task)}
  function Get-ScheduledTaskInfo {return @{LastTaskResult=$script:taskResult;LastRunTime=$script:runTime}}
- function Get-OpenWebQualificationTenantProcesses {return $script:processCount}
+ $script:processQueries=0;$script:missingPath=$null
+ function Get-OpenWebQualificationTenantProcesses {$script:processQueries++;return $script:processCount}
  function Check([bool]$v,[string]$m){if(!$v){throw $m}}
- function Test-Path {param([string]$LiteralPath)if((Get-WindowsEmptyTenantPaths).Contains($LiteralPath)){return !$script:missing};if($LiteralPath-ceq 'C:\ProgramData\OpenWebPBX-Installation\onboarding-required'){return $script:marker};return Microsoft.PowerShell.Management\Test-Path -LiteralPath $LiteralPath}
+ function Test-Path {param([string]$LiteralPath)if((Get-WindowsEmptyTenantPaths).Contains($LiteralPath)){return !$script:missing-and $LiteralPath-cne $script:missingPath};if($LiteralPath-ceq 'C:\ProgramData\OpenWebPBX-Installation\onboarding-required'){return $script:marker};return Microsoft.PowerShell.Management\Test-Path -LiteralPath $LiteralPath}
  function Start-Sleep {$script:polls++;throw 'one bounded fixture poll'}
  WaitActualTenantIdle;Verify ($polls-eq 0)
- foreach($case in 'disabled','running','process','never_ran','failed_run','missing'){
-  $enabled=$true;$taskState='Ready';$processCount=0;$taskResult=0;$runTime=[DateTime]::UtcNow;$missing=$false;$polls=0
-  switch($case){disabled{$enabled=$false}running{$taskState='Running'}process{$processCount=1}never_ran{$runTime=[DateTime]::MinValue}failed_run{$taskResult=1}missing{$missing=$true}}
+ $validIdle=$script:qualificationTenantIdleObservation
+ Verify ($validIdle.task_state-ceq 'Ready'-and $validIdle.native_process_count-eq 0-and $validIdle.last_task_result-eq 0-and $validIdle.last_run_observed-and @($validIdle.path_presence.Values|Where-Object {!$_}).Count-eq 0)
+ foreach($case in 'disabled','running','queued','process','never_ran','failed_run','missing'){
+  $enabled=$true;$taskState='Ready';$processCount=0;$taskResult=0;$runTime=[DateTime]::UtcNow;$missing=$false;$polls=0;$processQueries=0
+  switch($case){disabled{$enabled=$false}running{$taskState='Running'}queued{$taskState='Queued'}process{$processCount=1}never_ran{$runTime=[DateTime]::MinValue}failed_run{$taskResult=1}missing{$missing=$true}}
   $failed=$false;try{WaitActualTenantIdle}catch{$failed=$true};Verify $failed;if($case-cne 'disabled'){Verify ($polls-eq 1)}
+  $observed=$script:qualificationTenantIdleObservation
+  if($case-ceq 'disabled'){Verify ($null-eq $observed-and $processQueries-eq 0);continue}
+  Verify ($null-ne $observed)
+  switch($case){
+   running{Verify ($observed.task_state-ceq 'Running'-and $null-eq $observed.native_process_count-and $processQueries-eq 0)}
+   queued{Verify ($observed.task_state-ceq 'Queued'-and $null-eq $observed.native_process_count-and $processQueries-eq 0)}
+   process{Verify ($observed.native_process_count-eq 1-and $processQueries-eq 1)}
+   never_ran{Verify (!$observed.last_run_observed)}
+   failed_run{Verify ($observed.last_task_result-eq 1)}
+   missing{Verify (@($observed.path_presence.Values|Where-Object {!$_}).Count-eq 8)}
+  }
  }
- $missing=$false
+ $missing=$false;$taskState='Ready';$processCount=0;$taskResult=0;$runTime=[DateTime]::UtcNow
+ $labels=@('tenant_root','private_root','proofs_root','well_known_root','proof_root','instance_key','ready_json','proof_config');$index=0
+ foreach($path in (Get-WindowsEmptyTenantPaths).Keys){
+  $missingPath=$path;$failed=$false;try{WaitActualTenantIdle}catch{$failed=$true};Verify $failed
+  $observed=$script:qualificationTenantIdleObservation
+  Verify (@($observed.path_presence.Values|Where-Object {!$_}).Count-eq 1-and !$observed.path_presence[$labels[$index++]])
+ };$missingPath=$null
+ # The actual failure projector exposes only the last complete, closed sample.
+ $trace='at Check, C:\private\windows-updater-qualification.ps1: line 50'+"`n"+'at WaitActualTenantIdle, C:\private\windows-updater-qualification.ps1: line 324'
+ foreach($wire in $validIdle,($validIdle|ConvertTo-Json -Depth 8|ConvertFrom-Json)){
+  $safe=QualificationFailureObservation $trace $null $null $null $null $null $null $wire
+  Verify ($safe.tenant_idle.task_state-ceq 'Ready'-and ($safe|ConvertTo-Json -Depth 8 -Compress)-cnotmatch 'C:\\\\private|C:\\\\ProgramData')
+ }
+ foreach($case in 'schema','state_array','enabled_string','process_bool','process_negative','result_string','result_overflow','run_array','path_array','path_value','path_unknown','extra'){
+  $bad=$validIdle|ConvertTo-Json -Depth 8|ConvertFrom-Json -AsHashtable
+  switch($case){schema{$bad.schema=$true}state_array{$bad.task_state=@('Ready')}enabled_string{$bad.task_enabled='true'}process_bool{$bad.native_process_count=$false}process_negative{$bad.native_process_count=-1}result_string{$bad.last_task_result='0'}result_overflow{$bad.last_task_result=4294967296L}run_array{$bad.last_run_observed=@($true)}path_array{$bad.path_presence=@($true)}path_value{$bad.path_presence.ready_json='PRIVATE_PATH'}path_unknown{$bad.path_presence.Remove('ready_json');$bad.path_presence.PRIVATE_PATH=$true}extra{$bad.PRIVATE_PATH='PRIVATE_VALUE'}}
+  Verify ($null-eq (ReadQualificationTenantIdleObservation $bad))
+  $safe=QualificationFailureObservation $trace $null $null $null $null $null $null $bad;Verify (!$safe.ContainsKey('tenant_idle'))
+ }
+ $safe=QualificationFailureObservation 'at Check, C:\private\windows-updater-qualification.ps1: line 50' $null $null $null $null $null $null $validIdle;Verify (!$safe.ContainsKey('tenant_idle'))
+ $wait=@($ast.FindAll({param($x)$x-is [Management.Automation.Language.FunctionDefinitionAst]-and $x.Name-ceq 'WaitActualTenantIdle'},$true))[0].Extent.Text
+ Verify ($wait.Contains('[DateTime]::UtcNow.AddSeconds(600)')-and $wait.Contains('Start-Sleep -Milliseconds 250'))
  # The genuine encrypted observer is retained even if original Equal or a later
  # task/operator assertion refuses. Raw record names never appear in facts.
  $assigned=@($ast.FindAll({param($x)$x-is [Management.Automation.Language.AssignmentStatementAst] -and $x.Left.Extent.Text-ceq '$afterProtectedFiles'},$true));Verify ($assigned.Count-eq 1)
