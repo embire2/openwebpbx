@@ -579,6 +579,7 @@ try{
  for($i=0;$i -lt 50 -and !(Test-Path "$evidence\pki-ready.json") -and !$pkiProcess.HasExited;$i++){Start-Sleep -Milliseconds 100}
  if($pkiProcess.HasExited){$facts.command_basename='python.exe';$facts.command_exit=$pkiProcess.ExitCode;throw 'Owned loopback certificate-revocation fixture exited before becoming ready.'}
  if(!(Test-Path "$evidence\pki-ready.json")){throw 'Owned loopback certificate-revocation fixture did not start.'}
+ Python 'verify-pki'
  [IO.File]::AppendAllText("$root\php\extras\ssl\cacert.pem","`r`n"+[IO.File]::ReadAllText("$evidence\fixture-root.pem"),[Text.UTF8Encoding]::new($false))
  $privatePki=Get-Content "$evidence\pki-private.json" -Raw|ConvertFrom-Json
  $rootCertificate=Import-Certificate -FilePath "$evidence\fixture-root.cer" -CertStoreLocation Cert:\LocalMachine\Root

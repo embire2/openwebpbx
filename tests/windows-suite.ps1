@@ -1042,12 +1042,22 @@ function BackupFailureReport([string]$Path,[datetime]$StartedAt){
     if((& $isRecord $entry) -and $entry.state -is [string] -and $entry.state -cin @('available','busy','missing','access_denied','not_ordinary','other') -and $entry.stream_closed -is [bool]){$projected[$key]=@{state=$entry.state;stream_closed=$entry.stream_closed}}else{$valid=$false}
    }
    if($valid){
+    $timing=$lock.probe_timing
+    if((& $isRecord $timing) -and $timing.clock -is [string] -and $timing.clock -ceq 'monotonic' -and (& $integer $timing.upgrade_probe_elapsed_ms 0 30000) -and (& $integer $timing.worker_probe_elapsed_ms 0 30000)){$projected.probe_timing=@{clock='monotonic';upgrade_probe_elapsed_ms=[int]$timing.upgrade_probe_elapsed_ms;worker_probe_elapsed_ms=[int]$timing.worker_probe_elapsed_ms}}
     $native=$lock.native
     if(& $isRecord $native){
      $part=@{};$nativeValid=$true
      foreach($key in 'observed','health_observed','local_running','version_matches','iis_login_ready','known_recover_holder'){if($native.$key -is [bool]){$part[$key]=$native.$key}else{$nativeValid=$false}}
      foreach($key in 'holder_count','verified_holder_count'){if(& $integer $native.$key 0 32){$part[$key]=[int]$native.$key}else{$nativeValid=$false}}
      if($native.updater_state -is [string] -and $native.updater_state -cin @('unknown','Stopped','Running','Start Pending','Stop Pending','Paused','Continue Pending','Pause Pending')){$part.updater_state=$native.updater_state}else{$nativeValid=$false}
+     if($native.PSObject.Properties['lock_metadata']){
+      $metadata=$native.lock_metadata;$closed=@{};$metadataValid=(& $isRecord $metadata)
+      $arrays=@{holder_kinds=@('updater','powershell','python','php','server','other');holder_actions=@('recover','check','signed_install','direct_reapply','mail_tick','certificate_renewal','updater_restart','qualification_preflight','backup_control','other')}
+      foreach($key in $arrays.Keys){$items=$metadata.$key;if($items -isnot [Array] -or $items.Count -gt $arrays[$key].Count){$metadataValid=$false;continue};foreach($item in $items){if($item -isnot [string] -or $item -cnotin $arrays[$key]){$metadataValid=$false}};if(@($items|Sort-Object -Unique).Count -ne $items.Count){$metadataValid=$false};$closed[$key]=@($items)}
+      $journals=@{install_journal_state=@('unavailable','absent','unreadable','other','prepared','quiescing','deploying','migrating','validating','rolling_back','recovery_required','completed','rolled_back');worker_journal_state=@('unavailable','absent','unreadable','other','checking','downloading','ready','waiting_calls','waiting_window','installing','completed','failed')}
+      foreach($key in $journals.Keys){$value=$metadata.$key;if($value -isnot [string] -or $value -cnotin $journals[$key]){$metadataValid=$false}else{$closed[$key]=$value}}
+      if($metadataValid){$part.lock_metadata=$closed}else{$nativeValid=$false}
+     }
      if($nativeValid -and $part.verified_holder_count -le $part.holder_count){$projected.native=$part}
     }
     $safe.lock_observation=$projected
@@ -1778,6 +1788,7 @@ try{
  if(!$?){throw 'The normal-private primary-failure and encrypted observation propagation controls failed.'}
  CheckedPython @((Join-Path $source 'tests/windows_upgrade_restore_holds.py'))
  CheckedPython @((Join-Path $source 'tests/windows_restore_lock_retry.py'))
+ CheckedPython @((Join-Path $source 'tests/windows_native_pki.py'),'BackupDiagnosticRetention')
  CheckedPython @((Join-Path $source 'tests/windows_backup_control_observer_test.py'))
  & (Join-Path $source 'tests/windows_welcome_quiescence.ps1') -SourceRoot $source *> (Join-Path $work 'welcome-quiescence-controls.private.log')
  if(!$?){throw 'The exact welcome updater quiescence controls failed.'}
@@ -1814,6 +1825,13 @@ try{
  $PackageRoot=[IO.Path]::GetFullPath($PackageRoot);$release=Get-Content (Join-Path $PackageRoot 'release-manifest.json') -Raw|ConvertFrom-Json
  if($release.version -ne (Get-Content (Join-Path $source 'VERSION') -Raw).Trim()){throw 'The candidate package release differs from source.'}
  $mapped=VerifyInventory $PackageRoot $release.files;$facts.checks+=('Exact candidate package inventory: '+$mapped+' files')
+ $pkiFixturePreference=$ErrorActionPreference;$pkiFixtureExit=$null
+ try{
+  $ErrorActionPreference='Continue';$global:LASTEXITCODE=$null
+  & (Join-Path $PackageRoot 'backup-runtime/python.exe') -I -B (Join-Path $source 'tests/windows_native_pki.py') PkiIsolation *> (Join-Path $work 'owned-pki-endpoint-controls.private.log')
+  $pkiFixtureExit=$global:LASTEXITCODE
+ }finally{$ErrorActionPreference=$pkiFixturePreference}
+ if($null -eq $pkiFixtureExit -or $pkiFixtureExit -ne 0){throw 'The isolated issuer-bound PKI endpoint controls failed.'}
  if($ThreecxImportOnly){AssertThreecxImportAcceptedReplay $facts}else{$phase='original candidate export';ExportOriginalCandidate $release}
  if($Public21ToCandidate22){
   & (Join-Path $PackageRoot 'backup-runtime/python.exe') -I -B (Join-Path $source 'tests/windows_empty_tenant_private_files_test.py') *> (Join-Path $work 'empty-tenant-content-controls.private.log')

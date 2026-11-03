@@ -34,6 +34,8 @@ function Start-SuiteRecoveryPki([string]$PackageRoot,[string]$SourceRoot,[string
   $context.process=[Diagnostics.Process]::Start($start);$context.out=$context.process.StandardOutput.ReadToEndAsync();$context.err=$context.process.StandardError.ReadToEndAsync()
   for($i=0;$i -lt 50 -and !(Test-Path "$evidence\pki-ready.json") -and !$context.process.HasExited;$i++){Start-Sleep -Milliseconds 100}
   if($context.process.HasExited -or !(Test-Path "$evidence\pki-ready.json")){throw 'The owned recovery CRL listener failed to start.'}
+  & $python -I -B $script --input $inputFile --phase verify-pki 1>"$directory\verify-private.out" 2>"$directory\verify-private.err"
+  if($LASTEXITCODE){throw 'The independent recovery CRL endpoint/issuer proof failed.'}
   $pki=Get-Content "$evidence\pki-private.json" -Raw|ConvertFrom-Json
   $context.root=Import-Certificate -FilePath "$evidence\fixture-root.cer" -CertStoreLocation Cert:\LocalMachine\Root
   $context.leaf=Import-PfxCertificate -FilePath "$evidence\fixture.pfx" -CertStoreLocation Cert:\LocalMachine\My -Password (ConvertTo-SecureString $pki.password -AsPlainText -Force) -Exportable

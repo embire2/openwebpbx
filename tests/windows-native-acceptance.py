@@ -392,6 +392,34 @@ class Fixture:
         return {'held_seconds':len(actual)/8000,'correlation':round(best,4),'threshold':.75,'track_offset':offset,'capture_sha256':capture}
 
 
+class FixturePkiServer(http.server.HTTPServer):
+    # Independent fixture issuers must never share a Windows listener.
+    allow_reuse_address = False
+    allow_reuse_port = False
+
+    def server_bind(self):
+        assert (self.server_address[0]=='127.0.0.1'
+            and type(self.server_address[1]) is int
+            and 1024<=self.server_address[1]<=65535),'Only an owned loopback fixture endpoint may bind'
+        if os.name == 'nt':
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+def fixture_crl_endpoint(f):
+    pki=json.loads((f.evidence/'pki-private.json').read_text())
+    root_hash=hashlib.sha256((f.evidence/'fixture-root.cer').read_bytes()).hexdigest()
+    endpoint=urllib.parse.urlsplit(pki['crl_url'])
+    assert (endpoint.scheme=='http' and endpoint.hostname=='127.0.0.1'
+        and endpoint.username is None and endpoint.password is None
+        and endpoint.port is not None and 1024<=endpoint.port<=65535
+        and endpoint.netloc=='127.0.0.1:'+str(endpoint.port)
+        and endpoint.path=='/fixture-'+root_hash+'.crl'
+        and not endpoint.query and not endpoint.fragment),'Owned issuer-bound CRL endpoint required'
+    assert pki['root_der_sha256']==root_hash,'Fixture root identity differs'
+    return pki,endpoint
+
+
 def prepare_pki(f):
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes,serialization
@@ -401,7 +429,15 @@ def prepare_pki(f):
     now=datetime.now(timezone.utc); key=rsa.generate_private_key(65537,2048); leafkey=rsa.generate_private_key(65537,2048)
     name=x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,'OpenWeb PBX fictional hosted-runner '+f.s['scope'])])
     root=(x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-timedelta(minutes=5)).not_valid_after(now+timedelta(days=2)).add_extension(x509.BasicConstraints(ca=True,path_length=0),True).add_extension(x509.KeyUsage(False,False,False,False,False,True,True,False,False),True).add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()),False).sign(key,hashes.SHA256()))
-    point=x509.DistributionPoint(full_name=[x509.UniformResourceIdentifier('http://127.0.0.1:18985/fixture.crl')],relative_name=None,reasons=None,crl_issuer=None)
+    root_der=root.public_bytes(serialization.Encoding.DER)
+    root_hash=hashlib.sha256(root_der).hexdigest()
+    # An active parent fixture owns its endpoint exclusively. A later bind
+    # race fails closed; no listener is borrowed and no port is forcibly reused.
+    with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as reservation:
+        if os.name=='nt':reservation.setsockopt(socket.SOL_SOCKET,socket.SO_EXCLUSIVEADDRUSE,1)
+        reservation.bind(('127.0.0.1',0));port=reservation.getsockname()[1]
+        crl_url='http://127.0.0.1:'+str(port)+'/fixture-'+root_hash+'.crl'
+    point=x509.DistributionPoint(full_name=[x509.UniformResourceIdentifier(crl_url)],relative_name=None,reasons=None,crl_issuer=None)
     leaf=(x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,'windowsqa.example.invalid')])).issuer_name(name).public_key(leafkey.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-timedelta(minutes=5)).not_valid_after(now+timedelta(days=1)).add_extension(x509.BasicConstraints(ca=False,path_length=None),True).add_extension(x509.SubjectAlternativeName([x509.DNSName('windowsqa.example.invalid')]),False).add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]),False).add_extension(x509.KeyUsage(True,False,True,False,False,False,False,False,False),True).add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key()),False).add_extension(x509.CRLDistributionPoints([point]),False).sign(key,hashes.SHA256()))
     crl=x509.CertificateRevocationListBuilder().issuer_name(name).last_update(now-timedelta(minutes=5)).next_update(now+timedelta(days=1)).sign(key,hashes.SHA256())
     secret=secrets.token_urlsafe(36)
@@ -412,16 +448,41 @@ def prepare_pki(f):
     (f.evidence/'fixture-leaf.pem').write_bytes(leaf.public_bytes(serialization.Encoding.PEM))
     (f.evidence/'fixture-key.pem').write_bytes(leafkey.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
     (f.evidence/'fixture.pfx').write_bytes(pkcs12.serialize_key_and_certificates(b'fictional-windows-native',leafkey,leaf,[root],serialization.BestAvailableEncryption(secret.encode())))
-    (f.evidence/'pki-private.json').write_text(json.dumps({'password':secret,'root_thumbprint':root.fingerprint(hashes.SHA1()).hex(),'leaf_thumbprint':leaf.fingerprint(hashes.SHA1()).hex()}))
+    (f.evidence/'pki-private.json').write_text(json.dumps({'password':secret,'root_thumbprint':root.fingerprint(hashes.SHA1()).hex(),'leaf_thumbprint':leaf.fingerprint(hashes.SHA1()).hex(),'root_der_sha256':root_hash,'crl_url':crl_url,'crl_sha256':hashlib.sha256(crl.public_bytes(serialization.Encoding.DER)).hexdigest()}))
+
+
+def verify_pki_endpoint(f):
+    import http.client
+    from cryptography import x509
+    from cryptography.hazmat.primitives.asymmetric import padding
+    pki,endpoint=fixture_crl_endpoint(f)
+    connection=http.client.HTTPConnection('127.0.0.1',endpoint.port,timeout=3)
+    try:
+        connection.request('GET',endpoint.path)
+        response=connection.getresponse();data=response.read(65537)
+        assert response.status==200 and len(data)<=65536,'Owned CRL response refused'
+    finally:connection.close()
+    assert data==(f.evidence/'fixture.crl').read_bytes() and hashlib.sha256(data).hexdigest()==pki['crl_sha256'],'Served CRL bytes differ from this issuer'
+    root=x509.load_der_x509_certificate((f.evidence/'fixture-root.cer').read_bytes())
+    leaf=x509.load_pem_x509_certificate((f.evidence/'fixture-leaf.pem').read_bytes())
+    crl=x509.load_der_x509_crl(data)
+    assert leaf.issuer==root.subject and crl.issuer==root.subject and crl.is_signature_valid(root.public_key()),'CRL or leaf issuer differs'
+    root.public_key().verify(leaf.signature,leaf.tbs_certificate_bytes,padding.PKCS1v15(),leaf.signature_hash_algorithm)
+    points=leaf.extensions.get_extension_for_class(x509.CRLDistributionPoints).value
+    assert len(points)==1 and list(points[0].full_name)==[x509.UniformResourceIdentifier(pki['crl_url'])],'Leaf CRL endpoint differs'
+    now=datetime.now(timezone.utc)
+    assert crl.last_update_utc<=now<crl.next_update_utc,'Fixture CRL is not current'
+    (f.evidence/'pki-endpoint-proof.json').write_text(json.dumps({'passed':True,'loopback_only':True,'issuer_and_der_verified':True,'exclusive_fixture_endpoint':True}))
 
 
 def serve_pki(f):
+    _,endpoint=fixture_crl_endpoint(f)
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path!='/fixture.crl':self.send_error(404);return
+            if self.path!=endpoint.path:self.send_error(404);return
             data=(f.evidence/'fixture.crl').read_bytes();self.send_response(200);self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
         def log_message(self,*args):pass
-    with http.server.HTTPServer(('127.0.0.1',18985),Handler) as server:
+    with FixturePkiServer(('127.0.0.1',endpoint.port),Handler) as server:
         (f.evidence/'pki-ready.json').write_text('{"ready":true}')
         server.serve_forever()
 
@@ -1519,9 +1580,10 @@ def smtp_and_queued_voicemail(f):
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--input',required=True);p.add_argument('--phase',choices=['prepare-pki','pki-server','acceptance'],required=True);a=p.parse_args();guard();f=Fixture(a.input)
+    p=argparse.ArgumentParser();p.add_argument('--input',required=True);p.add_argument('--phase',choices=['prepare-pki','pki-server','verify-pki','acceptance'],required=True);a=p.parse_args();guard();f=Fixture(a.input)
     if a.phase=='prepare-pki':prepare_pki(f);return
     if a.phase=='pki-server':serve_pki(f);return
+    if a.phase=='verify-pki':verify_pki_endpoint(f);return
     try:
         if f.s.get('threecx_import_only') is True:
             load_module('windows_threecx_https_native',f.source/'tests/windows_threecx_https_native.py').run(f,sys.modules[__name__])

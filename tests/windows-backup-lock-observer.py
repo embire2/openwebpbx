@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import math
+import time
 
 BUSY = 'Another backup, restore or release update is running. Retry after it finishes.'
 LOCK_STATES = {'available', 'busy', 'missing', 'access_denied', 'not_ordinary', 'other'}
@@ -60,7 +62,7 @@ def probe_existing_lock(module, path):
 def native_fields(value):
     fields = {'observed', 'health_observed', 'local_running', 'version_matches', 'iis_login_ready',
               'known_recover_holder', 'holder_count', 'verified_holder_count', 'updater_state'}
-    if not isinstance(value, dict) or set(value) != fields:
+    if not isinstance(value, dict) or set(value) not in (fields, fields|{'lock_metadata'}):
         return None
     if any(type(value[name]) is not bool for name in fields - {'holder_count', 'verified_holder_count', 'updater_state'}):
         return None
@@ -68,6 +70,17 @@ def native_fields(value):
         return None
     if value['verified_holder_count'] > value['holder_count'] or not isinstance(value['updater_state'], str) or value['updater_state'] not in SERVICE_STATES:
         return None
+    if 'lock_metadata' in value:
+        metadata=value['lock_metadata']
+        arrays={'holder_kinds':{'updater','powershell','python','php','server','other'},
+                'holder_actions':{'recover','check','signed_install','direct_reapply','mail_tick','certificate_renewal','updater_restart','qualification_preflight','backup_control','other'}}
+        journals={'install_journal_state':{'unavailable','absent','unreadable','other','prepared','quiescing','deploying','migrating','validating','rolling_back','recovery_required','completed','rolled_back'},
+                  'worker_journal_state':{'unavailable','absent','unreadable','other','checking','downloading','ready','waiting_calls','waiting_window','installing','completed','failed'}}
+        if type(metadata) is not dict or set(metadata)!=arrays.keys()|journals.keys():return None
+        for key,allowed in arrays.items():
+            items=metadata[key]
+            if type(items) is not list or len(items)>len(allowed) or any(type(item) is not str or item not in allowed for item in items) or len(set(items))!=len(items):return None
+        if any(type(metadata[key]) is not str or metadata[key] not in allowed for key,allowed in journals.items()):return None
     return dict(value)
 
 
@@ -81,9 +94,14 @@ def observe(module, private, error):
     state = Path(os.environ['ProgramData']) / 'OpenWebPBX'
     if private.resolve() != (state / 'backup-qualification').resolve() or module.reparse(private):
         return None
-    record = {'schema': 1, 'observation': 'after_original_busy_error',
-              'upgrade': probe_existing_lock(module, module.UPGRADE_LOCK),
-              'worker': probe_existing_lock(module, module.STORE / 'worker.lock')}
+    # These are separate post-error probes, never the original holder duration.
+    record = {'schema': 1, 'observation': 'after_original_busy_error'}
+    durations={}
+    for name,path in [('upgrade',module.UPGRADE_LOCK),('worker',module.STORE/'worker.lock')]:
+        started=time.monotonic();record[name]=probe_existing_lock(module,path)
+        elapsed=(time.monotonic()-started)*1000
+        if math.isfinite(elapsed) and 0<=elapsed<=30000:durations[name+'_probe_elapsed_ms']=int(elapsed)
+    if len(durations)==2:record['probe_timing']={'clock':'monotonic',**durations}
     try:
         command = [str(Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'),
                    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
