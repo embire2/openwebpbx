@@ -142,7 +142,21 @@ function ObserveQualificationBackupWorkerFailure($Task,$Info,$Prior){
  $observed=Get-Date
  return QualificationBackupWorkerFailureFields @{schema=1;last_task_result=$Info.LastTaskResult;task_state=[string]$Task.State;last_run_advanced=($Info.LastRunTime -gt $Prior.LastRunTime);last_run_not_future=($Info.LastRunTime -le $observed);prior_run_not_future=($Prior.LastRunTime -le $observed)}
 }
-function Hash([string]$Path){return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}
+function Hash([string]$Path){
+ $sharingWait=$null
+ while($true){
+  try{return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()}catch{
+   $primary=$_;$base=$primary.Exception.GetBaseException()
+   # Same acquisition-free observation as the qualified manual hook. Never
+   # substitute an expected hash or change the resumed original worker.
+   if($base-is [IO.IOException]-and ($base.HResult-band 65535)-eq 32-and [string]::Equals([IO.Path]::GetFullPath($Path),[IO.Path]::GetFullPath(([IO.Path]::Combine($state,'upgrade.lock'))),[StringComparison]::OrdinalIgnoreCase)){
+    if($null-eq $sharingWait){$sharingWait=[Diagnostics.Stopwatch]::StartNew()}
+    if($sharingWait.ElapsedMilliseconds-lt 30000){Start-Sleep -Milliseconds 50;continue}
+   }
+   throw
+  }
+ }
+}
 function QualificationSnapshotPaths {
  # Mirror the existing comparison classifier's closed public paths only.
  $paths=@{}

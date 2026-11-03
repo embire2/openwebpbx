@@ -1,12 +1,14 @@
 #Requires -Version 7.4
+param([ValidateSet('manual','signed')][string]$Source='manual')
 $ErrorActionPreference='Stop';$checks=0
 function Assert([bool]$ok){if(!$ok){throw ('Exact lock hash control failed at '+(Get-PSCallStack)[1].ScriptLineNumber)};$script:checks++}
-$tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'windows-upgrade-acceptance.ps1'),[ref]$tokens,[ref]$errors);Assert (!$errors.Count)
+$sourceLeaf=if($Source-ceq 'manual'){'windows-upgrade-acceptance.ps1'}else{'windows-updater-qualification.ps1'}
+$tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot $sourceLeaf),[ref]$tokens,[ref]$errors);Assert (!$errors.Count)
 $definition=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Hash'},$true));Assert ($definition.Count -eq 1);$hashSource=$definition[0].Extent.Text
-Assert ($hashSource.Contains('$sharingWait.ElapsedMilliseconds -lt 30000'))
+Assert ($hashSource-match '\$sharingWait.ElapsedMilliseconds\s*-lt\s*30000')
 # Only this private exhaustion control shortens the declared real 30s bound.
 # Successful hashes always execute the actual unchanged native cmdlet.
-$fast=$hashSource.Replace('$sharingWait.ElapsedMilliseconds -lt 30000','$sharingWait.ElapsedMilliseconds -lt 120');Assert ($fast -cne $hashSource)
+$fast=$hashSource.Replace('30000','120');Assert ($fast -cne $hashSource)
 $fixture=Join-Path ([IO.Path]::GetTempPath()) ('exact-lock-hash-'+[Guid]::NewGuid().ToString('N'));New-Item -ItemType Directory $fixture|Out-Null
 $state=$fixture;$root=$fixture;$configuration=$fixture;$switch=$fixture;$work=$fixture;$PackageRoot=$fixture
 $path=Join-Path $state 'upgrade.lock';$other=Join-Path $state 'unrelated.bin';[IO.File]::WriteAllBytes($path,[byte[]](4,2));[IO.File]::WriteAllBytes($other,[byte[]](4,2))
@@ -30,4 +32,4 @@ try{
  [IO.File]::WriteAllBytes($path,[byte[]](4,3));$script:remaining=1;$script:calls=0;$actual=Hash $path;Assert ($actual -cne $expected -and $script:calls -eq 2);Assert ($actual -ceq (Microsoft.PowerShell.Utility\Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant())
 }finally{Remove-Item -LiteralPath $fixture -Recurse -Force}
 Assert (!(Test-Path -LiteralPath $fixture))
-[ordered]@{passed=$true;controls=$checks;source='actual AST Hash';successReads='actual native Get-FileHash';sharingAndOtherErrors='explicit original Exception adapters';privateExhaustionBoundMilliseconds=120;observationBoundMilliseconds=30000;noInstalledHostActions=$true}|ConvertTo-Json -Compress
+[ordered]@{passed=$true;controls=$checks;source='actual AST Hash';caller=$Source;successReads='actual native Get-FileHash';sharingAndOtherErrors='explicit original Exception adapters';privateExhaustionBoundMilliseconds=120;observationBoundMilliseconds=30000;noInstalledHostActions=$true}|ConvertTo-Json -Compress
