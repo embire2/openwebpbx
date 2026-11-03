@@ -236,7 +236,8 @@ if($e.Count){throw 'Actual source parse refused'}
 $body=$ast.Find({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'BackupFailureReport'},$true)
 . ([scriptblock]::Create($body.Extent.Text))
 $path=Join-Path $PSScriptRoot 'backup-qualification/report.json';$count=0
-foreach($case in @(Get-Content -LiteralPath $Inputs -Raw|ConvertFrom-Json)){
+$cases=Get-Content -LiteralPath $Inputs -Raw|ConvertFrom-Json
+foreach($case in $cases){
  $raw=@{state='failed';failure=@{schema=1;failed_phase='native successful restore';error_type='BackupBusy';completed_checks=5;source_frames=@();lock_observation=$case.value}}
  [IO.File]::WriteAllText($path,($raw|ConvertTo-Json -Depth 15),[Text.UTF8Encoding]::new($false))
  $safe=BackupFailureReport $path ([datetime]::MinValue)
