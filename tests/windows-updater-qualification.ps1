@@ -49,6 +49,21 @@ $script:qualificationFailedHash=$null
 $script:qualificationTenantIdleObservation=$null
 $facts=[ordered]@{schema=1;mode=$Mode;run_id=$env:GITHUB_RUN_ID;source_commit=$env:GITHUB_SHA;state='running';scope='disposable Windows Server 2025, fictional PBX, laboratory trusted HTTPS';checks=@();gates=[ordered]@{canary_build='pending';fault_https_download='unqualified';fault_rollback='unqualified';normal_https_download='unqualified';newer_upgrade='unqualified';natural_updater_restart='unqualified';manager_reopen_rollback='unqualified';manager_reopen_success='unqualified';protected_data='unqualified';public_github_delivery='unqualified';owner_106_upgrade='unqualified';carrier='unqualified'};cleanup='pending'}
 function Check([bool]$Value,[string]$Message){if(!$Value){throw $Message}}
+function ReadQualificationOperatorRestoreError($Record){
+ if($Record-is [Collections.IDictionary]){$keys=@($Record.Keys)}elseif($Record-is [pscustomobject]){$keys=@($Record.PSObject.Properties.Name)}else{return $null}
+ $required=@('schema','producer','state','exception_type','hresult','win32_code','source_basename','source_line');if($keys.Count-notin 8,9-or @($keys|Where-Object {$_-cnotin ($required+@('journal'))}).Count-or @($required|Where-Object {$_-cnotin $keys}).Count){return $null}
+ if(($Record.schema-isnot [int]-and $Record.schema-isnot [long])-or $Record.schema-ne 1-or $Record.producer-isnot [string]-or $Record.producer-cne 'windows-operator-restore-error'-or $Record.state-isnot [string]-or $Record.state-cne 'failed'){return $null}
+ if($Record.exception_type-isnot [string]-or $Record.exception_type-cnotin 'RuntimeException','IOException','UnauthorizedAccessException','Win32Exception','InvalidOperationException','MethodInvocationException','ItemNotFoundException','FileNotFoundException','DirectoryNotFoundException','ArgumentException','NotSupportedException','other'-or ($Record.hresult-isnot [int]-and $Record.hresult-isnot [long])-or $Record.hresult-lt [int]::MinValue-or $Record.hresult-gt [int]::MaxValue){return $null}
+ if($null-ne $Record.win32_code-and (($Record.win32_code-isnot [int]-and $Record.win32_code-isnot [long])-or $Record.win32_code-lt 0-or $Record.win32_code-gt 65535)){return $null}
+ if($Record.source_basename-isnot [string]-or $Record.source_basename-cnotin 'Upgrade-OpenWebPBX.ps1','UpgradeRecovery.Common.ps1','Onboarding-Upgrade.Common.ps1','PhoneHealth-Security.ps1','Restore-Gates.ps1','CallRecords.Common.ps1','Support-Recovery.ps1','PhpRuntime.Common.ps1','File-Security.ps1','Dtls.Common.ps1','Web-Readiness.ps1','windows-operator-restore-diagnostic.ps1','unknown'-or ($Record.source_line-isnot [int]-and $Record.source_line-isnot [long])-or $Record.source_line-lt 0-or $Record.source_line-gt 100000-or (($Record.source_basename-ceq 'unknown')-ne ($Record.source_line-eq 0))){return $null}
+ $safe=@{};foreach($key in $required){$safe[$key]=$Record.$key}
+ if($keys-ccontains 'journal'){
+  $j=$Record.journal;if($j-is [Collections.IDictionary]){$jk=@($j.Keys)}elseif($j-is [pscustomobject]){$jk=@($j.PSObject.Properties.Name)}else{return $null}
+  if($jk.Count-notin 3,4-or @($jk|Where-Object {$_-cnotin 'state','version','operator_rollback','phase'}).Count-or @('state','version','operator_rollback'|Where-Object {$_-cnotin $jk}).Count-or $j.state-isnot [string]-or $j.state-cnotin 'prepared','quiescing','validating','deploying','migrating','completed','rolling_back','rolled_back','recovery_required'-or $j.version-isnot [string]-or $j.version-cnotin '1.0.21','1.0.22'-or $j.operator_rollback-isnot [bool]){return $null}
+  $safe.journal=@{state=$j.state;version=$j.version;operator_rollback=$j.operator_rollback}
+  if($jk-ccontains 'phase'){if($j.phase-isnot [string]-or $j.phase-cnotin 'service_selection','background_tasks','manager_resume','complete'){return $null};$safe.journal.phase=$j.phase}
+ };return $safe
+}
 function ReadQualificationSignatureFailure($Record){
  if($Record-is [Collections.IDictionary]){$keys=@($Record.Keys)}elseif($Record-is [pscustomobject]){$keys=@($Record.PSObject.Properties.Name)}else{return $null}
  if($keys.Count-ne 7 -or @($keys|Where-Object {$_-cnotin 'schema','producer','state','exception_type','reason','source_basename','source_line'}).Count -or ($Record.schema-isnot [int]-and $Record.schema-isnot [long])-or $Record.schema-ne 1 -or $Record.producer-isnot [string]-or $Record.producer-cne 'windows-private-signature-validation'-or $Record.state-isnot [string]-or $Record.state-cne 'failed'){return $null}
@@ -401,7 +416,10 @@ function ActualOperatorRollback($BeforeDb,$BeforeFiles,$BeforeTasks,$PolicyBefor
  $heldWorker=RetainQualificationProcess ([Diagnostics.Process]::GetProcessById($CurrentPid)) $CurrentPid "$root\updater\slots\$CanaryVersion\OpenWebPbx.Updater.exe" 'S-1-5-18' 0 ([DateTime]::MinValue)
  $heldManager=RetainQualificationProcess $Manager ([int]$Manager.Id) "$root\desktop\OpenWebPbx.Desktop.exe" $managerSid $managerSession ([DateTime]::MinValue)
  $started=[DateTime]::UtcNow;$script:phase='actual installed22 operator restore of exact sealed21 backup'
- CheckedProcess "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$helper,'-RestoreBackup',$j.backup_path) 'operator-rollback-native' -Timeout 1200000
+ $operatorWrapper=Join-Path $PSScriptRoot 'windows-operator-restore-diagnostic.ps1';$operatorContext=Join-Path $work 'operator-restore-context.private.json';$operatorFailure=Join-Path $work 'operator-restore-error.safe.json'
+ Check (!(Test-Path -LiteralPath $operatorContext)-and !(Test-Path -LiteralPath $operatorFailure)) 'The one-use operator diagnostic context is occupied.'
+ WriteJson $operatorContext @{schema=1;run_id=$env:GITHUB_RUN_ID;helper_path=$helper;helper_sha256=$helperSha;wrapper_sha256=(Hash $operatorWrapper);backup_path=$j.backup_path;failure_output=$operatorFailure}
+ CheckedProcess "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$operatorWrapper,'-Context',$operatorContext) 'operator-rollback-native' -Timeout 1200000
  $deadline=[DateTime]::UtcNow.AddSeconds(120);$restoredPid=0
  do{try{$restoredPid=InstalledVersions $BaseVersion}catch{$restoredPid=0};if(!$restoredPid){Start-Sleep -Milliseconds 500}}while(!$restoredPid -and [DateTime]::UtcNow -lt $deadline)
  Check ($restoredPid -gt 0 -and $restoredPid -ne $CurrentPid) 'The operator helper must naturally restart the original21 updater and services.'
@@ -1282,6 +1300,10 @@ if(!$?){exit 1}
 }catch{
  $facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$_.Exception.GetType().Name;$facts.source_basename=if($_.InvocationInfo.ScriptName){Split-Path -Leaf $_.InvocationInfo.ScriptName}else{'external_component'};$facts.source_line=[int]$_.InvocationInfo.ScriptLineNumber
  $facts.failure_observation=QualificationFailureObservation $_.ScriptStackTrace $script:qualificationFailedChild $script:qualificationComparisonFailure $script:qualificationFailedHash $_.Exception.Data['openweb_qa_backup_worker'] $_.Exception.Data['openweb_qa_task_failure'] $_.Exception.Data['openweb_qa_backup_warmup'] $script:qualificationTenantIdleObservation
+ if($script:qualificationFailedChild.label-ceq 'operator-rollback-native'-and $script:qualificationFailedChild.completion-ceq 'exit'-and $script:qualificationFailedChild.exit_code-is [int]-and $script:qualificationFailedChild.exit_code-ne 0){try{
+  $path=Join-Path $work 'operator-restore-error.safe.json';$item=Get-Item -LiteralPath $path -Force
+  if(!$item.PSIsContainer-and !($item.Attributes-band [IO.FileAttributes]::ReparsePoint)-and $item.Length-gt 0-and $item.Length-le 4096){$record=ReadQualificationOperatorRestoreError (Get-Content -LiteralPath $path -Raw|ConvertFrom-Json);if($record){$facts.operator_restore_failure=$record}}
+ }catch{}}
  if($actualCandidate -and $qa){$actualFailure=ReadActualSchemaFailure;if($actualFailure){$facts.actual_schema_failure=$actualFailure}}
  Write-Error ('Disposable updater qualification failed in '+$phase+'. Private streams are not published.') -ErrorAction Continue
 }finally{
