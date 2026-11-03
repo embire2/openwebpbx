@@ -295,6 +295,21 @@ def make_server(settings, work, port=443):
                 # Empty caches must produce a complete non-resumed request.
                 self.send_error(400); return
             mode = read_json(work / 'mode.json').get('mode')
+            if mode == 'operator-rollback':
+                # All signed transfers are already qualified. Withdraw this
+                # owned laboratory offer while the original worker recovers.
+                self.send_response(503); self.send_header('Content-Length', '0')
+                self.send_header('Cache-Control', 'no-store'); self.send_header('Connection', 'close')
+                self.end_headers(); self.wfile.flush()
+                with lock:
+                    requests.append({'mode': mode, 'kind': 'feed' if self.path == FEED_PATH else 'archive',
+                                     'http_status': 503, 'request_path': self.path,
+                                     'at_utc': datetime.now(timezone.utc).isoformat(),
+                                     'bytes': 0, 'complete': True, 'loopback': True,
+                                     'original_url': True, 'updater_user_agent': True})
+                    write_json(work / 'transport-requests.json', {'requests': requests})
+                self.close_connection = True
+                return
             if mode not in ('fault', 'normal'): self.send_error(503); return
             if self.path == FEED_PATH:
                 body = json.dumps(settings['packets'][mode]['envelope'], separators=(',', ':')).encode()

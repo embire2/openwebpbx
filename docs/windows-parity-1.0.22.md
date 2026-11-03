@@ -181,3 +181,24 @@ approval coverage. Windows 10/11 server installation and cross-platform
 instance-backup restoration remain unsupported; the Windows calling client
 is a separate project. The broader [feature roadmap](../3CX.md) totals are
 unchanged.
+
+
+## Latest signed-pair result — 3 November 2026
+
+Both [41711458398](https://github.com/embire2/openwebpbx/actions/runs/41711458398)
+and [41711478795](https://github.com/embire2/openwebpbx/actions/runs/41711478795)
+are **whole failed** at `after_operator_full`: the full file snapshot cannot
+hash `maintenance_lock` because of native sharing violation 32. All nine
+normal/fault/restart/manager/protection components and the native operator
+`rolled_back` result remain valid components. Final full-file/task verification
+has not passed. The actual lock holder remains unknown; a `downloading` updater
+status does not identify a holder.
+
+The selected **prospective QA-only** correction withdraws the laboratory update
+offer after every normal check and before operator restore. It must record the
+actual 503 response, a fresh restored 1.0.21 updater PID with creation identity,
+and the status-error milestone within the **original 120-second restart fence**.
+It does not change the existing 30-second Hash wait, comparisons, product 8f,
+canonical 66c ZIP, fae source or c0d pair, and it does not establish the cause of
+the earlier contention. Earlier failures remain failed; Windows 1.0.22 signed
+and publication acceptance remain pending.

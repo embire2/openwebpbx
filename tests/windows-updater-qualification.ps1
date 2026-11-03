@@ -413,6 +413,23 @@ function WaitActualOnboardingMigration([DateTime]$Started){
  $info=Get-ScheduledTaskInfo -TaskName 'OpenWebPBX-TenantDomains';Check ($info.LastRunTime.ToUniversalTime() -ge $Started.ToUniversalTime()) 'No natural original worker execution was observed after the real normal request.'
  $facts.onboarding_migration=@{state='created_naturally_postcommit';sealed_original21_origin=$true;original_worker_last_run_observed=$true;manual_start_or_migration=$false;source_tag_sha256=([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($tag))).ToLowerInvariant())}
 }
+function TestQualificationOperatorStartupMilestone($Status,$Requests,[DateTime]$CreatedUtc,[DateTime]$ObservedUtc){
+ $utc={param($Value)
+  if($Value-is [DateTimeOffset]){return $Value.ToUniversalTime()}
+  if($Value-is [DateTime]-and $Value.Kind-ne [DateTimeKind]::Unspecified){return [DateTimeOffset]$Value.ToUniversalTime()}
+  if($Value-is [string]-and $Value-cmatch '^\d{4}-\d{2}-\d{2}T.+(?:Z|[+-]\d{2}:\d{2})$'){
+   $parsed=[DateTimeOffset]::MinValue;if([DateTimeOffset]::TryParse($Value,[Globalization.CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::None,[ref]$parsed)){return $parsed.ToUniversalTime()}
+  };return $null
+ }
+ if($CreatedUtc.Kind-ne [DateTimeKind]::Utc-or $ObservedUtc.Kind-ne [DateTimeKind]::Utc-or $CreatedUtc-gt $ObservedUtc-or $Status-isnot [Collections.IDictionary]-or $Requests-isnot [Array]-or $Requests.Count-gt 1024){return $false}
+ if($Status.state-isnot [string]-or $Status.state-cne 'error'-or $Status.installed_version-isnot [string]-or $Status.installed_version-cne '1.0.21'-or $Status.platform-isnot [string]-or $Status.platform-cne 'windows-x64'){return $false}
+ $checked=& $utc $Status.checked_at;if($null-eq $checked-or $checked-lt $CreatedUtc-or $checked-gt $ObservedUtc){return $false}
+ foreach($row in $Requests){
+  if($row-isnot [Collections.IDictionary]-or $row.mode-isnot [string]-or $row.mode-cne 'operator-rollback'-or $row.kind-isnot [string]-or $row.kind-cne 'feed'-or $row.request_path-isnot [string]-or $row.request_path-cne '/embire2/openwebpbx/releases/latest/download/windows-update-manifest.json'-or ($row.http_status-isnot [int]-and $row.http_status-isnot [long])-or $row.http_status-ne 503-or ($row.bytes-isnot [int]-and $row.bytes-isnot [long])-or $row.bytes-ne 0){continue}
+  $valid=$true;foreach($flag in 'complete','loopback','original_url','updater_user_agent'){if($row[$flag]-isnot [bool]-or !$row[$flag]){$valid=$false}}
+  $at=& $utc $row.at_utc;if($valid-and $null-ne $at-and $at-ge $CreatedUtc-and $at-le $ObservedUtc){return $true}
+ };return $false
+}
 function ActualOperatorRollback($BeforeDb,$BeforeFiles,$BeforeTasks,$PolicyBefore,[Diagnostics.Process]$Manager,[int]$CurrentPid){
  $script:phase='actual installed22 operator rollback provenance'
  $facts.gates.operator_rollback='running'
@@ -431,14 +448,35 @@ function ActualOperatorRollback($BeforeDb,$BeforeFiles,$BeforeTasks,$PolicyBefor
  }
  $heldWorker=RetainQualificationProcess ([Diagnostics.Process]::GetProcessById($CurrentPid)) $CurrentPid "$root\updater\slots\$CanaryVersion\OpenWebPbx.Updater.exe" 'S-1-5-18' 0 ([DateTime]::MinValue)
  $heldManager=RetainQualificationProcess $Manager ([int]$Manager.Id) "$root\desktop\OpenWebPbx.Desktop.exe" $managerSid $managerSession ([DateTime]::MinValue)
+ foreach($gate in 'canary_build','fault_https_download','fault_rollback','normal_https_download','newer_upgrade','natural_updater_restart','manager_reopen_rollback','manager_reopen_success','protected_data'){Check ($facts.gates[$gate]-ceq 'passed') 'The owned lab offer may be withdrawn only after every completed signed component.'}
+ WriteJson (Join-Path $qa 'mode.json') @{mode='operator-rollback'}
+ $withdrawn=Get-Content (Join-Path $qa 'mode.json') -Raw|ConvertFrom-Json -AsHashtable
+ Check ($withdrawn.Count-eq 1-and $withdrawn.mode-ceq 'operator-rollback') 'The exact owned lab offer withdrawal was not retained.'
  $started=[DateTime]::UtcNow;$script:phase='actual installed22 operator restore of exact sealed21 backup'
  $operatorWrapper=Join-Path $PSScriptRoot 'windows-operator-restore-diagnostic.ps1';$operatorContext=Join-Path $work 'operator-restore-context.private.json';$operatorFailure=Join-Path $work 'operator-restore-error.safe.json'
  Check (!(Test-Path -LiteralPath $operatorContext)-and !(Test-Path -LiteralPath $operatorFailure)) 'The one-use operator diagnostic context is occupied.'
  WriteJson $operatorContext @{schema=1;run_id=$env:GITHUB_RUN_ID;helper_path=$helper;helper_sha256=$helperSha;wrapper_sha256=(Hash $operatorWrapper);backup_path=$j.backup_path;failure_output=$operatorFailure}
  CheckedProcess "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$operatorWrapper,'-Context',$operatorContext) 'operator-rollback-native' -Timeout 1200000
- $deadline=[DateTime]::UtcNow.AddSeconds(120);$restoredPid=0
- do{try{$restoredPid=InstalledVersions $BaseVersion}catch{$restoredPid=0};if(!$restoredPid){Start-Sleep -Milliseconds 500}}while(!$restoredPid -and [DateTime]::UtcNow -lt $deadline)
+ $deadline=[DateTime]::UtcNow.AddSeconds(120);$restoredPid=0;$restoredWorker=$null;$startupObserved=$false
+ do{
+  if(!$restoredWorker){
+   try{$restoredPid=InstalledVersions $BaseVersion}catch{$restoredPid=0}
+   if($restoredPid-gt 0-and $restoredPid-ne $CurrentPid){$restoredWorker=RetainQualificationProcess ([Diagnostics.Process]::GetProcessById($restoredPid)) $restoredPid "$root\updater\slots\$BaseVersion\OpenWebPbx.Updater.exe" 'S-1-5-18' 0 $started;$restoredCreated=[DateTime]::new([long]$restoredWorker.start_ticks,[DateTimeKind]::Utc)}
+  }
+  if($restoredWorker){
+   Check ((InstalledVersions $BaseVersion)-eq $restoredPid) 'The exact naturally restored original21 worker generation changed.'
+   AssertOriginalProcessState $restoredWorker $restoredPid $false 'The exact naturally restored original21 worker exited before its startup milestone.'
+   try{
+    $workerStatus=Get-Content "$state\updates\status.json" -Raw|ConvertFrom-Json -AsHashtable
+    $requests=@((Get-Content (Join-Path $qa 'transport-requests.json') -Raw|ConvertFrom-Json -AsHashtable).requests)
+    if((TestQualificationOperatorStartupMilestone $workerStatus $requests $restoredCreated ([DateTime]::UtcNow))-and [DateTime]::UtcNow-lt $deadline){$startupObserved=$true;break}
+   }catch{}
+  }
+  if([DateTime]::UtcNow-lt $deadline){Start-Sleep -Milliseconds 500}
+ }while([DateTime]::UtcNow-lt $deadline)
  Check ($restoredPid -gt 0 -and $restoredPid -ne $CurrentPid) 'The operator helper must naturally restart the original21 updater and services.'
+ Check $startupObserved 'The restored original21 worker must finish startup and observe the withdrawn owned offer inside the original120-second fence.'
+ $facts.operator_startup_milestone=@{state='passed';original21_pid_generation_verified=$true;logged_owned_feed_http503_after_process_creation=$true;fresh_original21_error_status_after_process_creation=$true;startup_recovery_precedes_tick=$true;original_restart_bound_seconds=120;worker_stopped_or_restarted_by_fixture=$false}
  AssertOriginalProcessState $heldWorker $CurrentPid $true 'The newer updater did not exit during ordinary operator rollback.'
  $null=ManagerReopened $BaseVersion $heldManager $started
  $afterJournal=Get-Content "$state/updates/install-journal.json" -Raw|ConvertFrom-Json
