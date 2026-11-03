@@ -32,6 +32,24 @@ need the separately provided manual compatibility patch to select the Debian
 feed. An Android-only generic envelope is not a server update: an unpatched
 worker refuses its missing Debian asset and leaves the running PBX intact.
 
+For an independent platform promotion, retain a reviewed three-feed `before/`
+snapshot and assemble `after/` with only the promoted platform's new envelope:
+
+```sh
+python3 packaging/updates/platform-release.py \
+  --platform debian13-amd64 --before before --after after
+```
+
+This offline guard verifies signatures/expiry, advances only that platform's own
+version and sequence, and requires the other signed envelopes byte-for-byte.
+Versions and migration/API minima are independent; Debian 1.0.23, Windows 1.0.22
+and Android 1.0.19 can coexist. Review each reported minimum against its own
+qualification. The guard does not replace existing platform qualification or
+`validate-platform-feeds.py`'s Windows publication checks. See
+[independent releases](../../docs/independent-platform-releases.md) for immutable
+platform tags, canonical `v<version>` asset mirrors required by current clients,
+latest-release discovery and the Windows catch-up workflow.
+
 Envelope:
 
 ```json

@@ -1,8 +1,8 @@
 # Building OpenWeb PBX
 
-## Windows Server 1.0.21 candidate
+## Windows Server 1.0.22 candidate
 
-The current checkout prepares Windows Server 1.0.21. Its complete package is under qualification; the published Windows release is 1.0.20. Public full Debian remains 1.0.16, with the separate 1.0.19 administration patch. Android 1.0.19 is published separately. Use each immutable release revision for its matching build. See the [current Windows acceptance record](../docs/release-1.0.21-qualification.md).
+The current checkout prepares Windows Server 1.0.22. Its complete package is under qualification; the published Windows release is 1.0.21. Debian 1.0.22 and Android 1.0.19 are published separately. Use each immutable release revision for its matching build. See the [current Windows acceptance record](../docs/windows-parity-1.0.22.md).
 
 The manual `windows-native.yml` workflow uses .NET SDK 10.0.401 and Visual Studio 2026 on Windows Server 2025. It publishes the complete service, updater and WinUI output, immutable source hashes, assembly versions and an actual responsive top-level-window check. Select a successful build whose complete input inventory matches the candidate; a successful compile does not qualify installation or calling.
 
@@ -17,14 +17,14 @@ python3 packaging/build-release.py --target windows \
   --codec-source /private/engine/codec-source/source \
   --backup-runtime /private/backup-runtime --acme /private/acme \
   --music /private/music --voices /private/voices/1.0.2 \
-  --output artifacts/release-1.0.21
+  --output artifacts/release-1.0.22
 ```
 
 Only tracked source and exact verified runtime inventories are copied. At installation, the local codec recipe downloads its pinned compiler, builds and proves the converter privately, and installs it while the engine is stopped. The installer never distributes a combined converter binary. Native ZIP integrity does not qualify SIP/media, global mail, phone health, STUN, real service permissions, encrypted clean-server restore or rollback; the disposable `windows-suite.yml` workflow exercises those separately. Its final package must include all reviewed runtime corrections; a previous archive does not qualify later changes.
 
 The sealed Keoma [voice input 1.0.2](https://github.com/embire2/openwebpbx/releases/tag/voices-v1.0.2) supplies 4,915 stock spoken files and matching talking-clock 1.0.3 audio. Verify its complete archive and catalogue before staging; do not install its audio alone over an older clock implementation. No provider key is needed to package the sealed input.
 
-After complete qualification, sign the exact Windows archive with `packaging/updates/sign-feed.py --windows-only --windows <archive> --version 1.0.21 --minimum-version 1.0.20 --sequence <unused-sequence> --private-key <private-key> --output <windows-update-manifest.json>`. The private signing key stays outside the repository and hosted runners. Use a sequence above every preserved platform feed. Keep the then-current published `update-manifest.json` (Android) and `debian-update-manifest.json` byte-for-byte in the new release. A separately verified Android 1.0.19 rollout may replace its own feed first; never revert it to Android 1.0.18 while publishing Windows. Validate all three using the exact current generic version (1.0.19 below):
+After complete qualification, sign the exact Windows archive with `packaging/updates/sign-feed.py --windows-only --windows <archive> --version 1.0.22 --minimum-version 1.0.21 --sequence <unused-sequence> --private-key <private-key> --output <windows-update-manifest.json>`. The private signing key stays outside the repository and hosted runners. Use a sequence above every preserved platform feed. Keep the then-current published `update-manifest.json` (Android) and `debian-update-manifest.json` byte-for-byte in the new release. A separately qualified Android release may replace its own feed first; never revert it while publishing Windows. Validate all three using their actual independent versions (currently Android 1.0.19, Debian 1.0.22 and candidate Windows 1.0.22):
 
 ```sh
 python3 packaging/updates/validate-platform-feeds.py \
@@ -33,13 +33,13 @@ python3 packaging/updates/validate-platform-feeds.py \
   --generic-version 1.0.19 \
   --debian /private/publication/debian-update-manifest.json \
   --debian-reference /private/published/debian-envelope.json \
-  --debian-version 1.0.16 \
+  --debian-version 1.0.22 \
   --windows /private/publication/windows-update-manifest.json \
-  --windows-package /private/publication/openwebpbx-1.0.21-windows-x64.zip \
-  --windows-version 1.0.21
+  --windows-package /private/publication/openwebpbx-1.0.22-windows-x64.zip \
+  --windows-version 1.0.22
 ```
 
-Preserve the original envelopes and download provenance privately; do not recreate or re-sign them. Complete public downloads must match before updating the homepage catalogue. See [candidate installation](../docs/installing-1.0.21.md), [Windows upgrades](../docs/windows-upgrade.md) and [the update protocol](updates/PROTOCOL.md). The historical 1.0.13 candidate's results remain in their own record.
+Preserve the original envelopes and download provenance privately; do not recreate or re-sign them. Complete public downloads must match before updating the homepage catalogue. See [candidate installation](../docs/installing-windows-1.0.22.md), [Windows upgrades](../docs/windows-upgrade.md) and [the update protocol](updates/PROTOCOL.md). The historical 1.0.13 candidate's results remain in their own record.
 
 ## Historical 1.0.12 source build
 
@@ -109,13 +109,15 @@ The stock engine and source dependencies are separate from private PBX configura
 
 The native Android project is built separately; follow `mobile/android/README.md`. The release APK is signed with a persistent private release key kept outside the checkout. Never publish the keystore or its password. Copy the verified output to `artifacts/android/openwebpbx-1.0.12-android.apk` and verify the APK signature before release.
 
-Stage and review new application files before packaging, because the packager reads the Git index. Build the Linux service/updater and Android APK from the same reviewed release source. Rebuild the Windows service/manager separately if qualifying a new Windows release. Generate `SHA256SUMS` over the actual release assets. Inspect every archive for private files, configuration and known secrets, and compare its manifest hashes before upload. Preserve the old 1.0.2 assets unchanged.
+Stage and review new application files before packaging, because the packager reads the Git index. Freeze each promoted platform from its own reviewed source commit and version. Linux, Windows and Android can advance separately; retain the other platforms' qualified packages instead of rebuilding or relabelling them. Review API and migration compatibility when Windows catches up. Generate `SHA256SUMS` over the actual release assets. Inspect every archive for private files, configuration and known secrets, and compare its manifest hashes before upload. Preserve the old 1.0.2 assets unchanged.
 
 Update the public homepage's release catalogue only after the GitHub release and downloadable assets exist and their downloaded SHA-256 values match. Record actual platform test results in the roadmap, coverage guide, operating guides and release notes; do not infer device compatibility from successful compilation.
 
 ## Signed update feed
 
 The separate updater only installs archives named in a valid signed feed. Keep the RSA release-signing private key outside the checkout with mode `600`. The public pin is `packaging/updates/release-public.pem`; the private key is never copied into a release or website. See [the protocol](updates/PROTOCOL.md).
+
+The 1.0.12 commands below document the earlier combined-feed format. Current releases use three separate feeds. A release selected **latest** must carry the new platform's feed and byte-exact copies of the other two published feeds. Run `packaging/updates/platform-release.py` against the reviewed before/after feed sets before promotion, then verify the public bytes. Follow [independent platform releases](../docs/independent-platform-releases.md) for component tags, canonical asset mirrors and Windows catch-up; a Linux release does not wait for Windows qualification.
 
 After the final archives and Android APK are verified, sign their actual hashes and sizes:
 
