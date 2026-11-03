@@ -1201,6 +1201,13 @@ if(!$?){exit 1}
   $phase='laboratory HTTPS PKI preparation';Python 'prepare-pki';$pki=Get-Content (Join-Path $qa 'pki.json') -Raw|ConvertFrom-Json
   $privatePem=Join-Path $state ('phone-tls/updater-'+$scope);PrivateDirectory $privatePem;Copy-Item (Join-Path $qa 'transport-chain.pem'),(Join-Path $qa 'transport-leaf.key') $privatePem;$settings.owned_private_pem=$privatePem
   [IO.File]::WriteAllBytes((Join-Path $qa 'audit.key'),[Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+  $phase='exact owned Health observer quiescence before all preservation baselines'
+  Suspend-OpenWebQualificationHealth ([ref]$qualificationHealthOriginal)
+  if(!$actualCandidate){Suspend-OpenWebQualificationTenant ([ref]$qualificationTenantOriginal)}
+  elseif($OriginalTenantDomainsDisabled){Suspend-OpenWebQualificationTenant ([ref]$qualificationTenantOriginal);$qualificationTenantOriginal.Enabled=$false}
+  else{$phase='natural original tenant initialization before preservation baselines';WaitActualTenantIdle}
+
+  $facts.checks+='Exact owned Health task/helper identity and zero native children/runtime files before complete DB/file/task preservation baselines; enabled choice retained privately'
   # Require empty canary caches before exposing the owned signed endpoint.
   # The ordinary Windows worker may prefetch after endpoint startup.
   foreach($modeName in 'fault','normal'){$cache="$state\updates\downloads\$($verified[$modeName].sha256).archive";Check (!(Test-Path $cache) -and !(Test-Path ($cache+'.partial'))) 'The test refuses preseeded or partial canary archives.'}
@@ -1231,13 +1238,7 @@ if(!$?){exit 1}
   if(Test-Path "$state\updates\trust.json"){$prior=Get-Content "$state\updates\trust.json" -Raw|ConvertFrom-Json;Check ($prior.sequence -le $verified.fault.sequence) 'The private fault sequence must not lower existing trust.'}
   Check ((Fixture 'status').channels -eq 0) 'The actual call engine must be idle.'
   WaitQualificationFaultPrefetch $verified.fault $initialPid $originalWorker
-  $phase='exact owned Health observer quiescence before all preservation baselines'
-  Suspend-OpenWebQualificationHealth ([ref]$qualificationHealthOriginal)
-  if(!$actualCandidate){Suspend-OpenWebQualificationTenant ([ref]$qualificationTenantOriginal)}
-  elseif($OriginalTenantDomainsDisabled){Suspend-OpenWebQualificationTenant ([ref]$qualificationTenantOriginal);$qualificationTenantOriginal.Enabled=$false}
-  else{$phase='natural original tenant initialization before preservation baselines';WaitActualTenantIdle}
 
-  $facts.checks+='Exact owned Health task/helper identity and zero native children/runtime files before complete DB/file/task preservation baselines; enabled choice retained privately'
   $phase='ordinary SYSTEM backup worker baseline initialization'
   try{InitializeQualificationBackupWorker -Root $root -StateRoot $state -PackageRoot $package}catch{
    $primary=$_;$priorChild=$script:qualificationFailedChild;$priorComparison=$script:qualificationComparisonFailure;$priorHash=$script:qualificationFailedHash
