@@ -2,7 +2,7 @@
 #Requires -RunAsAdministrator
 [CmdletBinding()]param([switch]$DisposableHostedRunner)
 # Real Scheduler and cross-process sharing controls. No PBX is installed or
-# contacted; the sole task is disabled and nonce-named. No release acceptance.
+# contacted; task names/actions are closed, owned and nonce-bound. No release acceptance.
 $ErrorActionPreference='Stop'
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:RUNNER_OS -cne 'Windows' -or $env:GITHUB_REPOSITORY -cne 'embire2/openwebpbx'){throw 'An explicitly disposable owned Windows runner is required.'}
 $os=Get-CimInstance Win32_OperatingSystem
@@ -42,6 +42,15 @@ function FinishReader {
 }
 try{
  $null=New-Item -ItemType Directory -Path $work
+ $phase='benign_independent_operator_task_preflight'
+ $probeRoot=Join-Path $env:RUNNER_TEMP ('openwebpbx-updater-'+[guid]::NewGuid().ToString('N'));$null=New-Item -ItemType Directory -Path $probeRoot
+ & "$env:SystemRoot\System32\icacls.exe" $probeRoot /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F'|Out-Null;Must ($LASTEXITCODE-eq 0)
+ $operatorTask=Join-Path $PSScriptRoot 'windows-operator-restore-task.ps1';$operatorWrapper=Join-Path $PSScriptRoot 'windows-operator-restore-diagnostic.ps1';$probeContext=Join-Path $probeRoot 'operator-restore-context.private.json';$issued=[DateTimeOffset]::UtcNow
+ $probe=@{schema=1;actor_mode='native_preflight';operation_uuid=[guid]::NewGuid().ToString('D');run_id=$env:GITHUB_RUN_ID;source_commit=$env:GITHUB_SHA;computer_name=$env:COMPUTERNAME;boot_utc=$os.LastBootUpTime.ToUniversalTime().ToString('o');runner_temp=$env:RUNNER_TEMP;operator_started_utc=$issued.ToString('o');operator_deadline_utc=$issued.AddSeconds(60).ToString('o');helper_path='';helper_sha256='';backup_path='';wrapper_path=$operatorWrapper;wrapper_sha256=(Get-FileHash $operatorWrapper).Hash.ToLowerInvariant();task_launcher_sha256=(Get-FileHash $operatorTask).Hash.ToLowerInvariant();ancestry_source_sha256=(Get-FileHash (Join-Path $source 'packaging/windows/UpgradeRecovery.Common.ps1')).Hash.ToLowerInvariant();failure_output=(Join-Path $probeRoot 'operator-restore-error.safe.json')}
+ [IO.File]::WriteAllText($probeContext,($probe|ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false));$global:LASTEXITCODE=$null
+ $probeText=& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $operatorTask -Context $probeContext;$probeExit=$LASTEXITCODE
+ Must ($probeExit-is [int]-and $probeExit-eq 0-and $probeText-is [string]-and $probeText-ceq 'NATIVE_INDEPENDENT_OPERATOR_TASK_PROBE'-and !(Test-Path (Join-Path $probeRoot 'operator-task-unfinished.private.json')))
+ $facts.independent_operator_actor_preflight=@{state='passed';scope='benign-native-task-and-unchanged-ancestry-only';product_helper_invoked=$false;original_bound_seconds=60}
  $defs=Definitions (Join-Path $PSScriptRoot 'windows-updater-qualification.ps1')
  $script:testPython=(Get-Command python.exe -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source
  $names=@('Check','WriteJson','CheckedProcess','QualificationComparisonFields','QualificationComparisonDetails','QualificationTaskDifference','QualificationTaskDifferenceFields','EqualTaskSnapshots','NormalTaskPreservation','OpenQualificationCleanupLock')
@@ -119,6 +128,10 @@ try{[IO.File]::WriteAllText($Ready,'held');Start-Sleep -Milliseconds $HoldMillis
  $facts.actual_cdr_lease_original_refusal=$true;$facts.cleanup_acquisition_waits_and_bounds=$true;$facts.other_errors_not_retried=$true;$facts.lock_bytes_preserved=$true;$facts.state='passed'
 }catch{
  $facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$_.Exception.GetType().Name;$facts.source_line=[int]$_.InvocationInfo.ScriptLineNumber
+ if($probeRoot){try{
+  $graph=Join-Path $probeRoot 'operator-ancestry.private.json';$node=Get-Item -LiteralPath $graph -Force -ErrorAction Stop
+  if(!$node.PSIsContainer-and !($node.Attributes-band [IO.FileAttributes]::ReparsePoint)-and $node.Length-gt 0-and $node.Length-le 65536){. (Join-Path $PSScriptRoot 'windows_updater_failure_snapshot.ps1');$publicPem=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'windows_updater_file_acl_public.pem'));$facts.independent_operator_ancestry=Read-WindowsUpdaterFailureSnapshot @{schema=1;state='captured';encrypted=(Seal-WindowsUpdaterFailureSnapshot ([IO.File]::ReadAllBytes($graph)) $env:GITHUB_SHA $env:GITHUB_RUN_ID $publicPem)}}
+ }catch{}}
  if($script:failedControlLine -gt 0 -and $script:failedControlLine -le 1000){$facts.control_line=$script:failedControlLine}
 }finally{
  try{
@@ -126,7 +139,7 @@ try{[IO.File]::WriteAllText($Ready,'held');Start-Sleep -Milliseconds $HoldMillis
   if($taskOwned){$null=Snapshot;Unregister-ScheduledTask -TaskName $taskName -Confirm:$false;Must (!(Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue))}
   if(Test-Path -LiteralPath $work){Remove-Item -LiteralPath $work -Recurse -Force;Must (!(Test-Path -LiteralPath $work))};$cleanup=$true
  }catch{$facts.cleanup_error_type=$_.Exception.GetType().Name;$facts.cleanup_source_line=[int]$_.InvocationInfo.ScriptLineNumber;$facts.state='failed'}
- $facts.cleanup=if($cleanup){'owned task, child and files removed'}else{'failed'};$facts.checks=$checks
+ $facts.cleanup=if($cleanup){'original owned task, child and control files removed; protected independent-probe evidence retained'}else{'failed'};$facts.checks=$checks
  $null=New-Item -ItemType Directory -Path $public -Force;[IO.File]::WriteAllText((Join-Path $public 'qualification.json'),($facts|ConvertTo-Json -Depth 8))
 }
 if($facts.state -cne 'passed'){throw 'Isolated updater runtime controls failed; see bounded facts.'}

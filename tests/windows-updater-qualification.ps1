@@ -455,8 +455,10 @@ function ActualOperatorRollback($BeforeDb,$BeforeFiles,$BeforeTasks,$PolicyBefor
  $started=[DateTime]::UtcNow;$script:phase='actual installed22 operator restore of exact sealed21 backup'
  $operatorWrapper=Join-Path $PSScriptRoot 'windows-operator-restore-diagnostic.ps1';$operatorContext=Join-Path $work 'operator-restore-context.private.json';$operatorFailure=Join-Path $work 'operator-restore-error.safe.json'
  Check (!(Test-Path -LiteralPath $operatorContext)-and !(Test-Path -LiteralPath $operatorFailure)) 'The one-use operator diagnostic context is occupied.'
- WriteJson $operatorContext @{schema=1;run_id=$env:GITHUB_RUN_ID;helper_path=$helper;helper_sha256=$helperSha;wrapper_sha256=(Hash $operatorWrapper);backup_path=$j.backup_path;failure_output=$operatorFailure}
- CheckedProcess "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$operatorWrapper,'-Context',$operatorContext) 'operator-rollback-native' -Timeout 1200000
+ $operatorTask=Join-Path $PSScriptRoot 'windows-operator-restore-task.ps1';$operatorIssued=[DateTimeOffset]::UtcNow
+ WriteJson $operatorContext @{schema=1;actor_mode='operator';operation_uuid=[guid]::NewGuid().ToString('D');run_id=$env:GITHUB_RUN_ID;source_commit=$env:GITHUB_SHA;computer_name=$env:COMPUTERNAME;boot_utc=$os.LastBootUpTime.ToUniversalTime().ToString('o');runner_temp=$env:RUNNER_TEMP;operator_started_utc=$operatorIssued.ToString('o');operator_deadline_utc=$operatorIssued.AddSeconds(1200).ToString('o');helper_path=$helper;helper_sha256=$helperSha;wrapper_path=$operatorWrapper;wrapper_sha256=(Hash $operatorWrapper);task_launcher_sha256=(Hash $operatorTask);backup_path=$j.backup_path;failure_output=$operatorFailure}
+ CheckedProcess "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$operatorTask,'-Context',$operatorContext) 'operator-rollback-native' -Timeout 1200000
+ $facts.operator_actor=@{scope='independent-system-scheduler';same_pinned_ps5_wrapper_and_helper=$true;one_native_invocation=$true;unchanged_product_ancestry_guard=$true;temporary_task_removed=$true;original_bound_seconds=1200}
  $deadline=[DateTime]::UtcNow.AddSeconds(120);$restoredPid=0;$restoredWorker=$null;$startupObserved=$false
  do{
   if(!$restoredWorker){
@@ -1412,6 +1414,7 @@ if(!$?){exit 1}
  $cleanup=$true
  try{
   if($installed){
+   Check (!(Test-Path -LiteralPath (Join-Path $work 'operator-task-unfinished.private.json'))) 'An unfinished or ambiguous independent operator task retains this fixture; do not tear it down or kill its transaction.'
    $lock=OpenQualificationCleanupLock "$state\upgrade.lock"
    try{
     # Keep the guard through shutdown; a later scheduled tick may not begin a
