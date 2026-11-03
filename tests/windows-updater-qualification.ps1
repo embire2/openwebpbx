@@ -443,6 +443,71 @@ function Python($Action){
  Check ((Hash $proofScript)-ceq '3cba78e4e8976f57bee5605f6d84940fc709c2342fbcbb2df7406c7cf8507d1b'-and !(Test-Path -LiteralPath $Action[2])) 'The pinned tenant content proof or one-use output differs.'
  CheckedProcess "$root\backup-runtime\python.exe" @('-I','-B',$proofScript,$Action[1],$Action[2]) 'signed-empty-tenant-content'
 }
+function ReadQualificationOriginal21Preamble($Record){
+ try{
+  $exact={param($value,$names)if($value-is [Collections.IDictionary]){$keys=@($value.Keys)}elseif($value-is [pscustomobject]){$keys=@($value.PSObject.Properties.Name)}else{return $false};return $keys.Count-eq $names.Count-and @($keys|Where-Object {$_-cnotin $names}).Count-eq 0}
+  $integer={param($value)return ($value-is [int]-or $value-is [long]-or $value-is [uint32])-and $value-ge -2147483648-and $value-le 4294967295}
+  $number={param($value)return ($value-is [int]-or $value-is [long]-or $value-is [double]-or $value-is [decimal])-and ![double]::IsNaN([double]$value)-and ![double]::IsInfinity([double]$value)}
+  $names=@('observation_completed','production_worker_success_claim','old_failure_cause_still_unknown','actual_system','original_helper_a1b_exact','stages','elapsed_seconds','only_static_select1_and_existing_file_open_close','worker_secure_status_queue_or_lifecycle_invoked')
+  if(!(& $exact $Record $names)){return $null}
+  foreach($name in 'observation_completed','old_failure_cause_still_unknown','actual_system','original_helper_a1b_exact','only_static_select1_and_existing_file_open_close'){if($Record.$name-isnot [bool]-or !$Record.$name){return $null}}
+  foreach($name in 'production_worker_success_claim','worker_secure_status_queue_or_lifecycle_invoked'){if($Record.$name-isnot [bool]-or $Record.$name){return $null}}
+  if(!(& $number $Record.elapsed_seconds)-or $Record.elapsed_seconds-lt 0-or $Record.elapsed_seconds-ge 75){return $null}
+  $stages=@('module_import','read_settings','native_psql_readonly_select1','upgrade_open_existing','store_worker_open_existing');if(!(& $exact $Record.stages $stages)){return $null};$safeStages=[ordered]@{}
+  foreach($stage in $stages){
+   $row=$Record.stages.$stage;$kind=$row.result;if($kind-isnot [string]-or $kind-cnotin 'observed','error','not_observed_prerequisite_failed','missing_not_created','native_refusal'){return $null}
+   if($kind-ceq 'not_observed_prerequisite_failed'){if($stage-cnotin 'read_settings','native_psql_readonly_select1'-or !(& $exact $row @('result'))){return $null};$safeStages[$stage]=@{result=$kind};continue}
+   if(!(& $integer $row.elapsed_ms)-or $row.elapsed_ms-lt 0-or $row.elapsed_ms-ge 75000){return $null}
+   if($kind-ceq 'error'){
+    $fields=@('result','elapsed_ms','exception_type','source_basename','source_line','native_error','hresult')
+    if(!(& $exact $row $fields)-or $row.exception_type-isnot [string]-or $row.exception_type-cnotin 'BackupError','BackupBusy','OSError','PermissionError','FileNotFoundError','ImportError','ModuleNotFoundError','ValueError','TypeError','RuntimeError','TimeoutExpired','JSONDecodeError','other'-or $row.source_basename-isnot [string]-or $row.source_basename-cnotin 'backups.py','readonly-preamble.py','unknown'-or !(& $integer $row.source_line)-or $row.source_line-lt 0-or $row.source_line-gt 100000-or (($row.source_basename-ceq 'unknown')-ne ($row.source_line-eq 0))){return $null}
+    foreach($field in 'native_error','hresult'){if($null-ne $row.$field-and !(& $integer $row.$field)){return $null}}
+   }elseif($stage-cin 'upgrade_open_existing','store_worker_open_existing'){
+    $fields=@('result','elapsed_ms','path_exists');if($row.path_exists-isnot [bool]){return $null}
+    if($kind-ceq 'observed'){$fields+='opened_existing_and_closed_without_write_or_byte_lock';if(!$row.path_exists-or $row.opened_existing_and_closed_without_write_or_byte_lock-isnot [bool]-or !$row.opened_existing_and_closed_without_write_or_byte_lock){return $null}}
+    elseif($kind-ceq 'missing_not_created'){if($row.path_exists){return $null}}
+    elseif($kind-ceq 'native_refusal'){$fields+=@('native_error','sharing_or_byte_lock_code');if(!$row.path_exists-or !(& $integer $row.native_error)-or $row.native_error-lt 0-or $row.sharing_or_byte_lock_code-isnot [bool]-or $row.sharing_or_byte_lock_code-ne ($row.native_error-in 32,33)){return $null}}
+    else{return $null};if(!(& $exact $row $fields)){return $null}
+   }else{
+    if($kind-cne 'observed'){return $null};$fields=@('result','elapsed_ms')
+    if($stage-ceq 'module_import'){$fields+='helper_hash_exact';if($row.helper_hash_exact-isnot [bool]-or !$row.helper_hash_exact){return $null}}
+    elseif($stage-ceq 'read_settings'){$fields+=@('read_settings_succeeded','credential_values_never_projected');if($row.read_settings_succeeded-isnot [bool]-or !$row.read_settings_succeeded-or $row.credential_values_never_projected-isnot [bool]-or !$row.credential_values_never_projected){return $null}}
+    else{$fields+=@('native_exit_code','select1_exact','read_only_transaction');if(!(& $integer $row.native_exit_code)-or $row.select1_exact-isnot [bool]-or ($row.select1_exact-and $row.native_exit_code-ne 0)-or $row.read_only_transaction-isnot [bool]-or !$row.read_only_transaction){return $null}}
+    if(!(& $exact $row $fields)){return $null}
+   }
+   $safe=@{};foreach($field in $fields){$safe[$field]=$row.$field};$safeStages[$stage]=$safe
+  }
+  if(($Record.stages.module_import.result-cne 'observed')-ne ($Record.stages.read_settings.result-ceq 'not_observed_prerequisite_failed')-or ($Record.stages.read_settings.result-cne 'observed')-ne ($Record.stages.native_psql_readonly_select1.result-ceq 'not_observed_prerequisite_failed')){return $null}
+  $safe=@{};foreach($name in $names){if($name-cne 'stages'){$safe[$name]=$Record.$name}};$safe.stages=$safeStages;return $safe
+ }catch{return $null}
+}
+function InvokeQualificationOriginal21Preamble($Primary,[string]$PackageRoot){
+ $warmup=BackupWarmupFailureFields $Primary.Exception.Data['openweb_qa_backup_warmup'];$worker=QualificationBackupWorkerFailureFields $Primary.Exception.Data['openweb_qa_backup_worker']
+ if(!$actualCandidate-or !$OriginalTenantDomainsDisabled-or $BaseVersion-cne '1.0.21'-or $BaseSuiteRunId-cne '40435466441'-or !$warmup-or $warmup.stage-cne 'worker_result'-or !$worker-or $worker.last_task_result-ne 1-or $worker.task_state-cne 'Ready'-or !$worker.last_run_advanced-or !$worker.last_run_not_future-or !$worker.prior_run_not_future){return $null}
+ $reason='source_or_context_guard'
+ try{
+  Check ($env:GITHUB_ACTIONS-ceq 'true'-and $env:RUNNER_ENVIRONMENT-ceq 'github-hosted'-and $env:GITHUB_REPOSITORY-ceq 'embire2/openwebpbx'-and $env:GITHUB_RUN_ID-cmatch '^[1-9][0-9]+$'-and $env:GITHUB_SHA-cmatch '^[a-f0-9]{40}$') 'Read-only diagnostic requires the actual current disposable CI run.'
+  $reason='current_job_budget';$jobs=Invoke-RestMethod ('https://api.github.com/repos/embire2/openwebpbx/actions/runs/'+$env:GITHUB_RUN_ID+'/jobs?per_page=100') -TimeoutSec 10 -Headers @{Authorization=('Bearer '+$env:GH_TOKEN);Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+  $job=@($jobs.jobs|Where-Object {[string]$_.run_id-ceq $env:GITHUB_RUN_ID-and $_.head_sha-ceq $env:GITHUB_SHA-and $_.name-ceq $env:GITHUB_JOB-and $_.status-ceq 'in_progress'})
+  Check ($job.Count-eq 1-and $job[0].started_at) 'Exactly one current active CI job start is required.';$jobStart=[DateTimeOffset]::Parse($job[0].started_at);Check ($jobStart-le [DateTimeOffset]::UtcNow) 'A future job start cannot extend the original budget.';$jobDeadline=$jobStart.AddMinutes(120)
+  Check ([DateTimeOffset]::UtcNow.AddSeconds(90)-lt $jobDeadline) 'The original current job needs the full diagnostic budget.'
+  $reason='source_or_context_guard';$pins=@{'Invoke-OriginalPublic21-ReadOnlyPreamble.ps1'='52a3b2ae70a5f80f192dffe15036dad0559d54858352e20f0e32012c1abeb86f';'readonly-preamble.py'='bfa4014bfc6cf03d51f0156db6d5e74a6668e19ade54562c778c143880abeaae';'Run-ReadOnlyPython.ps1'='cedea7276a3e9a005ad87ac39710b6d5b1dd7b2c5de168161617be263b29dfc2'}
+  foreach($name in $pins.Keys){Check ((Hash (Join-Path $PSScriptRoot $name))-ceq $pins[$name]) 'Only exact reviewed read-only diagnostic sources may run.'}
+  $id=[Guid]::NewGuid();$private=Join-Path $env:RUNNER_TEMP ('OpenWebPBXBackupBaselineReadOnly-'+$id.ToString('N'));$contextPath=Join-Path $work ('original21-readonly-'+$id.ToString('N')+'.private.json');Check (!(Test-Path -LiteralPath $contextPath)) 'The one-use diagnostic context is occupied.'
+  $context=@{RootAuthorizedReadOnlyOriginalPublic21BaselineDiagnostic=$true;runId=$env:GITHUB_RUN_ID;operationUUID=$id.ToString();expiresAt=[DateTimeOffset]::UtcNow.AddMinutes(10).ToString('o');operatorSHA256=$pins['Invoke-OriginalPublic21-ReadOnlyPreamble.ps1'];collectorSHA256=$pins['readonly-preamble.py'];runnerSHA256=$pins['Run-ReadOnlyPython.ps1'];originalFailureStage='worker_result';originalLastTaskResult=1;originalFreshRun=$true;privateEvidenceRoot=$private;verifiedPublic21PackageRoot=$PackageRoot;public21ManifestSHA256=(Hash (Join-Path $PackageRoot 'release-manifest.json'));originalPublic21Source='cab93b390ba2e8f33c184f2f085740c2862031a6';originalPublic21ArchiveSHA256='ce811ae1eaeb17b46f81bdfc0f12b0baa13409bded8f4df6788f8772d0ea855d'}
+  WriteJson $contextPath $context;$reason='current_job_budget';Check ([DateTimeOffset]::UtcNow.AddSeconds(90)-lt $jobDeadline) 'No diagnostic may start without its original remaining job budget.'
+  $reason='collector_not_completed';$clock=[Diagnostics.Stopwatch]::StartNew();$operator=Join-Path $PSScriptRoot 'Invoke-OriginalPublic21-ReadOnlyPreamble.ps1';$privateLog=Join-Path $work ('original21-readonly-'+$id.ToString('N')+'.PRIVATE.log')
+  & $operator -Context $contextPath *> $privateLog
+  Check ($clock.Elapsed.TotalSeconds-lt 90-and [DateTimeOffset]::UtcNow-lt $jobDeadline) 'Late diagnostic data is not accepted.'
+  $reason='invalid_closed_output';$childPath=Join-Path $private 'diagnostic-child-result.safe.json';$resultPath=Join-Path $private 'closed-observation.safe.json'
+  foreach($path in $childPath,$resultPath){$item=Get-Item -LiteralPath $path -Force;Check (!$item.PSIsContainer-and !($item.Attributes-band [IO.FileAttributes]::ReparsePoint)-and $item.Length-gt 0-and $item.Length-le 32768) 'Only bounded ordinary closed diagnostic results may be read.'}
+  $child=Get-Content -LiteralPath $childPath -Raw|ConvertFrom-Json
+  $childKeys=@($child.PSObject.Properties.Name);Check ($childKeys.Count-eq 7-and @($childKeys|Where-Object {$_-cnotin 'observationChildFinished','nativeExitCode','childPID','elapsedSeconds','noWorkerOrProductLifecycle','noKillOrRetry','childMayStillBeRunning'}).Count-eq 0-and ($child.childPID-is [int]-or $child.childPID-is [long])-and $child.childPID-gt 0) 'Only the exact closed diagnostic-child shape is accepted.'
+  Check ($child.observationChildFinished-is [bool]-and $child.observationChildFinished-and ($child.nativeExitCode-is [int]-or $child.nativeExitCode-is [long])-and $child.nativeExitCode-eq 0-and $child.noWorkerOrProductLifecycle-is [bool]-and $child.noWorkerOrProductLifecycle-and $child.noKillOrRetry-is [bool]-and $child.noKillOrRetry-and $child.childMayStillBeRunning-is [bool]-and !$child.childMayStillBeRunning-and ($child.elapsedSeconds-is [int]-or $child.elapsedSeconds-is [long]-or $child.elapsedSeconds-is [double])-and $child.elapsedSeconds-ge 0-and $child.elapsedSeconds-lt 80) 'Only a known completed bounded read-only child is accepted.'
+  $safe=ReadQualificationOriginal21Preamble (Get-Content -LiteralPath $resultPath -Raw|ConvertFrom-Json);Check ($null-ne $safe) 'Malformed diagnostic fields are not published.'
+  return @{schema=1;state='observed';postfailure_only=$true;original_failure_still_failed=$true;observation=$safe}
+ }catch{return @{schema=1;state='unavailable';reason=$reason;postfailure_only=$true;original_failure_still_failed=$true}}
+}
 function InitializeQualificationBackupWorker([string]$Root,[string]$StateRoot,[string]$PackageRoot){
  try{
  # Let the real normal SYSTEM task initialize its own persistent runtime files
@@ -1142,7 +1207,12 @@ if(!$?){exit 1}
 
   $facts.checks+='Exact owned Health task/helper identity and zero native children/runtime files before complete DB/file/task preservation baselines; enabled choice retained privately'
   $phase='ordinary SYSTEM backup worker baseline initialization'
-  InitializeQualificationBackupWorker -Root $root -StateRoot $state -PackageRoot $package
+  try{InitializeQualificationBackupWorker -Root $root -StateRoot $state -PackageRoot $package}catch{
+   $primary=$_;$priorChild=$script:qualificationFailedChild;$priorComparison=$script:qualificationComparisonFailure;$priorHash=$script:qualificationFailedHash
+   try{$observation=InvokeQualificationOriginal21Preamble $primary $package;if($observation){$facts.original21_preamble_observation=$observation}}catch{}
+   finally{$script:qualificationFailedChild=$priorChild;$script:qualificationComparisonFailure=$priorComparison;$script:qualificationFailedHash=$priorHash}
+   throw $primary
+  }
   $facts.checks+='Actual unchanged installed SYSTEM backup task completed normally and initialized its regular worker lock before every acceptance baseline'
   $phase='fault14 full HTTPS download and rollback'
   $beforeDb=DatabaseSnapshot 'before-fault';$beforeFiles=FileSnapshot -Stage 'before_fault_full';$beforeTasks=TaskSnapshot;$protected=FileSnapshot -Protected -Stage 'before_fault_protected'
