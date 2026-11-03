@@ -10,6 +10,7 @@ $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-threecx-suite-mode.ps1')
 . (Join-Path $PSScriptRoot 'windows_updater_file_acl_observation.ps1')
 . (Join-Path $PSScriptRoot 'windows-task-preservation-diagnostics.ps1')
+. (Join-Path $PSScriptRoot 'windows-backup-warmup-diagnostics.ps1')
 $aclPathTokens=$null;$aclPathErrors=$null
 $aclPathAst=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'windows-updater-qualification.ps1'),[ref]$aclPathTokens,[ref]$aclPathErrors)
 $aclPathFunctions=@($aclPathAst.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'QualificationSnapshotPaths'},$true))
@@ -437,6 +438,9 @@ function SafeSmtpFailureFields($Record){
 . (Join-Path $PSScriptRoot 'windows-upgrade-hash-observer.ps1')
 function SafeFailureFields($Record){
  $safe=@{}
+ if($Record.failed_phase -is [string] -and $Record.failed_phase -ceq 'ordinary SYSTEM backup worker baseline initialization' -and $Record.source_basename -is [string] -and $Record.source_basename -ceq 'windows-upgrade-acceptance.ps1'){
+  $warmup=BackupWarmupFailureFields $Record.backup_warmup;if($warmup){$safe.backup_warmup=$warmup;if($warmup.stage -ceq 'worker_result'){$worker=BackupWarmupWorkerFields $Record.backup_worker;if($worker){$safe.backup_worker=$worker}}}
+ }
  if($Record.task_failure){$taskFailure=Read-QualificationTaskFailure $Record.task_failure;if($taskFailure){$safe.task_failure=$taskFailure}}
  if($Record.source_basename -ceq 'windows-upgrade-acceptance.ps1' -and $Record.error_type -is [string]){try{$observed=UpgradeHashFailureFields $Record.hash_failure;if($observed -and $Record.error_type.Split('.')[-1] -ceq $observed.error_type){$safe.hash_failure=$observed}}catch{}}
  if($Record.backup_control_failure){$control=BackupControlObservationFields $Record.backup_control_failure;if($control){$safe.backup_control_failure=$control}}

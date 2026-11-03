@@ -134,6 +134,8 @@ jobs:
           if($env:REPLAY_SUITE_RUN_ID -and $env:REPLAY_SUITE_RUN_ID -cnotmatch '^[1-9][0-9]{0,19}$'){throw 'The optional replay run must be numeric.'}
           & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_task_security.ps1
           if($LASTEXITCODE){throw 'Native task security controls failed before server qualification.'}
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_backup_warmup_diagnostics.ps1
+          if($LASTEXITCODE){throw 'Native warm-up diagnostic controls failed before server qualification.'}
           if($env:THREECX_IMPORT_ONLY -and $env:THREECX_IMPORT_ONLY -cnotin 'true','false'){throw 'The import diagnostic input must be a boolean.'}
           $producerOptions=@{}
           if($env:PUBLIC21_TO_CANDIDATE22 -ceq 'true'){$producerOptions.Public21ToCandidate22=$true}

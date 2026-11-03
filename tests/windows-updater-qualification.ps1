@@ -21,6 +21,7 @@ param(
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-task-preservation-diagnostics.ps1')
+. (Join-Path $PSScriptRoot 'windows-backup-warmup-diagnostics.ps1')
 . (Join-Path $PSScriptRoot 'windows-upgrade-health-quiescence.ps1')
 . (Join-Path $PSScriptRoot 'windows_updater_file_acl_observation.ps1')
 . (Join-Path $PSScriptRoot 'windows-empty-tenant-private-files.ps1')
@@ -47,7 +48,7 @@ $script:qualificationComparisonFailure=$null
 $script:qualificationFailedHash=$null
 $facts=[ordered]@{schema=1;mode=$Mode;run_id=$env:GITHUB_RUN_ID;source_commit=$env:GITHUB_SHA;state='running';scope='disposable Windows Server 2025, fictional PBX, laboratory trusted HTTPS';checks=@();gates=[ordered]@{canary_build='pending';fault_https_download='unqualified';fault_rollback='unqualified';normal_https_download='unqualified';newer_upgrade='unqualified';natural_updater_restart='unqualified';manager_reopen_rollback='unqualified';manager_reopen_success='unqualified';protected_data='unqualified';public_github_delivery='unqualified';owner_106_upgrade='unqualified';carrier='unqualified'};cleanup='pending'}
 function Check([bool]$Value,[string]$Message){if(!$Value){throw $Message}}
-function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null,$HashFailure=$null,$BackupWorker=$null,$TaskFailure=$null){
+function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null,$HashFailure=$null,$BackupWorker=$null,$TaskFailure=$null,$BackupWarmup=$null){
  # Project only known source callsites and fixed child identities. Messages,
  # process arguments, private streams and the paths in the trace stay private.
  $frames=[Collections.Generic.List[object]]::new();$seen=@{}
@@ -82,6 +83,7 @@ function QualificationFailureObservation([string]$Trace,$Child,$Comparison=$null
  }
  if($frames.ToArray().function -ccontains 'Hash' -and $frames.ToArray().function -ccontains 'SnapshotHash' -and $frames.ToArray().function -ccontains 'FileSnapshot'){$hash=QualificationHashFailureFields $HashFailure;if($hash){$safe.hash_failure=$hash}}
  if($frames.ToArray().function -ccontains 'Check' -and $frames.ToArray().function -ccontains 'InitializeQualificationBackupWorker'){try{$worker=QualificationBackupWorkerFailureFields $BackupWorker;if($worker){$safe.backup_worker=$worker}}catch{}}
+ if($frames.ToArray().function -ccontains 'InitializeQualificationBackupWorker'){try{$warmup=BackupWarmupFailureFields $BackupWarmup;if($warmup){$safe.backup_warmup=$warmup}}catch{}}
  return $safe
 }
 function QualificationBackupWorkerFailureFields($Record){
@@ -400,6 +402,7 @@ function Fixture([string]$Action){
 }
 function Python([string]$Action){CheckedProcess "$root\backup-runtime\python.exe" @('-I','-B',(Join-Path $PSScriptRoot 'windows-updater-fixture.py'),'--input',$inputFile,'--action',$Action) ('python-'+$Action)}
 function InitializeQualificationBackupWorker([string]$Root,[string]$StateRoot,[string]$PackageRoot){
+ try{
  # Let the real normal SYSTEM task initialize its own persistent runtime files
  # before every acceptance baseline. Never synthesize or exclude those files.
  . (Join-Path $PackageRoot 'Restore-Gates.ps1')
@@ -461,6 +464,11 @@ function InitializeQualificationBackupWorker([string]$Root,[string]$StateRoot,[s
  Check ($directory.PSIsContainer -and !($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -and !$worker.PSIsContainer -and !($worker.Attributes -band [IO.FileAttributes]::ReparsePoint)) 'The actual backup worker did not initialize its ordinary runtime lock.'
  $after=(TaskSnapshot)['OpenWebPBX-Backups']
  foreach($field in 'exists','enabled','xml','acl','security'){Check ($after[$field] -ceq $definition[$field]) 'Backup warm-up changed the normal task definition or security.'}
+ }catch{
+  $primary=$_
+  try{$observed=ObserveBackupWarmupFailure $primary $task $python $arguments $Root $pair $item $directory $worker $definition $after;if($observed){$primary.Exception.Data['openweb_qa_backup_warmup']=$observed}}catch{}
+  throw
+ }
 }
 function DatabaseSnapshot([string]$Label){$settings.snapshot_label=$Label;WriteJson $inputFile $settings;Fixture 'snapshot'|Out-Null;return Get-Content (Join-Path (Split-Path $inputFile -Parent) ($Label+'-database.json')) -Raw|ConvertFrom-Json -AsHashtable}
 function FileSnapshot([switch]$Protected,[ValidateSet('unobserved','before_fault_full','before_fault_protected','after_fault_full','after_normal_protected','after_operator_full')][string]$Stage='unobserved'){
@@ -1152,7 +1160,7 @@ if(!$?){exit 1}
  }
 }catch{
  $facts.state='failed';$facts.failed_phase=$phase;$facts.error_type=$_.Exception.GetType().Name;$facts.source_basename=if($_.InvocationInfo.ScriptName){Split-Path -Leaf $_.InvocationInfo.ScriptName}else{'external_component'};$facts.source_line=[int]$_.InvocationInfo.ScriptLineNumber
- $facts.failure_observation=QualificationFailureObservation $_.ScriptStackTrace $script:qualificationFailedChild $script:qualificationComparisonFailure $script:qualificationFailedHash $_.Exception.Data['openweb_qa_backup_worker'] $_.Exception.Data['openweb_qa_task_failure']
+ $facts.failure_observation=QualificationFailureObservation $_.ScriptStackTrace $script:qualificationFailedChild $script:qualificationComparisonFailure $script:qualificationFailedHash $_.Exception.Data['openweb_qa_backup_worker'] $_.Exception.Data['openweb_qa_task_failure'] $_.Exception.Data['openweb_qa_backup_warmup']
  if($actualCandidate -and $qa){$actualFailure=ReadActualSchemaFailure;if($actualFailure){$facts.actual_schema_failure=$actualFailure}}
  Write-Error ('Disposable updater qualification failed in '+$phase+'. Private streams are not published.') -ErrorAction Continue
 }finally{

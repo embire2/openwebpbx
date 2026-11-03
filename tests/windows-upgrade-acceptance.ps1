@@ -8,6 +8,7 @@ $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 . (Join-Path $PSScriptRoot 'windows-upgrade-hash-observer.ps1')
 . (Join-Path $PSScriptRoot 'windows-backup-control-observation-fields.ps1')
 . (Join-Path $PSScriptRoot 'windows-task-preservation-diagnostics.ps1')
+. (Join-Path $PSScriptRoot 'windows-backup-warmup-diagnostics.ps1')
 if(!$DisposableHostedRunner -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows' -or $env:GITHUB_REPOSITORY -ne 'embire2/openwebpbx'){throw 'Only the owned disposable hosted Windows instance may run this hook.'}
 . (Join-Path $PackageRoot 'Support-Recovery.ps1')
 $fixtureInput=Get-Content -LiteralPath $InputPath -Raw|ConvertFrom-Json
@@ -1170,6 +1171,10 @@ try{
  $report.state='passed'
 }catch{
  $report.state='failed';$report.failed_phase=$phase
+ if($phase -ceq 'ordinary SYSTEM backup worker baseline initialization'){
+  try{$warmup=BackupWarmupFailureFields $_.Exception.Data['openweb_qa_backup_warmup'];if($warmup){$report.backup_warmup=$warmup}}catch{}
+  try{$worker=QualificationBackupWorkerFailureFields $_.Exception.Data['openweb_qa_backup_worker'];if($worker){$report.backup_worker=$worker}}catch{}
+ }
  $report.error_type=$_.Exception.GetType().FullName;$report.source_basename=if($_.InvocationInfo.ScriptName){Split-Path -Leaf $_.InvocationInfo.ScriptName}else{'windows-upgrade-acceptance.ps1'};$report.source_line=[int]$_.InvocationInfo.ScriptLineNumber
  try{if($_.Exception.Data.Contains('openweb_qa_hash_failure')){$observed=UpgradeHashFailureFields $_.Exception.Data['openweb_qa_hash_failure'];if($observed){$report.hash_failure=$observed}}}catch{}
  if($probeFailure){

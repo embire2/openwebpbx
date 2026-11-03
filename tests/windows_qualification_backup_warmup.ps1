@@ -4,12 +4,13 @@
 # bound to fictional lifecycle records. No installed runtime, task or service runs.
 $ErrorActionPreference='Stop';$checks=0
 if(!$SourceRoot){$SourceRoot=Split-Path $PSScriptRoot -Parent}
+. (Join-Path $SourceRoot 'tests/windows-backup-warmup-diagnostics.ps1')
 function Verify([bool]$Value){$script:checks++;if(!$Value){throw ('Backup warm-up control failed at '+(Get-PSCallStack)[1].ScriptLineNumber)}}
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceRoot 'tests/windows-updater-qualification.ps1'),[ref]$tokens,[ref]$errors)
 Verify (@($errors).Count -eq 0)
 $defs=@{}
-foreach($name in 'Check','Hash','InitializeQualificationBackupWorker','QualificationFailureObservation'){
+foreach($name in 'Check','Hash','InitializeQualificationBackupWorker','QualificationFailureObservation','QualificationBackupWorkerFailureFields','ObserveQualificationBackupWorkerFailure'){
  $nodes=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name},$true));Verify ($nodes.Count -eq 1);$defs[$name]=$nodes[0].Extent.Text
 }
 $body=$defs.InitializeQualificationBackupWorker
@@ -83,7 +84,7 @@ try{
  $null=New-Item -ItemType Directory -Force (Join-Path $root 'tools'),(Join-Path $root 'backup-runtime'),(Join-Path $package 'backup-runtime'),(Join-Path $state 'automatic-backups'),(Join-Path $state 'backup-restore'),(Join-Path $state 'updates')
  $script:worker=Join-Path $state 'automatic-backups/worker.lock';$script:target=Join-Path $temporary 'owned-link-target';[IO.File]::WriteAllText($target,'untouched')
  Copy-Item (Join-Path $SourceRoot 'packaging/windows/Restore-Gates.ps1') (Join-Path $package 'Restore-Gates.ps1')
- $fixture=Join-Path $temporary 'windows-updater-qualification.ps1';[IO.File]::WriteAllText($fixture,(@('Check','Hash','InitializeQualificationBackupWorker','QualificationFailureObservation'|ForEach-Object {$defs[$_]}) -join "`n"));. $fixture
+ $fixture=Join-Path $temporary 'windows-updater-qualification.ps1';[IO.File]::WriteAllText($fixture,(@('Check','Hash','InitializeQualificationBackupWorker','QualificationFailureObservation','QualificationBackupWorkerFailureFields','ObserveQualificationBackupWorkerFailure'|ForEach-Object {$defs[$_]}) -join "`n"));. $fixture
  function ResetCase([string]$Name){
   $script:mode=$Name;$script:started=$false;$script:starts=0;$script:reads=0;$script:sleeps=0;$script:snapshots=0;$script:clock=[DateTime]'2026-01-01T00:01:02Z'
   if($Name -ceq 'coarse_time'){$script:clock=[DateTime]'2026-01-01T00:00:00.200Z'}
@@ -99,6 +100,10 @@ try{
   Verify (($null -eq $caught) -eq $Pass);Verify ($starts -eq $ExpectedStarts);Verify ($output.Count -eq 0)
   Verify ($sleeps -le 120 -and [IO.File]::ReadAllText($target) -ceq 'untouched')
   if($caught){
+   $detail=BackupWarmupFailureFields $caught.Exception.Data['openweb_qa_backup_warmup'];Verify ($null -ne $detail)
+   if($mode -cin 'runtime_hash','script_hash'){Verify ($detail.stage -ceq 'runtime_hash');Verify ($detail.runtime_component -ceq $(if($mode -ceq 'runtime_hash'){'python'}else{'worker'}))}
+   if($mode -cin 'disabled','principal','logon','level','execute','arguments','working_directory','actions','task_path','task_name','multiple','state','late_identity'){Verify ($detail.stage -ceq 'task_identity' -and $detail.mismatches.Count -gt 0)}
+   if($mode -ceq 'nonzero'){Verify ($detail.stage -ceq 'worker_result');Verify ($caught.Exception.Data['openweb_qa_backup_worker'].last_task_result -eq 1)}
    $observed=QualificationFailureObservation $caught.ScriptStackTrace $null $null
    $safe=$observed|ConvertTo-Json -Depth 16 -Compress
    Verify (!$safe.Contains($private) -and !$safe.Contains($temporary) -and !$safe.Contains('worker.lock'))
