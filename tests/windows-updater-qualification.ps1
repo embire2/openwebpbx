@@ -1284,6 +1284,7 @@ if(!$?){exit 1}
   $phase='laboratory HTTPS PKI preparation';Python 'prepare-pki';$pki=Get-Content (Join-Path $qa 'pki.json') -Raw|ConvertFrom-Json
   $privatePem=Join-Path $state ('phone-tls/updater-'+$scope);PrivateDirectory $privatePem;Copy-Item (Join-Path $qa 'transport-chain.pem'),(Join-Path $qa 'transport-leaf.key') $privatePem;$settings.owned_private_pem=$privatePem
   [IO.File]::WriteAllBytes((Join-Path $qa 'audit.key'),[Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+  . (OriginalProcessProofSource (Join-Path $PSScriptRoot 'windows-upgrade-acceptance.ps1'))
   $phase='exact owned Health observer quiescence before all preservation baselines'
   Suspend-OpenWebQualificationHealth ([ref]$qualificationHealthOriginal)
   if($actualCandidate){
@@ -1338,7 +1339,6 @@ if(!$?){exit 1}
   # Initial fixture-only service environment setup precedes all acceptance
   # snapshots. No test restarts/kills the updater during either transaction.
   $phase='initial installed13 worker startup';Stop-Service OpenWebPBXUpdater;(Get-Service OpenWebPBXUpdater).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(45));Start-Service OpenWebPBXUpdater
-  . (OriginalProcessProofSource (Join-Path $PSScriptRoot 'windows-upgrade-acceptance.ps1'))
   Start-Sleep -Seconds 2;[int]$initialPid=InstalledVersions $BaseVersion
   $phase='initial installed13 worker identity';$originalWorker=RetainQualificationProcess ([Diagnostics.Process]::GetProcessById($initialPid)) $initialPid "$root\updater\slots\${BaseVersion}\OpenWebPbx.Updater.exe" 'S-1-5-18' 0 ([DateTime]::MinValue)
   $phase='owned SYSTEM canary fault contract';$contractDirectory=Join-Path $state 'qualification113';PrivateDirectory $contractDirectory
