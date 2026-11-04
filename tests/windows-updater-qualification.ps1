@@ -1291,13 +1291,14 @@ if(!$?){exit 1}
   $initializationDeadline=[DateTime]::UtcNow.AddSeconds(600)
   $phase='ordinary original21 updater startup before Core quiescence'
   WaitOriginal21UpdaterStartup -DeadlineUtc $initializationDeadline
+  $prebaselineCore=$null;$prebaselinePrimary=$null
+  try{
+   $phase='exact original21 Core quiescence for tenant and backup initialization'
+   $prebaselineCore=Suspend-Original21PrebaselineCore -PackageRoot $package
+
   if(!$actualCandidate){Suspend-OpenWebQualificationTenant ([ref]$qualificationTenantOriginal)}
   elseif($OriginalTenantDomainsDisabled){Suspend-OpenWebQualificationTenant ([ref]$qualificationTenantOriginal);$qualificationTenantOriginal.Enabled=$false}
   else{$phase='natural original tenant initialization before preservation baselines';WaitActualTenantIdle -DeadlineUtc $initializationDeadline}
-  $prebaselineCore=$null;$prebaselinePrimary=$null
-  try{
-   $phase='exact original21 Core quiescence only for backup initialization'
-   $prebaselineCore=Suspend-Original21PrebaselineCore -PackageRoot $package
 
   $facts.checks+='Exact owned Health task/helper identity and zero native children/runtime files before complete DB/file/task preservation baselines; enabled choice retained privately'
   $phase='ordinary SYSTEM backup worker baseline initialization'
