@@ -1,5 +1,23 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+<!-- WINDOWS22-CURRENT-STATUS-BEGIN -->
+## Latest Windows 1.0.22
+
+Windows Server 1.0.22 is frozen at product source
+`8f4256e4e3cbce092791eea60d1c053e10810bb6` for **Windows Server 2025 x64
+with Desktop Experience**. Its qualified signed-update minimum is **installed
+Windows 1.0.21**. The full software suite, actual older-backup restore/reboot,
+and distinct managed fresh setup with QR and natural scheduled backup pass.
+
+Signed cases [41752080297](https://github.com/embire2/openwebpbx/actions/runs/41752080297) (original worker enabled) and [41722715796](https://github.com/embire2/openwebpbx/actions/runs/41722715796) (original worker disabled) pass. Published **2026-11-04T01:59:14Z**; public assets/canonical mirror, retained feed bytes and the ordinary installed public-feed Check verify.
+Debian 1.0.22 and Android 1.0.19 retain their own artifacts and feeds.
+
+Roadmap totals remain **133 goals / 21 accepted / 72 partial / 40 planned**; these checks do not close broader 3CX-parity goals.
+
+[Windows qualification and limits](docs/release-windows-1.0.22-qualification.md) ·
+[Independent Linux/Windows/Android releases](docs/independent-platform-releases.md).
+<!-- WINDOWS22-CURRENT-STATUS-END -->
+
 ## Windows 1.0.22 final checks — 2026-11-03
 
 The final Windows candidate passes its full software suite and actual recovery

@@ -1,25 +1,44 @@
 # Windows Server backups and replacement restore
 
-## Windows 1.0.22 candidate — qualification pending
+<!-- WINDOWS22-CURRENT-STATUS-BEGIN -->
+## Latest Windows 1.0.22
 
-The public Windows download remains **1.0.21**. Windows 1.0.22 registration and
-replacement-restore work is under qualification; use the [candidate status](windows-parity-1.0.22.md)
-and [candidate installation guide](installing-windows-1.0.22.md) to check its scope.
-Its signed update requires installed Windows 1.0.21 or newer. A replacement must
-still match the backup's application version; an upgrade does not turn a
-1.0.21 archive into a 1.0.22 archive.
+Windows Server 1.0.22 is frozen at product source
+`8f4256e4e3cbce092791eea60d1c053e10810bb6` for **Windows Server 2025 x64
+with Desktop Experience**. Its qualified signed-update minimum is **installed
+Windows 1.0.21**. The full software suite, actual older-backup restore/reboot,
+and distinct managed fresh setup with QR and natural scheduled backup pass.
 
-The candidate adds the private registration service binding and pairing session
-to encrypted backups alongside the instance key and signed database grants.
-Restore imports those source credentials while preserving the target database,
-operating-system identity and installation registration requirement. Target
-readiness/setup caches are rebuilt after activation. These changes have source,
-file/security and isolated database checks; actual candidate replacement
-qualification remains separate.
+Signed cases [41752080297](https://github.com/embire2/openwebpbx/actions/runs/41752080297) (original worker enabled) and [41722715796](https://github.com/embire2/openwebpbx/actions/runs/41722715796) (original worker disabled) pass. Published **2026-11-04T01:59:14Z**; public assets/canonical mirror, retained feed bytes and the ordinary installed public-feed Check verify.
+Debian 1.0.22 and Android 1.0.19 retain their own artifacts and feeds.
+
+[Windows qualification and limits](release-windows-1.0.22-qualification.md) ·
+[Independent Linux/Windows/Android releases](independent-platform-releases.md).
+<!-- WINDOWS22-CURRENT-STATUS-END -->
+
+## Windows 1.0.22 recovery scope
+
+Actual clean RestoreServer installation and restoration of the older retained
+Windows archive pass on the frozen package, including automatic mobile-schema
+migration, ordinary Users/QR access, original credentials, recordings and calls
+before/after reboot. Encrypted backup contents and the off-server copy verify.
+See [Windows qualification](release-windows-1.0.22-qualification.md) and the
+[matching installation guide](installing-windows-1.0.22.md). Final signed-update
+and publication gates pass as recorded above.
+
+Encrypted backups retain the private registration service binding, pairing
+session, instance key and signed grants. Restore imports source authority while
+preserving the target database/Phone Health identity and maintenance holds;
+ordinary activation and background work rebuild readiness caches. Matching
+application-version and platform checks remain: upgrading does not relabel an
+old archive, and Debian instance archives are not Windows restore inputs.
+The recorded same-host replacement does not prove a different-IP migration.
+Earlier failed observers remain failed; the earlier-version records below keep
+their own scope.
 
 ## Published and historical qualification
 
-**Published Windows Server 1.0.21.** Use the matching platform release and [release scope](release-1.0.21-qualification.md). Target certificates and separate restored calling/jobs holds below remain required. The following1.0.20 test record is historical and does not substitute for current-package restore acceptance.
+**Earlier published Windows Server 1.0.21.** Use the matching platform release and [release scope](release-1.0.21-qualification.md). Target certificates and separate restored calling/jobs holds below remain required. The following1.0.20 test record is historical and does not substitute for current-package restore acceptance.
 
 **Historical 1.0.20 qualification:** Its exact package passes normal40111566679 (17 essential gates), independent replacement restore40123098262 (source9/target20), and signed newer upgrade40125359325 (9 gates plus111 native scheduling/file-sharing controls). Its [historical release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.20) and [historical qualification record](windows-parity-1.0.20.md#windows-release-gates) remain available. For a current replacement, use the [1.0.21 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.21) and its [installation guide](installing-windows-1.0.21.md), matching the version of your backup. The separate restored-conference check40165744505 also passes (source9/target21), including new browser meetings with decoded audio/video and preserved original data/holds. Original 1.0.6 migration/recovery, actual OS reboot, physical phones/carriers/cameras, external NAT and continuity of existing meeting invitations remain unqualified.
 

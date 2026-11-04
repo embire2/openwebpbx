@@ -1,10 +1,32 @@
 # Application updates
 
-**Windows Server 1.0.21:** five-minute checks, automatic verified downloads, a native required-update modal and a red web-console banner are included. Postponing leaves services available; installation starts only after an administrator requests it. See [Windows Server updates](windows-server-updates.md) for behavior and qualification status. The policy options below continue to describe Debian.
+<!-- WINDOWS22-CURRENT-STATUS-BEGIN -->
+## Latest Windows 1.0.22
 
-The complete Debian 13 amd64 server is **1.0.22**; Windows Server 2025 remains **1.0.21**, and the Android app remains **1.0.19/code119**. The hosted OpenWeb instance requires Android **1.0.19/code119** across every tenant. Independent installations start with an inactive minimum; set it under **Minimum direct Android release for every phone** after upgrading the core. Existing tenant policies are retained. Android confirmation/reopening may still be required; active calls defer replacement.
+Windows Server 1.0.22 is frozen at product source
+`8f4256e4e3cbce092791eea60d1c053e10810bb6` for **Windows Server 2025 x64
+with Desktop Experience**. Its qualified signed-update minimum is **installed
+Windows 1.0.21**. The full software suite, actual older-backup restore/reboot,
+and distinct managed fresh setup with QR and natural scheduled backup pass.
 
-**Debian 1.0.22:** the signed updater requires installed **1.0.21 or newer**. Earlier installations need a separately validated migration path; the retained 1.0.21 guide describes its historical feed, rather than a current intermediate-upgrade recipe. This release preserves existing phone credentials, routes and tenant settings. Fresh installations complete managed registration through the setup wizard. Enabled managed backup and registration timers resume after maintenance; disabled and custom choices are preserved. See the [Debian guide](installing-1.0.22.md) and [qualification record](release-1.0.22-qualification.md). Windows21 and Android19 keep their original signed feed bytes.
+Signed cases [41752080297](https://github.com/embire2/openwebpbx/actions/runs/41752080297) (original worker enabled) and [41722715796](https://github.com/embire2/openwebpbx/actions/runs/41722715796) (original worker disabled) pass. Published **2026-11-04T01:59:14Z**; public assets/canonical mirror, retained feed bytes and the ordinary installed public-feed Check verify.
+Debian 1.0.22 and Android 1.0.19 retain their own artifacts and feeds.
+
+[Windows qualification and limits](release-windows-1.0.22-qualification.md) ·
+[Independent Linux/Windows/Android releases](independent-platform-releases.md).
+<!-- WINDOWS22-CURRENT-STATUS-END -->
+
+**Windows Server:** five-minute checks, automatic verified downloads, a native required-update modal and a red web-console banner leave services available when installation is postponed. Installation starts only after an administrator requests it. Windows 1.0.22 signed acceptance and publication are recorded above. See [Windows Server updates](windows-server-updates.md). The policy options below describe Debian.
+
+| Component | Current scope | Signed minimum / status |
+|---|---|---|
+| Debian 13 amd64 server | Published **1.0.22** | Installed Debian **1.0.21 or newer**. |
+| Windows Server 2025 x64 Desktop Experience | **1.0.22** | Installed Windows **1.0.21 or newer**; qualified signed route. |
+| Android app | Published **1.0.19/code119** | Its own server/API compatibility and app policy. |
+
+The hosted OpenWeb instance requires Android **1.0.19/code119** across every tenant. Independent installations start with an inactive minimum; set it under **Minimum direct Android release for every phone** after upgrading the core. Existing tenant policies are retained. Android confirmation/reopening may still be required; active calls defer replacement.
+
+**Debian 1.0.22:** the signed updater requires installed **1.0.21 or newer**. Earlier installations need a separately validated migration path; the retained 1.0.21 guide describes its historical feed, rather than a current intermediate-upgrade recipe. This release preserves existing phone credentials, routes and tenant settings. Fresh installations complete managed registration through the setup wizard. Enabled managed backup and registration timers resume after maintenance; disabled and custom choices are preserved. See the [Debian guide](installing-1.0.22.md) and [qualification record](release-1.0.22-qualification.md). Windows is promoted separately; the retained Debian22 and Android19 signed envelopes must remain byte-identical through that promotion.
 
 Open **Admin → System → Updates** to check the installed version, review an available release and choose how this instance updates. This setting covers every tenant on the instance; tenants do not install their own server database or application.
 
@@ -51,7 +73,7 @@ A completed update is not automatically reverted after users have resumed work; 
 
 ## Windows Server
 
-Windows Server 1.0.21 uses its own signed **windows-update-manifest.json** and independent C# updater, supporting installed 1.0.20 or newer. Earlier Windows installations need a separately qualified transition. The Android **update-manifest.json** remains byte-identical at 1.0.19. The separate **debian-update-manifest.json** offers server 1.0.21; original Debian 1.0.16 installations first require the verified signed revision2 compatibility bootstrap in the [Debian guide](installing-debian-1.0.21.md). See [Windows Server updates](windows-server-updates.md) and [current release qualification](release-1.0.21-qualification.md). Windows Server 2025 x64 Desktop Experience is supported; Windows10/11 server installation is refused. The Windows calling client is separate.
+Windows uses its own signed **windows-update-manifest.json** and independent C# updater. The qualified Windows 1.0.22 route requires installed **1.0.21 or newer**. Earlier Windows installations need a separately qualified transition. Android **update-manifest.json** remains at 1.0.19; **debian-update-manifest.json** serves the independently released Debian 1.0.22, requiring installed Debian 1.0.21 or newer. Earlier Debian installations need their separately validated migration path. See [Windows Server updates](windows-server-updates.md), [Windows qualification](release-windows-1.0.22-qualification.md) and the [current Debian guide](installing-1.0.22.md). Windows Server 2025 x64 Desktop Experience is supported; Windows10/11 server installation is refused. The Windows calling client is separate.
 
 ## Android phones
 

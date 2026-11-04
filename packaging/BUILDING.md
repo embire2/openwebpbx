@@ -1,8 +1,8 @@
 # Building OpenWeb PBX
 
-## Windows Server 1.0.22 candidate
+## Windows Server 1.0.22
 
-The current checkout prepares Windows Server 1.0.22. Its complete package is under qualification; the published Windows release is 1.0.21. Debian 1.0.22 and Android 1.0.19 are published separately. Use each immutable release revision for its matching build. See the [current Windows acceptance record](../docs/windows-parity-1.0.22.md).
+Windows Server 1.0.22 is published from frozen product commit `8f4256e4e3cbce092791eea60d1c053e10810bb6`, tagged [`windows-v1.0.22`](https://github.com/embire2/openwebpbx/releases/tag/windows-v1.0.22). Debian 1.0.22 and Android 1.0.19 retain their existing artifacts and signed feeds. Build each platform from its own qualified revision; Linux can advance while Windows catches up later. See the [Windows qualification record](../docs/release-windows-1.0.22-qualification.md) and [independent release workflow](../docs/independent-platform-releases.md).
 
 The manual `windows-native.yml` workflow uses .NET SDK 10.0.401 and Visual Studio 2026 on Windows Server 2025. It publishes the complete service, updater and WinUI output, immutable source hashes, assembly versions and an actual responsive top-level-window check. Select a successful build whose complete input inventory matches the candidate; a successful compile does not qualify installation or calling.
 
@@ -24,7 +24,7 @@ Only tracked source and exact verified runtime inventories are copied. At instal
 
 The sealed Keoma [voice input 1.0.2](https://github.com/embire2/openwebpbx/releases/tag/voices-v1.0.2) supplies 4,915 stock spoken files and matching talking-clock 1.0.3 audio. Verify its complete archive and catalogue before staging; do not install its audio alone over an older clock implementation. No provider key is needed to package the sealed input.
 
-After complete qualification, sign the exact Windows archive with `packaging/updates/sign-feed.py --windows-only --windows <archive> --version 1.0.22 --minimum-version 1.0.21 --sequence <unused-sequence> --private-key <private-key> --output <windows-update-manifest.json>`. The private signing key stays outside the repository and hosted runners. Use a sequence above every preserved platform feed. Keep the then-current published `update-manifest.json` (Android) and `debian-update-manifest.json` byte-for-byte in the new release. A separately qualified Android release may replace its own feed first; never revert it while publishing Windows. Validate all three using their actual independent versions (currently Android 1.0.19, Debian 1.0.22 and candidate Windows 1.0.22):
+After complete qualification, sign the exact Windows archive with `packaging/updates/sign-feed.py --windows-only --windows <archive> --version 1.0.22 --minimum-version 1.0.21 --sequence <unused-sequence> --private-key <private-key> --output <windows-update-manifest.json>`. The private signing key stays outside the repository and hosted runners. Use a sequence above every preserved platform feed. Keep the then-current published `update-manifest.json` (Android) and `debian-update-manifest.json` byte-for-byte in the new release. A separately qualified Android release may replace its own feed first; never revert it while publishing Windows. Validate all three using their actual independent versions (currently Android 1.0.19, Debian 1.0.22 and Windows 1.0.22):
 
 ```sh
 python3 packaging/updates/validate-platform-feeds.py \

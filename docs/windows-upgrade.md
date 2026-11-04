@@ -1,22 +1,39 @@
 # Updating Windows Server
 
-## Windows 1.0.22 candidate — qualification pending
+<!-- WINDOWS22-CURRENT-STATUS-BEGIN -->
+## Latest Windows 1.0.22
 
-Windows Server 1.0.22 is being tested; the public Windows download remains
-**1.0.21**. Do not treat the candidate guide or source checks as a published
-update. Follow the [candidate status](windows-parity-1.0.22.md) and
-[Windows 1.0.22 setup guide](installing-windows-1.0.22.md).
+Windows Server 1.0.22 is frozen at product source
+`8f4256e4e3cbce092791eea60d1c053e10810bb6` for **Windows Server 2025 x64
+with Desktop Experience**. Its qualified signed-update minimum is **installed
+Windows 1.0.21**. The full software suite, actual older-backup restore/reboot,
+and distinct managed fresh setup with QR and natural scheduled backup pass.
 
-The candidate's signed Windows update requires **installed 1.0.21 or newer**.
-Earlier installations need their separately supported intermediate upgrade.
-Fresh installation uses the managed registration wizard; upgrading a legacy
-installation preserves its existing registration policy, phones and settings.
-Original 1.0.21 signed-updater qualification is separate from running the new
-helper manually. A deliberately disabled original TenantDomains task stays
-disabled and delays its natural post-commit onboarding-task migration.
+Signed cases [41752080297](https://github.com/embire2/openwebpbx/actions/runs/41752080297) (original worker enabled) and [41722715796](https://github.com/embire2/openwebpbx/actions/runs/41722715796) (original worker disabled) pass. Published **2026-11-04T01:59:14Z**; public assets/canonical mirror, retained feed bytes and the ordinary installed public-feed Check verify.
+Debian 1.0.22 and Android 1.0.19 retain their own artifacts and feeds.
 
-For the published package, use the [Windows 1.0.21 release scope](release-1.0.21-qualification.md)
-and its [installation guide](installing-windows-1.0.21.md).
+[Windows qualification and limits](release-windows-1.0.22-qualification.md) ·
+[Independent Linux/Windows/Android releases](independent-platform-releases.md).
+<!-- WINDOWS22-CURRENT-STATUS-END -->
+
+## Windows 1.0.22 upgrade route
+
+Use the [Windows 1.0.22 installation guide](installing-windows-1.0.22.md) and
+[qualification record](release-windows-1.0.22-qualification.md) for the frozen
+package. Signed transaction and public-delivery acceptance are recorded above.
+
+The qualified signed Windows update requires **installed 1.0.21 or newer**.
+Earlier installations need their separately supported intermediate transition.
+Fresh installation uses the managed registration wizard; an upgrade preserves
+its existing registration policy, phones and settings. A deliberately disabled
+original TenantDomains task stays disabled and delays natural post-commit
+onboarding-task migration. Manual invocation of a new helper does not substitute
+for the original installed signed updater's acceptance.
+
+The [1.0.21 release scope](release-1.0.21-qualification.md) and
+[1.0.21 installation guide](installing-windows-1.0.21.md) remain the records for
+that earlier package. The versioned historical sections below retain their
+original scope and do not lower the new release's minimum.
 
 ## Historical Windows 1.0.20 work
 

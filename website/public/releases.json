@@ -4,6 +4,66 @@
   "releases": [
     {
       "version": "1.0.22",
+      "component": "Windows server",
+      "url": "https://github.com/embire2/openwebpbx/releases/tag/windows-v1.0.22",
+      "published_at": "2026-11-04T01:59:14Z",
+      "prerelease": false,
+      "build_source_commit": "8f4256e4e3cbce092791eea60d1c053e10810bb6",
+      "build_sources": {
+        "windows": "8f4256e4e3cbce092791eea60d1c053e10810bb6"
+      },
+      "minimum_windows_version": "1.0.21",
+      "scope": "Windows Server 2025 x64 with Desktop Experience, managed registration, local PostgreSQL, encrypted instance backups and replacement restore. Signed updates require installed Windows 1.0.21 or newer. See this release for the accepted qualification scope; physical phones, carriers, external networks and the separate Windows calling client remain separate deployment or qualification work.",
+      "source_tags": {
+        "windows": "windows-v1.0.22"
+      },
+      "assets": [
+        {
+          "name": "openwebpbx-1.0.22-windows-x64.zip",
+          "bytes": 643251073,
+          "sha256": "66c93cdcfdf1a69ccbc478d68a335290da7174283921f25318dd94f0cf340c0b",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.22/openwebpbx-1.0.22-windows-x64.zip"
+        },
+        {
+          "name": "openwebpbx-1.0.22-windows-source.tar.gz",
+          "bytes": 49886646,
+          "sha256": "fae120e41a61b0b7732c8add68190d402830b90ac09795b040d63ad71f923d21",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.22/openwebpbx-1.0.22-windows-source.tar.gz"
+        },
+        {
+          "name": "installing-windows-1.0.22.md",
+          "bytes": 6827,
+          "sha256": "baa5a86226e09d9bbfa96b29aabebac073a50b2ccb0f06968e3807781d143454",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.22/installing-windows-1.0.22.md"
+        },
+        {
+          "name": "update-manifest.json",
+          "bytes": 1404,
+          "sha256": "fc096a1524fc6eec7fd79239006f8117b0f5283e5ea5336f1ac2345abed5f8b8",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.22/update-manifest.json"
+        },
+        {
+          "name": "debian-update-manifest.json",
+          "bytes": 1228,
+          "sha256": "2e4abb53705a9c1c244abd5b93f16a40cfb2ad9787dc3791ac59ebed633eb41c",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.22/debian-update-manifest.json"
+        },
+        {
+          "name": "windows-update-manifest.json",
+          "bytes": 1204,
+          "sha256": "21e4f0af14b6e98df3435162923d40b7bde29d9d01c1cb0f5ec32d9df7bd030b",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.22/windows-update-manifest.json"
+        },
+        {
+          "name": "SHA256SUMS",
+          "bytes": 577,
+          "sha256": "5c970952e6ab4a1bca2264a6c6dc6d3e564c68a4ff50ee876abcde03cf3df37d",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.22/SHA256SUMS"
+        }
+      ]
+    },
+    {
+      "version": "1.0.22",
       "component": "Debian server",
       "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.22",
       "published_at": "2026-10-29T21:36:33Z",
@@ -1076,8 +1136,8 @@
       "name": "Windows Server 2025",
       "architecture": "x64",
       "edition": "Desktop Experience",
-      "status": "published; complete implemented server suite; fresh native calling/media, restore and signed upgrade/recovery checks pass; external deployment checks remain",
-      "version": "1.0.21"
+      "status": "published; Windows managed registration; see exact release qualification scope and deployment limits",
+      "version": "1.0.22"
     },
     {
       "name": "Windows 11",

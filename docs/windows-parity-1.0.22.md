@@ -1,5 +1,13 @@
 # Windows Server 1.0.22 qualification
 
+## Published — 4 November 2026
+
+[Windows Server 1.0.22](https://github.com/embire2/openwebpbx/releases/tag/windows-v1.0.22) is published at 01:59:14 UTC from frozen product `8f4256e4`. The full software suite, actual restore/calling/reboot, distinct managed fresh setup and both complete signed cases pass. Enabled [41752080297](https://github.com/embire2/openwebpbx/actions/runs/41752080297) and disabled [41722715796](https://github.com/embire2/openwebpbx/actions/runs/41722715796) preserve their original task choices, customer data and security; operator restore and cleanup pass. The final preparation sequence observes original updater startup before quieting Core for the unchanged tenant/backup checks, then restores Core before preservation baselines. Earlier failures below remain failed.
+
+All seven public assets and the exact canonical installer mirror verify. The old release's eight assets/tags/body/checksums and Android19/Debian22 signed envelopes remain unchanged. Windows feed sequence1793757300/minimum1.0.21 passes both publication validators. The installed Windows server accepts the actual public feed through one ordinary Check without downloading/installing or changing services/tasks/ports. Website publication and six real light/dark desktop/mobile layouts pass, including the corrected320px grids. [Qualification and scope](release-windows-1.0.22-qualification.md) records the actual limits; no physical-phone/carrier/Store or universal feature-parity claim follows.
+
+Linux may advance independently, with Windows catching up from its own qualified source later: [platform release workflow](independent-platform-releases.md). The older dated observations and blocked gates below are retained history, superseded by this published record.
+
 Windows 1.0.22 is being qualified. The downloadable Windows release remains
 [1.0.21](https://github.com/embire2/openwebpbx/releases/tag/v1.0.21).
 Debian 1.0.22 and Android 1.0.19 retain their existing packages and feeds.

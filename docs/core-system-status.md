@@ -1,5 +1,21 @@
 # OpenWeb PBX core system status
 
+<!-- WINDOWS22-CURRENT-STATUS-BEGIN -->
+## Latest Windows 1.0.22
+
+Windows Server 1.0.22 is frozen at product source
+`8f4256e4e3cbce092791eea60d1c053e10810bb6` for **Windows Server 2025 x64
+with Desktop Experience**. Its qualified signed-update minimum is **installed
+Windows 1.0.21**. The full software suite, actual older-backup restore/reboot,
+and distinct managed fresh setup with QR and natural scheduled backup pass.
+
+Signed cases [41752080297](https://github.com/embire2/openwebpbx/actions/runs/41752080297) (original worker enabled) and [41722715796](https://github.com/embire2/openwebpbx/actions/runs/41722715796) (original worker disabled) pass. Published **2026-11-04T01:59:14Z**; public assets/canonical mirror, retained feed bytes and the ordinary installed public-feed Check verify.
+Debian 1.0.22 and Android 1.0.19 retain their own artifacts and feeds.
+
+[Windows qualification and limits](release-windows-1.0.22-qualification.md) ·
+[Independent Linux/Windows/Android releases](independent-platform-releases.md).
+<!-- WINDOWS22-CURRENT-STATUS-END -->
+
 ## Windows 1.0.22 final checks — 2026-11-03
 
 The final Windows package passes the full software suite, original-backup
@@ -30,7 +46,7 @@ All original customer projections across 18 main-PBX tables are preserved, with
 exactly 12 known test rows retained separately. The main hosted PBX remains 1.0.21,
 with all seven expected desk phones registered and its calling services unchanged.
 
-Windows Server remains1.0.21 and Android remains1.0.19, with byte-identical existing compatibility feeds. There is no new Windows/Android/Store or physical-handset/carrier acceptance from this release. Roadmap **133 /21 accepted /72 partial /40 planned** remains unchanged; older dated entries below retain their historical scope.
+At the Debian1.0.22 publication, Windows Server remained1.0.21 and Android1.0.19, with their existing compatibility feeds retained. That Debian release did not establish new Windows/Android/Store or physical-handset/carrier acceptance; the latest Windows scope is recorded above. Roadmap **133 /21 accepted /72 partial /40 planned** remains unchanged; older dated entries below retain their historical scope.
 
 ## Complete server 1.0.21 published — 2026-10-27
 

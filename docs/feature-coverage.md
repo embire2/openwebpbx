@@ -1,5 +1,21 @@
 # OpenWeb PBX feature coverage
 
+<!-- WINDOWS22-CURRENT-STATUS-BEGIN -->
+## Latest Windows 1.0.22
+
+Windows Server 1.0.22 is frozen at product source
+`8f4256e4e3cbce092791eea60d1c053e10810bb6` for **Windows Server 2025 x64
+with Desktop Experience**. Its qualified signed-update minimum is **installed
+Windows 1.0.21**. The full software suite, actual older-backup restore/reboot,
+and distinct managed fresh setup with QR and natural scheduled backup pass.
+
+Signed cases [41752080297](https://github.com/embire2/openwebpbx/actions/runs/41752080297) (original worker enabled) and [41722715796](https://github.com/embire2/openwebpbx/actions/runs/41722715796) (original worker disabled) pass. Published **2026-11-04T01:59:14Z**; public assets/canonical mirror, retained feed bytes and the ordinary installed public-feed Check verify.
+Debian 1.0.22 and Android 1.0.19 retain their own artifacts and feeds.
+
+[Windows qualification and limits](release-windows-1.0.22-qualification.md) ·
+[Independent Linux/Windows/Android releases](independent-platform-releases.md).
+<!-- WINDOWS22-CURRENT-STATUS-END -->
+
 ## Add DID from a trunk — hosted Debian live —2026-10-26
 
 Admin → Voice & Chat → trunk → Incoming Calls → Add DID Number accepts a number, optional name and destination. The trunk keeps its incoming and outgoing settings. An optional continuation opens Call Me Back with that DID selected; its ordinary destination remains active until the callback greeting is ready and admin enables the service. Existing provider controls and tenant boundaries remain enforced. [Setup guide](trunk-options.md#add-an-incoming-number).

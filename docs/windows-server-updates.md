@@ -1,6 +1,22 @@
 # Windows Server updates
 
-Windows Server 1.0.21 checks its signed Windows feed every **five minutes**, verifies the complete newer compatible download and leaves the PBX running until an administrator requests installation. **Complete Windows and Debian server1.0.21 release**. See the [current release scope](release-1.0.21-qualification.md) for the exact accepted package.
+<!-- WINDOWS22-CURRENT-STATUS-BEGIN -->
+## Latest Windows 1.0.22
+
+Windows Server 1.0.22 is frozen at product source
+`8f4256e4e3cbce092791eea60d1c053e10810bb6` for **Windows Server 2025 x64
+with Desktop Experience**. Its qualified signed-update minimum is **installed
+Windows 1.0.21**. The full software suite, actual older-backup restore/reboot,
+and distinct managed fresh setup with QR and natural scheduled backup pass.
+
+Signed cases [41752080297](https://github.com/embire2/openwebpbx/actions/runs/41752080297) (original worker enabled) and [41722715796](https://github.com/embire2/openwebpbx/actions/runs/41722715796) (original worker disabled) pass. Published **2026-11-04T01:59:14Z**; public assets/canonical mirror, retained feed bytes and the ordinary installed public-feed Check verify.
+Debian 1.0.22 and Android 1.0.19 retain their own artifacts and feeds.
+
+[Windows qualification and limits](release-windows-1.0.22-qualification.md) ·
+[Independent Linux/Windows/Android releases](independent-platform-releases.md).
+<!-- WINDOWS22-CURRENT-STATUS-END -->
+
+The Windows updater checks its signed Windows feed every **five minutes**, verifies the complete newer compatible download and leaves the PBX running until an administrator requests installation. The qualified Windows 1.0.22 route requires installed **1.0.21 or newer**; signed/publication acceptance is recorded above. See the [Windows qualification record](release-windows-1.0.22-qualification.md) for current scope.
 
 When an update is available, the Windows manager displays:
 
@@ -23,9 +39,9 @@ Closing or postponing the prompt never requests installation. Update errors keep
 
 The check interval and download requirement apply to the Windows server. Debian's policy options and Android/Windows phone update settings remain separate.
 
-## Current release and historical validation
+## Earlier signed-update validation — original scope retained
 
-Current1.0.21 normal40435466441 passes all17 essential gates. Its matching signed-newer result is **[run40501021425](https://github.com/embire2/openwebpbx/actions/runs/40501021425) passed all9 signed-upgrade gates and117 original Scheduler/file-sharing controls at QA source `8834f96bfc576dbcb5c864e718ac9bb31024dab2`; canonical cleanup and exact-owned temporary-secret removal passed**. The component and1.0.20 records below retain their original scope; [current qualification](release-1.0.21-qualification.md) controls the new release.
+The earlier1.0.21 normal40435466441 passes all17 essential gates. Its matching signed-newer result is **[run40501021425](https://github.com/embire2/openwebpbx/actions/runs/40501021425) passed all9 signed-upgrade gates and117 original Scheduler/file-sharing controls at QA source `8834f96bfc576dbcb5c864e718ac9bb31024dab2`; canonical cleanup and exact-owned temporary-secret removal passed**. The component and1.0.20 records below retain their original scope; [1.0.21 qualification](release-1.0.21-qualification.md) records that earlier release.
 
 82 portable updater checks and 85 isolated PostgreSQL authorization/notice checks pass. [Native Windows run 40198754623](https://github.com/embire2/openwebpbx/actions/runs/40198754623) passes 13 actual worker controls with an isolated PostgreSQL database and PowerShell helper: the five-minute boundary, cached-download reuse, postponement under old automatic policies, single queued installation, active-call deferral and failed-feed retry. Its helper fixture does not claim a complete real-server upgrade. Ten UI Automation controls open the actual WinUI manager and test its modal, download readiness, Later, persistent banner and completed-notice removal. All 76 recorded native source inputs and the complete original artifact hash were independently checked against the dispatched commit. Ten Chromium checks exercise the real notice CSS/JavaScript at desktop and mobile sizes, including declined installation, offline retention, ordinary-user restrictions and the installation POST.
 
