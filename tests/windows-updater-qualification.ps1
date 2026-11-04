@@ -359,9 +359,35 @@ function NewActualSchemaProbe {
  $literal=@($nodes[0].Right.FindAll({param($n)$n -is [Management.Automation.Language.StringConstantExpressionAst]},$true));Check ($literal.Count -eq 1) 'The exact original probe must remain a literal.'
  $probe=Join-Path $qa 'actual-schema-probe.py';[IO.File]::WriteAllText($probe,$literal[0].Value,[Text.UTF8Encoding]::new($false));return $probe
 }
-function WaitActualTenantIdle {
- $deadline=[DateTime]::UtcNow.AddSeconds(600)
+function TestQualificationOriginal21Startup($Status,[DateTime]$CreatedUtc,[DateTime]$ObservedUtc){
+ if($Status-isnot [Collections.IDictionary]-or $Status.state-isnot [string]-or $Status.state-cne 'up_to_date'-or $Status.installed_version-isnot [string]-or $Status.installed_version-cne '1.0.21'-or $Status.platform-isnot [string]-or $Status.platform-cne 'windows-x64'-or $CreatedUtc.Kind-ne [DateTimeKind]::Utc-or $ObservedUtc.Kind-ne [DateTimeKind]::Utc-or $CreatedUtc-gt $ObservedUtc){return $false}
+ $value=$Status.checked_at;$checked=$null
+ if($value-is [DateTimeOffset]){$checked=$value.ToUniversalTime()}
+ elseif($value-is [DateTime]-and $value.Kind-ne [DateTimeKind]::Unspecified){$checked=[DateTimeOffset]$value.ToUniversalTime()}
+ elseif($value-is [string]-and $value-cmatch '^\d{4}-\d{2}-\d{2}T.+(?:Z|[+-]\d{2}:\d{2})$'){$parsed=[DateTimeOffset]::MinValue;if([DateTimeOffset]::TryParse($value,[Globalization.CultureInfo]::InvariantCulture,[Globalization.DateTimeStyles]::None,[ref]$parsed)){$checked=$parsed.ToUniversalTime()}}
+ return ($null-ne $checked-and $checked-ge $CreatedUtc-and $checked-le $ObservedUtc)
+}
+function WaitOriginal21UpdaterStartup([DateTime]$DeadlineUtc){
+ Check ($DeadlineUtc.Kind-eq [DateTimeKind]::Utc-and [DateTime]::UtcNow-lt $DeadlineUtc) 'The original shared600-second startup/tenant fence expired.'
+ $workerPid=InstalledVersions $BaseVersion
+ $held=RetainQualificationProcess ([Diagnostics.Process]::GetProcessById($workerPid)) $workerPid "$root\updater\slots\$BaseVersion\OpenWebPbx.Updater.exe" 'S-1-5-18' 0 ([DateTime]::MinValue)
+ $created=[DateTime]::new([long]$held.start_ticks,[DateTimeKind]::Utc)
  do{
+  Check ([DateTime]::UtcNow-lt $DeadlineUtc) 'The original shared600-second startup/tenant fence expired.'
+  Check ((InstalledVersions $BaseVersion)-eq $workerPid) 'The exact original21 updater generation changed before fixture preparation.'
+  AssertOriginalProcessState $held $workerPid $false 'The original21 updater exited before its first ordinary tick.'
+  $ready=$false
+  try{$item=Get-Item -LiteralPath "$state\updates\status.json" -Force -ErrorAction Stop;if(!$item.PSIsContainer-and !($item.Attributes-band [IO.FileAttributes]::ReparsePoint)-and $item.Length-gt 0-and $item.Length-le 65536){$ready=TestQualificationOriginal21Startup (Get-Content -LiteralPath $item.FullName -Raw|ConvertFrom-Json -AsHashtable) $created ([DateTime]::UtcNow)}}catch{}
+  Check ([DateTime]::UtcNow-lt $DeadlineUtc) 'The original shared600-second startup/tenant fence expired.'
+  if($ready){$facts.original21_startup_preparation=@{state='passed';exact_original21_pid_generation=$true;ordinary_first_tick_up_to_date_after_creation=$true;startup_and_tenant_shared_seconds=600;core_remained_running=$true;manual_worker_or_check=$false};return}
+  Start-Sleep -Milliseconds 250
+ }while($true)
+}
+function WaitActualTenantIdle {
+ param([DateTime]$DeadlineUtc=[DateTime]::MinValue)
+ $deadline=if($DeadlineUtc-eq [DateTime]::MinValue){[DateTime]::UtcNow.AddSeconds(600)}else{$DeadlineUtc}
+ do{
+  Check ([DateTime]::UtcNow -lt $deadline) 'The original shared600-second startup/tenant fence expired.'
   $script:qualificationTenantIdleObservation=$null
   $tenant=Get-ScheduledTask -TaskName 'OpenWebPBX-TenantDomains';Assert-OpenWebQualificationTenantTask $tenant
   Check $tenant.Settings.Enabled 'The actual natural-migration case needs the genuinely enabled original worker.'
@@ -372,7 +398,7 @@ function WaitActualTenantIdle {
   $ready=[string]$tenant.State -cnotin 'Running','Queued' -and ($nativeProcessCount=Get-OpenWebQualificationTenantProcesses) -eq 0 -and $info.LastTaskResult-eq 0 -and $info.LastRunTime-gt [DateTime]::MinValue -and !$initialized.Count
   $taskState=if([string]$tenant.State-cin 'Ready','Running','Queued','Disabled','Unknown'){[string]$tenant.State}else{'other'}
   $script:qualificationTenantIdleObservation=ReadQualificationTenantIdleObservation @{schema=1;task_enabled=$tenant.Settings.Enabled;task_state=$taskState;native_process_count=$nativeProcessCount;last_task_result=$info.LastTaskResult;last_run_observed=($info.LastRunTime-gt [DateTime]::MinValue);path_presence=$pathPresence}
-  if($ready){return}
+  if($ready){Check ([DateTime]::UtcNow -lt $deadline) 'The original shared600-second startup/tenant fence expired.';return}
   Check ([DateTime]::UtcNow -lt $deadline) 'The enabled owned tenant worker did not become idle before the preservation baseline.'
   Start-Sleep -Milliseconds 250
  }while($true)
@@ -1261,13 +1287,16 @@ if(!$?){exit 1}
   $phase='exact owned Health observer quiescence before all preservation baselines'
   Suspend-OpenWebQualificationHealth ([ref]$qualificationHealthOriginal)
   if($actualCandidate){
-  $prebaselineCore=$null;$prebaselinePrimary=$null
-  try{
-   $phase='exact original21 Core quiescence before fixture initialization'
-   $prebaselineCore=Suspend-Original21PrebaselineCore -PackageRoot $package
+  $initializationDeadline=[DateTime]::UtcNow.AddSeconds(600)
+  $phase='ordinary original21 updater startup before Core quiescence'
+  WaitOriginal21UpdaterStartup -DeadlineUtc $initializationDeadline
   if(!$actualCandidate){Suspend-OpenWebQualificationTenant ([ref]$qualificationTenantOriginal)}
   elseif($OriginalTenantDomainsDisabled){Suspend-OpenWebQualificationTenant ([ref]$qualificationTenantOriginal);$qualificationTenantOriginal.Enabled=$false}
-  else{$phase='natural original tenant initialization before preservation baselines';WaitActualTenantIdle}
+  else{$phase='natural original tenant initialization before preservation baselines';WaitActualTenantIdle -DeadlineUtc $initializationDeadline}
+  $prebaselineCore=$null;$prebaselinePrimary=$null
+  try{
+   $phase='exact original21 Core quiescence only for backup initialization'
+   $prebaselineCore=Suspend-Original21PrebaselineCore -PackageRoot $package
 
   $facts.checks+='Exact owned Health task/helper identity and zero native children/runtime files before complete DB/file/task preservation baselines; enabled choice retained privately'
   $phase='ordinary SYSTEM backup worker baseline initialization'
