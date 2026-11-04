@@ -1,5 +1,13 @@
 # OpenWeb PBX workspace
 
+## Hosted PBX storage and database recovery — 2026-11-04
+
+- `call.openweb.co.za` returned blank HTTP500 because the actual PostgreSQL18/main cluster had stopped after a full-disk checkpoint failure. The generic `postgresql.service` umbrella remained active and was not a sufficient database health check. Starting `postgresql@18-main` completed normal recovery; both canonical and OpenWeb tenant login pages return200, and a real browser confirms visible login forms without page errors. The application database contains27 extensions.
+- About11GiB is now available. Old test APT download caches were cleared; inactive Windows113 expanded source and four Debian110/111 test root filesystems were compressed privately, fully compared with GNUtar before removing the expanded copies, and retained with SHA256 records. Existing release archives, current qualification inputs, live PostgreSQL storage and production recordings remain retained. Recovery records and restoration mappings are under `/var/lib/openwebpbx/site-recovery-20261104T111109Z`.
+- This host now has `/etc/systemd/system/postgresql@18-main.service.d/openwebpbx-recovery.conf` with `Restart=on-failure` and30-second delay. The policy was loaded without restarting the recovered database. Use `systemctl stop postgresql@18-main` for planned maintenance.
+- **Before a build, download or extraction on the live server's filesystem, require at least10GiB free PLUS the bounded maximum new staging/output usage.** Move larger build/test work to a separate builder or volume. If the reserve is unavailable, first reclaim retrievable caches or archive verified inactive workspaces; never consume the live database's remaining space. Preserve current source, release evidence, backups and recordings. After release work, verify the actual PostgreSQL cluster with `pg_isready`/`SELECT1` and the live login URL; the umbrella unit being active is insufficient.
+- No application version, published Windows artifact, signed feed or tenant credential was changed by this operational repair. [Recovery record](docs/hosted-recovery-2026-11-04.md).
+
 ## Windows Server 1.0.22 published — 2026-11-04
 
 - Public release `windows-v1.0.22` (433424746), published 01:59:14 UTC, is latest and binds product `8f4256e4e3cbce092791eea60d1c053e10810bb6`. All seven assets and the exact canonical v1.0.22 ZIP mirror pass complete public hash readback. ZIP SHA256 `66c93cdcfdf1a69ccbc478d68a335290da7174283921f25318dd94f0cf340c0b`; original eight Debian-release assets, tags, body and retained Android/Debian feed bytes remain unchanged.
