@@ -1,12 +1,18 @@
-# Windows Server 1.0.23 — local candidate scope
+# Windows Server 1.0.23 — local qualification and release transition
 
-**Unpublished, privately installed and tested.** This work catches the Windows
-server up to the shared DID wizard and routing corrections. A normal manual
-**Windows22→23** upgrade completed, followed by a scoped audio correction.
-The final corrected installer has passed complete private package verification.
-It authorizes no GitHub commit/push, workflow, release asset, tag, public feed or
-website publication. Windows 1.0.22's accepted release evidence remains valid
-for that version; it is not relabelled as a 1.0.23 result.
+**Current status — 5 November 2026:** the user has authorized publication after
+the actual remaining release checks. The corrected frozen e1/BADC installer
+passes complete private package verification, native consumed-CDR controls
+and actual interrupted-restore recovery. Final normal signed transition,
+original 1.0.23 data return, complete BADC reapply, final calling and public checks
+remain **PENDING**. Windows 1.0.22 remains the public Windows download.
+
+**Historical scope — 4 November 2026:** the original task authorized only local
+Windows 1.0.22-to-1.0.23 development/testing, with no GitHub or website publication. Its
+manual upgrade, UI and audio results remain separate accepted components.
+That publication restriction was superseded by the user's 5 November instruction;
+it neither changes earlier results nor qualifies a pending release component.
+Windows 1.0.22 evidence remains explicitly 1.0.22 evidence.
 
 Use the [local installation guide](installing-windows-1.0.23.md). Linux, Windows
 and Android keep their own qualified artifacts and release cadence; see
@@ -14,21 +20,31 @@ and Android keep their own qualified artifacts and release cadence; see
 
 ## Current status
 
-| Component | Local 1.0.23 status |
+| Component | Actual scope/status |
 |---|---|
-| Complete private package, full source/payload inventory and archive SHA-256 | **PASS** — corrected19,288-payload package, SHA-256 `bfc02f54…` |
-| Native server/updater and WinUI manager build | **PASS** — all three components1.0.23.0; installed manager visibly responsive |
+| Corrected complete package and source inventory | **PASS** — BADC — 643,269,105 bytes/all 19,288 payloads; source `e1aa…`, raw manifest `8d6c…`; exact identities below. Earlier BFC remains historical/withheld. |
+| Earlier native server/updater and WinUI manager build | **PASS** — all three builds are 1.0.23.0; earlier installed manager visibly responsive. Final normal installation/restart remains pending. |
 | Focused real Windows DID/alias/runtime-policy fixtures | **PASS** —188 PostgreSQL/PHP controls on actual Windows Server2025; no new native-Lua claim |
-| Actual installed22→23 manual upgrade and preservation | **PASS** — native exit0 in 739.944s;23 captured SQL tables, identities, QR, media and task choices preserved |
+| Earlier installed22→23 manual upgrade and preservation | **PASS, 4 November component** — native exit0 in 739.944s; 23 SQL projections, identities, QR, media and task choices preserved. Not final BADC installation. |
 | Actual Windows browser save, number-format choice and Call Me Back setup handover | **PASS** —49 checks; temporary disabled fixture removed, original config restored |
-| Original-credential software calling and encrypted backup | **PASS** —8 UDP/TLS registration/two-way audio cases after Windows buffering fix; verified encrypted backup downloaded |
-| New public Windows23 signed offer/download/publication | **NOT REQUESTED** |
+| Earlier original-credential calling and backup | **PASS, scoped component** —8 UDP/TLS registration/two-way audio cases after Windows buffering fix; verified encrypted backup downloaded. Final post-return calling is pending. |
+| Consumed-CDR recovery correction | **PASS** — 89 native controls across 21 cases and actual corrected-helper recovery at 13:15:08 UTC on 5 November. |
+| Unchanged late rollback | **REUSED WINDOWS 1.0.22** — actual signed cases 41752080297/41722715796; no new 1.0.23 late-canary pass. |
+| Final signed normal BADC 22→23, original 1.0.23 return and full reapply | **PENDING** — separately declared actual components; failed result `c0ca49cf…` remains failed. |
+| Public Windows 1.0.23 assets/feed/readback and ordinary installed Check | **PENDING** — publication authorized, acceptance not yet established. |
 
-The package must include the frozen **working-tree** source plus an explicit
-allowlist of new files. There is no new immutable product commit or published
-tag for this local candidate. Record the actual archive hash, source-file hashes,
-runtime inputs, build outputs and test receipts when they exist; no pending row
-above is a pass merely because shared code works on Debian.
+The original local build used a frozen working tree and explicit new-file
+allowlist. The corrected release candidate now has immutable Windows source
+`e1aaad63f99ac3b11714d9d0cd3f2a085778688f`. The ZIP SHA-256 is
+`badc4326b48d1e7953990eb382f598602bb23bd068ca27c42abf22c25ce10907`;
+its raw release manifest is
+`8d6c8f5c7e34cd813df7b805c726c19eec4a676739c1441a7aec3cf4a2d1cd7b`.
+The 50,251,792-byte application source archive is
+`4d581c86667782bd49f998afb084e06af91af7958dbd130ca52f4a3ab37eb5c8`.
+Its platform release/tag and public delivery remain pending. See the
+[release qualification](release-windows-1.0.23-qualification.md) for exact
+composite/recovery scope; Debian success cannot turn a pending Windows row
+into a pass.
 
 ## Packaging and copy coverage
 
@@ -44,9 +60,9 @@ summary, Call Me Back settings, native incoming-rule projection and the
 `app/pbx_setup/resources/switch/scripts/app/pbx_setup/policy.lua` policy.
 
 The stock [packager](../packaging/build-release.py) starts with `git ls-files`.
-An untracked new file is therefore **not included automatically**. The private
-build must inventory the exact new runtime files and these guides in its own
-source snapshot/index without changing shared HEAD or making a commit. It must
+An untracked new file is therefore **not included automatically**. The original
+4 November private build inventoried these runtime files and guides in its own
+source snapshot/index without changing shared HEAD or committing. A build must
 exclude live configuration, credentials, signing keys and unrelated user files.
 The final `release-manifest.json` must contain the actual new payload entries.
 
@@ -103,9 +119,9 @@ Windows tenant to27. A future restored-PBX country migration would need a known,
 explicit source-country binding and the owner's confirmation; no such migration
 or guessed-country setup is claimed here.
 
-## Minimum actual22→23 qualification
+## Original local qualification scope — 4 November 2026
 
-Reuse unchanged accepted Windows22 components, while recording the following
+Reuse unchanged accepted Windows 1.0.22 components, while recording the following
 affected checks separately for the local candidate:
 
 1. **Freeze and preserve.** Bind the exact complete private package and source
@@ -146,7 +162,7 @@ registration, cold retirement or arbitrary repeat is required merely to call
 this a locally tested manual upgrade. A later public release needs its own
 approved release qualification and publication decision.
 
-## Updater trust and private callers
+## Manual updater route and trust — original 4 November scope
 
 The selected local route is the complete extracted payload's manual helper,
 **without `-Archive`/`-FeedEnvelope`**. It checks the manifest and uses the normal
@@ -158,7 +174,7 @@ The separate signed-archive path calls the installed verifier. That verifier
 checks the pinned release key, Windows platform, package hash/size, canonical
 asset name/URL, expiry, sequence floor and minimum version. Successful
 `--verify-package` also persists trust history. A higher-sequence private23 feed
-can therefore make the still-public22 feed stale on the test installation; an
+can therefore make the still-public 1.0.22 feed stale on the test installation; an
 arbitrary localhost asset URL is not accepted instead. Do not lower that floor,
 replace the release key or rewrite public metadata to disguise the distinction.
 
@@ -210,10 +226,11 @@ These are private build, installed upgrade, UI, software calling and backup
 results. No new fresh-install, carrier, physical desk-phone, Store, signed
 update or public-release acceptance is claimed.
 
-## Final private installer
+## Earlier private BFC repack — 4 November 2026
 
-The corrected complete package is 643,268,769 bytes with 19,288 verified
-payloads. SHA-256:
+The earlier complete BFC package was 643,268,769 bytes with 19,288 verified
+payloads. It is withheld after the consumed-CDR recovery issue and superseded
+by the corrected e1/BADC package above. Historical SHA-256:
 
 ```text
 bfc02f54e6c6978748b7ce8b3e8ec432c7d25b21330ccaee915919ea94939e95
@@ -235,6 +252,7 @@ After all calls, all 23 captured SQL projections and six private identities
 remain exact, all ten original recordings survive, and six new calling-test
 recordings remain. No temporary DID/provider or live test call remains.
 
-Current notes include post-build results; the archive's frozen source map and
-manifest are retained separately. GitHub, signed feeds and website downloads
-remain unchanged.
+These 4 November notes include post-build results; that archive's frozen source
+map and manifest remain separate. No GitHub/feed/website publication occurred
+under the original local-only task. The user's 5 November publication instruction
+supersedes that restriction; final Windows 1.0.23 publication remains pending.

@@ -1,55 +1,109 @@
 # Windows Server 1.0.23 release qualification
 
-**Release preparation — 5 November 2026.** Publication is now authorized.
-Installed components are recorded below. The original private installer is
-held after an actual recovery failure; it is not approved for publication.
-A corrected package must complete recovery and signed-update checks. Earlier
-failed attempts remain failed.
+**Release preparation — 5 November 2026.** The user has authorized publication,
+subject to the actual checks below. The corrected BADC package and recovery of
+the interrupted restore are accepted components. The final normal signed
+transition, original 1.0.23 data return, full BADC reapply, final calling and public
+release checks remain **PENDING**. Windows 1.0.22 remains the public download.
+Earlier failed attempts remain failed.
 
-## Earlier private artifact and source
+## Corrected package and frozen source
 
-The complete 643,268,769-byte Windows ZIP has SHA-256:
+The complete Windows Server 2025 x64 Desktop Experience ZIP is
+**643,269,105 bytes**, with SHA-256:
 
 ```text
-bfc02f54e6c6978748b7ce8b3e8ec432c7d25b21330ccaee915919ea94939e95
+badc4326b48d1e7953990eb382f598602bb23bd068ca27c42abf22c25ce10907
 ```
 
-All 19,288 payload hashes/sizes match its frozen source/input map. The exact
-7,725-file source snapshot is preserved byte-for-byte and mode-for-mode in
-commit `54779be475d0aab867b04f4908b7b656aee77b57`. The matching source archive
-has SHA-256 `e8e493513d7108630fe2ab18ebbd1e92e3387fb1f5a5c6bb0a1fd1d66921c210`.
-The commit was created after testing from that exact frozen tree. The default
-branch carries subsequent publication documentation; no native build or
-artifact is relabelled to hide that distinction.
+All **19,288 payloads** pass complete size/hash verification. The raw release
+manifest SHA-256 is
+`8d6c8f5c7e34cd813df7b805c726c19eec4a676739c1441a7aec3cf4a2d1cd7b`.
+The frozen Windows source is `e1aaad63f99ac3b11714d9d0cd3f2a085778688f`.
+Its 50,251,792-byte application source archive has SHA-256
+`4d581c86667782bd49f998afb084e06af91af7958dbd130ca52f4a3ab37eb5c8`.
+Later default-branch documentation does not change that product identity.
+
+The prepared Windows-only signed offer has sequence **1793892995**, minimum
+installed Windows **1.0.22**, and envelope SHA-256
+`0832577ee2d4627c1dbeb8f2ee7d37ec27a82a3dd3c8054e5013da739f1a1f28`.
+Its prospective release is `windows-v1.0.23`; actual publication time and
+public delivery remain unbound until publication/readback. Debian 1.0.23 and
+Android 1.0.19 retain their separate existing artifacts and signed envelopes.
 
 | Component | Actual evidence |
 |---|---|
-| Server, updater and native manager | Accepted: all three builds are 1.0.23.0; their code inputs match the prior qualified code except version metadata. |
-| Ordinary installed upgrade | Accepted component: normal complete 22-to-23 manual upgrade in 739.944 seconds, exit 0, followed by the scoped audio correction. The corrected repack was not installed again during that private component. |
+| Server, updater and native manager | Accepted earlier 1.0.23 build component: all three builds are 1.0.23.0; code inputs match qualified 1.0.22 except version metadata. Final installed BADC versions/restart remain pending. |
+| Earlier ordinary installed upgrade | Accepted 4 November component: normal complete 22-to-23 manual upgrade in 739.944 seconds, exit 0, followed by the scoped audio correction. This does not establish installation of the later BADC package. |
 | DID editor and routing | Accepted: 188 actual Windows PostgreSQL/PHP controls and 49 ordinary browser checks. Temporary disabled provider/number fixtures were removed; the original PBX configuration was restored exactly. |
-| Calling | Accepted corrected component: four registrations and four two-way software calls over UDP/TLS in 28.990 seconds; all 16 RTP streams and 3,371 packets pass unchanged limits, including tails. Two earlier audio failures remain recorded. |
+| Earlier calling | Accepted corrected component: four registrations and four two-way software calls over UDP/TLS in 28.990 seconds; all 16 RTP streams and 3,371 packets pass unchanged limits, including tails. Two earlier audio failures remain recorded. Final post-return calling remains pending. |
 | Windows audio default | A 60 ms receive buffer, allowed to grow to 200 ms, stays active while bridging. Explicit administrator values/off choices remain intact. Debian's platform branch is unchanged relative to the shared timestamp policy. |
-| Preservation | All 23 captured SQL projections, six private identities/configuration files, original QR/mobile credentials and ten original media files are exact. Six later test recordings are retained. Task names/enabled choices survive; five stock task start timestamps are regenerated. |
-| Native manager | Accepted: installed 1.0.23 has a visible, responsive top-level window in the ordinary user's desktop session and remains open. |
-| Encrypted backup | Accepted: one normal request, built-in full verification and complete encrypted off-server download in 201.715 seconds. Earlier observer interruptions remain recorded separately. |
+| Earlier local preservation | All 23 captured SQL projections, six private identities, QR/mobile credentials and ten original media files are exact; six later recordings are retained. Task names/enabled choices survive; five stock start timestamps regenerate. The pending original 1.0.23 data return must restore its own model and all 16 media files. |
+| Earlier native manager | Accepted earlier component: installed 1.0.23 had a visible, responsive window in the ordinary user's desktop session. Final normal-transition reopen remains pending. |
+| Encrypted backup | Accepted ordinary creation, built-in full verification and complete encrypted off-server download. Unchanged backup implementation and accepted current-data backup evidence may be reused; no new BADC backup is inferred. |
 | Fresh/restore/reboot and unchanged infrastructure | The relevant unchanged components retain their original 1.0.22 evidence, explicitly scoped below. |
-| Signed final-package transition and recovery | Pending actual scoped qualification of the final 1.0.23 offer/package. |
-| Public feed/download readback | Pending final publication. |
+| Corrected consumed-CDR recovery | Accepted: 89 native controls across 21 cases and actual corrected-helper interrupted-restore recovery; details below. |
+| Signed late-rollback orchestration | Explicitly reused Windows 1.0.22 runs 41752080297/41722715796; not a new 1.0.23 late-canary pass. |
+| Final BADC normal signed transition | **PENDING:** exact download, original 1.0.22-to-1.0.23 install, natural updater restart, manager reopen and protected data; five normal gates only. |
+| Original 1.0.23 data return and full BADC reapply | **PENDING:** exact SQL/model, QR, six private identities, 16 media files and task choices, then complete reapply/preservation. |
+| Final calling and public checks | **PENDING:** calling/full-wire confirmation, seven public assets/canonical additions, retained feeds and installed ordinary public Check. |
 
-No installer PowerShell, Windows backup/restore implementation, onboarding,
-schema SQL, engine, codec, prompt or music input changed from the qualified
-1.0.22 implementation. Their [existing component evidence](release-windows-1.0.22-qualification.md)
-is reused explicitly. It is not a new 1.0.23 fresh-install or signed-update pass.
-The new signed offer is proposed with minimum Windows 1.0.22; direct older
-transitions need their own evidence.
+## Explicit composite scope
+
+Independent comparison of qualified 1.0.22 source
+`8f4256e4e3cbce092791eea60d1c053e10810bb6` with frozen corrected 1.0.23 source
+`e1aaad63f99ac3b11714d9d0cd3f2a085778688f` establishes:
+
+- 74 of 75 Windows installer/recovery paths are identical; only the narrow
+  consumed-CDR recovery correction changes.
+- 82 of 83 native-project/source paths are identical; only global version
+  metadata changes from 1.0.22 to 1.0.23.
+- All 26 SQL files, Windows bootstrap, schema upgrader and additive-default
+  initializer are identical. There is no new 1.0.23 DDL/down-migration contract.
+
+Actual Windows 1.0.22 runs
+[41752080297](https://github.com/embire2/openwebpbx/actions/runs/41752080297) and
+[41722715796](https://github.com/embire2/openwebpbx/actions/runs/41722715796)
+retain their signed late-failure rollback, manager reopen, database/files/ACL/
+task preservation and operator-recovery acceptance. Their unchanged
+orchestration is reused alongside 89 native controls and actual corrected-helper
+recovery evidence.
+Automatic rollback, interrupted recovery and operator restore reach the same
+`RestorePbx`/support/CDR recovery path.
+
+The new 5 November fault attempt, retained as result `c0ca49cf…`, **FAILED**:
+rollback occurred before the intended late canary, its witness was absent and
+the controller timed out. No normal installation request followed in that
+case. Its exact deployment cause remains unknown. It is not a Windows 1.0.23
+late-canary pass, and the Windows 1.0.22 results are not relabelled as 1.0.23 results.
+
+Prospective acceptance is **Windows 1.0.23 normal signed transition, with unchanged
+rollback orchestration reused from Windows 1.0.22 and corrected CDR recovery
+independently exercised**. The actual normal component must retain its before
+maps, command cursor, original 1,800-second native bound and five normal gates.
+An early-rollback full-preservation claim needs its own actual comparison.
+Composite evidence cannot fabricate an eight-gate pair or extend a failed
+component's deadline.
+
+The original 1.0.23 return uses the ordinary installed `-RestoreBackup` path and
+must restore its exact model, six private identities, 16 media files, QR and
+task choices. Its sealed bundle contains earlier BFC support files, so a
+complete normal BADC reapply is required afterward. A manual helper patch is
+not a substitute.
+
+Unchanged fresh setup, restore/reboot infrastructure, backup, engine, codec,
+prompt and music components retain their
+[Windows 1.0.22 evidence](release-windows-1.0.22-qualification.md). This is not a
+new 1.0.23 fresh-install pass. Direct transitions from versions older than
+1.0.22 need their own evidence.
 
 ## Recovery correction
 
 An ordinary restore of the sealed public 1.0.22 backup failed because its
 permission inventory still listed a transient call-record XML file already
 consumed by the normal importer. Permission inventories do not archive these
-XML bytes. The failed attempt and its stopped, guarded recovery state are
-retained; the earlier ZIP is not relabelled as corrected.
+XML bytes. The failed attempt and its guarded recovery evidence are retained;
+the earlier ZIP is not relabelled as corrected.
 
 The correction permits only an absent, canonical UUID-named direct file in
 the owned default spool, with a privileged saved file owner and current spool
@@ -61,12 +115,28 @@ symbolic links, junctions and access/sharing failures. Denials preserve
 surviving bytes and permissions before any recovery write.
 
 Default-branch fix: `03050db58823dc5c5c014cadede83296fb00a620`.
-Corrected frozen Windows source:
-`e1aaad63f99ac3b11714d9d0cd3f2a085778688f`.
-Actual recovery, the new complete package and its signed transition remain
-pending. Native executables, engine and voice inputs do not require rebuilds
-for this PowerShell-only correction.
+Corrected helper SHA-256:
+`93e51eba827dfee0839f91f7ba497a99d75fd0ef01ae9c15a03c7a54a39a41ea`.
+On 5 November, recovery using the exact corrected whole-file helper bundle
+completed at **13:15:08 UTC**, native exit0. Subsequent readback confirmed
+journal `rolled_back`, no remaining hold, genuine restored public 1.0.22 helpers,
+all three native versions 1.0.22 and all four services running. The earlier wrapper
+remains failed. This is an actual recovery component, not a final 1.0.23 normal
+installation, automatic late-canary or fresh-install result. Native executables,
+engine and voice inputs did not need rebuilding for this correction.
 
-The audio change passes the specified checks; it does not prove that every
-network/media timing event has disappeared. No new physical-phone, carrier,
-capacity, Store or complete 3CX feature-parity claim is made.
+## Earlier private artifact — 4 November 2026
+
+The earlier BFC ZIP was 643,268,769 bytes, SHA-256
+`bfc02f54e6c6978748b7ce8b3e8ec432c7d25b21330ccaee915919ea94939e95`,
+with 19,288 verified payloads. Its 7,725-file source snapshot is commit
+`54779be475d0aab867b04f4908b7b656aee77b57`; its source archive is
+`e8e493513d7108630fe2ab18ebbd1e92e3387fb1f5a5c6bb0a1fd1d66921c210`.
+It remains historical and withheld. The 4 November local-only/no-publication
+restriction was superseded by the user's 5 November publication authorization;
+that authorization does not waive the pending corrected-package checks.
+
+The audio checks do not prove that every network/media timing event vanished.
+The separately confirmed hosted Debian 1.0.24 Android outside call does not qualify
+Windows carrier calling. No new physical-phone, carrier, capacity, Store or
+complete 3CX feature-parity claim is made.
