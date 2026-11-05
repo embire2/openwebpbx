@@ -1,11 +1,12 @@
 # Windows Server 1.0.23 release qualification
 
 **Release preparation — 5 November 2026.** Publication is now authorized.
-The final private installer and installed components are accepted below;
-remaining signed-publication checks are recorded separately. Earlier failed
-attempts remain failed.
+Installed components are recorded below. The original private installer is
+held after an actual recovery failure; it is not approved for publication.
+A corrected package must complete recovery and signed-update checks. Earlier
+failed attempts remain failed.
 
-## Frozen artifact and source
+## Earlier private artifact and source
 
 The complete 643,268,769-byte Windows ZIP has SHA-256:
 
@@ -41,6 +42,30 @@ schema SQL, engine, codec, prompt or music input changed from the qualified
 is reused explicitly. It is not a new 1.0.23 fresh-install or signed-update pass.
 The new signed offer is proposed with minimum Windows 1.0.22; direct older
 transitions need their own evidence.
+
+## Recovery correction
+
+An ordinary restore of the sealed public 1.0.22 backup failed because its
+permission inventory still listed a transient call-record XML file already
+consumed by the normal importer. Permission inventories do not archive these
+XML bytes. The failed attempt and its stopped, guarded recovery state are
+retained; the earlier ZIP is not relabelled as corrected.
+
+The correction permits only an absent, canonical UUID-named direct file in
+the owned default spool, with a privileged saved file owner and current spool
+owner. It never recreates records. All present files, directories, importer
+locks, custom spools, links, malformed descriptors and other I/O failures
+retain their strict validation. Native isolated Windows checks pass **89
+controls across 21 cases**, including actual ACLs, hard links, dangling
+symbolic links, junctions and access/sharing failures. Denials preserve
+surviving bytes and permissions before any recovery write.
+
+Default-branch fix: `03050db58823dc5c5c014cadede83296fb00a620`.
+Corrected frozen Windows source:
+`e1aaad63f99ac3b11714d9d0cd3f2a085778688f`.
+Actual recovery, the new complete package and its signed transition remain
+pending. Native executables, engine and voice inputs do not require rebuilds
+for this PowerShell-only correction.
 
 The audio change passes the specified checks; it does not prove that every
 network/media timing event has disappeared. No new physical-phone, carrier,

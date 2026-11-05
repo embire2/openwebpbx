@@ -21,20 +21,22 @@ There is no OpenWeb software licence fee. You control your server and data; host
 
 Choose the **server** for your operating system, then a compatible phone app. Components have separate versions and signed feeds. Linux can move ahead while Windows completes its own tests, and Windows can catch up later; matching version numbers do not establish compatibility. [Independent platform releases](docs/independent-platform-releases.md).
 
+**Latest releases:** Debian **1.0.23**, Windows Server **1.0.22** and Android **1.0.19**. Windows 1.0.23 is completing recovery qualification and will have its own release.
+
 | Component | Public download | Platform and status |
 |---|---|---|
-| **PBX server** | [Debian 1.0.22](https://github.com/embire2/openwebpbx/releases/download/v1.0.22/openwebpbx-1.0.22-debian13-amd64.tar.gz) · [Install guide](docs/installing-1.0.22.md) | Complete server for **Debian 13 amd64**. Includes the local database, calling engine, web administration and background services. |
+| **PBX server** | [Debian 1.0.23](https://github.com/embire2/openwebpbx/releases/download/v1.0.23/openwebpbx-1.0.23-debian13-amd64.tar.gz) · [Install guide](docs/installing-1.0.23.md) | Complete server for **Debian 13 amd64**. Includes the local database, calling engine, web administration and background services. |
 | **OpenWebPBX Free Phone — Android** | [Android 1.0.19 APK](https://github.com/embire2/openwebpbx/releases/download/v1.0.19/openwebpbx-1.0.19-android.apk) · [Release notes](https://github.com/embire2/openwebpbx/releases/tag/android-v1.0.19) · [Setup guide](docs/android-tenant-addresses-1.0.18.md) | Native **Android 9+** app with a five-second logo launch screen; calls and updates bypass branding. Registered `*.openwebpbx.com` tenant addresses and compatible APIs are required. Managed updates require server 1.0.20+. Mandatory on the hosted instance. Google Play publication is pending. |
 | **OpenWebPBX Free Phone — Windows** | [Development source](https://github.com/embire2/openwebpbx/tree/feature/windows-free-phone-v1.0.0/clients/windows) · [Client plan](docs/windows-client-plan.md) | Native C# and WinUI 3 client in development for **Windows 11 and Windows Server 2025 Desktop Experience**. Development-package install/update/relaunch checks pass; calling and production distribution remain under qualification. No client download or Microsoft Store listing is available yet. |
 | **Windows Server** | [Windows 1.0.22 ZIP](https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.22/openwebpbx-1.0.22-windows-x64.zip) · [Install guide](docs/installing-windows-1.0.22.md) | Complete PBX for **Windows Server 2025 x64 with Desktop Experience**. Includes its local database, native server manager and the same managed registration wizard used by Debian. |
 
-Both server packages keep PostgreSQL and the PBX on your server and use the [same registration wizard](https://openwebpbx.com/wizard). Signed server upgrades require **1.0.21 or newer on the corresponding platform**; earlier installations need a separately validated transition. Android remains **1.0.19**. Install updates over the existing app to retain accounts. An app update alone does not add compatible tenant/QR APIs to a stock Debian 1.0.16 server.
+Both server packages keep PostgreSQL and the PBX on your server and use the [same registration wizard](https://openwebpbx.com/wizard). The Debian 1.0.23 signed upgrade requires **installed Debian 1.0.22 or newer**. The retained Windows 1.0.22 offer keeps its existing installed-version minimum of 1.0.21; a future Windows 1.0.23 release requires its own corrected package and qualification. Earlier installations need their separately validated transition. Android remains **1.0.19**. Install updates over the existing app to retain accounts. An app update alone does not add compatible tenant/QR APIs to a stock Debian 1.0.16 server.
 
 Historical: [Admin 1.0.19](https://github.com/embire2/openwebpbx/releases/tag/v1.0.19) is an incoming-routing administration update for supported Debian/core 1.0.16 installations, **not a complete server installer**. [Apply guide](docs/incoming-routing-1.0.19.md).
 
 Release pages provide checksums, signed metadata and corresponding source. [All releases](https://github.com/embire2/openwebpbx/releases) · [Download catalogue](https://openwebpbx.com/#downloads) · [Updates and recovery](docs/updates.md)
 
-**Build from the matching source.** Windows uses [`windows-v1.0.22`](https://github.com/embire2/openwebpbx/tree/windows-v1.0.22) and its [matching application source](https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.22/openwebpbx-1.0.22-windows-source.tar.gz). Debian uses [`debian-v1.0.22`](https://github.com/embire2/openwebpbx/tree/debian-v1.0.22), its [application source](https://github.com/embire2/openwebpbx/releases/download/v1.0.22/openwebpbx-1.0.22-debian-source.tar.gz) and [complete Debian engine source](https://github.com/embire2/openwebpbx/releases/download/v1.0.22/openwebpbx-1.0.22-debian13-engine-source.tar.gz). Choose the Debian snapshot for Debian builds. The unchanged Windows engine retains its [corresponding source](https://github.com/embire2/openwebpbx/releases/download/v1.0.16/openwebpbx-1.0.16-engine-source.tar.gz).
+**Build from the matching source.** Debian 1.0.23 uses [`debian-v1.0.23`](https://github.com/embire2/openwebpbx/tree/debian-v1.0.23), commit `d27583e72018fcbd55c517a766697b8267658dc1`, and its [application source](https://github.com/embire2/openwebpbx/releases/download/v1.0.23/openwebpbx-1.0.23-debian-source.tar.gz). The current Windows 1.0.22 package uses [`windows-v1.0.22`](https://github.com/embire2/openwebpbx/tree/windows-v1.0.22), commit `8f4256e4e3cbce092791eea60d1c053e10810bb6`, and its [application source](https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.22/openwebpbx-1.0.22-windows-source.tar.gz). The default branch can contain later documentation; use each platform's matching source. The unchanged engines retain their corresponding [Debian source](https://github.com/embire2/openwebpbx/releases/download/v1.0.22/openwebpbx-1.0.22-debian13-engine-source.tar.gz) and [Windows source](https://github.com/embire2/openwebpbx/releases/download/v1.0.16/openwebpbx-1.0.16-engine-source.tar.gz).
 
 ## Get started
 
@@ -53,13 +55,13 @@ Release pages provide checksums, signed metadata and corresponding source. [All 
 ./install.sh --bootstrap-registration --address YOUR_PUBLIC_IP --email admin@example.com --stun
 ```
 
-3. Sign in, add people, connect two phones and test calling. Configure provider destinations and outgoing rules before moving live numbers. [Debian guide](docs/installing-1.0.22.md).
+3. Sign in, add people, connect two phones and test calling. Configure provider destinations and outgoing rules before moving live numbers. [Debian guide](docs/installing-1.0.23.md).
 
 Fresh setup protects existing installations; use their supported signed-upgrade path. The OpenWeb account and local administrator are separate sign-ins. Configure **Outgoing Mail** before emailing invitations.
 
 ### Connect Android with a QR code
 
-Use **Users → Phone Provisioning → Connect Android App · QR Code**. **Hosted accounts and Windows Server 1.0.22 provide reusable QR codes** containing the tenant address. Viewing, emailing, exporting, scanning and password changes preserve the code. Explicit **Reset QR code** invalidates earlier codes/files while keeping connected devices. The older published **Debian 1.0.22 archive retains its original invitation behavior**; it does not acquire the hosted correction automatically. [Android guide](docs/android.md) · [Tenant addresses](docs/android-tenant-addresses-1.0.18.md).
+Use **Users → Phone Provisioning → Connect Android App · QR Code**. **Hosted accounts, Debian 1.0.23 and Windows Server 1.0.22 provide reusable QR codes** containing the tenant address. Viewing, emailing, exporting, scanning and password changes preserve the code. Explicit **Reset QR code** invalidates earlier codes/files while keeping connected devices. The older published **Debian 1.0.22 archive retains its original invitation behavior**; it does not acquire the hosted correction automatically. [Android guide](docs/android.md) · [Tenant addresses](docs/android-tenant-addresses-1.0.18.md).
 
 ## What you can build with it
 
@@ -80,15 +82,13 @@ OpenWeb PBX is independently developed software. Proprietary 3CX apps and hosted
 
 ## Current status
 
-**Debian 1.0.23 release preparation:** The hosted instance at `call.openweb.co.za` is testing the unified DID wizard, external forwarding and Call Me Back setup. Publication is authorized; final installer/update qualification is in progress. The downloads above remain the supported public releases until that completes. [Local changes and verification](docs/did-routing-1.0.23.md).
+<!-- RELEASE123-STATUS-BEGIN -->
+**Debian 1.0.23 is published.** The incoming-number wizard gives each number one destination, preserves external-number leading zeros, supports explicit local/international matching and guides Call Me Back setup. Fresh setup, reusable QR codes, signed 1.0.22 upgrade/automatic rollback and post-upgrade UDP/TLS calling pass. [Release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.23) · [Qualification](docs/release-1.0.23-qualification.md).
 
-<!-- WINDOWS22-RELEASE-STATUS-BEGIN -->
-**Windows 1.0.23 release preparation:** The DID wizard and routing correction are installed and tested privately, including native manager, preserved accounts/QR, encrypted backup and buffered UDP/TLS software calls. The private installer is verified; final signed-update qualification and publication are in progress. [Local results](docs/windows-local-1.0.23.md).
+**Windows remains 1.0.22.** The next Windows package includes the same routing work and a correction for recovering permissions after transient call-record files are consumed. Its native recovery controls pass; actual recovery and signed release checks are in progress. [Windows qualification](docs/release-windows-1.0.23-qualification.md). Android remains 1.0.19.
+<!-- RELEASE123-STATUS-END -->
 
-**Windows Server 1.0.22 is published.** Fresh setup, QR enrollment, software calls, backups/restore, reboot and signed upgrades/rollback are verified. [Download the release](https://github.com/embire2/openwebpbx/releases/tag/windows-v1.0.22) · [Windows qualification and limits](docs/release-windows-1.0.22-qualification.md).
-<!-- WINDOWS22-RELEASE-STATUS-END -->
-
-[Debian qualification](docs/release-1.0.22-qualification.md), [hosted core status](docs/core-system-status.md) and [release notes](https://github.com/embire2/openwebpbx/releases) retain deployment history. Hosted corrections do not rewrite older archives. Physical phones/cameras, carriers, restrictive networks/TURN, capacity, universal email delivery and Store acceptance retain their [recorded limits](docs/feature-coverage.md).
+The [1.0.22 Debian](docs/release-1.0.22-qualification.md) and [Windows](docs/release-windows-1.0.22-qualification.md) records retain their original acceptance and reused-component scope. [Hosted status](docs/core-system-status.md), [routing changes](docs/did-routing-1.0.23.md) and [release history](https://github.com/embire2/openwebpbx/releases) provide the details. Hosted corrections do not rewrite older archives. Physical phones/cameras, carriers, restrictive networks/TURN, capacity, universal email delivery and Store acceptance retain their [recorded limits](docs/feature-coverage.md).
 
 ## Automate tenant setup
 
@@ -102,7 +102,7 @@ Webhotel's Debian 13 image is available in qualified locations, with encrypted, 
 
 | Start here | Administration and operation | Development |
 |---|---|---|
-| [Windows installation](docs/installing-windows-1.0.22.md) · [Debian installation](docs/installing-1.0.22.md) | [Provider and first calls](docs/core-calling.md) | [Roadmap](3CX.md) |
+| [Windows installation](docs/installing-windows-1.0.22.md) · [Debian installation](docs/installing-1.0.23.md) | [Provider and first calls](docs/core-calling.md) | [Roadmap](3CX.md) |
 | [Android setup](docs/android.md) | [Desk-phone migration](docs/desk-phone-handover.md) | [Feature coverage](docs/feature-coverage.md) |
 | [Remote Yealink W60B](docs/yealink-w60b-remote.md) | [Phone health and recovery](docs/phone-health.md) · [Backups](docs/backups.md) | [Core system status](docs/core-system-status.md) · [Independent platform releases](docs/independent-platform-releases.md) |
 | [Tenant addresses](docs/tenant-phone-accounts.md) | [Meetings](docs/meet.md) | [Windows calling-client plan](docs/windows-client-plan.md) |

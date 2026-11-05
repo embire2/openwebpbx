@@ -1,5 +1,11 @@
 # OpenWeb PBX workspace
 
+## Debian 1.0.23 published; Windows recovery qualification — 2026-11-05
+
+- User authorized publication. Canonical `v1.0.23` and source tag `debian-v1.0.23` bind Debian source `d27583e72018fcbd55c517a766697b8267658dc1`. Seven assets published at2026-11-05T13:00:15Z. Package487,501,845B/SHA5b0ad3c5, application source50,263,125B/SHA34cf737d, checksumsd351d229. Actual latest Debian envelope d01f948f/sequence1793877661/minimum22; Windows22 envelope21e4f0af and Android19 fc096a15 remain byte-for-byte. Public verification/installed Check and test-resource teardown are being closed separately.
+- Actual offhost Debian fresh setup, ordinary owner/users, DID49, QR34 and8calling cases pass; full16-stream/3,301-packet trace has zero errors. Genuine original22 signed fault automatically rolls back375.004s, then exact final23 completes394.115s with original184tables/12,248mapped targets/private credentials/identity preserved. Upgraded original-credential calls8/25.285s, all16streams/3,292packets, DID49 and QR34 pass. No physical/carrier/Store claim or historical invitation-row fixture is inferred.
+- Windows ordinary public22 restore failed on an already-consumed transient CDR ACL entry;149 remains guarded pending controlled recovery. Existing bfc02f54 candidate/1a0Windows feed are withheld. Default-branch fix `03050db58823dc5c5c014cadede83296fb00a620` and exact corrected Windows source `e1aaad63f99ac3b11714d9d0cd3f2a085778688f` change only runtime CallRecords.Common.ps1 and native tests. Independent source review and actual89controls/21cases pass, including real ACL/link/access/share denials and no CDR recreation. New Windows artifact/recovery/signed gates remain required; no native/engine/voices rebuild is necessary.
+
 ## Release 1.0.23 publication authorized — 2026-11-05
 
 - User now explicitly authorizes committing and publishing the latest releases and updating README. This supersedes the earlier local-only/no-publication hold below. Publish Debian/Windows independently qualified 1.0.23 artifacts; retain Android1.0.19 and existing releases/tags/assets byte-for-byte. Do not infer public acceptance from earlier private components.

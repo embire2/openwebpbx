@@ -1,5 +1,9 @@
 # OpenWeb PBX core system status
 
+## Latest Debian 1.0.23 — 5 November 2026
+
+[Debian 1.0.23](https://github.com/embire2/openwebpbx/releases/tag/v1.0.23) is published with unified DID routing, explicit number matching, Call Me Back setup and reusable QR codes. Its signed minimum is installed Debian1.0.22. Fresh managed setup, genuine signed failure rollback, final upgrade and post-upgrade calling pass. [Qualification](release-1.0.23-qualification.md). Windows remains1.0.22 pending its separate corrected recovery package; Android remains1.0.19. The hosted PBX reports1.0.23 for its local DID component; publishing the installer does not establish a full-package deployment or new physical/provider result there. Older dated entries below retain their historical scope.
+
 <!-- WINDOWS22-CURRENT-STATUS-BEGIN -->
 ## Latest Windows 1.0.22
 

@@ -5,8 +5,7 @@ forwarding and Call Me Back destinations, explicit local/international number
 matching and protection against disabled numbers falling through to another
 route. PostgreSQL, calling and administration remain on your server.
 
-This guide is being prepared with the 1.0.23 release. Use the matching complete
-archive and published checksums once the release is available. The
+Use the matching complete archive and published checksums. The
 [qualification record](release-1.0.23-qualification.md) distinguishes completed
 checks from pending release checks. Android remains 1.0.19.
 
