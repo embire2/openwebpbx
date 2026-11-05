@@ -1238,7 +1238,8 @@
     "package": "https://github.com/embire2/openwebpbx/releases/download/v1.0.19/openwebpbx-1.0.19-admin-update.tar.gz"
   },
   "hosted_core": {
-    "version": "1.0.23",
-    "status": "deployed local DID component; Core health confirms version 1.0.23 and Running on 2026-11-05; final public-package deployment and new physical/carrier acceptance remain separate"
+    "version": "1.0.24",
+    "source_commit": "6471988d07d571e4277237318197a2650e4d2f49",
+    "status": "live hosted App/Core/Updater1.0.24; callback SIP trunk selection affects only the callback leg, while onward routing stays normal. Nine own-account speed dials and nine editable Keoma voice scripts include confirmed default reset without deleting recordings. Native24 health/stability and existing-data preservation are verified. This local feature deployment is not a public complete1.0.24 installer and adds no physical/carrier/Store acceptance."
   }
 }

@@ -1,5 +1,19 @@
 # OpenWeb PBX homepage
 
+## Hosted 1.0.24 feature update — 5 November 2026
+
+The live homepage, feature details, catalogue and API documentation describe
+the hosted Call Me Back callback-only trunk selection, nine user speed dials
+and editable/resettable Keoma scripts. They link to the feature guide and
+Debian-to-Windows change ledger. This is a hosted deployment; downloads remain
+Debian1.0.23, Windows1.0.22 and Android1.0.19. All21 existing raw release objects,
+all31 public resources and hosting rules were compared; only index.html,
+assets/site.js, releases.json and api-docs.html changed. Eight Chromium
+desktop/mobile layouts, homepage themes, current download links and new hosted
+text pass with no page errors. Unrelated legal/privacy/wizard/logo resources,
+DNS and mail are preserved. Private evidence is under
+`/var/lib/openwebpbx/release123-f72aebedb0e8434a9ed565f70af50661/website-hosted124-{deployment,browser}`.
+
 ## Debian 1.0.23 downloads — 5 November 2026
 
 Published the Debian1.0.23 download, source and guide after fresh managed setup, signed upgrade/rollback, same-credential calling and the ordinary installed public-feed Check. Windows1.0.22 and Android1.0.19 stay unchanged. Four static leaves only changed: index.html, assets/site.js, releases.json and api-docs.html. All31 public resources and hosting rules are compared; unrelated legal/privacy/logo/wizard resources, DNS and mail are preserved. Eight actual Chromium desktop/mobile layouts and homepage light/dark themes pass with current download links and no uncaught page errors. Catalogue history retains all20 prior raw release objects. Hosted Core23 denotes its local DID component, not a new full-package deployment. Private deployment/browser receipts are under `/var/lib/openwebpbx/release123-f72aebedb0e8434a9ed565f70af50661/{website-debian123-deployment,website-browser123}`.
