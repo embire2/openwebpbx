@@ -1,5 +1,10 @@
 # OpenWeb PBX workspace
 
+## Debian-to-Windows change ledger — 2026-11-05
+
+- Record every new Debian feature/fix in `docs/debian-windows-sync.md`, including its originating version/commit, hosted versus public-installer status, Windows port status and affected acceptance checks. Update the ledger in the same fix/feature commit where practical; do not infer parity from version numbers. Preserve Windows-specific recovery/audio/update behavior during catch-up.
+- User reports extension1000 outgoing0317102222 rejected on Android and explicitly requests a separate agent/fix deployed to hosted Debian24. Root traces provider-leg403 after bridge; PBX permission denial is not established. Dedicated agent owns diagnosis/deployment. Its fix is independent of pending Windows23 publication.
+
 ## Hosted 1.0.24 completed; Windows 1.0.23 gates — 2026-11-05
 
 - User explicitly requested a new Debian24 agent. Its19-leaf Call Me Back/speed-dial/script source is commit `6471988d07d571e4277237318197a2650e4d2f49`, pushed. Callback override uses only first-leg provider/auth/caller-ID/availability; onward routing stays normal. Nine own-account slots are available in admin/MyPBX/authenticated DTMF and direct **1–**9. Nine Keoma stages show defaults/current text and confirmed reset; immutable audio fallback retains ready/custom recordings. Source190 controls and independent63 pass; live browser75 and one natural Keoma job6.153s pass. Own unassigned greeting6d489eb7-b57a-464f-9bea-4594ef61d4f2 is archived normally; row/media/audio intentionally retained by product policy. Isolated QA DB118405/role118404 are dropped.

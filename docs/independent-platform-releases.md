@@ -98,3 +98,6 @@ unchanged component evidence; a newer shared source commit alone is not Windows
 acceptance. Promote only Windows afterward, retaining the then-current Debian
 and Android signed envelopes exactly. No supported platform needs to wait for a
 shared version number, forced rebuild or tag move.
+
+Track each Debian feature and fix in the [Windows catch-up ledger](debian-windows-sync.md),
+including its source commit, hosted/public status and required Windows checks.

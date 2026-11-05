@@ -21,6 +21,8 @@ There is no OpenWeb software licence fee. You control your server and data; host
 
 Choose the **server** for your operating system, then a compatible phone app. Components have separate versions and signed feeds. Linux can move ahead while Windows completes its own tests, and Windows can catch up later; matching version numbers do not establish compatibility. [Independent platform releases](docs/independent-platform-releases.md).
 
+[Debian-to-Windows change ledger](docs/debian-windows-sync.md) tracks each new server feature and fix, its deployment status and the checks required for Windows catch-up.
+
 **Latest releases:** Debian **1.0.23**, Windows Server **1.0.22** and Android **1.0.19**. Windows 1.0.23 is completing recovery qualification and will have its own release.
 
 | Component | Public download | Platform and status |
