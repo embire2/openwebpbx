@@ -49,6 +49,10 @@ The existing provider negotiates G.729. The software phone sends 96 and receives
 116 RTP packets during the short call. These packet counts do not establish a
 human two-way-audio or physical Android-device result.
 
+The user subsequently retried the same outside number from extension 1000 in
+the Android app and confirmed: **connects, sound both ways**. This is a separate
+real-device confirmation on 5 November 2026, in addition to the software test.
+
 Seven installed web/native runtime files are updated with their owners and
 permissions preserved. The tenant configuration differs at exactly one existing
 route's provider key. Native gateway rows, extension credentials and the original
