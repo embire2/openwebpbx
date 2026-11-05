@@ -1,5 +1,9 @@
 # OpenWeb PBX homepage
 
+## Debian 1.0.23 downloads — 5 November 2026
+
+Published the Debian1.0.23 download, source and guide after fresh managed setup, signed upgrade/rollback, same-credential calling and the ordinary installed public-feed Check. Windows1.0.22 and Android1.0.19 stay unchanged. Four static leaves only changed: index.html, assets/site.js, releases.json and api-docs.html. All31 public resources and hosting rules are compared; unrelated legal/privacy/logo/wizard resources, DNS and mail are preserved. Eight actual Chromium desktop/mobile layouts and homepage light/dark themes pass with current download links and no uncaught page errors. Catalogue history retains all20 prior raw release objects. Hosted Core23 denotes its local DID component, not a new full-package deployment. Private deployment/browser receipts are under `/var/lib/openwebpbx/release123-f72aebedb0e8434a9ed565f70af50661/{website-debian123-deployment,website-browser123}`.
+
 ## Public setup wizard and installation API — 29 October 2026
 
 Published [the setup wizard](https://openwebpbx.com/wizard), its 15-operation `/wizard-openapi.json`, and an expanded `/api-docs`/`api-openapi.json` with 24 operations: the original17 hosted operations retained exactly plus7 current-email/installation-authority operations. New self-installed/Webhotel images pair using a short-lived code; the owner's password and bearer are never handed to the guest. No hosted `/services` entry is created for the remote PBX.

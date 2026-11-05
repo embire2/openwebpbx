@@ -1,7 +1,67 @@
 {
-  "reviewed_on": "2026-10-29",
+  "reviewed_on": "2026-11-05",
   "repository": "embire2/openwebpbx",
   "releases": [
+    {
+      "version": "1.0.23",
+      "component": "Debian server",
+      "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.23",
+      "published_at": "2026-11-05T13:00:15Z",
+      "prerelease": false,
+      "build_source_commit": "d27583e72018fcbd55c517a766697b8267658dc1",
+      "build_sources": {
+        "debian": "d27583e72018fcbd55c517a766697b8267658dc1"
+      },
+      "minimum_debian_version": "1.0.22",
+      "scope": "Debian13 complete server23: ordinary managed fresh setup and original22 signed update/recovery; DID wizard, QR stability, same-credential UDP/TLS software calling with whole-wire replay, preserved database/private files, and installed public-feed Check. Windows remains22 and Android19; physical/carrier/Store acceptance is separate.",
+      "source_tags": {
+        "debian": "debian-v1.0.23"
+      },
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "bytes": 574,
+          "sha256": "d351d22933325f38cb4aaa63b852a880861ca27400feeecbf639ca0a05b82b5c",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.23/SHA256SUMS"
+        },
+        {
+          "name": "debian-update-manifest.json",
+          "bytes": 1224,
+          "sha256": "d01f948f020edeae14cc194ad4c9065c88c49205d6946cebd68ee7a5455b8782",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.23/debian-update-manifest.json"
+        },
+        {
+          "name": "installing-1.0.23.md",
+          "bytes": 3851,
+          "sha256": "6e5811844155307a640605aee75c1fb10ffce71cc29bb980782bec10fc197424",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.23/installing-1.0.23.md"
+        },
+        {
+          "name": "openwebpbx-1.0.23-debian-source.tar.gz",
+          "bytes": 50263125,
+          "sha256": "34cf737d0f162fc3c891dc984bd9d5971bd323f1f59a7610a99a1893d855bdf7",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.23/openwebpbx-1.0.23-debian-source.tar.gz"
+        },
+        {
+          "name": "openwebpbx-1.0.23-debian13-amd64.tar.gz",
+          "bytes": 487501845,
+          "sha256": "5b0ad3c5c823cfae9067c3a95a1a9d52c7c76d8fcec6adb8ee99662a2e3e0dab",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.23/openwebpbx-1.0.23-debian13-amd64.tar.gz"
+        },
+        {
+          "name": "update-manifest.json",
+          "bytes": 1404,
+          "sha256": "fc096a1524fc6eec7fd79239006f8117b0f5283e5ea5336f1ac2345abed5f8b8",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.23/update-manifest.json"
+        },
+        {
+          "name": "windows-update-manifest.json",
+          "bytes": 1204,
+          "sha256": "21e4f0af14b6e98df3435162923d40b7bde29d9d01c1cb0f5ec32d9df7bd030b",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/v1.0.23/windows-update-manifest.json"
+        }
+      ]
+    },
     {
       "version": "1.0.22",
       "component": "Windows server",
@@ -1129,8 +1189,8 @@
     {
       "name": "Debian 13",
       "architecture": "amd64",
-      "status": "tested",
-      "version": "1.0.22"
+      "status": "published; signed upgrade minimum 1.0.22; see platform qualification and deployment limits",
+      "version": "1.0.23"
     },
     {
       "name": "Windows Server 2025",
@@ -1178,7 +1238,7 @@
     "package": "https://github.com/embire2/openwebpbx/releases/download/v1.0.19/openwebpbx-1.0.19-admin-update.tar.gz"
   },
   "hosted_core": {
-    "version": "1.0.21",
-    "status": "deployed; Greetings and company-group office hours; Keoma stock1.0.2 and clock1.0.3; separate full installers retain their published versions"
+    "version": "1.0.23",
+    "status": "deployed local DID component; Core health confirms version 1.0.23 and Running on 2026-11-05; final public-package deployment and new physical/carrier acceptance remain separate"
   }
 }
