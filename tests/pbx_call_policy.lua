@@ -276,4 +276,14 @@ check(P.object_destination(c,object,clock('12:30')).number=='110','Explicit alwa
 check(P.object_destination(c,object,function()return 1,'09:00','2026-12-25'end).number=='110','Explicit always-open handling ignores department holidays')
 object.hours.follow_department=true;object.hours.hours.type='OfficeHours'
 check(P.object_destination(c,object,clock('12:30')).number=='113','Selected department break applies when inheritance is enabled')
+
+for _,code in ipairs({403,503}) do
+ local cause,answered=P.provider_result('SUCCESS','sip:'..code,'false','CALL_REJECTED')
+ check(cause=='CALL_REJECTED' and not answered,'Early media must retain final provider failure')
+ cause,answered=P.provider_result('SUCCESS','sip:'..code,'true','CALL_REJECTED')
+ check(answered and not P.failover(cause,'sip:'..code,answered,code),'An actual answer must prevent duplicate calling')
+end
+local _,confirmed=P.provider_result('SUCCESS','sip:200','false','NORMAL_CLEARING');check(confirmed,'A definitive final200 is an answer')
+local _,unknown=P.provider_result('SUCCESS','','false','');check(not unknown and not P.failover('SUCCESS','',false),'Unknown success must not be called answered or retried')
+
 print('PASS: '..n..' office-hours, forwarding, outbound and callback decisions')

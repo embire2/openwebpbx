@@ -21,7 +21,7 @@ class pbx_trunk_options {
     private function sameOptions(array $left,array $right): bool {return $this->canonical($left)===$this->canonical($right);}
     private function revision(array $trunk,array $native): string {return hash('sha256',json_encode([$trunk,$native],JSON_THROW_ON_ERROR));}
     public static function defaults(array $trunk,array $native): array {
-        return ['schema'=>1,'allow_incoming'=>true,'allow_outgoing'=>true,'support_reinvite'=>true,'srtp_mode'=>'inherit','scope_department'=>'','connection_pending'=>false];
+        return ['schema'=>1,'allow_incoming'=>true,'allow_outgoing'=>true,'support_reinvite'=>true,'srtp_mode'=>($trunk['srtp_mode']??'')==='SRTPDisabled'?'disabled':'inherit','scope_department'=>'','connection_pending'=>false];
     }
     public function snapshot(string $key): array {
         $this->owner();$c=(new pbx_admin($this->db))->config();$t=$c['trunks'][$key]??null;if(!$t)throw new InvalidArgumentException('Choose a trunk belonging to this PBX.');$n=$this->native($t);

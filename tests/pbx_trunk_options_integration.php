@@ -30,6 +30,11 @@ try {
  $native=static fn()=>$q('select * from v_gateways order by gateway_uuid')->fetchAll(PDO::FETCH_ASSOC);
  $phones=$q('select * from v_extensions')->fetchAll(PDO::FETCH_ASSOC);$initialNative=$native();
  $s=$service->snapshot('fixture');$ok($s['options']['support_reinvite']&&$s['options']['srtp_mode']==='inherit'&&$s['options']['allow_incoming']&&$s['options']['allow_outgoing'],'Legacy effective defaults changed');
+ $legacy=$read();$legacy['trunks']['fixture']['srtp_mode']='SRTPDisabled';$q('update v_pbx_restore set config=?::jsonb where domain_uuid=?',[json_encode($legacy),$domain]);
+ $legacySnapshot=$service->snapshot('fixture');$ok($legacySnapshot['options']['srtp_mode']==='disabled','Restored plain provider shows an inherited phone policy');
+ $service->save('fixture',$input());$legacySaved=$read();$ok($legacySaved['trunks']['fixture']['options']['srtp_mode']==='disabled'&&$legacySaved['trunks']['fixture']['srtp_mode']==='SRTPDisabled','Saving restored provider options lost its media policy');
+ $ok($native()===$initialNative&&$service->commands===['module_exists mod_hash'],'Media default save changed native credentials or reconnected provider');
+ $q('update v_pbx_restore set config=?::jsonb where domain_uuid=?',[json_encode($c),$domain]);$service->commands=[];
  $ok(!array_key_exists('password',$s['native'])&&!array_key_exists('username',$s['native']),'Secret native values exposed');
  $before=$read();$service->save('fixture',$input());$after=$read();$expected=$before;$expected['trunks']['fixture']['options']=pbx_trunk_options::defaults($before['trunks']['fixture'],$s['native']);$ok($after==$expected,'Initial save altered other routing');$ok($native()===$initialNative,'Unchanged connection or credentials rewritten');$ok($service->commands===['module_exists mod_hash']&&$service->clears===0,'Policy save restarted provider');
  $old=$input();$service->save('fixture',$input(['scope_department'=>'d','srtp_mode'=>'required','limit'=>'3']));$r=$read();$ok($r['trunks']['fixture']['options']['scope_department']==='d'&&$r['trunks']['fixture']['options']['srtp_mode']==='required'&&$r['trunks']['fixture']['limit']===3,'Policy choices lost');
@@ -52,6 +57,6 @@ try {
  $reject(fn()=>$service->snapshot('foreign'),'Foreign trunk visible');$_SESSION['user_uuid']=$other;$reject(fn()=>$service->snapshot('fixture'),'Changed actor retained access');$_SESSION['user_uuid']=$owner;
  $q('update v_gateways set outbound_proxy=? where gateway_uuid=?',['sip:legacy.example.invalid;transport=udp',$gateway]);$legacyNative=$native();$service->save('fixture',$input());$ok($native()===$legacyNative,'Unchanged legacy proxy was rewritten');
  $q('update v_users set user_enabled=false where user_uuid=?',[$owner]);$reject(fn()=>$service->save('fixture',$input()),'Disabled owner retained access');
- $ok((int)$q('select count(*) from v_pbx_staff_audit')->fetchColumn()===8,'Successful save audit missing or rejected change audited');
+ $ok((int)$q('select count(*) from v_pbx_staff_audit')->fetchColumn()===9,'Successful save audit missing or rejected change audited');
  echo json_encode(['checks'=>$checks,'actual_isolated_postgresql'=>true,'native_fields_preserved'=>true,'phone_credentials_preserved'=>true,'real_provider_or_engine_writes'=>false],JSON_PRETTY_PRINT).PHP_EOL;
 } finally {if($db->inTransaction())$db->rollBack();$db->exec('set search_path to public');$db->exec('drop schema if exists '.$schema.' cascade');$_SESSION=$prior;}

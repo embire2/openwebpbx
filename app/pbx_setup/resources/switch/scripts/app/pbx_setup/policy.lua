@@ -2,7 +2,14 @@
 local P = {}
 local trunk_options
 local function provider_leg(trunk,contact,domain,config,origin)
-    if trunk.options==nil then return contact end
+    if trunk.options==nil then
+        -- Imported trunks keep their own media policy. A secure Android leg
+        -- must not make a provider explicitly restored as plain RTP require SRTP.
+        if trunk.srtp_mode=='SRTPDisabled' then
+            return contact:gsub('^%[','[rtp_secure_media_outbound=forbidden,',1)
+        end
+        return contact
+    end
     if not trunk_options then
         local source=debug.getinfo(1,'S').source:match('^@(.*/)')
         local loaded,module=pcall(dofile,(source or '')..'trunk_options.lua')
@@ -311,6 +318,18 @@ for _,code in ipairs({400,401,402,403,404,405,406,407,408,409,410,411,413,414,41
 local retry_cause={INVALID_GATEWAY=true,GATEWAY_DOWN=true,DESTINATION_OUT_OF_ORDER=true,NETWORK_OUT_OF_ORDER=true,
     NORMAL_TEMPORARY_FAILURE=true,SWITCH_CONGESTION=true,RESOURCE_UNAVAILABLE=true,SERVICE_UNAVAILABLE=true,
     UNALLOCATED_NUMBER=true,NO_ROUTE_DESTINATION=true,INCOMPATIBLE_DESTINATION=true,RECOVERY_ON_TIMER_EXPIRE=true}
+-- Originate can succeed at 183 early media, before the provider answers.
+-- Use the bridge's final failure for reporting/failover; never retry a call
+-- whose local answer hook fired, even if a later signalling failure follows.
+function P.provider_result(cause,protocol,tracked,bridge_cause)
+    local answered=tracked==true or tracked=='true' or (tonumber(tracked) or 0)>0
+    local code=type(protocol)=='string' and tonumber(protocol:match('^sip:(%d%d%d)$')) or nil
+    if not answered and code and code>=300 and cause=='SUCCESS' then
+        cause=type(bridge_cause)=='string' and bridge_cause:match('^[A-Z_]+$') and bridge_cause~='SUCCESS'
+            and bridge_cause or 'NORMAL_TEMPORARY_FAILURE'
+    end
+    return cause,answered or (cause=='SUCCESS' and code==200)
+end
 function P.failover(cause,protocol,answered,received_status)
     if cause=='SUCCESS' or cause=='NO_ANSWER'
       or cause=='ALLOTTED_TIMEOUT' or answered==true or answered=='true' or (tonumber(answered) or 0)>0 then return false end

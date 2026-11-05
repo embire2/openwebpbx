@@ -165,12 +165,13 @@ local function deliver()
                 if not contact then break end
                 contact=contact:gsub('^%[','[leg_timeout=45,',1)
                 call:setVariable('originate_disposition','')
+                call:setVariable('bridge_hangup_cause','')
                 call:setVariable('last_bridge_proto_specific_hangup_cause','')
                 call:setVariable('sip_invite_failure_status','')
                 call:setVariable('openweb_provider_answered','false')
                 call:execute('bridge',contact)
                 local cause=call:getVariable('originate_disposition')
-                local answered=cause=='SUCCESS' or call:getVariable('openweb_provider_answered')=='true'
+                local answered;cause,answered=P.provider_result(cause,call:getVariable('last_bridge_proto_specific_hangup_cause'),call:getVariable('openweb_provider_answered'),call:getVariable('bridge_hangup_cause'))
                 local retry=call:ready() and active() and not answered and P.failover(cause,call:getVariable('last_bridge_proto_specific_hangup_cause'),call:getVariable('openweb_provider_answered'),call:getVariable('sip_invite_failure_status'))
                 attempts.finish(db,observation,cause,call:getVariable('last_bridge_proto_specific_hangup_cause'),call:getVariable('sip_invite_failure_status'),answered,call:ready(),retry)
                 if answered then connected=true;break end

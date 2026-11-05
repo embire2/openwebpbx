@@ -197,6 +197,7 @@ run_outbound=function(number,owner)
     local rule=emergency or P.outbound(config,number,origin)
     trace('outgoing_rule',{Rule=rule and rule.rule_id or '',Target=number,Caller=origin})
     if not rule then session:hangup('CALL_REJECTED');return end
+    local last_cause='NORMAL_TEMPORARY_FAILURE'
     for _,r in ipairs(rule.routes) do
         local contact=outbound_contact(number,r,origin)
         contact=contact and P.track_answer(contact,session:getVariable('uuid'))
@@ -218,13 +219,15 @@ run_outbound=function(number,owner)
             contact='{openweb_scope_origin='..origin..',openweb_scope_target='..origin..',originate_timeout='..timeout..',progress_timeout='..timeout..'}'..contact:gsub('^%[','[leg_timeout='..timeout..',',1)
             if config.users[origin] then record(config.users[origin],true) end
             session:setVariable('originate_disposition','')
+            session:setVariable('bridge_hangup_cause','')
             session:setVariable('last_bridge_proto_specific_hangup_cause','')
             session:setVariable('sip_invite_failure_status','')
             session:setVariable('openweb_provider_answered','false')
             session:execute('bridge',contact)
             local cause=session:getVariable('originate_disposition')
             trace('provider_result',{Trunk=r.trunk_id,Cause=cause or ''})
-            local answered=cause=='SUCCESS' or session:getVariable('openweb_provider_answered')=='true'
+            local answered;cause,answered=P.provider_result(cause,session:getVariable('last_bridge_proto_specific_hangup_cause'),session:getVariable('openweb_provider_answered'),session:getVariable('bridge_hangup_cause'))
+            if not answered and type(cause)=='string' and cause:match('^[A-Z_]+$') and cause~='SUCCESS' then last_cause=cause end
             local retry=session:ready() and not answered and P.failover(cause,session:getVariable('last_bridge_proto_specific_hangup_cause'),session:getVariable('openweb_provider_answered'),session:getVariable('sip_invite_failure_status'))
             attempts.finish(db,observation,cause,session:getVariable('last_bridge_proto_specific_hangup_cause'),session:getVariable('sip_invite_failure_status'),answered,session:ready(),retry)
             if not session:ready() or answered then return end
@@ -233,7 +236,7 @@ run_outbound=function(number,owner)
             end
         end
     end
-    session:hangup('NORMAL_TEMPORARY_FAILURE')
+    session:hangup(last_cause)
 end
 route=function(destination,owner)
     if not session:ready() then return end

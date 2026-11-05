@@ -73,6 +73,7 @@ local function environment(f)
             self.variables.originate_disposition=response.cause
             self.variables.last_bridge_proto_specific_hangup_cause=response.protocol
             self.variables.sip_invite_failure_status=response.received or ''
+            self.variables.bridge_hangup_cause=response.bridge_cause or ''
             if response.answered then self.variables.openweb_provider_answered='true' end
             if response.answered or response.cause=='SUCCESS' then self:answer() end
             if response.disconnect then self.alive=false end
@@ -187,6 +188,14 @@ f.responses={{cause='NO_ANSWER',protocol='sip:408'},{cause='SUCCESS',protocol='s
 check(#f.bridges==2 and f.bridge_timeouts[1]=='1' and f.bridges[1]:find('leg_timeout=1]user/',1,true)
     and f.bridge_timeouts[2]=='60' and f.bridges[2]:find('{openweb_scope_origin=100,openweb_scope_target=100,originate_timeout=60,progress_timeout=60}[leg_timeout=60,',1,true),
     'No-answer external forwarding keeps the user ring timeout and gives the provider an independent window')
+for _,code in ipairs({403,503}) do
+    f=fixture();f.responses[1]={cause='SUCCESS',protocol='sip:'..code,received=tostring(code),bridge_cause=code==403 and 'CALL_REJECTED' or 'NORMAL_TEMPORARY_FAILURE'};run(f)
+    check(#f.bridges==2 and f.bridges[2]:find(gateway2,1,true),'Early media then '..code..' cannot hide the final provider failure')
+    f=fixture();f.responses[1]={cause='SUCCESS',protocol='sip:'..code,received=tostring(code),bridge_cause='NORMAL_CLEARING',answered=true};run(f)
+    check(#f.bridges==1,'Actually answered call with later '..code..' cannot be duplicated')
+end
+f=fixture();f.config.outbound_rules[1].routes={f.config.outbound_rules[1].routes[1]};f.responses[1]={cause='SUCCESS',protocol='sip:403',received='403',bridge_cause='CALL_REJECTED'};run(f)
+check(#f.bridges==1 and f.hangup=='CALL_REJECTED','A lone rejected provider stays rejected without inventing fallback')
 f=fixture();f.responses[1]={cause='USER_BUSY',protocol='sip:486'};run(f)
 check(#f.bridges==1 and f.hangup=='USER_BUSY','Busy stops provider fallback')
 f=fixture();f.responses[1]={cause='NO_USER_RESPONSE',protocol='sip:408'};run(f)

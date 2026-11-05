@@ -35,6 +35,10 @@ for _,limit in ipairs({0,-1,1.5,10001,'bad'})do local old=t.limit;t.limit=limit;
 ok(not T.leg('foreign',t,contact),'Malformed domain accepted');ok(not T.leg(domain,t,'sofia/gateway/x'),'Unbracketed dial string accepted')
 local user={caller_id='27110000001'};local route={strip=0,prepend='',caller_id=''};local native={}
 local old=t.options;t.options=nil;local ordinary=P.outbound_leg(t,route,'0123456789',user,'1000',domain,'fixture.invalid',native,config);ok(ordinary and not ordinary:find('trunk_limit',1,true),'Legacy policy changed')
+t.srtp_mode='SRTPDisabled';local imported=P.outbound_leg(t,route,'0123456789',user,'1000',domain,'fixture.invalid',native,config)
+ok(imported:find('rtp_secure_media_outbound=forbidden',1,true),'Imported plain provider inherited Android SRTP')
+ok(not imported:find('rtp_secure_media_inbound',1,true),'Provider media policy changed the phone leg')
+t.srtp_mode=nil
 t.options=old;local wrapped=P.outbound_leg(t,route,'0123456789',user,'1000',domain,'fixture.invalid',native,config);ok(wrapped and wrapped:find('trunk_limit',1,true),'Shared outbound policy omitted provider options')
 t.options.allow_outgoing=false;ok(not P.outbound_leg(t,route,'0123456789',user,'1000',domain,'fixture.invalid',native,config),'Shared outbound policy ignored direction')
 print('PASS: '..checks..' trunk options decisions; native slot ownership requires separate engine proof')
