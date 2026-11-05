@@ -1,6 +1,12 @@
 # Local Debian 1.0.23: DID routing
 
-This candidate is deployed only on `call.openweb.co.za`. GitHub commits, releases, tags, public assets and signed feeds are unchanged. The public Debian/Windows downloads remain1.0.22; Android remains1.0.19. Local Core, updater and Admin report1.0.23. Windows qualification and publication of this candidate are separate future work.
+**Current status — 5 November 2026:** this DID feature is included in the public
+[Debian 1.0.23 release](https://github.com/embire2/openwebpbx/releases/tag/v1.0.23).
+The hosted PBX has since advanced to 1.0.24. Public Windows remains 1.0.22
+while its separate 1.0.23 package completes qualification; Android remains
+1.0.19. The local implementation and checks below describe the original
+4 November change. [Debian qualification](release-1.0.23-qualification.md) ·
+[Windows catch-up ledger](debian-windows-sync.md).
 
 ## Manage a number
 
