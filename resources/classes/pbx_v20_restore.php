@@ -86,13 +86,21 @@ final class pbx_v20_restore {
         $id=$trunk['gateway_uuid']??'';if(!is_uuid($id))throw new InvalidArgumentException('An incoming provider has no native binding.');
         return ['${sip_gateway}','^(?:'.preg_quote($id,'~').')?$'];
     }
+    /** Explicit historical provider spellings belong to the same DID, never to a second destination. */
+    public static function incomingRuleNumbers(array $rule): array {
+        $number=$rule['number']??'';if(!is_string($number)||!preg_match('/^\*?\+?[0-9]{1,32}$/D',$number))throw new InvalidArgumentException('Invalid incoming number.');
+        $aliases=$rule['number_aliases']??[];if(!is_array($aliases)||!array_is_list($aliases)||count($aliases)>10)throw new InvalidArgumentException('Invalid incoming provider numbers.');
+        foreach($aliases as$a)if(!is_string($a)||!preg_match('/^\+?[0-9]{3,32}$/D',$a))throw new InvalidArgumentException('Invalid incoming provider number.');
+        return array_values(array_unique(array_merge([$number],$aliases)));
+    }
     /** The XML condition and Lua checks must select the same original SIP field. */
     public static function incomingCondition(array $rule,array $trunk): array {
         $field=match($trunk['source_field']??'ToUserPart'){'','ToUserPart'=>'${sip_to_user}','RequestLineURIUser'=>'${sip_req_user}',default=>throw new InvalidArgumentException('Unsupported incoming number source.')};
         $pattern=static fn(string $number)=>'\\+?'.(str_starts_with($number,'*')?'[0-9]*':'').preg_quote(ltrim($number,'*+'),'~');
         if(($rule['condition']??'')==='ForwardAll'){$numbers=self::incomingNumbers($trunk);$patterns=array_values(array_unique(array_map($pattern,$numbers)));return [$field,$patterns?'^'.(count($patterns)>1?'(?:'.implode('|',$patterns).')':$patterns[0]).'$':'^(?!)$'];}
         $number=$rule['number']??'';if(($rule['condition']??'')!=='BasedOnDID'||!is_string($number)||!preg_match('/^\*?\+?[0-9]{1,32}$/D',$number))throw new InvalidArgumentException('Invalid incoming number.');
-        return [$field,'^'.$pattern($number).'$'];
+        $patterns=array_values(array_unique(array_map($pattern,self::incomingRuleNumbers($rule))));
+        return [$field,'^'.(count($patterns)>1?'(?:'.implode('|',$patterns).')':$patterns[0]).'$'];
     }
     /** Repair only provider metadata/native fields and DID selection of an existing restore.
      * Caller owns the transaction and deployment/reload. Dry run returns field counts only.

@@ -1,14 +1,14 @@
 # SIP trunk options and ring-group ringing
 
-Open **Admin → Voice & Chat → your SIP trunk → Options**. The incoming destination remains under **Incoming Calls** on the same page. These controls belong to the selected PBX; they do not change another tenant or a phone’s username/password.
+Open **Admin → Voice & Chat → your SIP trunk → Options**. On the hosted Debian1.0.23 candidate, **Incoming Calls** shows the destination and links to the single **DID Numbers** wizard. These controls belong to the selected PBX; they do not change another tenant or a phone’s username/password. The public1.0.22 installer retains its earlier editors until a later release is published.
 
 ## Add an incoming number
 
-Open **Admin → Voice & Chat → your SIP trunk → Incoming Calls → Add DID Number**. Enter the number supplied by the provider, an optional friendly name and who should receive its calls. Spaces, brackets and dashes are removed; a leading `00` becomes `+`. Use the form your provider delivers: the PBX does not guess a country code.
+On hosted Debian1.0.23, open **Admin → Voice & Chat → your SIP trunk → Incoming Calls → Add DID Number**. The same wizard opens from **DID Numbers**. Choose the number/provider, its destination, then review and save. Spaces, brackets and dashes are removed; a leading `00` becomes `+`. The OpenWeb PBX has an explicit South African country setting, so its national and international number forms share one route. Other unconfigured numbering countries retain exact matching; no arbitrary leading zeros are removed.
 
-**Accept incoming calls now** is selected for a connected trunk. Otherwise save the number switched off and connect the provider before enabling it. New numbers initially use their selected destination all day; configure their office hours in the existing routing controls after saving. The provider must already deliver the number to this trunk.
+Choose **Accept incoming calls on this number** when ready; the provider must already deliver it to this trunk. Use **All day**, or choose **During office hours** and a closed-hours destination. Existing holiday destinations are retained and displayed. A disabled DID stays off instead of using the provider fallback. The review shows the effective settings before saving.
 
-Select **Set up Call Me Back for this number next** to open its setup form with the new number selected. Until Call Me Back is ready and explicitly enabled, the number keeps the normal destination you chose. A number already assigned to a callback service remains available while editing that service and cannot create a second service.
+Select **Call Me Back (set up)** in Destination to open its setup form with the number selected after saving. Existing numbers keep their normal destination during setup; new setup numbers stay off. Once its greeting/accounts are ready, return to the DID wizard and choose the named Call Me Back service. That single destination selection activates the service. Callback settings no longer provide a second incoming-routing switch. A number already assigned to a callback service cannot create a second service.
 
 Adding a number does not change provider passwords, registration, source-address controls, outgoing routes, phone credentials or calls in progress. Duplicate explicit routes are refused; imported overlapping wildcard routes must be reviewed instead of duplicated.
 

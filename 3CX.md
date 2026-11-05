@@ -1,5 +1,9 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+**Local Windows1.0.23 catch-up:** DID editor/number-format/external/Call Me Back handoff49 browser checks,188 actual Windows PostgreSQL/PHP controls, native manager, data/QR preservation, encrypted backup and the unchanged eight-case buffered UDP/TLS software-call matrix pass. Two earlier audio failures remain recorded; final private repack is in progress. Public release and roadmap totals are unchanged. [Windows local results](docs/windows-local-1.0.23.md).
+
+**Local Debian 1.0.23 testing — 4 November 2026:** `call.openweb.co.za` now has one add/edit DID wizard, current-route summaries and Call Me Back destination/setup choices. The confirmed Switchtel international-number mismatch for0800014509 is corrected to0317102222, with explicit number ownership and disabled-DID fallback protection. Database, installed-Lua and actual owner-browser checks pass; answered carrier/audio confirmation after the fix remains pending. This candidate is local and has not been committed or published to GitHub. Public downloads and the133/21/72/40 roadmap totals remain unchanged. [Local scope and usage](docs/did-routing-1.0.23.md).
+
 <!-- WINDOWS22-CURRENT-STATUS-BEGIN -->
 ## Latest Windows 1.0.22
 

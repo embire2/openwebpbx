@@ -80,7 +80,11 @@ OpenWeb PBX is independently developed software. Proprietary 3CX apps and hosted
 
 ## Current status
 
+**Local Debian 1.0.23 candidate:** The hosted instance at `call.openweb.co.za` is testing the unified DID wizard, external forwarding and Call Me Back setup. This work is not published; the downloads above remain the supported public releases. [Local changes and verification](docs/did-routing-1.0.23.md).
+
 <!-- WINDOWS22-RELEASE-STATUS-BEGIN -->
+**Local Windows1.0.23 candidate:** The DID wizard and routing correction are installed and tested privately, including native manager, preserved accounts/QR, encrypted backup and buffered UDP/TLS software calls. No1.0.23 public download or signed offer has been published. [Local results](docs/windows-local-1.0.23.md).
+
 **Windows Server 1.0.22 is published.** Fresh setup, QR enrollment, software calls, backups/restore, reboot and signed upgrades/rollback are verified. [Download the release](https://github.com/embire2/openwebpbx/releases/tag/windows-v1.0.22) · [Windows qualification and limits](docs/release-windows-1.0.22-qualification.md).
 <!-- WINDOWS22-RELEASE-STATUS-END -->
 

@@ -24,6 +24,19 @@ function M.apply(session,domain)
     -- Own the outbound audio clock across locally generated silence and bridged RTP.
     -- Apply to this caller and every new leg; address learning stays enabled.
     session:execute('export','rtp_rewrite_timestamps=true')
+    -- Windows needs a small receive buffer for late WAN packets. Keep it on
+    -- both bridge legs, while preserving an administrator's explicit choice.
+    -- Existing Debian media policy remains unchanged.
+    if (package.config or ''):sub(1,1)=='\\' then
+        local buffer=session:getVariable('jitterbuffer_msec')
+        if not buffer or buffer=='' then
+            session:execute('export','jitterbuffer_msec=60:200')
+            local during_bridge=session:getVariable('rtp_jitter_buffer_during_bridge')
+            if not during_bridge or during_bridge=='' then
+                session:execute('export','rtp_jitter_buffer_during_bridge=true')
+            end
+        end
+    end
     session:setVariable('disable_rtp_auto_adjust','false')
     session:setVariable('openweb_pbx_delivers_audio','true')
     -- Generate audible ringback when the destination signals ringing. Keep

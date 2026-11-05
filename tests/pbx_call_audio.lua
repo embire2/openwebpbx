@@ -29,3 +29,32 @@ assert(vars.ignore_early_media=='false' and vars.bridge_early_media==nil)
 freeswitch.Event=function()error('Observer unavailable')end
 M.trace(session,'owned-domain','provider_result',{Cause='NO_ANSWER'}) -- tracing cannot fail a call
 print('PASS: anchored media, inherited leg policy, existing encryption/export/ringback and observer failure controls')
+
+-- The Windows buffer is exported before originate; Debian and deliberate
+-- per-extension choices keep their original media settings.
+local actual_config=package.config
+local function platform_call(config,initial)
+    package.config=config
+    local values=initial or {};local exports={}
+    local client={getVariable=function(_,name)return values[name]end,
+        setVariable=function(_,name,value)values[name]=value end,
+        execute=function(_,app,data)assert(app=='export');local name,value=data:match('^([^=]+)=(.+)$');values[name]=value;exports[name]=value end}
+    local ok,err=pcall(M.apply,client,'owned-domain')
+    package.config=actual_config
+    assert(ok,err);return values,exports
+end
+local windows,legs=platform_call('\\\n;\n?\n!\n-\n',{rtp_secure_media='mandatory',absolute_codec_string='PCMU'})
+assert(windows.jitterbuffer_msec=='60:200' and legs.jitterbuffer_msec=='60:200')
+assert(windows.rtp_jitter_buffer_during_bridge=='true' and legs.rtp_jitter_buffer_during_bridge=='true')
+assert(windows.rtp_secure_media=='mandatory' and windows.absolute_codec_string=='PCMU')
+assert(windows.disable_rtp_auto_adjust=='false' and windows.bypass_media=='false')
+local custom,custom_exports=platform_call('\\',{jitterbuffer_msec='120:240',rtp_jitter_buffer_during_bridge='false'})
+assert(custom.jitterbuffer_msec=='120:240' and custom.rtp_jitter_buffer_during_bridge=='false')
+assert(custom_exports.jitterbuffer_msec==nil and custom_exports.rtp_jitter_buffer_during_bridge==nil)
+local off,off_exports=platform_call('\\',{jitterbuffer_msec='0'})
+assert(off.jitterbuffer_msec=='0' and off_exports.jitterbuffer_msec==nil and off_exports.rtp_jitter_buffer_during_bridge==nil)
+local explicit,explicit_exports=platform_call('\\',{rtp_jitter_buffer_during_bridge='false'})
+assert(explicit.jitterbuffer_msec=='60:200' and explicit.rtp_jitter_buffer_during_bridge=='false' and explicit_exports.rtp_jitter_buffer_during_bridge==nil)
+local linux,linux_exports=platform_call('/\n;\n?\n!\n-\n',{})
+assert(linux.jitterbuffer_msec==nil and linux.rtp_jitter_buffer_during_bridge==nil and linux_exports.jitterbuffer_msec==nil)
+print('PASS: Windows buffered media inheritance, explicit buffer/off/bridge choices, codecs/encryption/NAT preservation and unchanged Debian policy')
