@@ -143,8 +143,22 @@ function Restore-OpenWebCallRecordAccess {
   if($entry.Path -isnot [string] -or $entry.Directory -isnot [bool] -or $entry.Sddl -isnot [string] -or !$entry.Sddl -or $entry.Sddl.Length -gt 131072){throw 'The original call-record permission entry is invalid.'}
   $path=[IO.Path]::GetFullPath($entry.Path)
   if(!($path.Equals($spool,[StringComparison]::OrdinalIgnoreCase) -or $path.StartsWith($spool+'\',[StringComparison]::OrdinalIgnoreCase)) -or !$seen.Add($path)){throw 'The original call-record permission entry is outside its spool.'}
+  $descriptor=[Security.AccessControl.RawSecurityDescriptor]::new($entry.Sddl)
+  try{$null=[IO.File]::GetAttributes($path)}catch{
+   # ACL snapshots do not contain CDR bytes. The normal importer can consume
+   # a committed record after its snapshot; recovery must not recreate it.
+   # Only a missing native record in the owned default spool is admissible.
+   $cause=$_.Exception.GetBaseException()
+   $ownedSpool=[IO.Path]::GetFullPath((Join-Path $EngineRoot 'log\xml_cdr'))
+   if($cause -isnot [IO.FileNotFoundException] -or $entry.Directory -or !$spool.Equals($ownedSpool,[StringComparison]::OrdinalIgnoreCase) -or ![IO.Path]::GetDirectoryName($path).Equals($spool,[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($path) -cnotmatch '^(?:a_)?[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.cdr\.xml$'){throw}
+   $null=Assert-OpenWebCallRecordOrdinary $spool -Directory
+   $trusted=Get-OpenWebRecoveryPrivilegedSids
+   $owner=(Get-Acl -LiteralPath $spool -ErrorAction Stop).GetOwner([Security.Principal.SecurityIdentifier]).Value
+   if($null -eq $descriptor.Owner -or !$trusted.Contains($descriptor.Owner.Value) -or !$trusted.Contains($owner)){throw 'A missing native call-record identity requires administrator review.'}
+   continue
+  }
   $null=Assert-OpenWebCallRecordOrdinary $path -Directory:$entry.Directory
-  $null=[Security.AccessControl.RawSecurityDescriptor]::new($entry.Sddl);$checked+=,$entry
+  $checked+=,$entry
  }
  if($Snapshot.Exists -and !$seen.Contains($spool)){throw 'The complete original call-record directory descriptor is required.'}
  . (Join-Path $PSScriptRoot 'File-Security.ps1')
