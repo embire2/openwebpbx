@@ -1,5 +1,9 @@
 # OpenWeb PBX core system status
 
+## Hosted 1.0.24 — 5 November 2026
+
+The hosted web app, native Core and updater run1.0.24. Call Me Back has a callback-only provider choice, nine user speed dials and editable Keoma scripts with confirmed default reset. Existing provider/routes/credentials/recordings are preserved; native engine and nginx keep running. Logic/regression checks190, independent63, live browser75 and one natural Keoma generation pass. Matching native processes pass91.9seconds of stability after deployment. [Guide and exact verification scope](call-me-back-1.0.24.md). Public downloadable installers retain their separate release versions below.
+
 ## Latest Debian 1.0.23 — 5 November 2026
 
 [Debian 1.0.23](https://github.com/embire2/openwebpbx/releases/tag/v1.0.23) is published with unified DID routing, explicit number matching, Call Me Back setup and reusable QR codes. Its signed minimum is installed Debian1.0.22. Fresh managed setup, genuine signed failure rollback, final upgrade and post-upgrade calling pass. [Qualification](release-1.0.23-qualification.md). Windows remains1.0.22 pending its separate corrected recovery package; Android remains1.0.19. The hosted PBX reports1.0.23 for its local DID component; publishing the installer does not establish a full-package deployment or new physical/provider result there. Older dated entries below retain their historical scope.

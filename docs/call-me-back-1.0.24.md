@@ -1,8 +1,9 @@
 # Call Me Back and Speed Dial — Debian 1.0.24
 
-This is the 1.0.24 feature guide. Hosted deployment and release publication are
-recorded separately by the release owner. Windows keeps its independently
-qualified release; these source changes do not replace its frozen package.
+**Live on call.openweb.co.za — 5 November 2026.** The hosted web app, native
+Core and updater are all 1.0.24. Public Debian installers and Windows retain
+their separately qualified versions; this feature deployment does not replace
+a downloadable installer or Windows package. Source commit: `6471988d07d571e4277237318197a2650e4d2f49`.
 
 ## Choose the callback provider
 
@@ -107,3 +108,20 @@ answer accounting with fixture SIP endpoints: selected callback provider,
 unchanged onward provider, provider caller ID, DTMF save/call and unavailable
 selected provider. These software controls do not establish new carrier or
 physical-phone acceptance. No real customer calls are placed by the tests.
+
+## Hosted verification
+
+190 PostgreSQL/production-Lua/UI and regression controls pass; an independent
+63-control run also passes. The live HTTPS interface passes 75 checks. One
+ordinary Keoma text job completes through the existing background worker in
+6.153 seconds; its WAV is verified, then the unassigned test greeting is
+archived through the normal interface. Archive retains that test audio under
+the normal retention policy. Custom customer audio is preserved.
+
+The matching native Core/updater builds contain unchanged qualified calling
+code with version 1.0.24 metadata. After deployment, both processes remain
+stable for 91.9 seconds with no further restarts. Existing runtime/private
+configuration and 32 captured phone, route, QR and account projections remain
+exact; FreeSWITCH and nginx keep their original process generations. Actual
+external-provider callback calls are a separate deployment check and are not
+claimed by the isolated two-leg tests.

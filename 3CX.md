@@ -1,5 +1,7 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+**Hosted 1.0.24:** Callback-only SIP trunk selection, nine user speed dials and editable/resettable Keoma scripts are live on call.openweb.co.za with matching native Core/updater24. Logic/regressions190 +independent63 +live browser75 and natural narration generation pass; current routes, private identities and custom recordings survive. Public installer versions and broader roadmap totals remain separate. [Feature guide](docs/call-me-back-1.0.24.md).
+
 **5 November release:** [Debian 1.0.23](https://github.com/embire2/openwebpbx/releases/tag/v1.0.23) is published with the unified incoming-number wizard and stable QR setup, after fresh setup, signed upgrade/rollback and software-calling checks. Windows remains 1.0.22 while its corrected recovery package qualifies; Android remains 1.0.19. Roadmap totals are unchanged. [Debian evidence](docs/release-1.0.23-qualification.md) · [Windows work](docs/release-windows-1.0.23-qualification.md).
 
 **Local Windows 1.0.23 catch-up:** DID editor/number-format/external/Call Me Back handoff49 browser checks,188 actual Windows PostgreSQL/PHP controls, native manager, data/QR preservation, encrypted backup and the unchanged eight-case buffered UDP/TLS software-call matrix pass. Two earlier audio failures remain recorded; final private installer is verified. Public release and roadmap totals are unchanged. [Windows local results](docs/windows-local-1.0.23.md).
