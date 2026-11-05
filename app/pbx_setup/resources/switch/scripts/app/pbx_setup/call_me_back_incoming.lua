@@ -6,10 +6,11 @@ function C.run(session,db,config,rule)
  db:query("select service_uuid from v_pbx_cmb_services where domain_uuid=:d and incoming_rule_uuid=:r and enabled and prompt_state='ready'",{d=session:getVariable('domain_uuid'),r=rule.rule_id},function(row)service=row end)
  if not service then return false end
  if not P.prompts_ready(sounds_dir) then session:hangup('NORMAL_TEMPORARY_FAILURE');return true end
+ local scripts=P.script_files(db,session:getVariable('domain_uuid'),service.service_uuid,storage_dir)
  local privacy=(session:getVariable('sip_h_Privacy') or ''):lower()
  local hidden=session:getVariable('privacy_hide_number')=='true' or session:getVariable('caller_privacy_hide_number')=='true' or privacy:match('%f[%a]id%f[%A]')
  local caller=not hidden and P.cli(session:getVariable('caller_id_number')) or nil
- local function sound(name)return sounds_dir..'/openwebpbx/voices/1.0.2/call-me-back/'..name..'.wav'end
+ local function sound(name)return scripts[name] or sounds_dir..'/openwebpbx/voices/1.0.2/call-me-back/'..name..'.wav'end
  local request
  if caller then db:query('select * from openweb_cmb_enqueue(:d,:s,:inbound,:cli)',{d=session:getVariable('domain_uuid'),s=service.service_uuid,inbound=session:getVariable('uuid'),cli=caller},function(row)request=row end) end
  if not request then session:answer();session:streamFile(sound('unavailable'));session:hangup('CALL_REJECTED');return true end

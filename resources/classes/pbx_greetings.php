@@ -85,6 +85,7 @@ class pbx_greetings {
                 $this->q("update v_pbx_greetings set state='pending',lease_until=null,last_result='',updated_at=now() where domain_uuid=? and greeting_uuid=?",[$this->domain,$id]);
             }
             elseif($action==='archive'&&in_array($r['state'],['ready','failed','cancelled'],true)){
+                if($this->q("select to_regclass('v_pbx_cmb_scripts') is not null")->fetchColumn()&&$this->q('select 1 from v_pbx_cmb_scripts where domain_uuid=? and (greeting_uuid=? or active_greeting_uuid=?) limit 1',[$this->domain,$id,$id])->fetchColumn())throw new InvalidArgumentException('This greeting is used by a Call Me Back script. Replace or reset that script before archiving it.');
                 if($this->q('select 1 from v_pbx_greeting_uses where domain_uuid=? and greeting_uuid=? limit 1',[$this->domain,$id])->fetchColumn())throw new InvalidArgumentException('This greeting is assigned. Replace its assignments before archiving it.');
                 $this->q("update v_pbx_greetings set state='archived',updated_at=now() where domain_uuid=? and greeting_uuid=?",[$this->domain,$id]);
             }else throw new InvalidArgumentException('This greeting has changed. Refresh the page. Calls already in progress cannot be cancelled here.');

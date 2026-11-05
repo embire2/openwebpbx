@@ -1,0 +1,6 @@
+<?php
+if(!isset($a,$cmbAction,$e,$input)||empty($a['account_uuid']))return;
+$slots=[];foreach($cmb['speed_dials']??[] as $row)if($row['account_uuid']===$a['account_uuid'])$slots[(int)$row['slot']]=$row;
+?>
+<section id="cmb-speed-dials"><h3>Speed Dial · <?= $e($a['name']) ?></h3><p>Save up to nine telephone numbers. During a callback, enter the slot and # instead of the full number. Existing calling permissions, allowed prefixes and minute limits still apply.</p>
+<form method="post" class="setup-form"><?php $cmbAction('save_speed_dials',['account_uuid'=>$a['account_uuid']]); ?><div class="setup-fields"><?php for($slot=1;$slot<=9;$slot++){$input('speed_label_'.$slot,'Slot '.$slot.' · Name',$slots[$slot]['label']??'','text','maxlength="80"');$input('speed_number_'.$slot,'Slot '.$slot.' · Telephone number',$slots[$slot]['phone_number']??'','tel','maxlength="17" placeholder="0317102222"');} ?></div><p class="setup-hint">Blank numbers remove their slots. Callers can also save a slot themselves after authentication: enter 1*0317102222# to save slot 1, then enter 1# to call it; 1*0# clears it. A linked web user can manage these slots under My PBX → Speed Dial and call **1 through **9 from their own registered PBX phone.</p><button class="setup-button primary">Save speed dials</button></form></section>

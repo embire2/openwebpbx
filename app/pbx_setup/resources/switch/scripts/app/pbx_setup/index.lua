@@ -181,6 +181,14 @@ local function user_contact(u,timeout,queue)
 end
 run_outbound=function(number,owner)
     local origin=tostring(owner or caller)
+    local speed=number:match('^%*%*([1-9])$')
+    if speed then
+        if not authenticated_user or origin~=tostring(caller) or not config.users[origin] then session:hangup('CALL_REJECTED');return end
+        local C=loadfile(scripts_dir..'/app/pbx_setup/cmb_policy.lua')()
+        local target=C.extension_speed_dial(db,domain,config,origin,speed)
+        if not target then session:hangup('UNALLOCATED_NUMBER');return end
+        number=target
+    end
     local emergency=P.emergency(config,number)
     if emergency and (not authenticated_user or origin~=tostring(caller)) then session:hangup('CALL_REJECTED');return end
     local room=hotel_room(origin)

@@ -84,14 +84,21 @@ class pbx_call_me_back {
         $this->requireOwner();
         return (bool)$this->q("select to_regclass('v_pbx_cmb_services') is not null and to_regclass('v_pbx_cmb_accounts') is not null and to_regclass('v_pbx_cmb_bindings') is not null and to_regclass('v_pbx_cmb_requests') is not null and to_regclass('v_pbx_cmb_audit') is not null")->fetchColumn();
     }
+    public function webUsers(): array {
+        $this->requireOwner();
+        if(!$this->q("select to_regclass('v_pbx_staff_roles') is not null")->fetchColumn())return [];
+        return $this->q("select distinct u.user_uuid,u.username from v_users u where u.domain_uuid=:d and u.user_enabled='true' and (u.user_uuid=:actor or exists(select 1 from v_pbx_staff_roles r where r.domain_uuid=:d and r.user_uuid=u.user_uuid and r.enabled)) order by u.username",['d'=>$this->domain,'actor'=>$this->actor])->fetchAll(PDO::FETCH_KEY_PAIR);
+    }
 
     public function dashboard(): array {
         $this->requireOwner();
         if(!$this->installed())return ['installed'=>false,'services'=>[],'accounts'=>[],'bindings'=>[],'recent_attempts'=>[]];
         return [
             'installed'=>true,'voice_pack_ready'=>$this->voicePackReady(),
-            'services'=>$this->q('select service_uuid,name,incoming_rule_uuid,route_owner,enabled,prompt_version,prompt_state,prompt_refresh_state,prompt_refresh_message,prompt_refresh_attempts,max_requests_hour,retention_days,array_to_json(destination_prefixes)::text destination_prefixes from v_pbx_cmb_services where domain_uuid=:d order by name,service_uuid',['d'=>$this->domain])->fetchAll(PDO::FETCH_ASSOC),
-            'accounts'=>$this->q('select a.account_uuid,a.service_uuid,a.name,a.id_last4,a.total_seconds,a.used_seconds,a.reserved_seconds,a.enabled,s.name service_name from v_pbx_cmb_accounts a join v_pbx_cmb_services s on s.service_uuid=a.service_uuid and s.domain_uuid=a.domain_uuid where a.domain_uuid=:d order by a.name,a.account_uuid',['d'=>$this->domain])->fetchAll(PDO::FETCH_ASSOC),
+            'scripts'=>$this->q("select to_regclass('v_pbx_greetings') is not null")->fetchColumn()?pbx_cmb_scripts::rows($this->db,$this->domain):[],
+            'speed_dials'=>$this->q('select account_uuid,slot,label,phone_number from v_pbx_cmb_speed_dials where domain_uuid=:d order by account_uuid,slot',['d'=>$this->domain])->fetchAll(PDO::FETCH_ASSOC),
+            'services'=>$this->q('select service_uuid,name,incoming_rule_uuid,route_owner,enabled,callback_gateway_uuid,prompt_version,prompt_state,prompt_refresh_state,prompt_refresh_message,prompt_refresh_attempts,max_requests_hour,retention_days,array_to_json(destination_prefixes)::text destination_prefixes from v_pbx_cmb_services where domain_uuid=:d order by name,service_uuid',['d'=>$this->domain])->fetchAll(PDO::FETCH_ASSOC),
+            'accounts'=>$this->q('select a.account_uuid,a.service_uuid,a.name,a.id_last4,a.total_seconds,a.used_seconds,a.reserved_seconds,a.enabled,a.web_user_uuid,s.name service_name from v_pbx_cmb_accounts a join v_pbx_cmb_services s on s.service_uuid=a.service_uuid and s.domain_uuid=a.domain_uuid where a.domain_uuid=:d order by a.name,a.account_uuid',['d'=>$this->domain])->fetchAll(PDO::FETCH_ASSOC),
             'bindings'=>$this->q('select b.binding_uuid,b.account_uuid,b.phone_number,b.authenticated_at,b.revoked_at from v_pbx_cmb_bindings b join v_pbx_cmb_accounts a on a.account_uuid=b.account_uuid and a.domain_uuid=b.domain_uuid where b.domain_uuid=:d and b.revoked_at is null order by b.authenticated_at desc limit 300',['d'=>$this->domain])->fetchAll(PDO::FETCH_ASSOC),
             'recent_attempts'=>$this->q('select r.request_uuid,r.service_uuid,r.account_uuid,r.caller_number,r.state,r.used_seconds,r.reserved_seconds,r.created_at,r.last_result,a.name account_name,s.name service_name from v_pbx_cmb_requests r join v_pbx_cmb_services s on s.service_uuid=r.service_uuid and s.domain_uuid=r.domain_uuid left join v_pbx_cmb_accounts a on a.account_uuid=r.account_uuid and a.domain_uuid=r.domain_uuid where r.domain_uuid=:d order by r.created_at desc,r.request_uuid desc limit 100',['d'=>$this->domain])->fetchAll(PDO::FETCH_ASSOC),
         ];
@@ -110,6 +117,9 @@ class pbx_call_me_back {
             $message=match($action){
                 'save_service'=>$this->saveServiceSettings($in,$c),
                 'retry_voice'=>$this->retryVoice($in),
+                'save_callback_trunk'=>$this->saveCallbackTrunk($in,$c),
+                'save_speed_dials'=>$this->saveSpeedDials($in),
+                'save_scripts','reset_scripts'=>$this->saveScripts($in,$action==='reset_scripts'),
                 'save_account'=>$this->saveAccount($in),
                 'revoke_binding'=>$this->revokeBinding($in),
                 'disable_account'=>$this->disableAccount($in),
@@ -189,6 +199,29 @@ class pbx_call_me_back {
         return $enabled?'Call Me Back is enabled for the selected incoming number.':($changed?'Saved switched off. The named Keoma greeting is waiting to be generated.':'Call Me Back settings saved switched off.');
     }
 
+    private function saveCallbackTrunk(array $in,array $config): string {
+        $id=$this->id($in,'service_uuid');$gateway=$this->text($in,'callback_gateway_uuid',36);
+        if(!$this->q('select 1 from v_pbx_cmb_services where domain_uuid=:d and service_uuid=:id for update',['d'=>$this->domain,'id'=>$id])->fetchColumn())throw new InvalidArgumentException('Choose a service from this PBX.');
+        if($gateway!==''){
+            if(!is_uuid($gateway))throw new InvalidArgumentException('Choose a SIP trunk from this PBX.');
+            $found=false;foreach($config['trunks']??[] as $trunk)if(($trunk['gateway_uuid']??'')===$gateway&&!empty($trunk['enabled']))$found=true;
+            if(!$found||!$this->q("select 1 from v_gateways where domain_uuid=:d and gateway_uuid=:g and enabled='true'",['d'=>$this->domain,'g'=>$gateway])->fetchColumn())throw new InvalidArgumentException('Choose an enabled SIP trunk from this PBX.');
+        }
+        $this->q('update v_pbx_cmb_services set callback_gateway_uuid=:g,updated_at=now() where domain_uuid=:d and service_uuid=:id',['g'=>$gateway?:null,'d'=>$this->domain,'id'=>$id]);$this->subject=$id;
+        return 'Callback trunk saved. It is used only to call the client back; onward calls and all existing trunk routes are unchanged.';
+    }
+    private function saveSpeedDials(array $in): string {
+        $id=$this->id($in,'account_uuid');$account=$this->q('select account_uuid,service_uuid from v_pbx_cmb_accounts where domain_uuid=:d and account_uuid=:id and id_last4 is not null for update',['d'=>$this->domain,'id'=>$id])->fetch(PDO::FETCH_ASSOC);
+        if(!$account)throw new InvalidArgumentException('Choose an account from this PBX.');
+        pbx_cmb_speed_dials::write($this->db,$this->domain,$account,$in);$this->subject=$id;return 'The nine speed-dial slots were saved.';
+    }
+    private function saveScripts(array $in,bool $reset): string {
+        $id=$this->id($in,'service_uuid');$service=$this->q('select service_uuid,name from v_pbx_cmb_services where domain_uuid=:d and service_uuid=:id for update',['d'=>$this->domain,'id'=>$id])->fetch(PDO::FETCH_ASSOC);
+        if(!$service)throw new InvalidArgumentException('Choose a service from this PBX.');
+        pbx_cmb_scripts::save($this->db,$this->domain,$this->actor,$service,$in,$reset);$this->subject=$id;
+        return $reset?'Default scripts restored. Recorded greetings remain in Greetings.':'Keoma scripts queued. Current audio stays in use until each replacement is ready.';
+    }
+
     private function retryVoice(array $in): string {
         $id=$this->id($in,'service_uuid');
         if(!$this->q("update v_pbx_cmb_services set prompt_refresh_state='pending',prompt_refresh_attempts=0,prompt_refresh_after=null,prompt_refresh_token=null,prompt_refresh_until=null,prompt_refresh_message='Keoma preparation requested. Existing audio remains available.' where domain_uuid=:d and service_uuid=:id and prompt_version='1.0.1' and prompt_state='ready' and prompt_audio_file='greeting.wav' and (prompt_refresh_until is null or prompt_refresh_until<now())",['d'=>$this->domain,'id'=>$id])->rowCount())throw new InvalidArgumentException('This greeting changed or is already being prepared. Refresh the page.');
@@ -215,6 +248,11 @@ class pbx_call_me_back {
             if($total<(int)$old['used_seconds']+(int)$old['reserved_seconds'])throw new InvalidArgumentException('The allowance must cover minutes already used and reserved by current calls.');
             $this->q('update v_pbx_cmb_accounts set name=:name,total_seconds=:total,enabled=:enabled,updated_at=now() where domain_uuid=:d and account_uuid=:id',['d'=>$this->domain,'id'=>$id,'name'=>$name,'total'=>$total,'enabled'=>$enabled]);
             if(!$enabled)$this->q('update v_pbx_cmb_bindings set revoked_at=now() where domain_uuid=:d and account_uuid=:id and revoked_at is null',['d'=>$this->domain,'id'=>$id]);
+        }
+        if(array_key_exists('web_user_uuid',$in)){
+            $web=$this->text($in,'web_user_uuid',36);
+            if($web!==''&&(!is_uuid($web)||!$this->q("select 1 from v_users u where u.domain_uuid=:d and u.user_uuid=:u and u.user_enabled='true'",['d'=>$this->domain,'u'=>$web])->fetchColumn()))throw new InvalidArgumentException('Choose a web user from this PBX.');
+            $this->q('update v_pbx_cmb_accounts set web_user_uuid=:u where domain_uuid=:d and account_uuid=:id',['u'=>$web?:null,'d'=>$this->domain,'id'=>$id]);
         }
         $this->subject=$id;
         return 'Call Me Back account and total minute allowance saved.';
@@ -249,9 +287,10 @@ class pbx_call_me_back {
         if(!$account||$account['id_last4']===null)throw new InvalidArgumentException('Choose an existing account from this PBX.');
         $active=$this->q("select 1 from v_pbx_cmb_requests where domain_uuid=:d and account_uuid=:id and state in ('announcing','queued','starting','authenticating','dialling','connected') limit 1",['d'=>$this->domain,'id'=>$id])->fetchColumn();
         if((int)$account['reserved_seconds']>0||$active)throw new InvalidArgumentException('Disable the account, then wait for its current callback to finish before deleting its identity.');
+        $this->q('delete from v_pbx_cmb_speed_dials where domain_uuid=:d and account_uuid=:id',['d'=>$this->domain,'id'=>$id]);
         $this->q('delete from v_pbx_cmb_bindings where domain_uuid=:d and account_uuid=:id',['d'=>$this->domain,'id'=>$id]);
         $this->q('update v_pbx_cmb_requests set caller_number=null,updated_at=now() where domain_uuid=:d and account_uuid=:id',['d'=>$this->domain,'id'=>$id]);
-        $this->q("update v_pbx_cmb_accounts set name='Deleted account',id_hmac=null,id_last4=null,enabled=false,updated_at=now() where domain_uuid=:d and account_uuid=:id",['d'=>$this->domain,'id'=>$id]);
+        $this->q("update v_pbx_cmb_accounts set name='Deleted account',id_hmac=null,id_last4=null,web_user_uuid=null,enabled=false,updated_at=now() where domain_uuid=:d and account_uuid=:id",['d'=>$this->domain,'id'=>$id]);
         $this->subject=$id;
         return 'Account identity and saved callers deleted. Cumulative minute totals and usage records are retained under the PBX retention policy.';
     }

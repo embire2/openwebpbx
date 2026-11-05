@@ -34,4 +34,52 @@ function C.number(config,service,number,P)
  if not rule or #(rule.routes or {})==0 then return nil end
  return rule,owner
 end
+-- A chosen callback gateway is never copied into the onward destination rule.
+function C.callback_routes(config,service,rule)
+ if not service.callback_gateway_uuid or service.callback_gateway_uuid=='' then return rule.routes end
+ if not C.uuid(service.callback_gateway_uuid) then return {} end
+ for key,trunk in pairs(config.trunks or {}) do
+  if trunk.gateway_uuid==service.callback_gateway_uuid and trunk.enabled then
+   for _,route in ipairs(rule.routes or {}) do if tostring(route.trunk_id)==tostring(key) then return {route} end end
+   return {{trunk_id=key,strip=0,prepend=''}}
+  end
+ end
+ return {}
+end
+function C.extension_speed_dial(db,domain,config,origin,slot)
+ if not C.uuid(domain) or type(origin)~='string' or type(slot)~='string' or not slot:match('^[1-9]$') then return nil end
+ local user=(config.users or {})[origin];if not user or not user.enabled or not C.uuid(user.extension_uuid) then return nil end
+ local departments={}
+ for _,department in ipairs(config.departments or {}) do for _,member in ipairs(department.members or {}) do if tostring(member.number)==origin then departments[tostring(department.number)]=true end end end
+ local choices={}
+ db:query([[select distinct a.account_uuid,r.department_id,s.phone_number from v_pbx_cmb_accounts a
+  join v_pbx_staff_roles r on r.domain_uuid=a.domain_uuid and r.user_uuid=a.web_user_uuid and r.enabled
+  join v_users u on u.user_uuid=r.user_uuid and u.user_enabled='true'
+  left join v_pbx_cmb_speed_dials s on s.domain_uuid=a.domain_uuid and s.account_uuid=a.account_uuid and s.slot=cast(:slot as smallint)
+  where a.domain_uuid=:domain and r.extension_uuid=:extension and a.enabled and a.id_last4 is not null]],
+  {domain=domain,extension=user.extension_uuid,slot=slot},function(row)if departments[tostring(row.department_id)] then choices[row.account_uuid]=row end end)
+ local selected,count=nil,0;for _,row in pairs(choices) do selected=row.phone_number;count=count+1 end
+ if count==1 and type(selected)=='string' and selected:match('^%+?%d+$') then return selected end
+end
+function C.script_files(db,domain,service,storage)
+ local files={}
+ if not C.uuid(domain) or not C.uuid(service) or type(storage)~='string' then return files end
+ local installed=false
+ db:query("select to_regclass('v_pbx_cmb_scripts') is not null and to_regclass('v_pbx_greetings') is not null and to_regclass('v_pbx_media') is not null as ready",{},function(row)installed=row.ready=='t' or row.ready=='true' or row.ready==true end)
+ if not installed then return files end
+ db:query([[select s.step,g.greeting_uuid,m.file_path from v_pbx_cmb_scripts s
+ join v_pbx_greetings g on g.domain_uuid=s.domain_uuid and g.state='ready' and g.source='text'
+  and (g.greeting_uuid=s.greeting_uuid or g.greeting_uuid=s.active_greeting_uuid)
+ join v_pbx_media m on m.domain_uuid=s.domain_uuid and m.media_uuid=g.media_uuid and m.category='prompts'
+ where s.domain_uuid=:d and s.service_uuid=:s
+ order by s.step,case when g.greeting_uuid=s.greeting_uuid then 0 else 1 end]],{d=domain,s=service},function(row)
+  if files[row.step] or not C.uuid(row.greeting_uuid) or type(row.file_path)~='string' then return end
+  local path=row.file_path:gsub('\\','/');local base=storage:gsub('\\','/'):gsub('/$','')
+  local suffix='/'..domain..'/greetings/'..row.greeting_uuid..'/audio.wav'
+  if path:sub(1,#base+1)~=base..'/' or path:sub(-#suffix)~=suffix or path:find('/%.%./') then return end
+  local f=io.open(path,'rb');if not f then return end;local h=f:read(12);f:close()
+  if h and h:sub(1,4)=='RIFF' and h:sub(9,12)=='WAVE' then files[row.step]=path end
+ end)
+ return files
+end
 return C

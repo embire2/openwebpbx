@@ -5,9 +5,9 @@ local P=loadfile(scripts_dir..'/app/pbx_setup/policy.lua')()
 local C=loadfile(scripts_dir..'/app/pbx_setup/cmb_policy.lua')()
 local Crypto=loadfile(scripts_dir..'/app/pbx_setup/cmb_crypto.lua')()
 local id=argv and argv[1];if not C.uuid(id) then return end
-local db=Database.new('system');local api=freeswitch.API();local request,config,call,service,destination_call
+local db=Database.new('system');local api=freeswitch.API();local request,config,call,service,destination_call;local scripts={}
 local function query(sql,values,fn)return db:query(sql,values,fn)end
-local function sound(name)return sounds_dir..'/openwebpbx/voices/1.0.2/call-me-back/'..name..'.wav'end
+local function sound(name)return scripts[name] or sounds_dir..'/openwebpbx/voices/1.0.2/call-me-back/'..name..'.wav'end
 local function finish(result,seconds)
  if seconds~=nil then query('select openweb_cmb_finish(:id,:seconds,:result)',{id=id,seconds=seconds,result=result})
  else query([[select openweb_cmb_finish(request_uuid,case when connected_at is null then 0 else least(reserved_seconds,greatest(0,ceil(extract(epoch from(now()-connected_at))))::integer) end,:result) from v_pbx_cmb_requests where request_uuid=:id]],{id=id,result=result}) end
@@ -42,6 +42,7 @@ local function deliver()
  where s.domain_uuid=:d and s.service_uuid=:s and s.enabled and s.prompt_state='ready' and d.domain_enabled='true'
  and not exists(select 1 from v_pbx_services p join v_pbx_tenants t using(tenant_uuid) where p.domain_uuid=s.domain_uuid and not t.enabled)]],{d=request.domain_uuid,s=request.service_uuid},function(r)service=r;config=json.decode(r.config)end)
  if not service or not config or not C.cli(request.caller_number) then finish('service_unavailable');return end
+ scripts=C.script_files(db,request.domain_uuid,request.service_uuid,storage_dir)
  -- PostgreSQL arrays are decoded through a JSON projection rather than split.
  query('select array_to_json(destination_prefixes) as prefixes from v_pbx_cmb_services where service_uuid=:s',{s=request.service_uuid},function(r)service.destination_prefixes=json.decode(r.prefixes)end)
  local realms=loadfile(scripts_dir..'/app/xml_handler/resources/scripts/directory/contact_realms.lua')()
@@ -52,18 +53,22 @@ local function deliver()
  local rule,owner,number=allowed(request.caller_number)
  if not rule then finish('caller_route_blocked');return end
  local audio=C.greeting_file(service);if not audio then finish('greeting_missing');return end
- local greeting=storage_dir..'/openwebpbx/call-me-back/'..request.service_uuid..'/'..audio
+ local greeting=scripts['callback-authenticate'] or storage_dir..'/openwebpbx/call-me-back/'..request.service_uuid..'/'..audio
  local f=io.open(greeting,'rb');if not f then finish('greeting_missing');return end;f:close()
- for _,route in ipairs(rule.routes) do
+ local callback_routes=C.callback_routes(config,service,rule)
+ if #callback_routes==0 then finish('callback_trunk_unavailable',0);return end
+ local callback_attempted=false
+ for _,route in ipairs(callback_routes) do
   if not active() then finish('cancelled');return end
   local leg=contact(number,route,owner)
   if leg then
+   callback_attempted=true
    call=freeswitch.Session('{origination_uuid='..request.call_uuid..',domain_uuid='..request.domain_uuid..',domain_name='..config.realm..',originate_timeout=25,call_timeout=25,ignore_early_media=true,absolute_timeout=900,hangup_after_bridge=false,continue_on_fail=true,call_direction=outbound,sensitive_dtmf=true}'..leg)
    if call:ready() then break end
    if not P.failover(call:hangupCause(),nil,false,nil) then break end
   end
  end
- if not call or not call:ready() then finish('caller_no_answer');return end
+ if not call or not call:ready() then finish(not callback_attempted and service.callback_gateway_uuid and 'callback_trunk_unavailable' or 'caller_no_answer');return end
  api:execute('sched_api','+120 openweb-cmb-'..id..' uuid_kill '..request.call_uuid..' ALLOTTED_TIMEOUT')
  call:setVariable('sensitive_dtmf','true');call:setVariable('dtmf_verbose','false');call:setVariable('verbose_events','false');call:setVariable('openweb_cmb_request',id)
  call:setVariable('sip_copy_custom_headers','false');call:setVariable('continue_on_fail','true');call:setVariable('hangup_after_bridge','false')
@@ -89,7 +94,34 @@ local function deliver()
   proof=nil;play('authenticated')
  end
  if not call:ready() or not active() then finish('caller_disconnected');return end
- local target=call:playAndGetDigits(7,16,2,12000,'#',sound('enter-number'),sound('invalid-number'),'',nil,3000)
+ -- Every speed dial belongs to the account authenticated on this request.
+ local account
+ query("select account_uuid from v_pbx_cmb_requests where request_uuid=:id and state='dialling'",{id=id},function(r)account=r.account_uuid end)
+ if not C.uuid(account) then finish('authentication_failed');return end
+ local target
+ for _=1,3 do
+  target=call:playAndGetDigits(1,18,2,12000,'#',sound('enter-number'),sound('invalid-number'),'',nil,3000)
+  if type(target)~='string' then break end
+  local slot,number=target:match('^([1-9])%*(%d%d%d%d%d%d%d%d*)$')
+  local clearing=target:match('^([1-9])%*0$')
+  if slot then
+   local permitted=allowed(number)
+   if not permitted then play('invalid-number');finish('destination_blocked');return end
+   query([[insert into v_pbx_cmb_speed_dials(domain_uuid,service_uuid,account_uuid,slot,label,phone_number)
+    select domain_uuid,service_uuid,account_uuid,cast(:slot as smallint),'',:number from v_pbx_cmb_requests
+    where request_uuid=:id and account_uuid=:account and state='dialling'
+    on conflict(domain_uuid,account_uuid,slot) do update set phone_number=excluded.phone_number,updated_at=now()]],{id=id,account=account,slot=slot,number=number})
+   target=nil
+  elseif clearing then
+   query('delete from v_pbx_cmb_speed_dials where domain_uuid=:d and account_uuid=:a and slot=cast(:slot as smallint)',{d=request.domain_uuid,a=account,slot=clearing});target=nil
+  else break end
+  if not call:ready() or not active() then finish('caller_disconnected');return end
+ end
+ if type(target)=='string' and target:match('^[1-9]$') then
+  local saved
+  query('select phone_number from v_pbx_cmb_speed_dials where domain_uuid=:d and service_uuid=:s and account_uuid=:a and slot=cast(:slot as smallint)',{d=request.domain_uuid,s=request.service_uuid,a=account,slot=target},function(r)saved=r.phone_number end)
+  target=saved
+ end
  -- DTMF has no '+' key; international numbers must use a configured 00 rule.
  local targetRule,targetOwner,dialled=allowed(target)
  if not targetRule then play('invalid-number');finish('destination_blocked');return end
