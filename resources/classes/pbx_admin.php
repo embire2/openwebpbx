@@ -97,6 +97,68 @@ class pbx_admin {
         $this->appRevocations=[];$this->saveNotice='Saved.';$this->db->beginTransaction();try{$c=$this->config(true);$this->scope?->validateEdit($type,$key,$in,$c);$result=match($type){'user'=>$this->saveUser($key,$in,$c),'trunk'=>$this->saveTrunk($key,$in,$c),'department'=>$this->saveDepartment($key,$in,$c),'hours'=>$this->saveHours($key,$in,$c),'queue','ring_group','receptionist'=>$this->saveHandling($type,$key,$in,$c),'outbound'=>$this->saveOutbound($key,$in,$c),'incoming'=>$this->saveIncoming($key,$in,$c),'script'=>$this->saveScript($key,$in,$c),default=>throw new InvalidArgumentException('Choose an admin page.')};if($this->scope&&$type==='trunk'&&$key==='new')pbx_departments::assign($c,$result,(string)$in['department']);$this->scope?->audit('save_'.$type,$result);$this->saveConfig($c);$this->db->commit();}catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}$this->changed($type==='trunk'?$this->config()['trunks'][$result]['gateway_uuid']:null,$type==='queue'?$result:null);if($type==='user')try{$this->engine('lua app/pbx_setup/mobile_state.lua '.$this->domain.' '.$result);}catch(Throwable){error_log('OpenWeb PBX: user saved; queue status refresh will retry.');}if($this->appRevocations&&!(new pbx_mobile($this->db))->revokeFutureConnections($this->appRevocations))$this->saveNotice.=' App password saved; connection cleanup is pending.';
         if($type==='user'&&$key==='new'&&!empty($in['send_welcome'])&&($c['users'][$result]['email']??'')!==''){try{(new pbx_mobile_welcome($this->db))->queue($result);$this->saveNotice.=' Welcome message queued; inbox delivery is not yet confirmed.';}catch(Throwable){$this->saveNotice.=' The user was saved, but the welcome message could not be queued. Open Phone Provisioning to retry.';}}return $result;
     }
+    /** Canonical DID wizard: one transaction for its route, generated native rows and callback choice. */
+    public function saveDid(string $key,array $in): string {
+        if($this->scope||$this->domain!==($_SESSION['domain_uuid']??null))throw new RuntimeException('PBX owner access is required to change incoming numbers.');
+        new pbx_trunk_routes($this->db);
+        $revision=$this->text($in,'revision',64);if(!preg_match('/^[a-f0-9]{64}$/D',$revision))throw new InvalidArgumentException('Refresh this number before saving.');
+        foreach(['enabled']as$flag)if(isset($in[$flag])&&$in[$flag]!=='1')throw new InvalidArgumentException('Choose a valid incoming-number setting.');
+        $this->db->beginTransaction();try {
+            $c=$this->config(true);$old=null;$callback=null;
+            if($key!=='new'){if(!is_uuid($key))throw new InvalidArgumentException('Choose a number from this PBX.');[, $old]=$this->row($c['inbound_rules'],$key,'rule_id');}
+            $callback=$old?($this->query('select service_uuid,incoming_rule_uuid,name,enabled,prompt_state,prompt_version,prompt_sha256,route_owner,updated_at from v_pbx_cmb_services where domain_uuid=:d and incoming_rule_uuid=:r for update',['d'=>$this->domain,'r'=>$key])->fetch(PDO::FETCH_ASSOC)?:null):null;
+            if(!hash_equals(pbx_did_routes::revision($c,$old,$callback),$revision))throw new RuntimeException('This number changed while you were editing. Refresh and try again.');
+            $country=$this->text($in,'number_country',8);if(!in_array($country,['','27','exact'],true))throw new InvalidArgumentException('Choose a supported number format.');
+            if($country==='27')$c['country_calling_code']='27';elseif($country==='exact')unset($c['country_calling_code']);
+            $trunk=$this->text($in,'trunk_id',40,$old['trunk_id']??'');if(!isset($c['trunks'][$trunk]))throw new InvalidArgumentException('Choose a provider from this PBX.');
+            $gateway=$this->query('select enabled from v_gateways where domain_uuid=:d and gateway_uuid=:g for update',['d'=>$this->domain,'g'=>$c['trunks'][$trunk]['gateway_uuid']??null])->fetch(PDO::FETCH_ASSOC);
+            if(!$gateway)throw new InvalidArgumentException('Choose a provider from this PBX.');
+            if(isset($in['enabled'])&&!filter_var($gateway['enabled'],FILTER_VALIDATE_BOOLEAN))throw new InvalidArgumentException('Connect this provider before accepting calls, or save the number switched off.');
+            $fallback=$old&&($old['condition']??'')==='ForwardAll';
+            $number=$fallback?(string)$old['number']:pbx_did_routes::number($this->text($in,'number',60));
+            // A disabled number keeps its ownership; it must not silently fall through to a main-number route.
+            foreach($c['inbound_rules']as$r)if($r['rule_id']!==$key&&($r['condition']??'')==='BasedOnDID'){
+                foreach(pbx_v20_restore::incomingRuleNumbers($r)as$savedNumber)foreach(pbx_did_routes::numberForms($savedNumber,$c)as$pattern)foreach(pbx_did_routes::numberForms($number,$c)as$form){$a=ltrim($form,'+');$b=ltrim($pattern,'*+');
+                if(!$fallback&&($a===$b||(str_starts_with($pattern,'*')&&str_ends_with($a,$b))))throw new InvalidArgumentException('This number already has a route. Edit that number instead of adding another.');}
+            }
+            $name=$this->text($in,'name',100,$old['name']??$number);if($name==='')$name=$number?:'Other provider numbers';
+            $target=$this->text($in,'destination',50);$setupCallback=$target==='CallMeBack:setup';
+            if($setupCallback&&($callback||$fallback))throw new InvalidArgumentException('Choose the existing Call Me Back service for this individual number.');
+            $selectedCallback=!$setupCallback&&str_starts_with($target,'CallMeBack:')?substr($target,11):null;$keepNormal=$selectedCallback!==null||$setupCallback;
+            if($selectedCallback!==null&&(!is_uuid($selectedCallback)||!$callback||$selectedCallback!==$callback['service_uuid']||$fallback))throw new InvalidArgumentException('Set up Call Me Back for this number first.');
+            $normal=$keepNormal?(($old['office']['type']??'None').':'.($old['office']['number']??'')):$target;
+            if(!isset($this->destinations($c)[$normal]))throw new InvalidArgumentException('Choose who receives calls to this number.');
+            [$type,$extension]=explode(':',$normal,2);if(!$keepNormal&&in_array($type,['Extension','VoiceMail'],true)&&empty($c['users'][$extension]['enabled']))throw new InvalidArgumentException('Choose an enabled user.');
+            $hours=$keepNormal?(!empty($old['use_outside'])?'office':'always'):$this->text($in,'hours_mode',10,'always');if(!in_array($hours,['always','office'],true))throw new InvalidArgumentException('Choose when this route applies.');
+            $post=['office'=>$normal,'office_external'=>$keepNormal?($old['office']['external']??''):($in['external']??''),'enabled'=>isset($in['enabled']),'use_outside'=>$hours==='office','office_department'=>$keepNormal?($old['office_department']??''):($in['office_department']??($old['office_department']??''))];
+            if($hours==='office'){
+                $post['outside']=$keepNormal?(($old['outside']['type']??'None').':'.($old['outside']['number']??'')):($in['outside']??(($old['outside']['type']??'None').':'.($old['outside']['number']??'')));$post['outside_external']=$keepNormal?($old['outside']['external']??''):($in['outside_external']??($old['outside']['external']??''));
+            }
+            // Holiday routes survive a basic destination edit; only an explicit holiday control can replace them.
+            if(!$keepNormal&&array_key_exists('holiday',$in)){$post['holiday']=$in['holiday'];$post['holiday_external']=$in['holiday_external']??'';$post['use_holiday']=($in['use_holiday']??'')==='1';}
+            if($key==='new'){
+                if(count($c['inbound_rules'])>=500)throw new InvalidArgumentException('This PBX has reached its incoming-number limit.');
+                $post['number']=$number;$post['trunk_id']=$trunk;
+            }else{
+                [$i]=$this->row($c['inbound_rules'],$key,'rule_id');$c['inbound_rules'][$i]['trunk_id']=$trunk;$c['inbound_rules'][$i]['number']=$number;
+            }
+            $aliases=$fallback?null:array_values(array_unique(array_merge($old['number_aliases']??[],array_values(array_diff(pbx_did_routes::numberForms($number,$c),[$number])))));
+            $id=$this->saveIncoming($key,$post,$c,$aliases);[$i]=$this->row($c['inbound_rules'],$id,'rule_id');$r=&$c['inbound_rules'][$i];$r['name']=$name;
+            if($keepNormal&&$old)$r['hours']=$old['hours'];
+            elseif($hours==='always')$r['hours']=['type'=>'AllHours','periods'=>[]];
+            elseif($old&&($old['hours']['type']??'')!=='AllHours'&&$post['office_department']===($old['office_department']??''))$r['hours']=$old['hours'];
+            else $r['hours']=['type'=>'OfficeHours','periods'=>[]];
+            if(!$fallback){
+                // The number list is inventory generated by this editor, never a second destination setting.
+                $dids=pbx_v20_restore::incomingNumbers($c['trunks'][$trunk]);$dids[]=$number;$c['trunks'][$trunk]['dids']=implode(',',array_values(array_unique($dids)));
+            }
+            $this->query('update v_destinations set destination_number=:number,destination_description=:name where domain_uuid=:d and destination_uuid=:id',['number'=>$number?:($c['trunks'][$trunk]['main_number']??''),'name'=>$name,'d'=>$this->domain,'id'=>$id]);
+            (new pbx_call_me_back($this->db))->routeIncoming($c,$id,$selectedCallback,true);
+            $this->saveConfig($c);(new pbx_staff_access($this->db))->audit('save_did',$id);$this->db->commit();
+        }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
+        $cache=new cache;foreach(['dialplan:'.$c['realm'],'dialplan:ingress@'.$c['realm'],'dialplan:openweb-incoming:'.gethostname()]as$cacheKey)$cache->delete($cacheKey);
+        return $id;
+    }
     /** Add one incoming number without touching provider credentials or outgoing rules. */
     public function addTrunkNumber(string $trunk,array $in): string {
         if($this->scope||$this->domain!==($_SESSION['domain_uuid']??null)||!(new pbx_staff_access($this->db))->owner()||!$this->query("select 1 from v_domains d join v_users u on u.user_uuid=:u where d.domain_uuid=:d and d.domain_enabled='true' and u.user_enabled='true'",['u'=>$_SESSION['user_uuid']??'','d'=>$this->domain])->fetchColumn())throw new RuntimeException('PBX owner access is required to add incoming numbers.');
@@ -413,9 +475,9 @@ class pbx_admin {
         }
         return $key;
     }
-    private function saveIncoming(string $key,array $in,array &$c): string {
+    private function saveIncoming(string $key,array $in,array &$c,?array $numberAliases=null): string {
         if($key==='new'){$key=uuid();$trunk=$this->text($in,'trunk_id',40);if(!isset($c['trunks'][$trunk]))throw new InvalidArgumentException('Choose a SIP trunk.');$number=$this->number($in,'number');$i=count($c['inbound_rules']);$empty=['type'=>'None','number'=>'','external'=>''];$dp=$this->newDialplan($number,'incoming',$c,$key);$c['inbound_rules'][]=['rule_id'=>$key,'trunk_id'=>$trunk,'number'=>$number,'name'=>$number,'order'=>$i,'condition'=>'BasedOnDID','hours'=>['type'=>'OfficeHours','periods'=>[]],'office'=>$empty,'outside'=>$empty,'holiday'=>$empty,'use_outside'=>false,'use_holiday'=>false,'enabled'=>false,'dialplan_uuid'=>$dp];$this->insert('v_destinations',['destination_uuid'=>$key,'domain_uuid'=>$this->domain,'dialplan_uuid'=>$dp,'destination_type'=>'inbound','destination_number'=>$number,'destination_context'=>'ingress@'.$c['realm'],'destination_app'=>'lua','destination_data'=>'app.lua pbx_setup incoming '.$key,'destination_enabled'=>false,'destination_type_voice'=>1,'destination_description'=>$number]);}
-        [$i]=$this->row($c['inbound_rules'],$key,'rule_id');$r=&$c['inbound_rules'][$i];if(array_key_exists('office_department',$in)){$department=$this->text($in,'office_department',40);if($department!==''){pbx_departments::find($c,$department);$r['office_department']=$department;$r['hours']=['type'=>'OfficeHours','periods'=>[]];}else unset($r['office_department']);}$r['office']=$this->destination($in,'office',$c,$r['office']);$r['outside']=$this->destination($in,'outside',$c,$r['outside']);$r['use_outside']=!empty($in['use_outside']);if(array_key_exists('use_holiday',$in)||array_key_exists('holiday',$in)){$r['use_holiday']=!empty($in['use_holiday']);$r['holiday']=$this->destination($in,'holiday',$c,$r['holiday']??['type'=>'None','number'=>'','external'=>'']);}$enabled=!empty($in['enabled']);$t=$c['trunks'][$r['trunk_id']];if($enabled&&(!$t['enabled']||!$t['allowed_ips']))throw new InvalidArgumentException('Connect the SIP trunk first.');if($enabled)$this->checkIncomingBinding($r,$t,$c);$r['enabled']=$enabled;$order=pbx_v20_restore::incomingOrder($r,$i);
+        [$i]=$this->row($c['inbound_rules'],$key,'rule_id');$r=&$c['inbound_rules'][$i];if($numberAliases!==null){$r['number_aliases']=$numberAliases;pbx_v20_restore::incomingRuleNumbers($r);}if(array_key_exists('office_department',$in)){$department=$this->text($in,'office_department',40);if($department!==''){pbx_departments::find($c,$department);$r['office_department']=$department;$r['hours']=['type'=>'OfficeHours','periods'=>[]];}else unset($r['office_department']);}$r['office']=$this->destination($in,'office',$c,$r['office']);$r['outside']=$this->destination($in,'outside',$c,$r['outside']);$r['use_outside']=!empty($in['use_outside']);if(array_key_exists('use_holiday',$in)||array_key_exists('holiday',$in)){$r['use_holiday']=!empty($in['use_holiday']);$r['holiday']=$this->destination($in,'holiday',$c,$r['holiday']??['type'=>'None','number'=>'','external'=>'']);}$enabled=!empty($in['enabled']);$t=$c['trunks'][$r['trunk_id']];if($enabled&&(!$t['enabled']||!$t['allowed_ips']))throw new InvalidArgumentException('Connect the SIP trunk first.');if($enabled)$this->checkIncomingBinding($r,$t,$c);$r['enabled']=$enabled;$order=pbx_v20_restore::incomingOrder($r,$i);
         // Both public and gateway ingress must check the source IP before any routing.
         $s=$this->query('select dialplan_xml from v_dialplans where domain_uuid=:d and dialplan_uuid=:id',['d'=>$this->domain,'id'=>$r['dialplan_uuid']])->fetchColumn();$doc=new DOMDocument();
         if(!is_string($s)||preg_match('/<!\s*(?:DOCTYPE|ENTITY)/i',$s)||!$doc->loadXML($s,LIBXML_NONET))throw new InvalidArgumentException('The saved incoming rule needs review.');
@@ -424,7 +486,8 @@ class pbx_admin {
         foreach(iterator_to_array($root->childNodes) as $node)if($node instanceof DOMElement&&in_array($node->getAttribute('field'),['${sip_network_ip}',$gatewayField],true))$root->removeChild($node);
         $condition=$doc->createElement('condition');$condition->setAttribute('field','${sip_network_ip}');$condition->setAttribute('expression','^(?:'.implode('|',array_map(fn($ip)=>preg_quote($ip,'~'),$t['allowed_ips'])).')$');$root->insertBefore($condition,$root->firstChild);
         $binding=$doc->createElement('condition');$binding->setAttribute('field',$gatewayField);$binding->setAttribute('expression',$gatewayExpression);$root->insertBefore($binding,$root->firstChild);
-        $this->query('update v_dialplans set dialplan_xml=:xml,dialplan_enabled=:on,dialplan_order=:position where domain_uuid=:d and dialplan_uuid=:id',['xml'=>$doc->saveXML($root),'on'=>$enabled,'position'=>$order,'d'=>$this->domain,'id'=>$r['dialplan_uuid']]);
+        $nativeNumber=$r['number']?:($t['main_number']??'');$nativeName='OpenWeb incoming '.$nativeNumber;$root->setAttribute('name',$nativeName);
+        $this->query('update v_dialplans set dialplan_xml=:xml,dialplan_enabled=:on,dialplan_order=:position,dialplan_number=:number,dialplan_name=:name where domain_uuid=:d and dialplan_uuid=:id',['xml'=>$doc->saveXML($root),'on'=>$enabled,'position'=>$order,'number'=>$nativeNumber,'name'=>$nativeName,'d'=>$this->domain,'id'=>$r['dialplan_uuid']]);
         $this->query("update v_dialplan_details set dialplan_detail_type=:field,dialplan_detail_data=:expression where domain_uuid=:d and dialplan_uuid=:id and dialplan_detail_tag='condition' and dialplan_detail_type in ('destination_number','\${sip_to_user}','\${sip_req_user}')",['field'=>$sipField,'expression'=>$sipExpression,'d'=>$this->domain,'id'=>$r['dialplan_uuid']]);
         $bindings=$this->query("select dialplan_detail_uuid from v_dialplan_details where domain_uuid=:d and dialplan_uuid=:id and dialplan_detail_tag='condition' and dialplan_detail_type='\${sip_gateway}' for update",['d'=>$this->domain,'id'=>$r['dialplan_uuid']])->fetchAll(PDO::FETCH_COLUMN);
         if(count($bindings)>1)throw new InvalidArgumentException('The saved incoming provider binding needs review.');
@@ -444,8 +507,8 @@ class pbx_admin {
             if($index===0&&($trunk['gateway_uuid']??null)===($otherTrunk['gateway_uuid']??null)
                 &&($rule['condition']??'')!==($other['condition']??'')
                 &&in_array('ForwardAll',[$rule['condition']??'',$other['condition']??''],true))continue;
-            $numbers=($rule['condition']??'')==='ForwardAll'?pbx_v20_restore::incomingNumbers($trunk):[$rule['number']];
-            $otherNumbers=($other['condition']??'')==='ForwardAll'?pbx_v20_restore::incomingNumbers($otherTrunk):[$other['number']];
+            $numbers=($rule['condition']??'')==='ForwardAll'?pbx_v20_restore::incomingNumbers($trunk):pbx_v20_restore::incomingRuleNumbers($rule);
+            $otherNumbers=($other['condition']??'')==='ForwardAll'?pbx_v20_restore::incomingNumbers($otherTrunk):pbx_v20_restore::incomingRuleNumbers($other);
             foreach($numbers as $patternA)foreach($otherNumbers as $patternB){
                 $suffixA=str_starts_with($patternA,'*');$suffixB=str_starts_with($patternB,'*');$a=ltrim($patternA,'*+');$b=ltrim($patternB,'*+');
                 if($a===$b||($suffixA&&str_ends_with($b,$a))||($suffixB&&str_ends_with($a,$b)))throw new InvalidArgumentException('This number already has an active route from that provider. Keep one active destination per number.');

@@ -142,7 +142,7 @@ class UpgradeChecks(unittest.TestCase):
         journal={'state':'completed','version':'1.0.16','backup_path':str(backup)}
         commands=[];saved=[];validated=[]
         response=io.BytesIO(json.dumps({'state':'Running','version':'1.0.16'}).encode())
-        with patch.object(upgrade,'WEB',web),patch.object(upgrade,'BACKUPS',backups),patch.object(upgrade.urllib.request,'urlopen',return_value=response),patch.object(upgrade,'validate_backup',side_effect=lambda value:validated.append(value)),patch.object(upgrade.subprocess,'run',side_effect=lambda command,**kwargs:commands.append(command) or SimpleNamespace(returncode=0)),patch.object(upgrade.subprocess,'check_output',return_value='loaded\n'),patch.object(upgrade,'save_journal',side_effect=lambda *args,**kwargs:saved.append((args,kwargs))):
+        with patch.object(upgrade,'WEB',web),patch.object(upgrade,'BACKUPS',backups),patch.object(upgrade.urllib.request,'urlopen',return_value=response),patch.object(upgrade,'validate_backup',side_effect=lambda value:validated.append(value)),patch.object(upgrade.subprocess,'run',side_effect=lambda command,**kwargs:commands.append(command) or SimpleNamespace(returncode=0,stdout='enabled\n')),patch.object(upgrade.subprocess,'check_output',return_value='loaded\n'),patch.object(upgrade,'save_journal',side_effect=lambda *args,**kwargs:saved.append((args,kwargs))):
             upgrade.finalize_completed(journal)
         self.assertEqual(validated,[backup])
         self.assertLess(commands.index(['nginx','-t']),commands.index(['systemctl','reload','nginx']))

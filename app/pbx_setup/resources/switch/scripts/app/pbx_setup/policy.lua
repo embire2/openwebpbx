@@ -429,6 +429,21 @@ function P.did_matches(pattern,number)
     pattern=pattern:gsub('^%+','')
     return pattern:match('^%d+$')~=nil and pattern==number
 end
+function P.did_rule_matches(rule,number)
+    local aliases=rule.number_aliases;if aliases==nil then aliases={} end
+    if type(aliases)~='table' or #aliases>10 then return false end
+    local count=0;for key,_ in pairs(aliases) do
+        count=count+1;if count>10 or type(key)~='number' or key%1~=0 or key<1 or key>#aliases then return false end
+    end
+    if count~=#aliases then return false end
+    for _,alias in ipairs(aliases) do
+        if type(alias)~='string' or not alias:match('^%+?%d+$') then return false end
+        local digits=alias:gsub('^%+','');if #digits<3 or #digits>32 then return false end
+    end
+    if P.did_matches(rule.number,number) then return true end
+    for _,alias in ipairs(aliases) do if P.did_matches(alias,number) then return true end end
+    return false
+end
 function P.trunk_number(trunk,number)
     if P.did_matches(trunk.main_number,number) then return true end
     local dids=trunk.dids or {}
@@ -451,7 +466,7 @@ function P.incoming(config,rule,trunk,get,ip)
     if binding and binding~='' and binding~=trunk.gateway_uuid then return false end
     local number=P.incoming_number(trunk,get)
     if not number then return false end
-    if rule.condition=='BasedOnDID' then return P.did_matches(rule.number,number) end
+    if rule.condition=='BasedOnDID' then return P.did_rule_matches(rule,number) end
     if rule.condition~='ForwardAll' then return false end
     -- A public forward-all is limited to numbers declared on this provider.
     -- Gateway-bound ingress must still match its native UUID above; arbitrary
@@ -463,8 +478,11 @@ function P.incoming(config,rule,trunk,get,ip)
         local other_trunk=(config.trunks or {})[tostring(other.trunk_id)]
         local shared=false
         for _,allowed in ipairs((other_trunk or {}).allowed_ips or {}) do if allowed==ip then shared=true end end
-        if other.enabled and other.rule_id~=rule.rule_id and (tostring(other.trunk_id)==tostring(rule.trunk_id) or (shared and (not binding or binding==''))) then
-            if other.condition=='BasedOnDID' and P.did_matches(other.number,number) then return false end
+        local own_number=tostring(other.trunk_id)==tostring(rule.trunk_id) and other.condition=='BasedOnDID'
+        -- A saved DID owns its destination even when switched off. Switching it
+        -- off must not send its callers to an unrelated provider fallback.
+        if (other.enabled or own_number) and other.rule_id~=rule.rule_id and (tostring(other.trunk_id)==tostring(rule.trunk_id) or (shared and (not binding or binding==''))) then
+            if other.condition=='BasedOnDID' and P.did_rule_matches(other,number) then return false end
             if other.condition=='ForwardAll' and shared and P.trunk_number(other_trunk,number) then return false end
         end
     end

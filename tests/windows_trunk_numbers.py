@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-PINS = {'tests/windows_meeting_owned_process.py': '9c2de4d8b96f1769bf0cb5a9985409bb28587dce7f8add77556941bc4ea55448', 'tests/pbx_trunk_numbers.py': '29702ed82484578483801ff096c5ade66a7fe8370e451b723d08d2ce0299caab', 'tests/pbx_trunk_numbers.php': 'f9d98c157f7712c570a41d0c5357e1b460cbac2771b03afa1ec631e56975fa1e'}
+PINS = {'tests/windows_meeting_owned_process.py': '9c2de4d8b96f1769bf0cb5a9985409bb28587dce7f8add77556941bc4ea55448', 'tests/pbx_trunk_numbers.py': '29702ed82484578483801ff096c5ade66a7fe8370e451b723d08d2ce0299caab', 'tests/pbx_trunk_numbers.php': '979fcf8992b7f9693f201cad6d6183033f2d36d04e5cb753bb67b8a5f3d29977'}
 JOB_KEYS = set('schema created_suspended assigned_before_resume resumed owned_job_terminated exit_code owned_processes_closed handles_closed ordinary_exit'.split())
 JOB_TRUE = 'created_suspended assigned_before_resume resumed owned_processes_closed handles_closed ordinary_exit'.split()
 
@@ -34,7 +34,7 @@ def validate(result, proof):
     need(type(result.returncode) is int and result.returncode == 0)
     row = decode(result.stdout)
     need(type(row) is dict and set(row) == {'controls', 'actual_isolated_postgresql', 'engine_calls', 'customer_connection'})
-    need(type(row['controls']) is int and row['controls'] == 66)
+    need(type(row['controls']) is int and row['controls'] == 188)
     need(row['actual_isolated_postgresql'] is True and row['customer_connection'] is False)
     need(type(row['engine_calls']) is list and row['engine_calls'] == [])
     need(type(proof) is dict and set(proof) == JOB_KEYS)

@@ -108,7 +108,7 @@ class pbx_call_me_back {
             // Serialize owner edits and refresh the currently-owned routing configuration.
             $c=(new pbx_admin($this->db))->config(true);
             $message=match($action){
-                'save_service'=>$this->saveService($in,$c),
+                'save_service'=>$this->saveServiceSettings($in,$c),
                 'retry_voice'=>$this->retryVoice($in),
                 'save_account'=>$this->saveAccount($in),
                 'revoke_binding'=>$this->revokeBinding($in),
@@ -144,6 +144,18 @@ class pbx_call_me_back {
         $used=[];foreach($services as $service)if(($service['service_uuid']??'')!==$editing)$used[(string)$service['incoming_rule_uuid']]=true;
         $out=[];foreach($c['inbound_rules']??[] as $rule)if(($rule['condition']??'')==='BasedOnDID'&&!isset($used[$rule['rule_id']])&&isset($c['trunks'][$rule['trunk_id']])&&preg_match('/^\+?[0-9]{3,20}$/D',(string)($rule['number']??'')))$out[$rule['rule_id']]=$rule['number'].' · '.($c['trunks'][$rule['trunk_id']]['name']??'Provider');
         return $out;
+    }
+    /** Service settings do not provide a second control for the number's destination. */
+    private function saveServiceSettings(array $in,array $c): string {
+        $id=$this->id($in,'service_uuid',true);$old=$id!==''?($this->q('select enabled,incoming_rule_uuid from v_pbx_cmb_services where domain_uuid=:d and service_uuid=:id for update',['d'=>$this->domain,'id'=>$id])->fetch(PDO::FETCH_ASSOC)?:null):null;
+        if($id!==''&&!$old)throw new InvalidArgumentException('Choose a Call Me Back service from this PBX.');
+        $active=$old&&!empty($old['enabled']);
+        if(array_key_exists('enabled',$in)&&$this->checked($in,'enabled')!==$active)throw new InvalidArgumentException('Choose Call Me Back as the destination in DID Numbers to change incoming routing.');
+        if($active&&($in['incoming_rule_uuid']??'')!==$old['incoming_rule_uuid'])throw new InvalidArgumentException('Change this number’s destination in DID Numbers before moving its Call Me Back service.');
+        unset($in['enabled'],$in['confirm_handover']);
+        if($active){$in['enabled']='1';$in['confirm_handover']='1';}
+        $message=$this->saveService($in,$c);
+        return $active?'Call Me Back settings saved. Incoming calls continue to this service.':$message.' Choose Call Me Back as the destination in DID Numbers when its greeting is ready.';
     }
     private function saveService(array $in,array $c): string {
         $id=$this->id($in,'service_uuid',true);$name=$this->text($in,'service_name',100);

@@ -120,6 +120,41 @@ check(P.did_matches('*000001','+27210000001'),'Explicit suffix DID match')
 check(not P.did_matches('*000002','+27210000001'),'Wrong suffix denied')
 check(not P.did_matches('*.*','27210000001'),'DID regex injection rejected')
 check(not P.did_matches('0210000001','210000001'),'DID leading zeros are preserved')
+local canonical_trunk={gateway_uuid='00000000-0000-4000-a000-000000000023',main_number='0875500273',dids='0875500273,0800014509',source_field='ToUserPart',allowed_ips={'192.0.2.23'}}
+local canonical_did={rule_id='did23',enabled=true,condition='BasedOnDID',number='0800014509',trunk_id='provider23',office={type='External',external='0317102222'}}
+local canonical_fallback={rule_id='fallback23',enabled=true,condition='ForwardAll',trunk_id='provider23'}
+local canonical_config={trunks={provider23=canonical_trunk},inbound_rules={canonical_fallback,canonical_did}}
+local canonical_headers={sip_to_user='0800014509',sip_req_user='0875500273',sip_gateway=canonical_trunk.gateway_uuid}
+local canonical_get=function(k)return canonical_headers[k]end
+check(P.incoming(canonical_config,canonical_did,canonical_trunk,canonical_get,'192.0.2.23'),'Canonical DID selects its explicit external destination')
+check(not P.incoming(canonical_config,canonical_fallback,canonical_trunk,canonical_get,'192.0.2.23'),'DID cannot use fallback even when fallback appears first')
+canonical_headers.sip_to_user='08000014509'
+check(not P.incoming(canonical_config,canonical_did,canonical_trunk,canonical_get,'192.0.2.23'),'An extra zero is a different number, never guessed')
+check(not P.incoming(canonical_config,canonical_fallback,canonical_trunk,canonical_get,'192.0.2.23'),'An undeclared misspelling cannot reach the provider fallback')
+canonical_did.number_aliases={'08000014509'}
+check(P.incoming(canonical_config,canonical_did,canonical_trunk,canonical_get,'192.0.2.23'),'An explicitly retained historical provider number selects the same DID')
+check(not P.incoming(canonical_config,canonical_fallback,canonical_trunk,canonical_get,'192.0.2.23'),'Historical provider number cannot use extension-1000 fallback')
+canonical_did.enabled=false
+check(not P.incoming(canonical_config,canonical_fallback,canonical_trunk,canonical_get,'192.0.2.23'),'Disabled DID also owns its historical provider number')
+canonical_did.enabled=true;canonical_did.number_aliases={'*014509'}
+check(not P.incoming(canonical_config,canonical_did,canonical_trunk,canonical_get,'192.0.2.23'),'Historical provider numbers cannot introduce a wildcard')
+canonical_did.number_aliases={'08000014509'}
+canonical_headers.sip_to_user='08000014508'
+check(not P.incoming(canonical_config,canonical_did,canonical_trunk,canonical_get,'192.0.2.23'),'A near spelling is never accepted without an explicit mapping')
+for _,aliases in ipairs({{'+12'},{string.rep('1',33)},{named='08000014509'},{[1]='08000014509',[3]='08000014509'},false}) do
+    canonical_did.number_aliases=aliases
+    check(not P.did_rule_matches(canonical_did,'0800014509'),'Malformed historical provider-number list rejected consistently')
+end
+canonical_did.number_aliases={'08000014509'}
+
+
+canonical_headers.sip_to_user='0800014509';canonical_did.enabled=false
+check(not P.incoming(canonical_config,canonical_fallback,canonical_trunk,canonical_get,'192.0.2.23'),'Turning the DID off does not redirect it to extension 1000')
+canonical_did.enabled=true;canonical_headers.sip_gateway='00000000-0000-4000-a000-000000000099'
+check(not P.incoming(canonical_config,canonical_did,canonical_trunk,canonical_get,'192.0.2.23'),'DID cannot cross its bound provider account')
+canonical_headers.sip_gateway=canonical_trunk.gateway_uuid
+check(not P.incoming(canonical_config,canonical_did,canonical_trunk,canonical_get,'192.0.2.99'),'DID cannot cross its accepted provider address')
+
 ingress_trunk.source_field='ToUserPart'
 local fallback={enabled=true,condition='ForwardAll',trunk_id='one'}
 check(not P.incoming(inbound_config,fallback,ingress_trunk,get,'192.0.2.10'),'Provider fallback cannot steal configured DID')
@@ -127,7 +162,7 @@ sip.sip_to_user='27210000009'
 check(P.incoming(inbound_config,fallback,ingress_trunk,get,'192.0.2.10'),'Declared main number uses explicit forward-all rule')
 incoming.enabled=false
 sip.sip_to_user='27210000001'
-check(P.incoming(inbound_config,fallback,ingress_trunk,get,'192.0.2.10'),'Disabled DID does not claim a provider fallback')
+check(not P.incoming(inbound_config,fallback,ingress_trunk,get,'192.0.2.10'),'Disabled DID stays off rather than falling through to another destination')
 incoming.enabled=true
 incoming.condition='BasedOnCallerID'
 check(not P.incoming(inbound_config,incoming,ingress_trunk,get,'192.0.2.10'),'Unsupported ingress condition rejected')
