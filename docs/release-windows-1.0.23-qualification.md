@@ -1,10 +1,10 @@
 # Windows Server 1.0.23 release qualification
 
 **Release preparation — 5 November 2026.** The user has authorized publication,
-subject to the actual checks below. The corrected BADC package and recovery of
-the interrupted restore are accepted components. The final normal signed
-transition, original 1.0.23 data return, full BADC reapply, final calling and public
-release checks remain **PENDING**. Windows 1.0.22 remains the public download.
+subject to the actual checks below. The corrected BADC package, interrupted
+restore recovery and final normal signed 1.0.22-to-1.0.23 transition are accepted
+components. Original 1.0.23 data return, full BADC reapply, final calling and
+public release checks remain **PENDING**. Windows 1.0.22 remains the public download.
 Earlier failed attempts remain failed.
 
 ## Corrected package and frozen source
@@ -33,18 +33,18 @@ Android 1.0.19 retain their separate existing artifacts and signed envelopes.
 
 | Component | Actual evidence |
 |---|---|
-| Server, updater and native manager | Accepted earlier 1.0.23 build component: all three builds are 1.0.23.0; code inputs match qualified 1.0.22 except version metadata. Final installed BADC versions/restart remain pending. |
+| Server, updater and native manager | Accepted build component: all three builds are 1.0.23.0; code inputs match qualified 1.0.22 except version metadata. The actual final BADC normal transition also verifies installed 1.0.23 and natural updater restart. |
 | Earlier ordinary installed upgrade | Accepted 4 November component: normal complete 22-to-23 manual upgrade in 739.944 seconds, exit 0, followed by the scoped audio correction. This does not establish installation of the later BADC package. |
 | DID editor and routing | Accepted: 188 actual Windows PostgreSQL/PHP controls and 49 ordinary browser checks. Temporary disabled provider/number fixtures were removed; the original PBX configuration was restored exactly. |
 | Earlier calling | Accepted corrected component: four registrations and four two-way software calls over UDP/TLS in 28.990 seconds; all 16 RTP streams and 3,371 packets pass unchanged limits, including tails. Two earlier audio failures remain recorded. Final post-return calling remains pending. |
 | Windows audio default | A 60 ms receive buffer, allowed to grow to 200 ms, stays active while bridging. Explicit administrator values/off choices remain intact. Debian's platform branch is unchanged relative to the shared timestamp policy. |
 | Earlier local preservation | All 23 captured SQL projections, six private identities, QR/mobile credentials and ten original media files are exact; six later recordings are retained. Task names/enabled choices survive; five stock start timestamps regenerate. The pending original 1.0.23 data return must restore its own model and all 16 media files. |
-| Earlier native manager | Accepted earlier component: installed 1.0.23 had a visible, responsive window in the ordinary user's desktop session. Final normal-transition reopen remains pending. |
+| Native manager | Earlier installed 1.0.23 had a visible, responsive window in the ordinary user's desktop session. The final normal signed transition now also passes manager reopen. |
 | Encrypted backup | Accepted ordinary creation, built-in full verification and complete encrypted off-server download. Unchanged backup implementation and accepted current-data backup evidence may be reused; no new BADC backup is inferred. |
 | Fresh/restore/reboot and unchanged infrastructure | The relevant unchanged components retain their original 1.0.22 evidence, explicitly scoped below. |
 | Corrected consumed-CDR recovery | Accepted: 89 native controls across 21 cases and actual corrected-helper interrupted-restore recovery; details below. |
 | Signed late-rollback orchestration | Explicitly reused Windows 1.0.22 runs 41752080297/41722715796; not a new 1.0.23 late-canary pass. |
-| Final BADC normal signed transition | **PENDING:** exact download, original 1.0.22-to-1.0.23 install, natural updater restart, manager reopen and protected data; five normal gates only. |
+| Final BADC normal signed transition | **PASS, 5 November:** all five normal gates—signed HTTPS download, original 1.0.22-to-1.0.23 installation, natural updater restart, manager reopen and protected data. Component 1,340.0937s within 3,600s; native completion inside its original 1,800s bound. |
 | Original 1.0.23 data return and full BADC reapply | **PENDING:** exact SQL/model, QR, six private identities, 16 media files and task choices, then complete reapply/preservation. |
 | Final calling and public checks | **PENDING:** calling/full-wire confirmation, seven public assets/canonical additions, retained feeds and installed ordinary public Check. |
 
@@ -77,11 +77,27 @@ the controller timed out. No normal installation request followed in that
 case. Its exact deployment cause remains unknown. It is not a Windows 1.0.23
 late-canary pass, and the Windows 1.0.22 results are not relabelled as 1.0.23 results.
 
-Prospective acceptance is **Windows 1.0.23 normal signed transition, with unchanged
+The accepted composite scope is **Windows 1.0.23 normal signed transition, with unchanged
 rollback orchestration reused from Windows 1.0.22 and corrected CDR recovery
-independently exercised**. The actual normal component must retain its before
+independently exercised**. The actual normal component retained its before
 maps, command cursor, original 1,800-second native bound and five normal gates.
-An early-rollback full-preservation claim needs its own actual comparison.
+It ran **19:22:54–19:45:14 UTC on 5 November**, taking 1,340.0937 seconds inside
+the original 3,600-second component limit. Native installation completed at
+19:44:26 UTC before its original 19:55:37 UTC deadline. The database projections,
+including both Phone Health tables, private identities, protected files and
+original task choices match this new component's own fresh baseline.
+
+A separate retrospective comparison against the older pre-fault database
+snapshot **FAILED** on digests for `v_pbx_phone_health_issues` and
+`v_pbx_phone_health_state`. The individual row differences and their cause
+remain unknown. Its earlier normal-baseline case (`62f2e423…`) and comparison
+(`22575466…`) stay failed. That retrospective comparison is not a prerequisite
+for the distinct current-baseline normal transition. No early-rollback database
+or full-file preservation pass is claimed. The new normal component still
+requires and passes its own unchanged before/after comparison, including both
+Health tables; no table is excluded to obtain the normal result.
+
+An early-rollback full-preservation claim would need its own actual comparison.
 Composite evidence cannot fabricate an eight-gate pair or extend a failed
 component's deadline.
 

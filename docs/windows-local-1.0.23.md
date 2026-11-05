@@ -2,10 +2,10 @@
 
 **Current status — 5 November 2026:** the user has authorized publication after
 the actual remaining release checks. The corrected frozen e1/BADC installer
-passes complete private package verification, native consumed-CDR controls
-and actual interrupted-restore recovery. Final normal signed transition,
-original 1.0.23 data return, complete BADC reapply, final calling and public checks
-remain **PENDING**. Windows 1.0.22 remains the public Windows download.
+passes complete private package verification, native consumed-CDR controls,
+actual interrupted-restore recovery and the final normal signed 1.0.22-to-1.0.23
+transition. Original 1.0.23 data return, complete BADC reapply, final calling and
+public checks remain **PENDING**. Windows 1.0.22 remains the public Windows download.
 
 **Historical scope — 4 November 2026:** the original task authorized only local
 Windows 1.0.22-to-1.0.23 development/testing, with no GitHub or website publication. Its
@@ -23,14 +23,15 @@ and Android keep their own qualified artifacts and release cadence; see
 | Component | Actual scope/status |
 |---|---|
 | Corrected complete package and source inventory | **PASS** — BADC — 643,269,105 bytes/all 19,288 payloads; source `e1aa…`, raw manifest `8d6c…`; exact identities below. Earlier BFC remains historical/withheld. |
-| Earlier native server/updater and WinUI manager build | **PASS** — all three builds are 1.0.23.0; earlier installed manager visibly responsive. Final normal installation/restart remains pending. |
+| Native server/updater and WinUI manager | **PASS** — all three builds are 1.0.23.0. Final normal installation, natural updater restart and manager reopen now pass; earlier window responsiveness remains its own component. |
 | Focused real Windows DID/alias/runtime-policy fixtures | **PASS** —188 PostgreSQL/PHP controls on actual Windows Server2025; no new native-Lua claim |
 | Earlier installed22→23 manual upgrade and preservation | **PASS, 4 November component** — native exit0 in 739.944s; 23 SQL projections, identities, QR, media and task choices preserved. Not final BADC installation. |
 | Actual Windows browser save, number-format choice and Call Me Back setup handover | **PASS** —49 checks; temporary disabled fixture removed, original config restored |
 | Earlier original-credential calling and backup | **PASS, scoped component** —8 UDP/TLS registration/two-way audio cases after Windows buffering fix; verified encrypted backup downloaded. Final post-return calling is pending. |
 | Consumed-CDR recovery correction | **PASS** — 89 native controls across 21 cases and actual corrected-helper recovery at 13:15:08 UTC on 5 November. |
 | Unchanged late rollback | **REUSED WINDOWS 1.0.22** — actual signed cases 41752080297/41722715796; no new 1.0.23 late-canary pass. |
-| Final signed normal BADC 22→23, original 1.0.23 return and full reapply | **PENDING** — separately declared actual components; failed result `c0ca49cf…` remains failed. |
+| Final signed normal BADC 22→23 | **PASS, 5 November** — all five normal gates in 1,340.0937s inside the original 3,600-second component and 1,800-second native bounds; fresh full baseline including both Health tables preserved. Failed result `c0ca49cf…` remains failed. |
+| Original 1.0.23 data return and full BADC reapply | **PENDING** — original model, QR, six private identities, 16 media files and task choices, then complete reapply/preservation. |
 | Public Windows 1.0.23 assets/feed/readback and ordinary installed Check | **PENDING** — publication authorized, acceptance not yet established. |
 
 The original local build used a frozen working tree and explicit new-file
@@ -45,6 +46,29 @@ Its platform release/tag and public delivery remain pending. See the
 [release qualification](release-windows-1.0.23-qualification.md) for exact
 composite/recovery scope; Debian success cannot turn a pending Windows row
 into a pass.
+
+## Actual signed normal transition — 5 November 2026
+
+The final BADC signed offer completed the genuine installed 1.0.22-to-1.0.23 normal
+transition in **1,340.0937 seconds**, from 19:22:54 to 19:45:14 UTC, inside the
+original 3,600-second component bound. Native installation completed 19:44:26 UTC
+before its original 19:55:37 UTC deadline. All five normal gates pass: signed
+HTTPS download, installation, natural updater restart, manager reopen and
+protected data. Before maps and the immediate command cursor were durably
+retained; the new full database comparison includes both Phone Health tables.
+Original registration/Health task choices were restored.
+
+The retrospective comparison to an older pre-fault baseline remains **FAILED**
+on digest differences in `v_pbx_phone_health_issues` and
+`v_pbx_phone_health_state`. Row details and cause remain unknown. The earlier
+failed baseline case (`62f2e423…`) and comparison (`22575466…`) are retained,
+not converted into a pass. They are not prerequisites for the distinct normal
+component's own fresh before/after preservation check. No early-rollback
+database/full-file preservation or Windows 1.0.23 late-canary pass is claimed.
+The [qualification record](release-windows-1.0.23-qualification.md) explains
+the explicit Windows 1.0.22 rollback reuse and independently exercised corrected
+recovery. Return of the original 1.0.23 data, complete BADC reapply, final calls
+and public release/Check still require their separate actual results.
 
 ## Packaging and copy coverage
 
