@@ -4,6 +4,69 @@
   "releases": [
     {
       "version": "1.0.23",
+      "component": "Windows server",
+      "url": "https://github.com/embire2/openwebpbx/releases/tag/windows-v1.0.23",
+      "published_at": "2026-11-05T20:43:14Z",
+      "publication_status": "published",
+      "prerelease": false,
+      "build_source_commit": "e1aaad63f99ac3b11714d9d0cd3f2a085778688f",
+      "build_sources": {
+        "windows": "e1aaad63f99ac3b11714d9d0cd3f2a085778688f"
+      },
+      "source_tags": {
+        "windows": "windows-v1.0.23"
+      },
+      "minimum_windows_version": "1.0.22",
+      "signed_feed_sequence": 1793892995,
+      "scope": "Windows Server 2025 x64 Desktop Experience complete server: incoming-number wizard, explicit number-format choices, retained Windows audio policy and consumed-CDR recovery correction. See the qualification record for the actual normal transition and independently exercised recovery, with unchanged Windows 1.0.22 late rollback orchestration reused. Hosted 1.0.24 features/calling fixes are separate; no new physical-phone, carrier or Store claim.",
+      "canonical_zip_mirror": "https://github.com/embire2/openwebpbx/releases/download/v1.0.23/openwebpbx-1.0.23-windows-x64.zip",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "bytes": 577,
+          "sha256": "ce9cc628e3018ec4abc7d3f01f55172d2447b1379f217cfcde08de5f10d73e80",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.23/SHA256SUMS"
+        },
+        {
+          "name": "debian-update-manifest.json",
+          "bytes": 1224,
+          "sha256": "d01f948f020edeae14cc194ad4c9065c88c49205d6946cebd68ee7a5455b8782",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.23/debian-update-manifest.json"
+        },
+        {
+          "name": "installing-windows-1.0.23.md",
+          "bytes": 7944,
+          "sha256": "6d1639c3ce4ef25ad080fe4679ffb05ff5ce5f52029830246998e585fdccabae",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.23/installing-windows-1.0.23.md"
+        },
+        {
+          "name": "openwebpbx-1.0.23-windows-source.tar.gz",
+          "bytes": 50251792,
+          "sha256": "4d581c86667782bd49f998afb084e06af91af7958dbd130ca52f4a3ab37eb5c8",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.23/openwebpbx-1.0.23-windows-source.tar.gz"
+        },
+        {
+          "name": "openwebpbx-1.0.23-windows-x64.zip",
+          "bytes": 643269105,
+          "sha256": "badc4326b48d1e7953990eb382f598602bb23bd068ca27c42abf22c25ce10907",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.23/openwebpbx-1.0.23-windows-x64.zip"
+        },
+        {
+          "name": "update-manifest.json",
+          "bytes": 1404,
+          "sha256": "fc096a1524fc6eec7fd79239006f8117b0f5283e5ea5336f1ac2345abed5f8b8",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.23/update-manifest.json"
+        },
+        {
+          "name": "windows-update-manifest.json",
+          "bytes": 1204,
+          "sha256": "0832577ee2d4627c1dbeb8f2ee7d37ec27a82a3dd3c8054e5013da739f1a1f28",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.23/windows-update-manifest.json"
+        }
+      ]
+    },
+    {
+      "version": "1.0.23",
       "component": "Debian server",
       "url": "https://github.com/embire2/openwebpbx/releases/tag/v1.0.23",
       "published_at": "2026-11-05T13:00:15Z",
@@ -1196,8 +1259,9 @@
       "name": "Windows Server 2025",
       "architecture": "x64",
       "edition": "Desktop Experience",
-      "status": "published; Windows managed registration; see exact release qualification scope and deployment limits",
-      "version": "1.0.22"
+      "status": "published; signed upgrade minimum 1.0.22; see scoped Windows qualification and deployment limits",
+      "version": "1.0.23",
+      "minimum_installed_version": "1.0.22"
     },
     {
       "name": "Windows 11",
@@ -1240,6 +1304,7 @@
   "hosted_core": {
     "version": "1.0.24",
     "source_commit": "6471988d07d571e4277237318197a2650e4d2f49",
-    "status": "live hosted App/Core/Updater1.0.24; callback SIP trunk selection affects only the callback leg, while onward routing stays normal. Nine own-account speed dials and nine editable Keoma voice scripts include confirmed default reset without deleting recordings. Native24 health/stability and existing-data preservation are verified. This local feature deployment is not a public complete1.0.24 installer and adds no physical/carrier/Store acceptance."
+    "status": "live hosted App/Core/Updater1.0.24; callback SIP trunk selection affects only the callback leg, while onward routing stays normal. Nine own-account speed dials and nine editable Keoma voice scripts include confirmed default reset without deleting recordings. Native24 health/stability and existing-data preservation are verified. This local feature deployment is not a public complete1.0.24 installer and adds no physical/carrier/Store acceptance. The separately deployed calling correction respects restored provider media settings and distinguishes early media from an answered call. On the hosted instance, the reported Android outside call now connects with user-confirmed sound both ways. This confirmation does not qualify Windows carrier calling.",
+    "calling_fix_commit": "06f139229881aa7ce87219583fb5c7caef859084"
   }
 }

@@ -1,15 +1,14 @@
-# Install the local Windows Server 1.0.23 candidate
+# Install OpenWeb PBX 1.0.23 on Windows Server
 
-**Local, unpublished candidate.** Windows 1.0.23 has passed private installed
-upgrade, DID browser, native manager and buffered software-call checks. The
-final audio-corrected installer has passed complete private verification. There is no public
-Windows 1.0.23 download, signed feed or release tag. Use only the
-complete privately supplied package and its recorded SHA-256. The published
-Windows 1.0.22 release and its qualification remain separate.
+Use the complete Windows Server package and its matching checksums from the
+[Windows 1.0.23 release](https://github.com/embire2/openwebpbx/releases/tag/windows-v1.0.23).
+This server release includes the unified incoming-number wizard, clearer
+external forwarding, Call Me Back setup and corrected recovery of permissions
+for call records already consumed by the normal importer.
 
-See [local results and qualification limits](windows-local-1.0.23.md). The Windows
-calling app is a separate product; the server manager included here does not
-establish a phone-client or Microsoft Store release.
+The Windows calling client is a separate product. The included native server
+manager is used for setup and updates. Read the [qualification record](release-windows-1.0.23-qualification.md)
+for tested scope and deployment-specific checks.
 
 ## Before installation
 
@@ -23,30 +22,26 @@ PBX services, updater, native manager and application runtimes. Do not assemble
 an installation from selected web files or copy another server's configuration.
 Use the existing [Windows network and certificate instructions](installing-windows-1.0.22.md#before-you-start)
 for the actual configured listeners. Keep database and internal control access
-local. This candidate does not add TURN or qualify every provider or network.
+local. Qualify your own provider and network before a cutover. TURN is a separate capability.
 
-## Verify the private package
+## Verify the package
 
-The expected package name is `openwebpbx-1.0.23-windows-x64.zip`. Compare its hash
-with the private build handover, not a checksum copied from Windows 1.0.22:
+Download `openwebpbx-1.0.23-windows-x64.zip` and `SHA256SUMS` from the same
+release. Compare the checksum before extracting:
 
 ```powershell
 Get-FileHash .\openwebpbx-1.0.23-windows-x64.zip -Algorithm SHA256
 ```
 
-The verified final private archive is **643,268,769 bytes** and contains
-**19,288** manifested payloads. SHA-256:
+The archive is **643,269,105 bytes** with SHA-256:
 
 ```text
-bfc02f54e6c6978748b7ce8b3e8ec432c7d25b21330ccaee915919ea94939e95
+badc4326b48d1e7953990eb382f598602bb23bd068ca27c42abf22c25ce10907
 ```
 
-It is retained on the test server at
-`C:\W123-f47528e0\o\openwebpbx-1.0.23-windows-x64.zip`.
-Use this corrected archive; the earlier `dd9ac9f9…` ZIP predates the Windows
-audio-buffer correction and is retained only as an intermediate.
+Its **19,288** manifested payloads bind the corrected Windows source
+`e1aaad63f99ac3b11714d9d0cd3f2a085778688f`.
 
-There is no public download URL for this candidate.
 Extract the entire archive into a new short folder readable by the installing
 account, such as `C:\PBXSetup23`. Keep `release-manifest.json` and every package
 component together.
@@ -79,31 +74,27 @@ preserved offline before restoring its registered address. See [Windows backups]
 
 ## Upgrade an existing Windows 1.0.22 installation
 
-This candidate uses the existing **manual upgrade from a complete extracted
-package**. It does not create or offer a public update. Retain a current verified
-encrypted backup, its password separately, and the existing installation's
-identity, credentials, recordings and configuration before maintenance.
+The signed update requires **installed Windows 1.0.22 or newer**. Make a verified
+encrypted backup and keep its password separately. Open **Admin → Updates** or
+the native server manager, download the update and choose **Install** when
+ready. The server checks for updates every five minutes. Its banner and desktop
+notice offer installation after the complete download is verified; calling
+continues while an update is available.
 
-With no active calls, open built-in **Windows PowerShell 5.1 as Administrator**
-in the verified extracted 1.0.23 package. Follow the reviewed local maintenance
-plan, starting with:
+Installation waits for calls to finish, keeps a recovery snapshot, updates the
+server and starts its services again. Keep the server online through this
+process. Check the displayed version, tenant settings and two phones afterward.
+
+For a manual upgrade from the complete verified package, run built-in
+**Windows PowerShell 5.1 as Administrator** in its extracted folder:
 
 ```powershell
 .\Upgrade-OpenWebPBX.ps1 -Check
 .\Upgrade-OpenWebPBX.ps1
 ```
 
-These commands intentionally have no `-Archive` or `-FeedEnvelope` argument.
-They use this complete package and its manifest, with the normal installed
-service checks, call/restore holds, maintenance lock, private rollback snapshot
-and health checks. They do not advance the installed feed-trust floor. Do not
-replace the installed release key, edit updater caches or publish a temporary
-feed to make this local installation appear as a public release.
-
-Keep the helper's printed private backup path. Confirm version 1.0.23 in the
-manager and Admin, preserved tenant/phone/provider settings, trusted web access
-and calling after maintenance. This local check targets **22→23**; it does not
-extend the public minimum-version policy or qualify an earlier installed version.
+Keep the printed recovery path. Earlier server versions need their separately
+supported intermediate upgrade before using the 1.0.23 offer.
 
 ## Set incoming destinations in one place
 
@@ -137,8 +128,7 @@ In step1 of the DID wizard, use **Number format**. Choose **South Africa (+27)**
 only when that PBX uses the South African numbering plan. **Use current PBX
 setting** preserves its existing choice; **Use exactly what I enter** avoids
 adding national/international equivalents for another numbering plan. Existing
-saved aliases are retained when exact entry is selected. The final Windows
-browser check of this control is still pending.
+saved aliases are retained when exact entry is selected. The Windows browser checks cover this choice and preserve the original PBX setting.
 
 For an explicitly selected South African plan, supported national and +27
 formats can identify the same DID. Without that setting, use the exact number
@@ -150,7 +140,7 @@ Do not apply the hosted OpenWeb PBX's numbers or destinations to a new Windows
 PBX. Provider delivery may use the To user or Request-URI user according to its
 saved trunk setting; record the actual format before changing that setting.
 
-## After the local upgrade
+## After upgrading
 
 Check the wizard through an ordinary authenticated browser, then test the
 specific provider delivery, ringing and answered two-way audio needed by your
@@ -160,5 +150,5 @@ settings, current credentials, private keys and required recordings.
 
 No fresh registration claim is needed for an existing upgraded PBX. Preserve
 its registration policy, tenant address, phone credentials and reusable QR
-codes. Public release qualification, signed updater delivery, physical phones,
-carrier cutovers and Store distribution remain outside this local guide's claim.
+codes. See the matching qualification record for the tested software scope. Physical
+phones, carrier cutovers and Store distribution have separate requirements.

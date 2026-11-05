@@ -12,7 +12,7 @@ Update the Windows result only after checking the actual Windows package.
 |---|---|
 | Hosted Debian at call.openweb.co.za | **1.0.24**, including matching native Core and updater. |
 | Public Debian installer | **1.0.23**, source `d27583e72018fcbd55c517a766697b8267658dc1`. |
-| Public Windows installer | **1.0.22**. Corrected 1.0.23 source `e1aaad63f99ac3b11714d9d0cd3f2a085778688f` is under qualification. |
+| Public Windows installer | **1.0.23**, source `e1aaad63f99ac3b11714d9d0cd3f2a085778688f`; [qualification](release-windows-1.0.23-qualification.md). |
 | Android | **1.0.19**. Server fixes do not imply an Android release. |
 
 A hosted deployment, source commit and downloadable installer are separate
@@ -23,12 +23,12 @@ installer or a qualified Windows 1.0.24 package.
 
 | ID | Debian version | Feature or fix | Debian status and source | Windows catch-up status / required checks |
 |---|---|---|---|---|
-| D23-01 | 1.0.23 | One add/edit DID wizard and one incoming destination; trunk and number pages show the same route. | Hosted and public; `d27583e7`. | Implemented in private 23. Actual Windows PostgreSQL and browser checks pass; final release pending. |
-| D23-02 | 1.0.23 | Preserve leading zeros on external forwarding; explicitly match local/international DID forms and prevent a disabled number falling through to another trunk destination. | Hosted and public; `d27583e7`. | Implemented in private 23; retain the actual Windows route/number-format controls in its qualification. |
-| D23-03 | 1.0.23 | Select Call Me Back as a DID destination; guide service setup without replacing the old route before it is ready. | Hosted and public; `d27583e7`. | Implemented in private 23; actual browser handover checks pass. |
-| D23-04 | 1.0.23 | Saved per-PBX number format, including supported restore mapping, without guessing a country for an existing PBX. | Hosted and public; `d27583e7`. | Implemented in private 23. Check per-PBX isolation and preservation on upgrade. |
-| D23-05 | 1.0.23 | Complete Debian package includes stable reusable QR credentials and their additive migration. Viewing, emailing or scanning does not rotate a code. | Public 23 and hosted; [QR behavior](../readme.md#connect-android-with-a-qr-code). | Already included in public Windows 22. Recheck preservation when later migrations or restore code change. |
-| D23-06 | 1.0.23 | Shared RTP timestamp policy and ordinary provider routing retained through the DID changes. | Debian fresh and signed-upgrade UDP/TLS software calls pass. | Private Windows 23 additionally needs its Windows-only receive buffer policy; eight software calling cases pass. Do not copy a Debian runtime tree over Windows. |
+| D23-01 | 1.0.23 | One add/edit DID wizard and one incoming destination; trunk and number pages show the same route. | Hosted and public; `d27583e7`. | **Published Windows 23.** Actual PostgreSQL/browser checks and final signed update/data preservation pass. |
+| D23-02 | 1.0.23 | Preserve leading zeros on external forwarding; explicitly match local/international DID forms and prevent a disabled number falling through to another trunk destination. | Hosted and public; `d27583e7`. | **Published Windows 23.** Route/number-format controls and original-data restore/reapply pass. |
+| D23-03 | 1.0.23 | Select Call Me Back as a DID destination; guide service setup without replacing the old route before it is ready. | Hosted and public; `d27583e7`. | **Published Windows 23.** Actual browser handover checks pass. |
+| D23-04 | 1.0.23 | Saved per-PBX number format, including supported restore mapping, without guessing a country for an existing PBX. | Hosted and public; `d27583e7`. | **Published Windows 23.** Per-PBX controls and original configuration preservation pass. |
+| D23-05 | 1.0.23 | Complete Debian package includes stable reusable QR credentials and their additive migration. Viewing, emailing or scanning does not rotate a code. | Public 23 and hosted; [QR behavior](../readme.md#connect-android-with-a-qr-code). | Included in Windows 22 and 23. Final signed update and original-data restore/reapply preserve QR setup. Recheck future migration changes. |
+| D23-06 | 1.0.23 | Shared RTP timestamp policy and ordinary provider routing retained through the DID changes. | Debian fresh and signed-upgrade UDP/TLS software calls pass. | **Published Windows 23** retains its Windows-only receive buffer policy. Four registrations/four two-way calls and all 16 audio streams pass. Preserve that policy during later ports. |
 | D24-01 | 1.0.24 | Select a SIP trunk for the callback-to-client leg only. Preserve onward provider selection, normal routing and incoming destinations. | Live and committed `6471988d0`. | **To port.** Test selected-provider auth/caller ID/availability, no silent fallback, and unchanged onward/default routes. |
 | D24-02 | 1.0.24 | Nine named speed dials, slots 1–9, managed by administrators and an explicitly linked user's My PBX page. | Live and committed `6471988d0`. | **To port.** Apply additive schema; test tenant/user isolation, unique account links and clear/save validation. |
 | D24-03 | 1.0.24 | Authenticated callback DTMF can save, clear and call speed dials. Linked PBX phones can use `**1` through `**9`. | Live and committed `6471988d0`. | **To port.** Test production Lua, permissions, prefix checks, quota/time limits and ordinary provider choice for direct shortcuts. |
@@ -48,9 +48,9 @@ acceptance remains separate from isolated provider and software-phone checks.
 
 | Change | Source / status | Keep when carrying Debian changes forward |
 |---|---|---|
-| Recover permissions after the normal importer has consumed a transient call-record XML file. | `03050db58823dc5c5c014cadede83296fb00a620`; corrected Windows source `e1aaad63f9`. Native 89 controls pass; final signed pair is under qualification. | Only the narrowly validated absent default-spool UUID file is admitted. Keep all other ACL, link and I/O denials. |
-| Windows receive buffer while bridging. | Private Windows 23; [actual scope](windows-local-1.0.23.md). | Preserve explicit administrator choices and the separate POSIX behavior. |
-| Native manager and five-minute update notice. | Public Windows 22 baseline. | Keep desktop modal, web notice, service continuity before installation, verified predownload, call-aware installation and restart. |
+| Recover permissions after the normal importer has consumed a transient call-record XML file. | `03050db58823dc5c5c014cadede83296fb00a620`; corrected Windows source `e1aaad63f9`. Native 89 controls, actual corrected recovery and genuine normal 22-to-23 update pass; unchanged late rollback is explicitly reused from Windows 22. [Scope](release-windows-1.0.23-qualification.md). | Only the narrowly validated absent default-spool UUID file is admitted. Keep all other ACL, link and I/O denials. |
+| Windows receive buffer while bridging. | Published Windows 23; [actual scope](windows-local-1.0.23.md). | Preserve explicit administrator choices and the separate POSIX behavior. |
+| Native manager and five-minute update notice. | Public Windows 22 baseline retained in 23; automatic updater/manager restart verified on the final 23 package. | Keep desktop modal, web notice, service continuity before installation, verified predownload, call-aware installation and restart. |
 
 ## Before promoting a Windows catch-up release
 

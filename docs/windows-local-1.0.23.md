@@ -1,11 +1,13 @@
 # Windows Server 1.0.23 — local qualification and release transition
 
-**Current status — 5 November 2026:** the user has authorized publication after
-the actual remaining release checks. The corrected frozen e1/BADC installer
-passes complete private package verification, native consumed-CDR controls,
-actual interrupted-restore recovery and the final normal signed 1.0.22-to-1.0.23
-transition. Original 1.0.23 data return, complete BADC reapply, final calling and
-public checks remain **PENDING**. Windows 1.0.22 remains the public Windows download.
+**Current status — 5 November 2026:** Windows Server 1.0.23 was published at
+**20:43:14 UTC**. The corrected frozen e1/BADC installer passes complete package
+verification, native consumed-CDR controls, actual interrupted-restore recovery,
+the final normal signed 1.0.22-to-1.0.23 transition, scoped original 1.0.23 data
+return, complete BADC reapply and final software calling/preservation/manager/
+current backup. Whole public readback, owned-lab cleanup and the ordinary
+installed public Check pass. Windows 1.0.22 rollback evidence is explicitly
+reused; earlier failed cases remain failed.
 
 **Historical scope — 4 November 2026:** the original task authorized only local
 Windows 1.0.22-to-1.0.23 development/testing, with no GitHub or website publication. Its
@@ -25,14 +27,20 @@ and Android keep their own qualified artifacts and release cadence; see
 | Corrected complete package and source inventory | **PASS** — BADC — 643,269,105 bytes/all 19,288 payloads; source `e1aa…`, raw manifest `8d6c…`; exact identities below. Earlier BFC remains historical/withheld. |
 | Native server/updater and WinUI manager | **PASS** — all three builds are 1.0.23.0. Final normal installation, natural updater restart and manager reopen now pass; earlier window responsiveness remains its own component. |
 | Focused real Windows DID/alias/runtime-policy fixtures | **PASS** —188 PostgreSQL/PHP controls on actual Windows Server2025; no new native-Lua claim |
-| Earlier installed22→23 manual upgrade and preservation | **PASS, 4 November component** — native exit0 in 739.944s; 23 SQL projections, identities, QR, media and task choices preserved. Not final BADC installation. |
+| Earlier installed22→23 manual upgrade and preservation | **PASS, 4 November component** — native exit 0 in 739.944s; 23 SQL projections, identities, QR, media and task choices preserved. Not final BADC installation. |
 | Actual Windows browser save, number-format choice and Call Me Back setup handover | **PASS** —49 checks; temporary disabled fixture removed, original config restored |
-| Earlier original-credential calling and backup | **PASS, scoped component** —8 UDP/TLS registration/two-way audio cases after Windows buffering fix; verified encrypted backup downloaded. Final post-return calling is pending. |
+| Earlier original-credential calling and backup | **PASS,4November component** —8 UDP/TLS registration/two-way audio cases after Windows buffering fix and verified encrypted backup. Final results are separate below. |
 | Consumed-CDR recovery correction | **PASS** — 89 native controls across 21 cases and actual corrected-helper recovery at 13:15:08 UTC on 5 November. |
 | Unchanged late rollback | **REUSED WINDOWS 1.0.22** — actual signed cases 41752080297/41722715796; no new 1.0.23 late-canary pass. |
 | Final signed normal BADC 22→23 | **PASS, 5 November** — all five normal gates in 1,340.0937s inside the original 3,600-second component and 1,800-second native bounds; fresh full baseline including both Health tables preserved. Failed result `c0ca49cf…` remains failed. |
-| Original 1.0.23 data return and full BADC reapply | **PENDING** — original model, QR, six private identities, 16 media files and task choices, then complete reapply/preservation. |
-| Public Windows 1.0.23 assets/feed/readback and ordinary installed Check | **PENDING** — publication authorized, acceptance not yet established. |
+| Original 1.0.23 data return | **PASS, scoped closure** — same native restore exit 0; original customer model/QR, six private file bytes/attributes, 16 media files and task choices preserved with exactly one ACL-order equivalence and five stock StartBoundary differences. Original wrapper remains failed; raw comparator remains review_required. |
+| Complete BADC reapply | **PASS, 5 November** —896.534s within original 1,800s extraction/apply/closure bound; ordinary full same-version upgrade and strict original 1.0.23 customer/six private files/QR/16 media files/task preservation, using only already-scoped ACL/boundary classifications. |
+| Final original-credential calls/full wire | **PASS** —8 cases/28.687s, four registrations and four decoded two-way UDP/TLS calls; all 16 streams/3,363 RTP packets including tails, zero invalid packets/clock violations, unchanged thresholds. |
+| Final model/private/task/media preservation | **PASS** —exact accepted post-reapply customer model/six private files raw rows/task XML and enabled choices, all 16 original media plus four exact native-proven source-folder UUID-WAV recordings. Raw legacy-prefix comparator remains review_required; no broad media waiver. |
+| Final manager and current encrypted backup | **PASS** —installed 1.0.23 manager visible/responsive/left open; ONE ordinary Create/natural scheduler/49.867s complete encrypted download, independently verified all 20 media/481 files. |
+| Public Windows 1.0.23 assets/feed/readback | **PASS** — published 20:43:14 UTC; seven platform assets/four canonical additions fully read back, all three signed feeds verified, original 23 releases/172 assets/37 tags preserved. |
+| Owned lab cleanup | **PASS** — only approved owned resources removed; foreign IIS/certificates/hosts, current product identities/source pins and private evidence preserved. |
+| Ordinary installed public Check | **PASS** — public offer accepted 20:46:37.7647 UTC inside the original 180-second bound; up to date, no archive download/install or service/task/port action. |
 
 The original local build used a frozen working tree and explicit new-file
 allowlist. The corrected release candidate now has immutable Windows source
@@ -42,10 +50,13 @@ its raw release manifest is
 `8d6c8f5c7e34cd813df7b805c726c19eec4a676739c1441a7aec3cf4a2d1cd7b`.
 The 50,251,792-byte application source archive is
 `4d581c86667782bd49f998afb084e06af91af7958dbd130ca52f4a3ab37eb5c8`.
-Its platform release/tag and public delivery remain pending. See the
+Its public release is
+[windows-v1.0.23](https://github.com/embire2/openwebpbx/releases/tag/windows-v1.0.23),
+ID 435407275, published at 2026-11-05T20:43:14Z with the annotated tag bound to
+that frozen source. See the
 [release qualification](release-windows-1.0.23-qualification.md) for exact
-composite/recovery scope; Debian success cannot turn a pending Windows row
-into a pass.
+composite/recovery scope and separate public-delivery evidence; Debian results
+are not substituted for Windows checks.
 
 ## Actual signed normal transition — 5 November 2026
 
@@ -67,8 +78,101 @@ component's own fresh before/after preservation check. No early-rollback
 database/full-file preservation or Windows 1.0.23 late-canary pass is claimed.
 The [qualification record](release-windows-1.0.23-qualification.md) explains
 the explicit Windows 1.0.22 rollback reuse and independently exercised corrected
-recovery. Return of the original 1.0.23 data, complete BADC reapply, final calls
-and public release/Check still require their separate actual results.
+recovery. Scoped original 1.0.23 return and complete BADC reapply are accepted
+below; final calls/current backup and public release/readback/installed Check
+are separately accepted below.
+
+## Original 1.0.23 return — 5 November 2026
+
+The original ordinary restore process 20784 exited 0 at 20:01:44 UTC, before the
+original 20:15:22 UTC deadline. The observer's strict SCM Running poll failed;
+its `fabc8737…` wrapper remains failed. A separate read-only closure passed
+at 20:10:21 UTC in 1.348 seconds, using the same native process and original
+deadline, without another restore or data/security repair.
+
+The raw comparison `591d3a38…` remains **`review_required`**. The independent
+closed semantic comparison passes the unchanged customer model/secret/QR/media
+and task-choice checks. All 16 original media and six private file contents and
+attributes are preserved. Five private SDDL strings are exact; only onboarding
+`session.json` has the same SYSTEM owner/group/control flags and exact inherited
+Full Access Allow ACE multiset (SYSTEM, Administrators, Owner Rights) in another
+order. Nine actual native controls confirm this one equivalence. No broader
+missing-file, owner, access or ACL normalization is admitted.
+
+Five stock task start boundaries differ; all other XML including Date/Author
+is exact. Only these fields and the exact one-file SDDL pair were normalized
+in memory for the unchanged comparison. No snapshot, ACL, task, file or SQL row
+was changed. The returned source bundle contained earlier BFC support bytes;
+the complete BADC reapply below replaces them through the normal full installer.
+
+## Complete BADC reapply — 5 November 2026
+
+Native process 8684 exited 0 at 20:25:26 UTC. Full extracted-package reapply and
+closure completed 20:26:41 UTC in 896.534 seconds, before the original 20:41:44 UTC
+deadline and inside the shared 1,800-second limit starting 20:11:44 UTC. The
+ordinary stock helper completed/finalized version 1.0.23 and verified its retained
+rollback bundle; no manual helper patch, signed-archive mode or trust reset was
+used for this same-version operation.
+
+Strict preservation passes for all captured original 1.0.23 customer projections,
+credential/stable-QR fields, six private files contents/attributes/security, 16 media files,
+task names/enabled choices, same boot and zero channels. Only the already
+accepted session ACE ordering and exactly five stock time boundaries are
+classified. Their inferred creation times, using the pinned installers'
+exact offsets of one or two minutes, fall inside actual native apply. All other XML,
+including Date/Author, is exact. Final original-credential calls and public
+release/Check are separately accepted below.
+
+## Final calls and current backup — 5 November 2026
+
+All eight original-credential UDP/TLS software cases pass in 28.687 seconds
+inside the 180-second active bound: four registrations and four opposite calls
+with decoded two-way audio. Full-wire replay covers all 16 streams/3,363 packets,
+including tails, with zero invalid packets or clock violations. Thresholds
+remain 0.8 coherence/80ms maximum gap/5% missing clock. No runtime/threshold
+change or automatic repeat was used. Carrier/physical-phone scope is unchanged.
+
+Post-call data preserves all captured customer tables, six private files full raw
+rows and task XML/enabled choices exactly against the accepted post-reapply
+snapshot. All 16 old media files remain exact and four new recordings bring
+the total to 20. The original comparator's `storage/recordings` assumption
+remains review_required; a separate source-bound component verifies only the
+actual four UUID-WAVs in the existing original-domain `storage/openwebpbx`
+recording folder. Native lengths/hashes/ordinary files/direct containment and
+ancestor checks pass; 15 focused controls deny unrelated paths and metadata.
+No ACL, time, media, task or customer-data normalization is added after calls.
+
+The installed 1.0.23 native manager is visible/responsive in the ordinary
+desktop session and remains open. One ordinary backup request completes via
+the natural scheduler and full encrypted download in 49.867 seconds, inside
+its original 600-second fence. Independent verification in 2.851 seconds checks
+all 20 media/481 manifest files, all six live identities and five archived source
+private files. The Phone Health target identity remains live, not falsely
+claimed as an archive member. Normal logout completes; no settings or workers
+are manipulated.
+
+## Public release and installed Check — 5 November 2026
+
+Windows 1.0.23 was published at **20:43:14 UTC**. All seven platform assets and
+four immutable canonical `v1.0.23` additions pass complete anonymous download
+size/hash verification. The original seven canonical Debian assets and all
+23 earlier releases/172 assets/37 tags are preserved. Latest Windows 1.0.23,
+Debian 1.0.23 and Android 1.0.19 signed feeds verify; the latter two remain
+byte-for-byte unchanged.
+
+Owned loopback-lab cleanup passed at 20:40:20 UTC, preserving foreign IIS,
+certificates/hosts, current product identities/source pins and private evidence.
+One ordinary CSRF-protected public **Check** then accepted the installed
+1.0.23 offer at **20:46:37.7647 UTC**, before the original 20:49:29.876 UTC
+observer deadline. Sequence 1793892995, minimum installed 1.0.22 and exact
+BADC archive metadata were accepted; the result is `up_to_date`.
+
+The Check performs ordinary cache/trust/status/journal writes. It downloaded
+no archive and performed no apply/install, service/task, firewall or port action.
+Boot, four service generations, 16 runtime pins, six private identities,
+20 media files and task definitions remain exact. Full archive delivery is
+proved by the separate public readback. This does not create a new 1.0.23
+late-canary, fresh-install, carrier, physical-phone or Store acceptance.
 
 ## Packaging and copy coverage
 
@@ -211,7 +315,7 @@ qualification stays recorded as22 evidence, unchanged.
 ## Actual local results — 4 November 2026
 
 The test server 149.248.36.197 completed the ordinary extracted manual upgrade
-to1.0.23 in 739.944 seconds, native exit0. Its four services and trusted HTTPS
+to1.0.23 in 739.944 seconds, native exit 0. Its four services and trusted HTTPS
 returned normally. Sixteen changed/shared runtime leaves and the native routing
 policy match source; all three native component versions are1.0.23.0. All 23
 captured SQL table projections, six private identity/configuration files,
@@ -279,4 +383,5 @@ recordings remain. No temporary DID/provider or live test call remains.
 These 4 November notes include post-build results; that archive's frozen source
 map and manifest remain separate. No GitHub/feed/website publication occurred
 under the original local-only task. The user's 5 November publication instruction
-supersedes that restriction; final Windows 1.0.23 publication remains pending.
+supersedes that restriction; the 5 November publication and its separate checks
+are recorded in Current status above.

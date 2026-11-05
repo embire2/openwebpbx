@@ -2,14 +2,14 @@
 
 **Hosted 1.0.24:** Callback-only SIP trunk selection, nine user speed dials and editable/resettable Keoma scripts are live on call.openweb.co.za with matching native Core/updater24. Logic/regressions190 +independent63 +live browser75 and natural narration generation pass; current routes, private identities and custom recordings survive. Public installer versions and broader roadmap totals remain separate. [Feature guide](docs/call-me-back-1.0.24.md).
 
-**5 November release:** [Debian 1.0.23](https://github.com/embire2/openwebpbx/releases/tag/v1.0.23) is published with the unified incoming-number wizard and stable QR setup, after fresh setup, signed upgrade/rollback and software-calling checks. Windows remains 1.0.22 while its corrected recovery package qualifies; Android remains 1.0.19. Roadmap totals are unchanged. [Debian evidence](docs/release-1.0.23-qualification.md) · [Windows work](docs/release-windows-1.0.23-qualification.md).
+**5 November releases:** [Debian 1.0.23](https://github.com/embire2/openwebpbx/releases/tag/v1.0.23) and [Windows Server 1.0.23](https://github.com/embire2/openwebpbx/releases/tag/windows-v1.0.23) are published with unified incoming-number routing and reusable QR setup. Each platform keeps its own source, signed feed and qualification. Hosted Debian runs 1.0.24; Android remains 1.0.19. [Debian evidence](docs/release-1.0.23-qualification.md) · [Windows evidence](docs/release-windows-1.0.23-qualification.md) · [Windows catch-up ledger](docs/debian-windows-sync.md).
 
-**Local Windows 1.0.23 catch-up:** DID editor/number-format/external/Call Me Back handoff49 browser checks,188 actual Windows PostgreSQL/PHP controls, native manager, data/QR preservation, encrypted backup and the unchanged eight-case buffered UDP/TLS software-call matrix pass. Two earlier audio failures remain recorded; final private installer is verified. Public release and roadmap totals are unchanged. [Windows local results](docs/windows-local-1.0.23.md).
+**Windows 1.0.23 qualification:** The final complete package passes signed 22-to-23 update, automatic updater/manager restart, original-data restore and full reapply, four registrations/four two-way UDP/TLS calls, full 16-stream audio replay and verified encrypted backup of all 20 recordings. Public downloads, retained feeds and the ordinary installed public Check verify. Unchanged Windows 22 late-rollback evidence is reused explicitly; no new 23 late-canary or physical-phone/carrier result is claimed. [Qualification](docs/release-windows-1.0.23-qualification.md).
 
-**Local Debian 1.0.23 testing — 4 November 2026:** `call.openweb.co.za` now has one add/edit DID wizard, current-route summaries and Call Me Back destination/setup choices. The confirmed Switchtel international-number mismatch for0800014509 is corrected to0317102222, with explicit number ownership and disabled-DID fallback protection. Database, installed-Lua and actual owner-browser checks pass; answered carrier/audio confirmation after the fix remains pending. This candidate is local and has not been committed or published to GitHub. Public downloads and the133/21/72/40 roadmap totals remain unchanged. [Local scope and usage](docs/did-routing-1.0.23.md).
+**Local Debian 1.0.23 testing — 4 November 2026 (historical; superseded by the publication above):** `call.openweb.co.za` now has one add/edit DID wizard, current-route summaries and Call Me Back destination/setup choices. The confirmed Switchtel international-number mismatch for0800014509 is corrected to0317102222, with explicit number ownership and disabled-DID fallback protection. Database, installed-Lua and actual owner-browser checks pass; answered carrier/audio confirmation after the fix remains pending. This candidate is local and has not been committed or published to GitHub. Public downloads and the133/21/72/40 roadmap totals remain unchanged. [Local scope and usage](docs/did-routing-1.0.23.md).
 
-<!-- WINDOWS22-CURRENT-STATUS-BEGIN -->
-## Latest Windows 1.0.22
+<!-- WINDOWS22-PUBLICATION-HISTORY-BEGIN -->
+## Previous Windows 1.0.22 — 4 November 2026
 
 Windows Server 1.0.22 is frozen at product source
 `8f4256e4e3cbce092791eea60d1c053e10810bb6` for **Windows Server 2025 x64
@@ -24,7 +24,7 @@ Roadmap totals remain **133 goals / 21 accepted / 72 partial / 40 planned**; the
 
 [Windows qualification and limits](docs/release-windows-1.0.22-qualification.md) ·
 [Independent Linux/Windows/Android releases](docs/independent-platform-releases.md).
-<!-- WINDOWS22-CURRENT-STATUS-END -->
+<!-- WINDOWS22-PUBLICATION-HISTORY-END -->
 
 ## Windows 1.0.22 final checks — 2026-11-03
 

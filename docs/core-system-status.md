@@ -2,14 +2,20 @@
 
 ## Hosted 1.0.24 — 5 November 2026
 
-The hosted web app, native Core and updater run1.0.24. Call Me Back has a callback-only provider choice, nine user speed dials and editable Keoma scripts with confirmed default reset. Existing provider/routes/credentials/recordings are preserved; native engine and nginx keep running. Logic/regression checks190, independent63, live browser75 and one natural Keoma generation pass. Matching native processes pass91.9seconds of stability after deployment. [Guide and exact verification scope](call-me-back-1.0.24.md). Public downloadable installers retain their separate release versions below.
+The hosted web app, native Core and updater run1.0.24. Call Me Back has a callback-only provider choice, nine user speed dials and editable Keoma scripts with confirmed default reset. Existing provider/routes/credentials/recordings are preserved; native engine and nginx keep running. Logic/regression checks190, independent63, live browser75 and one natural Keoma generation pass. Matching native processes pass91.9seconds of stability after deployment. [Guide and exact verification scope](call-me-back-1.0.24.md). Public downloadable installers retain their separate release versions below. The hosted extension-1000 outside-call correction is live; the user confirms Android connects with sound both ways. [Calling correction](outgoing-calls-1.0.24.md).
 
 ## Latest Debian 1.0.23 — 5 November 2026
 
-[Debian 1.0.23](https://github.com/embire2/openwebpbx/releases/tag/v1.0.23) is published with unified DID routing, explicit number matching, Call Me Back setup and reusable QR codes. Its signed minimum is installed Debian1.0.22. Fresh managed setup, genuine signed failure rollback, final upgrade and post-upgrade calling pass. [Qualification](release-1.0.23-qualification.md). Windows remains1.0.22 pending its separate corrected recovery package; Android remains1.0.19. The hosted PBX reports1.0.23 for its local DID component; publishing the installer does not establish a full-package deployment or new physical/provider result there. Older dated entries below retain their historical scope.
+[Debian 1.0.23](https://github.com/embire2/openwebpbx/releases/tag/v1.0.23) is published with unified DID routing, explicit number matching, Call Me Back setup and reusable QR codes. Its signed minimum is installed Debian1.0.22. Fresh managed setup, genuine signed failure rollback, final upgrade and post-upgrade calling pass. [Qualification](release-1.0.23-qualification.md). Windows Server 1.0.23 is separately published; Android remains 1.0.19. Hosted Debian runs 1.0.24 as recorded above; its feature deployment and public installer versions remain separate. Older dated entries below retain their historical scope.
 
-<!-- WINDOWS22-CURRENT-STATUS-BEGIN -->
-## Latest Windows 1.0.22
+## Latest Windows Server 1.0.23 — 5 November 2026
+
+[Windows Server 1.0.23](https://github.com/embire2/openwebpbx/releases/tag/windows-v1.0.23) is published for Windows Server 2025 x64 with Desktop Experience, source `e1aaad63f99ac3b11714d9d0cd3f2a085778688f`. Signed updates require installed Windows 1.0.22 or newer. The complete final package passes signed update, native updater/manager restart, original-data restore/full reapply, eight registration/calling checks over UDP/TLS and full 16-stream audio replay. A verified encrypted off-server backup retains all 20 recordings. Public downloads and the ordinary installed public updater Check pass.
+
+Unchanged Windows 1.0.22 rollback/fresh/reboot components are reused explicitly alongside actual corrected consumed-record recovery; no new Windows 1.0.23 late-canary or physical/carrier/Store result is claimed. [Qualification](release-windows-1.0.23-qualification.md) · [Debian-to-Windows change ledger](debian-windows-sync.md). Roadmap totals remain **133 goals / 21 accepted / 72 partial / 40 planned**.
+
+<!-- WINDOWS22-PUBLICATION-HISTORY-BEGIN -->
+## Previous Windows 1.0.22 — 4 November 2026
 
 Windows Server 1.0.22 is frozen at product source
 `8f4256e4e3cbce092791eea60d1c053e10810bb6` for **Windows Server 2025 x64
@@ -22,7 +28,7 @@ Debian 1.0.22 and Android 1.0.19 retain their own artifacts and feeds.
 
 [Windows qualification and limits](release-windows-1.0.22-qualification.md) ·
 [Independent Linux/Windows/Android releases](independent-platform-releases.md).
-<!-- WINDOWS22-CURRENT-STATUS-END -->
+<!-- WINDOWS22-PUBLICATION-HISTORY-END -->
 
 ## Windows 1.0.22 final checks — 2026-11-03
 
