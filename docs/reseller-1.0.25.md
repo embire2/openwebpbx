@@ -16,7 +16,10 @@ change or hosted deployment does not update an older downloaded installer.
   another tenant's data.
 - **PBX Templates:** prepare extensions, default provider connections and outgoing
   rules. Each service receives its own configuration. Provider passwords remain
-  encrypted and are not returned in normal API responses.
+  encrypted and are not returned in normal API responses. Provider presets
+  become tenant-owned connections, including in authorised encrypted backups.
+  Use separate provider accounts for customers, or IP authentication on the
+  hosting instance.
 - **Packages & Resources:** define extension and simultaneous-call allowances,
   assign packages and set prices for extra hosted capacity. Existing PBXs keep
   their service levels until an administrator assigns a package.

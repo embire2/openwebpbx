@@ -1302,9 +1302,9 @@
     "package": "https://github.com/embire2/openwebpbx/releases/download/v1.0.19/openwebpbx-1.0.19-admin-update.tar.gz"
   },
   "hosted_core": {
-    "version": "1.0.24",
-    "source_commit": "6471988d07d571e4277237318197a2650e4d2f49",
-    "status": "live hosted App/Core/Updater1.0.24; callback SIP trunk selection affects only the callback leg, while onward routing stays normal. Nine own-account speed dials and nine editable Keoma voice scripts include confirmed default reset without deleting recordings. Native24 health/stability and existing-data preservation are verified. This local feature deployment is not a public complete1.0.24 installer and adds no physical/carrier/Store acceptance. The separately deployed calling correction respects restored provider media settings and distinguishes early media from an answered call. On the hosted instance, the reported Android outside call now connects with user-confirmed sound both ways. This confirmation does not qualify Windows carrier calling.",
+    "version": "1.0.25",
+    "source_commit": "c4c82961c50ac8df7d2081f812606ed072b0007b",
+    "status": "Hosted Debian App/Core/Updater 1.0.25: dashboard and tenant backup/recovery, private PBX templates with provider presets, extension/concurrent-call packages, priced resource requests and scoped API keys. API v2 documents 140 paths and 75 named PBX actions. Payment collection remains external; existing phone identities, routes and service allowances are preserved. Main requires more free working storage before a full instance backup can run. This hosted feature deployment is not a public complete 1.0.25 installer. Public Debian/Windows 1.0.23 and Android 1.0.19 remain separate.",
     "calling_fix_commit": "06f139229881aa7ce87219583fb5c7caef859084"
   }
 }

@@ -80,3 +80,5 @@ acceptance remains separate from isolated provider and software-phone checks.
 | D25-07 | Debian installer worker/API integration and matching native25 metadata | Live matching Core/updater25, isolated upload pool and root recovery timer; no new public installer claim | Independently build and qualify Windows package after the feature ports. Do not reuse Linux worker units. |
 
 [Hosted25 verification, storage and distribution limits](reseller-1.0.25.md). Windows catch-up must preserve current app/QR revocations, callback usage and history during tenant recovery; port the body-free upload admission and isolated worker behavior.
+
+Windows upload ports must isolate body-reading settings from ordinary web and phone XML handlers; Debian uses a separate PHP pool and body-free server admission. Qualify ordinary sign-in, registrations, header CSRF, early rejection and populated restore.
