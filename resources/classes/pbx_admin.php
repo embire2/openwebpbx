@@ -70,6 +70,27 @@ class pbx_admin {
         foreach (['121','*97'] as $code) $this->newDialplan($code,'voicemail_login',$config);
         $this->newDialplan('1026','talking_clock',$config);
     }
+    /** New template services use the same validation and calling policy as Admin. */
+    public function initializeTemplate(string $realm,array $template): void {
+        if(!$this->db->inTransaction()||$this->scope)throw new LogicException('Template setup requires its new service transaction.');
+        $rules=[];
+        foreach($template['rules']??[]as$r){
+            // The old template editor stores a capture expression. Convert its common
+            // digit rules exactly; never turn an unfamiliar expression into an allow-all.
+            $pattern=$r['pattern'];$before='';$inside='';$min=0;$max=0;
+            if(preg_match('~^\^([+0-9]*)\(([+0-9]*)\[0-9\]\{([0-9]+)(?:,([0-9]+))?\}\)\$$~D',$pattern,$m)){$before=$m[1];$inside=$m[2];$min=(int)$m[3];$max=(int)($m[4]??$m[3]);}
+            elseif(preg_match('~^\^([+0-9]*)\(([+0-9]*)\[0-9\]\+\)\$$~D',$pattern,$m)){$before=$m[1];$inside=$m[2];$min=1;$max=32-strlen($before.$inside);}
+            else throw new InvalidArgumentException('This older outgoing rule needs a simple digit prefix and number length before creating a new PBX. Existing PBXs are unchanged.');
+            $min+=strlen($before.$inside);$max+=strlen($before.$inside);if($min<2||$max>32||$min>$max)throw new InvalidArgumentException('Use phone-number lengths between 2 and 32.');
+            $rules[]=['name'=>$r['name'],'prefix'=>$before.$inside,'lengths'=>implode(',',range($min,$max)),'strip'=>strlen($before),'prepend'=>$r['prefix'],'trunk'=>$r['trunk']];
+        }
+        $this->initialize($realm,$template['timezone']);$c=$this->config(true);
+        for($i=0;$i<$template['extension_count'];$i++){$n=(string)($template['extension_start']+$i);$this->saveUser('new',['number'=>$n,'name'=>'Extension '.$n,'enabled'=>'1','voicemail_enabled'=>'1','timeout'=>30,'outbound_caller_id'=>$template['caller_id_number']??''],$c);}
+        $trunks=[];
+        foreach($template['trunks']as$g){$host=$g['proxy'];$port='';if(preg_match('/^([^:]+):([0-9]{1,5})$/D',$host,$m)){$host=$m[1];$port=$m[2];}elseif(preg_match('/^\[([^]]+)\](?::([0-9]{1,5}))?$/D',$host,$m)){$host=$m[1];$port=$m[2]??'';}$credentials=$g['username']!=='';$trunks[]=$this->saveTrunk('new',['name'=>$g['name'],'host'=>$host,'port'=>$port,'transport'=>$g['transport'],'authentication'=>$credentials?'password':'ip','username'=>$g['username'],'password'=>$g['password'],'register'=>$credentials&&$g['register'],'enabled'=>$g['enabled']?'1':''],$c);}
+        foreach($rules as$r)$this->saveOutbound('new',['name'=>$r['name'],'prefix'=>$r['prefix'],'lengths'=>$r['lengths'],'routes'=>[['trunk_id'=>$trunks[$r['trunk']],'strip'=>$r['strip'],'prepend'=>$r['prepend']]]],$c);
+        $this->saveConfig($c);
+    }
     public function services(): array {return $this->query('select s.domain_uuid,s.service_name,t.tenant_name from v_pbx_services s join v_pbx_tenants t on t.tenant_uuid=s.tenant_uuid join v_domains sd on sd.domain_uuid=s.domain_uuid where t.owner_user_uuid=:u and t.enabled and sd.domain_enabled order by s.created_at',['u'=>$_SESSION['user_uuid']])->fetchAll(PDO::FETCH_ASSOC);}
     public static function openPreferred(): void {
         $setup=new pbx_setup;if(!$setup->canManage())return;$db=database::new()->db;

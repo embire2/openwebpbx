@@ -33,6 +33,8 @@ local db=Database.new('system')
 local api=freeswitch.API()
 local domain=session:getVariable('domain_uuid') or ''
 if not dofile(scripts_dir..'/app/pbx_onboarding/gate.lua').allowed(db,domain)then db:release();session:hangup('CALL_REJECTED');return end
+local capacity=dofile(scripts_dir..'/app/pbx_setup/capacity.lua')
+if args and args[2]=='capacity' then capacity.admit(session,db,domain);db:release();return end
 local config
 db:query([[select r.config from v_pbx_restore r join v_domains d using(domain_uuid)
     where r.domain_uuid=:domain and d.domain_enabled='true' and not exists
@@ -84,6 +86,7 @@ if mode=='record_user' then
     if not ok then freeswitch.consoleLog('ERR','[OpenWeb PBX] Call recording failed for domain '..domain..'\n') end
     return
 end
+if mode~='mobile' and not capacity.admit(session,db,domain)then db:release();return end
 local caller=session:getVariable('effective_caller_id_number') or session:getVariable('caller_id_number') or ''
 local auth=session:getVariable('sip_auth_username') or session:getVariable('user_name')
 local authenticated_user=false

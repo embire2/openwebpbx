@@ -7,12 +7,14 @@ class pbx_tenants {
     public function installed(): bool { return (bool)$this->query("select to_regclass('v_pbx_tenants')")->fetchColumn(); }
     protected function allowed(string $name): bool { return permission_exists($name); }
     public function platform(): bool { return $this->allowed('pbx_tenant_manage'); }
+    public function reseller(): bool {if(!$this->query("select 1 from information_schema.columns where table_schema=current_schema() and table_name='v_pbx_tenants' and column_name='reseller_user_uuid'")->fetchColumn())return false;return !empty($_SESSION['authorized'])&&(bool)$this->query("select 1 from v_users u join v_pbx_tenants rt on rt.owner_user_uuid=u.user_uuid and rt.enabled join v_user_groups ug on ug.user_uuid=u.user_uuid join v_group_permissions p on p.group_uuid=ug.group_uuid where u.user_uuid=:user and u.user_enabled='true' and p.permission_name='pbx_reseller_manage' and p.permission_assigned='true' limit 1",['user'=>$_SESSION['user_uuid']??'00000000-0000-0000-0000-000000000000'])->fetchColumn();}
     public function tenant(): ?array {
         return $this->query('select t.* from v_pbx_tenants t join v_users u on u.user_uuid=:user where t.owner_user_uuid=u.user_uuid or t.home_domain_uuid=u.domain_uuid or exists(select 1 from v_pbx_services s where s.tenant_uuid=t.tenant_uuid and s.domain_uuid=u.domain_uuid)', ['user'=>$_SESSION['user_uuid'] ?? '00000000-0000-0000-0000-000000000000'])->fetch(PDO::FETCH_ASSOC) ?: null;
     }
     public function workspaceOnly(): bool { $t=$this->tenant(); return $t && $t['home_domain_uuid'] === ($_SESSION['domain_uuid'] ?? ''); }
     public function canDomain(string $domain): bool {
         if ($this->platform() || $this->allowed('domain_all')) return true;
+        if($this->reseller()&&$this->query("select 1 from v_pbx_tenants t left join v_pbx_services s using(tenant_uuid) where t.enabled and (t.owner_user_uuid=:user or t.reseller_user_uuid=:user) and (t.home_domain_uuid=:domain or s.domain_uuid=:domain) limit 1",['user'=>$_SESSION['user_uuid'],'domain'=>$domain])->fetchColumn())return true;
         $t=$this->tenant();
         if (!$t) return $domain === ($_SESSION['user']['domain_uuid'] ?? '');
         if (!$t['enabled']) return false;
@@ -25,7 +27,7 @@ class pbx_tenants {
         if(!empty($_SESSION['authorized'])&&pbx_onboarding::required($this->db))pbx_tenant_domains::guardRequest($this->db);
         if(!empty($_SESSION['authorized'])&&pbx_onboarding::required($this->db)&&!pbx_onboarding::allowsDomain($this->db,(string)($_SESSION['domain_uuid']??''))){
             $path=parse_url($_SERVER['REQUEST_URI']??'',PHP_URL_PATH);$repair=false;
-            foreach(['/app/pbx_onboarding/','/app/pbx_updates/','/app/pbx_backups/','/app/tenant_services/','/core/users/user_profile.php']as $prefix)if(is_string($path)&&str_starts_with($path,$prefix))$repair=true;
+            foreach(['/app/pbx_onboarding/','/app/pbx_updates/','/app/pbx_backups/','/app/pbx_protection/','/app/pbx_api_keys/','/app/tenant_services/','/core/users/user_profile.php']as $prefix)if(is_string($path)&&str_starts_with($path,$prefix))$repair=true;
             if(!in_array($path,['/login.php','/logout.php'],true)&&!$repair){header('Location: /app/pbx_onboarding/',true,303);exit;}
         }
         if (!$this->installed() || empty($_SESSION['authorized']) || $this->allowed('domain_all')) return;
@@ -36,7 +38,7 @@ class pbx_tenants {
         if ($this->publicSignup($t) && (!is_string($path) || !self::publicApplicationPath($path))) {
             http_response_code(403);exit('Use the OpenWeb PBX Desktop to manage this self-service account. Legacy administration pages are unavailable.');
         }
-        if($this->workspaceOnly() && !str_starts_with($path,'/app/tenant_services/') && !str_starts_with($path,'/app/pbx_setup/') && !str_starts_with($path,'/app/pbx_staff/') && !str_starts_with($path,'/app/pbx_updates/') && !str_starts_with($path,'/core/desktop/') && !in_array($path,['/','/index.php','/login.php','/logout.php','/core/users/user_profile.php','/core/dashboard/','/tenantadmin','/tenantadmin/','/tenantadmin/index.php'],true)) {
+        if($this->workspaceOnly() && !str_starts_with($path,'/app/tenant_services/') && !str_starts_with($path,'/app/pbx_setup/') && !str_starts_with($path,'/app/pbx_staff/') && !str_starts_with($path,'/app/pbx_updates/') && !str_starts_with($path,'/app/pbx_protection/') && !str_starts_with($path,'/app/pbx_api_keys/') && !str_starts_with($path,'/app/pbx_reseller/') && !str_starts_with($path,'/core/desktop/') && !in_array($path,['/','/index.php','/login.php','/logout.php','/core/users/user_profile.php','/core/dashboard/','/tenantadmin','/tenantadmin/','/tenantadmin/index.php'],true)) {
             http_response_code(403);exit('Create or open a PBX service from Tenant Services to use this application.');
         }
     }
@@ -45,7 +47,7 @@ class pbx_tenants {
         if ($path==='' || str_contains($path,'%') || str_contains($path,'\\') || str_contains($path,'//')
             || preg_match('~(?:^|/)\.\.?(/|$)|[\x00-\x20\x7f]~',$path)) return false;
         foreach(['/core/desktop/','/app/tenant_services/','/app/pbx_onboarding/','/app/pbx_setup/','/app/pbx_greetings/',
-                 '/app/pbx_mobile/','/app/pbx_phone_health/','/app/pbx_meet/'] as $prefix) {
+                 '/app/pbx_mobile/','/app/pbx_phone_health/','/app/pbx_meet/','/app/pbx_protection/','/app/pbx_api_keys/','/app/pbx_reseller/'] as $prefix) {
             if (str_starts_with($path,$prefix)) return true;
         }
         return in_array($path,['/','/index.php','/login.php','/logout.php','/core/dashboard/',
@@ -53,12 +55,13 @@ class pbx_tenants {
     }
     public function tenants(): array {
         if ($this->platform()) return $this->query('select t.*, (select count(*) from v_pbx_services s where s.tenant_uuid=t.tenant_uuid) service_count from v_pbx_tenants t order by created_at desc')->fetchAll(PDO::FETCH_ASSOC);
+        if($this->reseller())return $this->query('select t.*,(select count(*) from v_pbx_services s where s.tenant_uuid=t.tenant_uuid) service_count from v_pbx_tenants t where owner_user_uuid=:user or reseller_user_uuid=:user order by created_at desc',['user'=>$_SESSION['user_uuid']])->fetchAll(PDO::FETCH_ASSOC);
         $t=$this->tenant();return $t ? [$t] : [];
     }
     public function assertTenant(string $id, bool $owner = false): array {
         $t=$this->query('select * from v_pbx_tenants where tenant_uuid=:id',['id'=>$this->id($id)])->fetch(PDO::FETCH_ASSOC);
         $mine=$this->tenant();
-        if (!$t || (!$this->platform() && (!$mine || $mine['tenant_uuid'] !== $id || ($owner && $t['owner_user_uuid'] !== $_SESSION['user_uuid'])))) throw new RuntimeException('Tenant access denied.');
+        if (!$t || (!$this->platform() && !($this->reseller()&&($t['reseller_user_uuid']??null)===($_SESSION['user_uuid']??null)) && (!$mine || $mine['tenant_uuid'] !== $id || ($owner && $t['owner_user_uuid'] !== $_SESSION['user_uuid'])))) throw new RuntimeException('Tenant access denied.');
         if (!$t['enabled']) throw new RuntimeException('This tenant is suspended.');
         return $t;
     }
@@ -79,7 +82,7 @@ class pbx_tenants {
         $columns=array_keys($row);$this->query('insert into '.$table.'('.implode(',',$columns).') values('.implode(',',array_map(fn($v)=>':'.$v,$columns)).')',$row);
     }
     public function invite(array $input): string {
-        if (!$this->platform()) throw new RuntimeException('Tenant management permission is required.');
+        if (!$this->platform()&&!$this->reseller()) throw new RuntimeException('Tenant management permission is required.');
         $name=$this->label($input['tenant_name'] ?? '');$slug=$this->slug($input['slug'] ?? '');$email=strtolower(trim($input['email'] ?? ''));
         if (!filter_var($email,FILTER_VALIDATE_EMAIL)) throw new InvalidArgumentException('Enter a valid administrator email.');
         if ($this->query('select 1 from v_users where lower(username)=:email or lower(user_email)=:email',['email'=>$email])->fetchColumn()) throw new InvalidArgumentException('This email already has an account.');
@@ -88,6 +91,7 @@ class pbx_tenants {
         $this->db->beginTransaction();try {
             $this->insert('v_domains',['domain_uuid'=>$domain,'domain_name'=>$slug.'.'.pbx_paths::host(),'domain_description'=>$name.' workspace','domain_enabled'=>'true']);
             $this->insert('v_pbx_tenants',['tenant_uuid'=>$id,'tenant_name'=>$name,'slug'=>$slug,'home_domain_uuid'=>$domain,'invite_email'=>$email,'invite_hash'=>hash('sha256',$token),'invite_expires'=>gmdate('c',time()+604800),'service_limit'=>$limit]);
+            if(!$this->platform()){$this->query('update v_pbx_tenants set reseller_user_uuid=:user where tenant_uuid=:id',['user'=>$_SESSION['user_uuid'],'id'=>$id]);}
             $this->db->commit();
         }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
         return '/app/tenant_services/accept.php?invite='.$token;
@@ -97,7 +101,8 @@ class pbx_tenants {
         return $this->query('select * from v_pbx_tenants where invite_hash=:hash and invite_expires>now() and owner_user_uuid is null and enabled=true',['hash'=>hash('sha256',$token)])->fetch(PDO::FETCH_ASSOC) ?: null;
     }
     public function renewInvitation(string $id): string {
-        if (!$this->platform()) throw new RuntimeException('Tenant management permission is required.');
+        if (!$this->platform()&&!$this->reseller()) throw new RuntimeException('Tenant management permission is required.');
+        if(!$this->platform())$this->assertTenant($id);
         $token=bin2hex(random_bytes(32));
         $updated=$this->query('update v_pbx_tenants set invite_hash=:hash,invite_expires=:expires where tenant_uuid=:id and owner_user_uuid is null and enabled=true returning tenant_uuid',['hash'=>hash('sha256',$token),'expires'=>gmdate('c',time()+604800),'id'=>$this->id($id)])->fetchColumn();
         if (!$updated) throw new RuntimeException('Only active, unaccepted invitations can be renewed.');
@@ -116,7 +121,8 @@ class pbx_tenants {
         }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
     }
     public function suspend(string $id,bool $enabled): void {
-        if (!$this->platform()) throw new RuntimeException('Tenant management permission is required.');
+        if (!$this->platform()&&!$this->reseller()) throw new RuntimeException('Tenant management permission is required.');
+        if(!$this->platform()){$t=$this->query('select reseller_user_uuid from v_pbx_tenants where tenant_uuid=:id',['id'=>$this->id($id)])->fetchColumn();if($t!==($_SESSION['user_uuid']??''))throw new RuntimeException('Tenant access denied.');}
         $this->query('update v_pbx_tenants set enabled=:enabled where tenant_uuid=:id',['id'=>$this->id($id),'enabled'=>$enabled?'true':'false']);
     }
     public function templates(bool $manage = false): array {
@@ -155,9 +161,9 @@ class pbx_tenants {
         return in_array($category,$categories,true) && preg_match('/^[a-z][a-z0-9_]{0,79}$/D',$subcategory) && !preg_match('/(path|directory|command|script|url|domain|user_uuid|enabled_languages|security|api_key)/i',$subcategory) && in_array($type,['text','numeric','boolean','array'],true);
     }
     private function config(array $c,array $previous=[]): array {
-        $c=array_intersect_key($c,array_flip(['timezone','extension_start','extension_count','extension_limit','caller_id_name','caller_id_number','trunks','rules','settings']));
+        $c=array_intersect_key($c,array_flip(['timezone','extension_start','extension_count','extension_limit','concurrent_calls','caller_id_name','caller_id_number','trunks','rules','settings']));
         $c['timezone']=$c['timezone'] ?? 'Africa/Johannesburg';if (!in_array($c['timezone'],DateTimeZone::listIdentifiers(),true)) throw new InvalidArgumentException('Choose a valid timezone.');
-        foreach(['extension_start'=>[100,999999999],'extension_count'=>[0,100],'extension_limit'=>[1,10000]] as $key=>$range){$c[$key]=filter_var($c[$key]??($key==='extension_start'?100:($key==='extension_limit'?100:0)),FILTER_VALIDATE_INT,['options'=>['min_range'=>$range[0],'max_range'=>$range[1]]]);if($c[$key]===false)throw new InvalidArgumentException('Invalid extension range or limit.');}
+        foreach(['extension_start'=>[100,999999999],'extension_count'=>[0,100],'extension_limit'=>[1,10000],'concurrent_calls'=>[1,10000]] as $key=>$range){$c[$key]=filter_var($c[$key]??($key==='extension_start'?100:($key==='extension_limit'?100:($key==='concurrent_calls'?5:0))),FILTER_VALIDATE_INT,['options'=>['min_range'=>$range[0],'max_range'=>$range[1]]]);if($c[$key]===false)throw new InvalidArgumentException('Invalid extension range or limit.');}
         foreach(pbx_service_codes::NUMBERS as $code) if($c['extension_count']>0 && (int)$code >= $c['extension_start'] && (int)$code < $c['extension_start']+$c['extension_count']) throw new InvalidArgumentException('The extension range contains a reserved phone service (121 or 1026). Choose another range.');
         if($c['extension_count']>$c['extension_limit'])throw new InvalidArgumentException('Initial extensions exceed the extension limit.');
         $c['caller_id_name']=trim($c['caller_id_name']??'');$c['caller_id_number']=trim($c['caller_id_number']??'');
@@ -190,18 +196,27 @@ class pbx_tenants {
         $id=!empty($input['template_uuid'])?$this->id($input['template_uuid']):uuid();$previous=!empty($input['template_uuid'])?$this->template($id,true):null;
         $c=$this->config($input['config']??[],$previous['config']??[]);$tenant=$previous['tenant_uuid']??($this->platform()?null:($this->tenant()['tenant_uuid']??null));if(!$this->platform()&&!$tenant)throw new RuntimeException('A tenant account is required.');
         $name=$this->label($input['template_name']??'');$description=trim($input['description']??'');if(strlen($description)>2000)throw new InvalidArgumentException('Description is too long.');
+        $planSchema=false;$plan=null;
+        if($this->query("select 1 from information_schema.columns where table_schema=current_schema() and table_name='v_pbx_templates' and column_name='resource_plan_uuid'")->fetchColumn()) {
+            $planSchema=true;$plan=$input['resource_plan_uuid']??($previous['resource_plan_uuid']??null);if($plan==='')$plan=null;
+            if($plan!==null){$this->id($plan);$p=$this->query('select * from v_pbx_resource_plans where plan_uuid=:id and enabled',['id'=>$plan])->fetch(PDO::FETCH_ASSOC);if(!$p)throw new InvalidArgumentException('Choose an enabled resource package.');
+                if(!$this->platform()){$mine=$this->tenant();$policy=$this->query('select * from v_pbx_reseller_settings where singleton')->fetch(PDO::FETCH_ASSOC);$approved=$mine['resource_plan_uuid']??$policy['default_plan_uuid'];if($policy['hosted']&&$plan!==$approved){if(!$this->reseller()||$p['owner_user_uuid']!==$_SESSION['user_uuid'])throw new RuntimeException('Choose the package assigned to your tenant.');$ceiling=(new pbx_reseller($this->db))->ceiling();if($ceiling&&((int)$p['extension_limit']>$ceiling['extension_limit']||(int)$p['concurrent_calls']>$ceiling['concurrent_calls']))throw new RuntimeException('Choose a package within your operator-approved reseller allowance.');}if(!$policy['hosted']&&$p['owner_user_uuid']!==$_SESSION['user_uuid']&&$plan!==$approved)throw new RuntimeException('This resource package is not assigned to your tenant.');}
+            }
+        }
         $params=['id'=>$id,'tenant'=>$tenant,'name'=>$name,'description'=>$description,'published'=>!empty($input['published'])?'true':'false','payload'=>$this->seal($c)];
-        $apiSchema=(bool)$this->query("select to_regclass('v_pbx_api_registrations')")->fetchColumn();
+        $apiSchema=(bool)$this->query("select 1 from information_schema.columns where table_schema=current_schema() and table_name='v_pbx_templates' and column_name='api_enabled'")->fetchColumn();
         if(array_key_exists('api_enabled',$input)&&!$this->platform())throw new RuntimeException('Only the platform administrator can publish API starter templates.');
         $apiEnabled=array_key_exists('api_enabled',$input)?in_array($input['api_enabled'],[true,'true','1',1],true):!empty($previous['api_enabled']);
         if($apiEnabled&&(!$apiSchema||!$this->platform()||$tenant!==null||$params['published']!=='true'||$c['trunks']||$c['rules']||$c['settings']))throw new InvalidArgumentException('API starter templates must be shared, published and contain no provider connections, outgoing rules or extra settings.');
         if($apiSchema)$params['api']=$apiEnabled?'true':'false';
-        if($previous){unset($params['tenant']);$this->query('update v_pbx_templates set template_name=:name,description=:description,published=:published,payload_ciphertext=:payload,'.($apiSchema?'api_enabled=:api,':'').'version=version+1,updated_at=now() where template_uuid=:id',$params);}
-        else $this->query('insert into v_pbx_templates(template_uuid,tenant_uuid,template_name,description,published,payload_ciphertext'.($apiSchema?',api_enabled':'').') values(:id,:tenant,:name,:description,:published,:payload'.($apiSchema?',:api':'').')',$params);
+        if($planSchema)$params['plan']=$plan;
+        if($previous){unset($params['tenant']);$this->query('update v_pbx_templates set template_name=:name,description=:description,published=:published,payload_ciphertext=:payload,'.($apiSchema?'api_enabled=:api,':'').($planSchema?'resource_plan_uuid=:plan,':'').'version=version+1,updated_at=now() where template_uuid=:id',$params);}
+        else $this->query('insert into v_pbx_templates(template_uuid,tenant_uuid,template_name,description,published,payload_ciphertext'.($apiSchema?',api_enabled':'').($planSchema?',resource_plan_uuid':'').') values(:id,:tenant,:name,:description,:published,:payload'.($apiSchema?',:api':'').($planSchema?',:plan':'').')',$params);
         return $id;
     }
     public function services(): array {
         if($this->platform())return $this->query('select s.*,d.domain_name,t.tenant_name,t.enabled from v_pbx_services s join v_domains d using(domain_uuid) join v_pbx_tenants t using(tenant_uuid) order by s.created_at desc')->fetchAll(PDO::FETCH_ASSOC);
+        if($this->reseller())return $this->query('select s.*,d.domain_name,t.tenant_name,t.enabled from v_pbx_services s join v_domains d using(domain_uuid) join v_pbx_tenants t using(tenant_uuid) where t.owner_user_uuid=:user or t.reseller_user_uuid=:user order by s.created_at desc',['user'=>$_SESSION['user_uuid']])->fetchAll(PDO::FETCH_ASSOC);
         $t=$this->tenant();if(!$t)return [];
         $params=['tenant'=>$t['tenant_uuid']];$filter='';if($t['owner_user_uuid']!==$_SESSION['user_uuid']){$filter=' and s.domain_uuid=:domain';$params['domain']=$_SESSION['user']['domain_uuid'];}
         return $this->query('select s.*,d.domain_name,t.tenant_name,t.enabled from v_pbx_services s join v_domains d using(domain_uuid) join v_pbx_tenants t using(tenant_uuid) where s.tenant_uuid=:tenant'.$filter.' order by s.created_at desc',$params)->fetchAll(PDO::FETCH_ASSOC);
@@ -248,12 +263,19 @@ class pbx_tenants {
         if (!$deferCommit && $this->db->inTransaction()) throw new LogicException('Service provisioning requires its own transaction.');
         if(!$this->allowed('pbx_service_create'))throw new RuntimeException('Service creation permission is required.');
         $tenant=$this->assertTenant($input['tenant_uuid']??'',true);$template=$this->template($input['template_uuid']??'');
-        if($template['tenant_uuid']!==null&&$template['tenant_uuid']!==$tenant['tenant_uuid'])throw new RuntimeException('This template belongs to another tenant.');
+        if($template['tenant_uuid']!==null&&$template['tenant_uuid']!==$tenant['tenant_uuid']&&!($this->reseller()&&($tenant['reseller_user_uuid']??null)===($_SESSION['user_uuid']??null)&&$template['tenant_uuid']===($this->tenant()['tenant_uuid']??null)))throw new RuntimeException('This template belongs to another tenant.');
         $name=$this->label($input['service_name']??'');$slug=$this->slug($input['slug']??'');$request=$this->id($input['request_uuid']??'');$c=$template['config'];
         foreach($c['trunks'] as $i=>&$g){foreach(['username','password'] as $key){$v=$input['credentials'][$i][$key]??'';if($v!=='')$g[$key]=$v;}if($g['register']&&($g['username']===''||$g['password']===''))$g['enabled']=false;}unset($g);$c=$this->config($c);
+        $entitlements=(bool)$this->query("select 1 from information_schema.tables where table_schema=current_schema() and table_name='v_pbx_service_entitlements'")->fetchColumn();$package=null;$hosted=false;
+        if($entitlements){$policy=$this->query('select * from v_pbx_reseller_settings where singleton')->fetch(PDO::FETCH_ASSOC);$hosted=(bool)$policy['hosted'];$plan=$template['resource_plan_uuid']??($tenant['resource_plan_uuid']??$policy['default_plan_uuid']);
+            if($hosted&&!$this->platform()){$approved=$tenant['resource_plan_uuid']??$policy['default_plan_uuid'];if(!$approved||($plan&&$plan!==$approved))throw new RuntimeException('Ask your administrator to assign a resource package before creating this hosted PBX.');$plan=$approved;}
+            if($plan){$package=$this->query('select * from v_pbx_resource_plans where plan_uuid=:id and enabled',['id'=>$this->id($plan)])->fetch(PDO::FETCH_ASSOC);if(!$package)throw new RuntimeException('The template resource package is unavailable.');$c['extension_limit']=(int)$package['extension_limit'];$c['concurrent_calls']=(int)$package['concurrent_calls'];if($c['extension_count']>$c['extension_limit'])throw new RuntimeException('Initial extensions exceed this package.');}
+            if($hosted&&$this->reseller()&&!$this->platform()){$ceiling=(new pbx_reseller($this->db))->ceiling();if($ceiling&&($c['extension_limit']>$ceiling['extension_limit']||$c['concurrent_calls']>$ceiling['concurrent_calls']))throw new RuntimeException('This PBX exceeds your operator-approved reseller allowance.');}
+        }
         $domain=uuid();$service=uuid();$requestedRealm=pbx_sip_domain::validate($input['sip_domain']??'');$realm=$requestedRealm!==''?$requestedRealm:pbx_sip_domain::assigned($slug,$tenant['slug'],pbx_paths::host(),(string)config::load()->get('openweb.sip_domain_suffix',''));
         if (!$deferCommit) $this->db->beginTransaction();try {
             $this->query('select tenant_uuid from v_pbx_tenants where tenant_uuid=:id for update',['id'=>$tenant['tenant_uuid']]);
+            if($entitlements&&$this->query('select 1 from v_pbx_service_entitlements e join v_pbx_services s using(domain_uuid) where s.tenant_uuid=:tenant and e.restore_hold limit 1',['tenant'=>$tenant['tenant_uuid']])->fetchColumn())throw new RuntimeException('A tenant restore is in progress. Create the PBX after it finishes.');
             $existing=$this->query('select service_uuid,tenant_uuid from v_pbx_services where request_uuid=:id',['id'=>$request])->fetch(PDO::FETCH_ASSOC);if($existing){if($existing['tenant_uuid']!==$tenant['tenant_uuid'])throw new RuntimeException('Invalid service request.');if (!$deferCommit) $this->db->commit();return $existing['service_uuid'];}
             if(!$this->query('select enabled from v_pbx_tenants where tenant_uuid=:id',['id'=>$tenant['tenant_uuid']])->fetchColumn())throw new RuntimeException('This tenant is suspended.');
             if($this->query('select count(*) from v_pbx_services where tenant_uuid=:id',['id'=>$tenant['tenant_uuid']])->fetchColumn()>=$tenant['service_limit'])throw new RuntimeException('This tenant has reached its PBX service limit.');
@@ -263,14 +285,21 @@ class pbx_tenants {
             if($this->query('select 1 from v_domains where lower(domain_name)=:realm limit 1',['realm'=>$realm])->fetchColumn()||($aliasTable&&$this->query('select 1 from v_pbx_sip_domains where sip_domain=:realm limit 1',['realm'=>$realm])->fetchColumn()))throw new InvalidArgumentException('This phone domain is already used by another PBX. Choose a different domain.');
             $this->insert('v_domains',['domain_uuid'=>$domain,'domain_name'=>$realm,'domain_description'=>$tenant['tenant_name'].' / '.$name,'domain_enabled'=>'true']);$this->defaults($domain,$realm);
             $this->domainSetting($domain,'domain','time_zone','text',$c['timezone']);$this->domainSetting($domain,'limit','extensions','numeric',(string)$c['extension_limit']);
+            if($entitlements)$this->insert('v_pbx_service_entitlements',['domain_uuid'=>$domain,'plan_uuid'=>$package['plan_uuid']??null,'extension_limit'=>$c['extension_limit'],'concurrent_calls'=>$c['concurrent_calls'],'billable'=>$hosted?'true':'false','updated_by'=>$_SESSION['user_uuid']]);
             foreach($c['settings'] as $s)if(!pbx_voicemail_policy::retiredSetting($s['category'],$s['subcategory']))$this->domainSetting($domain,$s['category'],$s['subcategory'],$s['type'],$s['value']);
+            if($entitlements){$pid=uuid();$xml='<extension name="OpenWeb resource allowance" continue="true"><condition><action application="set" data="domain_uuid='.$domain.'"/><action application="lua" data="app.lua pbx_setup capacity"/></condition></extension>';$this->insert('v_dialplans',['dialplan_uuid'=>$pid,'domain_uuid'=>$domain,'dialplan_name'=>'OpenWeb resource allowance','dialplan_number'=>'','dialplan_context'=>$realm,'dialplan_order'=>'001','dialplan_continue'=>'true','dialplan_enabled'=>'true','dialplan_xml'=>$xml,'dialplan_description'=>'Package capacity applies once to each caller.']);}
+            $modern=!$deferCommit&&(bool)$this->query("select 1 from information_schema.tables where table_schema=current_schema() and table_name='v_pbx_restore'")->fetchColumn();
+            if(!$modern){
             for($i=0;$i<$c['extension_count'];$i++){$number=(string)($c['extension_start']+$i);pbx_service_codes::assertAvailable($number);$this->insert('v_extensions',['extension_uuid'=>uuid(),'domain_uuid'=>$domain,'extension'=>$number,'password'=>bin2hex(random_bytes(16)),'accountcode'=>$realm,'user_context'=>$realm,'dial_domain'=>$realm,'effective_caller_id_name'=>$c['caller_id_name']?:$tenant['tenant_name'],'effective_caller_id_number'=>$number,'outbound_caller_id_name'=>$c['caller_id_name'],'outbound_caller_id_number'=>$c['caller_id_number'],'enabled'=>'true','directory_visible'=>'true','directory_exten_visible'=>'true','call_timeout'=>'30','max_registrations'=>'1','limit_max'=>'5','limit_destination'=>'!USER_BUSY','extension_type'=>'default','description'=>'Created from '.$template['template_name']]);
                 $this->insert('v_voicemails',['voicemail_uuid'=>uuid(),'domain_uuid'=>$domain,'voicemail_id'=>$number,'voicemail_password'=>null,'voicemail_enabled'=>'true','voicemail_tutorial'=>'true','voicemail_file'=>'attach','voicemail_local_after_email'=>'true']);}
             $gateways=[];foreach($c['trunks'] as $g){$gid=uuid();$gateways[]=$gid;$this->insert('v_gateways',['gateway_uuid'=>$gid,'domain_uuid'=>$domain,'gateway'=>$g['name'].'-'.$slug,'proxy'=>$g['proxy'],'username'=>$g['username'],'password'=>$g['password'],'register_transport'=>$g['transport'],'register'=>$g['register']?'true':'false','enabled'=>$g['enabled']?'true':'false','context'=>'public','profile'=>'external','expire_seconds'=>'3600','retry_seconds'=>'30','description'=>'Created from '.$template['template_name']]);}
             foreach($c['rules'] as $i=>$r){$pid=uuid();$bridge='sofia/gateway/'.$gateways[$r['trunk']].'/'.$r['prefix'].'$1';$xml=new DOMDocument('1.0','UTF-8');$extension=$xml->appendChild($xml->createElement('extension'));$extension->setAttribute('name',$r['name']);$extension->setAttribute('continue','false');$condition=$extension->appendChild($xml->createElement('condition'));$condition->setAttribute('field','destination_number');$condition->setAttribute('expression',$r['pattern']);$action=$condition->appendChild($xml->createElement('action'));$action->setAttribute('application','bridge');$action->setAttribute('data',$bridge);
                 $this->insert('v_dialplans',['dialplan_uuid'=>$pid,'domain_uuid'=>$domain,'dialplan_name'=>$r['name'],'dialplan_number'=>'','dialplan_context'=>$realm,'dialplan_order'=>(string)(1000+$i*10),'dialplan_continue'=>'false','dialplan_enabled'=>'true','dialplan_xml'=>$xml->saveXML($extension),'dialplan_description'=>'Template outbound rule']);
                 foreach([['condition','destination_number',$r['pattern'],10],['action','bridge',$bridge,20]] as $detail)$this->insert('v_dialplan_details',['dialplan_detail_uuid'=>uuid(),'domain_uuid'=>$domain,'dialplan_uuid'=>$pid,'dialplan_detail_tag'=>$detail[0],'dialplan_detail_type'=>$detail[1],'dialplan_detail_data'=>$detail[2],'dialplan_detail_order'=>$detail[3],'dialplan_detail_group'=>0,'dialplan_detail_enabled'=>'true']);}
-            $this->insert('v_pbx_services',['service_uuid'=>$service,'tenant_uuid'=>$tenant['tenant_uuid'],'domain_uuid'=>$domain,'template_uuid'=>$template['template_uuid'],'template_name'=>$template['template_name'],'template_version'=>$template['version'],'service_name'=>$name,'request_uuid'=>$request,'created_by'=>$_SESSION['user_uuid']]);if (!$deferCommit) $this->db->commit();
+            }
+            $this->insert('v_pbx_services',['service_uuid'=>$service,'tenant_uuid'=>$tenant['tenant_uuid'],'domain_uuid'=>$domain,'template_uuid'=>$template['template_uuid'],'template_name'=>$template['template_name'],'template_version'=>$template['version'],'service_name'=>$name,'request_uuid'=>$request,'created_by'=>$_SESSION['user_uuid']]);
+            if($modern){$saved=$_SESSION;try{$_SESSION['domain_uuid']=$domain;$_SESSION['domain_name']=$realm;(new pbx_admin($this->db))->initializeTemplate($realm,$c);}finally{$_SESSION=$saved;}}
+            if (!$deferCommit) $this->db->commit();
         }catch(Throwable $e){if(!$deferCommit && $this->db->inTransaction())$this->db->rollBack();throw $e;}
         if ($deferCommit) return $service;
         settings::clear_cache();$cache=new cache;$cache->delete(gethostname().':configuration:sofia.conf');

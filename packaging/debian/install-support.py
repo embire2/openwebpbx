@@ -13,7 +13,12 @@ import tempfile
 PACKAGE = Path(__file__).resolve().parent
 UPDATES = Path('/var/lib/openwebpbx/updates')
 BACKUPS = Path('/var/backups/openwebpbx')
-SUPPORT = {'tenant-domains.py': Path('/opt/openwebpbx/tools/tenant-domains.py'),
+SUPPORT = {'openwebpbx-uploads.pool.conf': Path('/opt/openwebpbx/tools/openwebpbx-uploads.pool.conf'),
+           'protection.py': Path('/opt/openwebpbx/tools/protection.py'),
+           'install-reseller.py': Path('/opt/openwebpbx/tools/install-reseller.py'),
+           'openwebpbx-protection.service': Path('/etc/systemd/system/openwebpbx-protection.service'),
+           'openwebpbx-protection.timer': Path('/etc/systemd/system/openwebpbx-protection.timer'),
+           'tenant-domains.py': Path('/opt/openwebpbx/tools/tenant-domains.py'),
            'onboarding.py': Path('/opt/openwebpbx/tools/onboarding.py'),
            'onboarding.php': Path('/opt/openwebpbx/tools/onboarding.php'),
            'webhotel-onboarding.py': Path('/opt/openwebpbx/tools/webhotel-onboarding.py'),
@@ -48,6 +53,7 @@ SUPPORT = {'tenant-domains.py': Path('/opt/openwebpbx/tools/tenant-domains.py'),
            'restore-sofia.py': Path('/opt/openwebpbx/tools/restore-sofia.py'),
            'openwebpbx-backups.service': Path('/etc/systemd/system/openwebpbx-backups.service'),
            'openwebpbx-backups.timer': Path('/etc/systemd/system/openwebpbx-backups.timer')}
+RECOVERY_INPUT_COPIES = [Path('/opt/openwebpbx/tools/openwebpbx-protection.service'), Path('/opt/openwebpbx/tools/openwebpbx-protection.timer')]
 TIMER_LINKS = [Path('/etc/systemd/system/timers.target.wants/openwebpbx-backups.timer'),
                Path('/etc/systemd/system/openwebpbx-updater.service.wants/openwebpbx-backups.timer')]
 NOTIFICATION_FILES = [Path('/var/lib/openwebpbx/mobile-notifications/config.json'),
@@ -204,7 +210,9 @@ def install():
             onboarding_helper=importlib.util.module_from_spec(onboarding_spec);onboarding_spec.loader.exec_module(onboarding_helper)
             health_spec=importlib.util.spec_from_file_location('candidate_health',PACKAGE/'install-phone-health.py')
             health=importlib.util.module_from_spec(health_spec);health_spec.loader.exec_module(health)
-            targets = list(SUPPORT.values()) + NOTIFICATION_FILES + [registrar.TARGET] + meeting.targets() + mail.targets() + domain_helper.targets()
+            reseller_spec=importlib.util.spec_from_file_location('candidate_reseller',PACKAGE/'install-reseller.py')
+            reseller=importlib.util.module_from_spec(reseller_spec);reseller_spec.loader.exec_module(reseller)
+            targets = reseller.targets() + list(SUPPORT.values()) + RECOVERY_INPUT_COPIES + NOTIFICATION_FILES + [registrar.TARGET] + meeting.targets() + mail.targets() + domain_helper.targets()
             targets.extend(path for path in onboarding_helper.targets() if path not in targets)
             targets.extend(path for path in health.targets() if path not in targets)
             # Existing systemd enablement is preserved. A newly created link is
@@ -245,6 +253,7 @@ def install():
     subprocess.run(['python3',str(PACKAGE/'install-tenant-domains.py')],check=True,cwd=PACKAGE,timeout=60)
     subprocess.run(['python3',str(PACKAGE/'install-onboarding.py')],check=True,cwd=PACKAGE,timeout=60)
     subprocess.run(['python3',str(PACKAGE/'install-phone-health.py')],check=True,cwd=PACKAGE,timeout=60)
+    subprocess.run(['python3',str(PACKAGE/'install-reseller.py')],check=True,cwd=PACKAGE,timeout=60)
     # Older installed updaters do not know the newly bundled spoken targets.
     # The candidate helper augments their verified recovery inventory before
     # changing any voice, while the engine remains in the same stopped phase.

@@ -11,7 +11,11 @@ class pbx_backups {
         foreach ($params as $key=>$value) $s->bindValue(':'.$key,$value,is_int($value)?PDO::PARAM_INT:($value===null?PDO::PARAM_NULL:PDO::PARAM_STR));
         $s->execute(); return $s;
     }
-    protected function allowed(): bool { return permission_exists('pbx_backup_instance'); }
+    protected function allowed(): bool {
+        // Downloads and queued operations must stop immediately after role
+        // withdrawal, even while an older browser session remains signed in.
+        return (bool)$this->q("select 1 from v_users u join v_user_groups g using(user_uuid) join v_group_permissions p using(group_uuid) where u.user_uuid=:user and u.user_enabled='true' and p.permission_name='pbx_backup_instance' and p.permission_assigned='true' and (g.domain_uuid is null or g.domain_uuid=u.domain_uuid) and (p.domain_uuid is null or p.domain_uuid=u.domain_uuid)",['user'=>$_SESSION['user_uuid']??''])->fetchColumn();
+    }
     protected function keyFile(): string { return pbx_paths::key(); }
     protected function downloadRoot(): string { return pbx_paths::state().'/backup-downloads'; }
     public function canView(): bool {
@@ -82,7 +86,7 @@ class pbx_backups {
             $this->db->commit();
         } catch(Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); throw $e; }
     }
-    public function request(string $action,string $backup=''): string {
+    public function request(string $action,string $backup='',bool $full=false): string {
         $this->access();
         if (!in_array($action,['create','verify'],true)) throw new InvalidArgumentException('Choose a supported backup action.');
         if ($action==='verify' && (!is_uuid($backup) || !$this->q("select 1 from v_pbx_backups where backup_uuid=:id and status='ready'",['id'=>$backup])->fetchColumn())) throw new InvalidArgumentException('Choose an available backup to check.');
@@ -90,14 +94,14 @@ class pbx_backups {
         try {
             $this->q('select pg_advisory_xact_lock(741103109)');
             if (!$this->q("select 1 from v_pbx_backup_settings where singleton=1 and passphrase_secret<>''")->fetchColumn()) throw new InvalidArgumentException('Save a backup password first.');
-            $pending=$this->q("select command_uuid,action,backup_uuid from v_pbx_backup_commands where status in ('pending','running') order by created_at limit 1")->fetch(PDO::FETCH_ASSOC);
+            $pending=$this->q("select command_uuid,action,backup_uuid,full_backup from v_pbx_backup_commands where status in ('pending','running') order by created_at limit 1")->fetch(PDO::FETCH_ASSOC);
             if ($pending) {
-                if ($pending['action']!==$action || ($pending['backup_uuid']??'')!==$backup) throw new OverflowException('Another backup request is running. Wait for it to finish.');
+                if ($pending['action']!==$action || ($pending['backup_uuid']??'')!==$backup || ($full&&!filter_var($pending['full_backup'],FILTER_VALIDATE_BOOLEAN))) throw new OverflowException('Another backup request is running. Wait for it to finish.');
                 $this->db->commit(); return $pending['command_uuid'];
             }
             if ((int)$this->q("select count(*) from v_pbx_backup_commands where created_at>now()-interval '1 hour'")->fetchColumn()>=12) throw new OverflowException('Please wait before requesting another backup.');
             $id=uuid();
-            $this->q('insert into v_pbx_backup_commands(command_uuid,action,backup_uuid,requested_by) values(:id,:action,:backup,:user)', ['id'=>$id,'action'=>$action,'backup'=>$action==='verify'?$backup:null,'user'=>$_SESSION['user_uuid']]);
+            $this->q('insert into v_pbx_backup_commands(command_uuid,action,backup_uuid,requested_by,full_backup) values(:id,:action,:backup,:user,:full)', ['id'=>$id,'action'=>$action,'backup'=>$action==='verify'?$backup:null,'user'=>$_SESSION['user_uuid'],'full'=>$full?'true':'false']);
             $this->db->commit();return $id;
         } catch(Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); throw $e; }
     }
@@ -106,7 +110,7 @@ class pbx_backups {
         $status=$this->q('select state,left(message,500) message,updated_at from v_pbx_backup_status where singleton=1')->fetch(PDO::FETCH_ASSOC) ?: ['state'=>'waiting','message'=>'Waiting for the backup service.','updated_at'=>null];
         $status['service_online']=strtotime($status['updated_at']??'')>time()-180;
         $status['backups']=$this->q('select backup_uuid,status,include_media,app_version,size_bytes,sha256,remote_status,left(message,500) message,created_at,completed_at,verified_at from v_pbx_backups order by created_at desc limit 100')->fetchAll(PDO::FETCH_ASSOC);
-        $status['recent']=$this->q('select action,status,left(message,500) message,created_at,finished_at from v_pbx_backup_commands order by created_at desc limit 10')->fetchAll(PDO::FETCH_ASSOC);
+        $status['recent']=$this->q('select command_uuid,backup_uuid,action,status,left(message,500) message,created_at,finished_at from v_pbx_backup_commands order by created_at desc limit 10')->fetchAll(PDO::FETCH_ASSOC);
         return $status;
     }
     /** The download directory is root-owned and read-only to the web account. Return an opened ordinary file. */

@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS v_pbx_backup_commands (
  CHECK((action='create' AND backup_uuid IS NULL) OR (action='verify' AND backup_uuid IS NOT NULL))
 );
 CREATE INDEX IF NOT EXISTS openweb_backup_requests ON v_pbx_backup_commands(status,created_at);
+ALTER TABLE v_pbx_backup_commands ADD COLUMN IF NOT EXISTS full_backup boolean NOT NULL DEFAULT false;
 CREATE TABLE IF NOT EXISTS v_pbx_backups (
  backup_uuid uuid PRIMARY KEY, command_uuid uuid REFERENCES v_pbx_backup_commands(command_uuid) ON DELETE SET NULL,
  filename text NOT NULL UNIQUE CHECK(filename ~ '^[0-9a-f-]{36}[.]owpbx$'),

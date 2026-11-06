@@ -75,9 +75,14 @@ if((new pbx_setup)->canManage()&&(new pbx_admin)->restored())foreach($applicatio
     if($key==='/app/pbx_setup/')$application['title']='Admin';
 }
 unset($application);
+if(PHP_OS_FAMILY==='Linux')foreach([
+    'pbx_tenant_backup'=>['/app/pbx_protection/','Backup & Restore','fa-solid fa-hard-drive'],
+    'pbx_api_key_manage'=>['/app/pbx_api_keys/','API Keys','fa-solid fa-key'],
+    'pbx_service_view'=>['/app/pbx_reseller/','Packages & Resources','fa-solid fa-box']
+] as $permission=>$tile)if((new pbx_access_keys)->grant((string)($_SESSION['user_uuid']??''),$permission))$applications[$tile[0]]=['id'=>substr(hash('sha256',$tile[0]),0,12),'title'=>$tile[1],'url'=>PROJECT_PATH.$tile[0],'group'=>'Admin','icon'=>$tile[2]];
 if (isset($applications['/app/pbx_setup/']) && !(new pbx_setup)->canManage()) unset($applications['/app/pbx_setup/']);
 if ((new pbx_tenants)->installed() && (new pbx_tenants)->workspaceOnly() && !permission_exists('domain_all')) {
-    $applications = array_filter($applications, fn($app) => str_contains($app['url'], '/app/tenant_services/') || str_contains($app['url'], '/app/pbx_setup/'));
+    $applications = array_filter($applications, fn($app) => (bool)preg_match('~/app/(tenant_services|pbx_setup|pbx_protection|pbx_api_keys|pbx_reseller)/~',$app['url']));
 }
 if ((new pbx_staff_access)->owner() && (new pbx_admin)->restored()) {
     $applications['/app/pbx_greetings/'] = ['id'=>'greetings','title'=>'Greetings','url'=>PROJECT_PATH.'/app/pbx_greetings/','group'=>'Admin','icon'=>'fa-solid fa-microphone-lines'];

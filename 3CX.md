@@ -1,5 +1,8 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+**Hosted Debian 1.0.25:** Dashboard and Tenant Admin now include encrypted backup/recovery, API Keys and Packages & Resources. Templates can include provider presets and extension/concurrent-call allowances. Hosted upgrades use priced requests and explicit approval; payment collection remains external. API v2 documents140paths/75named PBX actions with current-role/tenant checks. Existing customer phone identities, routes and allowances are preserved. Public complete installers remain Debian23/Windows23 and Android19. [Guide](docs/reseller-1.0.25.md) · [API](docs/reseller-api-v2.md) · [Windows catch-up](docs/debian-windows-sync.md). Broader133/21accepted/72partial/40planned totals are unchanged.
+
+
 **Hosted 1.0.24:** Callback-only SIP trunk selection, nine user speed dials and editable/resettable Keoma scripts are live on call.openweb.co.za with matching native Core/updater24. Logic/regressions190 +independent63 +live browser75 and natural narration generation pass; current routes, private identities and custom recordings survive. Public installer versions and broader roadmap totals remain separate. [Feature guide](docs/call-me-back-1.0.24.md).
 
 **5 November releases:** [Debian 1.0.23](https://github.com/embire2/openwebpbx/releases/tag/v1.0.23) and [Windows Server 1.0.23](https://github.com/embire2/openwebpbx/releases/tag/windows-v1.0.23) are published with unified incoming-number routing and reusable QR setup. Each platform keeps its own source, signed feed and qualification. Hosted Debian runs 1.0.24; Android remains 1.0.19. [Debian evidence](docs/release-1.0.23-qualification.md) · [Windows evidence](docs/release-windows-1.0.23-qualification.md) · [Windows catch-up ledger](docs/debian-windows-sync.md).

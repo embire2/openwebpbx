@@ -58,12 +58,14 @@ local function deliver()
  local callback_routes=C.callback_routes(config,service,rule)
  if #callback_routes==0 then finish('callback_trunk_unavailable',0);return end
  local callback_attempted=false
+ local capacity=dofile(scripts_dir..'/app/pbx_setup/capacity.lua').origin(db,request.domain_uuid)
+ if capacity==nil then finish('capacity_unavailable');return end
  for _,route in ipairs(callback_routes) do
   if not active() then finish('cancelled');return end
   local leg=contact(number,route,owner)
   if leg then
    callback_attempted=true
-   call=freeswitch.Session('{origination_uuid='..request.call_uuid..',domain_uuid='..request.domain_uuid..',domain_name='..config.realm..',originate_timeout=25,call_timeout=25,ignore_early_media=true,absolute_timeout=900,hangup_after_bridge=false,continue_on_fail=true,call_direction=outbound,sensitive_dtmf=true}'..leg)
+   call=freeswitch.Session('{'..capacity..'origination_uuid='..request.call_uuid..',domain_uuid='..request.domain_uuid..',domain_name='..config.realm..',originate_timeout=25,call_timeout=25,ignore_early_media=true,absolute_timeout=900,hangup_after_bridge=false,continue_on_fail=true,call_direction=outbound,sensitive_dtmf=true}'..leg)
    if call:ready() then break end
    if not P.failover(call:hangupCause(),nil,false,nil) then break end
   end

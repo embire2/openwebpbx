@@ -97,6 +97,9 @@ class permissions {
 	 *
 	 * @return self
 	 */
+	/** Clear request-local state when a stateless API establishes its authenticated actor. */
+	public static function reset(): void { self::$permission = null; }
+
 	public static function new($database = null, $domain_uuid = null, $user_uuid = null) {
 		if (self::$permission === null) {
 			self::$permission = new permissions($database, $domain_uuid, $user_uuid);

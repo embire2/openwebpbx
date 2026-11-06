@@ -1,5 +1,12 @@
 # OpenWeb PBX feature coverage
 
+## Current hosted Debian 1.0.25
+
+Dashboard and Tenant Admin offer encrypted instance/tenant backup and recovery, scoped revocable API keys, reseller workspaces, PBX templates, extension and simultaneous-call allowances, and priced resource requests. API v2 has140documented paths and75named PBX actions. Current app/QR revocations, callback usage, history and billing survive tenant recovery; whole-instance recovery is a separate privileged operation. Payment collection and aggregate reseller fleet quotas are not implemented. [Current scope and verification](reseller-1.0.25.md).
+
+Public complete installers are Debian1.0.23 and Windows Server1.0.23; Android remains1.0.19. Older dated entries below retain their historical qualification scope.
+
+
 <!-- WINDOWS22-CURRENT-STATUS-BEGIN -->
 ## Latest Windows 1.0.22
 

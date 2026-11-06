@@ -2,7 +2,42 @@
 
 Backups protect **all tenants on one Debian 13 installation**. Only an enabled instance administrator with the **pbx_backup_instance** permission can change settings, request or download a copy. Tenant administrators cannot access another tenant’s data through this page.
 
-The current complete Debian 13 amd64 server is **1.0.22**; Windows Server 2025 Desktop Experience remains **1.0.21**. See the separate [Debian qualification](release-1.0.22-qualification.md) and [Windows qualification](release-1.0.21-qualification.md) for installation, encrypted backup and replacement-restore evidence. The procedures below describe Debian; use the [Windows backup and restore guide](windows-backups.md) for Windows. Match the backup's platform and release; Debian/Windows cross-platform restores remain unsupported. Instance backups were introduced in Debian 1.0.9; the earlier 1.0.7 package did not include this worker.
+The public complete server packages are **Debian 1.0.23** and **Windows Server 1.0.23**. Hosted Debian1.0.25 separately adds dashboard and tenant recovery. See the separate [Debian qualification](release-1.0.23-qualification.md) and [Windows qualification](release-windows-1.0.23-qualification.md) for installation, encrypted backup and replacement-restore evidence. The procedures below describe Debian; use the [Windows backup and restore guide](windows-backups.md) for Windows. Match the backup's platform and release; Debian/Windows cross-platform restores remain unsupported. Instance backups were introduced in Debian 1.0.9; the earlier 1.0.7 package did not include this worker.
+
+## Dashboard and Tenant Admin — hosted Debian 1.0.25
+
+Open **Backup & Restore** from the PBX Dashboard or `/tenantadmin/`. An instance
+administrator chooses **Full server · all tenants**; a tenant owner chooses its
+own workspace. **Create full server backup** always includes media, even when
+an automatic settings-only schedule was selected. Set its separate encryption
+password and automatic schedule under **Backups** first.
+
+Tenant copies include65supported PBX configuration tables and owned voicemail,
+recordings, greetings and callback audio. They restore to the same tenant,
+installation, PBX addresses and release. Current portal/app access, QR codes,
+revocations, staff roles, consumed callback minutes, call history, package
+allowances and billing remain current. Restoring a configuration that would
+remove a phone/service with protected current bindings is refused; remove those
+accounts or cancel pending actions through their normal pages first.
+
+Download encrypted copies and keep the password separately. To recover a saved
+copy, upload it, wait for validation, select **Check backup before restore**, then
+review and type the exact workspace/server name and confirm replacement. Browser
+and API uploads accept at most2GiB; larger full archives use the command-line
+procedure below. Backups and recovery reserve10GiB plus working space for database,
+media, verification and recovery copies; insufficient storage produces an error
+before replacement. Existing copies are never deleted to make an operation fit.
+
+A tenant restore holds only its own calls and keeps a recovery copy. It retains
+the hold if file recovery cannot be confirmed. Full-server restore is instance
+administrator only: it replaces every tenant, stops services and restarts those
+previously running. Restored integration API keys are revoked; create new keys
+after checking the recovered instance. Pending restore/call/notification jobs
+are not blindly replayed. Use a fresh matching Debian installation and the
+original server name when replacing a failed machine.
+
+[Backup API and examples](reseller-api-v2.md#backup-import-and-restore) ·
+[Reseller/version scope](reseller-1.0.25.md).
 
 ## Historical Windows 1.0.20 qualification
 

@@ -14,11 +14,18 @@ class pbx_setup {
         $statement->execute(); return $statement;
     }
     public function canManage(): bool {
-        if (!$this->allowed('pbx_service_create') || empty($_SESSION['user_uuid'])) return false;
+        if (empty($_SESSION['user_uuid'])) return false;
         $tenants = $this->tenantManager();
-        if ($tenants->platform()) return true;
+        if ($this->allowed('pbx_service_create') && $tenants->platform()) return true;
         $tenant = $tenants->tenant();
-        return $tenant && $tenant['enabled'] && $tenant['owner_user_uuid'] === $_SESSION['user_uuid'];
+        if ($tenant && !$tenant['enabled']) return false;
+        if ($this->allowed('pbx_service_create') && $tenant && $tenant['owner_user_uuid'] === $_SESSION['user_uuid']) return true;
+        // An ordinary PBX administrator may manage its existing service and
+        // service-scoped API credentials, never another workspace or instance.
+        // Read the actual user domain and grants afresh; session domain switches
+        // and the CLI permission shortcut cannot expand this authority.
+        if (empty($_SESSION['authorized']) || !is_uuid($_SESSION['user_uuid']) || !is_uuid($_SESSION['domain_uuid']??'')) return false;
+        return (bool)$this->query("select 1 from v_users u where u.user_uuid=:user and u.domain_uuid=:domain and u.user_enabled='true' and (select count(distinct p.permission_name) from v_user_groups ug join v_group_permissions p using(group_uuid) where ug.user_uuid=u.user_uuid and p.permission_assigned='true' and p.permission_name in ('pbx_api_key_manage','extension_edit','gateway_edit'))=3",['user'=>$_SESSION['user_uuid'],'domain'=>$_SESSION['domain_uuid']])->fetchColumn();
     }
     private function requireManage(): void { if (!$this->canManage()) throw new RuntimeException('PBX setup administrator access is required.'); }
     private function id(string $value): string { if (!is_uuid($value)) throw new InvalidArgumentException('Invalid setup identifier.'); return $value; }

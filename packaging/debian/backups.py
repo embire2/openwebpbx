@@ -374,6 +374,13 @@ def _create_archive(settings, destination, password, *, include_media=True, root
     if not re.fullmatch(r'\d+\.\d+\.\d+', version):
         raise BackupError('The installed application version is unavailable.')
     layout = validate_database_layout(settings)
+    # Keep the production reserve throughout dump, packing, encryption and the
+    # independent verification expansion. No completed archive is pruned to
+    # make room for a request that cannot fit safely.
+    database_bytes = int(query(settings, "select pg_database_size(current_database())"))
+    media_bytes = sum(entry['size'] for entry in file_inventory(roots).values())
+    if shutil.disk_usage(destination.parent).free < 10 * 1024**3 + 4 * (database_bytes + media_bytes) + 64 * 1024**2:
+        raise BackupError('Not enough free storage to create and check this full backup while preserving the server safety reserve. Add storage or move older copies off this server first.')
     with tempfile.TemporaryDirectory(prefix='.backup-work-', dir=destination.parent) as temporary:
         work = Path(temporary)
         work.chmod(0o700)
@@ -449,6 +456,8 @@ def extract_verified(payload, destination):
             expected_total += entry['size']
         if expected_total > MAX_ARCHIVE:
             raise BackupError('The expanded backup exceeds the supported 50 GB limit.')
+        if shutil.disk_usage(destination).free < 10 * 1024**3 + expected_total + 64 * 1024**2:
+            raise BackupError('Not enough free storage to check this backup while preserving the server safety reserve.')
         seen = set()
         while member := archive.next():
             if member.name == 'manifest.json':
@@ -474,6 +483,8 @@ def extract_verified(payload, destination):
 @contextlib.contextmanager
 def verify_archive(source, password, *, workspace=None):
     ordinary(source)
+    if shutil.disk_usage(workspace or source.parent).free < 10 * 1024**3 + source.stat().st_size * 2 + 64 * 1024**2:
+        raise BackupError('Not enough free storage to open and check this encrypted backup while preserving the server safety reserve.')
     with tempfile.TemporaryDirectory(prefix='.verify-backup-', dir=workspace or source.parent) as temporary:
         work = Path(temporary)
         work.chmod(0o700)
@@ -620,9 +631,10 @@ def _worker(settings, *, store=STORE, downloads=DOWNLOADS, roots=None, version=N
                 backup_id = str(uuid.uuid4())
                 file = store / (backup_id + '.owpbx')
                 installed = version or ordinary(WEB_VERSION).read_text().strip()
+                include_media = bool(config['include_media'] or command.get('full_backup', False))
                 query(settings, 'insert into v_pbx_backups(backup_uuid,command_uuid,filename,status,include_media,app_version,remote_status) values('
-                      + ','.join(literal(v) for v in (backup_id, command_id, file.name, 'creating', config['include_media'], installed, 'pending' if config['sftp_enabled'] else 'disabled')) + ')')
-                manifest = create_archive(settings, file, password, include_media=config['include_media'], roots=roots, version=installed)
+                      + ','.join(literal(v) for v in (backup_id, command_id, file.name, 'creating', include_media, installed, 'pending' if config['sftp_enabled'] else 'disabled')) + ')')
+                manifest = create_archive(settings, file, password, include_media=include_media, roots=roots, version=installed)
                 digest = checksum(file)
                 publish_download(file, downloads / file.name)
                 query(settings, "update v_pbx_backups set status='ready',size_bytes=" + str(file.stat().st_size) + ',sha256=' + literal(digest)
@@ -910,7 +922,7 @@ def restore(source, password, settings, **kwargs):
         return _restore(source, password, settings, **kwargs)
 
 
-def _restore(source, password, settings, *, dry_run=False, confirm_database=None):
+def _restore(source, password, settings, *, dry_run=False, confirm_database=None, allow_existing=False):
     safe_private_directory(RESTORE)
     with verify_archive(source, password, workspace=RESTORE) as (extracted, manifest):
         installed = ordinary(WEB_VERSION).read_text().strip()
@@ -937,7 +949,14 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
                 for item in [notification_fallback, *notification_fallback.parents]:
                     if item.is_symlink():
                         raise BackupError('Restore refused a symbolic link in the target private-data path.')
-        target_is_factory(settings)
+        if allow_existing is not True:
+            target_is_factory(settings)
+        else:
+            # This explicit path is used only by the confirmed instance-owner
+            # recovery queue. CLI/replacement restore remains factory-only.
+            if settings.get('database.0.host', '127.0.0.1') not in ('127.0.0.1','localhost','::1','/var/run/postgresql'):
+                raise BackupError('Dashboard restore requires this instance’s own local PostgreSQL database.')
+            validate_database_layout(settings)
         if dry_run:
             return manifest
         if confirm_database != settings['database.0.name']:
@@ -947,6 +966,10 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
         if int(query(settings, "select count(*) from v_pbx_update_commands where status='running'")):
             raise BackupError('An application update is running. Finish it before restoring.')
         services = running_services()
+        recovery_size = int(query(settings, "select pg_database_size(current_database())"))
+        recovery_size += sum(path.stat().st_size for path in mapping.values() if path.is_file() and not path.is_symlink())
+        if shutil.disk_usage(RESTORE).free < 10 * 1024**3 + recovery_size * 2 + 64 * 1024**2:
+            raise BackupError('Not enough storage to keep the current server recovery copy and the safety reserve. Add storage before restoring.')
         # Create durable recovery material before stopping any service or changing a file.
         snapshot_database(settings, RESTORE / 'factory.dump')
         recovery_files = RESTORE / 'factory-files'
@@ -1012,6 +1035,14 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
                     else:
                         child.unlink()
             query(settings, "update v_pbx_backup_commands set status='failed',message='Request belonged to the previous server. Retry on this server.',finished_at=now() where status in ('pending','running')")
+            if query(settings, "select to_regclass('v_pbx_protection_jobs') is not null") == 't':
+                query(settings, "update v_pbx_protection_jobs set status='failed',secret_ciphertext='',message='This request preceded a full restore. Review the recovered server before retrying.',finished_at=now() where status in ('pending','running')")
+            if query(settings, "select to_regclass('v_pbx_resource_orders') is not null") == 't':
+                query(settings, "update v_pbx_resource_orders set status='cancelled' where status='pending'")
+            if query(settings, "select to_regclass('v_pbx_access_keys') is not null") == 't':
+                query(settings, "update v_pbx_access_keys set revoked_at=coalesce(revoked_at,now())")
+            if query(settings, "select to_regclass('v_pbx_tenant_backups') is not null") == 't':
+                query(settings, "update v_pbx_tenant_backups set status='failed',message='Previous server backup catalogue: upload the separately saved encrypted copy before restoring.' where status in ('ready','creating')")
             query(settings, "update v_pbx_backups set status='failed',message='Previous server: this encrypted backup file was not included in the restore. Keep its separately downloaded or remote copy.' where status in ('ready','creating')")
             query(settings, "update v_pbx_backup_settings set enabled=false,sftp_enabled=false where singleton=1")
             if 'php8.4-fpm' in services:

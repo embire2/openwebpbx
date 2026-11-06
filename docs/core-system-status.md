@@ -1,5 +1,12 @@
 # OpenWeb PBX core system status
 
+## Hosted Debian 1.0.25 — 6 November 2026
+
+App, native Core and updater run1.0.25. The PBX and Tenant Admin provide Backup & Restore, scoped API Keys and Packages & Resources. Hosted Starter gives new services10extensions/five simultaneous calls, with two initial extensions; existing services retain their allocations. Reseller templates include provider presets; extra resources use quotes and explicit approval, with external payment collection. API v2 has140documented paths/75named actions. Tenant recovery preserves current app/QR access, roles, callback usage, call history and billing. A full-server restore intentionally replaces the instance and revokes integration keys.
+
+Actual browser/API39controls pass, including normal administrator login, both portals, mobile layouts, real key creation/rotation/revocation and cross-PBX/write denials. Isolated PostgreSQL, encrypted recovery and native call-capacity evidence is recorded in the [feature guide](reseller-1.0.25.md). No new physical-phone/carrier acceptance or public complete25installer is claimed. Public Debian23, Windows23 and Android19 remain unchanged.
+
+
 ## Hosted 1.0.24 — 5 November 2026
 
 The hosted web app, native Core and updater run1.0.24. Call Me Back has a callback-only provider choice, nine user speed dials and editable Keoma scripts with confirmed default reset. Existing provider/routes/credentials/recordings are preserved; native engine and nginx keep running. Logic/regression checks190, independent63, live browser75 and one natural Keoma generation pass. Matching native processes pass91.9seconds of stability after deployment. [Guide and exact verification scope](call-me-back-1.0.24.md). Public downloadable installers retain their separate release versions below. The hosted extension-1000 outside-call correction is live; the user confirms Android connects with sound both ways. [Calling correction](outgoing-calls-1.0.24.md).

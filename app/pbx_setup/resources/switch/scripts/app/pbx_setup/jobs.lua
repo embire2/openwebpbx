@@ -136,6 +136,9 @@ local function deliver()
     vars=vars..',presence_id='..agent.auth_id..'@'..config.realm..',sip_invite_domain='..config.realm
     call=freeswitch.Session('{'..vars..'}'..live_contact)
     if not call:ready() then retry(job.kind=='callback' and 'Agent did not answer' or 'Room did not answer');return end
+    -- Parallel phone offers are one job. Reserve once on the actual answered
+    -- agent channel, before offering the customer's onward leg.
+    if not dofile(scripts_dir..'/app/pbx_setup/capacity.lua').admit(call,db,job.domain_uuid)then retry('PBX simultaneous call allowance reached',30);return end
     local answered_uuid=call:getVariable('uuid')
     query("update v_pbx_jobs set call_uuid=:new where job_uuid=:id and call_uuid=:old and state='calling'",{new=answered_uuid,id=id,old=job.call_uuid})
     job.call_uuid=answered_uuid

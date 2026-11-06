@@ -591,6 +591,44 @@ except b.BackupError as error:
             b.fcntl.flock(descriptor,b.fcntl.LOCK_EX|b.fcntl.LOCK_NB);self.assertEqual(probe(),{'acquired':False,'busy':True})
         finally:os.close(descriptor)
 
+    def test_20_explicit_populated_dashboard_restore_preserves_recovery_and_blocks_replays(self):
+        work=self.workspace/'dashboard-existing';work.mkdir()
+        roots={label:work/label for label in self.source_roots}
+        for path in roots.values():path.mkdir()
+        config=roots['fusionpbx-config']/'config.conf'
+        config.write_text('\n'.join(key+' = '+value for key,value in self.target.items())+'\n')
+        original_key=os.urandom(32);(roots['fusionpbx-config']/'openweb-template.key').write_bytes(original_key)
+        (roots['runtime-config']/'runtime.json').write_text(json.dumps({'ConnectionStrings':{'Pbx':'current target'}}))
+        current_audio=roots['recordings']/'recording.wav';current_audio.write_bytes(b'current pre-restore customer audio')
+        b.query(self.target,"delete from fixture_objects;delete from v_extensions;delete from v_pbx_tenants;insert into fixture_objects values('operator','current before replacement');insert into v_extensions values(gen_random_uuid());insert into v_pbx_tenants values(gen_random_uuid());")
+        b.query(self.source,"CREATE TABLE v_pbx_protection_jobs(status text,secret_ciphertext text,message text,finished_at timestamptz);INSERT INTO v_pbx_protection_jobs VALUES('pending','fixture queued secret','',NULL);CREATE TABLE v_pbx_resource_orders(status text);INSERT INTO v_pbx_resource_orders VALUES('pending');CREATE TABLE v_pbx_access_keys(revoked_at timestamptz);INSERT INTO v_pbx_access_keys VALUES(NULL);CREATE TABLE v_pbx_tenant_backups(status text,message text);INSERT INTO v_pbx_tenant_backups VALUES('ready','');")
+        archive=work/'source.owpbx';b.create_archive(self.source,archive,self.archive_password,roots=self.source_roots,version='1.0.9')
+        old={name:getattr(b,name) for name in ('ROOTS','MEDIA','RESTORE','WEB_VERSION','running_services','UNIT_ROOT','STORE','CACHE')}
+        try:
+            b.ROOTS={k:v for k,v in roots.items() if k not in self.original_media};b.MEDIA={k:v for k,v in roots.items() if k in self.original_media}
+            b.RESTORE=work/'journal';b.STORE=work/'store';b.UNIT_ROOT=work/'units';b.UNIT_ROOT.mkdir()
+            b.WEB_VERSION=work/'VERSION';b.WEB_VERSION.write_text('1.0.9');self.install_voicemail_policy(b.WEB_VERSION)
+            b.running_services=lambda:[];b.CACHE=work/'cache'
+            with self.assertRaisesRegex(b.BackupError,'fresh installation'):
+                b.restore(archive,self.archive_password,self.target,dry_run=True)
+            b.restore(archive,self.archive_password,self.target,dry_run=True,allow_existing=True)
+            self.assertEqual(b.query(self.target,"select payload from fixture_objects where kind='operator'"),'current before replacement')
+            b.restore(archive,self.archive_password,self.target,confirm_database=self.target_name,allow_existing=True)
+            self.assertEqual(b.query(self.target,"select payload from fixture_objects where kind='tenant'"),'isolated tenant')
+            self.assertEqual(b.query(self.target,"select status||':'||secret_ciphertext from v_pbx_protection_jobs"),'failed:')
+            self.assertEqual(b.query(self.target,'select status from v_pbx_resource_orders'),'cancelled')
+            self.assertEqual(b.query(self.target,'select revoked_at is not null from v_pbx_access_keys'),'t')
+            self.assertEqual(b.query(self.target,'select status from v_pbx_tenant_backups'),'failed')
+            self.assertEqual(current_audio.read_bytes(),(self.source_roots['recordings']/'recording.wav').read_bytes())
+            journal=json.loads((b.RESTORE/'journal.json').read_text());journal['state']='restoring';b.atomic_json(b.RESTORE/'journal.json',journal)
+            b.recover(self.target)
+            self.assertEqual(b.query(self.target,"select payload from fixture_objects where kind='operator'"),'current before replacement')
+            self.assertEqual(current_audio.read_bytes(),b'current pre-restore customer audio')
+            self.assertEqual((roots['fusionpbx-config']/'openweb-template.key').read_bytes(),original_key)
+        finally:
+            for name,value in old.items():setattr(b,name,value)
+            b.query(self.source,'DROP TABLE v_pbx_protection_jobs,v_pbx_resource_orders,v_pbx_access_keys,v_pbx_tenant_backups')
+
 if __name__ == '__main__':
     if os.geteuid() != 0:
         raise SystemExit('Run fixture checks as root; only independent databases and loopback services are used.')

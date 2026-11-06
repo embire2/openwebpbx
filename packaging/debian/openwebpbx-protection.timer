@@ -1,0 +1,11 @@
+[Unit]
+Description=Check OpenWeb PBX backup and restore requests
+
+[Timer]
+OnBootSec=45s
+OnUnitInactiveSec=30s
+AccuracySec=5s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

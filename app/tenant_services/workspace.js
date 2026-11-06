@@ -66,7 +66,7 @@
       const template = templates[event.target.value]; const preview = $('#service-preview'); const credentials = $('#service-credentials'); preview.replaceChildren(); credentials.replaceChildren();
       if (!template) return;
       const name = document.createElement('strong'); name.textContent = template.name; const description = document.createElement('p'); description.textContent = template.description;
-      const details = document.createElement('span'); details.textContent = `${template.extensions} extensions · ${template.timezone} · ${template.trunks.length} SIP trunks`; preview.append(name, description, details);
+      const details = document.createElement('span'); details.textContent = `${template.extensions} extensions created · template allowance ${template.extension_limit} extensions / ${template.concurrent_calls} simultaneous calls · ${template.timezone} · ${template.trunks.length} SIP trunks. Hosted services use the tenant’s assigned package.`; preview.append(name, description, details);
       template.trunks.forEach((trunk, i) => ['username','password'].forEach((field) => { const label = document.createElement('label'); label.textContent = `${trunk.name} — ${field}`; const input = document.createElement('input'); input.type = field === 'password' ? 'password' : 'text'; input.name = `credentials[${i}][${field}]`; input.autocomplete = 'off'; input.placeholder = trunk[`has_${field}`] ? 'Leave blank to use template default' : `Enter your SIP ${field}`; input.maxLength = field === 'password' ? 256 : 200; label.append(input); credentials.append(label); }));
     });
   }

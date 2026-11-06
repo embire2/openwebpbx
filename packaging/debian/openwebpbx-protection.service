@@ -1,0 +1,21 @@
+[Unit]
+Description=OpenWeb PBX tenant backups and confirmed recovery
+After=postgresql.service
+ConditionPathExists=/etc/fusionpbx/config.conf
+ConditionPathExists=!/var/lib/openwebpbx/updates/maintenance
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/openwebpbx/tools/protection.py worker
+TimeoutStartSec=6h
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/etc/fusionpbx /etc/openwebpbx /etc/freeswitch /etc/systemd/system
+ReadWritePaths=/usr/share/freeswitch/sounds/openwebpbx
