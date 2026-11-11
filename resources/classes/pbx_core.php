@@ -6,13 +6,15 @@ class pbx_core {
     private string $domain;
     private string $actor;
     private ?pbx_staff_access $staff=null;
-    public function __construct(?PDO $db=null){
+    private bool $explicitScope=false;
+    public function __construct(?PDO $db=null,?pbx_staff_access $scope=null){
         $this->db=$db??database::new()->db;$this->domain=(string)($_SESSION['domain_uuid']??'');$this->actor=(string)($_SESSION['user_uuid']??'');
-        if(!(new pbx_setup($this->db))->canManage()){ $candidate=new pbx_staff_access($this->db);if($candidate->active())$this->staff=$candidate;}
+        if($scope){if($scope->domain!==$this->domain||$scope->actor!==$this->actor||!$scope->active())throw new pbx_core_access('Staff access denied.');$this->staff=$scope;$this->explicitScope=true;}
+        elseif(!(new pbx_setup($this->db))->canManage()){ $candidate=new pbx_staff_access($this->db);if($candidate->active())$this->staff=$candidate;}
         if(empty($_SESSION['authorized'])||!is_uuid($this->domain)||!is_uuid($this->actor)||!$this->allowed('pbx_core_view')||!$this->tenantAccess())throw new pbx_core_access('PBX access denied.');
         $this->config();
     }
-    protected function allowed(string $name): bool {return permission_exists($name)||(new pbx_setup($this->db))->canManage()||($this->staff&&$this->staff->can(match($name){'pbx_core_view'=>'live','pbx_core_control'=>'control','pbx_core_supervise'=>'queues',default=>'unsupported'}));}
+    protected function allowed(string $name): bool {$cap=match($name){'pbx_core_view'=>'live','pbx_core_control'=>'control','pbx_core_supervise'=>'queues',default=>'unsupported'};if($this->explicitScope)return $this->staff->can($cap);return permission_exists($name)||(new pbx_setup($this->db))->canManage()||($this->staff&&$this->staff->can($cap));}
     protected function tenantAccess(): bool {return (new pbx_tenants($this->db))->canDomain($this->domain);}
     protected function engine(string $command): string {return (string)event_socket::api($command);}
     private function q(string $sql,array $args=[]): PDOStatement {$s=$this->db->prepare($sql);$s->execute($args);return $s;}

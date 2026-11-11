@@ -629,6 +629,25 @@ except b.BackupError as error:
             for name,value in old.items():setattr(b,name,value)
             b.query(self.source,'DROP TABLE v_pbx_protection_jobs,v_pbx_resource_orders,v_pbx_access_keys,v_pbx_tenant_backups')
 
+    def test_21_long_operation_heartbeat_keeps_results_authoritative(self):
+        b.query(self.source, "update v_pbx_backup_status set state='creating',message='Archive is being created',updated_at=now()-interval '10 minutes' where singleton=1")
+        before = b.query(self.source, 'select updated_at from v_pbx_backup_status where singleton=1')
+        with b.worker_heartbeat(self.source, interval=0.05):
+            deadline = time.monotonic() + 4
+            while b.query(self.source, 'select updated_at from v_pbx_backup_status where singleton=1') == before:
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.05)
+            self.assertEqual(b.query(self.source, "select state||'/'||message from v_pbx_backup_status where singleton=1"), 'creating/Archive is being created')
+        stopped = b.query(self.source, 'select updated_at from v_pbx_backup_status where singleton=1')
+        time.sleep(0.15)
+        self.assertEqual(b.query(self.source, 'select updated_at from v_pbx_backup_status where singleton=1'), stopped)
+        b.query(self.source, "update v_pbx_backup_status set state='failed',message='Keep this failure',updated_at=now()-interval '10 minutes' where singleton=1")
+        failed = b.query(self.source, 'select updated_at from v_pbx_backup_status where singleton=1')
+        with b.worker_heartbeat(self.source, interval=0.05):
+            time.sleep(0.2)
+        self.assertEqual(b.query(self.source, 'select updated_at from v_pbx_backup_status where singleton=1'), failed)
+        self.assertEqual(b.query(self.source, 'select message from v_pbx_backup_status where singleton=1'), 'Keep this failure')
+
 if __name__ == '__main__':
     if os.geteuid() != 0:
         raise SystemExit('Run fixture checks as root; only independent databases and loopback services are used.')

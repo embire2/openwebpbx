@@ -1,6 +1,6 @@
 # Move existing Yealink and Fanvil phones
 
-OpenWeb PBX preserves the extension number, separate Authentication ID and SIP password from the supported 3CX V20 backup. An extension number and Authentication ID can be different; keep both exactly as they are. Do not factory-reset the phones.
+OpenWeb PBX preserves the extension number, separate Authentication ID and SIP password from the supported 3CX V20 backup. An extension number and Authentication ID can be different; keep both exactly as they are. For an ordinary migration, keep the existing phone configuration. A phone that genuinely needs a factory reset requires the separate discovery and setup preparation below.
 
 The verified backup format is **3CX 20.0.9.995**. Other builds require a checked adapter. A successful restore is not evidence that a carrier or a physical handset has passed a call test.
 
@@ -27,6 +27,27 @@ The manufacturer's [SIP account configuration guide](https://support.yealink.com
 Open the phone's local web administration page and select its existing SIP line. Replace the old 3CX hostname in the SIP server address with the address shown in **OpenWeb PBX → Admin → Phones**. Replace a matching old hostname in the SIP domain/realm or outbound proxy if those fields are explicitly set.
 
 Keep the SIP user/extension, Authentication User/ID, password, server port, transport, registration interval, audio formats, Wi-Fi settings and local dial plan. Save the line and confirm that it registers. Fanvil publishes the V62W's instructions on its [official manual page](https://www.fanvil.com/service/doc/file/p1/v%20seri/v62w/index.html); labels depend on firmware.
+
+### Before a V62W factory reset
+
+First check whether the original PBX can still manage the phone. A reachable 3CX login page does not establish that the phone is connected to it. With authorized access, inspect **Admin → Phones**, identify the exact MAC, and review its status, local address, provisioning details and available **Reprovision** action. Supported connected phones can request their configuration remotely, but clicking Reprovision ordinarily reloads the existing 3CX configuration; it does not by itself migrate the phone to OpenWeb PBX. A reviewed per-device configuration and a reachable setup source are still required. Do not change a shared template to move only one phone. See [3CX phone management](https://www.3cx.com/docs/ip-phone-firmware-management/).
+
+The local phone website may require access from an office computer or VPN, the correct HTTP/HTTPS port, and the device's administration password. A working SIP connection through an office router does not expose that website to the public Internet. Check **Menu → Status** and the network settings before treating an unreachable website as a reason to erase the phone. The V62W supports both Ethernet and Wi-Fi; the SIP transport and public IP do not identify which it uses.
+
+If a reset is necessary, arrange how the phone will receive its new setup address **before** resetting it:
+
+1. Establish an Internet connection. A cable from the phone's WAN port to the office LAN is the simplest initial option; if using Wi-Fi, reconnect it after resetting because a full reset clears saved settings.
+2. Supply the configuration address using one supported method: the phone's **Menu → Advanced → Maintenance → Auto Provision** screen; a correctly scoped office **DHCP option66**; or an authorized **Fanvil RPS** mapping for that exact MAC. A cloud PBX cannot discover a reset phone through an unrelated office LAN multicast announcement.
+3. Retrieve a private, model-correct configuration containing the existing extension, authentication ID and password, and the new SIP server/proxy. A phone-domain hostname alone is not a provisioning configuration. Do not enable anonymous MAC-only configuration downloads as a shortcut.
+4. Confirm the phone fetched that configuration, registered, and passed incoming/outgoing two-way-audio tests. Remove any conflicting old provisioning source only after a reviewed replacement is ready.
+
+Fanvil documents the screen setup, network settings and reset in the [V62G/V62W manual](https://www.fanvil.com/upload/files/20240813/115020220b.pdf), sections10.5,10.7.4,10.7.6 and12.1. [3CX's provisioning guide](https://www.3cx.com/docs/manual/ip-phones/) explains RPS, local PnP and DHCP option66. Firmware and existing office settings determine the actual working method.
+
+**Dr Pillay investigation, 2026-11-09:** the owner confirms the saved MAC for extension5001 matches his V62W. This PBX currently has no5001 registration. Its original backup does not establish Ethernet versus Wi-Fi, office DHCP provisioning or the current RPS mapping; the saved `RpsRemoved` flag is historical. The old 3CX website is reachable, but administrator access and its live phone status have not been checked. Its imported device record still selects an older Fanvil template, so factory-reset auto-provisioning is **not qualified or ready**. No phone has been reset, no SIP credentials have changed, and the seven existing registered phones remain untouched.
+
+**Subsequent live handover, 2026-11-09:** with the owner's administrator access, 3CX shows this V62W online on firmware2.12.20.19. Its web-console link points at the office's public address, where HTTP reaches a ZTE router and HTTPS does not connect; this is not access to the phone's local website. A separate template is assigned only to5001, preserving all other22users' settings and the shared template. Its original authentication/password and the generated replacement file are checked before one remote reprovision request. The actual phone downloads its private HTTPS file and registers on OpenWeb PBX in4.5seconds, without resetting or changing credentials. Its saved model/server record now matches the real phone, and the obsolete X4 template is cleared. Allseven existing phones remain registered;5001 is repeatedly Reachable, givingeight registrations. Human ringing/two-way audio remains awaiting owner confirmation.
+
+The replacement config uses the owned OpenWeb SIP hostname as registrar/proxy and STUN server, NAT keepalives/rport, PBX-delivered audio and voicemail121. No office DHCP66 or Fanvil RPS discovery mapping was created: a later full factory reset still needs its private setup address after reconnecting the network. The root-only operator guide is `/root/DR-PILLAY-5001-SETUP.txt`; do not publish its URL or configuration, which contain access to the SIP credentials. These are scoped saved per-phone files, not a general provisioning engine; an authorized SIP-password change requires regenerating them. The files are included under the PBX configuration backup tree; the separately managed nginx routes also need retaining/recreating after an OS reinstall. No general factory-reset zero-touch or human-audio acceptance follows from this successful remote move.
 
 ## Confirm calls before moving the rest
 

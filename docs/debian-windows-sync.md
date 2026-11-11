@@ -1,6 +1,6 @@
 # Debian changes to carry into Windows
 
-Updated **5 November 2026**. This is the change ledger for Windows catch-up,
+Updated **11 November 2026**. This is the change ledger for Windows catch-up,
 alongside the [release process](independent-platform-releases.md). Add a row
 for every Debian feature, calling fix, migration or deployment change. Keep
 the originating version and source commit even when Windows ships it later.
@@ -10,7 +10,7 @@ Update the Windows result only after checking the actual Windows package.
 
 | Component | Current status |
 |---|---|
-| Hosted Debian at call.openweb.co.za | **1.0.24**, including matching native Core and updater. |
+| Hosted Debian at call.openweb.co.za | **1.0.26**, including matching native Core and updater; complete26 bundle remains a local candidate. |
 | Public Debian installer | **1.0.23**, source `d27583e72018fcbd55c517a766697b8267658dc1`. |
 | Public Windows installer | **1.0.23**, source `e1aaad63f99ac3b11714d9d0cd3f2a085778688f`; [qualification](release-windows-1.0.23-qualification.md). |
 | Android | **1.0.19**. Server fixes do not imply an Android release. |
@@ -71,14 +71,27 @@ acceptance remains separate from isolated provider and software-phone checks.
 
 | ID | Feature | Debian status | Windows acceptance required |
 |---|---|---|---|
-| D25-01 | Full-instance backup from Dashboard; verified and confirmed web restore | Live; encrypted engine retained, browser access and disposable-tenant worker round trip pass. Main full backup needs more storage. | Port root recovery queue to SYSTEM and qualify populated-target rollback, private identity/media and service restart. |
+| D25-01 | Full-instance backup from Dashboard; verified and confirmed web restore | Live; encrypted engine retained, browser access and disposable-tenant worker round trip pass. Full production media backup/download and isolated replacement recovery now pass; see the [9 November record](backup-recovery-2026-11-09.md). | Port root recovery queue to SYSTEM and qualify populated-target rollback, private identity/media and service restart. |
 | D25-02 | Tenant-scoped encrypted backup/download/check/restore | Live; same-instance recovery, current credentials/usage/history/ownership/keys/billing preserved. | Port worker paths/ACLs, tenant media isolation, authentication/tamper checks and failure recovery. |
 | D25-03 | Reseller packages, extension allowances and simultaneous-call admission | Live; 47 PostgreSQL and 21 native admission controls pass. Legacy allocations remain unchanged. | Port schema and atomic calling admission; test concurrent registrations/calls and Windows audio policy unchanged. |
 | D25-04 | Templates with provider presets, package binding and working modern administration | Live; modern template provisioning and starter package verified. | Test fresh template services, isolated provider credentials, defaults and restored legacy tenants. |
 | D25-05 | Hosted resource pricing, repeat-safe orders and explicit approval | Live; priced requests and approvals. Payment collection remains external. | Test owner/reseller/operator roles, no self-service quota escalation, approvals and self-hosting exemption. |
 | D25-06 | Scoped API v2 and API key creation/expiry/rotation/revocation | Live; v1 preserved, 140 v2 paths/75 actions, fresh permissions and key ancestry checks. | Port front-controller hosting and fresh permission/scoping checks; qualify every supported operation and secret redaction. |
 | D25-07 | Debian installer worker/API integration and matching native25 metadata | Live matching Core/updater25, isolated upload pool and root recovery timer; no new public installer claim | Independently build and qualify Windows package after the feature ports. Do not reuse Linux worker units. |
+| D25-08 | Long-backup heartbeats, automatic progress/session handling, balanced compression and correct restored status | Hosted 1.0.25 maintenance; 21 backup and 54 tenant checks pass. Actual full archive/download and replacement restore verified; results are in the [recovery record](backup-recovery-2026-11-09.md). | Port worker liveness/restored status to SYSTEM; bundle shared web changes and independently qualify large archives, service holds and recovery. Windows compression remains a separate implementation. |
 
 [Hosted25 verification, storage and distribution limits](reseller-1.0.25.md). Windows catch-up must preserve current app/QR revocations, callback usage and history during tenant recovery; port the body-free upload admission and isolated worker behavior.
 
 Windows upload ports must isolate body-reading settings from ordinary web and phone XML handlers; Debian uses a separate PHP pool and body-free server admission. Qualify ordinary sign-in, registrations, header CSRF, early rejection and populated restore.
+
+## Hosted Debian 1.0.26 — 11 November 2026
+
+| ID | Feature | Debian status | Windows acceptance required |
+|---|---|---|---|
+| D26-01 | Personal API keys and `/me` workflows | Live; current extension identity, own calls/voicemail/status/devices/password/QR/contacts/speed dials/conferences. Role withdrawal tested through both public API addresses. | Port web navigation and current-role validation; test ownership, expiry, delegation, QR stability and app/desk-phone credential separation. |
+| D26-02 | Explicit department API authority | Live; `/staff` applies existing roles to configuration, reports, media, calls and staff delegation even for broadly privileged issuers. | Verify injected access scope on Windows; no inherited owner bypass; cross-department and cross-tenant denial. |
+| D26-03 | Company/personal contact CRUD | Live; ownership and validation, transactional updates, stable imported contact IDs. | Exercise imported contacts, concurrent writes and no changes to unrelated entries. |
+| D26-04 | Public API gateway, comprehensive docs and panel links | Live; 197 paths/250 operations; API Keys and API Documentation in both admin panels and My PBX; v1 preserved. | Port installation front-controller hosting, API auth/body admission, public links and all supported routes. Public hosted gateway is nginx-specific, not an IIS configuration to copy. |
+| D26-05 | Matching26 native metadata and complete Debian bundle | Hosted Core/updater26; unchanged native business logic, local complete bundle assembled separately from public qualified installers. | Build Windows independently; qualify complete package, service-account file access, signed upgrade/rollback and backup recovery. Never set a version to claim parity. |
+
+[Actual API scope and tests](api-1.0.26.md). Public Windows remains1.0.23.

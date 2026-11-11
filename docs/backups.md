@@ -39,6 +39,12 @@ original server name when replacing a failed machine.
 [Backup API and examples](reseller-api-v2.md#backup-import-and-restore) ·
 [Reseller/version scope](reseller-1.0.25.md).
 
+The 9 November hosted maintenance update adds automatic progress refresh,
+long-operation worker heartbeats, clearer restored-server status and faster
+compression with the existing encrypted formats. See the
+[full-media recovery qualification](backup-recovery-2026-11-09.md) for the actual
+3.1 GB production archive, replacement-test scope and remaining boundaries.
+
 ## Historical Windows 1.0.20 qualification
 
 [Windows Server 1.0.20](https://github.com/embire2/openwebpbx/releases/tag/v1.0.20) is published for Windows Server 2025 x64 with Desktop Experience. Its exact package passes normal40111566679 (17 essential gates), independent replacement restore40123098262 (source9/target20), and signed newer upgrade40125359325 (9 gates plus111 native scheduling/file-sharing controls). See the [qualification record](release-1.0.20-qualification.md) for accepted scope and remaining owner 1.0.6 migration, OS reboot, physical/carrier/external-NAT and restored-conference media checks.

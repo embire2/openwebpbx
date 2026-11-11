@@ -8,15 +8,15 @@ $db=$database->db;$db->setAttribute(PDO::ATTR_ERRMODE,PDO::ERRMODE_EXCEPTION);$s
 $q=function($sql,$p=[])use($db){$s=$db->prepare($sql);$s->execute($p);return $s;};
 if(($argv[1]??'')==='--queue-child'){
     $schema=$argv[2]??'';if(!preg_match('/^mobile_state_[a-f0-9]{12}$/D',$schema))exit(2);
-    $db->exec('set search_path to '.$schema.',public');$q('select set_config(\'application_name\',?,false)',[$schema.'-queue-child']);
+    $db->exec('set search_path to '.$schema);$q('select set_config(\'application_name\',?,false)',[$schema.'-queue-child']);
     $account=json_decode($argv[3],true,512,JSON_THROW_ON_ERROR);echo "READY\n";flush();
     (new state_fixture($db))->queue($account,['number'=>'8000','joined'=>false]);echo "DONE\n";exit;
 }
 $check=function($v,$label)use(&$checks){if(!$v)throw new RuntimeException($label);$checks++;};
 $reject=function($f,$label)use($check){try{$f();}catch(InvalidArgumentException|OutOfBoundsException){$check(true,$label);return;}$check(false,$label);};
 try{
-$db->exec('create schema '.$schema);$db->exec('set search_path to '.$schema.',public');
-foreach(['v_domains','v_users','v_extensions','v_pbx_restore','v_pbx_services','v_pbx_tenants','v_pbx_jobs'] as $table)$db->exec('create table '.$table.' (like public.'.$table.' including all)');
+$db->exec('create schema '.$schema);$db->exec('set search_path to '.$schema);
+foreach(['v_domains','v_users','v_extensions','v_pbx_restore','v_pbx_services','v_pbx_tenants','v_pbx_jobs','v_email_queue'] as $table)$db->exec('create table '.$table.' (like public.'.$table.' including all)');
 $db->exec(file_get_contents(dirname(__DIR__).'/app/pbx_mobile/resources/install.sql'));
 $accounts=[];$profiles=['Available'=>['queue_status'=>'1','available'=>[],'away'=>[],'timeout'=>20],'Away'=>['queue_status'=>'0','available'=>[],'away'=>['Internal'=>[]],'timeout'=>20],'Out of office'=>['queue_status'=>'0','available'=>[],'away'=>['Internal'=>[]],'timeout'=>20]];
 for($i=0;$i<2;$i++){

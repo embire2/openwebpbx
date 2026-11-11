@@ -1,6 +1,11 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+**11 November — hosted Debian 1.0.26:** tenant/PBX administration, department roles and end-user workflows now have a documented role-bound API (197 paths / 250 HTTP operations). API Keys and API Documentation are linked in both admin panels and My PBX. Live HTTPS/browser access, role withdrawal and protected-data checks pass. The complete Debian26 bundle is a local candidate; public Debian23/Windows23/Android19 and feeds remain separate. [Scope and verification](docs/api-1.0.26.md) · [API docs](https://openwebpbx.com/api-docs) · [Windows ledger](docs/debian-windows-sync.md). Broader133/21/72/40 goals remain unchanged.
+
 **Hosted Debian 1.0.25:** Dashboard and Tenant Admin now include encrypted backup/recovery, API Keys and Packages & Resources. Templates can include provider presets and extension/concurrent-call allowances. Hosted upgrades use priced requests and explicit approval; payment collection remains external. API v2 documents140paths/75named PBX actions with current-role/tenant checks. Existing customer phone identities, routes and allowances are preserved. Public complete installers remain Debian23/Windows23 and Android19. [Guide](docs/reseller-1.0.25.md) · [API](docs/reseller-api-v2.md) · [Windows catch-up](docs/debian-windows-sync.md). Broader133/21accepted/72partial/40planned totals are unchanged.
+
+**9 November recovery qualification:** the real 3.1 GB full backup downloads with matching checksum and restores on an isolated fresh Debian target. All 202 tables, 2,107 media files and private identities verify under documented recovery policies; original admin sign-in and calls-only engine activation pass. [Evidence and limits](docs/backup-recovery-2026-11-09.md). Windows catch-up and broader feature counts remain unchanged.
+
 
 
 **Hosted 1.0.24:** Callback-only SIP trunk selection, nine user speed dials and editable/resettable Keoma scripts are live on call.openweb.co.za with matching native Core/updater24. Logic/regressions190 +independent63 +live browser75 and natural narration generation pass; current routes, private identities and custom recordings survive. Public installer versions and broader roadmap totals remain separate. [Feature guide](docs/call-me-back-1.0.24.md).

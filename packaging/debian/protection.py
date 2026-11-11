@@ -185,7 +185,7 @@ def create_tenant(settings, tenant, destination, password, *, key_file=None, ver
     disk_budget(destination.parent, needed)
     with tempfile.TemporaryDirectory(prefix='.tenant-create-', dir=destination.parent) as tmp:
         packed = Path(tmp) / 'payload.tar.gz'
-        with tarfile.open(packed, 'w:gz') as archive:
+        with tarfile.open(packed, 'w:gz', compresslevel=6) as archive:
             info = tarfile.TarInfo('tenant.json'); info.size = len(meta); info.mode = 0o600
             archive.addfile(info, io.BytesIO(meta))
             for name, entry in files.items():

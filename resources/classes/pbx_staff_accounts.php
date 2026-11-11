@@ -3,7 +3,7 @@
 class pbx_staff_accounts {
     private PDO $db;
     private pbx_staff_access $access;
-    public function __construct(?PDO $db=null){$this->db=$db??database::new()->db;$this->access=new pbx_staff_access($this->db);}
+    public function __construct(?PDO $db=null,?pbx_staff_access $scope=null){$this->db=$db??database::new()->db;if($scope&&($scope->domain!==($_SESSION['domain_uuid']??'')||$scope->actor!==($_SESSION['user_uuid']??'')||!$scope->active()))throw new pbx_staff_denied('Staff access denied.');$this->access=$scope??new pbx_staff_access($this->db);}
     private function q(string $sql,array $args=[]): PDOStatement {$s=$this->db->prepare($sql);$s->execute($args);return $s;}
     public function grant(array $in): array {
         $a=$this->access;if(!$a->can('staff'))throw new pbx_staff_denied('Staff administration is not allowed.');

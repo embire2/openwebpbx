@@ -23,6 +23,7 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+import threading
 import time
 import uuid
 
@@ -394,7 +395,8 @@ def _create_archive(settings, destination, password, *, include_media=True, root
                     'source_host': settings.get('openweb.public_host', ''), 'database': layout,
                     'files': {name: {key: data[key] for key in ('size', 'mode', 'sha256')} for name, data in files.items()}}
         packed = work / 'payload.tar.gz'
-        with tarfile.open(packed, 'w:gz', format=tarfile.PAX_FORMAT) as archive:
+        # Balance CPU and archive size while preserving the existing format.
+        with tarfile.open(packed, 'w:gz', compresslevel=6, format=tarfile.PAX_FORMAT) as archive:
             data = json.dumps(manifest, sort_keys=True).encode()
             member = tarfile.TarInfo('manifest.json')
             member.size, member.mode = len(data), 0o600
@@ -584,8 +586,35 @@ def prune_backups(settings, retention, *, store=STORE, downloads=DOWNLOADS):
         query(settings, 'delete from v_pbx_backups where backup_uuid=' + literal(row['backup_uuid']) + "::uuid and status='ready'")
 
 
+@contextlib.contextmanager
+def worker_heartbeat(settings, *, interval=30):
+    """Keep long operations visible without overwriting their state or result."""
+    stopped = threading.Event()
+
+    def heartbeat():
+        while not stopped.wait(interval):
+            try:
+                environment = database_environment(settings)
+                environment['PGOPTIONS'] = environment.get('PGOPTIONS', '') + ' -c statement_timeout=4000 -c lock_timeout=1000'
+                run(database_command(settings) + ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-c',
+                    "update v_pbx_backup_status set updated_at=now() where singleton=1 and state in ('creating','checking','sending')"],
+                    env=environment, timeout=6)
+            except BackupError:
+                # A status failure must neither abort a good archive nor turn
+                # a failed archive into a success. Ordinary result writes remain authoritative.
+                pass
+
+    thread = threading.Thread(target=heartbeat, name='backup-heartbeat', daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stopped.set()
+        thread.join(timeout=7)
+
+
 def worker(settings, **kwargs):
-    with exclusive_guard(UPGRADE_LOCK, wait_seconds=5):
+    with exclusive_guard(UPGRADE_LOCK, wait_seconds=5), worker_heartbeat(settings):
         return _worker(settings, **kwargs)
 
 
@@ -1045,6 +1074,7 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
                 query(settings, "update v_pbx_tenant_backups set status='failed',message='Previous server backup catalogue: upload the separately saved encrypted copy before restoring.' where status in ('ready','creating')")
             query(settings, "update v_pbx_backups set status='failed',message='Previous server: this encrypted backup file was not included in the restore. Keep its separately downloaded or remote copy.' where status in ('ready','creating')")
             query(settings, "update v_pbx_backup_settings set enabled=false,sftp_enabled=false where singleton=1")
+            set_status(settings, 'restored', 'Restore completed. Review backup settings before enabling automatic backups.')
             if 'php8.4-fpm' in services:
                 run(['systemctl', 'start', 'php8.4-fpm'], timeout=60)
             journal['state'] = 'restored'

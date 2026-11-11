@@ -1,12 +1,46 @@
-# PBX and reseller API v2 — Debian 1.0.25
+# PBX, reseller and personal API v2 — Debian 1.0.26
 
-Manage the installed PBX at `https://<installation-host>/api/v2`. The hosted installation uses `https://call.openweb.co.za/api/v2`. Tenant registration, email verification, managed subdomains and self-install authority continue to use the existing `/api/v1` API. Existing v1 tokens do not grant v2 administration access.
+Manage the installed PBX at `https://<installation-host>/api/v2`. The hosted installation accepts both `https://openwebpbx.com/api/v2` and `https://call.openweb.co.za/api/v2`. Tenant registration, email verification, managed subdomains and self-install authority continue to use the existing `/api/v1` API. Existing v1 tokens do not grant v2 administration access.
 
 Create a key in **API Keys**, available from the PBX and Tenant Admin. Choose the tenant, optional individual PBX, permissions and expiry. The full value appears once. Store it in your integration's secret store; send `Authorization: Bearer <key>`. API-created delegated keys inherit their parent’s expiry ceiling and revocation chain. Revoking or rotating a parent also withdraws its descendants. Rotation replaces the secret immediately and preserves its expiry; revocation takes effect on the next request. Keys do not change phone passwords or QR codes.
 
 Every request checks the current account, current role, tenant suspension, PBX ownership, expiry, revocation and key permissions. A tenant-wide key covers its own services. A service key covers only that PBX. A key restricted by an instance administrator stays restricted. A reseller portfolio key additionally needs `reseller:manage`, an owned parent tenant and a currently assigned child tenant; removing that assignment withdraws access. An ordinary PBX administrator can create a service key for their own PBX, without gaining tenant or instance administration.
 
 Use HTTPS and server-to-server requests. Browser Origin requests, Basic authentication, URL/query tokens, arbitrary SQL and arbitrary switch commands are refused. Each key permits 120 requests per minute, with `429` and `Retry-After: 60` on excess requests. JSON bodies are limited to 128 KiB. The API returns a request identifier and safe errors; it does not return server traces or database credentials.
+
+## Personal and department accounts
+
+API 2.1 documents **197 paths / 250 HTTP operations**, retaining all 75 named
+PBX actions. [Searchable public reference](https://openwebpbx.com/api-docs) ·
+[1.0.26 verification](api-1.0.26.md).
+
+**API Keys** and **API Documentation** appear in Tenant Admin, PBX Administration
+and My PBX. A linked staff/end-user account creates only its own account key.
+Use `GET /capabilities` to inspect the key boundary and operation catalogue.
+
+| Scope | Permitted personal or department operations |
+|---|---|
+| `me:read` | Own profile, directory, status, calls, voicemail, app devices, contacts, speed dials and meetings. |
+| `me:write` | Own availability/queue membership, voicemail read/delete, app password, app-device revocation, personal contacts/speed dials and conference creation/cancellation. |
+| `me:calls` | Call control only for calls involving the current extension. |
+| `me:credentials` | Own reusable QR setup and conference host/invitation material; reset additionally requires write scope and explicit confirmation. |
+| `staff:read` | Department-filtered configuration, calls, reports, media and staff assignments, subject to current role permissions. |
+| `staff:write` | Permitted department user/group/queue/provider/schedule changes, queue rules, hours overrides and staff delegation. |
+| `staff:calls` | Call control and agent changes allowed by the current department role. |
+
+Account scopes cannot be mixed with administrator scopes. Personal identity is
+derived from the live staff assignment, never an input extension/user/domain UUID.
+Department keys cannot bypass filtering through `/pbx` routes. Withdrawal or
+movement of the role invalidates existing access. `keys:manage` can be added for
+bounded delegation; it never grants a wider boundary, later expiry or extra scope.
+
+Personal routes start at `/me`; department routes start at `/staff`. Contact
+management also has PBX administrator endpoints at `/pbx/{domain_uuid}/contacts`.
+Personal contacts cannot edit company contacts or another extension's contacts.
+App password changes use current-password verification and preserve desk-phone
+SIP credentials. `POST /me/phone-qr` reads the stable code; only
+`POST /me/phone-qr-reset` with `me:credentials`, `me:write` and `confirmed: true`
+replaces it. `/staff/queue-report?days=7` accepts 1–90 days.
 
 ## Start with a read request
 
@@ -74,7 +108,7 @@ WAV and desk-phone configuration uploads use multipart `file` at their named upl
 
 `400` means invalid input, `401` a missing key, `403` refused scope/account access, `404` unavailable resource, `409` conflicting state or capacity, `429` rate limiting and `503` temporary service failure. Error bodies include `request_id`. Do not blindly retry commands that dial, send invitations or change settings after a lost response. Resource orders and provisioning have explicit idempotency keys; queued backup/update commands coalesce as documented by their service.
 
-Windows parity must be qualified separately. This document describes the Debian 1.0.25 implementation and does not advance the public Windows release.
+Windows parity must be qualified separately. This document describes the Debian 1.0.26 implementation and does not advance the public Windows release.
 
 ## A reseller's first customer: exact request sequence
 

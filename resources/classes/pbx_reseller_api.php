@@ -163,7 +163,8 @@ class pbx_reseller_api {
     private function bind(string $domain): void {
         if(!is_uuid($domain)||($this->key['domain_uuid']&&$domain!==$this->key['domain_uuid']))throw new pbx_api_access_denied('This key does not allow this PBX.');
         $row=$this->q('select d.domain_uuid,d.domain_name,s.tenant_uuid,t.owner_user_uuid,t.enabled tenant_enabled from v_domains d left join v_pbx_services s using(domain_uuid) left join v_pbx_tenants t using(tenant_uuid) where d.domain_uuid=? and d.domain_enabled',[$domain])->fetch(PDO::FETCH_ASSOC);
-        if(!$row||($row['tenant_uuid']&&!$row['tenant_enabled'])||($this->key['tenant_uuid']&&$row['tenant_uuid']!==$this->key['tenant_uuid']&&!$this->childTenant((string)$row['tenant_uuid']))||(!$this->key['instance']&&!($row['tenant_uuid']&&$this->keys->tenantOwned($this->key['owner_user_uuid'],$row['tenant_uuid']))&&!$this->keys->domainAdmin($this->key['owner_user_uuid'],$domain)&&!($this->key['tenant_uuid']&&$this->keys->instance($this->key['owner_user_uuid']))))throw new pbx_api_access_denied('This PBX is unavailable to the key.');
+        $scopedOperator=$this->key['domain_uuid']===$domain&&$this->keys->instance($this->key['owner_user_uuid']);
+        if(!$row||($row['tenant_uuid']&&!$row['tenant_enabled'])||($this->key['tenant_uuid']&&$row['tenant_uuid']!==$this->key['tenant_uuid']&&!$this->childTenant((string)$row['tenant_uuid']))||(!$this->key['instance']&&!$scopedOperator&&!($row['tenant_uuid']&&$this->keys->tenantOwned($this->key['owner_user_uuid'],$row['tenant_uuid']))&&!$this->keys->domainAdmin($this->key['owner_user_uuid'],$domain)&&!($this->key['tenant_uuid']&&$this->keys->instance($this->key['owner_user_uuid']))))throw new pbx_api_access_denied('This PBX is unavailable to the key.');
         $this->context($domain,$row['domain_name']);
         if(!$this->keys->domainAdmin($this->key['owner_user_uuid'],$domain))$this->permission('pbx_service_create');
     }
@@ -195,8 +196,11 @@ class pbx_reseller_api {
         return $result;
     }
     private function dispatch(string $method,string $route,array $in): mixed {
+        if($method==='GET'&&$route==='/capabilities')return ['api_version'=>'2.1','software_version'=>pbx_updates::version(),'scopes'=>$this->key['scopes'],'boundary'=>['tenant_uuid'=>$this->key['tenant_uuid'],'domain_uuid'=>$this->key['domain_uuid'],'account_only'=>$this->key['account_only']],'account_endpoints'=>pbx_account_api::ROUTES,'documentation'=>'https://openwebpbx.com/api-docs'];
+        if($this->key['account_only']&&!in_array($route,['/','/keys'],true)&&!str_starts_with($route,'/keys/')&&!str_starts_with($route,'/me')&&!str_starts_with($route,'/staff/'))throw new pbx_api_access_denied('Use your account key with personal or department endpoints.');
+        if(str_starts_with($route,'/me')||str_starts_with($route,'/staff/'))return (new pbx_account_api($this->db,$this->key))->handle($method,$route,$in);
         if($this->key['domain_uuid']&&!str_starts_with($route,'/pbx/')&&!in_array($route,['/','/keys'],true)&&!str_starts_with($route,'/keys/'))throw new pbx_api_access_denied('Use this service key with its PBX endpoints.');
-        if($method==='GET'&&$route==='/')return ['version'=>'2','pbx_resources'=>self::RESOURCES,'operations'=>self::OPERATIONS,'documentation'=>'https://openwebpbx.com/api-docs','key'=>['id'=>$this->key['key_uuid'],'tenant_uuid'=>$this->key['tenant_uuid'],'domain_uuid'=>$this->key['domain_uuid'],'scopes'=>$this->key['scopes'],'expires_at'=>$this->key['expires_at']]];
+        if($method==='GET'&&$route==='/')return ['version'=>'2','software_version'=>pbx_updates::version(),'pbx_resources'=>self::RESOURCES,'operations'=>self::OPERATIONS,'account_endpoints'=>pbx_account_api::ROUTES,'documentation'=>'https://openwebpbx.com/api-docs','key'=>['id'=>$this->key['key_uuid'],'tenant_uuid'=>$this->key['tenant_uuid'],'domain_uuid'=>$this->key['domain_uuid'],'scopes'=>$this->key['scopes'],'expires_at'=>$this->key['expires_at']]];
         if(preg_match('~^/setup/(options|review|draft|create|import-review|import-preview|import-create)$~D',$route,$sm)) {
             $this->need($method==='GET'?'templates:read':'templates:write');$this->permission('pbx_service_create');$setup=new pbx_api_setup($this->db,$this->key);$id=self::text($in,'id');
             if($method==='GET'&&$sm[1]==='options')return self::publicData($setup->options());
@@ -251,6 +255,10 @@ class pbx_reseller_api {
             if($method==='POST'&&in_array($m[3]??'',['verify','restore'],true))return ['job_uuid'=>$p->request('tenant_'.$m[3],$m[1],array_merge($in,['backup_uuid'=>$m[2]]))];
         }
         if(str_starts_with($route,'/instance/'))return $this->instanceOperation($method,substr($route,10),$in);
+        if(preg_match('~^/pbx/([a-f0-9-]+)/contacts(?:/([^/]+))?$~D',$route,$m)){
+            $this->bind($m[1]);$this->need($method==='GET'?'pbx:read':'pbx:write');new pbx_admin($this->db);$contacts=new pbx_contacts($this->db);
+            if($method==='GET')return $contacts->listing();$this->permission('extension_edit');return $contacts->save($m[2]??'',$in,$method==='DELETE');
+        }
         if(preg_match('~^/pbx/([a-f0-9-]+)/([^/]+)(?:/([^/]+))?$~D',$route,$m)) {
             $this->bind($m[1]);$name=$m[2];$id=$m[3]??'';
             if(isset(self::RESOURCES[$name])) {
@@ -288,7 +296,7 @@ class pbx_reseller_api {
         if($name==='update-policy'&&$method==='GET')return (new pbx_updates($this->db))->instancePolicy();
         if($name==='update-policy'&&$method==='POST'){(new pbx_updates($this->db))->saveInstance($in);return ['saved'=>true];}
         if($name==='android-minimum'&&$method==='POST'){(new pbx_updates($this->db))->saveClientMinimumVersion($in);return ['saved'=>true];}
-        if($name==='mail'&&$method==='GET')return (new outgoing_mail($this->db))->view();
+        if($name==='mail'&&$method==='GET')return self::publicData((new outgoing_mail($this->db))->view());
         if($name==='mail'&&$method==='POST'){(new outgoing_mail($this->db))->save($in);return ['saved'=>true];}
         if($name==='mail-check'&&$method==='POST')return ['connected'=>(new outgoing_mail($this->db))->checkConnection()];
         if($name==='reseller-policy'){$r=new pbx_reseller($this->db);if($method==='GET')return $r->policy();if($method==='POST')return $r->policy($in);}

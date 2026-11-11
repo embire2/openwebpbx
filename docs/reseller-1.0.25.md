@@ -105,12 +105,14 @@ are introduced. Existing services remain unassigned until deliberately resized.
 
 ### Storage on the current hosted instance
 
-The current server has about 4.8 GiB of media and roughly 10 GiB free. Its 10 GiB
-safety reserve leaves insufficient working room for a complete instance backup.
-The facility refuses that operation before filling the disk. Add working storage
-or archive older development/recovery material off-server before relying on a
-new full backup of this host. The small disposable-tenant round trip above
-proves the installed worker; it is not a full backup of customer data.
+The former server's roughly 10 GiB free space correctly prevented a full media
+backup while preserving the 10 GiB safety reserve. The new primary stores PBX
+data and backups on its 500 GB volume. On 9 November the actual full backup
+completes and its authenticated 3.1 GB download matches its checksum. Independent
+replacement-test results, media counts, maintenance changes and limitations are
+recorded in the [full-media recovery qualification](backup-recovery-2026-11-09.md).
+Keep an off-server copy and its password separately; the archive on this data
+volume alone cannot protect against loss of that volume.
 
 ### Distribution and remaining boundaries
 

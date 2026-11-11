@@ -21,6 +21,10 @@ if (!isset($backupSettings,$status)) {
     try { $backupSettings=$backups->settings();$status=$backups->status(); }
     catch(Throwable) { /* Retain the explicit error above without exposing database details. */ }
 }
+if (($_SERVER['REQUEST_METHOD']??'')==='GET' && ($_GET['format']??'')==='status') {
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['error'=>$error,'status'=>$status??['backups'=>[],'recent'=>[]]],JSON_THROW_ON_ERROR);exit;
+}
 $e=static fn($v)=>htmlspecialchars((string)$v,ENT_QUOTES,'UTF-8');
 $date=static fn($v)=>($time=strtotime((string)$v))!==false?gmdate('j M Y, H:i',$time).' UTC':'Unknown date';
 $backupLabel=static fn($item)=>str_starts_with($item['message'],'Previous server:')?'Previous server':ucfirst($item['status']);
@@ -30,13 +34,13 @@ $document['title']='Backups';require_once PROJECT_ROOT.'/resources/header.php';
 ?>
 <link rel="stylesheet" href="/app/pbx_setup/setup.css?v=4">
 <link rel="stylesheet" href="/app/pbx_backups/backups.css?v=1">
-<main class="pbx-setup">
+<main class="pbx-setup" data-backup-watch data-backup-tenant="">
 <header class="setup-heading"><div><span class="setup-eyebrow">OPENWEB PBX · INSTANCE SETTINGS</span><h1>Backups</h1><p>Protect every tenant on this server. Download an encrypted copy and keep another copy elsewhere.</p></div><a class="setup-button" href="?">Refresh</a></header>
 <?php if($error):?><div class="setup-message error" role="alert"><?=$e($error)?></div><?php endif;?>
 <?php if($notice):?><div class="setup-message" role="status"><?=$e($notice)?></div><?php endif;?>
 <?php if(isset($backupSettings,$status)):?>
-<section class="setup-card"><h2>Backup status</h2><p role="status"><?=$e($status['message'])?></p>
-<?php if(!$status['service_online']):?><p class="setup-hint">The backup service has not checked in recently. Requests will wait until it is running.</p><?php endif;?>
+<section class="setup-card"><h2>Backup status</h2><p role="status" data-backup-message><?=$e($status['message'])?></p>
+<p class="setup-hint" data-backup-service-hint <?=$status['service_online']?'hidden':''?>>The backup service has not checked in recently. Requests will wait until it is running.</p>
 <form method="post"><?php $csrf();?><button class="setup-button primary" name="action" value="create" <?=$backupSettings['has_passphrase']?'':'disabled'?>>Back up now</button></form>
 <p class="setup-hint">The copy includes all tenants, users, settings, templates, encryption keys and call jobs. Optional media includes voicemail, recordings and custom sounds. Calls continue while a backup runs. A file that changes during the copy makes the backup fail safely; try again at a quiet time.</p></section>
 <section class="setup-card"><h2>Automatic backups</h2><form method="post" class="setup-form" autocomplete="off"><?php $csrf();?><input type="hidden" name="action" value="save">
@@ -55,13 +59,13 @@ $document['title']='Backups';require_once PROJECT_ROOT.'/resources/header.php';
 <p class="setup-hint">Stored keys are encrypted and are never displayed. Password login is not supported. Turning remote copies off removes its saved connection and key.</p></details>
 <button class="setup-button primary">Save backup settings</button></form></section>
 <section class="setup-card"><h2>Your backups</h2>
-<?php if(!$status['backups']):?><p>No backups yet. Save a password, then choose Back up now.</p><?php endif;?>
-<div class="backup-list"><?php foreach($status['backups'] as $item):?><article class="backup-entry"><h3><?=$e($date($item['created_at']))?></h3><p><?=$e($backupLabel($item))?> · <?=$e($item['app_version'])?> · <?=filter_var($item['include_media'],FILTER_VALIDATE_BOOLEAN)?'Settings and media':'Settings only'?> · <?=$e(number_format((int)$item['size_bytes']/1048576,1))?> MB</p>
-<?php if($item['message']):?><p><?=$e($item['message'])?></p><?php endif;?>
+<?php if(!$status['backups']):?><p data-no-backups>No backups yet. Save a password, then choose Back up now.</p><?php endif;?>
+<div class="backup-list" data-backup-list><?php foreach($status['backups'] as $item):?><article class="backup-entry" data-backup-id="<?=$e($item['backup_uuid'])?>"><h3><?=$e($date($item['created_at']))?></h3><p class="backup-live-meta"><?=$e($backupLabel($item))?> · <?=$e($item['app_version'])?> · <?=filter_var($item['include_media'],FILTER_VALIDATE_BOOLEAN)?'Settings and media':'Settings only'?> · <?=$e(number_format((int)$item['size_bytes']/1048576,1))?> MB</p>
+<?php if($item['message']):?><p class="backup-live-note"><?=$e($item['message'])?></p><?php endif;?>
 <p>Remote copy: <?=$e($item['remote_status'])?><?php if($item['verified_at']):?> · Checked: <?=$e($date($item['verified_at']))?><?php endif;?></p>
 <?php if($item['status']==='ready'):?><div class="setup-actions"><a class="setup-button" href="download.php?id=<?=$e($item['backup_uuid'])?>">Download encrypted backup</a><form method="post"><?php $csrf();?><input type="hidden" name="backup_uuid" value="<?=$e($item['backup_uuid'])?>"><button class="setup-button" name="action" value="verify">Check backup</button></form></div><details><summary>File checksum</summary><code class="backup-hash"><?=$e($item['sha256'])?></code></details><?php endif;?></article><?php endforeach;?></div>
 </section>
-<section class="setup-card"><h2>Restore onto a replacement server</h2><p>A restore replaces a fresh installation’s data. It is performed on the server by an instance administrator, keeping a running customer PBX protected.</p><ol><li>Install the same OpenWeb PBX release on a separate server using the same operating system: Windows Server 2025 or Debian 13. Use the original server name and a valid HTTPS certificate. On Windows, choose “Prepare a replacement server” during setup. Backups cannot be restored across operating systems.</li><li>Copy the encrypted backup to that server and keep the backup password ready.</li><li>Follow the restore guide. The tool checks the whole copy and refuses an installation that already contains customer services.</li><li>Test sign-in, phones and calls before switching your server address.</li></ol><p><a href="https://github.com/embire2/openwebpbx/blob/customization/docs/backups.md" target="_blank" rel="noopener noreferrer">Open the backup and restore guide</a></p></section>
-<?php if($status['recent']):?><section class="setup-card"><h2>Recent requests</h2><?php foreach($status['recent'] as $request):?><p><?=$e(ucfirst($request['action']).' · '.$request['status'].' · '.$date($request['created_at']))?><br><?=$e($request['message'])?></p><?php endforeach;?></section><?php endif;?>
-<?php endif;?></main>
+<section class="setup-card"><h2>Restore a backup</h2><p><a href="/app/pbx_protection/">Open Backup &amp; Restore</a> to check and restore a saved copy on this server. Replacement-server recovery is described below.</p><h3>Restore onto a replacement server</h3><p>A restore replaces a fresh installation’s data. It is performed on the server by an instance administrator, keeping a running customer PBX protected.</p><ol><li>Install the same OpenWeb PBX release on a separate server using the same operating system: Windows Server 2025 or Debian 13. Use the original server name and a valid HTTPS certificate. On Windows, choose “Prepare a replacement server” during setup. Backups cannot be restored across operating systems.</li><li>Copy the encrypted backup to that server and keep the backup password ready.</li><li>Follow the restore guide. The tool checks the whole copy and refuses an installation that already contains customer services.</li><li>Test sign-in, phones and calls before switching your server address.</li></ol><p><a href="https://github.com/embire2/openwebpbx/blob/customization/docs/backups.md" target="_blank" rel="noopener noreferrer">Open the backup and restore guide</a></p></section>
+<?php if($status['recent']):?><section class="setup-card"><h2>Recent requests</h2><div data-backup-jobs><?php foreach($status['recent'] as $request):?><p><?=$e(ucfirst($request['action']).' · '.$request['status'].' · '.$date($request['created_at']))?><br><?=$e($request['message'])?></p><?php endforeach;?></div></section><?php endif;?>
+<?php endif;?></main><script src="/app/pbx_backups/status.js?v=25.2" defer></script>
 <?php require_once PROJECT_ROOT.'/resources/footer.php';?>
