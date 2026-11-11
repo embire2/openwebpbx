@@ -90,6 +90,15 @@ audio, carrier or physical-phone qualification. Switchtel's earlier provider-pat
 exception remains separate.
 
 The complete Debian 1.0.26 bundle is assembled separately from the hosted overlay.
+The local archive is **487,819,513 bytes**, SHA-256
+`a94907d7efd85f2871fd5140ad01d8e90ca422783fc155eec67683a09644cf2d`.
+Ordinary updater manifest validation accepts all **12,251 files**; the new API,
+backup progress script, Debian worker integration, native versions and runtime
+read permissions are checked. The offline pack verifies all 4,915 spoken files.
+Application source is frozen at commit `5eb801d4d`; later catalogue/documentation
+commits do not change that code. A first inventory verifier mistakenly expected
+`install-reseller.sh`; the bundle correctly contains `install-reseller.py`. The
+corrected verifier passes without changing the archive; both results are retained.
 Public qualified downloads and signed feeds remain Debian 1.0.23, Windows 1.0.23
 and Android 1.0.19 until the new installer completes its own qualification.
 Windows catch-up is explicit in the [platform ledger](debian-windows-sync.md).
