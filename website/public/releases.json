@@ -1303,7 +1303,7 @@
   },
   "hosted_core": {
     "version": "1.0.26",
-    "source_commit": null,
+    "source_commit": "5eb801d4db8ba65c8a64b3f9956dd0a9514232a2",
     "status": "Hosted Debian App/Core/Updater 1.0.26: comprehensive API v2.1 with 197 paths and 75 named PBX actions; personal and department-scoped keys alongside PBX, tenant, reseller and instance administration. API Keys and API Documentation are linked from administration panels and My PBX. Full-media backup/replacement restore is qualified. Existing phone credentials, QR identities, routes and allocations are preserved. Public Debian/Windows 1.0.23 and Android 1.0.19 remain separate from this hosted upgrade.",
     "calling_fix_commit": "06f139229881aa7ce87219583fb5c7caef859084"
   }
