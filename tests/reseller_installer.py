@@ -41,6 +41,61 @@ class Installer(unittest.TestCase):
         self.site.write_text(text)
         self.assertEqual(m.site_content()[1], text)
 
+    def test_stock_inline_index_preserves_bytes_and_is_idempotent(self):
+        original = self.original.replace('root /var/www/fusionpbx;', 'root /var/www/fusionpbx; index index.php;')
+        self.site.write_text(original)
+        _, text = m.site_content()
+        self.assertEqual(text.replace('\n' + m.API, '', 1), original)
+        self.assertIn('root /var/www/fusionpbx; index index.php;\n' + m.API, text)
+        self.site.write_text(text)
+        self.assertEqual(m.site_content()[1], text)
+
+    def test_separate_index_line_preserves_bytes(self):
+        original = self.original.replace('root /var/www/fusionpbx;', 'root /var/www/fusionpbx;\n index index.php;')
+        self.site.write_text(original)
+        _, text = m.site_content()
+        self.assertEqual(text.replace('\n' + m.API, '', 1), original)
+        self.site.write_text(text)
+        self.assertEqual(m.site_content()[1], text)
+
+    def test_stock22_https_site_shape_preserves_every_original_byte(self):
+        original = (Path(__file__).parent / 'fixtures/debian22-stock-site.conf').read_text()
+        self.site.write_text(original)
+        _, text = m.site_content()
+        self.assertEqual(text.count(m.API), 1)
+        self.assertEqual(text.replace('\n' + m.API, '', 1), original)
+        self.site.write_text(text)
+        self.assertEqual(m.site_content()[1], text)
+
+    def test_unrecognized_root_or_trailing_directives_refused(self):
+        for root in (
+            'root /foreign;',
+            'root /foreign; index index.php;',
+            'root /var/www/fusionpbx; index index.html;',
+            'root /var/www/fusionpbx; index index.php index.html;',
+            'root /var/www/fusionpbx; index index.php; autoindex on;',
+            'root /var/www/fusionpbx; autoindex on;',
+            'root /var/www/fusionpbx; # custom trailing directive',
+        ):
+            with self.subTest(root=root):
+                original = self.original.replace('root /var/www/fusionpbx;', root)
+                self.site.write_text(original)
+                with self.assertRaises(ValueError): m.site_content()
+                self.assertEqual(self.site.read_text(), original)
+
+    def test_multiple_document_roots_or_https_listeners_refused(self):
+        for extra in (
+            ' root /var/www/fusionpbx;\n',
+            ' root /var/www/fusionpbx; index index.php;\n',
+            ' root /foreign;\n',
+            ' listen 443 ssl;\n',
+        ):
+            with self.subTest(extra=extra):
+                original = self.original.replace(' # customer setting retained\n', extra)
+                self.site.write_text(original)
+                with self.assertRaises(ValueError): m.site_content()
+                self.assertEqual(self.site.read_text(), original)
+
     def test_large_uploads_disable_php_pre_read(self):
         self.assertEqual(m.API.count('fastcgi_request_buffering off;'), 2)
         self.assertNotIn('PHP_ADMIN_VALUE', m.API)

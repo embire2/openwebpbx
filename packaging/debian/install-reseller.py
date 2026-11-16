@@ -110,7 +110,10 @@ def site_content():
             raise ValueError('Preserve and review the existing custom API configuration.')
         return site, text
     active = re.sub(r'(?m)^\s*#.*$', '', text)
-    roots = list(re.finditer(r'(?m)^[ \t]*root[ \t]+/var/www/fusionpbx;[ \t]*$', text))
+    # Stock 1.0.22 puts its index on the same line as the document root.
+    # Accept only that known suffix; arbitrary same-line directives still
+    # require review, and insert after the complete original line.
+    roots = list(re.finditer(r'(?m)^[ \t]*root[ \t]+/var/www/fusionpbx;(?:[ \t]+index[ \t]+index\.php;)?[ \t]*$', text))
     if len(re.findall(r'(?m)^\s*listen\s+443\s+ssl', active)) != 1:
         raise ValueError('Review the installation HTTPS site before adding the API.')
     # Existing hosted installations have a public front controller and a
@@ -122,7 +125,7 @@ def site_content():
             raise ValueError('Review the legacy API front controller before adding the API.')
         line = text.rfind('\n', 0, text.index(legacy)) + 1
         return site, text[:line] + API + text[line:].replace(legacy, 'if ($uri ~* "^(?!/api/v[12]/).*/api/.*$")', 1)
-    if len(roots) != 1:
+    if len(roots) != 1 or len(re.findall(r'(?m)^[ \t]*root[ \t]+', active)) != 1:
         raise ValueError('Review the installation HTTPS site before adding the API.')
     at = roots[0].end()
     return site, text[:at] + '\n' + API + text[at:]

@@ -90,8 +90,10 @@ class pbx_account_api {
         if(preg_match('~^/me/voicemail/[^/]+/audio$~D',$route))return $this->audio($mobile->voicemailAudio($e,$id));
         if(preg_match('~^/me/voicemail/[^/]+/read$~D',$route))return $mobile->voicemailRead($e,$id);
         if(preg_match('~^/me/voicemail/[^/]+$~D',$route)){$this->confirmed($in,'confirm_delete');return $mobile->voicemailDelete($e,$id);}
-        if($route==='/me/phone-qr')return $mobile->personalCode($e);
-        if($route==='/me/phone-qr-reset'){$this->need('me:write');$this->confirmed($in,'confirmed');return $mobile->personalResetCode($e);}
+        // A web API key is authorized by the live staff binding above. Native
+        // app-password sessions retain their separate password-generation guard.
+        if($route==='/me/phone-qr')return $mobile->createCode($number);
+        if($route==='/me/phone-qr-reset'){$this->need('me:write');$this->confirmed($in,'confirmed');return $mobile->resetCode($number);}
         if($route==='/me/app-password')return $mobile->changePassword($e,$in);
         if($route==='/me/devices')return $mobile->devices($number);
         if(str_starts_with($route,'/me/devices/')){$this->confirmed($in,'confirm_revoke');$mobile->adminRevoke($number,$id);return ['revoked'=>true];}
