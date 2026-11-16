@@ -25,6 +25,7 @@ if (!$administrator) {
 
 $adminOwners = @('S-1-5-18', 'S-1-5-32-544', $identity.User.Value)
 $adminOwners += @(Get-LocalGroupMember -SID 'S-1-5-32-544' -ErrorAction Stop | ForEach-Object { $_.SID.Value })
+$adminOwners = @($adminOwners | Where-Object { $_ -cnotin @('S-1-1-0', 'S-1-5-11', 'S-1-5-7', 'S-1-5-32-545', 'S-1-5-32-546') } | Select-Object -Unique)
 $writers = @('S-1-5-18', 'S-1-5-32-544')
 $private = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'OpenWebPBX'
 $work = Join-Path $private 'upgrade-path-repair'
@@ -84,8 +85,8 @@ function Assert-Protected([string]$Path, [bool]$Directory) {
     $acl = Get-Acl -LiteralPath $item.FullName
     if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -cnotin $adminOwners) { throw 'An existing repair path has an untrusted owner.' }
     foreach ($ace in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
-        if ($ace.AccessControlType -eq 'Allow' -and ([int]$ace.FileSystemRights -band 852310) -and $ace.IdentityReference.Value -cnotin $writers) {
-            throw 'An existing repair path permits changes outside Administrators and SYSTEM.'
+        if ($ace.AccessControlType -eq 'Allow' -and ([int]$ace.FileSystemRights -band 852310) -and $ace.IdentityReference.Value -cnotin $adminOwners) {
+            throw 'An existing repair path permits changes outside verified local Administrators and SYSTEM.'
         }
     }
 }
