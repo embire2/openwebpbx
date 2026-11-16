@@ -1,5 +1,25 @@
 # OpenWeb PBX feature coverage
 
+## Current Debian 1.0.26 — 16 November 2026
+
+Hosted App, Core and updater and the independently published Debian server run
+**1.0.26**. The complete Debian 13 amd64 package includes encrypted PBX/tenant
+recovery, reseller workspaces, provider templates, extension/call allowances,
+callback scripts/speed dials and role-scoped API 2.1: **197 paths / 250 operations**
+including 75 named PBX actions. Existing credentials, reusable QR identities,
+custom media, call routes and service allowances are preserved. Payments remain
+external; aggregate reseller fleet quotas remain separate work.
+
+The signed Debian offer requires installed 1.0.22. Windows remains its separately
+qualified 1.0.23 suite plus the updater repair; Android remains 1.0.19. Public
+Debian 26 does not establish Windows parity, Store approval, complete 3CX parity
+or every physical-phone/provider/network condition. Older dated entries below
+retain their original scope.
+
+[Release and actual qualification](release-1.0.26-qualification.md) ·
+[Installation](installing-1.0.26.md) · [API scope](api-1.0.26.md).
+
+
 ## Current hosted Debian 1.0.25
 
 Dashboard and Tenant Admin offer encrypted instance/tenant backup and recovery, scoped revocable API keys, reseller workspaces, PBX templates, extension and simultaneous-call allowances, and priced resource requests. API v2 has140documented paths and75named PBX actions. Current app/QR revocations, callback usage, history and billing survive tenant recovery; whole-instance recovery is a separate privileged operation. Payment collection and aggregate reseller fleet quotas are not implemented. [Current scope and verification](reseller-1.0.25.md).

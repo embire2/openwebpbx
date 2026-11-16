@@ -1,5 +1,17 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+**16 November — public Debian 1.0.26:** the complete Debian 13 server is
+[published](https://github.com/embire2/openwebpbx/releases/tag/debian-v1.0.26),
+with signed upgrades from installed 1.0.22. It includes PBX/tenant recovery,
+reseller templates and resource allowances, callback scripts/speed dials and
+role-scoped API 2.1. Actual fresh setup, original 22/23 upgrades, automatic
+late-failure recovery, identity/media preservation, software SIP/RTP and a fresh
+OS reboot pass within the [qualification scope](docs/release-1.0.26-qualification.md).
+Windows remains its independent 1.0.23 suite with the updater repair; Android
+remains 1.0.19. Roadmap totals remain **133 goals / 21 accepted / 72 partial /
+40 planned**. These release checks do not close broader parity goals. Older dated
+entries below retain their original scope. [Windows catch-up](docs/debian-windows-sync.md).
+
 **12 November - API workspace repair:** configuration endpoints now distinguish
 an empty login/workspace domain from a configured PBX (409 pbx_not_configured,
 not503). OpenWeb.co.za uses a correctly scoped Main PBX key; original key and

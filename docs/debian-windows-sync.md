@@ -10,14 +10,25 @@ Update the Windows result only after checking the actual Windows package.
 
 | Component | Current status |
 |---|---|
-| Hosted Debian at call.openweb.co.za | **1.0.26**, including matching native Core and updater; complete26 bundle remains a local candidate. |
-| Public Debian installer | **1.0.23**, source `d27583e72018fcbd55c517a766697b8267658dc1`. |
+| Hosted Debian at call.openweb.co.za | **1.0.26**, including matching native Core and updater; matching complete Debian 26 is public. |
+| Public Debian installer | **1.0.26**, source `5b60f57458ab336cc5c9e928128054b8d9491bba`; [qualification](release-1.0.26-qualification.md). |
 | Public Windows installer | **1.0.23**, source `e1aaad63f99ac3b11714d9d0cd3f2a085778688f`; [qualification](release-windows-1.0.23-qualification.md). |
 | Android | **1.0.19**. Server fixes do not imply an Android release. |
 
 A hosted deployment, source commit and downloadable installer are separate
-statuses. The hosted 1.0.24 changes below are not yet a public complete Debian
-installer or a qualified Windows 1.0.24 package.
+statuses. Debian 1.0.26 contains the Debian 24–26 features below. Windows remains its
+separately qualified 1.0.23 suite; these rows do not imply Windows 26 parity.
+
+## Debian 1.0.26 public release — 16 November 2026
+
+Debian 1.0.26 is independently published with signed minimum 1.0.22, immutable
+`debian-v1.0.26` source and matching canonical `v1.0.26` assets. The earlier
+Nov11 candidate retains its separate evidence. Windows remains 1.0.23 plus its
+additive updater repair; Android remains 1.0.19.
+
+[Installation](installing-1.0.26.md) · [Actual qualification](release-1.0.26-qualification.md).
+Rows D24–D26 remain Windows catch-up requirements; shared source does not accept
+a port. Existing dated evidence retains its original scope.
 
 ## Changes since the Windows 1.0.22 baseline
 
@@ -93,6 +104,8 @@ Windows upload ports must isolate body-reading settings from ordinary web and ph
 | D26-02 | Explicit department API authority | Live; `/staff` applies existing roles to configuration, reports, media, calls and staff delegation even for broadly privileged issuers. | Verify injected access scope on Windows; no inherited owner bypass; cross-department and cross-tenant denial. |
 | D26-03 | Company/personal contact CRUD | Live; ownership and validation, transactional updates, stable imported contact IDs. | Exercise imported contacts, concurrent writes and no changes to unrelated entries. |
 | D26-04 | Public API gateway, comprehensive docs and panel links | Live; 197 paths/250 operations; API Keys and API Documentation in both admin panels and My PBX; v1 preserved. | Port installation front-controller hosting, API auth/body admission, public links and all supported routes. Public hosted gateway is nginx-specific, not an IIS configuration to copy. |
-| D26-05 | Matching26 native metadata and complete Debian bundle | Hosted Core/updater26; unchanged native business logic, 487,819,513B local bundle / all12,251manifest files verified separately from public qualified installers. | Build Windows independently; qualify complete package, service-account file access, signed upgrade/rollback and backup recovery. Never set a version to claim parity. |
+| D26-05 | Matching26 native metadata and complete Debian bundle | Public 26 with matching Core/updater, source `5b60f57458ab336cc5c9e928128054b8d9491bba`; 488851358B/SHA256`3f951c94b2454e4f232f07126d3782ae8a2fa6e9d51fed270f2c27112963cfb5`. Fresh/upgrade/recovery acceptance is recorded separately; the old local candidate retains its own evidence. | Build Windows independently; qualify complete package, service-account file access, signed upgrade/rollback and backup recovery. Never set a version to claim parity. |
+| D26-06 | Web personal API stable QR/reset uses live staff-key authority; native app password-generation guard stays separate | Published Debian 1.0.26, source5b60;18focused controls, diagnostic16controls and15actual personal API controls on the corrected unmodified fresh package pass. Original QR identities and role-withdrawal boundaries are verified. | Port exact PHP dispatches; verify me:credentials/write/confirmation, current own binding, stable reuse and role withdrawal without resetting unrelated QR identities. |
+| D26-07 | Accept exact stock Debian22 root-plus-index nginx syntax when installing reseller/API support | Published Debian 1.0.26, source5b60;17installer controls and actual original22/23 signed upgrades plus original22 late-failure automatic recovery pass. | Linux nginx integration only; preserve Windows IIS guards. Do not copy this parser into Windows or infer Windows26 parity. |
 
 [Actual API scope and tests](api-1.0.26.md). Public Windows remains1.0.23.

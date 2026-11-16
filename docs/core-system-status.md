@@ -1,5 +1,25 @@
 # OpenWeb PBX core system status
 
+## Current Debian 1.0.26 — 16 November 2026
+
+Hosted App, Core and updater and the independently published Debian server run
+**1.0.26**. The complete Debian 13 amd64 package includes encrypted PBX/tenant
+recovery, reseller workspaces, provider templates, extension/call allowances,
+callback scripts/speed dials and role-scoped API 2.1: **197 paths / 250 operations**
+including 75 named PBX actions. Existing credentials, reusable QR identities,
+custom media, call routes and service allowances are preserved. Payments remain
+external; aggregate reseller fleet quotas remain separate work.
+
+The signed Debian offer requires installed 1.0.22. Windows remains its separately
+qualified 1.0.23 suite plus the updater repair; Android remains 1.0.19. Public
+Debian 26 does not establish Windows parity, Store approval, complete 3CX parity
+or every physical-phone/provider/network condition. Older dated entries below
+retain their original scope.
+
+[Release and actual qualification](release-1.0.26-qualification.md) ·
+[Installation](installing-1.0.26.md) · [API scope](api-1.0.26.md).
+
+
 ## Hosted Debian 1.0.25 — 6 November 2026
 
 App, native Core and updater run1.0.25. The PBX and Tenant Admin provide Backup & Restore, scoped API Keys and Packages & Resources. Hosted Starter gives new services10extensions/five simultaneous calls, with two initial extensions; existing services retain their allocations. Reseller templates include provider presets; extra resources use quotes and explicit approval, with external payment collection. API v2 has140documented paths/75named actions. Tenant recovery preserves current app/QR access, roles, callback usage, call history and billing. A full-server restore intentionally replaces the instance and revokes integration keys.
@@ -11,7 +31,7 @@ Actual browser/API39controls pass, including normal administrator login, both po
 
 The hosted web app, native Core and updater run1.0.24. Call Me Back has a callback-only provider choice, nine user speed dials and editable Keoma scripts with confirmed default reset. Existing provider/routes/credentials/recordings are preserved; native engine and nginx keep running. Logic/regression checks190, independent63, live browser75 and one natural Keoma generation pass. Matching native processes pass91.9seconds of stability after deployment. [Guide and exact verification scope](call-me-back-1.0.24.md). Public downloadable installers retain their separate release versions below. The hosted extension-1000 outside-call correction is live; the user confirms Android connects with sound both ways. [Calling correction](outgoing-calls-1.0.24.md).
 
-## Latest Debian 1.0.23 — 5 November 2026
+## Previous Debian 1.0.23 — 5 November 2026
 
 [Debian 1.0.23](https://github.com/embire2/openwebpbx/releases/tag/v1.0.23) is published with unified DID routing, explicit number matching, Call Me Back setup and reusable QR codes. Its signed minimum is installed Debian1.0.22. Fresh managed setup, genuine signed failure rollback, final upgrade and post-upgrade calling pass. [Qualification](release-1.0.23-qualification.md). Windows Server 1.0.23 is separately published; Android remains 1.0.19. Hosted Debian runs 1.0.24 as recorded above; its feature deployment and public installer versions remain separate. Older dated entries below retain their historical scope.
 
