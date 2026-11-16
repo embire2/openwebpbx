@@ -252,6 +252,8 @@ with tempfile.TemporaryDirectory(prefix='openweb-release-') as temporary:
                     output.write(path, path.relative_to(stage.parent))
     else:
         archive = args.output / (name + '.tar.gz')
-        with tarfile.open(archive, 'w:gz') as output:
+        # Spoken audio dominates the bundle; level6 avoids long publication
+        # stalls while retaining ordinary gzip/tar compatibility and manifests.
+        with tarfile.open(archive, 'w:gz', compresslevel=6) as output:
             output.add(stage, arcname=name)
 print(f'{sha256(archive)}  {archive.name}')
