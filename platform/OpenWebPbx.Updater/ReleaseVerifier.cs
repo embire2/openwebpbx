@@ -6,6 +6,7 @@ namespace OpenWebPbx.Updater;
 
 public sealed partial class ReleaseVerifier(string publicKey)
 {
+    public WindowsUpgradePlanner WindowsPlanner() => new(publicKey);
     public const long MaximumArchiveBytes = 4L * 1024 * 1024 * 1024;
     [GeneratedRegex("^[a-f0-9]{64}$", RegexOptions.CultureInvariant)] private static partial Regex HashPattern();
     public VerifiedRelease Verify(byte[] envelope, string platform, TrustState? previous, DateTimeOffset now)

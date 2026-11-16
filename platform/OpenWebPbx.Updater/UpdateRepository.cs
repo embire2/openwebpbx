@@ -6,6 +6,12 @@ namespace OpenWebPbx.Updater;
 
 public sealed class UpdateRepository(NpgsqlDataSource data)
 {
+    public async Task<bool> ActiveInstallation(Guid id, DateTimeOffset createdAt, CancellationToken ct)
+    {
+        await using var query = data.CreateCommand("select 1 from v_pbx_update_commands where command_uuid=@id and action='install' and status in ('pending','running') and created_at=@created and created_at>now()-interval '24 hours'");
+        query.Parameters.AddWithValue("id", id); query.Parameters.AddWithValue("created", createdAt);
+        return await query.ExecuteScalarAsync(ct) is not null;
+    }
     // Called only by the elevated Windows CLI. Uses the same queue/lock as authenticated web requests.
     public async Task RequestInstallation(CancellationToken ct)
     {

@@ -5,11 +5,18 @@ namespace OpenWebPbx.Updater;
 
 public sealed class PlatformInstaller(UpdaterPaths paths)
 {
-    public async Task<int> Run(string? archive, string? feed, string? version, bool check, bool recover, CancellationToken ct, bool automatic = false)
+    public async Task<int> Run(string? archive, string? feed, string? version, bool check, bool recover, CancellationToken ct, bool automatic = false, WindowsUpgradePathContext? upgradeContext = null)
     {
         if (!File.Exists(paths.Helper)) throw new FileNotFoundException("The installed update helper is unavailable.");
         var start = new ProcessStartInfo(OperatingSystem.IsWindows() ? "powershell.exe" : "/usr/bin/python3")
         { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
+        if (upgradeContext is not null)
+        {
+            if (!OperatingSystem.IsWindows() || recover) throw new InvalidDataException("Upgrade-step authorisation is only valid for a Windows package operation.");
+            upgradeContext.Read(); // Refuse unprotected or linked authorisation before starting a helper.
+            start.Environment["OPENWEBPBX_UPGRADE_CATALOGUE"] = upgradeContext.CataloguePath;
+            start.Environment["OPENWEBPBX_UPGRADE_LATEST"] = upgradeContext.LatestFeedPath;
+        }
         if (OperatingSystem.IsWindows())
         {
             foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", paths.Helper }) start.ArgumentList.Add(argument);

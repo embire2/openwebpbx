@@ -6,6 +6,19 @@ using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using OpenWebPbx.Updater;
 
+if (args.Contains("--windows-upgrade-worker-checks", StringComparer.Ordinal))
+{
+    var chainConnection = Environment.GetEnvironmentVariable("OPENWEB_TEST_DATABASE") ?? throw new InvalidOperationException("An owned PostgreSQL fixture is required.");
+    Console.WriteLine($"PASS: {await WindowsUpgradeWorkerChecks.Run(chainConnection)} actual Windows ordered-step worker, idle-call, protected context, persisted approval and restart controls");
+    return;
+}
+
+if (args.Contains("--windows-upgrade-plan-checks", StringComparer.Ordinal))
+{
+    Console.WriteLine($"PASS: {await WindowsUpgradePlanChecks.Run()} signed Windows sequential-plan, exact-envelope, minimum-version and independent anti-rollback controls");
+    return;
+}
+
 if (args.Contains("--windows-server-update-checks", StringComparer.Ordinal))
 {
     var windowsConnection = Environment.GetEnvironmentVariable("OPENWEB_TEST_DATABASE") ?? throw new InvalidOperationException("An owned PostgreSQL fixture is required.");

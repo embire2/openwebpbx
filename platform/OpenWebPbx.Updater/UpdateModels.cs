@@ -12,6 +12,9 @@ public sealed record FailedInstall(string Version, string AssetSha256);
 public sealed record UpdatePolicy(string Mode, int MaintenanceHour, int MaintenanceDuration);
 public sealed record UpdateCommand(Guid Id, string Action, DateTimeOffset CreatedAt = default);
 public sealed record WorkerJournal(Guid? CommandId, string? Action, string? TargetVersion, string State, DateTimeOffset UpdatedAt, string? AssetSha256 = null);
+public sealed record WindowsUpgradeJourney(Guid CommandId, string FromVersion, string TargetVersion,
+    string LatestPayloadSha256, UpgradeCatalogueTrust CatalogueTrust, DateTimeOffset RequestedAt,
+    DateTimeOffset ExpiresAt, string State = "active");
 public sealed record UpdateStatus(string State, string Message, string InstalledVersion, string? AvailableVersion = null,
     long ProgressBytes = 0, long TotalBytes = 0, DateTimeOffset? CheckedAt = null, string? LastSuccessVersion = null,
     string? Platform = null, bool UpdateRequired = false, bool DownloadReady = false, string? UpdateNotice = null);
@@ -85,6 +88,11 @@ public sealed class UpdaterPaths
     public string Feed => Path.Combine(Data, "feed-envelope.json");
     public string FailedInstall => Path.Combine(Data, "failed-install.json");
     public string Status => Path.Combine(Data, "status.json");
+    public string WindowsCatalogue => Path.Combine(Data, "windows-upgrade-catalogue.json");
+    public string WindowsCatalogueTrust => Path.Combine(Data, "windows-upgrade-catalogue-trust.json");
+    public string WindowsStepFeed => Path.Combine(Data, "windows-upgrade-step-envelope.json");
+    public string WindowsJourney => Path.Combine(Data, "windows-upgrade-journey.json");
+    public WindowsUpgradePathContext? WindowsUpgradePathContext { get; }
     public UpdaterPaths(IConfiguration configuration)
     {
         if (RuntimeInformation.OSArchitecture != Architecture.X64 || RuntimeInformation.ProcessArchitecture != Architecture.X64)
@@ -98,6 +106,14 @@ public sealed class UpdaterPaths
         PublicStatus = configuration["Updater:PublicStatus"] ?? (windows ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "OpenWebPBX-Status", "updates.json") : "/run/openwebpbx-updater/status.json");
         InstalledVersionPath = configuration["Updater:InstalledVersionPath"] ?? (windows ? Path.Combine(privateRoot, "installation.json") : "/var/www/fusionpbx/VERSION");
         Helper = configuration["Updater:Helper"] ?? (windows ? @"C:\OpenWebPBX\tools\Upgrade-OpenWebPBX.ps1" : "/opt/openwebpbx/tools/upgrade.py");
+        var cataloguePath = configuration["Updater:WindowsUpgradePathContext:CataloguePath"];
+        var latestPath = configuration["Updater:WindowsUpgradePathContext:LatestFeedPath"];
+        if (cataloguePath is not null || latestPath is not null)
+        {
+            if (!windows || string.IsNullOrWhiteSpace(cataloguePath) || string.IsNullOrWhiteSpace(latestPath))
+                throw new InvalidDataException("The Windows upgrade verification context is incomplete.");
+            WindowsUpgradePathContext = new(cataloguePath, latestPath);
+        }
     }
     public static bool IsDebian13(IEnumerable<string> lines)
     {

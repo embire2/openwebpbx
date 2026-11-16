@@ -69,6 +69,7 @@ static class WindowsServerUpdateChecks
             var envelope = JsonSerializer.SerializeToUtf8Bytes(new {key_id="release-2026-a",payload=Convert.ToBase64String(payload),signature=Convert.ToBase64String(rsa.SignData(payload,HashAlgorithmName.SHA256,RSASignaturePadding.Pkcs1))});
             int feeds=0, downloadsCount=0; bool corrupt=false;
             using var downloads = new DownloadClient(new Handler(request => {
+                if (request.RequestUri!.AbsoluteUri == WindowsUpgradePlanner.CatalogueUrl) return new(HttpStatusCode.NotFound);
                 var feed = request.RequestUri!.AbsoluteUri == UpdaterPaths.WindowsFeedUrl;
                 if (feed) feeds++; else downloadsCount++;
                 var content = feed ? corrupt ? "invalid"u8.ToArray() : envelope : bytes;

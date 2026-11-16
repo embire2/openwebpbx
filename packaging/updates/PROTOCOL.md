@@ -92,6 +92,27 @@ forward PBX authentication headers to release servers. Bound bytes, verify whole
 file size/SHA-256 and reject archives with traversal, symlinks or duplicate paths.
 Android additionally verifies the archive package/version/signing identity.
 
+## Ordered Windows releases
+
+Windows workers with the ordered-upgrade repair also read the fixed
+`windows-upgrade-path.json` latest-release asset. This separately signed
+`windows-upgrade-path` catalogue binds the exact latest payload/sequence and
+each historical envelope hash. It has a separate monotonic trust record; it
+never lowers the ordinary latest-feed watermark or an original release minimum.
+The actual installed version selects the next authorised release. One bounded
+administrator approval can continue through the chain across worker restarts;
+each step retains its full download, verification, idle, backup and recovery
+transaction. Once catalogue history exists, an unavailable catalogue fails
+closed rather than silently skipping its order.
+
+Publish a fresh catalogue with every Windows promotion and carry the same
+catalogue into whichever platform release is marked latest, alongside the three
+ordinary feeds. Retain historical envelopes unchanged. Releases through 1.0.21
+use canonical `v<version>` Windows envelopes; 1.0.22 onward use the independent
+`windows-v<version>` tag. Legacy workers need the explicit component bootstrap;
+metadata publication cannot add code to them. See the [repair and qualification
+guide](../../docs/windows-upgrade-path-repair.md).
+
 ## Google Play publication metadata
 
 The Play edition uses the same pinned signed envelope, expiry and persisted

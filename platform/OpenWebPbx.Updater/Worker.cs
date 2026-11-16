@@ -15,6 +15,10 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
     private string? verifiedArchive;
     private bool preflightPassed;
     private bool retryAfterFailure;
+    private VerifiedWindowsUpgradePlan? windowsPlan;
+    private WindowsUpgradeJourney? windowsJourney;
+    private string? selectedFeed;
+    private WindowsUpgradePathContext? selectedContext;
     public bool OneShot { get; set; }
     public bool CheckOnly { get; set; }
     public bool SkipRecovery { get; set; }
@@ -60,16 +64,81 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
             }
         }
         var installState = installer.JournalState();
+        if (paths.Platform == "windows-x64" && File.Exists(paths.WindowsJourney))
+        {
+            windowsJourney = UpdateJson.Read<WindowsUpgradeJourney>(paths.WindowsJourney, 16384);
+            if (windowsJourney.CommandId == Guid.Empty || windowsJourney.ExpiresAt > windowsJourney.RequestedAt.AddHours(24) ||
+                windowsJourney.ExpiresAt <= windowsJourney.RequestedAt ||
+                UpdateJson.Version(windowsJourney.TargetVersion) <= UpdateJson.Version(windowsJourney.FromVersion))
+                throw new InvalidDataException("The saved Windows upgrade approval is invalid.");
+            if (windowsJourney.State != "active" || windowsJourney.ExpiresAt <= DateTimeOffset.UtcNow ||
+                !await repository.ActiveInstallation(windowsJourney.CommandId, windowsJourney.RequestedAt, ct))
+                windowsJourney = null;
+        }
         if (installState is "rolled_back" or "recovery_required" && journal is { State: "installing", TargetVersion: not null, AssetSha256: not null }) UpdateJson.Write(paths.FailedInstall, new FailedInstall(journal.TargetVersion, journal.AssetSha256));
         foreach (var old in await repository.Running(ct))
         {
-            if (old.Action != "install" || journal?.CommandId == old.Id && journal.State is "checking" or "downloading" or "ready" or "waiting_calls" or "waiting_window")
+            if (windowsJourney?.CommandId == old.Id && installState == "completed" &&
+                UpdateJson.Version(paths.InstalledVersion()) < UpdateJson.Version(windowsJourney.TargetVersion))
+                await repository.Retry(old, "Continuing with the next required signed Windows release", ct);
+            else if (old.Action != "install" || journal?.CommandId == old.Id && journal.State is "checking" or "downloading" or "ready" or "waiting_calls" or "waiting_window" or "between_steps")
                 await repository.Retry(old, "Resuming an interrupted update request", ct);
             else if (installState == "completed" && journal?.TargetVersion == paths.InstalledVersion())
                 await repository.Finish(old, true, "The update completed successfully", ct);
             else await repository.Finish(old, false, installState == "rolled_back" ? "The previous version was restored after an interrupted update" : "Review the update recovery status before trying again", ct);
         }
         return true;
+    }
+
+    private void EndJourney(string state)
+    {
+        if (windowsJourney is null || windowsJourney.CommandId != command?.Id) return;
+        windowsJourney = windowsJourney with { State = state };
+        UpdateJson.Write(paths.WindowsJourney, windowsJourney);
+    }
+
+    private async Task SelectWindowsStep(string installed, byte[] latestBytes, VerifiedRelease latest, DateTimeOffset now, bool continuing, CancellationToken ct)
+    {
+        byte[] catalogue;
+        try { catalogue = continuing ? WindowsUpgradePathContext.ReadProtected(paths.WindowsCatalogue) : await downloads.WindowsCatalogue(ct); }
+        catch (HttpRequestException error) when (!continuing && error.StatusCode == System.Net.HttpStatusCode.NotFound &&
+            !File.Exists(paths.WindowsCatalogueTrust) && !File.Exists(paths.WindowsCatalogue) &&
+            UpdateJson.Version(installed) >= UpdateJson.Version(latest.Asset.MinimumVersion))
+        {
+            windowsPlan = null; selectedContext = null; selectedFeed = null;
+            if (candidate?.Asset.Sha256 != latest.Asset.Sha256) { verifiedArchive = null; preflightPassed = false; }
+            candidate = latest; return; // Compatibility with a publisher that has not enabled a catalogue.
+        }
+        var ordinary = File.Exists(paths.Trust) ? UpdateJson.Read<TrustState>(paths.Trust) : null;
+        var catalogueHistory = File.Exists(paths.WindowsCatalogueTrust) ? UpdateJson.Read<UpgradeCatalogueTrust>(paths.WindowsCatalogueTrust) : null;
+        async Task<byte[]> Fetch(string url, CancellationToken token)
+        {
+            var tag = new Uri(url).Segments[^2].TrimEnd('/');
+            var version = tag.StartsWith("windows-v", StringComparison.Ordinal) ? tag["windows-v".Length..] : tag[1..];
+            var cached = Path.Combine(paths.Data, "windows-upgrade-feeds", version + ".json");
+            return continuing && File.Exists(cached) ? WindowsUpgradePathContext.ReadProtected(cached) : await downloads.HistoricalWindowsFeed(version, token);
+        }
+        var plan = await verifier.WindowsPlanner().Resolve(installed, latestBytes, catalogue, ordinary, catalogueHistory, now, Fetch, ct);
+        if (continuing && (windowsJourney is null || plan.Latest.Version != windowsJourney.TargetVersion ||
+            plan.Latest.PayloadSha256 != windowsJourney.LatestPayloadSha256 || plan.CatalogueTrust != windowsJourney.CatalogueTrust))
+            throw new InvalidDataException("The approved Windows upgrade path changed; request a fresh update.");
+        // Store complete, verified authorisation before exposing a ready step.
+        UpdateJson.WriteBytes(paths.WindowsCatalogue, catalogue);
+        UpdateJson.Write(paths.WindowsCatalogueTrust, plan.CatalogueTrust);
+        foreach (var step in plan.Steps)
+            UpdateJson.WriteBytes(Path.Combine(paths.Data, "windows-upgrade-feeds", step.Release.Version + ".json"), step.Envelope);
+        windowsPlan = plan;
+        var selected = plan.Steps.FirstOrDefault();
+        var next = selected?.Release ?? latest;
+        if (candidate?.Asset.Sha256 != next.Asset.Sha256) { verifiedArchive = null; preflightPassed = false; }
+        candidate = next;
+        if (selected is not null)
+        {
+            UpdateJson.WriteBytes(paths.WindowsStepFeed, selected.Envelope);
+            selectedFeed = paths.WindowsStepFeed;
+            selectedContext = new(paths.WindowsCatalogue, paths.Feed);
+        }
+        else { selectedFeed = null; selectedContext = null; }
     }
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -132,12 +201,20 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
             if (newlyClaimed || now >= nextCheck || CheckOnly)
             {
                 Journal("checking"); await Status("checking", "Checking for a signed release", installed, ct);
-                var envelope = await downloads.Feed(paths.Platform, ct);
+                var continuing = paths.Platform == "windows-x64" && windowsJourney is { State: "active" } &&
+                    windowsJourney.CommandId == command?.Id && windowsJourney.ExpiresAt > now;
+                var envelope = continuing ? WindowsUpgradePathContext.ReadProtected(paths.Feed) : await downloads.Feed(paths.Platform, ct);
                 var previous = File.Exists(paths.Trust) ? UpdateJson.Read<TrustState>(paths.Trust) : null;
                 var nextCandidate = verifier.Verify(envelope, paths.Platform, previous, now);
-                if (candidate?.Asset.Sha256 != nextCandidate.Asset.Sha256) { verifiedArchive = null; preflightPassed = false; }
-                candidate = nextCandidate;
-                UpdateJson.Write(paths.Trust, new TrustState(candidate.Sequence, candidate.PayloadSha256));
+                if (paths.Platform == "windows-x64" && UpdateJson.Version(nextCandidate.Version) > UpdateJson.Version(installed))
+                    await SelectWindowsStep(installed, envelope, nextCandidate, now, continuing, ct);
+                else
+                {
+                    windowsPlan = null; selectedContext = null; selectedFeed = null;
+                    if (candidate?.Asset.Sha256 != nextCandidate.Asset.Sha256) { verifiedArchive = null; preflightPassed = false; }
+                    candidate = nextCandidate;
+                }
+                UpdateJson.Write(paths.Trust, new TrustState(nextCandidate.Sequence, nextCandidate.PayloadSha256));
                 UpdateJson.WriteBytes(paths.Feed, envelope);
                 nextCheck = now.Add(ServerUpdateBehaviour.CheckInterval(paths.Platform));
                 retryAfterFailure = false;
@@ -148,6 +225,13 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
                 await Status("up_to_date", "This server is up to date", installed, ct); await Finish(true, "This server is up to date", ct); candidate = null; return;
             }
             ReleaseVerifier.RequireUpgrade(release, installed);
+            if (command?.Action == "install" && windowsPlan is { Steps.Count: > 0 } &&
+                (windowsJourney is not { State: "active" } || windowsJourney.CommandId != command.Id))
+            {
+                windowsJourney = new(command.Id, installed, windowsPlan.Latest.Version, windowsPlan.Latest.PayloadSha256,
+                    windowsPlan.CatalogueTrust, command.CreatedAt, command.CreatedAt.AddHours(24));
+                UpdateJson.Write(paths.WindowsJourney, windowsJourney);
+            }
             var previousFailure = File.Exists(paths.FailedInstall) && UpdateJson.Read<FailedInstall>(paths.FailedInstall).AssetSha256 == release.Asset.Sha256;
             if (previousFailure && command is null && policy.Mode == "automatic") {
                 await Status("error", "This update previously failed. Automatic retry is paused; an administrator can request installation again", installed, ct);
@@ -165,7 +249,7 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
             var archive = verifiedArchive;
             // The currently installed helper verifies the signed feed, complete archive,
             // safe extraction and manifest before any manager/service may be stopped.
-            var preflight = preflightPassed ? 0 : await installer.Run(archive, paths.Feed, release.Version, true, false, ct);
+            var preflight = preflightPassed ? 0 : await installer.Run(archive, selectedFeed ?? paths.Feed, release.Version, true, false, ct, upgradeContext: selectedContext);
             if (preflight == 75) { Journal("waiting_calls"); await Status("waiting_calls", "The update is ready and will wait for calls to finish", installed, ct, release.Asset.Bytes); return; }
             if (preflight != 0) throw new InvalidDataException("The verified update did not pass installation checks. The current server remains available.");
             preflightPassed = true;
@@ -185,7 +269,7 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
             }
             Journal("installing"); await Status("installing", "Saving a backup and installing the verified update", installed, ct, release.Asset.Bytes);
             installing = true;
-            var result = await installer.Run(archive, paths.Feed, release.Version, false, false, ct, command?.Action != "install");
+            var result = await installer.Run(archive, selectedFeed ?? paths.Feed, release.Version, false, false, ct, command?.Action != "install", selectedContext);
             if (result == 75) { Journal("waiting_calls"); await Status("waiting_calls", "The update was deferred; the phone system remains available", installed, ct); return; }
             if (result != 0)
             {
@@ -196,6 +280,16 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
             }
             if (paths.InstalledVersion() != release.Version) throw new IOException("The installer did not report the expected installed version.");
             installing = false; File.Delete(paths.FailedInstall);
+            if (windowsJourney is { State: "active" } && windowsJourney.CommandId == command?.Id &&
+                UpdateJson.Version(release.Version) < UpdateJson.Version(windowsJourney.TargetVersion))
+            {
+                lastSuccess = release.Version;
+                await Status("checking", "This Windows release is installed; continuing with the next required signed release", release.Version, ct, release.Asset.Bytes);
+                Journal("between_steps"); candidate = null; windowsPlan = null; selectedFeed = null; selectedContext = null;
+                verifiedArchive = null; preflightPassed = false; nextCheck = DateTimeOffset.MinValue;
+                if (!OneShot) { restartPending = true; installer.RestartUpdater(); }
+                return;
+            }
             lastSuccess = release.Version; await Status("completed", "The update is installed and the phone system is running", release.Version, ct, release.Asset.Bytes);
             await Finish(true, "The update completed successfully", ct); candidate = null; nextCheck = now.Add(ServerUpdateBehaviour.CheckInterval(paths.Platform));
             if (!OneShot) { restartPending = true; installer.RestartUpdater(); }
@@ -214,6 +308,6 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
     }
     private async Task Finish(bool success, string message, CancellationToken ct)
     {
-        if (command is not null) { await repository.Finish(command, success, message, ct); Journal(success ? "completed" : "failed"); command = null; }
+        if (command is not null) { await repository.Finish(command, success, message, ct); EndJourney(success ? "completed" : "failed"); Journal(success ? "completed" : "failed"); command = null; }
     }
 }
