@@ -1,4 +1,6 @@
 <?php
+/** A valid workspace is not necessarily a configured calling service. */
+class pbx_service_not_configured extends RuntimeException {}
 /** Simple administration of restored services. Every read/write stays in the active PBX. */
 class pbx_admin {
     private PDO $db;
@@ -16,7 +18,7 @@ class pbx_admin {
     private function number(array $in,string $key): string {$v=$this->text($in,$key,32);if(!preg_match('/^\+?[0-9]{1,32}$/D',$v))throw new InvalidArgumentException('Enter a valid number.');return $v;}
     private function integer(array $in,string $key,int $min=1,int $max=86400,int $default=20): int {$v=$in[$key]??$default;if(is_array($v)||is_bool($v)||filter_var($v,FILTER_VALIDATE_INT,['options'=>['min_range'=>$min,'max_range'=>$max]])===false)throw new InvalidArgumentException('Enter a valid '.str_replace('_',' ',$key).'.');return (int)$v;}
     public function restored(): bool {return (bool)$this->query('select 1 from v_pbx_restore where domain_uuid=:d',['d'=>$this->domain])->fetchColumn();}
-    public function config(bool $lock=false): array {$r=$this->query('select config from v_pbx_restore where domain_uuid=:d'.($lock?' for update':''),['d'=>$this->domain])->fetchColumn();if(!$r)throw new RuntimeException('Choose a restored PBX first.');return json_decode($r,true,512,JSON_THROW_ON_ERROR);}
+    public function config(bool $lock=false): array {$r=$this->query('select config from v_pbx_restore where domain_uuid=:d'.($lock?' for update':''),['d'=>$this->domain])->fetchColumn();if(!$r)throw new pbx_service_not_configured('Open a configured PBX service, not the platform or tenant workspace.');return json_decode($r,true,512,JSON_THROW_ON_ERROR);}
     public function report(): array {$r=$this->query('select report from v_pbx_restore where domain_uuid=:d',['d'=>$this->domain])->fetchColumn();return $r?json_decode($r,true,512,JSON_THROW_ON_ERROR):[];}
     /** Only safe runtime states and credential presence are exposed in the readiness report. */
     public function trunkReadiness(bool $live=true): array {

@@ -55,6 +55,7 @@ try {
     reseller_api_reply(200,['data'=>$result,'request_id'=>$requestId]);
 }catch(pbx_api_rate_limited){header('Retry-After: 60');reseller_api_error(429,'rate_limited','This key has reached 120 requests per minute. Try again shortly.');}
 catch(pbx_api_access_denied|pbx_staff_denied|pbx_core_access){reseller_api_error(403,'access_denied','This key or account does not allow this action.');}
+catch(pbx_service_not_configured){reseller_api_error(409,'pbx_not_configured','This key targets a workspace without a configured PBX. Select the active PBX service when creating the key.');}
 catch(JsonException){reseller_api_error(400,'invalid_json','Send a valid JSON object.');}
 catch(InvalidArgumentException){reseller_api_error(400,'invalid_request','Check the supplied details against the API documentation.');}
 catch(OutOfBoundsException){reseller_api_error(404,'not_found','This item or endpoint is unavailable.');}

@@ -12,6 +12,35 @@ continue to use API v1; registration tokens are separate from administration key
 
 ## What is available
 
+### Configured PBX versus workspace
+
+A platform login domain or tenant workspace is not the configured calling
+service. Issuing a domain-scoped key for that empty workspace can authenticate,
+but configuration reads return **409 pbx_not_configured**. Select the tenant's
+actual configured PBX service when issuing a key; do not initialize the platform
+domain or broaden permissions to bypass the boundary. This error was previously
+misreported as503 and was corrected on12November2026. Unauthorized domains remain403.
+
+For integrations, next-extension returns `data.extension`. Creating a user returns
+`data.id` as its extension number/alias; use that alias for `/users/{id}`, not the
+extension UUID. Match the required department by display name, then send its stable
+`number` in `department` and `departments`. Array indexes/names are not identifiers.
+Re-read the department and check `members[].number` when verifying assignment.
+
+Stable QR setup uses `POST /pbx/{domain_uuid}/actions/phone-qr` with
+`{"number":"1000"}`. Its `data.payload` is the exact private JSON string to encode
+in the QR image; `data.enrollment_uuid` identifies the enrollment and
+`data.expires_at` is normally null. Never log/publish the payload or reset another
+QR to retrieve it. Set `send_welcome:false` on user creation when your integration
+sends its own private welcome.
+
+The12November repair passed117 PostgreSQL administration controls and308 OpenAPI
+checks without provisioning customer accounts or restarting native calling.
+Both hosts passed103 live HTTP assertions. A separately authorized temporary
+OpenWeb SIP-account/QR test passed and was removed, preserving all nine protected
+table fingerprints and nine registrations. The website's future paid-Ultra
+provisioning is enabled. No test calls, emails, WhatsApps or live payments were made.
+
 Tenant and instance operations cover templates, PBX creation, reseller assignments,
 resource packages and approvals, backups and restore, update policies, global mail
 and API keys. PBX operations cover extensions, trunks, DIDs and routes, departments,
