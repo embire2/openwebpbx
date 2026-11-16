@@ -45,7 +45,7 @@ users and connect their phones before moving a live provider or number.
 
 ## Existing server
 
-The signed 1.0.26 offer requires **installed Debian 1.0.23 or newer**. Use the
+The signed 1.0.26 offer requires **installed Debian 1.0.22 or newer**. Use the
 published platform offer and its qualification record. Earlier servers need
 their supported intermediate release first; never lower a minimum or clear
 saved updater trust to skip a transition.
