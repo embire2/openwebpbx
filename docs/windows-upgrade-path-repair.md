@@ -1,11 +1,17 @@
 # Windows ordered-upgrade repair
 
-Status on 16 November 2026: the actual installed Windows **1.0.21 → 1.0.22 →
-1.0.23** chain passed on the designated Windows Server 2025 test machine. Both
-ordinary signed transactions completed, original customer data was preserved and
-the repaired updater runs automatically. Public launcher/package qualification
-and download publication are being completed separately; no existing installer
-or feed has been replaced.
+Published **16 November 2026**: [download the Windows updater repair](https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.23/openwebpbx-1.0.23-windows-updater-repair.zip)
+([checksums](https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.23/windows-updater-repair-SHA256SUMS)).
+The actual installed **1.0.21 → 1.0.22 → 1.0.23** chain passed on Windows Server
+2025. Original customer data is preserved and the repaired updater runs
+automatically. This component is added alongside the unchanged full Windows
+1.0.23 installer and original signed feeds.
+
+Extract the complete repair ZIP and open **Start-UpgradePathRepair.cmd** on the
+Windows PBX server. Allow administrator access once and leave it running until
+completion. The launcher downloads required signed releases and applies them
+in order. Original installations need this one-time repair; publishing a feed
+alone cannot teach their old updater the new sequence.
 
 ## Versions and purpose
 
@@ -106,10 +112,11 @@ worker; future Windows packages must include it.
 
 ## One-time administrator bootstrap for original workers
 
-**Public repair download: PENDING qualification and publication.** Use only the
-release owner's verified repair delivery. Do not build an ad hoc repair from an
-unreviewed source tree or change the ordinary feed to make an older worker
-accept a package.
+**Public repair download:** use the tested ZIP linked above. Its 37,292,554 bytes
+have SHA-256 `0752fdcf27f38c964b53f01868ccd3209aefbb9b773322fe02a02ed88b37e417`.
+The corresponding [source archive](https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.23/openwebpbx-1.0.23-windows-updater-repair-source.tar.gz)
+and signed component inventory are published separately. Do not change an old
+feed or trust file to make an older worker accept a package.
 
 The intended entry point is
 [`Invoke-UpgradePath.ps1`](../packaging/windows/Invoke-UpgradePath.ps1), run in
@@ -118,7 +125,7 @@ started at installed 1.0.21 and completed at 1.0.23. Applicability to a starting
 represented by the signed range and planner tests; it is not a completed real
 1.0.20 upgrade test.
 
-After the public repair bundle is qualified, the normal administrator steps are:
+The normal administrator steps are:
 
 1. Download the published repair ZIP, verify its published SHA-256 and extract
    the complete ZIP into a local folder on the Windows PBX server.
@@ -132,7 +139,8 @@ The launcher stages only the named bundle components into a new protected
 `upgrade-path-repair\bundles\<unique-id>` folder. Shared downloaded archives,
 original updater slots, logs and recovery records are retained. It refuses
 linked source files or preexisting staging paths with untrusted ownership or
-write access. For qualification without installation, an administrator can run
+write access. Verified existing local-administrator ACEs are accepted; new
+staging still grants only Administrators/SYSTEM. For qualification without installation, an administrator can run
 `Start-UpgradePathRepair.ps1 -Check`; the switch survives UAC elevation and is
 forwarded to the verified runner.
 
@@ -254,7 +262,18 @@ has passed.
 | Offline publication catalogue guard | 24 passed, plus 18 existing three-feed promotion tests | Generated-key snapshot fixtures; catalogue retention, exact latest binding, preserved history, anti-rollback and read-only CLI behavior; `tests/platform_release_catalogue.py` and `tests/platform_release.py` |
 | Real installed 1.0.21 → 1.0.22 → 1.0.23 | **PASS, 16 November** | Both full ordinary signed transactions; 22 completed 12:26:22 UTC and 23 completed 12:38:30 UTC; final updater automatic/running and natural installed/available 23 status |
 | Real starting 1.0.20 chain / new-path full rollback | **Not established** | Requires separate full installation/recovery qualification |
-| Public repair download and signed catalogue promotion | **PENDING** | Requires release-owner qualification and verified publication |
+| Exact final public launcher | **PASS** | Published source `130ebbd95df171e701ac8a43d21ba01a5b4cdf72`; exact 238-file bundle; real starter `-Check` exits 0 with all service generations and nine customer-table digests unchanged |
+| Download and permission guards | **PASS** | Seven downloader refusal/reuse controls; real 643,251,073-byte 1.0.22 GitHub download/checksum; nine native launcher permission/link controls |
+| Natural five-minute checks | **PASS** | Two ordinary checks 300.789507 seconds apart; same automatic running updater process; installed/available 1.0.23 and native manager reopened/responding |
+| Public repair and signed catalogue | **Published** | New assets only; original Android/Debian/Windows feed bytes and complete installer assets retained |
+
+The first packaged launcher check refused a legitimate existing local
+Administrator ACE. Its failed candidate and unchanged-state evidence are
+retained. The corrected guard verifies actual local Administrator membership,
+refuses ordinary-user/broad-group writes and unsafe ownership/links, and leaves
+installed ACLs unchanged. Only the rebuilt exact ZIP above passed and was
+published. Earlier checkpoint-path, descriptor/group and asynchronous profile
+observation failures also remain distinct from their corrected successful runs.
 
 The real chain starts from a verified full encrypted checkpoint copied offhost.
 Independent comparison preserves all nine original customer-table projections,

@@ -1,6 +1,6 @@
 # Debian changes to carry into Windows
 
-Updated **11 November 2026**. This is the change ledger for Windows catch-up,
+Updated **16 November 2026**. This is the change ledger for Windows catch-up,
 alongside the [release process](independent-platform-releases.md). Add a row
 for every Debian feature, calling fix, migration or deployment change. Keep
 the originating version and source commit even when Windows ships it later.
@@ -51,6 +51,7 @@ acceptance remains separate from isolated provider and software-phone checks.
 | Recover permissions after the normal importer has consumed a transient call-record XML file. | `03050db58823dc5c5c014cadede83296fb00a620`; corrected Windows source `e1aaad63f9`. Native 89 controls, actual corrected recovery and genuine normal 22-to-23 update pass; unchanged late rollback is explicitly reused from Windows 22. [Scope](release-windows-1.0.23-qualification.md). | Only the narrowly validated absent default-spool UUID file is admitted. Keep all other ACL, link and I/O denials. |
 | Windows receive buffer while bridging. | Published Windows 23; [actual scope](windows-local-1.0.23.md). | Preserve explicit administrator choices and the separate POSIX behavior. |
 | Native manager and five-minute update notice. | Public Windows 22 baseline retained in 23; automatic updater/manager restart verified on the final 23 package. | Keep desktop modal, web notice, service continuity before installation, verified predownload, call-aware installation and restart. |
+| Signed ordered Windows upgrades and legacy bootstrap. | Updater component `1.0.23+upgrade-path.1`; [scope and qualification](windows-upgrade-path-repair.md). **Published repair, 16 November:** actual 21→22→23 transactions, preserved customer identities and final launcher pass. Full 23 installers/feeds retain their original bytes. | Retain separate catalogue trust, exact historical envelopes, current installed-version admission, one bounded approval, call-aware backups/recovery and catalogue publication guards. Do not infer Debian26 feature parity. |
 
 ## Before promoting a Windows catch-up release
 
