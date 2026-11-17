@@ -447,6 +447,22 @@ class WindowsBackups(unittest.TestCase):
         self.assertEqual(b.query(self.source,'select status from v_pbx_backup_commands where command_uuid='+b.literal(identifier)),'completed')
         b.query(self.source,'delete from v_pbx_backups;delete from v_pbx_backup_commands;update v_pbx_backup_settings set enabled=false,last_scheduled_date=null')
 
+    def test_10a_dashboard_full_request_includes_media_without_changing_schedule(self):
+        store=self.target_state/'dashboard-full';downloads=self.target_state/'dashboard-download'
+        store.mkdir();downloads.mkdir();identifier=str(uuid.uuid4())
+        b.query(self.source,'delete from v_pbx_backups;delete from v_pbx_backup_commands;update v_pbx_backup_settings set enabled=false,include_media=false,passphrase_secret='+b.literal(self.seal(self.password)))
+        b.query(self.source,"insert into v_pbx_backup_commands(command_uuid,action,full_backup) values("+b.literal(identifier)+",'create',true)")
+        try:
+            b.worker(self.source,store=store,downloads=downloads,roots=self.source_roots,version='1.0.13',key_file=self.source_roots['fusionpbx-config']/'openweb-template.key')
+            row=b.query(self.source,"select row_to_json(t) from v_pbx_backups t where command_uuid="+b.literal(identifier),json_result=True)
+            self.assertEqual(row['status'],'ready');self.assertTrue(row['include_media'])
+            with b.verify_archive(store/row['filename'],self.password) as (files,manifest):
+                self.assertTrue(manifest['include_media'])
+                self.assertEqual((files/'recordings/recording.wav').read_bytes(),b'source recording')
+            self.assertEqual(b.query(self.source,'select include_media from v_pbx_backup_settings where singleton=1'),'f')
+        finally:
+            b.query(self.source,'delete from v_pbx_backups;delete from v_pbx_backup_commands;update v_pbx_backup_settings set include_media=true')
+
     def test_11_retention_refuses_damaged_keeper_and_unlisted_paths(self):
         store=self.target_state/'keep';downloads=self.target_state/'keep-download';store.mkdir();downloads.mkdir()
         names=[]

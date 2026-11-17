@@ -13,7 +13,14 @@ try {
     $host=strtolower((string)($_SERVER['HTTP_HOST']??''));if(str_ends_with($host,':443'))$host=substr($host,0,-4);
     if($host!==$canonical)reseller_api_error(403,'host_not_allowed','Use the installation API hostname.');
     require dirname(__DIR__,2).'/resources/require.php';$_SESSION=[];permissions::reset();
-    $path=parse_url($_SERVER['REQUEST_URI']??'',PHP_URL_PATH);
+    $publicUri=$_SERVER['REQUEST_URI']??'';
+    if(PHP_OS_FAMILY==='Windows'&&($_SERVER['CONTENT_TYPE']??'')==='application/octet-stream'){
+        if(!pbx_upload_gate::windowsAdmission($_SERVER))reseller_api_error(403,'upload_refused','Use the exact documented encrypted-backup upload endpoint.');
+        // IIS may expose a rewritten CGI REQUEST_URI. Only the authenticated
+        // module's HMAC-bound original route is used for a binary upload.
+        $publicUri=$_SERVER['HTTP_X_OPENWEB_ADMISSION_URI'];
+    }
+    $path=parse_url($publicUri,PHP_URL_PATH);
     if(!is_string($path)||str_contains($path,'%')||str_contains($path,'//')||str_contains($path,'..'))reseller_api_error(400,'invalid_path','Use an exact API path.');
     if(in_array($path,['/api/v2/','/api/v2/index.php'],true)&&isset($_GET['route'])){$route=$_GET['route'];if(!is_string($route))reseller_api_error(400,'invalid_path','Use an exact API path.');}
     elseif(str_starts_with($path,'/api/v2/'))$route=substr($path,7);else reseller_api_error(404,'not_found','This API endpoint is unavailable.');
@@ -25,6 +32,7 @@ try {
         $binary=$method==='POST'&&(preg_match('~^/tenants/[a-f0-9-]+/backups/import$~D',$route)||$route==='/instance/backups/import');
         $multipart=$method==='POST'&&(preg_match('~^/pbx/[a-f0-9-]+/actions/(audio-upload|migration-inspect)$~D',$route)||$route==='/setup/import-review');
         if($binary) {
+            if(!pbx_upload_gate::windowsAdmission($_SERVER))reseller_api_error(403,'upload_refused','Use the exact documented encrypted-backup upload endpoint.');
             if(($_SERVER['CONTENT_TYPE']??'')!=='application/octet-stream')reseller_api_error(415,'binary_required','Send the encrypted backup as application/octet-stream.');
             $size=filter_var($_SERVER['CONTENT_LENGTH']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>52,'max_range'=>2147483648]]);
             if($size===false)reseller_api_error(413,'backup_size','Send Content-Length for a backup no larger than 2 GiB.');

@@ -9,7 +9,7 @@ $root='C:\OpenWebPBX';$private=Join-Path $env:ProgramData 'OpenWebPBX';$config=J
 $control=Join-Path $private 'backup-control';$restore=Join-Path $private 'backup-restore'
 $services=@{calls='FreeSWITCH';jobs='OpenWebPBX';updates='OpenWebPBXUpdater'}
 $certificateTasks=@('OpenWebPBX Certificate Renewal','OpenWebPBX Pending Phone Certificate')
-$additionalTasks=@('OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Onboarding')
+$additionalTasks=@('OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Onboarding','OpenWebPBX-Protection')
 . (Join-Path $PSScriptRoot 'CallRecords.Common.ps1')
 function RestoreCallRecordHold([string[]]$States){
  $journalPath=OrdinaryPath (Join-Path $restore 'journal.json')
@@ -66,7 +66,9 @@ function Plan {
  $cleanup=Get-ScheduledTask -TaskName 'OpenWebPBX-Cleanup' -ErrorAction Stop
  $certificates=@{};foreach($name in $certificateTasks){$certTask=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue;if($certTask){$certificates[$name]=[bool]$certTask.Settings.Enabled}}
  $additional=@{};foreach($name in $additionalTasks){$extra=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue;if($extra){$additional[$name]=[bool]$extra.Settings.Enabled}}
- return @{schema=1;services=$modes;running=@($running);backup_enabled=[bool]$task.Settings.Enabled;cleanup_enabled=[bool]$cleanup.Settings.Enabled;certificate_tasks=$certificates;additional_tasks=$additional;site_running=(Get-Website -Name OpenWebPBX).State -eq 'Started';pool_running=(Get-WebAppPoolState OpenWebPBX).Value -eq 'Started';site_auto=[bool](Get-ItemProperty IIS:\Sites\OpenWebPBX serverAutoStart).serverAutoStart;pool_auto=[bool](Get-ItemProperty IIS:\AppPools\OpenWebPBX autoStart).autoStart}
+ $upload=$null
+ if(Get-Website -Name 'OpenWebPBX Upload Gate' -ErrorAction SilentlyContinue){$upload=@{site_running=(Get-Website -Name 'OpenWebPBX Upload Gate').State -eq 'Started';pool_running=(Get-WebAppPoolState OpenWebPBXUploadGate).Value -eq 'Started';site_auto=[bool](Get-ItemProperty 'IIS:\Sites\OpenWebPBX Upload Gate' serverAutoStart).serverAutoStart;pool_auto=[bool](Get-ItemProperty IIS:\AppPools\OpenWebPBXUploadGate autoStart).autoStart}}
+ return @{schema=1;services=$modes;running=@($running);backup_enabled=[bool]$task.Settings.Enabled;cleanup_enabled=[bool]$cleanup.Settings.Enabled;certificate_tasks=$certificates;additional_tasks=$additional;upload_gate=$upload;site_running=(Get-Website -Name OpenWebPBX).State -eq 'Started';pool_running=(Get-WebAppPoolState OpenWebPBX).Value -eq 'Started';site_auto=[bool](Get-ItemProperty IIS:\Sites\OpenWebPBX serverAutoStart).serverAutoStart;pool_auto=[bool](Get-ItemProperty IIS:\AppPools\OpenWebPBX autoStart).autoStart}
 }
 function ValidPlan($Value){
  if($Value.schema -ne 1 -or !$Value.services){throw 'The factory startup snapshot is invalid.'}
@@ -75,9 +77,11 @@ function ValidPlan($Value){
  foreach($field in 'backup_enabled','cleanup_enabled','site_running','pool_running','site_auto','pool_auto'){if($Value.$field -isnot [bool]){throw 'The factory web/task snapshot is invalid.'}}
  foreach($entry in $Value.certificate_tasks.PSObject.Properties){if($entry.Name -notin $certificateTasks -or $entry.Value -isnot [bool]){throw 'The certificate-task snapshot is invalid.'}}
  foreach($entry in $Value.additional_tasks.PSObject.Properties){if($entry.Name -notin $additionalTasks -or $entry.Value -isnot [bool]){throw 'The additional-task snapshot is invalid.'}}
+ if($Value.PSObject.Properties['upload_gate'] -and $null -ne $Value.upload_gate){foreach($field in 'site_running','pool_running','site_auto','pool_auto'){if($Value.upload_gate.$field -isnot [bool]){throw 'The private upload-gate snapshot is invalid.'}}}
 }
 function StopWeb {
  Import-Module WebAdministration
+ if(Get-Website -Name 'OpenWebPBX Upload Gate' -ErrorAction SilentlyContinue){Stop-Website -Name 'OpenWebPBX Upload Gate';if((Get-WebAppPoolState OpenWebPBXUploadGate).Value -ne 'Stopped'){Stop-WebAppPool OpenWebPBXUploadGate}}
  if((Get-Website -Name OpenWebPBX).State -ne 'Stopped'){Stop-Website OpenWebPBX}
  if((Get-WebAppPoolState OpenWebPBX).Value -ne 'Stopped'){Stop-WebAppPool OpenWebPBX}
  for($i=0;$i -lt 160;$i++){if((Get-WebAppPoolState OpenWebPBX).Value -eq 'Stopped'){return};Start-Sleep -Milliseconds 250}
@@ -100,9 +104,11 @@ function Startup($Value){
  foreach($entry in $Value.additional_tasks.PSObject.Properties){if($entry.Value){Enable-ScheduledTask -TaskName $entry.Name|Out-Null}else{Disable-ScheduledTask -TaskName $entry.Name|Out-Null}}
  Set-ItemProperty IIS:\Sites\OpenWebPBX serverAutoStart $Value.site_auto
  Set-ItemProperty IIS:\AppPools\OpenWebPBX autoStart $Value.pool_auto
+ if($Value.PSObject.Properties['upload_gate'] -and $null -ne $Value.upload_gate){Set-ItemProperty 'IIS:\Sites\OpenWebPBX Upload Gate' serverAutoStart $Value.upload_gate.site_auto;Set-ItemProperty IIS:\AppPools\OpenWebPBXUploadGate autoStart $Value.upload_gate.pool_auto}
 }
 function StartWeb {
  Import-Module WebAdministration
+ if(Get-Website -Name 'OpenWebPBX Upload Gate' -ErrorAction SilentlyContinue){if((Get-WebAppPoolState OpenWebPBXUploadGate).Value -ne 'Started'){Start-WebAppPool OpenWebPBXUploadGate};Start-Website -Name 'OpenWebPBX Upload Gate'}
  if((Get-WebAppPoolState OpenWebPBX).Value -ne 'Started'){Start-WebAppPool OpenWebPBX}
  for($i=0;$i -lt 160;$i++){if((Get-WebAppPoolState OpenWebPBX).Value -eq 'Started'){break};if($i -eq 159){throw 'The PBX application pool did not start.'};Start-Sleep -Milliseconds 250}
  if((Get-Website -Name OpenWebPBX).State -ne 'Started'){Start-Website OpenWebPBX}
@@ -128,6 +134,7 @@ try{
    if($value.pool_running -or $value.site_running){StartWeb}
    if(!$value.site_running){Stop-Website OpenWebPBX}
    if(!$value.pool_running){Stop-WebAppPool OpenWebPBX}
+   if($value.PSObject.Properties['upload_gate'] -and $null -ne $value.upload_gate){if(!$value.upload_gate.site_running){Stop-Website -Name 'OpenWebPBX Upload Gate'};if(!$value.upload_gate.pool_running){Stop-WebAppPool OpenWebPBXUploadGate}}
    $cdrHold=RestoreCallRecordHold @('recovered');if($cdrHold){Remove-OpenWebCallRecordHold -StateRoot $private -Hold $cdrHold -ExternalLockHeld}
   }
   'activate'{

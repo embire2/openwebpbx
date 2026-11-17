@@ -22,6 +22,7 @@ import subprocess
 import tarfile
 import tempfile
 import time
+import threading
 import uuid
 import ntpath
 if os.name == 'nt':
@@ -328,6 +329,34 @@ def exclusive_guard(path):
             yield
         finally:
             unlock_file(lock)
+
+
+def open_upload(path):
+    """Open one ordinary encrypted inbox file while denying writes/replacement."""
+    import ctypes
+    from ctypes import wintypes
+    ordinary(path)
+    kernel=ctypes.WinDLL('kernel32', use_last_error=True)
+    create = kernel.CreateFileW
+    create.argtypes = (wintypes.LPCWSTR,wintypes.DWORD,wintypes.DWORD,ctypes.c_void_p,wintypes.DWORD,wintypes.DWORD,wintypes.HANDLE)
+    create.restype = wintypes.HANDLE
+    handle = create(str(path),0x80000000,1,None,3,0x00200080,None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise BackupError('The protected uploaded file is busy or unavailable.')
+    try:
+        descriptor = msvcrt.open_osfhandle(handle,os.O_RDONLY|os.O_BINARY)
+    except BaseException:
+        close=kernel.CloseHandle;close.argtypes=(wintypes.HANDLE,);close.restype=wintypes.BOOL;close(handle)
+        raise
+    try:
+        ordinary(path)
+        info=os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise BackupError('The protected uploaded file is linked or changed.')
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
 
 
 def read_settings(config=CONFIG):
@@ -638,7 +667,7 @@ def _create_archive(settings, destination, password, *, include_media=True, root
                     'source_host': settings.get('openweb.public_host', ''), 'source_url': settings.get('openweb.public_url', ''), 'database': layout,
                     'files': {name: {key: data[key] for key in ('size', 'mode', 'sha256')} for name, data in files.items()}}
         packed = work / 'payload.tar.gz'
-        with tarfile.open(packed, 'w:gz', format=tarfile.PAX_FORMAT) as archive:
+        with tarfile.open(packed, 'w:gz', format=tarfile.PAX_FORMAT, compresslevel=6) as archive:
             data = json.dumps(manifest, sort_keys=True).encode()
             member = tarfile.TarInfo('manifest.json')
             member.size, member.mode = len(data), 0o600
@@ -870,10 +899,37 @@ def backup_worker_guard(path):
         yield
 
 
+@contextlib.contextmanager
+def worker_heartbeat(settings, *, interval=30):
+    """Keep long operations visible without overwriting their state or result."""
+    stopped = threading.Event()
+
+    def heartbeat():
+        while not stopped.wait(interval):
+            try:
+                environment = database_environment(settings)
+                environment['PGOPTIONS'] = environment.get('PGOPTIONS', '') + ' -c statement_timeout=4000 -c lock_timeout=1000'
+                run(database_command(settings) + ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-c',
+                    "update v_pbx_backup_status set updated_at=now() where singleton=1 and state in ('creating','checking','sending')"],
+                    env=environment, timeout=6)
+            except BackupError:
+                # A status failure must neither abort a good archive nor turn
+                # a failed archive into a success. Ordinary result writes remain authoritative.
+                pass
+
+    thread = threading.Thread(target=heartbeat, name='backup-heartbeat', daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stopped.set()
+        thread.join(timeout=7)
+
+
 def worker(settings, **kwargs):
     if restore_pending() or (STATE / 'updates/maintenance').exists():
         return  # Never consume pending requests during a restore or update hold.
-    with backup_worker_guard(UPGRADE_LOCK):
+    with backup_worker_guard(UPGRADE_LOCK), worker_heartbeat(settings):
         if restore_pending() or (STATE / 'updates/maintenance').exists():
             return
         return _worker(settings, **kwargs)
@@ -917,9 +973,10 @@ def _worker(settings, *, store=STORE, downloads=DOWNLOADS, roots=None, version=N
                 backup_id = str(uuid.uuid4())
                 file = store / (backup_id + '.owpbx')
                 installed = version or ordinary(WEB_VERSION).read_text().strip()
+                include_media = bool(config['include_media'] or command.get('full_backup', False))
                 query(settings, 'insert into v_pbx_backups(backup_uuid,command_uuid,filename,status,include_media,app_version,remote_status) values('
-                      + ','.join(literal(v) for v in (backup_id, command_id, file.name, 'creating', config['include_media'], installed, 'pending' if config['sftp_enabled'] else 'disabled')) + ')')
-                manifest = create_archive(settings, file, password, include_media=config['include_media'], roots=roots, version=installed)
+                      + ','.join(literal(v) for v in (backup_id, command_id, file.name, 'creating', include_media, installed, 'pending' if config['sftp_enabled'] else 'disabled')) + ')')
+                manifest = create_archive(settings, file, password, include_media=include_media, roots=roots, version=installed)
                 digest = checksum(file)
                 publish_download(file, downloads / file.name)
                 query(settings, "update v_pbx_backups set status='ready',size_bytes=" + str(file.stat().st_size) + ',sha256=' + literal(digest)
@@ -1313,7 +1370,8 @@ def preserve_target_database(settings, config_file, runtime_file):
 
 
 def running_services():
-    return control('plan')['running']
+    plan=control('plan')
+    return plan['running'] + ([HELD_UNITS['backups']] if plan['backup_enabled'] else [])
 
 
 def plan_service_holds():
@@ -1367,7 +1425,7 @@ def same_restore_https_address(source, target):
     return bool(first and second and first[1] == second[1])
 
 
-def _restore(source, password, settings, *, dry_run=False, confirm_database=None):
+def _restore(source, password, settings, *, dry_run=False, confirm_database=None, allow_existing=False):
     safe_private_directory(RESTORE)
     with verify_archive(source, password, workspace=RESTORE) as (extracted, manifest):
         installed = ordinary(WEB_VERSION).read_text().strip()
@@ -1417,7 +1475,12 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
                 for item in [notification_fallback, *notification_fallback.parents]:
                     if reparse(item):
                         raise BackupError('Restore refused a symbolic link in the target private-data path.')
-        target_is_factory(settings)
+        if allow_existing is not True:
+            target_is_factory(settings)
+        else:
+            # Only the confirmed owner recovery queue opts into populated restore.
+            # Direct CLI/replacement restore retains its original factory guard.
+            validate_database_layout(settings)
         if dry_run:
             return manifest
         if confirm_database != settings['database.0.name']:
@@ -1503,8 +1566,17 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
                     else:
                         child.unlink()
             query(settings, "update v_pbx_backup_commands set status='failed',message='Request belonged to the previous server. Retry on this server.',finished_at=now() where status in ('pending','running')")
+            if query(settings, "select to_regclass('v_pbx_protection_jobs') is not null") == 't':
+                query(settings, "update v_pbx_protection_jobs set status='failed',secret_ciphertext='',message='This request preceded a full restore. Review the recovered server before retrying.',finished_at=now() where status in ('pending','running')")
+            if query(settings, "select to_regclass('v_pbx_resource_orders') is not null") == 't':
+                query(settings, "update v_pbx_resource_orders set status='cancelled' where status='pending'")
+            if query(settings, "select to_regclass('v_pbx_access_keys') is not null") == 't':
+                query(settings, "update v_pbx_access_keys set revoked_at=coalesce(revoked_at,now())")
+            if query(settings, "select to_regclass('v_pbx_tenant_backups') is not null") == 't':
+                query(settings, "update v_pbx_tenant_backups set status='failed',message='Previous server backup catalogue: upload the separately saved encrypted copy before restoring.' where status in ('ready','creating')")
             query(settings, "update v_pbx_backups set status='failed',message='Previous server: this encrypted backup file was not included in the restore. Keep its separately downloaded or remote copy.' where status in ('ready','creating')")
             query(settings, "update v_pbx_backup_settings set enabled=false,sftp_enabled=false where singleton=1")
+            set_status(settings, 'restored', 'Restore completed. Review backup settings before enabling automatic backups.')
             journal['phone_health_recoveries_refused'] = refuse_restored_phone_recoveries(settings)
             journal['state'] = 'restored'
             atomic_json(RESTORE / 'journal.json', journal)

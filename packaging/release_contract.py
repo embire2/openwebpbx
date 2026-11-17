@@ -43,7 +43,10 @@ DEBIAN_FILES = {
 }
 WINDOWS_FILES = {
     'Start-OpenWebPBX.cmd', 'Install-OpenWebPBX.ps1',
+    'Check-Installation.ps1', 'Windows-InstallationCheck.py',
     'Upgrade-OpenWebPBX.ps1', 'Install-Updater.ps1',
+    'Install-Reseller.ps1', 'Protection-Worker.ps1', 'protection.py',
+    'Uploads.Common.ps1', 'UploadAdmission.cs', 'upload-gate.php', 'configure-reseller.php',
     'Install-NativeEngine.ps1', 'Install-Backups.ps1', 'backups.py',
     'Install-Onboarding.ps1', 'Install-TenantDomains.ps1',
     'Install-MailQueue.ps1', 'Install-PhoneHealth.ps1',

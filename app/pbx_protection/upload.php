@@ -3,6 +3,7 @@ require_once dirname(__DIR__,2).'/resources/require.php';
 require_once PROJECT_ROOT.'/resources/check_auth.php';
 header('Cache-Control: no-store');header('Content-Type: application/json');header('Referrer-Policy: no-referrer');
 try {
+    if(!pbx_upload_gate::windowsAdmission($_SERVER))throw new DomainException('The protected upload admission is unavailable.');
     if(($_SERVER['REQUEST_METHOD']??'')!=='POST'||($_SERVER['CONTENT_TYPE']??'')!=='application/octet-stream')throw new InvalidArgumentException('Send an encrypted backup as a binary upload.');
     $name=$_SERVER['HTTP_X_OPENWEB_TOKEN_NAME']??'';$hash=$_SERVER['HTTP_X_OPENWEB_TOKEN']??'';
     if(!is_string($name)||strlen($name)>100||!is_string($hash)||strlen($hash)>256)throw new DomainException('Refresh the backup page.');

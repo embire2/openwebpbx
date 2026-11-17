@@ -11,6 +11,7 @@ $config = Join-Path $env:ProgramData 'fusionpbx'
 $switch = 'C:\Program Files\FreeSWITCH'
 $payload = $PSScriptRoot
 $script:recoveryCodeRoot=$PSScriptRoot
+$script:OpenWebVerifiedDelegation='v1'
 $gateHelper=Join-Path $PSScriptRoot 'Restore-Gates.ps1'
 if(!(Test-Path $gateHelper)){$gateHelper=Join-Path $root 'tools\Restore-Gates.ps1'}
 if(Test-Path $gateHelper){. $gateHelper}else{throw 'The Windows restore safeguards are missing.'}
@@ -61,12 +62,12 @@ function CompleteCommittedFinalization {
  Complete-OpenWebCommittedUpgrade -Entry $script:upgradeRecoveryEntry -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock
  $script:upgradeFinalizationPhase='background_tasks'
  $originalSupport=Get-Content "$backup\support-state.json" -Raw|ConvertFrom-Json
- foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Onboarding'){
+ foreach($name in 'OpenWebPBX-Backups','OpenWebPBX-Protection','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Onboarding'){
   $originalTask=$originalSupport.Tasks.PSObject.Properties[$name]
   if($originalTask -and ($originalTask.Value.Exists -isnot [bool] -or $originalTask.Value.Enabled -isnot [bool])){throw 'The original background-task enabled choice is invalid.'}
   if(!$originalTask -or !$originalTask.Value.Exists -or $originalTask.Value.Enabled){Enable-ScheduledTask -TaskName $name|Out-Null}
   else{Disable-ScheduledTask -TaskName $name|Out-Null}
-  if($name -eq 'OpenWebPBX-PhoneHealth' -and (!$originalTask -or !$originalTask.Value.Exists -or $originalTask.Value.Enabled)){Start-ScheduledTask -TaskName $name}
+  if($name -in 'OpenWebPBX-PhoneHealth','OpenWebPBX-Protection' -and (!$originalTask -or !$originalTask.Value.Exists -or $originalTask.Value.Enabled)){Start-ScheduledTask -TaskName $name}
  }
  if(Get-ScheduledTask -TaskName OpenWebPBX-Cleanup -ErrorAction SilentlyContinue){
   $support=Get-Content "$backup\support-state.json" -Raw|ConvertFrom-Json
@@ -576,6 +577,16 @@ try {
   $verified=($verify -join "`n")|ConvertFrom-Json
   $payload=$verified.package_path
   if($verified.version -ne $TargetVersion){throw 'The signed release version is incorrect.'}
+  # Future full packages may add new services or recovery support. Run their
+  # verified complete transaction before this wrapper creates a snapshot or
+  # changes services. Equal helper bytes continue here and cannot recurse.
+  . (Join-Path $payload 'PhpRuntime.Common.ps1')
+  $delegationContext=New-OpenWebUpgradeDelegationContext -PackageRoot $payload -CallerPath $PSCommandPath
+  $delegationPlan=Get-OpenWebUpgradeDelegationPlan -Context $delegationContext
+  if($delegationPlan){
+   $delegationExit=Invoke-OpenWebUpgradeDelegation -Plan $delegationPlan -MaintenanceLock $lock -StateRoot $private
+   exit $delegationExit
+  }
  }
 
  if ($RestoreBackup) {
@@ -603,6 +614,7 @@ try {
  }
  $version = (Get-Content "$payload\VERSION" -Raw).Trim()
  if ($version -notmatch '^\d+\.\d+\.\d+$' -or [version]$version -lt [version]$state.Version) { throw 'Choose a valid release at least as new as the installed version.' }
+ & (Join-Path $payload 'Check-Installation.ps1') -PackageRoot $payload
  if (!(Test-Path "$payload\release-manifest.json")) { throw 'Extract the complete release, including its file manifest.' }
  $manifest = Get-Content "$payload\release-manifest.json" -Raw | ConvertFrom-Json
  if ($manifest.version -ne $version) { throw 'The update manifest version does not match the release.' }
@@ -725,6 +737,7 @@ try {
  & "$payload\Install-Dtls.ps1" -PackageRoot $payload -MaintenanceLock $lock
  Run "$root\php\php.exe" @("$payload\configure-music.php","$payload\music","$root\web","$switch\conf\vars.xml")
  & "$payload\Install-Backups.ps1" -PackageRoot $payload -DeferRestart -UpgradeLockHeld
+ & "$payload\Install-Reseller.ps1" -PackageRoot $payload -DeferRestart -UpgradeLockHeld
  & "$payload\Install-MailQueue.ps1" -PackageRoot $payload -DeferStart -MaintenanceLock $lock
  & "$payload\Install-TenantDomains.ps1" -PackageRoot $payload -DeferStart -MaintenanceLock $lock
  & "$payload\Install-Onboarding.ps1" -PackageRoot $payload -DeferStart -MaintenanceLock $lock

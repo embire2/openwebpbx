@@ -11,6 +11,12 @@
 - Website DNS/migration completed previously. Mail/MX/calendar remain on cPanel129.232.187.189. Do not repeat the old cutover or delete `/srv/openwebpbx/migration`; it contains live renewal/DNS hooks.
 - This file contains current guidance and recent evidence. The complete prior notes are preserved unchanged in [the historical archive](docs/history/agents-before-access-repair-2026-11-12.md). Consult that archive and the linked feature guides only when relevant; old pending instructions are historical and do not supersede newer results.
 
+## Windows 1.0.27 standalone work — 2026-11-17 (in qualification)
+
+Owner authorizes the complete Windows27 standalone release and tests on139.84.246.84 using dedicated openwebpbx RDPuser. PublicWindows remains23 until actual package acceptance. Three agents cover Windowsfeatureintegration, fullinstaller/nativebuild and supplied-targetQA; Root coordinates sourcefreeze, documentation and feedretention. Private operation pointer `/var/lib/openwebpbx/active-windows127-path.txt`. MainApp/Core/updater stay26; do not restart production or touch old173writers.
+
+Current23 target checkpoint is verified/offhost:27,312,341B/SHA2569ebf36c24680d34bc26fa0fa275dd2244ea8e15982c85d99dfc24380a3602768.184table/schema, credentials/QR, files,32certentries and18tasks are privately captured. Firsttwo backups refuse genuine lockcontention; thirdordinaryboundedretry succeeds whileHealthstillRunning. A separate brief ownedHealthtaskstop occurs afterward and is reversed; no persistentHealthbug is established. Preserve failures distinctly. Source/native/fullpackage, genuine23workerupdate/rollback, freshsetup and responsive27Manager remain separate gates. Canonicalv27 already belongs to Debian27: never retag/overwrite its assets; eventual Windows additions need distinctchecksums and their own platformtag. See [pendingWindowsqualification](docs/release-windows-1.0.27-qualification.md).
+
 ## Standalone Debian 1.0.27 — 2026-11-17 (published)
 
 - Published16:12:26UTC as `debian-v1.0.27`/canonical `v1.0.27`, frozen source `72bb5406af4c057acb5ee4eddfd9d861d20d345f`. Full archive488,884,221B/SHA256`fa771a66999ec2811212ed452588025c5cbe78b0502b8afd7794588c0e236198`;12,260payloads/4,915voices. NativeCore/updater27 are compiled from this source. Sealed installation.json explicitly declares full/previous_installation_required=false. Every future OS package must include all components/current updater; clean installation never requires an earlier PBX or separate PBX patch. Existing-data signed admission stays separate.

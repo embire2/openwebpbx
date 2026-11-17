@@ -270,6 +270,11 @@ function Save-OpenWebSupport {
   . (Join-Path $PackageRoot 'Meet-Proxy.ps1')
   Save-OpenWebMeetSystem -Destination (Join-Path $Backup 'meeting-system.json') -StateRoot $StateRoot
  }
+ if(Test-Path (Join-Path $PackageRoot 'Uploads.Common.ps1')){
+  Copy-Item -LiteralPath (Join-Path $PackageRoot 'Uploads.Common.ps1') -Destination (Join-Path $Backup 'uploads-recovery.ps1')
+  . (Join-Path $PackageRoot 'Uploads.Common.ps1')
+  Save-OpenWebUploadsSystem -Destination (Join-Path $Backup 'uploads-system.json')
+ }
  $native=Get-Content "$PackageRoot\engine\native-manifest.json" -Raw | ConvertFrom-Json
  foreach($entry in $native.files.PSObject.Properties){if($entry.Name -notlike 'mod/*'){$files+=Join-Path $EngineRoot $entry.Name}}
  $index=0
@@ -282,6 +287,7 @@ function Save-OpenWebSupport {
  $directories=@{
   'backup-runtime'="$Root\backup-runtime";'acme-runtime'="$Root\acme";'mobile-notifications'="$StateRoot\mobile-notifications";'mail-state'="$StateRoot\mail";'meet-proxy'="$StateRoot\meet-proxy";'tenant-domains'="$StateRoot\tenant-domains";'stun-setup'="$StateRoot\stun-setup";'dtls-setup'="$StateRoot\dtls-setup";'phone-health-runtime'="$StateRoot\phone-health-runtime";'updater-slots'="$Root\updater\slots"
   'automatic-backups'="$StateRoot\automatic-backups";'backup-restore'="$StateRoot\backup-restore";'backup-control'="$StateRoot\backup-control";'backup-downloads'="$StateRoot\backup-downloads"
+  'tenant-backups'="$StateRoot\tenant-backups";'tenant-backup-downloads'="$StateRoot\tenant-backup-downloads";'protection'="$StateRoot\protection";'protection-status'="$StateRoot\protection-status";'protection-inbox'="$StateRoot\protection-inbox";'upload-admission'="$StateRoot\upload-admission";'upload-gate'="$Root\upload-gate"
   'codec-compiler-cache'="$StateRoot\codec-compiler-cache";'codec-build'="$StateRoot\codec-build";'openweb-music'="$StateRoot\storage\openweb-music"
  }
  foreach($name in $directories.Keys){
@@ -295,7 +301,7 @@ function Save-OpenWebSupport {
   if($exists){CopyTree $path (Join-Path $Backup $name)}
  }
  $record.Acls[$Root]=(Get-Acl -LiteralPath $Root).Sddl
- foreach($path in @("$Root\web","$Root\server","$Root\desktop","$Root\tools","$Root\php","$EngineRoot\mod","$EngineRoot\sounds","$EngineRoot\conf","$StateRoot\mobile-notifications","$StateRoot\mail","$StateRoot\meet-proxy","$StateRoot\tenant-domains","$StateRoot\stun-setup","$StateRoot\dtls-setup","$StateRoot\phone-health-runtime","$Root\backup-runtime","$Root\acme","$Root\updater","$StateRoot\automatic-backups","$StateRoot\backup-restore","$StateRoot\backup-control","$StateRoot\backup-downloads","$StateRoot\codec-compiler-cache","$StateRoot\codec-build","$StateRoot\storage\openweb-music")){
+ foreach($path in @("$StateRoot\sessions","$StateRoot\cache",(Join-Path $env:ProgramData 'fusionpbx'),"$StateRoot\tenant-backups","$StateRoot\tenant-backup-downloads","$StateRoot\protection","$StateRoot\protection-status","$StateRoot\protection-inbox","$StateRoot\upload-admission","$Root\upload-gate","$Root\web","$Root\server","$Root\desktop","$Root\tools","$Root\php","$EngineRoot\mod","$EngineRoot\sounds","$EngineRoot\conf","$StateRoot\mobile-notifications","$StateRoot\mail","$StateRoot\meet-proxy","$StateRoot\tenant-domains","$StateRoot\stun-setup","$StateRoot\dtls-setup","$StateRoot\phone-health-runtime","$Root\backup-runtime","$Root\acme","$Root\updater","$StateRoot\automatic-backups","$StateRoot\backup-restore","$StateRoot\backup-control","$StateRoot\backup-downloads","$StateRoot\codec-compiler-cache","$StateRoot\codec-build","$StateRoot\storage\openweb-music")){
   if(Test-Path -LiteralPath $path -PathType Container){
    $record.Acls[$path]=(Get-Acl -LiteralPath $path).Sddl
    foreach($item in Get-ChildItem -LiteralPath $path -Force -Recurse){
@@ -304,7 +310,7 @@ function Save-OpenWebSupport {
    }
   }
  }
- foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Onboarding','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){
+ foreach($name in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Onboarding','OpenWebPBX-Protection','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){
   $task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
   $record.Tasks[$name]=@{Exists=[bool]$task;Enabled=if($task){[bool]$task.Settings.Enabled}else{$false}}
   if($task){
@@ -315,7 +321,7 @@ function Save-OpenWebSupport {
    if($name -eq 'OpenWebPBX-PhoneHealth'){
     . (Join-Path $PackageRoot 'PhoneHealth-Security.ps1')
     Stop-OpenWebHealthTask -MaintenanceLock $MaintenanceLock -Disable
-   }elseif($name -in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-Onboarding','OpenWebPBX-Cleanup'){Disable-ScheduledTask -TaskName $name | Out-Null}
+   }elseif($name -in 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-Onboarding','OpenWebPBX-Protection','OpenWebPBX-Cleanup'){Disable-ScheduledTask -TaskName $name | Out-Null}
   }
  }
  WriteState "$Backup\support-state.json" $record
@@ -347,7 +353,11 @@ function Restore-OpenWebSupport {
   . (Join-Path $Backup 'meeting-recovery.ps1')
   Restore-OpenWebMeetSystem -Snapshot (Join-Path $Backup 'meeting-system.json') -StateRoot $StateRoot
  }
- $allowed=@($Root,"$StateRoot\native-engine.json","$StateRoot\local-codec.json","$StateRoot\meet-ca.pem","$StateRoot\meet-proxy.json","$StateRoot\updater-original-startup.json","$StateRoot\updater-install.json","$StateRoot\installation.json","$StateRoot\phone-health-instance.json","$StateRoot\stun.json","$StateRoot\mobile-notifications","$StateRoot\mail","$StateRoot\meet-proxy","$StateRoot\tenant-domains","$StateRoot\stun-setup","$StateRoot\dtls-setup","$StateRoot\phone-health-runtime","$StateRoot\automatic-backups","$StateRoot\backup-restore","$StateRoot\backup-control","$StateRoot\backup-downloads","$StateRoot\codec-compiler-cache","$StateRoot\codec-build","$StateRoot\storage\openweb-music","$EngineRoot")
+ if(Test-Path (Join-Path $Backup 'uploads-system.json')){
+  . (Join-Path $Backup 'uploads-recovery.ps1')
+  Restore-OpenWebUploadsSystem -Snapshot (Join-Path $Backup 'uploads-system.json')
+ }
+ $allowed=@($Root,(Join-Path $env:ProgramData 'fusionpbx'),"$StateRoot\sessions","$StateRoot\cache","$StateRoot\tenant-backups","$StateRoot\tenant-backup-downloads","$StateRoot\protection","$StateRoot\protection-status","$StateRoot\protection-inbox","$StateRoot\upload-admission","$StateRoot\native-engine.json","$StateRoot\local-codec.json","$StateRoot\meet-ca.pem","$StateRoot\meet-proxy.json","$StateRoot\updater-original-startup.json","$StateRoot\updater-install.json","$StateRoot\installation.json","$StateRoot\phone-health-instance.json","$StateRoot\stun.json","$StateRoot\mobile-notifications","$StateRoot\mail","$StateRoot\meet-proxy","$StateRoot\tenant-domains","$StateRoot\stun-setup","$StateRoot\dtls-setup","$StateRoot\phone-health-runtime","$StateRoot\automatic-backups","$StateRoot\backup-restore","$StateRoot\backup-control","$StateRoot\backup-downloads","$StateRoot\codec-compiler-cache","$StateRoot\codec-build","$StateRoot\storage\openweb-music","$EngineRoot")
  function Check-SupportPath([string]$Path){
   $full=[IO.Path]::GetFullPath($Path);$valid=$false
   foreach($base in $allowed){if($full.Equals($base,[StringComparison]::OrdinalIgnoreCase) -or $full.StartsWith($base.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)){$valid=$true;break}}
@@ -451,7 +461,7 @@ function Restore-OpenWebSupport {
   Set-OpenWebFileSddl -LiteralPath $permission.Path -Sddl $permission.Sddl
  }
  foreach($entry in $record.Tasks.PSObject.Properties){
-  if($entry.Name -notin 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Onboarding','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){throw 'The support recovery task inventory is invalid.'}
+  if($entry.Name -notin 'OpenWebPBX-Backups','OpenWebPBX Outgoing Mail','OpenWebPBX-TenantDomains','OpenWebPBX-PhoneHealth','OpenWebPBX-Onboarding','OpenWebPBX-Protection','OpenWebPBX-Updater-Restart','OpenWebPBX-Cleanup'){throw 'The support recovery task inventory is invalid.'}
   if($entry.Value.Exists){
    Register-ScheduledTask -TaskName $entry.Name -Xml (Get-Content "$Backup\$($entry.Name).xml" -Raw) -Force | Out-Null
    if($entry.Value.Enabled){Enable-ScheduledTask -TaskName $entry.Name | Out-Null}else{Disable-ScheduledTask -TaskName $entry.Name | Out-Null}

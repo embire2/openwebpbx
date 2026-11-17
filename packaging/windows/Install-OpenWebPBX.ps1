@@ -1,4 +1,3 @@
-#Requires -RunAsAdministrator
 [CmdletBinding()]
 param(
  [string]$DomainName='localhost',
@@ -10,10 +9,24 @@ param(
  [switch]$LocalCertificate,
  [switch]$EnablePublicAccess,
  [switch]$RestoreServer,
- [switch]$BootstrapRegistration
+ [switch]$BootstrapRegistration,
+ [switch]$Check,
+ [switch]$Help
 )
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
+if($Help){
+ Write-Host 'OpenWeb PBX full standalone Windows Server 2025 installer.'
+ Write-Host 'No earlier OpenWeb PBX installation is required. The installer sets up the local database and all services.'
+ Write-Host 'Extract the complete ZIP, then open Start-OpenWebPBX.cmd for guided setup.'
+ Write-Host 'Read-only package check: powershell.exe -NoProfile -File .\Install-OpenWebPBX.ps1 -Check'
+ Write-Host 'Existing servers use their signed automatic updater. This fresh installer never overwrites a completed PBX.'
+ return
+}
+if($Check -and @($PSBoundParameters.Keys|Where-Object {$_ -ne 'Check'}).Count){throw 'Use -Check on its own; it never installs or changes the PBX.'}
+& (Join-Path $PSScriptRoot 'Check-Installation.ps1') -PackageRoot $PSScriptRoot
+if($Check){return}
+if(![Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Open Windows PowerShell as administrator for installation, or use -Check for a read-only package check.'}
 if($PSVersionTable.PSEdition -eq 'Core'){throw 'Open Windows PowerShell (powershell.exe) as administrator to install this server. It provides native IIS management.'}
 $env:PSModulePath=$PSHOME+'\Modules;'+[Environment]::GetFolderPath('ProgramFiles')+'\WindowsPowerShell\Modules'
 $root='C:\OpenWebPBX'; $private=Join-Path $env:ProgramData 'OpenWebPBX'; $configRoot=Join-Path $env:ProgramData 'fusionpbx'
@@ -23,7 +36,8 @@ if($BootstrapRegistration){
  $DomainName='node-'+[Guid]::NewGuid().ToString('N')+'.openwebpbx.com';$LocalCertificate=$true
 }
 $os=Get-CimInstance Win32_OperatingSystem
-if($os.ProductType -eq 1 -or $os.Caption -notmatch 'Windows Server 2025' -or [Environment]::OSVersion.Version.Build -lt 26100){throw 'This server release requires Windows Server2025 x64.'}
+$windowsEdition=Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name InstallationType
+if($os.ProductType -eq 1 -or $os.Caption -notmatch 'Windows Server 2025' -or [Environment]::OSVersion.Version.Build -lt 26100 -or $windowsEdition.InstallationType -cne 'Server'){throw 'This full server release requires Windows Server 2025 x64 with Desktop Experience.'}
 if((Test-Path 'C:\Program Files\FreeSWITCH\FreeSwitch.dll') -and !(Test-Path "$private\installation.json")){throw 'An existing call engine is present outside this installation. Preserve it and choose an empty Windows server.'}
 if ($DomainName -notmatch '^[a-zA-Z0-9.-]+$' -or $HttpsPort -lt 1 -or $HttpsPort -gt 65535) { throw 'Enter a valid server name and HTTPS port.' }
 $DomainName=$DomainName.ToLowerInvariant()
@@ -38,18 +52,39 @@ if ($CertificateThumbprint) {
  if (!$selectedCertificate.HasPrivateKey -or $selectedCertificate.NotAfter -le (Get-Date) -or $selectedCertificate.NotBefore -gt (Get-Date)) { throw 'Choose a current certificate with its private key installed on this server.' }
 }
 if (!(Test-Path "$PSScriptRoot\web\resources\require.php") -or !(Test-Path "$PSScriptRoot\server\OpenWebPbx.Server.exe")) { throw 'Extract the complete Windows release package before running the installer.' }
-& "$PSScriptRoot\Ensure-Runtime.ps1"
-if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw 'Install the required Microsoft runtime before continuing.' }
 . "$PSScriptRoot\Restore-Gates.ps1"
 . "$PSScriptRoot\Web-Readiness.ps1"
 . "$PSScriptRoot\CallRecords.Common.ps1"
 . "$PSScriptRoot\Support-Recovery.ps1"
 Assert-OpenWebUpgradeAllowed -StateRoot $private
+foreach($target in $root,$private,$configRoot){
+ $ancestor=[IO.Path]::GetFullPath($target)
+ while($ancestor){
+  if(Test-Path -LiteralPath $ancestor){
+   $item=Get-Item -LiteralPath $ancestor -Force -ErrorAction Stop
+   if(!$item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'The installation target contains a link, junction or unexpected file. Preserve the existing server and review its setup path.'}
+  }
+  $parent=[IO.Path]::GetDirectoryName($ancestor)
+  if(!$parent -or $parent -eq $ancestor){break};$ancestor=$parent
+ }
+}
 if(Test-Path "$private\installation.json"){
+ $installationItem=Get-Item -LiteralPath "$private\installation.json" -Force
+ if($installationItem.PSIsContainer -or ($installationItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $installationItem.Length -gt 1048576){throw 'The existing private installation state needs administrator review.'}
  $existingInstallation=Get-Content "$private\installation.json" -Raw | ConvertFrom-Json
  if($existingInstallation.Completed){throw 'OpenWeb PBX is already installed. Use Admin or the signed upgrade installer.'}
+ if($existingInstallation.Version -isnot [string] -or $existingInstallation.Version -cne (Get-Content -LiteralPath "$PSScriptRoot\VERSION" -Raw).Trim() -or ($existingInstallation.PSObject.Properties['Completed'] -and $existingInstallation.Completed -isnot [bool])){throw 'An incomplete installation from another release is present. Resume its original installer or recover that server before installing a new release.'}
+}else{
+ foreach($marker in "$root\web\resources\require.php","$root\server\OpenWebPbx.Server.exe","$root\desktop\OpenWebPbx.Desktop.exe","$private\database\PG_VERSION"){
+  if(Test-Path -LiteralPath $marker){throw 'Existing PBX files or a database are present without their installation state. This fresh installer will not overwrite them.'}
+ }
+ foreach($name in 'OpenWebPBX','OpenWebPBX-Database','OpenWebPBXUpdater'){
+  if(Get-Service -Name $name -ErrorAction SilentlyContinue){throw 'An existing PBX service is present without its installation state. Preserve it and use its documented recovery procedure.'}
+ }
 }
 if ((Test-Path "$configRoot\config.conf") -and !(Test-Path "$private\installation.json")) { throw 'An existing PBX configuration is present. This installer will not overwrite it.' }
+& "$PSScriptRoot\Ensure-Runtime.ps1"
+if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw 'The required Microsoft runtime could not be prepared automatically.' }
 function Run([string]$Exe,[string[]]$Arguments) {
  $prior=$ErrorActionPreference
  try {$ErrorActionPreference='Continue'; & $Exe @Arguments; $code=$LASTEXITCODE}
@@ -365,6 +400,7 @@ if(!(Get-Service OpenWebPBX -ErrorAction SilentlyContinue)){Run sc.exe @('create
 Run sc.exe @('failure','OpenWebPBX','reset=','86400','actions=','restart/60000/restart/60000/restart/60000')
 & "$PSScriptRoot\configure-notifications.ps1" -StateRoot $private
 & "$PSScriptRoot\Install-Backups.ps1" -PackageRoot $PSScriptRoot -DeferRestart -UpgradeLockHeld
+& "$PSScriptRoot\Install-Reseller.ps1" -PackageRoot $PSScriptRoot -DeferRestart -UpgradeLockHeld
 & "$PSScriptRoot\Install-MailQueue.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
 & "$PSScriptRoot\Install-TenantDomains.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
 & "$PSScriptRoot\Install-Onboarding.ps1" -PackageRoot $PSScriptRoot -DeferStart -MaintenanceLock $installationLock
@@ -438,6 +474,8 @@ Write-Host 'Registration and the secure managed tenant address are required befo
  throw $installationFailure
 } finally {$installationLock.Dispose()}
 Enable-ScheduledTask -TaskName OpenWebPBX-Backups | Out-Null
+Enable-ScheduledTask -TaskName OpenWebPBX-Protection | Out-Null
+Start-ScheduledTask -TaskName OpenWebPBX-Protection
 Enable-ScheduledTask -TaskName 'OpenWebPBX Outgoing Mail' | Out-Null
 Enable-ScheduledTask -TaskName 'OpenWebPBX-TenantDomains' | Out-Null
 Enable-ScheduledTask -TaskName 'OpenWebPBX-Onboarding' | Out-Null

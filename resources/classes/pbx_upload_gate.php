@@ -4,6 +4,22 @@ class pbx_upload_gate_denied extends RuntimeException {
     public function __construct(public int $status=403){parent::__construct('Upload admission refused.');}
 }
 class pbx_upload_gate {
+    /** IIS module proof is internal, short lived and bound to the original URI. */
+    public static function windowsAdmission(array $server): bool {
+        if(PHP_OS_FAMILY!=='Windows')return true;
+        $path=pbx_paths::state().'/upload-admission/gate.key';
+        if(is_link($path)||!is_file($path)||filesize($path)!==64)return false;
+        $key=@file_get_contents($path);if(!is_string($key)||!preg_match('/^[a-f0-9]{64}$/D',$key))return false;
+        return self::verifyWindowsProof($server,$key,time());
+    }
+    protected static function verifyWindowsProof(array $server,string $key,int $now): bool {
+        $proof=$server['HTTP_X_OPENWEB_ADMISSION']??'';$uri=$server['HTTP_X_OPENWEB_ADMISSION_URI']??'';
+        if(!is_string($proof)||!preg_match('/^([0-9]{10})\.([a-f0-9]{64})$/D',$proof,$match)||abs($now-(int)$match[1])>60||!is_string($uri)||strlen($uri)>512)return false;
+        if(!preg_match('~^/(?:app/pbx_protection/upload\.php(?:\?tenant=[a-f0-9-]*)?|api/v2/(?:instance/backups/import|tenants/[a-f0-9-]+/backups/import))$~D',$uri))return false;
+        $length=$server['CONTENT_LENGTH']??'';if(!is_string($length)||!preg_match('/^[0-9]{1,10}$/D',$length))return false;
+        $data=$match[1]."\n".$uri."\n".$length;
+        return hash_equals(hash_hmac('sha256',$data,$key),$match[2]);
+    }
     private PDO $db;
     public function __construct(?PDO $db=null){$this->db=$db??database::new()->db;}
     protected function available(): float|false {$root=pbx_paths::state().'/protection-inbox';return is_dir($root)&&!is_link($root)?disk_free_space($root):false;}

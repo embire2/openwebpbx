@@ -74,6 +74,14 @@ jobs:
           Invoke-NativeBuild 'protocol-checks' @('run', '--project', 'platform/OpenWebPbx.Checks', '-c', 'Release')
           Invoke-NativeBuild 'updater-checks' @('run', '--project', 'platform/OpenWebPbx.Updater.Checks', '-c', 'Release')
           Invoke-NativeBuild 'stun-protocol-checks' @('run', '--project', 'tests/stun-worker/StunChecks.csproj', '-c', 'Release')
+      - name: Check complete standalone installation preflight
+        run: |
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_standalone.ps1
+          if($LASTEXITCODE){throw 'Read-only Windows full-installer controls failed.'}
+          & python -B tests/windows_standalone.py
+          if($LASTEXITCODE){throw 'Full Windows package integrity controls failed.'}
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_upgrade_delegation.ps1
+          if($LASTEXITCODE){throw 'Verified Windows upgrade delegation controls failed.'}
       - name: Verify native versions and manager startup
         run: |
           $ErrorActionPreference = 'Stop'

@@ -1,6 +1,9 @@
 param([switch]$StartManager)
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 try {
+ if($StartManager){
+  & (Join-Path $PSScriptRoot 'Check-Installation.ps1') -PackageRoot $PSScriptRoot
+ }
  $runtime=Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64' -ErrorAction SilentlyContinue
  if (!$runtime -or !$runtime.Installed -or [Version]$runtime.Version.TrimStart('v') -lt [Version]'14.50.0.0') {
   Write-Host 'Installing the required Microsoft runtime...'

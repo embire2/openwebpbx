@@ -24,11 +24,14 @@ import uuid
 
 import backups as full
 
-STORE = Path('/var/backups/openwebpbx/tenants')
-DOWNLOADS = Path('/var/lib/openwebpbx/tenant-backup-downloads')
-WORK = Path('/var/lib/openwebpbx/protection')
-STATUS = Path('/var/lib/openwebpbx/protection-status')
-INBOX = Path('/var/lib/openwebpbx/protection-inbox')
+# The Windows package places this shared policy beside its native backups.py.
+# Archive ownership/table rules stay identical; each platform supplies OS controls.
+STATE = full.STATE if os.name == 'nt' else Path('/var/lib/openwebpbx')
+STORE = STATE/'tenant-backups' if os.name == 'nt' else Path('/var/backups/openwebpbx/tenants')
+DOWNLOADS = STATE/'tenant-backup-downloads'
+WORK = STATE/'protection'
+STATUS = STATE/'protection-status'
+INBOX = STATE/'protection-inbox'
 MAX_BYTES = 50 * 1000**3
 MAX_ROWS = 500000
 RESERVE = 10 * 1024**3
@@ -130,13 +133,14 @@ def owned_roots(domains, services=()):
             roots += [full.MEDIA['storage'] / 'voicemail/default' / storage_name,
                       full.MEDIA['storage'] / 'voicemail' / storage_name,
                       full.MEDIA['recordings'] / storage_name]
+    if os.name == 'nt':roots += [full.MEDIA['storage']/'greetings'/d['domain_uuid'] for d in domains]
     roots += [full.MEDIA['storage']/'openwebpbx/call-me-back'/str(uuid.UUID(service)) for service in services]
     return roots
 
 
 def owned_path(path, domains, services=()):
     path = Path(path)
-    if not path.is_absolute() or any(x.is_symlink() for x in (path, *path.parents)):
+    if not path.is_absolute() or any((full.reparse(x) if os.name == 'nt' else x.is_symlink()) for x in (path, *path.parents)):
         raise full.BackupError('Tenant media must use ordinary files in this tenant’s storage folders.')
     if not any(path.is_relative_to(root) and path != root for root in owned_roots(domains,services)):
         raise full.BackupError('A tenant media file is outside its supported private storage folder.')
@@ -263,7 +267,7 @@ def order_tables(settings, selected):
 
 def document_query(settings,sql):
     """Large signed JSON is stdin/file data, never an oversized process argv."""
-    with tempfile.NamedTemporaryFile(mode='w',dir=WORK,prefix='.tenant-query-',delete=False) as stream:
+    with tempfile.NamedTemporaryFile(mode='w',encoding='utf-8',dir=WORK,prefix='.tenant-query-',delete=False) as stream:
         path=Path(stream.name);stream.write('SET standard_conforming_strings=on;\n'+sql);stream.flush();os.fsync(stream.fileno())
     try:return full.run(full.database_command(settings)+['-X','-q','-A','-t','-v','ON_ERROR_STOP=1','-f',str(path)],env=full.database_environment(settings),timeout=60).decode().strip()
     finally:path.unlink(missing_ok=True)
@@ -347,14 +351,18 @@ def apply_rows(settings, tenant, body, job):
         commands.append('DO $$ BEGIN IF EXISTS(SELECT 1 FROM '+ident(stage)+' old WHERE NOT EXISTS(SELECT 1 FROM '+ident(child)+" current WHERE to_jsonb(current)=to_jsonb(old))) THEN RAISE EXCEPTION 'Current account, authorisation, history or usage rows would change. This tenant restore was cancelled.'; END IF; END $$;")
     commands.append('INSERT INTO v_pbx_tenant_restore_receipts(job_uuid,tenant_uuid) VALUES('+full.literal(job)+','+full.literal(tenant)+');')
     commands.append('COMMIT;')
-    with tempfile.NamedTemporaryFile(mode='w',dir=WORK,prefix='.tenant-sql-',delete=False) as stream:
+    with tempfile.NamedTemporaryFile(mode='w',encoding='utf-8',dir=WORK,prefix='.tenant-sql-',delete=False) as stream:
         sql=Path(stream.name);stream.write('\n'.join(commands));stream.flush();os.fsync(stream.fileno())
     try:full.run(full.database_command(settings)+['-X','-q','-v','ON_ERROR_STOP=1','-f',str(sql)],env=full.database_environment(settings),timeout=300)
     finally:sql.unlink(missing_ok=True)
 
 
+def switch_command(command):
+    return [str(full.SWITCH/'fs_cli.exe') if os.name == 'nt' else 'fs_cli', '-x', command]
+
+
 def active_calls(domains):
-    raw = full.run(['fs_cli','-x','show channels as json'], timeout=15)
+    raw = full.run(switch_command('show channels as json'), timeout=15)
     try:rows = json.loads(raw).get('rows', [])
     except (ValueError, AttributeError):raise full.BackupError('Cannot confirm that tenant calls are idle. Retry after call monitoring is available.') from None
     names = {d['domain_name'] for d in domains}; ids = {d['domain_uuid'] for d in domains}
@@ -363,7 +371,7 @@ def active_calls(domains):
     for row in rows:
         channel = str(uuid.UUID(row['uuid']))
         for variable in ('domain_uuid', 'domain_name'):
-            value = full.run(['fs_cli','-x','uuid_getvar ' + channel + ' ' + variable], timeout=15).decode().strip()
+            value = full.run(switch_command('uuid_getvar ' + channel + ' ' + variable), timeout=15).decode().strip()
             if value in names | ids:raise full.BackupError('This tenant still has active calls. Wait for them to end before restoring.')
 
 
@@ -389,7 +397,8 @@ def recover_tenant_journals(settings):
                 path = owned_path(target, journal['domains'],journal.get('media_services',[]))
                 if entry['exists']:
                     full.atomic_copy(journal_path.parent / entry['copy'], path, mode=entry['mode'], group=entry['gid'])
-                    if os.geteuid()==0:os.chown(path,entry['uid'],entry['gid'])
+                    if os.name == 'nt':full.control('acl-restore', {'files':{str(path):entry['sddl']}})
+                    elif os.geteuid()==0:os.chown(path,entry['uid'],entry['gid'])
                 else:path.unlink(missing_ok=True)
         journal['state'] = 'completed' if committed else 'recovered'; full.atomic_json(journal_path, journal)
         hold(settings, journal['domains'], False, journal.get('temporary_entitlements', []))
@@ -421,6 +430,7 @@ def restore_tenant(settings, tenant, source, password, job, *, key_file=None, ve
                 if target.exists():
                     full.ordinary(target); info = target.stat(); copy = recovery / ('before-' + str(i)); shutil.copyfile(target, copy); copy.chmod(0o600)
                     original[str(target)].update({'copy':copy.name,'mode':stat.S_IMODE(info.st_mode),'uid':info.st_uid,'gid':info.st_gid})
+                    if os.name == 'nt':original[str(target)]['sddl']=full.control('acl-read', {'paths':[str(target)]})[str(target)]
             journal.update({'state':'prepared','original':original})
             full.atomic_json(recovery/'journal.json', journal)
             try:
@@ -431,7 +441,7 @@ def restore_tenant(settings, tenant, source, password, job, *, key_file=None, ve
             except BaseException:
                 recover_tenant_journals(settings)
                 raise
-            if check_calls:full.run(['fs_cli','-x','reloadxml'], timeout=30)
+            if check_calls:full.run(switch_command('reloadxml'), timeout=30)
         finally:
             # A failed file rollback must leave calls held until an operator
             # proves recovery. Never release a partially recovered tenant.
@@ -463,7 +473,8 @@ def instance_receipt(job, state, message):
                            'status':state,'message':message,'created_at':job['created_at'],
                            'finished_at':dt.datetime.now(dt.timezone.utc).isoformat() if state != 'running' else None})
     path.chmod(0o640)
-    if os.geteuid() == 0:os.chown(path,0,33)
+    if os.name == 'nt':full.secure_acl(path,download=True)
+    elif os.geteuid() == 0:os.chown(path,0,33)
 
 
 def archive_completed_instance_restore(job):
@@ -488,7 +499,7 @@ def receive_upload(request, destination):
     if any(path.is_symlink() for path in (INBOX,*INBOX.parents)):
         raise full.BackupError('The protected upload folder needs administrator review.')
     if destination.exists() or destination.is_symlink():raise full.BackupError('The private upload target already exists. Request a new upload.')
-    try:descriptor = os.open(source, os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    try:descriptor = full.open_upload(source) if os.name == 'nt' else os.open(source, os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
     except OSError:raise full.BackupError('The protected uploaded file is unavailable or linked. Upload the saved copy again.') from None
     created = False
     try:
@@ -540,9 +551,18 @@ def import_backup(settings, job, password):
 
 
 def worker(settings):
+    if os.name == 'nt':
+        if full.restore_pending() or (full.STATE/'updates/maintenance').exists():return
+        try:
+            with full.exclusive_guard(full.UPGRADE_LOCK):pass
+        except full.BackupBusy:return
     full.safe_private_directory(STORE); full.safe_private_directory(DOWNLOADS, group=33); full.safe_private_directory(WORK); full.safe_private_directory(STATUS,group=33)
     with full.exclusive_guard(WORK/'worker.lock'):
-        recover_tenant_journals(settings)
+        if os.name == 'nt':
+            try:
+                with full.exclusive_guard(full.UPGRADE_LOCK):recover_tenant_journals(settings)
+            except full.BackupBusy:return
+        else:recover_tenant_journals(settings)
         for receipt in STATUS.glob('*.json'):
             data=json.loads(full.ordinary(receipt).read_text())
             if data.get('status')=='running':instance_receipt(data,'failed','The recovery worker stopped. Ask the administrator to review the protected recovery journal before retrying.')
@@ -594,7 +614,7 @@ def worker(settings):
                     selections = [name for name, unit in full.HELD_UNITS.items() if unit.removesuffix('.service') in {s.removesuffix('.service') for s in previous}]
                     with full.exclusive_guard(full.UPGRADE_LOCK):
                         for name,unit in full.HELD_UNITS.items():
-                            if name not in selections:(full.RESTORE/('hold-'+unit)).unlink(missing_ok=True)
+                            if name not in selections:(full.RESTORE/('hold-'+(name if os.name == 'nt' else unit))).unlink(missing_ok=True)
                     if selections:full.activate(settings, selections, settings['openweb.public_host'])
                     archive_completed_instance_restore(job)
                     # This particular checked archive still exists outside the
@@ -626,7 +646,10 @@ def worker(settings):
 def main():
     parser = argparse.ArgumentParser(description='OpenWeb PBX tenant backup worker.')
     parser.add_argument('action', choices=['worker']); parser.parse_args()
-    if os.geteuid() != 0:parser.error('Run the installed worker as root.')
+    if os.name == 'nt':
+        import ctypes
+        if not ctypes.windll.shell32.IsUserAnAdmin():parser.error('Run the installed worker as Administrator or SYSTEM.')
+    elif os.geteuid() != 0:parser.error('Run the installed worker as root.')
     os.umask(0o077)
     try:worker(full.read_settings())
     except full.BackupError as error:print(str(error)); return 1
