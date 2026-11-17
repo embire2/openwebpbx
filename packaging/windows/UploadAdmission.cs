@@ -11,6 +11,20 @@ using System.Web;
 namespace OpenWebPbx.Windows {
     public sealed class UploadAdmission : IHttpModule {
         private static readonly Regex Upload = new Regex(@"^/(?:app/pbx_protection/upload\.php(?:\?tenant=[a-f0-9-]*)?|api/v2/(?:instance/backups/import|tenants/[a-f0-9-]+/backups/import))$", RegexOptions.CultureInvariant);
+        private static readonly Regex BackupRoute = new Regex(@"\A/(?:instance/backups/import|tenants/[a-f0-9-]+/backups/import)\z", RegexOptions.CultureInvariant);
+        private static bool IsBackupImportAlias(HttpRequest request) {
+            string path = request.Path;
+            if (!path.Equals("/api/v2", StringComparison.OrdinalIgnoreCase) &&
+                !path.Equals("/api/v2/", StringComparison.OrdinalIgnoreCase) &&
+                !path.Equals("/api/v2/index.php", StringComparison.OrdinalIgnoreCase)) return false;
+            // Query parsing never touches Form, Params or the upload body.
+            // GetValues retains duplicate values; PHP must not receive a
+            // backup-import alias under the ordinary multipart parser.
+            string[] routes = HttpUtility.ParseQueryString(request.Url.Query).GetValues("route");
+            if (routes == null) return false;
+            foreach (string route in routes) if (route != null && BackupRoute.IsMatch(route)) return true;
+            return false;
+        }
         public void Init(HttpApplication app) { app.BeginRequest += Admit; }
         public void Dispose() { }
         private static void Refuse(HttpContext context, int status) {
@@ -29,7 +43,7 @@ namespace OpenWebPbx.Windows {
             // The internal rewrite target cannot be used to bypass admission.
             if (uri.StartsWith("/api/v2/upload.php", StringComparison.OrdinalIgnoreCase) || uri.StartsWith("/app/pbx_protection/upload_gate.php", StringComparison.OrdinalIgnoreCase)) { Refuse(context, 404); return; }
             if (!Upload.IsMatch(uri)) {
-                if (context.Request.Path.Equals("/app/pbx_protection/upload.php", StringComparison.OrdinalIgnoreCase) || (context.Request.Path.StartsWith("/api/v2/", StringComparison.OrdinalIgnoreCase) && context.Request.ContentType == "application/octet-stream")) Refuse(context, 403);
+                if (IsBackupImportAlias(context.Request) || context.Request.Path.Equals("/app/pbx_protection/upload.php", StringComparison.OrdinalIgnoreCase) || (context.Request.Path.StartsWith("/api/v2/", StringComparison.OrdinalIgnoreCase) && context.Request.ContentType == "application/octet-stream")) Refuse(context, 403);
                 return;
             }
             if (uri.Length > 512 || !context.Request.IsSecureConnection || context.Request.HttpMethod != "POST") { Refuse(context, 403); return; }
