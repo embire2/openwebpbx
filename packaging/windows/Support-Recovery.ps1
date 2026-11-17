@@ -244,6 +244,23 @@ function Restore-OpenWebGreetingAccess {
  if(!$Snapshot.RootExists -and @(Get-ChildItem -LiteralPath $root -Force -ErrorAction Stop).Count -eq 0){[IO.Directory]::Delete($root,$false)}
 }
 
+function Get-OpenWebSupportDirectoryMap {
+ param([string]$Root,[string]$StateRoot)
+ @{
+  'backup-runtime'="$Root\backup-runtime";'acme-runtime'="$Root\acme";'mobile-notifications'="$StateRoot\mobile-notifications";'mail-state'="$StateRoot\mail";'meet-proxy'="$StateRoot\meet-proxy";'tenant-domains'="$StateRoot\tenant-domains";'stun-setup'="$StateRoot\stun-setup";'dtls-setup'="$StateRoot\dtls-setup";'phone-health-runtime'="$StateRoot\phone-health-runtime";'updater-slots'="$Root\updater\slots"
+  'automatic-backups'="$StateRoot\automatic-backups";'backup-restore'="$StateRoot\backup-restore";'backup-control'="$StateRoot\backup-control";'backup-downloads'="$StateRoot\backup-downloads"
+  'tenant-backups'="$StateRoot\tenant-backups";'tenant-backup-downloads'="$StateRoot\tenant-backup-downloads";'protection'="$StateRoot\protection";'protection-status'="$StateRoot\protection-status";'protection-inbox'="$StateRoot\protection-inbox";'upload-admission'="$StateRoot\upload-admission";'upload-gate'="$Root\upload-gate"
+  'codec-compiler-cache'="$StateRoot\codec-compiler-cache";'codec-build'="$StateRoot\codec-build";'openweb-music'="$StateRoot\storage\openweb-music"
+ }
+}
+function Resolve-OpenWebSupportDirectory {
+ param([string]$Name,$Entry,[string]$Root,[string]$StateRoot)
+ $map=Get-OpenWebSupportDirectoryMap -Root $Root -StateRoot $StateRoot
+ if(@($map.Keys) -cnotcontains $Name -or $null -eq $Entry -or $Entry.Path -isnot [string] -or [string]::IsNullOrWhiteSpace($Entry.Path) -or $Entry.Exists -isnot [bool]){throw 'The support recovery folder inventory is invalid.'}
+ $expected=[IO.Path]::GetFullPath($map[$Name])
+ if(![string]::Equals([IO.Path]::GetFullPath($Entry.Path),$expected,[StringComparison]::OrdinalIgnoreCase)){throw 'The support recovery folder does not match its owned path.'}
+ return $expected
+}
 function Save-OpenWebSupport {
  param([string]$Backup,[string]$PackageRoot,[string]$Root,[string]$StateRoot,[string]$EngineRoot,[IO.FileStream]$MaintenanceLock)
  $record=[ordered]@{schema=1;Files=@{};Directories=@{};Acls=@{};Tasks=@{};OpenSshClient=(Get-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0).State.ToString()}
@@ -284,12 +301,7 @@ function Save-OpenWebSupport {
   $record.Files[$path]=@{Exists=$exists;Copy=$copy}
   if($exists){New-Item -ItemType Directory -Force "$Backup\support-files" | Out-Null;Copy-Item -LiteralPath $path -Destination (Join-Path $Backup $copy);$record.Acls[$path]=(Get-Acl -LiteralPath $path).Sddl}
  }
- $directories=@{
-  'backup-runtime'="$Root\backup-runtime";'acme-runtime'="$Root\acme";'mobile-notifications'="$StateRoot\mobile-notifications";'mail-state'="$StateRoot\mail";'meet-proxy'="$StateRoot\meet-proxy";'tenant-domains'="$StateRoot\tenant-domains";'stun-setup'="$StateRoot\stun-setup";'dtls-setup'="$StateRoot\dtls-setup";'phone-health-runtime'="$StateRoot\phone-health-runtime";'updater-slots'="$Root\updater\slots"
-  'automatic-backups'="$StateRoot\automatic-backups";'backup-restore'="$StateRoot\backup-restore";'backup-control'="$StateRoot\backup-control";'backup-downloads'="$StateRoot\backup-downloads"
-  'tenant-backups'="$StateRoot\tenant-backups";'tenant-backup-downloads'="$StateRoot\tenant-backup-downloads";'protection'="$StateRoot\protection";'protection-status'="$StateRoot\protection-status";'protection-inbox'="$StateRoot\protection-inbox";'upload-admission'="$StateRoot\upload-admission";'upload-gate'="$Root\upload-gate"
-  'codec-compiler-cache'="$StateRoot\codec-compiler-cache";'codec-build'="$StateRoot\codec-build";'openweb-music'="$StateRoot\storage\openweb-music"
- }
+ $directories=Get-OpenWebSupportDirectoryMap -Root $Root -StateRoot $StateRoot
  foreach($name in $directories.Keys){
   $path=$directories[$name]
   if(Test-Path -LiteralPath $path){
@@ -340,6 +352,11 @@ function Restore-OpenWebSupport {
  if(!(Test-Path "$Backup\support-state.json")){return} # Old immutable backups.
  $record=Get-Content "$Backup\support-state.json" -Raw | ConvertFrom-Json
  if($record.schema -ne 1){throw 'The support recovery inventory is invalid.'}
+ # Validate every exact name/path pair before any recovery writer runs. Old
+ # inventories may contain a subset of these fixed directories.
+ if($record.Directories -isnot [pscustomobject]){throw 'The support recovery folder inventory is invalid.'}
+ $directoryTargets=@{}
+ foreach($entry in $record.Directories.PSObject.Properties){$directoryTargets[$entry.Name]=Resolve-OpenWebSupportDirectory -Name $entry.Name -Entry $entry.Value -Root $Root -StateRoot $StateRoot}
  # Original21 support inventories predate this task. Delete only a task whose
  # atomic provenance authenticates this exact sealed original21 before-image.
  $onboardingCompatibility=Join-Path $PSScriptRoot 'Onboarding-Upgrade.Common.ps1'
@@ -429,8 +446,7 @@ function Restore-OpenWebSupport {
   if(Test-Path -LiteralPath $certificateDirectory){throw 'The original DTLS parent absence did not restore.'}
  }
  foreach($entry in $record.Directories.PSObject.Properties){
-  if($entry.Name -notin 'backup-runtime','acme-runtime','mobile-notifications','mail-state','meet-proxy','tenant-domains','stun-setup','dtls-setup','phone-health-runtime','updater-slots','automatic-backups','backup-restore','backup-control','backup-downloads','codec-compiler-cache','codec-build','openweb-music'){throw 'The support recovery folder inventory is invalid.'}
-  $target=Check-SupportPath $entry.Value.Path
+  $target=Check-SupportPath $directoryTargets[$entry.Name]
   if($entry.Value.Exists){
    CopyTree (Join-Path $Backup $entry.Name) $target -Mirror
    # Robocopy can return accepted exit3 while a running extra image remains.
