@@ -1,6 +1,16 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Fixed IIS objects owned by encrypted-backup admission, not public proxy rules.
 function Get-OpenWebUploadArguments {return '-c "C:\ProgramData\OpenWebPBX\upload-admission\php.ini"'}
+function Test-OpenWebUploadPoolIdentity {
+ param($Value)
+ # WebAdministration returns the canonical name on Windows PowerShell; the
+ # administration API returns its enum. Do not coerce arbitrary values to 4.
+ if($Value -is [string]){return $Value -ceq 'ApplicationPoolIdentity'}
+ if($null -eq $Value){return $false}
+ if($Value.GetType().FullName -ceq 'Microsoft.Web.Administration.ProcessModelIdentityType'){return [int]$Value -eq 4}
+ if($Value -is [int] -or $Value -is [uint32]){return $Value -eq 4}
+ return $false
+}
 function Assert-OpenWebUploadObjects {
  Import-Module WebAdministration
  $site=Get-Website -Name 'OpenWebPBX Upload Gate' -ErrorAction SilentlyContinue
@@ -9,7 +19,7 @@ function Assert-OpenWebUploadObjects {
  }
  foreach($other in Get-Website){if($other.Name -cne 'OpenWebPBX Upload Gate'){foreach($binding in $other.bindings.Collection){if([string]$binding.bindingInformation -match ':9089:'){throw 'The private upload-admission port is already assigned. Preserve the existing website.'}}}}
  $pool=Get-Item IIS:\AppPools\OpenWebPBXUploadGate -ErrorAction SilentlyContinue
- if($pool -and ([int]$pool.processModel.identityType -ne 4 -or [string]$pool.managedRuntimeVersion -ne '')){throw 'Preserve and review the existing upload-admission application pool.'}
+ if($pool -and (!(Test-OpenWebUploadPoolIdentity $pool.processModel.identityType) -or [string]$pool.managedRuntimeVersion -ne '')){throw 'Preserve and review the existing upload-admission application pool.'}
 }
 function Save-OpenWebUploadsSystem {
  param([string]$Destination)
