@@ -33,6 +33,30 @@ spec.loader.exec_module(b)
 
 
 class WindowsNativeModuleEnvironment(unittest.TestCase):
+    def test_tenant_esl_uses_private_configuration_and_fixed_commands_only(self):
+        for command in ('show channels as json','reloadxml','uuid_getvar 11111111-1111-4111-a111-111111111111 domain_uuid','uuid_getvar AAAAAAAA-AAAA-4AAA-AAAA-AAAAAAAAAAAA domain_name'):
+            argv=b.switch_command(command)
+            self.assertEqual(argv[-1],command);self.assertIn('event_socket::api',argv[-2])
+            self.assertNotIn('-p',argv);self.assertNotIn('ClueCon',argv)
+            self.assertEqual(argv[0],str(b.APP/'php/php.exe'))
+        for command in ('status','reloadxml;shutdown','shutdown','uuid_getvar bad domain_uuid','uuid_getvar 11111111-1111-4111-a111-111111111111 sip_auth_password',"show channels as json\nshutdown",'uuid_getvar 11111111-1111-4111-a111-111111111111 domain_uuid extra'):
+            with self.subTest(command=command),self.assertRaises(b.BackupError):b.switch_command(command)
+
+    def test_actual_php_esl_adapter_rejects_auth_errors_and_false_reload_success(self):
+        php=shutil.which('php')
+        if not php:raise unittest.SkipTest('A PHP CLI is required for the actual adapter response test.')
+        script=b.switch_command('show channels as json')[-2]
+        with tempfile.TemporaryDirectory(prefix='openweb-esl-adapter-') as directory:
+            bootstrap=Path(directory)/'bootstrap.php'
+            bootstrap.write_text("<?php class event_socket {public static function api($command){return getenv('OPENWEB_TEST_ESL_RESPONSE');}}",encoding='utf-8')
+            source=script.replace("require 'C:/OpenWebPBX/web/resources/require.php';","require '"+str(bootstrap).replace('\\','/').replace("'","\\'")+"';")
+            cases=[('show channels as json','{"row_count":0,"rows":[]}',0),('show channels as json','-ERR invalid authentication',1),('show channels as json','  -ERR command failed',1),('show channels as json','',1),('reloadxml','+OK [Success]',0),('reloadxml','not an acknowledgement',1),('reloadxml','+OKAY',1),('reloadxml','-ERR reload refused',1),('shutdown','+OK',2)]
+            for command,response,expected in cases:
+                with self.subTest(command=command,response=response):
+                    result=subprocess.run([php,'-r',source,command],env=os.environ|{'OPENWEB_TEST_ESL_RESPONSE':response},stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=10)
+                    self.assertEqual(result.returncode,expected)
+                    if expected:self.assertEqual(result.stdout,b'')
+
     def test_phone_recovery_restore_absence_counts_and_failed_observations_stay_closed(self):
         with patch.object(b,'query',return_value='f') as query:
             self.assertEqual(b.refuse_restored_phone_recoveries({}),0)

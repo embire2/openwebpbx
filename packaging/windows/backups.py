@@ -359,6 +359,19 @@ def open_upload(path):
         raise
 
 
+def switch_command(command):
+    """Read the installed private ESL identity; never pass its secret in argv."""
+    if command not in ('show channels as json', 'reloadxml') and not re.fullmatch(
+            r'uuid_getvar [a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12} (?:domain_uuid|domain_name)', command):
+        raise BackupError('An allowed tenant recovery call-state command is required.')
+    script = r'''require 'C:/OpenWebPBX/web/resources/require.php';
+$command=$argv[1]??'';
+if(!in_array($command,['show channels as json','reloadxml'],true)&&!preg_match('/^uuid_getvar [a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12} (?:domain_uuid|domain_name)$/D',$command))exit(2);
+$result=event_socket::api($command);if(!is_string($result)||$result===''||str_starts_with(ltrim($result),'-ERR'))exit(1);
+if($command==='reloadxml'&&!preg_match('/^\+OK(?:\s|$)/D',ltrim($result)))exit(1);echo $result;'''
+    return [str(APP/'php/php.exe'), '-d', 'display_errors=0', '-d', 'log_errors=0', '-r', script, command]
+
+
 def read_settings(config=CONFIG):
     settings = {}
     for line in ordinary(config).read_text().splitlines():

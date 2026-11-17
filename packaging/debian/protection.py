@@ -358,7 +358,7 @@ def apply_rows(settings, tenant, body, job):
 
 
 def switch_command(command):
-    return [str(full.SWITCH/'fs_cli.exe') if os.name == 'nt' else 'fs_cli', '-x', command]
+    return full.switch_command(command) if os.name == 'nt' else ['fs_cli', '-x', command]
 
 
 def active_calls(domains):
