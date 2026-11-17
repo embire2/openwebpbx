@@ -80,14 +80,14 @@ if($Original23Helper){
  try{
   $extracted=Join-Path $work 'parent-stage';$child=Join-Path $work 'child-stage';New-Item -ItemType Directory -Path $extracted,$child|Out-Null
   [IO.File]::WriteAllText((Join-Path $child 'journal.txt'),'child-owned-and-unchanged')
-  $lock=[IO.File]::Open((Join-Path $work 'maintenance.lock'),'CreateNew','ReadWrite','None');$lock.Dispose()
+  $lock=[IO.File]::Open((Join-Path $work 'maintenance.lock'),'CreateNew','ReadWrite','None');$originalHandle=$lock.SafeFileHandle;$lock.Dispose()
   $priorPgPassword='original-environment-fixture';$phpRuntime=$null;$script:enginePaused=$false;$stopped=$false;$script:operatorUpdaterStopped=$false;$restoreStarted=$false;$script:operatorUpdaterWasRunning=$false
   function ResumeEngine{throw 'A stale parent must not resume an old engine.'}
   function Start-Service{throw 'A stale parent must not start an old updater.'}
   . $finally
   Check (!(Test-Path -LiteralPath $extracted)) 'Exact parent finally removes only its owned staging tree.'
   Check ([IO.File]::ReadAllText((Join-Path $child 'journal.txt')) -ceq 'child-owned-and-unchanged') 'Exact parent cleanup preserves the child extraction and journal.'
-  Check ($lock.SafeFileHandle.IsClosed -and $env:PGPASSWORD -ceq $priorPgPassword) 'Parent cleanup only restores its environment and idempotently disposes its released lock.'
+  Check ($originalHandle.IsClosed -and !$lock.CanRead -and !$lock.CanWrite -and $env:PGPASSWORD -ceq $priorPgPassword) 'Parent cleanup only restores its environment and idempotently disposes its released lock.'
  }finally{
   if($null -eq $oldPg){Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue}else{$env:PGPASSWORD=$oldPg}
   Remove-Item -LiteralPath $work -Recurse -Force
