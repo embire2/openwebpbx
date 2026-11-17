@@ -14,6 +14,9 @@ import sys
 import importlib.util
 
 root = pathlib.Path(__file__).resolve().parents[1]
+contract_spec = importlib.util.spec_from_file_location('full_release_contract', root / 'packaging/release_contract.py')
+release_contract = importlib.util.module_from_spec(contract_spec)
+contract_spec.loader.exec_module(release_contract)
 
 def sha256(path):
     with path.open('rb') as handle:
@@ -181,7 +184,9 @@ with tempfile.TemporaryDirectory(prefix='openweb-release-') as temporary:
     shutil.copy2(root / 'packaging/windows/bootstrap.php', stage / 'bootstrap.php')
     shutil.copy2(root / 'VERSION', stage / 'VERSION')
     installation_guide = f'installing-windows-{version}.md' if args.target == 'windows' else f'installing-{version}.md'
-    (stage / 'README.txt').write_text(f'OpenWeb PBX {version}\n\nStart with docs/{installation_guide}.\nFeature coverage and remaining work: docs/feature-coverage.md.\nSource: https://github.com/embire2/openwebpbx\n')
+    (stage / 'README.txt').write_text(f'OpenWeb PBX {version}\n\nFull standalone installation package. No earlier OpenWeb PBX release is required.\nThe installer sets up the local PostgreSQL database and complete services.\nStart with docs/{installation_guide}.\nFeature coverage and remaining work: docs/feature-coverage.md.\nSource: https://github.com/embire2/openwebpbx\n')
+    shutil.copy2(root / 'packaging/release_contract.py', stage / 'release_contract.py')
+    (stage / 'installation.json').write_text(json.dumps(release_contract.contract(version, args.target), indent=2) + '\n')
     installer_prefix='packaging/'+args.target+'/'
     for filename in files:
         if filename.startswith(installer_prefix) and len(pathlib.PurePosixPath(filename).parts)==3:
@@ -235,6 +240,7 @@ with tempfile.TemporaryDirectory(prefix='openweb-release-') as temporary:
         shutil.copy2(args.engine, stage / 'engine.tar.gz')
         for executable in ['install.sh', 'configure.py', 'upgrade.sh', 'upgrade.py', 'backups.py', 'install-backups.sh', 'server/OpenWebPbx.Server']:
             (stage / executable).chmod(0o755)
+    release_contract.validate_stage(stage, args.target, version)
     # The updater deploys only listed files, validates bytes before making changes,
     # and uses this same manifest to identify newly installed files on rollback.
     manifest = {'version': version, 'files': {}}

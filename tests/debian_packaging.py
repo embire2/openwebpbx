@@ -35,6 +35,13 @@ class PrivateBuildPackaging(unittest.TestCase):
                 self.assertIn('voices/1.0.2/pack.json',manifest['files'])
                 self.assertIn('voice-tools/deployment.py',manifest['files'])
                 self.assertIn('install-voices.py',manifest['files'])
+                self.assertIn('installation.json',manifest['files'])
+                self.assertIn('release_contract.py',manifest['files'])
+                self.assertIn('install-check.py',manifest['files'])
+                installation=json.load(packed.extractfile(prefix+'/installation.json'))
+                self.assertEqual(installation['version'],manifest['version'])
+                self.assertEqual(installation['package_type'],'full')
+                self.assertIs(installation['previous_installation_required'],False)
                 self.assertEqual(sum(name.startswith('voices/1.0.2/files/') for name in manifest['files']),4915)
                 for name,executable in [('server','OpenWebPbx.Server'),('updater','OpenWebPbx.Updater')]:
                     self.assertEqual(packed.getmember(prefix+'/'+name).mode,0o755)
@@ -43,5 +50,14 @@ class PrivateBuildPackaging(unittest.TestCase):
                     self.assertIn(name+'/'+executable,manifest['files'])
                     self.assertEqual((work/name).stat().st_mode&0o777,0o700)
                     self.assertEqual((work/name/'runtime.data').stat().st_mode&0o777,0o600)
+                # Exercise the actual shipped preflight against the builder's
+                # whole output, without installing any service or dependency.
+                extracted=work/'extracted'
+                packed.extractall(extracted,filter='data')
+            package=extracted/prefix
+            checked=subprocess.run([sys.executable,'-B',str(package/'install-check.py')],
+                check=True,cwd=package,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+            self.assertIn('No earlier OpenWeb PBX installation is required.',checked.stdout)
+            self.assertFalse((package/'__pycache__').exists())
 
 if __name__=='__main__':unittest.main()

@@ -1,7 +1,36 @@
 # Application updates
 
+## New installation or existing server?
+
+**New server:** download the complete installer for your supported operating
+system. A clean installation requires no earlier OpenWeb PBX version. The
+complete package supplies the application, calling engine, database setup,
+registration, background services, system prompts and updater together.
+[Debian installation](installing-1.0.26.md) ·
+[Windows installation](installing-windows-1.0.23.md).
+
+**Existing server:** use its Updates page to preserve the current configuration
+and calling identities. The updater checks the signed release, its supported
+starting versions, complete download and recovery snapshot. These existing-data
+checks are separate from fresh installation. Do not rewrite version files or
+clear trust to skip them.
+
+| Component | Complete new installation | Updating an existing installation |
+| --- | --- | --- |
+| Debian 13 amd64 | Public **1.0.26**, no previous PBX required | Independent signed feed; existing-data admission starts at installed22. [Qualification](release-1.0.26-qualification.md). |
+| Windows Server 2025 x64 Desktop Experience | Public **1.0.23**, no previous PBX required | Independent signed feed; existing-data admission starts at installed22. Original retained installers/clients use the [legacy ordered-updater repair](windows-upgrade-path-repair.md). |
+| Android | Public **1.0.19** native app | Its own server/API compatibility and app update policy. |
+
+Every future complete Debian or Windows release must include its current
+updater and all required server components. A new user must not install an
+older PBX or apply a separate PBX repair to complete fresh setup. Historical
+patches and earlier qualified transitions remain available for existing users.
+[Full-release policy](independent-platform-releases.md#every-server-release-is-a-complete-installer).
+
+The dated records below retain their original versions and acceptance scope.
+
 <!-- WINDOWS22-CURRENT-STATUS-BEGIN -->
-## Latest Windows 1.0.22
+## Previous Windows 1.0.22 — 4 November 2026
 
 Windows Server 1.0.22 is frozen at product source
 `8f4256e4e3cbce092791eea60d1c053e10810bb6` for **Windows Server 2025 x64
@@ -18,7 +47,9 @@ Debian 1.0.22 and Android 1.0.19 retain their own artifacts and feeds.
 
 **Windows Server:** five-minute checks, automatic verified downloads, a native required-update modal and a red web-console banner leave services available when installation is postponed. Installation starts only after an administrator requests it. Windows 1.0.22 signed acceptance and publication are recorded above. See [Windows Server updates](windows-server-updates.md). The policy options below describe Debian.
 
-| Component | Current scope | Signed minimum / status |
+Historical 4 November 2026 release table:
+
+| Component | Scope recorded at that release | Existing-data update admission / status |
 |---|---|---|
 | Debian 13 amd64 server | Published **1.0.22** | Installed Debian **1.0.21 or newer**. |
 | Windows Server 2025 x64 Desktop Experience | **1.0.22** | Installed Windows **1.0.21 or newer**; qualified signed route. |

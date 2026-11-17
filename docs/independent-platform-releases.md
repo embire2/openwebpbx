@@ -17,6 +17,37 @@ match. Review protocol/API and schema compatibility, not numerical equality.
 Android's runtime checks its actual server compatibility; the offline envelope
 verifier validates the minimum's syntax, not a connection to a running server.
 
+## Every server release is a complete installer
+
+A new Debian or Windows server release must install its complete current suite
+on a clean supported operating system. It must not require an older OpenWeb PBX
+installation or a separate PBX repair/update package to finish first setup.
+Include the application, calling engine, web administration/API, local database
+setup, tenant registration, system prompts, background workers and current
+updater together. The full archive must carry sealed installation metadata
+stating `package_type: full` and `previous_installation_required: false`.
+
+Keep fresh installation and updating existing data separate in product copy and
+release metadata. The main download card and new-server guide state the clean
+OS requirements. An existing-data updater may enforce its independently
+qualified compatibility minimum, signed history and recovery rules. That minimum
+is not a prerequisite for a new installation and must never be lowered just to
+change the wording. A full installer must refuse accidental overwrite of an
+existing PBX.
+
+Qualify the actual full archive on a clean machine with no previous PBX state,
+through the ordinary tenant setup wizard. Confirm every included service starts
+and the recorded administration/calling checks pass. Qualify updates and
+preservation separately, explicitly naming any reused unchanged component
+proof. A partial overlay or patch is not a substitute for this fresh-install
+acceptance.
+
+The retained original Windows 1.0.23 installers and earlier installed clients
+have their separately documented one-time ordered-updater repair. The next
+complete Windows release must include the current ordered updater itself;
+new users must not need that legacy repair. Existing immutable releases and
+historical evidence remain unchanged.
+
 ## Source and release identity
 
 Freeze each platform from its own tested commit. Use immutable platform tags
