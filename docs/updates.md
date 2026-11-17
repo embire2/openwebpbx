@@ -6,7 +6,7 @@
 system. A clean installation requires no earlier OpenWeb PBX version. The
 complete package supplies the application, calling engine, database setup,
 registration, background services, system prompts and updater together.
-[Debian installation](installing-1.0.26.md) ·
+[Debian installation](installing-1.0.27.md) ·
 [Windows installation](installing-windows-1.0.23.md).
 
 **Existing server:** use its Updates page to preserve the current configuration
@@ -17,7 +17,7 @@ clear trust to skip them.
 
 | Component | Complete new installation | Updating an existing installation |
 | --- | --- | --- |
-| Debian 13 amd64 | Public **1.0.26**, no previous PBX required | Independent signed feed; existing-data admission starts at installed22. [Qualification](release-1.0.26-qualification.md). |
+| Debian 13 amd64 | Public **1.0.27**, complete standalone installer; no previous PBX required | Independent signed feed; existing-data compatibility only. [Actual and reused qualification](release-1.0.27-qualification.md). |
 | Windows Server 2025 x64 Desktop Experience | Public **1.0.23**, no previous PBX required | Independent signed feed; existing-data admission starts at installed22. Original retained installers/clients use the [legacy ordered-updater repair](windows-upgrade-path-repair.md). |
 | Android | Public **1.0.19** native app | Its own server/API compatibility and app update policy. |
 

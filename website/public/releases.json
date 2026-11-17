@@ -1,7 +1,96 @@
 {
-  "reviewed_on": "2026-11-16",
+  "reviewed_on": "2026-11-17",
   "repository": "embire2/openwebpbx",
   "releases": [
+    {
+      "version": "1.0.27",
+      "component": "Debian server",
+      "url": "https://github.com/embire2/openwebpbx/releases/tag/debian-v1.0.27",
+      "published_at": "2026-11-17T16:12:26Z",
+      "publication_status": "published",
+      "prerelease": false,
+      "build_source_commit": "72bb5406af4c057acb5ee4eddfd9d861d20d345f",
+      "build_sources": {
+        "debian": "72bb5406af4c057acb5ee4eddfd9d861d20d345f"
+      },
+      "source_tags": {
+        "debian": "debian-v1.0.27"
+      },
+      "fresh_install": {
+        "package_type": "full",
+        "previous_installation_required": false,
+        "minimum_existing_version": null,
+        "separate_pbx_patches_required": false,
+        "operating_system": "Debian 13 amd64",
+        "entrypoint": "install.sh",
+        "local_postgresql_setup_included": true
+      },
+      "update_compatibility": {
+        "minimum_installed_version": "1.0.22",
+        "actual_qualified_starting_versions": [
+          "1.0.26"
+        ],
+        "reviewed_reused_starting_versions": [
+          "1.0.22",
+          "1.0.23"
+        ],
+        "original_evidence": "docs/release-1.0.26-qualification.md",
+        "purpose": "Existing-data signed update admission only; not a fresh-install prerequisite."
+      },
+      "signed_feed_sequence": 1794929086,
+      "canonical_tar_mirror": "https://github.com/embire2/openwebpbx/releases/download/v1.0.27/openwebpbx-1.0.27-debian13-amd64.tar.gz",
+      "scope": "Complete standalone Debian13 installer27: no previous PBX or separate patch required. Actual clean installation, full package/no-write checks, normal verified-owner setup,54UI/API controls, synthetic two-way SIP/RTP and automatic reboot pass. Actual original26\u219227 signed update preserves195tables/full schema/roles,324private files/media and original credentials; unchanged22/23 transition/rollback evidence is explicitly reused. HostedMain26/Windows23/Android19 and broader roadmap remain separate.",
+      "assets": [
+        {
+          "name": "debian-update-manifest.json",
+          "bytes": 1224,
+          "sha256": "43666de3d7f3b2519d980186c7437e19b37214eed7521dc36490785d9653d5f9",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/debian-v1.0.27/debian-update-manifest.json"
+        },
+        {
+          "name": "installing-1.0.27.md",
+          "bytes": 5353,
+          "sha256": "dd6df8aac7ff6670e6079a189f91b6513583378f900db05fdb064a1b794edb2a",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/debian-v1.0.27/installing-1.0.27.md"
+        },
+        {
+          "name": "openwebpbx-1.0.27-debian-source.tar.gz",
+          "bytes": 50633692,
+          "sha256": "c6305adbaeaa00827f78e1a8919a4602a185d8eb382bfb51cb3f25a15b8899d5",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/debian-v1.0.27/openwebpbx-1.0.27-debian-source.tar.gz"
+        },
+        {
+          "name": "openwebpbx-1.0.27-debian13-amd64.tar.gz",
+          "bytes": 488884221,
+          "sha256": "fa771a66999ec2811212ed452588025c5cbe78b0502b8afd7794588c0e236198",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/debian-v1.0.27/openwebpbx-1.0.27-debian13-amd64.tar.gz"
+        },
+        {
+          "name": "SHA256SUMS",
+          "bytes": 666,
+          "sha256": "ca191e61d4d35b1a51a601665025ccb337aa3d9ce161a1d6f8a97b75d6f45f28",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/debian-v1.0.27/SHA256SUMS"
+        },
+        {
+          "name": "update-manifest.json",
+          "bytes": 1404,
+          "sha256": "fc096a1524fc6eec7fd79239006f8117b0f5283e5ea5336f1ac2345abed5f8b8",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/debian-v1.0.27/update-manifest.json"
+        },
+        {
+          "name": "windows-update-manifest.json",
+          "bytes": 1204,
+          "sha256": "0832577ee2d4627c1dbeb8f2ee7d37ec27a82a3dd3c8054e5013da739f1a1f28",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/debian-v1.0.27/windows-update-manifest.json"
+        },
+        {
+          "name": "windows-upgrade-path.json",
+          "bytes": 1636,
+          "sha256": "a9390c76141c35bfa1a391f114394062a092d9b1a148696cc1975f3e66c60368",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/debian-v1.0.27/windows-upgrade-path.json"
+        }
+      ]
+    },
     {
       "version": "1.0.26",
       "component": "Debian server",
@@ -1321,9 +1410,29 @@
     {
       "name": "Debian 13",
       "architecture": "amd64",
-      "status": "published; signed upgrade minimum 1.0.22; see actual platform qualification and deployment limits",
-      "version": "1.0.26",
-      "minimum_installed_version": "1.0.22"
+      "status": "published complete standalone installer; no previous PBX required",
+      "version": "1.0.27",
+      "fresh_install": {
+        "package_type": "full",
+        "previous_installation_required": false,
+        "minimum_existing_version": null,
+        "separate_pbx_patches_required": false,
+        "operating_system": "Debian 13 amd64",
+        "entrypoint": "install.sh",
+        "local_postgresql_setup_included": true
+      },
+      "update_compatibility": {
+        "minimum_installed_version": "1.0.22",
+        "actual_qualified_starting_versions": [
+          "1.0.26"
+        ],
+        "reviewed_reused_starting_versions": [
+          "1.0.22",
+          "1.0.23"
+        ],
+        "original_evidence": "docs/release-1.0.26-qualification.md",
+        "purpose": "Existing-data signed update admission only; not a fresh-install prerequisite."
+      }
     },
     {
       "name": "Windows Server 2025",
@@ -1376,5 +1485,10 @@
     "source_commit": "5eb801d4db8ba65c8a64b3f9956dd0a9514232a2",
     "status": "Hosted Debian App/Core/Updater 1.0.26: comprehensive API v2.1 with 197 paths and 75 named PBX actions; personal and department-scoped keys alongside PBX, tenant, reseller and instance administration. API Keys and API Documentation are linked from administration panels and My PBX. Full-media backup/replacement restore is qualified. Existing phone credentials, QR identities, routes and allocations are preserved. The independently qualified public Debian 1.0.26 package is now available. Windows remains 1.0.23 plus its updater repair; Android remains 1.0.19.",
     "calling_fix_commit": "06f139229881aa7ce87219583fb5c7caef859084"
+  },
+  "installer_policy": {
+    "complete_server_packages": true,
+    "fresh_install_previous_pbx_required": false,
+    "existing_data_update_minima_are_separate": true
   }
 }

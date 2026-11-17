@@ -1,6 +1,23 @@
 # OpenWeb PBX feature coverage
 
-## Current Debian 1.0.26 — 16 November 2026
+## Current public Debian 1.0.27 — 17 November 2026
+
+Debian 1.0.27 is a **complete standalone installer for clean Debian 13 amd64**.
+No earlier PBX version or separate PBX patch is needed. The full package includes
+calling, local PostgreSQL setup, web administration/API, registration, system
+prompts, background services and its current updater. Its sealed installation
+metadata explicitly declares that no previous installation is required.
+
+Updating existing data is a separate signed compatibility/recovery workflow;
+see its actual and explicitly reused evidence in the [qualification record](release-1.0.27-qualification.md).
+Hosted Main remains **1.0.26**, Windows remains **1.0.23** with its legacy updater
+repair, and Android remains **1.0.19**. This packaging release does not close
+broader 3CX-parity, physical phone, carrier, camera, Store or hosting-image goals.
+Roadmap totals remain **133 / 21 accepted / 72 partial / 40 planned**.
+
+[Installation](installing-1.0.27.md) · [Full-release policy](independent-platform-releases.md#every-server-release-is-a-complete-installer).
+
+## Previous public Debian 1.0.26 — 16 November 2026
 
 Hosted App, Core and updater and the independently published Debian server run
 **1.0.26**. The complete Debian 13 amd64 package includes encrypted PBX/tenant

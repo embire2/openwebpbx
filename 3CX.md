@@ -1,5 +1,14 @@
 # OpenWeb PBX — 3CX feature roadmap
 
+**17 November — public Debian 1.0.27:** the complete standalone
+[Debian13 installer](https://github.com/embire2/openwebpbx/releases/tag/debian-v1.0.27) starts on a clean supported OS with no previous
+PBX or separate PBX patch. Full-package metadata, read-only preflight and
+ordinary fresh setup now make that explicit. Existing-data signed updating
+retains its separate preservation and recovery checks. [Qualification](docs/release-1.0.27-qualification.md).
+HostedMain26/Windows23/Android19 remain separate. Roadmap totals remain
+**133 goals / 21 accepted / 72 partial / 40 planned**; this packaging change
+does not close broader feature-parity goals.
+
 **16 November — public Debian 1.0.26:** the complete Debian 13 server is
 [published](https://github.com/embire2/openwebpbx/releases/tag/debian-v1.0.26),
 with signed upgrades from installed 1.0.22. It includes PBX/tenant recovery,

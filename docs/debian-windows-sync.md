@@ -1,6 +1,6 @@
 # Debian changes to carry into Windows
 
-Updated **16 November 2026**. This is the change ledger for Windows catch-up,
+Updated **17 November 2026**. This is the change ledger for Windows catch-up,
 alongside the [release process](independent-platform-releases.md). Add a row
 for every Debian feature, calling fix, migration or deployment change. Keep
 the originating version and source commit even when Windows ships it later.
@@ -10,14 +10,30 @@ Update the Windows result only after checking the actual Windows package.
 
 | Component | Current status |
 |---|---|
-| Hosted Debian at call.openweb.co.za | **1.0.26**, including matching native Core and updater; matching complete Debian 26 is public. |
-| Public Debian installer | **1.0.26**, source `5b60f57458ab336cc5c9e928128054b8d9491bba`; [qualification](release-1.0.26-qualification.md). |
+| Hosted Debian at call.openweb.co.za | **1.0.26**, including matching native Core and updater; public installer27 is a separately qualified full release. |
+| Public Debian installer | **1.0.27**, complete standalone installer; no previous PBX required. Source `72bb5406af4c057acb5ee4eddfd9d861d20d345f`; [qualification](release-1.0.27-qualification.md). |
 | Public Windows installer | **1.0.23**, source `e1aaad63f99ac3b11714d9d0cd3f2a085778688f`; [qualification](release-windows-1.0.23-qualification.md). |
 | Android | **1.0.19**. Server fixes do not imply an Android release. |
 
 A hosted deployment, source commit and downloadable installer are separate
 statuses. Debian 1.0.26 contains the Debian 24–26 features below. Windows remains its
 separately qualified 1.0.23 suite; these rows do not imply Windows 26 parity.
+
+## Debian 1.0.27 standalone release — 17 November 2026
+
+One complete archive installs directly on clean Debian13 with no earlier PBX
+or separate PBX patch. Package metadata and read-only preflight make this
+explicit; existing-data updater admission remains a separate contract. Hosted
+Main stays26. Public Windows23 and Android19 retain their own qualified bytes.
+
+| ID | Debian change | Debian acceptance | Windows follow-up |
+| --- | --- | --- | --- |
+| D27-01 | Full-package installation metadata; no previous PBX required | Published27, source `72bb5406af4c057acb5ee4eddfd9d861d20d345f`; exact clean-machine/full-suite checks in the qualification record | Include and enforce full-release metadata in the next complete Windows package; qualify clean Server2025 setup |
+| D27-02 | Help/check and full payload/old-data refusal before PBX/data writers | Published27; ordinary no-write/preflight and full installation checked separately from existing-data updates | Integrate the current ordered updater and required components; new full-package users must not apply the legacy repair |
+
+[Installation](installing-1.0.27.md) · [Actual and reused evidence](release-1.0.27-qualification.md).
+Existing D24–D26 Windows catch-up rows remain open until the relevant Windows
+package passes; a newer Debian version does not claim Windows parity.
 
 ## Debian 1.0.26 public release — 16 November 2026
 

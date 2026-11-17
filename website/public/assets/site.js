@@ -157,7 +157,7 @@
         "title": "Your team, connected",
         "icon": "i-phone",
         "color": "blue",
-        "description": "Create extensions, voicemail, ring groups and incoming routes. Dial 121 from an authenticated extension for its mailbox. Keoma provides default prompts and the GMT+2 clock on 1026; custom recordings stay intact. Use Greetings to record from a phone or type text for narration. The DID wizard gives each number one destination and supports saved local/international forms and Call Me Back. Debian 1.0.26 also provides a callback-only trunk choice, nine linked-account speed dials and nine editable Keoma stages with Reset Default Scripts. Windows 1.0.23 includes the DID wizard; its other catch-up features remain separate.",
+        "description": "Create extensions, voicemail, ring groups and incoming routes. Dial 121 from an authenticated extension for its mailbox. Keoma provides default prompts and the GMT+2 clock on 1026; custom recordings stay intact. Use Greetings to record from a phone or type text for narration. The DID wizard gives each number one destination and supports saved local/international forms and Call Me Back. Debian 1.0.27 also provides a callback-only trunk choice, nine linked-account speed dials and nine editable Keoma stages with Reset Default Scripts. Windows 1.0.23 includes the DID wizard; its other catch-up features remain separate.",
         "limits": "New providers and numbers start off. Native internal and fixture-provider calls have passed audio checks; qualify your own provider and numbers before a cutover. Text-to-speech requires a configured ElevenLabs account with Keoma access. OpenWebPBX adds no generation fee; provider usage and charges apply. Existing custom recordings remain available.",
         "guide": "docs/core-calling.md"
     },
@@ -181,7 +181,7 @@
         "title": "Room for every business",
         "icon": "i-building",
         "color": "teal",
-        "description": "Invite companies to separate workspaces and publish shared or company-owned PBX templates. One local PostgreSQL database serves an installation and the global relay handles system mail. Debian 1.0.26 includes reseller client workspaces, private provider presets, extension and simultaneous-call packages, priced resource requests, tenant recovery and scoped API keys. Existing PBXs retain their service levels until a package is assigned.",
+        "description": "Invite companies to separate workspaces and publish shared or company-owned PBX templates. One local PostgreSQL database serves an installation and the global relay handles system mail. Debian 1.0.27 includes reseller client workspaces, private provider presets, extension and simultaneous-call packages, priced resource requests, tenant recovery and scoped API keys. Existing PBXs retain their service levels until a package is assigned.",
         "limits": "Resource changes use quotes and approval; payment collection and aggregate reseller fleet quotas remain separate. Public Windows remains 1.0.23 and does not acquire Debian 26 features from the shared source tree.",
         "guide": "docs/reseller-1.0.25.md"
     },
@@ -221,8 +221,8 @@
         "title": "Keep moving forward",
         "icon": "i-download",
         "color": "violet",
-        "description": "Choose voluntary downloads or managed update policies. Windows Server 1.0.23 checks for signed updates every five minutes, prepares a verified download and shows a notice in the server manager and a red web banner. Services keep running until an administrator chooses to install. Server updates verify complete downloads, wait for calls and retain a recovery snapshot. An instance administrator can require a minimum Android version for every tenant; tenant preferences apply to later releases.",
-        "limits": "Debian and Windows retain independent signed feeds. Debian 1.0.26 requires installed 1.0.22; older Debian installations need their supported intermediate release. Windows 1.0.23 requires installed 1.0.22. Apply the one-time Windows updater repair to original clients for the verified 21→22→23 sequence. Android may require installation confirmation and a tap to reopen; Google Play installation follows store rules.",
+        "description": "For a new server, use the complete standalone installer: no earlier OpenWeb PBX or separate PBX patch is required. For an existing server, choose its update policy. Complete signed downloads are checked, active calls are respected and recovery snapshots are retained. Windows Server 1.0.23 checks every five minutes and shows a native notice plus red web banner; services remain available until installation is requested. Hosted Android policies remain separate.",
+        "limits": "Fresh installation and updating existing data have different checks. The normal server updater verifies compatibility and keeps signed history; use the published qualification for supported starting versions. Original Windows 1.0.23 clients have their retained one-time updater repair. Future complete Windows packages must include the current updater. Android installation and reopening can still require a tap; Google Play follows store rules.",
         "guide": "docs/updates.md"
     },
     "hours": {
@@ -245,7 +245,7 @@
         "title": "Keep a way back",
         "icon": "i-restore",
         "color": "rose",
-        "description": "Schedule encrypted instance backups, keep the chosen number and include voicemail and recordings. Download verified archives and recover onto a clean replacement on the same supported OS. Debian 1.0.26 also provides PBX-dashboard and tenant upload, verification and confirmed recovery, preserving current tenant access, used callback minutes, call history and resource allowances.",
+        "description": "Schedule encrypted instance backups, keep the chosen number and include voicemail and recordings. Download verified archives and recover onto a clean replacement on the same supported OS. Debian 1.0.27 also provides PBX-dashboard and tenant upload, verification and confirmed recovery, preserving current tenant access, used callback minutes, call history and resource allowances.",
         "limits": "Instance administration controls backups. Preserve the recovery password separately. Follow the platform’s restore and activation guide; cross-platform instance backups are unsupported. Off-site storage requires your own destination.",
         "guide": "docs/backups.md"
     },
