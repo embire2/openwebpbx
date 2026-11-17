@@ -10,6 +10,7 @@ Add-Type -Path $source -ReferencedAssemblies 'System.dll','System.Web.dll'
 $type=[OpenWebPbx.Windows.UploadAdmission]
 $method=$type.GetMethod('IsBackupImportAlias',[Reflection.BindingFlags]'NonPublic,Static')
 if(!$method){throw 'The actual module query classifier is missing.'}
+$classifier=[Delegate]::CreateDelegate([Func[System.Web.HttpRequest,bool]],$method)
 $checks=0
 function Check([bool]$Allowed,[string]$Message){if(!$Allowed){throw $Message};$script:checks++}
 $uuid='01234567-0123-0123-0123-012345678901'
@@ -25,7 +26,7 @@ foreach($path in '/api/v2','/api/v2/','/api/v2/index.php','/API/V2/INDEX.PHP'){
    foreach($mime in 'application/octet-stream','application/octet-stream; charset=binary','multipart/form-data; boundary=owned-fixture','application/json',''){
     $request=New-Object System.Web.HttpRequest('',('https://owned.example'+$path+'?'+$query),$query)
     $request.ContentType=$mime
-    Check ([bool]$method.Invoke($null,@($request))) ('Backup alias must refuse independently of MIME: '+$path)
+    Check ($classifier.Invoke($request)) ('Backup alias must refuse independently of MIME: '+$path)
    }
   }
  }
@@ -47,6 +48,6 @@ foreach($case in @(
 )){
  $request=New-Object System.Web.HttpRequest('',('https://owned.example'+$case.path+'?'+$case.query),$case.query)
  $request.ContentType='multipart/form-data; boundary=ordinary-form'
- Check (-not [bool]$method.Invoke($null,@($request))) ('Ordinary/canonical route must keep its existing path: '+$case.path)
+ Check (-not $classifier.Invoke($request)) ('Ordinary/canonical route must keep its existing path: '+$case.path)
 }
 Write-Host "Actual Windows System.Web upload alias controls: $checks passed. No request body, IIS or database access."
