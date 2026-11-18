@@ -3,6 +3,8 @@
 class pbx_api_access_denied extends DomainException {}
 class pbx_api_rate_limited extends OverflowException {}
 class pbx_access_keys {
+    /** Full administration inside one tenant, never instance or reseller authority. */
+    public const TENANT_ADMIN_SCOPES=['pbx:read','pbx:write','calls:control','credentials:read','backups:read','backups:write','templates:read','templates:write','keys:manage'];
     public const ACCOUNT_SCOPES=['me:read','me:write','me:calls','me:credentials','staff:read','staff:write','staff:calls'];
     public const SCOPES=['pbx:read','pbx:write','calls:control','credentials:read','backups:read','backups:write','templates:read','templates:write','reseller:manage','keys:manage','system:manage',...self::ACCOUNT_SCOPES];
     private PDO $db;
@@ -48,7 +50,8 @@ class pbx_access_keys {
         if(!$instance){$tf=' and (owner_user_uuid=?';$tp[]=$actor;$sf=' and (t.owner_user_uuid=?';$sp[]=$actor;if($reseller){$tf.=' or reseller_user_uuid=?';$tp[]=$actor;$sf.=' or t.reseller_user_uuid=?';$sp[]=$actor;}if($admin){$tf.=' or exists(select 1 from v_pbx_services s where s.tenant_uuid=v_pbx_tenants.tenant_uuid and s.domain_uuid=?)';$tp[]=$own;$sf.=' or d.domain_uuid=?';$sp[]=$own;}$tf.=')';$sf.=')';}
         $tenants=$this->q('select tenant_uuid,tenant_name from v_pbx_tenants where enabled'.$tf.' order by tenant_name',$tp)->fetchAll(PDO::FETCH_ASSOC);
         $services=$this->q('select d.domain_uuid,s.tenant_uuid,coalesce(s.service_name,d.domain_name) service_name,d.domain_name from v_domains d left join v_pbx_services s using(domain_uuid) left join v_pbx_tenants t using(tenant_uuid) where d.domain_enabled and (t.tenant_uuid is null or t.enabled)'.$sf.' order by service_name',$sp)->fetchAll(PDO::FETCH_ASSOC);
-        return ['instance'=>$instance,'reseller'=>$instance?$this->grant($actor,'pbx_reseller_manage'):$reseller,'tenants'=>$tenants,'services'=>$services,'domain_admin'=>$admin,'default_domain'=>!$instance&&$admin&&!$this->q('select 1 from v_pbx_tenants where owner_user_uuid=? and enabled',[$actor])->fetchColumn()?$own:''];
+        $fullTenants=array_values(array_filter(array_column($tenants,'tenant_uuid'),fn($id)=>$instance||$this->tenantOwned($actor,$id)));
+        return ['instance'=>$instance,'reseller'=>$instance?$this->grant($actor,'pbx_reseller_manage'):$reseller,'tenants'=>$tenants,'services'=>$services,'domain_admin'=>$admin,'tenant_admin_tenants'=>$fullTenants,'default_domain'=>!$instance&&$admin&&!$this->q('select 1 from v_pbx_tenants where owner_user_uuid=? and enabled',[$actor])->fetchColumn()?$own:''];
     }
     public function listing(): array {
         $id=$this->actor();return $this->q("with recursive selected as (select * from v_pbx_access_keys where owner_user_uuid=? order by created_at desc limit 500), chain as (select key_uuid origin,key_uuid,parent_key_uuid,revoked_at is null and expires_at>now() active,1 depth from selected union all select c.origin,p.key_uuid,p.parent_key_uuid,p.revoked_at is null and p.expires_at>now(),c.depth+1 from v_pbx_access_keys p join chain c on p.key_uuid=c.parent_key_uuid where c.depth<33), state as (select origin,bool_and(active) and bool_or(parent_key_uuid is null) and max(depth)<=32 effective_active from chain group by origin) select k.key_uuid,k.key_name,k.prefix,k.tenant_uuid,k.domain_uuid,k.scopes,k.expires_at,k.revoked_at,k.last_used_at,k.last_used_ip,k.created_at,k.parent_key_uuid,s.effective_active from selected k join state s on s.origin=k.key_uuid order by k.created_at desc",[$id])->fetchAll(PDO::FETCH_ASSOC);
