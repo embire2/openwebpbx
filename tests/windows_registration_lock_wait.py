@@ -76,10 +76,54 @@ scope,b,state,clock=fixture([None]);scope['IS_WINDOWS']=False
 try:
  with scope['windows_registration_guard'](b):state['bodies']+=1
 except RuntimeError:check(state['enters']==0,'Windows-only helper cannot change Debian acquisition behavior')
-for rel,expected in [('packaging/debian/onboarding.py', '4f797326faae79d65eaf4d142412f98f6c3655fd57ac78eccd0f9b52c740300c'), ('packaging/debian/tenant-domains.py', '48a039c2e3ae34fba09c3929e0574cf6c2baa4c28840053d7eb4711ad705c9bb')]:
+# The background lease must outwait the actual observed twelve-second holder,
+# while all default/foreground cases above retain their five-second deadline.
+scope,b,state,clock=fixture([32]*240+[None])
+with scope['windows_registration_guard'](b,acquisition_seconds=30):state['bodies']+=1
+check(state['bodies']==1 and state['releases']==1 and 11.9<clock.now<12.1,'background waits through twelve seconds and executes one body')
+for seconds in [0,4,6,31,True,5.0,None]:
+ scope,b,state,clock=fixture([None])
+ try:
+  with scope['windows_registration_guard'](b,acquisition_seconds=seconds):state['bodies']+=1
+ except ValueError:check(state['enters']==0 and state['bodies']==0,'unapproved acquisition bound refuses before lock: '+repr(seconds))
+scope,b,state,clock=fixture([32]*700)
+try:
+ with scope['windows_registration_guard'](b,acquisition_seconds=30):state['bodies']+=1
+except base['BackupBusy'] as e:check(e is state['errors'][-1] and clock.now==30 and state['bodies']==0,'background contention remains thirty-second bounded')
+for rel,expected in [('packaging/debian/onboarding.py', '4f797326faae79d65eaf4d142412f98f6c3655fd57ac78eccd0f9b52c740300c'), ('packaging/debian/tenant-domains.py', 'd31082c502087b4b4dac3d762cec0acabe08c49b80d6f94b95faeecf76e9a504')]:
  tree=ast.parse((ROOT/rel).read_text())
  calls=[ast.dump(n,**({'show_empty':True}if sys.version_info>=(3,13)else{}))for n in ast.walk(tree)if isinstance(n,ast.Call)and isinstance(n.func,ast.Attribute)and isinstance(n.func.value,ast.Name)and n.func.value.id=='subprocess'and n.func.attr=='run']
- check(hashlib.sha256('\n'.join(calls).encode()).hexdigest()==expected,rel+' native argv/options/child deadlines remain reviewed')
+ check(hashlib.sha256('\n'.join(calls).encode()).hexdigest()==expected,rel+' native argv/options/child deadlines match reviewed explicit acquisition bound')
+# Execute the actual routing and Ensure argv construction with host operations
+# replaced at their boundaries. No service, task, file or worker is invoked.
+product=ast.parse((ROOT/'packaging/debian/tenant-domains.py').read_text())
+run_node=next(n for n in product.body if isinstance(n,ast.FunctionDef)and n.name=='run')
+ensure_node=next(n for n in product.body if isinstance(n,ast.FunctionDef)and n.name=='ensure_windows_onboarding')
+for move,want in [(False,30),(True,5)]:
+ routes=[]
+ class Busy(RuntimeError):pass
+ fake_b=types.SimpleNamespace(BackupBusy=Busy)
+ loader=types.SimpleNamespace(exec_module=lambda b:None)
+ fake_util=types.SimpleNamespace(spec_from_file_location=lambda *a:types.SimpleNamespace(loader=loader),module_from_spec=lambda spec:fake_b)
+ @contextlib.contextmanager
+ def route_guard(b,*,acquisition_seconds=5):
+  routes.append(('guard',acquisition_seconds));yield
+ scope={'Path':Path,'__file__':str(ROOT/'packaging/debian/tenant-domains.py'),'importlib':types.SimpleNamespace(util=fake_util),'IS_WINDOWS':True,'contextlib':contextlib,'ensure_windows_onboarding':lambda b,**kw:(routes.append(('ensure',kw['acquisition_seconds']))or{'state':'not_needed'}),'windows_registration_guard':route_guard,'blocked':lambda b:True}
+ exec(compile(ast.Module(body=[run_node],type_ignores=[]),'actual-background-routing','exec'),scope)
+ check(scope['run'](move=move)=={'state':'deferred','reason':'maintenance_or_restore_hold'}and routes==[('ensure',want),('guard',want)],'actual '+('move foreground'if move else'scheduled background')+' chooses bound for both acquisition stages')
+argv=[]
+def capture(command,**kwargs):
+ argv.append((command,kwargs));return types.SimpleNamespace(returncode=0,stdout=b'{"state":"not_needed"}')
+scope={'Path':Path,'os':types.SimpleNamespace(environ={'SystemRoot':'C:/Windows'}),'subprocess':types.SimpleNamespace(run=capture),'json':json,'Pending':RuntimeError}
+exec(compile(ast.Module(body=[ensure_node],type_ignores=[]),'actual-ensure-child-options','exec'),scope)
+fake_b=types.SimpleNamespace(APP=Path('C:/OpenWebPBX'),native_powershell_environment=lambda:{'owned':'environment'})
+for seconds in [None,30]:
+ result=scope['ensure_windows_onboarding'](fake_b,**({}if seconds is None else{'acquisition_seconds':seconds}));command,options=argv[-1]
+ check(result=={'state':'not_needed'}and command[-2:]==['-AcquisitionSeconds',str(5 if seconds is None else seconds)]and options=={'capture_output':True,'env':{'owned':'environment'},'timeout':60},'Ensure forwards '+str(5 if seconds is None else seconds)+' explicitly with original environment and child deadline')
+for seconds in [0,6,31,True,5.0]:
+ before=len(argv)
+ try:scope['ensure_windows_onboarding'](fake_b,acquisition_seconds=seconds)
+ except ValueError:check(len(argv)==before,'Ensure refuses invalid bound without child execution '+repr(seconds))
 oldbackup=hashlib.sha256(native_path.read_bytes()).hexdigest()
 check('wait_seconds' not in ast.unparse(next(n for n in native.body if isinstance(n,ast.FunctionDef) and n.name=='exclusive_guard').args),'generic Windows guard default API remains unchanged')
 report={'passed':True,'scope':'source_only_acquisition_component_with_exact_existing_native32_33_classifier','checkCount':len(CHECKS),'checks':CHECKS,'proposedSource':{rel:hashlib.sha256((ROOT/rel).read_bytes()).hexdigest()for rel in ['packaging/debian/onboarding.py','packaging/debian/tenant-domains.py']},'nativeBackupSourceUnchangedSHA256':oldbackup,'nativeWindowsExecution':False,'liveChanges':False,'buildOrDispatch':False}

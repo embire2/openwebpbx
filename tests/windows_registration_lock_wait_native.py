@@ -55,14 +55,15 @@ def launch_holder(p,kind):
     return process
 def release(p):
     (p/'holder.release').touch(exist_ok=True)
-def delayed_release(p):
-    timer=threading.Timer(2,release,args=(p,));timers.append(timer);timer.start();return timer
+def delayed_release(p,seconds=2):
+    timer=threading.Timer(seconds,release,args=(p,));timers.append(timer);timer.start();return timer
 def finish(process,p):
     release(p);check(process.wait(timeout=18)==0,'private '+p.name+' holder exits normally')
     check((p/'upgrade.lock').read_bytes()==b'exact owned lock bytes','private '+p.name+' lock bytes exact after release')
-def native(p):
-    command=[POWERSHELL,'-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',str(SOURCE/'tests/windows_registration_lock_wait_native.ps1'),'-Mode','Acquire','-Directory',str(p),'-Source',str(SOURCE/'packaging/windows/Ensure-OnboardingUpgrade.ps1')]
-    result=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=10)
+def native(p,seconds=5,body_failure=False):
+    command=[POWERSHELL,'-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',str(SOURCE/'tests/windows_registration_lock_wait_native.ps1'),'-Mode','Acquire','-Directory',str(p),'-Source',str(SOURCE/'packaging/windows/Ensure-OnboardingUpgrade.ps1'),'-AcquisitionSeconds',str(seconds)]
+    if body_failure:command+=['-BodyFailure']
+    result=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=40)
     (p/'native.stdout.private').write_bytes(result.stdout);(p/'native.stderr.private').write_bytes(result.stderr)
     check(result.returncode==0,'native acquisition fixture process succeeds')
     return json.loads((p/'native-result.safe.json').read_text(encoding='utf-8-sig'))
@@ -91,6 +92,20 @@ try:
 
     p=case('dotnet-exhausted');child=launch_holder(p,'python');r=native(p)
     check(r['state']=='deferred' and r['reason']=='maintenance_busy' and r['bodyCount']==0 and 4.8<=r['elapsedSeconds']<6,'native Ensure returns unchanged deferred JSON after five seconds without body');finish(child,p)
+
+    p=case('background-python-twelve');child=launch_holder(p,'dotnet');delayed_release(p,12);B.UPGRADE_LOCK=p/'upgrade.lock';bodies=0;begin=time.monotonic()
+    with acquire(B,acquisition_seconds=30):bodies+=1
+    elapsed=time.monotonic()-begin
+    check(bodies==1 and 11.5<elapsed<14,'background Python outwaits real twelve-second .NET hold and runs once');finish(child,p)
+
+    p=case('background-dotnet-twelve');child=launch_holder(p,'python');delayed_release(p,12);r=native(p,30)
+    check(r['state']=='acquired' and r['bodyCount']==1 and 10<r['elapsedSeconds']<14,'background Ensure outwaits real twelve-second Python hold and runs once');finish(child,p)
+
+    for seconds in [0,4,6,31]:
+        p=case('invalid-bound-'+str(seconds).translate(str.maketrans('0123456789','abcdefghij')));r=native(p,seconds)
+        check(r['state']=='error' and r['bodyCount']==0 and r['elapsedSeconds']<0.5,'source PS parameter refuses unapproved acquisition bound '+str(seconds))
+    p=case('native-body-error-once');r=native(p,30,body_failure=True)
+    check(r['state']=='error' and r['nativeCode']==32 and r['bodyCount']==1 and r['elapsedSeconds']<0.5,'native guarded-body sharing failure propagates once without acquisition replay')
 
     p=case('body-error-once');B.UPGRADE_LOCK=p/'upgrade.lock';original=B.BackupBusy('private guarded-body fixture');bodies=0
     try:

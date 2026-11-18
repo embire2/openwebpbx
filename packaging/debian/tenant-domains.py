@@ -36,10 +36,12 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs): return None
 
 @contextlib.contextmanager
-def windows_registration_guard(b):
-    """Wait at most five seconds for acquisition; never repeat its body."""
+def windows_registration_guard(b, *, acquisition_seconds=5):
+    """Bound acquisition only; never repeat the guarded body."""
+    if type(acquisition_seconds) is not int or acquisition_seconds not in (5,30):
+        raise ValueError('Use the foreground or background registration acquisition bound.')
     if not IS_WINDOWS:raise RuntimeError('Windows registration guard required.')
-    deadline=time.monotonic()+5
+    deadline=time.monotonic()+acquisition_seconds
     last_busy=None;last_traceback=None
     while True:
         if last_busy is not None and time.monotonic()>=deadline:
@@ -180,11 +182,13 @@ def windows(b, operation, value):
         raise Pending('certificate_pending',3600)
     return json.loads(result.stdout)
 
-def ensure_windows_onboarding(b):
+def ensure_windows_onboarding(b, *, acquisition_seconds=5):
+    if type(acquisition_seconds) is not int or acquisition_seconds not in (5,30):
+        raise ValueError('Use the foreground or background registration acquisition bound.')
     # The immutable21 helper stages this verified closure through its existing
     # tenant installer. Ensure owns/relinquishes upgrade.lock BEFORE this worker.
     program=Path(os.environ.get('SystemRoot','C:/Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe'
-    result=subprocess.run([str(program),'-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',str(b.APP/'tools/Ensure-OnboardingUpgrade.ps1')],capture_output=True,env=b.native_powershell_environment(),timeout=60)
+    result=subprocess.run([str(program),'-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',str(b.APP/'tools/Ensure-OnboardingUpgrade.ps1'),'-AcquisitionSeconds',str(acquisition_seconds)],capture_output=True,env=b.native_powershell_environment(),timeout=60)
     if result.returncode or len(result.stdout)>8192:raise Pending('local_configuration',300)
     reply=json.loads(result.stdout)
     if not isinstance(reply,dict)or reply.get('state')not in ['existing','created','not_needed','deferred']:raise Pending('local_configuration',300)
@@ -282,11 +286,12 @@ def run(move=False, confirm=None):
     if not IS_WINDOWS and os.geteuid()!=0:raise PermissionError('Run the installed tenant domain worker as root.')
     if IS_WINDOWS:
         WINDOWS_ACL=lambda operation,path:windows(b,operation,path)
-        ensured=ensure_windows_onboarding(b)
+        acquisition_seconds=5 if move else 30
+        ensured=ensure_windows_onboarding(b,acquisition_seconds=acquisition_seconds)
         if ensured['state']=='deferred':return {'state':'deferred','reason':'onboarding_upgrade_pending'}
     with contextlib.ExitStack() as lock:
         if IS_WINDOWS:
-            try:lock.enter_context(windows_registration_guard(b))
+            try:lock.enter_context(windows_registration_guard(b,acquisition_seconds=acquisition_seconds))
             except b.BackupBusy:
                 # Only an exact native sharing/byte-lock conflict defers. ACL,
                 # unsafe-path and guarded-body failures still require review.

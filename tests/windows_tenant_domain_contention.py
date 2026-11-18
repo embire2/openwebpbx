@@ -18,7 +18,7 @@ def check(value):
  assert value,'Actual tenant contention control failed.';checks+=1
 def run(b,ensure=None):
  spec=types.SimpleNamespace(loader=types.SimpleNamespace(exec_module=lambda *a:None))
- with patch.object(tenant.importlib.util,'spec_from_file_location',return_value=spec),patch.object(tenant.importlib.util,'module_from_spec',return_value=b),patch.object(tenant,'ensure_windows_onboarding',side_effect=ensure or (lambda b:{'state':'not_needed'})),patch.object(tenant,'bridge',side_effect=bridge),patch.object(tenant,'Broker',side_effect=forbidden),patch.object(tenant,'certify',side_effect=forbidden):return tenant.run()
+ with patch.object(tenant.importlib.util,'spec_from_file_location',return_value=spec),patch.object(tenant.importlib.util,'module_from_spec',return_value=b),patch.object(tenant,'ensure_windows_onboarding',side_effect=ensure or (lambda b,**kwargs:{'state':'not_needed'})),patch.object(tenant,'bridge',side_effect=bridge),patch.object(tenant,'Broker',side_effect=forbidden),patch.object(tenant,'certify',side_effect=forbidden):return tenant.run()
 def refuses(b,kind):
  calls.clear()
  try:run(b)
@@ -57,9 +57,9 @@ with tempfile.TemporaryDirectory(prefix='openweb-tenant-contention-')as work:
  # A busy/deferred postcommit ensure returns BEFORE the normal tenant lock;
  # existing/created paths release their own native lock before entering it.
  backup.exclusive_guard=forbidden;calls.clear()
- check(run(backup,lambda b:{'state':'deferred'})=={'state':'deferred','reason':'onboarding_upgrade_pending'});check(not calls)
+ check(run(backup,lambda b,**kwargs:{'state':'deferred'})=={'state':'deferred','reason':'onboarding_upgrade_pending'});check(not calls)
  backup.exclusive_guard=original_guard
- def ensure_before_lock(b):calls.append('ensure');return {'state':'existing'}
+ def ensure_before_lock(b,**kwargs):calls.append('ensure');return {'state':'existing'}
  @contextlib.contextmanager
  def ordered_guard(path):
   calls.append('lock')
@@ -75,7 +75,7 @@ with tempfile.TemporaryDirectory(prefix='openweb-tenant-contention-')as work:
  for state in ('existing','created','not_needed','deferred'):
   with patch.object(tenant.subprocess,'run',return_value=types.SimpleNamespace(returncode=0,stdout=json.dumps({'state':state}).encode()))as proc:
    check(tenant.ensure_windows_onboarding(native)['state']==state)
-   check(proc.call_args.args[0][-1]==str(base/'tools/Ensure-OnboardingUpgrade.ps1')and proc.call_args.kwargs['env']=={'OWNED':'fixture'}and proc.call_args.kwargs['timeout']==60)
+   check(proc.call_args.args[0][-3:]==[str(base/'tools/Ensure-OnboardingUpgrade.ps1'),'-AcquisitionSeconds','5']and proc.call_args.kwargs['env']=={'OWNED':'fixture'}and proc.call_args.kwargs['timeout']==60)
  for code,body in ((1,b'{}'),(0,b'x'*8193),(0,b'[]'),(0,b'{"state":"unknown"}')):
   with patch.object(tenant.subprocess,'run',return_value=types.SimpleNamespace(returncode=code,stdout=body)):
    try:tenant.ensure_windows_onboarding(native)
