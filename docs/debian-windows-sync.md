@@ -99,6 +99,13 @@ acceptance remains separate from isolated provider and software-phone checks.
 | Native manager and five-minute update notice. | Public Windows 22 baseline retained in 23; automatic updater/manager restart verified on the final 23 package. | Keep desktop modal, web notice, service continuity before installation, verified predownload, call-aware installation and restart. |
 | Signed ordered Windows upgrades and legacy bootstrap. | Updater component `1.0.23+upgrade-path.1`; [scope and qualification](windows-upgrade-path-repair.md). **Published repair, 16 November:** actual 21→22→23 transactions, preserved customer identities and final launcher pass. Full 23 installers/feeds retain their original bytes. | Retain separate catalogue trust, exact historical envelopes, current installed-version admission, one bounded approval, call-aware backups/recovery and catalogue publication guards. Do not infer Debian26 feature parity. |
 
+Windows27 also retains dedicated legacy terminal handoff (`ced796783`) and
+pre-claim registration snapshot coordination (`138c5cef2`). These Windows-specific
+source corrections have native controls; public Windows stays23 until actual
+whole-package rollback, upgrade, fresh setup, recovery and public readback pass.
+Source-assisted manual recovery of the earlier failed candidate remains separate.
+Port later hosted API presets/local docs independently; a version cannot prove parity.
+
 ## Before promoting a Windows catch-up release
 
 1. Freeze a Windows source commit; include each applicable row above and

@@ -24,6 +24,12 @@ state without restoring data or changing seals.23 actual native host controls,
 39 admission controls and [independent Windows CI](https://github.com/embire2/openwebpbx/actions/runs/44376973779)
 pass. A source-assisted manual recovery is separate from the required new
 whole-package automatic transaction.
+The approved source-assisted manual `-Recover` completes at19:20:58UTC in
+5.072seconds: ordinary `rolled_back`/healthy23, four service generations,
+13,175 partial-backup files/identities/attributes, nine customer projections,
+471 archived files and eight prior requests stay exact. No database restore,
+seal rewrite or direct SQL finalizer is used. This manual result does **not**
+qualify the failed automatic transaction.
 
 The real clean final2 installer completes in **2123.0761515seconds**, with no
 older PBX, resume or patch. Its original30-minute case remains failed; a separate
@@ -33,6 +39,17 @@ checks pass. Admin API DELETE fails with IIS401.3 before PHP authorization;
 a scoped hosting correction is under isolated qualification. Earlier invalid
 fixture realm, incorrect TLS SNI and private IIS-observer failures are retained.
 No new public release or final-package acceptance follows from these components.
+
+Source `138c5cef2bf497591a087a44a8d4ce98811dd929` additionally acquires the
+registration snapshot before a queued Windows backup is claimed. Busy acquisition
+leaves the same request pending; guarded work runs once. The archive/business body
+remains AST-equivalent to the prior source apart from its held-guard call.33
+portable and39 actual native registration controls pass;169 maintenance controls
+remain separate. An initial native scaffold used three transient installed
+backup-control request files despite passing assertions; retain it as a **scope
+defect**. The corrected fixture touches only new private paths and preserves449
+authority pins, four service generations and zero backup-control requests. No
+installed patch or final-package acceptance follows from these source controls.
 
 ## Last complete final2 package (unqualified; corrections in progress)
 
