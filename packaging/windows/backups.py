@@ -949,6 +949,20 @@ def worker(settings, **kwargs):
 
 
 def _worker(settings, *, store=STORE, downloads=DOWNLOADS, roots=None, version=None, key_file=KEY):
+    # The image consumer takes its own session lock, then calls helpers that
+    # need UPGRADE_LOCK. Never wait for it while holding our maintenance lock,
+    # and never claim a queued backup before its registration snapshot is safe.
+    # Only acquisition contention defers; errors in the guarded body run once.
+    with contextlib.ExitStack() as registration:
+        try:
+            registration.enter_context(registration_guard(roots if roots is not None else ROOTS | MEDIA))
+        except BackupBusy:
+            return
+        return _registration_worker(settings, store=store, downloads=downloads,
+                                    roots=roots, version=version, key_file=key_file)
+
+
+def _registration_worker(settings, *, store=STORE, downloads=DOWNLOADS, roots=None, version=None, key_file=KEY):
     store = safe_private_directory(store)
     downloads = safe_private_directory(downloads, group=33)
     with exclusive_guard(store / 'worker.lock'):
@@ -989,7 +1003,8 @@ def _worker(settings, *, store=STORE, downloads=DOWNLOADS, roots=None, version=N
                 include_media = bool(config['include_media'] or command.get('full_backup', False))
                 query(settings, 'insert into v_pbx_backups(backup_uuid,command_uuid,filename,status,include_media,app_version,remote_status) values('
                       + ','.join(literal(v) for v in (backup_id, command_id, file.name, 'creating', include_media, installed, 'pending' if config['sftp_enabled'] else 'disabled')) + ')')
-                manifest = create_archive(settings, file, password, include_media=include_media, roots=roots, version=installed)
+                # _worker already holds the exact registration snapshot lock.
+                manifest = _create_archive(settings, file, password, include_media=include_media, roots=roots, version=installed)
                 digest = checksum(file)
                 publish_download(file, downloads / file.name)
                 query(settings, "update v_pbx_backups set status='ready',size_bytes=" + str(file.stat().st_size) + ',sha256=' + literal(digest)

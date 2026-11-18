@@ -60,6 +60,21 @@ function WaitPool([string]$Wanted) {
 function ResumeManagers {
  foreach($task in $script:managerTasks){try{Start-ScheduledTask -TaskName $task -ErrorAction Stop}catch{Write-Warning 'A previously open manager can be reopened from its normal shortcut.'}}
 }
+function Test-OpenWebLegacyUnsealedRecovery {
+ param([Parameter(Mandatory)]$Context)
+ foreach($name in 'BackupComplete','BackupManifest','DatabaseDump','HoldPresent','OrdinaryRuntime','ClearRestoreGates'){
+  if($Context.$name -isnot [bool]){return $false}
+ }
+ if($Context.BackupComplete -or $Context.BackupManifest -or $Context.DatabaseDump -or $Context.HoldPresent -or !$Context.OrdinaryRuntime -or !$Context.ClearRestoreGates){return $false}
+ $j=$Context.Journal;$s=$Context.Installed
+ if(!$j -or !$s -or ($j.schema -isnot [int] -and $j.schema -isnot [long]) -or $j.schema -ne 1 -or $j.state -cne 'recovery_required' -or $j.version -cne '1.0.27' -or $j.previous_version -cne '1.0.23' -or $j.PSObject.Properties['recovery_entry'] -or $j.operator_rollback -isnot [bool] -or $j.operator_rollback -or $s.Version -cne '1.0.23' -or $s.Completed -isnot [bool] -or !$s.Completed){return $false}
+ if($Context.HelperSha256 -cne '527e17a9349fd5e9f3b1d048fd2f4526495e2cdc5e28f836fe79d8fd17ff1eec' -or $j.backup_path -isnot [string] -or $Context.BackupRoot -isnot [string]){return $false}
+ if(!$j.PSObject.Properties['call_records_hold']){return $false}
+ try{Assert-OpenWebCallRecordHold $j.call_records_hold}catch{return $false}
+ if($j.call_records_hold.owner -cne 'upgrade'){return $false}
+ $path=[IO.Path]::GetFullPath($j.backup_path).TrimEnd('\');$parent=[IO.Path]::GetFullPath($Context.BackupRoot).TrimEnd('\')
+ return [IO.Path]::GetDirectoryName($path) -ieq $parent -and [IO.Path]::GetFileName($path) -cmatch '^\d{8}-\d{6}-[a-f0-9]{8}$'
+}
 function CompleteCommittedFinalization {
  $script:upgradeFinalizationPhase='service_selection'
  Complete-OpenWebCommittedUpgrade -Entry $script:upgradeRecoveryEntry -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock
@@ -543,6 +558,22 @@ try {
     $backup=$journal.backup_path;$version=$journal.version;$previousVersion=$journal.previous_version
     $script:managerTasks=@($journal.manager_tasks)
     $script:operatorRollback=[bool]$journal.operator_rollback
+    $legacyUnsealedRecovery=$false
+    if($journal.state -ceq 'recovery_required' -and !$journal.PSObject.Properties['recovery_entry'] -and !(Test-Path -LiteralPath (Join-Path $backup 'complete.json'))){
+     # Stock23 could continue after a delegated rollback and fail while only
+     # copying its own backup. No seal or recovery entry means deployment was
+     # never reached. Admit only that exact legacy/version/ordinary-runtime
+     # case; retain every partial file and refuse unknown or committed states.
+     $runtime=[Text.Encoding]::UTF8.GetString((Read-OpenWebRecoveryBytes (Join-Path $private 'runtime.json') 1048576))|ConvertFrom-Json
+     Assert-OpenWebRecoveryRuntimeShape $runtime
+     $ordinaryRuntime=!$runtime.PSObject.Properties['Updater'] -or ($runtime.Updater -is [pscustomobject] -and (!$runtime.Updater.PSObject.Properties['Helper'] -or ($runtime.Updater.Helper -is [string] -and $runtime.Updater.Helper -ieq (Join-Path $root 'tools\Upgrade-OpenWebPBX.ps1'))))
+     $restoreGate=Get-OpenWebRestoreGate -StateRoot $private
+     $clearGates=$restoreGate.Blocked -is [bool] -and !$restoreGate.Blocked -and $restoreGate.Calls -is [bool] -and !$restoreGate.Calls -and $restoreGate.Jobs -is [bool] -and !$restoreGate.Jobs
+     $legacyHelper=Join-Path $root 'tools\Upgrade-OpenWebPBX.ps1';$null=Assert-OpenWebRecoveryProtected $legacyHelper
+     $legacyUnsealedRecovery=Test-OpenWebLegacyUnsealedRecovery ([pscustomobject]@{Journal=$journal;Installed=$state;HelperSha256=(Get-FileHash -LiteralPath $legacyHelper -Algorithm SHA256).Hash.ToLowerInvariant();BackupRoot=(Join-Path $private 'backups');BackupComplete=[bool](Test-Path -LiteralPath (Join-Path $backup 'complete.json'));BackupManifest=[bool](Test-Path -LiteralPath (Join-Path $backup 'backup-manifest.json'));DatabaseDump=[bool](Test-Path -LiteralPath (Join-Path $backup 'database.dump'));HoldPresent=[bool](Test-Path -LiteralPath (Join-Path $private 'call-records.hold'));OrdinaryRuntime=[bool]$ordinaryRuntime;ClearRestoreGates=[bool]$clearGates})
+     if(!$legacyUnsealedRecovery){throw 'The unsealed interrupted update requires review; no data or recovery authority was changed.'}
+     $null=Assert-OpenWebRecoveryProtected $backup -Directory -Private
+    }
     if($journal.PSObject.Properties['recovery_entry']){
      $script:upgradeRecoveryEntry=$journal.recovery_entry
      Ensure-OpenWebUpgradeRecoveryPublished -Entry $script:upgradeRecoveryEntry -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock
@@ -551,9 +582,9 @@ try {
      $script:recoveryCodeRoot=$script:upgradeRecoveryEntry.bundle_path
      foreach($name in 'Restore-Gates.ps1','Support-Recovery.ps1','Web-Readiness.ps1','UpgradeRecovery.Common.ps1','File-Security.ps1','CallRecords.Common.ps1'){. (Join-Path $script:recoveryCodeRoot $name)}
     }
-    if($script:callRecordsHold){Set-OpenWebCallRecordHold -StateRoot $private -Hold $script:callRecordsHold -MaintenanceLock $lock}
+    if($script:callRecordsHold -and !$legacyUnsealedRecovery){Set-OpenWebCallRecordHold -StateRoot $private -Hold $script:callRecordsHold -MaintenanceLock $lock}
     if(!(Test-Path "$backup\complete.json")){
-     if($journal.state -notin 'prepared','quiescing'){throw 'The interrupted update has no complete recovery backup.'}
+     if($journal.state -notin 'prepared','quiescing' -and !$legacyUnsealedRecovery){throw 'The interrupted update has no complete recovery backup.'}
      $script:enginePaused=($journal.state -eq 'quiescing');StartPbx;ResumeEngine;CheckHealth $previousVersion;Complete-OpenWebUpgradeRecovery -Entry $script:upgradeRecoveryEntry -Root $root -StateRoot $private -EngineRoot $switch -MaintenanceLock $lock -Outcome Rollback;SaveJournal 'rolled_back'
     }else{
      VerifyBackup $backup;SaveJournal 'rolling_back';$recoveryRestoreStarted=$true;$stopped=$true;StopPbx

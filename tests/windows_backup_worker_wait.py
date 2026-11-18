@@ -33,7 +33,8 @@ class Marker:
     def exists(self): return self.value
 
 # Execute the two real source functions with bounded acquisition adapters.
-ns = {'contextlib': contextlib, 'os': SimpleNamespace(name='nt')}
+ns = {'contextlib': contextlib, 'os': SimpleNamespace(name='nt'),
+      'worker_heartbeat': lambda settings: contextlib.nullcontext()}
 exec(compile(ast.Module(body=[node(n) for n in ('BackupError', 'BackupBusy', 'backup_worker_guard', 'worker')], type_ignores=[]), '<actual-backup-worker-functions>', 'exec'), ns)
 Busy, Error = ns['BackupBusy'], ns['BackupError']
 def case(sequence=(), *, body_error=None, release_error=None, hold=False, maintenance=False, hold_on_wait=False, maintenance_on_wait=False, platform='nt'):
@@ -79,7 +80,9 @@ s,c,e = case((Busy,), platform='posix'); need(e is Busy and s['attempts'] == 1 a
 s,c,e = case(platform='posix'); need(e is None and s['body'] == 1 and not c.sleeps)
 if a.previous:
     old = a.previous.read_text(); prior = ast.parse(old)
-    for name in ('exclusive_guard','windows_exclusive_guard','_worker','restore','recover'):
+    # The registration pre-claim regression separately proves the moved worker
+    # business body exact; this fixture owns only maintenance acquisition.
+    for name in ('exclusive_guard','windows_exclusive_guard','restore','recover'):
         n = next(x for x in prior.body if isinstance(x,ast.FunctionDef) and x.name == name)
         need(ast.dump(n,include_attributes=False) == ast.dump(node(name),include_attributes=False))
 
