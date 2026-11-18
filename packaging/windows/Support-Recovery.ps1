@@ -261,6 +261,30 @@ function Resolve-OpenWebSupportDirectory {
  if(![string]::Equals([IO.Path]::GetFullPath($Entry.Path),$expected,[StringComparison]::OrdinalIgnoreCase)){throw 'The support recovery folder does not match its owned path.'}
  return $expected
 }
+function Test-OpenWebMissingGeneratedCacheAcl {
+ param([string]$Path,[string]$StateRoot)
+ # Updates and rollback deliberately clear generated cache contents. Older
+ # sealed snapshots still contain their ACLs; only absent descendants of this
+ # exact ordinary cache may be omitted. Its root and every other target retain
+ # the strict missing-target contract.
+ $cache=[IO.Path]::GetFullPath((Join-Path $StateRoot 'cache')).TrimEnd('\')
+ $full=[IO.Path]::GetFullPath($Path)
+ if(!$full.StartsWith($cache+'\',[StringComparison]::OrdinalIgnoreCase) -or ![string]::Equals($Path,$full,[StringComparison]::OrdinalIgnoreCase)){return $false}
+ $relative=$full.Substring($cache.Length+1)
+ if(!$relative -or $relative.IndexOfAny([char[]]':*?"<>|') -ge 0){return $false}
+ $null=Assert-OpenWebRecoveryOrdinary -Path $cache -Directory
+ for($current=$full;!$current.Equals($cache,[StringComparison]::OrdinalIgnoreCase);$current=[IO.Path]::GetDirectoryName($current)){
+  $item=$null
+  try{$item=Get-Item -LiteralPath $current -Force -ErrorAction Stop}
+  catch [Management.Automation.ItemNotFoundException]{}
+  if($item){
+   if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'A generated cache recovery path is a link or junction.'}
+   if($current.Equals($full,[StringComparison]::OrdinalIgnoreCase)){return $false}
+   if(!$item.PSIsContainer){throw 'A generated cache recovery ancestor is not a directory.'}
+  }
+ }
+ return $true
+}
 function Save-OpenWebSupport {
  param([string]$Backup,[string]$PackageRoot,[string]$Root,[string]$StateRoot,[string]$EngineRoot,[IO.FileStream]$MaintenanceLock)
  $record=[ordered]@{schema=1;Files=@{};Directories=@{};Acls=@{};Tasks=@{};OpenSshClient=(Get-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0).State.ToString()}
@@ -466,10 +490,17 @@ function Restore-OpenWebSupport {
  $permissions=New-Object 'Collections.Generic.List[object]'
  foreach($entry in $record.Acls.PSObject.Properties){
   $target=Check-SupportPath $entry.Name
-  if(!(Test-Path -LiteralPath $target)){throw 'A support recovery permission target is missing.'}
+  if($entry.Value -isnot [string] -or !$entry.Value -or $entry.Value.Length -gt 131072){throw 'A support recovery permission snapshot is invalid.'}
+  if(!(Test-Path -LiteralPath $target)){
+   if(Test-OpenWebMissingGeneratedCacheAcl -Path $target -StateRoot $StateRoot){
+    $descriptor=[Security.AccessControl.RawSecurityDescriptor]::new($entry.Value)
+    if($null -eq $descriptor.Owner -or $null -eq $descriptor.Group -or !($descriptor.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclPresent)){throw 'A support recovery permission snapshot is invalid.'}
+    continue
+   }
+   throw 'A support recovery permission target is missing.'
+  }
   $item=Get-Item -LiteralPath $target -Force
   if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'A support recovery permission target is a link or junction.'}
-  if($entry.Value -isnot [string] -or !$entry.Value -or $entry.Value.Length -gt 131072){throw 'A support recovery permission snapshot is invalid.'}
   $permissions.Add(@{Path=$target;Directory=[bool]$item.PSIsContainer;Depth=$target.Split('\').Count;Sddl=$entry.Value})
  }
  # Native inheritance can update descendants; finish parents before their files.
