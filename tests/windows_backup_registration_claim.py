@@ -101,7 +101,7 @@ if a.native:
  lock=directory/'worker.lock';lock.write_bytes(b'\0')
  # Scaffold only the three NEW fixture paths. Do not call installed backup
  # control or grant access to existing product configuration to prepare a test.
- acl_code=r"""$ErrorActionPreference='Stop';$v=[Console]::In.ReadToEnd()|ConvertFrom-Json
+ acl_code=r"""$ErrorActionPreference='Stop';try{$v=[Console]::In.ReadToEnd()|ConvertFrom-Json
 foreach($p in $v.paths){
  $full=[IO.Path]::GetFullPath($p);if(!$full.StartsWith([IO.Path]::GetFullPath($v.root)+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Only new fixture children permitted'}
  $item=Get-Item -LiteralPath $full;if($item.Attributes-band[IO.FileAttributes]::ReparsePoint){throw 'Fixture links refused'}
@@ -110,9 +110,14 @@ foreach($p in $v.paths){
  $inherit=if($item.PSIsContainer){[Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'}else{[Security.AccessControl.InheritanceFlags]::None}
  foreach($sid in 'S-1-5-18','S-1-5-32-544'){$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]$sid,'FullControl',$inherit,'None','Allow'))}
  Set-Acl -LiteralPath $full -AclObject $acl
-}"""
+}}catch{[Console]::Error.WriteLine('FIXTURE_ACL_ERROR:'+ $_.Exception.GetType().Name + ':'+($_.FullyQualifiedErrorId -split ',')[0]);exit 1}"""
  prepared=subprocess.run([str(Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/powershell.exe'),'-NoProfile','-NonInteractive','-Command',acl_code],
-  input=json.dumps({'root':str(a.work_root.resolve()),'paths':[str(q.resolve()) for q in [private,directory,lock]]}),capture_output=True,text=True,timeout=30)
+  input=json.dumps({'root':str(a.work_root.resolve()),'paths':[str(q.resolve()) for q in [private,directory,lock]]}),
+  env=m.native_powershell_environment(),capture_output=True,text=True,timeout=30)
+ if prepared.returncode:
+  import re
+  error=re.search(r'FIXTURE_ACL_ERROR:[A-Za-z0-9_]+:[A-Za-z0-9_-]+',prepared.stderr)
+  raise RuntimeError(error[0] if error else 'Private fixture ACL preparation failed')
  need(prepared.returncode==0)
  child_code="import msvcrt,sys,time;f=open(sys.argv[1],'r+b');msvcrt.locking(f.fileno(),msvcrt.LK_NBLCK,1);print('HELD',flush=True);time.sleep(15);f.close()"
  child=subprocess.Popen([sys.executable,'-I','-B','-c',child_code,str(lock)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
