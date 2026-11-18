@@ -10,9 +10,9 @@ backup, active-call and recovery checks.
 
 ## Current complete package
 
-Frozen package source: `80526bff862f6b71c7629c408a6d7bf7ca601f92`.
-The archive is **643,863,921 bytes**, SHA-256
-`b1c9f0ba0ad2f31d019f67a7276cd65898d317b91b9e3bd24cc00cded5c490f6`.
+Frozen package source: `0bdfe5481d592f54ae602a331f63e62f1f73166f`.
+The archive is **643,866,028 bytes**, SHA-256
+`cb316b88b4677fd89eb23e87ecf882d629a92703e3cbc70bf91127c33a57a9da`.
 Independent extraction and the ordinary full-package checker validate every
 one of **19,351 manifested payloads**, **4,915 spoken files**, the full-install
 contract and the reviewed Windows installer/worker source bindings.
@@ -20,18 +20,20 @@ contract and the reviewed Windows installer/worker source bindings.
 `previous_installation_required=false`; local PostgreSQL setup and the current
 updater are included.
 
-Native build [44156649617](https://github.com/embire2/openwebpbx/actions/runs/44156649617)
-compiles Core, updater and WinUI manager **1.0.27.0** from
-`d3d1651635c7337d25c7285f9910b486b9d2f0d7`. All **89** compiled native source
-inputs and **1,110** output/checksum entries remain exact in the frozen package
-source. Five reviewed recovery/IIS runtime leaves and five focused tests differ;
-none changes those native build inputs. The IIS admission module is compiled
-separately during ordinary Windows setup. No older Core, updater or manager
-executable is relabelled as 1.0.27.
+Native build [44345474762](https://github.com/embire2/openwebpbx/actions/runs/44345474762)
+compiles Core, updater and WinUI manager **1.0.27.0** from source
+`9f6a0ac42999614755ee0838c0660324970f11c1`. All **90** compiled inputs remain
+exact in the final packaged source; **1,111** native checksum entries are
+independently verified. Every shipped native file uses this new build; the
+earlier D3 build is retained as historical evidence. The IIS admission module
+is compiled separately during ordinary Windows setup.
 
-This new complete archive reuses byte-exact compressed members from the earlier
-complete package where source and metadata are unchanged. It contains every
-component: no customer applies a patch or supplies an earlier PBX. Engine,
+The complete archive retains the ordinary builder's verified payloads and new
+native outputs. Reviewed reassembly changes only the provider loader, two
+registration helpers and manifest, preserving all19,348 other compressed members
+and metadata. Independent provenance checks cover1,099 shipped native
+files,11,440 unchanged vendor inputs and6,809 shipped source files. No customer
+applies a patch or supplies an earlier PBX. Engine,
 ACME, backup runtime, music and voice inputs retain their recorded Windows23
 provenance; the three native applications are rebuilt27. Optional locally built
 codec DLLs are not redistributed.
@@ -41,8 +43,10 @@ codec DLLs are not redistributed.
 | Area | Actual evidence and remaining gate |
 | --- | --- |
 | Full installation contract | Current complete ZIP independently extracts; every payload hash, source binding, voice count and full-release contract passes. Actual fresh installation is a separate gate. |
-| Native applications | Native27 versions and responsive manager window pass in the Windows build environment. 41 signed-grant, 57 protocol, 82 updater, 13 Windows worker, 11 native notice and 20,050 STUN controls pass. The protocol run does not claim database-backed call-capacity acceptance. Installed target manager remains pending. |
+| Native applications | New native27 versions and responsive manager window pass.41 signed-grant,57 protocol,82 updater,14 actual Windows worker,57 recovered-request PostgreSQL,63 MTA entry,11 native notice and20,050 STUN controls pass. Database-backed calling capacity and installed target manager remain separate gates. |
 | Windows recovery integration | Authenticated fixed-command call-engine adapter passes three actual Windows controls; query-only import classifier passes213; IIS identity handling31; fixed support-directory ownership122; generated-cache ACL admission39. These do not replace a real restore. |
+| Background registration contention | A naturally scheduled tenant-domain worker misses its two short acquisition windows while the ordinary onboarding task owns the lock. Only this background caller now requests30seconds; default/foreground5seconds, native32/33-only retry and guarded-body-once rules remain.41 actual Windows,45 portable,34 orchestration and21 tenant-worker checks pass. Final ordinary wizard readiness remains separate. |
+| Shared outgoing-call correction | Configured script-root loading avoids a Lua logging-global collision before provider contact.494 controls and automatic push CI pass; three read-only actual Main mod_lua checks reproduce the old failure and accept the installed correction. Owner confirms Main Android1000 outgoing sound both ways. These are Main/portable results, not final Windows carrier acceptance. |
 | Supplied existing server | Owner's dedicated Windows Server2025 target; original23 checkpoints and independent schema, files, identities, certificates, tasks and service baselines retained privately. |
 | Original recovery checkpoint | Verified ordinary encrypted backup copied offhost:27,312,341 bytes, SHA-256 `9ebf36c24680d34bc26fa0fa275dd2244ea8e15982c85d99dfc24380a3602768`. |
 | Owned phone fixtures | Separate checkpoint27,316,626 bytes, SHA-256 `6a8f83fad7cbc4b4b68d75fe3eaac0ddc49696a828ef0765f9535b7c1b9fe00c`; two owned extensions preserve distinct authentication IDs, special password bytes, app-password state and one custom WAV. All nine original customer projections and468 original archived files remain exact before the transaction. |
@@ -50,16 +54,16 @@ codec DLLs are not redistributed.
 | First-candidate read-only entry | Unelevated Help and Check pass using the included Python;19,352 files/1,200,354,057 bytes and five existing service generations remain exact. This was the earlier82bc archive, not current final-byte acceptance. |
 | Actual original23 updater | First82bc package is downloaded, verified and preflighted by the original installed worker. Mandatory notice, red banner, postponement with services running, enabled UpdateNow and normal elevation are observed. Final current-package transaction remains pending. |
 | Late failure and automatic rollback | First82bc controlled late failure enters ordinary rollback, which fails. The defects and manual recovery below remain distinct. A successful current-package automatic rollback has not yet been established. |
-| Manual recovery | Source-assisted recovery verifies original seals and binds27 unchanged original functions plus four reviewed support helpers. Its new read-only Check passes. The second manual attempt stalls in IIS configuration disposal and is stopped at its20-minute bound with seals unchanged. A separately gated MTA continuation is under test; neither is automatic-rollback acceptance. |
-| Clean Windows machine | Owned OS-only Windows Server2025 Desktop VM proves four PBX roots absent and zero PBX/PostgreSQL services. After moving to an admitted host it has six GiB RAM and retained clean snapshot. Current whole-package download, Check, installation and ordinary registration are in progress. |
+| Manual recovery | The gated MTA continuation succeeds248.248879s/exit0 and restores healthy23.184 tables/schema,18 roles, original credentials and469 archived files are independently checked; specified operational timestamps/one owned update request differ.32 original certificates and both original IIS sites/pools remain exact. This is explicitly manual support, not automatic rollback. |
+| Clean Windows machine | OS-only Server2025 Desktop VM has no earlier PBX, six GiB RAM and a retained clean snapshot. Unmodified80526 full setup completes through ordinary same-version resume after a private observer interruption. Its original30-minute case fails on the QA example.invalid ACME contact. A separate normal own-profile correction preserves credentials; that bounded case also expires while real background lock contention prevents readiness. Both failures are retained. Final whole-package clean reinstall is approved, using valid contact from the start and normal verified-owner onboarding without quota or authority override. |
 | Feature integration | Tenant/instance protection worker, IIS API routing and body-free upload admission are ported. Final installed API roles/templates/resources, stable QR, capacity, full/tenant restore, software calling and reboot checks remain pending. |
 | Public release | No Windows27 tag, public assets or latest-feed promotion. Debian27, Android19, public Windows23 and historical catalogue remain retained. |
 
-The current private signed offer has sequence **1795014530**, minimum installed
+The current private signed offer has sequence **1795022413**, minimum installed
 version **1.0.23**, envelope SHA-256
-`96ecfc3784ef0613925c4a86bb19d4f7de9bd3914083af0a64783cf19f991990`.
+`30d14c1156bdadaf46c100e79e1d0e05fda670917caca0bbb1dc6ff17ac76df3`.
 Its catalogue SHA-256 is
-`832f392cc4ca1bbad3d9020a90250275f72258b10ce776a2117432fcda724994`;
+`6cc7285c66a5d46e8bb6d2c4b6ffd3ddbbc1102d63ff19ca2cca3fe2a978f197`;
 it retains the original20→21→22→23 prefix and appends the exact new27 offer.
 Offline platform promotion guards and package/feed checks pass, preserving
 Debian27 and Android19 envelopes exactly. This is private test authority only.

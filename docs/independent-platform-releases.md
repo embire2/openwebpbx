@@ -42,6 +42,11 @@ preservation separately, explicitly naming any reused unchanged component
 proof. A partial overlay or patch is not a substitute for this fresh-install
 acceptance.
 
+Calling changes must also satisfy the [calling release safeguards](calling-release-safeguards.md):
+the automatic regression check, loading in the real configured call engine and
+controlled call/media checks against the exact package. Service health or phone
+registration alone cannot qualify a calling change.
+
 The retained original Windows 1.0.23 installers and earlier installed clients
 have their separately documented one-time ordered-updater repair. The next
 complete Windows release must include the current ordered updater itself;
