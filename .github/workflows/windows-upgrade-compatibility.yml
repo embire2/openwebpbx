@@ -8,11 +8,13 @@ on:
       - packaging/windows/Upgrade-OpenWebPBX.ps1
       - packaging/windows/CallRecords.Common.ps1
       - packaging/windows/backups.py
+      - packaging/windows/Protection-Worker.ps1
       - tests/windows_upgrade_delegation.ps1
       - tests/windows_delegated_host.ps1
       - tests/windows_legacy_unsealed_recovery.ps1
       - tests/windows_backup_registration_claim.py
       - tests/windows_backup_worker_wait.py
+      - tests/windows_protection_worker_entry.ps1
       - .github/workflows/windows-upgrade-compatibility.yml
   pull_request:
     paths:
@@ -20,11 +22,13 @@ on:
       - packaging/windows/Upgrade-OpenWebPBX.ps1
       - packaging/windows/CallRecords.Common.ps1
       - packaging/windows/backups.py
+      - packaging/windows/Protection-Worker.ps1
       - tests/windows_upgrade_delegation.ps1
       - tests/windows_delegated_host.ps1
       - tests/windows_legacy_unsealed_recovery.ps1
       - tests/windows_backup_registration_claim.py
       - tests/windows_backup_worker_wait.py
+      - tests/windows_protection_worker_entry.ps1
       - .github/workflows/windows-upgrade-compatibility.yml
 
 permissions:
@@ -83,6 +87,11 @@ jobs:
           python tests/windows_backup_worker_wait.py --previous $previous --native --work-root $maintenance
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           Copy-Item (Join-Path $maintenance 'result.safe.json') compatibility-results/backup-maintenance.safe.json
+      - name: Verify protection entry native quoting on Windows PowerShell 5.1
+        shell: pwsh
+        run: |
+          & "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Mta -ExecutionPolicy Bypass -File tests/windows_protection_worker_entry.ps1 -SourceRoot $env:GITHUB_WORKSPACE -Receipt compatibility-results/protection-entry.safe.json
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
       - name: Retain safe compatibility receipts
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
