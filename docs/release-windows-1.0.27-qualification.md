@@ -8,7 +8,33 @@ with Desktop Experience. A fresh installation needs no previous PBX or separate
 PBX repair. Existing-data updates retain their own signed compatibility,
 backup, active-call and recovery checks.
 
-## Current qualification blockers — 18 November 2026
+## Current full final3 package — still in qualification
+
+Frozen source `06d651d497b9d301ef564900d66ef720cedd37fb`; complete ZIP
+**643,867,551bytes**, SHA-256
+`7ba1115b05f0093c14814c5d9f3077e70faa39485b5edd185f6d9d206c5ab653`.
+Independent verification accepts19,351 payloads,4,915 voices, the explicit full/no
+previous-installation contract,6,809 shipped source files,11,440 vendor files
+and1,099 native files. All90 compiled inputs remain exact from native source9f6;
+19,347 other compressed members and metadata remain exact from final2. Four
+reviewed product leaves and the manifest change: terminal handoff, strict legacy
+recovery, pre-claim backup locking and IIS API hosting. Matching source archive,
+checksums and independently retained platform feeds are prepared privately.
+[Exact frozen-source Windows CI](https://github.com/embire2/openwebpbx/actions/runs/44390235931)
+passes23 terminal,39 recovery,39 registration and169 maintenance controls.
+
+The genuine zero-prior final3 installer exits0 at21:13:08UTC in1848.2861239seconds;
+all four principal services run. Ordinary owner registration and the separately
+bounded functional, recovery and reboot cases remain pending. The original
+60-minute setup deadline is preserved; earlier30-minute failures remain failed.
+The existing23 target separately passes an ordinary idle reboot, original data,
+security, startup choices and eight software SIP/RTP controls. Windows naturally
+resizes its system-managed paging file; no paging setting changes or native DISM
+cleanup occurs. Its new service generations are recorded explicitly. Actual
+final3 signed automatic rollback and normal upgrade remain required; no public
+release is announced by these component results.
+
+## Earlier final2 failure and corrections — 18 November 2026
 
 The complete **final2** archive below is retained **unqualified**. Its genuine
 stock23 transaction restores the old version, but the dot-sourced legacy caller
@@ -51,7 +77,7 @@ defect**. The corrected fixture touches only new private paths and preserves449
 authority pins, four service generations and zero backup-control requests. No
 installed patch or final-package acceptance follows from these source controls.
 
-## Last complete final2 package (unqualified; corrections in progress)
+## Previous complete final2 package (unqualified)
 
 Frozen package source: `0bdfe5481d592f54ae602a331f63e62f1f73166f`.
 The archive is **643,866,028 bytes**, SHA-256
