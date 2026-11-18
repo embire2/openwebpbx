@@ -50,7 +50,7 @@ static class WindowsServerUpdateChecks
             void ResetVersion() => File.WriteAllText(installed, "{\"Version\":\"1.0.3\"}");
             ResetVersion();
             static string Quote(string text) => "'" + text.Replace("'", "''") + "'";
-            await File.WriteAllTextAsync(helper, "param($Archive,$FeedEnvelope,$TargetVersion,[switch]$Check,[switch]$Recover,[switch]$Automatic)\n$ErrorActionPreference='Stop'\nif($Check -or $Recover){exit 0}\nif($Automatic){throw 'Unrequested automatic install'}\n" +
+            await File.WriteAllTextAsync(helper, "param($Archive,$FeedEnvelope,$TargetVersion,[switch]$Check,[switch]$Recover,[switch]$Automatic)\n$ErrorActionPreference='Stop'\nif([Threading.Thread]::CurrentThread.GetApartmentState() -ne [Threading.ApartmentState]::MTA){throw 'Maintenance helper must use MTA'}\nif($Check -or $Recover){exit 0}\nif($Automatic){throw 'Unrequested automatic install'}\n" +
                 "Add-Content -LiteralPath " + Quote(marker) + " -Value installed\n" +
                 "[IO.File]::WriteAllText(" + Quote(installed) + ",('{\"Version\":\"'+$TargetVersion+'\"}'))\n" +
                 "[IO.File]::WriteAllText(" + Quote(Path.Combine(updates,"install-journal.json")) + ",' {\"state\":\"completed\"}')\n");
@@ -60,6 +60,7 @@ static class WindowsServerUpdateChecks
                 ["Switch:Host"]="127.0.0.1", ["Switch:Port"]=((IPEndPoint)listener.LocalEndpoint).Port.ToString(), ["Switch:Password"]="owned-fixture"
             }).Build();
             var paths = new UpdaterPaths(configuration); paths.Prepare();
+            Check(await new PlatformInstaller(paths).Run(null, null, null, check:false, recover:true, CancellationToken.None) == 0, "Boot recovery did not launch a native MTA maintenance helper");
             using var rsa = RSA.Create(2048); var verifier = new ReleaseVerifier(rsa.ExportSubjectPublicKeyInfoPem());
             var clock = new TestClock(); var bytes = "owned-windows-update-fixture"u8.ToArray();
             var payload = JsonSerializer.SerializeToUtf8Bytes(new { schema=1, product="openwebpbx", channel="stable", sequence=104,

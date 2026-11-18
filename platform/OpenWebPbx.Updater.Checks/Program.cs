@@ -6,6 +6,13 @@ using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using OpenWebPbx.Updater;
 
+if (args.Contains("--windows-recovered-request-checks", StringComparer.Ordinal))
+{
+    var recoveredRequestConnection = Environment.GetEnvironmentVariable("OPENWEB_TEST_DATABASE") ?? throw new InvalidOperationException("An owned PostgreSQL fixture is required.");
+    Console.WriteLine($"PASS: {await WindowsRecoveredRequestChecks.Run(recoveredRequestConnection)} actual Windows recovered-request, no-replay and fresh-approval controls");
+    return;
+}
+
 if (args.Contains("--windows-upgrade-worker-checks", StringComparer.Ordinal))
 {
     var chainConnection = Environment.GetEnvironmentVariable("OPENWEB_TEST_DATABASE") ?? throw new InvalidOperationException("An owned PostgreSQL fixture is required.");

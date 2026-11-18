@@ -82,6 +82,8 @@ jobs:
           if($LASTEXITCODE){throw 'Full Windows package integrity controls failed.'}
           & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_upgrade_delegation.ps1
           if($LASTEXITCODE){throw 'Verified Windows upgrade delegation controls failed.'}
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_upgrade_mta.ps1 -Output "$env:NATIVE_OUTPUT/upgrade-mta.json"
+          if($LASTEXITCODE){throw 'Windows maintenance apartment entry controls failed.'}
       - name: Verify native versions and manager startup
         run: |
           $ErrorActionPreference = 'Stop'

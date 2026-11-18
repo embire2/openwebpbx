@@ -127,6 +127,20 @@ original legacy workers may need their separately documented
 installation already includes the current updater** and does not need that repair.
 No historical package, signature or trust floor is rewritten.
 
+Automatic update and recovery helpers select Windows PowerShell's MTA mode
+before managing IIS. Operator-only command-line recovery must also use `-Mta`:
+
+```powershell
+powershell.exe -NoProfile -NonInteractive -Mta -ExecutionPolicy Bypass -File C:\OpenWebPBX\tools\Upgrade-OpenWebPBX.ps1 -Recover
+```
+
+For an explicitly chosen completed update snapshot, use the same command with
+`-RestoreBackup 'C:\ProgramData\OpenWebPBX\backups\YOUR_COMPLETED_SNAPSHOT'`
+in place of `-Recover`. The original snapshot, ownership and recovery checks
+still apply. Prefer **Update Now** for normal updates; no manual command is
+needed for ordinary installation or updating.
+
+
 Keep the backup password separately and retain the printed recovery path.
 Check version, administrator access, tenant configuration and two phones after
 an update. Physical phone, provider, ringing and answered two-way audio checks
