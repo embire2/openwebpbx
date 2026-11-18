@@ -8,7 +8,33 @@ with Desktop Experience. A fresh installation needs no previous PBX or separate
 PBX repair. Existing-data updates retain their own signed compatibility,
 backup, active-call and recovery checks.
 
-## Current complete package
+## Current qualification blockers — 18 November 2026
+
+The complete **final2** archive below is retained **unqualified**. Its genuine
+stock23 transaction restores the old version, but the dot-sourced legacy caller
+then starts another transaction without its released maintenance lock. That
+second attempt leaves a partial unsealed backup and `recovery_required`.
+The transient `rolled_back` observation is not automatic acceptance. Customer
+configuration,184-table schema,471 archived files, certificates and task choices
+verify; operational changes are reviewed individually.
+
+Source `ced796783ee7e485bfb409682e23c6e599ac3221` corrects terminal handoff
+for a dedicated PowerShell host and narrowly recovers this known pre-backup
+state without restoring data or changing seals.23 actual native host controls,
+39 admission controls and [independent Windows CI](https://github.com/embire2/openwebpbx/actions/runs/44376973779)
+pass. A source-assisted manual recovery is separate from the required new
+whole-package automatic transaction.
+
+The real clean final2 installer completes in **2123.0761515seconds**, with no
+older PBX, resume or patch. Its original30-minute case remains failed; a separate
+ordinary post-install wizard reaches ready and self-revokes its sole owner token.
+Company11, personal15/stable QR,493 PostgreSQL, UDP/capacity18, TLS11 and STUN9
+checks pass. Admin API DELETE fails with IIS401.3 before PHP authorization;
+a scoped hosting correction is under isolated qualification. Earlier invalid
+fixture realm, incorrect TLS SNI and private IIS-observer failures are retained.
+No new public release or final-package acceptance follows from these components.
+
+## Last complete final2 package (unqualified; corrections in progress)
 
 Frozen package source: `0bdfe5481d592f54ae602a331f63e62f1f73166f`.
 The archive is **643,866,028 bytes**, SHA-256
