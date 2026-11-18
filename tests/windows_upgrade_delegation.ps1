@@ -21,6 +21,7 @@ function Context {
 $context=Context
 $plan=Get-OpenWebUpgradeDelegationPlan -Context $context -Original23
 Check ($plan.Original23 -and $plan.Arguments[-1] -ceq '1.0.27') 'Original23 delegates only to the matching verified current release.'
+Check (@($plan.Arguments|Where-Object {$_ -ceq '-Mta'}).Count -eq 1 -and $plan.Arguments.IndexOf('-Mta') -lt $plan.Arguments.IndexOf('-File')) 'Verified delegation selects native MTA before the script argument.'
 Check ($plan.Arguments[($plan.Arguments.IndexOf('-Archive')+1)] -ceq $context.Archive -and $plan.Arguments[($plan.Arguments.IndexOf('-FeedEnvelope')+1)] -ceq $context.FeedEnvelope) 'The original archive and signed envelope remain unchanged.'
 foreach($field in 'CallerSha256','InstalledVersion','CallerPath','TargetVersion'){
  $context=Context;$context[$field]='incorrect'

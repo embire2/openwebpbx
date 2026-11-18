@@ -264,6 +264,18 @@ if(!$Recover -or $PSVersionTable.PSEdition -eq 'Core'){throw 'This private entry
 '@ + "`n"+($definitions -join "`n")+"`n"
  $entryText+=('$entry=[pscustomobject]@{schema=1;bundle_path='+("'"+$bundle.Replace("'","''")+"'")+";metadata_sha256='"+$metadataHash+"';launcher_sha256=(Get-OpenWebRecoveryHash (Read-OpenWebRecoveryBytes `$PSCommandPath 1048576))}`n")
  $entryText+=('$m=Get-OpenWebUpgradeRecoveryMetadata -Entry $entry -Root '+("'"+$Root.Replace("'","''")+"'")+' -StateRoot '+("'"+$StateRoot.Replace("'","''")+"'")+' -EngineRoot '+("'"+$EngineRoot.Replace("'","''")+"'")+" -RequirePublished`n")
+ # Validate the complete pinned entry before any child launch. An old worker
+ # may still be running before a new updater is committed; the child repeats
+ # these same metadata/ACL/backup checks in MTA before calling the pinned helper.
+ $entryText+=@'
+if([Threading.Thread]::CurrentThread.GetApartmentState() -ne [Threading.ApartmentState]::MTA){
+ $native=Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell\v1.0\powershell.exe'
+ $global:LASTEXITCODE=$null
+ & $native -NoProfile -NonInteractive -Mta -ExecutionPolicy Bypass -File $PSCommandPath -Recover
+ if($null -eq $global:LASTEXITCODE){throw 'The pinned native MTA recovery process did not start.'}
+ exit ([int]$global:LASTEXITCODE)
+}
+'@ + "`n"
  $entryText+='$global:LASTEXITCODE=0'+"`n"+'& (Join-Path $PSScriptRoot ''Upgrade-OpenWebPBX.ps1'') -Recover'+"`n"+'$ok=$?;$code=$LASTEXITCODE;if(!$ok){if($code -is [int] -and $code -gt 0 -and $code -le 255){exit $code};exit 2};exit 0'+"`n"
  $launcher=[Text.UTF8Encoding]::new($false).GetBytes($entryText);Write-OpenWebRecoveryFile (Join-Path $bundle 'recovery-launcher.ps1') $launcher
  $entry=[pscustomobject]@{schema=1;bundle_path=$bundle;metadata_sha256=$metadataHash;launcher_sha256=(Get-OpenWebRecoveryHash $launcher)}

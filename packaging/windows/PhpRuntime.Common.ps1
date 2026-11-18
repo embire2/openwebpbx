@@ -16,7 +16,7 @@ function Get-OpenWebUpgradeDelegationPlan {
  if($Context.Backup -cne '' -or $null -ne $Context.PhpRuntime -or $null -ne $Context.CallRecordsHold -or $null -ne $Context.RecoveryEntry){throw 'The parent update has already prepared persistent transaction state.'}
  foreach($name in 'Check','Automatic'){if($Context.$name -isnot [bool]){throw 'Update options must retain their original boolean values.'}}
  if($Context.HelperSha256 -ceq $Context.CallerSha256){return $null}
- $arguments=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',([IO.Path]::Combine($Context.PackageRoot,'Upgrade-OpenWebPBX.ps1')),'-Archive',$Context.Archive,'-FeedEnvelope',$Context.FeedEnvelope,'-TargetVersion',$Context.TargetVersion)
+ $arguments=@('-NoProfile','-NonInteractive','-Mta','-ExecutionPolicy','Bypass','-File',([IO.Path]::Combine($Context.PackageRoot,'Upgrade-OpenWebPBX.ps1')),'-Archive',$Context.Archive,'-FeedEnvelope',$Context.FeedEnvelope,'-TargetVersion',$Context.TargetVersion)
  if($Context.Check){$arguments+='-Check'}
  if($Context.Automatic){$arguments+='-Automatic'}
  return [pscustomobject]@{Arguments=$arguments;PackageRoot=$Context.PackageRoot;CallerPath=$Context.CallerPath;CallerSha256=$Context.CallerSha256;HelperSha256=$Context.HelperSha256;ParentExtraction=$Context.ParentExtraction;Original23=[bool]$Original23}

@@ -78,6 +78,23 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
         if (installState is "rolled_back" or "recovery_required" && journal is { State: "installing", TargetVersion: not null, AssetSha256: not null }) UpdateJson.Write(paths.FailedInstall, new FailedInstall(journal.TargetVersion, journal.AssetSha256));
         foreach (var old in await repository.Running(ct))
         {
+            // A rollback can restore a pre-install worker journal while the
+            // database still contains this installation request. Do not replay
+            // it as a resumable download. A newer explicit request remains valid.
+            if (paths.Platform == "windows-x64" && installState == "rolled_back" &&
+                journal is { Action: "install", TargetVersion: not null, AssetSha256: not null } &&
+                WasRolledBack(old, journal))
+            {
+                UpdateJson.Write(paths.FailedInstall, new FailedInstall(journal.TargetVersion, journal.AssetSha256));
+                await repository.Finish(old, false, "The previous version was restored after this interrupted update; request installation again when ready", ct);
+                UpdateJson.Write(paths.Journal, journal with { State = "failed", UpdatedAt = clock.GetUtcNow() });
+                if (windowsJourney?.CommandId == old.Id)
+                {
+                    UpdateJson.Write(paths.WindowsJourney, windowsJourney with { State = "failed" });
+                    windowsJourney = null;
+                }
+                continue;
+            }
             if (windowsJourney?.CommandId == old.Id && installState == "completed" &&
                 UpdateJson.Version(paths.InstalledVersion()) < UpdateJson.Version(windowsJourney.TargetVersion))
                 await repository.Retry(old, "Continuing with the next required signed Windows release", ct);
@@ -88,6 +105,26 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
             else await repository.Finish(old, false, installState == "rolled_back" ? "The previous version was restored after an interrupted update" : "Review the update recovery status before trying again", ct);
         }
         return true;
+    }
+
+    private bool WasRolledBack(UpdateCommand request, WorkerJournal journal)
+    {
+        if (request.Action != "install" || request.Id != journal.CommandId || request.CreatedAt == default ||
+            journal.AssetSha256 is not { Length: 64 } ||
+            !journal.AssetSha256.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f')) return false;
+        using var document = JsonDocument.Parse(UpdateJson.ReadBytes(paths.InstallJournal, 262144));
+        var root = document.RootElement;
+        if (!root.TryGetProperty("state", out var state) || state.ValueKind != JsonValueKind.String || state.GetString() != "rolled_back") return false;
+        if (!root.TryGetProperty("version", out var version) || version.ValueKind != JsonValueKind.String)
+            throw new InvalidDataException("Review the recovered Windows update before resuming its request.");
+        if (version.GetString() != journal.TargetVersion) return false;
+        if (!root.TryGetProperty("updated_at", out var updated) || updated.ValueKind != JsonValueKind.String)
+            throw new InvalidDataException("The recovered Windows update has no valid completion time.");
+        var timestamp = updated.GetString()!;
+        if (!(timestamp.EndsWith('Z') || timestamp.Length >= 6 && (timestamp[^6] is '+' or '-') && timestamp[^3] == ':') ||
+            !updated.TryGetDateTimeOffset(out var recoveredAt))
+            throw new InvalidDataException("The recovered Windows update has no valid completion time.");
+        return recoveredAt >= request.CreatedAt;
     }
 
     private void EndJourney(string state)

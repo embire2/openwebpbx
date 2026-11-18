@@ -19,7 +19,7 @@ public sealed class PlatformInstaller(UpdaterPaths paths)
         }
         if (OperatingSystem.IsWindows())
         {
-            foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", paths.Helper }) start.ArgumentList.Add(argument);
+            foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-Mta", "-ExecutionPolicy", "Bypass", "-File", paths.Helper }) start.ArgumentList.Add(argument);
             if (recover) start.ArgumentList.Add("-Recover");
             else
             {

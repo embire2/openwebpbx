@@ -31,7 +31,8 @@ function Case([string]$Kind='default'){
  if($Kind -cin 'default','foreign','invalid','empty','partial'){$runtime.Updater.Helper=if($Kind -ceq 'foreign'){'C:\foreign\untrusted.ps1'}elseif($Kind -ceq 'invalid'){42}elseif($Kind -ceq 'empty'){''}else{Join-Path $root 'tools\Upgrade-OpenWebPBX.ps1'}}
  WriteText (Join-Path $state 'runtime.json') ($runtime|ConvertTo-Json -Depth 32)
  WriteText (Join-Path $state 'installation.json') '{"Version":"1.0.6","Completed":true}'
- $old='param([switch]$Recover) if(!$Recover){exit 2};[IO.File]::WriteAllText('+("'"+(Join-Path $state 'selected-entry.txt').Replace("'","''")+"'")+",'old');exit 75"
+ $old='param([switch]$Recover) if(!$Recover){exit 2};[IO.File]::WriteAllText('+
+  ("'"+(Join-Path $state 'selected-apartment.txt').Replace("'","''")+"'")+',[Threading.Thread]::CurrentThread.GetApartmentState().ToString());[IO.File]::WriteAllText('+("'"+(Join-Path $state 'selected-entry.txt').Replace("'","''")+"'")+",'old');exit 75"
  WriteText (Join-Path $root 'tools\Upgrade-OpenWebPBX.ps1') $old
  foreach($name in 'UpgradeRecovery.Common.ps1','File-Security.ps1'){WriteText (Join-Path $package $name) ([IO.File]::ReadAllText((Join-Path $SourceRoot ('packaging\windows\'+$name))))}
  foreach($name in 'Restore-Gates.ps1','Support-Recovery.ps1','Web-Readiness.ps1','Dtls.Common.ps1','PhoneHealth-Security.ps1','PhpRuntime.Common.ps1','Write-PrivateState.ps1','check-call-engine.php','windows-log.php','CallRecords.Common.ps1'){WriteText (Join-Path $package $name) ('# FICTIONAL dependency '+$name)}
@@ -158,10 +159,12 @@ public sealed class OpenWebOwnedMaintenanceReader : IDisposable {
    $entry=NewEntry $c $lock;Assert ([IO.File]::ReadAllText($c.Runtime) -ceq [Text.Encoding]::UTF8.GetString($before));Refuses {Publish $c $entry $lock}
    Pin $c $entry;Publish $c $entry $lock
    $after=Get-Content -LiteralPath $c.Runtime -Raw|ConvertFrom-Json;Assert ($after.Updater.Helper -ceq (Join-Path $entry.bundle_path 'recovery-launcher.ps1'))
+   $launcher=[IO.File]::ReadAllText($after.Updater.Helper);$pinIndex=$launcher.IndexOf(' -RequirePublished');$hopIndex=$launcher.IndexOf('& $native -NoProfile');Assert ($pinIndex -ge 0 -and $hopIndex -gt $pinIndex)
    if($kind -ceq 'date'){Assert ($after.Unrelated.ISO -is [string] -and $after.Unrelated.ISO -ceq '2026-10-22T01:02:03.000Z')}
    Assert ((Get-Acl -LiteralPath $c.Runtime).Sddl -ceq $acl -and [int](Get-Item -LiteralPath $c.Runtime -Force).Attributes -eq $attributes)
-   $entryCall=Child (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$after.Updater.Helper,'-Recover') $c.Base
+   $entryCall=Child (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') @('-NoProfile','-NonInteractive','-Sta','-ExecutionPolicy','Bypass','-File',$after.Updater.Helper,'-Recover') $c.Base
    Assert ((Finish $entryCall) -eq 75 -and [IO.File]::ReadAllText((Join-Path $c.State 'selected-entry.txt')) -ceq 'new')
+   Assert ([IO.File]::ReadAllText((Join-Path $c.State 'selected-apartment.txt')) -ceq 'MTA')
    Complete $c $entry $lock Rollback
    Assert ([Convert]::ToBase64String([IO.File]::ReadAllBytes($c.Runtime)) -ceq [Convert]::ToBase64String($before) -and (Get-Acl -LiteralPath $c.Runtime).Sddl -ceq $acl)
   }finally{$lock.Dispose()}

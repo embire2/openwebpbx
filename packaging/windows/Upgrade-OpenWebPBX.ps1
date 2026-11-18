@@ -4,6 +4,9 @@ param([string]$RestoreBackup = '', [switch]$Check, [string]$Archive, [string]$Fe
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 if($PSVersionTable.PSEdition -eq 'Core'){throw 'Run server upgrades in Windows PowerShell (powershell.exe) as administrator. It provides native IIS management.'}
+# Non-pumping STA waits can block IIS configuration release during recovery.
+# Supported automatic launchers select MTA before any lock or IIS work.
+if([Threading.Thread]::CurrentThread.GetApartmentState() -ne [Threading.ApartmentState]::MTA){throw 'Use Update Now, or run Windows PowerShell with -Mta, for server updates and recovery.'}
 $env:PSModulePath=$PSHOME+'\Modules;'+[Environment]::GetFolderPath('ProgramFiles')+'\WindowsPowerShell\Modules'
 $root = 'C:\OpenWebPBX'
 $private = Join-Path $env:ProgramData 'OpenWebPBX'
