@@ -43,6 +43,24 @@ function Invoke-OpenWebUpgradeDelegationProcess {
  if($null -eq $delegationExit){throw 'The verified release installer could not be started.'}
  return [int]$delegationExit
 }
+function Assert-OpenWebDedicatedUpgradeHost {
+ param([Parameter(Mandatory)][string]$CallerPath,[string[]]$HostArguments=[Environment]::GetCommandLineArgs())
+ # Ending a dot-sourced script does not end its immutable caller. Terminate
+ # only a dedicated -File host, never an administrator's interactive shell.
+ $files=@(for($i=1;$i -lt $HostArguments.Count;$i++){if($HostArguments[$i] -ieq '-File'){$i}})
+ if($files.Count -ne 1 -or $files[0]+1 -ge $HostArguments.Count -or [IO.Path]::GetFullPath($HostArguments[$files[0]+1]) -ine [IO.Path]::GetFullPath($CallerPath)){
+  throw 'Run this legacy update from the Updates page, or start a dedicated powershell.exe -File process for the installed update helper.'
+ }
+}
+function Stop-OpenWebDedicatedUpgradeHost {
+ param([Parameter(Mandatory)][int]$ExitCode)
+ # The verified child owns the completed/deferred/recovery outcome. A normal
+ # exit here returns only from the dot-sourced common file and would let the
+ # old installer begin a second transaction without its released lock.
+ try{[Console]::Out.Flush();[Console]::Error.Flush()}catch{}
+ [Environment]::Exit($ExitCode)
+ throw 'The dedicated update host did not terminate.'
+}
 function Invoke-OpenWebUpgradeDelegation {
  param([Parameter(Mandatory)]$Plan,[Parameter(Mandatory)][IO.FileStream]$MaintenanceLock,[Parameter(Mandatory)][string]$StateRoot)
  Assert-OpenWebRecoveryLock -MaintenanceLock $MaintenanceLock -StateRoot $StateRoot
@@ -237,7 +255,16 @@ if($openWebUpgradeCaller -and $openWebUpgradeCaller.ScriptName -ieq 'C:\OpenWebP
  $openWebUpgradeContext=New-OpenWebUpgradeDelegationContext -PackageRoot $PSScriptRoot -CallerPath $openWebUpgradeCaller.ScriptName
  $openWebUpgradePlan=Get-OpenWebUpgradeDelegationPlan -Context $openWebUpgradeContext -Original23
  if(!$openWebUpgradePlan){throw 'The verified Windows27 installer must include its current transaction.'}
+ Assert-OpenWebDedicatedUpgradeHost -CallerPath $openWebUpgradeCaller.ScriptName
  $openWebUpgradeExit=Invoke-OpenWebUpgradeDelegation -Plan $openWebUpgradePlan -MaintenanceLock $lock -StateRoot $private
- exit $openWebUpgradeExit
+ # This wrapper had no persistent side effects and already released its lock.
+ # Its sole remaining cleanup is its own protected parent extraction. The
+ # child uses a different sibling extraction and retains its sealed recovery.
+ try{
+  $null=Assert-OpenWebRecoveryProtected $openWebUpgradePlan.ParentExtraction -Directory
+  foreach($openWebParentItem in Get-ChildItem -LiteralPath $openWebUpgradePlan.ParentExtraction -Recurse -Force){if($openWebParentItem.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'A link prevents parent staging cleanup.'}}
+  Remove-Item -LiteralPath $openWebUpgradePlan.ParentExtraction -Recurse -Force -ErrorAction Stop
+ }catch{try{Write-Warning 'The delegated update finished; its private parent staging was retained for review.'}catch{}}
+ Stop-OpenWebDedicatedUpgradeHost -ExitCode $openWebUpgradeExit
  }
 }
