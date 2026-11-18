@@ -15,6 +15,13 @@ sound both ways.
 - The **Calling policy regression** workflow runs on pushes, pull requests and
   manual dispatch. It runs 39 provider-option, 241 policy and 214 simulated
   runtime checks. Its jobs use fictional identities and make no phone calls.
+- [GitHub run 44356633775](https://github.com/embire2/openwebpbx/actions/runs/44356633775)
+  passed all 494 checks against source `3b6c6c765`. A separate isolated replay
+  confirms the new regression fails against the original loader.
+- Three read-only checks inside production's configured FreeSWITCH Lua engine
+  reproduce the original exception, accept the corrected installed loader and
+  refuse a missing trusted location. No calls were placed; all eight service
+  generations stayed unchanged. This verifies module loading, not call audio.
 - The fix is present in Main source and the next Windows27 candidate. Published
   Debian27 and Windows23 archives remain immutable; this does not claim they
   already contain the correction.
