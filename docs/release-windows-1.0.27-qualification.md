@@ -8,7 +8,24 @@ with Desktop Experience. A fresh installation needs no previous PBX or separate
 PBX repair. Existing-data updates retain their own signed compatibility,
 backup, active-call and recovery checks.
 
-## Current full final3 package — still in qualification
+## Current final4 correction — complete build in progress
+
+Frozen source `5fe913bec0bc2c64d925b8b61e8a2a3b98a547ff` changes one
+Windows product line, its native regression and compatibility workflow.
+Actual Windows PowerShell5.1 strips embedded double quotes in the protection
+worker's Python `-c` argument, causing a syntax error before tenant jobs are
+claimed. Both owned Windows targets reproduce it independently. The corrected
+single-quoted Python literals retain the exact protected root, isolated runtime,
+worker arguments and `runpy` entry.23 actual native controls pass, including old
+failure, corrected exits0/7, body-once execution and untrusted PYTHONPATH refusal.
+
+The new complete archive, source, checksums and signatures are prepared in
+separate private directories. All90 compiled native inputs remain unchanged;
+no installed product is patched to pass. Final4 whole installation, actual
+recovery, signed transactions and public readback remain required. The final3
+results below remain distinct; its blocked tenant worker prevents publication.
+
+## Previous complete final3 package — unqualified
 
 Frozen source `06d651d497b9d301ef564900d66ef720cedd37fb`; complete ZIP
 **643,867,551bytes**, SHA-256
