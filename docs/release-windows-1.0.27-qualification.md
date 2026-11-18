@@ -8,9 +8,9 @@ with Desktop Experience. A fresh installation needs no previous PBX or separate
 PBX repair. Existing-data updates retain their own signed compatibility,
 backup, active-call and recovery checks.
 
-## Current final4 correction — complete build in progress
+## Current complete final4 package — still in qualification
 
-Frozen source `5fe913bec0bc2c64d925b8b61e8a2a3b98a547ff` changes one
+Qualified source `fcf21dd48ce770c1f8529889f86f62ba5a91798d` changes one
 Windows product line, its native regression and compatibility workflow.
 Actual Windows PowerShell5.1 strips embedded double quotes in the protection
 worker's Python `-c` argument, causing a syntax error before tenant jobs are
@@ -19,11 +19,30 @@ single-quoted Python literals retain the exact protected root, isolated runtime,
 worker arguments and `runpy` entry.23 actual native controls pass, including old
 failure, corrected exits0/7, body-once execution and untrusted PYTHONPATH refusal.
 
-The new complete archive, source, checksums and signatures are prepared in
-separate private directories. All90 compiled native inputs remain unchanged;
-no installed product is patched to pass. Final4 whole installation, actual
-recovery, signed transactions and public readback remain required. The final3
-results below remain distinct; its blocked tenant worker prevents publication.
+The complete ZIP is **643,867,544bytes**, SHA-256
+`e2f28074ec921d9945b25af0bc3a55df8e1d98d97983e35cc4d0cdeba301b75d`.
+All19,351 payload hashes,4,915 voices,6,809 shipped source files,11,440 vendor
+files and1,099 native files verify independently. All90 compiled native inputs
+remain unchanged from9f6. Source archive **50,692,297bytes**, SHA-256
+`ff78942cac9b0247da86c1d8b4bd723e2f0d47a57815c91e663f7026edd8d200`,
+verifies7,842 Git blobs and modes. Canonical3-entry and primary7-entry checksums,
+independent Debian/Android retention and private signed sequence1795042256 pass.
+
+The archive is first assembled from5fe913bec0bc2c64d925b8b61e8a2a3b98a547ff.
+Its initial CI fails only because the native fixture casts several discovered
+Python executables into one path. The final source changes only that excluded
+test lookup; every shipped Git blob/mode and the entire archive stay byte-identical.
+The final source archive includes the corrected fixture; [exact-source CI](https://github.com/embire2/openwebpbx/actions/runs/44414855077)
+passes23 terminal,39 recovery,39 registration,169 maintenance and23 protection
+entry controls. Earlier failed CI and successful explicit-interpreter native
+results remain distinct. No installed product is patched to pass.
+
+The new genuine no-prior whole case begins22:54:23UTC with a fixed23:54:23UTC
+setup deadline. Actual owner/TLS/UI/API/QR, software calling, changed protection
+worker backup/restore and reboot remain required. The unchanged493 PHP/PostgreSQL
+and six native Lua fixture results are explicitly reused from final3; they are
+not relabelled final4 execution. Final3 transaction results below are also separate
+from the pending new whole signed tests. No public release is announced.
 
 ## Previous complete final3 package — unqualified
 
