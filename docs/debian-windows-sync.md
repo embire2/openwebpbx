@@ -19,6 +19,13 @@ A hosted deployment, source commit and downloadable installer are separate
 statuses. Debian 1.0.26 contains the Debian 24–26 features below. Windows remains its
 separately qualified 1.0.23 suite; these rows do not imply Windows 26 parity.
 
+## Hosted outgoing-call repair — 18 November 2026
+
+| ID | Hosted acceptance | Windows follow-up |
+| --- | --- | --- |
+| H26-CALL-01 | `d2a7a9a4c`: configured script-root loading avoids a Lua logging-global collision before provider selection.494 regressions pass; owner confirms Android1000 outgoing call and sound both ways. No routing/credential change. | Included in frozen candidate `0bdfe5481` through `dfd710b951`; full package and actual Windows call acceptance pending. Public Windows23 and immutable Debian27 archives are unchanged. Carry into the next independently qualified Debian package. |
+| H26-CALL-02 | [Calling release safeguards](calling-release-safeguards.md) and automatic 494-control push/PR workflow. Original policy fails the new regression; corrected policy passes. | Source-level check is shared. Real-engine call/media gates, required branch rules, live alerts and automated code rollback remain separate follow-up work; not claimed complete. |
+
 ## Hosted tenant API — 18 November 2026
 
 Hosted PHP/UI source `2120ab3b073ce529cdc5fb4ee1fe8e6625de412b` adds the
