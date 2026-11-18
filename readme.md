@@ -114,6 +114,8 @@ The [1.0.22 Debian](docs/release-1.0.22-qualification.md) and [Windows](docs/rel
 
 The hosted [Tenant API](https://openwebpbx.com/api-docs) provides verified-account and isolated-template PBX creation, scoped keys, quotas, idempotency and managed-address readiness. [Integration guide](docs/tenant-api.md) · [OpenAPI 3.1](docs/tenant-api.openapi.json).
 
+Manage existing hosted CloudPBXs through the [tenant administration API](https://call.openweb.co.za/api-docs). In **API Keys**, choose **Full tenant administration** for access to the selected tenant’s current and future PBXs. [API key and integration guide](docs/tenant-admin-api.md).
+
 The [public wizard](https://openwebpbx.com/wizard) connects your own Debian/Windows server to an owner and tenant address; the PBX/database stay local. [Self-install registration](docs/self-install-onboarding.md) · [First-boot API](https://openwebpbx.com/wizard-openapi.json).
 
 Webhotel's Debian 13 image is available in qualified locations, with encrypted, owner-scoped access to initial connection details. Hosting costs are separate from free software. [Hosting availability, credentials and limits](docs/webhotel-onboarding.md).
