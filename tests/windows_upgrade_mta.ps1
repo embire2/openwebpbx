@@ -1,7 +1,8 @@
 ﻿# The actual early product guard, in owned fake scripts with no PBX writers.
 #Requires -Version 5.1
 [CmdletBinding()]
-param([string]$SourceRoot=(Split-Path $PSScriptRoot -Parent),[string]$Output)
+param([string]$SourceRoot,[string]$Output)
+if([string]::IsNullOrWhiteSpace($SourceRoot)){$SourceRoot=Split-Path -Parent $PSScriptRoot}
 $ErrorActionPreference='Stop';$checks=0;$children=@();$work=$null;$previous=[Environment]::GetEnvironmentVariable('OPENWEBPBX_OWNED_MTA_GUARD_OUTPUT','Process')
 function Check([bool]$Value){if(!$Value){throw 'A Windows MTA entry control failed.'};$script:checks++}
 function WriteText([string]$Path,[string]$Text){[IO.File]::WriteAllText($Path,$Text,[Text.UTF8Encoding]::new($true))}
