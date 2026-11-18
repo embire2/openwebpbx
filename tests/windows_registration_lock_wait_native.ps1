@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][ValidateSet('Hold','Acquire')][string]$Mode,[Parameter(Mandatory)][string]$Directory,[string]$Source)
+param([Parameter(Mandatory)][ValidateSet('Hold','Acquire')][string]$Mode,[Parameter(Mandatory)][string]$Directory,[string]$Source,[int]$AcquisitionSeconds=5,[switch]$BodyFailure)
 $ErrorActionPreference='Stop'
 $parent=Split-Path -Parent $Directory
 if((Split-Path -Leaf $parent) -cnotmatch '^openweb-registration-wait-[a-zA-Z0-9_-]+$' -or !(Test-Path -LiteralPath (Join-Path $parent 'fixture-owner.json') -PathType Leaf)){throw 'Owned test directory required'}
@@ -15,9 +15,10 @@ $code=[IO.File]::ReadAllText($Source);$first=$code.IndexOf(' $acquisitionClock='
 if($first -lt 0 -or $end -le $first){throw 'Exact proposed native acquisition block required'}
 $actual=$code.Substring($first,$end+' $acquisitionClock.Stop()'.Length-$first)
 $global:FixtureBodyCount=0;$state=$Directory;$lock=$null;$watch=[Diagnostics.Stopwatch]::StartNew()
-$script='param($state)$lock=$null;try{'+$actual+';$global:FixtureBodyCount++;@{state="acquired"}}finally{if($lock){$lock.Dispose()}}'
+$tokens=$null;$errors=$null;$ast=[Management.Automation.Language.Parser]::ParseInput($code,[ref]$tokens,[ref]$errors);if($errors.Count -or $ast.ParamBlock.Parameters.Count-ne1){throw 'Exact bounded source parameter required'};$sourceParameter=$ast.ParamBlock.Parameters[0].Extent.Text
+$script='param($state,'+$sourceParameter+',[switch]$bodyFailure)$lock=$null;try{'+$actual+';$global:FixtureBodyCount++;if($bodyFailure){throw [IO.IOException]::new("private body sharing failure",-2147024864)};@{state="acquired"}}finally{if($lock){$lock.Dispose()}}'
 try{
- $result=& ([ScriptBlock]::Create($script)) $Directory
+ $result=& ([ScriptBlock]::Create($script)) -state $Directory -AcquisitionSeconds $AcquisitionSeconds -bodyFailure:$BodyFailure
  if($result -is [string]){$result=$result|ConvertFrom-Json}
  $safe=[ordered]@{state=$result.state;bodyCount=$global:FixtureBodyCount;elapsedSeconds=$watch.Elapsed.TotalSeconds}
  if($result.PSObject.Properties['reason']){$safe.reason=$result.reason}
