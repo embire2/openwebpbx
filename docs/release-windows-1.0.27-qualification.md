@@ -24,15 +24,28 @@ checksums and independently retained platform feeds are prepared privately.
 passes23 terminal,39 recovery,39 registration and169 maintenance controls.
 
 The genuine zero-prior final3 installer exits0 at21:13:08UTC in1848.2861239seconds;
-all four principal services run. Ordinary owner registration and the separately
-bounded functional, recovery and reboot cases remain pending. The original
-60-minute setup deadline is preserved; earlier30-minute failures remain failed.
+all four principal services run. Ordinary verified-owner registration, managed
+DNS and trusted HTTPS reach ready21:23:58UTC:48m12.672s within the original
+60-minute setup case. Exactly one owner login and claim are used; its temporary
+token is self-revoked204→401. Earlier30-minute failures remain failed.
+
+Separate installed company11, administrative API28 and personal HTTPS15 controls
+pass, including ordinary API DELETE, stable reusable QR and withdrawn-role
+refusal. PostgreSQL/PHP493, six native Lua groups, UDP/RTP/capacity18, strict
+TLS/RTP11 and STUN9 pass. The preservation baseline covers195 tables,16 protected
+table projections and467 files. One full backup completes through the natural
+SYSTEM worker; actual verified download, tenant/full restore and reboot gates
+remain open. Private observer failures are retained, with no product patch,
+manual worker or duplicate backup request.
+
 The existing23 target separately passes an ordinary idle reboot, original data,
 security, startup choices and eight software SIP/RTP controls. Windows naturally
 resizes its system-managed paging file; no paging setting changes or native DISM
-cleanup occurs. Its new service generations are recorded explicitly. Actual
-final3 signed automatic rollback and normal upgrade remain required; no public
-release is announced by these component results.
+cleanup occurs. New service generations are recorded explicitly. Ordinary
+signed final3 download and full preflight reach ready; native UpdateNow and
+normal elevation start21:53:36UTC. Overall automatic rollback, terminal request,
+backup topology and preservation must pass before the normal upgrade test.
+No public release is announced by these component results.
 
 ## Earlier final2 failure and corrections — 18 November 2026
 
@@ -128,14 +141,15 @@ codec DLLs are not redistributed.
 | Feature integration | Tenant/instance protection worker, IIS API routing and body-free upload admission are ported. Final installed API roles/templates/resources, stable QR, capacity, full/tenant restore, software calling and reboot checks remain pending. |
 | Public release | No Windows27 tag, public assets or latest-feed promotion. Debian27, Android19, public Windows23 and historical catalogue remain retained. |
 
-The current private signed offer has sequence **1795022413**, minimum installed
-version **1.0.23**, envelope SHA-256
-`30d14c1156bdadaf46c100e79e1d0e05fda670917caca0bbb1dc6ff17ac76df3`.
+The current private **final3** signed offer has sequence **1795033781**, minimum
+installed version **1.0.23**, envelope SHA-256
+`daf525f22be6b9a73a942fb5bb7274c72f6027b8b788e48ca4ae93b1d52fbd8a`.
 Its catalogue SHA-256 is
-`6cc7285c66a5d46e8bb6d2c4b6ffd3ddbbc1102d63ff19ca2cca3fe2a978f197`;
-it retains the original20→21→22→23 prefix and appends the exact new27 offer.
-Offline platform promotion guards and package/feed checks pass, preserving
-Debian27 and Android19 envelopes exactly. This is private test authority only.
+`089474b06cd21b64e56101cf4793c8fd30f91d6f5bba5993572278b5a828055d`;
+it retains the original20→21→22→23 prefix and appends the exact final3 offer.
+Minimum1.0.23 applies only to existing-data updates; a clean install needs no
+previous PBX. Package/feed checks preserve Debian27 and Android19 envelopes
+exactly. These are private test feeds until actual acceptance and promotion.
 
 The supplied legacy23 instance has no issued reusable QR payload and is
 unregistered under its grandfathered setup. Its ordinary readiness guard refuses
