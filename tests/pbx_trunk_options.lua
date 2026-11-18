@@ -40,5 +40,16 @@ ok(imported:find('rtp_secure_media_outbound=forbidden',1,true),'Imported plain p
 ok(not imported:find('rtp_secure_media_inbound',1,true),'Provider media policy changed the phone leg')
 t.srtp_mode=nil
 t.options=old;local wrapped=P.outbound_leg(t,route,'0123456789',user,'1000',domain,'fixture.invalid',native,config);ok(wrapped and wrapped:find('trunk_limit',1,true),'Shared outbound policy omitted provider options')
+-- Production config replaces Lua's debug library with logging flags. Exercise
+-- the lazy option loader with that real environment, including a trailing slash.
+local saved_debug,saved_scripts=debug,scripts_dir
+debug={params=false,sql=false};scripts_dir='app/pbx_setup/resources/switch/scripts/'
+local runtime=dofile(directory..'policy.lua')
+local configured=runtime.outbound_leg(t,route,'0123456789',user,'1000',domain,'fixture.invalid',native,config)
+ok(configured and configured:find('trunk_limit',1,true),'Configured calling engine cannot load provider options without debug.getinfo')
+scripts_dir=nil
+local missing=dofile(directory..'policy.lua')
+ok(not missing.outbound_leg(t,route,'0123456789',user,'1000',domain,'fixture.invalid',native,config),'Missing trusted module location must refuse rather than use the working directory')
+debug,scripts_dir=saved_debug,saved_scripts
 t.options.allow_outgoing=false;ok(not P.outbound_leg(t,route,'0123456789',user,'1000',domain,'fixture.invalid',native,config),'Shared outbound policy ignored direction')
 print('PASS: '..checks..' trunk options decisions; native slot ownership requires separate engine proof')

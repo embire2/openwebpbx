@@ -11,8 +11,17 @@ local function provider_leg(trunk,contact,domain,config,origin)
         return contact
     end
     if not trunk_options then
-        local source=debug.getinfo(1,'S').source:match('^@(.*/)')
-        local loaded,module=pcall(dofile,(source or '')..'trunk_options.lua')
+        -- The calling engine's configuration uses `debug` for logging flags,
+        -- replacing Lua's debug library. Resolve the sibling from the configured
+        -- scripts root there; standalone policy checks can use their source path.
+        local source
+        if type(scripts_dir)=='string' and scripts_dir~='' then
+            source=scripts_dir:gsub('[\\/]+$','')..'/app/pbx_setup/'
+        elseif type(debug)=='table' and type(debug.getinfo)=='function' then
+            source=debug.getinfo(1,'S').source:match('^@(.+[\\/])')
+        end
+        if not source then return nil end
+        local loaded,module=pcall(dofile,source..'trunk_options.lua')
         if not loaded or type(module)~='table' then return nil end
         trunk_options=module
     end
