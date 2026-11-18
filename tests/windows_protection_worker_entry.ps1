@@ -4,7 +4,7 @@ $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1){throw 'Run on actual Windows PowerShell 5.1.'}
 if(!$SourceRoot){$SourceRoot=Split-Path $PSScriptRoot -Parent}
-if(!$Python){$Python=(Get-Command python.exe -CommandType Application -ErrorAction Stop).Source}
+if(!$Python){$Python=(@(Get-Command python.exe -CommandType Application -ErrorAction Stop)[0]).Source}
 $source=Join-Path $SourceRoot 'packaging/windows/Protection-Worker.ps1'
 $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile($source,[ref]$tokens,[ref]$errors)
