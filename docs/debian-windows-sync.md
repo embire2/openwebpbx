@@ -1,6 +1,6 @@
 # Debian changes to carry into Windows
 
-Updated **17 November 2026**. This is the change ledger for Windows catch-up,
+Updated **18 November 2026**. This is the change ledger for Windows catch-up,
 alongside the [release process](independent-platform-releases.md). Add a row
 for every Debian feature, calling fix, migration or deployment change. Keep
 the originating version and source commit even when Windows ships it later.
@@ -18,6 +18,18 @@ Update the Windows result only after checking the actual Windows package.
 A hosted deployment, source commit and downloadable installer are separate
 statuses. Debian 1.0.26 contains the Debian 24–26 features below. Windows remains its
 separately qualified 1.0.23 suite; these rows do not imply Windows 26 parity.
+
+## Hosted tenant API — 18 November 2026
+
+Hosted PHP/UI source `2120ab3b073ce529cdc5fb4ee1fe8e6625de412b` adds the
+installation-local tenant reference at `/api-docs` and a **Full tenant
+administration** key preset. Nine existing scopes cover a tenant's current and
+future CloudPBXs without instance, reseller or cross-tenant authority. Native
+Main stays26; public Debian27 and Android19 artifacts/feeds remain unchanged.
+
+| ID | Hosted acceptance | Windows follow-up |
+| --- | --- | --- |
+| H26-API-01 | Local123-path/153-operation reference/OpenAPI; tenant/PBX menus and key preset.26+117 PostgreSQL,29 DOM,334 reference,308 existing contract controls and actual UI key creation/revocation/isolation pass. [Guide](tenant-admin-api.md). | **Not in frozen Windows80526 package.** Carry the local reference/router/menu/preset and relevant isolation checks into a later independent Windows build. Do not describe the current Windows27 candidate as including this later overlay. |
 
 ## Debian 1.0.27 standalone release — 17 November 2026
 
