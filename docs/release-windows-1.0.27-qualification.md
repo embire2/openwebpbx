@@ -8,7 +8,121 @@ with Desktop Experience. A fresh installation needs no previous PBX or separate
 PBX repair. Existing-data updates retain their own signed compatibility,
 backup, active-call and recovery checks.
 
-## Current complete final8 package — in qualification
+## Current complete final9 package — direct clean installation in progress
+
+Qualified source `ccccfe56ed7012455e1cf00395407389a7226daf`; complete ZIP
+**643,869,682 bytes**, SHA-256
+`fd02d054ae21b06ca6be7945e515513d02f1c4989851b83e395e53a8103a88fb`.
+The full package verifies all19,351 payloads,4,915 voices and its explicit
+no-previous-PBX contract. Packaged input is
+`7c5fa6da02607df65d082ca3147901875a6faef3`; the qualified child changes only
+an excluded source-fingerprint test. All7,846 other Git blobs/modes and every
+shipped/native input match. Source archive50,722,586bytes/SHA-256
+`a498aaae2fc209ec07d768a5b9a64a308f08b946c9d17ccda02480b06edb7538`
+contains7,847 verified Git blobs/modes. Native build
+`9f6a0ac42999614755ee0838c0660324970f11c1` retains90 verified inputs.
+Private signed sequence1795092905 preserves Debian, Android and the historical
+Windows catalogue prefix. [Exact qualified-source CI](https://github.com/embire2/openwebpbx/actions/runs/44529341862)
+passes, including88 instance-recovery controls,34portable/7native protection
+controls,45 registration and175 maintenance controls. None is public release
+acceptance.
+
+Final8's two ordinary full-verification jobs fail native sharing admission
+before their dry-run bodies; neither starts data restoration. A separate frozen
+source review finds that full restoration would set phoneTLS Pending before
+its worker immediately requests call activation. That source concern is not
+labelled a runtime restore failure. Final9 changes only scheduled Windows
+instance-verify/restore admission and precisely proved same-instance TLS reuse:
+
+- Compound upgrade, automatic-backup and image-worker locks retry sharing32/33
+  for30seconds, closing every acquired handle before waiting. The guarded body
+  runs once. Restore/maintenance holds are checked after waiting; fatal path,
+  ACL and unexpected I/O failures remain fatal. Default CLI/import and Linux
+  use the original admission behavior.
+- Same-instance TLS requires exact32-byte master-key identity, exact archived
+  and current TLS JSON/agent/CA bytes, certificate/key correspondence, SAN,
+  validity and thumbprint, plus read-only current machine-store identity and
+  private-key proof. A mismatch retains the original replacement Pending policy;
+  no certificate import, trust change or key rewrite is introduced.
+
+Actual isolated Windows execution passes88 controls, six natural lock groups
+and nine read-only ephemeral-certificate controls. All15/35-second holders exit
+naturally; timeout and newly appearing holds prevent work, acquisition retries
+never repeat a business body, and installed services/Manager generations stay
+exact. Earlier portable cp1252 refusal and an outer observer143 remain separate
+from recovered independent task/native0. The first source CI fails a
+version-dependent AST fingerprint; its one-test child uses the exact decorated
+UTF-8 source closure instead. Every shipped byte is unchanged by that correction.
+
+### Actual final9 no-prior RDP case
+
+The user requires a direct current-package clean installation. The earlier
+initial6 installation is historical evidence and does not satisfy that gate.
+The owned populated8 fixture is retained in cold checkpoint
+`owned-w127-final8-07c-20261119`, saved14:04:27UTC after graceful guest shutdown
+and the supported customer desiredStopped transition. The original clean
+checkpoint then boots with its reserved disks/address and current6GiB/4CPU.
+Actual host free-memory and foreign configured-maximum guards pass; no foreign
+VM or allocation changes. Network remains down until static-address/no-prior
+proof, then only the owned link is enabled.
+
+The new fixed setup case is14:12:04–15:27:04UTC. The exact full9 ordinary
+installer Check exits0 at14:15:34; six product paths, two registry checks and
+zero PBX/PostgreSQL services still prove no prior installation afterward.
+A real private RDP session shows the clean Server2025 desktop and normal UAC
+approval. The exact unmodified full installer starts at14:33:05UTC as
+nativePowerShell7380 in actual RDPsession2, with its visible elevated console
+and durable transcript/start receipt. Two earlier private launcher prebody
+failures are retained; neither is an installer attempt.
+One ordinary verified-owner login, one scoped setup token and one newly named
+owned claim are authorized within actual existing quota. The token must be
+self-revoked after its last use. No earlier PBX or dependency is preinstalled.
+
+Current release gates remain actual direct installation/installed Manager,
+ordinary claim and trusted readiness, role-scoped UI/API/QR/software calls,
+natural encrypted tenant/full create/verify/restore with a positive current
+same-instance TLS proof before full restore, strict preservation and warm reboot;
+also the original23 signed final9 normal16 transaction below. Only actualAUTO6
+is reused under85 exact Windows sources, two reviewed default-operation
+closures,90 native inputs, actual disabled/deferred Protection and absence of
+eligible Certify inputs. There is no direct9 AUTO claim. Same-version manual9
+application is cancelled unexecuted after the user requested direct installation;
+its passed package Check is retained and is not clean-install acceptance.
+
+### Existing-data target before final9
+
+The complete final8 signed normal15 transaction passes at12:03UTC: only15
+completes, all14 prior rows remain exact, no install remains active and exactly
+one sealed backup is added. The195-table schema, original172 unrelated table
+multisets, roles, nine customer projections,473file records,26seals,13,175partial
+files and security choices pass source-bound preservation. Software SIP/RTP8,
+actual configured mod_lua3 and installed responsive Manager27 pass. Manager
+inspection explicitly selects a visible process while recording two matching
+instances. Two natural updater checks are300.136826seconds apart with the same
+process and trust floors. Minimum observed free space13,879,857,152bytes remains
+above10GiB. An outer snapshot observer143/native-exit-unknown and initial
+Manager count refusal are retained separately from complete recovered data and
+the corrected explicit-process inspection.
+
+Its selected15 pre23 backup is wholly verified offhost. The first ordinary
+installed-helper RestoreBackup exits1 at13:59:55 with a generic folder-copy
+error; the precise native cause is unestablished. One plain unmodified support
+Recover exits0 at14:26:24, restores healthy23/rolled_back state, original helper
+and updater slot, and removes the product hold. A necessary normal start of the
+previously running Automatic updater occurs once; stock23 then naturally marks
+only15 failed, preserving all14 earlier rows and leaving no active install.
+This is support recovery, not automatic-rollback acceptance. Exact preservation
+and SIP checks precede final9 staging and the actual signed normal16 transaction.
+Three inactive duplicate updater archives are removed only after independent
+retained-copy/hash, same-exclusive-handle identity/ACL and complete before/after
+state proofs. Current and retained031/011 archives, all backup seals, customer
+files and trust authorities remain intact; the conservative future transaction
+forecast retains more than10GiB.
+
+The following candidate records retain their original scope and failures. They
+do not replace any current final9 gate or promote a public release.
+
+## Previous complete final8 package — actual components, incomplete full recovery
 
 Candidate source `07c55aae58cc747d9eaa6832f652c35671f172d7`; complete ZIP
 **643,867,721 bytes**, SHA-256
