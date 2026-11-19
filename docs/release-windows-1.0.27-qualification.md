@@ -52,6 +52,36 @@ backup/restore, preservation and reboot. Original setup60min/readiness30min fail
 remain failed. There is no second owner claim, leaf patch or backoff reset. Public
 Windows remains23 until these gates and public readback pass.
 
+### Current manual operator route and actual signed upgrade
+
+The first same-version signed-reapply plan is stopped unqualified without an
+application attempt. One preflight defers75 during normal maintenance contention;
+the next obtains the lock and exits1 because the native signed updater correctly
+requires a newer version. The PowerShell version comparison alone did not establish
+that admission. No verifier, installed version, signature or trust floor is changed.
+
+The retained [manual Windows update guide](windows-upgrade.md) documents running
+`Upgrade-OpenWebPBX.ps1 -Check` and then the helper from the complete extracted
+package. This separate administrator entry checks the full manifest and explicitly
+permits equal versions. The final7 archive is independently authenticated against
+its pinned signed envelope and exact SHA-256 before extraction to a new private
+Administrators/SYSTEM directory. Its unmodified package helper runs in MTA without
+`-Archive`; this is **manual full-package application**, not equal-version signed
+updater acceptance. Its actual Check/application and subsequent functional gates
+are still pending. The original claim, certificates and naturally reached final6
+readiness remain intact.
+
+The genuine original23 **signed final7 normal14** passes at05:27:39UTC. Only that
+request completes; all13 prior rows remain exact, zero installs remain active,
+and one new complete sealed backup is added without an outer replay. Customer
+configuration,473private/media files, original schema fields, roles, sequence,
+security/task choices,13175partial files and22prior seals remain preserved.
+Software SIP/RTP8 and configured mod_lua3 pass. The actual installed Manager27 is
+responsive with54UIAcontrols; the new updater's natural checks are300.133614seconds
+apart with its process and both final7 trust floors unchanged. These completed
+upgrade-target gates do not substitute for the remaining fresh functional gates
+or promote a public release.
+
 ## Previous complete final6 package — actual components, incomplete readiness
 
 Frozen source `61325afe155950c2b8961f8001054eb9d246c92e`; complete ZIP
