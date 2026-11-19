@@ -171,7 +171,10 @@ class Agent:
         ordinary(HELPER)
         if not HELPER.is_file():
             raise Pending('The installed onboarding helper is unavailable.')
-        process = subprocess.run([sys.executable, '-I', '-B', str(HELPER), '--image-' + action],
+        command = [sys.executable, '-I', '-B', str(HELPER), '--image-' + action]
+        if IS_WINDOWS:
+            command.append('--background')
+        process = subprocess.run(command,
                                  input=json.dumps(body or {}).encode(), capture_output=True,
                                  timeout=900 if action == 'bind' else 90, check=False)
         if process.returncode:

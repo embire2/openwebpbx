@@ -9,12 +9,15 @@ on:
       - packaging/windows/CallRecords.Common.ps1
       - packaging/windows/backups.py
       - packaging/windows/Protection-Worker.ps1
+      - packaging/debian/onboarding.py
+      - packaging/debian/webhotel-onboarding.py
       - tests/windows_upgrade_delegation.ps1
       - tests/windows_delegated_host.ps1
       - tests/windows_legacy_unsealed_recovery.ps1
       - tests/windows_backup_registration_claim.py
       - tests/windows_backup_worker_wait.py
       - tests/windows_protection_worker_entry.ps1
+      - tests/windows_onboarding_background.py
       - .github/workflows/windows-upgrade-compatibility.yml
   pull_request:
     paths:
@@ -23,12 +26,15 @@ on:
       - packaging/windows/CallRecords.Common.ps1
       - packaging/windows/backups.py
       - packaging/windows/Protection-Worker.ps1
+      - packaging/debian/onboarding.py
+      - packaging/debian/webhotel-onboarding.py
       - tests/windows_upgrade_delegation.ps1
       - tests/windows_delegated_host.ps1
       - tests/windows_legacy_unsealed_recovery.ps1
       - tests/windows_backup_registration_claim.py
       - tests/windows_backup_worker_wait.py
       - tests/windows_protection_worker_entry.ps1
+      - tests/windows_onboarding_background.py
       - .github/workflows/windows-upgrade-compatibility.yml
 
 permissions:
@@ -87,6 +93,14 @@ jobs:
           python tests/windows_backup_worker_wait.py --previous $previous --native --work-root $maintenance
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           Copy-Item (Join-Path $maintenance 'result.safe.json') compatibility-results/backup-maintenance.safe.json
+      - name: Verify Windows background onboarding native contention
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $work=Join-Path $env:RUNNER_TEMP ('openweb-onboarding-background-'+[Guid]::NewGuid().ToString('N'))
+          python tests/windows_onboarding_background.py --native --work-root $work
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          Copy-Item (Join-Path $work 'native-result.safe.json') compatibility-results/onboarding-background.safe.json
       - name: Verify protection entry native quoting on Windows PowerShell 5.1
         shell: pwsh
         run: |

@@ -226,13 +226,18 @@ def main():
     actions=['tick','image-init','image-bind','image-store','image-status','image-sign','image-proof','image-display']
     group=parser.add_mutually_exclusive_group(required=True)
     for action in actions:group.add_argument('--'+action,action='store_true')
+    parser.add_argument('--background',action='store_true',help=argparse.SUPPRESS)
     args=parser.parse_args();action=next(a for a in actions if getattr(args,a.replace('-','_')))
+    if args.background and (not IS_WINDOWS or action=='tick'):
+        parser.error('--background is only for Windows image-consumer helpers.')
     b,d=environment()
     if action!='tick':
         raw=sys.stdin.buffer.read(65537)
         if len(raw)>65536:raise ValueError('Bounded setup input required.')
         value=json.loads(raw or b'{}')
-        guard=d.windows_registration_guard(b)if IS_WINDOWS else b.exclusive_guard(b.UPGRADE_LOCK)
+        # Only the installed Windows consumer requests the background bound.
+        # Foreground image helpers keep five seconds and guarded work runs once.
+        guard=d.windows_registration_guard(b,acquisition_seconds=30 if args.background else 5)if IS_WINDOWS else b.exclusive_guard(b.UPGRADE_LOCK)
         with guard:
             if d.blocked(b):raise RuntimeError('A restore or update is in progress.')
             if action!='image-bind':return image(action[6:],value,b,d)
@@ -243,7 +248,7 @@ def main():
     # Registration jobs hold the ordinary maintenance lock. Public certificate
     # setup has its own lock and therefore runs only after this lock is released.
     meta=None
-    guard=d.windows_registration_guard(b)if IS_WINDOWS else b.exclusive_guard(b.UPGRADE_LOCK,wait_seconds=5)
+    guard=d.windows_registration_guard(b,acquisition_seconds=30)if IS_WINDOWS else b.exclusive_guard(b.UPGRADE_LOCK,wait_seconds=5)
     with guard:
         if d.blocked(b):return {'state':'deferred','reason':'maintenance_or_restore_hold'}
         result=process_jobs(b,d)
