@@ -82,9 +82,28 @@ if a.previous:
     old = a.previous.read_text(); prior = ast.parse(old)
     # The registration pre-claim regression separately proves the moved worker
     # business body exact; this fixture owns only maintenance acquisition.
-    for name in ('exclusive_guard','windows_exclusive_guard','restore','recover'):
+    for name in ('exclusive_guard','windows_exclusive_guard','recover'):
         n = next(x for x in prior.body if isinstance(x,ast.FunctionDef) and x.name == name)
         need(ast.dump(n,include_attributes=False) == ast.dump(node(name),include_attributes=False))
+    # Preserve default/CLI restore admission while scheduled full recovery
+    # selects its independently tested compound acquisition option.
+    import copy
+    original=next(x for x in prior.body if isinstance(x,ast.FunctionDef) and x.name=='restore')
+    actual=copy.deepcopy(node('restore'))
+    if any(isinstance(x,ast.FunctionDef) and x.name=='instance_restore_guard' for x in tree.body):
+        admission=node('instance_restore_guard');branch=admission.body[0]
+        expected=ast.parse("worker_admission is not True or os.name != 'nt'",mode='eval').body
+        need(isinstance(branch,ast.If) and ast.dump(branch.test,include_attributes=False)==ast.dump(expected,include_attributes=False))
+        need(len(branch.body)==2 and isinstance(branch.body[0],ast.With) and isinstance(branch.body[1],ast.Return) and branch.body[1].value is None)
+        default=branch.body[0]
+        need(len(default.body)==1 and isinstance(default.body[0],ast.Expr) and isinstance(default.body[0].value,ast.Yield) and default.body[0].value.value is None)
+        need(ast.dump(ast.Module(body=[ast.With(items=default.items,body=original.body[1].body)],type_ignores=[]),include_attributes=False)==ast.dump(ast.Module(body=[original.body[1]],type_ignores=[]),include_attributes=False))
+        need(len(actual.args.kwonlyargs)==1 and actual.args.kwonlyargs[0].arg=='worker_admission' and ast.dump(actual.args.kw_defaults[0])==ast.dump(ast.Constant(False)))
+        actual.args.kwonlyargs=[];actual.args.kw_defaults=[]
+        expected=ast.parse('with instance_restore_guard(worker_admission=worker_admission):\n pass').body[0]
+        need(len(actual.body)==2 and ast.dump(ast.Module(body=[ast.With(items=actual.body[1].items,body=[ast.Pass()])],type_ignores=[]),include_attributes=False)==ast.dump(ast.Module(body=[expected],type_ignores=[]),include_attributes=False))
+        actual.body[1].items=copy.deepcopy(default.items)
+    need(ast.dump(original,include_attributes=False)==ast.dump(actual,include_attributes=False))
 
 result = {'state':'passed','checks':checks,'sourceSHA256':hashlib.sha256(a.source.read_bytes()).hexdigest(),'actualWorkerFunctions':True,'noRealWorkerOrProductPaths':True,'native':False}
 if a.native:

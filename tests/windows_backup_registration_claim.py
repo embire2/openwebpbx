@@ -85,8 +85,26 @@ if a.previous:
  calls=[n for n in ast.walk(current) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=='_create_archive']
  need(len(calls)==1);calls[0].func.id='create_archive'
  need(ast.dump(old,include_attributes=False)==ast.dump(current,include_attributes=False))
- for name in ['create_archive','registration_guard','exclusive_guard','windows_exclusive_guard','restore','recover']:
+ for name in ['create_archive','registration_guard','exclusive_guard','windows_exclusive_guard','recover']:
   need(ast.dump(find(name,previous),include_attributes=False)==ast.dump(find(name),include_attributes=False))
+ # Scheduled full recovery has a separate reviewed admission option. Its
+ # default/CLI branch must still acquire these exact original three guards.
+ import copy
+ actual=copy.deepcopy(find('restore'));original=find('restore',previous)
+ if any(isinstance(n,ast.FunctionDef) and n.name=='instance_restore_guard' for n in tree.body):
+  admission=find('instance_restore_guard');branch=admission.body[0]
+  expected=ast.parse("worker_admission is not True or os.name != 'nt'",mode='eval').body
+  need(isinstance(branch,ast.If) and ast.dump(branch.test,include_attributes=False)==ast.dump(expected,include_attributes=False))
+  need(len(branch.body)==2 and isinstance(branch.body[0],ast.With) and isinstance(branch.body[1],ast.Return) and branch.body[1].value is None)
+  default=branch.body[0]
+  need(len(default.body)==1 and isinstance(default.body[0],ast.Expr) and isinstance(default.body[0].value,ast.Yield) and default.body[0].value.value is None)
+  need(ast.dump(ast.Module(body=[ast.With(items=default.items,body=original.body[1].body)],type_ignores=[]),include_attributes=False)==ast.dump(ast.Module(body=[original.body[1]],type_ignores=[]),include_attributes=False))
+  need(len(actual.args.kwonlyargs)==1 and actual.args.kwonlyargs[0].arg=='worker_admission' and ast.dump(actual.args.kw_defaults[0])==ast.dump(ast.Constant(False)))
+  actual.args.kwonlyargs=[];actual.args.kw_defaults=[]
+  expected=ast.parse('with instance_restore_guard(worker_admission=worker_admission):\n pass').body[0]
+  need(len(actual.body)==2 and ast.dump(ast.Module(body=[ast.With(items=actual.body[1].items,body=[ast.Pass()])],type_ignores=[]),include_attributes=False)==ast.dump(ast.Module(body=[expected],type_ignores=[]),include_attributes=False))
+  actual.body[1].items=copy.deepcopy(default.items)
+ need(ast.dump(original,include_attributes=False)==ast.dump(actual,include_attributes=False))
 
 result={'passed':True,'checks':checks,'source_sha256':hashlib.sha256(a.source.read_bytes()).hexdigest(),
         'pending_request_unchanged_when_snapshot_busy':True,'guarded_body_runs_once':True,

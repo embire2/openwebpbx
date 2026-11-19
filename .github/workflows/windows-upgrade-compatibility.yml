@@ -8,6 +8,7 @@ on:
       - packaging/windows/Upgrade-OpenWebPBX.ps1
       - packaging/windows/CallRecords.Common.ps1
       - packaging/windows/backups.py
+      - packaging/windows/Backup-Control.ps1
       - packaging/windows/Protection-Worker.ps1
       - packaging/windows/Install-BootstrapProof.ps1
       - packaging/debian/onboarding.py
@@ -24,6 +25,7 @@ on:
       - tests/windows_bootstrap_iis_start.ps1
       - tests/windows_tenant_certificate_budget.py
       - tests/windows_protection_admission.py
+      - tests/windows_instance_restore_admission.py
       - .github/workflows/windows-upgrade-compatibility.yml
   pull_request:
     paths:
@@ -31,6 +33,7 @@ on:
       - packaging/windows/Upgrade-OpenWebPBX.ps1
       - packaging/windows/CallRecords.Common.ps1
       - packaging/windows/backups.py
+      - packaging/windows/Backup-Control.ps1
       - packaging/windows/Protection-Worker.ps1
       - packaging/windows/Install-BootstrapProof.ps1
       - packaging/debian/onboarding.py
@@ -47,6 +50,7 @@ on:
       - tests/windows_bootstrap_iis_start.ps1
       - tests/windows_tenant_certificate_budget.py
       - tests/windows_protection_admission.py
+      - tests/windows_instance_restore_admission.py
       - .github/workflows/windows-upgrade-compatibility.yml
 
 permissions:
@@ -115,6 +119,16 @@ jobs:
           python tests/windows_protection_admission.py --native --work-root $work
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           Copy-Item (Join-Path $work 'native-result.safe.json') compatibility-results/protection-admission.safe.json
+      - name: Verify scheduled full recovery admission and same-instance TLS identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $pythonTemp=(& python -c 'import tempfile;print(tempfile.gettempdir())').Trim()
+          if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $pythonTemp -PathType Container)){throw 'Python fixture TEMP root unavailable.'}
+          $work=Join-Path $pythonTemp ('openweb-instance-restore-'+[Guid]::NewGuid().ToString('N'))
+          python tests/windows_instance_restore_admission.py --native --work-root $work
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          Copy-Item (Join-Path $work 'native-result.safe.json') compatibility-results/instance-restore-admission.safe.json
       - name: Verify Windows background onboarding native contention
         shell: pwsh
         run: |

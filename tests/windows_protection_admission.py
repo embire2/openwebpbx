@@ -22,7 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PRODUCT = ROOT/'packaging/debian/protection.py'
 BACKUPS = ROOT/'packaging/windows/backups.py'
 BASE_SHA = 'd71aa2ec349131f149bc22c9c82decd6d79965cb098eec4a2b95e5c9c48d2dda'
-BACKUP_SHA = '841f1f15d34f357e03da95419eea2420293eb9a2e5d8eb8f0c6c41455decada6'
+BACKUP_SHA = hashlib.sha256(BACKUPS.read_bytes()).hexdigest()
+GUARD_CLOSURE_SHA = '13a8ffa45af1d0b7598c8ec65bba921aafa9850c7df8a6bc73d7989747ff50ad'
 FIRST_OLD = '            with full.exclusive_guard(full.UPGRADE_LOCK):pass'
 FIRST_NEW = '''            with full.backup_worker_guard(full.UPGRADE_LOCK):
                 if full.restore_pending() or (full.STATE/'updates/maintenance').exists():return'''
@@ -33,10 +34,21 @@ SECOND_NEW = '''                with full.backup_worker_guard(full.UPGRADE_LOCK)
 SOURCE = PRODUCT.read_text(encoding='utf-8')
 assert SOURCE.count(FIRST_NEW) == SOURCE.count(SECOND_NEW) == 1
 PREVIOUS = SOURCE.replace(FIRST_NEW, FIRST_OLD).replace(SECOND_NEW, SECOND_OLD)
-assert hashlib.sha256(PREVIOUS.encode()).hexdigest() == BASE_SHA
-assert hashlib.sha256(BACKUPS.read_bytes()).hexdigest() == BACKUP_SHA
+prior_policy = PREVIOUS
+admission_line = "                admission = {'worker_admission': True} if os.name == 'nt' else {}\n"
+if admission_line in prior_policy:
+    assert prior_policy.count(admission_line) == 1 and prior_policy.count(', **admission)') == 2
+    prior_policy = prior_policy.replace(admission_line, '').replace(', **admission)', ')')
+assert hashlib.sha256(prior_policy.encode()).hexdigest() == BASE_SHA
+guard_names = {'BackupError', 'BackupBusy', 'reparse', 'windows_exclusive_guard',
+               'exclusive_guard', 'backup_worker_guard', 'lock_file', 'unlock_file'}
+guard_nodes = [n for n in ast.parse(BACKUPS.read_text()).body
+               if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name in guard_names]
+assert {n.name for n in guard_nodes} == guard_names
+assert hashlib.sha256(ast.dump(ast.Module(body=guard_nodes, type_ignores=[]), include_attributes=False).encode()).hexdigest() == GUARD_CLOSURE_SHA
 PINS = {'protection.py': hashlib.sha256(PRODUCT.read_bytes()).hexdigest(),
-        'backups.py': BACKUP_SHA, 'previous_protection.py': BASE_SHA}
+        'backups.py': BACKUP_SHA, 'previous_protection.py': hashlib.sha256(PREVIOUS.encode()).hexdigest(),
+        'previous_preclaim_policy_normalized_sha256': BASE_SHA, 'native_guard_closure_sha256': GUARD_CLOSURE_SHA}
 checks = []
 def check(value, label):
     if not value: raise AssertionError(label)
@@ -136,8 +148,8 @@ def portable(work):
           'native parent traversal refused before filesystem changes')
     check(valid_native_root(Path(tempfile.gettempdir())/'openweb-protection-admission-x'),
           'own native TEMP prefix admitted')
-    check(hashlib.sha256(PREVIOUS.encode()).hexdigest() == BASE_SHA,
-          'whole baseline7 module byte-exact after reversing ONLY two Windows preclaim changes')
+    check(hashlib.sha256(prior_policy.encode()).hexdigest() == BASE_SHA,
+          'whole baseline7 module byte-exact after reversing preclaim and explicit Windows instance admission changes')
     old, e = invoke(work/'empty-old', previous=True)
     new, f = invoke(work/'empty-new')
     check(e is None and f is None and effects(old) == effects(new) and

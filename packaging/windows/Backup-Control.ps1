@@ -1,7 +1,7 @@
 #Requires -RunAsAdministrator
 [CmdletBinding()]
 param(
- [Parameter(Mandatory)][ValidateSet('secure','plan','hold','hold-selection','start-web','recover-startup','resume-factory','activate','acl-read','acl-restore')][string]$Operation,
+ [Parameter(Mandatory)][ValidateSet('secure','plan','hold','hold-selection','start-web','recover-startup','resume-factory','activate','acl-read','acl-restore','phone-tls-identity')][string]$Operation,
  [Parameter(Mandatory)][string]$Request
 )
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
@@ -57,6 +57,15 @@ function PrivateAcl([string]$Path,[string]$Kind){
   }
  }
  Set-Acl -LiteralPath $path -AclObject $acl
+}
+function Confirm-OpenWebRestorePhoneCertificate([string]$Thumbprint,[string]$CertificateSha256){
+ if($Thumbprint -cnotmatch '^[A-F0-9]{40}$' -or $CertificateSha256 -cnotmatch '^[a-f0-9]{64}$'){return $false}
+ try{$certificate=Get-Item -LiteralPath ('Cert:\LocalMachine\My\'+$Thumbprint) -ErrorAction Stop}
+ catch [System.Management.Automation.ItemNotFoundException]{return $false}
+ if($certificate -isnot [Security.Cryptography.X509Certificates.X509Certificate2] -or !$certificate.HasPrivateKey -or $certificate.Thumbprint -cne $Thumbprint -or $certificate.NotBefore.ToUniversalTime() -gt [DateTime]::UtcNow -or $certificate.NotAfter.ToUniversalTime() -le [DateTime]::UtcNow){return $false}
+ $digest=[Security.Cryptography.SHA256]::Create()
+ try{$actual=([BitConverter]::ToString($digest.ComputeHash($certificate.RawData))).Replace('-','').ToLowerInvariant()}finally{$digest.Dispose()}
+ return $actual -ceq $CertificateSha256
 }
 function Plan {
  Import-Module WebAdministration
@@ -123,6 +132,7 @@ try{
  $null = . {
  switch($Operation){
   'secure'{PrivateAcl ([string]$value.path) ([string]$value.kind)}
+  'phone-tls-identity'{$result=@{confirmed=[bool](Confirm-OpenWebRestorePhoneCertificate ([string]$value.thumbprint) ([string]$value.certificate_sha256))}}
   'plan'{$result=Plan}
   'hold'{ValidPlan $value;$cdrHold=RestoreCallRecordHold @('prepared','restoring','recovery_required','recovering','recovered');if($cdrHold){Set-OpenWebCallRecordHold -StateRoot $private -Hold $cdrHold -ExternalLockHeld};foreach($selection in 'updates','jobs','calls','backups'){HoldSelection $selection};StopWeb}
   'hold-selection'{HoldSelection ([string]$value.selection)}
