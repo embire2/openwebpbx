@@ -8,7 +8,60 @@ with Desktop Experience. A fresh installation needs no previous PBX or separate
 PBX repair. Existing-data updates retain their own signed compatibility,
 backup, active-call and recovery checks.
 
-## Current complete final7 package — in qualification
+## Current complete final8 package — in qualification
+
+Candidate source `07c55aae58cc747d9eaa6832f652c35671f172d7`; complete ZIP
+**643,867,721 bytes**, SHA-256
+`98224c0f8e5bcf0272835011d0f213063fc2c1522d5ebe829137ce828ff4f30e`.
+All19,351 payloads,4,915 voices and the full/no-previous-PBX contract verify.
+The binary package was assembled from `6a4a228a3d4b59ce74358fc7983f755faac92887`;
+the candidate child changes only its workflow and test. Every shipped source blob,
+mode and all90 native inputs are identical. Full source50,710,708bytes,
+SHA-256 `147a0b3d3380c2fbe2d8f7bd1cef3f6ca1ade8f454451d84ffe2a9db81123d83`,
+contains7,846 independently verified Git blobs/modes. Private sequence1795079436
+preserves Debian27, Android19 and the original Windows catalogue history.
+
+Final7's one ordinary tenant-create request stays pending through its original
+20-minute observer and45-minute protection case. Those failures remain failures.
+A95-second natural process trace observes two protection workers exit0 after
+about one second, with no child process; the restore/maintenance markers are
+clear. Source review identifies the nonblocking preclaim maintenance probe before
+ACL helpers or SQL claim. The competing lock owner is not established.
+
+Only the two Windows preclaim probes now use the existing30-second acquisition
+helper. Both recheck restore and maintenance holds after acquiring it. Native
+32/33 contention remains distinct from fatal path, ACL and I/O failures; the
+business body runs once. Linux, foreground, postclaim behavior and the compiled
+Core/updater/Manager remain unchanged. Actual isolated Windows controls pass
+34portable and7native cases: old immediate deferral, both real15-second waits,
+30-second timeout, both newly appearing holds, empty-queue effects and body-once
+errors. Corrected-source [CI](https://github.com/embire2/openwebpbx/actions/runs/44495433303)
+is a separate required gate.
+
+Two test defects remain recorded: the initial CI caller used a different TEMP
+root from Python, and `endswith('old')` also selected the old worker for names
+ending in`hold`. The corrected full native run explicitly selects the new worker
+and measures15.161/15.581seconds for those holds. No installed worker, queue,
+maintenance lock, certificate or backoff is patched to make a test pass.
+
+Actual initial6 installation and AUTO6 rollback are explicit, limited reuse.
+All87 Windows installer/recovery sources and90 native inputs remain exact.
+Protection can start asynchronously at the initial installer tail, so this is
+**not** a claim that every executed initial writer is byte-identical: the changed
+admission has separate native empty-queue and hold controls. For AUTO6, the actual
+witness requires Protection to remain disabled before the fault, while the
+unchanged transaction enables it only after commit; rollback occurs first.
+The retained Certify branch proof has no eligible hostname or certificate input.
+There is no direct final8 clean-install or automatic-rollback execution claim.
+
+Remaining gates are one complete authenticated manual-package application on the
+original clean installation, one actual signed final8 normal23 upgrade, current
+preservation, natural tenant/full backup verification and restoration, reboot,
+then public publication/readback and ordinary public update checks. The existing
+pending request and every prior failed case remain retained. Public Windows is
+still23; Main App/Core/updater26, Debian27 and Android19 are unchanged.
+
+## Previous complete final7 package — actual components, incomplete protection
 
 Frozen source `230545f81724ca82f7581abd54b410f8cb139878`; complete ZIP
 **643,867,854 bytes**, SHA-256
@@ -67,9 +120,15 @@ permits equal versions. The final7 archive is independently authenticated agains
 its pinned signed envelope and exact SHA-256 before extraction to a new private
 Administrators/SYSTEM directory. Its unmodified package helper runs in MTA without
 `-Archive`; this is **manual full-package application**, not equal-version signed
-updater acceptance. Its actual Check/application and subsequent functional gates
-are still pending. The original claim, certificates and naturally reached final6
-readiness remain intact.
+updater acceptance. Its actual unmodified manual Check exits0 after625.301seconds; one full application
+exits0 after1984.366seconds. All12,860 installed mappings verify. Independent
+comparison preserves195schema definitions, roles, credentials,16protected projections
+and466files; six task XMLs change only their source-owned StartBoundary. Same-claim
+readiness, company11/admin28/personal15 with stableQR, and software calling pass.
+The original claim and certificates stay intact. Tenant creation remains pending
+through its fixed bounds, so tenant/full restoration and reboot are unqualified.
+The older manual-case timing failures remain separate from the successful native
+component and its distinct completion bound.
 
 The genuine original23 **signed final7 normal14** passes at05:27:39UTC. Only that
 request completes; all13 prior rows remain exact, zero installs remain active,
