@@ -173,7 +173,7 @@ def onboarding(b,operation):
 
 def windows(b, operation, value):
     root=b.APP;program=Path(os.environ.get('SystemRoot','C:/Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe'
-    result=subprocess.run([str(program),'-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',str(root/'tools/Tenant-Domains.ps1'),'-Operation',operation,'-InputFile',str(value)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=b.native_powershell_environment(),timeout=240)
+    result=subprocess.run([str(program),'-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',str(root/'tools/Tenant-Domains.ps1'),'-Operation',operation,'-InputFile',str(value)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=b.native_powershell_environment(),timeout=900 if operation=='Certify' else 240)
     if result.returncode:
         try:
             record=json.loads(result.stderr)
