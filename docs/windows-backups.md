@@ -1,5 +1,21 @@
 # Windows Server backups and replacement restore
 
+## Windows1.0.27 same-instance full restore
+
+Use the matching [current installation and recovery guide](installing-windows-1.0.27.md).
+After the full-instance UI restore completes, run the installed
+phone-TLS verification procedure from that guide in Administrator Windows
+PowerShell5.1, retaining its real maintenance lease while the unmodified
+`Test-PhoneTLS.ps1 -MaintenanceLockHeld` child runs.
+The real trusted listener/hostname/expected-thumbprint verification must pass
+before retrieving reusable phone QR codes. This supported readiness step is
+explicitly required; it does not reset the preserved QR/password records or
+replace normal replacement-certificate preparation. API keys are intentionally
+revoked by full restore; reissue the needed scoped key normally. Historical
+replacement/factory recovery below retains its separate held-service and
+certificate-preparation workflow.
+
+
 <!-- WINDOWS22-CURRENT-STATUS-BEGIN -->
 ## Latest Windows 1.0.22
 

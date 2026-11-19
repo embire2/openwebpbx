@@ -1,7 +1,104 @@
 {
-  "reviewed_on": "2026-11-17",
+  "reviewed_on": "2026-11-19",
   "repository": "embire2/openwebpbx",
   "releases": [
+    {
+      "version": "1.0.27",
+      "component": "Windows server",
+      "url": "https://github.com/embire2/openwebpbx/releases/tag/windows-v1.0.27",
+      "published_at": "2026-11-19T17:13:55Z",
+      "publication_status": "published",
+      "prerelease": false,
+      "build_source_commit": "ccccfe56ed7012455e1cf00395407389a7226daf",
+      "build_sources": {
+        "windows": "ccccfe56ed7012455e1cf00395407389a7226daf"
+      },
+      "native_build_source_commit": "9f6a0ac42999614755ee0838c0660324970f11c1",
+      "native_source_inputs_verified": 90,
+      "native_input_equivalence": "All 90 compiled native source inputs are byte-identical; reviewed provider loading, registration coordination and Windows recovery/backup/IIS helpers plus excluded tests differ after the native build.",
+      "source_tags": {
+        "windows": "windows-v1.0.27"
+      },
+      "fresh_install": {
+        "package_type": "full",
+        "previous_installation_required": false,
+        "minimum_existing_version": null,
+        "separate_pbx_patches_required": false,
+        "operating_system": "Windows Server 2025 x64 Desktop Experience",
+        "entrypoint": "Start-OpenWebPBX.cmd",
+        "local_postgresql_setup_included": true,
+        "current_ordered_updater_included": true
+      },
+      "update_compatibility": {
+        "minimum_installed_version": "1.0.23",
+        "purpose": "Existing-data signed update admission only; not a fresh-install prerequisite. See the qualification for supported starting versions and independently reused historical transitions.",
+        "qualification": "docs/release-windows-1.0.27-qualification.md",
+        "historical_ordered_prefix_guide": "docs/windows-upgrade-path-repair.md"
+      },
+      "minimum_windows_version": "1.0.23",
+      "signed_feed_sequence": 1795092905,
+      "canonical_zip_mirror": "https://github.com/embire2/openwebpbx/releases/download/v1.0.27/openwebpbx-1.0.27-windows-x64.zip",
+      "canonical_windows_checksums": "https://github.com/embire2/openwebpbx/releases/download/v1.0.27/windows-SHA256SUMS",
+      "qualification": "docs/release-windows-1.0.27-qualification.md",
+      "scope": "Complete standalone Windows Server 2025 x64 Desktop Experience installer: no previous PBX or separate PBX repair; local PostgreSQL setup, native Core/WinUI manager/current ordered updater, managed tenant registration, web/API administration, dashboard and tenant recovery, reseller packages/templates, personal/department API keys and offline prompts. Read the platform qualification for actual installation, signed-update, recovery and calling checks. Physical phones, carriers, cameras, Store acceptance and complete 3CX parity remain separate.",
+      "assets": [
+        {
+          "name": "openwebpbx-1.0.27-windows-x64.zip",
+          "bytes": 643869682,
+          "sha256": "fd02d054ae21b06ca6be7945e515513d02f1c4989851b83e395e53a8103a88fb",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.27/openwebpbx-1.0.27-windows-x64.zip"
+        },
+        {
+          "name": "openwebpbx-1.0.27-windows-source.tar.gz",
+          "bytes": 50722586,
+          "sha256": "a498aaae2fc209ec07d768a5b9a64a308f08b946c9d17ccda02480b06edb7538",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.27/openwebpbx-1.0.27-windows-source.tar.gz"
+        },
+        {
+          "name": "installing-windows-1.0.27.md",
+          "bytes": 8424,
+          "sha256": "47d8b1a4a1db24145cafe6d2454bbad8447a8e7ebabab1536a6cfbf3366be148",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.27/installing-windows-1.0.27.md"
+        },
+        {
+          "name": "SHA256SUMS",
+          "bytes": 669,
+          "sha256": "1598678519d0a04ff223b2d59e95b2316ba9967d4d04935e9f42d47a5f42af07",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.27/SHA256SUMS"
+        },
+        {
+          "name": "windows-update-manifest.json",
+          "bytes": 1204,
+          "sha256": "5c0b5f6ce4c4dedb73e6e72c3ea659b98ccfab50cbcb2387729cc42198e8b5d7",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.27/windows-update-manifest.json"
+        },
+        {
+          "name": "windows-upgrade-path.json",
+          "bytes": 1816,
+          "sha256": "5118d7d77b326d328c18ded65e05dae5da85b055a324a02c2dee2ca0cf533e35",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.27/windows-upgrade-path.json"
+        },
+        {
+          "name": "debian-update-manifest.json",
+          "bytes": 1224,
+          "sha256": "43666de3d7f3b2519d980186c7437e19b37214eed7521dc36490785d9653d5f9",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.27/debian-update-manifest.json"
+        },
+        {
+          "name": "update-manifest.json",
+          "bytes": 1404,
+          "sha256": "fc096a1524fc6eec7fd79239006f8117b0f5283e5ea5336f1ac2345abed5f8b8",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.27/update-manifest.json"
+        }
+      ],
+      "archive_assembly_source_commit": "7c5fa6da02607df65d082ca3147901875a6faef3",
+      "assembly_qualification_source_equivalence": "Only one guard-source fingerprint fixture differs in the source-tag child; all7846 other blobs/modes and every shipped/native input are identical.",
+      "qualification_evidence": {
+        "initial_no_prior_installation": "Required before publication: actual unmodified complete ccccfe/fd02 direct standalone installation on the owned original no-prior Windows checkpoint, real RDP setup/Manager observations, new ordinarily authorized setup claim, trusted readiness, role-scoped UI/API and software calls. Earlier61325/031cc8fd initial installation remains historical explicit evidence and is not relabelled as direct final9 clean acceptance.",
+        "automatic_rollback": "Actual signed61325/031cc8fd late automatic rollback explicitly reused under85 unchanged Windows sources, two precisely reviewed default-operation closures and all90 native inputs; actual deferred/disabled Protection witness and zero-eligible Certify inputs close the changed queued full-recovery/TLS branches. Changed verified manifest/dependency data disclosed. No direct final9 automatic rollback claim.",
+        "current_candidate_required": "Actual final9 direct no-prior standalone installation and responsive native RDP Manager, normal owner/managed TLS/readiness, UI/API/software calling, natural tenant/full encrypted backup verification/restoration with preserved valid same-instance phone certificate and a real warm reboot, plus actual original23 signed final9 normal16 and preservation, are required. All current gates must pass before publication. Earlier6 AUTO is explicit reviewed reuse only; same-version signed-updater admission remains refused and is not claimed."
+      }
+    },
     {
       "version": "1.0.27",
       "component": "Debian server",
@@ -1438,9 +1535,25 @@
       "name": "Windows Server 2025",
       "architecture": "x64",
       "edition": "Desktop Experience",
-      "status": "published; signed upgrade minimum 1.0.22; see scoped Windows qualification and deployment limits",
-      "version": "1.0.23",
-      "minimum_installed_version": "1.0.22"
+      "status": "published complete standalone installer; no previous PBX or separate repair required; see independent Windows qualification",
+      "version": "1.0.27",
+      "minimum_installed_version": "1.0.23",
+      "fresh_install": {
+        "package_type": "full",
+        "previous_installation_required": false,
+        "minimum_existing_version": null,
+        "separate_pbx_patches_required": false,
+        "operating_system": "Windows Server 2025 x64 Desktop Experience",
+        "entrypoint": "Start-OpenWebPBX.cmd",
+        "local_postgresql_setup_included": true,
+        "current_ordered_updater_included": true
+      },
+      "update_compatibility": {
+        "minimum_installed_version": "1.0.23",
+        "purpose": "Existing-data signed update admission only; not a fresh-install prerequisite. See the qualification for supported starting versions and independently reused historical transitions.",
+        "qualification": "docs/release-windows-1.0.27-qualification.md",
+        "historical_ordered_prefix_guide": "docs/windows-upgrade-path-repair.md"
+      }
     },
     {
       "name": "Windows 11",
@@ -1483,7 +1596,7 @@
   "hosted_core": {
     "version": "1.0.26",
     "source_commit": "5eb801d4db8ba65c8a64b3f9956dd0a9514232a2",
-    "status": "Hosted Debian App/Core/Updater 1.0.26: comprehensive API v2.1 with 197 paths and 75 named PBX actions; personal and department-scoped keys alongside PBX, tenant, reseller and instance administration. API Keys and API Documentation are linked from administration panels and My PBX. Full-media backup/replacement restore is qualified. Existing phone credentials, QR identities, routes and allocations are preserved. The independently qualified public Debian 1.0.26 package is now available. Windows remains 1.0.23 plus its updater repair; Android remains 1.0.19.",
+    "status": "Hosted Debian App/Core/Updater 1.0.26: comprehensive API v2.1 with 197 paths and 75 named PBX actions; personal and department-scoped keys alongside PBX, tenant, reseller and instance administration. API Keys and API Documentation are linked from administration panels and My PBX. Full-media backup/replacement restore is qualified. Existing phone credentials, QR identities, routes and allocations are preserved. The independently qualified public Debian 1.0.26 package is now available. Public Windows is 1.0.27 with its own standalone package and qualification; Android remains 1.0.19.",
     "calling_fix_commit": "06f139229881aa7ce87219583fb5c7caef859084"
   },
   "installer_policy": {

@@ -155,6 +155,36 @@ configuration and private identities and requires the instance-level recovery
 workflow. Preserve the source server offline when moving an existing registered
 address to a replacement; do not run two writers for the same PBX.
 
+### Check secure phone setup after a full restore
+
+After a successful full-instance restore, use Administrator **Windows PowerShell
+5.1** to run the installed, supported readiness verification:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+. 'C:\OpenWebPBX\tools\UpgradeRecovery.Common.ps1'
+$phoneTlsLease = Open-OpenWebUpgradeMaintenance -Path "$env:ProgramData\OpenWebPBX\upgrade.lock"
+try {
+    & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Mta -NoProfile -ExecutionPolicy Bypass -File 'C:\OpenWebPBX\tools\Test-PhoneTLS.ps1' -MaintenanceLockHeld
+    if ($LASTEXITCODE -ne 0) { throw 'Phone TLS verification failed; keep phone setup under review.' }
+} finally {
+    $phoneTlsLease.Dispose()
+}
+```
+
+The installed maintenance helper waits up to90seconds for sharing contention,
+then retains the real exclusive lock throughout verification. Permission/path
+errors remain fatal. It keeps the ordinary restore guards and checks the real phone TLS
+listener, default trusted chain, hostname and expected certificate thumbprint.
+Only a successful verification marks phone setup ready again. This explicit
+step is required in1.0.27 before viewing or using reusable QR setup after full
+restore; the retained QR records and phone passwords must not be reset. Stop
+and investigate a failed verification. Do not edit readiness flags, remove
+restore holds or bypass certificate/trust checks. A fresh installation does
+not require this post-restore step. Reissue intentionally revoked API keys
+through the normal local administration interface, then verify phone setup,
+calling and a planned Windows restart.
+
 Read [platform release rules](independent-platform-releases.md) and the
 [Debian-to-Windows ledger](debian-windows-sync.md) for independent version and
 qualification status. Matching server version numbers are not a claim of

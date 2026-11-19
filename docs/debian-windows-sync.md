@@ -12,18 +12,19 @@ Update the Windows result only after checking the actual Windows package.
 |---|---|
 | Hosted Debian at call.openweb.co.za | **1.0.26**, including matching native Core and updater; public installer27 is a separately qualified full release. |
 | Public Debian installer | **1.0.27**, complete standalone installer; no previous PBX required. Source `72bb5406af4c057acb5ee4eddfd9d861d20d345f`; [qualification](release-1.0.27-qualification.md). |
-| Public Windows installer | **1.0.23**, source `e1aaad63f99ac3b11714d9d0cd3f2a085778688f`; [qualification](release-windows-1.0.23-qualification.md). |
+| Public Windows installer | **1.0.27**, complete standalone Server2025 package, source `ccccfe56ed7012455e1cf00395407389a7226daf`; [qualification](release-windows-1.0.27-qualification.md). |
 | Android | **1.0.19**. Server fixes do not imply an Android release. |
 
 A hosted deployment, source commit and downloadable installer are separate
-statuses. Debian 1.0.26 contains the Debian 24–26 features below. Windows remains its
-separately qualified 1.0.23 suite; these rows do not imply Windows 26 parity.
+statuses. Debian 1.0.26 contains the Debian 24–26 features below. Windows1.0.27 now has its independent actual clean-install, signed23 update,
+software calling, encrypted recovery and reboot qualification. Historical rows
+retain their original source/version scope; later hosted overlays are separate.
 
 ## Hosted outgoing-call repair — 18 November 2026
 
 | ID | Hosted acceptance | Windows follow-up |
 | --- | --- | --- |
-| H26-CALL-01 | `d2a7a9a4c`: configured script-root loading avoids a Lua logging-global collision before provider selection.494 regressions pass; owner confirms Android1000 outgoing call and sound both ways. No routing/credential change. | Included in frozen `230545f817`; actual installed Windows27 configured mod_lua3 and SIP/RTP8 pass on the final signed original23 upgrade. Fresh functional/public gates remain pending. Public Windows23 and immutable Debian27 archives are unchanged. Carry into the next independently qualified Debian package. |
+| H26-CALL-01 | `d2a7a9a4c`: configured script-root loading avoids a Lua logging-global collision before provider selection.494 regressions pass; owner confirms Android1000 outgoing call and sound both ways. No routing/credential change. | Included in frozen `230545f817`; actual installed Windows27 configured mod_lua3 and SIP/RTP8 pass on the final signed original23 upgrade. Actual final9 fresh calling and signed normal16 mod_lua/SIP pass. Windows27 is independently published; immutable Debian27 archives remain unchanged. Carry into the next independently qualified Debian package. |
 | H26-CALL-02 | [Calling release safeguards](calling-release-safeguards.md) and automatic 494-control push/PR workflow. Original policy fails the new regression; corrected policy passes. | Source-level check is shared. Real-engine call/media gates, required branch rules, live alerts and automated code rollback remain separate follow-up work; not claimed complete. |
 
 ## Hosted tenant API — 18 November 2026
@@ -104,18 +105,19 @@ acceptance remains separate from isolated provider and software-phone checks.
 | Bootstrap IIS object lifecycle. | `61325afe1`; unforced old/current native reproduction proves cached-object HRESULT0x800710D8 and corrected HTTP200, with original IIS/runtime/services restored exactly. | Reacquire the site/pool through a new manager after commit. Exact-source CI has five source controls; native IIS is separate. Actual final6 clean native installation passes0/2272.403899s; its unchanged initial writers are explicitly reused for7. |
 | Windows tenant certificate callback budget. | `230545f817`; actual callback normal exit242.362s exceeds old240-second outer limit. Native245-second control: old times out, corrected operation completes once.30 portable+13 native CI controls pass. | Only Certify gets900 seconds; other operations remain240. Keep online-chain/default TLS/ACLs/arguments/guards exact. Final7 complete manual application/current UI/API/software calls pass; tenant creation times out, so restoration/reboot remain unqualified; no installed leaf patch or certificate replay. |
 | Windows protection preclaim admission. | `07c55aae58` preserves product `6a4a228a3d`; actual34portable+7native controls and full8 signed normal15 pass. The original one tenant request completes naturally after full8 installation; tenant verification/restoration and preserved QR/API/calls pass. | Preserve native32/33-only contention, post-wait holds, fatal errors, body-once and Linux/foreground behavior. Original7 timeouts stay failed; final8 full-verification sharing failures and unexecuted restore remain distinct. |
-| Scheduled Windows full-recovery admission. | Final9 `7c5fa6da02`, qualified child `ccccfe56ed`: compound three-lock sharing acquisition retries for30seconds, releases every handle before waiting, rechecks holds and executes the body once. Actual88 controls/six native groups/nine certificate controls plus exact-source CI pass. | Keep default CLI/import/Linux behavior and fatal path/ACL errors. Actual current direct clean installation and signed23 normal16/full recovery/reboot remain required before publication. |
+| Scheduled Windows full-recovery admission. | Final9 `7c5fa6da02`, qualified child `ccccfe56ed`: compound three-lock sharing acquisition retries for30seconds, releases every handle before waiting, rechecks holds and executes the body once. Actual88 controls/six native groups/nine certificate controls plus exact-source CI pass. | Keep default CLI/import/Linux behavior and fatal path/ACL errors. Actual final9 direct clean RDP installation, original23 signed normal16, encrypted tenant/full recovery and warm reboot pass. Public download/readback is recorded separately. |
 | Same-instance full-restore phone TLS. | Final9 validates exact current/archive master32, JSON/PEM, keypair/SAN/time/thumbprint and read-only current machine-store identity before retaining valid same-instance TLS. Mismatches keep replacement Pending. Final8 source concern is not a runtime restore failure. | Require a positive actual same-instance proof against the exact encrypted archive before normal full restore. Never skip Pending merely because the target is populated; no trust/store/key mutation to make acceptance pass. |
 
 Windows27 also retains dedicated legacy terminal handoff (`ced796783`) and
 pre-claim registration snapshot coordination (`138c5cef2`). These Windows-specific
-source corrections have native controls; public Windows stays23 until actual
-whole-package rollback, upgrade, fresh setup, recovery and public readback pass.
+source corrections have native controls; Windows27 has actual fresh RDP,
+signed23 update, tenant/full recovery and reboot acceptance. Earlier AUTO6 is
+reused only under the explicit unchanged-closure/native/data proof.
 Source-assisted manual recovery of the earlier failed candidate remains separate.
 Current qualified candidate source is `ccccfe56ed7012455e1cf00395407389a7226daf`
 (packaged input `7c5fa6da02607df65d082ca3147901875a6faef3`);
 [qualification](release-windows-1.0.27-qualification.md) distinguishes actual, reused
-and failed results. Public Windows remains23. Port later hosted API presets/local
+and failed results. Public Windows is27. Port later hosted API presets/local
 docs independently; a version cannot prove parity.
 
 ## Before promoting a Windows catch-up release
@@ -162,4 +164,6 @@ Windows upload ports must isolate body-reading settings from ordinary web and ph
 | D26-06 | Web personal API stable QR/reset uses live staff-key authority; native app password-generation guard stays separate | Published Debian 1.0.26, source5b60;18focused controls, diagnostic16controls and15actual personal API controls on the corrected unmodified fresh package pass. Original QR identities and role-withdrawal boundaries are verified. | Port exact PHP dispatches; verify me:credentials/write/confirmation, current own binding, stable reuse and role withdrawal without resetting unrelated QR identities. |
 | D26-07 | Accept exact stock Debian22 root-plus-index nginx syntax when installing reseller/API support | Published Debian 1.0.26, source5b60;17installer controls and actual original22/23 signed upgrades plus original22 late-failure automatic recovery pass. | Linux nginx integration only; preserve Windows IIS guards. Do not copy this parser into Windows or infer Windows26 parity. |
 
-[Actual API scope and tests](api-1.0.26.md). Public Windows remains1.0.23.
+[Actual API scope and tests](api-1.0.26.md). These historical follow-ups are now
+covered by the separately qualified Windows27 scope above where included; later
+hosted2120 API presets/local reference remain excluded.
