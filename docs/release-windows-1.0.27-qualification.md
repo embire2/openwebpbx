@@ -116,6 +116,45 @@ Same-version manual9 application was cancelled unexecuted when the user requeste
 the direct clean case. Physical/carrier/camera/Store and complete3CX parity remain
 outside acceptance; roadmap133/21accepted/72partial/40planned is unchanged.
 
+### Public promotion and operational cleanup
+
+Published **2026-11-19T17:13:55Z** as `windows-v1.0.27` at the qualified source.
+Eight platform assets and four additive canonical Windows assets verify through
+12 actual anonymous downloads totaling1,389,208,002bytes. All29 previous release
+objects and227 prior assets remain intact; canonical/Debian tags stay on72bb5406.
+All four latest signed feeds verify, with Debian27/Android19 bytes unchanged and
+the historical Windows catalogue prefix exact. Initial cached previous-Windows
+latest redirect evidence remains distinct from the later successful ordinary
+readback. Three website leaves change and all30 others remain exact;36 actual
+desktop/mobile browser controls pass without JavaScript errors.
+
+The clean target's ordinary public Check reports installed/available27 and
+up_to_date at17:24:58UTC, with expected sequence1795092905/signatures and unchanged
+four service generations. After zero active calls/archive jobs, one graceful
+guest shutdown reaches stopped and its supported owner status is desiredStopped.
+All disks, address, hardware, billing choices and snapshots are retained. Only
+its owned Linux RDP/Xvfb session is closed.
+
+On the existing-data target, only the verified temporary loopback GitHub IIS
+site/pool, own test CA/leaf and hosts append are removed at18:03:17UTC. Original
+certificate choices and hosts bytes/ACL/UTC ticks are exact. Its next natural
+public check at18:04:32 reports27/up_to_date with both trust floors1795092905,
+actual trusted public feed bytes and all four service processes/Manager6908
+retained. The enclosing private wrapper returns1 because it compares Local
+expected timestamps directly with UTC; direct UTC-tick evidence proves equality.
+That wrapper result remains failed, with actual removal/public acceptance
+separately composed and no removal replay. The post-removal1,126 immutable-pin
+check passes; completed own task definitions are exported and removed.
+
+Main's temporary QA include,15 static copies and expired backend unit are
+removed by18:16:04UTC. Every owned static file is hashed on its deletion handle;
+independent verified private copies remain retained. An old graceful nginx
+worker keeps its unrelated live connections: kernel listener/peer and file-reader
+proof closes access to the owned QA routes without killing it. All eight
+production process generations, trusted Main/API/website access and the permanent
+password-free Switchtel report remain exact. Hosted native Main stays26. No
+ports, security baseline, mail/DNS, customer configuration or old173 writers change.
+
 The following candidate records retain their original scope and failures.
 
 ## Previous complete final8 package — actual components, incomplete full recovery

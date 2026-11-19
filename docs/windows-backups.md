@@ -17,7 +17,7 @@ certificate-preparation workflow.
 
 
 <!-- WINDOWS22-CURRENT-STATUS-BEGIN -->
-## Latest Windows 1.0.22
+## Historical Windows 1.0.22 qualification
 
 Windows Server 1.0.22 is frozen at product source
 `8f4256e4e3cbce092791eea60d1c053e10810bb6` for **Windows Server 2025 x64
