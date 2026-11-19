@@ -119,6 +119,14 @@ def effects(state):
     return {k: state[k] for k in ['dirs','recover','queries']}
 
 def portable(work):
+    case_function = next(n for n in ast.parse(Path(__file__).read_text()).body
+                         if isinstance(n, ast.FunctionDef) and n.name == 'native_case')
+    selector = next(n.value for n in case_function.body if isinstance(n, ast.Assign)
+                    and any(isinstance(t, ast.Name) and t.id == 'is_previous' for t in n.targets))
+    for name in ['first-old','first-new','second-old','second-new','timeout','first-hold','second-hold']:
+        selected = eval(compile(ast.Expression(selector), str(Path(__file__)), 'eval'), {'name': name})
+        check(selected == (name in ['first-old','second-old']),
+              'actual native version selector classifies '+name+' correctly')
     for blocked in ['C:/OpenWebPBX/openweb-protection-admission-x',
                     r'c:\OPENWEBPBX\openweb-protection-admission-x',
                     'C:/ProgramData/OpenWebPBX/openweb-protection-admission-x',
@@ -193,6 +201,7 @@ def hold(directory, seconds, marker):
     (directory/'holder.finished').write_bytes(b'finished')
 
 def native_case(work, name):
+    is_previous = name in ('first-old','second-old')
     directory = work/name; directory.mkdir()
     (directory/'upgrade.lock').write_bytes(b'unchanged-own-lock')
     b = native_backend(); children = []
@@ -210,16 +219,18 @@ def native_case(work, name):
     second = name.startswith('second')
     if not second: launch(directory)
     started = time.monotonic()
-    state, error = invoke(directory, previous=name.endswith('old'), backend=b,
+    state, error = invoke(directory, previous=is_previous, backend=b,
                           start_second=launch if second else None)
     elapsed = time.monotonic()-started
-    if name.endswith('old'):
+    if is_previous:
         assert error is None and not state['queries'] and not state['recover'] and elapsed < 5
     elif name == 'timeout':
         assert error is None and not state['dirs'] and not state['queries'] and 29.5 <= elapsed < 34
     elif name in ['first-hold','second-hold']:
+        assert not is_previous
         assert error is None and not state['queries'] and not state['recover'] and elapsed >= 14
         assert len(state['dirs']) == (0 if name == 'first-hold' else 4)
+        assert state['upgrade_entries'] == (['30s'] if name == 'first-hold' else ['30s','30s'])
     else:
         assert error is None and len(state['dirs']) == 4 and state['recover'] == 1 and len(state['queries']) == 2
         assert 14 <= elapsed < 32
@@ -228,17 +239,22 @@ def native_case(work, name):
         assert child.returncode == 0 and not stderr and (directory/'holder.finished').exists()
     assert (directory/'upgrade.lock').read_bytes() == b'unchanged-own-lock'
     with b.exclusive_guard(directory/'upgrade.lock'): pass
-    return {'case':name,'passed':True,'worker_seconds':elapsed,'natural_holders_exited':True,
+    return {'case':name,'passed':True,'selected_previous_worker':is_previous,
+            'upgrade_entries':state['upgrade_entries'],'worker_seconds':elapsed,'natural_holders_exited':True,
             'held_seconds':35 if name == 'timeout' else 15,'effects':effects(state),
             'handles_reacquired':True}
 
-def native(work):
+def native(work, cases=None):
+    if not __debug__: raise RuntimeError('This source fixture requires enabled assertions')
     assert os.name == 'nt' and valid_native_root(work) and not work.exists()
     for ancestor in work.parents:
         assert not(getattr(ancestor.stat(),'st_file_attributes',0)&0x400)
     work.mkdir(); (work/'fixture-owner.json').write_text(json.dumps({'source_pins':PINS}))
     started = time.monotonic()
-    cases = ['first-old','first-new','second-old','second-new','timeout','first-hold','second-hold']
+    allowed = ['first-old','first-new','second-old','second-new','timeout','first-hold','second-hold']
+    cases = allowed if cases is None else cases
+    if not cases or len(set(cases)) != len(cases) or not set(cases) <= set(allowed):
+        raise ValueError('Only explicitly named isolated native cases are allowed')
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(cases)) as pool:
         results = list(pool.map(lambda name:native_case(work,name),cases))
     b = native_backend()
@@ -258,10 +274,12 @@ def native(work):
     result = {'passed':True,'scope':'AST-only source; no product imports/default paths/SQL/services/ACL writes',
               'native_cases':results,'empty_queue_startup_old_new_effects_exact':True,
               'body_failures_once':True,'missing_path_fatal':True,'source_pins':PINS,
-              'elapsed_seconds':time.monotonic()-started,'portable_controls':len(checks)}
+              'elapsed_seconds':time.monotonic()-started,'portable_controls':len(checks),
+              'selected_native_cases':cases,'assertions_enabled':__debug__}
     (work/'native-result.safe.json').write_text(json.dumps(result,indent=2)); print(json.dumps({'passed':True,'native_cases':len(cases),'elapsed_seconds':result['elapsed_seconds']}))
 
 if __name__ == '__main__':
+    if not __debug__: raise RuntimeError('This source fixture requires enabled assertions')
     parser = argparse.ArgumentParser(); parser.add_argument('--native',action='store_true')
     parser.add_argument('--work-root',type=Path); parser.add_argument('--hold',type=Path)
     parser.add_argument('--seconds',type=int,choices=[15,35]); parser.add_argument('--marker',choices=['','restore','maintenance'],default='')
