@@ -13,6 +13,7 @@ on:
       - packaging/debian/onboarding.py
       - packaging/debian/webhotel-onboarding.py
       - packaging/debian/tenant-domains.py
+      - packaging/debian/protection.py
       - tests/windows_upgrade_delegation.ps1
       - tests/windows_delegated_host.ps1
       - tests/windows_legacy_unsealed_recovery.ps1
@@ -22,6 +23,7 @@ on:
       - tests/windows_onboarding_background.py
       - tests/windows_bootstrap_iis_start.ps1
       - tests/windows_tenant_certificate_budget.py
+      - tests/windows_protection_admission.py
       - .github/workflows/windows-upgrade-compatibility.yml
   pull_request:
     paths:
@@ -34,6 +36,7 @@ on:
       - packaging/debian/onboarding.py
       - packaging/debian/webhotel-onboarding.py
       - packaging/debian/tenant-domains.py
+      - packaging/debian/protection.py
       - tests/windows_upgrade_delegation.ps1
       - tests/windows_delegated_host.ps1
       - tests/windows_legacy_unsealed_recovery.ps1
@@ -43,6 +46,7 @@ on:
       - tests/windows_onboarding_background.py
       - tests/windows_bootstrap_iis_start.ps1
       - tests/windows_tenant_certificate_budget.py
+      - tests/windows_protection_admission.py
       - .github/workflows/windows-upgrade-compatibility.yml
 
 permissions:
@@ -101,6 +105,14 @@ jobs:
           python tests/windows_backup_worker_wait.py --previous $previous --native --work-root $maintenance
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           Copy-Item (Join-Path $maintenance 'result.safe.json') compatibility-results/backup-maintenance.safe.json
+      - name: Verify Windows protection preclaim admission and empty-queue startup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $work=Join-Path ([IO.Path]::GetTempPath()) ('openweb-protection-admission-'+[Guid]::NewGuid().ToString('N'))
+          python tests/windows_protection_admission.py --native --work-root $work
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          Copy-Item (Join-Path $work 'native-result.safe.json') compatibility-results/protection-admission.safe.json
       - name: Verify Windows background onboarding native contention
         shell: pwsh
         run: |

@@ -554,13 +554,16 @@ def worker(settings):
     if os.name == 'nt':
         if full.restore_pending() or (full.STATE/'updates/maintenance').exists():return
         try:
-            with full.exclusive_guard(full.UPGRADE_LOCK):pass
+            with full.backup_worker_guard(full.UPGRADE_LOCK):
+                if full.restore_pending() or (full.STATE/'updates/maintenance').exists():return
         except full.BackupBusy:return
     full.safe_private_directory(STORE); full.safe_private_directory(DOWNLOADS, group=33); full.safe_private_directory(WORK); full.safe_private_directory(STATUS,group=33)
     with full.exclusive_guard(WORK/'worker.lock'):
         if os.name == 'nt':
             try:
-                with full.exclusive_guard(full.UPGRADE_LOCK):recover_tenant_journals(settings)
+                with full.backup_worker_guard(full.UPGRADE_LOCK):
+                    if full.restore_pending() or (full.STATE/'updates/maintenance').exists():return
+                    recover_tenant_journals(settings)
             except full.BackupBusy:return
         else:recover_tenant_journals(settings)
         for receipt in STATUS.glob('*.json'):
