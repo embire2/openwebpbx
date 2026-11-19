@@ -8,9 +8,37 @@ with Desktop Experience. A fresh installation needs no previous PBX or separate
 PBX repair. Existing-data updates retain their own signed compatibility,
 backup, active-call and recovery checks.
 
-## Current complete final4 package — still in qualification
+## Final5 background registration correction — in progress
 
-Qualified source `fcf21dd48ce770c1f8529889f86f62ba5a91798d` changes one
+The final4 complete package is retained unqualified. Its genuine zero-prior
+installer exits0 in1393.4958864seconds; the original60-minute owner setup case
+fails124 at23:54:23UTC. Exactly one ordinary owner login/claim is used and its
+private setup token is self-revoked204→401. Subsequent readiness cases remain
+separate; a trusted canonical certificate does not imply tenant activation.
+
+A natural native process trace identifies the next correction: image bind and
+proof helpers exit0; the sign helper then exits1 in7.02seconds before its body,
+while an ordinary tenant-domain task holds maintenance. Both scheduled Windows
+onboarding and image helpers still use a five-second acquisition window. The
+new correction gives scheduled work an explicit bounded30-second acquisition,
+retaining foreground5, Linux behavior, native sharing/lock-only retries and all
+existing identity/ACL/maintenance checks. It never repeats a guarded body or
+patches the installed target. Focused native tests and a new complete package
+are required before promotion. A NULL current challenge field was an insufficient
+historical diagnosis: the prior session did reach challenge201 before noauthorize;
+a later same-owner session refresh clears those fields.
+
+The separate ordinary sealed operator return23 fails with a generic CopyTree
+error; no persistent access failure or cause is established. Plain unmodified
+installed recovery later exits0 in280.04seconds, restoring stock23. A separate
+ordinary updater start naturally finishes its restored request as failed without
+replay. Original schema, customer rows, files, task choices, security, partial
+backup and seals plus eight software SIP/RTP checks pass. This is manual support,
+not automatic acceptance, and the original operator failure stays retained.
+
+## Previous complete final4 package — unqualified
+
+Frozen source `fcf21dd48ce770c1f8529889f86f62ba5a91798d` changes one
 Windows product line, its native regression and compatibility workflow.
 Actual Windows PowerShell5.1 strips embedded double quotes in the protection
 worker's Python `-c` argument, causing a syntax error before tenant jobs are
@@ -37,9 +65,10 @@ passes23 terminal,39 recovery,39 registration,169 maintenance and23 protection
 entry controls. Earlier failed CI and successful explicit-interpreter native
 results remain distinct. No installed product is patched to pass.
 
-The new genuine no-prior whole case begins22:54:23UTC with a fixed23:54:23UTC
-setup deadline. Actual owner/TLS/UI/API/QR, software calling, changed protection
-worker backup/restore and reboot remain required. The unchanged493 PHP/PostgreSQL
+The genuine no-prior whole installer passes in1393.4958864seconds/native0.
+Its22:54:23UTC→23:54:23UTC setup case remains FAILED124 as described above.
+Actual tenant-ready/UI/API/QR, software calling, changed protection worker
+backup/restore and reboot remain required for the corrected complete package. The unchanged493 PHP/PostgreSQL
 and six native Lua fixture results are explicitly reused from final3; they are
 not relabelled final4 execution. Final3 transaction results below are also separate
 from the pending new whole signed tests. No public release is announced.
