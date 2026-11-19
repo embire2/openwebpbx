@@ -9,6 +9,7 @@ on:
       - packaging/windows/CallRecords.Common.ps1
       - packaging/windows/backups.py
       - packaging/windows/Protection-Worker.ps1
+      - packaging/windows/Install-BootstrapProof.ps1
       - packaging/debian/onboarding.py
       - packaging/debian/webhotel-onboarding.py
       - tests/windows_upgrade_delegation.ps1
@@ -18,6 +19,7 @@ on:
       - tests/windows_backup_worker_wait.py
       - tests/windows_protection_worker_entry.ps1
       - tests/windows_onboarding_background.py
+      - tests/windows_bootstrap_iis_start.ps1
       - .github/workflows/windows-upgrade-compatibility.yml
   pull_request:
     paths:
@@ -26,6 +28,7 @@ on:
       - packaging/windows/CallRecords.Common.ps1
       - packaging/windows/backups.py
       - packaging/windows/Protection-Worker.ps1
+      - packaging/windows/Install-BootstrapProof.ps1
       - packaging/debian/onboarding.py
       - packaging/debian/webhotel-onboarding.py
       - tests/windows_upgrade_delegation.ps1
@@ -35,6 +38,7 @@ on:
       - tests/windows_backup_worker_wait.py
       - tests/windows_protection_worker_entry.ps1
       - tests/windows_onboarding_background.py
+      - tests/windows_bootstrap_iis_start.ps1
       - .github/workflows/windows-upgrade-compatibility.yml
 
 permissions:
@@ -101,6 +105,14 @@ jobs:
           python tests/windows_onboarding_background.py --native --work-root $work
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           Copy-Item (Join-Path $work 'native-result.safe.json') compatibility-results/onboarding-background.safe.json
+      - name: Verify bootstrap IIS lifecycle source and unchanged setup authority
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $original=Join-Path $env:RUNNER_TEMP 'openweb-bootstrap-original.ps1'
+          Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/embire2/openwebpbx/5b264a7f06aae60af8fb1c313a03bbafb60e51a7/packaging/windows/Install-BootstrapProof.ps1' -OutFile $original
+          & "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Mta -ExecutionPolicy Bypass -File tests/windows_bootstrap_iis_start.ps1 -SourceRoot $env:GITHUB_WORKSPACE -OriginalSource $original -Receipt compatibility-results/bootstrap-iis-source.safe.json
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
       - name: Verify protection entry native quoting on Windows PowerShell 5.1
         shell: pwsh
         run: |
