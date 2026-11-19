@@ -8,6 +8,79 @@ with Desktop Experience. A fresh installation needs no previous PBX or separate
 PBX repair. Existing-data updates retain their own signed compatibility,
 backup, active-call and recovery checks.
 
+## Current complete final6 package — in qualification
+
+Frozen source `61325afe155950c2b8961f8001054eb9d246c92e`; complete ZIP
+**643,867,835bytes**, SHA-256
+`031cc8fd8c8eb3d1af25313cb2640ab8f88839b5e12d99ffa63bd641e40c8043`.
+All19,351 payload hashes,4,915 voices and full/no-previous-PBX/local-database
+contract verify. All90 native inputs remain exact from9f6;19,350 unchanged
+compressed members/metadata and all other tracked Git blobs/modes match full5.
+The previously verified6,809 source/11,440 vendor/1,099 native input associations
+are explicitly reused under that complete content proof, not silently rerun.
+Every current package payload is independently checked. Full source50,700,187bytes,
+SHA-256 `f71b2ca590198326378853f4e3688fc3f9f188213296f82e2f34c05816741684`,
+contains7,844 verified Git blobs/modes. Private feeds1795053338 preserve Debian,
+Android and original Windows history. No public release is promoted yet.
+
+The original cached IIS object failure is reproduced naturally at source55 with
+HRESULT0x800710D8. Actual corrected product source disposes the committed manager,
+reacquires the site/pool and successfully serves the exact static response.
+Original IIS bytes/runtime/four product services remain exact. Original dead
+installer stack absence is retained as a limitation; the separate native
+reproduction supplies the exact line and ErrorRecord. A native test's first
+Receipt variable collision creates one misplaced owned result file; its scope
+failure/evidence are retained and only that exact artifact is removed by CAS.
+The corrected exact-product native test passes with five portable authority
+controls, pinned native exit0 and complete cleanup. Windows CI is source-only
+for that IIS check and is explicitly separate from actual native execution.
+
+Clean6 setup, verified owner/TLS, actual UI/API/QR/calling, tenant/full restoration,
+reboot and genuine exact6 signed automatic/normal transactions remain required.
+The intended5 automatic rollback never injects its fault: its observer fails on
+a normally missing early deployment file, and the product completes a normal
+upgrade. It is a normal5 result only, never automatic rollback acceptance. All
+failed candidates, observers and manual recoveries remain distinct and private.
+
+## Previous complete final5 package — unqualified
+
+Frozen source `5b264a7f06aae60af8fb1c313a03bbafb60e51a7` includes the
+bounded background registration correction below. Complete ZIP **643,867,752bytes**,
+SHA-256 `a0112f439daea27a6c3f7ebea3d7e944bcacfdbe42b33376439d5de2983bc35e`,
+passes all19,351 payload hashes/4,915 voices and full local-database installation
+contract. All6,809 shipped source files/11,440 vendor files/1,099 native files
+verify;90 compiled inputs stay exact from9f6.19,349 other compressed members
+and metadata remain byte-identical to the retained final4 archive.
+
+The full source archive is50,695,353bytes/SHA-256
+`25bdcd6fe34d800e3497fd8bc0f848258bc02946b747ed41ca62dcf5803719cd`,
+with7,843 Git blobs and modes verified. Private signed sequence1795049579,
+primary7-entry and canonical3-entry checksums and independent draft audits pass;
+Debian/Android feed bytes and historical Windows entries remain exact.
+[Exact-source CI](https://github.com/embire2/openwebpbx/actions/runs/44430779961)
+passes the existing recovery/transaction controls plus15 actual native background
+lock controls; the focused portable dispatch suite passes28. The default source
+also contains these exact helpers, with calling and Windows CI passing, without
+a hosted-runtime deployment.
+
+A new zero-prior case starts00:57:15UTC with fixed01:57:15UTC deadline. Ordinary
+full preflight exits0; one unmodified full installer starts01:04:41UTC. Existing23
+separately downloads and verifies the exact signed whole package and runs its
+ordinary preflight. Fresh owner/TLS/UI/API/QR, calling, changed protection-worker
+tenant/full restore, reboot and exact signed automatic/normal transactions remain
+required. Only unchanged493 PHP/PostgreSQL and six Lua fixture groups are reused.
+This final5 native installation fails1 at01:11:37UTC before database/owner setup:
+`Start()` reports invalid-object HRESULT0x800710D8. The old private observer
+retains only type/message, so its dead stack cannot be reconstructed. The initial source inference is subsequently confirmed by the isolated native
+reproduction recorded above; no installed script is patched. Existing23 reaches
+exact signed final5 READY. Its intended automatic-rollback observer fails before
+injection on a legitimately not-yet-installed file. The same product transaction
+completes normally: the eleventh request completes, all ten older requests remain
+exact, one new sealed backup is created, and preservation/software calling pass.
+This is normal-upgrade evidence, never automatic-rollback acceptance. A reviewed
+ordinary return to its sealed23 snapshot is pending; exact6 automatic and normal
+transactions remain required. There is no public Windows27 release at this stage.
+
 ## Final5 background registration correction — in progress
 
 The final4 complete package is retained unqualified. Its genuine zero-prior
