@@ -8,7 +8,51 @@ with Desktop Experience. A fresh installation needs no previous PBX or separate
 PBX repair. Existing-data updates retain their own signed compatibility,
 backup, active-call and recovery checks.
 
-## Current complete final6 package — in qualification
+## Current complete final7 package — in qualification
+
+Frozen source `230545f81724ca82f7581abd54b410f8cb139878`; complete ZIP
+**643,867,854 bytes**, SHA-256
+`011a6250e9c78a853b262f1b94879b4af85300b25d2db67a70fc1e5e1e1acc06`.
+All 19,351 payloads and 4,915 voices verify. Both complete archives are independently
+hashed: 19,350 unchanged payloads and ZIP metadata, all Windows installation and
+recovery scripts, and all 90 native source inputs match final6. Only the tenant
+certificate helper and release manifest differ. Full source is 50,704,224 bytes,
+SHA-256 `14da4da9e99219b45986dc94e9c2b1f13e2c31d79c717d022e5dd3132c726851`,
+with 7,845 verified Git blobs and modes. Private signed sequence1795062707 retains
+Debian, Android and the historical Windows catalogue prefix.
+
+Actual final6 issuance succeeds, but its normal Record callback finishes
+242.362 seconds after the Certify PowerShell engine starts, exceeding Python's
+240-second outer timeout. Existing PowerShell lifecycle logs establish that
+ordering; the tenant HTTPS binding is absent. Certificate setup alone now gets
+900 seconds, covering the bundled script's 600-second limit and surrounding
+work. Other operations remain240; command arguments, online chain validation,
+TLS, ACLs, maintenance guards and refusal/backoff behavior are byte-identical.
+[Exact-source CI](https://github.com/embire2/openwebpbx/actions/runs/44457959886)
+passes30portable and13native controls, including a real245-second private callback:
+the original240-second control times out; the corrected operation completes once.
+No installed helper, backoff timestamp or certificate state is patched to pass.
+
+The actual final6 zero-prior installation and late automatic rollback below are
+**explicitly reused**, never described as direct final7 executions. Original
+no-prior receipts link six absent product/registry paths and zero PBX services to
+ordinary Check0, exact full61325/031cc8fd and native MTA2728 exit0. The initial
+installer finishes before its separate owner claim. Every initial Windows writer
+and compiled input matches final7. The changed Certify branch requires a leased
+hostname after authorization. On the upgrade target, four retained table arrays
+have zero eligible aliases; both complete sealed support manifests and the
+current tree contain no retained certificate-input, pending, cache or ACME file.
+Source writes that input before every Certify call. This supports reuse of the
+actual6 AUTO12 branch; it is not a final7 automatic-rollback execution.
+
+Final acceptance still requires the **complete signed final7** normal23 upgrade,
+ordinary full-package same-version reapplication on the genuine clean6 installation,
+actual same-claim readiness/trusted tenant TLS, UI/API/QR/calling, tenant and full
+backup/restore, preservation and reboot. Original setup60min/readiness30min failures
+remain failed. There is no second owner claim, leaf patch or backoff reset. Public
+Windows remains23 until these gates and public readback pass.
+
+## Previous complete final6 package — actual components, incomplete readiness
 
 Frozen source `61325afe155950c2b8961f8001054eb9d246c92e`; complete ZIP
 **643,867,835bytes**, SHA-256
@@ -41,6 +85,36 @@ The intended5 automatic rollback never injects its fault: its observer fails on
 a normally missing early deployment file, and the product completes a normal
 upgrade. It is a normal5 result only, never automatic rollback acceptance. All
 failed candidates, observers and manual recoveries remain distinct and private.
+
+### Actual final6 execution — 19 November
+
+The unmodified complete installer passes on the verified zero-prior Server2025
+machine: ordinary preflight395.634seconds; native MTA installation2272.403899seconds
+(37minutes52seconds), exit0 at03:13:26UTC. Owner lookup/login/claim each occur once.
+The original60-minute setup observation expires124 at03:28:23 while authorized
+registration is preparing tenant HTTPS. Its observer exit1 is recorded separately;
+the successful native installer is not relabelled as a failed installation. The
+original setup token is self-revoked204→401. A distinct read-only same-claim
+readiness case requires actual normal local status, the same complete broker
+binding and trusted tenant HTTPS before access or protection tests proceed. No
+second owner login, claim, manual worker or guard change is allowed.
+
+Exact final6 automatic rollback passes at03:18:41UTC: the controlled failure is
+after195-table migration, new native components, all three changed live helpers
+and the actual sealed Bootstrap dependency. That Bootstrap file is verified data,
+not executed by the upgrade. Normal recovery restores the original startup mode;
+the original23 worker naturally finishes only its twelfth request as failed,
+retains all eleven prior requests, and creates exactly one sealed backup with no
+second outer transaction. Original184-table schema,2693columns,18roles,sequence,
+nine customer tables,473files, task/security/certificate choices,13175partial
+files and all prior seals remain exact. Software SIP/RTP passes8controls; minimum
+observed free space is21,999,235,072bytes. No manual recovery or SQL finalizer is
+used. The subsequent ordinary thirteenth request commits27 and reaches completed
+at03:36:27, retaining all twelve prior requests and both sealed transaction
+backups. Its full195-table source-bound preservation and SIP/RTP8 pass; the installed
+Manager is responsive with54UIAcontrols, mod_lua3 passes, and two natural polls
+are300.135763seconds apart with the same updater process. Minimum free space
+is19,704,688,640bytes. This record does not promote a public release.
 
 ## Previous complete final5 package — unqualified
 
