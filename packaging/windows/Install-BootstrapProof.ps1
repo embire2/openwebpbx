@@ -52,6 +52,10 @@ try{
  $section=$manager.GetApplicationHostConfiguration().GetSection('system.webServer/handlers',$name)
  $section.OverrideMode=[Microsoft.Web.Administration.OverrideMode]::Allow
  $site.ServerAutoStart=$true;$pool.AutoStart=$true;$manager.CommitChanges()
+ # Newly committed objects need runtime handles from a fresh configuration.
+ $manager.Dispose();$manager=[Microsoft.Web.Administration.ServerManager]::new()
+ $pool=$manager.ApplicationPools[$name];$site=$manager.Sites[$name]
+ if(!$pool -or !$site){throw 'The committed setup proof IIS objects are unavailable.'}
  if($pool.State -ne 'Started'){$null=$pool.Start()};if($site.State -ne 'Started'){$null=$site.Start()}
 }finally{$manager.Dispose()}
 $ruleName='OpenWebPBX-SetupProof-HTTP80';$description='OpenWeb PBX owned static installation proof over HTTP'
