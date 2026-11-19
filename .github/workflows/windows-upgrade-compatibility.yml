@@ -109,7 +109,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $work=Join-Path ([IO.Path]::GetTempPath()) ('openweb-protection-admission-'+[Guid]::NewGuid().ToString('N'))
+          $pythonTemp=(& python -c 'import tempfile;print(tempfile.gettempdir())').Trim()
+          if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $pythonTemp -PathType Container)){throw 'Python fixture TEMP root unavailable.'}
+          $work=Join-Path $pythonTemp ('openweb-protection-admission-'+[Guid]::NewGuid().ToString('N'))
           python tests/windows_protection_admission.py --native --work-root $work
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           Copy-Item (Join-Path $work 'native-result.safe.json') compatibility-results/protection-admission.safe.json
