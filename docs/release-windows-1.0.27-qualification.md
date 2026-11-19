@@ -67,12 +67,15 @@ VM or allocation changes. Network remains down until static-address/no-prior
 proof, then only the owned link is enabled.
 
 The new fixed setup case is14:12:04–15:27:04UTC. The exact full9 ordinary
-installer Check exits0 at14:15:34; six product paths, two registry checks and
+installer Check exits0 at14:15:34; four filesystem paths, two registry keys and
 zero PBX/PostgreSQL services still prove no prior installation afterward.
 A real private RDP session shows the clean Server2025 desktop and normal UAC
 approval. The exact unmodified full installer starts at14:33:05UTC as
 nativePowerShell7380 in actual RDPsession2, with its visible elevated console
-and durable transcript/start receipt. Two earlier private launcher prebody
+and durable transcript/start receipt. It completes at14:59:23UTC after
+1577.259seconds; an already-attached native handle records exit0 at14:59:33.
+One ordinary verified-owner lookup/login/claim returns200/200/202 from15:00:41;
+the new setup is progressing through normal DNS and trusted-HTTPS readiness. Two earlier private launcher prebody
 failures are retained; neither is an installer attempt.
 One ordinary verified-owner login, one scoped setup token and one newly named
 owned claim are authorized within actual existing quota. The token must be
