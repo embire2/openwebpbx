@@ -23,7 +23,7 @@ PRODUCT = ROOT/'packaging/debian/protection.py'
 BACKUPS = ROOT/'packaging/windows/backups.py'
 BASE_SHA = 'd71aa2ec349131f149bc22c9c82decd6d79965cb098eec4a2b95e5c9c48d2dda'
 BACKUP_SHA = hashlib.sha256(BACKUPS.read_bytes()).hexdigest()
-GUARD_CLOSURE_SHA = '13a8ffa45af1d0b7598c8ec65bba921aafa9850c7df8a6bc73d7989747ff50ad'
+GUARD_CLOSURE_SHA = 'dd83a48e53717d896c1766869ce714177a54d0f06e5d9fc1ce1188fd61253d58'
 FIRST_OLD = '            with full.exclusive_guard(full.UPGRADE_LOCK):pass'
 FIRST_NEW = '''            with full.backup_worker_guard(full.UPGRADE_LOCK):
                 if full.restore_pending() or (full.STATE/'updates/maintenance').exists():return'''
@@ -42,10 +42,13 @@ if admission_line in prior_policy:
 assert hashlib.sha256(prior_policy.encode()).hexdigest() == BASE_SHA
 guard_names = {'BackupError', 'BackupBusy', 'reparse', 'windows_exclusive_guard',
                'exclusive_guard', 'backup_worker_guard', 'lock_file', 'unlock_file'}
-guard_nodes = [n for n in ast.parse(BACKUPS.read_text()).body
+guard_source = BACKUPS.read_text(encoding='utf-8')
+guard_nodes = [n for n in ast.parse(guard_source).body
                if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name in guard_names]
 assert {n.name for n in guard_nodes} == guard_names
-assert hashlib.sha256(ast.dump(ast.Module(body=guard_nodes, type_ignores=[]), include_attributes=False).encode()).hexdigest() == GUARD_CLOSURE_SHA
+# Exact UTF-8 source/decorator bytes remain stable across Python AST versions.
+guard_segments = ['\n'.join(guard_source.splitlines()[min([n.lineno, *[d.lineno for d in n.decorator_list]])-1:n.end_lineno]) for n in guard_nodes]
+assert hashlib.sha256('\n\n'.join(guard_segments).encode('utf-8')).hexdigest() == GUARD_CLOSURE_SHA
 PINS = {'protection.py': hashlib.sha256(PRODUCT.read_bytes()).hexdigest(),
         'backups.py': BACKUP_SHA, 'previous_protection.py': hashlib.sha256(PREVIOUS.encode()).hexdigest(),
         'previous_preclaim_policy_normalized_sha256': BASE_SHA, 'native_guard_closure_sha256': GUARD_CLOSURE_SHA}
