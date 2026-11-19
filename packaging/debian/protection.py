@@ -607,13 +607,14 @@ def worker(settings):
                 row = full.query(settings, 'select row_to_json(b) from v_pbx_backups b where backup_uuid=' + full.literal(backup_id) + " and status='ready'", json_result=True)
                 source = full.STORE/(backup_id+'.owpbx')
                 if not row or row['filename'] != source.name or full.checksum(full.ordinary(source)) != row['sha256']:raise full.BackupError('The full-instance backup is unavailable or changed.')
+                admission = {'worker_admission': True} if os.name == 'nt' else {}
                 if action == 'instance_verify':
-                    body = full.restore(source, password, settings, dry_run=True, allow_existing=True)
+                    body = full.restore(source, password, settings, dry_run=True, allow_existing=True, **admission)
                     message = 'Full restore checked: ' + str(len(body['files'])) + ' files and the complete PostgreSQL database. Confirm replacement to stop calls, restore and restart the previous services.'
                 else:
                     if job['request'].get('replace') is not True or job['request'].get('confirmed_name') != settings.get('openweb.public_host'):raise full.BackupError('The server replacement was not confirmed.')
                     previous = full.running_services()
-                    full.restore(source, password, settings, confirm_database=settings['database.0.name'], allow_existing=True)
+                    full.restore(source, password, settings, confirm_database=settings['database.0.name'], allow_existing=True, **admission)
                     selections = [name for name, unit in full.HELD_UNITS.items() if unit.removesuffix('.service') in {s.removesuffix('.service') for s in previous}]
                     with full.exclusive_guard(full.UPGRADE_LOCK):
                         for name,unit in full.HELD_UNITS.items():

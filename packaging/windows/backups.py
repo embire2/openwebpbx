@@ -1433,10 +1433,118 @@ def refuse_restored_phone_recoveries(settings):
     return int(count)
 
 
-def restore(source, password, settings, **kwargs):
+@contextlib.contextmanager
+def instance_restore_guard(*, worker_admission=False):
+    if worker_admission is not True or os.name != 'nt':
+        with exclusive_guard(UPGRADE_LOCK), exclusive_guard(STORE/'worker.lock'), registration_guard(ROOTS):
+            yield
+        return
+    deadline = time.monotonic() + 30
+    last_busy = None
+    while True:
+        if time.monotonic() >= deadline:
+            raise last_busy or BackupError('The scheduled recovery admission budget expired. Retry after current maintenance finishes.')
+        stack = contextlib.ExitStack()
+        def enter(guard):
+            stack.enter_context(guard)
+            if time.monotonic() >= deadline:
+                raise last_busy or BackupError('The scheduled recovery admission budget expired. Retry after current maintenance finishes.')
+        try:
+            enter(exclusive_guard(UPGRADE_LOCK))
+            enter(exclusive_guard(STORE/'worker.lock'))
+            enter(registration_guard(ROOTS))
+        except BackupBusy as error:
+            # The image consumer may need upgrade.lock before releasing its
+            # own lease. Never retain an earlier lock while waiting for it.
+            stack.close()
+            last_busy = error
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise
+            time.sleep(min(0.25, remaining))
+            continue
+        except BaseException:
+            stack.close()
+            raise
+        break
+    with stack:
+        if restore_pending() or (STATE/'updates/maintenance').exists():
+            raise BackupBusy('Another backup, restore or release update is running. Retry after it finishes.')
+        # Acquisition alone retries. The authenticated restore body runs once.
+        yield
+
+
+def restore(source, password, settings, *, worker_admission=False, **kwargs):
     safe_private_directory(STORE)
-    with exclusive_guard(UPGRADE_LOCK), exclusive_guard(STORE/'worker.lock'), registration_guard(ROOTS):
+    with instance_restore_guard(worker_admission=worker_admission):
         return _restore(source, password, settings, **kwargs)
+
+
+def same_instance_phone_tls(extracted, manifest, settings, *, allow_existing=False):
+    """Reuse only this machine's unchanged, current authenticated TLS identity."""
+    if allow_existing is not True:
+        return False
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.exceptions import UnsupportedAlgorithm
+
+    names = ('runtime-config/phone-tls.json', 'phone-tls/agent.pem', 'phone-tls/cafile.pem')
+    pairs = [(KEY, extracted/'fusionpbx-config/openweb-template.key', 32)] + [
+        (STATE/'phone-tls.json' if name.startswith('runtime-config/') else ROOTS['phone-tls']/Path(name).name,
+         extracted/name, 16384 if name.endswith('.json') else 262144) for name in names]
+    for current, archived, _ in pairs:
+        if any(reparse(item) for path in (current, archived) for item in [path, *path.parents]):
+            raise BackupError('A configured backup path is a link or junction. Use the supported standard Windows layout.')
+    if any(name not in manifest['files'] for name in names):
+        return False
+    material = []
+    for current, archived, limit in pairs:
+        if not current.exists() or not archived.exists():
+            return False
+        current, archived = ordinary(current), ordinary(archived)
+        if current.stat().st_size > limit or archived.stat().st_size > limit:
+            return False
+        value = current.read_bytes()
+        if value != archived.read_bytes():
+            return False
+        material.append(value)
+    if len(material[0]) != 32:
+        return False
+    try:
+        metadata = json.loads(material[1].decode('utf-8-sig'))
+        host = settings.get('openweb.public_host', '')
+        if (not isinstance(metadata, dict) or metadata.get('RestorePending') is not False
+                or metadata.get('Hostname') != host or not isinstance(host, str)
+                or not re.fullmatch(r'[A-Za-z0-9.-]+\.[A-Za-z]{2,}', host)
+                or type(metadata.get('Port')) is not int or metadata['Port'] != 5061):
+            return False
+        chain = x509.load_pem_x509_certificates(material[2])
+        ca = x509.load_pem_x509_certificates(material[3])
+        if not chain or [c.public_bytes(serialization.Encoding.DER) for c in chain] != [
+                c.public_bytes(serialization.Encoding.DER) for c in ca]:
+            return False
+        certificate = chain[0]
+        key = serialization.load_pem_private_key(material[2], password=None)
+        public = lambda item: item.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        if public(key.public_key()) != public(certificate.public_key()):
+            return False
+        now = dt.datetime.now(dt.timezone.utc)
+        expires = dt.datetime.fromisoformat(metadata['ExpiresUtc'].replace('Z', '+00:00'))
+        if (expires.tzinfo is None or expires != certificate.not_valid_after_utc
+                or not certificate.not_valid_before_utc <= now < expires):
+            return False
+        dns = certificate.extensions.get_extension_for_class(x509.SubjectAlternativeName).value.get_values_for_type(x509.DNSName)
+        if not any(name.lower() == host.lower() or (name.startswith('*.') and host.count('.') == name.count('.')
+                   and host.lower().endswith(name[1:].lower())) for name in dns):
+            return False
+        thumbprint = certificate.fingerprint(hashes.SHA1()).hex().upper()
+        if metadata.get('CertificateThumbprint') != thumbprint:
+            return False
+        certificate_sha256 = certificate.fingerprint(hashes.SHA256()).hex()
+    except (ValueError, TypeError, KeyError, AttributeError, x509.ExtensionNotFound, UnsupportedAlgorithm):
+        return False
+    proof = control('phone-tls-identity', {'thumbprint': thumbprint, 'certificate_sha256': certificate_sha256})
+    return isinstance(proof, dict) and proof.get('confirmed') is True
 
 
 def same_restore_https_address(source, target):
@@ -1487,7 +1595,8 @@ def _restore(source, password, settings, *, dry_run=False, confirm_database=None
             else:
                 source_installation.pop(field, None)
         source_installation_file.write_text(json.dumps(source_installation), encoding='utf-8')
-        if 'runtime-config/phone-tls.json' in manifest['files']:
+        if ('runtime-config/phone-tls.json' in manifest['files']
+                and not same_instance_phone_tls(extracted, manifest, settings, allow_existing=allow_existing)):
             tls_file = extracted / 'runtime-config/phone-tls.json'
             tls = json.loads(ordinary(tls_file).read_text(encoding='utf-8-sig'))
             tls['CertificateThumbprint'] = ''
