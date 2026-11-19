@@ -1,6 +1,6 @@
 # Debian changes to carry into Windows
 
-Updated **18 November 2026**. This is the change ledger for Windows catch-up,
+Updated **19 November 2026**. This is the change ledger for Windows catch-up,
 alongside the [release process](independent-platform-releases.md). Add a row
 for every Debian feature, calling fix, migration or deployment change. Keep
 the originating version and source commit even when Windows ships it later.
@@ -98,13 +98,20 @@ acceptance remains separate from isolated provider and software-phone checks.
 | Windows receive buffer while bridging. | Published Windows 23; [actual scope](windows-local-1.0.23.md). | Preserve explicit administrator choices and the separate POSIX behavior. |
 | Native manager and five-minute update notice. | Public Windows 22 baseline retained in 23; automatic updater/manager restart verified on the final 23 package. | Keep desktop modal, web notice, service continuity before installation, verified predownload, call-aware installation and restart. |
 | Signed ordered Windows upgrades and legacy bootstrap. | Updater component `1.0.23+upgrade-path.1`; [scope and qualification](windows-upgrade-path-repair.md). **Published repair, 16 November:** actual 21→22→23 transactions, preserved customer identities and final launcher pass. Full 23 installers/feeds retain their original bytes. | Retain separate catalogue trust, exact historical envelopes, current installed-version admission, one bounded approval, call-aware backups/recovery and catalogue publication guards. Do not infer Debian26 feature parity. |
+| Windows API verbs and upload admission. | Frozen Windows source `06d651d49`; actual company/admin/personal controls and isolated API/UI/upload controls pass. Retained failures include IIS401.3 before PHP. | Preserve scoped PHP method mapping, native file permissions and explicit upload-module preconditions. Exact final6 whole-package API and restore acceptance is still required. |
+| PowerShell5.1 protection-worker entrypoint. | `fcf21dd48` retains the one-line native argument correction;23 actual Windows controls prove old failure, corrected argv/body-once/exit codes and isolated Python paths. | Keep single-quoted Python literals inside the PowerShell native command. Actual tenant and full backup/restore remain release gates; source tests alone are insufficient. |
+| Windows background onboarding admission. | `5b264a7f0`;28 portable and15 native controls accept a30-second background acquisition while foreground5/Linux behavior and authority remain intact. | Propagate explicit background context to image helpers and scheduled ticks; preserve fail-closed I/O, restore holds and one execution of the business body. New full installation/registration must pass. |
+| Bootstrap IIS object lifecycle. | `61325afe1`; unforced old/current native reproduction proves cached-object HRESULT0x800710D8 and corrected HTTP200, with original IIS/runtime/services restored exactly. | Reacquire the site/pool through a new manager after commit. Exact-source CI has five source controls; native IIS is separate. Final6 clean-install acceptance is pending. |
 
 Windows27 also retains dedicated legacy terminal handoff (`ced796783`) and
 pre-claim registration snapshot coordination (`138c5cef2`). These Windows-specific
 source corrections have native controls; public Windows stays23 until actual
 whole-package rollback, upgrade, fresh setup, recovery and public readback pass.
 Source-assisted manual recovery of the earlier failed candidate remains separate.
-Port later hosted API presets/local docs independently; a version cannot prove parity.
+Current frozen source is `61325afe155950c2b8961f8001054eb9d246c92e`;
+[qualification](release-windows-1.0.27-qualification.md) distinguishes actual, reused
+and failed results. Public Windows remains23. Port later hosted API presets/local
+docs independently; a version cannot prove parity.
 
 ## Before promoting a Windows catch-up release
 
