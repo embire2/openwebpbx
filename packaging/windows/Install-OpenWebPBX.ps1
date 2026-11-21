@@ -391,7 +391,12 @@ if(!$CertificateThumbprint){$cert=New-SelfSignedCertificate -DnsName $DomainName
 & "$PSScriptRoot\Install-Meet.ps1" -PackageRoot $PSScriptRoot -MaintenanceLock $installationLock
 & "$PSScriptRoot\Install-Dtls.ps1" -PackageRoot $PSScriptRoot -MaintenanceLock $installationLock
 icacls "$root\web" /grant 'IIS AppPool\OpenWebPBX:(OI)(CI)RX' | Out-Null
-icacls "$switch\db" /grant 'IIS AppPool\OpenWebPBX:(OI)(CI)M' | Out-Null
+# A fresh MSI install may never have started FreeSWITCH, which creates this directory on demand.
+$engineDatabase=Join-Path $switch 'db'
+$null=Assert-OpenWebCallRecordOrdinary $switch -Directory
+if(!(Test-Path -LiteralPath $engineDatabase)){New-Item -ItemType Directory -Path $engineDatabase | Out-Null}
+$null=Assert-OpenWebCallRecordOrdinary $engineDatabase -Directory
+Run icacls.exe @($engineDatabase,'/grant','IIS AppPool\OpenWebPBX:(OI)(CI)M')
 icacls $private /grant 'IIS AppPool\OpenWebPBX:RX' /grant '*S-1-5-19:RX' /grant '*S-1-5-20:RX' | Out-Null
 icacls "$private\runtime.json" /grant '*S-1-5-19:R' | Out-Null
 icacls $configRoot /grant 'IIS AppPool\OpenWebPBX:(OI)(CI)R' | Out-Null
