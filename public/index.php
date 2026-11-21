@@ -116,6 +116,15 @@ class router {
 		// Remove trailing slash (except for root) to handle URLs like /core/dashboard/
 		$decoded_path = rtrim($decoded_path, '/');
 
+		// Public, read-only reference for this installation's tenant API.
+		if (in_array($decoded_path, ['/api-docs', '/api-docs/index.php'], true)) {
+			$target_file = PROJECT_ROOT . '/app/pbx_api_docs/index.php';
+			if (is_file($target_file)) {
+				return ['target' => realpath($target_file), 'app_name' => 'pbx_api_docs',
+					'action' => 'index', 'file' => 'app/pbx_api_docs/index.php'];
+			}
+		}
+
 		// Tenant administration uses the existing authenticated service controller.
 		if (in_array($decoded_path, ['/tenantadmin', '/tenantadmin/index.php'], true)) {
 			$target_file = PROJECT_ROOT . '/tenantadmin/index.php';

@@ -1,6 +1,19 @@
 <?php
-/** Reader for the V20 Update 9 backup layout verified against the supplied private backup. */
+/** Reader for the explicitly supported V20 native backup layouts. */
 final class threecx_v20 {
+    public const SUPPORTED_BUILDS = ['20.0.9.995', '20.0.10.1801'];
+
+    public static function supports(mixed $build): bool {
+        return in_array($build, self::SUPPORTED_BUILDS, true);
+    }
+
+    /** Only service numbers with a native equivalent get a dialplan. */
+    public static function specialCallMode(string $kind, string $number): ?string {
+        if ($kind === 'SpecialMenu') return 'voicemail_login';
+        if ($kind === 'ParkExtension' && str_starts_with($number, 'SP')) return 'park';
+        return null;
+    }
+
     private array $notes=[];
     private function children(?DOMElement $node,string $name=''): array { $out=[];if($node)foreach($node->childNodes as $child)if($child instanceof DOMElement && ($name===''||$child->tagName===$name))$out[]=$child;return $out; }
     private function child(?DOMElement $node,string $name): ?DOMElement { $rows=$this->children($node,$name);if(count($rows)>1)throw new InvalidArgumentException('The backup has duplicate settings.');return $rows[0]??null; }
@@ -40,8 +53,9 @@ final class threecx_v20 {
     }
     private function parse(DOMElement $root): array {
         $version=$this->value($this->child($root,'header'),'version');
-        if($version!=='20.0.9.995')throw new InvalidArgumentException('This 3CX update needs a matching restore check.');
+        if(!self::supports($version))throw new InvalidArgumentException('This 3CX update needs a matching restore check.');
         $tenants=$this->children($this->child($root,'Tenants'),'Tenant');if(count($tenants)!==1)throw new InvalidArgumentException('Choose a backup with one company.');$tenant=$tenants[0];$dn=$this->child($tenant,'DN');
+        if (!$dn) throw new InvalidArgumentException('The backup is missing its company phone configuration.');
         $plan=['source_version'=>$version,'source_format'=>'3cx-v20-backup','supported'=>true,'users'=>[],'trunks'=>[],'ring_groups'=>[],'inbound_rules'=>[],'outbound_rules'=>[],'warnings'=>[],'unsupported'=>[]];
         $full=['users'=>[],'queues'=>[],'receptionists'=>[],'ring_groups'=>[],'departments'=>[],'inbound_rules'=>[],'outbound_rules'=>[],'phones'=>[],'contacts'=>[],'specials'=>[],'scripts'=>[],'trunks'=>[],'timezone'=>'Africa/Johannesburg','default_hours'=>$this->hours($this->child($tenant,'Hours'))];
         $parameters=[];foreach($this->children($this->child($root,'Parameters'),'Parameter') as $p)$parameters[$this->value($p,'Name')]=$this->value($p,'Value');
@@ -91,6 +105,15 @@ final class threecx_v20 {
         }
         foreach($this->children($this->child($tenant,'OutboundRules'),'OutboundRule') as $index=>$rule){$routes=[];foreach($this->children($this->child($rule,'OutboundRoutes'),'OutboundRoute') as $route){$gateway=$this->value($route,'Gateway');if($gateway==='')continue;$routes[]=['provider'=>$gateway,'strip'=>$this->integer($this->value($route,'StripDigits'),0,0,20),'prepend'=>$this->value($route,'Prepend'),'caller_id'=>$this->value($route,'CallerID')];}$groups=[];foreach($this->children($this->child($rule,'DNGroups'),'Group') as $group)$groups[]=trim($group->textContent);$ranges=[];foreach($this->children($this->child($rule,'DNRanges'),'DNRange') as $range)$ranges[]=['from'=>$this->value($range,'From'),'to'=>$this->value($range,'To')];$full['outbound_rules'][]=['name'=>$this->name($this->value($rule,'Name'),'Outbound rule'),'prefix'=>$this->value($rule,'Prefix'),'lengths'=>$this->value($rule,'NumberLengthRanges'),'priority'=>$this->integer($this->value($rule,'Priority'),$index,0,2147483647),'routes'=>$routes,'departments'=>$groups,'ranges'=>$ranges];}
         usort($full['outbound_rules'],fn($a,$b)=>$a['priority']<=>$b['priority']);
+        $unmapped = array_filter($full['specials'], fn(array $row) => self::specialCallMode($row['kind'], $row['number']) === null);
+        foreach ([
+            'FaxExtension' => ['Fax endpoints', 'Configure replacement fax handling for these service numbers before switching calls.'],
+            'ConferencePlaceExtension' => ['Conference access numbers', 'Create replacement conference access and update any routes that refer to these numbers.'],
+            'ParkExtension' => ['Park orbits', 'Only shared parking service numbers are mapped. Review the other park orbits and configure replacements as needed.'],
+        ] as $kind => [$category, $reason]) {
+            $this->note($category, count(array_filter($unmapped, fn(array $row) => $row['kind'] === $kind)), $reason);
+        }
+        $this->note('Other service numbers', count(array_filter($unmapped, fn(array $row) => !in_array($row['kind'], ['FaxExtension', 'ConferencePlaceExtension', 'ParkExtension'], true))), 'Review these source service numbers and recreate any required call handling.');
         $this->note('3CX apps and account passwords',1,'Users and phone details are restored. 3CX apps and old web passwords cannot be used here; phones need the new server address.');
         if($this->value($this->child($root,'mailSettings'),'mailServerType')==='3CX')$this->note('Email',1,'The backup uses 3CX email delivery. Set your outgoing email server under System → Email.');
         $known=array_keys($full['users']);foreach(['queues','receptionists','ring_groups','scripts','specials'] as $key)foreach($full[$key] as $r)$known[]=$r['number'];$missing=0;foreach($full['scripts'] as $r)foreach($r['pin_map'] as $n)if(!in_array((string)$n,array_map('strval',$known),true))$missing++;$this->note('Call Scripts',$missing,'The original PIN menu has destinations that are missing from this backup. Choose replacement users under Call Handling.');$plan['v20']=$full;$plan['unsupported']=$this->notes;$plan['warnings'][]='Users, phone settings, call handling and office hours will be restored to a new PBX. Trunks stay off until their connection is checked.';

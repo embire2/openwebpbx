@@ -1,5 +1,11 @@
 (() => {
     'use strict';
+    const backup = document.querySelector('[data-backup-upload-limit]');
+    backup?.addEventListener('change', () => {
+        const file = backup.files[0];
+        backup.setCustomValidity(file?.size > Number(backup.dataset.backupUploadLimit) ? 'Choose a file up to 2 GB.' : '');
+        if (!backup.validity.valid && file) backup.reportValidity();
+    });
     const wizard = document.querySelector('[data-setup-wizard]');
     if (!wizard) return;
     const steps = Array.from(wizard.querySelectorAll('[data-setup-step]'));

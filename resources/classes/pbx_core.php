@@ -2,6 +2,7 @@
 /** Tenant-scoped call operations. Never accepts arbitrary engine commands. */
 class pbx_core_access extends RuntimeException {}
 class pbx_core {
+    private const FIRST_CALL_STEPS = ['internal', 'incoming', 'outgoing', 'failover', 'caller_id', 'digits', 'long_call'];
     private PDO $db;
     private string $domain;
     private string $actor;
@@ -93,11 +94,32 @@ class pbx_core {
     }
     public function firstCalls(string $trunk): array {
         $this->admin();$c=$this->config();if(!isset($c['trunks'][$trunk]))throw new OutOfBoundsException('Choose a provider in this PBX.');
-        $checks=$this->q('select check_kind,result,note,created_at from v_pbx_core_checks where domain_uuid=? and trunk_id=? and config_hash=? order by created_at desc limit 30',[$this->domain,$trunk,$this->fingerprint($c,$trunk)])->fetchAll(PDO::FETCH_ASSOC);
+        $scope=[$this->domain,$trunk,$this->fingerprint($c,$trunk)];
+        $checks=$this->q("select check_kind,result,note,created_at from v_pbx_core_checks where domain_uuid=? and trunk_id=? and config_hash=? and result='confirmed' order by created_at desc limit 30",$scope)->fetchAll(PDO::FETCH_ASSOC);
+        $latest=$this->q('select distinct on (check_kind) check_kind,result,note,created_at from v_pbx_core_checks where domain_uuid=? and trunk_id=? and config_hash=? order by check_kind,created_at desc,check_uuid desc',$scope)->fetchAll(PDO::FETCH_ASSOC);
+        $latest=array_column($latest,null,'check_kind');
+        $hasBackup=false;
+        foreach($c['outbound_rules'] as $rule) {
+            $routes=array_map('strval',array_column($rule['routes']??[],'trunk_id'));
+            if(($routes[0]??null)!==$trunk)continue;
+            foreach(array_slice($routes,1) as $id) {
+                if($id!==$trunk&&isset($c['trunks'][$id])) {
+                    $hasBackup=true;
+                    break 2;
+                }
+            }
+        }
+        $checklist=[];$next=null;
+        foreach(self::FIRST_CALL_STEPS as $kind) {
+            $result=$latest[$kind]??null;
+            $state=$result['result']??($kind==='failover'&&!$hasBackup?'no_backup':'pending');
+            $checklist[$kind]=['state'=>$state,'note'=>$result['note']??'','checked_at'=>$result['created_at']??null];
+            if($next===null&&$state!=='confirmed')$next=$kind;
+        }
         $calls=$this->q("select xml_cdr_uuid,direction,caller_id_number,destination_number,billsec,start_stamp,hangup_cause,read_codec,write_codec from v_xml_cdr where domain_uuid=? and start_stamp>now()-interval '24 hours' and (leg='a' or leg is null) order by start_stamp desc limit 30",[$this->domain])->fetchAll(PDO::FETCH_ASSOC);
         $attempts=$this->q("select a.call_uuid,a.attempt_no,a.trunk_id,a.state,a.cause,a.sip_status,a.will_retry,a.started_at from v_pbx_provider_attempts a where a.domain_uuid=? and a.started_at>now()-interval '24 hours' and exists(select 1 from v_pbx_provider_attempts p where p.domain_uuid=a.domain_uuid and p.call_uuid=a.call_uuid and p.trunk_id=?) order by a.started_at desc,a.attempt_no desc limit 90",[$this->domain,$trunk])->fetchAll(PDO::FETCH_ASSOC);
         foreach($attempts as&$r){$r['provider_name']=$c['trunks'][$r['trunk_id']]['name']??'Previous provider';$r['explanation']=self::providerMessage($r);}unset($r);
-        return ['checks'=>$checks,'calls'=>$calls,'attempts'=>$attempts];
+        return ['checks'=>$checks,'calls'=>$calls,'attempts'=>$attempts,'checklist'=>$checklist,'next_check'=>$next,'backup_configured'=>$hasBackup];
     }
     public function callPlan(array $in): array {
         $this->admin();$c=$this->config();$trunk=$this->text($in,'trunk',40);$owner=$this->text($in,'test_phone',10);$number=$this->text($in,'test_number',32);
@@ -154,18 +176,28 @@ class pbx_core {
     }
     public function recordCheck(array $in): void {
         $this->admin();$c=$this->config();$trunk=$this->text($in,'trunk',40);$kind=$this->text($in,'check_kind',24);$id=$this->text($in,'call_uuid',36);
-        if(!isset($c['trunks'][$trunk])||!in_array($kind,['internal','incoming','outgoing','digits','caller_id','failover','long_call'],true))throw new InvalidArgumentException('Choose the provider and test step.');
-        if(!is_uuid($id))throw new InvalidArgumentException('Select the completed test call.');
-        $call=$this->q('select direction,billsec,hangup_cause,provider_uuid,last_arg,call_center_queue_uuid from v_xml_cdr where domain_uuid=? and xml_cdr_uuid=? and start_stamp>now()-interval \'24 hours\'',[ $this->domain,$id])->fetch(PDO::FETCH_ASSOC);
-        if(!$call||(int)$call['billsec']<=0)throw new InvalidArgumentException('Use an answered call from this PBX within the last 24 hours.');
-        if(in_array($kind,['incoming','outgoing','failover'],true)&&$call['direction']!==($kind==='incoming'?'inbound':'outbound'))throw new InvalidArgumentException('Select a call in the required direction.');
-        if($kind==='internal'&&$call['direction']!=='local')throw new InvalidArgumentException('Select an internal call for this step.');
-        $providers=[$c['trunks'][$trunk]['gateway_uuid']];
-        if($kind==='failover')$this->verifyFailover($id,$trunk,$c);
-        elseif($kind!=='internal'&&!array_filter($providers,fn($id)=>($call['provider_uuid']??'')===$id||str_contains((string)($call['last_arg']??''),$id)))throw new InvalidArgumentException('This call does not identify the selected provider. Keep this step unverified until the provider call is recorded.');
-        if(empty($in['confirmed']))throw new InvalidArgumentException('Confirm the result on the actual phones.');
-        if($kind==='long_call'&&(int)$call['billsec']<300)throw new InvalidArgumentException('Use a test call lasting at least five minutes.');
-        $note=$this->text($in,'note',500);$this->q('insert into v_pbx_core_checks(check_uuid,domain_uuid,trunk_id,check_kind,call_uuid,result,note,checked_by,config_hash) values(?,?,?,?,?,?,?,?,?)',[uuid(),$this->domain,$trunk,$kind,$id,'confirmed',$note,$this->actor,$this->fingerprint($c,$trunk)]);
+        if(!isset($c['trunks'][$trunk])||!in_array($kind,self::FIRST_CALL_STEPS,true))throw new InvalidArgumentException('Choose the provider and test step.');
+        $result=$this->text($in,'result',24);
+        if($result==='')$result='confirmed';
+        if(!in_array($result,['confirmed','needs_attention'],true))throw new InvalidArgumentException('Choose a test result.');
+        $confirmed=$result==='confirmed';
+        $note=$this->text($in,'note',500);
+        if(!$confirmed&&$note==='')throw new InvalidArgumentException('Describe what happened so you can follow up.');
+        if($confirmed||$id!=='') {
+            if(!is_uuid($id))throw new InvalidArgumentException('Select the completed test call.');
+            $call=$this->q("select direction,billsec,provider_uuid,last_arg from v_xml_cdr where domain_uuid=? and xml_cdr_uuid=? and start_stamp>now()-interval '24 hours'",[$this->domain,$id])->fetch(PDO::FETCH_ASSOC);
+            if(!$call||($confirmed&&(int)$call['billsec']<=0))throw new InvalidArgumentException($confirmed?'Use an answered call from this PBX within the last 24 hours.':'Use a call from this PBX within the last 24 hours.');
+            if(in_array($kind,['incoming','outgoing','failover'],true)&&$call['direction']!==($kind==='incoming'?'inbound':'outbound'))throw new InvalidArgumentException('Select a call in the required direction.');
+            if($kind==='internal'&&$call['direction']!=='local')throw new InvalidArgumentException('Select an internal call for this step.');
+            if($confirmed) {
+                $provider=$c['trunks'][$trunk]['gateway_uuid'];
+                if($kind==='failover')$this->verifyFailover($id,$trunk,$c);
+                elseif($kind!=='internal'&&$call['provider_uuid']!==$provider&&!str_contains((string)$call['last_arg'],$provider))throw new InvalidArgumentException('This call does not identify the selected provider. Keep this step unverified until the provider call is recorded.');
+                if(empty($in['confirmed']))throw new InvalidArgumentException('Confirm the result on the actual phones.');
+                if($kind==='long_call'&&(int)$call['billsec']<300)throw new InvalidArgumentException('Use a test call lasting at least five minutes.');
+            }
+        }
+        $this->q('insert into v_pbx_core_checks(check_uuid,domain_uuid,trunk_id,check_kind,call_uuid,result,note,checked_by,config_hash) values(?,?,?,?,?,?,?,?,?)',[uuid(),$this->domain,$trunk,$kind,$id===''?null:$id,$result,$note,$this->actor,$this->fingerprint($c,$trunk)]);
     }
     public function queueReport(int $days=1): array {
         $days=max(1,min(31,$days));$c=$this->config();if($this->staff&&!$this->staff->can('reports',$c))throw new pbx_core_access('Report access is not allowed.');$rows=[];

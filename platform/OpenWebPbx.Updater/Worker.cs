@@ -271,7 +271,7 @@ public sealed class Worker(UpdateRepository repository, UpdaterPaths paths, Rele
             }
             var previousFailure = File.Exists(paths.FailedInstall) && UpdateJson.Read<FailedInstall>(paths.FailedInstall).AssetSha256 == release.Asset.Sha256;
             if (previousFailure && command is null && policy.Mode == "automatic") {
-                await Status("error", "This update previously failed. Automatic retry is paused; an administrator can request installation again", installed, ct);
+                await Status("retry_available", "This verified update previously failed. Review recovery before using Update Now to retry", installed, ct);
                 return;
             }
             if (CheckOnly || command?.Action == "check" && paths.Platform != "windows-x64" || command is null && policy.Mode == "notify")

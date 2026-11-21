@@ -16,7 +16,7 @@ if($view==='provider_setup'):
 $trunk=is_string($_GET['trunk']??null)?$_GET['trunk']:'';if(!isset($c['trunks'][$trunk]))$trunk=(string)(array_key_first($c['trunks'])??'');
 ?>
 <div class="setup-actions"><a class="setup-button primary" href="?view=provider_setup">Add SIP Trunk</a><a class="setup-button" href="?view=voice">SIP Trunks</a><a class="setup-button" href="?view=incoming">DID Numbers</a><a class="setup-button" href="?view=outbound">Outbound Rules</a></div>
-<?php if($trunk===''): ?><p>Add your provider to start.</p><?php else:$proof=$core->firstCalls($trunk);$done=[];foreach($proof['checks'] as $r)if(!isset($done[$r['check_kind']]))$done[$r['check_kind']]=$r; ?>
+<?php if($trunk===''): ?><p>Add your provider to start.</p><?php else:$proof=$core->firstCalls($trunk); ?>
 <form method="get" class="setup-form"><input type="hidden" name="view" value="first_calls"><div class="setup-fields"><?php $select('trunk','SIP Trunk',array_column($c['trunks'],'name','number'),$trunk); ?></div><button class="setup-button" type="submit">Open Checklist</button></form>
 <?php $provider=$readiness['trunks'][$trunk]??null;if($provider): ?><div class="setup-message" role="status"><strong><?= $e($provider['status']) ?></strong><p><?= $e($provider['next_step']) ?></p><a class="admin-link" href="?view=voice&amp;edit=<?= $e($trunk) ?>">Review This Provider</a></div><?php endif; ?>
 <h3>Connection Checks</h3><form method="post" class="setup-form"><?php $csrf(); ?><input type="hidden" name="action" value="network_check"><button class="setup-button" type="submit">Check Server Connection</button></form>
@@ -29,9 +29,56 @@ $trunk=is_string($_GET['trunk']??null)?$_GET['trunk']:'';if(!isset($c['trunks'][
 <?php $phoneChoices=[''=>'Choose a phone'];foreach($c['users'] as $n=>$u)if(!empty($u['enabled']))$phoneChoices[$n]=$u['name'].' · '.$n; ?>
 <form method="post" class="setup-form"><?php $csrf(); ?><input type="hidden" name="action" value="plan_call_test"><input type="hidden" name="trunk" value="<?= $e($trunk) ?>"><div class="setup-fields"><?php $select('test_phone','My Connected Phone',$phoneChoices,$_POST['test_phone']??'');$input('test_number','Outside Test Number',$_POST['test_number']??'','tel','required maxlength="32"'); ?></div><button class="setup-button" type="submit">Review Test Call</button></form>
 <?php if($callPlan): ?><div class="setup-message"><strong><?= $e($callPlan['phone'].' → '.$callPlan['number']) ?></strong><p><?= $e('Outgoing rule: '.$callPlan['rule']) ?></p><ol><?php foreach($callPlan['routes'] as $r): ?><li><?= $e($r['name'].' · '.$r['number'].' · '.($r['available']?'Available':'Unavailable')) ?></li><?php endforeach; ?></ol></div><form method="post" class="setup-form"><?php $csrf(); ?><input type="hidden" name="action" value="start_call_test"><input type="hidden" name="trunk" value="<?= $e($trunk) ?>"><input type="hidden" name="test_phone" value="<?= $e($callPlan['phone']) ?>"><input type="hidden" name="test_number" value="<?= $e($callPlan['number']) ?>"><?php $check('confirm_test','Call this outside number after I answer my phone'); ?><button class="setup-button primary" type="submit">Call My Phone and Start Test</button></form><?php endif; ?>
-<ol class="core-checks"><?php foreach(['internal'=>'Call another extension and speak both ways.','incoming'=>'Call your main number from outside; check who answers and speech both ways.','outgoing'=>'Make an outside call through this provider and speak both ways.','caller_id'=>'Check the displayed caller ID on the receiving phone.','digits'=>'Call a test menu and check every key you use.','failover'=>'Check a call that tried the unavailable primary and connected through the backup.','long_call'=>'Keep a test call connected for at least five minutes.'] as $k=>$description): ?><li><strong><?= isset($done[$k])?'Confirmed':'To Do' ?></strong> · <?= $e($description) ?><?php if(isset($done[$k])): ?> <small><?= $e($done[$k]['created_at']) ?></small><?php endif; ?></li><?php endforeach; ?></ol>
-<?php $callChoices=[];foreach($proof['calls'] as $r)$callChoices[$r['xml_cdr_uuid']]=$r['start_stamp'].' · '.$r['caller_id_number'].' → '.$r['destination_number'].' · '.$r['billsec'].' seconds'; ?>
-<form method="post" class="setup-form"><?php $csrf(); ?><input type="hidden" name="action" value="record_check"><input type="hidden" name="trunk" value="<?= $e($trunk) ?>"><div class="setup-fields"><?php $select('check_kind','Test Step',['internal'=>'Internal Call','incoming'=>'Incoming Call','outgoing'=>'Outgoing Call','caller_id'=>'Caller ID','digits'=>'Menu Keys','failover'=>'Backup Provider','long_call'=>'Five-minute Call'],'internal');$select('call_uuid','Completed Test Call',[''=>'Choose a call']+$callChoices);$input('note','Notes','','text','maxlength="500"');$check('confirmed','I checked this result on the actual phones'); ?></div><button class="setup-button primary" type="submit">Record Result</button></form>
+<?php
+$stepLabels=['internal'=>'Internal Call','incoming'=>'Incoming Call','outgoing'=>'Outgoing Call','failover'=>'Backup Provider','caller_id'=>'Caller ID','digits'=>'Menu Keys','long_call'=>'Five-minute Call'];
+$stepInstructions=[
+    'internal'=>'Call another extension and confirm speech both ways.',
+    'incoming'=>'Call your main number from outside. Check who answers and confirm speech both ways.',
+    'outgoing'=>'Make an outside call through this provider and confirm speech both ways.',
+    'failover'=>'Use an agreed test where the primary is unavailable. Check that one backup connects and confirm speech both ways.',
+    'caller_id'=>'Check the displayed caller ID on the receiving phone.',
+    'digits'=>'Call a test menu and check each key you use.',
+    'long_call'=>'Keep a test call connected for at least five minutes.',
+];
+$statusLabels=['confirmed'=>'Confirmed','needs_attention'=>'Needs attention','pending'=>'To do','no_backup'=>'No backup configured'];
+$nextCheck=$proof['next_check'];
+$submitted=($_POST['action']??'')==='record_check'?$_POST:[];
+$selectedStep=is_string($submitted['check_kind']??null)?$submitted['check_kind']:($nextCheck??'internal');
+$selectedResult=is_string($submitted['result']??null)?$submitted['result']:'confirmed';
+$selectedCall=is_string($submitted['call_uuid']??null)?$submitted['call_uuid']:'';
+$resultNote=is_string($submitted['note']??null)?$submitted['note']:'';
+$callChoices=[''=>'Choose a call'];
+foreach($proof['calls'] as $r)$callChoices[$r['xml_cdr_uuid']]=$r['start_stamp'].' · '.$r['caller_id_number'].' → '.$r['destination_number'].' · '.$r['billsec'].' seconds';
+?>
+<h3>First-call Checklist</h3>
+<?php if($nextCheck!==null): ?><p>Next check <a class="admin-link" href="#first-call-result"><?= $e($stepLabels[$nextCheck]) ?></a></p><?php else: ?><p>You’ve confirmed every check for this provider with its current calling settings.</p><?php endif; ?>
+<ol class="core-checks">
+<?php foreach($proof['checklist'] as $kind=>$step): ?>
+    <li><strong><?= $e($stepLabels[$kind].' · '.$statusLabels[$step['state']]) ?></strong><br>
+        <?= $e($stepInstructions[$kind]) ?>
+        <?php if($kind==='failover'&&!$proof['backup_configured']): ?> <a class="admin-link" href="?view=outbound">Add a backup in Outbound Rules</a> to test failover.<?php endif; ?>
+        <?php if($step['note']!==''): ?><br><?= $e($step['note']) ?><?php endif; ?>
+        <?php if($step['checked_at']!==null): ?><br><small><?= $e($step['checked_at']) ?></small><?php endif; ?>
+    </li>
+<?php endforeach; ?>
+</ol>
+<h3 id="first-call-result">Record a Test Result</h3>
+<p>To confirm a check, choose an answered test call and verify the result on the phones. If the test fails or you can’t place the call, choose Needs Attention and describe what happened. You can save that result without a call record.</p>
+<form method="post" class="setup-form">
+    <?php $csrf(); ?>
+    <input type="hidden" name="action" value="record_check">
+    <input type="hidden" name="trunk" value="<?= $e($trunk) ?>">
+    <div class="setup-fields">
+        <?php
+        $select('check_kind','Test Step',$stepLabels,$selectedStep);
+        $select('result','Result',['confirmed'=>'Confirmed','needs_attention'=>'Needs Attention'],$selectedResult);
+        $select('call_uuid','Completed Test Call',$callChoices,$selectedCall);
+        $input('note','Notes',$resultNote,'text','maxlength="500"');
+        $check('confirmed','I checked this result on the actual phones',!empty($submitted['confirmed']));
+        ?>
+    </div>
+    <button class="setup-button primary" type="submit">Record Result</button>
+</form>
 <h3>Provider Call Results</h3><p>One row shows each provider considered for a call. A busy phone, caller cancellation or an answered call stops the sequence. The backup check requires a failure and a connected backup in the same recorded call, with the current settings.</p>
 <div class="setup-table-wrap"><table class="setup-table"><thead><tr><th>Time</th><th>Call</th><th>Step</th><th>Provider</th><th>Result</th></tr></thead><tbody><?php foreach($proof['attempts'] as$r): ?><tr><td><?= $e($r['started_at']) ?></td><td><?= $e(substr($r['call_uuid'],0,8)) ?></td><td><?= $e($r['attempt_no']) ?></td><td><?= $e($r['provider_name']) ?></td><td><?= $e($r['explanation']) ?></td></tr><?php endforeach; ?><?php if(!$proof['attempts']): ?><tr><td colspan="5">No provider results recorded yet. Make a new test call.</td></tr><?php endif; ?></tbody></table></div>
 <p>These are your recorded checks, not a claim that every provider, phone or emergency route has been qualified. Recheck after changing provider settings. <a class="admin-link" href="?view=routing">Call Routing</a></p>

@@ -1,0 +1,32 @@
+name: Calling policy regression
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  calling-policy:
+    name: Calling policy regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out the exact change
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install the test interpreter
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y lua5.4
+      - name: Check provider loading, permissions and call routing
+        run: |
+          set -euo pipefail
+          lua5.4 tests/pbx_trunk_options.lua
+          lua5.4 tests/pbx_call_policy.lua
+          lua5.4 tests/pbx_route_runtime.lua

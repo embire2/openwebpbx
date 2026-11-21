@@ -69,7 +69,7 @@ static class DatabaseChecks
    var failed=Fresh();await failed.Initialize(default);await failed.Tick(default);
    Check(File.ReadAllText(installedMarker)=="x" && File.Exists(paths.FailedInstall),"Failed installation was not durably recorded");
    failed=Fresh();await failed.Initialize(default);await failed.Tick(default);
-   Check(File.ReadAllText(installedMarker)=="x" && UpdateJson.Read<UpdateStatus>(paths.Status).State=="error","A restarted worker repeated a failed automatic install");
+   Check(File.ReadAllText(installedMarker)=="x" && UpdateJson.Read<UpdateStatus>(paths.Status) is { State: "retry_available", AvailableVersion: "1.0.4", DownloadReady: false },"A restarted worker repeated a failed automatic install or could not offer a verified manual retry");
    File.Delete(paths.FailedInstall);UpdateJson.Write(paths.Journal,new WorkerJournal(null,null,"1.0.4","installing",DateTimeOffset.UtcNow,Convert.ToHexStringLower(SHA256.HashData(bytes))));
    failed=Fresh();await failed.Initialize(default);await failed.Tick(default);
    Check(File.Exists(paths.FailedInstall)&&File.ReadAllText(installedMarker)=="x","Boot recovery replayed an interrupted automatic installation without a command");

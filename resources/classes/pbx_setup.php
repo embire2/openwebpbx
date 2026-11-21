@@ -134,22 +134,56 @@ class pbx_setup {
         if(isset($plan['v20'])){$counts=threecx_v20::counts($plan);$counts['numbers']=$counts['inbound_rules'];}
         return array_merge($public, ['summary'=>array_merge($metadata, ['user_count'=>$counts['users'], 'trunk_count'=>$counts['trunks'], 'number_count'=>$counts['numbers'], 'ring_group_count'=>$counts['ring_groups'], 'source_version'=>$plan['source_version'], 'source_format'=>$plan['source_format']]), 'counts'=>$counts]);
     }
+    public static function backupUpload(array $upload): string {
+        $error = $upload['error'] ?? UPLOAD_ERR_NO_FILE;
+        if ($error !== UPLOAD_ERR_OK) {
+            throw new InvalidArgumentException(match ($error) {
+                UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'The backup exceeds this server’s upload limit. Choose a smaller backup or ask your server administrator to check the limit.',
+                UPLOAD_ERR_PARTIAL => 'The backup upload was interrupted. Choose the same file and try again.',
+                UPLOAD_ERR_NO_TMP_DIR, UPLOAD_ERR_CANT_WRITE => 'The server could not store the upload. Check available space and permissions on the PBX storage, then try again.',
+                UPLOAD_ERR_NO_FILE => 'Choose your 3CX backup file.',
+                default => 'The server rejected the upload. Try again or contact your PBX administrator.',
+            });
+        }
+        $path = $upload['tmp_name'] ?? null;
+        if (!is_string($path) || !is_uploaded_file($path)) throw new InvalidArgumentException('The uploaded backup is unavailable. Choose the file and try again.');
+        if (($upload['size'] ?? 0) > threecx_backup::MAX_UPLOAD_BYTES) throw new InvalidArgumentException('The backup is larger than 2 GB.');
+        return $path;
+    }
+    public static function backupPostTooLarge(array $request): bool {
+        // PHP discards both POST fields and files when the multipart body is
+        // bigger than post_max_size. Detect that before reporting a CSRF error.
+        $limit = ini_parse_quantity((string)ini_get('post_max_size'));
+        return $limit > 0 && (int)($request['CONTENT_LENGTH'] ?? 0) > $limit
+            && str_starts_with(strtolower((string)($request['CONTENT_TYPE'] ?? '')), 'multipart/form-data;');
+    }
     public function analyzeUpload(array $upload): array {
         $this->requireManage();
-        if (($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !isset($upload['tmp_name']) || !is_string($upload['tmp_name']) || !is_uploaded_file($upload['tmp_name'])) throw new InvalidArgumentException('Choose a ZIP backup smaller than 2 GB.');
-        if (($upload['size'] ?? 0) > threecx_backup::MAX_UPLOAD_BYTES) throw new InvalidArgumentException('The backup is larger than 2 GB.');
-        $plan = threecx_backup::analyze($upload['tmp_name']);
+        $temporary = self::backupUpload($upload);
+        $plan = threecx_backup::analyze($temporary);
         if ($plan['supported']) $plan = array_replace($plan, (new pbx_setup_provisioner($this->db))->validate($plan));
         $options = $this->options();
         $metadata = $this->metadata(['company_name'=>$options['default_company_name'], 'service_name'=>'Imported PBX']);
         $source=null;
-        if(isset($plan['v20'])){
-            pbx_v20_restore::validate($plan);
-            $dir=pbx_paths::uploads();if(!is_dir($dir)&&!mkdir($dir,0700,true))throw new RuntimeException('Backup storage is unavailable.');
-            $source=$dir.'/'.uuid().'.zip';if(!move_uploaded_file($upload['tmp_name'],$source))throw new RuntimeException('The backup could not be saved.');chmod($source,0600);
+        try {
+            if (isset($plan['v20'])) {
+                pbx_v20_restore::validate($plan);
+                $dir = pbx_paths::uploads();
+                if (is_link($dir) || (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir))) {
+                    throw new RuntimeException('Private backup storage is unavailable. Ask your server administrator to check it, then try again.');
+                }
+                $source = $dir.'/'.uuid().'.zip';
+                // A move across separately mounted volumes can fail partway
+                // through its copy. Remove that partial file before retry.
+                if (!@move_uploaded_file($temporary, $source) || !@chmod($source, 0600) || !@touch($source)) {
+                    throw new RuntimeException('The backup could not be saved for review. Check available PBX storage and upload it again.');
+                }
+            }
+            return $this->saveDraft('import', ['metadata'=>$metadata, 'plan'=>$plan,'archive'=>$source], $this->preview($metadata, $plan));
+        } catch (Throwable $e) {
+            if ($source !== null && is_file($source)) @unlink($source);
+            throw $e;
         }
-        try{return $this->saveDraft('import', ['metadata'=>$metadata, 'plan'=>$plan,'archive'=>$source], $this->preview($metadata, $plan));}
-        catch(Throwable $e){if($source)unlink($source);throw $e;}
     }
     /** Operator CLI entry; web requests can only restore their own uploaded draft. */
     public function analyzeStored(string $source,array $metadata=[]): array {
@@ -202,7 +236,7 @@ class pbx_setup {
     }
     private function create(string $id, string $kind, array $input): string {
         $this->requireManage(); $manager = $this->tenantManager();
-        $restore=null;$this->db->beginTransaction();
+        $restore=null;$archiveLease=null;$this->db->beginTransaction();
         try {
             $draft = $this->loadDraft($id, $kind, true);
             if ($draft['completed_domain_uuid']) {
@@ -211,6 +245,13 @@ class pbx_setup {
             }
             $payload = $draft['payload']; $plan = $payload['plan'];
             if (!$plan['supported']) throw new RuntimeException('This backup format is not supported. No PBX was created.');
+            $archive = $payload['archive'] ?? null;
+            if (is_string($archive) && dirname($archive) === pbx_paths::uploads()) {
+                $archiveLease = @fopen($archive, 'rb');
+                if (!$archiveLease || !flock($archiveLease, LOCK_SH | LOCK_NB)) {
+                    throw new RuntimeException('This backup is no longer available for review. Upload it again to continue.');
+                }
+            }
             $metadata = $kind === 'import' ? $this->metadata($input) : $payload['metadata'];
             $tenant = $metadata['tenant_uuid'] !== '' ? $manager->assertTenant($metadata['tenant_uuid'], true) : $this->ownCompany($metadata['company_name']);
             $plan = array_replace($plan, (new pbx_setup_provisioner($this->db))->validate($plan));
@@ -222,13 +263,18 @@ class pbx_setup {
             $service = $manager->provision(['tenant_uuid'=>$tenant['tenant_uuid'],'template_uuid'=>$template,'service_name'=>$metadata['service_name'],'slug'=>$slug,'request_uuid'=>$id,'sip_domain'=>$metadata['sip_domain']??''], true);
             $domain = $this->query('select domain_uuid,domain_name from v_domains where domain_uuid=(select domain_uuid from v_pbx_services where service_uuid=:id)', ['id'=>$service])->fetch(PDO::FETCH_ASSOC);
             $result = (new pbx_setup_provisioner($this->db))->apply($domain['domain_uuid'], $domain['domain_name'], $plan, $metadata['timezone']);
-            if(isset($plan['v20'])){$plan['v20']['timezone']=$metadata['timezone'];foreach($plan['v20']['departments'] as &$department){$department['timezone']=$metadata['timezone'];}unset($department);$restore=new pbx_v20_restore($this->db);$result['restore_report']=$restore->apply($domain['domain_uuid'],$domain['domain_name'],$plan,$payload['archive']??null);}
+            if(isset($plan['v20'])){$plan['v20']['timezone']=$metadata['timezone'];foreach($plan['v20']['departments'] as &$department){$department['timezone']=$metadata['timezone'];}unset($department);$restore=new pbx_v20_restore($this->db);$result['restore_report']=$restore->apply($domain['domain_uuid'],$domain['domain_name'],$plan,$archive);}
             $public = $this->preview($metadata, $plan); $public['draft_id'] = $id; $public['warnings'] = array_values(array_unique(array_merge($public['warnings'] ?? [], $result['warnings'] ?? [])));
             if(isset($result['restore_report']))$public['restore_report']=$result['restore_report'];
             $this->query('delete from v_pbx_templates where template_uuid=:id', ['id'=>$template]);
             $this->query('update v_pbx_setup_drafts set completed_domain_uuid=:domain,payload_ciphertext=null,preview=cast(:preview as jsonb) where draft_uuid=:id', ['id'=>$id,'domain'=>$domain['domain_uuid'],'preview'=>json_encode($public,JSON_THROW_ON_ERROR)]);
             $this->db->commit();
-        } catch (Throwable $exception) { if ($this->db->inTransaction()) $this->db->rollBack();if($restore)$restore->rollbackFiles(); throw $exception; }
+        } catch (Throwable $exception) {
+            try { if ($this->db->inTransaction()) $this->db->rollBack(); }
+            finally { if ($restore) $restore->rollbackFiles(); }
+            throw $exception;
+        }
+        finally { if (is_resource($archiveLease)) fclose($archiveLease); }
         settings::clear_cache(); (new cache)->delete(gethostname().':configuration:sofia.conf');
         try { event_socket::api('reloadxml'); } catch (Throwable $exception) { error_log('OpenWeb PBX: setup saved; telephony reload unavailable'); }
         return $domain['domain_uuid'];

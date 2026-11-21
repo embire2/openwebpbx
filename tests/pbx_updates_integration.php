@@ -79,7 +79,50 @@ try {
     $deny(fn()=>$updates->request('sh -c unsafe'),'Arbitrary action rejected');
     $q("update v_pbx_update_status set status_json=?::jsonb,updated_at=now() where singleton=1",[json_encode(['state'=>'downloaded','message'=>'Ready','progress_bytes'=>9,'total_bytes'=>10,'private_path'=>'hidden','token'=>'hidden'])]);
     $status=$updates->status();$check($status['service_online']&&$status['progress_bytes']===9&&!isset($status['token'],$status['private_path']),'Status allowlist excludes private fields');
+    if(PHP_OS_FAMILY==='Linux') {
+        $state=['installed_version'=>'1.0.27','available_version'=>'1.0.28','state'=>'available','progress_bytes'=>0,'total_bytes'=>100];
+        $controls=static function(array $change=[]) use($q,$updates,$state):array {
+            $q('update v_pbx_update_status set status_json=?::jsonb,updated_at=now() where singleton=1',[json_encode(array_replace($state,$change))]);
+            return $updates->status()['server_controls'];
+        };
+        $pending=$controls();
+        $check($pending['offered_version']==='1.0.28'&&!$pending['check']&&!$pending['install'],'An active installation request prevents a second UI action');
+        $q("update v_pbx_update_commands set status='completed',finished_at=now() where command_uuid=?",[$second]);
+        $available=$controls();
+        $check($available['offered_version']==='1.0.28'&&$available['check']&&$available['download']&&$available['install']&&!$available['download_verified'],'Compatible signed offer enables Check, Download and Update Now before download');
+        $checking=$controls(['state'=>'checking']);
+        $check(!$checking['check']&&!$checking['install']&&$checking['offered_version']==='','A stale candidate is not offered during a new check');
+        $downloading=$controls(['state'=>'downloading','progress_bytes'=>60]);
+        $check($downloading['offered_version']==='1.0.28'&&!$downloading['download_verified']&&!$downloading['install'],'A partial download is visible without claiming verification');
+        foreach(['ready','waiting_calls','waiting_window'] as $stage){
+            $prepared=$controls(['state'=>$stage,'progress_bytes'=>100]);
+            $check($prepared['download_verified']&&$prepared['install']&&!$prepared['download'],'A verified prepared release allows an explicit install while worker idle and window guards remain authoritative');
+        }
+        $incomplete=$controls(['state'=>'ready','progress_bytes'=>99]);
+        $check(!$incomplete['download_verified'],'Ready wording alone cannot label a partial download verified');
+        foreach(['error','maintenance','recovery_required'] as $stage){
+            $unsafe=$controls(['state'=>$stage,'progress_bytes'=>100]);
+            $check($unsafe['offered_version']===''&&!$unsafe['install']&&!$unsafe['download_verified'],'Failed or held worker states cannot present an actionable release');
+        }
+        $rolledBack=$controls(['state'=>'rolled_back','progress_bytes'=>100]);
+        $check($rolledBack['offered_version']==='1.0.28'&&$rolledBack['install']&&!$rolledBack['download_verified'],'A recovered release can be retried only by a new explicit request');
+        $retry=$controls(['state'=>'retry_available','progress_bytes'=>100]);
+        $check($retry['offered_version']==='1.0.28'&&$retry['install']&&!$retry['download']&&!$retry['download_verified'],'A verified release paused after automatic failure remains available for explicit retry');
+        $current=$controls(['state'=>'up_to_date','available_version'=>'1.0.27']);
+        $check($current['up_to_date']&&$current['offered_version']===''&&$current['check']&&!$current['install'],'The current release cannot be queued again from the page');
+        foreach(['1.0.26','1.0.027','1.0.28<script>'] as $version){
+            $malformed=$controls(['available_version'=>$version]);
+            $check($malformed['offered_version']===''&&!$malformed['install'],'Invalid or older versions cannot be exposed as a release offer');
+        }
+        $updates->saveInstance(['mode'=>'notify','maintenance_hour'=>'23','maintenance_duration'=>'3']);
+        $check($updates->instancePolicy()['mode']==='notify'&&$updates->clientMinimumVersion()===$minimum,'Opting out changes only the instance server policy');
+        $controls();
+    }
     $q("update v_pbx_update_status set updated_at=now()-interval '4 minutes'");$check(!$updates->status()['service_online'],'Stale updater heartbeat detected');
+    if(PHP_OS_FAMILY==='Linux') {
+        $stale=$updates->status()['server_controls'];
+        $check($stale['offered_version']===''&&!$stale['check']&&!$stale['install'],'An offline worker cannot offer an update from stale status');
+    }
     $updates->instance=false;$_SESSION['user_uuid']=$users[0];
     $check($updates->canView()&&count($updates->tenants())===1,'Tenant owner sees one tenant');
     $updates->saveTenant($tenants[0],['mode'=>'notify']);$check($updates->tenantPolicy($tenants[0])['mode']==='notify','Tenant owner may change own policy');
