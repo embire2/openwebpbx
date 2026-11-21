@@ -145,6 +145,11 @@ def voice_module(package):
 
 
 def payload(package, manifest, *, sounds_root=SOUNDS, fresh=False, include_native=True):
+    mappings, _ = voice_payload(package, manifest, sounds_root=sounds_root, fresh=fresh, include_native=include_native)
+    return mappings
+
+
+def voice_payload(package, manifest, *, sounds_root=SOUNDS, fresh=False, include_native=True):
     package = Path(package)
     native = native_payload(package, manifest) if not fresh and include_native else {}
     base = package/'voices/1.0.2'
@@ -152,7 +157,7 @@ def payload(package, manifest, *, sounds_root=SOUNDS, fresh=False, include_nativ
         # Older immutable release archives have no voice overlay.
         if any(name.startswith('voices/') for name in manifest['files']):
             raise ValueError('The release voice directory is incomplete.')
-        return native
+        return native, None
     required = {'voice-tools/voicepack.py','voice-tools/deployment.py',
                 'voices/1.0.2/catalog.json','voices/1.0.2/pack.json','voices/1.0.2/LICENSE-FreeSWITCH.txt'}
     for name in required:
@@ -167,41 +172,101 @@ def payload(package, manifest, *, sounds_root=SOUNDS, fresh=False, include_nativ
                 raise ValueError('The offline voice pack differs from the reviewed release.')
     module = voice_module(package)
     catalog = module.voicepack.load_catalog(base/'catalog.json')
-    required=None if fresh else required_stock_paths(package,manifest)
-    result = module.deployment_files(base,catalog,sounds_root,fresh=fresh,required_stock_paths=required)
+    stock_paths = None if fresh else required_stock_paths(package, manifest)
+    result = module.deployment_files(base,catalog,sounds_root,fresh=fresh,required_stock_paths=stock_paths)
     result.update(native)
-    return result
+    return result, stock_paths
 
 
-def copy_files(mappings):
-    for target, source in mappings.items():
+def destination_status(target):
+    if any(path.is_symlink() for path in (target, *target.parents)):
+        raise ValueError('A voice destination became linked during activation.')
+    try:
+        status = target.lstat()
+    except FileNotFoundError:
+        return None
+    if not stat.S_ISREG(status.st_mode):
+        raise ValueError('A voice destination is not an ordinary file.')
+    return status
+
+
+def report_progress(phase, **details):
+    print(json.dumps({'system_voice_upgrade': phase, **details}), flush=True)
+
+
+def changed_files(mappings, *, checksums=None):
+    changes = []
+    for count, (target, source) in enumerate(mappings.items(), 1):
+        existing = destination_status(target)
+        if existing is None or existing.st_size != source.stat().st_size:
+            changes.append((target, source, existing))
+        elif digest(target) != (checksums[target] if checksums is not None else digest(source)):
+            changes.append((target, source, existing))
+        if checksums is not None and count % 250 == 0:
+            report_progress('comparing_installed_audio', checked=count, total=len(mappings))
+    return changes
+
+
+def staging_paths(changes, backup):
+    # The validated backup identifies one update. A single exclusive name per
+    # voice directory is enough because each replacement runs sequentially.
+    identity = hashlib.sha256(backup.name.encode()).hexdigest()[:24]
+    paths = {target.parent: target.parent / ('.openweb-voice-' + identity)
+             for target, _, _ in changes}
+    if any(path.exists() or path.is_symlink() for path in paths.values()):
+        raise ValueError('A voice staging path already exists; recover the interrupted update first.')
+    return paths
+
+
+def file_identity(status):
+    if status is None:
+        return None
+    return status.st_dev, status.st_ino, status.st_ctime_ns
+
+
+def write_files(changes, *, staging=None):
+    for count, (target, source, existing) in enumerate(changes, 1):
         # Caller must finish complete preflight and recovery inventory before
         # entering this function. No network is used during activation.
-        missing=[]
-        directory=target.parent
+        if file_identity(destination_status(target)) != file_identity(existing):
+            raise ValueError('A voice destination changed during activation; recover and review it first.')
+        missing = []
+        directory = target.parent
         while not directory.exists():
             missing.append(directory)
-            directory=directory.parent
+            directory = directory.parent
         for directory in reversed(missing):
             directory.mkdir(mode=0o755)
             directory.chmod(0o755)
-        for parent in [target,*target.parents]:
-            if parent.is_symlink():
-                raise ValueError('A voice destination became linked during activation.')
-        existing = target.stat() if target.exists() else None
-        fd, name = tempfile.mkstemp(prefix='.system-voice-',dir=target.parent)
+        if staging is None:
+            fd, name = tempfile.mkstemp(prefix='.system-voice-', dir=target.parent)
+            temporary = Path(name)
+        else:
+            temporary = staging[target.parent]
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         try:
-            with os.fdopen(fd,'wb') as stream, source.open('rb') as audio:
-                shutil.copyfileobj(audio,stream,1024*1024)
-                stream.flush(); os.fsync(stream.fileno())
-                os.fchmod(stream.fileno(),existing.st_mode & 0o777 if existing else 0o640)
-                os.fchown(stream.fileno(),existing.st_uid if existing else 33,existing.st_gid if existing else 33)
-            os.replace(name,target)
-            directory = os.open(target.parent,os.O_RDONLY|os.O_DIRECTORY)
-            try: os.fsync(directory)
-            finally: os.close(directory)
+            with os.fdopen(fd, 'wb') as stream, source.open('rb') as audio:
+                shutil.copyfileobj(audio, stream, 1024 * 1024)
+                stream.flush()
+                os.fchown(stream.fileno(), existing.st_uid if existing else 33, existing.st_gid if existing else 33)
+                os.fchmod(stream.fileno(), stat.S_IMODE(existing.st_mode) & 0o777 if existing else 0o640)
+                os.fsync(stream.fileno())
+            os.replace(temporary, target)
+            temporary = None
+            directory = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
         finally:
-            if os.path.exists(name): os.unlink(name)
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+        if staging is not None and count % 250 == 0:
+            report_progress('writing_audio', written=count, total=len(changes))
+
+
+def copy_files(mappings):
+    write_files(changed_files(mappings))
 
 
 def main():
@@ -216,30 +281,44 @@ def main():
     journal = json.loads(journal_path.read_text())
     if journal.get('state') != 'migrating' or journal.get('version') != manifest['version']:
         raise ValueError('The voice installer is outside its update transaction.')
-    mappings = payload(PACKAGE,manifest,include_native=False)
+    report_progress('verifying_package')
+    mappings, stock_paths = voice_payload(PACKAGE, manifest, include_native=False)
     spec = importlib.util.spec_from_file_location('voice_support',PACKAGE/'install-support.py')
     support = importlib.util.module_from_spec(spec); spec.loader.exec_module(support)
     backup = Path(journal['backup_path'])
     if backup.parent != Path('/var/backups/openwebpbx') or backup.is_symlink() or not backup.name.startswith('upgrade-'):
         raise ValueError('Invalid private voice recovery location.')
     status = backup.stat()
-    if status.st_uid != 0 or status.st_mode & 0o077:
+    if not stat.S_ISDIR(status.st_mode) or status.st_uid != 0 or status.st_mode & 0o077:
         raise ValueError('The voice recovery snapshot is not private.')
     spec = importlib.util.spec_from_file_location('voice_upgrade',PACKAGE/'upgrade.py')
     upgrade = importlib.util.module_from_spec(spec); spec.loader.exec_module(upgrade)
+    report_progress('verifying_recovery_snapshot')
     upgrade.validate_backup(backup)
-    require_native_snapshot(backup,manifest)
-    support.augment_snapshot(backup,list(mappings))
-    upgrade.validate_backup(backup)
+    require_native_snapshot(backup, manifest)
+    checksums = {target: manifest['files'][source.relative_to(PACKAGE).as_posix()]
+                 for target, source in mappings.items()}
+    changes = changed_files(mappings, checksums=checksums)
+    staging = staging_paths(changes, backup)
+    before = {row['path']:row for row in json.loads((backup/'files.json').read_text())}
+    if staging or any(str(target) not in before for target in mappings):
+        # Even previously installed signed updaters remove vetted absent paths
+        # during rollback, including a stage left by SIGKILL or a power loss.
+        support.augment_snapshot(backup, [*mappings, *staging.values()])
+        upgrade.validate_backup(backup)
+        before = {row['path']:row for row in json.loads((backup/'files.json').read_text())}
+        if any(before[str(path)]['exists'] is not False for path in staging.values()):
+            raise ValueError('A voice staging path must be absent in the recovery snapshot.')
     # Legacy updaters already deployed their four original OpenWeb prompt
     # paths. Check the true pre-upgrade snapshot as well as the current files,
     # so an administrator's replacement is not hidden by that older copy step.
     catalog = json.loads((PACKAGE/'voices/1.0.2/catalog.json').read_text())
     originals = catalog['stock_original_sha256']
     new = json.loads((PACKAGE/'voices/1.0.2/pack.json').read_text())['files']
-    before = {row['path']:row for row in json.loads((backup/'files.json').read_text())}
-    verify_original_snapshot(originals,new,before,required_stock_paths(PACKAGE,manifest),catalog.get('previous_system_sha256'))
-    copy_files(mappings)
+    verify_original_snapshot(originals, new, before, stock_paths, catalog.get('previous_system_sha256'))
+    report_progress('activating', unchanged=len(mappings) - len(changes), pending=len(changes))
+    write_files(changes, staging=staging)
+    report_progress('complete', unchanged=len(mappings) - len(changes), written=len(changes))
 
 
 if __name__ == '__main__':

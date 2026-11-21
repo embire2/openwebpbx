@@ -5,10 +5,26 @@ Outbound Rules, Departments, Office Hours, Call Handling, Contacts, Reports,
 Recordings, Backup & Restore, and System. User editing has General, Call
 Forwarding, Voicemail, Phone Provisioning, and Options tabs.
 
-Backup & Restore accepts unencrypted ZIP files up to 2 GB. Native V20 restore
-currently supports the inspected Update 9 build `20.0.9.995`. Unknown builds
-remain unavailable until their layout and behavior are checked. Analysis does
-not execute source scripts, firmware, or provisioning programs.
+Backup & Restore accepts unencrypted ZIP files up to 2 GB. Debian 1.0.29
+uses a shared import path for the inspected Update 9 build `20.0.9.995` and
+Update 10 build `20.0.10.1801`. Unknown builds remain unavailable until their
+layout and behavior are checked. Analysis reads configuration and media
+without running source scripts, firmware or provisioning programs. [Debian installation](installing-1.0.29.md)
+
+For a large upload, leave room for the ZIP and its imported files. The
+Debian 1.0.29 installer and signed upgrade stage PHP multipart uploads in
+`/var/lib/openwebpbx/php-upload-tmp` on the PBX state volume. PHP runs with
+private access to this directory. An existing operator-configured
+`upload_tmp_dir` or PHP-FPM pool override continues to take precedence.
+Debian 13's default `/tmp` can be memory-backed and too small for a valid
+archive. [Debian 13 release notes](https://www.debian.org/releases/trixie/release-notes/issues.html#the-temporary-files-directory-tmp-is-now-stored-in-a-tmpfs)
+
+If the upload stops or the server runs out of space, check the connection
+or available PBX storage, then choose the backup again. A preview requires
+a complete, readable upload before any service can be created. A confirmed
+draft refers to the same restored PBX on replay. Unused staged ZIP files and
+temporary files left by a stopped PHP worker are eligible for hourly cleanup
+after two hours. The cleanup skips a ZIP while a restore holds its file lock.
 
 The restore creates a separate tenant-owned PBX. It keeps phone account
 passwords, user statuses and forwarding profiles, departments and hours,
@@ -16,7 +32,10 @@ ring groups, queues and agents, receptionist keys, incoming destinations,
 outbound order, department/user restrictions, and trunk failover settings.
 The recognized PIN menu is translated to bounded local call handling; its
 original C# code is never executed. Files missing in the original backup and
-missing PIN destinations appear in the Restore Report.
+missing PIN destinations appear in the Restore Report. The local candidate also
+reports unmapped fax, conference and park numbers and indexed voicemail
+messages whose audio is missing from the archive. Configure replacement call
+handling wherever an active route depends on one of these numbers.
 
 Recordings, prompts, and voicemail audio remain outside the web root and are
 available through authenticated, domain-scoped streaming. Voicemail is also

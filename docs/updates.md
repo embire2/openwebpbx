@@ -6,8 +6,8 @@
 system. A clean installation requires no earlier OpenWeb PBX version. The
 complete package supplies the application, calling engine, database setup,
 registration, background services, system prompts and updater together.
-[Debian installation](installing-1.0.27.md) ·
-[Windows installation](installing-windows-1.0.23.md).
+[Debian installation](installing-1.0.29.md) ·
+[Windows installation](installing-windows-1.0.27.md).
 
 **Existing server:** use its Updates page to preserve the current configuration
 and calling identities. The updater checks the signed release, its supported
@@ -17,8 +17,8 @@ clear trust to skip them.
 
 | Component | Complete new installation | Updating an existing installation |
 | --- | --- | --- |
-| Debian 13 amd64 | Public **1.0.27**, complete standalone installer; no previous PBX required | Independent signed feed; existing-data compatibility only. [Actual and reused qualification](release-1.0.27-qualification.md). |
-| Windows Server 2025 x64 Desktop Experience | Public **1.0.23**, no previous PBX required | Independent signed feed; existing-data admission starts at installed22. Original retained installers/clients use the [legacy ordered-updater repair](windows-upgrade-path-repair.md). |
+| Debian 13 amd64 | Public **1.0.29**, complete standalone installer | Independent signed feed admits installed Debian 1.0.27 or newer. The actual signed 1.0.27 → 1.0.29 upgrade passed on the test host. [Qualification](release-1.0.29-local-qualification.md#signed-upgrade-on-the-test-host). |
+| Windows Server 2025 x64 Desktop Experience | Public **1.0.27**, complete standalone installer; no previous PBX required | Independent signed feed. Original retained installers and clients use the [legacy ordered-updater repair](windows-upgrade-path-repair.md). [Windows 1.0.27 qualification](release-windows-1.0.27-qualification.md). |
 | Android | Public **1.0.19** native app | Its own server/API compatibility and app update policy. |
 
 Every future complete Debian or Windows release must include its current
@@ -26,6 +26,20 @@ updater and all required server components. A new user must not install an
 older PBX or apply a separate PBX repair to complete fresh setup. Historical
 patches and earlier qualified transitions remain available for existing users.
 [Full-release policy](independent-platform-releases.md#every-server-release-is-a-complete-installer).
+
+## Debian 1.0.29
+
+Open **Admin → System → Updates** as an instance administrator. **Installed
+version** identifies the running server. **Available release** shows a newer,
+compatible signed offer reported by the updater. The page shows download
+progress and indicates when the complete checksum matches the signed release.
+
+**Update Now** queues the existing signed update transaction. The updater
+prepares the download if needed, waits for active calls to finish, backs up the
+installation and verifies recovery if installation fails. This manual request
+can run outside the automatic window. **Install automatically** remains an
+explicit policy choice. Save a daily UTC window and use the displayed browser
+time to confirm the next start. [Debian installer](installing-1.0.29.md)
 
 The dated records below retain their original versions and acceptance scope.
 

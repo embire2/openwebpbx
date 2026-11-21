@@ -1,6 +1,6 @@
 # Debian changes to carry into Windows
 
-Updated **19 November 2026**. This is the change ledger for Windows catch-up,
+Updated **21 November 2026**. This is the change ledger for Windows catch-up,
 alongside the [release process](independent-platform-releases.md). Add a row
 for every Debian feature, calling fix, migration or deployment change. Keep
 the originating version and source commit even when Windows ships it later.
@@ -10,8 +10,8 @@ Update the Windows result only after checking the actual Windows package.
 
 | Component | Current status |
 |---|---|
-| Hosted Debian at call.openweb.co.za | **1.0.26**, including matching native Core and updater; public installer27 is a separately qualified full release. |
-| Public Debian installer | **1.0.27**, complete standalone installer; no previous PBX required. Source `72bb5406af4c057acb5ee4eddfd9d861d20d345f`; [qualification](release-1.0.27-qualification.md). |
+| Hosted Debian at call.openweb.co.za | **1.0.29**, with matching native Core and updater. [Hosted rollout](release-1.0.29-local-qualification.md#hosted-rollout). |
+| Public Debian installer | **1.0.29**, complete standalone installer. [Source tag](https://github.com/embire2/openwebpbx/tree/debian-v1.0.29). [Qualification](release-1.0.29-local-qualification.md). |
 | Public Windows installer | **1.0.27**, complete standalone Server2025 package, source `ccccfe56ed7012455e1cf00395407389a7226daf`; [qualification](release-windows-1.0.27-qualification.md). |
 | Android | **1.0.19**. Server fixes do not imply an Android release. |
 
@@ -19,6 +19,32 @@ A hosted deployment, source commit and downloadable installer are separate
 statuses. Debian 1.0.26 contains the Debian 24–26 features below. Windows1.0.27 now has its independent actual clean-install, signed23 update,
 software calling, encrypted recovery and reboot qualification. Historical rows
 retain their original source/version scope; later hosted overlays are separate.
+
+## Debian 1.0.29 — 21 November 2026
+
+| ID | Debian change | Windows follow-up |
+| --- | --- | --- |
+| D29-01 | Voice installation skips verified unchanged prompts and journals owned staging files for rollback. | Check for equivalent redundant Windows audio writes, interruption cleanup and slow-disk behavior through the signed Windows path. |
+| D29-02 | Large backup imports use private disk-backed PHP upload storage on managed Debian installs, with clearer interruption and write errors. | Reuse cross-platform upload diagnostics and verify Windows temporary storage and restore behavior through its own installer. |
+| D29-03 | First Calls records a result even when no call completed, shows the next test and indicates whether a backup route is configured. | Check the same tenant boundaries, call evidence and UI on a clean Windows instance. |
+
+## Local Debian 1.0.28 — 20 November 2026
+
+Debian 1.0.28 received a hosted deployment and isolated qualification. Debian
+1.0.29 carries these changes in the next full public installer.
+
+| ID | Local Debian change | Windows follow-up |
+| --- | --- | --- |
+| D28-01 | Shared version checks support the inspected V20 Update 10 build `20.0.10.1801` and retain `20.0.9.995`. The restore report covers unmapped service numbers and missing indexed voicemail audio. | Qualify preview, restore, preservation, software calling and media from the exact two archives on an isolated Windows installation. Repeat the unknown-build and tenant-isolation checks. |
+| D28-02 | Updates shows the installed version, compatible offer, download verification and **Update Now**. The existing automatic mode shows the saved UTC schedule in browser time. | Carry over the status and request controls, account for ordered intermediate releases and add explicit Windows opt-in. Prove unattended signed progression, active-call deferral, consent withdrawal and rollback, while preserving existing manual behavior. |
+
+The hosted 1.0.28 overlay and test-host fresh installation passed. The
+dedicated Debian signed test verified automatic recovery from a planned
+startup fault and from the storage-limited voice migration timeout on
+manual retry. Debian 1.0.29 later passed a signed upgrade on that test host.
+[1.0.28 evidence](release-1.0.28-local-qualification.md) · [1.0.29 evidence](release-1.0.29-local-qualification.md#signed-upgrade-on-the-test-host)
+
+[Local installation guide](installing-1.0.28.md) · [Roadmap](../3CX.md)
 
 ## Hosted outgoing-call repair — 18 November 2026
 

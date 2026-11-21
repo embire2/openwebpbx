@@ -13,6 +13,7 @@ import tempfile
 PACKAGE = Path(__file__).resolve().parent
 UPDATES = Path('/var/lib/openwebpbx/updates')
 BACKUPS = Path('/var/backups/openwebpbx')
+VOICE_MIGRATION_TIMEOUT = 1800
 SUPPORT = {'openwebpbx-uploads.pool.conf': Path('/opt/openwebpbx/tools/openwebpbx-uploads.pool.conf'),
            'protection.py': Path('/opt/openwebpbx/tools/protection.py'),
            'install-reseller.py': Path('/opt/openwebpbx/tools/install-reseller.py'),
@@ -59,6 +60,64 @@ TIMER_LINKS = [Path('/etc/systemd/system/timers.target.wants/openwebpbx-backups.
 NOTIFICATION_FILES = [Path('/var/lib/openwebpbx/mobile-notifications/config.json'),
                       Path('/var/lib/openwebpbx/mobile-notifications/config.json.lock')]
 CALL_ME_BACK_ROOT = Path('/var/lib/freeswitch/storage/openwebpbx/call-me-back')
+PHP_UPLOAD_INI = Path('/etc/php/8.4/fpm/conf.d/00-openwebpbx-upload.ini')
+PHP_UPLOAD_TEMP = UPDATES.parent / 'php-upload-tmp'
+
+
+def configure_php_uploads():
+    """Give multipart uploads private disk space while respecting FPM overrides."""
+    for path in (PHP_UPLOAD_INI, *PHP_UPLOAD_INI.parents):
+        if path.is_symlink():
+            raise ValueError('Review the linked PHP upload configuration.')
+    content = ('; OpenWeb PBX default multipart upload storage\n'
+               f'upload_tmp_dir = "{PHP_UPLOAD_TEMP}"\n').encode()
+    if PHP_UPLOAD_INI.exists():
+        if not PHP_UPLOAD_INI.is_file():
+            raise ValueError('Review the PHP upload configuration file.')
+        # An operator may manage this same fragment. Keep their exact contents.
+        if PHP_UPLOAD_INI.read_bytes() != content:
+            return
+    else:
+        # A php.ini choice is already explicit. Later conf.d files and
+        # per-pool settings retain their normal precedence over this default.
+        phpinfo = subprocess.check_output(['php-fpm8.4', '-i'], text=True,
+                                          stderr=subprocess.DEVNULL, timeout=30)
+        setting = next((line for line in phpinfo.splitlines() if line.startswith('upload_tmp_dir => ')), '')
+        values = setting.split(' => ')
+        if len(values) != 3:
+            raise ValueError('The PHP upload configuration could not be read.')
+        if values[1].strip() not in ('', 'no value'):
+            return
+    for path in (PHP_UPLOAD_TEMP, *PHP_UPLOAD_TEMP.parents):
+        if path.is_symlink():
+            raise ValueError('Review the linked PHP upload storage.')
+    parent = PHP_UPLOAD_TEMP.parent.stat()
+    if parent.st_uid != 0 or parent.st_mode & 0o022:
+        raise ValueError('The PBX state directory must remain root-controlled.')
+    storage = PHP_UPLOAD_TEMP if PHP_UPLOAD_TEMP.exists() else PHP_UPLOAD_TEMP.parent
+    if subprocess.check_output(['findmnt', '-n', '-o', 'FSTYPE', '-T', str(storage)],
+                               text=True, timeout=15).strip() in ('tmpfs', 'ramfs'):
+        raise ValueError('Put private PHP upload storage on the disk-backed PBX volume.')
+    if not PHP_UPLOAD_TEMP.exists():
+        PHP_UPLOAD_TEMP.mkdir(mode=0o700)
+        os.chown(PHP_UPLOAD_TEMP, 33, 33)
+        sync_dir(PHP_UPLOAD_TEMP.parent)
+    status = PHP_UPLOAD_TEMP.stat()
+    if not PHP_UPLOAD_TEMP.is_dir() or status.st_uid != 33 or status.st_gid != 33 or status.st_mode & 0o777 != 0o700:
+        raise ValueError('Review the private PHP upload storage permissions.')
+    if PHP_UPLOAD_INI.exists():
+        return
+    with tempfile.NamedTemporaryFile(dir=PHP_UPLOAD_INI.parent, prefix='.openweb-upload-', delete=False) as stream:
+        temporary = Path(stream.name)
+        try:
+            stream.write(content)
+            stream.flush()
+            os.fchmod(stream.fileno(), 0o644)
+            os.fsync(stream.fileno())
+            os.replace(temporary, PHP_UPLOAD_INI)
+            sync_dir(PHP_UPLOAD_INI.parent)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def ensure_call_me_back_storage():
@@ -213,6 +272,7 @@ def install():
             reseller_spec=importlib.util.spec_from_file_location('candidate_reseller',PACKAGE/'install-reseller.py')
             reseller=importlib.util.module_from_spec(reseller_spec);reseller_spec.loader.exec_module(reseller)
             targets = reseller.targets() + list(SUPPORT.values()) + RECOVERY_INPUT_COPIES + NOTIFICATION_FILES + [registrar.TARGET] + meeting.targets() + mail.targets() + domain_helper.targets()
+            targets.append(PHP_UPLOAD_INI)
             targets.extend(path for path in onboarding_helper.targets() if path not in targets)
             targets.extend(path for path in health.targets() if path not in targets)
             # Existing systemd enablement is preserved. A newly created link is
@@ -235,6 +295,8 @@ def install():
             os.fchmod(stream.fileno(),0o644)
         os.replace(temporary,target);sync_dir(target.parent)
     ensure_call_me_back_storage()
+    if migrating:
+        configure_php_uploads()
     for name in ['openwebpbx-call-records.conf','openwebpbx-call-me-back.conf']:
         target=SUPPORT[name]
         target.parent.mkdir(parents=True,exist_ok=True,mode=0o755)
@@ -263,7 +325,10 @@ def install():
         if digest(PACKAGE/'install-voices.py') != manifest['files'].get('install-voices.py'):
             raise ValueError('The voice installer differs from the reviewed release.')
         if migrating:
-            subprocess.run(['python3',str(PACKAGE/'install-voices.py')],check=True,cwd=PACKAGE,timeout=600)
+            # The worker logs its phases and has a hard bound even if storage
+            # stalls. subprocess.run stops and reaps it before rollback begins.
+            subprocess.run(['python3', str(PACKAGE/'install-voices.py')], check=True,
+                           cwd=PACKAGE, timeout=VOICE_MIGRATION_TIMEOUT)
         # Fresh configure installs the overlay after copying stock engine/config
         # defaults and before the first service start; no recovery is needed.
 

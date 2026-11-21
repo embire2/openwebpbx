@@ -36,7 +36,10 @@ class pbx_phone_migration {
     }
     /** A read-only comparison with a backup can add proofs; it never reapplies its settings. */
     public function inspectBackup(string $path): array {
-        $plan=threecx_backup::analyze($path);if(($plan['source_version']??'')!=='20.0.9.995'||!isset($plan['v20']))throw new InvalidArgumentException('Use a supported 3CX V20 Update 9 backup.');
+        $plan=threecx_backup::analyze($path);
+        if (empty($plan['supported']) || !isset($plan['v20']) || !threecx_v20::supports($plan['source_version'] ?? null)) {
+            throw new InvalidArgumentException('Use a supported 3CX V20 backup from build '.implode(' or ', threecx_v20::SUPPORTED_BUILDS).'.');
+        }
         $this->db->beginTransaction();try{$c=$this->admin->config(true);$matched=[];$issues=[];
             foreach($plan['users']as$u){$n=(string)$u['number'];if(!isset($c['users'][$n])){$issues[]=['number'=>$n,'reason'=>'This source user has not been restored.'];continue;}$id=$this->identity($c,$n);
                 if(!hash_equals($id['auth_id'],$u['auth_id'])||!hash_equals($id['password'],$u['password'])){$issues[]=['number'=>$n,'reason'=>'The saved authentication ID or SIP password differs from the backup.'];continue;}
@@ -47,8 +50,7 @@ class pbx_phone_migration {
         }catch(Throwable$e){if($this->db->inTransaction())$this->db->rollBack();throw$e;}
     }
     public function inspectUpload(array $file): array {
-        if(($file['error']??UPLOAD_ERR_NO_FILE)!==UPLOAD_ERR_OK||!is_uploaded_file($file['tmp_name']??'')||($file['size']??0)>threecx_backup::MAX_UPLOAD_BYTES)throw new InvalidArgumentException('Upload the original supported 3CX backup.');
-        return $this->inspectBackup($file['tmp_name']);
+        return $this->inspectBackup(pbx_setup::backupUpload($file));
     }
     public function prepare(array $in,?string $configuration=null): string {
         $number=$this->text($in,'number',10);$model=$this->text($in,'model',30);$firmware=$this->text($in,'firmware',80);$old=pbx_sip_domain::validate($this->text($in,'old_domain',253));$mac=strtolower(str_replace(['-',':'],'',$this->text($in,'mac',32)));$transport=$this->text($in,'transport',3);

@@ -197,9 +197,12 @@ final class threecx_backup {
             $version = $this->text($this->child($root,'header'), 'version');
             $validVersion=preg_match('/^\d{1,3}\.\d{1,3}\.\d{1,8}(?:\.\d{1,8})?$/D',$version);
             if ($validVersion) $this->plan['source_version'] = $version;
-            if ($version==='20.0.9.995') {$this->plan=threecx_v20::read($root);return;}
+            if (str_starts_with($version, '20.') && threecx_v20::supports($version)) {
+                $this->plan = threecx_v20::read($root);
+                return;
+            }
             if (!$validVersion || !preg_match('/^(?:14|16)\./',$version)) {
-                $this->unsupported('source_version',1,'Only the verified legacy v14/v16 XML layout can currently be migrated. This version needs a sample and adapter validation.');
+                $this->unsupported('source_version',1,'This backup build is not supported. Use one of the listed V20 builds or a supported legacy v14/v16 export.');
                 return;
             }
             $tenants = $this->children($this->child($root,'Tenants'),'Tenant');

@@ -9,6 +9,7 @@ final class pbx_v20_restore {
     private array $media=[];
     private array $mediaFiles=[];
     private array $missingPrompts=[];
+    private int $missingVoicemailAudio=0;
     private array $phoneDependencies=[];
     public function __construct(PDO $db){$this->db=$db;}
     private function query(string $sql,array $params=[]): PDOStatement {
@@ -174,7 +175,7 @@ final class pbx_v20_restore {
     }
     public static function validate(array $plan): void {
         $v=$plan['v20']??null;
-        if(!is_array($v)||($plan['source_version']??'')!=='20.0.9.995')throw new InvalidArgumentException('This backup update has not been checked.');
+        if(!is_array($v)||!threecx_v20::supports($plan['source_version']??null))throw new InvalidArgumentException('This backup update has not been checked.');
         $known=[];
         foreach($plan['users'] as $u)$known[$u['number']]='Extension';
         foreach(['queues'=>'Queue','ring_groups'=>'RingGroup','receptionists'=>'IVR','scripts'=>'RoutePoint','specials'=>'Special'] as $key=>$kind){
@@ -250,12 +251,19 @@ final class pbx_v20_restore {
             unset($r['settings'],$r['interface'],$r['provisioning_filename'],$r['provisioning_filename2']);
         }unset($r);
         foreach($this->policy['contacts'] as $r){$id=uuid();$this->insert('v_contacts',['contact_uuid'=>$id,'domain_uuid'=>$domain,'contact_type'=>'person','contact_name_given'=>$r['first_name'],'contact_name_family'=>$r['last_name'],'contact_organization'=>$r['company'],'contact_note'=>'Imported address book for '.$r['owner']]);if($r['phone']!=='')$this->insert('v_contact_phones',['contact_phone_uuid'=>uuid(),'domain_uuid'=>$domain,'contact_uuid'=>$id,'phone_number'=>$r['phone'],'phone_type_voice'=>1,'phone_primary'=>true]);}
-        foreach($this->policy['specials'] as $r){if($r['kind']==='SpecialMenu')$this->dialplan($r['number'],'voicemail_login',$r['number']);elseif($r['kind']==='ParkExtension'&&str_starts_with($r['number'],'SP'))$this->dialplan($r['number'],'park',$r['number']);}
+        foreach ($this->policy['specials'] as $special) {
+            $mode = threecx_v20::specialCallMode($special['kind'], $special['number']);
+            if ($mode !== null) $this->dialplan($special['number'], $mode, $special['number']);
+        }
         $greetings=$this->importGreetings($domain,$realm,$this->policy['users']);
         $history=0;$vm=0;if($archive){$zip=new ZipArchive();if($zip->open($archive,ZipArchive::RDONLY)!==true)throw new RuntimeException('The backup is unavailable.');try{$history=$this->history($zip);$vm=$this->voicemail($zip);$this->recordings($zip);}finally{$zip->close();}}
         $notes=$plan['unsupported'];
         foreach($this->phoneDependencies as $reason=>$count)$notes[]=['category'=>'Phone handover','count'=>$count,'reason'=>$reason];
         if($this->missingPrompts)$notes[]=['category'=>'Audio files','count'=>count($this->missingPrompts),'reason'=>'These call prompts are named in the settings but are missing from the original backup. Upload replacements in Call Handling.'];
+        if ($this->missingVoicemailAudio) $notes[] = [
+            'category' => 'Voicemail audio', 'count' => $this->missingVoicemailAudio,
+            'reason' => 'These indexed messages had no matching audio in the backup and could not be restored.',
+        ];
         if($greetings['selection_required'])$notes[]=['category'=>'Voicemail greetings','count'=>$greetings['selection_required'],'reason'=>'Greeting files are restored. The backup does not identify the active greeting; choose it under Users → Voicemail.'];
         $report=threecx_v20::counts($plan)+['sip_domain'=>$realm,'phone_credentials_preserved'=>count($plan['users']),'recordings'=>count(array_filter($this->media,fn($m)=>$m['category']==='recordings')),'voicemail_files'=>count(array_filter($this->media,fn($m)=>$m['category']==='voicemails')),'voicemail_messages'=>$vm,'voicemail_greetings'=>$greetings['files'],'prompts'=>count(array_filter($this->media,fn($m)=>$m['category']==='prompts')),'call_history'=>$history,'contacts'=>count($this->policy['contacts']),'notes'=>$notes];
         $this->insert('v_pbx_restore',['domain_uuid'=>$domain,'source_version'=>$plan['source_version'],'config'=>json_encode($this->policy,JSON_THROW_ON_ERROR),'report'=>json_encode($report,JSON_THROW_ON_ERROR)]);
@@ -270,7 +278,7 @@ final class pbx_v20_restore {
             $source='Imported audio '.$m['media_uuid'];$id=$this->query('select greeting_id from v_voicemail_greetings where domain_uuid=:d and voicemail_id=:n and greeting_description=:f',['d'=>$domain,'n'=>$number,'f'=>$source])->fetchColumn();
             if($id===false){$id=max(100,(int)$this->query('select coalesce(max(greeting_id),0)+1 from v_voicemail_greetings where domain_uuid=:d and voicemail_id=:n',['d'=>$domain,'n'=>$number])->fetchColumn());
                 $dir=pbx_paths::voicemail().'/default/'.$realm.'/'.$number;if(!is_dir($dir)&&!mkdir($dir,0700,true))throw new RuntimeException('Voicemail storage is unavailable.');$path=$dir.'/greeting_'.$id.'.wav';
-                if(file_exists($path)||!copy($m['file_path'],$path))throw new RuntimeException('A voicemail greeting could not be restored.');chmod($path,0600);$this->mediaFiles[]=$path;
+                $this->copyVoicemailAudio($m['file_path'], $path);
                 $this->insert('v_voicemail_greetings',['voicemail_greeting_uuid'=>uuid(),'domain_uuid'=>$domain,'voicemail_id'=>$number,'greeting_id'=>$id,'greeting_filename'=>'greeting_'.$id.'.wav','greeting_description'=>$source,'greeting_name'=>$m['title']]);
             }
             if(!isset($owners[$number])){$users[$number]['greetings']=[];$owners[$number]=true;}
@@ -287,8 +295,15 @@ final class pbx_v20_restore {
         if(!mkdir($root,0700))throw new RuntimeException('Backup storage is unavailable.');$this->mediaFiles[]=$root;
         $zip=new ZipArchive();$zip->open($archive,ZipArchive::RDONLY);$total=0;
         try{for($i=0;$i<$zip->numFiles;$i++){$s=$zip->statIndex($i);$name=$s['name'];if(!preg_match('#^(recordings|voicemails|httpprompts|vmailprompts)/.+\.wav$#iD',$name,$m))continue;
-            if($s['size']>268435456)throw new InvalidArgumentException('A recording is too large.');$id=uuid();$target=$root.'/'.$id.'.wav';$in=$zip->getStreamIndex($i);$out=fopen($target,'xb');if(!$in||!$out)throw new RuntimeException('A recording could not be restored.');$written=0;$header='';
-            try{while(!feof($in)){$buf=fread($in,1048576);if($buf===false)throw new RuntimeException('A recording could not be read.');if($written===0)$header=substr($buf,0,12);$written+=strlen($buf);$total+=strlen($buf);if($written>$s['size']||$total>threecx_backup::MAX_ARCHIVE_BYTES)throw new InvalidArgumentException('The recordings exceed the backup limit.');if(fwrite($out,$buf)!==strlen($buf))throw new RuntimeException('Backup storage is full.');}}finally{fclose($in);fclose($out);}
+            if($s['size']>268435456)throw new InvalidArgumentException('A recording is too large.');$id=uuid();$target=$root.'/'.$id.'.wav';$in=$zip->getStreamIndex($i);
+            if (!$in) throw new RuntimeException('A recording could not be read.');
+            $out = @fopen($target, 'xb');
+            if (!$out) {
+                fclose($in);
+                throw new RuntimeException('A recording could not be saved. Check PBX storage space and permissions, then retry the restore.');
+            }
+            $written=0;$header='';
+            try{while(!feof($in)){$buf=fread($in,1048576);if($buf===false)throw new RuntimeException('A recording could not be read.');if($written===0)$header=substr($buf,0,12);$written+=strlen($buf);$total+=strlen($buf);if($written>$s['size']||$total>threecx_backup::MAX_ARCHIVE_BYTES)throw new InvalidArgumentException('The recordings exceed the backup limit.');if(@fwrite($out,$buf)!==strlen($buf))throw new RuntimeException('A recording could not be saved. Free space on the PBX storage, then retry the restore.');}}finally{fclose($in);fclose($out);}
             if($written!==$s['size']||substr($header,0,4)!=='RIFF'||substr($header,8,4)!=='WAVE')throw new InvalidArgumentException('The backup contains an invalid WAV recording.');chmod($target,0600);
             $category=in_array($m[1],['httpprompts','vmailprompts'],true)?'prompts':$m[1];$owner=explode('/',$name)[1]??'';$row=['media_uuid'=>$id,'domain_uuid'=>$this->domain,'category'=>$category,'source_path'=>$name,'file_path'=>$target,'title'=>basename($name),'owner_number'=>isset($this->policy['users'][$owner])?$owner:null];$this->insert('v_pbx_media',$row);$this->media[$name]=$row;
             if($category==='prompts')$this->insert('v_recordings',['recording_uuid'=>uuid(),'domain_uuid'=>$this->domain,'recording_filename'=>$target,'recording_name'=>basename($name),'recording_description'=>'Restored 3CX prompt']);
@@ -324,16 +339,36 @@ final class pbx_v20_restore {
         $map=[];$raw=$z->getFromName('OtherSettings/MappingTable.xml');if($raw!==false){if(strlen($raw)>1048576||preg_match('/<!\s*(?:DOCTYPE|ENTITY)/i',$raw))throw new InvalidArgumentException('The voicemail index is invalid.');$d=new DOMDocument();$d->loadXML($raw,LIBXML_NONET);foreach($d->getElementsByTagName('DN') as $n)$map[$n->getAttribute('ID')]=$n->getAttribute('No');}
         $count=0;$restored=[];foreach($this->csv($z,'DbTables/s_voicemail.csv') as $r){$number=$map[$r['callee']]??$r['callee'];$u=$this->policy['users'][$number]??null;$source='voicemails/'.$number.'/'.basename(str_replace('\\','/',$r['wav_file'])).(str_ends_with(strtolower($r['wav_file']),'.wav')?'':'.wav');$media=$this->media[$source]??null;
             if(!$media){foreach($this->media as $m)if($m['category']==='voicemails'&&basename($m['source_path'])===basename($r['wav_file']).(str_ends_with(strtolower($r['wav_file']),'.wav')?'':'.wav')){$media=$m;break;}}
-            if(!$u||!$media||in_array(strtolower($r['removed']),['true','t','1'],true))continue;
+            if (in_array(strtolower($r['removed']), ['true', 't', '1'], true)) continue;
+            if (!$media) {
+                $this->missingVoicemailAudio++;
+                continue;
+            }
+            if (!$u) continue;
             $id=uuid();$epoch=strtotime($this->date($r['created_time'])??'now');$heard=in_array(strtolower($r['heard']),['true','t','1'],true);$this->insert('v_voicemail_messages',['voicemail_message_uuid'=>$id,'domain_uuid'=>$this->domain,'voicemail_uuid'=>$u['voicemail_uuid'],'created_epoch'=>$epoch,'read_epoch'=>$heard?strtotime($this->date($r['heard_time'])??'now'):null,'caller_id_name'=>$r['caller_name'],'caller_id_number'=>$r['caller'],'message_length'=>(int)$r['duration'],'message_status'=>$heard?'saved':'new','message_transcription'=>$r['transcription']]);
-            $dir=pbx_paths::voicemail().'/default/'.$this->realm.'/'.$number;if(!is_dir($dir)&&!mkdir($dir,0700,true))throw new RuntimeException('Voicemail storage is unavailable.');$path=$dir.'/msg_'.$id.'.wav';if(!copy($media['file_path'],$path))throw new RuntimeException('A voicemail could not be restored.');chmod($path,0600);$this->mediaFiles[]=$path;
+            $dir=pbx_paths::voicemail().'/default/'.$this->realm.'/'.$number;if(!is_dir($dir)&&!mkdir($dir,0700,true))throw new RuntimeException('Voicemail storage is unavailable.');$path=$dir.'/msg_'.$id.'.wav';$this->copyVoicemailAudio($media['file_path'], $path);
             $this->query('update v_pbx_media set owner_number=:n,created_at=:date,duration=:duration where media_uuid=:id',['n'=>$number,'date'=>$this->date($r['created_time']),'duration'=>(int)$r['duration'],'id'=>$media['media_uuid']]);$restored[$media['media_uuid']]=true;$count++;}
         // The supplied backup has audio that is absent from its stale voicemail index.
         // Recover those messages from their owning folder and original timestamp.
         foreach($this->media as $m){if($m['category']!=='voicemails'||isset($restored[$m['media_uuid']])||!$m['owner_number'])continue;$number=$m['owner_number'];$u=$this->policy['users'][$number];$name=basename($m['source_path']);$date=null;$caller='';if(preg_match('/^vmail_(.*?)_[0-9]+_([0-9]{14})\.wav$/iD',$name,$parts)){$date=$this->date($parts[2].'.00');$caller=$parts[1];}
-            $id=uuid();$length=$this->wavDuration($m['file_path']);$this->insert('v_voicemail_messages',['voicemail_message_uuid'=>$id,'domain_uuid'=>$this->domain,'voicemail_uuid'=>$u['voicemail_uuid'],'created_epoch'=>strtotime($date??'now'),'caller_id_number'=>$caller,'caller_id_name'=>'','message_length'=>$length,'message_status'=>'new']);$dir=pbx_paths::voicemail().'/default/'.$this->realm.'/'.$number;if(!is_dir($dir))mkdir($dir,0700,true);$path=$dir.'/msg_'.$id.'.wav';if(!copy($m['file_path'],$path))throw new RuntimeException('A voicemail could not be restored.');chmod($path,0600);$this->mediaFiles[]=$path;$this->query('update v_pbx_media set created_at=:date,duration=:duration where media_uuid=:id',['date'=>$date,'duration'=>$length,'id'=>$m['media_uuid']]);$count++;
+            $id=uuid();$length=$this->wavDuration($m['file_path']);$this->insert('v_voicemail_messages',['voicemail_message_uuid'=>$id,'domain_uuid'=>$this->domain,'voicemail_uuid'=>$u['voicemail_uuid'],'created_epoch'=>strtotime($date??'now'),'caller_id_number'=>$caller,'caller_id_name'=>'','message_length'=>$length,'message_status'=>'new']);$dir=pbx_paths::voicemail().'/default/'.$this->realm.'/'.$number;if(!is_dir($dir))mkdir($dir,0700,true);$path=$dir.'/msg_'.$id.'.wav';$this->copyVoicemailAudio($m['file_path'], $path);$this->query('update v_pbx_media set created_at=:date,duration=:duration where media_uuid=:id',['date'=>$date,'duration'=>$length,'id'=>$m['media_uuid']]);$count++;
         }
         return $count;
+    }
+    private function copyVoicemailAudio(string $source, string $target): void {
+        $output = @fopen($target, 'xb');
+        if (!$output) throw new RuntimeException('Voicemail audio could not be saved. Check PBX storage space and permissions, then retry the restore.');
+        $this->mediaFiles[] = $target;
+        $input = @fopen($source, 'rb');
+        try {
+            $size = ($input ? fstat($input) : [])['size'] ?? false;
+            if ($size === false || @stream_copy_to_stream($input, $output) !== $size || !@fflush($output) || !@chmod($target, 0600)) {
+                throw new RuntimeException('Voicemail audio could not be saved. Check PBX storage space and permissions, then retry the restore.');
+            }
+        } finally {
+            if ($input) fclose($input);
+            fclose($output);
+        }
     }
     private function wavDuration(string $path): int {
         $f=fopen($path,'rb');fseek($f,12);$rate=0;$data=0;

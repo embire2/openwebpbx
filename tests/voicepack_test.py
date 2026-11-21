@@ -9,6 +9,7 @@ import math
 import os
 from pathlib import Path
 import shutil
+import signal
 import struct
 import tarfile
 import tempfile
@@ -63,6 +64,97 @@ def fixture_pack(destination):
 
 
 class Voices(unittest.TestCase):
+    def test_verified_unchanged_prewrites_require_no_temporary_file_or_sync(self):
+        source = self.root / 'source.wav'
+        target = self.root / 'installed.wav'
+        source.write_bytes(b'verified system audio')
+        target.write_bytes(source.read_bytes())
+        target.chmod(0o600)
+        prior = target.stat()
+        with patch.object(i.tempfile, 'mkstemp', side_effect=AssertionError('Audio must stay in place')), \
+                patch.object(i.os, 'fsync', side_effect=AssertionError('No disk writes are needed')):
+            i.copy_files({target: source})
+        after = target.stat()
+        self.assertEqual((after.st_ino, after.st_mtime_ns, after.st_uid, after.st_gid, after.st_mode),
+                         (prior.st_ino, prior.st_mtime_ns, prior.st_uid, prior.st_gid, prior.st_mode))
+
+    def test_signed_voice_plan_replaces_an_equal_length_old_prompt_only(self):
+        source = self.root / 'new.wav'
+        source.write_bytes(b'new audio')
+        unchanged = self.root / 'identical.wav'
+        unchanged.write_bytes(source.read_bytes())
+        changed = self.root / 'older.wav'
+        changed.write_bytes(b'old audio')
+        checksums = {unchanged: i.digest(source), changed: i.digest(source)}
+        changes = i.changed_files({unchanged: source, changed: source}, checksums=checksums)
+        self.assertEqual([target for target, _, _ in changes], [changed])
+        i.write_files(changes, staging=i.staging_paths(changes, self.root / 'upgrade-replace'))
+        self.assertEqual(changed.read_bytes(), source.read_bytes())
+        self.assertEqual(list(self.root.glob('.openweb-voice-*')), [])
+
+    def test_killed_signed_voice_worker_is_cleaned_by_the_sealed_rollback_inventory(self):
+        first = self.root / 'first.wav'
+        second = self.root / 'second.wav'
+        first.write_bytes(b'old first'); first.chmod(0o600)
+        second.write_bytes(b'old second'); second.chmod(0o640)
+        source = self.root / 'candidate.wav'; source.write_bytes(b'signed replacement')
+        unrelated = self.root / '.system-voice-unrelated'; unrelated.write_bytes(b'other data')
+        backup = self.root / 'upgrade-interrupted'; backup.mkdir(mode=0o700)
+        (backup/'files.json').write_text('[]')
+        (backup/'integrity.json').write_text('{}')
+        changes = i.changed_files({first: source, second: source})
+        staging = i.staging_paths(changes, backup)
+        temporary = staging[self.root]
+        s.augment_snapshot(backup, [first, second, temporary])
+        rows = {row['path']: row for row in json.loads((backup/'files.json').read_text())}
+        self.assertIs(rows[str(temporary)]['exists'], False)
+        self.assertEqual(json.loads((backup/'integrity.json').read_text())['files.json'], i.digest(backup/'files.json'))
+
+        pid = os.fork()
+        if pid == 0:
+            copy_bytes = i.shutil.copyfileobj
+            written = 0
+
+            def interrupt_second_write(audio, stream, size):
+                nonlocal written
+                copy_bytes(audio, stream, size)
+                stream.flush()
+                written += 1
+                if written == 2:
+                    os.kill(os.getpid(), signal.SIGKILL)
+
+            try:
+                with patch.object(i.shutil, 'copyfileobj', side_effect=interrupt_second_write):
+                    i.write_files(changes, staging=staging)
+            finally:
+                os._exit(1)
+
+        _, result = os.waitpid(pid, 0)
+        self.assertEqual(os.waitstatus_to_exitcode(result), -signal.SIGKILL)
+        self.assertEqual(first.read_bytes(), source.read_bytes())
+        self.assertEqual(second.read_bytes(), b'old second')
+        self.assertTrue(temporary.is_file())
+        u.restore_files(backup)
+        self.assertEqual((first.read_bytes(), first.stat().st_mode & 0o777), (b'old first', 0o600))
+        self.assertEqual((second.read_bytes(), second.stat().st_mode & 0o777), (b'old second', 0o640))
+        self.assertFalse(temporary.exists())
+        self.assertEqual(unrelated.read_bytes(), b'other data')
+
+    def test_voice_stage_collision_does_not_replace_or_unlink_the_existing_file(self):
+        source = self.root / 'source.wav'; source.write_bytes(b'new system audio')
+        target = self.root / 'prompt.wav'; target.write_bytes(b'old system audio')
+        changes = i.changed_files({target: source})
+        backup = self.root / 'upgrade-collision'
+        staging = i.staging_paths(changes, backup)
+        temporary = staging[self.root]
+        temporary.write_bytes(b'existing stage')
+        with self.assertRaises(ValueError):
+            i.staging_paths(changes, backup)
+        with self.assertRaises(FileExistsError):
+            i.write_files(changes, staging=staging)
+        self.assertEqual(temporary.read_bytes(), b'existing stage')
+        self.assertEqual(target.read_bytes(), b'old system audio')
+
     def test_installer_new_directories_allow_service_traversal_with_private_umask(self):
         source=self.root/'source.wav';source.write_bytes(b'owned audio fixture')
         target=self.root/'new/voice/8000/prompt.wav'

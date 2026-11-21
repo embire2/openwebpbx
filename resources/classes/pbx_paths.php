@@ -17,6 +17,7 @@ class pbx_paths {
     }
     public static function voicemail(): string {return rtrim(str_replace('\\','/',(string)config::load()->get('switch.voicemail.dir',self::storage().'/voicemail')),'/');}
     public static function uploads(): string {return self::state().'/uploads';}
+    public static function phpUploads(): string {return self::state().'/php-upload-tmp';}
     public static function contains(string $root,string $file): bool {
         $root=realpath($root);$file=realpath($file);if($root===false||$file===false)return false;
         $root=rtrim(str_replace('\\','/',$root),'/').'/';$file=str_replace('\\','/',$file);

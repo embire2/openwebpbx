@@ -65,3 +65,11 @@ The backup checklist requires a recorded primary failure/unavailability and exac
 Native call records are imported automatically from the engine's durable spool. The importer saves the CDR and per-user history before removing the file. Database failure, service interruption and retries retain unfinished work and avoid duplicate history. Invalid records are retained in a failed-records directory; logs exclude call contents. The worker starts automatically with the calling background service. Debian gives that service write access only to its call-log/cache locations in addition to the existing service permissions.
 
 The 1.0.15 native Debian tests use isolated local providers: ordinary/callback fallback, busy stopping, digest without registration, per-provider formatting/caller-ID, incoming filtering, two-way paced audio, actual CDR import and the checklist's same-call verification. Real-carrier failover and physical public-network handset tests remain separate acceptance work.
+
+## First-call checklist in Debian 1.0.29
+
+In **First Calls**, select the provider you’re testing. The checklist shows the latest result and notes for each step with the current provider and route settings. When a check fails or you can’t place the call, choose **Needs Attention** and record what happened. Attach a recent call from this PBX if there is one. An answered call and your confirmation on the phones are required for **Confirmed**. A later valid confirmation clears the blocker from the current checklist.
+
+The checklist points to the next check and shows when the selected primary has no backup in **Outbound Rules**. Configure the backup and agree on a controlled test with the provider before checking failover. A confirmed backup test still requires an unavailable primary and one connected configured backup in the same recorded call.
+
+The `record-call-check` API accepts `result: "needs_attention"`, a nonempty `note`, and an optional `call_uuid`. Existing confirmation requests continue to work. The `first-calls` API adds `checklist`, `next_check` and `backup_configured` alongside the existing confirmed `checks`, `calls` and `attempts` fields.

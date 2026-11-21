@@ -2,6 +2,8 @@
 /** CLI-only bounded parser tests. All sample values are invented and never contact a PBX. */
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 require dirname(__DIR__).'/resources/classes/threecx_backup.php';
+require dirname(__DIR__).'/resources/classes/threecx_v20.php';
+require dirname(__DIR__).'/resources/classes/pbx_v20_restore.php';
 if (!class_exists('ZipArchive')) throw new RuntimeException('Install the PHP zip extension before running these tests.');
 $dir=sys_get_temp_dir().'/openweb-3cx-parser-'.bin2hex(random_bytes(8));mkdir($dir,0700);
 $checks=0;
@@ -39,6 +41,33 @@ try {
     check(threecx_backup::preview($p)['counts']['users']===2 && threecx_backup::preview($p)['users'][0]['has_password'],'preview exposes only secret presence');
     $p=threecx_backup::analyze(zipFile(['123456Db.xml'=>$native,'Recordings/example.wav'=>'invented local attachment']));
     check($p['source_format']==='3cx-native-zip' && unsupported($p,'recordings'),'native ZIP loaded in memory and audio attachment reported');
+    $v20 = <<<'XML'
+<PhoneSystem><header><version>BUILD</version></header><Tenants><Tenant><DN>
+<Extension><Number>100</Number><AuthID>fixture-v20-auth</AuthID><AuthPassword>  fixture-v20-password  </AuthPassword><FwdProfiles><FwdProfile><Name>Available</Name></FwdProfile></FwdProfiles></Extension>
+<FaxExtension><Number>900</Number></FaxExtension>
+<ConferencePlaceExtension><Number>901</Number></ConferencePlaceExtension>
+<ParkExtension><Number>SP1</Number></ParkExtension>
+<ParkExtension><Number>902</Number></ParkExtension>
+</DN></Tenant></Tenants></PhoneSystem>
+XML;
+    $supported = [];
+    foreach (['20.0.9.995', '20.0.10.1801'] as $build) {
+        $plan = threecx_backup::analyze(zipFile(['123Db.xml' => str_replace('BUILD', $build, $v20)]));
+        pbx_v20_restore::validate($plan);
+        check($plan['supported'] && $plan['source_version'] === $build && $plan['source_format'] === '3cx-v20-backup', 'exact supported V20 ZIP reaches native restore validation');
+        check($plan['users'][0]['auth_id'] === 'fixture-v20-auth' && $plan['users'][0]['password'] === '  fixture-v20-password  ', 'V20 migration retains separate login and exact password bytes');
+        $preview = threecx_backup::preview($plan);
+        $encoded = json_encode($preview, JSON_THROW_ON_ERROR);
+        check(!str_contains($encoded, 'fixture-v20-auth') && !str_contains($encoded, 'fixture-v20-password') && $preview['users'][0]['has_password'], 'V20 preview exposes only credential presence');
+        $notes = array_column($preview['unsupported'], 'count', 'category');
+        check(($notes['Fax endpoints'] ?? 0) === 1 && ($notes['Conference access numbers'] ?? 0) === 1 && ($notes['Park orbits'] ?? 0) === 1, 'only unmapped fax, conference and nonshared parking receive warnings');
+        $supported[] = $plan['v20'];
+    }
+    check($supported[0] === $supported[1], 'Update 10 uses the same normalized routing and identity layout for common inputs');
+    $unknownV20 = threecx_backup::analyze(zipFile(['123Db.xml' => str_replace('BUILD', '20.0.10.1802', $v20)]));
+    check(!$unknownV20['supported'] && unsupported($unknownV20, 'source_version') && !isset($unknownV20['v20']), 'a neighboring but unverified V20 build stays unsupported');
+    $badV20 = str_replace(['BUILD', '<DN>', '</DN>'], ['20.0.10.1801', '<Unknown>', '</Unknown>'], $v20);
+    rejected(zipFile(['123Db.xml' => $badV20]), 'the supported V20 version alone does not admit a different layout');
     check(threecx_backup::analyze(xmlFile(nativeFixture('14.0.0.0')))['supported'],'verified v14 core layout recognized');
     foreach(['18.0.9.35','20.0.0.1','17.1.0.0','99.0.0.0','16.unknown','14.x'] as $version){$p=threecx_backup::analyze(xmlFile(nativeFixture($version)));check(!$p['supported'] && unsupported($p,'source_version'),'unverified source version fails closed');}
     $p=threecx_backup::analyze(xmlFile('<PhoneSystem><header><version>16.0.1.273</version></header><Tenants><Tenant><Extensions/></Tenant></Tenants></PhoneSystem>'));
@@ -91,7 +120,7 @@ try {
     rejected(xmlFile(str_repeat(' ',threecx_backup::MAX_XML_BYTES+1)),'oversized XML rejected before parse');
     $p=threecx_backup::analyze(xmlFile('unknown encrypted binary fixture'));check(!$p['supported'] && unsupported($p,'archive_format'),'unknown binary envelope reported');
     check(count(glob($dir.'/*'))>0,'test fixtures exist only in private temporary directory');
-    echo 'PASS: '.$checks." bounded 3CX parser checks; synthetic native v14/v16 fixtures only.\n";
+    echo 'PASS: '.$checks." bounded 3CX parser checks using synthetic v14, v16 and V20 fixtures.\n";
 } finally {
     foreach(glob($dir.'/*') as $file)unlink($file);rmdir($dir);
 }

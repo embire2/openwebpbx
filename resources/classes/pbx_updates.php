@@ -113,6 +113,29 @@ class pbx_updates {
         $out['updated_at'] = $row['updated_at'] ?? null;
         $out['service_online'] = !empty($data) && strtotime($row['updated_at'] ?? '') > time()-180;
         $out['recent'] = $this->q('select action,status,left(message,500) message,created_at,finished_at from v_pbx_update_commands order by created_at desc limit 10')->fetchAll(PDO::FETCH_ASSOC);
+        if (PHP_OS_FAMILY === 'Linux') {
+            // `available_version` may be present even when signed compatibility
+            // checks fail. Only actionable worker states describe an offer.
+            $version = '/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/D';
+            $state = $out['state'];
+            $offer = $out['service_online'] && preg_match($version, $out['installed_version']) &&
+                preg_match($version, $out['available_version']) && version_compare($out['available_version'], $out['installed_version'], '>') &&
+                in_array($state, ['available','downloading','ready','waiting_calls','waiting_window','installing','rolled_back','retry_available'], true);
+            $busy = in_array($state, ['checking','downloading','installing','maintenance','recovery_required'], true);
+            foreach ($out['recent'] as $request) {
+                if (in_array($request['status'], ['pending','running'], true)) { $busy = true; break; }
+            }
+            $canRequest = $out['service_online'] && !$busy;
+            $out['server_controls'] = [
+                'offered_version' => $offer ? $out['available_version'] : '',
+                'up_to_date' => $out['service_online'] && $state === 'up_to_date',
+                'download_verified' => $offer && $out['total_bytes'] > 0 && $out['progress_bytes'] === $out['total_bytes'] &&
+                    in_array($state, ['ready','waiting_calls','waiting_window','installing'], true),
+                'check' => $canRequest,
+                'download' => $canRequest && $offer && $state === 'available',
+                'install' => $canRequest && $offer,
+            ];
+        }
         return $out;
     }
     /** Only the release notice is shared with signed-in users. Installation remains instance-admin only. */
