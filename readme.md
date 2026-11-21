@@ -102,7 +102,7 @@ OpenWeb PBX is independently developed software. Proprietary 3CX apps and hosted
 ## Current status
 
 <!-- RELEASE123-STATUS-BEGIN -->
-**Debian 1.0.29 is published.** The full installer sets up a fresh PBX on Debian 13 amd64 with its own PostgreSQL database. [Release](https://github.com/embire2/openwebpbx/releases/tag/debian-v1.0.29) · [Installation](docs/installing-1.0.29.md) · [Qualification](docs/release-1.0.29-local-qualification.md).
+**Debian 1.0.29 is published.** The 489,045,328-byte archive has SHA-256 `2593595a0077b19346eaebfe1a46189acbe8a308f7558298ff7d636e63aea3c2`. The full installer sets up a fresh PBX on Debian 13 amd64 with its own PostgreSQL database. [Release](https://github.com/embire2/openwebpbx/releases/tag/debian-v1.0.29) · [Installation](docs/installing-1.0.29.md) · [Qualification](docs/release-1.0.29-local-qualification.md).
 
 **Windows 1.0.27 is published.** Install the complete server on Windows Server 2025 x64 with Desktop Experience, with no earlier PBX or separate repair. The complete suite includes local PostgreSQL setup, the native manager, current ordered updater, guided registration, web/API administration, dashboard and tenant recovery, reseller templates/packages, personal and department-scoped API keys, and system prompts. [Installation](docs/installing-windows-1.0.27.md) · [Qualification](docs/release-windows-1.0.27-qualification.md). Android remains 1.0.19.
 **Hosted PBX 1.0.29.** The web application, Core and updater are live at `call.openweb.co.za`. [Hosted rollout verification](docs/release-1.0.29-local-qualification.md#hosted-rollout).

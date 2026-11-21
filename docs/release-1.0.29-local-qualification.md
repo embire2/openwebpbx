@@ -11,6 +11,16 @@ documentation. For the published download’s size and digest, use its
 [release checksums](https://github.com/embire2/openwebpbx/releases/download/debian-v1.0.29/SHA256SUMS).
 [Matching source](https://github.com/embire2/openwebpbx/tree/debian-v1.0.29).
 
+The public rebuild matched all 12,151 runtime payload hashes from the
+qualified archive, including the native binaries and voice files. The
+comparison accounted for publication documentation edits and thirteen
+non-executable permission differences in tar headers. Installation normalizes
+those files or uses them as root-only helpers.
+
+The published archive is **489,045,328 bytes**, SHA-256
+`2593595a0077b19346eaebfe1a46189acbe8a308f7558298ff7d636e63aea3c2`. Both GitHub download locations matched. Verification also checked the
+latest signed feeds and prior release history.
+
 The original archive manifest and all 12,283 payload
 hashes passed independent streaming verification. The standalone contract
 sets `previous_installation_required` to false. The app, Core and updater
@@ -111,6 +121,15 @@ and removed expired temporary archives. A disk-full voicemail copy rolled
 back its partial output and preserved an existing recording. Retrying then
 saved the correct recording.
 [V20 restore guide](v20-restore.md)
+
+## Native calling qualification
+
+The installed 1.0.29 calling policy, trunk options and ordinary Lua
+configuration were verified in an isolated FreeSWITCH test. A synthetic
+primary provider returned SIP 503. The engine sent exactly one INVITE to
+the backup, connected the call and passed bidirectional PCMA RTP. The test
+released the temporary calls and call-capacity records. It stayed behind
+the managed-registration gate and used no customer, carrier or handset traffic.
 
 ## First Calls
 
