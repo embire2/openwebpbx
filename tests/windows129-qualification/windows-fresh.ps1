@@ -51,6 +51,9 @@ $plain=$null
 try {
  & $installer -RestoreServer -DomainName $realm -HttpsPort $port -LocalCertificate -AdminEmail $admin -AdminPassword $password *> $installerLog
  $receipt.ordinary_initializer_returned=$true
+ $engineDb=Get-Item -LiteralPath 'C:\Program Files\FreeSWITCH\db' -Force
+ if(!$engineDb.PSIsContainer -or ($engineDb.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'The installer did not provision an ordinary FreeSWITCH database directory.'}
+ $receipt.engine_database_directory_created=$true
  $installation=Get-Content -LiteralPath 'C:\ProgramData\OpenWebPBX\installation.json' -Raw | ConvertFrom-Json
  if($installation.Version -cne $version -or !$installation.Completed){throw 'The native installer did not commit its expected release.'}
  $installedServices=Get-Service -Name $serviceNames

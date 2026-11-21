@@ -19,11 +19,11 @@ jobs:
       run:
         shell: pwsh
     env:
-      RELEASE_ID: '453971443'
-      RELEASE_ASSET: '776871995'
-      RELEASE_SOURCE: '384e8b81fbdf90f6a1348aca91824c1afcda5b85'
-      RELEASE_SHA256: '6d6f054f91e2f1e518e9a98d1aa33643950d7a446e9991dfba7d4c735ca8d8d4'
-      RELEASE_SIZE: '643914648'
+      RELEASE_ID: '453993317'
+      RELEASE_ASSET: '776919082'
+      RELEASE_SOURCE: '23cf27176e6d7d7bb9adf0aba9df72b2233f29bf'
+      RELEASE_SHA256: 'ec0e2c373df36d9370e1dc658b32f30f29c12b6e4a29b7081916dbb8b61b5184'
+      RELEASE_SIZE: '643902877'
     steps:
       - name: Check out the isolated credential-free test fixture
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
