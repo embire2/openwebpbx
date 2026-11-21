@@ -1,4 +1,4 @@
-name: Windows native build
+name: Windows standalone 1.0.29 qualification
 
 on:
   workflow_dispatch:
@@ -6,138 +6,61 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: windows-native-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
-  native:
-    name: Server, manager and updater
+  clean-install:
+    name: Exact complete installer on a clean Windows Server 2025 runner
     runs-on: windows-2025
-    timeout-minutes: 45
+    timeout-minutes: 95
+    # Draft assets are visible only to an account with repository write access.
+    # Only the download step receives the short-lived token; installation has no release credentials.
+    permissions:
+      contents: write
     defaults:
       run:
         shell: pwsh
     env:
-      DOTNET_NOLOGO: '1'
-      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
-      NUGET_XMLDOC_MODE: skip
+      RELEASE_ID: '453971443'
+      RELEASE_ASSET: '776871995'
+      RELEASE_SOURCE: '384e8b81fbdf90f6a1348aca91824c1afcda5b85'
+      RELEASE_SHA256: '6d6f054f91e2f1e518e9a98d1aa33643950d7a446e9991dfba7d4c735ca8d8d4'
+      RELEASE_SIZE: '643914648'
     steps:
-      - name: Preserve repository source bytes
-        run: git config --global core.autocrlf false
-      - name: Check out the dispatched revision
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Check out the isolated credential-free test fixture
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-          fetch-depth: 1
-      - name: Install the qualified .NET SDK
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+      - name: Download the exact complete installer from its draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = 'embire2/openwebpbx'
+          if($env:GITHUB_REPOSITORY -cne $repo -or $env:GITHUB_REF_NAME -cne 'windows-qa-1.0.29'){throw 'Unexpected qualification dispatch.'}
+          $release = gh api "repos/$repo/releases/$env:RELEASE_ID" | ConvertFrom-Json
+          if($LASTEXITCODE -or !$release.draft -or $release.tag_name -cne 'windows-v1.0.29' -or $release.target_commitish -cne $env:RELEASE_SOURCE){throw 'The intended exact Windows draft is not available to this runner.'}
+          $asset=@($release.assets | Where-Object { $_.id -eq $env:RELEASE_ASSET -and $_.name -ceq 'openwebpbx-1.0.29-windows-x64.zip' })
+          if($asset.Count -ne 1 -or $asset[0].size -ne [long]$env:RELEASE_SIZE){throw 'The draft asset does not match its frozen size and identity.'}
+          $sandbox=Join-Path $env:RUNNER_TEMP 'openweb-private-qualification'
+          $evidence=Join-Path $sandbox 'receipts'
+          New-Item -ItemType Directory -Path $evidence -Force | Out-Null
+          $archive=Join-Path $sandbox 'openwebpbx-1.0.29-windows-x64.zip'
+          gh api --header 'Accept: application/octet-stream' "repos/$repo/releases/assets/$env:RELEASE_ASSET" > $archive
+          if($LASTEXITCODE -or (Get-Item -LiteralPath $archive).Length -ne [long]$env:RELEASE_SIZE -or (Get-FileHash -LiteralPath $archive).Hash.ToLowerInvariant() -cne $env:RELEASE_SHA256){throw 'Exact Windows ZIP verification failed.'}
+          "OWPBX_QA_ARCHIVE=$archive" >> $env:GITHUB_ENV
+          "OWPBX_QA_EVIDENCE=$evidence" >> $env:GITHUB_ENV
+      - name: Install the exact archive and qualify service startup over trusted local HTTPS
+        run: |
+          $ErrorActionPreference = 'Stop'
+          powershell.exe -NoProfile -NonInteractive -Mta -ExecutionPolicy Bypass -File tests/windows129-qualification/windows-fresh.ps1 -Archive $env:OWPBX_QA_ARCHIVE -Evidence $env:OWPBX_QA_EVIDENCE -SHA256 $env:RELEASE_SHA256
+          if($LASTEXITCODE){throw 'The clean Windows installer or its verification did not pass.'}
+          $proof=Get-Content -LiteralPath "$env:OWPBX_QA_EVIDENCE/fresh-install.safe.json" -Raw | ConvertFrom-Json
+          if($proof.phase -cne 'passed' -or $proof.archive_sha256 -cne $env:RELEASE_SHA256){throw 'The actual standalone install receipt is unavailable.'}
+          $proof | ConvertTo-Json -Depth 5
+      - name: Retain only safe clean-install evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          dotnet-version: '10.0.401'
-      - name: Record immutable source inputs
-        id: source
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $version = (Get-Content VERSION -Raw).Trim()
-          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid release version.' }
-          [xml]$props = Get-Content platform/Directory.Build.props
-          if ($props.Project.PropertyGroup.Version -ne $version) { throw 'Native and release versions differ.' }
-          $out = Join-Path $env:RUNNER_TEMP 'openwebpbx-native'
-          New-Item -ItemType Directory -Path $out -Force | Out-Null
-          '{"sdk":{"version":"10.0.401","rollForward":"disable"}}' | Set-Content global.json -Encoding utf8
-          $sdk = (dotnet --version).Trim()
-          if ($LASTEXITCODE -ne 0 -or $sdk -ne '10.0.401') { throw 'The qualified SDK was not selected.' }
-          $files = @(git ls-files -- platform packaging/updates/release-public.pem VERSION)
-          if ($LASTEXITCODE -ne 0 -or $files.Count -lt 40) { throw 'Native source input inventory is incomplete.' }
-          $inputs = @($files | ForEach-Object { [ordered]@{ path = $_; sha256 = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant() } })
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
-          $vs = if (Test-Path $vswhere) { & $vswhere -latest -property installationVersion } else { 'unavailable' }
-          [ordered]@{
-            version = $version; source_commit = $env:GITHUB_SHA; sdk = $sdk
-            operating_system = [Environment]::OSVersion.VersionString
-            runner_image = $env:ImageVersion; visual_studio = $vs
-            run_url = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
-            source_inputs = $inputs
-          } | ConvertTo-Json -Depth 6 | Set-Content "$out/source-inputs.json" -Encoding utf8
-          "version=$version" >> $env:GITHUB_OUTPUT
-          "NATIVE_OUTPUT=$out" >> $env:GITHUB_ENV
-      - name: Build native server, manager and independent updater
-        run: |
-          $ErrorActionPreference = 'Stop'
-          function Invoke-NativeBuild([string]$Name, [string[]]$Arguments) {
-            & dotnet @Arguments 2>&1 | Tee-Object -FilePath "$env:NATIVE_OUTPUT/$Name.log"
-            if ($LASTEXITCODE -ne 0) { throw "$Name failed with exit code $LASTEXITCODE." }
-          }
-          Invoke-NativeBuild 'server-build' @('publish', 'platform/OpenWebPbx.Server', '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-o', "$env:NATIVE_OUTPUT/server")
-          Invoke-NativeBuild 'desktop-build' @('build', 'platform/OpenWebPbx.Desktop', '-c', 'Release', '-p:Platform=x64', '-o', "$env:NATIVE_OUTPUT/desktop")
-          Invoke-NativeBuild 'updater-build' @('publish', 'platform/OpenWebPbx.Updater', '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-o', "$env:NATIVE_OUTPUT/updater")
-          Invoke-NativeBuild 'protocol-checks' @('run', '--project', 'platform/OpenWebPbx.Checks', '-c', 'Release')
-          Invoke-NativeBuild 'updater-checks' @('run', '--project', 'platform/OpenWebPbx.Updater.Checks', '-c', 'Release')
-          Invoke-NativeBuild 'stun-protocol-checks' @('run', '--project', 'tests/stun-worker/StunChecks.csproj', '-c', 'Release')
-      - name: Check complete standalone installation preflight
-        run: |
-          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_standalone.ps1
-          if($LASTEXITCODE){throw 'Read-only Windows full-installer controls failed.'}
-          & python -B tests/windows_standalone.py
-          if($LASTEXITCODE){throw 'Full Windows package integrity controls failed.'}
-          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_upgrade_delegation.ps1
-          if($LASTEXITCODE){throw 'Verified Windows upgrade delegation controls failed.'}
-          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows_upgrade_mta.ps1 -SourceRoot "$env:GITHUB_WORKSPACE" -Output "$env:NATIVE_OUTPUT/upgrade-mta.json"
-          if($LASTEXITCODE){throw 'Windows maintenance apartment entry controls failed.'}
-      - name: Verify native versions and manager startup
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $version = (Get-Content VERSION -Raw).Trim()
-          $assemblies = @(
-            'server/OpenWebPbx.Server.dll',
-            'desktop/OpenWebPbx.Desktop.dll',
-            'updater/OpenWebPbx.Updater.dll'
-          )
-          $verified = @($assemblies | ForEach-Object {
-            $path = Join-Path $env:NATIVE_OUTPUT $_
-            $actual = [Reflection.AssemblyName]::GetAssemblyName($path).Version.ToString()
-            if ($actual -ne "$version.0") { throw "Native version mismatch in $_." }
-            [ordered]@{ path = $_; assembly_version = $actual; sha256 = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant() }
-          })
-          $desktop = Join-Path $env:NATIVE_OUTPUT 'desktop'
-          # An administrator may launch the absolute EXE path from any folder.
-          $manager = Start-Process -FilePath "$desktop/OpenWebPbx.Desktop.exe" -WorkingDirectory "$env:SystemRoot/System32" -PassThru
-          $deadline = [DateTime]::UtcNow.AddSeconds(30)
-          do {
-            Start-Sleep -Milliseconds 500
-            $manager.Refresh()
-            if ($manager.HasExited) { throw "Manager exited during startup: $($manager.ExitCode)." }
-          } while ($manager.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $deadline)
-          $visible = $manager.MainWindowHandle -ne 0 -and $manager.Responding -and $manager.MainWindowTitle -eq "OpenWeb PBX $version"
-          $launch = [ordered]@{
-            process_alive = -not $manager.HasExited; responsive = $manager.Responding
-            window_title = $manager.MainWindowTitle; window_verified = $visible
-            session_id = $manager.SessionId
-            launched_outside_application_directory = $true
-            limitation = if ($visible) { $null } else { 'Hosted runner did not expose an interactive manager window; interactive verification remains required.' }
-          }
-          [ordered]@{ version = $version; assemblies = $verified; manager_startup = $launch; protocol_checks = 'passed'; updater_checks = 'passed'; database_integration = 'not run; no database supplied' } |
-            ConvertTo-Json -Depth 6 | Set-Content "$env:NATIVE_OUTPUT/verification.json" -Encoding utf8
-          if (!$visible) { throw 'The native manager must show its responsive versioned window when launched from another directory.' }
-          $expected = Get-Content "$env:NATIVE_OUTPUT/source-inputs.json" -Raw | ConvertFrom-Json
-          foreach ($input in $expected.source_inputs) {
-            if ((Get-FileHash -LiteralPath $input.path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $input.sha256) { throw "Build modified source input $($input.path)." }
-          }
-          Get-ChildItem $env:NATIVE_OUTPUT -File -Recurse | Sort-Object FullName | ForEach-Object {
-            $relative = [IO.Path]::GetRelativePath($env:NATIVE_OUTPUT, $_.FullName).Replace('\', '/')
-            '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $relative
-          } | Set-Content "$env:NATIVE_OUTPUT/SHA256SUMS" -Encoding utf8
-          "Built OpenWeb PBX $version from $env:GITHUB_SHA. Manager window verified: $visible." >> $env:GITHUB_STEP_SUMMARY
-          Stop-Process -Id $manager.Id -Force
-      - name: Check real Windows server update worker with isolated PostgreSQL
-        run: ./tests/windows_server_update_worker.ps1 -Output "$env:NATIVE_OUTPUT/server-update-worker.log"
-      - name: Check required modal and postponement on actual native window
-        run: ./tests/windows_update_notice_native.ps1 -DesktopDirectory "$env:NATIVE_OUTPUT/desktop" -Output "$env:NATIVE_OUTPUT/server-update-notice.json"
-      - name: Upload native outputs and verification evidence
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: openwebpbx-windows-native-${{ steps.source.outputs.version }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/openwebpbx-native/
-          if-no-files-found: error
+          name: openwebpbx-windows-1.0.29-clean-receipt
+          path: ${{ runner.temp }}/openweb-private-qualification/receipts/*.safe.json
+          if-no-files-found: warn
           retention-days: 14
-          compression-level: 6
