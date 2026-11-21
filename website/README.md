@@ -1,13 +1,16 @@
 # OpenWeb PBX homepage
 
-## Debian 1.0.29
+## Standalone server downloads
 
-The current Debian release is a full standalone installer for clean Debian
-13 amd64 servers. The release guide gives the installation steps and the
-qualification describes the actual fresh install and signed upgrade from
-1.0.27. Use each platform’s verified release assets in the catalogue.
+Debian 1.0.29 supports clean Debian 13 amd64 servers. Windows Server 1.0.29
+supports clean Windows Server 2025 x64 installations with Desktop Experience.
+Both downloads set up PostgreSQL on the PBX server and include the updater.
+Each release has its own source archive, checksum and installation guide.
+The signed Windows update channel for existing servers offers 1.0.27.
+
 [Debian installation](../docs/installing-1.0.29.md) ·
-[Qualification](../docs/release-1.0.29-local-qualification.md).
+[Windows installation](../docs/installing-windows-1.0.29.md) ·
+[Public download catalogue](https://openwebpbx.com/releases.json)
 
 ## Hosted 1.0.24 feature update — 5 November 2026
 
