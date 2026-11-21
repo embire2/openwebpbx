@@ -20,7 +20,7 @@ The **Debian 1.0.29** release is a complete standalone installer. The source add
 | --- | --- | --- |
 | Hosted PBX at `call.openweb.co.za` | Application, native Core and updater **1.0.29**. | [Hosted rollout](docs/release-1.0.29-local-qualification.md#hosted-rollout), [tenant administration API](docs/tenant-admin-api.md) |
 | Debian PBX server | Public **1.0.29**, Debian 13 amd64, complete standalone installer. The signed existing-data offer starts at Debian 1.0.27. | [Install](docs/installing-1.0.29.md), [qualification](docs/release-1.0.29-local-qualification.md) |
-| Windows PBX server | Public **1.0.27**, Windows Server 2025 x64 with Desktop Experience, complete standalone installer. Actual installed 1.0.23 → 1.0.27 signed upgrade qualified. | [Install](docs/installing-windows-1.0.27.md), [qualification](docs/release-windows-1.0.27-qualification.md) |
+| Windows PBX server | Public **1.0.29** standalone for Windows Server 2025 x64 with Desktop Experience. The 1.0.29 ZIP serves fresh installations. Existing Windows systems continue to use the signed 1.0.27 update path. | [Install](docs/installing-windows-1.0.29.md), [qualification](docs/release-windows-1.0.29-qualification.md) |
 | Android Free Phone | Public **1.0.19** APK. Google Play publication is pending. | [Android setup](docs/android.md), [tenant addresses](docs/android-tenant-addresses-1.0.18.md) |
 | Windows Free Phone | In development on its own branch. Separate from the working Windows server manager. | [Client plan](docs/windows-client-plan.md) |
 

@@ -18,7 +18,7 @@ clear trust to skip them.
 | Component | Complete new installation | Updating an existing installation |
 | --- | --- | --- |
 | Debian 13 amd64 | Public **1.0.29**, complete standalone installer | Independent signed feed admits installed Debian 1.0.27 or newer. The actual signed 1.0.27 → 1.0.29 upgrade passed on the test host. [Qualification](release-1.0.29-local-qualification.md#signed-upgrade-on-the-test-host). |
-| Windows Server 2025 x64 Desktop Experience | Public **1.0.27**, complete standalone installer; no previous PBX required | Independent signed feed. Original retained installers and clients use the [legacy ordered-updater repair](windows-upgrade-path-repair.md). [Windows 1.0.27 qualification](release-windows-1.0.27-qualification.md). |
+| Windows Server 2025 x64 Desktop Experience | Public **1.0.29**, complete standalone installer. [Install](installing-windows-1.0.29.md). | Independent signed feed stays at **1.0.27**. [Signed qualification](release-windows-1.0.27-qualification.md) · [Legacy ordered updater](windows-upgrade-path-repair.md). |
 | Android | Public **1.0.19** native app | Its own server/API compatibility and app update policy. |
 
 Every future complete Debian or Windows release must include its current

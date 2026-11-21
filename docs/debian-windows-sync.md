@@ -12,13 +12,17 @@ Update the Windows result only after checking the actual Windows package.
 |---|---|
 | Hosted Debian at call.openweb.co.za | **1.0.29**, with matching native Core and updater. [Hosted rollout](release-1.0.29-local-qualification.md#hosted-rollout). |
 | Public Debian installer | **1.0.29**, complete standalone installer. [Source tag](https://github.com/embire2/openwebpbx/tree/debian-v1.0.29). [Qualification](release-1.0.29-local-qualification.md). |
-| Public Windows installer | **1.0.27**, complete standalone Server2025 package, source `ccccfe56ed7012455e1cf00395407389a7226daf`; [qualification](release-windows-1.0.27-qualification.md). |
+| Public Windows installer | **1.0.29**, complete standalone Windows Server 2025 x64 Desktop Experience installer. The 1.0.29 ZIP serves fresh installations. Existing Windows systems continue to use the signed 1.0.27 update path. [Qualification](release-windows-1.0.29-qualification.md). |
 | Android | **1.0.19**. Server fixes do not imply an Android release. |
 
 A hosted deployment, source commit and downloadable installer are separate
 statuses. Debian 1.0.26 contains the Debian 24–26 features below. Windows1.0.27 now has its independent actual clean-install, signed23 update,
 software calling, encrypted recovery and reboot qualification. Historical rows
 retain their original source/version scope; later hosted overlays are separate.
+
+## Windows 1.0.29 standalone
+
+The Windows package carries the shared Update 10 parser, clearer Software Updates page, restore upload diagnostics and First Calls controls. Native build checks and a clean Windows Server 2025 installation passed. Full Windows 3CX restore, Windows opt-in updates, and a signed upgrade from an existing installation to 1.0.29 retain separate qualification. [Windows qualification](release-windows-1.0.29-qualification.md)
 
 ## Debian 1.0.29 — 21 November 2026
 

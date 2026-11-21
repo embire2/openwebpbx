@@ -4,6 +4,65 @@
   "releases": [
     {
       "version": "1.0.29",
+      "component": "Windows server",
+      "url": "https://github.com/embire2/openwebpbx/releases/tag/windows-v1.0.29",
+      "published_at": "2026-11-21T21:53:28Z",
+      "publication_status": "published",
+      "prerelease": false,
+      "build_source_commit": "3f89c926ed68dcf3a347c8a2a3db208df8a7fe15",
+      "build_sources": {
+        "windows": "3f89c926ed68dcf3a347c8a2a3db208df8a7fe15"
+      },
+      "source_tags": {
+        "windows": "windows-v1.0.29"
+      },
+      "fresh_install": {
+        "package_type": "full",
+        "previous_installation_required": false,
+        "minimum_existing_version": null,
+        "separate_pbx_patches_required": false,
+        "operating_system": "Windows Server 2025 x64 Desktop Experience",
+        "entrypoint": "Start-OpenWebPBX.cmd",
+        "local_postgresql_setup_included": true,
+        "current_ordered_updater_included": true
+      },
+      "update_compatibility": {
+        "minimum_installed_version": "1.0.23",
+        "purpose": "Existing-data signed update admission only; not a fresh-install prerequisite. See the qualification for supported starting versions and independently reused historical transitions.",
+        "qualification": "docs/release-windows-1.0.27-qualification.md",
+        "historical_ordered_prefix_guide": "docs/windows-upgrade-path-repair.md",
+        "latest_signed_version": "1.0.27"
+      },
+      "scope": "Complete Windows Server 1.0.29 with local PostgreSQL setup, managed registration, the native manager and the current updater. The 1.0.29 ZIP serves fresh installations. Existing Windows systems continue to use the signed 1.0.27 update path.",
+      "assets": [
+        {
+          "name": "installing-windows-1.0.29.md",
+          "bytes": 2908,
+          "sha256": "314463287677f8dfb2f72eb29f5e50109caf2c845fddf5a5116a8ee9394f8b12",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.29/installing-windows-1.0.29.md"
+        },
+        {
+          "name": "openwebpbx-1.0.29-windows-source.tar.gz",
+          "bytes": 50763852,
+          "sha256": "8049c1ea5fa1726e1115d43f3762ab2bde7ab5d1b1f2e2272ed7bbcc34011ef3",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.29/openwebpbx-1.0.29-windows-source.tar.gz"
+        },
+        {
+          "name": "openwebpbx-1.0.29-windows-x64.zip",
+          "bytes": 643902920,
+          "sha256": "f3683b91832a1ff3d62c12174c0c1684979868313f97aa2850f9771c06bd2608",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.29/openwebpbx-1.0.29-windows-x64.zip"
+        },
+        {
+          "name": "SHA256SUMS-windows-1.0.29.txt",
+          "bytes": 206,
+          "sha256": "a4b5bea1988d4a4c849ac62e9e0e73a3833589a49d6cb4338e07f69c9d2dad26",
+          "url": "https://github.com/embire2/openwebpbx/releases/download/windows-v1.0.29/SHA256SUMS-windows-1.0.29.txt"
+        }
+      ]
+    },
+    {
+      "version": "1.0.29",
       "component": "Debian server",
       "url": "https://github.com/embire2/openwebpbx/releases/tag/debian-v1.0.29",
       "published_at": "2026-11-21T21:00:35Z",
@@ -1616,8 +1675,8 @@
       "name": "Windows Server 2025",
       "architecture": "x64",
       "edition": "Desktop Experience",
-      "status": "published complete standalone installer; no previous PBX or separate repair required; see independent Windows qualification",
-      "version": "1.0.27",
+      "status": "published complete standalone installer for fresh servers",
+      "version": "1.0.29",
       "minimum_installed_version": "1.0.23",
       "fresh_install": {
         "package_type": "full",
@@ -1633,7 +1692,8 @@
         "minimum_installed_version": "1.0.23",
         "purpose": "Existing-data signed update admission only; not a fresh-install prerequisite. See the qualification for supported starting versions and independently reused historical transitions.",
         "qualification": "docs/release-windows-1.0.27-qualification.md",
-        "historical_ordered_prefix_guide": "docs/windows-upgrade-path-repair.md"
+        "historical_ordered_prefix_guide": "docs/windows-upgrade-path-repair.md",
+        "latest_signed_version": "1.0.27"
       }
     },
     {

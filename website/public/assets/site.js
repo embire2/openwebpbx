@@ -198,8 +198,8 @@
         "icon": "i-desktop",
         "color": "sky",
         "description": "Search apps, move administration windows and use a taskbar with light and dark themes. Guided setup and focused Admin pages use clear controls.",
-        "limits": "Windows Server 1.0.27 includes a native administration manager and the same managed registration wizard as Debian. Its local database stays on your server. The separate Windows calling client is in development.",
-        "guide": "docs/installing-windows-1.0.27.md"
+        "limits": "Windows Server 1.0.29 includes a native administration manager and the same managed registration wizard as Debian. Its local database stays on your server. The separate Windows calling client is in development.",
+        "guide": "docs/installing-windows-1.0.29.md"
     },
     "android": {
         "title": "Your extension, anywhere",
@@ -222,7 +222,7 @@
         "icon": "i-download",
         "color": "violet",
         "description": "For a new server, use the complete standalone installer: no earlier OpenWeb PBX or separate PBX patch is required. For an existing server, choose its update policy. Complete signed downloads are checked, active calls are respected and recovery snapshots are retained. Windows Server 1.0.27 includes the current ordered updater, checks every five minutes and shows a native notice plus red web banner; services remain available until installation is requested. Hosted Android policies remain separate.",
-        "limits": "Fresh installation and updating existing data have different checks. The normal server updater verifies compatibility and keeps signed history; use the published qualification for supported starting versions. Historical Windows21/22 installations retain their documented updater repair. A fresh Windows1.0.27 installation includes the current updater and needs no repair; existing-data updates retain their separately qualified starting versions. Android installation and reopening can still require a tap; Google Play follows store rules.",
+        "limits": "Fresh installation and updating existing data have different checks. The normal server updater verifies compatibility and keeps signed history; use the published qualification for supported starting versions. Historical Windows21/22 installations retain their documented updater repair. The 1.0.29 ZIP serves fresh installations. Existing Windows systems continue to use the signed 1.0.27 update path. Android installation and reopening can still require a tap; Google Play follows store rules.",
         "guide": "docs/updates.md"
     },
     "hours": {
