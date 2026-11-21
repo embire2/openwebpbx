@@ -33,12 +33,28 @@ Save-Receipt
 $payload='C:\OW29QA'
 if(Test-Path -LiteralPath $payload){throw 'Test archive extraction path already exists.'}
 New-Item -ItemType Directory -Path $payload | Out-Null
+# Use an administrator-owned package working directory, as the Windows setup requires.
+$workAcl=[Security.AccessControl.DirectorySecurity]::new()
+$workAcl.SetAccessRuleProtection($true,$false)
+$workAcl.SetOwner([Security.Principal.SecurityIdentifier]'S-1-5-32-544')
+foreach($sid in 'S-1-5-18','S-1-5-32-544'){
+ $rule=[Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]$sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow')
+ $workAcl.AddAccessRule($rule)
+}
+Set-Acl -LiteralPath $payload -AclObject $workAcl
 & tar.exe -xf $Archive -C $payload
 if($LASTEXITCODE){throw 'The archive could not be fully extracted.'}
 $payload=Join-Path $payload "openwebpbx-$version-windows-x64"
 $package=Get-Content -LiteralPath "$payload\installation.json" -Raw | ConvertFrom-Json
 if($package.version -cne $version -or $package.package_type -cne 'full' -or $package.previous_installation_required -ne $false){throw 'The standalone archive contract is invalid.'}
 $installer=Join-Path $payload 'Install-OpenWebPBX.ps1'
+$helperAcl=Get-Acl -LiteralPath "$payload\windows-log.php"
+$helperRules=@($helperAcl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
+$helperOwner=$helperAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+$sourceGuardWriters=@($helperRules | Where-Object {$_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -cnotin 'S-1-5-18','S-1-5-32-544'})
+if($sourceGuardWriters.Count -or $helperOwner -notmatch '^S-1-5-'){throw 'A non-administrator can reach the package source after extraction.'}
+$receipt.admin_owned_package_staging=$true
+Save-Receipt
 & $installer -Check *> (Join-Path $Evidence 'package-check.private.log')
 Assert-CleanPBX
 $receipt.phase='applying exact package';$receipt.ordinary_read_only_package_check_passed=$true;Save-Receipt
