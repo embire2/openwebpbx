@@ -1,5 +1,14 @@
 # OpenWeb PBX homepage
 
+## Debian 1.0.29
+
+The current Debian release is a full standalone installer for clean Debian
+13 amd64 servers. The release guide gives the installation steps and the
+qualification describes the actual fresh install and signed upgrade from
+1.0.27. Use each platform’s verified release assets in the catalogue.
+[Debian installation](../docs/installing-1.0.29.md) ·
+[Qualification](../docs/release-1.0.29-local-qualification.md).
+
 ## Hosted 1.0.24 feature update — 5 November 2026
 
 The live homepage, feature details, catalogue and API documentation describe

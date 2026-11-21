@@ -157,7 +157,7 @@
         "title": "Your team, connected",
         "icon": "i-phone",
         "color": "blue",
-        "description": "Create extensions, voicemail, ring groups and incoming routes. Dial 121 from an authenticated extension for its mailbox. Keoma provides default prompts and the GMT+2 clock on 1026; custom recordings stay intact. Use Greetings to record from a phone or type text for narration. The DID wizard gives each number one destination and supports saved local/international forms and Call Me Back. Debian and Windows Server 1.0.27 provide a callback-only trunk choice, nine linked-account speed dials and nine editable Keoma stages with Reset Default Scripts.",
+        "description": "Create extensions, voicemail, ring groups and incoming routes. Dial 121 from an authenticated extension for its mailbox. Keoma provides default prompts and the GMT+2 clock on 1026; custom recordings stay intact. Use Greetings to record from a phone or type text for narration. The DID wizard gives each number one destination and supports saved local/international forms and Call Me Back. Debian 1.0.29 and Windows Server 1.0.27 provide a callback-only trunk choice, nine linked-account speed dials and nine editable Keoma stages with Reset Default Scripts.",
         "limits": "New providers and numbers start off. Native internal and fixture-provider calls have passed audio checks; qualify your own provider and numbers before a cutover. Text-to-speech requires a configured ElevenLabs account with Keoma access. OpenWebPBX adds no generation fee; provider usage and charges apply. Existing custom recordings remain available.",
         "guide": "docs/core-calling.md"
     },
@@ -181,7 +181,7 @@
         "title": "Room for every business",
         "icon": "i-building",
         "color": "teal",
-        "description": "Invite companies to separate workspaces and publish shared or company-owned PBX templates. One local PostgreSQL database serves an installation and the global relay handles system mail. Debian and Windows Server 1.0.27 include reseller client workspaces, private provider presets, extension and simultaneous-call packages, priced resource requests, tenant recovery and scoped API keys. Existing PBXs retain their service levels until a package is assigned.",
+        "description": "Invite companies to separate workspaces and publish shared or company-owned PBX templates. One local PostgreSQL database serves an installation and the global relay handles system mail. Debian 1.0.29 and Windows Server 1.0.27 include reseller client workspaces, private provider presets, extension and simultaneous-call packages, priced resource requests, tenant recovery and scoped API keys. Existing PBXs retain their service levels until a package is assigned.",
         "limits": "Resource changes use quotes and approval; payment collection and aggregate reseller fleet quotas remain separate. The two server platforms retain independent packages, signed feeds and qualification; Android remains 1.0.19.",
         "guide": "docs/reseller-1.0.25.md"
     },
@@ -245,7 +245,7 @@
         "title": "Keep a way back",
         "icon": "i-restore",
         "color": "rose",
-        "description": "Schedule encrypted instance backups, keep the chosen number and include voicemail and recordings. Download verified archives and follow the platform restore and activation guide. Debian and Windows Server 1.0.27 provide PBX-dashboard and tenant upload, verification and confirmed recovery, preserving current tenant access, used callback minutes, call history and resource allowances.",
+        "description": "Schedule encrypted instance backups, keep the chosen number and include voicemail and recordings. Download verified archives and follow the platform restore and activation guide. Debian 1.0.29 and Windows Server 1.0.27 provide PBX-dashboard and tenant upload, verification and confirmed recovery, preserving current tenant access, used callback minutes, call history and resource allowances.",
         "limits": "Instance administration controls backups. Preserve the recovery password separately. Follow the platform’s restore and activation guide; cross-platform instance backups are unsupported. Off-site storage requires your own destination.",
         "guide": "docs/backups.md"
     },
