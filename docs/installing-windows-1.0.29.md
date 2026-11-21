@@ -23,9 +23,11 @@ prerequisites, resume with the same installer.
    Get-FileHash .\openwebpbx-1.0.29-windows-x64.zip -Algorithm SHA256
    ```
 
-2. Extract the entire archive to a short, empty path such as `C:\PBXSetup29`.
-   Keep `installation.json`, `release-manifest.json` and all component folders
-   together. An optional package preflight uses Windows PowerShell 5.1.
+2. Extract the entire archive to an empty folder in your Windows administrator
+   profile, such as `%USERPROFILE%\PBXSetup29`. Use a folder that only Windows
+   administrators and the system can modify. Keep `installation.json`,
+   `release-manifest.json` and all component folders together. An optional
+   package preflight uses Windows PowerShell 5.1.
 
    ```powershell
    powershell.exe -NoProfile -File .\Install-OpenWebPBX.ps1 -Check
