@@ -107,7 +107,7 @@ class pbx_updates {
         $data = is_array($data) ? $data : [];
         // Do not expose paths, installer output, arbitrary worker fields or exception details.
         $out = ['state'=>'waiting','message'=>'Waiting for the update service.','installed_version'=>self::version(),'available_version'=>'','progress_bytes'=>0,'total_bytes'=>0,'checked_at'=>''];
-        foreach (['state','message','installed_version','available_version','checked_at','last_success_version'] as $key)
+        foreach (['state','message','installed_version','available_version','checked_at','last_success_version','platform'] as $key)
             if (isset($data[$key]) && is_string($data[$key])) $out[$key] = mb_substr($data[$key], 0, $key === 'message' ? 500 : 80);
         foreach (['progress_bytes','total_bytes'] as $key) if (isset($data[$key]) && is_numeric($data[$key])) $out[$key] = max(0, (int)$data[$key]);
         $out['updated_at'] = $row['updated_at'] ?? null;
@@ -137,6 +137,15 @@ class pbx_updates {
             ];
         }
         return $out;
+    }
+    /** The Debian dashboard only displays a newer offer from the online updater. */
+    public function debianDashboardOffer(): string {
+        if (PHP_OS_FAMILY !== 'Linux') return '';
+        $status = $this->status();
+        if (($status['platform'] ?? '') !== 'debian13-amd64') return '';
+        $version = $status['server_controls']['offered_version'] ?? '';
+        $installed = self::version();
+        return $version !== '' && $installed !== 'unknown' && version_compare($version, $installed, '>') ? $version : '';
     }
     /** Only the release notice is shared with signed-in users. Installation remains instance-admin only. */
     public function serverNotice(string $osFamily = PHP_OS_FAMILY): array {

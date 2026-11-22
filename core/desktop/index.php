@@ -46,6 +46,15 @@ if (($_GET['action'] ?? '') === 'status') {
     exit;
 }
 
+$debianUpdateOffer = '';
+if (PHP_OS_FAMILY === 'Linux' && permission_exists('pbx_update_instance') && permission_exists('pbx_update_manage')) {
+    try {
+        $debianUpdateOffer = (new pbx_updates($database->db))->debianDashboardOffer();
+    } catch (Throwable) {
+        // The desktop remains available if the update status cannot be read.
+    }
+}
+
 $menu = new menu;
 $menu->menu_uuid = $settings->get('domain', 'menu');
 $applications = [];
@@ -111,7 +120,7 @@ header('Cache-Control: no-store');
     <title>Desktop · OpenWeb PBX</title>
     <link rel="icon" type="image/svg+xml" href="<?= PROJECT_PATH ?>/themes/default/images/openweb-mark.svg">
     <link rel="stylesheet" href="<?= PROJECT_PATH ?>/resources/fontawesome/css/all.min.css.php">
-    <link rel="stylesheet" href="<?= PROJECT_PATH ?>/core/desktop/desktop.css?v=2">
+    <link rel="stylesheet" href="<?= PROJECT_PATH ?>/core/desktop/desktop.css?v=3">
     <script id="desktop-data" type="application/json"><?= json_encode($bootstrap, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES) ?></script>
     <script defer src="<?= PROJECT_PATH ?>/core/desktop/desktop.js?v=5"></script>
 </head>
@@ -121,6 +130,12 @@ header('Cache-Control: no-store');
         <header class="desktop-brand"><img src="<?= PROJECT_PATH ?>/themes/default/images/openweb-mark.svg" alt="" width="38" height="38"><div><strong>OpenWeb PBX</strong><span>Communications workspace</span></div></header>
         <nav id="desktop-shortcuts" class="desktop-shortcuts" aria-label="Desktop applications"></nav>
         <aside class="workspace-card glass" aria-label="PBX status">
+            <?php if ($debianUpdateOffer !== ''): ?>
+            <div class="workspace-server-update" role="status">
+                <strong>OpenWeb PBX <?= $escape($debianUpdateOffer) ?> is available</strong>
+                <a href="<?= $escape(PROJECT_PATH.'/app/pbx_updates/') ?>">Review update</a>
+            </div>
+            <?php endif; ?>
             <div class="workspace-eyebrow">YOUR WORKSPACE</div>
             <h1>Welcome back,<br><span><?= $escape($_SESSION['username']) ?>.</span></h1>
             <p class="workspace-domain"><?= $escape($workspaceLabel) ?></p>

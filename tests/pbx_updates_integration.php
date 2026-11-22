@@ -158,6 +158,32 @@ try {
     for($i=0;$i<18;$i++)$q("insert into v_pbx_update_commands(command_uuid,action,status) values(?,'check','completed')",[uuid()]);
     $deny(fn()=>$updates->request('check'),'Request rate limited');
     $check((int)$q("select count(*) from v_group_permissions where group_name='tenant_admin' and permission_name='pbx_update_instance'")->fetchColumn()===0,'Migration never grants tenant global update permission');
+    if (PHP_OS_FAMILY === 'Linux') {
+        $installed = pbx_updates::version();
+        $next = array_map('intval', explode('.', $installed));
+        $next[2]++;
+        $offer = ['platform'=>'debian13-amd64','state'=>'ready','installed_version'=>$installed,'available_version'=>implode('.', $next),'progress_bytes'=>100,'total_bytes'=>100];
+        $report = static function(array $changes = []) use ($q, $offer): void {
+            $q('update v_pbx_update_status set status_json=?::jsonb,updated_at=now() where singleton=1', [json_encode(array_replace($offer, $changes))]);
+        };
+        $report();
+        $check($updates->debianDashboardOffer()===$offer['available_version'],'Dashboard shows a newer compatible verified Debian offer');
+        $report(['state'=>'available','progress_bytes'=>0]);
+        $check($updates->debianDashboardOffer()===$offer['available_version'],'Dashboard can link to Updates before a compatible download starts');
+        $report(['available_version'=>$installed]);
+        $check($updates->debianDashboardOffer()==='','Dashboard hides an offer at the installed application version');
+        $report(['platform'=>'windows-x64']);
+        $check($updates->debianDashboardOffer()==='','A Windows worker report cannot drive the Debian dashboard');
+        $report(['state'=>'error']);
+        $check($updates->debianDashboardOffer()==='','An unusable update cannot drive the Debian dashboard');
+        $report();
+        $q("update v_pbx_update_status set updated_at=now()-interval '4 minutes'");
+        $check($updates->debianDashboardOffer()==='','An offline updater cannot drive the Debian dashboard');
+        $report();
+        $updates->instance=false;
+        $deny(fn()=>$updates->debianDashboardOffer(),'A non-instance user cannot view the Debian dashboard update');
+        $updates->instance=true;
+    }
     $offer=['platform'=>'windows-x64','update_required'=>true,'download_ready'=>true,'available_version'=>'1.0.999','installed_version'=>'1.0.20'];
     $offerStatus=static function(array $data) use($q) { $q('update v_pbx_update_status set status_json=? where singleton=1',[json_encode($data)]); };
     $offerStatus($offer);
