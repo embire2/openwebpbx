@@ -79,12 +79,52 @@ component is identical.
 The runner had IIS and Visual C++ preinstalled. The supported local-certificate
 recovery setup reached **Registration required**. The separate native build
 verified the manager window. Managed tenant DNS and enrollment, answered
-calls and an existing Windows signed upgrade were outside this qualification.
-The Windows updater feed continues to offer 1.0.27; the standalone 1.0.29 ZIP
-is for fresh installations.
+calls and an existing Windows signed upgrade were outside the scope of the
+clean installation. The signed existing-data upgrade was exercised separately.
+
+## Signed upgrade from Windows 1.0.27
+
+An existing public 1.0.27 installation on a Windows Server 2025 test system
+used the normal independent updater, publisher key, versioned artifact URL
+and ordered Windows update planner. The isolated test feed used sequence
+`1795354922` and preserved the four earlier signed entries. It offered the
+exact 643,902,920-byte release ZIP with SHA-256
+`f3683b91832a1ff3d62c12174c0c1684979868313f97aa2850f9771c06bd2608`.
+
+The existing instance administrator signed in over HTTPS and opened the
+Dashboard update banner. **Update Now** became available after download
+verification. The confirmation queued one authenticated request. The updater
+ran the in-place install, returned the application and its active updater
+slot to service at 1.0.29 after 8 minutes 58 seconds. FreeSWITCH, Core,
+PostgreSQL, the updater and IIS were running. Software phones on the isolated
+test tenant exchanged identifiable audio both ways before and after the
+upgrade.
+
+All 16 protected configuration table projections and seven storage file
+hashes matched. Tenant-domain identity, access and certificate fields also
+matched. The tenant-domain worker advanced its two scheduling timestamps.
+The updater kept all 14 existing sealed backups and validated the new
+1.0.27 recovery point, including a nonempty database dump. The Dashboard
+cleared its update notice after installation.
+
+The Dashboard run proves the manual request and the signed upgrade. A
+separate native Windows test exercised the active-channel control and verified
+that installation remains queued until the call engine is idle. Wider carrier
+and handset coverage and opt-in unattended Windows installation remain open.
+[Native test workflow](https://github.com/embire2/openwebpbx/actions/runs/44947113433)
+
+The Windows stable feed and ordered catalogue for this release use public
+sequence `1795355947`. The direct 1.0.29 step admits installed Windows 1.0.27.
+Earlier eligible Windows releases retain their historical steps through 1.0.27.
+The administrator chooses when to install. After isolated test transport
+was removed, **Check for updates** on the installed 1.0.29 server accepted
+the public feed and reported **Up to date**. [Update instructions](windows-server-updates.md)
 
 ## Public release
 
-Published on 2026-11-21. All four anonymous GitHub downloads matched the
-verified lengths and SHA-256 checksums. The release is specific to fresh Windows
-Server installations. [Public assets](https://github.com/embire2/openwebpbx/releases/tag/windows-v1.0.29)
+The standalone package was published on 2026-11-21. All four original
+anonymous GitHub downloads matched their lengths and SHA-256 checksums.
+The signed Windows update followed on 2026-11-22. The canonical installer
+matched the tested ZIP, and all four latest update files matched the promoted
+feed set, including the retained Debian and Android envelopes. The complete installer supports
+Windows Server 2025 with Desktop Experience. [Public assets](https://github.com/embire2/openwebpbx/releases/tag/windows-v1.0.29)

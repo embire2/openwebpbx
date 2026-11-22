@@ -6,7 +6,10 @@ Debian 1.0.29 supports clean Debian 13 amd64 servers. Windows Server 1.0.29
 supports clean Windows Server 2025 x64 installations with Desktop Experience.
 Both downloads set up PostgreSQL on the PBX server and include the updater.
 Each release has its own source archive, checksum and installation guide.
-The signed Windows update channel for existing servers offers 1.0.27.
+The Windows update channel offers signed 1.0.29 to existing Windows 1.0.27
+servers. An administrator can choose **Update Now** from the Dashboard or
+**Admin → System → Updates**. Earlier eligible releases use the ordered path.
+[Windows updates](../docs/windows-server-updates.md)
 
 [Debian installation](../docs/installing-1.0.29.md) ·
 [Windows installation](../docs/installing-windows-1.0.29.md) ·

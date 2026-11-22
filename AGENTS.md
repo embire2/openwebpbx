@@ -20,7 +20,7 @@ The **Debian 1.0.29** release is a complete standalone installer. The source add
 | --- | --- | --- |
 | Hosted PBX at `call.openweb.co.za` | Application, native Core and updater **1.0.29**. | [Hosted rollout](docs/release-1.0.29-local-qualification.md#hosted-rollout), [tenant administration API](docs/tenant-admin-api.md) |
 | Debian PBX server | Public **1.0.29**, Debian 13 amd64, complete standalone installer. The signed existing-data offer starts at Debian 1.0.27. | [Install](docs/installing-1.0.29.md), [qualification](docs/release-1.0.29-local-qualification.md) |
-| Windows PBX server | Public **1.0.29** standalone for Windows Server 2025 x64 with Desktop Experience. The 1.0.29 ZIP serves fresh installations. Existing Windows systems continue to use the signed 1.0.27 update path. | [Install](docs/installing-windows-1.0.29.md), [qualification](docs/release-windows-1.0.29-qualification.md) |
+| Windows PBX server | Public **1.0.29** standalone for Windows Server 2025 x64 with Desktop Experience. Existing Windows 1.0.27 installations can choose the signed 1.0.29 update from the Dashboard or Software Updates. | [Install](docs/installing-windows-1.0.29.md), [qualification](docs/release-windows-1.0.29-qualification.md) |
 | Android Free Phone | Public **1.0.19** APK. Google Play publication is pending. | [Android setup](docs/android.md), [tenant addresses](docs/android-tenant-addresses-1.0.18.md) |
 | Windows Free Phone | In development on its own branch. Separate from the working Windows server manager. | [Client plan](docs/windows-client-plan.md) |
 
@@ -54,6 +54,11 @@ The prior Windows 1.0.23 ordered-updater repair remains available as an additive
 - The frozen local package supplies eight changed web files, VERSION, Core and the updater. The verified encrypted pre-update checkpoint captured the 1.0.26 database and 331 private files, excluding media. The deployment used an idle window, completed in 11.603 seconds and retained the previous runtime and web files for recovery.
 - All 14 protected configuration tables matched exactly. All eight registrations survived and FreeSWITCH, nginx, PHP-FPM, PostgreSQL, SSH and Fail2Ban retained their process generations. Trusted HTTPS and API authentication checks passed. [Hosted update](docs/release-1.0.28-local-qualification.md#hosted-deployment)
 - The owner-designated test host completed an exact functional fresh install in an isolated Debian 13 guest, with normal local HTTPS administration, six running services and verified hashes for all 4,915 voices. A second guest proved the real automatic signed rollback from the controlled validation failure. Its manual retry exposed the fixed 600-second voice migration limit on slow storage and rolled back with its original services, slot and ten protected tables verified. Keep that result distinct from the hosted update and fresh install. [Test scope and release blocker](docs/release-1.0.28-local-qualification.md#signed-update-and-recovery-on-the-dedicated-test-host)
+
+### Windows 1.0.29 signed upgrade, qualified 22 November
+
+- The ordinary Dashboard **Update Now** action ran the signed 1.0.27 → 1.0.29 upgrade on an existing Windows Server 2025 test PBX. The test used the existing publisher key and exact released ZIP. The application and updater returned at 1.0.29 and synthetic calls had audio both ways after the upgrade. Separate native CI verifies active-call deferral. [Signed qualification](docs/release-windows-1.0.29-qualification.md#signed-upgrade-from-windows-1027)
+- The public Windows feed sequence is `1795355947`. Preserve the earlier ordered steps and manual approval. The frozen Windows package source remains `3f89c926ed68dcf3a347c8a2a3db208df8a7fe15`. [Windows updates](docs/windows-server-updates.md)
 
 ### Windows 1.0.27, published 19 November
 

@@ -55,8 +55,12 @@ blocker. Restore Report covers the inspected 3CX V20 Update 9 and Update 10
 backup builds. Keep imported trunks disabled until their settings are
 confirmed. [Calling guide](core-calling.md) · [3CX restore](v20-restore.md)
 
-The fresh installer refuses to overwrite an existing PBX. On a supported
-existing instance, **Software Updates** and the native manager use verified
-signed releases and wait for an administrator to approve installation.
-The updater waits for active calls to end and retains a recovery snapshot.
-Keep an encrypted backup and its password separately. [Recovery](windows-backups.md)
+## Update an existing PBX
+
+Windows 1.0.27 can install the signed 1.0.29 update from the Dashboard or
+**Admin → System → Updates**. Sign in as an instance administrator, choose
+**Update Now**, then confirm. The updater verifies the complete download,
+waits for active calls to end and retains a recovery snapshot. Postponing
+keeps the PBX running. Keep your encrypted backup and its password
+separately. [Windows updates and earlier supported paths](windows-server-updates.md) ·
+[Recovery](windows-backups.md)

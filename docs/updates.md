@@ -7,7 +7,7 @@ system. A clean installation requires no earlier OpenWeb PBX version. The
 complete package supplies the application, calling engine, database setup,
 registration, background services, system prompts and updater together.
 [Debian installation](installing-1.0.29.md) ·
-[Windows installation](installing-windows-1.0.27.md).
+[Windows installation](installing-windows-1.0.29.md).
 
 **Existing server:** use its Updates page to preserve the current configuration
 and calling identities. The updater checks the signed release, its supported
@@ -18,7 +18,7 @@ clear trust to skip them.
 | Component | Complete new installation | Updating an existing installation |
 | --- | --- | --- |
 | Debian 13 amd64 | Public **1.0.29**, complete standalone installer | Independent signed feed admits installed Debian 1.0.27 or newer. The actual signed 1.0.27 → 1.0.29 upgrade passed on the test host. [Qualification](release-1.0.29-local-qualification.md#signed-upgrade-on-the-test-host). |
-| Windows Server 2025 x64 Desktop Experience | Public **1.0.29**, complete standalone installer. [Install](installing-windows-1.0.29.md). | Independent signed feed stays at **1.0.27**. [Signed qualification](release-windows-1.0.27-qualification.md) · [Legacy ordered updater](windows-upgrade-path-repair.md). |
+| Windows Server 2025 x64 Desktop Experience | Public **1.0.29**, complete standalone installer. [Install](installing-windows-1.0.29.md). | Independent signed feed offers **1.0.29**. The direct signed 1.0.27 → 1.0.29 step passed through Dashboard **Update Now**. Earlier eligible servers use the ordered path. [Signed qualification](release-windows-1.0.29-qualification.md#signed-upgrade-from-windows-1027) · [Legacy ordered updater](windows-upgrade-path-repair.md). |
 | Android | Public **1.0.19** native app | Its own server/API compatibility and app update policy. |
 
 Every future complete Debian or Windows release must include its current
@@ -41,6 +41,15 @@ can run outside the automatic window. **Install automatically** remains an
 explicit policy choice. Save a daily UTC window and use the displayed browser
 time to confirm the next start. [Debian installer](installing-1.0.29.md)
 
+## Windows Server 1.0.29
+
+Sign in as an instance administrator and choose **Update Now** on the
+Dashboard banner or in **Admin → System → Updates**. The Windows worker
+checks every five minutes and downloads a compatible signed release.
+Installation waits for approval and active calls to end. The installer uses
+its recovery backup if the health check fails. Choosing **Later** keeps the
+phone system available. [Windows update instructions](windows-server-updates.md)
+
 The dated records below retain their original versions and acceptance scope.
 
 <!-- WINDOWS22-CURRENT-STATUS-BEGIN -->
@@ -59,7 +68,7 @@ Debian 1.0.22 and Android 1.0.19 retain their own artifacts and feeds.
 [Independent Linux/Windows/Android releases](independent-platform-releases.md).
 <!-- WINDOWS22-CURRENT-STATUS-END -->
 
-**Windows Server:** five-minute checks, automatic verified downloads, a native required-update modal and a red web-console banner leave services available when installation is postponed. Installation starts only after an administrator requests it. Windows 1.0.22 signed acceptance and publication are recorded above. See [Windows Server updates](windows-server-updates.md). The policy options below describe Debian.
+**Windows Server:** five-minute checks, automatic verified downloads, a native required-update modal and a red web-console banner leave services available when installation is postponed. Installation starts only after an administrator requests it. The Windows 1.0.22 record above describes an earlier signed release. See [Windows Server updates](windows-server-updates.md). The policy options below describe Debian.
 
 Historical 4 November 2026 release table:
 
@@ -118,7 +127,12 @@ A completed update is not automatically reverted after users have resumed work; 
 
 ## Windows Server
 
-Windows uses its own signed **windows-update-manifest.json** and independent C# updater. The qualified Windows 1.0.22 route requires installed **1.0.21 or newer**. Earlier Windows installations need a separately qualified transition. Android **update-manifest.json** remains at 1.0.19; **debian-update-manifest.json** serves the independently released Debian 1.0.22, requiring installed Debian 1.0.21 or newer. Earlier Debian installations need their separately validated migration path. See [Windows Server updates](windows-server-updates.md), [Windows qualification](release-windows-1.0.22-qualification.md) and the [current Debian guide](installing-1.0.22.md). Windows Server 2025 x64 Desktop Experience is supported; Windows10/11 server installation is refused. The Windows calling client is separate.
+Windows Server 2025 x64 with Desktop Experience uses the independent C#
+updater and signed **windows-update-manifest.json**. The signed
+**windows-upgrade-path.json** retains the supported ordered history for
+earlier Windows releases. The Debian 1.0.29 and Android 1.0.19 feeds each
+have their own publisher metadata. [Windows Server updates](windows-server-updates.md) ·
+[Debian installation](installing-1.0.29.md)
 
 ## Android phones
 

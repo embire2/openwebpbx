@@ -1,5 +1,5 @@
 {
-  "reviewed_on": "2026-11-21",
+  "reviewed_on": "2026-11-22",
   "repository": "embire2/openwebpbx",
   "releases": [
     {
@@ -27,13 +27,14 @@
         "current_ordered_updater_included": true
       },
       "update_compatibility": {
-        "minimum_installed_version": "1.0.23",
-        "purpose": "Existing-data signed update admission only; not a fresh-install prerequisite. See the qualification for supported starting versions and independently reused historical transitions.",
-        "qualification": "docs/release-windows-1.0.27-qualification.md",
+        "minimum_installed_version": "1.0.27",
+        "purpose": "Direct signed update for existing 1.0.27 servers. Earlier eligible servers use the ordered update path.",
+        "qualification": "docs/release-windows-1.0.29-qualification.md#signed-upgrade-from-windows-1027",
         "historical_ordered_prefix_guide": "docs/windows-upgrade-path-repair.md",
-        "latest_signed_version": "1.0.27"
+        "latest_signed_version": "1.0.29",
+        "signed_feed_sequence": 1795355947
       },
-      "scope": "Complete Windows Server 1.0.29 with local PostgreSQL setup, managed registration, the native manager and the current updater. The 1.0.29 ZIP serves fresh installations. Existing Windows systems continue to use the signed 1.0.27 update path.",
+      "scope": "Complete Windows Server 1.0.29 with local PostgreSQL setup, managed registration, the native manager and the current updater. Windows 1.0.27 can install the signed update after an instance administrator approves it.",
       "assets": [
         {
           "name": "installing-windows-1.0.29.md",

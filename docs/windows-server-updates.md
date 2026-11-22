@@ -1,7 +1,19 @@
 # Windows Server updates
 
+## Windows 1.0.29
+
+On a clean Windows Server 2025 x64 machine with Desktop Experience, use the
+complete Windows 1.0.29 installer. On an existing Windows 1.0.27 server,
+use **Update Now** in the Dashboard banner or **Admin → System → Updates**.
+The direct signed step passed on an existing test PBX. Windows stable feed
+sequence `1795355947` retains the earlier ordered steps. Check the supported
+route for an earlier release before proceeding.
+[Standalone installer](installing-windows-1.0.29.md) ·
+[Signed update evidence](release-windows-1.0.29-qualification.md#signed-upgrade-from-windows-1027) ·
+[Earlier upgrade paths](windows-upgrade-path-repair.md)
+
 <!-- WINDOWS22-CURRENT-STATUS-BEGIN -->
-## Latest Windows 1.0.22
+## Earlier Windows 1.0.22 evidence
 
 Windows Server 1.0.22 is frozen at product source
 `8f4256e4e3cbce092791eea60d1c053e10810bb6` for **Windows Server 2025 x64
@@ -16,7 +28,9 @@ Debian 1.0.22 and Android 1.0.19 retain their own artifacts and feeds.
 [Independent Linux/Windows/Android releases](independent-platform-releases.md).
 <!-- WINDOWS22-CURRENT-STATUS-END -->
 
-The Windows updater checks its signed Windows feed every **five minutes**, verifies the complete newer compatible download and leaves the PBX running until an administrator requests installation. The qualified Windows 1.0.22 route requires installed **1.0.21 or newer**; signed/publication acceptance is recorded above. See the [Windows qualification record](release-windows-1.0.22-qualification.md) for current scope.
+The Windows updater checks the signed channel every **five minutes** and
+verifies the complete compatible download. Calling continues while the updater
+waits for an administrator to request installation.
 
 When an update is available, the Windows manager displays:
 
@@ -26,7 +40,7 @@ The same message appears in a bright red banner with white text at the top of th
 
 ## Install from either interface
 
-- **Web console:** sign in as an instance administrator and choose **Update now** in the banner. Confirm installation. The request uses the existing protected update queue and form token. Other users can see the requirement but cannot update the shared server.
+- **Web console** — Sign in as an instance administrator. Choose **Update Now** in the Dashboard banner or under **Admin → System → Updates**, then confirm. The protected update queue requires administrator authorization.
 - **Windows desktop or RDP:** choose **Update now** in the native manager. Windows asks for administrator permission if required; the updater then runs unattended. The desktop never accepts a download URL, installer path or credentials from the public status file.
 
 Both actions wait for a complete verified download and active calls to finish. The updater saves a private recovery backup, stops the old services, installs the new version without installer questions, checks its health and starts the phone system again. It also reopens the Windows manager in its registered interactive session. An installation failure uses the existing recovery journal and previous-version rollback; a failed recovery still requires administrator attention.
