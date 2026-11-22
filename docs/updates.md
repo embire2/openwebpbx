@@ -153,3 +153,13 @@ This protects OpenWeb PBX application updates. Distribution packages, PostgreSQL
 An isolated Debian 13 installation completed a signed 1.0.3-to-1.0.4 upgrade, retained its phone passwords, and passed an answered internal call with two-way audio afterward. The independent updater remained running across a PBX service restart. Verification covered an answered SIP call with two-way audio deferring installation without restarting services, a closed UTC maintenance window, automatic rollback after a failing migration and a failed health check, and abrupt termination of the entire test machine during migration followed by boot recovery. Database checks verified restoration of rows, comments, ownership and grants in the same database, removal of migration-created tables/functions/schemas, and both fresh-instance ownership and the existing legacy privileged-account layout. Signature tests cover tampering, expiry, future timestamps, replay/conflicts, wrong URLs, downgrade/minimum-version rules and unsafe archives. Production fault injection was not used.
 
 A separate fresh-configuration smoke used Debian 13 with distribution prerequisites already installed. It created a new local database, administrator and default users; administrator HTTPS sign-in, an answered two-way internal call, version 1.0.4 health and automatic updater/recovery service setup passed. The installer refused an existing PBX database before changing application configuration.
+
+## Debian Dashboard notice
+
+On the hosted PBX, instance administrators see **Review update** on the
+Dashboard when the current worker has a compatible signed Debian release
+available. The link opens **Software Updates**, where **Update Now** waits
+for active calls to finish. The notice is hidden when the server is current
+or the worker's status is unavailable. This hosted change is also in source
+for the next Debian installer. Already published standalone archives retain
+their original interfaces.
